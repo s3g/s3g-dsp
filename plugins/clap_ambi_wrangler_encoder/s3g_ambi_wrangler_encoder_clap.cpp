@@ -1268,6 +1268,7 @@ void randomizeSafe(Plugin& plugin)
     plugin.controlParams = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    s3g::bypassParameterSurfaceForSceneChange(plugin.controlSurface);
     publishControlParamsLocked(plugin);
 }
 
@@ -4583,6 +4584,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
         randomizeSafe(*_plugin);
+        [self refreshControlSnapshot];
+        if (_plugin->host && _plugin->host->request_process) {
+            _plugin->host->request_process(_plugin->host);
+        }
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
         return;

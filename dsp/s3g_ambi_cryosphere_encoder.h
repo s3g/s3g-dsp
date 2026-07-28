@@ -2,7 +2,9 @@
 
 #include "s3g_environmental_score.h"
 #include "s3g_geological_field.h"
-#include "s3g_singing_ice.h"
+#include "s3g_planetary_cryosphere.h"
+#include "s3g_planetary_modal_body.h"
+#include "s3g_quasicrystal_ice.h"
 #include "s3g_structural_failure.h"
 
 #include <algorithm>
@@ -16,9 +18,42 @@ namespace s3g {
 inline constexpr uint32_t kAmbiCryosphereMaxOrder = 7u;
 inline constexpr uint32_t kAmbiCryosphereMaxChannels = 64u;
 inline constexpr uint32_t kAmbiCryosphereMaxVoices = 64u;
-inline constexpr uint32_t kAmbiCryosphereRegimeCount = 14u;
+inline constexpr uint32_t kAmbiCryosphereSingingLakeRegime = 13u;
+inline constexpr uint32_t kAmbiCryosphereAperiodicLatticeRegime = 14u;
+inline constexpr uint32_t kAmbiCryosphereTidalShellRegime = 15u;
+inline constexpr uint32_t kAmbiCryosphereHydrocarbonDuneRegime = 16u;
+inline constexpr uint32_t kAmbiCryosphereReactiveBrineRegime = 17u;
+inline constexpr uint32_t kAmbiCryosphereRegimeCount = 18u;
 inline constexpr uint32_t kAmbiCryosphereEnvironmentCount = 10u;
 inline constexpr uint32_t kAmbiCryospherePlaceCount = 6u;
+
+inline constexpr bool isAmbiCryospherePlanetaryRegime(uint32_t regime)
+{
+    return regime >= kAmbiCryosphereTidalShellRegime
+        && regime <= kAmbiCryosphereReactiveBrineRegime;
+}
+
+inline constexpr bool isAmbiCryosphereAlienRegime(uint32_t regime)
+{
+    return regime >= kAmbiCryosphereAperiodicLatticeRegime
+        && regime <= kAmbiCryosphereReactiveBrineRegime;
+}
+
+inline constexpr bool isAmbiCryosphereModalRegime(uint32_t regime)
+{
+    return regime == kAmbiCryosphereSingingLakeRegime
+        || isAmbiCryosphereAlienRegime(regime);
+}
+
+inline constexpr PlanetaryCryosphereMode ambiCryospherePlanetaryMode(
+    uint32_t regime)
+{
+    return regime == kAmbiCryosphereHydrocarbonDuneRegime
+        ? PlanetaryCryosphereMode::HydrocarbonDune
+        : regime == kAmbiCryosphereReactiveBrineRegime
+            ? PlanetaryCryosphereMode::ReactiveBrine
+            : PlanetaryCryosphereMode::TidalShell;
+}
 
 struct AmbiCryosphereParams {
     uint32_t order = 3u;
@@ -111,7 +146,9 @@ inline constexpr std::array<AmbiCryosphereRegimeProfile,
         // FROST CRACK, ICE SEGREGATION, PERMAFROST HEAVE,
         // BASAL STICK-SLIP, PRESSURE RIDGE, CALVING,
         // ICEBERG IMPACT, AVALANCHE, SNOWPACK CREEP,
-        // HAIL, SLEET, FREEZING RAIN, MELTWATER UNDER ICE, SINGING LAKE.
+        // HAIL, SLEET, FREEZING RAIN, MELTWATER UNDER ICE, SINGING LAKE,
+        // APERIODIC LATTICE, TIDAL SHELL, HYDROCARBON DUNE,
+        // REACTIVE BRINE.
         { 0.82f, 0.88f, 0.12f, 0.08f, 0.00f, 0.12f, 0.32f, 0.94f },
         { 1.00f, 0.72f, 0.10f, 0.10f, 0.00f, 0.10f, 0.62f, 0.80f },
         { 0.94f, 0.64f, 0.58f, 0.34f, 0.02f, 0.10f, 0.78f, 0.68f },
@@ -126,6 +163,10 @@ inline constexpr std::array<AmbiCryosphereRegimeProfile,
         { 0.62f, 0.64f, 0.24f, 0.84f, 0.10f, 0.52f, 0.44f, 0.90f },
         { 0.44f, 0.42f, 0.82f, 0.28f, 0.08f, 0.76f, 0.64f, 0.56f },
         { 0.72f, 0.82f, 0.08f, 0.02f, 0.00f, 0.08f, 0.74f, 0.88f },
+        { 0.68f, 0.96f, 0.06f, 0.02f, 0.00f, 0.00f, 0.82f, 0.92f },
+        { 0.38f, 0.92f, 0.04f, 0.00f, 0.00f, 0.00f, 0.86f, 0.88f },
+        { 0.08f, 0.12f, 0.72f, 0.94f, 0.00f, 0.00f, 0.96f, 0.34f },
+        { 0.72f, 0.58f, 0.18f, 0.06f, 0.00f, 0.00f, 0.90f, 0.62f },
     }};
 
 struct AmbiCryosphereSubstrateProfile {
@@ -188,6 +229,13 @@ struct AmbiCryosphereVoice {
     float energy = 0.0f;
     float singingSample = 0.0f;
     float singingActivity = 0.0f;
+    float quasicrystalSample = 0.0f;
+    float quasicrystalActivity = 0.0f;
+    float planetarySample = 0.0f;
+    float planetaryActivity = 0.0f;
+    float planetaryModalSample = 0.0f;
+    float planetaryModalActivity = 0.0f;
+    bool planetaryRouteActive = false;
     float plateIntegrity = 1.0f;
     float crackExtent = 0.0f;
     float brineCharge = 0.0f;
@@ -197,7 +245,9 @@ struct AmbiCryosphereVoice {
     float scoreConsequence = 0.0f;
     float scoreAftermath = 0.0f;
     StructuralFailureModel structure {};
-    SingingIceModel singingIce {};
+    QuasicrystalIceModel quasicrystalIce {};
+    PlanetaryCryosphereModel planetaryCryosphere {};
+    PlanetaryModalBody planetaryModalBody {};
 };
 
 class AmbiCryosphereEncoder {
@@ -225,6 +275,9 @@ public:
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
         iceLayerEnergy_ = 0.0f;
         singingIceLayerEnergy_ = 0.0f;
+        quasicrystalLayerEnergy_ = 0.0f;
+        planetaryLayerEnergy_ = 0.0f;
+        planetaryModalLayerEnergy_ = 0.0f;
         fractureEventCount_ = 0u;
         slipEventCount_ = 0u;
         calvingEventCount_ = 0u;
@@ -232,11 +285,18 @@ public:
         structuralSnapEventCount_ = 0u;
         plateFailureEventCount_ = 0u;
         singingIceEventCount_ = 0u;
+        quasicrystalFrontEventCount_ = 0u;
+        quasicrystalAvalancheEventCount_ = 0u;
+        tidalRiftEventCount_ = 0u;
+        hydrocarbonAvalancheEventCount_ = 0u;
+        brineBreakthroughEventCount_ = 0u;
+        modalExcitationEventCount_ = 0u;
     }
 
     void setParams(AmbiCryosphereParams params)
     {
         sanitize(params);
+        const uint32_t previousRegime = params_.regime;
         params_ = params;
         GeologicalFieldParams fieldParams {};
         fieldParams.voices = params.voices;
@@ -265,6 +325,21 @@ public:
         field_.setParams(fieldParams);
         score_.setParams({ params.scorePace, params.scoreOccupancy,
             params.scoreCascade, params.scoreMemory, params.scoreRest });
+        score_.setRangeExpansion(params.regime
+                >= kAmbiCryosphereAperiodicLatticeRegime
+            ? 1.0f : 0.0f);
+        const auto modalParams = cryosphereModalParams(params);
+        const bool modalTopologyChanged = previousRegime != params.regime
+            && (isAmbiCryosphereModalRegime(previousRegime)
+                || isAmbiCryosphereModalRegime(params.regime));
+        for (auto& voice : voices_) {
+            if (modalTopologyChanged) {
+                voice.planetaryModalBody.reset();
+                voice.planetaryModalSample = 0.0f;
+                voice.planetaryModalActivity = 0.0f;
+            }
+            voice.planetaryModalBody.setParams(modalParams);
+        }
     }
 
     AmbiCryosphereParams params() const { return params_; }
@@ -319,6 +394,17 @@ public:
 
     float iceLayerEnergy() const { return iceLayerEnergy_; }
     float singingIceLayerEnergy() const { return singingIceLayerEnergy_; }
+    float singingLakeLayerEnergy() const { return singingIceLayerEnergy_; }
+    float quasicrystalLayerEnergy() const { return quasicrystalLayerEnergy_; }
+    float planetaryLayerEnergy() const { return planetaryLayerEnergy_; }
+    float planetaryModalLayerEnergy() const
+    {
+        return planetaryModalLayerEnergy_;
+    }
+    uint64_t modalExcitationEventCount() const
+    {
+        return modalExcitationEventCount_;
+    }
     uint64_t fractureEventCount() const { return fractureEventCount_; }
     uint64_t slipEventCount() const { return slipEventCount_; }
     uint64_t calvingEventCount() const { return calvingEventCount_; }
@@ -332,6 +418,24 @@ public:
         return plateFailureEventCount_;
     }
     uint64_t singingIceEventCount() const { return singingIceEventCount_; }
+    uint64_t singingLakeEventCount() const { return singingIceEventCount_; }
+    uint64_t quasicrystalFrontEventCount() const
+    {
+        return quasicrystalFrontEventCount_;
+    }
+    uint64_t quasicrystalAvalancheEventCount() const
+    {
+        return quasicrystalAvalancheEventCount_;
+    }
+    uint64_t tidalRiftEventCount() const { return tidalRiftEventCount_; }
+    uint64_t hydrocarbonAvalancheEventCount() const
+    {
+        return hydrocarbonAvalancheEventCount_;
+    }
+    uint64_t brineBreakthroughEventCount() const
+    {
+        return brineBreakthroughEventCount_;
+    }
     float scoreActivity() const { return score_.globalActivity(); }
     uint32_t scoredEntityCount() const { return score_.activeEntityCount(); }
     uint64_t scoreArcCount() const { return score_.arcCount(); }
@@ -364,6 +468,9 @@ public:
         constexpr uint32_t kControlFrames = 16u;
         double layerEnergy = 0.0;
         double singingEnergy = 0.0;
+        double quasicrystalEnergy = 0.0;
+        double planetaryEnergy = 0.0;
+        double planetaryModalEnergy = 0.0;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames;
             chunkStart += kControlFrames) {
@@ -408,6 +515,15 @@ public:
                     singingEnergy += static_cast<double>(
                         voices_[voice].singingSample)
                         * voices_[voice].singingSample;
+                    quasicrystalEnergy += static_cast<double>(
+                        voices_[voice].quasicrystalSample)
+                        * voices_[voice].quasicrystalSample;
+                    planetaryEnergy += static_cast<double>(
+                        voices_[voice].planetarySample)
+                        * voices_[voice].planetarySample;
+                    planetaryModalEnergy += static_cast<double>(
+                        voices_[voice].planetaryModalSample)
+                        * voices_[voice].planetaryModalSample;
                     const auto& basis = field_.basis(voice);
                     for (uint32_t channel = 0u; channel < ambiChannels;
                         ++channel) {
@@ -463,12 +579,112 @@ public:
                 frames * std::max<uint32_t>(1u, voiceCount)));
         singingIceLayerEnergy_ +=
             (measuredSinging - singingIceLayerEnergy_) * 0.24f;
+        const float measuredQuasicrystal = static_cast<float>(
+            quasicrystalEnergy / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        quasicrystalLayerEnergy_ +=
+            (measuredQuasicrystal - quasicrystalLayerEnergy_) * 0.24f;
+        const float measuredPlanetary = static_cast<float>(
+            planetaryEnergy / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        planetaryLayerEnergy_ +=
+            (measuredPlanetary - planetaryLayerEnergy_) * 0.24f;
+        const float measuredPlanetaryModal = static_cast<float>(
+            planetaryModalEnergy / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        planetaryModalLayerEnergy_ +=
+            (measuredPlanetaryModal - planetaryModalLayerEnergy_) * 0.24f;
     }
 
 private:
     static float finiteClamp(float value, float fallback, float low, float high)
     {
         return clamp(std::isfinite(value) ? value : fallback, low, high);
+    }
+
+    static PlanetaryModalParams cryosphereModalParams(
+        const AmbiCryosphereParams& params)
+    {
+        PlanetaryModalParams modal {};
+        modal.profile = PlanetaryModalProfile::CryoTidal;
+        modal.amount = isAmbiCryosphereModalRegime(params.regime)
+            ? params.resonance : 0.0f;
+        modal.scale = std::clamp(
+            params.scale * 0.58f + params.depth * 0.42f, 0.0f, 1.0f);
+        modal.damping = params.damping;
+        modal.irregularity = std::clamp(params.density * 0.42f
+                + params.turbulence * 0.36f + params.deviation * 0.22f,
+            0.0f, 1.0f);
+        modal.coupling = std::clamp(params.scoreCascade * 0.62f
+                + params.convergence * 0.38f,
+            0.0f, 1.0f);
+        modal.brightness = std::clamp(params.brightness * 0.48f
+                + params.snap * 0.52f,
+            0.0f, 1.0f);
+
+        switch (params.regime) {
+        case kAmbiCryosphereSingingLakeRegime:
+            modal.profile = PlanetaryModalProfile::CryoSingingLake;
+            modal.scale = std::clamp(params.scale * 0.62f
+                    + params.depth * 0.38f,
+                0.0f, 1.0f);
+            modal.irregularity = std::clamp(params.density * 0.46f
+                    + params.turbulence * 0.24f
+                    + params.deviation * 0.18f
+                    + params.contact * 0.12f,
+                0.0f, 1.0f);
+            modal.coupling = std::clamp(params.scoreCascade * 0.48f
+                    + params.surfaceLoad * 0.30f
+                    + params.snap * 0.22f,
+                0.0f, 1.0f);
+            modal.brightness = std::clamp(params.brightness * 0.62f
+                    + params.snap * 0.38f,
+                0.0f, 1.0f);
+            break;
+        case kAmbiCryosphereHydrocarbonDuneRegime:
+            modal.profile = PlanetaryModalProfile::CryoDune;
+            modal.scale = std::clamp(params.scale * 0.54f
+                    + params.density * 0.28f + params.foam * 0.18f,
+                0.0f, 1.0f);
+            modal.irregularity = std::clamp(params.aeration * 0.44f
+                    + params.turbulence * 0.30f
+                    + params.deviation * 0.26f,
+                0.0f, 1.0f);
+            modal.coupling = std::clamp(params.scoreCascade * 0.54f
+                    + params.eddy * 0.28f + params.current * 0.18f,
+                0.0f, 1.0f);
+            modal.brightness = std::clamp(params.brightness * 0.62f
+                    + params.contact * 0.38f,
+                0.0f, 1.0f);
+            break;
+        case kAmbiCryosphereReactiveBrineRegime:
+            modal.profile = PlanetaryModalProfile::CryoBrine;
+            modal.scale = std::clamp(params.scale * 0.52f
+                    + params.depth * 0.48f,
+                0.0f, 1.0f);
+            modal.irregularity = std::clamp(params.bubbles * 0.38f
+                    + params.eddy * 0.34f + params.deviation * 0.28f,
+                0.0f, 1.0f);
+            modal.coupling = std::clamp(params.scoreCascade * 0.52f
+                    + params.eddy * 0.28f + params.current * 0.20f,
+                0.0f, 1.0f);
+            modal.brightness = std::clamp(params.brightness * 0.52f
+                    + params.snap * 0.48f,
+                0.0f, 1.0f);
+            break;
+        case kAmbiCryosphereAperiodicLatticeRegime:
+            modal.profile = PlanetaryModalProfile::CryoQuasicrystal;
+            modal.irregularity = std::clamp(params.density * 0.38f
+                    + params.turbulence * 0.30f
+                    + params.convergence * 0.20f
+                    + params.deviation * 0.12f,
+                0.0f, 1.0f);
+            break;
+        case kAmbiCryosphereTidalShellRegime:
+        default:
+            break;
+        }
+        return modal;
     }
 
     void sanitize(AmbiCryosphereParams& params) const
@@ -583,8 +799,14 @@ private:
         voice.brineCharge = randomUnit(voice.rng) * 0.18f;
         voice.structure.prepare(sampleRate_,
             0x1ceba11u + index * 0x85ebca6bu);
-        voice.singingIce.prepare(sampleRate_,
-            0x51a91ce5u + index * 0xc2b2ae35u);
+        voice.quasicrystalIce.prepare(sampleRate_,
+            0xa93c5e1du + index * 0x27d4eb2du);
+        voice.planetaryCryosphere.prepare(sampleRate_,
+            0x71da15ceu + index * 0x165667b1u);
+        voice.planetaryModalBody.prepare(sampleRate_,
+            0xc8a4f31du + index * 0x94d049bbu);
+        voice.planetaryModalBody.setParams(
+            cryosphereModalParams(params_));
     }
 
     void applyScoreDirectives(uint32_t voiceCount)
@@ -606,6 +828,31 @@ private:
                 voice.scorePropagation = 0.0f;
                 voice.scoreConsequence = 0.0f;
                 voice.scoreAftermath = 0.0f;
+                continue;
+            }
+            if (isAmbiCryospherePlanetaryRegime(params_.regime)) {
+                const auto mode = ambiCryospherePlanetaryMode(
+                    params_.regime);
+                if (directive.onset || directive.cascadeArrival) {
+                    const float transfer = directive.cascadeArrival
+                        ? 0.68f : 1.0f;
+                    const float force = transfer * std::clamp(0.24f
+                            + params_.eventSize * 0.24f
+                            + params_.surfaceLoad * 0.20f
+                            + params_.density * 0.16f
+                            + params_.bubbles * 0.16f,
+                        0.0f, 1.0f);
+                    voice.planetaryCryosphere.excite(mode, force,
+                        params_.scoreCascade, false);
+                }
+                if (directive.consequenceStarted) {
+                    const float force = std::clamp(0.62f
+                            + directive.consequence * 0.22f
+                            + params_.eventSize * 0.16f,
+                        0.0f, 1.0f);
+                    voice.planetaryCryosphere.excite(mode, force,
+                        params_.scoreCascade, true);
+                }
                 continue;
             }
             if (directive.arcStarted) {
@@ -631,6 +878,12 @@ private:
                     voice.crackExtent + force * 0.18f);
                 voice.brineCharge = std::min(1.0f,
                     voice.brineCharge + force * params_.bubbles * 0.22f);
+                if (params_.regime
+                        == kAmbiCryosphereAperiodicLatticeRegime) {
+                    voice.quasicrystalIce.excite(
+                        force * (directive.cascadeArrival ? 0.72f : 1.0f),
+                        params_.scoreCascade);
+                }
             }
             if (directive.consequenceStarted) {
                 const float force = std::clamp(0.58f
@@ -651,6 +904,12 @@ private:
                         voice.macroEnvelope,
                         force * (0.34f + params_.eventSize * 0.66f));
                 }
+                if (params_.regime
+                        == kAmbiCryosphereAperiodicLatticeRegime) {
+                    voice.quasicrystalIce.excite(
+                        force * (0.82f + params_.eventSize * 0.72f),
+                        params_.scoreCascade);
+                }
             }
         }
     }
@@ -670,7 +929,9 @@ private:
             * (branch ? 0.52f : 1.0f);
         voice.fractureEnvelope = std::max(
             voice.fractureEnvelope, strength);
-        if (!branch) {
+        if (!branch
+            && params_.regime != kAmbiCryosphereAperiodicLatticeRegime
+            && params_.regime != kAmbiCryosphereSingingLakeRegime) {
             voice.plateBodyEnvelope = std::max(
                 voice.plateBodyEnvelope,
                 strength * (0.18f + params_.eventSize * 0.34f
@@ -684,11 +945,18 @@ private:
         voice.tailEnvelope = std::max(voice.tailEnvelope,
             strength * params_.resonance * 0.46f);
         ++fractureEventCount_;
-        if (!branch && params_.regime == 13u) {
-            voice.singingIce.excite(strength, params_.scale,
-                params_.brightness, params_.resonance, params_.damping,
-                params_.depth);
+        if (params_.regime == kAmbiCryosphereAperiodicLatticeRegime) {
+            voice.quasicrystalIce.excite(strength
+                    * (branch ? 0.58f : 1.0f),
+                std::clamp(params_.scoreCascade
+                    + (branch ? 0.10f : 0.0f), 0.0f, 1.0f));
+        }
+        if (!branch && params_.regime
+                == kAmbiCryosphereSingingLakeRegime) {
+            voice.planetaryModalBody.excite(strength,
+                params_.scoreCascade, false);
             ++singingIceEventCount_;
+            ++modalExcitationEventCount_;
         }
         if (!branch) {
             voice.branchesRemaining = static_cast<uint32_t>(
@@ -727,14 +995,16 @@ private:
             * (0.48f + params_.splash * 0.82f);
         voice.macroEnvelope = std::max(
             voice.macroEnvelope, strength);
-        voice.plateBodyEnvelope = std::max(
-            voice.plateBodyEnvelope, strength * (0.58f
-                + params_.scale * 0.64f + params_.depth * 0.32f));
-        voice.plateBodyFrequencyHz = 17.0f
-            + (1.0f - params_.scale) * 34.0f
-            + (1.0f - params_.depth) * 15.0f
-            + randomUnit(voice.rng) * 9.0f;
-        voice.plateBodyPhase = 0.0f;
+        if (params_.regime != kAmbiCryosphereSingingLakeRegime) {
+            voice.plateBodyEnvelope = std::max(
+                voice.plateBodyEnvelope, strength * (0.58f
+                    + params_.scale * 0.64f + params_.depth * 0.32f));
+            voice.plateBodyFrequencyHz = 17.0f
+                + (1.0f - params_.scale) * 34.0f
+                + (1.0f - params_.depth) * 15.0f
+                + randomUnit(voice.rng) * 9.0f;
+            voice.plateBodyPhase = 0.0f;
+        }
         voice.fractureEnvelope = std::max(
             voice.fractureEnvelope, strength * 0.58f);
         voice.impactCountdown = 0.055f + params_.scale * 0.42f
@@ -746,9 +1016,230 @@ private:
         ++calvingEventCount_;
     }
 
+    float processPlanetaryVoice(uint32_t index)
+    {
+        auto& voice = voices_[index];
+        if (!voice.planetaryRouteActive) {
+            voice.planetaryRouteActive = true;
+            voice.strain = 0.0f;
+            voice.slipLoad = 0.0f;
+            voice.branchesRemaining = 0u;
+            voice.grainScheduled = false;
+            voice.calvingScheduled = false;
+            voice.impactCountdown = -1.0f;
+            voice.fractureEnvelope = 0.0f;
+            voice.macroEnvelope = 0.0f;
+            voice.slipEnvelope = 0.0f;
+            voice.grainEnvelope = 0.0f;
+            voice.impactEnvelope = 0.0f;
+            voice.plateBodyEnvelope = 0.0f;
+            voice.cavitationEnvelope = 0.0f;
+            voice.tailEnvelope = 0.0f;
+            voice.forcePulse = 0.0f;
+            voice.structure.prepare(sampleRate_,
+                0x1ceba11u + index * 0x85ebca6bu);
+            voice.quasicrystalIce.reset();
+        }
+        const auto mode = ambiCryospherePlanetaryMode(params_.regime);
+        PlanetaryCryosphereParams planetaryParams {};
+        planetaryParams.mode = mode;
+        const float scoredFlux = std::clamp(voice.scoreDrive
+                + voice.scorePropagation * 0.64f
+                + voice.scoreConsequence * 0.48f
+                + voice.scoreAftermath * params_.scoreRest * 0.18f,
+            0.0f, 1.0f);
+        planetaryParams.drive = params_.flow * scoredFlux;
+        planetaryParams.propagation = std::clamp(
+            voice.scorePropagation * 0.46f
+                + params_.scoreCascade * 0.38f
+                + voice.scoreConsequence * 0.16f,
+            0.0f, 1.0f);
+        planetaryParams.consequence = voice.scoreConsequence;
+        planetaryParams.aftermath = voice.scoreAftermath;
+
+        switch (mode) {
+        case PlanetaryCryosphereMode::TidalShell:
+            planetaryParams.mass = std::clamp(
+                params_.scale * 0.54f + params_.depth * 0.46f,
+                0.0f, 1.0f);
+            planetaryParams.mobility = std::clamp(
+                params_.convergence * 0.52f + params_.current * 0.26f
+                    + (1.0f - params_.damping) * 0.22f,
+                0.0f, 1.0f);
+            planetaryParams.branching = std::clamp(
+                params_.scoreCascade * 0.64f
+                    + params_.turbulence * 0.36f,
+                0.0f, 1.0f);
+            planetaryParams.pressure = std::clamp(
+                params_.bubbles * 0.42f + params_.surfaceLoad * 0.34f
+                    + params_.depth * 0.24f,
+                0.0f, 1.0f);
+            planetaryParams.cohesion = std::clamp(
+                params_.water * 0.52f + params_.damping * 0.48f,
+                0.0f, 1.0f);
+            planetaryParams.porosity = std::clamp(
+                params_.bubbles * 0.62f + params_.density * 0.38f,
+                0.0f, 1.0f);
+            planetaryParams.brightness = std::clamp(
+                params_.brightness * 0.46f + params_.snap * 0.54f,
+                0.0f, 1.0f);
+            planetaryParams.damping = params_.damping;
+            break;
+        case PlanetaryCryosphereMode::HydrocarbonDune:
+            planetaryParams.mass = std::clamp(
+                params_.scale * 0.38f + params_.density * 0.34f
+                    + params_.foam * 0.28f,
+                0.0f, 1.0f);
+            planetaryParams.mobility = std::clamp(
+                params_.current * 0.44f + std::fabs(params_.slope) * 0.28f
+                    + params_.eddy * 0.28f,
+                0.0f, 1.0f);
+            planetaryParams.branching = std::clamp(
+                params_.turbulence * 0.48f
+                    + params_.scoreCascade * 0.34f
+                    + params_.aeration * 0.18f,
+                0.0f, 1.0f);
+            planetaryParams.pressure = std::clamp(
+                params_.depth * 0.58f + params_.space * 0.42f,
+                0.0f, 1.0f);
+            planetaryParams.cohesion = std::clamp(
+                params_.foam * 0.44f + params_.density * 0.34f
+                    + params_.water * 0.22f,
+                0.0f, 1.0f);
+            planetaryParams.porosity = std::clamp(
+                params_.aeration * 0.54f + params_.turbulence * 0.26f
+                    + (1.0f - params_.foam) * 0.20f,
+                0.0f, 1.0f);
+            planetaryParams.brightness = std::clamp(
+                params_.brightness * 0.54f + params_.contact * 0.46f,
+                0.0f, 1.0f);
+            planetaryParams.damping = std::clamp(
+                params_.damping * 0.68f + params_.depth * 0.32f,
+                0.0f, 1.0f);
+            break;
+        case PlanetaryCryosphereMode::ReactiveBrine:
+            planetaryParams.mass = std::clamp(
+                params_.scale * 0.48f + params_.depth * 0.52f,
+                0.0f, 1.0f);
+            planetaryParams.mobility = std::clamp(
+                params_.current * 0.44f + params_.eddy * 0.36f
+                    + std::fabs(params_.slope) * 0.20f,
+                0.0f, 1.0f);
+            planetaryParams.branching = std::clamp(
+                params_.scoreCascade * 0.52f + params_.eddy * 0.28f
+                    + params_.turbulence * 0.20f,
+                0.0f, 1.0f);
+            planetaryParams.pressure = std::clamp(
+                params_.bubbles * 0.46f + params_.depth * 0.30f
+                    + params_.surfaceLoad * 0.24f,
+                0.0f, 1.0f);
+            planetaryParams.cohesion = std::clamp(
+                params_.water * 0.56f + params_.damping * 0.44f,
+                0.0f, 1.0f);
+            planetaryParams.porosity = std::clamp(
+                params_.bubbles * 0.38f + params_.eddy * 0.34f
+                    + (1.0f - params_.density) * 0.28f,
+                0.0f, 1.0f);
+            planetaryParams.brightness = std::clamp(
+                params_.snap * 0.54f + params_.brightness * 0.46f,
+                0.0f, 1.0f);
+            planetaryParams.damping = params_.damping;
+            break;
+        }
+
+        const auto planetary = voice.planetaryCryosphere.process(
+            planetaryParams);
+        voice.planetarySample = planetary.sample;
+        voice.planetaryActivity = planetary.activity;
+        voice.singingSample = 0.0f;
+        voice.singingActivity = 0.0f;
+        voice.quasicrystalSample = 0.0f;
+        voice.quasicrystalActivity = 0.0f;
+
+        if (planetary.primaryEvent) {
+            switch (mode) {
+            case PlanetaryCryosphereMode::TidalShell:
+                ++tidalRiftEventCount_;
+                break;
+            case PlanetaryCryosphereMode::HydrocarbonDune:
+                ++hydrocarbonAvalancheEventCount_;
+                break;
+            case PlanetaryCryosphereMode::ReactiveBrine:
+                ++brineBreakthroughEventCount_;
+                break;
+            }
+            const float strength = std::clamp(0.18f
+                    + planetary.activity * 0.58f
+                    + params_.eventSize * 0.24f,
+                0.0f, 1.0f);
+            voice.planetaryModalBody.excite(strength,
+                params_.scoreCascade, voice.scoreConsequence > 0.35f);
+            ++modalExcitationEventCount_;
+        }
+        if (planetary.secondaryEvent) {
+            const float strength = std::clamp(0.08f
+                    + planetary.activity * 0.38f
+                    + params_.brightness * 0.14f,
+                0.0f, 0.72f);
+            voice.planetaryModalBody.excite(strength,
+                std::clamp(params_.scoreCascade * 0.72f
+                        + params_.turbulence * 0.28f,
+                    0.0f, 1.0f));
+            ++modalExcitationEventCount_;
+        }
+
+        const auto modal = voice.planetaryModalBody.process(
+            planetary.sample, planetary.activity);
+        const float boundedModal = modal.sample
+            / (1.0f + std::fabs(modal.sample) * 0.72f);
+        const float modalGain = mode
+                == PlanetaryCryosphereMode::HydrocarbonDune
+            ? 0.12f + params_.density * 0.08f
+            : 0.16f + params_.eventSize * 0.10f;
+        voice.planetaryModalSample = boundedModal * modalGain;
+        voice.planetaryModalActivity = modal.activity;
+
+        const float listenerGain = 1.0f
+            + field_.listenerDrive(index) * 0.20f;
+        const float materialGain = mode
+                == PlanetaryCryosphereMode::HydrocarbonDune
+            ? 0.94f + params_.density * 0.26f
+            : 0.82f + params_.eventSize * 0.28f
+                + params_.depth * 0.12f;
+        const float sample = (planetary.sample * materialGain
+                + voice.planetaryModalSample)
+            * listenerGain;
+        const float eventActivity = std::max(
+            planetary.activity, voice.planetaryModalActivity);
+        voice.eventLevel +=
+            (eventActivity - voice.eventLevel) * 0.018f;
+        voice.energy += (sample * sample - voice.energy) * 0.0012f;
+        return std::isfinite(sample) ? sample : 0.0f;
+    }
+
     float processVoice(uint32_t index)
     {
         auto& voice = voices_[index];
+        if (isAmbiCryospherePlanetaryRegime(params_.regime)) {
+            return processPlanetaryVoice(index);
+        }
+        if (voice.planetaryCryosphere.active()) {
+            voice.planetaryCryosphere.reset();
+        }
+        voice.planetaryRouteActive = false;
+        voice.planetarySample = 0.0f;
+        voice.planetaryActivity = 0.0f;
+        const bool aperiodicLattice = params_.regime
+            == kAmbiCryosphereAperiodicLatticeRegime;
+        const bool singingLake = params_.regime
+            == kAmbiCryosphereSingingLakeRegime;
+        if (!aperiodicLattice && !singingLake) {
+            if (voice.planetaryModalBody.active()) {
+                voice.planetaryModalBody.reset();
+            }
+        }
+        voice.planetaryModalSample = 0.0f;
+        voice.planetaryModalActivity = 0.0f;
         const auto& regime = kAmbiCryosphereRegimeProfiles[
             std::min<uint32_t>(params_.regime,
                 kAmbiCryosphereRegimeCount - 1u)];
@@ -788,10 +1279,16 @@ private:
         const float porePressure = params_.bubbles
             * (0.28f + substrate.poreWater * 0.92f)
             + voice.brineCharge * 0.34f;
-        const float scoreClock = (1.0f - params_.scoreRest)
-            + params_.scoreRest * std::clamp(0.012f
-                + voice.scoreDrive
-                + voice.scorePropagation * 0.38f, 0.012f, 1.0f);
+        const float directedClock = std::clamp(0.002f
+            + voice.scoreDrive + voice.scorePropagation * 0.38f
+            + voice.scoreAftermath * params_.scoreRest * 0.08f,
+            0.002f, 1.0f);
+        const float scoreClock = aperiodicLattice
+            ? directedClock
+            : (1.0f - params_.scoreRest)
+                + params_.scoreRest * std::clamp(0.012f
+                    + voice.scoreDrive
+                    + voice.scorePropagation * 0.38f, 0.012f, 1.0f);
         const float eventRate = params_.flow * scoreClock;
         const float freezeDrive = params_.water * regime.freezeGrowth
             * (1.02f + porePressure * 0.64f)
@@ -835,7 +1332,8 @@ private:
         const auto structural = voice.structure.process(structureParams);
         if (structural.snapTriggered) ++structuralSnapEventCount_;
         if (structural.consequenceTriggered) ++plateFailureEventCount_;
-        if (structural.consequenceTriggered) {
+        if (structural.consequenceTriggered
+            && !aperiodicLattice && !singingLake) {
             voice.plateBodyEnvelope = std::max(
                 voice.plateBodyEnvelope,
                 (0.48f + structureParams.mass * 0.92f)
@@ -849,6 +1347,12 @@ private:
             score_.exciteCascade(index,
                 structural.consequenceTriggered ? 1.0f
                     : 0.42f + params_.turbulence * 0.38f);
+            if (aperiodicLattice) {
+                voice.quasicrystalIce.excite(
+                    (structural.consequenceTriggered ? 1.0f : 0.46f)
+                        * (0.44f + params_.surfaceLoad * 0.56f),
+                    params_.scoreCascade);
+            }
         }
         voice.plateIntegrity = std::max(0.0f,
             voice.plateIntegrity - dt
@@ -858,16 +1362,16 @@ private:
             voice.crackExtent + dt
                 * (structural.activity * 0.28f
                     + voice.scorePropagation * 0.12f));
-        if (params_.regime == 13u
+        if (params_.regime == kAmbiCryosphereSingingLakeRegime
             && (structural.snapTriggered
                 || structural.consequenceTriggered)) {
             const float strength = structural.consequenceTriggered
                 ? 1.0f : 0.58f;
-            voice.singingIce.excite(strength
+            voice.planetaryModalBody.excite(strength
                     * (0.36f + params_.surfaceLoad * 0.64f),
-                params_.scale, params_.brightness, params_.resonance,
-                params_.damping, params_.depth);
+                params_.scoreCascade, structural.consequenceTriggered);
             ++singingIceEventCount_;
+            ++modalExcitationEventCount_;
         }
         voice.strain += dt * (freezeDrive * 2.8f + mechanicalDrive * 1.7f)
             * (0.72f + std::fabs(voice.slowNoise) * 0.48f)
@@ -957,13 +1461,15 @@ private:
                     * (0.42f + regime.waterImpact * 0.86f);
                 voice.impactEnvelope = std::max(
                     voice.impactEnvelope, impact);
-                voice.plateBodyEnvelope = std::max(
-                    voice.plateBodyEnvelope,
-                    impact * (0.46f + params_.scale * 0.72f));
-                voice.plateBodyFrequencyHz = 18.0f
-                    + (1.0f - params_.scale) * 38.0f
-                    + randomUnit(voice.rng) * 11.0f;
-                voice.plateBodyPhase = 0.0f;
+                if (!aperiodicLattice && !singingLake) {
+                    voice.plateBodyEnvelope = std::max(
+                        voice.plateBodyEnvelope,
+                        impact * (0.46f + params_.scale * 0.72f));
+                    voice.plateBodyFrequencyHz = 18.0f
+                        + (1.0f - params_.scale) * 38.0f
+                        + randomUnit(voice.rng) * 11.0f;
+                    voice.plateBodyPhase = 0.0f;
+                }
                 voice.cavitationEnvelope = std::max(
                     voice.cavitationEnvelope,
                     impact * (0.18f + regime.waterImpact * 0.58f));
@@ -995,15 +1501,21 @@ private:
                 + params_.resonance * 0.54f));
         voice.forcePulse *= std::exp(-dt
             / (0.0012f + substrate.damping * 0.007f));
-        voice.plateBodyPhase += kPi * 2.0f
-            * voice.plateBodyFrequencyHz
-            * (1.0f + voice.infraNoise * 0.06f) / sr;
-        if (voice.plateBodyPhase >= kPi * 2.0f) {
-            voice.plateBodyPhase -= kPi * 2.0f;
+        float plateBody = 0.0f;
+        if (!aperiodicLattice && !singingLake) {
+            voice.plateBodyPhase += kPi * 2.0f
+                * voice.plateBodyFrequencyHz
+                * (1.0f + voice.infraNoise * 0.06f) / sr;
+            if (voice.plateBodyPhase >= kPi * 2.0f) {
+                voice.plateBodyPhase -= kPi * 2.0f;
+            }
+            plateBody = voice.plateBodyEnvelope
+                * (std::sin(voice.plateBodyPhase) * 0.72f
+                    + massBand * 0.28f);
+        } else {
+            voice.plateBodyEnvelope = 0.0f;
+            voice.plateBodyPhase = 0.0f;
         }
-        const float plateBody = voice.plateBodyEnvelope
-            * (std::sin(voice.plateBodyPhase) * 0.72f
-                + massBand * 0.28f);
         voice.plateBodyEnvelope *= std::exp(-dt
             / (0.075f + params_.scale * 0.18f
                 + params_.depth * 0.12f));
@@ -1038,14 +1550,107 @@ private:
         const float diffuseTail = voice.tailEnvelope
             * (voice.slowNoise * 0.44f + contactBand * 0.26f)
             * (1.0f - params_.damping * 0.58f);
-        if (params_.regime == 13u) {
-            const auto singing = voice.singingIce.process();
-            voice.singingSample = singing.sample;
+        if (singingLake) {
+            const float lakeFlux = fracture * 0.72f
+                + structural.crack * 0.34f
+                + structural.snap * 0.48f
+                + structural.rupture * 0.22f;
+            const float lakeActivity = std::max(
+                voice.fractureEnvelope, structural.activity);
+            const auto singing = voice.planetaryModalBody.process(
+                lakeFlux, lakeActivity);
+            const float boundedModal = singing.sample
+                / (1.0f + std::fabs(singing.sample) * 0.72f);
+            voice.singingSample = boundedModal
+                * (0.18f + params_.eventSize * 0.16f
+                    + params_.brightness * 0.10f);
             voice.singingActivity = singing.activity;
         } else {
-            if (voice.singingIce.active()) voice.singingIce.reset();
             voice.singingSample = 0.0f;
             voice.singingActivity = 0.0f;
+        }
+        if (aperiodicLattice) {
+            QuasicrystalIceParams latticeParams {};
+            const float scoredFlux = std::clamp(
+                voice.scoreDrive + voice.scorePropagation * 0.72f
+                    + voice.scoreConsequence * 0.42f
+                    + voice.scoreAftermath * params_.scoreRest * 0.12f,
+                0.0f, 1.0f);
+            latticeParams.strainRate = params_.flow * scoredFlux
+                * (0.26f + params_.water * 0.52f
+                    + params_.convergence * 0.22f);
+            latticeParams.phaseMobility = std::clamp(0.08f
+                    + params_.current * 0.30f
+                    + params_.scorePace * 0.26f
+                    + (1.0f - params_.scoreMemory) * 0.30f,
+                0.0f, 1.0f);
+            latticeParams.frontSpeed = std::clamp(0.06f
+                    + params_.scorePace * 0.70f
+                    + params_.current * 0.18f,
+                0.0f, 1.0f);
+            latticeParams.branching = std::clamp(
+                params_.scoreCascade * 0.62f
+                    + params_.turbulence * 0.38f,
+                0.0f, 1.0f);
+            latticeParams.anisotropy = std::clamp(0.16f
+                    + params_.convergence * 0.48f
+                    + params_.width * 0.24f
+                    + params_.resonance * 0.12f,
+                0.0f, 1.0f);
+            latticeParams.heterogeneity = std::clamp(0.10f
+                    + params_.density * 0.38f
+                    + params_.contact * 0.28f
+                    + (1.0f - params_.scoreMemory) * 0.24f,
+                0.0f, 1.0f);
+            latticeParams.scale = params_.scale;
+            latticeParams.brittleness = std::clamp(
+                params_.contact * 0.48f + params_.snap * 0.34f
+                    + params_.brightness * 0.18f,
+                0.0f, 1.0f);
+            latticeParams.damping = std::clamp(
+                params_.damping * 0.78f + params_.scoreRest * 0.22f,
+                0.0f, 1.0f);
+            const auto lattice = voice.quasicrystalIce.process(
+                latticeParams);
+            voice.quasicrystalSample = lattice.sample;
+            voice.quasicrystalActivity = lattice.activity;
+            if (lattice.frontAdvanced) {
+                ++quasicrystalFrontEventCount_;
+                const float strength = std::clamp(0.18f
+                        + lattice.activity * 0.58f
+                        + params_.eventSize * 0.24f,
+                    0.0f, 1.0f);
+                voice.planetaryModalBody.excite(strength,
+                    params_.scoreCascade,
+                    voice.scoreConsequence > 0.35f);
+                ++modalExcitationEventCount_;
+            }
+            if (lattice.avalancheAdvanced) {
+                ++quasicrystalAvalancheEventCount_;
+                const float strength = std::clamp(0.08f
+                        + lattice.activity * 0.40f
+                        + params_.snap * 0.16f,
+                    0.0f, 0.76f);
+                voice.planetaryModalBody.excite(strength,
+                    std::clamp(params_.scoreCascade * 0.76f
+                            + params_.turbulence * 0.24f,
+                        0.0f, 1.0f));
+                ++modalExcitationEventCount_;
+            }
+            const auto modal = voice.planetaryModalBody.process(
+                lattice.sample, lattice.activity);
+            const float boundedModal = modal.sample
+                / (1.0f + std::fabs(modal.sample) * 0.72f);
+            voice.planetaryModalSample = boundedModal
+                * (0.16f + params_.density * 0.10f
+                    + params_.eventSize * 0.06f);
+            voice.planetaryModalActivity = modal.activity;
+        } else {
+            if (voice.quasicrystalIce.active()) {
+                voice.quasicrystalIce.reset();
+            }
+            voice.quasicrystalSample = 0.0f;
+            voice.quasicrystalActivity = 0.0f;
         }
         const float listenerGain = 1.0f
             + field_.listenerDrive(index) * 0.20f;
@@ -1070,17 +1675,28 @@ private:
             + structural.rupture * 0.54f + structural.fall * 0.48f
             + structural.impact * 0.72f)
             * (0.24f + params_.surfaceLoad * 0.62f);
-        const float massConsequence = plateBody
+        const float massConsequence = (singingLake ? 0.0f : plateBody)
             * (0.09f + params_.eventSize * 0.135f
                 + params_.scale * 0.09f + params_.depth * 0.06f);
-        const float sample = (iceSample + structuralSample + massConsequence
-            + voice.singingSample * (0.46f + params_.resonance * 0.74f))
+        const float legacySample = iceSample + structuralSample
+            + massConsequence
+            + voice.singingSample;
+        const float latticeSample = voice.quasicrystalSample
+            * (0.72f + params_.eventSize * 0.24f
+                + params_.density * 0.18f + params_.brightness * 0.10f);
+        const float sample = (aperiodicLattice
+                ? latticeSample + voice.planetaryModalSample
+                : legacySample)
             * listenerGain;
 
-        const float event = std::max({ voice.fractureEnvelope,
+        const float legacyEvent = std::max({ voice.fractureEnvelope,
             voice.macroEnvelope, voice.slipEnvelope, voice.grainEnvelope,
             voice.impactEnvelope, voice.cavitationEnvelope,
             structural.activity, voice.singingActivity });
+        const float event = aperiodicLattice
+            ? std::max(voice.quasicrystalActivity,
+                voice.planetaryModalActivity)
+            : legacyEvent;
         voice.eventLevel += (event - voice.eventLevel) * 0.018f;
         voice.energy += (sample * sample - voice.energy) * 0.0012f;
         return std::isfinite(sample) ? sample : 0.0f;
@@ -1097,6 +1713,9 @@ private:
     float transitionFade_ = 1.0f;
     float iceLayerEnergy_ = 0.0f;
     float singingIceLayerEnergy_ = 0.0f;
+    float quasicrystalLayerEnergy_ = 0.0f;
+    float planetaryLayerEnergy_ = 0.0f;
+    float planetaryModalLayerEnergy_ = 0.0f;
     uint64_t fractureEventCount_ = 0u;
     uint64_t slipEventCount_ = 0u;
     uint64_t calvingEventCount_ = 0u;
@@ -1104,6 +1723,12 @@ private:
     uint64_t structuralSnapEventCount_ = 0u;
     uint64_t plateFailureEventCount_ = 0u;
     uint64_t singingIceEventCount_ = 0u;
+    uint64_t quasicrystalFrontEventCount_ = 0u;
+    uint64_t quasicrystalAvalancheEventCount_ = 0u;
+    uint64_t tidalRiftEventCount_ = 0u;
+    uint64_t hydrocarbonAvalancheEventCount_ = 0u;
+    uint64_t brineBreakthroughEventCount_ = 0u;
+    uint64_t modalExcitationEventCount_ = 0u;
     std::atomic<bool> transitionRequested_ { false };
 };
 

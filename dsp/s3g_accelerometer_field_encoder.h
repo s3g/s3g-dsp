@@ -17,7 +17,7 @@ constexpr uint32_t kAccelerometerFieldModeCount = 24u;
 // receive 24 modes each; eight receive 12 each. Changing the body count never
 // creates an unbounded bank of complete resonators on the audio thread.
 constexpr uint32_t kAccelerometerFieldModeBudget = 96u;
-constexpr uint32_t kAccelerometerFieldPresetCount = 20u;
+constexpr uint32_t kAccelerometerFieldPresetCount = 25u;
 constexpr uint32_t kAccelerometerFieldSensorCount = 8u;
 constexpr uint32_t kAccelerometerFieldMinBodyCount = 4u;
 constexpr uint32_t kAccelerometerFieldMaxBodyCount = 8u;
@@ -54,7 +54,12 @@ enum class AccelerometerSubstrate : uint32_t {
     PorcelainShell = 17u,
     PorousEarthenware = 18u,
     SprucePlate = 19u,
-    Count = 20u,
+    TensionedSkin = 20u,
+    LoadedMembrane = 21u,
+    CoupledMembrane = 22u,
+    CavityMembrane = 23u,
+    LooseMembrane = 24u,
+    Count = 25u,
 };
 
 enum class AccelerometerExcitation : uint32_t {
@@ -300,6 +305,11 @@ accelerometerFieldFactoryPresetInfo(uint32_t index)
         { "Porcelain Orbit", "Stiff ceramic shells circulate clear inharmonic middle and upper bands." },
         { "Earthen Bloom", "Porous fired bodies gather a rounded low bloom beneath quickly settling overtones." },
         { "Spruce Breath", "Grain-split wooden plates breathe across a continuously sustained diffuse field." },
+        { "Tension Veil", "Tension-dominated circular bodies sustain clear radial families and lightly split angular pairs." },
+        { "Loaded Drift", "Mode-selective loading draws a darker membrane field through uneven low and middle branches." },
+        { "Coupled Current", "Paired membrane lattices exchange emphasis across a slowly moving eight-body current." },
+        { "Cavity Breath", "Air-loaded branches join a low membrane field to a broad breathing radiation path." },
+        { "Loose Horizon", "Uneven low-tension bodies spread soft unstable clusters across a diffuse horizon." },
     }};
     return info[std::min<uint32_t>(
         index, kAccelerometerFieldPresetCount - 1u)];
@@ -644,6 +654,91 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.fieldListenAmount = 0.74f;
         params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
         break;
+    case 20u: // Tension Veil
+        params.bodyCount = 6u;
+        params.substrate = AccelerometerSubstrate::TensionedSkin;
+        params.size = 0.62f;
+        params.damping = 0.40f;
+        params.irregularity = 0.025f;
+        params.sourcePosition = 0.22f;
+        params.pickupPosition = 0.68f;
+        params.pickupAxis = 0.36f;
+        params.airRadiation = 0.42f;
+        params.contactRadiation = 0.48f;
+        params.outputGainDb = -6.0f;
+        params.coupling = 0.52f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.66f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 21u: // Loaded Drift
+        params.bodyCount = 5u;
+        params.substrate = AccelerometerSubstrate::LoadedMembrane;
+        params.size = 0.74f;
+        params.damping = 0.48f;
+        params.irregularity = 0.10f;
+        params.sourcePosition = 0.12f;
+        params.pickupPosition = 0.58f;
+        params.pickupAxis = 0.30f;
+        params.airRadiation = 0.18f;
+        params.contactRadiation = 0.64f;
+        params.outputGainDb = -4.0f;
+        params.coupling = 0.44f;
+        params.fieldListenMode = AmbiFieldListenMode::Follow;
+        params.fieldListenAmount = 0.62f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Settle;
+        break;
+    case 22u: // Coupled Current
+        params.bodyCount = 8u;
+        params.substrate = AccelerometerSubstrate::CoupledMembrane;
+        params.size = 0.68f;
+        params.damping = 0.42f;
+        params.irregularity = 0.045f;
+        params.sourcePosition = 0.33f;
+        params.pickupPosition = 0.62f;
+        params.pickupAxis = 0.58f;
+        params.airRadiation = 0.38f;
+        params.contactRadiation = 0.50f;
+        params.outputGainDb = -7.0f;
+        params.coupling = 0.78f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.78f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 23u: // Cavity Breath
+        params.bodyCount = 6u;
+        params.substrate = AccelerometerSubstrate::CavityMembrane;
+        params.size = 0.80f;
+        params.damping = 0.36f;
+        params.irregularity = 0.030f;
+        params.sourcePosition = 0.42f;
+        params.pickupPosition = 0.52f;
+        params.pickupAxis = 0.26f;
+        params.airRadiation = 0.72f;
+        params.contactRadiation = 0.72f;
+        params.outputGainDb = -8.0f;
+        params.coupling = 0.60f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.72f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 24u: // Loose Horizon
+        params.bodyCount = 7u;
+        params.substrate = AccelerometerSubstrate::LooseMembrane;
+        params.size = 0.72f;
+        params.damping = 0.52f;
+        params.irregularity = 0.18f;
+        params.sourcePosition = 0.74f;
+        params.pickupPosition = 0.36f;
+        params.pickupAxis = 0.68f;
+        params.airRadiation = 0.12f;
+        params.contactRadiation = 0.38f;
+        params.outputGainDb = -4.0f;
+        params.coupling = 0.82f;
+        params.fieldListenMode = AmbiFieldListenMode::Counter;
+        params.fieldListenAmount = 0.68f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Settle;
+        break;
     default:
         break;
     }
@@ -671,6 +766,15 @@ public:
             -1.0f / (0.0015f * static_cast<float>(sampleRate_)));
         continuousWeightSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / (0.004f * static_cast<float>(sampleRate_)));
+        // Live character edits retarget resonator poles, excitation weights,
+        // pickup weights, and radiation balance. A physical-time morph keeps
+        // the existing modal state continuous while those coefficients move.
+        modalFrequencySmoothingCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.010f * static_cast<float>(sampleRate_)));
+        modalDecaySmoothingCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.045f * static_cast<float>(sampleRate_)));
+        modalWeightSmoothingCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.025f * static_cast<float>(sampleRate_)));
         // The sustaining rub is a physical-time process. The previous raw
         // per-sample coefficients moved its noise corner with sample rate,
         // and the ~248 Hz fast branch at 48 kHz exposed a snare-wire texture
@@ -735,6 +839,14 @@ public:
         modalLiftDb_ = modalLiftTarget_.load(
             std::memory_order_relaxed) * 9.0f;
         outputGuardGain_ = 1.0f;
+        airRadiationSmoothed_ = params_.airRadiation;
+        contactRadiationSmoothed_ = params_.contactRadiation;
+        couplingSmoothed_ = params_.coupling;
+        fieldListenAmountSmoothed_ = params_.fieldListenMode
+                == AmbiFieldListenMode::Off
+            ? 0.0f : params_.fieldListenAmount;
+        externalDriveSmoothed_ = params_.externalDrive;
+        modalDriveScaleSmoothed_ = profile(params_.substrate).driveScale;
         actuatorDriveEnvelope_.fill(0.0f);
         continuousWeightTarget_.fill(1.0f);
         continuousWeight_.fill(1.0f);
@@ -742,10 +854,19 @@ public:
         for (uint32_t body = 0u;
             body < kAccelerometerFieldMaxBodyCount; ++body) {
             bodies_[body].reset(params_.seed, body);
+            // Dynamic modal targets are snapped immediately below. Restore
+            // the per-body oscillator projections to the same phases as the
+            // global coupling oscillators before deriving those targets, so
+            // reset is deterministic after a long or heavily modulated run.
+            bodies_[body].couplingSlowValue =
+                bodies_[body].couplingSlowSin;
+            bodies_[body].couplingFastValue =
+                bodies_[body].couplingFastCos;
             bodies_[body].snapGeometry(body < activeBodyCount_);
         }
         for (auto& mode : modes_) mode.reset();
         updateAllDynamicCoefficients();
+        for (auto& mode : modes_) mode.snapMorphTargets();
     }
 
     void setParams(AccelerometerFieldParams params)
@@ -783,8 +904,16 @@ public:
         modalLiftTarget_.store(
             sanitized.modalLift, std::memory_order_relaxed);
         if (sampleRate_ > 0.0 && rebuild) {
-            rebuildModel(false);
+            // A body-count change resets the modal pool below, so there is no
+            // sounding state to morph. All other live structural edits keep
+            // their current state and move toward new coefficient targets.
+            rebuildModel(allocationChanged);
             if (allocationChanged) {
+                externalBody_ = std::min<uint32_t>(
+                    externalBody_, activeBodyCount_ - 1u);
+                nextRoundRobinBody_ %= activeBodyCount_;
+                lastActuatedBody_ = std::min<uint32_t>(
+                    lastActuatedBody_, activeBodyCount_ - 1u);
                 for (auto& mode : modes_) mode.reset();
                 for (uint32_t body = 0u;
                     body < kAccelerometerFieldMaxBodyCount; ++body) {
@@ -949,11 +1078,34 @@ public:
             (params_.ambisonicOrder + 1u) * (params_.ambisonicOrder + 1u);
         const float ensembleScale = 1.0f
             / std::sqrt(static_cast<float>(activeBodyCount_));
-        const float modalInputScale = profile(params_.substrate).driveScale;
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             outputGainSmoothed_ = flushDenormal(outputGainSmoothed_
                 + outputGainSmoothingCoefficient_
                     * (outputGainTarget - outputGainSmoothed_));
+            airRadiationSmoothed_ = flushDenormal(airRadiationSmoothed_
+                + modalWeightSmoothingCoefficient_
+                    * (params_.airRadiation - airRadiationSmoothed_));
+            contactRadiationSmoothed_ = flushDenormal(
+                contactRadiationSmoothed_ + modalWeightSmoothingCoefficient_
+                    * (params_.contactRadiation
+                        - contactRadiationSmoothed_));
+            couplingSmoothed_ = flushDenormal(couplingSmoothed_
+                + modalWeightSmoothingCoefficient_
+                    * (params_.coupling - couplingSmoothed_));
+            const float fieldListenAmountTarget = params_.fieldListenMode
+                    == AmbiFieldListenMode::Off
+                ? 0.0f : params_.fieldListenAmount;
+            fieldListenAmountSmoothed_ = flushDenormal(
+                fieldListenAmountSmoothed_ + modalWeightSmoothingCoefficient_
+                    * (fieldListenAmountTarget
+                        - fieldListenAmountSmoothed_));
+            externalDriveSmoothed_ = flushDenormal(externalDriveSmoothed_
+                + modalWeightSmoothingCoefficient_
+                    * (params_.externalDrive - externalDriveSmoothed_));
+            modalDriveScaleSmoothed_ = flushDenormal(
+                modalDriveScaleSmoothed_ + modalWeightSmoothingCoefficient_
+                    * (profile(params_.substrate).driveScale
+                        - modalDriveScaleSmoothed_));
             smoothGeometry();
             advanceEvolution();
             if (dynamicCoefficientCountdown_ == 0u) {
@@ -971,7 +1123,7 @@ public:
             if (externalExcitation) {
                 const float external = std::isfinite(externalExcitation[frame])
                     ? externalExcitation[frame] : 0.0f;
-                externalForce = external * params_.externalDrive;
+                externalForce = external * externalDriveSmoothed_;
             }
             routeExternalActuator(externalForce);
             for (uint32_t bodyIndex = 0u;
@@ -1038,11 +1190,14 @@ public:
             std::array<float, kAccelerometerFieldMaxBodyCount> radiation {};
             for (auto& mode : modes_) {
                 if (!mode.active || mode.body >= activeBodyCount_) continue;
+                mode.smoothMorph(modalFrequencySmoothingCoefficient_,
+                    modalDecaySmoothingCoefficient_,
+                    modalWeightSmoothingCoefficient_);
                 ModeSample response = mode.process(
-                    bodyDrive[mode.body] * modalInputScale
+                    bodyDrive[mode.body] * modalDriveScaleSmoothed_
                         * mode.transpositionGain);
                 const float modulation = modalCouplingValue(mode);
-                const float amplitudeDepth = params_.coupling
+                const float amplitudeDepth = couplingSmoothed_
                     * (0.10f + 0.28f * (1.0f - mode.pairProgress));
                 const float amplitudeScale = clamp(
                     1.0f - amplitudeDepth * modulation, 0.38f, 1.38f)
@@ -1086,9 +1241,9 @@ public:
                 body.radiationLowpass += airCoefficient
                     * (radiation[bodyIndex] - body.radiationLowpass);
                 const float radiated = std::tanh(body.radiationLowpass
-                    * params_.airRadiation * 0.46f);
+                    * airRadiationSmoothed_ * 0.46f);
                 const float bodySample = lerp(
-                    contact, radiated, params_.contactRadiation) * body.gain;
+                    contact, radiated, contactRadiationSmoothed_) * body.gain;
                 bodyPower += bodySample * bodySample;
                 const float envelopeInput = std::fabs(bodySample);
                 const float envelopeCoefficient = envelopeInput
@@ -1222,10 +1377,9 @@ public:
         const Body& body = bodies_[0u];
         if (body.modeCount == 0u || sampleRate_ <= 0.0) return 0.0f;
         index = std::min<uint32_t>(index, body.modeCount - 1u);
-        const float radius = modes_[body.modeStart + index].radius;
-        if (!(radius > 0.0f && radius < 1.0f)) return 0.0f;
-        return -1.0f / (std::log(radius)
-            * static_cast<float>(sampleRate_));
+        const double radius = modes_[body.modeStart + index].radiusTarget;
+        if (!(radius > 0.0 && radius < 1.0)) return 0.0f;
+        return static_cast<float>(-1.0 / (std::log(radius) * sampleRate_));
     }
 
     float bodyModeFrequencyHz(uint32_t bodyIndex, uint32_t index) const
@@ -1250,7 +1404,7 @@ public:
         const Body& target = bodies_[body];
         if (target.modeCount == 0u) return 0.0f;
         index = std::min<uint32_t>(index, target.modeCount - 1u);
-        return modes_[target.modeStart + index].pickupWeight;
+        return modes_[target.modeStart + index].pickupWeightTarget;
     }
 
     float sensorPosition(uint32_t body) const { return bodyPosition(body); }
@@ -1336,6 +1490,10 @@ private:
         float radiationCornerHz;
         float radiationExponent;
         float radiationGain;
+        // Membrane profiles can raise their modal frequencies slightly under
+        // actuator load. Rigid plate, shell, and legacy families keep this at
+        // zero, preserving their released behavior exactly.
+        float tensionHardening;
     };
 
     struct ModeSample {
@@ -1350,13 +1508,23 @@ private:
         uint32_t localIndex = 0u;
         float frequencyHz = 0.0f;
         float pairProgress = 0.0f;
-        float coefficient = 0.0f;
-        float radius = 0.0f;
-        float radiusSquared = 0.0f;
+        // Long drone poles sit within a few float ULPs of unity. Keep their
+        // morph state in double precision so a physical-time decay ramp does
+        // not stall or advance in audible quantized steps.
+        double coefficient = 0.0;
+        double coefficientNorm = 1.0;
+        double coefficientNormTarget = 1.0;
+        double radius = 0.0;
+        double radiusTarget = 0.0;
+        double radiusSquared = 0.0;
         float drive = 0.0f;
+        float driveTarget = 0.0f;
         float pickupWeight = 0.0f;
+        float pickupWeightTarget = 0.0f;
         float radiationWeight = 0.0f;
+        float radiationWeightTarget = 0.0f;
         float transpositionGain = 1.0f;
+        float transpositionGainTarget = 1.0f;
         float velocityNormalization = 1.0f;
         float accelerationNormalization = 1.0f;
         float state1 = 0.0f;
@@ -1366,6 +1534,39 @@ private:
         {
             state1 = 0.0f;
             state2 = 0.0f;
+        }
+
+        void snapMorphTargets()
+        {
+            coefficientNorm = coefficientNormTarget;
+            radius = radiusTarget;
+            coefficient = 2.0 * radius * std::clamp(
+                coefficientNorm, -1.0, 1.0);
+            radiusSquared = radius * radius;
+            drive = driveTarget;
+            pickupWeight = pickupWeightTarget;
+            radiationWeight = radiationWeightTarget;
+            transpositionGain = transpositionGainTarget;
+        }
+
+        void smoothMorph(float frequencyAmount, float decayAmount,
+            float weightAmount)
+        {
+            coefficientNorm += frequencyAmount
+                * (coefficientNormTarget - coefficientNorm);
+            radius = flushDenormal(radius
+                + decayAmount * (radiusTarget - radius));
+            coefficient = 2.0 * radius * std::clamp(
+                coefficientNorm, -1.0, 1.0);
+            radiusSquared = radius * radius;
+            drive = flushDenormal(drive
+                + weightAmount * (driveTarget - drive));
+            pickupWeight = flushDenormal(pickupWeight + weightAmount
+                * (pickupWeightTarget - pickupWeight));
+            radiationWeight = flushDenormal(radiationWeight + weightAmount
+                * (radiationWeightTarget - radiationWeight));
+            transpositionGain = flushDenormal(transpositionGain + weightAmount
+                * (transpositionGainTarget - transpositionGain));
         }
 
         ModeSample process(float input)
@@ -1522,38 +1723,53 @@ private:
         switch (substrate) {
         case AccelerometerSubstrate::TieredBronze:
             return { 155.0f, 8.50f, 0.28f, 0.20f, 0.025f, 1.00f,
-                720.0f, 0.50f, 1.00f };
+                720.0f, 0.50f, 1.00f, 0.0f };
         case AccelerometerSubstrate::BroadBronze:
             return { 114.0f, 10.80f, 0.32f, 0.30f, 0.018f, 1.00f,
-                720.0f, 0.50f, 1.00f };
+                720.0f, 0.50f, 1.00f, 0.0f };
         case AccelerometerSubstrate::BrightBronze:
             return { 250.0f, 4.20f, 0.20f, 0.38f, 0.018f, 1.00f,
-                720.0f, 0.50f, 1.00f };
+                720.0f, 0.50f, 1.00f, 0.0f };
         case AccelerometerSubstrate::CarbonLaminate:
             return { 78.0f, 5.80f, 0.30f, 0.62f, 0.060f, 0.78f,
-                1500.0f, 0.68f, 0.72f };
+                1500.0f, 0.68f, 0.72f, 0.0f };
         case AccelerometerSubstrate::GlassPlate:
             return { 172.0f, 9.20f, 0.22f, 0.48f, 0.050f, 0.58f,
-                1100.0f, 0.55f, 0.90f };
+                1100.0f, 0.55f, 0.90f, 0.0f };
         case AccelerometerSubstrate::SteelShell:
             return { 52.0f, 13.0f, 0.34f, 0.40f, 0.014f, 0.92f,
-                360.0f, 0.40f, 1.05f };
+                360.0f, 0.40f, 1.05f, 0.0f };
         case AccelerometerSubstrate::AluminumPlate:
             return { 108.0f, 7.00f, 0.27f, 0.52f, 0.040f, 0.82f,
-                760.0f, 0.52f, 0.98f };
+                760.0f, 0.52f, 0.98f, 0.0f };
         case AccelerometerSubstrate::PorcelainShell:
             return { 136.0f, 6.20f, 0.36f, 0.58f, 0.038f, 0.66f,
-                620.0f, 0.50f, 0.88f };
+                620.0f, 0.50f, 0.88f, 0.0f };
         case AccelerometerSubstrate::PorousEarthenware:
             return { 88.0f, 3.10f, 0.52f, 0.78f, 0.052f, 0.78f,
-                900.0f, 0.65f, 0.55f };
+                900.0f, 0.65f, 0.55f, 0.0f };
         case AccelerometerSubstrate::SprucePlate:
             return { 68.0f, 4.30f, 0.46f, 0.72f, 0.085f, 0.84f,
-                480.0f, 0.44f, 1.03f };
+                480.0f, 0.44f, 1.03f, 0.0f };
+        case AccelerometerSubstrate::TensionedSkin:
+            return { 86.0f, 4.80f, 0.31f, 0.62f, 0.18f, 0.86f,
+                230.0f, 0.82f, 1.08f, 0.004f };
+        case AccelerometerSubstrate::LoadedMembrane:
+            return { 38.0f, 3.90f, 0.47f, 0.82f, 0.10f, 0.92f,
+                180.0f, 0.74f, 0.88f, 0.006f };
+        case AccelerometerSubstrate::CoupledMembrane:
+            return { 64.0f, 5.60f, 0.35f, 0.58f, 0.22f, 0.80f,
+                210.0f, 0.78f, 1.05f, 0.008f };
+        case AccelerometerSubstrate::CavityMembrane:
+            return { 46.0f, 6.40f, 0.39f, 0.66f, 0.20f, 0.76f,
+                95.0f, 0.48f, 1.22f, 0.005f };
+        case AccelerometerSubstrate::LooseMembrane:
+            return { 34.0f, 2.70f, 0.58f, 0.96f, 0.30f, 0.90f,
+                260.0f, 0.92f, 0.72f, 0.018f };
         case AccelerometerSubstrate::DeepBronze:
         default:
             return { 44.5f, 11.50f, 0.34f, 0.34f, 0.020f, 1.00f,
-                720.0f, 0.50f, 1.00f };
+                720.0f, 0.50f, 1.00f, 0.0f };
         }
     }
 
@@ -1672,6 +1888,55 @@ private:
                 12.7285f, 13.1358f, 16.0000f, 16.3520f,
                 16.7321f, 17.3679f, 18.0541f, 18.5957f,
             }};
+        // Circular membrane centers follow sorted fixed-edge Bessel J_m
+        // zeros normalized by j_01. Companions represent split angular pairs.
+        // Loaded, coupled, cavity-backed, and loose forms transform that
+        // lattice in different ways without adding resonators to the pool.
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            tensionedSkinRatios {{
+                1.0000f, 1.0040f, 1.5933f, 1.6045f,
+                2.1355f, 2.1548f, 2.2954f, 2.3046f,
+                2.6531f, 2.6822f, 2.9173f, 2.9406f,
+                3.1555f, 3.1965f, 3.5001f, 3.5351f,
+                3.5985f, 3.6165f, 3.6475f, 3.7022f,
+                4.0589f, 4.1076f, 4.2304f, 4.2727f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            loadedMembraneRatios {{
+                1.0000f, 1.0100f, 2.1073f, 2.1368f,
+                2.7397f, 2.7890f, 3.2378f, 3.2701f,
+                4.0466f, 4.1356f, 4.1936f, 4.2690f,
+                4.6432f, 4.6989f, 5.0895f, 5.2218f,
+                5.3631f, 5.4704f, 5.8830f, 6.0595f,
+                6.1410f, 6.2883f, 6.4157f, 6.5954f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            coupledMembraneRatios {{
+                1.0000f, 1.0280f, 1.5933f, 1.6491f,
+                2.1355f, 2.2252f, 2.2954f, 2.3643f,
+                2.6531f, 2.7778f, 2.9173f, 3.0282f,
+                3.1555f, 3.3195f, 3.5001f, 3.5701f,
+                3.5985f, 3.6345f, 3.6475f, 3.8590f,
+                4.0589f, 4.1807f, 4.2304f, 4.4039f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            cavityMembraneRatios {{
+                1.0000f, 1.0250f, 1.3400f, 1.3561f,
+                2.1351f, 2.1692f, 2.8616f, 2.9131f,
+                3.0759f, 3.1189f, 3.4200f, 3.4884f,
+                3.5551f, 3.6298f, 3.9092f, 3.9756f,
+                4.2283f, 4.3298f, 4.6902f, 4.7746f,
+                4.8220f, 4.8654f, 4.8876f, 4.9951f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            looseMembraneRatios {{
+                1.0000f, 1.0180f, 1.6230f, 1.6619f,
+                2.2263f, 2.2976f, 2.4120f, 2.4602f,
+                2.8417f, 2.9554f, 3.1733f, 3.2685f,
+                3.4831f, 3.6503f, 3.9513f, 4.0501f,
+                4.0894f, 4.1303f, 4.1589f, 4.3876f,
+                4.7637f, 4.9733f, 5.0271f, 5.2182f,
+            }};
         index = std::min<uint32_t>(
             index, kAccelerometerFieldModeCount - 1u);
         switch (params_.substrate) {
@@ -1689,6 +1954,16 @@ private:
         case AccelerometerSubstrate::PorousEarthenware:
             return earthenwareRatios[index];
         case AccelerometerSubstrate::SprucePlate: return spruceRatios[index];
+        case AccelerometerSubstrate::TensionedSkin:
+            return tensionedSkinRatios[index];
+        case AccelerometerSubstrate::LoadedMembrane:
+            return loadedMembraneRatios[index];
+        case AccelerometerSubstrate::CoupledMembrane:
+            return coupledMembraneRatios[index];
+        case AccelerometerSubstrate::CavityMembrane:
+            return cavityMembraneRatios[index];
+        case AccelerometerSubstrate::LooseMembrane:
+            return looseMembraneRatios[index];
         case AccelerometerSubstrate::DeepBronze:
         default: return deepRatios[index];
         }
@@ -1729,6 +2004,26 @@ private:
             1.10f, 0.72f, 0.98f, 0.60f, 0.84f, 0.52f,
             0.70f, 0.44f, 0.58f, 0.37f, 0.48f, 0.31f,
         }};
+        static constexpr std::array<float, 12u> tensionedSkin {{
+            1.10f, 1.00f, 0.92f, 0.86f, 0.82f, 0.76f,
+            0.71f, 0.66f, 0.62f, 0.58f, 0.54f, 0.50f,
+        }};
+        static constexpr std::array<float, 12u> loadedMembrane {{
+            1.25f, 0.82f, 0.74f, 1.05f, 0.62f, 0.58f,
+            0.90f, 0.48f, 0.72f, 0.41f, 0.38f, 0.34f,
+        }};
+        static constexpr std::array<float, 12u> coupledMembrane {{
+            1.15f, 1.05f, 0.98f, 0.90f, 0.84f, 0.78f,
+            0.72f, 0.67f, 0.62f, 0.58f, 0.54f, 0.50f,
+        }};
+        static constexpr std::array<float, 12u> cavityMembrane {{
+            1.45f, 1.15f, 0.90f, 0.76f, 0.82f, 1.25f,
+            0.68f, 0.60f, 0.54f, 0.48f, 0.43f, 0.39f,
+        }};
+        static constexpr std::array<float, 12u> looseMembrane {{
+            1.00f, 0.80f, 0.66f, 0.72f, 0.55f, 0.46f,
+            0.42f, 0.34f, 0.30f, 0.25f, 0.21f, 0.18f,
+        }};
         const uint32_t pair = std::min<uint32_t>(local / 2u, 11u);
         switch (substrate) {
         case AccelerometerSubstrate::DeepBronze:
@@ -1743,6 +2038,21 @@ private:
             return earthenware[pair];
         case AccelerometerSubstrate::SprucePlate:
             return spruce[pair] * ((local & 1u) == 0u ? 1.12f : 0.72f);
+        case AccelerometerSubstrate::TensionedSkin:
+            return tensionedSkin[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.94f);
+        case AccelerometerSubstrate::LoadedMembrane:
+            return loadedMembrane[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.78f);
+        case AccelerometerSubstrate::CoupledMembrane:
+            return coupledMembrane[pair]
+                * ((local & 1u) == 0u ? 1.08f : 0.78f);
+        case AccelerometerSubstrate::CavityMembrane:
+            return cavityMembrane[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.86f);
+        case AccelerometerSubstrate::LooseMembrane:
+            return looseMembrane[pair]
+                * ((local & 1u) == 0u ? 1.05f : 0.68f);
         default: return 1.0f;
         }
     }
@@ -1786,6 +2096,26 @@ private:
             1.00f, 0.96f, 0.84f, 0.72f, 0.61f, 0.51f,
             0.43f, 0.36f, 0.30f, 0.25f, 0.21f, 0.17f,
         }};
+        static constexpr std::array<float, 12u> tensionedSkin {{
+            1.00f, 0.92f, 0.84f, 0.72f, 0.78f, 0.66f,
+            0.60f, 0.54f, 0.48f, 0.43f, 0.38f, 0.34f,
+        }};
+        static constexpr std::array<float, 12u> loadedMembrane {{
+            1.00f, 0.68f, 0.52f, 0.80f, 0.42f, 0.38f,
+            0.62f, 0.30f, 0.46f, 0.24f, 0.20f, 0.17f,
+        }};
+        static constexpr std::array<float, 12u> coupledMembrane {{
+            1.00f, 0.96f, 0.88f, 0.80f, 0.74f, 0.68f,
+            0.62f, 0.57f, 0.52f, 0.47f, 0.42f, 0.38f,
+        }};
+        static constexpr std::array<float, 12u> cavityMembrane {{
+            1.00f, 0.82f, 0.70f, 0.60f, 0.64f, 0.88f,
+            0.52f, 0.45f, 0.39f, 0.34f, 0.30f, 0.26f,
+        }};
+        static constexpr std::array<float, 12u> looseMembrane {{
+            1.00f, 0.82f, 0.64f, 0.72f, 0.50f, 0.41f,
+            0.34f, 0.28f, 0.23f, 0.19f, 0.15f, 0.12f,
+        }};
         const uint32_t pair = std::min<uint32_t>(local / 2u, 11u);
         switch (substrate) {
         case AccelerometerSubstrate::BrightBronze:
@@ -1798,6 +2128,19 @@ private:
         case AccelerometerSubstrate::PorousEarthenware:
             return earthenware[pair];
         case AccelerometerSubstrate::SprucePlate: return spruce[pair];
+        case AccelerometerSubstrate::TensionedSkin:
+            return tensionedSkin[pair];
+        case AccelerometerSubstrate::LoadedMembrane:
+            return loadedMembrane[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.82f);
+        case AccelerometerSubstrate::CoupledMembrane:
+            return coupledMembrane[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.92f);
+        case AccelerometerSubstrate::CavityMembrane:
+            return cavityMembrane[pair];
+        case AccelerometerSubstrate::LooseMembrane:
+            return looseMembrane[pair]
+                * ((local & 1u) == 0u ? 1.0f : 0.78f);
         default: return bronzeCluster[pair];
         }
     }
@@ -2014,15 +2357,18 @@ private:
                     ? static_cast<float>(local / 2u)
                         / static_cast<float>(body.modeCount / 2u - 1u)
                     : 0.0f;
-                mode.active = frequency >= 5.0f && frequency < nyquistLimit;
-                if (!mode.active) {
-                    mode.coefficient = 0.0f;
-                    mode.radius = 0.0f;
-                    mode.radiusSquared = 0.0f;
-                    mode.drive = 0.0f;
-                    mode.pickupWeight = 0.0f;
-                    mode.radiationWeight = 0.0f;
-                    mode.transpositionGain = 0.0f;
+                mode.active = true;
+                const bool audible = frequency >= 5.0f
+                    && frequency < nyquistLimit;
+                if (!audible) {
+                    mode.radiusTarget = 0.0;
+                    // Retain the last pole angle while its radius and output
+                    // weights fade. Sweeping an excluded high/low mode toward
+                    // DC would turn an extreme Size move into a short chirp.
+                    mode.driveTarget = 0.0f;
+                    mode.pickupWeightTarget = 0.0f;
+                    mode.radiationWeightTarget = 0.0f;
+                    mode.transpositionGainTarget = 0.0f;
                     continue;
                 }
                 const float decayScale = std::exp2(
@@ -2033,9 +2379,8 @@ private:
                         modalProfile.decayFalloff));
                 decay = std::max(0.015f, decay * modalDecayWeight(
                     params_.substrate, local));
-                mode.radius = std::exp(-1.0f
-                    / (decay * static_cast<float>(sampleRate_)));
-                mode.radiusSquared = mode.radius * mode.radius;
+                mode.radiusTarget = std::exp(-1.0
+                    / (static_cast<double>(decay) * sampleRate_));
                 const float strikePosition = clamp(params_.sourcePosition
                         + (bodyUnitPosition(bodyIndex) - 0.5f)
                             * params_.arraySpread * 0.10f,
@@ -2047,11 +2392,11 @@ private:
                         modalProfile.modeFalloff);
                 modalGain *= modalSpectralWeight(params_.substrate, local);
                 modalGain *= bodyNormalization;
-                mode.drive = 0.0045f * modalGain * sourceShape;
+                mode.driveTarget = 0.0045f * modalGain * sourceShape;
                 const float axisRadians = clamp(params_.pickupAxis
                         + (bodyUnitPosition(bodyIndex) - 0.5f) * 0.20f,
                     0.0f, 1.0f) * 1.57079632679489661923f;
-                mode.pickupWeight = std::cos(axisRadians) * modeShape(
+                mode.pickupWeightTarget = std::cos(axisRadians) * modeShape(
                     local, body.targetPosition, false)
                     + std::sin(axisRadians) * modeShape(
                         local, body.targetPosition, true);
@@ -2060,7 +2405,7 @@ private:
                         + modalProfile.radiationCornerHz),
                     modalProfile.radiationExponent)
                     * modalProfile.radiationGain;
-                mode.radiationWeight = modeShape(
+                mode.radiationWeightTarget = modeShape(
                     local, body.targetPosition, false)
                     * modalGain * radiationEfficiency
                     * (0.58f + 0.42f * std::fabs(sourceShape));
@@ -2074,6 +2419,11 @@ private:
             modes_[index].reset();
         }
         updateAllDynamicCoefficients();
+        if (snapGeometry) {
+            for (uint32_t index = 0u; index < modeOffset; ++index) {
+                modes_[index].snapMorphTargets();
+            }
+        }
     }
 
     void smoothGeometry()
@@ -2088,8 +2438,17 @@ private:
         const float slowWeight = 0.10f
             + 0.72f * (1.0f - mode.pairProgress);
         const Body& body = bodies_[mode.body];
-        return body.couplingSlowValue * slowWeight
+        const float value = body.couplingSlowValue * slowWeight
             + body.couplingFastValue * (1.0f - slowWeight);
+        // The two branches of Coupled Membrane represent slightly mismatched
+        // skins. Anti-phase AM/FM makes their dominance alternate using the
+        // existing bounded oscillators; it does not add an audio feedback
+        // path or another modal bank.
+        if (params_.substrate == AccelerometerSubstrate::CoupledMembrane
+            && (mode.localIndex & 1u) != 0u) {
+            return -value;
+        }
+        return value;
     }
 
     void routeExternalActuator(float externalForce)
@@ -2172,27 +2531,41 @@ private:
     {
         if (bodyIndex >= activeBodyCount_) return;
         const Body& body = bodies_[bodyIndex];
+        const ModalProfile modalProfile = profile(params_.substrate);
         const float nyquistLimit = static_cast<float>(sampleRate_) * 0.44f;
         const float fadeStart = static_cast<float>(sampleRate_) * 0.38f;
+        const float actuation = actuatorDriveEnvelope_[bodyIndex];
+        const float normalizedActuation = actuation
+            / (actuation + 0.12f);
         for (uint32_t local = 0u;
             local < body.modeCount; ++local) {
             Mode& mode = modes_[body.modeStart + local];
             if (!mode.active) continue;
+            if (!(mode.radiusTarget > 0.0)) {
+                mode.transpositionGainTarget = 0.0f;
+                continue;
+            }
             const float modulation = modalCouplingValue(mode);
-            const float frequencyDepth = params_.coupling
+            const float frequencyDepth = couplingSmoothed_
                 * (0.0025f + 0.0065f * (1.0f - mode.pairProgress));
+            const float tensionScale = 1.0f
+                + modalProfile.tensionHardening
+                    * normalizedActuation * normalizedActuation
+                    * (1.0f - 0.35f * mode.pairProgress);
             const float frequencyScale = body.pitchRatio
+                * tensionScale
                 * std::max(0.96f, 1.0f + frequencyDepth * modulation);
             const float requestedFrequency = mode.frequencyHz * frequencyScale;
-            mode.transpositionGain = clamp(
+            mode.transpositionGainTarget = clamp(
                 (nyquistLimit - requestedFrequency)
                     / (nyquistLimit - fadeStart),
                 0.0f, 1.0f);
             const float frequency = std::min(
                 nyquistLimit, requestedFrequency);
-            const float omega = kAccelerometerFieldTwoPi
-                * frequency / static_cast<float>(sampleRate_);
-            mode.coefficient = 2.0f * mode.radius * std::cos(omega);
+            const double omega = static_cast<double>(
+                kAccelerometerFieldTwoPi) * static_cast<double>(frequency)
+                / sampleRate_;
+            mode.coefficientNormTarget = std::cos(omega);
         }
     }
 
@@ -2317,8 +2690,7 @@ private:
     void addContinuousPlayerDrive(
         std::array<float, kAccelerometerFieldMaxBodyCount>& drive)
     {
-        if (params_.fieldListenMode == AmbiFieldListenMode::Off
-            || params_.fieldListenAmount <= 1.0e-7f) {
+        if (fieldListenAmountSmoothed_ <= 1.0e-7f) {
             continuousWeightCountdown_ = 0u;
             playerActivity_ += 0.001f * (0.0f - playerActivity_);
             return;
@@ -2337,7 +2709,7 @@ private:
             == AmbiFieldListenerResponse::Settle) {
             driveScale = 0.18f;
         }
-        const float baseDrive = params_.fieldListenAmount * driveScale;
+        const float baseDrive = fieldListenAmountSmoothed_ * driveScale;
         for (uint32_t bodyIndex = 0u;
             bodyIndex < activeBodyCount_; ++bodyIndex) {
             continuousWeight_[bodyIndex] = flushDenormal(
@@ -2377,7 +2749,7 @@ private:
                 * continuousWeight_[bodyIndex] * rub;
         }
         playerActivity_ += 0.001f
-            * (params_.fieldListenAmount - playerActivity_);
+            * (fieldListenAmountSmoothed_ - playerActivity_);
     }
 
     void updateContinuousWeightTargets()
@@ -2439,6 +2811,9 @@ private:
     float energyReleaseCoefficient_ = 0.001f;
     float externalActuatorSmoothingCoefficient_ = 0.01f;
     float continuousWeightSmoothingCoefficient_ = 0.01f;
+    float modalFrequencySmoothingCoefficient_ = 0.01f;
+    float modalDecaySmoothingCoefficient_ = 0.001f;
+    float modalWeightSmoothingCoefficient_ = 0.001f;
     float continuousSlowNoiseCoefficient_ = 0.0012f;
     float continuousFastNoiseCoefficient_ = 0.012f;
     float outputGainSmoothingCoefficient_ = 0.001f;
@@ -2448,6 +2823,12 @@ private:
     float liftFallCoefficient_ = 0.001f;
     float outputGuardReleaseCoefficient_ = 0.0001f;
     float midiActuationEnergyReleaseCoefficient_ = 0.00001f;
+    float airRadiationSmoothed_ = 0.38f;
+    float contactRadiationSmoothed_ = 0.58f;
+    float couplingSmoothed_ = 0.35f;
+    float fieldListenAmountSmoothed_ = 0.62f;
+    float externalDriveSmoothed_ = 0.70f;
+    float modalDriveScaleSmoothed_ = 1.0f;
     AccelerometerFieldParams params_ = accelerometerFieldFactoryPreset(0u);
     std::array<Mode, kAccelerometerFieldModeBudget> modes_ {};
     std::array<Body, kAccelerometerFieldMaxBodyCount> bodies_ {};

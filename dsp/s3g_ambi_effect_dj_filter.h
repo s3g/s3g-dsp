@@ -75,7 +75,7 @@ struct AmbiEffectDjFilterParams {
 };
 
 inline AmbiEffectDjFilterParams sanitizeAmbiEffectDjFilterParams(
-    AmbiEffectDjFilterParams params)
+    AmbiEffectDjFilterParams params, bool allowCompactBodies = false)
 {
     params.engine = static_cast<AmbiEffectEngine>(
         std::min<uint32_t>(static_cast<uint32_t>(params.engine), 3u));
@@ -83,8 +83,8 @@ inline AmbiEffectDjFilterParams sanitizeAmbiEffectDjFilterParams(
         params.order, 1u, kAmbiEffectDjFilterMaxOrder);
     params.body = static_cast<AmbiEffectBody>(
         std::min<uint32_t>(static_cast<uint32_t>(params.body), 5u));
-    if (params.body == AmbiEffectBody::Tetra4
-        || params.body == AmbiEffectBody::Cube8) {
+    if (!allowCompactBodies && (params.body == AmbiEffectBody::Tetra4
+        || params.body == AmbiEffectBody::Cube8)) {
         params.body = AmbiEffectBody::Icosa12;
     }
     params.topology = static_cast<AmbiEffectTopology>(
@@ -254,12 +254,13 @@ inline AmbiEffectBody ambiEffectDefaultBodyForOrder(uint32_t order)
 }
 
 inline AmbiEffectBody resolveAmbiEffectBody(
-    AmbiEffectBody requested, uint32_t order)
+    AmbiEffectBody requested, uint32_t order,
+    bool allowCompactBodies = false)
 {
     requested = static_cast<AmbiEffectBody>(
         std::min<uint32_t>(static_cast<uint32_t>(requested), 5u));
-    if (requested == AmbiEffectBody::Tetra4
-        || requested == AmbiEffectBody::Cube8) {
+    if (!allowCompactBodies && (requested == AmbiEffectBody::Tetra4
+        || requested == AmbiEffectBody::Cube8)) {
         requested = AmbiEffectBody::Icosa12;
     }
     return requested == AmbiEffectBody::Auto
@@ -269,8 +270,8 @@ inline AmbiEffectBody resolveAmbiEffectBody(
 inline uint32_t ambiEffectBodyPickupCount(AmbiEffectBody body)
 {
     switch (body) {
-    case AmbiEffectBody::Tetra4:
-    case AmbiEffectBody::Cube8:
+    case AmbiEffectBody::Tetra4: return 4u;
+    case AmbiEffectBody::Cube8: return 8u;
     case AmbiEffectBody::Icosa12: return 12u;
     case AmbiEffectBody::Dodeca20: return 20u;
     case AmbiEffectBody::Sphere24: return 24u;
@@ -298,6 +299,28 @@ ambiEffectBodyDirections(AmbiEffectBody body)
     std::array<Vec3, kAmbiEffectDjFilterMaxPickups> result {};
     constexpr float phi = 1.6180339887498948f;
     constexpr float invPhi = 1.0f / phi;
+    constexpr float invSqrt3 = 0.5773502691896258f;
+    if (body == AmbiEffectBody::Tetra4) {
+        result[0] = { invSqrt3, invSqrt3, invSqrt3 };
+        result[1] = { -invSqrt3, -invSqrt3, invSqrt3 };
+        result[2] = { -invSqrt3, invSqrt3, -invSqrt3 };
+        result[3] = { invSqrt3, -invSqrt3, -invSqrt3 };
+        return result;
+    }
+    if (body == AmbiEffectBody::Cube8) {
+        const std::array<Vec3, 8u> points {{
+            { -invSqrt3, -invSqrt3, -invSqrt3 },
+            { invSqrt3, -invSqrt3, -invSqrt3 },
+            { -invSqrt3, invSqrt3, -invSqrt3 },
+            { invSqrt3, invSqrt3, -invSqrt3 },
+            { -invSqrt3, -invSqrt3, invSqrt3 },
+            { invSqrt3, -invSqrt3, invSqrt3 },
+            { -invSqrt3, invSqrt3, invSqrt3 },
+            { invSqrt3, invSqrt3, invSqrt3 },
+        }};
+        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = points[i];
+        return result;
+    }
     if (body == AmbiEffectBody::Sphere24) {
         for (uint32_t i = 0u; i < kAmbisonicSphere24PointCount; ++i) {
             result[i] = normalize(kAmbisonicSphere24Points[i]);
@@ -348,6 +371,13 @@ inline const char* ambiEffectFilterPositionName(float value)
 
 class AmbiEffectDjFilter {
 public:
+    void setAllowCompactBodies(bool allow)
+    {
+        if (allowCompactBodies_ == allow) return;
+        allowCompactBodies_ = allow;
+        setParams(params_);
+    }
+
     void prepare(double sampleRate)
     {
         sampleRate_ = std::clamp(
@@ -388,11 +418,13 @@ public:
 
     void setParams(AmbiEffectDjFilterParams params)
     {
-        const auto next = sanitizeAmbiEffectDjFilterParams(params);
+        const auto next = sanitizeAmbiEffectDjFilterParams(
+            params, allowCompactBodies_);
         const bool matrixChanged = !currentMatrix_
             || next.order != params_.order
-            || resolveAmbiEffectBody(next.body, next.order)
-                != resolveAmbiEffectBody(params_.body, params_.order);
+            || resolveAmbiEffectBody(next.body, next.order, allowCompactBodies_)
+                != resolveAmbiEffectBody(params_.body, params_.order,
+                    allowCompactBodies_);
         if (next.topology != targetTopology_) {
             previousTopology_ = targetTopology_;
             targetTopology_ = next.topology;
@@ -430,7 +462,8 @@ public:
 
     AmbiEffectBody resolvedBody() const
     {
-        return resolveAmbiEffectBody(params_.body, params_.order);
+        return resolveAmbiEffectBody(
+            params_.body, params_.order, allowCompactBodies_);
     }
 
     uint32_t activePickupCount() const
@@ -451,6 +484,64 @@ public:
     }
 
     float roamingPhase() const { return roamingPhase_; }
+
+    // Shared spatial operations for Ambi Effects whose signal engine lives
+    // outside this class. These use the same order-adaptive Listener body and
+    // pseudo-inverse encoder as the built-in filter, delay, pitch, and gain
+    // engines without running any of those processors.
+    uint32_t spatialChannelCount() const
+    {
+        return ambiEffectChannelsForOrder(params_.order);
+    }
+
+    Vec3 nodeDirection(uint32_t node) const
+    {
+        return currentMatrix_ && node < currentMatrix_->count
+            ? currentMatrix_->directions[node] : Vec3 {};
+    }
+
+    void decodeField(const float* field, uint32_t fieldChannels,
+        std::array<float, kAmbiEffectDjFilterMaxPickups>& nodes) const
+    {
+        nodes.fill(0.0f);
+        if (!currentMatrix_ || !field) return;
+        const uint32_t channels = std::min<uint32_t>(
+            fieldChannels, spatialChannelCount());
+        for (uint32_t node = 0u; node < currentMatrix_->count; ++node) {
+            float value = 0.0f;
+            for (uint32_t channel = 0u; channel < channels; ++channel) {
+                value += currentMatrix_->decode[node][channel]
+                    * (std::isfinite(field[channel]) ? field[channel] : 0.0f);
+            }
+            nodes[node] = flushDenormal(value);
+        }
+    }
+
+    void encodeNodes(
+        const std::array<float, kAmbiEffectDjFilterMaxPickups>& nodes,
+        float* field, uint32_t fieldChannels) const
+    {
+        if (!field) return;
+        std::fill_n(field, fieldChannels, 0.0f);
+        if (!currentMatrix_) return;
+        const uint32_t channels = std::min<uint32_t>(
+            fieldChannels, spatialChannelCount());
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            float value = 0.0f;
+            for (uint32_t node = 0u; node < currentMatrix_->count; ++node) {
+                value += currentMatrix_->encode[channel][node] * nodes[node];
+            }
+            field[channel] = flushDenormal(value);
+        }
+    }
+
+    void routeNodes(
+        const std::array<float, kAmbiEffectDjFilterMaxPickups>& input,
+        std::array<float, kAmbiEffectDjFilterMaxPickups>& output,
+        AmbiEffectTopology topology, float phase) const
+    {
+        routeBody(input, output, topology, activePickupCount(), phase);
+    }
 
     template <typename Sample>
     void process(Sample** input, Sample** output,
@@ -1096,7 +1187,7 @@ private:
         if (!matricesBuilt_) return;
         const bool transitioning = currentMatrix_ != nullptr;
         const AmbiEffectBody body = resolveAmbiEffectBody(
-            params_.body, params_.order);
+            params_.body, params_.order, allowCompactBodies_);
         const uint32_t bodyIndex = static_cast<uint32_t>(body) - 1u;
         const MatrixSet& matrix = matrixCache_[params_.order - 1u][bodyIndex];
         targetDecode_ = matrix.decode;
@@ -1155,41 +1246,10 @@ private:
 
     static void setBodyDirections(MatrixSet& matrix, AmbiEffectBody body)
     {
-        constexpr float phi = 1.6180339887498948f;
-        if (body != AmbiEffectBody::Dodeca20
-            && body != AmbiEffectBody::Sphere24) {
-            matrix.count = 12u;
-            const std::array<Vec3, 12u> points {{
-                { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
-                { -1, phi, 0 }, { -phi, 0, 1 }, { -phi, 0, -1 }, { -1, -phi, 0 },
-                { 0, -1, -phi }, { 1, -phi, 0 }, { phi, 0, -1 }, { 0, 1, -phi },
-            }};
-            for (uint32_t i = 0u; i < points.size(); ++i) {
-                matrix.directions[i] = normalize(points[i]);
-            }
-            return;
-        }
-        if (body == AmbiEffectBody::Dodeca20) {
-            matrix.count = 20u;
-            constexpr float invPhi = 1.0f / phi;
-            const std::array<Vec3, 20u> points {{
-                { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
-                { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
-                { 0, invPhi, phi }, { 0, invPhi, -phi },
-                { 0, -invPhi, phi }, { 0, -invPhi, -phi },
-                { invPhi, phi, 0 }, { invPhi, -phi, 0 },
-                { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
-                { phi, 0, invPhi }, { phi, 0, -invPhi },
-                { -phi, 0, invPhi }, { -phi, 0, -invPhi },
-            }};
-            for (uint32_t i = 0u; i < points.size(); ++i) {
-                matrix.directions[i] = normalize(points[i]);
-            }
-            return;
-        }
-        matrix.count = kAmbisonicSphere24PointCount;
-        for (uint32_t i = 0u; i < kAmbisonicSphere24PointCount; ++i) {
-            matrix.directions[i] = normalize(kAmbisonicSphere24Points[i]);
+        matrix.count = ambiEffectBodyPickupCount(body);
+        const auto directions = ambiEffectBodyDirections(body);
+        for (uint32_t i = 0u; i < matrix.count; ++i) {
+            matrix.directions[i] = directions[i];
         }
     }
 
@@ -1406,6 +1466,7 @@ private:
     double sampleRate_ = 48000.0;
     AmbiEffectDjFilterParams params_ {};
     bool matricesBuilt_ = false;
+    bool allowCompactBodies_ = false;
     std::array<std::array<MatrixSet, 5u>,
         kAmbiEffectDjFilterMaxOrder> matrixCache_ {};
     const MatrixSet* currentMatrix_ = nullptr;

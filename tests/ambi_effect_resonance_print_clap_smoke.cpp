@@ -4,9 +4,12 @@
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
+#include "s3g_ambi_effect_resonance_print.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <dlfcn.h>
@@ -22,9 +25,16 @@ constexpr double kSampleRate = 48000.0;
 constexpr clap_id kCaptureParam = 4u;
 constexpr clap_id kClearParam = 5u;
 constexpr clap_id kCaptureSecondsParam = 6u;
+constexpr clap_id kTransposeParam = 9u;
+constexpr clap_id kOutputParam = 20u;
 constexpr clap_id kBodyParam = 2u;
 constexpr clap_id kTopologyParam = 3u;
 constexpr clap_id kMaskDryParam = 26u;
+constexpr clap_id kApplyPrintParam = 27u;
+
+static_assert(offsetof(s3g::AmbiEffectResonancePrintParams, printEnabled)
+        + sizeof(uint32_t)
+    == sizeof(s3g::AmbiEffectResonancePrintParams));
 
 struct HostContext {
     clap_host_t host {};
@@ -224,7 +234,7 @@ int main(int argc, char** argv)
         && ports->count(plugin, true) == 1u
         && ports->get(plugin, 0u, true, &port)
         && port.channel_count == kChannels
-        && params->count(plugin) == 74u
+        && params->count(plugin) == 75u
         && plugin->activate(plugin, kSampleRate, kFrames, kFrames)
         && plugin->start_processing(plugin);
 
@@ -232,9 +242,11 @@ int main(int argc, char** argv)
         char bodyText[64] {};
         char topologyText[64] {};
         char dryText[64] {};
+        char applyText[64] {};
         double bodyValue = -1.0;
         double topologyValue = -1.0;
         double dryValue = 0.0;
+        double applyValue = -1.0;
         ok = params->value_to_text(plugin, kBodyParam, 4.0,
                 bodyText, sizeof(bodyText))
             && params->text_to_value(plugin, kBodyParam, bodyText, &bodyValue)
@@ -247,7 +259,12 @@ int main(int argc, char** argv)
             && params->value_to_text(plugin, kMaskDryParam, -1.0,
                 dryText, sizeof(dryText))
             && params->text_to_value(plugin, kMaskDryParam, dryText, &dryValue)
-            && dryValue == -1.0;
+            && dryValue == -1.0
+            && params->value_to_text(plugin, kApplyPrintParam, 1.0,
+                applyText, sizeof(applyText))
+            && params->text_to_value(plugin, kApplyPrintParam,
+                applyText, &applyValue)
+            && applyValue == 1.0;
     }
 
     AudioBlock audio;
@@ -266,12 +283,46 @@ int main(int argc, char** argv)
             capture.add(kCaptureParam, 1.0);
         } else if (block == 1u) {
             capture.add(kCaptureParam, 0.0);
+        } else if (block == 10u) {
+            capture.add(kApplyPrintParam, 1.0);
         }
         const auto* events = capture.storage.empty() ? nullptr : &capture.input;
         ok = runBlock(plugin, audio, events) == CLAP_PROCESS_CONTINUE;
     }
-    const uint32_t capturedTail = ok ? tail->get(plugin) : 0u;
-    ok = ok && capturedTail > 1000u && hostContext.tailChanges > 0u;
+    uint32_t capturedTail = 0u;
+    double applyValue = -1.0;
+    ok = ok && tail->get(plugin) == 0u
+        && params->get_value(plugin, kApplyPrintParam, &applyValue)
+        && applyValue == 0.0
+        && hostContext.tailChanges > 0u;
+    if (ok) {
+        audio.clear();
+        EventList apply;
+        apply.add(kApplyPrintParam, 1.0);
+        ok = runBlock(plugin, audio, &apply.input) == CLAP_PROCESS_CONTINUE;
+        capturedTail = tail->get(plugin);
+        ok = ok && capturedTail > 1000u
+            && params->get_value(plugin, kApplyPrintParam, &applyValue)
+            && applyValue == 1.0;
+    }
+    if (ok) {
+        audio.clear();
+        EventList bypass;
+        bypass.add(kApplyPrintParam, 0.0);
+        ok = runBlock(plugin, audio, &bypass.input) == CLAP_PROCESS_CONTINUE
+            && tail->get(plugin) == 0u
+            && params->get_value(plugin, kApplyPrintParam, &applyValue)
+            && applyValue == 0.0;
+    }
+    if (ok) {
+        audio.clear();
+        EventList reapply;
+        reapply.add(kApplyPrintParam, 1.0);
+        ok = runBlock(plugin, audio, &reapply.input) == CLAP_PROCESS_CONTINUE
+            && tail->get(plugin) == capturedTail
+            && params->get_value(plugin, kApplyPrintParam, &applyValue)
+            && applyValue == 1.0;
+    }
 
     MemoryState saved;
     if (ok) {
@@ -289,6 +340,98 @@ int main(int argc, char** argv)
         MemoryState input = saved;
         clap_istream_t stream { &input, stateRead };
         ok = state->load(plugin, &stream)
+            && tail->get(plugin) == capturedTail;
+    }
+    if (ok) {
+        MemoryState legacy = saved;
+        const uint32_t versionOne = 1u;
+        std::memcpy(legacy.bytes.data() + sizeof(uint32_t),
+            &versionOne, sizeof(versionOne));
+        const size_t printEnabledOffset = sizeof(uint32_t) * 2u
+            + offsetof(s3g::AmbiEffectResonancePrintParams, printEnabled);
+        legacy.bytes.erase(legacy.bytes.begin() + printEnabledOffset,
+            legacy.bytes.begin() + printEnabledOffset + sizeof(uint32_t));
+        clap_istream_t stream { &legacy, stateRead };
+        ok = state->load(plugin, &stream)
+            && tail->get(plugin) == 0u
+            && params->get_value(plugin, kApplyPrintParam, &applyValue)
+            && applyValue == 0.0;
+    }
+    if (ok) {
+        audio.clear();
+        EventList applyLegacyPrint;
+        applyLegacyPrint.add(kApplyPrintParam, 1.0);
+        ok = runBlock(plugin, audio, &applyLegacyPrint.input)
+                == CLAP_PROCESS_CONTINUE
+            && tail->get(plugin) == capturedTail;
+    }
+
+    double transposePhase = 0.0;
+    float transposePeak = 0.0f;
+    float transposeMaximumStep = 0.0f;
+    float previousTransposeSample = 0.0f;
+    if (ok) {
+        for (uint32_t block = 0u; block < 120u; ++block) {
+            audio.clear();
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                audio.input[0][frame] = static_cast<float>(
+                    0.18 * std::sin(transposePhase)
+                    + 0.04 * std::sin(transposePhase * 2.01));
+                transposePhase += 2.0 * 3.14159265358979323846
+                    * 220.0 / kSampleRate;
+            }
+            EventList transpose;
+            if (block == 0u) transpose.add(kOutputParam, -6.0);
+            if (block % 4u == 0u) {
+                transpose.add(kTransposeParam,
+                    (block / 4u) % 2u == 0u ? 24.0 : -24.0);
+            }
+            ok = runBlock(plugin, audio,
+                transpose.storage.empty() ? nullptr : &transpose.input)
+                == CLAP_PROCESS_CONTINUE;
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                const float value = audio.output[0][frame];
+                ok = ok && std::isfinite(value);
+                transposePeak = std::max(transposePeak, std::abs(value));
+                transposeMaximumStep = std::max(transposeMaximumStep,
+                    std::abs(value - previousTransposeSample));
+                previousTransposeSample = value;
+            }
+        }
+        ok = ok && transposePeak < 0.7f && transposeMaximumStep < 0.15f;
+    }
+
+    float bypassGuardPeak = 0.0f;
+    if (ok) {
+        for (uint32_t block = 0u; block < 8u; ++block) {
+            audio.clear();
+            audio.input[0].fill(0.5f);
+            EventList outputGuard;
+            if (block == 0u) {
+                outputGuard.add(kApplyPrintParam, 0.0);
+                outputGuard.add(kOutputParam, 12.0);
+            }
+            ok = runBlock(plugin, audio,
+                outputGuard.storage.empty() ? nullptr : &outputGuard.input)
+                == CLAP_PROCESS_CONTINUE;
+            for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+                for (float value : audio.output[channel]) {
+                    ok = ok && std::isfinite(value);
+                    bypassGuardPeak = std::max(bypassGuardPeak,
+                        std::abs(value));
+                }
+            }
+        }
+        ok = ok && tail->get(plugin) == 0u
+            && bypassGuardPeak <= 0.8915f;
+    }
+    if (ok) {
+        audio.clear();
+        EventList restore;
+        restore.add(kOutputParam, 0.0);
+        restore.add(kTransposeParam, 0.0);
+        restore.add(kApplyPrintParam, 1.0);
+        ok = runBlock(plugin, audio, &restore.input) == CLAP_PROCESS_CONTINUE
             && tail->get(plugin) == capturedTail;
     }
 
@@ -321,11 +464,16 @@ int main(int argc, char** argv)
         std::cerr << "Ambi Effect Resonance Print CLAP smoke failed"
             << " tail=" << capturedTail
             << " tail changes=" << hostContext.tailChanges
+            << " transpose peak=" << transposePeak
+            << " transpose step=" << transposeMaximumStep
+            << " bypass guard=" << bypassGuardPeak
             << " energy=" << energy << "\n";
         return 1;
     }
     std::cout << "Ambi Effect Resonance Print CLAP smoke passed: tail="
         << capturedTail << " state=" << saved.bytes.size()
-        << " bytes energy=" << energy << "\n";
+        << " bytes transpose-step=" << transposeMaximumStep
+        << " bypass-guard=" << bypassGuardPeak
+        << " energy=" << energy << "\n";
     return 0;
 }

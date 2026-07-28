@@ -81,6 +81,8 @@
 
         <p>A cell can reference a factory preset by name and index, but it also stores a complete parameter snapshot. This keeps the sound stable if a factory collection is reordered later. <code>CAP</code> stores the current base controls, not an already interpolated result, so repeatedly capturing a surface does not bake one interpolation into another.</p>
 
+        <p><code>RANDOM</code> is an explicit whole-scene action. It bypasses an enabled surface so the newly generated base scene is immediately audible, but it does not delete or rewrite any cells. Turn the surface back <code>ON</code> to resume the saved map.</p>
+
         <p>Portable single-preset files continue to describe one instrument state. The complete multi-cell surface belongs to plugin/project state. Project states from before Parameter Surface load with an empty, bypassed surface and retain their previous sound; states from the original eight-cell and 24-cell implementations migrate their cells intact, using <code>LINEAR</code> interpolation and the 160 ms default glide.</p>
 
         <nav class="page-nav" aria-label="Page navigation">

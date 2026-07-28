@@ -28,13 +28,23 @@
 
         <p><strong>s3g Ambi Effect Resonance Print 64</strong> listens to a complete <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> field, captures a compact directional modal fingerprint, and turns that fingerprint into an excitable resonant body. The result is closer to freezing the field's resonant identity than freezing its spectrum: transients and new material can continue to strike the learned modes.</p>
 
+        <h2 id="quick-start">Quick Start</h2>
+
+        <ol>
+          <li>Place Resonance Print on a correctly routed ambisonic track before the final decoder.</li>
+          <li>Begin with Local topology, a short Decay, moderate Drive, and reduced Mix or Output.</li>
+          <li>Play a harmonically useful passage and press Capture. The completed print remains bypassed.</li>
+          <li>Press Apply Print, then use Apply / Bypass Print to compare it with the input without clearing the capture.</li>
+          <li>Shape the result with Transpose, Harmonic Pull, Decay, topology, and the directional mask. If <code>GOV</code> or <code>SAFE</code> remains visible, reduce Drive, Mix, or Output.</li>
+        </ol>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
           <li>Decode the active order onto the selected Icosa12, Dodeca20, or Sphere24 auditory body.</li>
           <li>While Capture is active, analyze overlapping <code>4096</code>-sample Hann-windowed frames at every pickup.</li>
           <li>Retain the strongest stable local peaks per pickup and estimate one shared fundamental hypothesis for the complete field.</li>
-          <li>Excite a bank of damped sinusoidal modes at each pickup from the live field.</li>
+          <li>When Apply Print is enabled, excite a bank of damped sinusoidal modes at each pickup from the live field.</li>
           <li>Apply local, cross, diffuse, or roaming body relationships and the directional wet mask.</li>
           <li>Re-encode only the processed correction and blend it over the untouched ambisonic input.</li>
         </ol>
@@ -43,15 +53,15 @@
 
         <h2 id="print">What the Print Contains</h2>
 
-        <p>A print stores the captured body, a field-level fundamental estimate and confidence, and up to twelve frequency, amplitude, and stability values for each pickup. It does <strong>not</strong> store captured audio. A full print is only a few kilobytes and is embedded directly in CLAP project state, so reopening a session restores the learned body without an external media file.</p>
+        <p>A print stores the captured body, a field-level fundamental estimate and confidence, and up to twelve frequency, amplitude, and stability values for each pickup. It does <strong>not</strong> store captured audio. A full print is only a few kilobytes and is embedded directly in CLAP project state, so reopening a session restores the learned body without an external media file. The editor's <strong>SAVE</strong> and <strong>LOAD</strong> actions use that same complete CLAP state, so a saved Resonance Print preset includes the print, its applied or bypassed state, the controls, and the camera view.</p>
 
-        <p>Capture lasts from <code>0.25</code> to <code>3.0 s</code>. A new capture leaves the previous print sounding until the new analysis completes; Clear Print removes the model and cancels an active capture immediately. Changing ambisonic order or auditory body during capture also cancels that capture so one print cannot accidentally combine two projection geometries.</p>
+        <p>Capture lasts from <code>0.25</code> to <code>3.0 s</code>. Starting a capture immediately bypasses print processing; the previous model remains stored while analysis runs, and the completed capture remains bypassed. Use <strong>Apply Print</strong> only when ready, then <strong>Bypass Print</strong> to A/B the unprocessed input without deleting the model. <strong>Clear Print</strong> is the destructive action and also cancels an active capture. Changing ambisonic order or auditory body during capture cancels that capture so one print cannot accidentally combine two projection geometries.</p>
 
         <h2 id="body">Auditory Body</h2>
 
         <p><code>AUTO</code> uses Icosa12 for <code>1OA</code> and <code>2OA</code>, Dodeca20 for <code>3OA</code>, and Sphere24 for <code>4OA</code> through <code>7OA</code>. The three bodies can also be selected explicitly. If playback uses a different body from the captured print, each current pickup follows the nearest captured direction; the print remains portable instead of being discarded.</p>
 
-        <p>The field view shows pickup input energy, print strength, and directional-mask attenuation. Select a pickup to edit its persistent Tune and Decay trims. These twenty-four slots remain in project state even when a lower-density body is active.</p>
+        <p>The field view shows pickup input energy, print strength, and directional-mask attenuation. <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> provide repeatable cameras; dragging the field creates a custom orbit. The dashed target shows the mask direction. Mask elevation follows the ambisonic convention: <code>0°</code> is the horizontal plane, <code>+90°</code> is the upper <code>+Z</code> pole, and <code>-90°</code> is the lower pole. Select a pickup to edit its persistent Tune and Decay trims. These twenty-four slots and the camera state remain in project state even when a lower-density body is active.</p>
 
         <h2 id="controls">Controls</h2>
 
@@ -60,11 +70,13 @@
             <tr><th>Control</th><th>Meaning</th></tr>
           </thead>
           <tbody>
-            <tr><td>Capture / Clear Print</td><td>Starts or cancels analysis, or removes the current modal model.</td></tr>
+            <tr><td>Capture</td><td>Starts or cancels analysis. Starting and completing a capture both leave print processing bypassed.</td></tr>
+            <tr><td>Apply / Bypass Print</td><td>A/Bs the stored modal model without clearing it.</td></tr>
+            <tr><td>Clear Print</td><td>Permanently removes the current modal model and cancels active capture.</td></tr>
             <tr><td>Time</td><td>Capture duration. Longer captures average more analysis frames and favor persistent components.</td></tr>
             <tr><td>Sensitivity</td><td>Lowers the peak threshold as it rises, allowing quieter resonances into the print.</td></tr>
             <tr><td>Modes</td><td>Maximum retained modes per pickup, from <code>2</code> to <code>12</code>.</td></tr>
-            <tr><td>Transpose</td><td>Moves the complete print by <code>-24</code> to <code>+24 st</code>.</td></tr>
+            <tr><td>Transpose</td><td>Moves the complete print by <code>-24</code> to <code>+24 st</code>. Modal frequencies and recurrence coefficients glide continuously to prevent energized modes from cracking during live changes.</td></tr>
             <tr><td>Harmonic Pull</td><td>Moves detected modes toward integer multiples of the shared fundamental when its confidence is useful.</td></tr>
             <tr><td>Harmonic Stretch</td><td>Compresses or expands partial spacing around the fundamental.</td></tr>
             <tr><td>Decay / Tilt</td><td>Sets the common modal tail and makes high modes shorter or longer relative to low modes.</td></tr>
@@ -75,15 +87,19 @@
             <tr><td>Mask Amount / Az / El</td><td>Places the resonant correction in one directional region.</td></tr>
             <tr><td>Mask Width / Curve</td><td>Sets the angular reach and tightness. Curve remains host-automatable even though the compact editor concentrates on Width.</td></tr>
             <tr><td>Mask Dry</td><td>Attenuates the complementary dry pickup field down to <code>FX ONLY</code>.</td></tr>
-            <tr><td>Mix / Output</td><td>Blends the re-encoded correction and applies final output trim.</td></tr>
+            <tr><td>Mix / Output</td><td>Blends the re-encoded correction and applies a <code>25 ms</code> smoothed final trim before the linked output guard.</td></tr>
           </tbody>
         </table>
 
-        <h2 id="lineage">Concept Lineage and Licensing</h2>
+        <h2 id="safety">Level Safety</h2>
 
-        <p>The design grew from an earlier Pure Data project and treats Miller Puckette's <a href="https://github.com/pure-data/pure-data/tree/master/extra/sigmund~" target="_blank" rel="noopener noreferrer"><code>sigmund~</code></a>, William Brent's <a href="https://github.com/wbrent/martha_tilde" target="_blank" rel="noopener noreferrer"><code>martha~</code></a>, and <a href="https://github.com/wbrent/convolve_tilde" target="_blank" rel="noopener noreferrer"><code>convolve~</code></a> as conceptual references. Their source code, Pd patches, test material, and binary artifacts are not incorporated here.</p>
+        <p>Captured amplitudes are normalized per pickup. Before the live decoded field excites the resonator banks, a linked governor gives the complete auditory body one shared excitation budget with a <code>0.25</code> peak target, immediate reduction, and a <code>250 ms</code> recovery. It affects only resonator excitation: capture analysis and the dry HOA path remain untouched. When it acts, the title status reports <code>GOV -x dB</code>.</p>
 
-        <p>This implementation was written independently for the BSD-3-Clause <code>s3g-dsp</code> codebase. It uses conventional windowed Fourier analysis, peak selection, harmonic scoring, and damped sinusoidal resonators. The Pure Data repository is BSD-licensed, while the two William Brent projects identify GPLv3 licensing; keeping the latter at the level of behavior and artistic lineage avoids importing GPL-covered implementation into this BSD plugin.</p>
+        <p>Live tuning uses a physical-time modal-frequency glide plus continuous recurrence-coefficient interpolation instead of coarse coefficient jumps. Amplitude-dependent pole damping begins well before an unstable state, followed by a smooth remote state knee; only non-finite states are reset. This prevents the former reset crackle when changing Transpose or related tuning controls while long modes contain energy.</p>
+
+        <p>The final gain stage follows the Ambi Encoder Modal safeguard order: the blended HOA field passes through smoothed Output gain and then one linked <code>-1 dBFS</code> guard with immediate attack and a <code>300 ms</code> release. It remains available during print bypass and with no print, so positive Output gain cannot expose an unprotected dry path. Steady signals below the ceiling request unity gain; after an overload the guard recovers smoothly. The shared scalar preserves spatial relationships. When it acts, the title reports <code>SAFE -x dB</code>.</p>
+
+        <p>Applying a print can still cause strong tonal reinforcement, so capture never applies it automatically. Start with reduced Mix or Output before the first application. If <code>GOV</code> or <code>SAFE</code> remains active continuously, lower Drive, Mix, or Output: the safeguards prevent overload, but sustained gain reduction is an audible dynamics process.</p>
 
         <h2 id="routing">REAPER Routing</h2>
 
@@ -94,9 +110,9 @@
             <span>Previous</span>
             Ambi Effect Gain
           </a>
-          <a class="page-nav-link next" href="ambi-effect-displacement.html">
+          <a class="page-nav-link next" href="ambi-effect-partial-trace.html">
             <span>Next</span>
-            Ambi Effect Displacement
+            Ambi Effect Partial Trace
           </a>
         </nav>
       </main>
@@ -111,11 +127,12 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#quick-start">Quick Start</a>
           <a href="#signal-flow">Signal Flow</a>
           <a href="#print">The Print</a>
           <a href="#body">Auditory Body</a>
           <a href="#controls">Controls</a>
-          <a href="#lineage">Lineage and Licensing</a>
+          <a href="#safety">Level Safety</a>
           <a href="#routing">REAPER Routing</a>
         </div>
       </aside>

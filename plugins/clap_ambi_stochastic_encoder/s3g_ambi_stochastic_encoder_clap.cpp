@@ -2033,10 +2033,14 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 {
     if (!_plugin) return;
     const auto params = makeSafeRandomParams(*_plugin);
+    const uint32_t surfaceEnabled = _plugin->surface.enabled;
+    s3g::bypassParameterSurfaceForSceneChange(_plugin->surface);
     if (!queuePreset(*_plugin, params)) {
+        _plugin->surface.enabled = surfaceEnabled;
         NSBeep();
         return;
     }
+    requestSurfaceProcess(*_plugin);
     _plugin->factoryPresetIndex = -1;
     std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "RANDOM");
     _selectedVoice = std::min<uint32_t>(_selectedVoice, std::max<uint32_t>(1u, params.voices) - 1u);

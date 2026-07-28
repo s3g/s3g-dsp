@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -71,6 +72,7 @@ struct AmbiEffectResonancePrintParams {
     float maskWidth = 0.35f;
     float maskCurve = 0.5f;
     float maskDry = 1.0f;
+    uint32_t printEnabled = 0u;
 };
 
 inline AmbiEffectResonancePrintParams sanitizeAmbiEffectResonancePrintParams(
@@ -90,6 +92,7 @@ inline AmbiEffectResonancePrintParams sanitizeAmbiEffectResonancePrintParams(
     params.sensitivity = clamp(params.sensitivity, 0.0f, 1.0f);
     params.modalCount = std::clamp<uint32_t>(params.modalCount, 2u,
         kResonancePrintMaxModes);
+    params.printEnabled = params.printEnabled ? 1u : 0u;
     params.transposeSemitones = clamp(params.transposeSemitones, -24.0f, 24.0f);
     params.harmonicPull = clamp(params.harmonicPull, 0.0f, 1.0f);
     params.harmonicStretch = clamp(params.harmonicStretch, -1.0f, 1.0f);
@@ -123,6 +126,16 @@ public:
     bool prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        safetyRelease_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.300));
+        excitationGovernorRelease_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.250));
+        outputGainCoefficient_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.025));
+        resonatorTargetCoefficient_ = 1.0f - std::exp(
+            -32.0f / static_cast<float>(sampleRate_ * 0.045));
+        resonatorCoefficientSmoothing_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.0025));
         buildMatrixCache();
 #if S3G_HAS_RESONANCE_PRINT_FFT
         releaseFft();
@@ -135,6 +148,8 @@ public:
                 / static_cast<float>(kResonancePrintAnalysisSize));
         }
         params_ = sanitizeAmbiEffectResonancePrintParams(params_);
+        outputGainTargetDb_.store(params_.outputGainDb,
+            std::memory_order_relaxed);
         updateMatrix();
         updateMask();
         rebuildModeTargets();
@@ -145,6 +160,15 @@ public:
     void reset()
     {
         roamingPhase_ = 0.0f;
+        safetyGain_ = 1.0f;
+        excitationGovernorGain_ = 1.0f;
+        resonatorUpdateCountdown_ = 0u;
+        currentTopologyAmount_ = params_.topologyAmount;
+        currentRoamingRateHz_ = params_.roamingRateHz;
+        currentMix_ = params_.mix;
+        currentOutputGain_ = dbToGain(outputGainTargetDb_.load(
+            std::memory_order_relaxed));
+        currentDrive_ = params_.drive;
         topologyFade_ = 1.0f;
         previousTopology_ = targetTopology_ = params_.topology;
         nodeLevel_.fill(0.0f);
@@ -154,7 +178,9 @@ public:
                 mode.y2 = 0.0f;
                 mode.currentFrequency = mode.targetFrequency;
                 mode.currentRadius = mode.targetRadius;
-                updateResonatorCoefficients(mode);
+                mode.currentAmplitude = mode.targetAmplitude;
+                updateResonatorCoefficientTargets(mode);
+                snapResonatorCoefficients(mode);
             }
         }
         if (capturing_) cancelCapture();
@@ -162,7 +188,8 @@ public:
 
     void setParams(AmbiEffectResonancePrintParams params)
     {
-        const auto next = sanitizeAmbiEffectResonancePrintParams(params);
+        auto next = sanitizeAmbiEffectResonancePrintParams(params);
+        if (capturing_) next.printEnabled = 0u;
         const bool matrixChanged = next.order != params_.order
             || resolveAmbiEffectBody(next.body, next.order)
                 != resolveAmbiEffectBody(params_.body, params_.order);
@@ -172,6 +199,8 @@ public:
             topologyFade_ = 0.0f;
         }
         params_ = next;
+        outputGainTargetDb_.store(params_.outputGainDb,
+            std::memory_order_relaxed);
         if (matrixChanged) {
             if (capturing_) cancelCapture();
             updateMatrix();
@@ -181,6 +210,12 @@ public:
     }
 
     const AmbiEffectResonancePrintParams& params() const { return params_; }
+    void setOutputGainTarget(float outputGainDb)
+    {
+        outputGainTargetDb_.store(clamp(
+            std::isfinite(outputGainDb) ? outputGainDb : 0.0f,
+            -60.0f, 12.0f), std::memory_order_relaxed);
+    }
     AmbiEffectBody resolvedBody() const
     {
         return resolveAmbiEffectBody(params_.body, params_.order);
@@ -192,6 +227,7 @@ public:
 
     void beginCapture()
     {
+        params_.printEnabled = 0u;
         capturing_ = true;
         captureSampleCount_ = 0u;
         captureWritePosition_ = 0u;
@@ -221,9 +257,12 @@ public:
         captureAnalysisFrames_ = 0u;
         print_ = {};
         print_.version = kResonancePrintVersion;
+        params_.printEnabled = 0u;
         resonatorModeCount_.fill(0u);
         nodePrintStrength_.fill(0.0f);
         maximumDecaySeconds_ = 0.0f;
+        safetyGain_ = 1.0f;
+        excitationGovernorGain_ = 1.0f;
         for (auto& row : resonators_) {
             for (auto& mode : row) mode = {};
         }
@@ -232,6 +271,8 @@ public:
 
     void setPrint(const ResonancePrintData& data)
     {
+        safetyGain_ = 1.0f;
+        excitationGovernorGain_ = 1.0f;
         print_ = data;
         print_.version = kResonancePrintVersion;
         print_.valid = print_.valid ? 1u : 0u;
@@ -260,6 +301,10 @@ public:
 
     const ResonancePrintData& printData() const { return print_; }
     bool hasPrint() const { return print_.valid != 0u; }
+    bool printApplied() const
+    {
+        return !capturing_ && hasPrint() && params_.printEnabled != 0u;
+    }
     bool isCapturing() const { return capturing_; }
     float captureProgress() const
     {
@@ -290,9 +335,22 @@ public:
         return pickup < kAmbiEffectDjFilterMaxPickups ? maskGain_[pickup] : 1.0f;
     }
     float roamingPhase() const { return roamingPhase_; }
+    float safetyGain() const { return safetyGain_; }
+    float excitationGovernorGain() const { return excitationGovernorGain_; }
+    float maximumResonatorState() const
+    {
+        float maximum = 0.0f;
+        for (const auto& row : resonators_) {
+            for (const auto& mode : row) {
+                maximum = std::max(maximum,
+                    std::max(std::abs(mode.y1), std::abs(mode.y2)));
+            }
+        }
+        return maximum;
+    }
     uint32_t tailFrames() const
     {
-        return hasPrint() ? static_cast<uint32_t>(std::ceil(maximumDecaySeconds_
+        return printApplied() ? static_cast<uint32_t>(std::ceil(maximumDecaySeconds_
             * sampleRate_)) : 0u;
     }
 
@@ -308,6 +366,7 @@ public:
         const uint32_t channels = ambiEffectChannelsForOrder(params_.order);
         const uint32_t pickupCount = currentMatrix_->count;
         std::array<float, kAmbiEffectDjFilterMaxChannels> field {};
+        std::array<float, kAmbiEffectDjFilterMaxChannels> outputFrame {};
         std::array<float, kAmbiEffectDjFilterMaxPickups> ears {};
         std::array<float, kAmbiEffectDjFilterMaxPickups> resonant {};
         std::array<float, kAmbiEffectDjFilterMaxPickups> routedPrevious {};
@@ -350,19 +409,68 @@ public:
 
             captureFrame(ears, pickupCount);
 
+            // Govern only the shared resonator excitation. The analyzed field
+            // and dry HOA path remain untouched, while every pickup receives
+            // the same gain so the excitation direction cannot move.
+            float excitationPeak = 0.0f;
+            for (uint32_t node = 0u; node < pickupCount; ++node) {
+                excitationPeak = std::max(excitationPeak, std::abs(ears[node]));
+            }
+            constexpr float kExcitationCeiling = 0.25f;
+            const float excitationTarget = hasPrint()
+                && excitationPeak > kExcitationCeiling
+                ? kExcitationCeiling / excitationPeak : 1.0f;
+            if (!std::isfinite(excitationGovernorGain_)
+                || excitationTarget < excitationGovernorGain_) {
+                excitationGovernorGain_ = excitationTarget;
+            } else {
+                excitationGovernorGain_ += excitationGovernorRelease_
+                    * (1.0f - excitationGovernorGain_);
+            }
+            excitationGovernorGain_ = clamp(
+                excitationGovernorGain_, 0.0f, 1.0f);
+
             for (uint32_t node = 0u; node < pickupCount; ++node) {
                 if (!hasPrint() || resonatorModeCount_[node] == 0u) {
                     resonant[node] = ears[node];
                     continue;
                 }
-                const float driven = softDrive(ears[node], currentDrive_);
+                const float driven = softDrive(
+                    ears[node] * excitationGovernorGain_, currentDrive_);
                 float sum = 0.0f;
                 for (uint32_t modeIndex = 0u;
                     modeIndex < resonatorModeCount_[node]; ++modeIndex) {
                     auto& mode = resonators_[node][modeIndex];
-                    const float value = mode.inputGain * driven
-                        + mode.coefficient * mode.y1
-                        - mode.radiusSquared * mode.y2;
+                    smoothResonatorCoefficients(mode);
+                    const float stateMagnitude = std::max(
+                        std::abs(mode.y1), std::abs(mode.y2));
+                    // Long, closely driven modes shed pole energy gradually
+                    // before reaching the remote C1-continuous state knee.
+                    // Non-finite state is the only condition that hard-resets.
+                    const float overload = std::max(
+                        0.0f, stateMagnitude * 0.25f - 1.0f);
+                    const float nonlinearDamping = 1.0f
+                        / (1.0f + 0.0025f * overload * overload);
+                    float value = mode.inputGain * driven
+                        + mode.coefficient * nonlinearDamping * mode.y1
+                        - mode.radiusSquared * nonlinearDamping
+                            * nonlinearDamping * mode.y2;
+                    if (!std::isfinite(value)) {
+                        mode.y1 = 0.0f;
+                        mode.y2 = 0.0f;
+                        value = 0.0f;
+                    } else {
+                        constexpr float kStateKnee = 24.0f;
+                        constexpr float kStateLimit = 64.0f;
+                        const float magnitude = std::abs(value);
+                        if (magnitude > kStateKnee) {
+                            const float excess = magnitude - kStateKnee;
+                            const float range = kStateLimit - kStateKnee;
+                            value = std::copysign(kStateKnee
+                                    + excess / (1.0f + excess / range),
+                                value);
+                        }
+                    }
                     mode.y2 = mode.y1;
                     mode.y1 = flushDenormal(value);
                     sum += value;
@@ -375,7 +483,7 @@ public:
             }
 
             std::array<float, kAmbiEffectDjFilterMaxPickups> delta {};
-            if (hasPrint()) {
+            if (printApplied()) {
                 routeBody(resonant, routedPrevious, previousTopology_, roamingPhase_);
                 routeBody(resonant, routedTarget, targetTopology_, roamingPhase_);
                 for (uint32_t node = 0u; node < pickupCount; ++node) {
@@ -390,14 +498,32 @@ public:
             }
 
             const uint32_t activeOut = std::min(outCount, channels);
+            float outputPeak = 0.0f;
             for (uint32_t ch = 0u; ch < activeOut; ++ch) {
-                if (!output[ch]) continue;
                 float correction = 0.0f;
                 for (uint32_t node = 0u; node < pickupCount; ++node) {
                     correction += currentMatrix_->encode[ch][node] * delta[node];
                 }
                 const float value = (field[ch] + correction * currentMix_)
                     * currentOutputGain_;
+                outputFrame[ch] = flushDenormal(
+                    std::isfinite(value) ? value : 0.0f);
+                outputPeak = std::max(outputPeak, std::abs(outputFrame[ch]));
+            }
+            constexpr float kOutputCeiling = 0.89125094f; // -1 dBFS
+            // OUT is already included in outputFrame. This final linked guard
+            // therefore protects applied, bypassed, and no-print paths alike.
+            const float target = outputPeak > kOutputCeiling
+                ? kOutputCeiling / outputPeak : 1.0f;
+            if (!std::isfinite(safetyGain_) || target < safetyGain_) {
+                safetyGain_ = target;
+            } else {
+                safetyGain_ += safetyRelease_ * (1.0f - safetyGain_);
+            }
+            safetyGain_ = clamp(std::min(safetyGain_, target), 0.0f, 1.0f);
+            for (uint32_t ch = 0u; ch < activeOut; ++ch) {
+                if (!output[ch]) continue;
+                const float value = outputFrame[ch] * safetyGain_;
                 output[ch][frameIndex] = static_cast<Sample>(flushDenormal(
                     std::isfinite(value) ? value : 0.0f));
             }
@@ -432,6 +558,9 @@ private:
         float coefficient = 0.0f;
         float radiusSquared = 0.9801f;
         float inputGain = 0.0f;
+        float nextCoefficient = 0.0f;
+        float nextRadiusSquared = 0.9801f;
+        float nextInputGain = 0.0f;
         float y1 = 0.0f;
         float y2 = 0.0f;
     };
@@ -700,27 +829,44 @@ private:
             for (uint32_t index = 0u; index < kResonancePrintMaxModes; ++index) {
                 auto& mode = resonators_[node][index];
                 mode.currentFrequency += (mode.targetFrequency
-                    - mode.currentFrequency) * 0.18f;
+                    - mode.currentFrequency) * resonatorTargetCoefficient_;
                 mode.currentRadius += (mode.targetRadius
-                    - mode.currentRadius) * 0.18f;
+                    - mode.currentRadius) * resonatorTargetCoefficient_;
                 mode.currentAmplitude += (mode.targetAmplitude
-                    - mode.currentAmplitude) * 0.18f;
-                updateResonatorCoefficients(mode);
+                    - mode.currentAmplitude) * resonatorTargetCoefficient_;
+                updateResonatorCoefficientTargets(mode);
             }
         }
     }
 
-    void updateResonatorCoefficients(Resonator& mode)
+    void updateResonatorCoefficientTargets(Resonator& mode)
     {
         const float radius = clamp(mode.currentRadius, 0.0f, 0.9999995f);
         const float omega = 2.0f * kPi * clamp(mode.currentFrequency, 20.0f,
             static_cast<float>(sampleRate_ * 0.46))
             / static_cast<float>(sampleRate_);
-        mode.coefficient = 2.0f * radius * std::cos(omega);
-        mode.radiusSquared = radius * radius;
+        mode.nextCoefficient = 2.0f * radius * std::cos(omega);
+        mode.nextRadiusSquared = radius * radius;
         const float driveGain = lerp(0.7f, 2.4f, currentDrive_);
-        mode.inputGain = mode.currentAmplitude * (1.0f - radius)
+        mode.nextInputGain = mode.currentAmplitude * (1.0f - radius)
             * driveGain * 1.8f;
+    }
+
+    static void snapResonatorCoefficients(Resonator& mode)
+    {
+        mode.coefficient = mode.nextCoefficient;
+        mode.radiusSquared = mode.nextRadiusSquared;
+        mode.inputGain = mode.nextInputGain;
+    }
+
+    void smoothResonatorCoefficients(Resonator& mode) const
+    {
+        mode.coefficient += (mode.nextCoefficient - mode.coefficient)
+            * resonatorCoefficientSmoothing_;
+        mode.radiusSquared += (mode.nextRadiusSquared - mode.radiusSquared)
+            * resonatorCoefficientSmoothing_;
+        mode.inputGain += (mode.nextInputGain - mode.inputGain)
+            * resonatorCoefficientSmoothing_;
     }
 
     static float softDrive(float value, float amount)
@@ -744,8 +890,9 @@ private:
         currentRoamingRateHz_ += (params_.roamingRateHz
             - currentRoamingRateHz_) * parameterCoefficient_;
         currentMix_ += (params_.mix - currentMix_) * parameterCoefficient_;
-        currentOutputGain_ += (dbToGain(params_.outputGainDb)
-            - currentOutputGain_) * parameterCoefficient_;
+        currentOutputGain_ += (dbToGain(outputGainTargetDb_.load(
+                std::memory_order_relaxed))
+            - currentOutputGain_) * outputGainCoefficient_;
         currentDrive_ += (params_.drive - currentDrive_) * parameterCoefficient_;
     }
 
@@ -892,6 +1039,7 @@ private:
     void finishCapture()
     {
         capturing_ = false;
+        params_.printEnabled = 0u;
         ResonancePrintData next {};
         next.version = kResonancePrintVersion;
         next.capturedBody = captureBody_;
@@ -1017,6 +1165,14 @@ private:
     float currentMix_ = 0.55f;
     float currentOutputGain_ = 1.0f;
     float currentDrive_ = 0.35f;
+    std::atomic<float> outputGainTargetDb_ { 0.0f };
+    float safetyGain_ = 1.0f;
+    float safetyRelease_ = 0.0002f;
+    float excitationGovernorGain_ = 1.0f;
+    float excitationGovernorRelease_ = 0.0001f;
+    float outputGainCoefficient_ = 0.001f;
+    float resonatorTargetCoefficient_ = 0.01f;
+    float resonatorCoefficientSmoothing_ = 0.01f;
     float parameterCoefficient_ = 0.0012f;
     float topologyCoefficient_ = 0.0015f;
     float levelCoefficient_ = 0.003f;

@@ -1105,6 +1105,20 @@ for file in "${ambi_effect_sources[@]}"; do
       "Ambi Effects use responsive editors, standard slider defaults, and the shared Sphere24 pickup body."
   fi
 done
+trace_gui="plugins/clap_ambi_effect_trace/s3g_ambi_effect_trace_gui.inc"
+if ! rg -q 'drawAmbiEffectTitleBand' "$trace_gui" \
+    || ! rg -q 'drawPanel:kOutputPanel title:@"OUTPUT"' "$trace_gui" \
+    || ! rg -q 'drawPanel:kTopologyPanel title:@"TOPOLOGY"' "$trace_gui" \
+    || ! rg -q 'drawPanel:kMaskPanel title:@"DIRECTIONAL WET MASK"' "$trace_gui" \
+    || ! rg -q 'drawTopologyProcessorCameraButtons' "$trace_gui" \
+    || ! rg -q 'drawDropdownMenu' "$trace_gui"; then
+  warn "layout" "$trace_gui" \
+    "Trace editors use the Ambi Effect title, fitted panel headers, shared field cameras, and real dropdown menus."
+fi
+if rg -q '\[@"(SPATIAL ROUTING|DIRECTIONAL WET MASK)" drawAtPoint' "$trace_gui"; then
+  warn "header" "$trace_gui" \
+    "Trace section names are panel headers, not free-floating captions."
+fi
 if ! rg -q 'kAmbiEffectFamilyLayout' \
     plugins/clap_ambi_effect_displacement/s3g_ambi_effect_displacement_clap.cpp \
     || ! rg -q 'drawAmbiEffectTitleBand' \

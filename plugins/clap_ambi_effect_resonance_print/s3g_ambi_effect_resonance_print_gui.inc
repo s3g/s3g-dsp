@@ -38,6 +38,22 @@ struct ProjectedBody {
     std::array<float, kPickups> depths {};
 };
 
+NSPoint projectDirection(s3g::Vec3 direction, float azimuthDeg,
+    float elevationDeg)
+{
+    const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
+    const float elevation = elevationDeg * s3g::kPi / 180.0f;
+    const float rotatedX = direction.x * std::cos(yaw)
+        - direction.y * std::sin(yaw);
+    const float rotatedY = direction.x * std::sin(yaw)
+        + direction.y * std::cos(yaw);
+    const float projectedY = rotatedY * std::cos(elevation)
+        + direction.z * std::sin(elevation);
+    const NSRect plot = s3g::clap_gui::cocoaRect(kFieldPlot);
+    return NSMakePoint(NSMidX(plot) + rotatedX * 176.0f,
+        plot.origin.y + 254.0 - projectedY * 176.0f);
+}
+
 ProjectedBody projectBody(s3g::AmbiEffectBody body, float azimuthDeg,
     float elevationDeg)
 {
@@ -46,18 +62,13 @@ ProjectedBody projectBody(s3g::AmbiEffectBody body, float azimuthDeg,
     const uint32_t count = s3g::ambiEffectBodyPickupCount(body);
     const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
     const float elevation = elevationDeg * s3g::kPi / 180.0f;
-    const float radius = 176.0f;
-    const NSRect plot = s3g::clap_gui::cocoaRect(kFieldPlot);
     for (uint32_t node = 0u; node < count; ++node) {
         const auto direction = directions[node];
-        const float x = direction.x * std::cos(yaw) - direction.y * std::sin(yaw);
         const float y = direction.x * std::sin(yaw) + direction.y * std::cos(yaw);
-        const float projectedY = y * std::cos(elevation)
-            - direction.z * std::sin(elevation);
-        result.depths[node] = y * std::sin(elevation)
+        result.depths[node] = -y * std::sin(elevation)
             + direction.z * std::cos(elevation);
-        result.points[node] = NSMakePoint(NSMidX(plot) + x * radius,
-            plot.origin.y + 254.0 - projectedY * radius);
+        result.points[node] = projectDirection(direction,
+            azimuthDeg, elevationDeg);
     }
     return result;
 }
@@ -76,12 +87,17 @@ NSRect decayAxisRect()
 
 NSRect captureButtonRect()
 {
-    return NSMakeRect(667.0, 253.0, 104.0, 20.0);
+    return NSMakeRect(550.0, 253.0, 100.0, 20.0);
+}
+
+NSRect applyButtonRect()
+{
+    return NSMakeRect(658.0, 253.0, 108.0, 20.0);
 }
 
 NSRect clearButtonRect()
 {
-    return NSMakeRect(782.0, 253.0, 104.0, 20.0);
+    return NSMakeRect(774.0, 253.0, 114.0, 20.0);
 }
 
 } // namespace
@@ -246,9 +262,20 @@ NSRect clearButtonRect()
         std::memory_order_relaxed);
     const auto body = static_cast<s3g::AmbiEffectBody>(
         instance->resolvedBody.load(std::memory_order_relaxed));
-    NSString* status = [NSString stringWithFormat:@"%uOA · %s · %@",
+    const float safety = instance->safetyGain.load(std::memory_order_relaxed);
+    const float governor = instance->excitationGovernorGain.load(
+        std::memory_order_relaxed);
+    NSString* governorText = governor < 0.999f
+        ? [NSString stringWithFormat:@" · GOV %.1f dB",
+            20.0f * std::log10(std::max(0.000001f, governor))]
+        : @"";
+    NSString* safetyText = safety < 0.999f
+        ? [NSString stringWithFormat:@" · SAFE %.1f dB",
+            20.0f * std::log10(std::max(0.000001f, safety))]
+        : @"";
+    NSString* status = [NSString stringWithFormat:@"%uOA · %s · %@%@%@",
         instance->params.order, s3g::ambiEffectBodyName(body),
-        s3g::clap_gui::peakDbText(peak)];
+        s3g::clap_gui::peakDbText(peak), governorText, safetyText];
     s3g::clap_gui::drawTransformTitleBand(
         @"s3g AMBI EFFECT RESONANCE PRINT 64CH",
         [NSString stringWithUTF8String:instance->presetName], status,
@@ -257,6 +284,9 @@ NSRect clearButtonRect()
     s3g::clap_gui::drawPanelFrame(kFieldPanel, style);
     s3g::clap_gui::drawPanelHeader(@"DIRECTIONAL RESONANCE PRINT", true,
         kFieldPanel, label, style);
+    const NSRect fieldPanel = s3g::clap_gui::cocoaRect(kFieldPanel.frame);
+    s3g::clap_gui::drawTopologyProcessorCameraButtons(
+        fieldPanel, _viewMode, label, style);
     const NSRect plot = s3g::clap_gui::cocoaRect(kFieldPlot);
     [s3g::clap_gui::color(0x111513) setFill];
     NSRectFill(plot);
@@ -265,10 +295,13 @@ NSRect clearButtonRect()
 
     const bool capturingNow = instance->capturing.load(std::memory_order_relaxed);
     const bool printed = instance->hasPrint.load(std::memory_order_relaxed);
+    const bool printApplied = printed && instance->params.printEnabled != 0u;
     const float progress = instance->captureProgress.load(std::memory_order_relaxed);
     NSString* printStatus = capturingNow
         ? [NSString stringWithFormat:@"LISTENING  %.0f%%", progress * 100.0f]
-        : (printed ? @"PRINT READY" : @"NO PRINT — PRESS CAPTURE");
+        : (printed
+            ? (printApplied ? @"PRINT APPLIED" : @"PRINT READY · BYPASSED")
+            : @"NO PRINT — PRESS CAPTURE");
     [printStatus drawAtPoint:NSMakePoint(plot.origin.x + 12.0, plot.origin.y + 10.0)
         withAttributes:value];
     if (capturingNow) {
@@ -294,6 +327,36 @@ NSRect clearButtonRect()
             [edge lineToPoint:projected.points[second]];
             [edge stroke];
         }
+    }
+    if (instance->params.maskAmount > 0.001f) {
+        const float azimuth = instance->params.maskAzimuthDeg
+            * s3g::kPi / 180.0f;
+        const float elevation = instance->params.maskElevationDeg
+            * s3g::kPi / 180.0f;
+        const float cosElevation = std::cos(elevation);
+        const s3g::Vec3 direction {
+            cosElevation * std::cos(azimuth),
+            cosElevation * std::sin(azimuth),
+            std::sin(elevation),
+        };
+        const NSPoint target = projectDirection(direction,
+            static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
+        const CGFloat radius = 15.0 + instance->params.maskWidth * 34.0;
+        [s3g::clap_gui::color(0xcbd0cd,
+            0.24 + instance->params.maskAmount * 0.54) setStroke];
+        NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:
+            NSMakeRect(target.x - radius, target.y - radius,
+                radius * 2.0, radius * 2.0)];
+        CGFloat dash[] { 4.0, 3.0 };
+        [ring setLineDash:dash count:2 phase:0.0];
+        [ring setLineWidth:1.0];
+        [ring stroke];
+        NSBezierPath* cross = [NSBezierPath bezierPath];
+        [cross moveToPoint:NSMakePoint(target.x - 5.0, target.y)];
+        [cross lineToPoint:NSMakePoint(target.x + 5.0, target.y)];
+        [cross moveToPoint:NSMakePoint(target.x, target.y - 5.0)];
+        [cross lineToPoint:NSMakePoint(target.x, target.y + 5.0)];
+        [cross stroke];
     }
     std::array<uint32_t, kPickups> depthOrder {};
     for (uint32_t node = 0u; node < count; ++node) depthOrder[node] = node;
@@ -383,6 +446,8 @@ NSRect clearButtonRect()
     };
     drawButton(captureButtonRect(), capturingNow ? @"CANCEL" : @"CAPTURE",
         capturingNow);
+    drawButton(applyButtonRect(), printApplied ? @"BYPASS PRINT" : @"APPLY PRINT",
+        printApplied);
     drawButton(clearButtonRect(), @"CLEAR PRINT", false);
 
     [self drawSlider:@"TRANS" value:[NSString stringWithFormat:@"%+.1f st",
@@ -555,9 +620,26 @@ NSRect clearButtonRect()
         _openMenu = 0; _hoverMenuItem = -1;
         [self setNeedsDisplay:YES]; return;
     }
+    const NSRect fieldPanel = s3g::clap_gui::cocoaRect(kFieldPanel.frame);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (NSPointInRect(point,
+            s3g::clap_gui::topologyProcessorCameraButtonRect(
+                fieldPanel, index))) {
+            [self setViewPreset:static_cast<int>(index)];
+            return;
+        }
+    }
     if (NSPointInRect(point, captureButtonRect())) {
         [self setParam:kParamCapture value:1.0];
         [self setParam:kParamCapture value:0.0];
+        return;
+    }
+    if (NSPointInRect(point, applyButtonRect())) {
+        if (!instance->capturing.load(std::memory_order_relaxed)
+            && instance->hasPrint.load(std::memory_order_relaxed)) {
+            [self setParam:kParamPrintEnabled
+                value:instance->params.printEnabled != 0u ? 0.0 : 1.0];
+        }
         return;
     }
     if (NSPointInRect(point, clearButtonRect())) {

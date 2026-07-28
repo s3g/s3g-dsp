@@ -101,6 +101,20 @@ public:
         params_ = params;
     }
 
+    // Opts an instrument into a wider interpretation of the same five score
+    // controls without changing their public parameter or serialized layout.
+    // At zero the original score is bit-for-bit unchanged. At one, pace can
+    // create true geological gaps, occupancy spans an empty-to-full field,
+    // cascade can cross several neighbours, memory retains entity state, and
+    // rest reaches much longer aftermaths. Cryosphere's appended aperiodic
+    // lattice process uses the expanded range; established processes do not.
+    void setRangeExpansion(float amount)
+    {
+        rangeExpansion_ = finiteUnit(amount, rangeExpansion_);
+    }
+
+    float rangeExpansion() const { return rangeExpansion_; }
+
     const EnvironmentalScoreParams& params() const { return params_; }
 
     void setEntityPosition(uint32_t index, float x, float y, float z)
@@ -255,7 +269,11 @@ private:
 
     float effectivePace() const
     {
-        return std::clamp(params_.pace * sceneCurrent_.pace,
+        const float expandedScene = sceneCurrent_.pace > 0.0001f
+            ? sceneCurrent_.pace : 1.0f;
+        const float scene = sceneCurrent_.pace
+            + (expandedScene - sceneCurrent_.pace) * rangeExpansion_;
+        return std::clamp(params_.pace * scene,
             0.0f, 1.0f);
     }
 
@@ -269,50 +287,79 @@ private:
 
     float variedSeconds(Entity& entity, float base, float spread)
     {
+        const float random = randomUnit(entity.rng);
         const float retained = 0.84f + params_.memory * 0.14f;
-        const float variation = retained
-            + randomUnit(entity.rng) * spread
+        const float legacyVariation = retained
+            + random * spread
                 * (1.0f - params_.memory * 0.62f);
+        const float expandedRetained = 0.48f + params_.memory * 0.51f;
+        const float expandedVariation = expandedRetained
+            + random * spread
+                * (1.0f - params_.memory * 0.90f);
+        const float variation = legacyVariation
+            + (expandedVariation - legacyVariation) * rangeExpansion_;
         return std::max(0.015f, base * variation);
     }
 
     float restSeconds(Entity& entity)
     {
-        const float base = exponentialMap(effectivePace(), 24.0f, 0.18f)
+        const float legacy = exponentialMap(effectivePace(), 24.0f, 0.18f)
             * (0.34f + params_.rest * 1.86f);
+        const float occupancyCompression = 1.0f
+            - std::pow(params_.occupancy, 4.0f) * 0.72f;
+        const float expanded = exponentialMap(
+                effectivePace(), 240.0f, 0.03f)
+            * exponentialMap(params_.rest, 0.65f, 2.2f)
+            * occupancyCompression;
+        const float base = legacy + (expanded - legacy) * rangeExpansion_;
         return variedSeconds(entity, base, 0.78f);
     }
 
     float accumulationSeconds(Entity& entity)
     {
+        const float legacy = exponentialMap(effectivePace(), 8.0f, 0.16f);
+        const float expanded = exponentialMap(effectivePace(), 4.0f, 0.20f);
         return variedSeconds(entity,
-            exponentialMap(effectivePace(), 8.0f, 0.16f), 0.62f);
+            legacy + (expanded - legacy) * rangeExpansion_, 0.62f);
     }
 
     float initiationSeconds(Entity& entity)
     {
+        const float legacy = 0.045f
+            + (1.0f - effectivePace()) * 0.32f;
+        const float expanded = 0.025f
+            + (1.0f - effectivePace()) * 0.42f;
         return variedSeconds(entity,
-            0.045f + (1.0f - effectivePace()) * 0.32f, 0.38f);
+            legacy + (expanded - legacy) * rangeExpansion_, 0.38f);
     }
 
     float propagationSeconds(Entity& entity)
     {
+        const float legacy = exponentialMap(effectivePace(), 4.2f, 0.075f);
+        const float expanded = exponentialMap(effectivePace(), 2.4f, 0.08f);
         return variedSeconds(entity,
-            exponentialMap(effectivePace(), 4.2f, 0.075f), 0.72f);
+            legacy + (expanded - legacy) * rangeExpansion_, 0.72f);
     }
 
     float consequenceSeconds(Entity& entity)
     {
+        const float legacy = 0.10f
+            + (1.0f - effectivePace()) * 0.86f
+            + entity.intensity * 0.24f;
+        const float expanded = 0.06f
+            + (1.0f - effectivePace()) * 0.72f
+            + entity.intensity * 0.18f;
         return variedSeconds(entity,
-            0.10f + (1.0f - effectivePace()) * 0.86f
-                + entity.intensity * 0.24f,
-            0.48f);
+            legacy + (expanded - legacy) * rangeExpansion_, 0.48f);
     }
 
     float aftermathSeconds(Entity& entity)
     {
-        const float base = exponentialMap(effectivePace(), 7.5f, 0.22f)
+        const float legacy = exponentialMap(effectivePace(), 7.5f, 0.22f)
             * (0.40f + params_.rest * 1.24f);
+        const float expanded = exponentialMap(effectivePace(), 5.5f, 0.16f)
+            * exponentialMap(params_.rest, 0.04f, 8.0f);
+        const float base = legacy + (expanded - legacy) * rangeExpansion_;
         return variedSeconds(entity, base, 0.68f);
     }
 
@@ -320,9 +367,20 @@ private:
     {
         const float shaped = std::pow(params_.occupancy, 1.35f)
             * sceneCurrent_.occupancy;
-        return std::clamp(1.0f + shaped
+        const float legacy = std::clamp(1.0f + shaped
                 * static_cast<float>(entityCount_ - 1u),
             1.0f, static_cast<float>(entityCount_));
+        const float sceneOccupancy = sceneCurrent_.occupancy > 0.0001f
+            ? sceneCurrent_.occupancy : 1.0f;
+        const float sceneMix = 4.0f * params_.occupancy
+            * (1.0f - params_.occupancy);
+        const float expandedScene = 1.0f
+            + (sceneOccupancy - 1.0f) * sceneMix;
+        const float expanded = std::clamp(
+            std::pow(params_.occupancy, 1.18f)
+                * static_cast<float>(entityCount_) * expandedScene,
+            0.0f, static_cast<float>(entityCount_));
+        return legacy + (expanded - legacy) * rangeExpansion_;
     }
 
     void setStage(Entity& entity, EnvironmentalScoreStage stage,
@@ -347,7 +405,7 @@ private:
         if (!initial) ++arcCount_;
     }
 
-    void advanceEntity(uint32_t index, uint32_t activeEntities,
+    void advanceEntity(uint32_t index, uint32_t& activeEntities,
         float target, float homeostasis)
     {
         auto& entity = entities_[index];
@@ -358,14 +416,24 @@ private:
                 (target - static_cast<float>(activeEntities))
                     / std::max(1.0f, target),
                 -1.0f, 1.0f);
-            const float probability = std::clamp(
+            const float legacyProbability = std::clamp(
                 0.10f + vacancy * 0.72f + homeostasis * 0.22f
                     + params_.occupancy * 0.16f,
                 0.015f, 0.98f);
+            const float expandedProbability = static_cast<float>(activeEntities)
+                    >= std::ceil(target)
+                ? 0.0f
+                : std::clamp(0.02f + vacancy * 0.92f
+                        + params_.occupancy * 0.12f,
+                    0.0f, 1.0f);
+            const float probability = legacyProbability
+                + (expandedProbability - legacyProbability)
+                    * rangeExpansion_;
             if (randomUnit(entity.rng) < probability) {
                 startArc(index,
                     0.38f + randomUnit(entity.rng) * 0.72f,
                     false);
+                if (rangeExpansion_ > 0.0f) ++activeEntities;
             } else {
                 entity.stageDuration = std::max(0.025f,
                     restSeconds(entity)
@@ -406,8 +474,21 @@ private:
             break;
         case EnvironmentalScoreStage::Aftermath:
         default:
-            entity.intensity *= 0.12f;
-            entity.resource = 0.0f;
+            {
+                const float memoryRise = smoothstep(
+                    (params_.memory - 0.66f) / 0.34f);
+                const float memoryFall = std::clamp(
+                    params_.memory / 0.66f, 0.0f, 1.0f);
+                const float expandedRetention = params_.memory < 0.66f
+                    ? 0.12f * memoryFall
+                    : 0.12f + memoryRise * 0.60f;
+                const float intensityRetention = 0.12f
+                    + (expandedRetention - 0.12f) * rangeExpansion_;
+                const float resourceRetention = memoryRise * 0.65f
+                    * rangeExpansion_;
+                entity.intensity *= intensityRetention;
+                entity.resource *= resourceRetention;
+            }
             setStage(entity, EnvironmentalScoreStage::Rest,
                 restSeconds(entity));
             break;
@@ -489,8 +570,13 @@ private:
         if (sourceIndex >= entityCount_ || entityCount_ < 2u) return;
         auto& source = entities_[sourceIndex];
 
-        std::array<uint32_t, 2> nearest { sourceIndex, sourceIndex };
-        std::array<float, 2> distances { 1.0e9f, 1.0e9f };
+        constexpr uint32_t kWideNeighbourCount = 8u;
+        std::array<uint32_t, kWideNeighbourCount> nearest {};
+        nearest.fill(sourceIndex);
+        std::array<float, kWideNeighbourCount> distances {};
+        distances.fill(1.0e9f);
+        uint32_t farthest = sourceIndex;
+        float farthestDistance = -1.0f;
         for (uint32_t target = 0u; target < entityCount_; ++target) {
             if (target == sourceIndex) continue;
             const auto& candidate = entities_[target];
@@ -498,14 +584,20 @@ private:
             const float dy = source.y - candidate.y;
             const float dz = source.z - candidate.z;
             const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-            if (distance < distances[0]) {
-                distances[1] = distances[0];
-                nearest[1] = nearest[0];
-                distances[0] = distance;
-                nearest[0] = target;
-            } else if (distance < distances[1]) {
-                distances[1] = distance;
-                nearest[1] = target;
+            if (distance > farthestDistance) {
+                farthestDistance = distance;
+                farthest = target;
+            }
+            for (uint32_t rank = 0u; rank < kWideNeighbourCount; ++rank) {
+                if (distance >= distances[rank]) continue;
+                for (uint32_t shifted = kWideNeighbourCount - 1u;
+                    shifted > rank; --shifted) {
+                    distances[shifted] = distances[shifted - 1u];
+                    nearest[shifted] = nearest[shifted - 1u];
+                }
+                distances[rank] = distance;
+                nearest[rank] = target;
+                break;
             }
         }
 
@@ -516,6 +608,28 @@ private:
             scheduleCascadeTarget(source, nearest[1], distances[1],
                 propagationStrength * 0.58f);
         }
+        const float extent = rangeExpansion_ * smoothstep(
+            (params_.cascade - 0.58f) / 0.42f);
+        const uint32_t extraCount = static_cast<uint32_t>(
+            std::lround(extent * 6.0f));
+        for (uint32_t extra = 0u; extra < extraCount; ++extra) {
+            const uint32_t rank = extra + 2u;
+            if (nearest[rank] == sourceIndex) break;
+            const float reach = extent
+                * (0.96f - static_cast<float>(extra) * 0.08f);
+            if (randomUnit(source.rng) < reach) {
+                scheduleCascadeTarget(source, nearest[rank], distances[rank],
+                    propagationStrength * (0.54f
+                        - static_cast<float>(extra) * 0.045f));
+            }
+        }
+        if (extent > 0.72f && farthest != sourceIndex
+            && std::find(nearest.begin(), nearest.end(), farthest)
+                == nearest.end()
+            && randomUnit(source.rng) < extent) {
+            scheduleCascadeTarget(source, farthest, farthestDistance,
+                propagationStrength * (0.26f + extent * 0.22f));
+        }
     }
 
     void scheduleCascadeTarget(Entity& source, uint32_t targetIndex,
@@ -523,8 +637,16 @@ private:
     {
         if (targetIndex >= entityCount_) return;
         auto& target = entities_[targetIndex];
+        const float expandedCascade = 0.34f + params_.cascade * 0.66f;
+        const float cascadeGain = params_.cascade
+            + (expandedCascade - params_.cascade) * rangeExpansion_;
+        const float expandedSceneCascade = sceneCurrent_.cascade > 0.0001f
+            ? sceneCurrent_.cascade : 1.0f;
+        const float sceneCascade = sceneCurrent_.cascade
+            + (expandedSceneCascade - sceneCurrent_.cascade)
+                * rangeExpansion_;
         const float strength = std::clamp(source.intensity
-                * params_.cascade * sceneCurrent_.cascade * scale
+                * cascadeGain * sceneCascade * scale
                 * (1.0f / (1.0f + distance * 0.42f)),
             0.0f, 1.25f);
         if (strength < 0.025f) return;
@@ -587,27 +709,58 @@ private:
             }
             lastScene_ = selected;
             const auto candidate = scenes[selected];
-            const float reach = 0.22f + (1.0f - params_.memory) * 0.70f;
+            const float legacyReach = 0.22f
+                + (1.0f - params_.memory) * 0.70f;
+            const float expandedReach = 0.03f
+                + 0.97f * (1.0f
+                    - std::pow(params_.memory, 1.4f));
+            const float reach = legacyReach
+                + (expandedReach - legacyReach) * rangeExpansion_;
+            const float lowerSceneBound = 0.42f
+                + (0.18f - 0.42f) * rangeExpansion_;
+            const float upperPaceBound = 1.42f
+                + (1.82f - 1.42f) * rangeExpansion_;
+            const float upperOccupancyBound = 1.38f
+                + (1.72f - 1.38f) * rangeExpansion_;
+            const float lowerCascadeBound = 0.24f
+                + (0.08f - 0.24f) * rangeExpansion_;
+            const float upperCascadeBound = 1.48f
+                + (1.92f - 1.48f) * rangeExpansion_;
             sceneTarget_.pace = std::clamp(
                 sceneCurrent_.pace
                     + (candidate.pace - sceneCurrent_.pace) * reach,
-                0.42f, 1.42f);
+                lowerSceneBound, upperPaceBound);
             sceneTarget_.occupancy = std::clamp(
                 sceneCurrent_.occupancy
                     + (candidate.occupancy - sceneCurrent_.occupancy) * reach,
-                0.42f, 1.38f);
+                lowerSceneBound, upperOccupancyBound);
             sceneTarget_.cascade = std::clamp(
                 sceneCurrent_.cascade
                     + (candidate.cascade - sceneCurrent_.cascade) * reach,
-                0.24f, 1.48f);
-            const float macroBase = exponentialMap(params_.pace,
+                lowerCascadeBound, upperCascadeBound);
+            const float legacyMacroBase = exponentialMap(params_.pace,
                 52.0f, 7.0f);
+            const float expandedMacroBase = exponentialMap(params_.pace,
+                120.0f, 3.0f);
+            const float macroBase = legacyMacroBase
+                + (expandedMacroBase - legacyMacroBase) * rangeExpansion_;
+            const float legacyMemoryScale = 0.76f
+                + params_.memory * 0.48f;
+            const float expandedMemoryScale = exponentialMap(
+                params_.memory, 0.18f, 3.2f);
+            const float memoryScale = legacyMemoryScale
+                + (expandedMemoryScale - legacyMemoryScale)
+                    * rangeExpansion_;
             sceneRemainingSeconds_ += macroBase
                 * (0.72f + randomUnit(sceneRng_) * 0.76f)
-                * (0.76f + params_.memory * 0.48f);
+                * memoryScale;
         }
-        const float smoothing = 1.0f - std::exp(-dt
-            / (0.8f + params_.memory * 3.2f));
+        const float legacyTime = 0.8f + params_.memory * 3.2f;
+        const float expandedTime = exponentialMap(params_.memory,
+            0.10f, 18.0f);
+        const float smoothingTime = legacyTime
+            + (expandedTime - legacyTime) * rangeExpansion_;
+        const float smoothing = 1.0f - std::exp(-dt / smoothingTime);
         sceneCurrent_.pace +=
             (sceneTarget_.pace - sceneCurrent_.pace) * smoothing;
         sceneCurrent_.occupancy +=
@@ -630,6 +783,7 @@ private:
     MacroScene sceneTarget_ {};
     float sceneRemainingSeconds_ = 4.0f;
     float globalActivity_ = 0.0f;
+    float rangeExpansion_ = 0.0f;
     uint64_t arcCount_ = 0u;
     uint64_t cascadeCount_ = 0u;
     uint64_t consequenceCount_ = 0u;

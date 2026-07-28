@@ -61,6 +61,21 @@ int main()
     surface.enabled = 1u;
     s3g::sanitizeParameterSurface(surface);
 
+    auto bypassed = surface;
+    const auto firstCellBeforeBypass = bypassed.cells[0];
+    if (!s3g::bypassParameterSurfaceForSceneChange(bypassed)
+        || bypassed.enabled != 0u
+        || bypassed.cellCount != surface.cellCount
+        || !near(bypassed.cells[0].x, firstCellBeforeBypass.x)
+        || !near(bypassed.cells[0].y, firstCellBeforeBypass.y)
+        || !near(bypassed.cells[0].params.value,
+            firstCellBeforeBypass.params.value)
+        || s3g::bypassParameterSurfaceForSceneChange(bypassed)) {
+        std::fprintf(stderr,
+            "scene change did not bypass and preserve surface\n");
+        return 1;
+    }
+
     const auto center = s3g::parameterSurfaceWeights(surface, 0.5f, 0.5f);
     const float value = s3g::parameterSurfaceBlend(surface, center,
         [](const Params& p) { return p.value; }, -1.0f);

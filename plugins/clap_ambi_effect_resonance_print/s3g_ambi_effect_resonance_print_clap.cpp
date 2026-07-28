@@ -28,7 +28,7 @@ namespace {
 constexpr uint32_t kChannels = s3g::kAmbiEffectDjFilterMaxChannels;
 constexpr uint32_t kPickups = s3g::kAmbiEffectDjFilterMaxPickups;
 constexpr uint32_t kStateMagic = 0x52504e54u; // RPNT
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kGuiWidth = 920u;
 constexpr uint32_t kGuiHeight = 820u;
 
@@ -59,13 +59,82 @@ enum ParamId : clap_id {
     kParamMaskWidth,
     kParamMaskCurve,
     kParamMaskDry,
+    kParamPrintEnabled,
     kParamPickupTuneFirst = 100,
     kParamPickupTuneLast = kParamPickupTuneFirst + kPickups - 1u,
     kParamPickupDecayFirst = 200,
     kParamPickupDecayLast = kParamPickupDecayFirst + kPickups - 1u,
 };
 
-constexpr uint32_t kBaseParamCount = 26u;
+constexpr uint32_t kBaseParamCount = 27u;
+
+// Version 1 serialized the parameter block directly. Keep its exact layout so
+// previously saved prints can be restored safely, but migrate them as bypassed.
+struct AmbiEffectResonancePrintParamsV1 {
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float captureSeconds = 0.75f;
+    float sensitivity = 0.65f;
+    uint32_t modalCount = 10u;
+    float transposeSemitones = 0.0f;
+    float harmonicPull = 0.0f;
+    float harmonicStretch = 0.0f;
+    float decaySeconds = 1.8f;
+    float decayTilt = 0.15f;
+    float drive = 0.35f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 0.55f;
+    float outputGainDb = 0.0f;
+    std::array<float, kPickups> pickupTuneTrim {};
+    std::array<float, kPickups> pickupDecayTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
+};
+
+static_assert(sizeof(AmbiEffectResonancePrintParamsV1) + sizeof(uint32_t)
+    == sizeof(s3g::AmbiEffectResonancePrintParams));
+
+s3g::AmbiEffectResonancePrintParams migrateParams(
+    const AmbiEffectResonancePrintParamsV1& old)
+{
+    s3g::AmbiEffectResonancePrintParams params {};
+    params.order = old.order;
+    params.body = old.body;
+    params.topology = old.topology;
+    params.captureSeconds = old.captureSeconds;
+    params.sensitivity = old.sensitivity;
+    params.modalCount = old.modalCount;
+    params.transposeSemitones = old.transposeSemitones;
+    params.harmonicPull = old.harmonicPull;
+    params.harmonicStretch = old.harmonicStretch;
+    params.decaySeconds = old.decaySeconds;
+    params.decayTilt = old.decayTilt;
+    params.drive = old.drive;
+    params.spread = old.spread;
+    params.deviation = old.deviation;
+    params.topologyAmount = old.topologyAmount;
+    params.roamingRateHz = old.roamingRateHz;
+    params.mix = old.mix;
+    params.outputGainDb = old.outputGainDb;
+    params.pickupTuneTrim = old.pickupTuneTrim;
+    params.pickupDecayTrim = old.pickupDecayTrim;
+    params.maskAmount = old.maskAmount;
+    params.maskAzimuthDeg = old.maskAzimuthDeg;
+    params.maskElevationDeg = old.maskElevationDeg;
+    params.maskWidth = old.maskWidth;
+    params.maskCurve = old.maskCurve;
+    params.maskDry = old.maskDry;
+    params.printEnabled = 0u;
+    return params;
+}
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -87,6 +156,8 @@ struct Plugin {
     std::atomic<uint32_t> resolvedBody {
         static_cast<uint32_t>(s3g::AmbiEffectBody::Sphere24) };
     std::atomic<float> roamingPhase { 0.0f };
+    std::atomic<float> safetyGain { 1.0f };
+    std::atomic<float> excitationGovernorGain { 1.0f };
     std::atomic<float> captureProgress { 0.0f };
     std::atomic<float> fundamentalHz { 0.0f };
     std::atomic<float> pitchConfidence { 0.0f };
@@ -135,7 +206,7 @@ bool pickupDecayIndex(clap_id id, uint32_t& index)
 bool isParam(clap_id id)
 {
     uint32_t index = 0u;
-    return (id >= kParamOrder && id <= kParamMaskDry)
+    return (id >= kParamOrder && id <= kParamPrintEnabled)
         || pickupTuneIndex(id, index) || pickupDecayIndex(id, index);
 }
 
@@ -144,7 +215,8 @@ bool paramAffectsTail(clap_id id)
     uint32_t index = 0u;
     return id == kParamDecay || id == kParamDecayTilt
         || id == kParamSpread || id == kParamDeviation
-        || pickupDecayIndex(id, index) || id == kParamClear;
+        || pickupDecayIndex(id, index) || id == kParamClear
+        || id == kParamPrintEnabled;
 }
 
 void markTailChanged(Plugin& plugin)
@@ -208,10 +280,15 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamMaskWidth: plugin.params.maskWidth = static_cast<float>(value); break;
     case kParamMaskCurve: plugin.params.maskCurve = static_cast<float>(value); break;
     case kParamMaskDry: plugin.params.maskDry = static_cast<float>(value + 1.0); break;
+    case kParamPrintEnabled: plugin.params.printEnabled = value > 0.5 ? 1u : 0u; break;
     default: return;
     }
     plugin.params = s3g::sanitizeAmbiEffectResonancePrintParams(plugin.params);
-    plugin.processor.setParams(plugin.params);
+    if (id == kParamOutput) {
+        plugin.processor.setOutputGainTarget(plugin.params.outputGainDb);
+    } else {
+        plugin.processor.setParams(plugin.params);
+    }
     if (paramAffectsTail(id)) markTailChanged(plugin);
 }
 
@@ -247,6 +324,7 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamMaskWidth: return plugin.params.maskWidth;
     case kParamMaskCurve: return plugin.params.maskCurve;
     case kParamMaskDry: return plugin.params.maskDry - 1.0f;
+    case kParamPrintEnabled: return plugin.params.printEnabled;
     default: return 0.0;
     }
 }
@@ -300,17 +378,22 @@ void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
 void serviceCommands(Plugin& plugin)
 {
     if (plugin.clearRequest.exchange(false, std::memory_order_acq_rel)) {
+        plugin.params.printEnabled = 0u;
         plugin.processor.clearPrint();
         markTailChanged(plugin);
     }
     if (plugin.captureRequest.exchange(false, std::memory_order_acq_rel)) {
+        plugin.params.printEnabled = 0u;
+        plugin.processor.setParams(plugin.params);
         if (plugin.processor.isCapturing()) plugin.processor.cancelCapture();
         else plugin.processor.beginCapture();
+        markTailChanged(plugin);
     }
 }
 
 void publishStatus(Plugin& plugin)
 {
+    plugin.params.printEnabled = plugin.processor.params().printEnabled;
     uint32_t modes = 0u;
     for (uint32_t node = 0u; node < kPickups; ++node) {
         plugin.nodeLevel[node].store(plugin.processor.nodeLevel(node),
@@ -324,6 +407,9 @@ void publishStatus(Plugin& plugin)
     plugin.resolvedBody.store(static_cast<uint32_t>(plugin.processor.resolvedBody()),
         std::memory_order_relaxed);
     plugin.roamingPhase.store(plugin.processor.roamingPhase(), std::memory_order_relaxed);
+    plugin.safetyGain.store(plugin.processor.safetyGain(), std::memory_order_relaxed);
+    plugin.excitationGovernorGain.store(
+        plugin.processor.excitationGovernorGain(), std::memory_order_relaxed);
     plugin.captureProgress.store(plugin.processor.captureProgress(), std::memory_order_relaxed);
     plugin.fundamentalHz.store(plugin.processor.fundamentalHz(), std::memory_order_relaxed);
     plugin.pitchConfidence.store(plugin.processor.pitchConfidence(), std::memory_order_relaxed);
@@ -466,6 +552,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         { kParamMaskWidth, "Directional mask width", 0.0, 1.0, 0.35, false },
         { kParamMaskCurve, "Directional mask curve", 0.0, 1.0, 0.5, false },
         { kParamMaskDry, "Directional mask dry attenuation", -1.0, 0.0, 0.0, false },
+        { kParamPrintEnabled, "Apply print", 0.0, 1.0, 0.0, true },
     };
     if (index >= std::size(specs)) return false;
     const auto& spec = specs[index];
@@ -508,6 +595,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id,
         break;
     case kParamCapture: case kParamClear:
         std::snprintf(display, size, "%s", value > 0.5 ? "TRIGGER" : "READY"); break;
+    case kParamPrintEnabled:
+        std::snprintf(display, size, "%s", value > 0.5 ? "APPLIED" : "BYPASSED"); break;
     case kParamCaptureSeconds: case kParamDecay:
         std::snprintf(display, size, "%.2f s", value); break;
     case kParamModalCount: std::snprintf(display, size, "%u", roundedUint(value)); break;
@@ -554,6 +643,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         *value = std::strcmp(display, "TRIGGER") == 0 ? 1.0 : 0.0;
         return true;
     }
+    if (id == kParamPrintEnabled) {
+        *value = std::strcmp(display, "APPLIED") == 0 ? 1.0 : 0.0;
+        return true;
+    }
     if (id == kParamMaskDry
         && (std::strcmp(display, "FX ONLY") == 0
             || std::strcmp(display, "-100% FX ONLY") == 0)) {
@@ -579,7 +672,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 void paramsFlush(const clap_plugin_t* plugin,
     const clap_input_events_t* events, const clap_output_events_t*)
 {
-    readParamEvents(*self(plugin), events);
+    auto* instance = self(plugin);
+    readParamEvents(*instance, events);
+    serviceCommands(*instance);
+    publishStatus(*instance);
 }
 
 const clap_plugin_params_t paramsExt {
@@ -637,9 +733,16 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     float elevation = 34.0f;
     if (!readAll(stream, &magic, sizeof(magic))
         || !readAll(stream, &version, sizeof(version))
-        || magic != kStateMagic || version != kStateVersion
-        || !readAll(stream, &params, sizeof(params))
-        || !readAll(stream, &print, sizeof(print))
+        || magic != kStateMagic
+        || (version != 1u && version != kStateVersion)) return false;
+    if (version == kStateVersion) {
+        if (!readAll(stream, &params, sizeof(params))) return false;
+    } else {
+        AmbiEffectResonancePrintParamsV1 oldParams {};
+        if (!readAll(stream, &oldParams, sizeof(oldParams))) return false;
+        params = migrateParams(oldParams);
+    }
+    if (!readAll(stream, &print, sizeof(print))
         || !readAll(stream, &viewMode, sizeof(viewMode))
         || !readAll(stream, &azimuth, sizeof(azimuth))
         || !readAll(stream, &elevation, sizeof(elevation))) return false;

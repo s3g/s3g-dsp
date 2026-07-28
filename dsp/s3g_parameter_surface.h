@@ -156,6 +156,19 @@ inline void sanitizeParameterSurface(ParameterSurfaceState<Params>& surface)
     if (surface.cellCount < 2u) surface.enabled = 0u;
 }
 
+// A global RANDOM or other explicit whole-scene action creates a complete base
+// scene. Bypass the interpolator so that scene becomes immediately audible,
+// while deliberately preserving the user's cells and performance map for
+// later re-enabling.
+template <typename Params>
+inline bool bypassParameterSurfaceForSceneChange(
+    ParameterSurfaceState<Params>& surface)
+{
+    const bool wasEnabled = surface.enabled != 0u;
+    surface.enabled = 0u;
+    return wasEnabled;
+}
+
 template <typename Params>
 inline bool addParameterSurfaceCell(
     ParameterSurfaceState<Params>& surface, const Params& params,

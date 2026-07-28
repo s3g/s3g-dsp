@@ -6,7 +6,15 @@
 #include <clap/ext/tail.h>
 
 #include "../plugins/common/s3g_cocoa_gui.h"
+#include "../dsp/s3g_ambi_cryosphere_encoder.h"
+#include "../dsp/s3g_ambi_insect_encoder.h"
+#include "../dsp/s3g_ambi_pyrosphere_encoder.h"
+#include "../dsp/s3g_ambi_stochastic_encoder.h"
+#include "../dsp/s3g_ambi_water_encoder.h"
+#include "../dsp/s3g_ambi_wind_encoder.h"
+#include "../dsp/s3g_ambi_wrangler_encoder.h"
 #include "../dsp/s3g_musical_scales.h"
+#include "../dsp/s3g_parameter_surface.h"
 
 #include <array>
 #include <algorithm>
@@ -32,6 +40,44 @@ struct MemoryPluginState {
     std::vector<uint8_t> bytes;
     size_t offset = 0u;
 };
+
+template <typename Params>
+struct WorldSphereSavedState {
+    uint32_t version = 0u;
+    Params params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+    s3g::ParameterSurfaceState<Params> surface {};
+};
+
+struct StochasticSavedState {
+    uint32_t version = 0u;
+    s3g::AmbiStochasticParams params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    s3g::ParameterSurfaceState<s3g::AmbiStochasticParams> surface {};
+};
+
+bool decodeStochasticState(const MemoryPluginState& memory,
+                           StochasticSavedState& decoded)
+{
+    if (memory.bytes.size() != sizeof(decoded)) return false;
+    std::memcpy(&decoded, memory.bytes.data(), sizeof(decoded));
+    return true;
+}
+
+template <typename Params>
+bool decodeWorldSphereState(const MemoryPluginState& memory,
+                            WorldSphereSavedState<Params>& decoded)
+{
+    if (memory.bytes.size() != sizeof(decoded)) return false;
+    std::memcpy(&decoded, memory.bytes.data(), sizeof(decoded));
+    return true;
+}
 
 struct SingleParamEventInput {
     clap_input_events_t events {};
@@ -119,6 +165,18 @@ int64_t stateWrite(const clap_ostream_t* stream,
     const auto* first = static_cast<const uint8_t*>(source);
     state->bytes.insert(state->bytes.end(), first, first + count);
     return static_cast<int64_t>(count);
+}
+
+int64_t stateWriteWhole(const clap_ostream_t* stream,
+                        const void* source,
+                        uint64_t requested)
+{
+    auto* state = static_cast<MemoryPluginState*>(stream->ctx);
+    if (!state || (!source && requested > 0u)) return -1;
+    if (requested == 0u) return 0;
+    const auto* first = static_cast<const uint8_t*>(source);
+    state->bytes.insert(state->bytes.end(), first, first + requested);
+    return static_cast<int64_t>(requested);
 }
 
 int64_t stateRead(const clap_istream_t* stream,
@@ -580,6 +638,244 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        const bool cryosphere = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0;
+        const bool pyrosphere = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0;
+        const bool water = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0;
+        const bool wind = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0;
+        const bool insect = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0;
+        const bool environmentalSurface =
+            cryosphere || pyrosphere || water || wind || insect;
+        if (ok && environmentalSurface) {
+            failureStage = "environmental RANDOM and SURF contract";
+            const auto* pluginState =
+                static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE));
+            if (cryosphere || pyrosphere) {
+                clap_param_info_t presetInfo {};
+                bool foundPreset = false;
+                for (uint32_t index = 0u; index < params->count(plugin);
+                    ++index) {
+                    if (params->get_info(plugin, index, &presetInfo)
+                        && presetInfo.id == 1u) {
+                        foundPreset = true;
+                        break;
+                    }
+                }
+                const std::array<const char*, 4u> expectedAlienNames =
+                    cryosphere
+                        ? std::array<const char*, 4u> {
+                            "Tidal Ocean-Moon Rift",
+                            "Methane-Ice Dune Creep",
+                            "Subsurface Brine Upwelling",
+                            "Quasicrystal Plate Bloom" }
+                        : std::array<const char*, 4u> {
+                            "Silicate Convection Sea",
+                            "Dense-Atmosphere Hydrocarbon Front",
+                            "Sulfur Vent Colony",
+                            "Mineral Lattice Collapse" };
+                ok = foundPreset && presetInfo.max_value == 17.0;
+                for (uint32_t offset = 0u;
+                    ok && offset < expectedAlienNames.size(); ++offset) {
+                    char text[64] {};
+                    ok = params->value_to_text(plugin, 1u,
+                            static_cast<double>(14u + offset),
+                            text, sizeof(text))
+                        && std::strcmp(text,
+                            expectedAlienNames[offset]) == 0;
+                }
+            }
+            const std::array<clap_id, 6u> randomizedIds =
+                (cryosphere || water)
+                    ? std::array<clap_id, 6u> {
+                        3u, 4u, 5u, 11u, 12u, 20u }
+                    : (pyrosphere || wind)
+                        ? std::array<clap_id, 6u> {
+                            3u, 4u, 5u, 9u, 15u, 43u }
+                        : std::array<clap_id, 6u> {
+                            3u, 4u, 5u, 6u, 9u, 14u };
+            const std::array<clap_id, 5u> protectedIds =
+                (cryosphere || water)
+                    ? std::array<clap_id, 5u> {
+                        2u, 34u, 40u, 41u, 42u }
+                    : (pyrosphere || wind)
+                        ? std::array<clap_id, 5u> {
+                            2u, 32u, 52u, 53u, 54u }
+                        : std::array<clap_id, 5u> {
+                            2u, 32u, 39u, 40u, 41u };
+            auto readValues = [&](const auto& ids, auto& values) {
+                for (size_t index = 0u; index < ids.size(); ++index) {
+                    if (!params->get_value(
+                            plugin, ids[index], &values[index])) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            auto changedValueCount = [](const auto& before,
+                                        const auto& after) {
+                size_t changed = 0u;
+                for (size_t index = 0u; index < before.size(); ++index) {
+                    if (std::fabs(before[index] - after[index]) > 1.0e-6)
+                        ++changed;
+                }
+                return changed;
+            };
+            auto clickDocument = [&](NSPoint point) {
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(NSEventTypeLeftMouseDown, point)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+            auto saveState = [&](MemoryPluginState& memory) {
+                clap_ostream_t output { &memory, stateWrite };
+                return pluginState && pluginState->save
+                    && pluginState->save(plugin, &output)
+                    && !memory.bytes.empty();
+            };
+
+            const NSRect randomRect =
+                s3g::clap_gui::encoderTitleActionRect(
+                    nativeWidth, nativeHeight,
+                    s3g::gui_layout::EncoderTitleAction::Random);
+            const CGFloat visibleRight = scroll
+                ? NSMaxX([[scroll contentView] bounds])
+                : static_cast<CGFloat>(nativeWidth);
+            const NSPoint randomPoint = NSMakePoint(
+                std::clamp(NSMidX(randomRect), NSMinX(randomRect) + 3.0,
+                    visibleRight - 3.0),
+                NSMidY(randomRect));
+            const NSRect fieldPanel = NSMakeRect(18.0, 42.0, 596.0, 608.0);
+            const NSRect field = NSMakeRect(34.0, 76.0, 564.0, 558.0);
+            const NSRect surfTab =
+                s3g::clap_gui::environmentalFieldPageButtonRect(
+                    fieldPanel, 1u);
+            auto surfaceButton = [&](uint32_t index) {
+                return NSMakeRect(field.origin.x + 10.0 + index * 52.0,
+                    field.origin.y + 10.0, 46.0, 16.0);
+            };
+
+            std::array<double, randomizedIds.size()> initialValues {};
+            std::array<double, randomizedIds.size()> firstRandom {};
+            std::array<double, randomizedIds.size()> secondRandom {};
+            std::array<double, randomizedIds.size()> thirdRandom {};
+            std::array<double, protectedIds.size()> protectedBefore {};
+            std::array<double, protectedIds.size()> protectedAfter {};
+            ok = readValues(randomizedIds, initialValues)
+                && readValues(protectedIds, protectedBefore)
+                && clickDocument(randomPoint)
+                && readValues(randomizedIds, firstRandom)
+                && changedValueCount(initialValues, firstRandom) >= 4u
+                && clickDocument(NSMakePoint(NSMidX(surfTab), NSMidY(surfTab)))
+                && clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(2u)), NSMidY(surfaceButton(2u))))
+                && clickDocument(randomPoint)
+                && readValues(randomizedIds, secondRandom)
+                && changedValueCount(firstRandom, secondRandom) >= 4u
+                && clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(2u)), NSMidY(surfaceButton(2u))))
+                && clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))));
+
+            MemoryPluginState beforeRandomState;
+            MemoryPluginState afterRandomState;
+            MemoryPluginState reenabledState;
+            ok = ok && saveState(beforeRandomState)
+                && clickDocument(randomPoint)
+                && readValues(randomizedIds, thirdRandom)
+                && changedValueCount(secondRandom, thirdRandom) >= 4u
+                && readValues(protectedIds, protectedAfter)
+                && protectedBefore == protectedAfter
+                && saveState(afterRandomState);
+
+            auto surfaceContractHolds = [&](const auto& before,
+                                            const auto& after) {
+                return before.surface.enabled == 1u
+                    && before.surface.cellCount == 2u
+                    && after.surface.enabled == 0u
+                    && after.surface.cellCount == before.surface.cellCount
+                    && std::memcmp(before.surface.cells.data(),
+                        after.surface.cells.data(),
+                        sizeof(before.surface.cells)) == 0;
+            };
+            if (ok && cryosphere) {
+                WorldSphereSavedState<s3g::AmbiCryosphereParams> before {};
+                WorldSphereSavedState<s3g::AmbiCryosphereParams> after {};
+                ok = decodeWorldSphereState(beforeRandomState, before)
+                    && decodeWorldSphereState(afterRandomState, after)
+                    && surfaceContractHolds(before, after);
+            } else if (ok && pyrosphere) {
+                WorldSphereSavedState<s3g::AmbiPyrosphereParams> before {};
+                WorldSphereSavedState<s3g::AmbiPyrosphereParams> after {};
+                ok = decodeWorldSphereState(beforeRandomState, before)
+                    && decodeWorldSphereState(afterRandomState, after)
+                    && surfaceContractHolds(before, after);
+            } else if (ok && water) {
+                WorldSphereSavedState<s3g::AmbiWaterParams> before {};
+                WorldSphereSavedState<s3g::AmbiWaterParams> after {};
+                ok = decodeWorldSphereState(beforeRandomState, before)
+                    && decodeWorldSphereState(afterRandomState, after)
+                    && surfaceContractHolds(before, after);
+            } else if (ok && wind) {
+                WorldSphereSavedState<s3g::AmbiWindParams> before {};
+                WorldSphereSavedState<s3g::AmbiWindParams> after {};
+                ok = decodeWorldSphereState(beforeRandomState, before)
+                    && decodeWorldSphereState(afterRandomState, after)
+                    && surfaceContractHolds(before, after);
+            } else if (ok) {
+                WorldSphereSavedState<s3g::AmbiInsectParams> before {};
+                WorldSphereSavedState<s3g::AmbiInsectParams> after {};
+                ok = decodeWorldSphereState(beforeRandomState, before)
+                    && decodeWorldSphereState(afterRandomState, after)
+                    && surfaceContractHolds(before, after);
+            }
+
+            // RANDOM bypasses rather than destroys the map: it can be
+            // re-enabled immediately with both captured cells intact.
+            ok = ok && clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))))
+                && saveState(reenabledState);
+            auto reenabledContractHolds = [](const auto& state) {
+                return state.surface.enabled == 1u
+                    && state.surface.cellCount == 2u;
+            };
+            if (ok && cryosphere) {
+                WorldSphereSavedState<s3g::AmbiCryosphereParams> reenabled {};
+                ok = decodeWorldSphereState(reenabledState, reenabled)
+                    && reenabledContractHolds(reenabled);
+            } else if (ok && pyrosphere) {
+                WorldSphereSavedState<s3g::AmbiPyrosphereParams> reenabled {};
+                ok = decodeWorldSphereState(reenabledState, reenabled)
+                    && reenabledContractHolds(reenabled);
+            } else if (ok && water) {
+                WorldSphereSavedState<s3g::AmbiWaterParams> reenabled {};
+                ok = decodeWorldSphereState(reenabledState, reenabled)
+                    && reenabledContractHolds(reenabled);
+            } else if (ok && wind) {
+                WorldSphereSavedState<s3g::AmbiWindParams> reenabled {};
+                ok = decodeWorldSphereState(reenabledState, reenabled)
+                    && reenabledContractHolds(reenabled);
+            } else if (ok) {
+                WorldSphereSavedState<s3g::AmbiInsectParams> reenabled {};
+                ok = decodeWorldSphereState(reenabledState, reenabled)
+                    && reenabledContractHolds(reenabled);
+            }
+            if (ok) {
+                ok = clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))));
+            }
+        }
         if (ok && parameterSurfaceEncoder) {
             failureStage = "Parameter Surface POP window";
             const bool wrangler = std::strcmp(
@@ -691,6 +987,117 @@ int main(int argc, char** argv)
                     [popupDocument mouseDown:popupDown];
                     [popupDocument mouseUp:popupUp];
                     ok = ![parameterSurfacePanel isVisible];
+                }
+
+                // Both non-environmental surface encoders use different
+                // view layouts, but RANDOM has the same state contract: the
+                // base scene wins immediately and the two cells survive.
+                if (ok) {
+                    const auto* pluginState =
+                        static_cast<const clap_plugin_state_t*>(
+                            plugin->get_extension(plugin, CLAP_EXT_STATE));
+                    auto saveState = [&](MemoryPluginState& memory) {
+                        clap_ostream_t output { &memory, stateWriteWhole };
+                        return pluginState && pluginState->save
+                            && pluginState->save(plugin, &output)
+                            && !memory.bytes.empty();
+                    };
+                    const NSRect randomRect =
+                        s3g::clap_gui::encoderTitleActionRect(
+                            nativeWidth, nativeHeight,
+                            s3g::gui_layout::EncoderTitleAction::Random);
+                    const CGFloat visibleRight = scroll
+                        ? NSMaxX([[scroll contentView] bounds])
+                        : static_cast<CGFloat>(nativeWidth);
+                    const NSPoint randomPoint = NSMakePoint(
+                        std::clamp(NSMidX(randomRect),
+                            NSMinX(randomRect) + 3.0,
+                            visibleRight - 3.0),
+                        NSMidY(randomRect));
+                    MemoryPluginState beforeRandom;
+                    MemoryPluginState afterRandom;
+                    MemoryPluginState reenabled;
+                    const bool savedBeforeRandom = saveState(beforeRandom);
+                    const bool clickedRandom = savedBeforeRandom
+                        && clickDocument(randomPoint);
+                    ok = savedBeforeRandom && clickedRandom;
+                    if (ok && params->flush) {
+                        params->flush(plugin, nullptr, nullptr);
+                    }
+                    const bool savedAfterRandom = ok
+                        && saveState(afterRandom);
+                    ok = ok && savedAfterRandom;
+                    if (!ok) {
+                        std::cerr << "Surface RANDOM interaction failed: save="
+                            << savedBeforeRandom << " click=" << clickedRandom
+                            << " resave=" << savedAfterRandom << "\n";
+                    }
+                    if (ok && wrangler) {
+                        WorldSphereSavedState<s3g::AmbiWranglerParams>
+                            before {};
+                        WorldSphereSavedState<s3g::AmbiWranglerParams>
+                            after {};
+                        ok = decodeWorldSphereState(beforeRandom, before)
+                            && decodeWorldSphereState(afterRandom, after)
+                            && before.surface.enabled == 1u
+                            && before.surface.cellCount == 2u
+                            && after.surface.enabled == 0u
+                            && after.surface.cellCount == 2u
+                            && std::memcmp(before.surface.cells.data(),
+                                after.surface.cells.data(),
+                                sizeof(before.surface.cells)) == 0;
+                        if (!ok) {
+                            std::cerr << "Wrangler surface state before/after: "
+                                << beforeRandom.bytes.size() << "/"
+                                << afterRandom.bytes.size() << " bytes, enabled "
+                                << before.surface.enabled << "/"
+                                << after.surface.enabled << ", cells "
+                                << before.surface.cellCount << "/"
+                                << after.surface.cellCount << "\n";
+                        }
+                    } else if (ok) {
+                        StochasticSavedState before {};
+                        StochasticSavedState after {};
+                        ok = decodeStochasticState(beforeRandom, before)
+                            && decodeStochasticState(afterRandom, after)
+                            && before.surface.enabled == 1u
+                            && before.surface.cellCount == 2u
+                            && after.surface.enabled == 0u
+                            && after.surface.cellCount == 2u
+                            && std::memcmp(before.surface.cells.data(),
+                                after.surface.cells.data(),
+                                sizeof(before.surface.cells)) == 0;
+                        if (!ok) {
+                            std::cerr << "Stochastic surface state before/after: "
+                                << beforeRandom.bytes.size() << "/"
+                                << afterRandom.bytes.size() << " bytes, enabled "
+                                << before.surface.enabled << "/"
+                                << after.surface.enabled << ", cells "
+                                << before.surface.cellCount << "/"
+                                << after.surface.cellCount << "\n";
+                        }
+                    }
+                    ok = ok && clickDocument(surfaceTab)
+                        && clickDocument(enableButton)
+                        && saveState(reenabled);
+                    if (ok && wrangler) {
+                        WorldSphereSavedState<s3g::AmbiWranglerParams>
+                            state {};
+                        ok = decodeWorldSphereState(reenabled, state)
+                            && state.surface.enabled == 1u
+                            && state.surface.cellCount == 2u;
+                        if (!ok) {
+                            std::cerr << "Wrangler surface re-enable state: "
+                                << reenabled.bytes.size() << " bytes, enabled "
+                                << state.surface.enabled << ", cells "
+                                << state.surface.cellCount << "\n";
+                        }
+                    } else if (ok) {
+                        StochasticSavedState state {};
+                        ok = decodeStochasticState(reenabled, state)
+                            && state.surface.enabled == 1u
+                            && state.surface.cellCount == 2u;
+                    }
                 }
 
                 // Leave it open once more so guiHide() proves that the CLAP

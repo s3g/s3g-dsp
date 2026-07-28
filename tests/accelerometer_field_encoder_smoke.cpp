@@ -15,9 +15,9 @@ constexpr uint32_t kSampleRate = 48000u;
 constexpr uint32_t kFrames = kSampleRate * 2u;
 constexpr float kLinkedOutputCeiling = 0.89125094f; // -1 dBFS
 
-// Substrate is serialized as an integer in the CLAP state. The seven public
-// material/form profiles must remain append-only so old sessions keep their
-// original bronze selections.
+// Substrate is serialized as an integer in the CLAP state. Public material
+// and resonant-form profiles must remain append-only so old sessions keep
+// their original selections.
 static_assert(static_cast<uint32_t>(
     s3g::AccelerometerSubstrate::TieredBronze) == 2u);
 static_assert(static_cast<uint32_t>(
@@ -41,8 +41,18 @@ static_assert(static_cast<uint32_t>(
 static_assert(static_cast<uint32_t>(
     s3g::AccelerometerSubstrate::SprucePlate) == 19u);
 static_assert(static_cast<uint32_t>(
-    s3g::AccelerometerSubstrate::Count) == 20u);
-static_assert(s3g::kAccelerometerFieldPresetCount == 20u);
+    s3g::AccelerometerSubstrate::TensionedSkin) == 20u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::LoadedMembrane) == 21u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::CoupledMembrane) == 22u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::CavityMembrane) == 23u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::LooseMembrane) == 24u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::Count) == 25u);
+static_assert(s3g::kAccelerometerFieldPresetCount == 25u);
 using Buffer = std::array<float, kFrames>;
 using StemBuffers = std::array<std::vector<float>,
     s3g::kAccelerometerFieldMaxBodyCount>;
@@ -1106,7 +1116,7 @@ bool testBalancedDroneAcrossBodyCounts()
 
 bool testPublicProfilesRemainDistinct()
 {
-    constexpr std::array<s3g::AccelerometerSubstrate, 11u> profiles {{
+    constexpr std::array<s3g::AccelerometerSubstrate, 16u> profiles {{
         s3g::AccelerometerSubstrate::DeepBronze,
         s3g::AccelerometerSubstrate::TieredBronze,
         s3g::AccelerometerSubstrate::BroadBronze,
@@ -1118,6 +1128,11 @@ bool testPublicProfilesRemainDistinct()
         s3g::AccelerometerSubstrate::PorcelainShell,
         s3g::AccelerometerSubstrate::PorousEarthenware,
         s3g::AccelerometerSubstrate::SprucePlate,
+        s3g::AccelerometerSubstrate::TensionedSkin,
+        s3g::AccelerometerSubstrate::LoadedMembrane,
+        s3g::AccelerometerSubstrate::CoupledMembrane,
+        s3g::AccelerometerSubstrate::CavityMembrane,
+        s3g::AccelerometerSubstrate::LooseMembrane,
     }};
     std::array<bool, profiles.size()> seen {};
     for (uint32_t preset = 0u;
@@ -1213,10 +1228,11 @@ bool testPublicProfilesRemainDistinct()
         }
     }
 
-    // The seven appended presets are the renderer-facing audition path for
-    // the new material/form profiles. Exercise a discrete MIDI actuation as a
-    // complement to testFactoryPresets(), which covers their continuous drone.
-    constexpr std::array<s3g::AccelerometerSubstrate, 7u> newProfiles {{
+    // The appended presets are the renderer-facing audition path for the new
+    // material and resonant-form profiles. Exercise a discrete MIDI actuation
+    // as a complement to testFactoryPresets(), which covers their continuous
+    // drive and sustained tail.
+    constexpr std::array<s3g::AccelerometerSubstrate, 12u> newProfiles {{
         s3g::AccelerometerSubstrate::CarbonLaminate,
         s3g::AccelerometerSubstrate::GlassPlate,
         s3g::AccelerometerSubstrate::SteelShell,
@@ -1224,6 +1240,11 @@ bool testPublicProfilesRemainDistinct()
         s3g::AccelerometerSubstrate::PorcelainShell,
         s3g::AccelerometerSubstrate::PorousEarthenware,
         s3g::AccelerometerSubstrate::SprucePlate,
+        s3g::AccelerometerSubstrate::TensionedSkin,
+        s3g::AccelerometerSubstrate::LoadedMembrane,
+        s3g::AccelerometerSubstrate::CoupledMembrane,
+        s3g::AccelerometerSubstrate::CavityMembrane,
+        s3g::AccelerometerSubstrate::LooseMembrane,
     }};
     constexpr uint32_t strikeFrames = kSampleRate;
     for (uint32_t profile = 0u; profile < newProfiles.size(); ++profile) {
@@ -1252,7 +1273,7 @@ bool testPublicProfilesRemainDistinct()
         if (!response.finite || !tail.finite || audio[0].front() != 0.0f
             || !(response.energy > 1.0e-14) || !(response.peak > 1.0e-6f)
             || !(response.peak < 0.98f) || !(tail.energy > 1.0e-18)) {
-            std::cerr << "New material preset did not produce a finite, "
+            std::cerr << "New material/form preset did not produce a finite, "
                       << "bounded modal strike and tail: " << 13u + profile
                       << ", energy " << response.energy << ", tail "
                       << tail.energy << ", peak " << response.peak << "\n";
@@ -1982,6 +2003,233 @@ bool testLiveOutputGainIsSmoothed()
     return true;
 }
 
+bool testVisibleContinuousControlsAreClickFree()
+{
+    // Exercise every continuous scalar exposed by the compact editor. The
+    // per-body AED controls use the same geometry smoother already covered by
+    // testBodyGeometrySmoothing() and testPerBodyAedEditing(); menu parameters
+    // are deliberately excluded because they represent discrete topology or
+    // routing changes rather than slider automation.
+    using Params = s3g::AccelerometerFieldParams;
+    struct Control {
+        const char* name;
+        float Params::*member;
+        float initial;
+        float target;
+    };
+    constexpr std::array<Control, 17u> controls {{
+        { "Actuator input", &Params::externalDrive, 0.12f, 0.78f },
+        { "Size", &Params::size, 0.68f, 0.30f },
+        { "Damping", &Params::damping, 0.32f, 0.78f },
+        { "Irregularity", &Params::irregularity, 0.08f, 0.70f },
+        { "Actuator position", &Params::sourcePosition, 0.15f, 0.85f },
+        { "Tone center", &Params::pickupPosition, 0.20f, 0.80f },
+        { "Modal angle", &Params::pickupAxis, 0.15f, 0.85f },
+        { "Air radiation", &Params::airRadiation, 0.10f, 0.90f },
+        { "Contact / radiation", &Params::contactRadiation, 0.15f, 0.85f },
+        { "Body spread", &Params::spatialExtent, 0.25f, 0.90f },
+        { "Field azimuth", &Params::fieldAzimuthDeg, -40.0f, 120.0f },
+        { "Field elevation", &Params::fieldElevationDeg, -25.0f, 45.0f },
+        { "Output gain", &Params::outputGainDb, -18.0f, -8.0f },
+        { "Body variation", &Params::arraySpread, 0.10f, 0.90f },
+        { "Actuator drive", &Params::fieldListenAmount, 0.35f, 0.85f },
+        { "Modal coupling", &Params::coupling, 0.15f, 0.85f },
+        { "Modal lift", &Params::modalLift, 0.10f, 0.90f },
+    }};
+
+    constexpr uint32_t blockFrames = 64u;
+    constexpr uint32_t warmFrames = kSampleRate / 4u;
+    constexpr uint32_t changedFrames = kSampleRate / 2u;
+    constexpr uint32_t onsetFrames = kSampleRate / 500u; // first 2 ms
+    constexpr uint32_t lateStartFrame = kSampleRate / 8u;
+    constexpr uint32_t channels = 4u; // first-order ACN/SN3D
+    constexpr double twoPi = 6.283185307179586476925286766559;
+    bool passed = true;
+
+    for (const Control& control : controls) {
+        auto params = s3g::accelerometerFieldFactoryPreset(10u);
+        params.bodyCount = 6u;
+        params.ambisonicOrder = 1u;
+        params.outputMode =
+            s3g::AccelerometerFieldOutputMode::Ambisonic;
+        params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+        params.fieldListenResponse =
+            s3g::AmbiFieldListenerResponse::Imprint;
+        params.sensorNoise = 0.0f;
+        params.outputGainDb = -18.0f;
+        params.modalLift = 0.10f;
+        params.externalDrive = 0.12f;
+        params.*(control.member) = control.initial;
+
+        s3g::AccelerometerFieldEncoder reference;
+        s3g::AccelerometerFieldEncoder changed;
+        reference.prepare(kSampleRate);
+        changed.prepare(kSampleRate);
+        reference.setParams(params);
+        changed.setParams(params);
+        reference.reset();
+        changed.reset();
+        const float initialModeFrequency = changed.modeFrequencyHz(0u);
+        const float initialModeDecay = changed.modeDecaySeconds(0u);
+
+        std::array<std::array<float, blockFrames>, channels>
+            referenceAudio {};
+        std::array<std::array<float, blockFrames>, channels>
+            changedAudio {};
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels>
+            referenceOutputs {};
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels>
+            changedOutputs {};
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            referenceOutputs[channel] = referenceAudio[channel].data();
+            changedOutputs[channel] = changedAudio[channel].data();
+        }
+        std::array<float, blockFrames> external {};
+        std::array<float, channels> previousReference {};
+        std::array<float, channels> previousChanged {};
+        double preDerivativeEnergy = 0.0;
+        uint64_t preDerivativeCount = 0u;
+        double warmDifferencePeak = 0.0;
+
+        for (uint32_t firstFrame = 0u; firstFrame < warmFrames;
+            firstFrame += blockFrames) {
+            const uint32_t framesThisBlock = std::min(
+                blockFrames, warmFrames - firstFrame);
+            for (uint32_t frame = 0u; frame < framesThisBlock; ++frame) {
+                const double phase = twoPi * 73.0
+                    * static_cast<double>(firstFrame + frame)
+                    / static_cast<double>(kSampleRate);
+                external[frame] = 0.16f * static_cast<float>(std::sin(phase));
+            }
+            reference.process(external.data(), referenceOutputs.data(),
+                channels, framesThisBlock);
+            changed.process(external.data(), changedOutputs.data(),
+                channels, framesThisBlock);
+            for (uint32_t frame = 0u; frame < framesThisBlock; ++frame) {
+                for (uint32_t channel = 0u; channel < channels; ++channel) {
+                    const float ref = referenceAudio[channel][frame];
+                    const float value = changedAudio[channel][frame];
+                    warmDifferencePeak = std::max(warmDifferencePeak,
+                        std::fabs(static_cast<double>(value) - ref));
+                    if (firstFrame + frame >= warmFrames / 2u) {
+                        const double derivative = static_cast<double>(ref)
+                            - previousReference[channel];
+                        preDerivativeEnergy += derivative * derivative;
+                        ++preDerivativeCount;
+                    }
+                    previousReference[channel] = ref;
+                    previousChanged[channel] = value;
+                }
+            }
+        }
+
+        params.*(control.member) = control.target;
+        changed.setParams(params);
+        const float targetModeFrequency = changed.modeFrequencyHz(0u);
+        const float targetModeDecay = changed.modeDecaySeconds(0u);
+        double onsetDifferencePeak = 0.0;
+        double onsetDerivativeExcessPeak = 0.0;
+        double lateDifferenceEnergy = 0.0;
+        double lateDifferenceDerivativeEnergy = 0.0;
+        double lateReferenceEnergy = 0.0;
+        uint64_t lateCount = 0u;
+        float outputPeak = 0.0f;
+        bool finite = true;
+        for (uint32_t firstFrame = 0u; firstFrame < changedFrames;
+            firstFrame += blockFrames) {
+            const uint32_t framesThisBlock = std::min(
+                blockFrames, changedFrames - firstFrame);
+            for (uint32_t frame = 0u; frame < framesThisBlock; ++frame) {
+                const double phase = twoPi * 73.0
+                    * static_cast<double>(warmFrames + firstFrame + frame)
+                    / static_cast<double>(kSampleRate);
+                external[frame] = 0.16f * static_cast<float>(std::sin(phase));
+            }
+            reference.process(external.data(), referenceOutputs.data(),
+                channels, framesThisBlock);
+            changed.process(external.data(), changedOutputs.data(),
+                channels, framesThisBlock);
+            for (uint32_t frame = 0u; frame < framesThisBlock; ++frame) {
+                const uint32_t absoluteFrame = firstFrame + frame;
+                for (uint32_t channel = 0u; channel < channels; ++channel) {
+                    const float ref = referenceAudio[channel][frame];
+                    const float value = changedAudio[channel][frame];
+                    finite = finite && std::isfinite(ref)
+                        && std::isfinite(value);
+                    outputPeak = std::max(outputPeak, std::fabs(value));
+                    const double difference = static_cast<double>(value)
+                        - ref;
+                    const double previousDifference =
+                        static_cast<double>(previousChanged[channel])
+                        - previousReference[channel];
+                    const double derivativeDifference = difference
+                        - previousDifference;
+                    if (absoluteFrame < onsetFrames) {
+                        onsetDifferencePeak = std::max(onsetDifferencePeak,
+                            std::fabs(difference));
+                        onsetDerivativeExcessPeak = std::max(
+                            onsetDerivativeExcessPeak,
+                            std::fabs(derivativeDifference));
+                    }
+                    if (absoluteFrame >= lateStartFrame) {
+                        lateDifferenceEnergy += difference * difference;
+                        lateDifferenceDerivativeEnergy +=
+                            derivativeDifference * derivativeDifference;
+                        lateReferenceEnergy +=
+                            static_cast<double>(ref) * ref;
+                        ++lateCount;
+                    }
+                    previousReference[channel] = ref;
+                    previousChanged[channel] = value;
+                }
+            }
+        }
+
+        const double preDerivativeRms = std::sqrt(preDerivativeEnergy
+            / static_cast<double>(std::max<uint64_t>(1u,
+                preDerivativeCount)));
+        const double lateDifferenceRms = std::sqrt(lateDifferenceEnergy
+            / static_cast<double>(std::max<uint64_t>(1u, lateCount)));
+        const double lateDifferenceDerivativeRms = std::sqrt(
+            lateDifferenceDerivativeEnergy
+            / static_cast<double>(std::max<uint64_t>(1u, lateCount)));
+        const double lateReferenceRms = std::sqrt(lateReferenceEnergy
+            / static_cast<double>(std::max<uint64_t>(1u, lateCount)));
+        const double effectRatio = lateDifferenceRms
+            / std::max(1.0e-12, lateReferenceRms);
+        // A legal modal move can quickly change phase, so judge its onset
+        // against both the pre-existing waveform derivative and the eventual
+        // size/derivative of the audible parameter difference. A one-sample
+        // discontinuity cannot hide behind a quiet absolute-value threshold.
+        const double allowedOnset = std::max(
+            preDerivativeRms * 6.0, lateDifferenceRms * 0.30);
+        const double allowedDerivativeExcess = std::max(
+            preDerivativeRms * 6.0,
+            lateDifferenceDerivativeRms * 6.0);
+        if (!finite || warmDifferencePeak > 1.0e-7
+            || !(lateReferenceRms > 1.0e-7)
+            || !(effectRatio > 0.002)
+            || !(outputPeak <= 1.0f)
+            || onsetDifferencePeak > allowedOnset
+            || onsetDerivativeExcessPeak > allowedDerivativeExcess) {
+            std::cerr << "Live " << control.name
+                      << " automation was silent, unbounded, or click-like: "
+                      << "effect " << effectRatio
+                      << ", onset " << onsetDifferencePeak << " / "
+                      << allowedOnset << ", derivative excess "
+                      << onsetDerivativeExcessPeak << " / "
+                      << allowedDerivativeExcess << ", peak " << outputPeak
+                      << ", warm delta " << warmDifferencePeak
+                      << ", mode Hz " << initialModeFrequency << " -> "
+                      << targetModeFrequency << ", decay "
+                      << initialModeDecay << " -> " << targetModeDecay
+                      << " s\n";
+            passed = false;
+        }
+    }
+    return passed;
+}
+
 } // namespace
 
 int main()
@@ -2013,6 +2261,7 @@ int main()
         || !testOutputAndLiftDoNotDriveTelemetry()
         || !testOutputGainIsTransparentBelowGuard()
         || !testLiveOutputGainIsSmoothed()
+        || !testVisibleContinuousControlsAreClickFree()
         || !testExternalActuatorIsModalOnly()) {
         return 1;
     }

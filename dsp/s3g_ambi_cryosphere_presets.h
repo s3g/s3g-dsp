@@ -13,7 +13,7 @@ struct AmbiCryospherePresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kAmbiCryosphereFactoryPresetCount = 14u;
+inline constexpr uint32_t kAmbiCryosphereFactoryPresetCount = 18u;
 inline constexpr std::array<AmbiCryospherePresetInfo,
     kAmbiCryosphereFactoryPresetCount> kAmbiCryospherePresetInfo {{
         { "Alpine Frost Crack", "Moist bedrock accumulating freezing stress and releasing sparse cracks." },
@@ -29,7 +29,11 @@ inline constexpr std::array<AmbiCryospherePresetInfo,
         { "Sleet on Glass", "Mixed granular and wet frozen contacts against glass." },
         { "Meltwater Under Ice", "Basal water, brine pressure, sliding, and grinding beneath glacier ice." },
         { "Ice Under Foot", "A loaded surface plate flexing, opening radial cracks, snapping through, and collapsing locally under weight." },
-        { "Singing Lake Ice", "Sparse dull plate strikes launch compact descending flexural pews with a short inharmonic after-ring." },
+        { "Singing Lake Ice", "Sparse fractures illuminate short, spatially scattered inharmonic lake modes from their own stochastic crack flux." },
+        { "Tidal Ocean-Moon Rift", "Slow tidal loading tears a submerged ice shell into deep, propagating plate failures." },
+        { "Methane-Ice Dune Creep", "Brittle hydrocarbon frost migrates in muted granular sheets through a shallow channel." },
+        { "Subsurface Brine Upwelling", "Pressurized brine circulates upward through a damp ice cavern, opening and resealing fissures." },
+        { "Quasicrystal Plate Bloom", "Mobile phase boundaries seed broadband fracture fronts and defect avalanches through an alien aperiodic lattice." },
     }};
 
 inline AmbiCryospherePresetInfo ambiCryosphereFactoryPresetInfo(
@@ -109,12 +113,44 @@ inline AmbiCryosphereParams ambiCryosphereFactoryPreset(uint32_t index)
         p.aeration=.08f; p.drops=.06f; p.splash=.04f; p.bubbles=.24f; p.density=.62f; p.eventSize=.46f; p.eventDecay=.28f;
         p.contact=.98f; p.brightness=.88f; p.resonance=.08f; p.damping=.46f; p.current=.16f; p.convergence=.36f;
         p.surfaceLoad=1.0f; p.snap=1.0f; p.plateFailure=.82f; p.spread=.66f; p.motionRateHz=.20f; p.space=.12f; p.outputGainDb=-9.0f; break;
-    default:
+    case 13u:
         p.voices=8; p.regime=13u; p.environment=0u; p.water=.74f; p.flow=.04f; p.scale=.78f; p.turbulence=.18f;
         p.aeration=0.0f; p.drops=.01f; p.splash=0.0f; p.bubbles=.04f; p.density=.14f; p.eventSize=.78f; p.eventDecay=.32f;
         p.contact=.86f; p.depth=.84f; p.brightness=.46f; p.resonance=.66f; p.damping=.34f; p.current=.02f; p.convergence=.08f;
         p.surfaceLoad=.20f; p.snap=.72f; p.plateFailure=.02f; p.spread=.82f; p.deviation=.04f; p.motionRateHz=.012f;
         p.width=.88f; p.centerDistance=1.08f; p.space=.18f; p.environmentDecay=.42f; p.environmentDamping=.46f; p.outputGainDb=-11.0f; break;
+    case 14u:
+        p.order=4u; p.voices=32; p.regime=kAmbiCryosphereTidalShellRegime; p.environment=0u; p.place=1u; p.water=.94f; p.flow=.36f; p.scale=1.0f;
+        p.turbulence=.74f; p.aeration=.02f; p.drops=.01f; p.splash=.42f; p.bubbles=.68f; p.density=.48f; p.eventSize=1.0f;
+        p.eventDecay=.82f; p.contact=.76f; p.depth=1.0f; p.brightness=.20f; p.resonance=.46f; p.damping=.66f;
+        p.current=.32f; p.slope=-.08f; p.eddy=.38f; p.convergence=.94f; p.width=1.0f; p.spread=1.0f; p.deviation=.18f;
+        p.motionRateHz=.006f; p.centerDistance=1.42f; p.space=.56f; p.environmentSize=.94f; p.environmentDecay=.84f;
+        p.environmentDamping=.72f; p.surfaceLoad=.96f; p.snap=.62f; p.plateFailure=.90f; p.outputGainDb=-12.0f; break;
+    case 15u:
+        p.voices=56; p.regime=kAmbiCryosphereHydrocarbonDuneRegime; p.environment=7u; p.place=4u; p.water=.46f; p.flow=.44f; p.scale=.28f;
+        p.turbulence=.26f; p.aeration=.64f; p.drops=.10f; p.splash=.01f; p.bubbles=.06f; p.density=.36f; p.eventSize=.22f;
+        p.eventDecay=.34f; p.contact=.44f; p.depth=.58f; p.brightness=.30f; p.resonance=.16f; p.damping=.82f;
+        p.current=.62f; p.slope=-.48f; p.eddy=.24f; p.convergence=.16f; p.width=.92f; p.spread=.94f; p.deviation=.28f;
+        p.motionRateHz=.026f; p.centerElevationDeg=-12.0f; p.centerDistance=1.20f; p.space=.32f; p.environmentSize=.72f;
+        p.environmentDecay=.38f; p.environmentDamping=.84f; p.foam=.72f; p.surfaceLoad=.24f; p.snap=.26f;
+        p.plateFailure=.08f; p.outputGainDb=-9.0f; break;
+    case 16u:
+        p.voices=40; p.regime=kAmbiCryosphereReactiveBrineRegime; p.environment=8u; p.place=2u; p.water=.72f; p.flow=.58f; p.scale=.66f;
+        p.turbulence=.48f; p.aeration=.12f; p.drops=.03f; p.splash=.06f; p.bubbles=.98f; p.density=.46f; p.eventSize=.54f;
+        p.eventDecay=.68f; p.contact=.42f; p.depth=.98f; p.brightness=.24f; p.resonance=.40f; p.damping=.70f;
+        p.current=.88f; p.slope=.72f; p.eddy=.90f; p.convergence=.42f; p.shore=.46f; p.width=.72f; p.spread=.82f;
+        p.deviation=.38f; p.motionRateHz=.042f; p.centerElevationDeg=-18.0f; p.centerDistance=1.28f; p.space=.64f;
+        p.environmentSize=.80f; p.environmentDecay=.76f; p.environmentDamping=.74f; p.surfaceLoad=.38f; p.snap=.40f;
+        p.plateFailure=.18f; p.outputGainDb=-10.0f; break;
+    default:
+        p.order=4u; p.voices=24; p.regime=kAmbiCryosphereAperiodicLatticeRegime; p.environment=1u; p.place=2u;
+        p.water=.78f; p.flow=.46f; p.scale=.58f; p.turbulence=.92f; p.aeration=0.0f; p.drops=0.0f; p.splash=0.0f;
+        p.bubbles=.12f; p.density=.74f; p.eventSize=.66f; p.eventDecay=.54f; p.contact=.82f; p.depth=.64f;
+        p.brightness=.52f; p.resonance=.18f; p.damping=.58f; p.current=.30f; p.slope=.18f; p.eddy=.72f;
+        p.convergence=.86f; p.width=.96f; p.spread=1.0f; p.deviation=.12f; p.motionRateHz=.006f;
+        p.centerElevationDeg=14.0f; p.centerDistance=1.22f; p.space=.38f; p.environmentSize=.82f;
+        p.environmentDecay=.62f; p.environmentDamping=.74f; p.surfaceLoad=.72f; p.snap=.84f; p.plateFailure=.44f;
+        p.outputGainDb=-9.0f; break;
     }
     struct ScoreProfile {
         float pace;
@@ -139,6 +175,10 @@ inline AmbiCryosphereParams ambiCryosphereFactoryPreset(uint32_t index)
         { .58f, .58f, .34f, .56f, .42f }, // meltwater under ice
         { .34f, .10f, .94f, .90f, .88f }, // moving load under foot
         { .12f, .08f, .46f, .96f, .98f }, // singing lake
+        { .10f, .14f, .98f, .98f, .94f }, // tidal ocean-moon rift
+        { .30f, .52f, .32f, .90f, .66f }, // methane-ice dune creep
+        { .42f, .42f, .62f, .88f, .62f }, // subsurface brine upwelling
+        { .12f, .03f, 1.0f, .20f, .86f }, // quasicrystal plate bloom
     }};
     const auto score = scoreProfiles[safeIndex];
     p.scorePace = score.pace;

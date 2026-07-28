@@ -81,6 +81,12 @@ if(APPLE)
   target_link_libraries(s3g_ambi_effect_resonance_print_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_executable(s3g_ambi_effect_trace_smoke tests/ambi_effect_trace_smoke.cpp)
+target_link_libraries(s3g_ambi_effect_trace_smoke PRIVATE s3g_dsp)
+if(APPLE)
+  target_link_libraries(s3g_ambi_effect_trace_smoke PRIVATE "-framework Accelerate")
+endif()
+
 add_executable(s3g_environmental_encoder_smoke tests/environmental_encoder_smoke.cpp)
 target_link_libraries(s3g_environmental_encoder_smoke PRIVATE s3g_dsp)
 
@@ -188,8 +194,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_executable(s3g_ambi_effect_resonance_print_clap_smoke
     tests/ambi_effect_resonance_print_clap_smoke.cpp)
   target_include_directories(s3g_ambi_effect_resonance_print_clap_smoke
-    PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    PRIVATE ${S3G_CLAP_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
   target_link_libraries(s3g_ambi_effect_resonance_print_clap_smoke
+    PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_ambi_effect_trace_clap_smoke
+    tests/ambi_effect_trace_clap_smoke.cpp)
+  target_include_directories(s3g_ambi_effect_trace_clap_smoke
+    PRIVATE ${S3G_CLAP_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+  target_link_libraries(s3g_ambi_effect_trace_clap_smoke
     PRIVATE ${CMAKE_DL_LIBS})
 
   if(APPLE)
@@ -264,6 +277,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_effect_delay)
   add_subdirectory(plugins/clap_ambi_effect_pitch_gain)
   add_subdirectory(plugins/clap_ambi_effect_resonance_print)
+  add_subdirectory(plugins/clap_ambi_effect_trace)
   add_subdirectory(plugins/clap_ambi_group_rotate)
   add_subdirectory(plugins/clap_ambi_group_depth)
   add_subdirectory(plugins/clap_ambisonic_order_band_tool)
@@ -507,6 +521,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_pitch_clap> org.s3g.s3g-dsp.ambi-effect-pitch-64 820 640 "s3g Ambi Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_gain_clap> org.s3g.s3g-dsp.ambi-effect-gain-64 820 640 "s3g Ambi Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_resonance_print_clap> org.s3g.s3g-dsp.ambi-effect-resonance-print-64 920 820 "s3g Ambi Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_partial_trace_clap> org.s3g.s3g-dsp.ambi-effect-partial-trace-64 920 820 "s3g Ambi Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_response_trace_clap> org.s3g.s3g-dsp.ambi-effect-response-trace-64 920 820 "s3g Ambi Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_displacement_clap> org.s3g.s3g-dsp.ambi-effect-displacement-64 920 820 "s3g Ambi Effect " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
@@ -516,6 +532,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_effect_pitch_clap
         s3g_ambi_effect_gain_clap
         s3g_ambi_effect_resonance_print_clap
+        s3g_ambi_effect_partial_trace_clap
+        s3g_ambi_effect_response_trace_clap
         s3g_ambi_effect_displacement_clap
       COMMENT "Rendering and validating every Ambi Effect-family GUI")
 

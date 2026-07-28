@@ -380,6 +380,7 @@ void randomizeSafe(Plugin& plugin)
     plugin.params = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     applyEffectiveParams(plugin);
     plugin.engine.beginTransition();
 }
@@ -2235,6 +2236,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
         randomizeSafe(*_plugin);
+        requestSurfaceProcess(*_plugin);
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
         return;

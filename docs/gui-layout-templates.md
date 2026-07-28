@@ -180,6 +180,14 @@ warp, distance, and mask panels follow in that order. The field preserves the
 standard `TOP`, `SIDE`, and `3/4` cameras, direct drag orbit, map view, zoom,
 score timeline, and per-pickup radial energy display.
 
+Partial Trace and Response Trace use the same 920 × 820 field/column geometry.
+Their parameter column is divided into fitted `OUTPUT`, trace-engine,
+`TOPOLOGY`, and `DIRECTIONAL WET MASK` panels; section captions may not float
+inside one undivided toolbox. `OUT` and final `MIX` lead `OUTPUT`, with
+`ORDER` following. `BODY` belongs to the trace-engine panel and topology mode
+belongs under `TOPOLOGY`. Their Listener views use the shared header camera
+buttons and standard `TOP`, `SIDE`, `3/4` order.
+
 Ambi Effect titles use `PRESET`, `LOAD`, and `SAVE`, with contextual score
 loading retained in the field header. Sliders use the shared compact rows and
 double-click defaults. Menus and contextual dropdowns consume the same panel

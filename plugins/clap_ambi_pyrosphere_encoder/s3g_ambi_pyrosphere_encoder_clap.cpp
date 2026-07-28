@@ -245,8 +245,10 @@ uint32_t randomChoice(uint32_t& seed, uint32_t count)
 constexpr const char* kMaterialNames[] = {
     "GAS", "WICK / WAX", "DUFF / PEAT", "TIMBER", "COAL", "OIL",
     "MASONRY", "METAL", "EMBERS", "RESIN", "GRASS", "FOREST",
-    "ROCK / TALUS", "PRESSURE JET"
+    "ROCK / TALUS", "PRESSURE JET", "SILICATE CELLS",
+    "SUPERCRITICAL FRONT", "SULFUR SLUG VENTS", "THERMOELASTIC LATTICE"
 };
+static_assert(std::size(kMaterialNames) == s3g::kAmbiPyrosphereMaterialCount);
 
 constexpr const char* kPlaceNames[] = {
     "OPEN", "CANOPY", "PORCH", "ROOM", "HANGAR", "CANYON", "TUNNEL"
@@ -339,7 +341,8 @@ void randomizeSafe(Plugin& plugin)
     p.scoreCascade = randomRange(seed, 0.18f, 0.86f);
     p.scoreMemory = randomRange(seed, 0.38f, 0.92f);
     p.scoreRest = randomRange(seed, 0.42f, 0.92f);
-    if (p.materialMode == 13u) {
+    switch (p.materialMode) {
+    case 13u: // Pressure jet
         p.voices = 8u + randomChoice(seed, 13u);
         p.wind = randomRange(seed, 0.72f, 1.0f);
         p.turbulence = randomRange(seed, 0.72f, 1.0f);
@@ -353,6 +356,157 @@ void randomizeSafe(Plugin& plugin)
         p.particles = randomRange(seed, 0.0f, 0.08f);
         p.structuralLoad = 0.0f;
         p.fall = 0.0f;
+        break;
+    case 14u: // Silicate convection cells
+        p.voices = 28u + randomChoice(seed, 29u);
+        p.wind = randomRange(seed, 0.48f, 0.82f);
+        p.gustRate = randomLogRange(seed, 0.006f, 0.080f);
+        p.gustDepth = randomRange(seed, 0.55f, 0.94f);
+        p.turbulence = randomRange(seed, 0.38f, 0.76f);
+        p.flutter = randomRange(seed, 0.05f, 0.28f);
+        p.material = randomRange(seed, 0.78f, 1.0f);
+        p.air = randomRange(seed, 0.08f, 0.32f);
+        p.hiss = randomRange(seed, 0.04f, 0.22f);
+        p.center = randomRange(seed, 0.55f, 0.92f);
+        p.sweep = randomRange(seed, 0.10f, 0.40f);
+        p.q = randomRange(seed, 0.08f, 0.28f);
+        p.shrill = randomRange(seed, 0.02f, 0.18f);
+        p.body = randomRange(seed, 0.82f, 1.0f);
+        p.breath = randomRange(seed, 0.24f, 0.62f);
+        p.grit = randomRange(seed, 0.02f, 0.18f);
+        p.field = randomRange(seed, 0.70f, 1.0f);
+        p.spread = randomRange(seed, 0.72f, 1.0f);
+        p.deviation = randomRange(seed, 0.12f, 0.34f);
+        p.motionRateHz = randomRange(seed, 0.001f, 0.018f);
+        p.motionFlow = randomRange(seed, 0.32f, 0.72f);
+        p.motionShear = randomRange(seed, 0.18f, 0.54f);
+        p.motionCurl = randomRange(seed, 0.72f, 1.0f);
+        p.motionUpdraft = randomRange(seed, 0.20f, 0.58f);
+        p.particles = randomRange(seed, 0.0f, 0.14f);
+        p.vortex = randomRange(seed, 0.65f, 1.0f);
+        p.pressure = randomRange(seed, 0.52f, 0.90f);
+        p.structuralLoad = 0.0f;
+        p.snap = randomRange(seed, 0.05f, 0.28f);
+        p.fall = 0.0f;
+        p.scorePace = randomRange(seed, 0.02f, 0.24f);
+        p.scoreOccupancy = randomRange(seed, 0.52f, 0.96f);
+        p.scoreCascade = randomRange(seed, 0.34f, 0.76f);
+        p.scoreMemory = randomRange(seed, 0.82f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.25f, 0.72f);
+        break;
+    case 15u: // Supercritical reaction front
+        p.voices = 42u + randomChoice(seed, 23u);
+        p.wind = randomRange(seed, 0.55f, 0.90f);
+        p.gustRate = randomLogRange(seed, 0.040f, 0.60f);
+        p.gustDepth = randomRange(seed, 0.35f, 0.75f);
+        p.turbulence = randomRange(seed, 0.60f, 0.95f);
+        p.flutter = randomRange(seed, 0.15f, 0.48f);
+        p.material = randomRange(seed, 0.55f, 0.88f);
+        p.air = randomRange(seed, 0.05f, 0.22f);
+        p.hiss = randomRange(seed, 0.03f, 0.18f);
+        p.center = randomRange(seed, 0.64f, 0.94f);
+        p.sweep = randomRange(seed, 0.08f, 0.34f);
+        p.q = randomRange(seed, 0.06f, 0.24f);
+        p.shrill = randomRange(seed, 0.02f, 0.14f);
+        p.body = randomRange(seed, 0.78f, 1.0f);
+        p.breath = randomRange(seed, 0.12f, 0.42f);
+        p.grit = randomRange(seed, 0.0f, 0.16f);
+        p.field = randomRange(seed, 0.74f, 1.0f);
+        p.spread = randomRange(seed, 0.85f, 1.0f);
+        p.deviation = randomRange(seed, 0.18f, 0.42f);
+        p.motionRateHz = randomRange(seed, 0.004f, 0.035f);
+        p.motionFlow = randomRange(seed, 0.72f, 1.0f);
+        p.motionShear = randomRange(seed, 0.55f, 0.94f);
+        p.motionCurl = randomRange(seed, 0.28f, 0.70f);
+        p.motionUpdraft = randomRange(seed, 0.12f, 0.40f);
+        p.particles = randomRange(seed, 0.0f, 0.12f);
+        p.vortex = randomRange(seed, 0.28f, 0.70f);
+        p.pressure = randomRange(seed, 0.70f, 1.0f);
+        p.structuralLoad = 0.0f;
+        p.snap = randomRange(seed, 0.04f, 0.22f);
+        p.fall = 0.0f;
+        p.scorePace = randomRange(seed, 0.22f, 0.58f);
+        p.scoreOccupancy = randomRange(seed, 0.70f, 1.0f);
+        p.scoreCascade = randomRange(seed, 0.58f, 0.96f);
+        p.scoreMemory = randomRange(seed, 0.72f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.08f, 0.38f);
+        break;
+    case 16u: // Sulfur slug vents
+        p.voices = 12u + randomChoice(seed, 19u);
+        p.wind = randomRange(seed, 0.42f, 0.78f);
+        p.gustRate = randomLogRange(seed, 0.018f, 0.20f);
+        p.gustDepth = randomRange(seed, 0.48f, 0.88f);
+        p.turbulence = randomRange(seed, 0.52f, 0.90f);
+        p.flutter = randomRange(seed, 0.28f, 0.70f);
+        p.material = randomRange(seed, 0.48f, 0.78f);
+        p.air = randomRange(seed, 0.22f, 0.58f);
+        p.hiss = randomRange(seed, 0.28f, 0.70f);
+        p.center = randomRange(seed, 0.42f, 0.78f);
+        p.sweep = randomRange(seed, 0.22f, 0.58f);
+        p.q = randomRange(seed, 0.12f, 0.36f);
+        p.shrill = randomRange(seed, 0.10f, 0.38f);
+        p.body = randomRange(seed, 0.56f, 0.88f);
+        p.breath = randomRange(seed, 0.35f, 0.72f);
+        p.grit = randomRange(seed, 0.0f, 0.18f);
+        p.field = randomRange(seed, 0.64f, 0.96f);
+        p.spread = randomRange(seed, 0.62f, 0.96f);
+        p.deviation = randomRange(seed, 0.24f, 0.52f);
+        p.motionRateHz = randomRange(seed, 0.006f, 0.050f);
+        p.motionFlow = randomRange(seed, 0.34f, 0.72f);
+        p.motionShear = randomRange(seed, 0.38f, 0.78f);
+        p.motionCurl = randomRange(seed, 0.62f, 1.0f);
+        p.motionUpdraft = randomRange(seed, 0.66f, 1.0f);
+        p.particles = randomRange(seed, 0.02f, 0.22f);
+        p.vortex = randomRange(seed, 0.58f, 0.96f);
+        p.pressure = randomRange(seed, 0.58f, 0.96f);
+        p.structuralLoad = 0.0f;
+        p.snap = randomRange(seed, 0.02f, 0.20f);
+        p.fall = 0.0f;
+        p.scorePace = randomRange(seed, 0.12f, 0.42f);
+        p.scoreOccupancy = randomRange(seed, 0.28f, 0.68f);
+        p.scoreCascade = randomRange(seed, 0.16f, 0.52f);
+        p.scoreMemory = randomRange(seed, 0.82f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.36f, 0.82f);
+        break;
+    case 17u: // Thermoelastic lattice
+        p.voices = 24u + randomChoice(seed, 29u);
+        p.wind = randomRange(seed, 0.56f, 0.90f);
+        p.gustRate = randomLogRange(seed, 0.003f, 0.040f);
+        p.gustDepth = randomRange(seed, 0.62f, 0.98f);
+        p.turbulence = randomRange(seed, 0.08f, 0.35f);
+        p.flutter = randomRange(seed, 0.03f, 0.22f);
+        p.material = randomRange(seed, 0.82f, 1.0f);
+        p.air = randomRange(seed, 0.12f, 0.42f);
+        p.hiss = randomRange(seed, 0.06f, 0.28f);
+        p.center = randomRange(seed, 0.38f, 0.72f);
+        p.sweep = randomRange(seed, 0.45f, 0.82f);
+        p.q = randomRange(seed, 0.82f, 1.0f);
+        p.shrill = randomRange(seed, 0.22f, 0.56f);
+        p.body = randomRange(seed, 0.55f, 0.90f);
+        p.breath = randomRange(seed, 0.04f, 0.22f);
+        p.grit = randomRange(seed, 0.68f, 1.0f);
+        p.field = randomRange(seed, 0.72f, 1.0f);
+        p.spread = randomRange(seed, 0.78f, 1.0f);
+        p.deviation = randomRange(seed, 0.10f, 0.30f);
+        p.motionRateHz = randomRange(seed, 0.001f, 0.012f);
+        p.motionFlow = randomRange(seed, 0.10f, 0.34f);
+        p.motionShear = randomRange(seed, 0.74f, 1.0f);
+        p.motionCurl = randomRange(seed, 0.08f, 0.30f);
+        p.motionUpdraft = randomRange(seed, 0.0f, 0.16f);
+        p.particles = randomRange(seed, 0.50f, 0.94f);
+        p.vortex = randomRange(seed, 0.02f, 0.24f);
+        p.pressure = randomRange(seed, 0.35f, 0.78f);
+        p.structuralLoad = 0.0f;
+        p.snap = randomRange(seed, 0.64f, 1.0f);
+        p.fall = 0.0f;
+        p.scorePace = randomRange(seed, 0.02f, 0.20f);
+        p.scoreOccupancy = randomRange(seed, 0.02f, 0.20f);
+        p.scoreCascade = randomRange(seed, 0.84f, 1.0f);
+        p.scoreMemory = randomRange(seed, 0.88f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.75f, 1.0f);
+        break;
+    default:
+        break;
     }
     p.order = order;
     p.outputGainDb = outputGainDb;
@@ -364,6 +518,7 @@ void randomizeSafe(Plugin& plugin)
     plugin.params = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     applyEffectiveParams(plugin);
     plugin.engine.beginTransition();
 }
@@ -569,7 +724,12 @@ void applyEffectiveParams(Plugin& plugin)
     const float cursorY = audioActive
         ? plugin.effectiveSurfaceY.load(std::memory_order_relaxed)
         : plugin.params.surfaceY;
-    plugin.engine.setParams(pyrosphereSurfaceParams(plugin, cursorX, cursorY));
+    const auto nextParams = pyrosphereSurfaceParams(
+        plugin, cursorX, cursorY);
+    const bool materialChanged = nextParams.materialMode
+        != plugin.effectiveParams.materialMode;
+    plugin.engine.setParams(nextParams);
+    if (materialChanged) plugin.engine.beginTransition();
     if (plugin.surface.enabled && plugin.surface.cellCount >= 2u) {
         const auto weights = s3g::parameterSurfaceWeights(
             plugin.surface, cursorX, cursorY);
@@ -1920,7 +2080,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _plugin->effectiveParams;
+    const auto p = _surfaceEdit
+        ? _plugin->params : _plugin->effectiveParams;
     s3g::clap_gui::drawPanelFrame(18, 662, 596, 152, style);
     s3g::clap_gui::drawPanelHeader(@"ALEATORIC ENTITY SCORE", true,
         18, 662, 596, 21, attrs, style);
@@ -2087,7 +2248,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* materialItems[] = { @"GAS", @"WICK / WAX", @"DUFF / PEAT",
         @"TIMBER", @"COAL", @"OIL", @"MASONRY", @"METAL", @"EMBERS",
-        @"RESIN", @"GRASS", @"FOREST", @"ROCK / TALUS", @"PRESSURE JET" };
+        @"RESIN", @"GRASS", @"FOREST", @"ROCK / TALUS", @"PRESSURE JET",
+        @"SILICATE CELLS", @"SUPERCRITICAL FRONT", @"SULFUR SLUG VENTS",
+        @"THERMOELASTIC LATTICE" };
     static_assert(std::size(materialItems) == s3g::kAmbiPyrosphereMaterialCount);
     static NSString* placeItems[] = { @"OPEN", @"CANOPY", @"PORCH", @"ROOM", @"HANGAR", @"CANYON", @"TUNNEL" };
     static NSString* listenItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
@@ -2238,6 +2401,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
         randomizeSafe(*_plugin);
+        requestSurfaceProcess(*_plugin);
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
         return;

@@ -244,8 +244,10 @@ constexpr const char* kRegimeNames[] = {
     "FROST CRACK", "ICE SEGREGATION", "PERMAFROST HEAVE", "BASAL STICK-SLIP",
     "PRESSURE RIDGE", "CALVING", "ICEBERG IMPACT", "AVALANCHE",
     "SNOWPACK CREEP", "HAIL", "SLEET", "FREEZING RAIN",
-    "MELTWATER UNDER ICE", "SINGING LAKE"
+    "MELTWATER UNDER ICE", "SINGING LAKE", "APERIODIC LATTICE",
+    "TIDAL SHELL", "HYDROCARBON DUNE", "REACTIVE BRINE"
 };
+static_assert(std::size(kRegimeNames) == s3g::kAmbiCryosphereRegimeCount);
 
 constexpr const char* kEnvironmentNames[] = {
     "OPEN ICE", "ROCK", "SNOWPACK", "MORAINE", "CONCRETE", "METAL",
@@ -434,7 +436,7 @@ void randomizeSafe(Plugin& plugin)
         p.environment = 9u;
         p.surfaceLoad = std::max(p.surfaceLoad, 0.40f);
         break;
-    default: // Singing lake
+    case s3g::kAmbiCryosphereSingingLakeRegime:
         p.environment = 0u;
         p.voices = 6u + randomChoice(seed, 9u);
         p.flow = randomLogRange(seed, 0.012f, 0.12f);
@@ -455,12 +457,163 @@ void randomizeSafe(Plugin& plugin)
         p.surfaceLoad = randomRange(seed, 0.12f, 0.30f);
         p.plateFailure = randomRange(seed, 0.0f, 0.06f);
         break;
+    case s3g::kAmbiCryosphereAperiodicLatticeRegime:
+        p.voices = 12u + randomChoice(seed, 33u);
+        p.environment = randomChoice(seed, s3g::kAmbiCryosphereEnvironmentCount);
+        p.flow = randomLogRange(seed, 0.012f, 0.88f);
+        p.scale = randomRange(seed, 0.18f, 0.92f);
+        p.turbulence = randomRange(seed, 0.54f, 1.0f);
+        p.aeration = 0.0f;
+        p.drops = 0.0f;
+        p.splash = 0.0f;
+        p.bubbles = randomRange(seed, 0.0f, 0.34f);
+        p.density = randomRange(seed, 0.36f, 0.96f);
+        p.eventSize = randomRange(seed, 0.28f, 0.92f);
+        p.eventDecay = randomRange(seed, 0.18f, 0.86f);
+        p.contact = randomRange(seed, 0.42f, 0.98f);
+        p.depth = randomRange(seed, 0.18f, 0.94f);
+        p.brightness = randomRange(seed, 0.20f, 0.88f);
+        p.resonance = randomRange(seed, 0.0f, 0.48f);
+        p.damping = randomRange(seed, 0.18f, 0.92f);
+        p.current = randomRange(seed, 0.04f, 0.82f);
+        p.convergence = randomRange(seed, 0.24f, 1.0f);
+        p.surfaceLoad = randomRange(seed, 0.24f, 0.94f);
+        p.snap = randomRange(seed, 0.42f, 1.0f);
+        p.plateFailure = randomRange(seed, 0.08f, 0.72f);
+        // This process opts into the score's expanded topology; expose its
+        // full endpoints through RANDOM instead of the legacy safe middle.
+        p.scorePace = randomUnit(seed);
+        p.scoreOccupancy = std::pow(randomUnit(seed), 2.0f);
+        p.scoreCascade = randomRange(seed, 0.52f, 1.0f);
+        p.scoreMemory = randomUnit(seed);
+        p.scoreRest = randomUnit(seed);
+        break;
+    case 15u: // Tidal shell
+        p.voices = 24u + randomChoice(seed, 29u);
+        p.environment = 0u;
+        p.place = 1u;
+        p.water = randomRange(seed, 0.78f, 1.0f);
+        p.flow = randomLogRange(seed, 0.006f, 0.080f);
+        p.scale = randomRange(seed, 0.82f, 1.0f);
+        p.turbulence = randomRange(seed, 0.48f, 0.88f);
+        p.aeration = randomRange(seed, 0.0f, 0.08f);
+        p.drops = randomRange(seed, 0.0f, 0.06f);
+        p.splash = randomRange(seed, 0.04f, 0.28f);
+        p.bubbles = randomRange(seed, 0.28f, 0.68f);
+        p.density = randomRange(seed, 0.52f, 0.88f);
+        p.eventSize = randomRange(seed, 0.78f, 1.0f);
+        p.eventDecay = randomRange(seed, 0.62f, 0.94f);
+        p.contact = randomRange(seed, 0.62f, 0.92f);
+        p.depth = randomRange(seed, 0.82f, 1.0f);
+        p.brightness = randomRange(seed, 0.08f, 0.34f);
+        p.resonance = randomRange(seed, 0.08f, 0.38f);
+        p.damping = randomRange(seed, 0.54f, 0.84f);
+        p.current = randomRange(seed, 0.12f, 0.42f);
+        p.slope = randomRange(seed, -0.18f, 0.18f);
+        p.eddy = randomRange(seed, 0.18f, 0.48f);
+        p.convergence = randomRange(seed, 0.78f, 1.0f);
+        p.width = randomRange(seed, 0.84f, 1.0f);
+        p.spread = randomRange(seed, 0.88f, 1.0f);
+        p.deviation = randomRange(seed, 0.10f, 0.28f);
+        p.motionRateHz = randomRange(seed, 0.001f, 0.014f);
+        p.surfaceLoad = randomRange(seed, 0.82f, 1.0f);
+        p.snap = randomRange(seed, 0.58f, 0.90f);
+        p.plateFailure = randomRange(seed, 0.76f, 1.0f);
+        p.foam = randomRange(seed, 0.0f, 0.12f);
+        p.shore = randomRange(seed, 0.12f, 0.38f);
+        p.scorePace = randomRange(seed, 0.02f, 0.18f);
+        p.scoreOccupancy = randomRange(seed, 0.06f, 0.24f);
+        p.scoreCascade = randomRange(seed, 0.84f, 1.0f);
+        p.scoreMemory = randomRange(seed, 0.88f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.76f, 1.0f);
+        break;
+    case 16u: // Hydrocarbon dune
+        p.voices = 36u + randomChoice(seed, 29u);
+        p.environment = 2u;
+        p.place = 4u;
+        p.water = randomRange(seed, 0.28f, 0.58f);
+        p.flow = randomLogRange(seed, 0.040f, 0.48f);
+        p.scale = randomRange(seed, 0.12f, 0.42f);
+        p.turbulence = randomRange(seed, 0.12f, 0.42f);
+        p.aeration = randomRange(seed, 0.58f, 0.92f);
+        p.drops = randomRange(seed, 0.02f, 0.18f);
+        p.splash = 0.0f;
+        p.bubbles = randomRange(seed, 0.0f, 0.12f);
+        p.density = randomRange(seed, 0.24f, 0.54f);
+        p.eventSize = randomRange(seed, 0.12f, 0.36f);
+        p.eventDecay = randomRange(seed, 0.18f, 0.48f);
+        p.contact = randomRange(seed, 0.32f, 0.62f);
+        p.depth = randomRange(seed, 0.38f, 0.68f);
+        p.brightness = randomRange(seed, 0.18f, 0.46f);
+        p.resonance = randomRange(seed, 0.04f, 0.22f);
+        p.damping = randomRange(seed, 0.72f, 0.96f);
+        p.current = randomRange(seed, 0.54f, 0.90f);
+        p.slope = randomRange(seed, -0.82f, -0.28f);
+        p.eddy = randomRange(seed, 0.14f, 0.42f);
+        p.convergence = randomRange(seed, 0.04f, 0.26f);
+        p.width = randomRange(seed, 0.78f, 1.0f);
+        p.spread = randomRange(seed, 0.82f, 1.0f);
+        p.deviation = randomRange(seed, 0.18f, 0.42f);
+        p.motionRateHz = randomRange(seed, 0.008f, 0.060f);
+        p.surfaceLoad = randomRange(seed, 0.10f, 0.34f);
+        p.snap = randomRange(seed, 0.12f, 0.38f);
+        p.plateFailure = randomRange(seed, 0.0f, 0.14f);
+        p.foam = randomRange(seed, 0.58f, 0.92f);
+        p.shore = randomRange(seed, 0.18f, 0.52f);
+        p.scorePace = randomRange(seed, 0.20f, 0.52f);
+        p.scoreOccupancy = randomRange(seed, 0.40f, 0.76f);
+        p.scoreCascade = randomRange(seed, 0.12f, 0.42f);
+        p.scoreMemory = randomRange(seed, 0.78f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.42f, 0.78f);
+        break;
+    case 17u: // Reactive brine
+        p.voices = 24u + randomChoice(seed, 25u);
+        p.environment = 8u;
+        p.place = 2u;
+        p.water = randomRange(seed, 0.62f, 0.90f);
+        p.flow = randomLogRange(seed, 0.030f, 0.58f);
+        p.scale = randomRange(seed, 0.42f, 0.76f);
+        p.turbulence = randomRange(seed, 0.34f, 0.68f);
+        p.aeration = randomRange(seed, 0.02f, 0.18f);
+        p.drops = randomRange(seed, 0.0f, 0.08f);
+        p.splash = randomRange(seed, 0.0f, 0.10f);
+        p.bubbles = randomRange(seed, 0.76f, 1.0f);
+        p.density = randomRange(seed, 0.34f, 0.64f);
+        p.eventSize = randomRange(seed, 0.36f, 0.68f);
+        p.eventDecay = randomRange(seed, 0.52f, 0.84f);
+        p.contact = randomRange(seed, 0.28f, 0.58f);
+        p.depth = randomRange(seed, 0.78f, 1.0f);
+        p.brightness = randomRange(seed, 0.14f, 0.40f);
+        p.resonance = randomRange(seed, 0.12f, 0.42f);
+        p.damping = randomRange(seed, 0.56f, 0.84f);
+        p.current = randomRange(seed, 0.72f, 1.0f);
+        p.slope = randomRange(seed, 0.32f, 0.84f);
+        p.eddy = randomRange(seed, 0.72f, 1.0f);
+        p.convergence = randomRange(seed, 0.26f, 0.58f);
+        p.width = randomRange(seed, 0.62f, 0.90f);
+        p.spread = randomRange(seed, 0.72f, 0.96f);
+        p.deviation = randomRange(seed, 0.26f, 0.52f);
+        p.motionRateHz = randomRange(seed, 0.018f, 0.080f);
+        p.surfaceLoad = randomRange(seed, 0.24f, 0.52f);
+        p.snap = randomRange(seed, 0.24f, 0.54f);
+        p.plateFailure = randomRange(seed, 0.08f, 0.28f);
+        p.foam = randomRange(seed, 0.0f, 0.18f);
+        p.shore = randomRange(seed, 0.52f, 0.90f);
+        p.scorePace = randomRange(seed, 0.28f, 0.64f);
+        p.scoreOccupancy = randomRange(seed, 0.30f, 0.66f);
+        p.scoreCascade = randomRange(seed, 0.48f, 0.86f);
+        p.scoreMemory = randomRange(seed, 0.78f, 1.0f);
+        p.scoreRest = randomRange(seed, 0.38f, 0.72f);
+        break;
+    default:
+        break;
     }
 
     plugin.randomSeed = seed;
     plugin.params = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     applyEffectiveParams(plugin);
     plugin.engine.beginTransition();
 }
@@ -659,7 +812,11 @@ void applyEffectiveParams(Plugin& plugin)
     const float cursorY = audioActive
         ? plugin.effectiveSurfaceY.load(std::memory_order_relaxed)
         : plugin.params.surfaceY;
-    plugin.engine.setParams(waterSurfaceParams(plugin, cursorX, cursorY));
+    const auto nextParams = waterSurfaceParams(plugin, cursorX, cursorY);
+    const bool processChanged = nextParams.regime
+        != plugin.effectiveParams.regime;
+    plugin.engine.setParams(nextParams);
+    if (processChanged) plugin.engine.beginTransition();
     if (plugin.surface.enabled && plugin.surface.cellCount >= 2u) {
         const auto weights = s3g::parameterSurfaceWeights(
             plugin.surface, cursorX, cursorY);
@@ -1967,7 +2124,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _plugin->effectiveParams;
+    const auto p = _surfaceEdit
+        ? _plugin->params : _plugin->effectiveParams;
     s3g::clap_gui::drawPanelFrame(18, 662, 596, 152, style);
     s3g::clap_gui::drawPanelHeader(@"ALEATORIC ENTITY SCORE", true,
         18, 662, 596, 21, attrs, style);
@@ -2125,7 +2283,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         @"PERMAFROST HEAVE", @"BASAL STICK-SLIP", @"PRESSURE RIDGE",
         @"CALVING", @"ICEBERG IMPACT", @"AVALANCHE", @"SNOWPACK CREEP",
         @"HAIL", @"SLEET", @"FREEZING RAIN", @"MELTWATER UNDER ICE",
-        @"SINGING LAKE" };
+        @"SINGING LAKE", @"APERIODIC LATTICE", @"TIDAL SHELL",
+        @"HYDROCARBON DUNE", @"REACTIVE BRINE" };
     static_assert(std::size(regimeItems) == s3g::kAmbiCryosphereRegimeCount);
     static NSString* environmentItems[] = { @"OPEN ICE", @"ROCK", @"SNOWPACK",
         @"MORAINE", @"CONCRETE", @"METAL", @"GLASS", @"ICE TUNNEL",
@@ -2278,6 +2437,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
         randomizeSafe(*_plugin);
+        requestSurfaceProcess(*_plugin);
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
         return;

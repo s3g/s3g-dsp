@@ -30,13 +30,14 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
-constexpr uint32_t kStateVersion = 11u;
+constexpr uint32_t kStateVersion = 12u;
 constexpr uint32_t kFactoryPresetCount = s3g::kAccelerometerFieldPresetCount;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
-// Released state versions through v10 had thirteen factory presets, so 13 was
-// their Custom sentinel. Version 11 separates that historical value from the
-// newly appended material presets at indices 13-19.
-constexpr uint32_t kLegacyFactoryPresetCount = 13u;
+// Released v10 had thirteen factory presets and v11 had twenty. Their Custom
+// sentinels now overlap appended factory presets, so preserve both boundaries
+// explicitly while migrating state into v12's twenty-five-preset surface.
+constexpr uint32_t kV10FactoryPresetCount = 13u;
+constexpr uint32_t kV11FactoryPresetCount = 20u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 760u;
 constexpr const char* kPluginId =
@@ -141,7 +142,7 @@ struct ParamSpec {
 
 constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamPreset, "Preset", "Preset", 0.0, static_cast<double>(kFactoryPresetCount), 0.0, DisplayKind::Menu, false, false },
-    { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 19.0, 10.0, DisplayKind::Menu },
+    { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 24.0, 10.0, DisplayKind::Menu },
     { kParamExcitation, "Legacy transient exciter", "Legacy", 0.0, 5.0, 0.0, DisplayKind::Menu, false, true, true },
     { kParamReadout, "Legacy sensor readout", "Advanced", 0.0, 2.0, 0.0, DisplayKind::Menu, false, true, true },
     { kParamEventRate, "Legacy event rate", "Legacy", 0.01, 80.0, 0.01, DisplayKind::Hertz, true, true, true },
@@ -205,7 +206,7 @@ constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamModalLift, "Modal lift", "Output", 0.0, 1.0, 0.65, DisplayKind::Percent },
 }};
 
-constexpr std::array<s3g::AccelerometerSubstrate, 11u> kPublicSubstrates {{
+constexpr std::array<s3g::AccelerometerSubstrate, 16u> kPublicSubstrates {{
     s3g::AccelerometerSubstrate::DeepBronze,
     s3g::AccelerometerSubstrate::TieredBronze,
     s3g::AccelerometerSubstrate::BroadBronze,
@@ -217,11 +218,18 @@ constexpr std::array<s3g::AccelerometerSubstrate, 11u> kPublicSubstrates {{
     s3g::AccelerometerSubstrate::PorcelainShell,
     s3g::AccelerometerSubstrate::PorousEarthenware,
     s3g::AccelerometerSubstrate::SprucePlate,
+    s3g::AccelerometerSubstrate::TensionedSkin,
+    s3g::AccelerometerSubstrate::LoadedMembrane,
+    s3g::AccelerometerSubstrate::CoupledMembrane,
+    s3g::AccelerometerSubstrate::CavityMembrane,
+    s3g::AccelerometerSubstrate::LooseMembrane,
 }};
 constexpr std::array<const char*, kPublicSubstrates.size()> kSubstrateNames {{
     "DEEP BRONZE", "TIERED BRONZE", "BROAD BRONZE", "BRIGHT BRONZE",
     "CARBON LAM.", "GLASS PLATE", "STEEL SHELL", "ALUM. PLATE",
     "PORCELAIN", "EARTHENWARE", "SPRUCE PLATE",
+    "TENSIONED SKIN", "LOADED MEM.", "COUPLED MEM.",
+    "CAVITY MEM.", "LOOSE MEM.",
 }};
 
 bool isPublicSubstrate(s3g::AccelerometerSubstrate substrate)
@@ -393,6 +401,14 @@ uint32_t menuCount(clap_id id)
     }
 }
 
+constexpr uint32_t menuColumnCount(uint32_t itemCount)
+{
+    // Sixteen profile rows are the largest useful single-column menu in this
+    // view. Split that surface as well as the larger preset menu so draw and
+    // hit-test geometry remain compact inside the 760 px canvas.
+    return itemCount >= 16u ? 2u : 1u;
+}
+
 struct SavedGuiState {
     int32_t viewMode = 2;
     float viewAzimuthDeg = -35.0f;
@@ -536,10 +552,54 @@ struct Plugin {
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0u;
+    std::atomic<bool> active { false };
+
+    // The renderer and its parameter copy are audio-thread-owned while the
+    // plugin is active. Cocoa, state, and parameter-query code only touch the
+    // control copy below and publish changes through the mailbox.
     s3g::AccelerometerFieldEncoder engine {};
+    s3g::AccelerometerFieldParams audioParams =
+        s3g::accelerometerFieldFactoryPreset(0u);
+    uint32_t audioPresetIndex = 0u;
+
+    std::atomic_flag controlLock = ATOMIC_FLAG_INIT;
     s3g::AccelerometerFieldParams params =
         s3g::accelerometerFieldFactoryPreset(0u);
     uint32_t presetIndex = 0u;
+
+    // Latest-value control -> audio mailbox. Scalar edits carry a dirty mask
+    // so a GUI move cannot replace unrelated host automation. Full snapshots
+    // are reserved for presets, randomization, and state restore. Writers may
+    // wait for one fixed-size copy; the audio thread only try-acquires once.
+    std::atomic_flag paramsMailboxLock = ATOMIC_FLAG_INIT;
+    s3g::AccelerometerFieldParams paramsMailbox =
+        s3g::accelerometerFieldFactoryPreset(0u);
+    uint32_t paramsMailboxPresetIndex = 0u;
+    uint64_t paramsMailboxDirtyMask = 0u;
+    bool paramsMailboxFullReplace = false;
+    bool paramsMailboxResetEngine = false;
+    std::atomic<uint64_t> paramsMailboxRevision { 0u };
+    uint64_t audioMailboxRevision = 0u;
+    std::array<uint64_t, 64u> controlParamEditRevision {};
+    uint64_t controlPresetEditRevision = 0u;
+
+    // Host automation is mirrored back without letting the audio thread touch
+    // the control copy. Main-thread readers merge this report while holding
+    // controlLock, preserving newer GUI edits by mailbox revision.
+    std::atomic_flag audioReportLock = ATOMIC_FLAG_INIT;
+    s3g::AccelerometerFieldParams audioReportParams =
+        s3g::accelerometerFieldFactoryPreset(0u);
+    uint32_t audioReportPresetIndex = 0u;
+    uint64_t audioReportDirtyMask = 0u;
+    bool audioReportFullReplace = false;
+    bool audioReportPresetChanged = false;
+    uint64_t audioReportMailboxRevision = 0u;
+    std::atomic<uint64_t> audioReportRevision { 0u };
+    uint64_t controlAudioReportRevision = 0u;
+    uint64_t pendingAudioReportDirtyMask = 0u;
+    bool pendingAudioReportFullReplace = false;
+    bool pendingAudioReportPresetChanged = false;
+
     std::array<std::vector<float>, kOutputChannels> scratchOutputs {};
     std::vector<float> scratchInput {};
     std::atomic<float> outputPeak { 0.0f };
@@ -552,6 +612,14 @@ struct Plugin {
         actuatorBodyDrive {};
     std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
         bodyEnergy {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDirectionX {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDirectionY {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDirectionZ {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDistance {};
     SavedGuiState guiState {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -616,9 +684,10 @@ bool readExact(const clap_istream_t* stream, void* destination, size_t size)
     return true;
 }
 
-double getParam(const Plugin& plugin, clap_id id)
+double paramValueFromState(
+    const s3g::AccelerometerFieldParams& p,
+    uint32_t presetIndex, clap_id id)
 {
-    const auto& p = plugin.params;
     uint32_t body = 0u;
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) {
@@ -631,7 +700,7 @@ double getParam(const Plugin& plugin, clap_id id)
         return p.bodyDistance[body];
     }
     switch (id) {
-    case kParamPreset: return plugin.presetIndex;
+    case kParamPreset: return presetIndex;
     case kParamSubstrate: return static_cast<uint32_t>(p.substrate);
     case kParamExcitation: return static_cast<uint32_t>(p.excitation);
     case kParamReadout: return static_cast<uint32_t>(p.readout);
@@ -678,27 +747,9 @@ double getParam(const Plugin& plugin, clap_id id)
     }
 }
 
-void applyParam(Plugin& plugin, clap_id id, double value)
+bool assignParam(
+    s3g::AccelerometerFieldParams& p, clap_id id, double value)
 {
-    if (id == kParamPreset) {
-        const uint32_t index = roundedIndex(
-            value, kFactoryPresetCount + 1u);
-        if (index < kFactoryPresetCount) {
-            plugin.params = s3g::accelerometerFieldFactoryPreset(index);
-            plugin.presetIndex = index;
-#if defined(__APPLE__)
-            std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s",
-                s3g::accelerometerFieldFactoryPresetInfo(index).name);
-#endif
-            plugin.engine.setParams(plugin.params);
-            plugin.engine.reset();
-        }
-        return;
-    }
-
-    const bool outputStageParam = id == kParamOutputGain
-        || id == kParamModalLift;
-    auto& p = plugin.params;
     uint32_t body = 0u;
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) {
@@ -763,21 +814,317 @@ void applyParam(Plugin& plugin, clap_id id, double value)
                 roundedIndex(value, 2u));
         break;
     case kParamModalLift: p.modalLift = static_cast<float>(value); break;
-    default: return;
+    default: return false;
     }
-    plugin.params = s3g::sanitizeAccelerometerFieldParams(plugin.params);
+    p = s3g::sanitizeAccelerometerFieldParams(p);
+    return true;
+}
+
+static_assert(std::atomic<uint64_t>::is_always_lock_free,
+    "Modal parameter snapshot revisions must be lock-free");
+
+class AtomicFlagGuard {
+public:
+    explicit AtomicFlagGuard(std::atomic_flag& flag)
+        : flag_(flag)
+    {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            // Only control/state/GUI threads use the waiting form.
+        }
+    }
+
+    ~AtomicFlagGuard()
+    {
+        flag_.clear(std::memory_order_release);
+    }
+
+    AtomicFlagGuard(const AtomicFlagGuard&) = delete;
+    AtomicFlagGuard& operator=(const AtomicFlagGuard&) = delete;
+
+private:
+    std::atomic_flag& flag_;
+};
+
+struct ControlStateSnapshot {
+    s3g::AccelerometerFieldParams params {};
+    uint32_t presetIndex = 0u;
+    uint64_t mailboxRevision = 0u;
+};
+
+void updatePresetName(Plugin& plugin)
+{
+#if defined(__APPLE__)
+    std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s",
+        menuName(kParamPreset, plugin.presetIndex));
+#else
+    (void)plugin;
+#endif
+}
+
+bool applyParamToState(
+    s3g::AccelerometerFieldParams& params, uint32_t& presetIndex,
+    clap_id id, double value)
+{
+    if (id == kParamPreset) {
+        const uint32_t index = roundedIndex(
+            value, kFactoryPresetCount + 1u);
+        if (index >= kFactoryPresetCount) return false;
+        params = s3g::accelerometerFieldFactoryPreset(index);
+        presetIndex = index;
+        return true;
+    }
+    if (!assignParam(params, id, value)) return false;
+    presetIndex = kCustomPresetIndex;
+    return true;
+}
+
+void publishControlParamsLocked(Plugin& plugin, bool resetEngine)
+{
+    AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
+    plugin.paramsMailbox = plugin.params;
+    plugin.paramsMailboxPresetIndex = plugin.presetIndex;
+    plugin.paramsMailboxDirtyMask = 0u;
+    plugin.paramsMailboxFullReplace = true;
+    plugin.paramsMailboxResetEngine =
+        plugin.paramsMailboxResetEngine || resetEngine;
+    const uint64_t revision = plugin.paramsMailboxRevision.fetch_add(
+        1u, std::memory_order_release) + 1u;
+    plugin.controlParamEditRevision.fill(revision);
+    plugin.controlPresetEditRevision = revision;
+}
+
+void publishControlParamLocked(Plugin& plugin, clap_id id)
+{
+    if (id >= 64u) return;
+    AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
+    plugin.paramsMailbox = plugin.params;
+    plugin.paramsMailboxPresetIndex = plugin.presetIndex;
+    plugin.paramsMailboxDirtyMask |= uint64_t { 1u } << id;
+    const uint64_t revision = plugin.paramsMailboxRevision.fetch_add(
+        1u, std::memory_order_release) + 1u;
+    plugin.controlParamEditRevision[id] = revision;
+    plugin.controlPresetEditRevision = revision;
+}
+
+void updateBodyGeometryMeters(Plugin& plugin)
+{
+    for (uint32_t body = 0u;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        const auto direction = plugin.engine.bodyDirection(body);
+        plugin.bodyDirectionX[body].store(
+            direction.x, std::memory_order_relaxed);
+        plugin.bodyDirectionY[body].store(
+            direction.y, std::memory_order_relaxed);
+        plugin.bodyDirectionZ[body].store(
+            direction.z, std::memory_order_relaxed);
+        plugin.bodyDistance[body].store(
+            plugin.engine.bodyDistance(body), std::memory_order_relaxed);
+    }
+}
+
+void syncInactiveEngineLocked(Plugin& plugin, bool resetEngine)
+{
+    if (plugin.active.load(std::memory_order_acquire)) return;
+    plugin.audioParams = plugin.params;
+    plugin.audioPresetIndex = plugin.presetIndex;
+    plugin.engine.setParams(plugin.audioParams);
+    if (resetEngine) plugin.engine.reset();
+    updateBodyGeometryMeters(plugin);
+}
+
+bool tryConsumeControlParams(Plugin& plugin)
+{
+    const uint64_t advertised = plugin.paramsMailboxRevision.load(
+        std::memory_order_acquire);
+    if (advertised == plugin.audioMailboxRevision) return false;
+    if (plugin.paramsMailboxLock.test_and_set(
+            std::memory_order_acquire)) {
+        return false;
+    }
+
+    const uint64_t revision = plugin.paramsMailboxRevision.load(
+        std::memory_order_relaxed);
+    bool changed = revision != plugin.audioMailboxRevision;
+    bool resetEngine = false;
+    if (changed) {
+        if (plugin.paramsMailboxFullReplace) {
+            plugin.audioParams = plugin.paramsMailbox;
+        } else {
+            for (clap_id id = 2u; id <= kParamModalLift; ++id) {
+                if ((plugin.paramsMailboxDirtyMask
+                        & (uint64_t { 1u } << id)) == 0u) {
+                    continue;
+                }
+                assignParam(plugin.audioParams, id,
+                    paramValueFromState(plugin.paramsMailbox,
+                        plugin.paramsMailboxPresetIndex, id));
+            }
+        }
+        plugin.audioPresetIndex = plugin.paramsMailboxPresetIndex;
+        resetEngine = plugin.paramsMailboxResetEngine;
+        plugin.audioMailboxRevision = revision;
+        plugin.paramsMailboxDirtyMask = 0u;
+        plugin.paramsMailboxFullReplace = false;
+        plugin.paramsMailboxResetEngine = false;
+    }
+    plugin.paramsMailboxLock.clear(std::memory_order_release);
+
+    if (changed) {
+        plugin.engine.setParams(plugin.audioParams);
+        if (resetEngine) plugin.engine.reset();
+    }
+    return changed;
+}
+
+bool applyAudioParamToState(
+    Plugin& plugin, clap_id id, double value, bool& resetEngine)
+{
+    const bool preset = id == kParamPreset;
+    if (!applyParamToState(plugin.audioParams,
+            plugin.audioPresetIndex, id, value)) {
+        return false;
+    }
+    if (preset) {
+        plugin.pendingAudioReportFullReplace = true;
+        resetEngine = true;
+    } else {
+        plugin.pendingAudioReportDirtyMask |= uint64_t { 1u } << id;
+    }
+    plugin.pendingAudioReportPresetChanged = true;
+    return true;
+}
+
+void applyAudioParam(Plugin& plugin, clap_id id, double value)
+{
+    bool resetEngine = false;
+    if (!applyAudioParamToState(plugin, id, value, resetEngine)) return;
+    if (id == kParamOutputGain || id == kParamModalLift) {
+        plugin.engine.setOutputStageTargets(
+            plugin.audioParams.outputGainDb,
+            plugin.audioParams.modalLift);
+        return;
+    }
+    plugin.engine.setParams(plugin.audioParams);
+    if (resetEngine) plugin.engine.reset();
+}
+
+bool publishAudioReportTry(Plugin& plugin)
+{
+    if (plugin.pendingAudioReportDirtyMask == 0u
+        && !plugin.pendingAudioReportFullReplace
+        && !plugin.pendingAudioReportPresetChanged) {
+        return true;
+    }
+    if (plugin.audioReportLock.test_and_set(
+            std::memory_order_acquire)) {
+        return false;
+    }
+    plugin.audioReportParams = plugin.audioParams;
+    plugin.audioReportPresetIndex = plugin.audioPresetIndex;
+    plugin.audioReportDirtyMask |= plugin.pendingAudioReportDirtyMask;
+    plugin.audioReportFullReplace = plugin.audioReportFullReplace
+        || plugin.pendingAudioReportFullReplace;
+    plugin.audioReportPresetChanged = plugin.audioReportPresetChanged
+        || plugin.pendingAudioReportPresetChanged;
+    plugin.audioReportMailboxRevision = plugin.audioMailboxRevision;
+    plugin.pendingAudioReportDirtyMask = 0u;
+    plugin.pendingAudioReportFullReplace = false;
+    plugin.pendingAudioReportPresetChanged = false;
+    plugin.audioReportRevision.fetch_add(
+        1u, std::memory_order_release);
+    plugin.audioReportLock.clear(std::memory_order_release);
+    return true;
+}
+
+void mergeAudioReportLocked(Plugin& plugin)
+{
+    const uint64_t advertised = plugin.audioReportRevision.load(
+        std::memory_order_acquire);
+    if (advertised == plugin.controlAudioReportRevision) return;
+
+    AtomicFlagGuard reportGuard(plugin.audioReportLock);
+    const uint64_t revision = plugin.audioReportRevision.load(
+        std::memory_order_relaxed);
+    if (revision == plugin.controlAudioReportRevision) return;
+
+    const uint64_t dirtyMask = plugin.audioReportFullReplace
+        ? std::numeric_limits<uint64_t>::max()
+        : plugin.audioReportDirtyMask;
+    for (clap_id id = 2u; id <= kParamModalLift; ++id) {
+        if ((dirtyMask & (uint64_t { 1u } << id)) == 0u
+            || plugin.controlParamEditRevision[id]
+                > plugin.audioReportMailboxRevision) {
+            continue;
+        }
+        assignParam(plugin.params, id,
+            paramValueFromState(plugin.audioReportParams,
+                plugin.audioReportPresetIndex, id));
+    }
+    if (plugin.audioReportPresetChanged
+        && plugin.controlPresetEditRevision
+            <= plugin.audioReportMailboxRevision) {
+        plugin.presetIndex = plugin.audioReportPresetIndex;
+    }
     plugin.guiState.selectedBody = std::min<uint32_t>(
         plugin.guiState.selectedBody, plugin.params.bodyCount - 1u);
-    plugin.presetIndex = kCustomPresetIndex;
-#if defined(__APPLE__)
-    std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s", "Custom");
-#endif
-    if (outputStageParam) {
-        plugin.engine.setOutputStageTargets(
-            plugin.params.outputGainDb, plugin.params.modalLift);
-    } else {
-        plugin.engine.setParams(plugin.params);
+    updatePresetName(plugin);
+    plugin.controlAudioReportRevision = revision;
+    plugin.audioReportDirtyMask = 0u;
+    plugin.audioReportFullReplace = false;
+    plugin.audioReportPresetChanged = false;
+}
+
+ControlStateSnapshot controlStateSnapshot(Plugin& plugin)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    return {
+        plugin.params,
+        plugin.presetIndex,
+        plugin.paramsMailboxRevision.load(std::memory_order_relaxed),
+    };
+}
+
+double getParam(Plugin& plugin, clap_id id)
+{
+    const auto snapshot = controlStateSnapshot(plugin);
+    return paramValueFromState(snapshot.params, snapshot.presetIndex, id);
+}
+
+void applyControlParam(Plugin& plugin, clap_id id, double value)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    const bool preset = id == kParamPreset;
+    if (!applyParamToState(
+            plugin.params, plugin.presetIndex, id, value)) {
+        return;
     }
+    plugin.guiState.selectedBody = std::min<uint32_t>(
+        plugin.guiState.selectedBody, plugin.params.bodyCount - 1u);
+    updatePresetName(plugin);
+    if (preset) {
+        publishControlParamsLocked(plugin, true);
+    } else {
+        publishControlParamLocked(plugin, id);
+    }
+    syncInactiveEngineLocked(plugin, preset);
+}
+
+void replaceControlState(Plugin& plugin,
+    const s3g::AccelerometerFieldParams& params,
+    uint32_t presetIndex, bool resetEngine)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.params = s3g::sanitizeAccelerometerFieldParams(params);
+    plugin.presetIndex = std::min<uint32_t>(
+        presetIndex, kCustomPresetIndex);
+    plugin.guiState.selectedBody = std::min<uint32_t>(
+        plugin.guiState.selectedBody, plugin.params.bodyCount - 1u);
+    updatePresetName(plugin);
+    publishControlParamsLocked(plugin, resetEngine);
+    syncInactiveEngineLocked(plugin, resetEngine);
 }
 
 bool init(const clap_plugin_t* plugin)
@@ -786,8 +1133,7 @@ bool init(const clap_plugin_t* plugin)
     // Hosts may create and show the editor before audio activation. Prepare a
     // default-rate model here so its editable body field is already truthful.
     p->engine.prepare(p->sampleRate);
-    p->engine.setParams(p->params);
-    p->engine.reset();
+    syncInactiveEngineLocked(*p, true);
     return true;
 }
 
@@ -807,19 +1153,68 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
+    // Claim engine ownership before any activation work. A concurrent Cocoa
+    // edit now remains control-only and is either captured by the snapshot or
+    // left pending for the first process callback.
+    p->active.store(true, std::memory_order_release);
     p->sampleRate = std::max(1000.0, sampleRate);
     p->maxFrames = std::max(1u, maxFrames);
     p->scratchInput.assign(p->maxFrames, 0.0f);
     for (auto& channel : p->scratchOutputs) {
         channel.assign(p->maxFrames, 0.0f);
     }
+    const auto snapshot = controlStateSnapshot(*p);
+    p->audioParams = snapshot.params;
+    p->audioPresetIndex = snapshot.presetIndex;
     p->engine.prepare(p->sampleRate);
-    p->engine.setParams(p->params);
+    p->engine.setParams(p->audioParams);
     p->engine.reset();
+    {
+        AtomicFlagGuard mailboxGuard(p->paramsMailboxLock);
+        const uint64_t currentRevision = p->paramsMailboxRevision.load(
+            std::memory_order_relaxed);
+        p->audioMailboxRevision = snapshot.mailboxRevision;
+        if (currentRevision == snapshot.mailboxRevision) {
+            p->paramsMailboxDirtyMask = 0u;
+            p->paramsMailboxFullReplace = false;
+            p->paramsMailboxResetEngine = false;
+        }
+    }
+    updateBodyGeometryMeters(*p);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    while (!publishAudioReportTry(*p)) {
+        // Deactivation is non-real-time and no further process callback can
+        // retry a report which briefly collided with a main-thread reader.
+    }
+
+    // Keep GUI edits mailbox-only until the final engine access is complete.
+    // Holding controlLock makes this a coherent final snapshot; active flips
+    // only after the engine and mailbox checkpoint are synchronized, so the
+    // next GUI writer can safely use the inactive direct-update path.
+    AtomicFlagGuard controlGuard(p->controlLock);
+    mergeAudioReportLocked(*p);
+    p->audioParams = p->params;
+    p->audioPresetIndex = p->presetIndex;
+    p->engine.setParams(p->audioParams);
+    bool resetEngine = false;
+    {
+        AtomicFlagGuard mailboxGuard(p->paramsMailboxLock);
+        resetEngine = p->paramsMailboxResetEngine;
+        p->audioMailboxRevision = p->paramsMailboxRevision.load(
+            std::memory_order_relaxed);
+        p->paramsMailboxDirtyMask = 0u;
+        p->paramsMailboxFullReplace = false;
+        p->paramsMailboxResetEngine = false;
+    }
+    if (resetEngine) p->engine.reset();
+    updateBodyGeometryMeters(*p);
+    p->active.store(false, std::memory_order_release);
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
@@ -847,6 +1242,8 @@ ProcessEventBatch readInputEvents(Plugin& plugin,
 {
     ProcessEventBatch batch;
     if (!events) return batch;
+    bool engineParamsChanged = false;
+    bool resetEngine = false;
     const uint32_t count = events->size(events);
     for (uint32_t index = 0u; index < count; ++index) {
         const auto* event = events->get(events, index);
@@ -867,7 +1264,14 @@ ProcessEventBatch readInputEvents(Plugin& plugin,
                 change.value = param->value;
                 continue;
             }
-            applyParam(plugin, param->param_id, param->value);
+            if (param->param_id == kParamOutputGain
+                || param->param_id == kParamModalLift) {
+                applyAudioParam(plugin, param->param_id, param->value);
+            } else {
+                engineParamsChanged = applyAudioParamToState(
+                    plugin, param->param_id, param->value,
+                    resetEngine) || engineParamsChanged;
+            }
             continue;
         }
         int32_t key = -1;
@@ -893,6 +1297,13 @@ ProcessEventBatch readInputEvents(Plugin& plugin,
             strike.key = key;
             strike.velocity = std::clamp(velocity, 0.0f, 1.0f);
         }
+    }
+    if (engineParamsChanged) {
+        // Host automation timestamps for modal-structure controls are block
+        // quantized by this wrapper. Commit the final snapshot once so a
+        // dense lane cannot rebuild all 96 modes for every event.
+        plugin.engine.setParams(plugin.audioParams);
+        if (resetEngine) plugin.engine.reset();
     }
     return batch;
 }
@@ -927,6 +1338,7 @@ void updateEngineMeters(Plugin& plugin)
                 ? plugin.engine.listenerPickupEnergy(pickup) : 0.0f,
             std::memory_order_relaxed);
     }
+    updateBodyGeometryMeters(plugin);
     for (uint32_t body = 0u;
         body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
         plugin.actuatorBodyDrive[body].store(
@@ -962,7 +1374,7 @@ clap_process_status processFloat(Plugin& plugin,
                 <= offset) {
             const auto& change = events.outputStageChanges[
                 outputStageChangeIndex++];
-            applyParam(plugin, change.id, change.value);
+            applyAudioParam(plugin, change.id, change.value);
         }
         uint32_t end = process.frames_count;
         if (strikeIndex < events.strikeCount) {
@@ -1020,7 +1432,7 @@ clap_process_status processDouble(Plugin& plugin,
                 <= offset) {
             const auto& change = events.outputStageChanges[
                 outputStageChangeIndex++];
-            applyParam(plugin, change.id, change.value);
+            applyAudioParam(plugin, change.id, change.value);
         }
         uint32_t end = std::min<uint32_t>(
             process.frames_count, offset + plugin.maxFrames);
@@ -1079,18 +1491,20 @@ clap_process_status process(const clap_plugin_t* plugin,
         return CLAP_PROCESS_CONTINUE;
     }
     auto* p = self(plugin);
+    (void)tryConsumeControlParams(*p);
     const ProcessEventBatch events = readInputEvents(
         *p, process->in_events, process->frames_count);
     const clap_audio_buffer_t* input = process->audio_inputs_count > 0u
         ? &process->audio_inputs[0] : nullptr;
     auto& output = process->audio_outputs[0];
+    clap_process_status status = CLAP_PROCESS_ERROR;
     if (output.data32) {
-        return processFloat(*p, *process, input, output, events);
+        status = processFloat(*p, *process, input, output, events);
+    } else if (output.data64) {
+        status = processDouble(*p, *process, input, output, events);
     }
-    if (output.data64) {
-        return processDouble(*p, *process, input, output, events);
-    }
-    return CLAP_PROCESS_ERROR;
+    publishAudioReportTry(*p);
+    return status;
 }
 
 void onMainThread(const clap_plugin_t*) {}
@@ -1234,7 +1648,24 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 void paramsFlush(const clap_plugin_t* plugin,
     const clap_input_events_t* input, const clap_output_events_t*)
 {
-    (void)readInputEvents(*self(plugin), input, 0u);
+    auto* p = self(plugin);
+    if (p->active.load(std::memory_order_acquire)) {
+        (void)tryConsumeControlParams(*p);
+        (void)readInputEvents(*p, input, 0u);
+        publishAudioReportTry(*p);
+        return;
+    }
+    const uint32_t count = input ? input->size(input) : 0u;
+    for (uint32_t index = 0u; index < count; ++index) {
+        const auto* event = input->get(input, index);
+        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_PARAM_VALUE) {
+            continue;
+        }
+        const auto* param =
+            reinterpret_cast<const clap_event_param_value_t*>(event);
+        applyControlParam(*p, param->param_id, param->value);
+    }
 }
 
 const clap_plugin_params_t paramsExt {
@@ -1244,9 +1675,10 @@ const clap_plugin_params_t paramsExt {
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
-    const auto* p = self(plugin);
+    auto* p = self(plugin);
+    const auto snapshot = controlStateSnapshot(*p);
     const SavedState state {
-        kStateVersion, p->presetIndex, p->params, p->guiState
+        kStateVersion, snapshot.presetIndex, snapshot.params, p->guiState
     };
     return writeExact(stream, &state, sizeof(state));
 }
@@ -1258,7 +1690,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     auto* p = self(plugin);
-    if (header.version == kStateVersion) {
+    AtomicFlagGuard controlGuard(p->controlLock);
+    mergeAudioReportLocked(*p);
+    if (header.version == kStateVersion || header.version == 11u) {
         s3g::AccelerometerFieldParams loadedParams {};
         SavedGuiState loadedGui {};
         if (!readExact(stream, &loadedParams, sizeof(loadedParams))
@@ -1269,9 +1703,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->guiState = sanitizeSavedGuiState(
             loadedGui, p->params.bodyCount);
     } else if (header.version == 10u) {
-        // The material expansion did not change the parameter or GUI layout,
-        // but it did occupy the former Custom preset index. Read the released
-        // v10 aggregate exactly; preset identity is migrated below.
+        // Neither profile expansion changed the parameter or GUI aggregate.
+        // Read released v10 exactly; its Custom identity is migrated below.
         s3g::AccelerometerFieldParams loadedParams {};
         SavedGuiState loadedGui {};
         if (!readExact(stream, &loadedParams, sizeof(loadedParams))
@@ -1354,8 +1787,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (header.version < 8u) {
         focusModalParams(p->params);
         p->presetIndex = kCustomPresetIndex;
-    } else if (header.version < kStateVersion) {
-        p->presetIndex = header.presetIndex < kLegacyFactoryPresetCount
+    } else if (header.version <= 10u) {
+        p->presetIndex = header.presetIndex < kV10FactoryPresetCount
+            ? header.presetIndex : kCustomPresetIndex;
+    } else if (header.version == 11u) {
+        p->presetIndex = header.presetIndex < kV11FactoryPresetCount
             ? header.presetIndex : kCustomPresetIndex;
     } else {
         p->presetIndex = std::min<uint32_t>(
@@ -1365,8 +1801,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     std::snprintf(p->presetName, sizeof(p->presetName), "%s",
         menuName(kParamPreset, p->presetIndex));
 #endif
-    p->engine.setParams(p->params);
-    p->engine.reset();
+    publishControlParamsLocked(*p, true);
+    syncInactiveEngineLocked(*p, true);
     return true;
 }
 
@@ -1701,14 +2137,15 @@ float guiRandomSigned()
 
 void randomizeSafe(Plugin& plugin)
 {
-    const uint32_t order = plugin.params.ambisonicOrder;
-    const float outputGain = plugin.params.outputGainDb;
-    const float modalLift = plugin.params.modalLift;
-    const auto listenerPickupSet = plugin.params.listenerPickupSet;
-    const auto listenerMode = plugin.params.fieldListenMode;
-    const float listenerAmount = plugin.params.fieldListenAmount;
-    const auto listenerResponse = plugin.params.fieldListenResponse;
-    const float externalDrive = plugin.params.externalDrive;
+    const auto snapshot = controlStateSnapshot(plugin);
+    const uint32_t order = snapshot.params.ambisonicOrder;
+    const float outputGain = snapshot.params.outputGainDb;
+    const float modalLift = snapshot.params.modalLift;
+    const auto listenerPickupSet = snapshot.params.listenerPickupSet;
+    const auto listenerMode = snapshot.params.fieldListenMode;
+    const float listenerAmount = snapshot.params.fieldListenAmount;
+    const auto listenerResponse = snapshot.params.fieldListenResponse;
+    const float externalDrive = snapshot.params.externalDrive;
     auto params = s3g::accelerometerFieldFactoryPreset(
         arc4random_uniform(kFactoryPresetCount));
     const auto vary = [](float value, float amount) {
@@ -1734,10 +2171,7 @@ void randomizeSafe(Plugin& plugin)
     params.fieldListenResponse = listenerResponse;
     params.externalDrive = externalDrive;
     params.seed ^= arc4random();
-    plugin.params = s3g::sanitizeAccelerometerFieldParams(params);
-    plugin.presetIndex = kCustomPresetIndex;
-    plugin.engine.setParams(plugin.params);
-    plugin.engine.reset();
+    replaceControlState(plugin, params, kCustomPresetIndex, true);
 }
 
 struct GuiBodyAed {
@@ -1746,14 +2180,23 @@ struct GuiBodyAed {
     float distance = 1.0f;
 };
 
+s3g::Vec3 guiBodyDirection(const Plugin& plugin, uint32_t body)
+{
+    return s3g::normalize({
+        plugin.bodyDirectionX[body].load(std::memory_order_relaxed),
+        plugin.bodyDirectionY[body].load(std::memory_order_relaxed),
+        plugin.bodyDirectionZ[body].load(std::memory_order_relaxed),
+    });
+}
+
 GuiBodyAed guiBodyAed(const Plugin& plugin, uint32_t body)
 {
-    const s3g::Vec3 direction = plugin.engine.bodyDirection(body);
+    const s3g::Vec3 direction = guiBodyDirection(plugin, body);
     return {
         std::atan2(direction.y, direction.x) * 180.0f / s3g::kPi,
         std::asin(s3g::clamp(direction.z, -1.0f, 1.0f))
             * 180.0f / s3g::kPi,
-        plugin.engine.bodyDistance(body),
+        plugin.bodyDistance[body].load(std::memory_order_relaxed),
     };
 }
 
@@ -1911,7 +2354,7 @@ NSColor* modalBodyColorFromAed(
 
 - (void)setParam:(clap_id)param value:(double)value
 {
-    applyParam(*static_cast<Plugin*>(_plugin), param, value);
+    applyControlParam(*static_cast<Plugin*>(_plugin), param, value);
     [self setNeedsDisplay:YES];
 }
 
@@ -1986,7 +2429,9 @@ NSColor* modalBodyColorFromAed(
 {
     auto* p = static_cast<Plugin*>(_plugin);
     if (!p) return -1;
-    const uint32_t count = std::clamp<uint32_t>(p->params.bodyCount, 4u, 8u);
+    const auto snapshot = controlStateSnapshot(*p);
+    const uint32_t count = std::clamp<uint32_t>(
+        snapshot.params.bodyCount, 4u, 8u);
     const CGFloat drawnRadius = 15.0
         + (8.0 - static_cast<CGFloat>(count)) * 0.8;
     const CGFloat hitRadius = drawnRadius + 4.0;
@@ -1994,8 +2439,9 @@ NSColor* modalBodyColorFromAed(
     CGFloat best = hitRadius * hitRadius;
     CGFloat bestDepth = -std::numeric_limits<CGFloat>::infinity();
     for (uint32_t body = 0u; body < count; ++body) {
-        const s3g::Vec3 direction = p->engine.bodyDirection(body);
-        const float distance = p->engine.bodyDistance(body);
+        const s3g::Vec3 direction = guiBodyDirection(*p, body);
+        const float distance = p->bodyDistance[body].load(
+            std::memory_order_relaxed);
         const s3g::Vec3 world {
             direction.x * distance,
             direction.y * distance,
@@ -2026,6 +2472,7 @@ NSColor* modalBodyColorFromAed(
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto snapshot = controlStateSnapshot(*p);
     const uint32_t body = static_cast<uint32_t>(_dragBody);
     const GuiBodyAed current = guiBodyAed(*p, body);
     const CGFloat centerX = NSMidX(rect);
@@ -2069,17 +2516,17 @@ NSColor* modalBodyColorFromAed(
     }
 
     const float azimuthOffset = wrapGuiDegrees(
-        p->params.bodyAzimuthOffsetDeg[body]
+        snapshot.params.bodyAzimuthOffsetDeg[body]
             + wrapGuiDegrees(desiredAzimuth - current.azimuthDeg));
     const float elevationOffset = std::clamp(
-        p->params.bodyElevationOffsetDeg[body]
+        snapshot.params.bodyElevationOffsetDeg[body]
             + desiredElevation - current.elevationDeg,
         -180.0f, 180.0f);
-    applyParam(*p, bodyAedParamId(
+    applyControlParam(*p, bodyAedParamId(
         body, BodyAedParamKind::AzimuthOffset), azimuthOffset);
-    applyParam(*p, bodyAedParamId(
+    applyControlParam(*p, bodyAedParamId(
         body, BodyAedParamKind::ElevationOffset), elevationOffset);
-    applyParam(*p, bodyAedParamId(
+    applyControlParam(*p, bodyAedParamId(
         body, BodyAedParamKind::Distance), desiredDistance);
     _selectedBody = body;
     [self storeViewState];
@@ -2116,7 +2563,7 @@ NSColor* modalBodyColorFromAed(
 {
     (void)peak;
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto& params = p->params;
+    const auto params = controlStateSnapshot(*p).params;
     const NSRect panel = fieldPanelRect();
     const NSRect field = fieldPlotRect();
     s3g::clap_gui::drawPanelFrame(
@@ -2182,9 +2629,10 @@ NSColor* modalBodyColorFromAed(
     for (uint32_t body = 0u; body < count; ++body) {
         order[body] = body;
         bodyAed[body] = guiBodyAed(*p, body);
-        const s3g::Vec3 direction = p->engine.bodyDirection(body);
+        const s3g::Vec3 direction = guiBodyDirection(*p, body);
         bodyDirections[body] = direction;
-        const float distance = p->engine.bodyDistance(body);
+        const float distance = p->bodyDistance[body].load(
+            std::memory_order_relaxed);
         const s3g::Vec3 world {
             direction.x * distance,
             direction.y * distance,
@@ -2488,7 +2936,7 @@ NSColor* modalBodyColorFromAed(
         ? s3g::clap_gui::cocoaRect(kTitleBand.presetMenu)
         : menuAnchorRect(_openMenuLocation);
     const CGFloat itemHeight = 19.0;
-    const uint32_t columns = count > 16u ? 2u : 1u;
+    const uint32_t columns = menuColumnCount(count);
     const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
         count, columns);
     NSRect menu = NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 2.0,
@@ -2608,7 +3056,7 @@ NSColor* modalBodyColorFromAed(
         signalX, signal.origin.y + 96.0)
         withAttributes:values];
     [[NSString stringWithFormat:@"↓  %u BODIES / 96 MODES",
-        p->params.bodyCount]
+        static_cast<uint32_t>(getParam(*p, kParamBodyCount))]
         drawAtPoint:NSMakePoint(signalX, signal.origin.y + 116.0)
         withAttributes:values];
     [@"LIFT → OUT → LINKED GUARD" drawAtPoint:NSMakePoint(
@@ -2654,7 +3102,7 @@ NSColor* modalBodyColorFromAed(
         NSRect anchor = _openMenu == kParamPreset
             ? s3g::clap_gui::cocoaRect(kTitleBand.presetMenu)
             : menuAnchorRect(_openMenuLocation);
-        const uint32_t columns = count > 16u ? 2u : 1u;
+        const uint32_t columns = menuColumnCount(count);
         const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
             count, columns);
         const NSRect menu = NSMakeRect(anchor.origin.x,
@@ -2720,11 +3168,11 @@ NSColor* modalBodyColorFromAed(
     if (NSPointInRect(point, modalResetLayoutButtonRect())) {
         for (uint32_t body = 0u;
             body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
-            applyParam(*p, bodyAedParamId(
+            applyControlParam(*p, bodyAedParamId(
                 body, BodyAedParamKind::AzimuthOffset), 0.0);
-            applyParam(*p, bodyAedParamId(
+            applyControlParam(*p, bodyAedParamId(
                 body, BodyAedParamKind::ElevationOffset), 0.0);
-            applyParam(*p, bodyAedParamId(
+            applyControlParam(*p, bodyAedParamId(
                 body, BodyAedParamKind::Distance), 1.0);
         }
         [self setNeedsDisplay:YES];
@@ -2971,7 +3419,11 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     p->host = host;
     p->params = s3g::accelerometerFieldFactoryPreset(0u);
     p->presetIndex = 0u;
-    p->engine.setParams(p->params);
+    p->audioParams = p->params;
+    p->audioPresetIndex = p->presetIndex;
+    p->paramsMailbox = p->params;
+    p->paramsMailboxPresetIndex = p->presetIndex;
+    p->engine.setParams(p->audioParams);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

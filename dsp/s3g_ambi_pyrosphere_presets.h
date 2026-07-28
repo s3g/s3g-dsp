@@ -13,7 +13,7 @@ struct AmbiPyrospherePresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kAmbiPyrosphereFactoryPresetCount = 14u;
+inline constexpr uint32_t kAmbiPyrosphereFactoryPresetCount = 18u;
 inline constexpr std::array<AmbiPyrospherePresetInfo,
     kAmbiPyrosphereFactoryPresetCount> kAmbiPyrospherePresetInfo {{
         { "Duff Smoulder", "A damp porous fuel bed with muted combustion and internal material failure." },
@@ -30,6 +30,10 @@ inline constexpr std::array<AmbiPyrospherePresetInfo,
         { "Firestorm Debris Field", "A large rotating combustion front driving fracture, pressure, and debris." },
         { "Burned Timber Fall", "A standing fire-weakened tree loading, snapping through branch generations, hinging, and striking the ground." },
         { "Flamethrower Jet", "A sustained pressurized fuel jet with a dense nozzle core, turbulent shear roar, hiss, and downstream heat-release modulation." },
+        { "Silicate Convection Sea", "Slow convective overturn, pressurized blisters, and dark fluid roar across a molten mineral sea." },
+        { "Dense-Atmosphere Hydrocarbon Front", "A wide hydrocarbon reaction front moving through a massive, strongly damped atmosphere." },
+        { "Sulfur Vent Colony", "A spatial colony of irregular sulfur vents breathing, choking, and exchanging pressure." },
+        { "Mineral Lattice Collapse", "Rare stress releases propagating through a brittle mineral lattice in long collapse chains." },
     }};
 
 inline AmbiPyrospherePresetInfo ambiPyrosphereFactoryPresetInfo(
@@ -113,12 +117,41 @@ inline AmbiPyrosphereParams ambiPyrosphereFactoryPreset(uint32_t index)
         p.material=.98f; p.body=.88f; p.breath=.56f; p.air=.34f; p.hiss=.22f; p.q=.88f; p.grit=.90f; p.particles=.72f;
         p.pressure=.52f; p.vortex=.54f; p.spread=.88f; p.motionRateHz=.072f; p.motionFlow=.84f; p.motionShear=.78f; p.motionCurl=.38f; p.motionUpdraft=.48f;
         p.structuralLoad=1.0f; p.snap=1.0f; p.fall=1.0f; p.centerDistance=1.16f; p.space=.16f; p.outputGainDb=-11.0f; break;
-    default:
+    case 13u:
         p.voices=12; p.materialMode=13u; p.wind=1.0f; p.gustRate=.42f; p.gustDepth=.18f; p.turbulence=.94f; p.flutter=.22f;
         p.material=.94f; p.body=.88f; p.breath=1.0f; p.air=.88f; p.hiss=.82f; p.q=.08f; p.grit=.04f; p.particles=.02f;
         p.center=.92f; p.sweep=.62f; p.shrill=.48f; p.pressure=1.0f; p.vortex=.74f; p.spread=.24f; p.deviation=.05f;
         p.motionRateHz=.15f; p.motionFlow=1.0f; p.motionShear=.88f; p.motionCurl=.18f; p.motionUpdraft=.24f;
         p.structuralLoad=0.0f; p.snap=.12f; p.fall=0.0f; p.centerDistance=.86f; p.space=.12f; p.outputGainDb=-11.0f; break;
+    case 14u:
+        p.order=4u; p.voices=50; p.materialMode=kAmbiPyrosphereMaterialSilicateCells; p.wind=.72f; p.gustRate=.024f; p.gustDepth=.86f; p.turbulence=.72f; p.flutter=.18f;
+        p.material=.92f; p.body=.98f; p.breath=.48f; p.air=.18f; p.hiss=.10f; p.q=.14f; p.grit=.12f; p.particles=.08f;
+        p.center=.78f; p.sweep=.26f; p.shrill=.06f; p.pressure=.72f; p.vortex=.84f; p.spread=.96f; p.deviation=.24f;
+        p.motionRateHz=.008f; p.motionFlow=.60f; p.motionShear=.34f; p.motionCurl=.94f; p.motionUpdraft=.42f;
+        p.centerElevationDeg=-10.0f; p.centerDistance=1.22f; p.place=5u; p.space=.58f;
+        p.environmentSize=.92f; p.environmentDecay=.74f; p.environmentDamping=.62f; p.outputGainDb=-11.0f; break;
+    case 15u:
+        p.order=4u; p.voices=56; p.materialMode=kAmbiPyrosphereMaterialSupercriticalFront; p.wind=.62f; p.gustRate=.18f; p.gustDepth=.54f; p.turbulence=.76f; p.flutter=.38f;
+        p.material=.74f; p.body=.90f; p.breath=.34f; p.air=.12f; p.hiss=.08f; p.q=.18f; p.grit=.06f; p.particles=.16f;
+        p.center=.72f; p.sweep=.20f; p.shrill=.04f; p.pressure=.78f; p.vortex=.62f; p.spread=1.0f; p.deviation=.34f;
+        p.motionRateHz=.022f; p.motionFlow=.94f; p.motionShear=.78f; p.motionCurl=.46f; p.motionUpdraft=.28f;
+        p.centerDistance=1.34f; p.space=.68f; p.environmentSize=1.0f; p.environmentDecay=.86f; p.environmentDamping=.94f;
+        p.outputGainDb=-11.0f; break;
+    case 16u:
+        p.order=4u; p.voices=18; p.materialMode=kAmbiPyrosphereMaterialSulfurSlugVents; p.wind=.66f; p.gustRate=.060f; p.gustDepth=.38f; p.turbulence=.82f; p.flutter=.34f;
+        p.material=.62f; p.body=.74f; p.breath=.48f; p.air=.38f; p.hiss=.42f; p.q=.24f; p.grit=.06f; p.particles=.14f;
+        p.center=.68f; p.sweep=.34f; p.shrill=.18f; p.pressure=.68f; p.vortex=.78f; p.spread=.88f; p.deviation=.44f;
+        p.motionRateHz=.016f; p.motionFlow=.46f; p.motionShear=.60f; p.motionCurl=.82f; p.motionUpdraft=.92f;
+        p.structuralLoad=0.0f; p.snap=.08f; p.fall=0.0f; p.centerElevationDeg=-16.0f; p.centerDistance=1.14f;
+        p.place=5u; p.space=.72f; p.environmentSize=.78f; p.environmentDecay=.88f; p.environmentDamping=.70f;
+        p.outputGainDb=-12.0f; break;
+    case 17u:
+        p.order=4u; p.voices=44; p.materialMode=kAmbiPyrosphereMaterialThermoelasticLattice; p.wind=.94f; p.gustRate=.026f; p.gustDepth=.94f; p.turbulence=.16f; p.flutter=.10f;
+        p.material=.98f; p.body=.82f; p.breath=.16f; p.air=.34f; p.hiss=.16f; p.q=.98f; p.grit=.92f; p.particles=.84f;
+        p.center=.58f; p.sweep=.68f; p.shrill=.42f; p.pressure=.64f; p.vortex=.18f; p.spread=.94f; p.deviation=.20f;
+        p.motionRateHz=.004f; p.motionFlow=.24f; p.motionShear=.92f; p.motionCurl=.16f; p.motionUpdraft=.08f;
+        p.centerElevationDeg=-12.0f; p.centerDistance=1.28f; p.place=6u; p.space=.84f;
+        p.environmentSize=.96f; p.environmentDecay=.94f; p.environmentDamping=.24f; p.outputGainDb=-12.0f; break;
     }
     struct ScoreProfile {
         float pace;
@@ -143,6 +176,10 @@ inline AmbiPyrosphereParams ambiPyrosphereFactoryPreset(uint32_t index)
         { .82f, .80f, .95f, .38f, .16f }, // firestorm
         { .22f, .12f, .72f, .92f, .92f }, // burned timber fall
         { .78f, .95f, .10f, .85f, .05f }, // pressure jet
+        { .12f, .72f, .54f, .96f, .34f }, // silicate convection sea
+        { .38f, .86f, .78f, .88f, .18f }, // dense-atmosphere hydrocarbon front
+        { .22f, .52f, .38f, .94f, .54f }, // sulfur vent colony
+        { .14f, .12f, .98f, .98f, .94f }, // mineral lattice collapse
     }};
     const auto score = scoreProfiles[safeIndex];
     p.scorePace = score.pace;

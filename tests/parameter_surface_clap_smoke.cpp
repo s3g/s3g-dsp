@@ -259,6 +259,56 @@ int main(int argc, char** argv)
         }
     }
 
+    if (ok && (pyrosphere || cryosphere)) {
+        const clap_id processId = pyrosphere ? 43u : 11u;
+        const char* processName = pyrosphere
+            ? "Affected Material" : "Geological Process";
+        const std::array<const char*, 4u> alienProcessNames = pyrosphere
+            ? std::array<const char*, 4u> {
+                "SILICATE CELLS", "SUPERCRITICAL FRONT",
+                "SULFUR SLUG VENTS", "THERMOELASTIC LATTICE" }
+            : std::array<const char*, 4u> {
+                "APERIODIC LATTICE", "TIDAL SHELL",
+                "HYDROCARBON DUNE", "REACTIVE BRINE" };
+        const uint32_t firstAlienId = pyrosphere ? 14u : 14u;
+        clap_param_info_t processInfo {};
+        bool foundProcess = false;
+        for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+            clap_param_info_t info {};
+            if (!params->get_info(plugin, index, &info)) continue;
+            if (info.id == processId) {
+                processInfo = info;
+                foundProcess = true;
+                break;
+            }
+        }
+        double processValue = -1.0;
+        EventList processEvent;
+        processEvent.add(processId, 17.0);
+        ok = foundProcess
+            && std::strcmp(processInfo.name, processName) == 0
+            && approximately(processInfo.min_value, 0.0)
+            && approximately(processInfo.max_value, 17.0)
+            && (processInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+        for (uint32_t offset = 0u;
+            ok && offset < alienProcessNames.size(); ++offset) {
+            char processText[64] {};
+            double parsedValue = -1.0;
+            const double processIndex = static_cast<double>(
+                firstAlienId + offset);
+            ok = params->value_to_text(plugin, processId, processIndex,
+                    processText, sizeof(processText))
+                && std::strcmp(processText,
+                    alienProcessNames[offset]) == 0
+                && params->text_to_value(plugin, processId,
+                    alienProcessNames[offset], &parsedValue)
+                && approximately(parsedValue, processIndex);
+        }
+        if (ok) params->flush(plugin, &processEvent.input, nullptr);
+        ok = ok && params->get_value(plugin, processId, &processValue)
+            && approximately(processValue, 17.0);
+    }
+
     auto flushCursor = [&](double x, double y) {
         EventList events;
         events.add(xId, x);
@@ -284,11 +334,22 @@ int main(int argc, char** argv)
     }
     if (ok) {
         flushCursor(0.91, 0.09);
+        if (pyrosphere || cryosphere) {
+            EventList processEvent;
+            processEvent.add(pyrosphere ? 43u : 11u, 13.0);
+            params->flush(plugin, &processEvent.input, nullptr);
+        }
         MemoryInput memory { &saved.bytes, 0u };
         clap_istream_t input { &memory, streamRead };
         ok = readCursor(0.91, 0.09)
             && state->load(plugin, &input)
             && readCursor(0.2, 0.8);
+        if (ok && (pyrosphere || cryosphere)) {
+            double restoredProcess = -1.0;
+            ok = params->get_value(plugin,
+                    pyrosphere ? 43u : 11u, &restoredProcess)
+                && approximately(restoredProcess, 17.0);
+        }
     }
 
     if (plugin) plugin->destroy(plugin);

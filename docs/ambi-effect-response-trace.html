@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Effect Response Trace - s3g-dsp</title>
+    <meta name="description" content="Captured directional convolution for first- through seventh-order ambisonic fields.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Effect Response Trace</h1>
+
+        <p><strong>s3g Ambi Effect Response Trace 64</strong> captures a bank of short directional responses from an incoming <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> field: one convolution kernel for every pickup in the selected Listener body. The source, captured spatial differences, and result remain ambisonic. The response can stay local, cross the field, diffuse through neighboring regions, or roam around the Listener.</p>
+
+        <h2 id="quick-start">Quick Start</h2>
+
+        <ol>
+          <li>Place Response Trace on an ambisonic track before the final decoder.</li>
+          <li>Select the field order, leave Body at <code>AUTO</code>, and reduce Mix or Response gain.</li>
+          <li>Set Time, play the sound that should become the kernel, and press Capture. Capture uses the next incoming passage.</li>
+          <li>The completed response remains bypassed. Press Apply only when ready, then use Apply / Bypass to A/B without deleting it.</li>
+          <li>Use Tone, Response gain, topology, and the directional mask to place the convolved field.</li>
+        </ol>
+
+        <h2 id="capture">Capturing a Response</h2>
+
+        <p>Capture first decodes the HOA field through the selected Listener model, then records every virtual pickup for <code>0.05</code> to <code>1.5 s</code>. Each pickup becomes its own kernel, so a response arriving strongly from one region is not flattened into a shared mono trace. The kernels are DC-filtered and faded at their tails, then scaled together against bounded peak, energy, and absolute-sum budgets. This linked scaling preserves their relative directional levels.</p>
+
+        <p>Starting a new capture immediately bypasses the old response. After recording, the frequency-domain kernel bank is prepared across successive audio blocks instead of creating one large processing spike; the Listener display reports this short preparation phase. Completion also remains bypassed, so capture never causes an automatic jump in level. Changing Body during capture cancels that capture because it changes the pickup geometry.</p>
+
+        <p>An arbitrary captured passage is a creative convolution kernel, not automatically a measurement of an acoustic system. To capture a recognizable physical response, feed the plugin a prepared impulse or a response recovered from a known excitation. Short percussive, noisy, and decaying sounds are often the easiest creative starting points.</p>
+
+        <p>The captured body and all of its directional kernels are embedded in CLAP project state together with the controls, applied or bypassed state, and camera view. No external media file is required when the project is reopened. Clear is destructive; Apply / Bypass retains the response.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Decode the incoming HOA field onto the selected Listener body. During capture, store one response kernel per pickup.</li>
+          <li>Give the complete decoded body one linked excitation budget so a hot field cannot drive different regions into unrelated gain reduction.</li>
+          <li>Convolve each Listener pickup with its corresponding directional kernel using uniform partitioned convolution.</li>
+          <li>Apply Response gain, Tone, Local / Cross / Diffuse / Roaming topology, and the directional wet mask.</li>
+          <li>Re-encode the processed correction and combine it with a latency-aligned copy of the original HOA field.</li>
+        </ol>
+
+        <p>The plugin reports <code>1024</code> samples of host latency. Its dry path is delayed by the same amount, so Mix remains aligned with partitioned convolution. The reported tail is the captured response length plus that fixed latency while the response is applied.</p>
+
+        <h2 id="listener">Listener Body and Topology</h2>
+
+        <p><code>AUTO</code> uses Icosa12 for <code>1OA</code> and <code>2OA</code>, Dodeca20 for <code>3OA</code>, and Sphere24 for <code>4OA</code> through <code>7OA</code>. You can also select Tetra4, Cube8, Icosa12, Dodeca20, or Sphere24 explicitly. The body selected at capture time defines the stored kernel bank. If Body is changed later, the stored kernels are assigned to the new body by nearest direction, so the print remains usable without discarding it. The visual Listener shows input energy, response activity, and mask attenuation.</p>
+
+        <ul>
+          <li><code>LOCAL</code> returns convolution where the field excited it.</li>
+          <li><code>CROSS</code> returns each response from the opposing Listener region.</li>
+          <li><code>DIFFUSE</code> shares response energy through neighboring regions.</li>
+          <li><code>ROAMING</code> moves the response relationship around the body at Roam Rate.</li>
+        </ul>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Order / Body</td><td>Sets the HOA working order and the directional Listener pickup geometry. The explicit bodies contain 4, 8, 12, 20, or 24 kernels.</td></tr>
+            <tr><td>Capture</td><td>Records the next incoming passage as one kernel per Listener pickup and leaves the completed response bypassed.</td></tr>
+            <tr><td>Apply / Bypass</td><td>A/Bs the stored convolution response without removing it.</td></tr>
+            <tr><td>Clear</td><td>Deletes the response and cancels an active capture.</td></tr>
+            <tr><td>Time</td><td>Sets the captured kernel length from <code>0.05</code> to <code>1.5 s</code>.</td></tr>
+            <tr><td>Response</td><td>Sets the wet convolution level before topology and Mix.</td></tr>
+            <tr><td>Tone</td><td>Moves the wet low-pass cutoff from dark to nearly open.</td></tr>
+            <tr><td>Topology / Amount / Roam Rate</td><td>Selects and scales the spatial relationship applied after convolution.</td></tr>
+            <tr><td>Mix</td><td>Blends the re-encoded response correction with the latency-aligned input field.</td></tr>
+            <tr><td>Mask</td><td>Places the wet response around an azimuth and elevation; Width and Curve set its reach and edge.</td></tr>
+            <tr><td>Mask Dry</td><td>Attenuates the complementary original pickup field down to <code>FX ONLY</code>.</td></tr>
+            <tr><td>Output</td><td>Applies a smoothed final gain before the linked output guard.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="safety">Level Safety</h2>
+
+        <p>Kernel conditioning limits several kinds of captured energy instead of normalizing peak alone. Its gain is linked across all stored kernels so it does not erase the directional level pattern. During playback, a linked decoded-excitation governor targets a <code>0.25</code> Listener peak with immediate reduction and a <code>250 ms</code> recovery. It affects only convolution excitation; capture and the original HOA field remain untouched. The wet Listener result is softly bounded before re-encoding.</p>
+
+        <p>After Mix and the smoothed Output control, one linked <code>-1 dBFS</code> guard protects the complete HOA output with immediate attack and a <code>300 ms</code> release. It remains active while the response is bypassed, so positive Output gain cannot expose an unguarded dry path. <code>GOV</code> and <code>SAFE</code> appear in the title status only while active. Persistent governor or safety activity means the processing is functioning as a dynamics stage; lower Response, Mix, or Output for a more transparent result.</p>
+
+        <h2 id="routing">REAPER Routing</h2>
+
+        <p>Set the track and plugin pins to the complete channel count for the selected order—<code>4</code>, <code>9</code>, <code>16</code>, <code>25</code>, <code>36</code>, <code>49</code>, or <code>64</code>—with one-to-one channel mapping. Ensure plug-in delay compensation is enabled so the reported <code>1024</code>-sample latency remains aligned with other tracks. Host project state and title-band <code>LOAD</code>/<code>SAVE</code> presets include the directional kernel bank, controls, and camera view; selecting <code>INIT</code> restores parameter defaults without clearing the captured response.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-effect-partial-trace.html"><span>Previous</span>Ambi Effect Partial Trace</a>
+          <a class="page-nav-link next" href="ambi-effect-displacement.html"><span>Next</span>Ambi Effect Displacement</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section"><h2>Ambisonics</h2><a href="ambisonics.html">Overview</a><a href="interpreting-color.html">Interpreting Color</a><a href="listener-mode.html">Listener Mode</a><a href="ambisonic-effects.html">Effects</a></div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#quick-start">Quick Start</a><a href="#capture">Capture</a><a href="#signal-flow">Signal Flow</a><a href="#listener">Listener and Topology</a><a href="#controls">Controls</a><a href="#safety">Safety</a><a href="#routing">REAPER Routing</a></div>
+      </aside>
+    </div>
+  </body>
+</html>

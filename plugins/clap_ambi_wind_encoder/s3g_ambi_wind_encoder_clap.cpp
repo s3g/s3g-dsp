@@ -314,6 +314,7 @@ void randomizeSafe(Plugin& plugin)
     plugin.params = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     applyEffectiveParams(plugin);
     plugin.engine.beginTransition();
 }
@@ -1786,7 +1787,8 @@ double rateNormToHzForDisplay(double value)
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _plugin->effectiveParams;
+    const auto p = _surfaceEdit
+        ? _plugin->params : _plugin->effectiveParams;
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 132, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT / AIR", true, 630, 42, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2076,6 +2078,7 @@ double rateNormToHzForDisplay(double value)
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
         randomizeSafe(*_plugin);
+        requestSurfaceProcess(*_plugin);
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
         return;

@@ -2,6 +2,8 @@
 
 #include "s3g_environmental_score.h"
 #include "s3g_geological_field.h"
+#include "s3g_planetary_modal_body.h"
+#include "s3g_planetary_thermal.h"
 #include "s3g_structural_failure.h"
 #include "s3g_turbulent_flame_jet.h"
 
@@ -17,7 +19,12 @@ inline constexpr uint32_t kAmbiPyrosphereMaxOrder = 7u;
 inline constexpr uint32_t kAmbiPyrosphereMaxChannels = 64u;
 inline constexpr uint32_t kAmbiPyrosphereMaxVoices = 64u;
 inline constexpr uint32_t kAmbiPyrospherePlaceCount = 7u;
-inline constexpr uint32_t kAmbiPyrosphereMaterialCount = 14u;
+inline constexpr uint32_t kAmbiPyrosphereLegacyMaterialCount = 14u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialSilicateCells = 14u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialSupercriticalFront = 15u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialSulfurSlugVents = 16u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialThermoelasticLattice = 17u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialCount = 18u;
 inline constexpr float kAmbiPyrosphereMinIgnitionRateHz = 0.002f;
 inline constexpr float kAmbiPyrosphereMaxIgnitionRateHz = 12.0f;
 inline constexpr float kAmbiPyrosphereMinPlumeWanderHz = 0.001f;
@@ -27,6 +34,38 @@ inline float ambiPyrosphereTemporalScale(float ignitionRateHz)
 {
     return std::sqrt(std::clamp(ignitionRateHz
         / kAmbiPyrosphereMaxIgnitionRateHz, 0.0f, 1.0f));
+}
+
+inline bool ambiPyrosphereIsPlanetaryMaterial(uint32_t materialMode)
+{
+    return materialMode >= kAmbiPyrosphereLegacyMaterialCount
+        && materialMode < kAmbiPyrosphereMaterialCount;
+}
+
+inline PlanetaryThermalMode ambiPyrospherePlanetaryThermalMode(
+    uint32_t materialMode)
+{
+    const uint32_t index = std::clamp<uint32_t>(materialMode,
+        kAmbiPyrosphereMaterialSilicateCells,
+        kAmbiPyrosphereMaterialThermoelasticLattice)
+        - kAmbiPyrosphereMaterialSilicateCells;
+    return static_cast<PlanetaryThermalMode>(index);
+}
+
+inline PlanetaryModalProfile ambiPyrospherePlanetaryModalProfile(
+    uint32_t materialMode)
+{
+    switch (materialMode) {
+    case kAmbiPyrosphereMaterialSupercriticalFront:
+        return PlanetaryModalProfile::PyroSupercritical;
+    case kAmbiPyrosphereMaterialSulfurSlugVents:
+        return PlanetaryModalProfile::PyroVent;
+    case kAmbiPyrosphereMaterialThermoelasticLattice:
+        return PlanetaryModalProfile::PyroLattice;
+    case kAmbiPyrosphereMaterialSilicateCells:
+    default:
+        return PlanetaryModalProfile::PyroSilicate;
+    }
 }
 
 struct AmbiPyrosphereParams {
@@ -119,7 +158,9 @@ struct AmbiPyrosphereMaterialProfile {
 };
 
 // GAS, WICK/WAX, DUFF/PEAT, TIMBER, COAL, OIL, MASONRY, METAL,
-// EMBERS, RESIN, GRASS, FOREST, ROCK/TALUS, PRESSURE JET.
+// EMBERS, RESIN, GRASS, FOREST, ROCK/TALUS, PRESSURE JET,
+// SILICATE CELLS, SUPERCRITICAL FRONT, SULFUR SLUG VENTS,
+// THERMOELASTIC LATTICE.
 inline constexpr std::array<AmbiPyrosphereMaterialProfile,
     kAmbiPyrosphereMaterialCount> kAmbiPyrosphereMaterialProfiles {{
         { 1.00f, 0.08f, 0.02f, 0.01f, 0.00f, 0.00f, 0.82f, 0.92f },
@@ -136,6 +177,10 @@ inline constexpr std::array<AmbiPyrosphereMaterialProfile,
         { 0.76f, 0.82f, 0.86f, 0.58f, 0.76f, 0.36f, 0.42f, 0.40f },
         { 0.02f, 1.00f, 0.84f, 1.00f, 0.48f, 0.46f, 0.20f, 0.28f },
         { 1.00f, 0.04f, 0.01f, 0.00f, 0.00f, 0.00f, 0.78f, 0.88f },
+        { 0.72f, 0.88f, 0.54f, 0.34f, 0.46f, 0.04f, 0.14f, 0.82f },
+        { 1.00f, 0.18f, 0.04f, 0.01f, 0.00f, 0.00f, 0.34f, 0.96f },
+        { 0.84f, 0.42f, 0.20f, 0.08f, 0.00f, 0.38f, 0.58f, 0.64f },
+        { 0.30f, 1.00f, 0.98f, 0.86f, 0.62f, 0.00f, 0.36f, 0.22f },
     }};
 
 struct AmbiPyrosphereVoice {
@@ -171,6 +216,10 @@ struct AmbiPyrosphereVoice {
     float energy = 0.0f;
     float jetSample = 0.0f;
     float jetActivity = 0.0f;
+    float planetarySample = 0.0f;
+    float planetaryActivity = 0.0f;
+    float planetaryModalSample = 0.0f;
+    float planetaryModalActivity = 0.0f;
     float fuelRemaining = 1.0f;
     float structuralIntegrity = 1.0f;
     float emberCharge = 0.0f;
@@ -181,6 +230,8 @@ struct AmbiPyrosphereVoice {
     float scoreAftermath = 0.0f;
     StructuralFailureModel structure {};
     TurbulentFlameJetModel flameJet {};
+    PlanetaryModalBody planetaryModal {};
+    PlanetaryThermalModel planetaryThermal {};
 };
 
 class AmbiPyrosphereEncoder {
@@ -208,16 +259,24 @@ public:
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
         combustionLayerEnergy_ = 0.0f;
         jetLayerEnergy_ = 0.0f;
+        planetaryLayerEnergy_ = 0.0f;
+        planetaryModalLayerEnergy_ = 0.0f;
         geologicalEventCount_ = 0u;
         spallEventCount_ = 0u;
         collapseEventCount_ = 0u;
         ignitionEventCount_ = 0u;
         structuralSnapEventCount_ = 0u;
         fallEventCount_ = 0u;
+        planetaryBlisterEventCount_ = 0u;
+        planetaryFrontEventCount_ = 0u;
+        planetaryVentEventCount_ = 0u;
+        planetaryLatticeEventCount_ = 0u;
+        modalExcitationEventCount_ = 0u;
     }
 
     void setParams(AmbiPyrosphereParams params)
     {
+        const uint32_t previousMaterial = params_.materialMode;
         sanitize(params);
         params_ = params;
         GeologicalFieldParams fieldParams {};
@@ -249,6 +308,22 @@ public:
         field_.setParams(fieldParams);
         score_.setParams({ params.scorePace, params.scoreOccupancy,
             params.scoreCascade, params.scoreMemory, params.scoreRest });
+        score_.setRangeExpansion(
+            ambiPyrosphereIsPlanetaryMaterial(params.materialMode)
+                ? 1.0f : 0.0f);
+        const auto modalParams = pyrosphereModalParams(params);
+        const bool modalTopologyChanged =
+            previousMaterial != params.materialMode
+            && (ambiPyrosphereIsPlanetaryMaterial(previousMaterial)
+                || ambiPyrosphereIsPlanetaryMaterial(params.materialMode));
+        for (auto& voice : voices_) {
+            if (modalTopologyChanged) {
+                voice.planetaryModal.reset();
+                voice.planetaryModalSample = 0.0f;
+                voice.planetaryModalActivity = 0.0f;
+            }
+            voice.planetaryModal.setParams(modalParams);
+        }
     }
 
     AmbiPyrosphereParams params() const { return params_; }
@@ -303,6 +378,11 @@ public:
 
     float combustionLayerEnergy() const { return combustionLayerEnergy_; }
     float jetLayerEnergy() const { return jetLayerEnergy_; }
+    float planetaryLayerEnergy() const { return planetaryLayerEnergy_; }
+    float planetaryModalLayerEnergy() const
+    {
+        return planetaryModalLayerEnergy_;
+    }
     uint64_t geologicalEventCount() const { return geologicalEventCount_; }
     uint64_t spallEventCount() const { return spallEventCount_; }
     uint64_t collapseEventCount() const { return collapseEventCount_; }
@@ -312,6 +392,26 @@ public:
         return structuralSnapEventCount_;
     }
     uint64_t fallEventCount() const { return fallEventCount_; }
+    uint64_t planetaryBlisterEventCount() const
+    {
+        return planetaryBlisterEventCount_;
+    }
+    uint64_t planetaryFrontEventCount() const
+    {
+        return planetaryFrontEventCount_;
+    }
+    uint64_t planetaryVentEventCount() const
+    {
+        return planetaryVentEventCount_;
+    }
+    uint64_t planetaryLatticeEventCount() const
+    {
+        return planetaryLatticeEventCount_;
+    }
+    uint64_t modalExcitationEventCount() const
+    {
+        return modalExcitationEventCount_;
+    }
     float scoreActivity() const { return score_.globalActivity(); }
     uint32_t scoredEntityCount() const { return score_.activeEntityCount(); }
     uint64_t scoreArcCount() const { return score_.arcCount(); }
@@ -344,6 +444,8 @@ public:
         constexpr uint32_t kControlFrames = 16u;
         double layerEnergy = 0.0;
         double jetEnergy = 0.0;
+        double planetaryEnergy = 0.0;
+        double planetaryModalEnergy = 0.0;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames;
             chunkStart += kControlFrames) {
@@ -387,6 +489,12 @@ public:
                     layerEnergy += static_cast<double>(sample) * sample;
                     jetEnergy += static_cast<double>(voices_[voice].jetSample)
                         * voices_[voice].jetSample;
+                    planetaryEnergy += static_cast<double>(
+                        voices_[voice].planetarySample)
+                        * voices_[voice].planetarySample;
+                    planetaryModalEnergy += static_cast<double>(
+                        voices_[voice].planetaryModalSample)
+                        * voices_[voice].planetaryModalSample;
                     const auto& basis = field_.basis(voice);
                     for (uint32_t channel = 0u; channel < ambiChannels;
                         ++channel) {
@@ -442,12 +550,100 @@ public:
             / std::max<uint32_t>(1u,
                 frames * std::max<uint32_t>(1u, voiceCount)));
         jetLayerEnergy_ += (measuredJet - jetLayerEnergy_) * 0.24f;
+        const float measuredPlanetary = static_cast<float>(planetaryEnergy
+            / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        planetaryLayerEnergy_ +=
+            (measuredPlanetary - planetaryLayerEnergy_) * 0.24f;
+        const float measuredPlanetaryModal = static_cast<float>(
+            planetaryModalEnergy
+            / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        planetaryModalLayerEnergy_ +=
+            (measuredPlanetaryModal - planetaryModalLayerEnergy_) * 0.24f;
     }
 
 private:
     static float finiteClamp(float value, float fallback, float low, float high)
     {
         return clamp(std::isfinite(value) ? value : fallback, low, high);
+    }
+
+    static PlanetaryModalParams pyrosphereModalParams(
+        const AmbiPyrosphereParams& params)
+    {
+        const auto& material = kAmbiPyrosphereMaterialProfiles[
+            std::min<uint32_t>(params.materialMode,
+                kAmbiPyrosphereMaterialCount - 1u)];
+        const float instability = clamp(params.turbulence * 0.62f
+            + params.flutter * 0.38f, 0.0f, 1.0f);
+        const float detail = clamp(params.shrill * 0.48f
+            + params.air * 0.30f + params.grit * 0.22f, 0.0f, 1.0f);
+
+        PlanetaryModalParams modal {};
+        modal.profile = ambiPyrospherePlanetaryModalProfile(
+            params.materialMode);
+        modal.scale = clamp(params.body * 0.64f
+            + params.material * 0.36f, 0.0f, 1.0f);
+        modal.damping = clamp(material.damping * 0.62f
+            + params.environmentDamping * 0.38f, 0.0f, 1.0f);
+        switch (modal.profile) {
+        case PlanetaryModalProfile::PyroSilicate:
+            modal.amount = 0.22f;
+            modal.irregularity = clamp(instability * 0.55f
+                    + params.deviation * 0.45f,
+                0.0f, 1.0f);
+            modal.coupling = clamp(params.scoreCascade * 0.45f
+                    + params.vortex * 0.55f,
+                0.0f, 1.0f);
+            modal.brightness = clamp(detail * 0.70f
+                    + params.q * 0.30f,
+                0.0f, 1.0f);
+            break;
+        case PlanetaryModalProfile::PyroSupercritical:
+            modal.amount = 0.16f;
+            modal.irregularity = clamp(instability * 0.72f
+                    + params.deviation * 0.28f,
+                0.0f, 1.0f);
+            modal.coupling = clamp(params.scoreCascade * 0.65f
+                    + params.motionFlow * 0.35f,
+                0.0f, 1.0f);
+            modal.brightness = clamp(detail * 0.75f
+                    + instability * 0.25f,
+                0.0f, 1.0f);
+            break;
+        case PlanetaryModalProfile::PyroVent:
+            modal.amount = 0.24f;
+            modal.irregularity = clamp(instability * 0.55f
+                    + params.deviation * 0.45f,
+                0.0f, 1.0f);
+            modal.coupling = clamp(params.scoreCascade * 0.65f
+                    + params.pressure * 0.35f,
+                0.0f, 1.0f);
+            modal.brightness = clamp(detail * 0.60f
+                    + params.pressure * 0.40f,
+                0.0f, 1.0f);
+            break;
+        case PlanetaryModalProfile::PyroLattice:
+            modal.amount = 0.34f;
+            modal.irregularity = clamp(instability * 0.45f
+                    + params.deviation * 0.55f,
+                0.0f, 1.0f);
+            modal.coupling = params.scoreCascade;
+            modal.brightness = clamp(detail * 0.40f
+                    + params.q * 0.60f,
+                0.0f, 1.0f);
+            break;
+        default:
+            // Legacy materials never render this body. Zero amount keeps an
+            // accidentally processed helper inaudible without changing state.
+            modal.amount = 0.0f;
+            break;
+        }
+        if (!ambiPyrosphereIsPlanetaryMaterial(params.materialMode)) {
+            modal.amount = 0.0f;
+        }
+        return modal;
     }
 
     void sanitize(AmbiPyrosphereParams& params) const
@@ -565,6 +761,12 @@ private:
         voice.structure.prepare(sampleRate_,
             0xb12a4c5du + index * 0x85ebca6bu);
         voice.flameJet.prepare(sampleRate_);
+        voice.planetaryModal.prepare(sampleRate_,
+            0x6d6f6461u + index * 0x165667b1u);
+        voice.planetaryModal.setParams(
+            pyrosphereModalParams(params_));
+        voice.planetaryThermal.prepare(sampleRate_,
+            0x706c6e74u + index * 0x27d4eb2du);
     }
 
     void applyScoreDirectives(uint32_t voiceCount)
@@ -577,6 +779,10 @@ private:
             voice.scorePropagation = directive.propagation;
             voice.scoreConsequence = directive.consequence;
             voice.scoreAftermath = directive.aftermath;
+            const bool planetary =
+                ambiPyrosphereIsPlanetaryMaterial(params_.materialMode);
+            const auto planetaryMode = ambiPyrospherePlanetaryThermalMode(
+                params_.materialMode);
             if (directive.arcStarted) {
                 voice.fuelRemaining = 0.56f
                     + randomUnit(voice.rng) * 0.44f;
@@ -584,6 +790,11 @@ private:
                     + randomUnit(voice.rng) * 0.26f;
                 voice.emberCharge = 0.0f;
                 voice.thermalStress *= 0.18f;
+                if (planetary) {
+                    voice.planetaryThermal.excite(planetaryMode,
+                        0.12f + directive.resource * 0.18f,
+                        params_.scoreCascade, false);
+                }
             }
             if (directive.onset || directive.cascadeArrival) {
                 const float transfer = directive.cascadeArrival
@@ -600,6 +811,11 @@ private:
                     ignition * params_.particles * 0.22f);
                 voice.emberCharge = std::max(voice.emberCharge,
                     directive.cascadeArrival ? 0.48f : 0.24f);
+                if (planetary) {
+                    voice.planetaryThermal.excite(planetaryMode,
+                        ignition, params_.scoreCascade,
+                        false);
+                }
                 ++ignitionEventCount_;
             }
             if (directive.consequenceStarted) {
@@ -619,6 +835,10 @@ private:
                 voice.thermalStress = std::max(voice.thermalStress,
                     voice.fractureThreshold * (1.02f + force * 0.18f));
                 voice.structuralIntegrity *= 0.34f;
+                if (planetary) {
+                    voice.planetaryThermal.excite(planetaryMode,
+                        force, params_.scoreCascade, true);
+                }
             }
         }
     }
@@ -668,12 +888,141 @@ private:
         }
     }
 
+    float processPlanetaryVoice(uint32_t index, AmbiPyrosphereVoice& voice,
+        const AmbiPyrosphereMaterialProfile& material, float unstableHeat)
+    {
+        PlanetaryThermalParams planetaryParams {};
+        planetaryParams.mode = ambiPyrospherePlanetaryThermalMode(
+            params_.materialMode);
+        planetaryParams.heat = unstableHeat / 1.8f;
+        planetaryParams.flux = params_.wind;
+        planetaryParams.activity = clamp(voice.scoreActivity
+            + voice.scoreAftermath * 0.24f, 0.0f, 1.0f);
+        planetaryParams.drive = clamp(voice.scoreDrive, 0.0f, 1.0f);
+        planetaryParams.propagation = clamp(
+            voice.scorePropagation, 0.0f, 1.0f);
+        planetaryParams.consequence = clamp(
+            voice.scoreConsequence, 0.0f, 1.0f);
+        planetaryParams.instability = clamp(params_.turbulence * 0.62f
+            + params_.flutter * 0.38f, 0.0f, 1.0f);
+        planetaryParams.pressure = params_.pressure;
+        planetaryParams.density = params_.body;
+        planetaryParams.brittleness = params_.q;
+        planetaryParams.damping = clamp(material.damping * 0.62f
+            + params_.environmentDamping * 0.38f, 0.0f, 1.0f);
+        planetaryParams.branching = params_.scoreCascade;
+        planetaryParams.scale = clamp(params_.body * 0.64f
+            + params_.material * 0.36f, 0.0f, 1.0f);
+        planetaryParams.detail = clamp(params_.shrill * 0.48f
+            + params_.air * 0.30f + params_.grit * 0.22f, 0.0f, 1.0f);
+        const auto planetary = voice.planetaryThermal.process(
+            planetaryParams);
+
+        // Score gestures enter the thermal reservoir above. Modal energy is
+        // admitted only after that reservoir reports a physical release, so
+        // the resonances retain the planetary process's causal traversal.
+        const float releaseStrength = clamp(0.14f
+                + planetary.activity * 0.58f
+                + std::min(1.0f, std::fabs(planetary.sample) * 3.2f) * 0.28f,
+            0.0f, 1.0f);
+        const auto exciteModal = [&](float strength, float cascade,
+                                     bool consequence) {
+            voice.planetaryModal.excite(
+                clamp(strength, 0.0f, 1.0f),
+                clamp(cascade, 0.0f, 1.0f), consequence);
+            ++modalExcitationEventCount_;
+        };
+
+        if (planetary.blisterReleased) {
+            ++planetaryBlisterEventCount_;
+            score_.exciteCascade(index, 0.30f + params_.pressure * 0.34f);
+            exciteModal(releaseStrength
+                    * (0.58f + planetaryParams.pressure * 0.42f),
+                params_.scoreCascade * (0.40f
+                    + planetaryParams.pressure * 0.60f), false);
+        }
+        if (planetary.frontAdvanced) {
+            ++planetaryFrontEventCount_;
+            score_.exciteCascade(index,
+                0.24f + params_.scoreCascade * 0.46f);
+            exciteModal(releaseStrength
+                    * (0.50f + planetaryParams.propagation * 0.50f),
+                params_.scoreCascade, false);
+        }
+        if (planetary.slugReleased) {
+            ++planetaryVentEventCount_;
+            score_.exciteCascade(index, 0.34f + params_.pressure * 0.52f);
+            exciteModal(releaseStrength
+                    * (0.55f + planetaryParams.pressure * 0.45f),
+                params_.scoreCascade * 0.60f
+                    + planetaryParams.pressure * 0.40f,
+                false);
+        }
+        if (planetary.latticeFrontAdvanced) {
+            ++planetaryLatticeEventCount_;
+            score_.exciteCascade(index,
+                0.42f + params_.scoreCascade * 0.54f);
+            exciteModal(releaseStrength
+                    * (0.52f + planetaryParams.brittleness * 0.48f),
+                params_.scoreCascade, false);
+        }
+        if (planetary.avalancheAdvanced) {
+            ++planetaryLatticeEventCount_;
+            exciteModal(releaseStrength
+                    * (0.60f + planetaryParams.branching * 0.40f),
+                params_.scoreCascade, true);
+        }
+
+        const auto modal = voice.planetaryModal.process(
+            planetary.sample, planetary.activity);
+        const float modalSample = modal.sample
+            / (1.0f + std::fabs(modal.sample) * 0.72f);
+
+        // Planetary materials replace every legacy source. Clearing dormant
+        // envelopes also prevents a prior terrestrial scene from reappearing
+        // when a SURF cell crosses the discrete material boundary.
+        voice.jetSample = 0.0f;
+        voice.jetActivity = 0.0f;
+        voice.massEnvelope = 0.0f;
+        voice.fractureEnvelope = 0.0f;
+        voice.spallEnvelope = 0.0f;
+        voice.debrisEnvelope = 0.0f;
+        voice.fragmentEnvelope = 0.0f;
+        voice.pressureEnvelope = 0.0f;
+        voice.forcePulse = 0.0f;
+        voice.branchesRemaining = 0u;
+        voice.planetaryModalSample = modalSample;
+        voice.planetaryModalActivity = modal.activity;
+        voice.planetarySample = planetary.sample + modalSample;
+        voice.planetaryActivity = planetary.activity;
+
+        // Expanded scores own the empty intervals for planetary processes;
+        // unlike the legacy combustion bed, a resting entity is truly silent.
+        const float entityBed = clamp(voice.scoreActivity
+            + voice.scoreAftermath * 0.24f, 0.0f, 1.0f);
+        const float listenerGain = 1.0f
+            + field_.listenerDrive(index) * 0.22f;
+        const float sample = voice.planetarySample
+            * (0.28f + params_.wind * 0.72f)
+            * entityBed * listenerGain;
+        const float combinedActivity = std::max(
+            planetary.activity, modal.activity);
+        voice.eventLevel +=
+            (combinedActivity - voice.eventLevel) * 0.018f;
+        voice.energy += (sample * sample - voice.energy) * 0.0012f;
+        return std::isfinite(sample) ? sample : 0.0f;
+    }
+
     float processVoice(uint32_t index)
     {
         auto& voice = voices_[index];
         const auto& material = kAmbiPyrosphereMaterialProfiles[
             std::min<uint32_t>(params_.materialMode,
                 kAmbiPyrosphereMaterialCount - 1u)];
+        const bool planetaryMaterial =
+            ambiPyrosphereIsPlanetaryMaterial(params_.materialMode);
+        const auto planetaryMode = ambiPyrospherePlanetaryThermalMode(
+            params_.materialMode);
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
@@ -739,6 +1088,11 @@ private:
                         * (0.42f + params_.gustDepth * 0.72f)),
                 0.0f, 1.5f);
             voice.heatTimer = randomInterval(voice, ignitionRateHz);
+            if (planetaryMaterial) {
+                voice.planetaryThermal.excite(planetaryMode,
+                    0.18f + voice.heatTarget * 0.54f,
+                    params_.scoreCascade, false);
+            }
             ++ignitionEventCount_;
             if (voice.heatTarget - voice.heat > 0.46f
                 && randomUnit(voice.rng) < params_.pressure * 0.72f) {
@@ -767,6 +1121,17 @@ private:
         voice.emberCharge = std::max(0.0f,
             voice.emberCharge - dt
                 * (0.10f + params_.particles * 0.28f));
+        if (planetaryMaterial) {
+            return processPlanetaryVoice(index, voice, material,
+                unstableHeat);
+        }
+        if (voice.planetaryModal.active()) {
+            voice.planetaryModal.reset();
+        }
+        voice.planetarySample = 0.0f;
+        voice.planetaryActivity = 0.0f;
+        voice.planetaryModalSample = 0.0f;
+        voice.planetaryModalActivity = 0.0f;
         const bool pressureJet = params_.materialMode == 13u;
         const auto jet = pressureJet
             ? voice.flameJet.process(white, params_.pressure, params_.wind,
@@ -1009,12 +1374,19 @@ private:
     float transitionFade_ = 1.0f;
     float combustionLayerEnergy_ = 0.0f;
     float jetLayerEnergy_ = 0.0f;
+    float planetaryLayerEnergy_ = 0.0f;
+    float planetaryModalLayerEnergy_ = 0.0f;
     uint64_t geologicalEventCount_ = 0u;
     uint64_t spallEventCount_ = 0u;
     uint64_t collapseEventCount_ = 0u;
     uint64_t ignitionEventCount_ = 0u;
     uint64_t structuralSnapEventCount_ = 0u;
     uint64_t fallEventCount_ = 0u;
+    uint64_t planetaryBlisterEventCount_ = 0u;
+    uint64_t planetaryFrontEventCount_ = 0u;
+    uint64_t planetaryVentEventCount_ = 0u;
+    uint64_t planetaryLatticeEventCount_ = 0u;
+    uint64_t modalExcitationEventCount_ = 0u;
     std::atomic<bool> transitionRequested_ { false };
 };
 
