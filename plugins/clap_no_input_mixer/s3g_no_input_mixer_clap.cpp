@@ -873,7 +873,8 @@ namespace {
 
 enum OpenMenu : int {
     kMenuNone = -1,
-    kMenuLane = 0,
+    kMenuPreset = 0,
+    kMenuLane,
     kMenuSource,
     kMenuDestination,
     kMenuSlot0,
@@ -881,6 +882,33 @@ enum OpenMenu : int {
     kMenuSlot2,
     kMenuQuality,
 };
+
+void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
+    float seedAmount)
+{
+    plugin.params = s3g::sanitizeNoInputMixerParams(params);
+    plugin.mixer.setParams(plugin.params);
+    plugin.mixer.reseed(plugin.params.seed, seedAmount);
+    resetMeters(plugin);
+}
+
+NSRect processorMenuRect(const s3g::gui_layout::Panel& panel,
+    uint32_t row);
+
+NSRect seedNewButtonRect()
+{
+    const auto& panel =
+        s3g::gui_layout::kNoInputMixerFamilyLayout.network;
+    const NSRect row = processorMenuRect(panel, 0u);
+    return NSMakeRect(row.origin.x, row.origin.y, 66.0, row.size.height);
+}
+
+NSRect randomButtonRect()
+{
+    const NSRect seed = seedNewButtonRect();
+    return NSMakeRect(NSMaxX(seed) + 8.0, seed.origin.y,
+        144.0, seed.size.height);
+}
 
 NSRect processorMenuRect(const s3g::gui_layout::Panel& panel,
     uint32_t row)
@@ -934,6 +962,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)updateSlider:(NSPoint)point;
+- (void)applyGuiParam:(clap_id)param value:(double)value;
+- (void)markPatchCustom;
 @end
 
 @implementation S3GNoInputMixerView
@@ -983,6 +1013,20 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         && s3g::clap_support::hostAppIsActive()) {
         [self setNeedsDisplay:YES];
     }
+}
+
+- (void)markPatchCustom
+{
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+        "CUSTOM");
+}
+
+- (void)applyGuiParam:(clap_id)param value:(double)value
+{
+    auto* plugin = static_cast<Plugin*>(_plugin);
+    if (!plugin) return;
+    applyParam(*plugin, param, value);
+    [self markPatchCustom];
 }
 
 - (void)drawSlider:(NSString*)name value:(NSString*)value
@@ -1182,6 +1226,9 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 {
     const auto& family = s3g::gui_layout::kNoInputMixerFamilyLayout;
     switch (menu) {
+    case kMenuPreset:
+        return s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::matrixTitleBand(family.canvas).presetMenu);
     case kMenuLane: return processorMenuRect(family.selectedLane, 0u);
     case kMenuSource: return processorMenuRect(family.crosspoint, 0u);
     case kMenuDestination: return processorMenuRect(family.crosspoint, 1u);
@@ -1197,6 +1244,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 
 - (uint32_t)menuItemCount:(int)menu
 {
+    if (menu == kMenuPreset) return s3g::kNoInputMixerFactoryPresetCount;
     if (menu == kMenuSlot0 || menu == kMenuSlot1 || menu == kMenuSlot2) {
         return s3g::kNoInputDistortionTypeCount;
     }
@@ -1226,10 +1274,25 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         @"FUZZ I", @"FUZZ II", @"DIODE", @"RING",
     };
     NSString* qualityItems[3] = { @"1X", @"2X", @"4X" };
+    NSString* presetItems[s3g::kNoInputMixerFactoryPresetCount] = {
+        @"INIT", @"TUDOR LATTICE", @"RAIN FOREST", @"MUFF RING",
+        @"RAT CAGE", @"ZONE WEB", @"NEGATIVE SPACE", @"RELAY BLOOM",
+    };
     NSString** items = laneItems;
     uint32_t count = kChannelCount;
     int selected = 0;
-    if (_openMenu == kMenuLane) {
+    if (_openMenu == kMenuPreset) {
+        items = presetItems;
+        count = s3g::kNoInputMixerFactoryPresetCount;
+        selected = -1;
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(_titlePresetName,
+                    s3g::noInputMixerFactoryPresetName(index)) == 0) {
+                selected = static_cast<int>(index);
+                break;
+            }
+        }
+    } else if (_openMenu == kMenuLane) {
         selected = static_cast<int>(plugin->selectedLane.load(
             std::memory_order_relaxed));
     } else if (_openMenu == kMenuSource) {
@@ -1339,8 +1402,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         s3g::gui_layout::processorLabelX(family.network.frame.x),
         s3g::gui_layout::rowY(family.network, 0u) - 2.0)
         withAttributes:label];
-    drawFlatButton(processorMenuRect(family.network, 0u), @"NEW", false,
-        value);
+    drawFlatButton(seedNewButtonRect(), @"NEW", false, value);
+    drawFlatButton(randomButtonRect(), @"RANDOM", false, value);
     [self drawSlider:@"FDBK"
         value:[NSString stringWithFormat:@"%.0f%%",
             plugin->params.feedback * 100.0f]
@@ -1587,7 +1650,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             kLaneMidFrequencyOffset)) {
         value = 80.0 * std::pow(8000.0 / 80.0, normalized);
     }
-    applyParam(*plugin, _dragParam, value);
+    [self applyGuiParam:_dragParam value:value];
     [self setNeedsDisplay:YES];
 }
 
@@ -1597,6 +1660,14 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     const uint32_t lane = plugin->selectedLane.load(
         std::memory_order_relaxed);
     switch (_openMenu) {
+    case kMenuPreset:
+        if (index < s3g::kNoInputMixerFactoryPresetCount) {
+            applyCompletePatch(*plugin,
+                s3g::noInputMixerFactoryPreset(index), 0.58f);
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                s3g::noInputMixerFactoryPresetName(index));
+        }
+        break;
     case kMenuLane:
         plugin->selectedLane.store(std::min<uint32_t>(index,
             kChannelCount - 1u), std::memory_order_relaxed);
@@ -1618,12 +1689,12 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     case kMenuSlot2: {
         const uint32_t slot = static_cast<uint32_t>(_openMenu - kMenuSlot0);
         plugin->selectedSlot.store(slot, std::memory_order_relaxed);
-        applyParam(*plugin, insertParamId(lane, slot, kInsertTypeOffset),
-            index);
+        [self applyGuiParam:insertParamId(lane, slot, kInsertTypeOffset)
+            value:index];
         break;
     }
     case kMenuQuality:
-        applyParam(*plugin, kQualityParamId, index);
+        [self applyGuiParam:kQualityParamId value:index];
         break;
     default: break;
     }
@@ -1635,7 +1706,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     double defaultValue = 0.0;
     if (s3g::clap_gui::sliderDoubleClickDefault(event,
             &plugin->plugin, param, &defaultValue)) {
-        applyParam(*plugin, param, defaultValue);
+        [self applyGuiParam:param value:defaultValue];
         _dragParam = CLAP_INVALID_ID;
     } else {
         _dragParam = param;
@@ -1661,14 +1732,15 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     }
 
     const auto titleBand = s3g::gui_layout::matrixTitleBand(family.canvas);
-    const bool resetRequested = NSPointInRect(point,
-        s3g::clap_gui::cocoaRect(titleBand.presetMenu));
+    if (NSPointInRect(point,
+            s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        _openMenu = kMenuPreset;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (s3g::clap_gui::handleProcessorTitleClick(point,
             &plugin->plugin, @"No Input Mixer", titleBand,
             _titlePresetName, sizeof(_titlePresetName))) {
-        if (resetRequested) {
-            plugin->seedRequested.store(true, std::memory_order_release);
-        }
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1706,8 +1778,9 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
                 if ([event clickCount] >= 2) {
                     ParamRange range;
                     const clap_id id = matrixParamId(destination, source);
-                    if (paramRange(id, range)) applyParam(*plugin, id,
-                        range.defaultValue);
+                    if (paramRange(id, range)) {
+                        [self applyGuiParam:id value:range.defaultValue];
+                    }
                 }
                 [self setNeedsDisplay:YES];
                 return;
@@ -1767,8 +1840,20 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         || openMenuIfHit(kMenuSlot1) || openMenuIfHit(kMenuSlot2)
         || openMenuIfHit(kMenuQuality)) return;
 
-    if (NSPointInRect(point, processorMenuRect(family.network, 0u))) {
+    if (NSPointInRect(point, seedNewButtonRect())) {
         plugin->seedRequested.store(true, std::memory_order_release);
+        [self markPatchCustom];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, randomButtonRect())) {
+        uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+        if (seed == 0u) seed = 1u;
+        applyCompletePatch(*plugin,
+            s3g::randomizedNoInputMixerParams(seed), 0.64f);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+            "RANDOM");
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
@@ -1783,14 +1868,14 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         std::memory_order_relaxed);
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.output, 2u)))) {
-        applyParam(*plugin, kLimiterParamId,
-            plugin->params.limiterEnabled == 0u ? 1.0 : 0.0);
+        [self applyGuiParam:kLimiterParamId
+            value:(plugin->params.limiterEnabled == 0u ? 1.0 : 0.0)];
         return;
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.output, 3u)))) {
-        applyParam(*plugin, kDcBlockParamId,
-            plugin->params.dcBlockEnabled == 0u ? 1.0 : 0.0);
+        [self applyGuiParam:kDcBlockParamId
+            value:(plugin->params.dcBlockEnabled == 0u ? 1.0 : 0.0)];
         return;
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
@@ -1798,8 +1883,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         const CGFloat split = s3g::gui_layout::processorControlX(
             family.selectedLane.frame.x) + 83.0;
         if (point.x < split) {
-            applyParam(*plugin, laneParamId(lane, kLaneMuteOffset),
-                plugin->params.lanes[lane].mute == 0u ? 1.0 : 0.0);
+            [self applyGuiParam:laneParamId(lane, kLaneMuteOffset)
+                value:(plugin->params.lanes[lane].mute == 0u ? 1.0 : 0.0)];
         } else {
             plugin->killMask.fetch_or(1u << lane,
                 std::memory_order_release);
@@ -1815,22 +1900,23 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         const clap_id id = matrixParamId(destination, source);
         double route = 0.0;
         paramValue(*plugin, id, route);
-        applyParam(*plugin, id, std::abs(route) < 0.001
-            ? -0.50 : -route);
+        [self applyGuiParam:id value:(std::abs(route) < 0.001
+            ? -0.50 : -route)];
         return;
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.crosspoint, 4u)))) {
-        applyParam(*plugin, matrixParamId(
+        [self applyGuiParam:matrixParamId(
             plugin->selectedDestination.load(std::memory_order_relaxed),
-            plugin->selectedSource.load(std::memory_order_relaxed)), 0.0);
+            plugin->selectedSource.load(std::memory_order_relaxed)) value:0.0];
         return;
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.inserts, 7u)))) {
-        applyParam(*plugin, insertParamId(lane, slot, kInsertBypassOffset),
-            plugin->params.lanes[lane].inserts[slot].bypass == 0u
-                ? 1.0 : 0.0);
+        [self applyGuiParam:insertParamId(
+            lane, slot, kInsertBypassOffset)
+            value:(plugin->params.lanes[lane].inserts[slot].bypass == 0u
+                ? 1.0 : 0.0)];
         return;
     }
 

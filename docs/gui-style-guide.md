@@ -533,6 +533,8 @@ The current primary reference is `s3g Processor Delay 8ch`:
 - lane, source, destination, and insert selections use bounded uppercase menus
 - all eight lane meters remain visible on the primary matrix page
 - EQ, inserts, and containment stay visible while the matrix page changes
+- the title-band preset menu selects complete factory networks, while bounded
+  randomization remains beside reseeding in the `NETWORK` panel
 - destructive containment uses a restrained red action while ordinary signal
   and signed-route states remain cyan, orange, and grayscale
 

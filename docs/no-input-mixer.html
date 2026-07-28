@@ -43,13 +43,34 @@
 
         <ol>
           <li>Set a REAPER track to eight channels, then insert <code>s3g Processor No Input Mixer 8ch</code>. No audio pins or MIDI source are required.</li>
-          <li>Activation injects a deterministic startup packet into the otherwise oscillator-free network. Click <code>NEW</code> to reseed it.</li>
+          <li>Choose one of the title-band factory presets, or click <code>RANDOM</code> for a bounded complete-network variation.</li>
+          <li>Activation injects a deterministic startup packet into the otherwise oscillator-free network. Click <code>NEW</code> to reseed the current patch without changing its matrix or processors.</li>
           <li>Begin with the diagonal matrix cells. They control each lane's local regeneration.</li>
           <li>Add a few off-diagonal routes. Positive gains reinforce a destination; negative gains can inhibit, cancel, or frequency-pull it.</li>
           <li>Balance <code>FDBK</code>, <code>COUPL</code>, and <code>PHASE</code> before opening insert gain. These controls determine whether the network settles, beats, bursts, or moves toward its governor.</li>
           <li>Select a lane, tune <code>BODY</code> and <code>LOSS</code>, then shape it with EQ and the three insert slots.</li>
           <li>Use <code>KILL</code> for one lane or <code>PANIC</code> to ramp down and clear the complete network.</li>
         </ol>
+
+        <h2 id="presets">Presets and Randomization</h2>
+
+        <p>The title-band <code>PRESET</code> menu contains eight complete starting states. Selecting one replaces the global network, all sixty-four matrix gains, eight bodies and EQs, and all twenty-four insert slots, then injects that preset's deterministic seed.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Network identity</th></tr></thead>
+          <tbody>
+            <tr><td>INIT</td><td>The balanced default ring with one active Muff stage per lane.</td></tr>
+            <tr><td>TUDOR LATTICE</td><td>Signed, phase-bearing mutual excitation through diode and ring cells.</td></tr>
+            <tr><td>RAIN FOREST</td><td>Long resonant bodies with sparse cross-strikes and restrained diode shaping.</td></tr>
+            <tr><td>MUFF RING</td><td>Compressed Muff walls feeding a second ring-modulated insert layer.</td></tr>
+            <tr><td>RAT CAGE</td><td>Bright hard-clipped cells moving around a directed feedback ring.</td></tr>
+            <tr><td>ZONE WEB</td><td>Alternating focused and wide Zone stages inside a denser signed mesh.</td></tr>
+            <tr><td>NEGATIVE SPACE</td><td>Inhibitory routes dominate, creating cancellation and unstable gaps.</td></tr>
+            <tr><td>RELAY BLOOM</td><td>Gated and sagging fuzz cells open into diode recovery stages.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>RANDOM</code> generates a new deterministic seed and varies the complete matrix, bodies, EQ, distortion types, insert settings, phase, drift, formant, feedback, and coupling. It keeps the final limiter enabled, the ceiling at <code>-1 dB</code>, output trim conservative, diagonal regeneration present on every lane, and all generated values inside the DSP's bounded operating ranges. <code>NEW</code> changes only the excitation seed.</p>
 
         <h2 id="matrix">Feedback Matrix</h2>
 
@@ -102,7 +123,7 @@
 
         <h2 id="state">Automation and State</h2>
 
-        <p>The plugin exposes 282 stable CLAP parameters: ten global controls, sixty-four signed matrix gains, eight direct controls for each lane, and six controls for each of the twenty-four insert slots. The complete parameter set and the selected lane, slot, source, destination, and editor page are stored in project state. Matrix gains and continuous lane controls are automatable; processing allocates no memory after activation.</p>
+        <p>The plugin exposes 282 stable CLAP parameters: ten global controls, sixty-four signed matrix gains, eight direct controls for each lane, and six controls for each of the twenty-four insert slots. Factory presets and randomization resolve into this ordinary parameter state, so their complete results are stored in the project. The selected lane, slot, source, destination, and editor page are stored as well. Matrix gains and continuous lane controls are automatable; processing allocates no memory after activation.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="generative-instruments.html">
@@ -132,6 +153,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#presets">Presets and Randomization</a>
           <a href="#matrix">Feedback Matrix</a>
           <a href="#lanes">Lanes and EQ</a>
           <a href="#inserts">Nonlinear Inserts</a>

@@ -614,7 +614,8 @@ All Processors use the shared Processor title renderer. Their complete title
 ends in the meaningful processing width (`8CH`, `16CH`, or `24CH`), while the
 far-right status contains only `PK` and an exceptional transient state such as
 `CLIP`; it never repeats the channel count. The title-band order is `PRESET`,
-`LOAD`, `SAVE`; `PRESET` restores the declared initial parameter state and
+`LOAD`, `SAVE`; `PRESET` selects declared factory starting states, with
+`INIT` as the first entry and the only entry for members without a larger bank.
 `LOAD`/`SAVE` operate on the complete plug-in state. `RANDOM` is not
 a universal Processor title action. Safe random, mutate, reseed, generated
 field, and captured-memory actions remain in the panel that owns their result.
@@ -705,7 +706,9 @@ No Input Mixer uses the full 1356 px responsive Processor width and a fitted
 820 px canvas. Its 620 px left field provides three primary pages while the
 two 344 px columns keep `OUTPUT`, `NETWORK`, `SELECTED LANE`, `CROSSPOINT`,
 `EQ`, `INSERTS`, and `CONTAINMENT` permanently visible. The native editor
-minimum width remains 1356 px and the height may scroll without scaling.
+minimum width remains 1356 px and the height may scroll without scaling. Its
+bounded complete-network `RANDOM` action sits beside `NEW` in the `NETWORK`
+panel, while its eight factory patches use the title-band `PRESET` menu.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,

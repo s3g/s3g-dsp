@@ -158,6 +158,9 @@ signal colors.
   crossfade.
 - Seeds, matrix state, resonator variations, insert types, all lane controls,
   and containment settings are serialized.
+- Eight deterministic factory patches and bounded full-network randomization
+  resolve into the same stored parameter surface; reseeding remains an
+  independent action.
 - Processing is allocation-free after `prepare()`.
 
 ## Acceptance targets

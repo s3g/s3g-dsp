@@ -619,6 +619,9 @@ int main(int argc, char** argv)
         const bool faultProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.fault") == 0;
+        const bool noInputMixer = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
         const bool parameterSurfaceEncoder = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0
@@ -1843,6 +1846,57 @@ int main(int argc, char** argv)
                 }
                 [[scroll contentView] scrollToPoint:NSZeroPoint];
                 [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
+        if (ok && noInputMixer) {
+            failureStage = "No Input Mixer presets and randomization";
+            const auto clickNoInput = [&](NSPoint point) {
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+            };
+            @try {
+                double feedbackBefore = 0.0;
+                double bodyBefore = 0.0;
+                double feedbackAfter = 0.0;
+                double bodyAfter = 0.0;
+                ok = params->get_value(plugin, 5u, &feedbackBefore)
+                    && params->get_value(plugin, 1000u, &bodyBefore);
+                const auto& network =
+                    s3g::gui_layout::kNoInputMixerFamilyLayout.network;
+                const CGFloat randomX = static_cast<CGFloat>(
+                    s3g::gui_layout::processorControlX(network.frame.x)
+                    + 66.0 + 8.0 + 72.0);
+                const CGFloat randomY = static_cast<CGFloat>(
+                    s3g::gui_layout::rowY(network, 0u) + 6.5);
+                if (ok) clickNoInput(NSMakePoint(randomX, randomY));
+                ok = ok
+                    && params->get_value(plugin, 5u, &feedbackAfter)
+                    && params->get_value(plugin, 1000u, &bodyAfter)
+                    && (std::fabs(feedbackAfter - feedbackBefore) > 0.000001
+                        || std::fabs(bodyAfter - bodyBefore) > 0.000001);
+
+                const auto titleBand = s3g::gui_layout::matrixTitleBand(
+                    s3g::gui_layout::kNoInputMixerFamilyLayout.canvas);
+                const NSRect presetAnchor =
+                    s3g::clap_gui::cocoaRect(titleBand.presetMenu);
+                if (ok) clickNoInput(NSMakePoint(
+                    NSMidX(presetAnchor), NSMidY(presetAnchor)));
+                const uint32_t zoneWebIndex = 5u;
+                if (ok) clickNoInput(NSMakePoint(
+                    NSMidX(presetAnchor),
+                    NSMaxY(presetAnchor) + 2.0
+                        + 18.0 * (zoneWebIndex + 0.5)));
+                double presetFeedback = 0.0;
+                double presetType = 0.0;
+                ok = ok
+                    && params->get_value(plugin, 5u, &presetFeedback)
+                    && params->get_value(plugin, 1020u, &presetType)
+                    && std::fabs(presetFeedback - 0.89) < 0.000001
+                    && presetType == 3.0;
+            } @catch (NSException*) {
+                ok = false;
             }
         }
         if (ok && faultProcessor) {
