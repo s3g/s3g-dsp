@@ -124,6 +124,55 @@ bool testDistortionFamilies()
     return true;
 }
 
+bool testFactoryPresetsAndRandomization()
+{
+    for (uint32_t preset = 0u;
+         preset < s3g::kNoInputMixerFactoryPresetCount; ++preset) {
+        const auto params = s3g::noInputMixerFactoryPreset(preset);
+        s3g::NoInputMixer mixer;
+        mixer.prepare(48000.0);
+        mixer.setParams(params);
+        mixer.reseed(params.seed, 0.58f);
+        const auto stats = render(mixer, 32000u, 3000u);
+        if (!stats.finite || !(stats.peak > 1.0e-7f)
+            || stats.peak > 1.01f) {
+            std::cerr << "No Input Mixer factory preset "
+                      << s3g::noInputMixerFactoryPresetName(preset)
+                      << " failed: peak " << stats.peak << "\n";
+            return false;
+        }
+    }
+
+    const auto randomA = s3g::randomizedNoInputMixerParams(0x12345678u);
+    const auto randomB = s3g::randomizedNoInputMixerParams(0x12345678u);
+    const auto randomC = s3g::randomizedNoInputMixerParams(0x87654321u);
+    if (randomA.seed != randomB.seed
+        || randomA.feedback != randomB.feedback
+        || randomA.matrix != randomB.matrix
+        || randomA.lanes[3].body != randomB.lanes[3].body
+        || (randomA.feedback == randomC.feedback
+            && randomA.matrix == randomC.matrix)) {
+        std::cerr << "No Input Mixer bounded randomization was not "
+                     "deterministic and seed-sensitive\n";
+        return false;
+    }
+    for (const uint32_t seed : { 0x13579bdfu, 0x2468ace0u, 0x10203040u }) {
+        const auto params = s3g::randomizedNoInputMixerParams(seed);
+        s3g::NoInputMixer mixer;
+        mixer.prepare(48000.0);
+        mixer.setParams(params);
+        mixer.reseed(params.seed, 0.62f);
+        const auto stats = render(mixer, 32000u, 3000u);
+        if (!stats.finite || !(stats.peak > 1.0e-7f)
+            || stats.peak > 1.01f) {
+            std::cerr << "No Input Mixer randomized patch failed for seed "
+                      << seed << ": peak " << stats.peak << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 bool testSignedMatrixChangesState()
 {
     auto positiveParams = s3g::defaultNoInputMixerParams();
@@ -213,6 +262,7 @@ int main()
     if (!testSilentReset()) return 1;
     if (!testDefaultEcology()) return 1;
     if (!testDistortionFamilies()) return 1;
+    if (!testFactoryPresetsAndRandomization()) return 1;
     if (!testSignedMatrixChangesState()) return 1;
     if (!testPanic()) return 1;
     if (!testSanitization()) return 1;

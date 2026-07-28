@@ -203,6 +203,289 @@ inline NoInputMixerParams sanitizeNoInputMixerParams(
     return params;
 }
 
+constexpr uint32_t kNoInputMixerFactoryPresetCount = 8u;
+
+inline const char* noInputMixerFactoryPresetName(uint32_t index)
+{
+    static constexpr std::array<const char*,
+        kNoInputMixerFactoryPresetCount> names {{
+        "INIT",
+        "TUDOR LATTICE",
+        "RAIN FOREST",
+        "MUFF RING",
+        "RAT CAGE",
+        "ZONE WEB",
+        "NEGATIVE SPACE",
+        "RELAY BLOOM",
+    }};
+    return names[std::min<uint32_t>(index,
+        kNoInputMixerFactoryPresetCount - 1u)];
+}
+
+inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
+{
+    index = std::min<uint32_t>(index,
+        kNoInputMixerFactoryPresetCount - 1u);
+    auto params = defaultNoInputMixerParams();
+    if (index == 0u) return params;
+
+    params.matrix.fill(0.0f);
+    const auto route = [&](uint32_t destination, uint32_t source,
+        float gain) {
+        params.matrix[destination * kNoInputMixerChannels + source] = gain;
+    };
+
+    switch (index) {
+    case 1u: { // Tudor Lattice: signed, phase-bearing mutual excitation.
+        params.seed = 0x4c415454u;
+        params.feedback = 0.91f;
+        params.coupling = 0.68f;
+        params.phase = 0.72f;
+        params.drift = 0.36f;
+        params.formant = 0.44f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.92f + 0.008f * static_cast<float>(lane));
+            route(lane, (lane + 7u) % 8u,
+                (lane & 1u) == 0u ? 0.28f : -0.24f);
+            route(lane, (lane + 3u) % 8u,
+                (lane % 3u) == 0u ? -0.14f : 0.11f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.18f + 0.086f * static_cast<float>(lane);
+            voice.loss = 0.27f + 0.035f * static_cast<float>(lane % 4u);
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::Diode
+                : NoInputDistortionType::Ring;
+            voice.inserts[0].gain = 0.28f + 0.025f * (lane % 3u);
+            voice.inserts[0].tone = 0.34f + 0.07f * (lane % 5u);
+            voice.inserts[0].levelDb = -7.5f;
+        }
+        break;
+    }
+    case 2u: { // Rain Forest: long resonant bodies with sparse cross-strikes.
+        params.seed = 0x5241494eu;
+        params.feedback = 0.88f;
+        params.coupling = 0.48f;
+        params.phase = 0.58f;
+        params.drift = 0.52f;
+        params.formant = 0.24f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            route(lane, (lane + 5u) % 8u,
+                (lane & 1u) == 0u ? 0.18f : -0.16f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.12f + 0.105f * static_cast<float>(lane);
+            voice.loss = 0.18f + 0.022f * static_cast<float>(lane % 3u);
+            voice.lowDb = 2.5f - 0.5f * static_cast<float>(lane % 3u);
+            voice.highDb = -2.0f + 0.6f * static_cast<float>(lane % 4u);
+            voice.inserts[0].type = NoInputDistortionType::Diode;
+            voice.inserts[0].gain = 0.17f;
+            voice.inserts[0].tone = 0.28f + 0.05f * (lane % 4u);
+            voice.inserts[0].levelDb = -5.5f;
+        }
+        break;
+    }
+    case 3u: { // Muff Ring: compressed walls feeding ring-modulated returns.
+        params.seed = 0x4d554646u;
+        params.feedback = 0.90f;
+        params.coupling = 0.57f;
+        params.phase = 0.31f;
+        params.drift = 0.22f;
+        params.formant = 0.37f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.94f);
+            route(lane, (lane + 1u) % 8u,
+                (lane & 1u) == 0u ? 0.22f : -0.18f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.24f + 0.067f * static_cast<float>(lane);
+            voice.loss = 0.34f;
+            voice.inserts[0].type = NoInputDistortionType::Muff;
+            voice.inserts[0].gain = 0.46f + 0.025f * (lane % 3u);
+            voice.inserts[0].tone = 0.24f + 0.085f * (lane % 5u);
+            voice.inserts[0].levelDb = -11.0f;
+            voice.inserts[1].type = NoInputDistortionType::Ring;
+            voice.inserts[1].gain = 0.20f + 0.025f * (lane % 4u);
+            voice.inserts[1].tone = 0.43f;
+            voice.inserts[1].levelDb = -4.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 4u: { // Rat Cage: bright hard-clipped cells in a directed ring.
+        params.seed = 0x52415443u;
+        params.feedback = 0.93f;
+        params.coupling = 0.63f;
+        params.phase = 0.46f;
+        params.drift = 0.15f;
+        params.formant = 0.31f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.91f);
+            route(lane, (lane + 7u) % 8u, 0.27f);
+            if ((lane & 1u) != 0u) route(lane, (lane + 4u) % 8u, -0.13f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.36f + 0.048f * static_cast<float>(lane % 5u);
+            voice.loss = 0.42f;
+            voice.midGainDb = 3.0f;
+            voice.midFrequencyHz = 720.0f + 260.0f * lane;
+            voice.inserts[0].type = NoInputDistortionType::Rat;
+            voice.inserts[0].gain = 0.38f + 0.025f * (lane % 4u);
+            voice.inserts[0].tone = 0.42f + 0.06f * (lane % 3u);
+            voice.inserts[0].levelDb = -9.0f;
+        }
+        break;
+    }
+    case 5u: { // Zone Web: alternating focused and wide high-gain cells.
+        params.seed = 0x5a4f4e45u;
+        params.feedback = 0.89f;
+        params.coupling = 0.72f;
+        params.phase = 0.39f;
+        params.drift = 0.28f;
+        params.formant = 0.46f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.93f);
+            route(lane, (lane + 2u) % 8u,
+                (lane & 1u) == 0u ? 0.25f : -0.21f);
+            route(lane, (lane + 5u) % 8u, 0.10f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.20f + 0.075f * static_cast<float>(lane);
+            voice.loss = 0.38f + 0.025f * static_cast<float>(lane % 3u);
+            voice.midGainDb = (lane & 1u) == 0u ? 5.0f : -3.5f;
+            voice.midFrequencyHz = 580.0f + 410.0f * lane;
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::ZoneA
+                : NoInputDistortionType::ZoneB;
+            voice.inserts[0].gain = 0.36f;
+            voice.inserts[0].tone = 0.31f + 0.07f * (lane % 5u);
+            voice.inserts[0].bias = (lane & 1u) == 0u ? 0.08f : -0.10f;
+            voice.inserts[0].levelDb = -10.0f;
+        }
+        break;
+    }
+    case 6u: { // Negative Space: inhibitory routes dominate the ecology.
+        params.seed = 0x4e454753u;
+        params.feedback = 0.94f;
+        params.coupling = 0.76f;
+        params.phase = 0.67f;
+        params.drift = 0.33f;
+        params.formant = 0.18f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.95f);
+            route(lane, (lane + 1u) % 8u, -0.31f);
+            route(lane, (lane + 4u) % 8u,
+                (lane & 1u) == 0u ? -0.17f : 0.12f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.15f + 0.09f * static_cast<float>(lane);
+            voice.loss = 0.26f + 0.03f * static_cast<float>(lane % 4u);
+            voice.inserts[0].type = NoInputDistortionType::Diode;
+            voice.inserts[0].gain = 0.22f;
+            voice.inserts[0].bias = (lane & 1u) == 0u ? -0.14f : 0.14f;
+            voice.inserts[0].levelDb = -5.0f;
+        }
+        break;
+    }
+    case 7u: { // Relay Bloom: gated fuzz cells open into diode recovery.
+        params.seed = 0x52454c59u;
+        params.feedback = 0.92f;
+        params.coupling = 0.54f;
+        params.phase = 0.24f;
+        params.drift = 0.44f;
+        params.formant = 0.55f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            route(lane, (lane + 3u) % 8u,
+                (lane % 3u) == 0u ? -0.20f : 0.17f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.27f + 0.055f * static_cast<float>(lane);
+            voice.loss = 0.30f + 0.04f * static_cast<float>(lane % 3u);
+            voice.highDb = 2.0f;
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::FuzzII
+                : NoInputDistortionType::FuzzI;
+            voice.inserts[0].gain = 0.34f + 0.025f * (lane % 4u);
+            voice.inserts[0].tone = 0.38f + 0.05f * (lane % 4u);
+            voice.inserts[0].levelDb = -8.5f;
+            voice.inserts[1].type = NoInputDistortionType::Diode;
+            voice.inserts[1].gain = 0.16f;
+            voice.inserts[1].tone = 0.62f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return sanitizeNoInputMixerParams(params);
+}
+
+inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed)
+{
+    uint32_t randomState = seed == 0u ? 1u : seed;
+    const auto next = [&randomState]() {
+        randomState += 0x9e3779b9u;
+        uint32_t value = randomState;
+        value ^= value >> 16u;
+        value *= 0x7feb352du;
+        value ^= value >> 15u;
+        value *= 0x846ca68bu;
+        value ^= value >> 16u;
+        return value;
+    };
+    const auto unit = [&next]() {
+        return static_cast<float>(next() & 0x00ffffffu)
+            / static_cast<float>(0x01000000u);
+    };
+    const auto bipolar = [&unit]() { return unit() * 2.0f - 1.0f; };
+
+    auto params = defaultNoInputMixerParams();
+    params.seed = seed == 0u ? 1u : seed;
+    params.outputGainDb = -20.0f + unit() * 5.0f;
+    params.ceilingDb = -1.0f;
+    params.feedback = 0.86f + unit() * 0.11f;
+    params.coupling = 0.28f + unit() * 0.48f;
+    params.phase = 0.14f + unit() * 0.66f;
+    params.drift = 0.08f + unit() * 0.45f;
+    params.formant = 0.10f + unit() * 0.52f;
+    params.quality = unit() > 0.82f ? 2u : 1u;
+    params.matrix.fill(0.0f);
+
+    for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+        params.matrix[lane * kNoInputMixerChannels + lane] =
+            0.90f + unit() * 0.08f;
+        const uint32_t neighbor = (lane + 7u) % kNoInputMixerChannels;
+        params.matrix[lane * kNoInputMixerChannels + neighbor] =
+            (unit() > 0.42f ? 1.0f : -1.0f) * (0.10f + unit() * 0.25f);
+        if (unit() > 0.46f) {
+            uint32_t source = next() % kNoInputMixerChannels;
+            if (source == lane || source == neighbor) {
+                source = (source + 3u) % kNoInputMixerChannels;
+            }
+            params.matrix[lane * kNoInputMixerChannels + source] =
+                (unit() > 0.5f ? 1.0f : -1.0f)
+                * (0.06f + unit() * 0.22f);
+        }
+
+        auto& voice = params.lanes[lane];
+        voice.body = 0.12f + unit() * 0.72f;
+        voice.loss = 0.20f + unit() * 0.34f;
+        voice.levelDb = -7.0f + unit() * 4.0f;
+        voice.lowDb = bipolar() * 5.5f;
+        voice.midFrequencyHz = 120.0f * std::pow(52.0f, unit());
+        voice.midGainDb = bipolar() * 6.5f;
+        voice.highDb = bipolar() * 5.5f;
+        for (uint32_t slot = 0u; slot < kNoInputMixerInsertSlots; ++slot) {
+            auto& insert = voice.inserts[slot];
+            insert.type = static_cast<NoInputDistortionType>(
+                1u + next() % (kNoInputDistortionTypeCount - 1u));
+            insert.gain = 0.14f + unit() * (slot == 0u ? 0.43f : 0.32f);
+            insert.tone = 0.18f + unit() * 0.68f;
+            insert.bias = bipolar() * 0.22f;
+            insert.levelDb = -12.0f + unit() * 7.0f;
+            insert.bypass = slot == 0u || unit() > 0.66f ? 0u : 1u;
+        }
+    }
+    return sanitizeNoInputMixerParams(params);
+}
+
 enum class NoInputContainmentState : uint32_t {
     Quiet = 0u,
     Stable,
