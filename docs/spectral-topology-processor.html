@@ -30,6 +30,15 @@
 
         <p>This makes the point graph part of the audio path rather than only a source of per-lane parameter offsets. Use Processor Spectral when captured or live frequency material should move between channels; choose Spectral Spray for lane-local FFT processing, Wave Geometry for direct waveform shaping, or a Macro effect for a smaller shared control set.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/spectral-topology-processor.png" aria-label="Open high-resolution Processor Spectral GUI screenshot">
+              <img src="assets/plugin-guis/spectral-topology-processor.png" alt="Processor Spectral 8ch spectral engine, patch matrix, topology field, propagation controls, and activity display" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Spectral 8ch with spectral engine, patch matrix, topology field, propagation controls, and activity display.</figcaption>
+        </figure>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
@@ -63,7 +72,7 @@
 
         <h2 id="topology">Topology</h2>
 
-        <p>The topology panel uses the same point language as the Delay Processor and Wave Geometry Processor, but here the relationships route spectral material between nodes.</p>
+        <p>The topology panel uses the same point language as Processor Delay and Processor Wave Geometry, but here the relationships route spectral material between nodes.</p>
 
         <ul>
           <li><code>AMT</code>: master depth for topology influence and spectral transport. At zero, every node remains a local spectral processor with no cross-node transport.</li>
@@ -111,7 +120,7 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="wave-geometry-processor.html">
             <span>Previous</span>
-            Wave Geometry Processor
+            Processor Wave Geometry
           </a>
           <a class="page-nav-link next" href="macro-processors.html">
             <span>Next</span>
@@ -133,8 +142,8 @@
         <div class="toc-section">
           <h2>Topology Effect Pages</h2>
           <a href="topology-framework.html">Topology Framework</a>
-          <a href="delay-processor.html">Delay Processor</a>
-          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="delay-processor.html">Processor Delay</a>
+          <a href="wave-geometry-processor.html">Processor Wave Geometry</a>
           <a href="spectral-topology-processor.html">Processor Spectral</a>
         </div>
         <div class="toc-section">
@@ -149,5 +158,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

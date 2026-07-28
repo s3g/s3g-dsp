@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Neural Ecology - s3g-dsp</title>
-    <meta name="description" content="Ambi Neural Ecology recurrent self-listening Ambisonic instrument documentation for s3g-dsp.">
+    <title>Ambi Encoder Neural Ecology - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Neural Ecology recurrent self-listening Ambisonic instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,16 +24,25 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Neural Ecology</h1>
+        <h1>Ambi Encoder Neural Ecology</h1>
 
-        <p><code>s3g Ambi Neural Ecology 64</code> is a zero-input recurrent-circuit instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It grows between four and sixty-four nonlinear nodes, places every active node in a nested spatial structure, and decodes its own Ambisonic field through four or eight virtual directional pickups that learn both what and where to hear. Those ears can also vote on movement through a three-dimensional Field Lattice of up to 128 situations, allowing the Ambisonic field to listen to and compositionally direct itself.</p>
+        <p><code>s3g Ambi Encoder Neural Ecology</code> is a zero-input recurrent-circuit instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It grows between four and sixty-four nonlinear nodes, places every active node in a nested spatial structure, and decodes its own Ambisonic field through four or eight virtual directional pickups that learn both what and where to hear. Those ears can also vote on movement through a three-dimensional Field Lattice of up to 128 situations, allowing the Ambisonic field to listen to and compositionally direct itself.</p>
 
-        <p>The result is not a neural model, a trained system, or an emulation of a historical device. It extends the signed rings and slow-to-fast recurrent cells shared with the Pulsar Encoder into a spatial ecology: location affects what the circuit hears, and what the circuit hears affects both its sound and its future position.</p>
+        <p>The result is not a neural model, a trained system, or an emulation of a historical device. It extends the signed rings and slow-to-fast recurrent cells shared with Ambi Encoder Pulsar into a spatial ecology: location affects what the circuit hears, and what the circuit hears affects both its sound and its future position.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-neural-ecology.png" aria-label="Open Ambi Encoder Neural Ecology GUI screenshot">
+              <img src="assets/plugin-guis/ambi-neural-ecology.png" alt="Ambi Encoder Neural Ecology GUI showing the recurrent population, auditory field, behavioral lattice, spatial controls, and output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Neural Ecology with recurrent population, auditory field, behavioral lattice, spatial controls, and output.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Neural Ecology 64</code> on a 64-channel REAPER track and follow it with an Ambisonic decoder or energy meter.</li>
+          <li>Insert <code>s3g Ambi Encoder Neural Ecology</code> on a 64-channel REAPER track and follow it with an Ambisonic decoder or energy meter.</li>
           <li>Choose a factory state and select a <code>NODE SET</code> from one ring through the complete sixty-four-node field.</li>
           <li>Use <code>ACTIVITY</code>, <code>SIGMOID</code>, and <code>RING FB</code> to find the edge between dormancy, intermittent firing, sustained oscillation, and saturation.</li>
           <li>Shape the organism with matrix coupling, hierarchy, phase paths, register, time spread, diversity, Brownian movement, and autonomous drift.</li>
@@ -87,7 +96,7 @@
 
         <h2 id="listening">The Field Listens to Itself</h2>
 
-        <p>Every active node is conditioned and multiplied by its complete spherical-harmonic basis vector. The resulting HOA frame is decoded internally by a selectable directional aperture. <code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds the opposite tetrahedron, producing eight cube-corner directions related to the eight-direction work in Ambi Imprint but used here as live feedback sensors rather than an analysis profile. These are real signal paths: the pickup meters show delayed audio, and a bounded four-by-four or four-by-eight auditory matrix distributes it among the four neural lobes. Bright lines in the field view show positive listening relationships, darker lines show inhibitory relationships, and their width shows connection strength.</p>
+        <p>Every active node is conditioned and multiplied by its complete spherical-harmonic basis vector. The resulting HOA frame is decoded internally by a selectable directional aperture. <code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds the opposite tetrahedron, producing eight cube-corner directions related to the eight-direction work in Processor Ambi Imprint but used here as live feedback sensors rather than an analysis profile. These are real signal paths: the pickup meters show delayed audio, and a bounded four-by-four or four-by-eight auditory matrix distributes it among the four neural lobes. Bright lines in the field view show positive listening relationships, darker lines show inhibitory relationships, and their width shows connection strength.</p>
 
         <p><code>PICKUP FOCUS</code> interpolates between the omnidirectional field component and directional HOA decoding. <code>PROPAGATION</code> supplies four or eight slightly different fractional delays, from one sample through 180 ms, and also increases high-frequency loss along the return. <code>FIELD RETURN</code> controls how strongly the matrix output enters the neural equations. Every matrix row is normalized by its absolute connection strength before bounded re-entry. The path is always kept warm, so return automation does not expose an empty delay.</p>
 
@@ -112,6 +121,15 @@
         <h2 id="score">Field Lattice Score</h2>
 
         <p>The Field Lattice can contain one, two, four, or eight planes. Every plane is a four-by-four wrapping sheet of sixteen resident genomes, giving a maximum population of 128. A genome contains the circuit, lobe, auditory, homeostatic, roaming-phase, and pickup-steering traits that can be inherited. Each resident also carries a compact heritable expression for eight primary controls: Activity, Ring Feedback, Matrix, Diversity, Field Return, Pickup Adapt, Field Width, and Mobility.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-neural-ecology.score.png" aria-label="Open Ambi Encoder Neural Ecology SCORE view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-neural-ecology.score.png" alt="Ambi Encoder Neural Ecology SCORE view showing four lattice planes and a populated four-by-four sheet of resident genomes" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>SCORE view with four lattice planes and sixteen populated resident-genome cells on the selected plane.</figcaption>
+        </figure>
 
         <p><code>GROW LATTICE</code> is the complete authoring action. It takes the current live genome and the current eight primary control values as a founder, creates the selected number of planes and their ingress/egress points, then fills the complete volume genealogically. Growth uses a seeded generator, and save/load preserves the resulting population and live-birth seed exactly. Generated residents differ according to Variation and inherit related functional blocks according to Recombine.</p>
 
@@ -185,8 +203,8 @@
         </table>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-pulsar-encoder.html"><span>Previous</span>Ambi Pulsar Encoder</a>
-          <a class="page-nav-link next" href="ambi-stochastic-encoder.html"><span>Next</span>Ambi Stochastic Encoder</a>
+          <a class="page-nav-link" href="ambi-pulsar-encoder.html"><span>Previous</span>Ambi Encoder Pulsar</a>
+          <a class="page-nav-link next" href="ambi-stochastic-encoder.html"><span>Next</span>Ambi Encoder Stochastic</a>
         </nav>
       </main>
 
@@ -203,10 +221,10 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-neural-ecology.html">Neural Ecology</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -221,5 +239,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

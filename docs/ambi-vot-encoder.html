@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi VOT Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi VOT Encoder vector-wavetable instrument documentation for s3g-dsp.">
+    <title>Ambi Encoder VOT - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder VOT vector-wavetable instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,15 +24,15 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi VOT Encoder</h1>
+        <h1>Ambi Encoder VOT</h1>
 
-        <p><code>s3g Ambi Encoder VOT 64</code> is a 64-voice vector-wavetable CLAP instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. VOT stands for Vector Oscillator Transform.</p>
+        <p><code>s3g Ambi Encoder VOT</code> is a 64-voice vector-wavetable CLAP instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. VOT stands for Vector Oscillator Transform.</p>
 
         <p>Sixteen waveforms form a 4 x 4 timbre field. Voices move through that field under manual control, spatial motion, or an editable vector score, then occupy independent azimuth, elevation, and distance positions in the encoded sound field.</p>
 
         <figure>
           <div class="doc-graphic">
-            <img src="ambi-vot-encoder.svg" alt="Ambi VOT Encoder waveform field, vector score, tuning relationships, and ambisonic voice space">
+            <img src="ambi-vot-encoder.svg" alt="Ambi Encoder VOT waveform field, vector score, tuning relationships, and ambisonic voice space">
           </div>
           <figcaption>U/V controls timbre, score time controls traversal, and AED controls spatial position.</figcaption>
         </figure>
@@ -40,7 +40,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder VOT 64</code> on a 64-channel REAPER track.</li>
+          <li>Insert <code>s3g Ambi Encoder VOT</code> on a 64-channel REAPER track.</li>
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code> for the voice source.</li>
           <li>Select the ambisonic <code>ORDER</code>, active <code>VOICES</code>, wave set, and pitch relationship.</li>
           <li>Use <code>FIELD</code> for spatial motion, <code>VECTOR</code> for the wavetable surface, and <code>SCORE</code> to compose a timbre path.</li>
@@ -64,6 +64,15 @@
 
         <h2 id="views">Views</h2>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-vot-encoder.png" aria-label="Open Ambi Encoder VOT FIELD view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-vot-encoder.png" alt="Ambi Encoder VOT FIELD view showing vector-wavetable controls, voice positions, score access, and ambisonic output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder VOT FIELD view with vector-wavetable controls, voice positions, score access, and ambisonic output.</figcaption>
+        </figure>
+
         <table class="readout-table">
           <thead>
             <tr><th>View</th><th>Purpose</th></tr>
@@ -75,9 +84,27 @@
           </tbody>
         </table>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-vot-encoder.vector.png" aria-label="Open Ambi Encoder VOT VECTOR view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-vot-encoder.vector.png" alt="Ambi Encoder VOT VECTOR view showing the populated four-by-four waveform field, current U and V position, and interpolated waveform" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>VECTOR view: the 4 × 4 table field, current U/V cell blend, and resulting interpolated waveform.</figcaption>
+        </figure>
+
         <h2 id="vector-score">Vector Score</h2>
 
         <p>The score contains 2 to 16 nodes. Select a node in <code>SCORE</code> view, then edit its time, U/V position, and interpolation curve. Use the header <code>-</code> and <code>+</code> buttons to change the node count, or <code>RESET</code> to restore the default score.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-vot-encoder.score.png" aria-label="Open Ambi Encoder VOT SCORE view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-vot-encoder.score.png" alt="Ambi Encoder VOT SCORE view showing parallel U and V breakpoint lanes, loop region, and point route" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>SCORE view with the parallel U/V lanes, editable nodes, and shaded sustain-loop region.</figcaption>
+        </figure>
 
         <table class="readout-table">
           <thead>
@@ -170,7 +197,7 @@
           </tbody>
         </table>
 
-        <p>Use a 64-channel track when changing order during a session or working at 7OA. Follow the instrument with an <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+        <p>Use a 64-channel track when changing order during a session or working at 7OA. Follow the instrument with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <h2 id="automation">Automation and State</h2>
 
@@ -183,7 +210,7 @@
           </a>
           <a class="page-nav-link next" href="ambi-vox-encoder.html">
             <span>Next</span>
-            Ambi Vox Encoder
+            Ambi Encoder Vox
           </a>
         </nav>
       </main>
@@ -201,20 +228,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -231,5 +258,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -68,7 +68,7 @@ cmake --build --preset clap</code></pre>
   -DS3G_CLAP_INCLUDE_DIR=/path/to/clap/include
 cmake --build build-clap</code></pre>
 
-        <p>WORLD speech vocoder support is enabled by default for Ambi Vox Encoder and fetched at a pinned revision. Disable it only when a build without Ambi Vox WORLD analysis is required:</p>
+        <p>WORLD speech vocoder support is enabled by default for Ambi Encoder Vox and fetched at a pinned revision. Disable it only when a build without Ambi Vox WORLD analysis is required:</p>
 
         <pre><code>cmake -S . -B build-clap \
   -DS3G_BUILD_CLAP_PLUGIN=ON \
@@ -86,7 +86,7 @@ cmake --build --preset apps</code></pre>
         <pre><code>build-apps/apps/multi_loop_processor_standalone/s3g Processor Multi Loop.app
 build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
-        <p>Vox Builder uses the same pinned WORLD dependency as Ambi Vox Encoder. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
+        <p>Vox Builder uses the same pinned WORLD dependency as Ambi Encoder Vox. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
 
         <h2 id="install-local">Install Local Build</h2>
 

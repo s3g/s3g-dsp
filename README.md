@@ -40,8 +40,8 @@ Plugin areas:
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
   [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
   [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
-  `ACN/SN3D` workflows, including Ambi Imprint and the order-adaptive Ambi
-  Effect DJ Filter, Delay, Pitch, Gain, Resonance Print, and Displacement. The
+  `ACN/SN3D` workflows, including Processor Ambi Imprint and the order-adaptive
+  Ambi Effect DJ Filter, Delay, Pitch, Gain, Resonance Print, and Displacement. The
   [Listener Mode guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
   describes plugins that use their own encoded field as an internal score;
   [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
@@ -119,7 +119,7 @@ cmake --build build-clap
 ```
 
 WORLD speech vocoder support is enabled by default for CLAP builds and is used
-by Ambi Vox Encoder's WORLD WAV and voicebank paths. The default FetchContent
+by Ambi Encoder Vox's WORLD WAV and voicebank paths. The default FetchContent
 revision is pinned for reproducible builds. WORLD support can be disabled with:
 
 ```sh
@@ -130,7 +130,7 @@ cmake -S . -B build-clap \
 
 ## Voicebank Builder
 
-`s3g Vox Builder` is a macOS companion app for preparing Ambi Vox Encoder
+`s3g Vox Builder` is a macOS companion app for preparing Ambi Encoder Vox
 voicebanks from a generated voice source, one continuous recording, several WAV
 files, or a folder of WAVs. Its procedural and source-seeded generator creates
 repeatable Core 35 or Full 92 alias banks without copying source samples. The
@@ -211,6 +211,36 @@ as the source installer, ad-hoc signs and strictly verifies every bundle by
 default. Set `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity;
 notarization is a separate release step.
 
+## Documentation Screenshots
+
+The documentation screenshots are captured directly from the native CLAP
+editors, without launching REAPER. After configuring the `clap` preset, rebuild
+the documented set and render 3x PNGs plus vector PDF masters with:
+
+```sh
+python3 scripts/generate-plugin-screenshots.py \
+  --name-map scripts/doc-screenshot-manifest.tsv
+```
+
+PNGs are written to `docs/assets/plugin-guis/`; their PDF masters are retained
+in `docs/assets/plugin-guis/masters/`. The script derives its inventory and
+native sizes from the GUI audit commands in `CMakeLists.txt`, verifies each
+bundle against `scripts/clap-bundles.tsv`, and drives the existing GUI smoke
+scenarios. Documentation mode also feeds deterministic signals to analyzers,
+warms encoder DSP with representative scene settings, keeps primary encoder
+captures on `FIELD`, and emits descriptive non-`SURF` page variants where the
+manual explains Mixer, Vector, Score, Lyrics, Pulsarets, Neural, Listen, or
+Curve views. Populated six-cell `SURF` variants remain dedicated to the shared
+Parameter Surface documentation. Temporary deterministic audio fixtures fill
+the Processor Loop, Processor Multi Loop, and Processor Ambi Grain waveform
+displays, while Processor Ambi Imprint loads a bundled atlas entry; these files
+are removed after each capture.
+Use `--list` to inspect the selected inventory, `--no-build` to reuse current
+artifacts, or pass one short CLAP ID (for example `ambi-point-encoder-64`) to
+refresh a single editor. Omit both the name map and plugin IDs to capture the
+complete custom-GUI audit inventory. Capture requires macOS/AppKit and
+`pdftocairo` or `pdftoppm` from Poppler.
+
 ## Validate
 
 Audit the canonical CLAP inventory against source metadata and built bundles,
@@ -248,8 +278,9 @@ bundle:
 ```
 
 The smoke tests cover multichannel routing, loop playback, finite output,
-bounded peaks, de-click stress, high-order encoder/decoder paths, Ambi Imprint
-safety, Ambi Ray room-response behavior, and Fault codec, morph, evolution,
+bounded peaks, de-click stress, high-order encoder/decoder paths, Processor Ambi
+Imprint safety, Ambi Encoder Ray room-response behavior, and Processor Fault
+codec, morph, evolution,
 parameter-sensitivity behavior, plus shared Parameter Surface interpolation.
 In a CLAP build, `audit_parameter_surface` also validates both instrument
 wrappers' X/Y automation metadata and state round trips.

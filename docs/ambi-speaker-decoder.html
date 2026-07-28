@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Speaker Decoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Speaker Decoder documentation for s3g-dsp.">
+    <title>Ambi Decoder Speaker - s3g-dsp</title>
+    <meta name="description" content="Ambi Decoder Speaker documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,19 +24,19 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Speaker Decoder</h1>
+        <h1>Ambi Decoder Speaker</h1>
 
-        <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or encoded-field chain.</p>
+        <p><code>s3g Ambi Decoder Speaker 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or encoded-field chain.</p>
 
         <p>The decoder supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="ambi_speaker_decoder_gui.png" aria-label="Open Ambi Speaker Decoder GUI screenshot">
-              <img src="ambi_speaker_decoder_gui.png" alt="Screenshot of the s3g Ambi Speaker Decoder plugin GUI">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-speaker-decoder.png" aria-label="Open Ambi Decoder Speaker interface screenshot">
+              <img src="assets/plugin-guis/ambi-speaker-decoder.png" alt="Ambi Decoder Speaker interface showing the speaker field, layout controls, and editable speaker placement" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Speaker Decoder with speaker field, layout controls, and editable speaker placement.</figcaption>
+          <figcaption>Ambi Decoder Speaker with speaker field, layout controls, and editable speaker placement.</figcaption>
         </figure>
 
         <h2 id="signal-flow">Signal Flow</h2>
@@ -54,10 +54,10 @@
         <h2 id="decoder-variants">Decoder Variants</h2>
 
         <ul>
-          <li><code>s3g Ambi Speaker Decoder 64</code>: the main curated/custom speaker decoder.</li>
-          <li><code>s3g Ambi Object Decoder 64</code>: blends the decoded field with a directional object-panning path using <code>VBAP</code>, <code>LBAP</code>, or <code>DBAP</code>.</li>
-          <li><code>s3g Ambi Adaptive Decoder 64</code>: blends diffuse and focused decode paths using confidence and transient cues.</li>
-          <li><code>s3g Ambi Sub Decoder</code>: derives up to eight low-frequency sub feeds from <code>ACN/SN3D</code> input, with cutoff, directional width, sub count, and output trim controls.</li>
+          <li><code>s3g Ambi Decoder Speaker 64</code>: the main curated/custom speaker decoder.</li>
+          <li><code>s3g Ambi Decoder Object 64</code>: blends the decoded field with a directional object-panning path using <code>VBAP</code>, <code>LBAP</code>, or <code>DBAP</code>.</li>
+          <li><code>s3g Ambi Decoder Adaptive 64</code>: blends diffuse and focused decode paths using confidence and transient cues.</li>
+          <li><code>s3g Ambi Decoder Sub</code>: derives up to eight low-frequency sub feeds from <code>ACN/SN3D</code> input, with cutoff, directional width, sub count, and output trim controls.</li>
         </ul>
 
         <h2 id="layouts">Layouts</h2>
@@ -133,7 +133,7 @@
 
         <h2 id="field-view">Field View</h2>
 
-        <p>The speaker field follows the same camera convention as the Ambi Point Encoder. <code>TOP</code> draws <code>0</code> degrees at the top, <code>180</code> at the bottom, <code>-90</code> to the right, and <code>+90</code> to the left. <code>SIDE</code> draws positive elevation upward. <code>3/4</code> is for inspecting layers and custom layouts.</p>
+        <p>The speaker field follows the same camera convention as the Ambi Encoder Point. <code>TOP</code> draws <code>0</code> degrees at the top, <code>180</code> at the bottom, <code>-90</code> to the right, and <code>+90</code> to the left. <code>SIDE</code> draws positive elevation upward. <code>3/4</code> is for inspecting layers and custom layouts.</p>
 
         <p>Use <code>-</code> / <code>+</code> to zoom the camera view. Drag blank space in the field to rotate the view. Camera movement changes only the visual inspection angle, not speaker AED positions. The selected camera view, manual rotation, and zoom are saved with the host project.</p>
 
@@ -160,7 +160,7 @@
           </a>
           <a class="page-nav-link next" href="ambisonic-stereo-decoder.html">
             <span>Next</span>
-            Ambi Stereo Decoder
+            Ambi Decoder Stereo
           </a>
         </nav>
       </main>
@@ -178,9 +178,9 @@
         </div>
         <div class="toc-section">
           <h2>Decoder Pages</h2>
-          <a href="ambi-speaker-decoder.html">Speaker Decoder Family</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambi-speaker-decoder.html">Decoder Speaker Family</a>
+          <a href="ambisonic-stereo-decoder.html">Decoder Stereo</a>
+          <a href="ambisonic-head-decoder.html">Decoder Head</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -193,10 +193,6 @@
           <a href="#reaper">REAPER Notes</a>
         </div>
       </aside>
-    </div>
-    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
-      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
-      <img data-page-lightbox-image src="" alt="">
     </div>
     <script src="lightbox.js"></script>
   </body>

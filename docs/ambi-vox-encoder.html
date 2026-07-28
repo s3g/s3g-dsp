@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Vox Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Vox Encoder WORLD and UTAU-style voicebank instrument documentation for s3g-dsp.">
+    <title>Ambi Encoder Vox - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Vox WORLD and UTAU-style voicebank instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,11 +24,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Vox Encoder</h1>
+        <h1>Ambi Encoder Vox</h1>
 
-        <p><code>s3g Ambi Encoder Vox 64</code> is a 16-voice voicebank and WORLD-based vocal instrument with a fixed 64-channel, first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned vocal sources; the 64 channels describe the ambisonic field, not the source-voice count.</p>
+        <p><code>s3g Ambi Encoder Vox</code> is a 16-voice voicebank and WORLD-based vocal instrument with a fixed 64-channel, first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned vocal sources; the 64 channels describe the ambisonic field, not the source-voice count.</p>
 
         <p>WORLD analysis separates a recorded voice into pitch, spectral envelope, and aperiodic or noise components. Ambi Vox resynthesizes those components at new pitches and timings while retaining more of the source's vocal character than ordinary sample-rate transposition.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-vox-encoder.png" aria-label="Open Ambi Encoder Vox GUI screenshot">
+              <img src="assets/plugin-guis/ambi-vox-encoder.png" alt="Ambi Encoder Vox GUI showing phrase source, voicebank and WORLD controls, ensemble field, motion, and ambisonic output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Vox with phrase source, voicebank and WORLD controls, ensemble field, motion, and output.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -65,6 +74,15 @@
         <h2 id="lyrics-field">Lyrics Field</h2>
 
         <p>The left-side <code>LYRICS</code> page is a cue sheet. Each non-empty line becomes one independently compiled lyric cue, up to 32 cues. The cue map shows the selected line and the line currently being performed. Clicking a cue selects it; the single-line phrase field remains a quick editor for that selected cue. <code>PHR SPREAD</code> is always contained within the active cue, so a round can begin at different syllables without spilling into the next line.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-vox-encoder.lyrics.png" aria-label="Open Ambi Encoder Vox LYRICS view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-vox-encoder.lyrics.png" alt="Ambi Encoder Vox LYRICS view showing a six-cue lyric sheet, cue map, phrase controls, voice engine, motion, and pitch settings" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LYRICS view with a populated multi-cue sheet and its compiled cue map.</figcaption>
+        </figure>
 
         <p><code>TEXT</code> opens the cue editor. <code>GENERATE</code> opens a deterministic pseudo-language composer whose output returns to that same editable cue sheet. <code>FORM</code> chooses drift, call-and-response, round, bloom, or pulse relationships; <code>COLOR</code> biases vowel families; and <code>GROUPS</code>, <code>CUES / GROUP</code>, <code>LENGTH</code>, <code>VARIATION</code>, <code>HARDNESS</code>, <code>REST</code>, and <code>SEED</code> shape the result. The available syllables are checked against the loaded voicebank. <code>GENERATE</code> restarts from the seed, <code>MUTATE</code> keeps the underlying group motifs while deriving a new generation, and <code>APPEND</code> adds a generation without exceeding the 32-cue limit.</p>
 
@@ -162,16 +180,16 @@ sorrow=so ro</code></pre>
           </tbody>
         </table>
 
-        <p>Follow the instrument with an <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+        <p>Follow the instrument with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-vot-encoder.html">
             <span>Previous</span>
-            Ambi VOT Encoder
+            Ambi Encoder VOT
           </a>
           <a class="page-nav-link next" href="ambi-wave-terrain-encoder.html">
             <span>Next</span>
-            Ambi Wave Terrain Encoder
+            Ambi Encoder Wave Terrain
           </a>
         </nav>
       </main>
@@ -189,20 +207,20 @@ sorrow=so ro</code></pre>
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -222,5 +240,6 @@ sorrow=so ro</code></pre>
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

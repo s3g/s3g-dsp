@@ -51,13 +51,13 @@
 
         <h2 id="runtime">Runtime Interpretation</h2>
 
-        <p>The source and listener XYZ parameters map to the field's navigation bounds. Ambi Ray Encoder computes source-to-listener distance, delay, attenuation, and direction continuously for the direct sound. Source position selects stable reflection slots and late profiles from the four nearest cells using inverse-distance weights. For reflections with a bounce point, the encoder continuously resolves source-to-bounce-to-listener geometry while retaining any non-geometric delay embedded by Ray Sketch. Reflections without a bounce point retain a world-space virtual arrival anchored from <code>listener_position_m</code>. Position and field changes are smoothed by the plugin's <code>MOVEMENT</code> control.</p>
+        <p>The source and listener XYZ parameters map to the field's navigation bounds. Ambi Encoder Ray computes source-to-listener distance, delay, attenuation, and direction continuously for the direct sound. Source position selects stable reflection slots and late profiles from the four nearest cells using inverse-distance weights. For reflections with a bounce point, the encoder continuously resolves source-to-bounce-to-listener geometry while retaining any non-geometric delay embedded by Ray Sketch. Reflections without a bounce point retain a world-space virtual arrival anchored from <code>listener_position_m</code>. Position and field changes are smoothed by the plugin's <code>MOVEMENT</code> control.</p>
 
         <p>The direct component follows the selected first-through-seventh ambisonic order. Early and late room components are represented through third order. Timing is sample-rate independent in the file and compiled for the current host rate. Imported JSON is embedded in CLAP project state.</p>
 
         <h2 id="compatibility">Compatibility</h2>
 
-        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file. It also accepts version 1 fields without <code>world_to_aed</code> and corrects their screen-space horizontal azimuth while loading.</p>
+        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Encoder Ray loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file. It also accepts version 1 fields without <code>world_to_aed</code> and corrects their screen-space horizontal azimuth while loading.</p>
 
         <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Resolved delay, gain, and AED values remain sufficient for a fixed reference listener. <code>bounce_position_m</code> enables moving-listener path resolution without requiring a live geometry simulation; generalized geometry remains display provenance. Version 1 readers may ignore the bounce field.</p>
 
@@ -87,7 +87,7 @@
         <div class="toc-section">
           <h2>Utility Pages</h2>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>
           <a href="s3gimprint-format.html">.s3gimprint Format</a>
           <a href="s3gray-format.html">.s3gray Format</a>
         </div>

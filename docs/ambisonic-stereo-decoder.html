@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Stereo Decoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Stereo Decoder documentation for s3g-dsp.">
+    <title>Ambi Decoder Stereo - s3g-dsp</title>
+    <meta name="description" content="Ambi Decoder Stereo documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,9 +24,18 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Stereo Decoder</h1>
+        <h1>Ambi Decoder Stereo</h1>
 
-        <p><code>s3g Ambi Stereo Decoder</code> decodes <code>ACN/SN3D</code> ambisonic input to a true stereo output using virtual speaker fields and practical stereo pickup models. It is for loudspeaker-style stereo monitoring or stereo renders, not headphone binaural playback.</p>
+        <p><code>s3g Ambi Decoder Stereo</code> decodes <code>ACN/SN3D</code> ambisonic input to a true stereo output using virtual speaker fields and practical stereo pickup models. It is for loudspeaker-style stereo monitoring or stereo renders, not headphone binaural playback.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-stereo-decoder.png" aria-label="Open Ambi Decoder Stereo interface screenshot">
+              <img src="assets/plugin-guis/ambisonic-stereo-decoder.png" alt="Ambi Decoder Stereo interface showing the virtual-pickup field, orientation, pickup method, width, room, and stereo output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Decoder Stereo with virtual-pickup field, orientation, pickup method, width, room, and stereo output controls.</figcaption>
+        </figure>
 
         <h2 id="model">Model</h2>
 
@@ -69,16 +78,16 @@
 
         <p>This plugin exposes a true stereo output bus. In REAPER, a multichannel track can still preserve audio on higher track channels that are not mapped through the plugin output. If a following meter shows channels above 2 after the decoder, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
 
-        <p>For headphone-style monitoring, use <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>. For speaker layout playback, use <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder 64</a>.</p>
+        <p>For headphone-style monitoring, use <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>. For speaker layout playback, use <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker 64</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-speaker-decoder.html">
             <span>Previous</span>
-            Ambi Speaker Decoder
+            Ambi Decoder Speaker
           </a>
           <a class="page-nav-link next" href="ambisonic-head-decoder.html">
             <span>Next</span>
-            Ambi Head Decoder
+            Ambi Decoder Head
           </a>
         </nav>
       </main>
@@ -96,9 +105,9 @@
         </div>
         <div class="toc-section">
           <h2>Decoder Pages</h2>
-          <a href="ambi-speaker-decoder.html">Speaker Decoder Family</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambi-speaker-decoder.html">Decoder Speaker Family</a>
+          <a href="ambisonic-stereo-decoder.html">Decoder Stereo</a>
+          <a href="ambisonic-head-decoder.html">Decoder Head</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -109,5 +118,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

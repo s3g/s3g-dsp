@@ -35,8 +35,8 @@
         <h2 id="plugins">Plugins</h2>
 
         <ul>
-          <li><a href="delay-processor.html">Delay Processor 8ch/24ch</a>: maps the field to node delay behavior, then lets regenerated repeats walk through directed neighbor and centroid routes.</li>
-          <li><a href="wave-geometry-processor.html">Wave Geometry Processor 8ch</a>: shapes waveforms directly, then sends them through a short topology wave mesh with distance-derived travel time, scattering, decay, and damping.</li>
+          <li><a href="delay-processor.html">Processor Delay 8ch/24ch</a>: maps the field to node delay behavior, then lets regenerated repeats walk through directed neighbor and centroid routes.</li>
+          <li><a href="wave-geometry-processor.html">Processor Wave Geometry 8ch</a>: shapes waveforms directly, then sends them through a short topology wave mesh with distance-derived travel time, scattering, decay, and damping.</li>
           <li><a href="spectral-topology-processor.html">Processor Spectral 8ch/24ch</a>: transports live and captured FFT material between neighbor nodes, with distance-derived travel time, spectral dispersion, route damping, and a whole-field pool.</li>
         </ul>
 
@@ -44,7 +44,7 @@
 
         <p>Each effect interprets the shared network differently, so automation can preserve a recognizable structural gesture while changing the DSP model. Delay uses its lane patch to select participating physical nodes; each routed repeat then waits inside the destination node's long delay before continuing. Wave Geometry sends waveform energy through short sample-domain paths, while Processor Spectral transports FFT material through frame-domain paths. Their matrices inject sources into meshes whose unpatched nodes remain available as receivers.</p>
 
-        <p><a href="delay-processor.html">Delay Processor</a> is the best first effect example because its display makes the mapping especially direct.</p>
+        <p><a href="delay-processor.html">Processor Delay</a> is the best first effect example because its display makes the mapping especially direct.</p>
 
         <h2 id="routing">Routing</h2>
 

@@ -29,7 +29,7 @@
         <p>You do not need a multichannel loudspeaker array to use s3g-dsp. Keep the session wide while its multichannel or ambisonic processing is active, then convert the result to two channels at the end of the monitoring chain.</p>
 
         <div class="callout">
-          <p><strong>Choose by signal format, not channel count.</strong> Use MC to Stereo Autogain for ordinary multichannel lanes. Use an Ambi Stereo Decoder or Ambi Head Decoder when the channels are an encoded <code>ACN/SN3D</code> field.</p>
+          <p><strong>Choose by signal format, not channel count.</strong> Use Output Autogain Stereo for ordinary multichannel lanes. Use an Ambi Decoder Stereo or Ambi Decoder Head when the channels are an encoded <code>ACN/SN3D</code> field.</p>
         </div>
 
         <h2 id="choose">Choose the Stereo Path</h2>
@@ -39,10 +39,10 @@
             <tr><th>Signal before the stereo stage</th><th>Listening target</th><th>Use</th></tr>
           </thead>
           <tbody>
-            <tr><td>Ordinary multichannel lanes or speaker feeds</td><td>Stereo loudspeakers or headphones</td><td><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a></td></tr>
-            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Stereo loudspeakers or a stereo render</td><td><a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a></td></tr>
-            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Headphones</td><td><a href="ambisonic-head-decoder.html">Ambi Head Decoder</a> in <code>Binaural</code> mode</td></tr>
-            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>A carefully positioned stereo loudspeaker pair</td><td>Ambi Head Decoder in optional <code>Transaural</code> mode</td></tr>
+            <tr><td>Ordinary multichannel lanes or speaker feeds</td><td>Stereo loudspeakers or headphones</td><td><a href="mc-to-stereo-autogain.html">Output Autogain Stereo</a></td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Stereo loudspeakers or a stereo render</td><td><a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a></td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Headphones</td><td><a href="ambisonic-head-decoder.html">Ambi Decoder Head</a> in <code>Binaural</code> mode</td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>A carefully positioned stereo loudspeaker pair</td><td>Ambi Decoder Head in optional <code>Transaural</code> mode</td></tr>
           </tbody>
         </table>
 
@@ -54,7 +54,7 @@
 
         <pre><code>ordinary multichannel source
 -&gt; multichannel effects, panning, or routing
--&gt; MC to Stereo Autogain
+-&gt; Output Autogain Stereo
 -&gt; stereo loudspeakers or headphones</code></pre>
 
         <p>This is the appropriate path for discrete processor outputs, direct speaker feeds, and other non-ambisonic buses. It is a controlled mixdown, not an ambisonic decoder.</p>
@@ -65,17 +65,17 @@
 
         <pre><code>ambisonic encoder or instrument
 -&gt; optional ambisonic effects and utilities
--&gt; Ambi Stereo Decoder -&gt; stereo loudspeakers or stereo render
+-&gt; Ambi Decoder Stereo -&gt; stereo loudspeakers or stereo render
 
 or
 
 ambisonic encoder or instrument
 -&gt; optional ambisonic effects and utilities
--&gt; Ambi Head Decoder -&gt; headphones</code></pre>
+-&gt; Ambi Decoder Head -&gt; headphones</code></pre>
 
-        <p><a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> uses virtual speaker fields and stereo pickup models. It is the normal choice for two loudspeakers and conventional stereo renders.</p>
+        <p><a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a> uses virtual speaker fields and stereo pickup models. It is the normal choice for two loudspeakers and conventional stereo renders.</p>
 
-        <p><a href="ambisonic-head-decoder.html">Ambi Head Decoder</a> uses a synthetic head model. Choose <code>Binaural</code> for headphones. Its <code>Transaural</code> mode adds crosstalk cancellation for stereo loudspeakers, but the result depends strongly on speaker angle, a centered listening position, and room acoustics.</p>
+        <p><a href="ambisonic-head-decoder.html">Ambi Decoder Head</a> uses a synthetic head model. Choose <code>Binaural</code> for headphones. Its <code>Transaural</code> mode adds crosstalk cancellation for stereo loudspeakers, but the result depends strongly on speaker angle, a centered listening position, and room acoustics.</p>
 
         <h2 id="reaper">REAPER Setup</h2>
 
@@ -86,7 +86,7 @@ ambisonic encoder or instrument
           <li>If a following meter still shows higher channels, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</li>
         </ol>
 
-        <p>MC to Stereo Autogain, Ambi Stereo Decoder, and Ambi Head Decoder expose true stereo output buses. REAPER can nevertheless preserve unmapped higher track channels around a plugin unless that pin-connector option is enabled.</p>
+        <p>Output Autogain Stereo, Ambi Decoder Stereo, and Ambi Decoder Head expose true stereo output buses. REAPER can nevertheless preserve unmapped higher track channels around a plugin unless that pin-connector option is enabled.</p>
 
         <h2 id="expectations">What Stereo Preserves</h2>
 

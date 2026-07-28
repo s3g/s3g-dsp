@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <thread>
 
 namespace {
 
@@ -55,6 +58,38 @@ bool testSilentReset()
     if (!stats.finite || stats.peak != 0.0f) {
         std::cerr << "No Input Mixer reset was not silent: "
                   << stats.peak << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testAudioThreadStackReset()
+{
+    std::atomic<bool> passed { false };
+    std::thread audioThread([&passed]() {
+        auto mixer = std::make_unique<s3g::NoInputMixer>();
+        mixer->prepare(48000.0);
+        auto params = s3g::defaultNoInputMixerParams();
+        for (auto& lane : params.lanes) {
+            for (auto& insert : lane.inserts) {
+                insert.type = s3g::NoInputDistortionType::Splice;
+                insert.bypass = 0u;
+            }
+        }
+        mixer->setParams(params);
+        for (uint32_t reset = 0u; reset < 16u; ++reset) {
+            mixer->reset();
+            mixer->reseed(params.seed + reset, 0.5f);
+        }
+        Frame frame {};
+        mixer->processFrame(frame.data());
+        passed.store(std::all_of(frame.begin(), frame.end(), [](float value) {
+            return std::isfinite(value);
+        }), std::memory_order_release);
+    });
+    audioThread.join();
+    if (!passed.load(std::memory_order_acquire)) {
+        std::cerr << "No Input Mixer failed the audio-thread reset test\n";
         return false;
     }
     return true;
@@ -134,12 +169,21 @@ bool testDistortionFamilies()
 
 bool testFactoryPresetsAndRandomization()
 {
+    if (s3g::noInputMixerFactoryBehavior(4u).behavior
+            != s3g::NoInputMovementBehavior::Burst
+        || s3g::noInputMixerFactoryBehavior(5u).behavior
+            != s3g::NoInputMovementBehavior::Scramble) {
+        std::cerr << "No Input Mixer articulation presets regressed\n";
+        return false;
+    }
     for (uint32_t preset = 0u;
          preset < s3g::kNoInputMixerFactoryPresetCount; ++preset) {
         const auto params = s3g::noInputMixerFactoryPreset(preset);
         s3g::NoInputMixer mixer;
         mixer.prepare(48000.0);
         mixer.setParams(params);
+        mixer.setMovementBehaviorParams(
+            s3g::noInputMixerFactoryBehavior(preset));
         mixer.reseed(params.seed, 0.58f);
         const auto stats = render(mixer, 32000u, 3000u);
         if (!stats.finite || !(stats.peak > 1.0e-7f)
@@ -355,6 +399,135 @@ bool testHybridControlEcology()
         std::cerr << "Aux-return loops had no material DSP effect\n";
         return false;
     }
+
+    s3g::NoInputMixer sendlessReference;
+    s3g::NoInputMixer mutedAux;
+    sendlessReference.prepare(48000.0);
+    mutedAux.prepare(48000.0);
+    sendlessReference.setParams(dryParams);
+    mutedAux.setParams(auxParams);
+    mutedAux.setAuxMuted(0u, true);
+    mutedAux.setAuxMuted(1u, true);
+    sendlessReference.reseed(params.seed, 0.58f);
+    mutedAux.reseed(params.seed, 0.58f);
+    double mutedDifference = 0.0;
+    for (uint32_t sample = 0u; sample < 8000u; ++sample) {
+        sendlessReference.processFrame(dryFrame.data());
+        mutedAux.processFrame(wetFrame.data());
+        for (uint32_t lane = 0u; lane < dryFrame.size(); ++lane) {
+            mutedDifference += std::abs(static_cast<double>(
+                dryFrame[lane] - wetFrame[lane]));
+        }
+    }
+    if (mutedDifference > 1.0e-6 || mutedAux.auxActivity(0u) != 0.0f
+        || mutedAux.auxActivity(1u) != 0.0f) {
+        std::cerr << "Global aux mutes did not silence both return buses\n";
+        return false;
+    }
+    mutedAux.setAuxMuted(0u, false);
+    double restoredDifference = 0.0;
+    for (uint32_t sample = 0u; sample < 16000u; ++sample) {
+        sendlessReference.processFrame(dryFrame.data());
+        mutedAux.processFrame(wetFrame.data());
+        for (uint32_t lane = 0u; lane < dryFrame.size(); ++lane) {
+            restoredDifference += std::abs(static_cast<double>(
+                dryFrame[lane] - wetFrame[lane]));
+        }
+    }
+    if (!(restoredDifference > 0.01)
+        || !(mutedAux.auxActivity(0u) > 0.0f)
+        || !mutedAux.auxMuted(1u)) {
+        std::cerr << "Global aux mute did not restore the preserved send mix\n";
+        return false;
+    }
+    return true;
+}
+
+bool testMovementBehaviors()
+{
+    if (std::abs(s3g::noInputMovementEventRateHz(0.0f) - 0.25f)
+            > 1.0e-6f
+        || std::abs(s3g::noInputMovementEventRateHz(1.0f) - 80.0f)
+            > 1.0e-3f
+        || std::strcmp(s3g::noInputMovementBehaviorName(
+                s3g::NoInputMovementBehavior::Scramble), "SCRAMBLE") != 0) {
+        std::cerr << "No Input Mixer articulation control laws regressed\n";
+        return false;
+    }
+    const auto randomizedA = s3g::randomizedNoInputMovementBehaviorParams(
+        0x12345678u);
+    const auto randomizedB = s3g::randomizedNoInputMovementBehaviorParams(
+        0x12345678u);
+    if (randomizedA.behavior != randomizedB.behavior
+        || randomizedA.eventRate != randomizedB.eventRate
+        || randomizedA.choke != randomizedB.choke) {
+        std::cerr << "Movement behavior randomization was not deterministic\n";
+        return false;
+    }
+
+    auto params = s3g::noInputMixerFactoryPreset(9u);
+    params.motion = 1.0f;
+    params.motionRate = 1.0f;
+    uint32_t closedRoute = 0u;
+    while (closedRoute < params.matrix.size()
+        && std::abs(params.matrix[closedRoute]) > 1.0e-7f) {
+        ++closedRoute;
+    }
+    if (closedRoute >= params.matrix.size()) return false;
+
+    for (uint32_t mode = 1u; mode < 5u; ++mode) {
+        s3g::NoInputMovementBehaviorParams behavior;
+        behavior.behavior = static_cast<s3g::NoInputMovementBehavior>(mode);
+        behavior.eventRate = 0.74f;
+        behavior.length = 0.16f;
+        behavior.density = 0.48f;
+        behavior.chaos = 0.72f;
+        behavior.slew = 0.04f;
+        behavior.choke = 1.0f;
+        s3g::NoInputMixer mixer;
+        mixer.prepare(48000.0);
+        mixer.setParams(params);
+        mixer.setMovementBehaviorParams(behavior);
+        mixer.reseed(0x43564d58u, 0.72f);
+        Frame frame {};
+        float minimumGate = 1.0f;
+        float maximumGate = 0.0f;
+        uint32_t silentFrames = 0u;
+        for (uint32_t sample = 0u; sample < 36000u; ++sample) {
+            mixer.processFrame(frame.data());
+            float framePeak = 0.0f;
+            for (float value : frame) {
+                if (!std::isfinite(value) || std::abs(value) > 1.01f)
+                    return false;
+                framePeak = std::max(framePeak, std::abs(value));
+            }
+            for (uint32_t route = 0u; route < params.matrix.size(); ++route) {
+                if (std::abs(params.matrix[route]) <= 1.0e-7f) continue;
+                const float gate = mixer.behaviorRouteGate(route);
+                minimumGate = std::min(minimumGate, gate);
+                maximumGate = std::max(maximumGate, gate);
+            }
+            if (sample > 2000u && framePeak < 1.0e-4f) ++silentFrames;
+            if (std::abs(mixer.routeSignal(closedRoute)) > 1.0e-9f) {
+                std::cerr << "Movement behavior invented a closed route\n";
+                return false;
+            }
+        }
+        if (!(minimumGate < 0.12f) || !(maximumGate > 0.45f)) {
+            std::cerr << "Movement behavior did not articulate routes: "
+                      << s3g::noInputMovementBehaviorName(behavior.behavior)
+                      << " min " << minimumGate << " max " << maximumGate
+                      << "\n";
+            return false;
+        }
+        if ((behavior.behavior == s3g::NoInputMovementBehavior::Cut
+                || behavior.behavior == s3g::NoInputMovementBehavior::Burst)
+            && silentFrames < 64u) {
+            std::cerr << "Post-insert CHOKE did not expose cut gaps: "
+                      << silentFrames << " frames\n";
+            return false;
+        }
+    }
     return true;
 }
 
@@ -400,7 +573,7 @@ bool testSanitization()
         || clean.lanes[0].midFrequencyHz != 80.0f
         || clean.lanes[0].inserts[0].gain != 1.0f
         || clean.lanes[0].inserts[0].type
-            != s3g::NoInputDistortionType::Ring
+            != s3g::NoInputDistortionType::OctStack
         || clean.agency != 0.0f
         || clean.motionShape != s3g::MatrixFlowShape::Hold
         || clean.aux[0].feedback != 0.96f
@@ -416,11 +589,13 @@ bool testSanitization()
 int main()
 {
     if (!testSilentReset()) return 1;
+    if (!testAudioThreadStackReset()) return 1;
     if (!testDefaultEcology()) return 1;
     if (!testDistortionFamilies()) return 1;
     if (!testFactoryPresetsAndRandomization()) return 1;
     if (!testSignedMatrixChangesState()) return 1;
     if (!testHybridControlEcology()) return 1;
+    if (!testMovementBehaviors()) return 1;
     if (!testPanic()) return 1;
     if (!testSanitization()) return 1;
     std::cout << "No Input Mixer smoke passed\n";

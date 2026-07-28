@@ -28,6 +28,15 @@
 
         <p><code>s3g Ambi Transform Order Band 64</code> is a fixed 64-in/64-out <code>ACN/SN3D</code> utility for trimming ambisonic orders and applying common order-weighting curves. It is useful before a decoder, before a stereo/head monitor, or between ambisonic effects.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-order-band-tool.png" aria-label="Open Ambi Transform Order Band interface screenshot">
+              <img src="assets/plugin-guis/ambisonic-order-band-tool.png" alt="Ambi Transform Order Band interface showing the per-order weight map, band controls, and ambisonic output trim" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Transform Order Band with per-order weight map, band controls, and ambisonic output trim.</figcaption>
+        </figure>
+
         <h2 id="model">Model</h2>
 
         <p>Ambisonic channels are grouped by order. Order 0 is the omnidirectional component. Higher orders carry progressively finer directional detail. This plugin scales whole order bands rather than individual channels, so the spatial format stays coherent.</p>
@@ -69,7 +78,7 @@
           </a>
           <a class="page-nav-link next" href="ambisonic-energy-visualizer.html">
             <span>Next</span>
-            Ambi Energy Visualizer
+            Analyzer Ambi Energy
           </a>
         </nav>
       </main>
@@ -88,7 +97,7 @@
         <div class="toc-section">
           <h2>Utility Pages</h2>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>
           <a href="s3gimprint-format.html">.s3gimprint Format</a>
           <a href="s3gray-format.html">.s3gray Format</a>
         </div>
@@ -101,5 +110,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

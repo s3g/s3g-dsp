@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Point Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Point Encoder documentation for s3g-dsp.">
+    <title>Ambi Encoder Point - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Point documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,7 +24,7 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Point Encoder</h1>
+        <h1>Ambi Encoder Point</h1>
 
         <p><code>s3g Ambi Encoder Point</code> is a variable 1-to-64-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state. New instances begin with 16 active points for compatibility.</p>
 
@@ -43,12 +43,12 @@
         <h2 id="field">Field View</h2>
 
         <figure>
-          <div class="media-frame">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="ambi_point_encoder_gui.png" aria-label="Open Ambi Point Encoder GUI screenshot">
-              <img src="ambi_point_encoder_gui.png" alt="Screenshot of the s3g Ambi Encoder Point plugin GUI">
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-point-encoder.png" aria-label="Open Ambi Encoder Point FIELD view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-point-encoder.png" alt="Ambi Encoder Point FIELD view showing point IDs, nearest-neighbor lines, and physics controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Point Encoder FIELD view with point IDs, nearest-neighbor lines, and physics controls.</figcaption>
+          <figcaption>Ambi Encoder Point FIELD view with point IDs, nearest-neighbor lines, and physics controls.</figcaption>
         </figure>
 
         <p>The FIELD page is the main spatial display. It draws active points, point IDs, a nearest-neighbor analysis graph, and the selected point readout.</p>
@@ -74,6 +74,15 @@
         </ul>
 
         <p>The right-side POINT panel edits the selected point. <code>POINTS</code> sets the active range from 1 to 64 without discarding the position, gain, mute, or solo state of temporarily inactive points. The MIXER page provides gain, mute, and solo controls in four 16-point banks.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-point-encoder.mixer.png" aria-label="Open Ambi Encoder Point MIXER view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-point-encoder.mixer.png" alt="Ambi Encoder Point MIXER view showing sixteen point-gain strips with mute, solo, output, and point controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Point MIXER view with the first bank of sixteen point-gain strips, mute and solo states, and shared output control.</figcaption>
+        </figure>
 
         <h2 id="scenes">Scenes and Automation</h2>
 
@@ -127,7 +136,7 @@
 
         <h3 id="spatial-score">Spatial Score Automation</h3>
 
-        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Encoder Point</code>, set <code>MOTION</code> to <code>OFF</code> / <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Point Encoder parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
+        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Encoder Point</code>, set <code>MOTION</code> to <code>OFF</code> / <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Encoder Point parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
 
         <h2 id="physics">Motion and Physics Controls</h2>
 
@@ -181,7 +190,7 @@
           </a>
           <a class="page-nav-link next" href="ambi-cloud-encoder.html">
             <span>Next</span>
-            Ambi Cloud Encoder
+            Ambi Encoder Cloud
           </a>
         </nav>
       </main>
@@ -199,20 +208,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -228,42 +237,6 @@
       </aside>
     </div>
 
-    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
-      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
-      <img data-page-lightbox-image src="" alt="">
-    </div>
-    <script>
-    (() => {
-      const triggers = Array.from(document.querySelectorAll("[data-lightbox-image]"));
-      const lightbox = document.querySelector("[data-page-lightbox]");
-      if (!triggers.length || !lightbox) return;
-      const image = document.querySelector("[data-page-lightbox-image]");
-      const close = document.querySelector("[data-page-lightbox-close]");
-
-      function show(trigger) {
-        const img = trigger.querySelector("img");
-        image.src = trigger.dataset.lightboxImage;
-        image.alt = img ? img.alt : "";
-        lightbox.setAttribute("aria-hidden", "false");
-        document.body.classList.add("media-lightbox-open");
-      }
-
-      function hide() {
-        lightbox.setAttribute("aria-hidden", "true");
-        document.body.classList.remove("media-lightbox-open");
-        image.src = "";
-      }
-
-      triggers.forEach(trigger => trigger.addEventListener("click", () => show(trigger)));
-      close.addEventListener("click", hide);
-      lightbox.addEventListener("click", event => {
-        if (event.target === lightbox) hide();
-      });
-      document.addEventListener("keydown", event => {
-        if (lightbox.getAttribute("aria-hidden") === "true") return;
-        if (event.key === "Escape") hide();
-      });
-    })();
-    </script>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -46,6 +46,35 @@
 
         <p>The macOS <code>POP</code> panel is another view of the same surface, not a copy. Cell edits, play/edit mode, cursor movement, host automation, and interpolated toolbox feedback remain synchronized with the main editor. The panel follows the plugin window and is automatically hidden or destroyed with the CLAP GUI.</p>
 
+        <p>The Stochastic and Wrangler examples below show detached, synchronized <code>SURF</code> panels with six populated cells. The Water example shows the same shared <code>SURF</code> page inside the full encoder, where the surface remains visible alongside the instrument context.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-stochastic-encoder.surf-pop.png" aria-label="Open the populated Ambi Encoder Stochastic SURF panel screenshot">
+              <img src="assets/plugin-guis/ambi-stochastic-encoder.surf-pop.png" alt="Detached Ambi Encoder Stochastic SURF panel with six populated cells, colored Voronoi regions, and the performance cursor" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Stochastic with a populated six-cell <code>SURF</code> view in its detached, synchronized panel.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.surf-pop.png" aria-label="Open the populated Ambi Encoder Wrangler SURF panel screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.surf-pop.png" alt="Detached Ambi Encoder Wrangler SURF panel with six populated cells, colored Voronoi regions, and the performance cursor" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Wrangler with a populated six-cell <code>SURF</code> view in its detached, synchronized panel.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-water-encoder.surf.png" aria-label="Open the populated Ambi Encoder Water SURF page screenshot">
+              <img src="assets/plugin-guis/ambi-water-encoder.surf.png" alt="Full Ambi Encoder Water interface showing the shared SURF page populated with six cells and the surrounding encoder controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Water showing the shared populated six-cell <code>SURF</code> page inside the full encoder.</figcaption>
+        </figure>
+
         <h2 id="interpolation">Interpolation Rules</h2>
 
         <p>Every active cell contributes according to its distance from the cursor. <code>CURVE</code> reshapes those normalized contributions: <code>SOFT</code> keeps more neighboring cells present, <code>LINEAR</code> preserves the direct distance weights, <code>SMOOTH</code> eases toward the dominant cell, and <code>TIGHT</code> makes the strongest cell take over more decisively. <code>FOCUS</code> changes the distance exponent: lower values create broad mixtures; higher values concentrate the result around nearby cells. Landing exactly on a cell recalls its continuous values exactly.</p>
@@ -111,9 +140,9 @@
         </div>
         <div class="toc-section">
           <h2>Surface Instruments</h2>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
-          <a href="ambi-insect-encoder.html">Insect Encoder</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
+          <a href="ambi-insect-encoder.html">Encoder Insect</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -124,5 +153,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Cryosphere Encoder - s3g-dsp</title>
+    <title>Ambi Encoder Cryosphere - s3g-dsp</title>
     <meta name="description" content="A geological ambisonic instrument for frost stress, ice fracture, stick-slip, calving, impacts, cavitation, and granular snow in s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -19,8 +19,17 @@
     </header>
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Cryosphere Encoder</h1>
+        <h1>Ambi Encoder Cryosphere</h1>
         <p><code>s3g Ambi Encoder Cryosphere</code> is the frozen counterpart to Pyrosphere: a zero-input geological instrument in which frost and moving ice act on bedrock, substrate, snowpack, and water. Ice growth, strain, fracture, basal slip, calving, impact, cavitation, and granular transport are distributed across as many as 64 moving <code>ACN/SN3D</code> field voices.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-cryosphere-encoder.png" aria-label="Open Ambi Encoder Cryosphere GUI screenshot">
+              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere GUI showing frozen-process engines, entity score, spatial field, presets, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Cryosphere with frozen-process engines, entity score, spatial field, presets, and output controls.</figcaption>
+        </figure>
 
         <h2 id="design">Cryogeology design</h2>
         <p>The source model is aperiodic. Each field voice accumulates frost and ice-growth stress, releases branching fracture cascades, and loads an independent basal stick-slip process. Surface ice additionally behaves as a three-generation plate: broad slab flex, secondary fault lines, and fine radial cracks accumulate pressure independently. Irregular weight steps open bright cracks, which can cascade into a through-rupture, local plate collapse, and a separate low impact. Granular snow and ice transport scrape across the selected substrate. Calving events detach mass first, then schedule a physically separate water impact and cavitation tail. A diffuse filtered body response preserves scale without the persistent inharmonic oscillator bank used by the earlier prototype.</p>
@@ -44,11 +53,11 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-pyrosphere-encoder.html">
             <span>Previous</span>
-            Ambi Pyrosphere Encoder
+            Ambi Encoder Pyrosphere
           </a>
           <a class="page-nav-link next" href="ambi-insect-encoder.html">
             <span>Next</span>
-            Ambi Insect Encoder
+            Ambi Encoder Insect
           </a>
         </nav>
       </main>
@@ -73,5 +82,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

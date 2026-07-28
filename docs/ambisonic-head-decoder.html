@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Head Decoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Head Decoder documentation for s3g-dsp.">
+    <title>Ambi Decoder Head - s3g-dsp</title>
+    <meta name="description" content="Ambi Decoder Head documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,9 +24,18 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Head Decoder</h1>
+        <h1>Ambi Decoder Head</h1>
 
-        <p><code>s3g Ambi Head Decoder</code> decodes <code>ACN/SN3D</code> ambisonic input to stereo using a synthetic head model. It can run as a headphone-style binaural monitor or add a transaural crosstalk-cancellation stage for stereo loudspeakers.</p>
+        <p><code>s3g Ambi Decoder Head</code> decodes <code>ACN/SN3D</code> ambisonic input to stereo using a synthetic head model. It can run as a headphone-style binaural monitor or add a transaural crosstalk-cancellation stage for stereo loudspeakers.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-head-decoder.png" aria-label="Open Ambi Decoder Head interface screenshot">
+              <img src="assets/plugin-guis/ambisonic-head-decoder.png" alt="Ambi Decoder Head interface showing listener orientation, head profile, room model, decode mode, and binaural output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Decoder Head with listener orientation, head profile, room model, decode mode, and binaural output controls.</figcaption>
+        </figure>
 
         <h2 id="model">Model</h2>
 
@@ -72,12 +81,12 @@
 
         <p>This plugin exposes a true stereo output bus. On wide REAPER tracks, higher track channels may still pass around a true stereo CLAP plugin unless the host pin connector clears them. If a following meter shows channels above 2, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
 
-        <p>Use <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> for loudspeaker-style stereo pickup models. Use this Head Decoder when the monitoring target is headphones or a transaural loudspeaker setup.</p>
+        <p>Use <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a> for loudspeaker-style stereo pickup models. Use this Decoder Head when the monitoring target is headphones or a transaural loudspeaker setup.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-stereo-decoder.html">
             <span>Previous</span>
-            Ambi Stereo Decoder
+            Ambi Decoder Stereo
           </a>
           <a class="page-nav-link next" href="ambisonic-effects.html">
             <span>Next</span>
@@ -99,9 +108,9 @@
         </div>
         <div class="toc-section">
           <h2>Decoder Pages</h2>
-          <a href="ambi-speaker-decoder.html">Speaker Decoder Family</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambi-speaker-decoder.html">Decoder Speaker Family</a>
+          <a href="ambisonic-stereo-decoder.html">Decoder Stereo</a>
+          <a href="ambisonic-head-decoder.html">Decoder Head</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -113,5 +122,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

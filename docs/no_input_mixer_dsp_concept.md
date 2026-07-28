@@ -85,6 +85,7 @@ MATRIX SUM
   -> INSERT 1
   -> INSERT 2
   -> INSERT 3
+  -> ARTICULATION CHOKE
   -> AUX A/B SENDS
   -> INTERNAL TONE
   -> DC BLOCK
@@ -143,6 +144,26 @@ normalizer measures `g_base`, excluding `movement_db`; otherwise it would
 counteract attenuation and perceptually mask the route transfer. At the
 default 38% depth, a 10% weight sits about 11 dB below the focused route.
 
+Spatial allocation and articulation are separate. The compact editor switches
+between a `FIELD` bank for the controls above and a `CUT` bank containing
+`BEHAV`, `EVENT`, `LENGTH`, `DENSITY`, `CHAOS`, `SLEW`, and `CHOKE`:
+
+- `GLIDE` is the original continuously interpolated field.
+- `STEP` samples and holds generated field weights at the event clock.
+- `CUT` chooses binary open/closed route sets, then inserts a timed gap.
+- `BURST` biases those sets toward irregular destination clusters and ratchets.
+- `SCRAMBLE` rapidly chooses a new subset for every source while guaranteeing
+  that an empty matrix cell stays empty.
+
+The event clock spans 0.25–80 Hz. Event length spans 0.5–250 ms and slew spans
+0.1–20 ms. Route gates are click-safe, deterministic from the patch seed, and
+published back to the grid renderer from the running DSP. In the three binary
+modes, the route gate multiplies the perceptual movement law so full-depth
+closed routes reach zero. `CHOKE` then optionally applies the destination's
+live articulation gate after its EQ and three nonlinear inserts but before the
+governed return and audition branch. This second stage makes dropouts remain
+audible when saturated parallel feedback would otherwise refill the gap.
+
 This preserves a crucial distinction: patching describes the electronic
 instrument; movement describes how energy travels inside that instrument.
 The wiring renderer shows the signal itself rather than a proxy for movement.
@@ -173,7 +194,7 @@ formant = highpass(body, f_low) * lowpass(body, f_high)
 The product path is normalized and DC-blocked before re-entering the lane. Its
 center and bandwidth drift slightly under the slow recurrent cells.
 
-## Nonlinear insert library
+## Processor insert library
 
 Every lane has three serial slots. Each slot uses the same stable parameter
 IDs and exposes contextual labels in the GUI.
@@ -188,14 +209,33 @@ IDs and exposes contextual labels in the GUI.
 | `FUZZ II` | Gated comparator-like fuzz with hysteresis | `GAIN`, `GATE`, `BIAS`, `LEVEL` |
 | `DIODE` | Selectable symmetric/asymmetric diode curve | `GAIN`, `SHAPE`, `BIAS`, `LEVEL` |
 | `RING` | Bipolar multiplication by another lane or slow network cell | `SOURCE`, `DEPTH`, `BIAS`, `LEVEL` |
+| `RELAY` | Hysteretic threshold switching, release, and contact-like chatter | `THRESH`, `CHATTER`, `ASYM`, `LEVEL` |
+| `CRUSH` | Sample-rate reduction and variable-bit quantization | `BITS`, `RATE`, `DITHER`, `LEVEL` |
+| `SPLICE` | Retriggered short-buffer repeat/reverse slices | `MIX`, `LENGTH`, `DIRECTION`, `LEVEL` |
+| `LOGIC` | Comparator/XOR interaction with another lane | `DEPTH`, `THRESH`, `BALANCE`, `LEVEL` |
+| `SHRED` | Multiband saturation, wave folding, and hard clipping | `DRIVE`, `TILT`, `ASYM`, `LEVEL` |
+| `VOID` | Envelope-threshold dropouts with unstable reopening | `DEPTH`, `RECOVER`, `SKEW`, `LEVEL` |
+| `ROTOR` | Internal LFO amplitude modulation with skewable pulse shape | `DEPTH`, `RATE`, `SHAPE`, `LEVEL` |
+| `PHASE` | Four swept all-pass stages mixed with the dry lane | `DEPTH`, `RATE`, `CENTER`, `LEVEL` |
+| `CHORUS` | Fractional modulated delay using the slot's fixed realtime buffer | `MIX`, `RATE`, `REGEN`, `LEVEL` |
+| `THROAT` | Dual moving formant bands for vowel and apparent-size transformation | `MIX`, `VOWEL`, `SHIFT`, `LEVEL` |
+| `ROBOT` | Internal sine-to-square carrier multiplication | `DEPTH`, `CARRIER`, `CHARACTER`, `LEVEL` |
+| `OCT DOWN` | Zero-crossing divider shaped by the source envelope | `MIX`, `FILTER`, `TRACK`, `LEVEL` |
+| `OCT UP` | DC-compensated full-wave octave generation | `MIX`, `TONE`, `SHAPE`, `LEVEL` |
+| `OCT STACK` | Continuously balanced upper and lower octave paths | `MIX`, `TONE`, `BALANCE`, `LEVEL` |
+
+The eight newer types occupy appended enum values 15–22. The original
+`BYPASS` through `VOID` values remain 0–14, preserving existing session and
+preset type mappings.
 
 `WOOL`, `RAT`, and `ZONE` describe circuit-inspired transfer families, not
 component-perfect branded pedal emulations. Release names can be changed
 without changing the underlying algorithms.
 
-Nonlinear cells run at 2x by default. A quality menu may select 1x, 2x, or 4x;
-oversampling applies to the active nonlinear stages, not to meters or slow
-control state.
+Processors run at 2x by default. A quality menu may select 1x, 2x, or 4x;
+oversampling applies to active audio-rate stages, not to meters or slow control
+state. CHORUS reuses the fixed per-slot SPLICE buffer, so the expanded library
+does not add dynamic allocation or another large reset-time aggregate.
 
 ## Network controls
 
@@ -225,6 +265,12 @@ can use any type from the lane insert library. `GAIN`, `TONE`, `RETURN`, and
 `LOOP` remain separate: processor drive does not stand in for return level,
 and return level does not silently change the internal bus feedback.
 
+Each return also owns an automatable global `MUTE ALL`. A four-millisecond
+audio-rate slew gates the processed bus before it is stored as the next aux
+return, so muting removes it from all eight destinations, its own feedback, and
+cross-aux ring modulation without rewriting any lane send. Unmuting restores
+the preserved send mix without a discontinuity.
+
 The aux output is returned to the lane excitation stage with a fixed stable
 distribution: A reinforces all destinations while B alternates polarity. This
 gives the buses different circuit roles without adding another hidden matrix.
@@ -253,8 +299,11 @@ and native 1356-by-820 coordinate system as its nested form; there is no second
 set of mixer controls and no DSP state lives in a window. The `MIXER` renderer
 and hit geometry are shared exactly between both forms. Body, loss, signed
 local loop, three EQ gains, two aux sends, aux parameters, master tone, and
-fader use continuous click-and-drag control; insert rows and mute buttons
-remain discrete. Closing or hiding the host editor hides its attached pages.
+fader use continuous click-and-drag control. Clicking any of the twenty-four
+lane processor names selects that slot and opens an explicit twenty-three-item type
+menu; each aux processor name opens the same menu for its bus. Processor names
+never hide click-to-cycle behavior. Mute buttons remain discrete. Closing or
+hiding the host editor hides its attached pages.
 When a plugin view is first responder, unmodified Left/Right moves to the
 adjacent logical page; if that page is detached, its attached window comes to
 the front. The shortcut is handled only while the plugin GUI owns focus.
@@ -286,6 +335,11 @@ signal colors.
 - Matrix, lane, insert, and performance controls are exposed as automatable
   CLAP parameters; discrete insert types change with a short clickless
   crossfade.
+- Every lane-slot and aux processor row separates its explicit type menu from
+  an `EDIT` action. One compact floating Effect Editor retargets to the chosen
+  processor and gives the stable gain/tone/bias parameters algorithm-specific
+  names: SPLICE, for example, exposes `MIX`, `LENGTH`, and `DIRECTION`. Lane
+  targets add `LEVEL` and `BYPASS`; aux targets add `RETURN` and `LOOP`.
 - The native editor and each synchronized detachable page are 1356 by 820
   pixels. Detaching a page does not create another audio engine or parameter
   surface.
@@ -295,10 +349,18 @@ signal colors.
   and bounded full-network randomization
   resolve into the same stored parameter surface; reseeding remains an
   independent action.
-- The CLAP surface contains 320 parameters. Version-one state is migrated by
+- The CLAP surface contains 331 parameters, including automatable bias for both
+  aux processors. Version-one state is migrated by
   retaining its globals, matrix, lane, EQ, and insert values, then filling new
-  movement and aux fields from conservative defaults.
+  movement and aux fields from conservative defaults. Version-two state is
+  retained directly; both older formats initialize the aux mutes off and the
+  articulation layer to `GLIDE`. Version-three preserves its aux mutes and also
+  initializes articulation to `GLIDE`; version four stores all seven new
+  articulation parameters.
 - Processing is allocation-free after `prepare()`.
+- Fixed SPLICE/CHORUS time buffers live inside the heap-allocated plugin
+  engine. Audio-thread `reset` and lane `KILL` clear them in place, without
+  aggregate temporaries or stack growth proportional to the buffer library.
 
 ## Acceptance targets
 
@@ -317,16 +379,53 @@ signal colors.
   seed packet, and `NEW` injects a fresh deterministic packet; the resulting
   state settles into bounded audio without immediate limiter lockup.
 
-## Historical reference
+## Practice research and design consequences
 
 Toshimaru Nakamura's no-input mixing-board practice is an explicit historical
 reference for treating an ordinary mixer with no external audio input as an
 electronic instrument, and for approaching its unpredictability, indeterminacy,
 and surprise as material rather than error. His [artist biography](https://www.toshimarunakamura.com/bio)
 describes that practice directly. Mudd and Brown's 2023 NIME paper,
-[“Musical Pathways through the No-Input Mixer”](https://nime.org/proc/nime2023_56/),
-places Nakamura's naming and practice within a wider history of mixer-feedback
-work. The present design also draws on effect-pedal feedback, instrument agency,
-quiet-space practice, configurable gain and phase networks, formant processes,
-and the excitation of resonant objects. It remains a new software instrument,
-not a reconstruction or artist emulation.
+[“Musical Pathways through the No-Input Mixer”](https://www.nime.org/proceedings/2023/nime2023_56.pdf),
+draws on artist interviews and archives to place that naming and practice within
+a wider history of mixer feedback. It also documents work ranging from quiet,
+reductionist improvisation and long-form drone to rhythm, sound design, and
+severe noise. The design should therefore keep slow listening and unstable
+cut-up behavior as equally complete operating regimes, rather than treating one
+as a special effect added to the other.
+
+Mudd's CHI study,
+[“Playing with Feedback”](https://doi.org/10.1145/3544548.3580662),
+identifies unpredictability, gestural immediacy, sensitivity, tactility, and
+agency distributed across performer and system as central interaction qualities.
+For this instrument, those findings imply:
+
+- routing and continuous gain gestures stay direct and reversible, while the
+  feedback result is not made falsely deterministic;
+- WIRE and MATRIX visualization reports measured signal activity and automated
+  gain changes instead of displaying decorative or predictive motion;
+- FIELD and CUT preserve distinct time scales: sustained drift can coexist with
+  discontinuous gates, bursts, splices, and relationship changes;
+- presets provide useful launch points without claiming to reproduce a past
+  performance or a named artist's sound; and
+- meters, the output governor, aux mutes, lane kills, and `PANIC` remain part of
+  the instrument design because small feedback changes can produce sudden level
+  changes.
+
+Mantione's practical [no-input patching guide](https://waveinformer.com/2024/02/17/no-input-mixing/)
+supports treating filters, distortion, delay, VCAs, clocks, and decay stages as
+parts of the feedback topology rather than a conventional linear effects rack.
+It suggests several compatible future directions: lane envelopes as internal
+matrix-gain control sources, clock-divided gates with variable decay, and short
+rolling capture of unrepeatable incidents. These should extend the existing
+CV-like movement and effect-placement model without replacing manual routing.
+Blackwell's [critical listening guide](https://daily.bandcamp.com/lists/toshimaru-nakamura-discography-list)
+is useful for checking that the result retains musical range across restrained,
+spatial, collaborative, and high-density material; it is not used as a DSP
+specification.
+
+The present design also draws on effect-pedal feedback, configurable gain and
+phase networks, formant processes, and the excitation of resonant objects. It
+remains a new software instrument, not a reconstruction or artist emulation;
+artist names belong in historical documentation, not processor names, presets,
+or the interface.

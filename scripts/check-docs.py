@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -10,6 +11,11 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
+SCREENSHOT_MANIFEST = ROOT / "scripts" / "doc-screenshot-manifest.tsv"
+PLUGIN_GUI_ASSETS = DOCS / "assets" / "plugin-guis"
+PLUGIN_GUI_MASTERS = PLUGIN_GUI_ASSETS / "masters"
+LIGHTBOX_SCRIPT = DOCS / "lightbox.js"
+MANIFEST_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 EXPECTED_TOP_NAV = [
     "index.html",
     "building-from-source.html",
@@ -146,6 +152,9 @@ class Document(HTMLParser):
         self.top_nav_links: list[str] = []
         self.page_nav_depth = 0
         self.page_nav_links: list[tuple[str, str]] = []
+        self.images: list[dict[str, str]] = []
+        self.lightbox_triggers: list[dict[str, str]] = []
+        self.script_sources: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = {name: value or "" for name, value in attrs}
@@ -204,6 +213,12 @@ class Document(HTMLParser):
                 self.bibliography_links.append(values["href"])
         if tag in {"img", "script"} and values.get("src"):
             self.references.append((tag, values["src"]))
+        if tag == "img" and values.get("src"):
+            self.images.append(values)
+        if tag == "button" and "data-lightbox-image" in values:
+            self.lightbox_triggers.append(values)
+        if tag == "script" and values.get("src"):
+            self.script_sources.append(values["src"])
         if tag == "img" and "alt" not in values:
             self.errors.append("image is missing alt text")
         if tag == "a" and values.get("target") == "_blank":
@@ -300,6 +315,66 @@ def parse_document(path: Path) -> Document:
     return document
 
 
+def parse_screenshot_manifest(path: Path) -> tuple[dict[str, str], list[str]]:
+    entries: dict[str, str] = {}
+    errors: list[str] = []
+    id_lines: dict[str, int] = {}
+    stem_lines: dict[str, int] = {}
+    label = path.relative_to(ROOT)
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        return {}, [f"{label}: cannot read screenshot manifest: {error}"]
+
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        fields = raw_line.split("\t")
+        if len(fields) != 2 or any(field != field.strip() for field in fields):
+            errors.append(f"{label}:{line_number}: expected exactly two tab-separated fields")
+            continue
+
+        plugin_id, stem = fields
+        malformed_fields: list[str] = []
+        if not MANIFEST_TOKEN_PATTERN.fullmatch(plugin_id):
+            malformed_fields.append("plugin ID")
+        if not MANIFEST_TOKEN_PATTERN.fullmatch(stem):
+            malformed_fields.append("asset stem")
+        if malformed_fields:
+            errors.append(f"{label}:{line_number}: malformed {' and '.join(malformed_fields)}")
+            continue
+
+        duplicate = False
+        stem_key = stem.casefold()
+        if plugin_id in id_lines:
+            errors.append(
+                f"{label}:{line_number}: duplicate plugin ID {plugin_id!r} "
+                f"(first seen on line {id_lines[plugin_id]})"
+            )
+            duplicate = True
+        else:
+            id_lines[plugin_id] = line_number
+        if stem_key in stem_lines:
+            errors.append(
+                f"{label}:{line_number}: duplicate asset stem {stem!r} "
+                f"(first seen on line {stem_lines[stem_key]})"
+            )
+            duplicate = True
+        else:
+            stem_lines[stem_key] = line_number
+        if duplicate:
+            continue
+
+        entries[plugin_id] = stem
+
+    if not entries:
+        errors.append(f"{label}: screenshot manifest contains no valid entries")
+    return entries, errors
+
+
 def local_target(source: Path, reference: str) -> tuple[Path, str] | None:
     parts = urlsplit(reference)
     if parts.scheme or parts.netloc or reference.startswith("//"):
@@ -311,10 +386,54 @@ def local_target(source: Path, reference: str) -> tuple[Path, str] | None:
     return target.resolve(), unquote(parts.fragment)
 
 
+def plugin_gui_target(source: Path, reference: str) -> Path | None:
+    target_info = local_target(source, reference)
+    if target_info is None:
+        return None
+    target, _ = target_info
+    if target.parent != PLUGIN_GUI_ASSETS.resolve() or target.suffix.lower() != ".png":
+        return None
+    return target
+
+
+def belongs_to_manifest_base(stem: str, manifest_stems: set[str]) -> bool:
+    return stem in manifest_stems or any(
+        stem.startswith(f"{base}.") and len(stem) > len(base) + 1
+        for base in manifest_stems
+    )
+
+
+def format_reference_counts(counts: Counter[Path]) -> str:
+    if not counts:
+        return "none"
+    return ", ".join(
+        f"{path.relative_to(DOCS)} ({count})"
+        for path, count in sorted(counts.items(), key=lambda item: str(item[0]))
+    )
+
+
 def main() -> int:
     pages = {path.resolve(): parse_document(path) for path in sorted(DOCS.glob("*.html"))}
     errors: list[str] = []
     local_reference_count = 0
+    manifest, manifest_errors = parse_screenshot_manifest(SCREENSHOT_MANIFEST)
+    errors.extend(manifest_errors)
+    manifest_stems = set(manifest.values())
+    referenced_plugin_gui_images: set[Path] = set()
+
+    for stem in sorted(manifest_stems):
+        base_png = PLUGIN_GUI_ASSETS / f"{stem}.png"
+        master_pdf = PLUGIN_GUI_MASTERS / f"{stem}.pdf"
+        if not base_png.is_file():
+            errors.append(
+                f"{SCREENSHOT_MANIFEST.relative_to(ROOT)}: missing base PNG "
+                f"{base_png.relative_to(ROOT)}"
+            )
+        if not master_pdf.is_file():
+            errors.append(
+                f"{SCREENSHOT_MANIFEST.relative_to(ROOT)}: missing PDF master "
+                f"{master_pdf.relative_to(ROOT)}"
+            )
 
     page_names = {path.name for path in pages}
     sequenced_pages = set(DOC_SEQUENCE)
@@ -343,6 +462,69 @@ def main() -> int:
     for path, document in list(pages.items()):
         relative = path.relative_to(ROOT)
         errors.extend(f"{relative}: {message}" for message in document.errors)
+        page_images: list[Path] = []
+        page_triggers: list[Path] = []
+
+        for image in document.images:
+            source = image["src"]
+            target = plugin_gui_target(path, source)
+            if target is None:
+                continue
+            page_images.append(target)
+            referenced_plugin_gui_images.add(target)
+
+            if not image.get("alt", "").strip():
+                errors.append(f"{relative}: generated screenshot has empty alt text: {source}")
+            if image.get("loading", "").casefold() != "lazy":
+                errors.append(f'{relative}: generated screenshot is missing loading="lazy": {source}')
+            if image.get("decoding", "").casefold() != "async":
+                errors.append(f'{relative}: generated screenshot is missing decoding="async": {source}')
+
+            stem = target.stem
+            if not belongs_to_manifest_base(stem, manifest_stems):
+                errors.append(
+                    f"{relative}: generated screenshot stem {stem!r} does not belong "
+                    "to a screenshot manifest base"
+                )
+            master_pdf = PLUGIN_GUI_MASTERS / f"{stem}.pdf"
+            if not master_pdf.is_file():
+                errors.append(
+                    f"{relative}: generated screenshot has no matching PDF master: "
+                    f"{master_pdf.relative_to(ROOT)}"
+                )
+
+        for trigger in document.lightbox_triggers:
+            source = trigger.get("data-lightbox-image", "")
+            target = plugin_gui_target(path, source)
+            if target is None:
+                continue
+            page_triggers.append(target)
+            if trigger.get("type", "").casefold() != "button":
+                errors.append(f'{relative}: screenshot trigger must have type="button": {source}')
+            if not trigger.get("aria-label", "").strip():
+                errors.append(f"{relative}: screenshot trigger has empty aria-label: {source}")
+
+        if page_images or page_triggers:
+            image_counts = Counter(page_images)
+            trigger_counts = Counter(page_triggers)
+            if image_counts != trigger_counts:
+                errors.append(
+                    f"{relative}: generated screenshot/lightbox paths do not match "
+                    f"(img: {format_reference_counts(image_counts)}; "
+                    f"button: {format_reference_counts(trigger_counts)})"
+                )
+
+            lightbox_script_count = 0
+            for source in document.script_sources:
+                target_info = local_target(path, source)
+                if target_info is not None and target_info[0] == LIGHTBOX_SCRIPT.resolve():
+                    lightbox_script_count += 1
+            if lightbox_script_count != 1:
+                errors.append(
+                    f"{relative}: page with generated screenshots must include lightbox.js "
+                    f"exactly once (found {lightbox_script_count})"
+                )
+
         for _, reference in document.references:
             target_info = local_target(path, reference)
             if target_info is None:
@@ -359,6 +541,14 @@ def main() -> int:
                     pages[target] = target_document
                 if fragment not in target_document.ids:
                     errors.append(f"{relative}: missing fragment #{fragment} in {target.relative_to(ROOT)}")
+
+    for stem in sorted(manifest_stems):
+        base_png = (PLUGIN_GUI_ASSETS / f"{stem}.png").resolve()
+        if base_png not in referenced_plugin_gui_images:
+            errors.append(
+                f"{SCREENSHOT_MANIFEST.relative_to(ROOT)}: base PNG is not referenced "
+                f"by any docs HTML image: {base_png.relative_to(ROOT)}"
+            )
 
     if errors:
         print("Documentation check failed:")

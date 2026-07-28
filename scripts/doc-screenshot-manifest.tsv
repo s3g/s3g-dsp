@@ -1,0 +1,73 @@
+# Canonical CLAP ID suffix	Documentation asset stem
+# One representative GUI per detail page; CRCLTR has no custom editor.
+delay-processor-8ch	delay-processor
+wave-geometry-processor	wave-geometry-processor
+spectral-topology-processor	spectral-topology-processor
+macro-shred-8ch	macro-shred
+mc-to-stereo-autogain	mc-to-stereo-autogain
+mc-to-quad-autogain	mc-to-quad-autogain
+multichannel-meter-64	multichannel-meter
+layout-panner	layout-panner
+
+# Ambisonic encoder detail pages.
+accelerometer-field-encoder-16	accelerometer-field-encoder
+ambi-point-encoder-64	ambi-point-encoder
+ambi-cloud-encoder-64	ambi-cloud-encoder
+ambi-terrain-navigator-64	ambi-terrain-navigator
+ambi-path-encoder-64	ambi-path-encoder
+ambi-ray-encoder	ambi-ray-encoder
+ambi-ray-bilocation-encoder	ambi-ray-bilocation-encoder
+ambi-vot-encoder-64	ambi-vot-encoder
+ambi-vox-encoder-64	ambi-vox-encoder
+ambi-wave-terrain-encoder-64	ambi-wave-terrain-encoder
+ambi-wind-encoder-64	ambi-wind-encoder
+ambi-water-encoder-64	ambi-water-encoder
+ambi-pyrosphere-encoder-64	ambi-pyrosphere-encoder
+ambi-cryosphere-encoder-64	ambi-cryosphere-encoder
+ambi-insect-encoder-64	ambi-insect-encoder
+ambi-pulsar-encoder-64	ambi-pulsar-encoder
+ambi-neural-ecology-64	ambi-neural-ecology
+ambi-stochastic-encoder-64	ambi-stochastic-encoder
+ambi-wrangler-encoder-64	ambi-wrangler-encoder
+
+# Decoder, effect, processor, and utility detail pages.
+ambi-speaker-decoder-64	ambi-speaker-decoder
+ambisonic-stereo-decoder	ambisonic-stereo-decoder
+ambisonic-head-decoder	ambisonic-head-decoder
+ambi-effect-dj-filter-64	ambi-effect-dj-filter
+ambi-effect-delay-64	ambi-effect-delay
+ambi-effect-pitch-64	ambi-effect-pitch
+ambi-effect-gain-64	ambi-effect-gain
+ambi-effect-resonance-print-64	ambi-effect-resonance-print
+ambi-effect-partial-trace-64	ambi-effect-partial-trace
+ambi-effect-response-trace-64	ambi-effect-response-trace
+ambi-effect-displacement-64	ambi-effect-displacement
+ambi-imprint-64	ambi-imprint
+ambisonic-rotate-64	ambisonic-rotate
+ambi-grain-processor	ambi-grain-processor
+ambisonic-order-band-tool-64	ambisonic-order-band-tool
+ambisonic-energy-visualizer-64	ambisonic-energy-visualizer
+no-input-mixer-8ch	no-input-mixer
+fault	fault
+loop-processor-8ch	loop-processor
+multi-loop-processor-8ch	multi-loop-processor
+
+# Products documented only on family pages.
+macro-delay-8ch	macro-delay
+macro-pitch-8ch	macro-pitch
+8ch-spectral-spray	spectral-spray
+buffer-processor	buffer-processor
+shard-scatter	shard-scatter
+orbit-delay	orbit-delay
+cascade-taps	cascade-taps
+group-matrix	group-matrix
+node-bus-mixer	node-bus-mixer
+sub-crossover	sub-crossover
+array-hpf-16	array-hpf
+array-delay-16	array-delay
+array-trim-16	array-trim
+ambi-depth-16	ambi-depth
+ambi-group-matrix	ambi-group-matrix
+ambi-node-bus-mixer	ambi-node-bus-mixer
+ambi-group-rotate-64	ambi-group-rotate
+ambi-group-depth-64	ambi-group-depth

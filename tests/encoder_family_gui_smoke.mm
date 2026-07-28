@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include <clap/clap.h>
+#include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
@@ -19,12 +20,19 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
 #include <limits>
 #include <vector>
+
+// Optional documentation-only selectors exposed by specific native views.
+@interface NSView (S3GDocumentationCapture)
+- (void)loadAtlasAtIndex:(NSUInteger)index;
+- (void)textDidChange:(NSNotification*)notification;
+@end
 
 namespace {
 
@@ -61,6 +69,78 @@ struct StochasticSavedState {
     float guiViewZoom = 1.0f;
     s3g::ParameterSurfaceState<s3g::AmbiStochasticParams> surface {};
 };
+
+// Frozen state fixtures used only by documentation capture. Loading them
+// through CLAP state exercises the same public path a host session uses while
+// keeping sample-file knowledge out of the production plug-ins.
+struct DocumentationLoopState {
+    uint32_t version = 6u;
+    double baseRate = 0.90;
+    double rateSpread = 0.55;
+    double driftAmount = 0.06;
+    double relationCenter = 0.46;
+    double relationGlideMs = 180.0;
+    double loopStart = 0.12;
+    double loopLength = 0.66;
+    double xfadePct = 0.10;
+    double seamDuck = 0.18;
+    double gainDb = -9.0;
+    uint32_t launchMode = 0u;
+    uint32_t laneMask = 0xffu;
+    uint32_t playing = 1u;
+    char samplePath[1024] {};
+};
+
+struct DocumentationMultiLoopState {
+    uint32_t version = 8u;
+    double baseRate = 0.92;
+    double rateSpread = 0.48;
+    double driftAmount = 0.045;
+    double relationCenter = 0.43;
+    double relationGlideMs = 180.0;
+    double loopStart = 0.08;
+    double loopLength = 0.76;
+    double xfadePct = 0.10;
+    double seamDuck = 0.20;
+    double gainDb = -10.0;
+    double sourceRateSpread = 0.35;
+    double sourceBlend = 0.72;
+    double midiMode = 0.0;
+    double midiRoot = 60.0;
+    uint32_t launchMode = 0u;
+    uint32_t laneMask = 0xffu;
+    uint32_t rule = 3u;
+    uint32_t playing = 1u;
+    char samplePaths[4][1024] {};
+};
+
+struct DocumentationAmbiGrainState {
+    uint32_t version = 1u;
+    double order = 3.0;
+    double mode = 1.0;
+    double density = 100.0;
+    double grainMs = 220.0;
+    double sourcePosition = 0.33;
+    double scanSpeed = 0.65;
+    double positionJitter = 0.28;
+    double rate = 0.78;
+    double rateJitter = 0.16;
+    double reverse = 0.20;
+    double freeze = 0.58;
+    double jumpSteps = 12.0;
+    double gainDb = -10.0;
+    double sync = 1.0;
+    double envelope = 2.0;
+    uint32_t playing = 1u;
+    char samplePath[1024] {};
+};
+
+static_assert(sizeof(DocumentationLoopState) == 1128u,
+              "Loop Processor documentation state fixture changed");
+static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
+              "Multi Loop Processor documentation state fixture changed");
+static_assert(sizeof(DocumentationAmbiGrainState) == 1160u,
+              "Ambi Grain documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
                            StochasticSavedState& decoded)
@@ -197,6 +277,24 @@ int64_t stateRead(const clap_istream_t* stream,
     return static_cast<int64_t>(count);
 }
 
+int64_t stateReadWhole(const clap_istream_t* stream,
+                       void* destination,
+                       uint64_t requested)
+{
+    auto* state = static_cast<MemoryPluginState*>(stream->ctx);
+    if (!state || (!destination && requested > 0u)) return -1;
+    const size_t available = state->offset < state->bytes.size()
+        ? state->bytes.size() - state->offset
+        : 0u;
+    const size_t count = std::min<size_t>(
+        available, static_cast<size_t>(requested));
+    if (count > 0u) {
+        std::memcpy(destination, state->bytes.data() + state->offset, count);
+        state->offset += count;
+    }
+    return static_cast<int64_t>(count);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -221,6 +319,11 @@ int main(int argc, char** argv)
         || responsiveWide;
     const bool dynamic = argc == 7 && std::strcmp(argv[6], "dynamic") == 0;
     const bool fixed = argc == 7 && std::strcmp(argv[6], "fixed") == 0;
+    const char* documentationCaptureValue = std::getenv(
+        "S3G_GUI_DOCUMENTATION_CAPTURE");
+    const bool documentationCapture = documentationCaptureValue
+        && documentationCaptureValue[0]
+        && std::strcmp(documentationCaptureValue, "0") != 0;
     if ((!responsive && !dynamic && !fixed)
         || nativeWidth < 320u
         || nativeHeight < ((responsive || dynamic) ? 360u : 240u)) {
@@ -503,6 +606,80 @@ int main(int argc, char** argv)
             ok = ok && foundBody;
         }
 
+        const bool documentationLoopProcessor = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.loop-processor-8ch") == 0;
+        const bool documentationMultiLoopProcessor = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.multi-loop-processor-8ch") == 0;
+        const bool documentationAmbiGrain = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-grain-processor") == 0;
+        const bool documentationSampleProcessor =
+            documentationLoopProcessor
+            || documentationMultiLoopProcessor
+            || documentationAmbiGrain;
+        if (ok && documentationSampleProcessor) {
+            failureStage = "documentation sample state";
+            const auto* pluginState =
+                static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE));
+            auto copyDocumentationPath = [](char* destination,
+                                            size_t capacity,
+                                            const char* environmentName) {
+                const char* source = std::getenv(environmentName);
+                if (!source || !source[0]) return false;
+                const int length = std::snprintf(
+                    destination, capacity, "%s", source);
+                return length > 0
+                    && static_cast<size_t>(length) < capacity;
+            };
+            auto loadDocumentationState = [&](const void* fixture,
+                                              size_t fixtureSize) {
+                if (!pluginState || !pluginState->load) return false;
+                MemoryPluginState memory;
+                const auto* first = static_cast<const uint8_t*>(fixture);
+                memory.bytes.assign(first, first + fixtureSize);
+                clap_istream_t input { &memory, stateReadWhole };
+                return pluginState->load(plugin, &input)
+                    && memory.offset == fixtureSize;
+            };
+
+            if (documentationLoopProcessor) {
+                DocumentationLoopState fixture {};
+                ok = copyDocumentationPath(
+                        fixture.samplePath, sizeof(fixture.samplePath),
+                        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH")
+                    && loadDocumentationState(&fixture, sizeof(fixture));
+            } else if (documentationMultiLoopProcessor) {
+                DocumentationMultiLoopState fixture {};
+                constexpr const char* environmentNames[] = {
+                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH",
+                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_2",
+                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_3",
+                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_4",
+                };
+                for (size_t index = 0u;
+                     ok && index < std::size(environmentNames); ++index) {
+                    ok = copyDocumentationPath(
+                        fixture.samplePaths[index],
+                        sizeof(fixture.samplePaths[index]),
+                        environmentNames[index]);
+                }
+                ok = ok && loadDocumentationState(&fixture, sizeof(fixture));
+            } else {
+                DocumentationAmbiGrainState fixture {};
+                ok = copyDocumentationPath(
+                        fixture.samplePath, sizeof(fixture.samplePath),
+                        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH")
+                    && loadDocumentationState(&fixture, sizeof(fixture));
+            }
+            if (!ok) {
+                std::cerr << "Could not load documentation sample fixture for "
+                    << pluginId << "\n";
+            }
+        }
+
         if (ok) failureStage = "GUI API";
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
@@ -545,12 +722,16 @@ int main(int argc, char** argv)
         if (ok) failureStage = "GUI create";
         ok = ok && gui->create(plugin, CLAP_WINDOW_API_COCOA, false);
 
-        const uint32_t testWidth = responsiveWide
+        const uint32_t testWidth = documentationCapture && dynamic
+            ? nativeWidth
+            : responsiveWide
             ? nativeWidth
             : ((responsive || dynamic)
                 ? std::min(720u, nativeWidth) : nativeWidth);
-        const uint32_t testHeight =
-            (responsive || dynamic) ? std::min(540u, nativeHeight) : nativeHeight;
+        const uint32_t testHeight = documentationCapture && dynamic
+            ? nativeHeight
+            : ((responsive || dynamic)
+                ? std::min(540u, nativeHeight) : nativeHeight);
         if (ok) failureStage = "GUI resize";
         if (responsive || dynamic) {
             ok = ok && gui->set_size(plugin, testWidth, testHeight)
@@ -622,6 +803,12 @@ int main(int argc, char** argv)
         const bool noInputMixer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
+        const bool analyzer = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.multichannel-meter-64") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambisonic-energy-visualizer-64") == 0;
         const bool partialTrace = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-effect-partial-trace-64") == 0;
@@ -665,6 +852,24 @@ int main(int argc, char** argv)
             "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0;
         const bool environmentalSurface =
             cryosphere || pyrosphere || water || wind || insect;
+        const bool documentationEncoder = documentationCapture
+            && std::strncmp(requestedDescriptor->name,
+                "s3g Ambi Encoder ",
+                std::strlen("s3g Ambi Encoder ")) == 0;
+        const bool documentationAmbiImprint = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-imprint-64") == 0;
+        if (ok && documentationAmbiImprint) {
+            failureStage = "documentation Ambi Imprint atlas";
+            ok = [document respondsToSelector:@selector(loadAtlasAtIndex:)];
+            if (ok) {
+                // IMPOSSIBLE NETWORK has eight profiles and a wide, detailed
+                // room graph; it makes the field legible without external media.
+                [document loadAtlasAtIndex:18u];
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+        }
         if (ok && ambiEffectTrace) {
             failureStage = "Ambi Effect Trace AED elevation direction";
             if (scroll) {
@@ -932,12 +1137,56 @@ int main(int argc, char** argv)
                 ok = clickDocument(NSMakePoint(
                     NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))));
             }
+            if (ok && documentationCapture) {
+                failureStage = "environmental documentation SURF and FIELD";
+                for (uint32_t cell = 2u; ok && cell < 6u; ++cell) {
+                    if (cell > 2u) ok = clickDocument(randomPoint);
+                    ok = ok && clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(2u)),
+                        NSMidY(surfaceButton(2u))));
+                }
+                ok = ok && clickDocument(NSMakePoint(
+                    NSMidX(surfaceButton(1u)),
+                    NSMidY(surfaceButton(1u))));
+                if (ok) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+                NSData* surfaceRender = ok
+                    ? [document dataWithPDFInsideRect:[document bounds]]
+                    : nil;
+                ok = ok && surfaceRender && [surfaceRender length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil error:nil];
+                    NSString* surfaceName = [[NSString
+                        stringWithFormat:@"%s.surf", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [surfaceRender writeToFile:
+                        [directory stringByAppendingPathComponent:surfaceName]
+                        atomically:YES];
+                }
+                const NSRect fieldTab =
+                    s3g::clap_gui::environmentalFieldPageButtonRect(
+                        fieldPanel, 0u);
+                ok = ok && clickDocument(NSMakePoint(
+                        NSMidX(fieldTab), NSMidY(fieldTab)))
+                    && [[document valueForKey:@"fieldPage"] intValue] == 0;
+            }
         }
         if (ok && parameterSurfaceEncoder) {
             failureStage = "Parameter Surface POP window";
             const bool wrangler = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0;
+            const uint32_t surfaceCellCount =
+                documentationCapture ? 6u : 2u;
             const int surfacePage = wrangler ? 3 : 2;
             const CGFloat fieldY = wrangler ? 76.0 : 72.0;
             const NSPoint surfaceTab = NSMakePoint(
@@ -951,6 +1200,17 @@ int main(int argc, char** argv)
                 34.0 + 64.0 + 24.0, fieldY + 10.0 + 9.0);
             const NSPoint editPlayButton = NSMakePoint(
                 34.0 + 10.0 + 25.0, fieldY + 10.0 + 9.0);
+            const NSRect randomRect =
+                s3g::clap_gui::encoderTitleActionRect(
+                    nativeWidth, nativeHeight,
+                    s3g::gui_layout::EncoderTitleAction::Random);
+            const CGFloat visibleRight = scroll
+                ? NSMaxX([[scroll contentView] bounds])
+                : static_cast<CGFloat>(nativeWidth);
+            const NSPoint randomPoint = NSMakePoint(
+                std::clamp(NSMidX(randomRect),
+                    NSMinX(randomRect) + 3.0, visibleRight - 3.0),
+                NSMidY(randomRect));
             auto clickDocument = [&](NSPoint point) {
                 NSView* hit = [parent hitTest:
                     [parent convertPoint:point fromView:document]];
@@ -964,9 +1224,19 @@ int main(int argc, char** argv)
                     && clickDocument(surfaceTab)
                     && [[document valueForKey:@"fieldPage"] intValue]
                         == surfacePage
-                    && clickDocument(addButton)
-                    && clickDocument(addButton)
-                    && clickDocument(enableButton)
+                    && clickDocument(addButton);
+                if (documentationCapture) {
+                    for (uint32_t cell = 1u;
+                         ok && cell < surfaceCellCount; ++cell) {
+                        ok = clickDocument(randomPoint)
+                            && [[document valueForKey:@"fieldPage"] intValue]
+                                == surfacePage
+                            && clickDocument(addButton);
+                    }
+                } else {
+                    ok = ok && clickDocument(addButton);
+                }
+                ok = ok && clickDocument(enableButton)
                     && clickDocument(editPlayButton)
                     && clickDocument(popButton)
                     && [[document valueForKey:@"fieldPage"] intValue] == 0;
@@ -1048,8 +1318,9 @@ int main(int argc, char** argv)
 
                 // Both non-environmental surface encoders use different
                 // view layouts, but RANDOM has the same state contract: the
-                // base scene wins immediately and the two cells survive.
-                if (ok) {
+                // base scene wins immediately and every captured cell
+                // survives.
+                if (ok && !documentationCapture) {
                     const auto* pluginState =
                         static_cast<const clap_plugin_state_t*>(
                             plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -1059,18 +1330,6 @@ int main(int argc, char** argv)
                             && pluginState->save(plugin, &output)
                             && !memory.bytes.empty();
                     };
-                    const NSRect randomRect =
-                        s3g::clap_gui::encoderTitleActionRect(
-                            nativeWidth, nativeHeight,
-                            s3g::gui_layout::EncoderTitleAction::Random);
-                    const CGFloat visibleRight = scroll
-                        ? NSMaxX([[scroll contentView] bounds])
-                        : static_cast<CGFloat>(nativeWidth);
-                    const NSPoint randomPoint = NSMakePoint(
-                        std::clamp(NSMidX(randomRect),
-                            NSMinX(randomRect) + 3.0,
-                            visibleRight - 3.0),
-                        NSMidY(randomRect));
                     MemoryPluginState beforeRandom;
                     MemoryPluginState afterRandom;
                     MemoryPluginState reenabled;
@@ -1097,9 +1356,9 @@ int main(int argc, char** argv)
                         ok = decodeWorldSphereState(beforeRandom, before)
                             && decodeWorldSphereState(afterRandom, after)
                             && before.surface.enabled == 1u
-                            && before.surface.cellCount == 2u
+                            && before.surface.cellCount == surfaceCellCount
                             && after.surface.enabled == 0u
-                            && after.surface.cellCount == 2u
+                            && after.surface.cellCount == surfaceCellCount
                             && std::memcmp(before.surface.cells.data(),
                                 after.surface.cells.data(),
                                 sizeof(before.surface.cells)) == 0;
@@ -1118,9 +1377,9 @@ int main(int argc, char** argv)
                         ok = decodeStochasticState(beforeRandom, before)
                             && decodeStochasticState(afterRandom, after)
                             && before.surface.enabled == 1u
-                            && before.surface.cellCount == 2u
+                            && before.surface.cellCount == surfaceCellCount
                             && after.surface.enabled == 0u
-                            && after.surface.cellCount == 2u
+                            && after.surface.cellCount == surfaceCellCount
                             && std::memcmp(before.surface.cells.data(),
                                 after.surface.cells.data(),
                                 sizeof(before.surface.cells)) == 0;
@@ -1142,7 +1401,7 @@ int main(int argc, char** argv)
                             state {};
                         ok = decodeWorldSphereState(reenabled, state)
                             && state.surface.enabled == 1u
-                            && state.surface.cellCount == 2u;
+                            && state.surface.cellCount == surfaceCellCount;
                         if (!ok) {
                             std::cerr << "Wrangler surface re-enable state: "
                                 << reenabled.bytes.size() << " bytes, enabled "
@@ -1153,7 +1412,7 @@ int main(int argc, char** argv)
                         StochasticSavedState state {};
                         ok = decodeStochasticState(reenabled, state)
                             && state.surface.enabled == 1u
-                            && state.surface.cellCount == 2u;
+                            && state.surface.cellCount == surfaceCellCount;
                     }
                 }
 
@@ -2106,6 +2365,12 @@ int main(int argc, char** argv)
                     ok = ok && params->get_value(
                         plugin, 100u, &diagonalRestored)
                         && std::abs(diagonalRestored - 0.94) < 0.000001;
+                    const auto& movement =
+                        s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
+                    if (ok) clickNoInput(NSMakePoint(
+                        movement.frame.x + movement.frame.width - 105.0
+                            + 48.0 + 22.0,
+                        movement.frame.y + 14.5));
                     NSData* gridRender = [document dataWithPDFInsideRect:
                         [document bounds]];
                     ok = gridRender && [gridRender length] > 0u;
@@ -2127,6 +2392,28 @@ int main(int argc, char** argv)
                     }
                     clickNoInput(NSMakePoint(
                         NSMaxX(wiring) - 92.0, wiring.origin.y + 19.0));
+                }
+                if (ok) {
+                    failureStage = "No Input Mixer movement behavior menu";
+                    const auto& movement =
+                        s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
+                    clickNoInput(NSMakePoint(
+                        movement.frame.x + movement.frame.width - 105.0
+                            + 48.0 + 22.0,
+                        movement.frame.y + 14.5));
+                    const NSRect behaviorAnchor = NSMakeRect(
+                        s3g::gui_layout::processorControlX(
+                            movement.frame.x),
+                        s3g::gui_layout::rowY(movement, 0u) - 1.0,
+                        s3g::gui_layout::processorMenuWidth(
+                            movement.frame.width), 15.0);
+                    clickNoInput(NSMakePoint(
+                        NSMidX(behaviorAnchor), NSMidY(behaviorAnchor)));
+                    clickNoInput(NSMakePoint(NSMidX(behaviorAnchor),
+                        NSMaxY(behaviorAnchor) + 2.0 + 18.0 * 3.5));
+                    double behavior = 0.0;
+                    ok = params->get_value(plugin, 35u, &behavior)
+                        && behavior == 3.0;
                 }
                 if (ok) {
                     failureStage =
@@ -2173,6 +2460,148 @@ int main(int argc, char** argv)
                     ok = params->get_value(plugin, 1000u, &draggedBody)
                         && std::fabs(draggedBody - 0.86) < 0.03;
 
+                    const NSRect laneInsert = NSMakeRect(
+                        mixerOffset.x + 12.0 + 8.0,
+                        mixerOffset.y + 42.0 + 500.0,
+                        popupStripWidth - 16.0, 18.0);
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(laneInsert), NSMidY(laneInsert)));
+                    const CGFloat laneMenuY = laneInsert.origin.y
+                        - 18.0 * 23.0 - 2.0;
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMinX(laneInsert) + 36.0,
+                        laneMenuY + 18.0 * 11.5));
+                    double laneEffect = 0.0;
+                    ok = ok && params->get_value(
+                            plugin, 1020u, &laneEffect)
+                        && laneEffect == 11.0;
+
+                    const NSRect laneInsertEdit = NSMakeRect(
+                        NSMaxX(laneInsert) - 28.0,
+                        laneInsert.origin.y, 28.0, laneInsert.size.height);
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(laneInsertEdit), NSMidY(laneInsertEdit)));
+                    NSPanel* effectPanel = ok
+                        ? [document valueForKey:@"effectPanel"] : nil;
+                    NSView* effectEditor = effectPanel
+                        ? [effectPanel contentView] : nil;
+                    ok = ok && effectPanel && [effectPanel isVisible]
+                        && effectEditor;
+                    if (ok) {
+                        auto effectEvent = [&](NSEventType type,
+                                               NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[effectEditor convertPoint:point
+                                    toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[effectPanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        const NSPoint lengthStart = NSMakePoint(148.0, 134.0);
+                        const NSPoint lengthEnd = NSMakePoint(402.0, 134.0);
+                        [effectEditor mouseDown:effectEvent(
+                            NSEventTypeLeftMouseDown, lengthStart)];
+                        [effectEditor mouseDragged:effectEvent(
+                            NSEventTypeLeftMouseDragged, lengthEnd)];
+                        [effectEditor mouseUp:effectEvent(
+                            NSEventTypeLeftMouseUp, lengthEnd)];
+                        double spliceLength = 0.0;
+                        ok = params->get_value(plugin, 1022u, &spliceLength)
+                            && spliceLength > 0.90;
+                        NSData* editorRender = ok
+                            ? [effectEditor dataWithPDFInsideRect:
+                                [effectEditor bounds]] : nil;
+                        ok = ok && editorRender
+                            && [editorRender length] > 0u;
+                        const char* editorDirectory = std::getenv(
+                            "S3G_GUI_SMOKE_PDF_DIR");
+                        if (ok && editorDirectory && editorDirectory[0]) {
+                            NSString* directory = [NSString
+                                stringWithUTF8String:editorDirectory];
+                            [[NSFileManager defaultManager]
+                                createDirectoryAtPath:directory
+                                withIntermediateDirectories:YES
+                                attributes:nil error:nil];
+                            NSString* editorName = [[NSString
+                                stringWithFormat:@"%s.effect-editor", pluginId]
+                                stringByAppendingPathExtension:@"pdf"];
+                            ok = [editorRender writeToFile:[directory
+                                    stringByAppendingPathComponent:editorName]
+                                atomically:YES];
+                        }
+                    }
+
+                    const NSRect auxType = NSMakeRect(
+                        mixerOffset.x + 884.0 + 114.0,
+                        mixerOffset.y + 42.0 + 58.0, 204.0, 18.0);
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(auxType), NSMidY(auxType)));
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(auxType), NSMaxY(auxType) + 2.0
+                            + 18.0 * 18.5));
+                    double auxEffect = 0.0;
+                    ok = ok && params->get_value(
+                            plugin, 23u, &auxEffect)
+                        && auxEffect == 18.0;
+
+                    const NSRect auxEdit = NSMakeRect(
+                        NSMaxX(auxType) - 54.0, auxType.origin.y,
+                        54.0, auxType.size.height);
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(auxEdit), NSMidY(auxEdit)));
+                    effectPanel = ok
+                        ? [document valueForKey:@"effectPanel"] : nil;
+                    effectEditor = effectPanel
+                        ? [effectPanel contentView] : nil;
+                    if (ok && effectEditor) {
+                        auto effectEvent = [&](NSEventType type,
+                                               NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[effectEditor convertPoint:point
+                                    toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[effectPanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        const NSPoint biasStart = NSMakePoint(148.0, 174.0);
+                        const NSPoint biasEnd = NSMakePoint(402.0, 174.0);
+                        [effectEditor mouseDown:effectEvent(
+                            NSEventTypeLeftMouseDown, biasStart)];
+                        [effectEditor mouseDragged:effectEvent(
+                            NSEventTypeLeftMouseDragged, biasEnd)];
+                        [effectEditor mouseUp:effectEvent(
+                            NSEventTypeLeftMouseUp, biasEnd)];
+                        double auxBias = 0.0;
+                        ok = params->get_value(plugin, 42u, &auxBias)
+                            && auxBias > 0.75;
+                    } else {
+                        ok = false;
+                    }
+
+                    const NSPoint auxMuteA = NSMakePoint(
+                        mixerOffset.x + 884.0 + 14.0 + 41.0,
+                        mixerOffset.y + 42.0 + 58.0 + 9.0);
+                    const NSPoint auxMuteB = NSMakePoint(
+                        auxMuteA.x, auxMuteA.y + 248.0);
+                    double auxMuteValue = 0.0;
+                    if (ok) clickNoInput(auxMuteA);
+                    ok = ok && params->get_value(
+                        plugin, 33u, &auxMuteValue)
+                        && auxMuteValue == 1.0;
+                    if (ok) clickNoInput(auxMuteA);
+                    ok = ok && params->get_value(
+                        plugin, 33u, &auxMuteValue)
+                        && auxMuteValue == 0.0;
+                    if (ok) clickNoInput(auxMuteA);
+                    if (ok) clickNoInput(auxMuteB);
+                    ok = ok && params->get_value(
+                        plugin, 33u, &auxMuteValue)
+                        && auxMuteValue == 1.0
+                        && params->get_value(plugin, 34u, &auxMuteValue)
+                        && auxMuteValue == 1.0;
+
                     const NSPoint popPoint = NSMakePoint(
                         family.fieldPanel.x + family.fieldPanel.width
                             - 4.0 * tabWidth - 3.0 * tabGap - 68.0 + 24.0,
@@ -2212,6 +2641,18 @@ int main(int argc, char** argv)
                         double popupLevel = -60.0;
                         ok = params->get_value(plugin, 1002u, &popupLevel)
                             && popupLevel > 3.0;
+                        const NSPoint popupInsertName = NSMakePoint(
+                            mixerOffset.x + 12.0 + 8.0
+                                + (popupStripWidth - 16.0) * 0.5,
+                            mixerOffset.y + 42.0 + 500.0 + 9.0);
+                        if (ok) {
+                            [popup mouseDown:popupEvent(
+                                NSEventTypeLeftMouseDown,
+                                popupInsertName)];
+                            [popup mouseUp:popupEvent(
+                                NSEventTypeLeftMouseUp,
+                                popupInsertName)];
+                        }
                         NSData* popupRender = ok
                             ? [popup dataWithPDFInsideRect:[popup bounds]]
                             : nil;
@@ -2255,6 +2696,67 @@ int main(int argc, char** argv)
                             == nativeWidth
                         && NSHeight([[channelPanel contentView] bounds])
                             == nativeHeight;
+                    if (ok) {
+                        failureStage =
+                            "No Input Mixer Channel window effect edit";
+                        NSView* channelView = [channelPanel contentView];
+                        const auto& insertPanel =
+                            family.inserts;
+                        const CGFloat channelControlX =
+                            s3g::gui_layout::processorControlX(
+                                insertPanel.frame.x);
+                        const CGFloat channelMenuWidth =
+                            s3g::gui_layout::processorMenuWidth(
+                                insertPanel.frame.width);
+                        const NSPoint channelEdit = NSMakePoint(
+                            channelControlX + channelMenuWidth - 26.0,
+                            s3g::gui_layout::rowY(insertPanel, 0u) + 6.5);
+                        auto channelEvent = [&](NSEventType type,
+                                                NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[channelView convertPoint:point
+                                    toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[channelPanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        [channelView mouseDown:channelEvent(
+                            NSEventTypeLeftMouseDown, channelEdit)];
+                        [channelView mouseUp:channelEvent(
+                            NSEventTypeLeftMouseUp, channelEdit)];
+                        effectPanel = [document valueForKey:@"effectPanel"];
+                        effectEditor = effectPanel
+                            ? [effectPanel contentView] : nil;
+                        ok = effectPanel && [effectPanel isVisible]
+                            && effectEditor;
+                        if (ok) {
+                            auto effectEvent = [&](NSEventType type,
+                                                   NSPoint point) {
+                                return [NSEvent mouseEventWithType:type
+                                    location:[effectEditor convertPoint:point
+                                        toView:nil]
+                                    modifierFlags:0 timestamp:0.0
+                                    windowNumber:[effectPanel windowNumber]
+                                    context:nil eventNumber:0 clickCount:1
+                                    pressure:1.0];
+                            };
+                            const NSPoint directionStart =
+                                NSMakePoint(402.0, 174.0);
+                            const NSPoint directionEnd =
+                                NSMakePoint(148.0, 174.0);
+                            [effectEditor mouseDown:effectEvent(
+                                NSEventTypeLeftMouseDown, directionStart)];
+                            [effectEditor mouseDragged:effectEvent(
+                                NSEventTypeLeftMouseDragged, directionEnd)];
+                            [effectEditor mouseUp:effectEvent(
+                                NSEventTypeLeftMouseUp, directionEnd)];
+                            double channelDirection = 0.0;
+                            ok = params->get_value(
+                                    plugin, 1023u, &channelDirection)
+                                && channelDirection < -0.75;
+                        }
+                    }
                     const char* captureDirectory = std::getenv(
                         "S3G_GUI_SMOKE_PDF_DIR");
                     if (ok && captureDirectory && captureDirectory[0]) {
@@ -2282,6 +2784,7 @@ int main(int argc, char** argv)
                     [channelPanel orderOut:nil];
                     [safetyPanel orderOut:nil];
                     [patchPanel orderOut:nil];
+                    [effectPanel orderOut:nil];
                     clickNoInput(NSMakePoint(
                         tabStart + tabWidth * 0.5,
                         family.fieldPanel.y + 11.0));
@@ -2465,6 +2968,501 @@ int main(int argc, char** argv)
             } @catch (NSException*) {
                 ok = false;
             }
+        }
+        if (ok && documentationEncoder) {
+            failureStage = "documentation encoder scene";
+            auto setDocumentationParam = [&](const char* name,
+                                             double requestedValue) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u; index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) return false;
+                    if (std::strcmp(info.name, name) != 0) continue;
+                    SingleParamEventInput event {};
+                    const double value = std::clamp(requestedValue,
+                        info.min_value, info.max_value);
+                    setSingleParamEvent(event, info.id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = 0.0;
+                    return params->get_value(plugin, info.id, &reported)
+                        && std::fabs(reported - value) < 0.000001;
+                }
+                return false;
+            };
+
+            if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-cloud-encoder-64") == 0) {
+                ok = setDocumentationParam("Clouds", 4.0)
+                    && setDocumentationParam("Spread", 0.72)
+                    && setDocumentationParam("Elevation Spread", 0.58)
+                    && setDocumentationParam("Jitter", 0.18)
+                    && setDocumentationParam("Drift", 0.70)
+                    && setDocumentationParam("Force", 4.0)
+                    && setDocumentationParam("Cloud 1 Azimuth", -60.0)
+                    && setDocumentationParam("Cloud 1 Elevation", 25.0)
+                    && setDocumentationParam("Cloud 1 Distance", 0.80)
+                    && setDocumentationParam("Cloud 2 Azimuth", 35.0)
+                    && setDocumentationParam("Cloud 2 Elevation", -20.0)
+                    && setDocumentationParam("Cloud 2 Distance", 1.15)
+                    && setDocumentationParam("Cloud 3 Azimuth", 125.0)
+                    && setDocumentationParam("Cloud 3 Elevation", 35.0)
+                    && setDocumentationParam("Cloud 3 Distance", 0.90)
+                    && setDocumentationParam("Cloud 4 Azimuth", -150.0)
+                    && setDocumentationParam("Cloud 4 Elevation", -30.0)
+                    && setDocumentationParam("Cloud 4 Distance", 1.30);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-path-encoder-64") == 0) {
+                ok = setDocumentationParam("Active Paths", 3.0)
+                    && setDocumentationParam("Phase Spread", 0.78)
+                    && setDocumentationParam("Rate", 0.16);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-pulsar-encoder-64") == 0) {
+                ok = setDocumentationParam("Preset", 9.0)
+                    && setDocumentationParam("Spatial Points", 12.0)
+                    && setDocumentationParam("Spatial Width", 0.75)
+                    && setDocumentationParam("Spatial Scatter", 0.35)
+                    && setDocumentationParam("Orbit Rate", 0.18)
+                    && setDocumentationParam("Orbit Depth", 0.62)
+                    && setDocumentationParam("Field Motion", 1.0);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-neural-ecology-64") == 0) {
+                // Ecology 64 exposes the complete recurrent organism and its
+                // eight-pickup auditory body, making the FIELD capture useful.
+                ok = setDocumentationParam("Preset", 4.0)
+                    && setDocumentationParam("Activity Bias", 0.65)
+                    && setDocumentationParam("Rotation Rate", 0.08)
+                    && setDocumentationParam("Field Lattice Mode", 1.0)
+                    && setDocumentationParam("Field Lattice Amount", 0.82)
+                    && setDocumentationParam("Field Lattice Planes", 2.0);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0) {
+                ok = setDocumentationParam("Voices", 24.0)
+                    && setDocumentationParam("Topology Animation", 4.0)
+                    && setDocumentationParam("Topology Rate", 0.08)
+                    && setDocumentationParam("Topology Amount", 0.82)
+                    && setDocumentationParam("Topology Depth", 0.78)
+                    && setDocumentationParam("Minimum Rest", 0.05)
+                    && setDocumentationParam("Field Listener", 4.0)
+                    && setDocumentationParam("Listener Capture", 0.72);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0) {
+                ok = setDocumentationParam("Preset", 19.0);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0) {
+                ok = setDocumentationParam("Voices", 16.0)
+                    && setDocumentationParam("Motion Scene",
+                        std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
+                            ? 3.0 : 1.0)
+                    && setDocumentationParam("Motion Amount", 0.92)
+                    && setDocumentationParam("Motion Spread", 0.94)
+                    && setDocumentationParam("Motion Coherence", 0.40)
+                    && setDocumentationParam("Motion Chaos", 0.21);
+                if (ok && std::strcmp(pluginId,
+                        "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0) {
+                    ok = setDocumentationParam("Ensemble", 2.0);
+                }
+            }
+
+            if (ok && std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0) {
+                failureStage = "documentation Vox lyric field";
+                @try {
+                    NSTextView* editor = static_cast<NSTextView*>(
+                        [document valueForKey:@"lyricsEditor"]);
+                    ok = editor
+                        && [document respondsToSelector:
+                            @selector(textDidChange:)];
+                    if (ok) {
+                        [editor setString:
+                            @"za a mi u\nka na ri o\nsa e ru ma\n"
+                            @"no va ki e\nte ra su o\nmi o ke na"];
+                        NSNotification* notification = [NSNotification
+                            notificationWithName:NSTextDidChangeNotification
+                            object:editor];
+                        [document textDidChange:notification];
+                    }
+                } @catch (NSException*) {
+                    ok = false;
+                }
+            }
+
+            const auto* audioPorts = ok
+                ? static_cast<const clap_plugin_audio_ports_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS))
+                : nullptr;
+            const uint32_t inputPortCount = audioPorts
+                ? audioPorts->count(plugin, true) : 0u;
+            const uint32_t outputPortCount = audioPorts
+                ? audioPorts->count(plugin, false) : 0u;
+            clap_audio_port_info_t inputInfo {};
+            clap_audio_port_info_t outputInfo {};
+            ok = ok && audioPorts
+                && inputPortCount <= 1u
+                && outputPortCount == 1u
+                && (inputPortCount == 0u
+                    || audioPorts->get(plugin, 0u, true, &inputInfo))
+                && audioPorts->get(plugin, 0u, false, &outputInfo)
+                && inputInfo.channel_count <= 64u
+                && outputInfo.channel_count > 0u
+                && outputInfo.channel_count <= 64u;
+
+            constexpr uint32_t audioFrames = 128u;
+            constexpr uint32_t audioChannels = 64u;
+            // Two seconds is long enough for low-rate field motion, ecology
+            // activity, and emitted voices to become visible without making
+            // documentation capture needlessly slow.
+            constexpr uint32_t audioBlocks = 750u;
+            std::array<std::array<float, audioFrames>, audioChannels>
+                audioInput {};
+            std::array<std::array<float, audioFrames>, audioChannels>
+                audioOutput {};
+            std::array<float*, audioChannels> inputPointers {};
+            std::array<float*, audioChannels> outputPointers {};
+            for (uint32_t channel = 0u; channel < audioChannels; ++channel) {
+                inputPointers[channel] = audioInput[channel].data();
+                outputPointers[channel] = audioOutput[channel].data();
+            }
+            clap_audio_buffer_t inputBuffer {};
+            inputBuffer.data32 = inputPointers.data();
+            inputBuffer.channel_count = inputInfo.channel_count;
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.data();
+            outputBuffer.channel_count = outputInfo.channel_count;
+            clap_process_t processBlock {};
+            processBlock.frames_count = audioFrames;
+            processBlock.audio_inputs = inputPortCount ? &inputBuffer : nullptr;
+            processBlock.audio_inputs_count = inputPortCount;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            bool activated = false;
+            bool processing = false;
+            if (ok) {
+                ok = gui->show(plugin);
+                activated = ok
+                    && plugin->activate(plugin, 48000.0, 1u, audioFrames);
+                processing = activated && plugin->start_processing(plugin);
+                ok = ok && activated && processing;
+            }
+            uint64_t sampleCursor = 0u;
+            for (uint32_t block = 0u; ok && block < audioBlocks; ++block) {
+                for (uint32_t frame = 0u; frame < audioFrames; ++frame) {
+                    const double time = static_cast<double>(sampleCursor++)
+                        / 48000.0;
+                    for (uint32_t channel = 0u;
+                         channel < inputInfo.channel_count; ++channel) {
+                        const double frequency = 109.0
+                            + 7.25 * static_cast<double>(channel);
+                        audioInput[channel][frame] = 0.12f
+                            * static_cast<float>(std::sin(
+                                2.0 * s3g::kPi * frequency * time
+                                + 0.17 * static_cast<double>(channel)));
+                    }
+                }
+                for (auto& channel : audioOutput) channel.fill(0.0f);
+                processBlock.steady_time =
+                    static_cast<int64_t>(block) * audioFrames;
+                ok = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+                if (ok && (block % 32u) == 31u) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+            }
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+            if (processing) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+
+            if (ok) {
+                failureStage = "documentation encoder alternate pages";
+                auto scrollDocumentationTo = [&](CGFloat y) {
+                    if (!scroll) return y == 0.0;
+                    [[scroll contentView]
+                        scrollToPoint:NSMakePoint(0.0, y)];
+                    [scroll reflectScrolledClipView:[scroll contentView]];
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    return true;
+                };
+                auto clickDocumentationPoint = [&](NSPoint point) {
+                    NSPoint parentPoint = [parent
+                        convertPoint:point fromView:document];
+                    NSView* hitView = [parent hitTest:parentPoint];
+                    if (!hitView
+                        || (hitView != document
+                            && ![hitView isDescendantOf:document])) {
+                        return false;
+                    }
+                    [hitView mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [hitView mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    return true;
+                };
+                auto selectDocumentationPage = [&](NSPoint point,
+                                                   NSString* key,
+                                                   int expected) {
+                    if (!scrollDocumentationTo(0.0)
+                        || !clickDocumentationPoint(point)) {
+                        return false;
+                    }
+                    NSNumber* page = [document valueForKey:key];
+                    return page && [page intValue] == expected;
+                };
+                auto writeDocumentationVariant = [&](const char* suffix) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    NSData* rendered = [document
+                        dataWithPDFInsideRect:[document bounds]];
+                    if (!rendered || [rendered length] == 0u) return false;
+                    const char* captureDirectory = std::getenv(
+                        "S3G_GUI_SMOKE_PDF_DIR");
+                    if (!captureDirectory || !captureDirectory[0]) return true;
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil
+                        error:nil];
+                    NSString* baseName = [NSString
+                        stringWithFormat:@"%s.%s", pluginId, suffix];
+                    NSString* fileName = [baseName
+                        stringByAppendingPathExtension:@"pdf"];
+                    return [rendered writeToFile:[directory
+                        stringByAppendingPathComponent:fileName]
+                        atomically:YES];
+                };
+                auto captureDocumentationPage = [&](NSPoint point,
+                                                    NSString* key,
+                                                    int expected,
+                                                    const char* suffix) {
+                    return selectDocumentationPage(point, key, expected)
+                        && writeDocumentationVariant(suffix);
+                };
+
+                @try {
+                    if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(199.0, 52.5), @"leftPage", 1,
+                                "mixer")
+                            && selectDocumentationPage(
+                                NSMakePoint(146.0, 52.5), @"leftPage", 0);
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(214.0, 52.5), @"leftPage", 1,
+                                "vector")
+                            && captureDocumentationPage(
+                                NSMakePoint(272.0, 52.5), @"leftPage", 2,
+                                "score")
+                            && selectDocumentationPage(
+                                NSMakePoint(156.0, 52.5), @"leftPage", 0);
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(214.0, 52.5), @"leftPage", 3,
+                                "lyrics")
+                            && selectDocumentationPage(
+                                NSMakePoint(156.0, 52.5), @"leftPage", 0);
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-pulsar-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(225.0, 52.5), @"visualPage", 1,
+                                "pulsarets")
+                            && captureDocumentationPage(
+                                NSMakePoint(299.0, 52.5), @"visualPage", 2,
+                                "neural")
+                            && captureDocumentationPage(
+                                NSMakePoint(373.0, 52.5), @"visualPage", 3,
+                                "listen")
+                            && selectDocumentationPage(
+                                NSMakePoint(151.0, 52.5), @"visualPage", 0);
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-neural-ecology-64") == 0) {
+                        ok = selectDocumentationPage(
+                            NSMakePoint(372.0, 52.5), @"scorePage", 1);
+                        if (ok) {
+                            scrollDocumentationTo(318.0);
+                            ok = clickDocumentationPoint(
+                                NSMakePoint(496.0, 792.0));
+                        }
+                        if (ok) {
+                            scrollDocumentationTo(0.0);
+                            ok = clickDocumentationPoint(
+                                    NSMakePoint(207.0, 152.5))
+                                && writeDocumentationVariant("score")
+                                && selectDocumentationPage(
+                                    NSMakePoint(321.0, 52.5),
+                                    @"scorePage", 0);
+                        }
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(225.0, 52.5), @"fieldPage", 1,
+                                "listen")
+                            && selectDocumentationPage(
+                                NSMakePoint(151.0, 52.5), @"fieldPage", 0);
+                    } else if (std::strcmp(pluginId,
+                            "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0) {
+                        ok = captureDocumentationPage(
+                                NSMakePoint(299.0, 52.5), @"fieldPage", 2,
+                                "listen")
+                            && selectDocumentationPage(
+                                NSMakePoint(151.0, 52.5), @"fieldPage", 0)
+                            && setDocumentationParam("Preset", 3.0)
+                            && captureDocumentationPage(
+                                NSMakePoint(225.0, 52.5), @"fieldPage", 1,
+                                "curve")
+                            && setDocumentationParam("Preset", 19.0)
+                            && selectDocumentationPage(
+                                NSMakePoint(151.0, 52.5), @"fieldPage", 0);
+                    }
+                } @catch (NSException*) {
+                    ok = false;
+                }
+            }
+        }
+        if (ok && documentationSampleProcessor) {
+            failureStage = "documentation sample processor scene";
+            const auto* audioPorts =
+                static_cast<const clap_plugin_audio_ports_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+            clap_audio_port_info_t outputInfo {};
+            ok = audioPorts
+                && audioPorts->count(plugin, true) == 0u
+                && audioPorts->count(plugin, false) == 1u
+                && audioPorts->get(plugin, 0u, false, &outputInfo)
+                && outputInfo.channel_count > 0u
+                && outputInfo.channel_count <= 64u;
+
+            constexpr uint32_t audioFrames = 128u;
+            constexpr uint32_t audioChannels = 64u;
+            const uint32_t audioBlocks = documentationAmbiGrain
+                ? 120u : 375u;
+            std::array<std::array<float, audioFrames>, audioChannels>
+                audioOutput {};
+            std::array<float*, audioChannels> outputPointers {};
+            for (uint32_t channel = 0u; channel < audioChannels; ++channel) {
+                outputPointers[channel] = audioOutput[channel].data();
+            }
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.data();
+            outputBuffer.channel_count = outputInfo.channel_count;
+            clap_process_t processBlock {};
+            processBlock.frames_count = audioFrames;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            bool activated = false;
+            bool processing = false;
+            if (ok) {
+                ok = gui->show(plugin);
+                activated = ok
+                    && plugin->activate(plugin, 48000.0, 1u, audioFrames);
+                processing = activated && plugin->start_processing(plugin);
+                ok = ok && activated && processing;
+            }
+            for (uint32_t block = 0u; ok && block < audioBlocks; ++block) {
+                for (auto& channel : audioOutput) channel.fill(0.0f);
+                processBlock.steady_time =
+                    static_cast<int64_t>(block) * audioFrames;
+                ok = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+                if (ok && (block % 16u) == 15u) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+            }
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+            if (processing) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+        }
+        if (ok && documentationCapture && analyzer) {
+            failureStage = "documentation analyzer signal";
+            constexpr uint32_t audioFrames = 128u;
+            constexpr uint32_t audioChannels = 64u;
+            constexpr uint32_t audioBlocks = 96u;
+            std::array<std::array<float, audioFrames>, audioChannels>
+                audioInput {};
+            std::array<std::array<float, audioFrames>, audioChannels>
+                audioOutput {};
+            std::array<float*, audioChannels> inputPointers {};
+            std::array<float*, audioChannels> outputPointers {};
+            for (uint32_t channel = 0u; channel < audioChannels; ++channel) {
+                inputPointers[channel] = audioInput[channel].data();
+                outputPointers[channel] = audioOutput[channel].data();
+            }
+            clap_audio_buffer_t inputBuffer {};
+            inputBuffer.data32 = inputPointers.data();
+            inputBuffer.channel_count = audioChannels;
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.data();
+            outputBuffer.channel_count = audioChannels;
+            clap_process_t processBlock {};
+            processBlock.frames_count = audioFrames;
+            processBlock.audio_inputs = &inputBuffer;
+            processBlock.audio_inputs_count = 1u;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            const auto sourceA = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(-68.0f, 24.0f));
+            const auto sourceB = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(38.0f, -16.0f));
+            const auto sourceC = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(142.0f, 41.0f));
+            ok = gui->show(plugin)
+                && plugin->activate(plugin, 48000.0, 1u, audioFrames)
+                && plugin->start_processing(plugin);
+            uint64_t sampleCursor = 0u;
+            for (uint32_t block = 0u; ok && block < audioBlocks; ++block) {
+                for (uint32_t frame = 0u; frame < audioFrames; ++frame) {
+                    const double t = static_cast<double>(sampleCursor++)
+                        / 48000.0;
+                    const float a = 0.30f * static_cast<float>(
+                        std::sin(2.0 * s3g::kPi * 233.0 * t));
+                    const float b = 0.20f * static_cast<float>(
+                        std::sin(2.0 * s3g::kPi * 521.0 * t + 0.37));
+                    const float c = 0.13f * static_cast<float>(
+                        std::sin(2.0 * s3g::kPi * 809.0 * t + 1.11));
+                    for (uint32_t channel = 0u;
+                         channel < audioChannels; ++channel) {
+                        const float channelTrim = 1.0f
+                            - 0.22f * static_cast<float>(channel)
+                                / static_cast<float>(audioChannels - 1u);
+                        audioInput[channel][frame] = channelTrim
+                            * (sourceA[channel] * a
+                                + sourceB[channel] * b
+                                + sourceC[channel] * c);
+                    }
+                }
+                for (auto& channel : audioOutput) channel.fill(0.0f);
+                ok = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+                if (ok && (block % 4u) == 3u) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+            }
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+            plugin->stop_processing(plugin);
+            plugin->deactivate(plugin);
         }
         if (ok) failureStage = "render";
         if (ok) {

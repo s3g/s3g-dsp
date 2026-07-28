@@ -26,14 +26,23 @@
       <main class="content" id="content">
         <h1>Processor Ambi Grain</h1>
 
-        <p><code>s3g Processor Ambi Grain</code> is a CLAP instrument for granulating loaded <code>ACN/SN3D</code> ambisonic files. It treats the file as one encoded sound field: grain position, duration, rate, direction, and envelope are shared across all active ambisonic channels.</p>
+        <p><code>s3g Processor Ambi Grain 16ch</code> is a CLAP instrument for granulating loaded <code>ACN/SN3D</code> ambisonic files. It treats the file as one encoded sound field: grain position, duration, rate, direction, and envelope are shared across all active ambisonic channels.</p>
 
         <p>Use it when you want clouds, freezes, scans, or stepped cuts from an already encoded 1OA, 2OA, or 3OA file while keeping the spatial image locked together.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-grain-processor.png" aria-label="Open Processor Ambi Grain interface screenshot">
+              <img src="assets/plugin-guis/ambi-grain-processor.png" alt="Processor Ambi Grain interface showing the loaded-field display, grain controls, transport, and ambisonic routing" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Ambi Grain with loaded-field display, grain controls, transport, and ambisonic routing.</figcaption>
+        </figure>
 
         <h2 id="workflow">Basic Workflow</h2>
 
         <ul>
-          <li>Insert <code>s3g Processor Ambi Grain</code> on a 16-channel REAPER track.</li>
+          <li>Insert <code>s3g Processor Ambi Grain 16ch</code> on a 16-channel REAPER track.</li>
           <li>Click <code>LOAD</code> and choose an <code>ACN/SN3D</code> ambisonic audio file.</li>
           <li>Use the transport icons to play, pause/resume, or stop and return the scan/grain state to the start.</li>
           <li>Use <code>ORD</code> to choose whether the loaded file is treated as 1OA, 2OA, or 3OA.</li>
@@ -91,9 +100,9 @@
 
         <pre><code>s3g Processor Ambi Grain
 -&gt; s3g Analyzer Ambi Energy 64ch
--&gt; s3g Ambi Speaker Decoder 64</code></pre>
+-&gt; s3g Ambi Decoder Speaker 64</code></pre>
 
-        <p>For stereo monitoring, follow it with <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> or <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>.</p>
+        <p>For stereo monitoring, follow it with <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a> or <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>.</p>
 
         <h2 id="practical-notes">Practical Notes</h2>
 
@@ -130,8 +139,8 @@
           <h2>Effect Pages</h2>
           <a href="ambisonic-effects.html">Ambi Effects</a>
           <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="ambisonic-rotate.html">Ambi Rotate</a>
+          <a href="ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>
           <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
           <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
@@ -146,5 +155,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

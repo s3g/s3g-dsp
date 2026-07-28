@@ -28,9 +28,18 @@
 
         <p>Speaker-array utilities sit after direct panning or decoding. They prepare discrete speaker feeds for the physical system rather than moving sources or changing the artistic mix.</p>
 
-        <h2 id="crossover">Sub Crossover</h2>
+        <h2 id="crossover">Output Crossover</h2>
 
-        <p><strong>Sub Crossover</strong> derives low-frequency sends from a Layout Panner speaker array and supports as many as eight subwoofer channels. Use it when bass management belongs to the rendered speaker bus rather than the source or ambisonic field.</p>
+        <p><strong>Output Crossover</strong> derives low-frequency sends from a Panner Layout speaker array and supports as many as eight subwoofer channels. Use it when bass management belongs to the rendered speaker bus rather than the source or ambisonic field.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sub-crossover.png" aria-label="Open high-resolution Output Crossover GUI screenshot">
+              <img src="assets/plugin-guis/sub-crossover.png" alt="Output Crossover bass-management controls, speaker field, subwoofer assignment, and output meters" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Output Crossover with bass-management controls, speaker field, subwoofer assignment, and output meters.</figcaption>
+        </figure>
 
         <h2 id="calibration">Array Calibration</h2>
 
@@ -40,10 +49,35 @@
           <li><strong>Array Trim 16/26/32/64</strong>: per-channel gain, mute, and polarity correction.</li>
         </ul>
 
+        <figure>
+            <div class="doc-graphic">
+              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-hpf.png" aria-label="Open high-resolution Array HPF GUI screenshot">
+                <img src="assets/plugin-guis/array-hpf.png" alt="Array HPF 16 per-speaker high-pass controls and channel overview" loading="lazy" decoding="async">
+              </button>
+            </div>
+            <figcaption>Array HPF 16; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
+        </figure>
+        <figure>
+            <div class="doc-graphic">
+              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-delay.png" aria-label="Open high-resolution Array Delay GUI screenshot">
+                <img src="assets/plugin-guis/array-delay.png" alt="Array Delay 16 per-speaker alignment controls and channel overview" loading="lazy" decoding="async">
+              </button>
+            </div>
+            <figcaption>Array Delay 16; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
+        </figure>
+        <figure>
+            <div class="doc-graphic">
+              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-trim.png" aria-label="Open high-resolution Array Trim GUI screenshot">
+                <img src="assets/plugin-guis/array-trim.png" alt="Array Trim 16 per-speaker gain, mute, polarity, and channel overview" loading="lazy" decoding="async">
+              </button>
+            </div>
+            <figcaption>Array Trim 16; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
+        </figure>
+
         <h2 id="order">Recommended Order</h2>
 
         <pre><code>direct panner or ambisonic decoder
--&gt; Sub Crossover / Array HPF
+-&gt; Output Crossover / Array HPF
 -&gt; Array Delay
 -&gt; Array Trim
 -&gt; hardware outputs</code></pre>
@@ -74,11 +108,12 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#crossover">Sub Crossover</a>
+          <a href="#crossover">Output Crossover</a>
           <a href="#calibration">Array Calibration</a>
           <a href="#order">Recommended Order</a>
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

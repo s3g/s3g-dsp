@@ -30,6 +30,15 @@
 
         <p>The instrument keeps its synthesis cost predictable with one fixed pool of 96 modes. Four active bodies receive 24 modes each; eight receive 12 each; intermediate body counts divide the same pool in complete pairs. Increasing the population therefore trades some detail within each body for a denser and more varied ensemble instead of multiplying CPU use.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/accelerometer-field-encoder.png" aria-label="Open Ambi Encoder Modal GUI screenshot">
+              <img src="assets/plugin-guis/accelerometer-field-encoder.png" alt="Ambi Encoder Modal GUI showing modal bodies, Listener and Actuator controls, projection, body AED, signal path, and camera controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Modal with modal-body, Listener / Actuator, projection, body AED, signal-path, and camera controls.</figcaption>
+        </figure>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
@@ -148,11 +157,11 @@ cmake --build --preset dev --target \
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-ray-bilocation-encoder.html">
             <span>Previous</span>
-            Ambi Ray Bilocation Encoder
+            Ambi Encoder Ray Bilocation
           </a>
           <a class="page-nav-link next" href="ambi-vot-encoder.html">
             <span>Next</span>
-            Ambi VOT Encoder
+            Ambi Encoder VOT
           </a>
         </nav>
       </main>
@@ -183,5 +192,6 @@ cmake --build --preset dev --target \
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

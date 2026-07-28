@@ -709,7 +709,21 @@ complete logical control group. `POP` detaches the current page at the same
 1356-by-820 geometry and `DOCK` closes it; docked and detached forms invoke the
 same page renderer and hit geometry. `MIXER` therefore exposes the same eight
 strips, aux returns, and internal/house tone in both forms. Mixer tracks use
-continuous click-and-drag interaction. `PANIC` remains fixed in the title band.
+continuous click-and-drag interaction. Each aux-return block includes a
+stateful `MUTE ALL` that preserves all eight visible send levels. `PANIC`
+remains fixed in the title band. Every lane-slot and aux processor name opens
+the same explicit full effect menu; processor labels never act as undocumented
+click-to-cycle buttons. A separate adjacent `EDIT` action opens one shared,
+compact Effect Editor window. It retargets to a lane slot or aux return,
+retains stable automation IDs, and changes only the visible vocabulary to match
+the selected algorithm (`MIX / LENGTH / DIRECTION` for SPLICE, for example).
+Lane targets end in `LEVEL / BYPASS`; aux targets end in `RETURN / LOOP`.
+The three insert rows on `CHANNEL` repeat the same menu-plus-`EDIT` split in
+both docked and detached forms; detailed editing never requires returning to
+`MIXER`.
+The compact Matrix Movement panel uses `FIELD` and
+`CUT` banks so continuous spatial controls and event articulation controls fit
+without increasing editor height.
 The native editor minimum width remains 1356 px and the height may scroll
 without scaling. Bounded complete-network `RANDOM` and localized `FORGET`
 remain beside `NEW` in `NETWORK`, while ten factory patches use the title-band
@@ -720,10 +734,12 @@ reports dBFS. In its alternate exact grid, a click patches or selects an
 intersection and a second click on the selected intersection dissolves it;
 Option-click creates a negative route. `CLEAR ALL` occupies the same PATCH
 header position in both modes. Grid source columns align crosspoints, grouped
-effective-route-gain indicators, and −60-to-0 dBFS output meters. Unmodified
+effective-route-gain indicators, and −60-to-0 dBFS output meters; the route-gain
+rail uses the matrix width with equal side margins. Unmodified
 Left/Right cycles pages only while a plugin view owns keyboard focus. Movement
 `RATE` reports its actual 0.05–5 Hz value, and grid effective-gain marks use the
-same perceptual 30 dB law as the DSP.
+same perceptual 30 dB law as the DSP. `STEP`, `CUT`, `BURST`, and `SCRAMBLE`
+read live DSP route gates in the grid rather than a predicted animation.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Path Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Path Encoder documentation for s3g-dsp.">
+    <title>Ambi Encoder Path - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Path documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,16 +24,25 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Path Encoder</h1>
+        <h1>Ambi Encoder Path</h1>
 
-        <p><code>s3g Ambi Encoder Path 64</code> encodes up to 64 source lanes into first-through-seventh-order <code>ACN/SN3D</code> ambisonics while each source follows a path trajectory.</p>
+        <p><code>s3g Ambi Encoder Path</code> encodes up to 64 source lanes into first-through-seventh-order <code>ACN/SN3D</code> ambisonics while each source follows a path trajectory.</p>
 
         <p>Use it when spatial motion should be authored as a reusable shape or gesture rather than as only point automation or generative cloud motion.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-path-encoder.png" aria-label="Open Ambi Encoder Path GUI screenshot">
+              <img src="assets/plugin-guis/ambi-path-encoder.png" alt="Ambi Encoder Path GUI showing an editable trajectory, source position, path transport, camera, and ambisonic order controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Path with editable trajectory, source position, path transport, camera, and order controls.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder Path 64</code> on a 64-channel source track or bus.</li>
+          <li>Insert <code>s3g Ambi Encoder Path</code> on a 64-channel source track or bus.</li>
           <li>Set the active <code>INPUTS</code>, output <code>ORDER</code>, and number of <code>PATHS</code>.</li>
           <li>Draw, generate, or import the trajectories and choose how sources are assigned to them.</li>
           <li>Set playback mode, interpolation, clock behavior, and source phase relationships.</li>
@@ -101,7 +110,7 @@
           </tbody>
         </table>
 
-        <p>Place the plugin on a wide REAPER track carrying source lanes. Decode the encoded output with <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, or <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>.</p>
+        <p>Place the plugin on a wide REAPER track carrying source lanes. Decode the encoded output with <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, or <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-terrain-navigator.html">
@@ -110,7 +119,7 @@
           </a>
           <a class="page-nav-link next" href="ambi-ray-encoder.html">
             <span>Next</span>
-            Ambi Ray Encoder
+            Ambi Encoder Ray
           </a>
         </nav>
       </main>
@@ -128,20 +137,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -153,5 +162,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

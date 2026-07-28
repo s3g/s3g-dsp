@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Insect Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Insect Encoder bioacoustic synthesis, swarm motion, environment, preset, and routing documentation for s3g-dsp.">
+    <title>Ambi Encoder Insect - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Insect bioacoustic synthesis, swarm motion, environment, preset, and routing documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,11 +24,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Insect Encoder</h1>
+        <h1>Ambi Encoder Insect</h1>
 
-        <p><code>s3g Ambi Encoder Insect 64</code> is a zero-input procedural instrument for spatial insect populations. As many as 64 independently timed voices use stridulation, tymbalisation, wing vibration, percussion, tremulation, and resonant body models, then encode their moving positions directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Encoder Insect</code> is a zero-input procedural instrument for spatial insect populations. As many as 64 independently timed voices use stridulation, tymbalisation, wing vibration, percussion, tremulation, and resonant body models, then encode their moving positions directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>The engine is a musical bioacoustic model, not a species-identification tool and not a sample player. Its controls preserve the separable time scales and sound-producing mechanisms found across insect communication while leaving room for imagined populations.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-insect-encoder.png" aria-label="Open Ambi Encoder Insect GUI screenshot">
+              <img src="assets/plugin-guis/ambi-insect-encoder.png" alt="Ambi Encoder Insect GUI showing call structure, production models, swarm field, environment, and ambisonic output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Insect with call structure, production models, swarm field, environment, and ambisonic output controls.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
         <ol>
@@ -101,16 +110,16 @@
             <tr><td>7OA</td><td>64</td></tr>
           </tbody>
         </table>
-        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-cryosphere-encoder.html">
             <span>Previous</span>
-            Ambi Cryosphere Encoder
+            Ambi Encoder Cryosphere
           </a>
           <a class="page-nav-link next" href="ambi-pulsar-encoder.html">
             <span>Next</span>
-            Ambi Pulsar Encoder
+            Ambi Encoder Pulsar
           </a>
         </nav>
       </main>
@@ -143,5 +152,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

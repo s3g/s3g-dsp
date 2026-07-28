@@ -19,6 +19,15 @@
         <h1>Ambi Effect Gain</h1>
         <p><strong>s3g Ambi Effect Gain 64</strong> generalizes the fixed-3OA gain insert to complete <code>1OA</code> through <code>7OA</code> fields. It treats gain as a directional field: listener pickups receive independent effective levels, topology can move those levels through the body, and the result is returned as a correction over the unchanged encoded input.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-effect-gain.png" aria-label="Open Ambi Effect Gain interface screenshot">
+              <img src="assets/plugin-guis/ambi-effect-gain.png" alt="Ambi Effect Gain interface showing the pickup gain field, macro relationships, listener view, meters, and directional mask" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Effect Gain with pickup gain field, macro relationships, listener view, meters, and directional mask.</figcaption>
+        </figure>
+
         <h2 id="body">Body and Gain Model</h2>
         <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code> through <code>3OA</code> and <code>DODECA 20</code> for <code>4OA</code> through <code>7OA</code>. <code>GAIN</code> ranges from <code>-60</code> to <code>+18 dB</code>; <code>0 dB</code> is neutral. Each of twenty persistent pickup slots adds up to <code>±24 dB</code> of local trim inside the bounded range.</p>
 
@@ -41,5 +50,6 @@
         <div class="toc-section"><h2>On This Page</h2><a href="#body">Body and Gain</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

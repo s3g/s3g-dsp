@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Wave Geometry Processor - s3g-dsp</title>
+    <title>Processor Wave Geometry - s3g-dsp</title>
     <meta name="description" content="s3g Processor Wave Geometry documentation.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -24,11 +24,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Wave Geometry Processor</h1>
+        <h1>Processor Wave Geometry</h1>
 
         <p><code>s3g Processor Wave Geometry 8ch</code> is a topology-shaped wave processor for fixed-width multichannel tracks. It is non-FFT and processes incoming audio directly: folding, rectification, clipping, sample-step motion, bit collapse, polarity patterns, and a dual tape-head loop layer are combined per lane. Its Wave Mesh can then send that shaped material through short, resonant paths between topology nodes.</p>
 
         <p>It produces fractured, bent, repeated, and hard-edged waveform changes while keeping the eight lanes coordinated through topology. Choose a Macro effect when a gentler process or smaller control set is more appropriate.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/wave-geometry-processor.png" aria-label="Open high-resolution Processor Wave Geometry GUI screenshot">
+              <img src="assets/plugin-guis/wave-geometry-processor.png" alt="Processor Wave Geometry patch matrix, wave mesh, topology controls, dual tape heads, and lane activity" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Wave Geometry with patch matrix, wave mesh, topology controls, dual tape heads, and lane activity.</figcaption>
+        </figure>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -96,7 +105,7 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="delay-processor.html">
             <span>Previous</span>
-            Delay Processor
+            Processor Delay
           </a>
           <a class="page-nav-link next" href="spectral-topology-processor.html">
             <span>Next</span>
@@ -118,8 +127,8 @@
         <div class="toc-section">
           <h2>Topology Effect Pages</h2>
           <a href="topology-framework.html">Topology Framework</a>
-          <a href="delay-processor.html">Delay Processor</a>
-          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="delay-processor.html">Processor Delay</a>
+          <a href="wave-geometry-processor.html">Processor Wave Geometry</a>
           <a href="spectral-topology-processor.html">Processor Spectral</a>
         </div>
         <div class="toc-section">
@@ -134,5 +143,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

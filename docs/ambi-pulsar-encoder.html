@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Pulsar Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Pulsar Encoder instrument documentation for s3g-dsp.">
+    <title>Ambi Encoder Pulsar - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Pulsar instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,16 +24,25 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Pulsar Encoder</h1>
+        <h1>Ambi Encoder Pulsar</h1>
 
-        <p><code>s3g Ambi Encoder Pulsar 64</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
+        <p><code>s3g Ambi Encoder Pulsar</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
 
         <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a selectable sixteen-, thirty-two-, or sixty-four-node recurrent ecology can sound directly or supply captured pulsaret, envelope, and FM shapes. Four or eight internal Ambisonic ears can now excite, imprint, or rebalance the emitted organism as well as return the spatial field to its neural circuit.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.png" aria-label="Open Ambi Encoder Pulsar GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.png" alt="Ambi Encoder Pulsar GUI showing pulsaret lanes, recurrent waveform capture, self-listening field, masks, and spatial output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Pulsar with pulsaret lanes, recurrent waveform capture, self-listening field, masks, and spatial output.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder Pulsar 64</code> on a 64-channel REAPER track.</li>
+          <li>Insert <code>s3g Ambi Encoder Pulsar</code> on a 64-channel REAPER track.</li>
           <li>Choose a factory state, or use <code>LOAD</code> and <code>SAVE</code> for a portable <code>.s3gpulsar</code> preset, then set <code>EMISSION</code> for the overall rhythm-to-tone timescale.</li>
           <li>Set each lane's carrier <code>TUNING</code>, <code>CARRIER HZ</code> or <code>CLOCK RATIO</code>, <code>OVERLAP</code>, <code>LEVEL</code>, <code>OFFSET</code>, and <code>PULSARET</code>.</li>
           <li>Use <code>FM RATIO</code> and <code>FM INDEX</code> for clock-synchronous phase modulation, <code>WIN SKEW</code> to move the window peak, and <code>TRIGGER</code> to choose reset, continuous-phase, or idle-only behavior.</li>
@@ -69,6 +78,15 @@
 
         <p>The three lanes are parallel components of one spatial object. Every accepted emission selects one point and normally launches A, B, and C there; <code>OFFSET</code> may displace each chain by a fraction of the emission period while retaining its point assignment. <code>OVERLAP</code> expresses window duration as a multiple of the current emission period, allowing isolated classical pulsars below one and dense concurrent pulsarets above one.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.pulsarets.png" aria-label="Open Ambi Encoder Pulsar PULSARETS view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.pulsarets.png" alt="Ambi Encoder Pulsar PULSARETS view showing the active waveform, envelope, and FM trace for all three lanes" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>PULSARETS view with simultaneous Lane A, B, and C waveform, envelope, and FM traces.</figcaption>
+        </figure>
+
         <table class="readout-table">
           <thead><tr><th>Lane control</th><th>Meaning</th></tr></thead>
           <tbody>
@@ -86,6 +104,15 @@
         <h2 id="neural">Neural Synthesis</h2>
 
         <p>The neural section is a Tudor-inspired recurrent sound circuit rather than a literal emulation of a specific neural chip. One, two, or four independently seeded lobes provide sixteen, thirty-two, or sixty-four leaky <code>tanh</code> nodes. Every lobe contains four clusters running at progressively faster nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.neural.png" aria-label="Open Ambi Encoder Pulsar NEURAL view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.neural.png" alt="Ambi Encoder Pulsar NEURAL view showing four active sixteen-node lobes and their recurrent ring activity" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>NEURAL view with the complete four-lobe, 64-node recurrent organism active.</figcaption>
+        </figure>
 
         <p>Each cluster is a four-stage signed ring. A sparse signed matrix mixes the four clusters inside every lobe, while a second signed matrix exchanges bounded activity between lobes. Slower clusters gate the faster rings, and <code>SLOW &gt; FAST</code> varies their effective R-C time. First-order allpass memories put phase-bearing paths inside the feedback web. Population changes use smoothed lobe activation, so adding or retiring neural material does not hard-switch a completed audio signal.</p>
 
@@ -107,6 +134,15 @@
         <h2 id="listening">Ambisonic Self-Listening</h2>
 
         <p>The original <code>AUDIO FB</code> path remains available: it returns a conditioned mono sum of the Pulsar field to every neural lobe. Field listening is a second path that retains direction. The complete, post-depth point field is encoded internally to the currently selected HOA order, then decoded through four tetrahedral or eight cube-corner ears. Each ear tracks a fast and slow envelope, directional energy, onset novelty, slow habituation, and a consumable charge reservoir. Those features drive the selected response law and can also be distributed among the neural lobes before the next sample is evaluated. Motion, width, source direction, air, distance, and HOA order can therefore alter both what Pulsar hears and what it emits next.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.listen.png" aria-label="Open Ambi Encoder Pulsar LISTEN view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.listen.png" alt="Ambi Encoder Pulsar LISTEN view showing the eight-ear auditory body, active route, response state, and listening controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LISTEN view with the eight-ear auditory body, neural-lobe return routes, and live response state.</figcaption>
+        </figure>
 
         <table class="readout-table">
           <thead><tr><th>Listening control</th><th>Meaning</th></tr></thead>
@@ -142,7 +178,7 @@
 
         <h2 id="spatial">Spatial Model</h2>
 
-        <p>The point count is constrained to four through thirty-two. Grains retain their assigned point for their complete lifetime; the three lane sums at each point are combined, conditioned, and multiplied by that point's complete spherical-harmonic basis vector. Point 1 starts at the field origin, while the surrounding points use polyhedral or Fibonacci-sphere anchors. <code>MOTION: FREE</code> applies the Stochastic Encoder's bounded three-axis random walk: Cauchy, logistic, and Gaussian perturbations drive reflected velocities and positions without collecting at an edge. The local 3D cloud is rotated around the chosen center as a complete sphere, rather than compressing its azimuth and elevation into a center sector; <code>SPATIAL INERTIA</code> now affects only trajectory smoothing in this mode. <code>FORSY</code> imports the family topology used by Stochastic and Wrangler: a three-axis, interlaced sine structure under their FREE topology modulation, with the bounded secondary random walk retained underneath. Its main trajectory now uses a reflected 0-to-1-to-0 phase, retracing like a palindrome instead of wrapping to a new position; a bounded angular slew also protects points at topology-basis crossings. <code>ORBIT</code>, constant-speed triangular <code>SWAY</code>, and two-axis <code>FIGURE 8</code> retain deterministic alternatives. <code>ORBIT RATE</code> and <code>ORBIT DEPTH</code> control motion speed and excursion. Individual HOA channels are never moved or scaled independently. With width and motion depth at zero, every point collapses exactly to the selected center direction.</p>
+        <p>The point count is constrained to four through thirty-two. Grains retain their assigned point for their complete lifetime; the three lane sums at each point are combined, conditioned, and multiplied by that point's complete spherical-harmonic basis vector. Point 1 starts at the field origin, while the surrounding points use polyhedral or Fibonacci-sphere anchors. <code>MOTION: FREE</code> applies Ambi Encoder Stochastic's bounded three-axis random walk: Cauchy, logistic, and Gaussian perturbations drive reflected velocities and positions without collecting at an edge. The local 3D cloud is rotated around the chosen center as a complete sphere, rather than compressing its azimuth and elevation into a center sector; <code>SPATIAL INERTIA</code> now affects only trajectory smoothing in this mode. <code>FORSY</code> imports the family topology used by Stochastic and Wrangler: a three-axis, interlaced sine structure under their FREE topology modulation, with the bounded secondary random walk retained underneath. Its main trajectory now uses a reflected 0-to-1-to-0 phase, retracing like a palindrome instead of wrapping to a new position; a bounded angular slew also protects points at topology-basis crossings. <code>ORBIT</code>, constant-speed triangular <code>SWAY</code>, and two-axis <code>FIGURE 8</code> retain deterministic alternatives. <code>ORBIT RATE</code> and <code>ORBIT DEPTH</code> control motion speed and excursion. Individual HOA channels are never moved or scaled independently. With width and motion depth at zero, every point collapses exactly to the selected center direction.</p>
 
         <p>The upper-left visual viewport follows the Encoder-family layout used by Water, Wind, Path, and the other spatial instruments. Its <code>FIELD</code> page provides the projected sphere, numbered square markers, ring links, event and energy halos, selectable points, zoom, and <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> camera presets. <code>PULSARETS</code> shows the window, waveform, synchronized FM, and current mode of all three lanes; selecting a trace also selects that lane in the compact editor below. <code>NEURAL</code> shows all four lobes and marks inactive populations as standby. <code>LISTEN</code> shows the tetrahedral/cube auditory body, live ear energy, ear-to-lobe relationships, return state, and the listening controls.</p>
 
@@ -171,11 +207,11 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-insect-encoder.html">
             <span>Previous</span>
-            Ambi Insect Encoder
+            Ambi Encoder Insect
           </a>
           <a class="page-nav-link next" href="ambi-neural-ecology.html">
             <span>Next</span>
-            Ambi Neural Ecology
+            Ambi Encoder Neural Ecology
           </a>
         </nav>
       </main>
@@ -193,21 +229,21 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-neural-ecology.html">Neural Ecology</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -223,5 +259,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>.s3gimprint Format - s3g-dsp</title>
-    <meta name="description" content="Version 1 interchange format for s3g Ambi Imprint and s3g-mc Imprint Sketch.">
+    <meta name="description" content="Version 1 interchange format for s3g Processor Ambi Imprint and s3g-mc Imprint Sketch.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -28,7 +28,7 @@
 
         <p><code>.s3gimprint</code> is the interchange format between <code>s3g-mc Imprint Sketch</code> and <code>s3g Processor Ambi Imprint 64ch</code>. It is UTF-8 JSON with a dedicated extension so a runtime imprint remains distinct from an editable Imprint Sketch project.</p>
 
-        <p>The format is sample-rate independent. Times are stored in milliseconds or seconds and frequencies in hertz. Ambi Imprint compiles the descriptor into FIR kernels at the host sample rate.</p>
+        <p>The format is sample-rate independent. Times are stored in milliseconds or seconds and frequencies in hertz. Processor Ambi Imprint compiles the descriptor into FIR kernels at the host sample rate.</p>
 
         <h2 id="version">Version 1</h2>
 
@@ -46,7 +46,7 @@
           <li><code>profiles</code>: one to eight directional response descriptors</li>
         </ul>
 
-        <p>Each profile contains its input AED direction, source position, quadrature weight, direct arrival, discrete early reflections, and late response. The late response includes eight-band absorption and RT60 values, diffusion, spread, damping, level, and a deterministic seed. Ambi Imprint derives processing from these resolved profiles; generalized geometry remains useful provenance and drives the orbitable GUI scene rather than a realtime geometry simulation.</p>
+        <p>Each profile contains its input AED direction, source position, quadrature weight, direct arrival, discrete early reflections, and late response. The late response includes eight-band absorption and RT60 values, diffusion, spread, damping, level, and a deterministic seed. Processor Ambi Imprint derives processing from these resolved profiles; generalized geometry remains useful provenance and drives the orbitable GUI scene rather than a realtime geometry simulation.</p>
 
         <p>Optional display metadata includes the primary XY polygon, an XZ ceiling profile, and a connected-volume graph. <code>space.regions</code> records each region polygon, base elevation, height, family, attachment, and parent. <code>space.portals</code> records the connection endpoints, 3D center and orientation, opening shape, dimensions, area, transmission estimate, and outline. This permits wall, overhead, beneath, and stacked regions without changing the resolved audio contract.</p>
 
@@ -54,18 +54,18 @@
 
         <h2 id="runtime">Runtime Limits</h2>
 
-        <p>Ambi Imprint version 1 accepts one to eight profiles and up to 128 early events per profile. Realtime responses are limited to four seconds even when the authoring file retains a longer duration. The plugin reports 1024 samples of latency and embeds the imported JSON in CLAP project state.</p>
+        <p>Processor Ambi Imprint version 1 accepts one to eight profiles and up to 128 early events per profile. Realtime responses are limited to four seconds even when the authoring file retains a longer duration. The plugin reports 1024 samples of latency and embeds the imported JSON in CLAP project state.</p>
 
         <p>Imprint Sketch material curves are creative acoustic estimates. They support procedural sound design and repeatable spatial response construction; they are not measured architectural coefficients.</p>
 
         <h2 id="compatibility">Compatibility</h2>
 
-        <p>The editable Imprint Sketch <code>.json</code> project and <code>.s3gimprint</code> runtime descriptor are different contracts. Ambi Imprint does not load project JSON, and Imprint Sketch does not require <code>s3g-field</code> to create the runtime file. Legacy <code>s3g-ir-room-sketch</code> projects remain importable by Imprint Sketch.</p>
+        <p>The editable Imprint Sketch <code>.json</code> project and <code>.s3gimprint</code> runtime descriptor are different contracts. Processor Ambi Imprint does not load project JSON, and Imprint Sketch does not require <code>s3g-field</code> to create the runtime file. Legacy <code>s3g-ir-room-sketch</code> projects remain importable by Imprint Sketch.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-energy-visualizer.html">
             <span>Previous</span>
-            Ambi Energy Visualizer
+            Analyzer Ambi Energy
           </a>
           <a class="page-nav-link next" href="s3gray-format.html">
             <span>Next</span>
@@ -88,7 +88,7 @@
         <div class="toc-section">
           <h2>Utility Pages</h2>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>
           <a href="s3gimprint-format.html">.s3gimprint Format</a>
           <a href="s3gray-format.html">.s3gray Format</a>
         </div>

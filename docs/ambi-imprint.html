@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Imprint - s3g-dsp</title>
+    <title>Processor Ambi Imprint - s3g-dsp</title>
     <meta name="description" content="Directional ambisonic imprint convolution for architectural, natural, open, and imaginary responses exported by s3g-mc Imprint Sketch.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -24,9 +24,18 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Imprint 64</h1>
+        <h1>Processor Ambi Imprint</h1>
 
         <p><code>s3g Processor Ambi Imprint 64ch</code> applies a designed directional space response to a first-through-seventh-order <code>ACN/SN3D</code> field. It loads <code>.s3gimprint</code> files exported directly by the browser-based <code>s3g-mc Imprint Sketch</code> utility.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-imprint.png" aria-label="Open Processor Ambi Imprint interface screenshot">
+              <img src="assets/plugin-guis/ambi-imprint.png" alt="Processor Ambi Imprint interface showing loaded architectural response geometry, source and listener field, convolution controls, and atlas selection" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Ambi Imprint with loaded architectural response geometry, source/listener field, convolution controls, and atlas selection.</figcaption>
+        </figure>
 
         <h2 id="signal-model">Signal Model</h2>
 
@@ -73,7 +82,7 @@
         <pre><code>Open s3g-mc Imprint Sketch
 - generate, mutate, design, or import an editable space project
 - choose Export Imprint
-- load the resulting .s3gimprint in Ambi Imprint 64</code></pre>
+- load the resulting .s3gimprint in Processor Ambi Imprint</code></pre>
 
         <p>The imported descriptor is embedded in CLAP project state, so reopening a REAPER project does not depend on the original file remaining at the same path. The <a href="s3gimprint-format.html">format reference</a> documents the versioned interchange contract.</p>
 
@@ -86,7 +95,7 @@
           </a>
           <a class="page-nav-link next" href="ambisonic-rotate.html">
             <span>Next</span>
-            Ambi Rotate
+            Ambi Transform Rot 64
           </a>
         </nav>
       </main>
@@ -106,8 +115,8 @@
           <h2>Effect Pages</h2>
           <a href="ambisonic-effects.html">Ambi Effects</a>
           <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="ambisonic-rotate.html">Ambi Rotate</a>
+          <a href="ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>
           <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
           <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
@@ -121,5 +130,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

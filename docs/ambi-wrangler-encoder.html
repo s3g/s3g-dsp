@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Wrangler Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Wrangler Encoder synthesis and routing documentation for s3g-dsp.">
+    <title>Ambi Encoder Wrangler - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Wrangler synthesis and routing documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,11 +24,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Wrangler Encoder</h1>
+        <h1>Ambi Encoder Wrangler</h1>
 
-        <p><code>s3g Ambi Encoder Wrangler 64</code> is an autonomous Benjolin/rungler-style logic instrument with as many as 64 independent voices and direct first-through-seventh-order <code>ACN/SN3D</code> output. One voice is one complete dual-oscillator, register, and state-variable-filter circuit at one ambisonic point. It has no audio input or MIDI note input; use its parameters and factory states to shape a continuously evolving field.</p>
+        <p><code>s3g Ambi Encoder Wrangler</code> is an autonomous Benjolin/rungler-style logic instrument with as many as 64 independent voices and direct first-through-seventh-order <code>ACN/SN3D</code> output. One voice is one complete dual-oscillator, register, and state-variable-filter circuit at one ambisonic point. It has no audio input or MIDI note input; use its parameters and factory states to shape a continuously evolving field.</p>
 
         <p>Rungler synthesis compares two coupled oscillators and clocks the result through a feedback shift register. The changing bit pattern modulates oscillator pitch and filtering, producing repeating figures that continually slip into new, irregular states.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.png" aria-label="Open Ambi Encoder Wrangler GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.png" alt="Ambi Encoder Wrangler GUI showing coupled logic voices, parameter surface, per-voice curves, topology, and output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Wrangler with coupled logic voices, parameter surface, per-voice curves, topology, and output.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -87,6 +96,15 @@
 
         <p>The Curve page is divided into two banks. <code>HIST · 19</code> is the main bank, with nineteen per-voice controls for the oscillators, register, feedback, and filter:</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.curve.png" aria-label="Open Ambi Encoder Wrangler CURVE view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.curve.png" alt="Ambi Encoder Wrangler CURVE view showing the historical control bank and a populated sixteen-voice breakpoint curve" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>CURVE view with the historical control bank and a populated sixteen-voice modulation curve.</figcaption>
+        </figure>
+
         <ol>
           <li><code>RATE A</code>, <code>RUNG A</code>, <code>FM B&gt;A</code>, <code>COLOR A</code></li>
           <li><code>RATE B</code>, <code>RUNG B</code>, <code>FM A&gt;B</code>, <code>COLOR B</code></li>
@@ -120,6 +138,15 @@
         <h2 id="field-listener">Field-Written Register</h2>
 
         <p>The <code>LISTEN</code> page lets the completed ambisonic field influence what the instrument does next. Four tetrahedral or eight cubical virtual pickups listen in different directions, and each voice reads a pickup near its own position. In <code>WRITE</code>, the decoded field can influence the register whenever oscillator B produces a clock.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.listen.png" aria-label="Open Ambi Encoder Wrangler LISTEN view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.listen.png" alt="Ambi Encoder Wrangler LISTEN view showing the eight-ear aperture, per-voice route, register write state, and listening controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LISTEN view with the eight-ear aperture, selected-voice route, and field-written register state.</figcaption>
+        </figure>
 
         <table class="readout-table">
           <thead>
@@ -174,12 +201,12 @@
           </tbody>
         </table>
 
-        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-stochastic-encoder.html">
             <span>Previous</span>
-            Ambi Stochastic Encoder
+            Ambi Encoder Stochastic
           </a>
           <a class="page-nav-link next" href="ambisonic-decoders.html">
             <span>Next</span>
@@ -202,20 +229,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -230,5 +257,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

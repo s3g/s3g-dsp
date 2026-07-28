@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace s3g {
 
@@ -26,6 +27,20 @@ enum class NoInputDistortionType : uint32_t {
     FuzzII,
     Diode,
     Ring,
+    Relay,
+    Crush,
+    Splice,
+    Logic,
+    Shred,
+    Void,
+    Rotor,
+    Phase,
+    Chorus,
+    Throat,
+    Robot,
+    OctDown,
+    OctUp,
+    OctStack,
     Count,
 };
 
@@ -44,9 +59,121 @@ inline const char* noInputDistortionName(NoInputDistortionType type)
     case NoInputDistortionType::FuzzII: return "FUZZ II";
     case NoInputDistortionType::Diode: return "DIODE";
     case NoInputDistortionType::Ring: return "RING";
+    case NoInputDistortionType::Relay: return "RELAY";
+    case NoInputDistortionType::Crush: return "CRUSH";
+    case NoInputDistortionType::Splice: return "SPLICE";
+    case NoInputDistortionType::Logic: return "LOGIC";
+    case NoInputDistortionType::Shred: return "SHRED";
+    case NoInputDistortionType::Void: return "VOID";
+    case NoInputDistortionType::Rotor: return "ROTOR";
+    case NoInputDistortionType::Phase: return "PHASE";
+    case NoInputDistortionType::Chorus: return "CHORUS";
+    case NoInputDistortionType::Throat: return "THROAT";
+    case NoInputDistortionType::Robot: return "ROBOT";
+    case NoInputDistortionType::OctDown: return "OCT DOWN";
+    case NoInputDistortionType::OctUp: return "OCT UP";
+    case NoInputDistortionType::OctStack: return "OCT STACK";
     case NoInputDistortionType::Count: break;
     }
     return "BYPASS";
+}
+
+enum class NoInputMovementBehavior : uint32_t {
+    Glide = 0u,
+    Step,
+    Cut,
+    Burst,
+    Scramble,
+    Count,
+};
+
+inline const char* noInputMovementBehaviorName(NoInputMovementBehavior behavior)
+{
+    switch (behavior) {
+    case NoInputMovementBehavior::Glide: return "GLIDE";
+    case NoInputMovementBehavior::Step: return "STEP";
+    case NoInputMovementBehavior::Cut: return "CUT";
+    case NoInputMovementBehavior::Burst: return "BURST";
+    case NoInputMovementBehavior::Scramble: return "SCRAMBLE";
+    case NoInputMovementBehavior::Count: break;
+    }
+    return "GLIDE";
+}
+
+struct NoInputMovementBehaviorParams {
+    NoInputMovementBehavior behavior = NoInputMovementBehavior::Glide;
+    float eventRate = 0.42f;
+    float length = 0.32f;
+    float density = 0.55f;
+    float chaos = 0.34f;
+    float slew = 0.22f;
+    float choke = 0.0f;
+};
+
+inline NoInputMovementBehaviorParams sanitizeNoInputMovementBehaviorParams(
+    NoInputMovementBehaviorParams params)
+{
+    params.behavior = static_cast<NoInputMovementBehavior>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.behavior),
+            static_cast<uint32_t>(NoInputMovementBehavior::Count) - 1u));
+    const auto normalized = [](float value, float fallback) {
+        return clamp(std::isfinite(value) ? value : fallback, 0.0f, 1.0f);
+    };
+    params.eventRate = normalized(params.eventRate, 0.42f);
+    params.length = normalized(params.length, 0.32f);
+    params.density = normalized(params.density, 0.55f);
+    params.chaos = normalized(params.chaos, 0.34f);
+    params.slew = normalized(params.slew, 0.22f);
+    params.choke = normalized(params.choke, 0.0f);
+    return params;
+}
+
+inline float noInputMovementEventRateHz(float normalizedRate)
+{
+    normalizedRate = clamp(std::isfinite(normalizedRate)
+        ? normalizedRate : 0.42f, 0.0f, 1.0f);
+    return 0.25f * std::pow(320.0f, normalizedRate);
+}
+
+inline float noInputMovementLengthMs(float normalizedLength)
+{
+    normalizedLength = clamp(std::isfinite(normalizedLength)
+        ? normalizedLength : 0.32f, 0.0f, 1.0f);
+    return 0.5f * std::pow(500.0f, normalizedLength);
+}
+
+inline float noInputMovementSlewMs(float normalizedSlew)
+{
+    normalizedSlew = clamp(std::isfinite(normalizedSlew)
+        ? normalizedSlew : 0.22f, 0.0f, 1.0f);
+    return 0.1f * std::pow(200.0f, normalizedSlew);
+}
+
+inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
+    uint32_t seed)
+{
+    const auto unit = [&seed]() {
+        seed += 0x9e3779b9u;
+        uint32_t value = seed;
+        value ^= value >> 16u;
+        value *= 0x7feb352du;
+        value ^= value >> 15u;
+        value *= 0x846ca68bu;
+        value ^= value >> 16u;
+        return static_cast<float>(value & 0x00ffffffu)
+            / static_cast<float>(0x01000000u);
+    };
+    NoInputMovementBehaviorParams params;
+    params.behavior = static_cast<NoInputMovementBehavior>(
+        static_cast<uint32_t>(unit() * 5.0f) % 5u);
+    params.eventRate = 0.18f + unit() * 0.76f;
+    params.length = 0.08f + unit() * 0.66f;
+    params.density = 0.24f + unit() * 0.66f;
+    params.chaos = 0.12f + unit() * 0.82f;
+    params.slew = 0.02f + unit() * 0.54f;
+    params.choke = params.behavior == NoInputMovementBehavior::Glide
+        ? 0.0f : 0.30f + unit() * 0.70f;
+    return sanitizeNoInputMovementBehaviorParams(params);
 }
 
 struct NoInputInsertParams {
@@ -464,6 +591,73 @@ inline const char* noInputMixerFactoryPresetName(uint32_t index)
     }};
     return names[std::min<uint32_t>(index,
         kNoInputMixerFactoryPresetCount - 1u)];
+}
+
+inline NoInputMovementBehaviorParams noInputMixerFactoryBehavior(
+    uint32_t index)
+{
+    NoInputMovementBehaviorParams params;
+    switch (std::min<uint32_t>(index,
+        kNoInputMixerFactoryPresetCount - 1u)) {
+    case 1u:
+        params.behavior = NoInputMovementBehavior::Step;
+        params.eventRate = 0.36f;
+        params.density = 0.66f;
+        params.slew = 0.18f;
+        params.choke = 0.16f;
+        break;
+    case 3u:
+        params.behavior = NoInputMovementBehavior::Cut;
+        params.eventRate = 0.48f;
+        params.length = 0.42f;
+        params.density = 0.70f;
+        params.choke = 0.46f;
+        break;
+    case 4u:
+        params.behavior = NoInputMovementBehavior::Burst;
+        params.eventRate = 0.76f;
+        params.length = 0.14f;
+        params.density = 0.46f;
+        params.chaos = 0.82f;
+        params.slew = 0.04f;
+        params.choke = 0.90f;
+        break;
+    case 5u:
+        params.behavior = NoInputMovementBehavior::Scramble;
+        params.eventRate = 0.63f;
+        params.density = 0.48f;
+        params.chaos = 0.68f;
+        params.slew = 0.10f;
+        params.choke = 0.38f;
+        break;
+    case 6u:
+        params.behavior = NoInputMovementBehavior::Cut;
+        params.eventRate = 0.58f;
+        params.length = 0.18f;
+        params.density = 0.30f;
+        params.chaos = 0.56f;
+        params.slew = 0.06f;
+        params.choke = 0.86f;
+        break;
+    case 7u:
+        params.behavior = NoInputMovementBehavior::Burst;
+        params.eventRate = 0.50f;
+        params.length = 0.38f;
+        params.density = 0.58f;
+        params.chaos = 0.62f;
+        params.choke = 0.58f;
+        break;
+    case 9u:
+        params.behavior = NoInputMovementBehavior::Step;
+        params.eventRate = 0.44f;
+        params.density = 0.62f;
+        params.chaos = 0.46f;
+        params.choke = 0.24f;
+        break;
+    default:
+        break;
+    }
+    return sanitizeNoInputMovementBehaviorParams(params);
 }
 
 inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
@@ -998,6 +1192,8 @@ public:
             / static_cast<float>(sampleRate_ * 0.018));
         governorRelease_ = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.420));
+        auxMuteSlew_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.004));
         panicSamplesTotal_ = std::max<uint32_t>(
             1u, static_cast<uint32_t>(sampleRate_ * 0.008));
         setParams(params_);
@@ -1047,6 +1243,37 @@ public:
 
     const NoInputMixerParams& params() const { return params_; }
 
+    void setMovementBehaviorParams(NoInputMovementBehaviorParams params)
+    {
+        const auto previous = behaviorParams_.behavior;
+        behaviorParams_ = sanitizeNoInputMovementBehaviorParams(params);
+        if (previous != behaviorParams_.behavior) {
+            behaviorSamplesUntilEvent_ = 0u;
+            behaviorSamplesUntilClose_ = 0u;
+            if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
+                behaviorTarget_.fill(1.0f);
+                behaviorCurrent_.fill(1.0f);
+                laneBehaviorGate_.fill(1.0f);
+            }
+        }
+    }
+
+    const NoInputMovementBehaviorParams& movementBehaviorParams() const
+    {
+        return behaviorParams_;
+    }
+
+    void setAuxMuted(uint32_t bus, bool muted)
+    {
+        if (bus >= auxMuted_.size()) return;
+        auxMuted_[bus] = muted ? 1u : 0u;
+    }
+
+    bool auxMuted(uint32_t bus) const
+    {
+        return bus < auxMuted_.size() && auxMuted_[bus] != 0u;
+    }
+
     void reset()
     {
         clearSignalState();
@@ -1083,7 +1310,7 @@ public:
     void killLane(uint32_t lane)
     {
         if (lane >= kNoInputMixerChannels) return;
-        laneState_[lane] = {};
+        clearLaneSignalState(laneState_[lane]);
         returns_[lane] = 0.0f;
         previousReturns_[lane] = 0.0f;
         lanePeak_[lane] = 0.0f;
@@ -1114,8 +1341,13 @@ public:
                 + hz / static_cast<float>(sampleRate_));
         }
         if ((controlCounter_++ & 31u) == 0u) updateSlowControl();
+        updateMovementBehavior();
         previousReturns_ = returns_;
         previousAuxReturns_ = auxReturns_;
+        for (uint32_t bus = 0u; bus < 2u; ++bus) {
+            const float target = auxMuted_[bus] != 0u ? 0.0f : 1.0f;
+            auxMuteGain_[bus] += (target - auxMuteGain_[bus]) * auxMuteSlew_;
+        }
         processAuxReturns();
 
         std::array<float, kNoInputMixerChannels> activeMotionPeak {};
@@ -1128,7 +1360,7 @@ public:
                     destination * kNoInputMixerChannels + source;
                 if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
                 activeMotionPeak[source] = std::max(
-                    activeMotionPeak[source], motionCurrent_[index]);
+                    activeMotionPeak[source], effectiveMotionWeight(index));
                 ++activeMotionRouteCount[source];
             }
         }
@@ -1154,9 +1386,17 @@ public:
                     : params_.feedback * params_.coupling;
                 const float driftScale = 1.0f
                     + driftState_[index] * params_.drift * 0.14f;
-                const float motionScale = noInputMixerMotionGainScale(
-                    motionCurrent_[index], activeMotionPeak[source],
+                float motionScale = noInputMixerMotionGainScale(
+                    effectiveMotionWeight(index), activeMotionPeak[source],
                     activeMotionRouteCount[source], params_.motion);
+                if (behaviorParams_.behavior == NoInputMovementBehavior::Cut
+                    || behaviorParams_.behavior
+                        == NoInputMovementBehavior::Burst
+                    || behaviorParams_.behavior
+                        == NoInputMovementBehavior::Scramble) {
+                    motionScale *= lerp(1.0f, behaviorCurrent_[index],
+                        params_.motion);
+                }
                 const float spaceScale = lerp(1.0f,
                     routeSpaceGate_[index], params_.space);
                 const float activityDifference = laneActivity_[source]
@@ -1216,6 +1456,11 @@ public:
             if (!std::isfinite(value)) {
                 killLane(lane);
                 value = 0.0f;
+            }
+            if (behaviorParams_.behavior != NoInputMovementBehavior::Glide
+                && behaviorParams_.choke > 1.0e-6f) {
+                value *= lerp(1.0f, laneBehaviorGate_[lane],
+                    behaviorParams_.choke);
             }
             value = clamp(value, -8.0f, 8.0f);
 
@@ -1312,6 +1557,11 @@ public:
         return bus < 2u ? auxActivity_[bus] : 0.0f;
     }
     float motionPhase() const { return motionPhase_; }
+    float behaviorRouteGate(uint32_t route) const
+    {
+        return route < kNoInputMixerMatrixCells
+            ? behaviorCurrent_[route] : 0.0f;
+    }
     float minimumGovernor() const { return minimumLaneGovernor(); }
     NoInputContainmentState containmentState() const
     {
@@ -1363,10 +1613,14 @@ private:
         float memory = 0.0f;
         float envelope = 0.0f;
         float previous = 0.0f;
+        float phase = 0.0f;
+        float gate = 0.0f;
     };
 
     struct InsertRuntime {
         std::array<DistortionState, kNoInputDistortionTypeCount> states {};
+        std::array<float, 8192u> timeBuffer {};
+        uint32_t timeWrite = 0u;
         NoInputDistortionType currentType = NoInputDistortionType::Bypass;
         NoInputDistortionType previousType = NoInputDistortionType::Bypass;
         float crossfade = 1.0f;
@@ -1397,6 +1651,20 @@ private:
         float dcOutput = 0.0f;
         float activity = 0.0f;
     };
+
+    static void clearLaneSignalState(LaneState& state)
+    {
+        // SPLICE and CHORUS share each insert's fixed real-time buffer.
+        // Aggregate assignment would materialize a full LaneState temporary
+        // on the caller's stack; CLAP reset may run on a 512 KiB audio thread.
+        std::memset(&state, 0, sizeof(state));
+        state.governor = 1.0f;
+    }
+
+    static void clearAuxSignalState(AuxState& state)
+    {
+        std::memset(&state, 0, sizeof(state));
+    }
 
     static void setBiquad(Biquad& biquad,
         float b0, float b1, float b2, float a0, float a1, float a2)
@@ -1636,7 +1904,8 @@ private:
                 ringSource);
             value = dcBlock(clamp(value, -6.0f, 6.0f),
                 auxState_[bus].dcInput, auxState_[bus].dcOutput);
-            auxReturns_[bus] = flushDenormal(value);
+            value = flushDenormal(value * auxMuteGain_[bus]);
+            auxReturns_[bus] = value;
             auxState_[bus].activity += (std::abs(value)
                 - auxState_[bus].activity) * 0.0025f;
             auxActivity_[bus] = auxState_[bus].activity;
@@ -1650,6 +1919,7 @@ private:
         auto& state = runtime.states[static_cast<uint32_t>(type)];
         const float gain = params.gain;
         const float tone = params.tone;
+        const float rawBias = params.bias;
         const float bias = params.bias * 0.22f;
         const float sr = static_cast<float>(sampleRate_)
             * static_cast<float>(1u << params_.quality);
@@ -1731,6 +2001,258 @@ private:
                 * (1.0f + tone * 8.0f));
             return lerp(input, input * carrier * 2.0f + bias, depth);
         }
+        case NoInputDistortionType::Relay: {
+            const float absolute = std::abs(input + bias);
+            const float attack = onePole(lerp(180.0f, 4200.0f, tone));
+            const float release = onePole(lerp(3.0f, 120.0f, tone));
+            state.envelope += (absolute - state.envelope)
+                * (absolute > state.envelope ? attack : release);
+            const float threshold = lerp(0.34f, 0.008f, gain);
+            const float hysteresis = 0.18f + std::abs(rawBias) * 0.62f;
+            if (state.gate < 0.5f && state.envelope > threshold) {
+                state.gate = 1.0f;
+            } else if (state.gate > 0.5f
+                && state.envelope < threshold * hysteresis) {
+                state.gate = 0.0f;
+            }
+            const float chatter = std::sin(state.phase * 2.0f * kPi) * tone
+                * (0.08f + gain * 0.24f);
+            state.phase = noInputWrapPhase(state.phase
+                + (80.0f + tone * 1700.0f) / sr);
+            const float gateTarget = state.gate > 0.5f
+                ? 1.0f : clamp(chatter, 0.0f, 1.0f);
+            state.memory += (gateTarget - state.memory)
+                * onePole(lerp(90.0f, 4800.0f, tone));
+            return input * state.memory;
+        }
+        case NoInputDistortionType::Crush: {
+            const float holdSamples = lerp(sr / 420.0f,
+                std::max(1.0f, sr / 18000.0f), tone * tone);
+            state.phase += 1.0f;
+            if (state.phase >= holdSamples) {
+                state.phase -= holdSamples;
+                state.memory = input + rawBias * gain * 0.018f;
+            }
+            const float bits = lerp(16.0f, 2.0f, gain * gain);
+            const float steps = std::pow(2.0f, bits - 1.0f);
+            state.envelope += 0.754877666f;
+            if (state.envelope >= 1.0f) state.envelope -= 1.0f;
+            const float dither = (state.envelope - 0.5f)
+                * std::abs(rawBias) / steps;
+            return std::round((state.memory + dither) * steps) / steps;
+        }
+        case NoInputDistortionType::Splice: {
+            constexpr uint32_t size = 8192u;
+            runtime.timeBuffer[runtime.timeWrite] = input;
+            runtime.timeWrite = (runtime.timeWrite + 1u) % size;
+            const float maximumMs = std::min(80.0f,
+                static_cast<float>(size - 2u) * 1000.0f / sr);
+            const float lengthMs = 1.0f * std::pow(maximumMs,
+                tone * tone);
+            const uint32_t length = std::clamp<uint32_t>(
+                static_cast<uint32_t>(sr * lengthMs * 0.001f), 2u,
+                size - 2u);
+            state.phase += 1.0f;
+            if (state.phase >= static_cast<float>(length)) {
+                state.phase -= static_cast<float>(length);
+                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
+            }
+            const uint32_t position = static_cast<uint32_t>(state.phase)
+                % length;
+            const bool reverse = rawBias < -0.12f
+                || (std::abs(rawBias) < 0.12f && state.gate > 0.5f);
+            const uint32_t offset = reverse ? position : length - position;
+            const uint32_t read = (runtime.timeWrite + size
+                - std::min<uint32_t>(offset + 1u, size - 1u)) % size;
+            const float repeat = runtime.timeBuffer[read];
+            return lerp(input, std::tanh(repeat * (1.0f + gain * 4.0f)),
+                0.25f + gain * 0.75f);
+        }
+        case NoInputDistortionType::Logic: {
+            const float threshold = lerp(0.42f, 0.015f, tone);
+            const bool a = input + bias >= threshold;
+            const bool b = ringSource - bias >= threshold;
+            const float logic = (a != b ? 1.0f : -1.0f)
+                * (0.34f + gain * 0.66f);
+            state.memory += (logic - state.memory)
+                * onePole(lerp(350.0f, 12000.0f,
+                    0.5f + rawBias * 0.5f));
+            return lerp(input, state.memory, gain);
+        }
+        case NoInputDistortionType::Shred: {
+            const float lowCut = lerp(180.0f, 2400.0f, tone);
+            const float highCut = lerp(1800.0f, 12000.0f, tone);
+            state.low += (input - state.low) * onePole(lowCut);
+            state.high += (input - state.high) * onePole(highCut);
+            const float mid = state.high - state.low;
+            const float high = input - state.high;
+            const auto fold = [](float value) {
+                value = std::fmod(value + 3.0f, 4.0f);
+                if (value < 0.0f) value += 4.0f;
+                return std::abs(value - 2.0f) - 1.0f;
+            };
+            const float drive = 2.0f + gain * gain * 46.0f;
+            const float low = std::tanh((state.low + bias) * drive);
+            const float middle = fold((mid - bias * 0.5f)
+                * drive * 1.45f);
+            const float upper = clamp(high * drive * 2.2f,
+                -1.0f, 1.0f);
+            return std::tanh(low * 0.52f + middle * 0.68f
+                + upper * 0.46f);
+        }
+        case NoInputDistortionType::Void: {
+            const float absolute = std::abs(input);
+            const float follow = onePole(lerp(2.0f, 80.0f, tone));
+            state.envelope += (absolute - state.envelope) * follow;
+            const float threshold = lerp(0.012f, 0.46f, gain);
+            const float skew = rawBias * 0.35f;
+            const bool shouldOpen = input + skew > 0.0f
+                ? state.envelope > threshold
+                : state.envelope > threshold * (1.0f + std::abs(skew));
+            const float target = shouldOpen ? 1.0f : 0.0f;
+            const float speed = onePole(lerp(4.0f, 850.0f, tone));
+            state.gate += (target - state.gate) * speed;
+            return input * lerp(1.0f - gain, state.gate, gain);
+        }
+        case NoInputDistortionType::Rotor: {
+            const float rate = 0.08f * std::pow(562.5f, tone);
+            state.phase = noInputWrapPhase(state.phase + rate / sr);
+            const float sine = std::sin(state.phase * 2.0f * kPi);
+            const float shape = std::tanh((sine + rawBias * 0.62f)
+                * (1.25f + std::abs(rawBias) * 5.5f));
+            const float amplitude = 0.5f + shape * 0.5f;
+            return input * lerp(1.0f, amplitude * 1.32f, gain);
+        }
+        case NoInputDistortionType::Phase: {
+            const float rate = 0.03f * std::pow(266.6667f, tone);
+            state.phase = noInputWrapPhase(state.phase + rate / sr);
+            const float sweep = std::sin(state.phase * 2.0f * kPi);
+            const float center = 520.0f * std::pow(2.0f,
+                rawBias * 2.0f + sweep * 1.75f);
+            const float frequency = clamp(center, 55.0f, sr * 0.18f);
+            const float tangent = std::tan(kPi * frequency / sr);
+            const float coefficient = (1.0f - tangent)
+                / (1.0f + tangent);
+            const auto allpass = [coefficient](float sample, float& memory) {
+                const float output = -coefficient * sample + memory;
+                memory = flushDenormal(sample + coefficient * output);
+                return output;
+            };
+            float phased = allpass(input, state.low);
+            phased = allpass(phased, state.high);
+            phased = allpass(phased, state.memory);
+            phased = allpass(phased, state.envelope);
+            return lerp(input, phased, gain * 0.5f);
+        }
+        case NoInputDistortionType::Chorus: {
+            constexpr uint32_t size = 8192u;
+            const float feedback = rawBias * 0.38f;
+            runtime.timeBuffer[runtime.timeWrite] = clamp(
+                input + state.gate * feedback, -5.0f, 5.0f);
+            runtime.timeWrite = (runtime.timeWrite + 1u) % size;
+            const float rate = 0.05f * std::pow(120.0f, tone);
+            state.phase = noInputWrapPhase(state.phase + rate / sr);
+            const float modulation = std::sin(state.phase * 2.0f * kPi);
+            const float baseMs = 8.0f + std::abs(rawBias) * 11.0f;
+            const float depthMs = 0.6f + gain * 8.5f;
+            const float delaySamples = clamp(
+                (baseMs + modulation * depthMs) * sr * 0.001f,
+                1.0f, static_cast<float>(size - 3u));
+            const uint32_t delayWhole = static_cast<uint32_t>(delaySamples);
+            const float fraction = delaySamples
+                - static_cast<float>(delayWhole);
+            const uint32_t first = (runtime.timeWrite + size
+                - delayWhole - 1u) % size;
+            const uint32_t second = (first + size - 1u) % size;
+            const float delayed = lerp(runtime.timeBuffer[first],
+                runtime.timeBuffer[second], fraction);
+            state.gate = flushDenormal(delayed);
+            return lerp(input, delayed, gain * 0.78f);
+        }
+        case NoInputDistortionType::Throat: {
+            const float shift = std::pow(2.0f, rawBias * 0.72f);
+            const float firstHz = clamp(
+                lerp(230.0f, 920.0f, tone) * shift,
+                80.0f, sr * 0.18f);
+            const float secondHz = clamp(
+                lerp(2450.0f, 1050.0f, tone) * shift,
+                180.0f, sr * 0.24f);
+            const float firstCoefficient = 2.0f * std::sin(
+                kPi * firstHz / sr);
+            const float secondCoefficient = 2.0f * std::sin(
+                kPi * secondHz / sr);
+            const float damping = 0.10f + (1.0f - gain) * 0.18f;
+            state.low += firstCoefficient * state.high;
+            const float firstHigh = input - state.low
+                - damping * state.high;
+            state.high += firstCoefficient * firstHigh;
+            state.memory += secondCoefficient * state.envelope;
+            const float secondHigh = input - state.memory
+                - damping * state.envelope;
+            state.envelope += secondCoefficient * secondHigh;
+            state.low = flushDenormal(clamp(state.low, -8.0f, 8.0f));
+            state.high = flushDenormal(clamp(state.high, -8.0f, 8.0f));
+            state.memory = flushDenormal(clamp(state.memory, -8.0f, 8.0f));
+            state.envelope = flushDenormal(clamp(
+                state.envelope, -8.0f, 8.0f));
+            const float voiced = std::tanh((state.high * 1.35f
+                + state.envelope) * (1.2f + gain * 3.8f));
+            return lerp(input, voiced, gain);
+        }
+        case NoInputDistortionType::Robot: {
+            const float carrierHz = 28.0f * std::pow(40.0f, tone);
+            state.phase = noInputWrapPhase(
+                state.phase + carrierHz / sr);
+            const float sine = std::sin(state.phase * 2.0f * kPi);
+            const float square = sine >= 0.0f ? 1.0f : -1.0f;
+            const float carrier = lerp(sine, square,
+                (rawBias + 1.0f) * 0.5f);
+            const float robotic = std::tanh(input * carrier
+                * (1.5f + gain * 6.5f));
+            return lerp(input, robotic, gain);
+        }
+        case NoInputDistortionType::OctDown: {
+            const float threshold = lerp(0.001f, 0.10f,
+                (rawBias + 1.0f) * 0.5f);
+            if (input > threshold && state.memory <= threshold)
+                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
+            state.memory = input;
+            state.envelope += (std::abs(input) - state.envelope)
+                * onePole(lerp(18.0f, 110.0f, tone));
+            const float divided = (state.gate > 0.5f ? 1.0f : -1.0f)
+                * state.envelope * 1.65f;
+            state.low += (divided - state.low)
+                * onePole(lerp(140.0f, 5200.0f, tone));
+            return lerp(input, state.low, gain);
+        }
+        case NoInputDistortionType::OctUp: {
+            const float shifted = input + rawBias * 0.035f;
+            const float rectified = std::abs(shifted);
+            state.envelope += (rectified - state.envelope)
+                * onePole(lerp(8.0f, 42.0f, tone));
+            const float doubled = (rectified - state.envelope) * 2.1f;
+            state.high += (doubled - state.high)
+                * onePole(lerp(900.0f, 15000.0f, tone));
+            return lerp(input, state.high, gain);
+        }
+        case NoInputDistortionType::OctStack: {
+            const float threshold = 0.008f;
+            if (input > threshold && state.memory <= threshold)
+                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
+            state.memory = input;
+            const float absolute = std::abs(input);
+            state.envelope += (absolute - state.envelope)
+                * onePole(38.0f);
+            state.low += (absolute - state.low) * onePole(16.0f);
+            const float upper = (absolute - state.low) * 2.0f;
+            const float lower = (state.gate > 0.5f ? 1.0f : -1.0f)
+                * state.envelope * 1.55f;
+            const float stacked = lerp(lower, upper,
+                (rawBias + 1.0f) * 0.5f);
+            state.high += (stacked - state.high)
+                * onePole(lerp(240.0f, 13000.0f, tone));
+            return lerp(input, state.high, gain);
+        }
         case NoInputDistortionType::Count:
             break;
         }
@@ -1782,6 +2304,157 @@ private:
         const float polarity = (lane & 1u) == 0u ? 1.0f : -1.0f;
         return random * envelope * seedAmount_ * 0.34f
             * polarity * (0.72f + 0.055f * static_cast<float>(lane));
+    }
+
+    float effectiveMotionWeight(uint32_t index) const
+    {
+        if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
+            return motionCurrent_[index];
+        }
+        return behaviorCurrent_[index];
+    }
+
+    uint32_t behaviorHash(uint32_t salt) const
+    {
+        uint32_t value = params_.seed ^ (behaviorEventCount_ * 0x9e3779b9u)
+            ^ salt;
+        value ^= value >> 16u;
+        value *= 0x7feb352du;
+        value ^= value >> 15u;
+        value *= 0x846ca68bu;
+        value ^= value >> 16u;
+        return value;
+    }
+
+    float behaviorHashUnit(uint32_t salt) const
+    {
+        return static_cast<float>(behaviorHash(salt) & 0x00ffffffu)
+            / static_cast<float>(0x01000000u);
+    }
+
+    void triggerMovementBehaviorEvent()
+    {
+        ++behaviorEventCount_;
+        const auto behavior = behaviorParams_.behavior;
+        if (behavior == NoInputMovementBehavior::Step) {
+            behaviorTarget_ = motionTarget_;
+        } else {
+            behaviorTarget_.fill(0.0f);
+            const float density = behaviorParams_.density;
+            const uint32_t burstDestination = behaviorHash(0x42555253u)
+                % kNoInputMixerChannels;
+            for (uint32_t source = 0u; source < kNoInputMixerChannels;
+                 ++source) {
+                uint32_t activeCount = 0u;
+                uint32_t strongestIndex = 0u;
+                float strongest = -1.0f;
+                for (uint32_t destination = 0u;
+                     destination < kNoInputMixerChannels; ++destination) {
+                    const uint32_t index = destination
+                        * kNoInputMixerChannels + source;
+                    if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
+                    const float random = behaviorHashUnit(index * 0x45d9f3bu
+                        + 0x53544550u);
+                    float probability = density;
+                    if (behavior == NoInputMovementBehavior::Cut) {
+                        probability *= 0.45f + motionTarget_[index] * 0.75f;
+                    } else if (behavior == NoInputMovementBehavior::Burst) {
+                        const uint32_t ringDistance = std::min<uint32_t>(
+                            (destination + 8u - burstDestination) % 8u,
+                            (burstDestination + 8u - destination) % 8u);
+                        const float cluster = std::exp(
+                            -static_cast<float>(ringDistance)
+                                * lerp(1.4f, 0.18f,
+                                    behaviorParams_.chaos));
+                        probability *= cluster;
+                    }
+                    const float ranking = random
+                        + motionTarget_[index] * (0.34f
+                            * (1.0f - behaviorParams_.chaos));
+                    if (ranking > strongest) {
+                        strongest = ranking;
+                        strongestIndex = index;
+                    }
+                    if (random < clamp(probability, 0.0f, 1.0f)) {
+                        behaviorTarget_[index] = 1.0f;
+                        ++activeCount;
+                    }
+                }
+                if (behavior == NoInputMovementBehavior::Scramble
+                    && activeCount == 0u && strongest >= 0.0f
+                    && density > 0.001f) {
+                    behaviorTarget_[strongestIndex] = 1.0f;
+                }
+            }
+        }
+
+        const float hz = noInputMovementEventRateHz(
+            behaviorParams_.eventRate);
+        float interval = static_cast<float>(sampleRate_) / hz;
+        const float jitter = (behaviorHashUnit(0x4a495454u) * 2.0f - 1.0f)
+            * behaviorParams_.chaos;
+        const float jitterDepth = behavior
+            == NoInputMovementBehavior::Burst ? 0.82f : 0.38f;
+        interval *= std::max(0.12f, 1.0f + jitter * jitterDepth);
+        behaviorSamplesUntilEvent_ = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(interval));
+        if (behavior == NoInputMovementBehavior::Cut
+            || behavior == NoInputMovementBehavior::Burst) {
+            const float lengthSamples = static_cast<float>(sampleRate_)
+                * noInputMovementLengthMs(behaviorParams_.length) * 0.001f;
+            behaviorSamplesUntilClose_ = std::max<uint32_t>(1u,
+                static_cast<uint32_t>(std::min(lengthSamples,
+                    interval * lerp(0.25f, 0.95f,
+                        behaviorParams_.density))));
+        } else {
+            behaviorSamplesUntilClose_ = 0u;
+        }
+    }
+
+    void updateMovementBehavior()
+    {
+        if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
+            laneBehaviorGate_.fill(1.0f);
+            return;
+        }
+        if (behaviorSamplesUntilEvent_ == 0u) {
+            triggerMovementBehaviorEvent();
+        } else {
+            --behaviorSamplesUntilEvent_;
+        }
+        if (behaviorSamplesUntilClose_ > 0u) {
+            --behaviorSamplesUntilClose_;
+            if (behaviorSamplesUntilClose_ == 0u) {
+                behaviorTarget_.fill(0.0f);
+            }
+        }
+
+        const float slewSeconds = noInputMovementSlewMs(
+            behaviorParams_.slew) * 0.001f;
+        const float coefficient = 1.0f - std::exp(-1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_) * slewSeconds));
+        for (uint32_t index = 0u; index < kNoInputMixerMatrixCells;
+             ++index) {
+            behaviorCurrent_[index] += (behaviorTarget_[index]
+                - behaviorCurrent_[index]) * coefficient;
+            behaviorCurrent_[index] = flushDenormal(
+                clamp(behaviorCurrent_[index], 0.0f, 1.0f));
+        }
+        laneBehaviorGate_.fill(0.0f);
+        for (uint32_t destination = 0u;
+             destination < kNoInputMixerChannels; ++destination) {
+            bool hasRoute = false;
+            for (uint32_t source = 0u; source < kNoInputMixerChannels;
+                 ++source) {
+                const uint32_t index = destination
+                    * kNoInputMixerChannels + source;
+                if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
+                hasRoute = true;
+                laneBehaviorGate_[destination] = std::max(
+                    laneBehaviorGate_[destination], behaviorCurrent_[index]);
+            }
+            if (!hasRoute) laneBehaviorGate_[destination] = 1.0f;
+        }
     }
 
     void updateSlowControl()
@@ -1836,7 +2509,7 @@ private:
 
     void clearSignalState()
     {
-        laneState_ = {};
+        for (auto& lane : laneState_) clearLaneSignalState(lane);
         returns_.fill(0.0f);
         previousReturns_.fill(0.0f);
         routeSignals_.fill(0.0f);
@@ -1845,15 +2518,24 @@ private:
         driftVelocity_.fill(0.0f);
         motionTarget_.fill(1.0f);
         motionCurrent_.fill(1.0f);
+        behaviorTarget_.fill(1.0f);
+        behaviorCurrent_.fill(1.0f);
+        laneBehaviorGate_.fill(1.0f);
         routeSpaceGate_.fill(1.0f);
-        auxState_ = {};
+        for (auto& aux : auxState_) clearAuxSignalState(aux);
         auxReturns_.fill(0.0f);
         previousAuxReturns_.fill(0.0f);
         auxActivity_.fill(0.0f);
+        for (uint32_t bus = 0u; bus < 2u; ++bus) {
+            auxMuteGain_[bus] = auxMuted_[bus] != 0u ? 0.0f : 1.0f;
+        }
         lanePeak_.fill(0.0f);
         laneActivity_.fill(0.0f);
         networkActivity_ = 0.0f;
         controlCounter_ = 0u;
+        behaviorEventCount_ = 0u;
+        behaviorSamplesUntilEvent_ = 0u;
+        behaviorSamplesUntilClose_ = 0u;
         motionPhase_ = params_.motionPhase;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             updateEq(lane);
@@ -1912,6 +2594,7 @@ private:
 
     double sampleRate_ = 48000.0;
     NoInputMixerParams params_ = defaultNoInputMixerParams();
+    NoInputMovementBehaviorParams behaviorParams_ {};
     std::array<LaneState, kNoInputMixerChannels> laneState_ {};
     std::array<AuxState, 2u> auxState_ {};
     std::array<float, kNoInputMixerChannels> returns_ {};
@@ -1920,11 +2603,16 @@ private:
     std::array<float, 2u> auxReturns_ {};
     std::array<float, 2u> previousAuxReturns_ {};
     std::array<float, 2u> auxActivity_ {};
+    std::array<uint32_t, 2u> auxMuted_ {};
+    std::array<float, 2u> auxMuteGain_ {{ 1.0f, 1.0f }};
     std::array<float, kNoInputMixerMatrixCells> phaseMemory_ {};
     std::array<float, kNoInputMixerMatrixCells> driftState_ {};
     std::array<float, kNoInputMixerMatrixCells> driftVelocity_ {};
     std::array<float, kNoInputMixerMatrixCells> motionTarget_ {};
     std::array<float, kNoInputMixerMatrixCells> motionCurrent_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorTarget_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorCurrent_ {};
+    std::array<float, kNoInputMixerChannels> laneBehaviorGate_ {};
     std::array<float, kNoInputMixerMatrixCells> routeSpaceGate_ {};
     std::array<float, kNoInputMixerChannels> lanePeak_ {};
     std::array<float, kNoInputMixerChannels> laneActivity_ {};
@@ -1934,11 +2622,15 @@ private:
     float energyRelease_ = 0.0001f;
     float governorAttack_ = 0.001f;
     float governorRelease_ = 0.00005f;
+    float auxMuteSlew_ = 0.005f;
     float seedAmount_ = 0.45f;
     float motionPhase_ = 0.0f;
     uint32_t seedRemaining_ = 0u;
     uint32_t randomState_ = 0x5455444fu;
     uint32_t controlCounter_ = 0u;
+    uint32_t behaviorEventCount_ = 0u;
+    uint32_t behaviorSamplesUntilEvent_ = 0u;
+    uint32_t behaviorSamplesUntilClose_ = 0u;
     uint32_t panicRemaining_ = 0u;
     uint32_t panicSamplesTotal_ = 384u;
     bool silenced_ = true;

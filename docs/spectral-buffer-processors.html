@@ -32,15 +32,33 @@
 
         <p><strong>Spectral Spray 2ch/8ch</strong> scatters FFT bins while retaining a dry/wet path aligned to the transform latency. Its controls cover displacement, smear, hold, freeze, spectral holes, phase blur, feedback, and a frequency window. Use the 2-channel build for stereo material and the 8-channel build when every lane should receive the same spectral model.</p>
 
-        <h2 id="buffer-processor">Buffer Processor</h2>
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/spectral-spray.png" aria-label="Open high-resolution Spectral Spray GUI screenshot">
+              <img src="assets/plugin-guis/spectral-spray.png" alt="Spectral Spray 8ch spectral displacement, smear, freeze, damage, feedback, and frequency-window controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Spectral Spray 8ch; the stereo build uses the same compact editor.</figcaption>
+        </figure>
 
-        <p><strong>Buffer Processor 8ch</strong> captures a moving audio window and subjects it to skips, reversal, crushing, error paths, and corrupted-window behavior. Lane relationship controls let the eight channels remain coordinated while addressing different parts of the buffer behavior.</p>
+        <h2 id="buffer-processor">Processor Buffer</h2>
+
+        <p><strong>Processor Buffer 8ch</strong> captures a moving audio window and subjects it to skips, reversal, crushing, error paths, and corrupted-window behavior. Lane relationship controls let the eight channels remain coordinated while addressing different parts of the buffer behavior.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/buffer-processor.png" aria-label="Open high-resolution Processor Buffer GUI screenshot">
+              <img src="assets/plugin-guis/buffer-processor.png" alt="Processor Buffer 8ch address, repeat, reverse, damage, window, relationship, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Buffer 8ch with address, repeat, reverse, damage, window, relationship, and output controls.</figcaption>
+        </figure>
 
         <h2 id="choosing">Choosing a Family</h2>
 
         <ul>
           <li>Choose Spectral Spray for lane-local frequency-domain displacement, memory, or freeze.</li>
-          <li>Choose Buffer Processor for time-address discontinuities, reverse motion, repeats, and damaged playback windows.</li>
+          <li>Choose Processor Buffer for time-address discontinuities, reverse motion, repeats, and damaged playback windows.</li>
           <li>Choose <a href="spectral-topology-processor.html">Processor Spectral</a> when live or captured spectral material should travel between the nodes of an editable multichannel mesh, with distance, velocity, dispersion, and damping shaping each journey.</li>
         </ul>
 
@@ -76,10 +94,11 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#spectral-spray">Spectral Spray</a>
-          <a href="#buffer-processor">Buffer Processor</a>
+          <a href="#buffer-processor">Processor Buffer</a>
           <a href="#choosing">Choosing a Family</a>
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

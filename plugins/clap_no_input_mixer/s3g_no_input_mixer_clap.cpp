@@ -22,7 +22,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kChannelCount = s3g::kNoInputMixerChannels;
 constexpr uint32_t kRouteScopeSamples = 96u;
 constexpr uint32_t kGuiWidth = 1356u;
@@ -61,6 +61,17 @@ constexpr clap_id kAuxBGainParamId = 29u;
 constexpr clap_id kAuxBToneParamId = 30u;
 constexpr clap_id kAuxBReturnParamId = 31u;
 constexpr clap_id kAuxBFeedbackParamId = 32u;
+constexpr clap_id kAuxAMuteParamId = 33u;
+constexpr clap_id kAuxBMuteParamId = 34u;
+constexpr clap_id kBehaviorParamId = 35u;
+constexpr clap_id kEventRateParamId = 36u;
+constexpr clap_id kEventLengthParamId = 37u;
+constexpr clap_id kEventDensityParamId = 38u;
+constexpr clap_id kEventChaosParamId = 39u;
+constexpr clap_id kEventSlewParamId = 40u;
+constexpr clap_id kEventChokeParamId = 41u;
+constexpr clap_id kAuxABiasParamId = 42u;
+constexpr clap_id kAuxBBiasParamId = 43u;
 constexpr clap_id kMatrixParamBase = 100u;
 constexpr clap_id kLaneParamBase = 1000u;
 constexpr clap_id kLaneParamStride = 100u;
@@ -82,7 +93,7 @@ constexpr clap_id kInsertToneOffset = 2u;
 constexpr clap_id kInsertBiasOffset = 3u;
 constexpr clap_id kInsertLevelOffset = 4u;
 constexpr clap_id kInsertBypassOffset = 5u;
-constexpr uint32_t kGlobalParamCount = 32u;
+constexpr uint32_t kGlobalParamCount = 43u;
 constexpr uint32_t kLaneDirectParamCount = 10u;
 constexpr uint32_t kInsertParamCount = 6u;
 constexpr uint32_t kLaneParamCount = kLaneDirectParamCount
@@ -93,6 +104,7 @@ constexpr uint32_t kTotalParamCount = kGlobalParamCount
 
 const s3g::NoInputMixerParams kDefaultParams =
     s3g::defaultNoInputMixerParams();
+const s3g::NoInputMovementBehaviorParams kDefaultBehaviorParams {};
 
 constexpr clap_id matrixParamId(uint32_t destination, uint32_t source)
 {
@@ -219,6 +231,28 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         kDefaultParams.aux[1].returnGain, false },
     { kAuxBFeedbackParamId, "Feedback", "Aux Return B", 0.0, 0.96,
         kDefaultParams.aux[1].feedback, false },
+    { kAuxAMuteParamId, "Mute All", "Aux Return A", 0.0, 1.0,
+        0.0, true },
+    { kAuxBMuteParamId, "Mute All", "Aux Return B", 0.0, 1.0,
+        0.0, true },
+    { kBehaviorParamId, "Behavior", "Movement / Articulation", 0.0, 4.0,
+        static_cast<double>(kDefaultBehaviorParams.behavior), true },
+    { kEventRateParamId, "Event Rate", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.eventRate, false },
+    { kEventLengthParamId, "Event Length", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.length, false },
+    { kEventDensityParamId, "Density", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.density, false },
+    { kEventChaosParamId, "Chaos", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.chaos, false },
+    { kEventSlewParamId, "Slew", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.slew, false },
+    { kEventChokeParamId, "Choke", "Movement / Articulation", 0.0, 1.0,
+        kDefaultBehaviorParams.choke, false },
+    { kAuxABiasParamId, "Bias", "Aux Return A", -1.0, 1.0,
+        kDefaultParams.aux[0].effect.bias, false },
+    { kAuxBBiasParamId, "Bias", "Aux Return B", -1.0, 1.0,
+        kDefaultParams.aux[1].effect.bias, false },
 }};
 
 struct ParamRange {
@@ -326,6 +360,29 @@ struct SavedState {
     uint32_t selectedSource = 2u;
     uint32_t selectedDestination = 2u;
     uint32_t guiPage = 0u;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+};
+
+struct Version3SavedState {
+    uint32_t version = 3u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    std::array<uint32_t, 2u> auxMute {};
+};
+
+struct Version2SavedState {
+    uint32_t version = 2u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
 };
 
 struct LegacyNoInputInsertParams {
@@ -382,6 +439,8 @@ struct Plugin {
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0u;
     s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
     s3g::NoInputMixer mixer;
     std::array<float, kChannelCount> frame {};
     std::array<std::atomic<float>,
@@ -395,6 +454,8 @@ struct Plugin {
     std::array<std::atomic<float>, 2u> auxActivity {};
     std::atomic<float> networkActivity { 0.0f };
     std::atomic<float> motionPhase { 0.0f };
+    std::array<std::atomic<float>,
+        s3g::kNoInputMixerMatrixCells> behaviorRouteGate {};
     std::atomic<float> minimumGovernor { 1.0f };
     std::atomic<uint32_t> containmentState {
         static_cast<uint32_t>(s3g::NoInputContainmentState::Quiet) };
@@ -416,6 +477,15 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+void syncMixerState(Plugin& plugin)
+{
+    plugin.mixer.setParams(plugin.params);
+    plugin.mixer.setMovementBehaviorParams(plugin.behavior);
+    for (uint32_t bus = 0u; bus < 2u; ++bus) {
+        plugin.mixer.setAuxMuted(bus, plugin.auxMute[bus] != 0u);
+    }
 }
 
 void applyParam(Plugin& plugin, clap_id id, double value)
@@ -494,9 +564,35 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         case kAuxBFeedbackParamId:
             plugin.params.aux[id == kAuxAFeedbackParamId ? 0u : 1u]
                 .feedback = static_cast<float>(value); break;
+        case kAuxAMuteParamId:
+        case kAuxBMuteParamId:
+            plugin.auxMute[id == kAuxAMuteParamId ? 0u : 1u] =
+                value >= 0.5 ? 1u : 0u;
+            break;
+        case kBehaviorParamId:
+            plugin.behavior.behavior = static_cast<s3g::NoInputMovementBehavior>(
+                static_cast<uint32_t>(std::lround(value)));
+            break;
+        case kEventRateParamId:
+            plugin.behavior.eventRate = static_cast<float>(value); break;
+        case kEventLengthParamId:
+            plugin.behavior.length = static_cast<float>(value); break;
+        case kEventDensityParamId:
+            plugin.behavior.density = static_cast<float>(value); break;
+        case kEventChaosParamId:
+            plugin.behavior.chaos = static_cast<float>(value); break;
+        case kEventSlewParamId:
+            plugin.behavior.slew = static_cast<float>(value); break;
+        case kEventChokeParamId:
+            plugin.behavior.choke = static_cast<float>(value); break;
+        case kAuxABiasParamId:
+        case kAuxBBiasParamId:
+            plugin.params.aux[id == kAuxABiasParamId ? 0u : 1u]
+                .effect.bias = static_cast<float>(value);
+            break;
         default: break;
         }
-        plugin.mixer.setParams(plugin.params);
+        syncMixerState(plugin);
         return;
     }
 
@@ -505,7 +601,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     if (decodeMatrixParam(id, destination, source)) {
         plugin.params.matrix[destination * kChannelCount + source] =
             static_cast<float>(std::clamp(value, -1.0, 1.0));
-        plugin.mixer.setParams(plugin.params);
+        syncMixerState(plugin);
         return;
     }
 
@@ -584,7 +680,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     }
     }
-    plugin.mixer.setParams(plugin.params);
+    syncMixerState(plugin);
 }
 
 bool paramValue(const Plugin& plugin, clap_id id, double& value)
@@ -627,6 +723,20 @@ bool paramValue(const Plugin& plugin, clap_id id, double& value)
     case kAuxBToneParamId: value = plugin.params.aux[1].effect.tone; return true;
     case kAuxBReturnParamId: value = plugin.params.aux[1].returnGain; return true;
     case kAuxBFeedbackParamId: value = plugin.params.aux[1].feedback; return true;
+    case kAuxAMuteParamId: value = plugin.auxMute[0]; return true;
+    case kAuxBMuteParamId: value = plugin.auxMute[1]; return true;
+    case kBehaviorParamId:
+        value = static_cast<double>(plugin.behavior.behavior); return true;
+    case kEventRateParamId: value = plugin.behavior.eventRate; return true;
+    case kEventLengthParamId: value = plugin.behavior.length; return true;
+    case kEventDensityParamId: value = plugin.behavior.density; return true;
+    case kEventChaosParamId: value = plugin.behavior.chaos; return true;
+    case kEventSlewParamId: value = plugin.behavior.slew; return true;
+    case kEventChokeParamId: value = plugin.behavior.choke; return true;
+    case kAuxABiasParamId:
+        value = plugin.params.aux[0].effect.bias; return true;
+    case kAuxBBiasParamId:
+        value = plugin.params.aux[1].effect.bias; return true;
     default: break;
     }
     uint32_t destination = 0u;
@@ -696,6 +806,9 @@ void resetMeters(Plugin& plugin)
     }
     plugin.networkActivity.store(0.0f, std::memory_order_relaxed);
     plugin.motionPhase.store(0.0f, std::memory_order_relaxed);
+    for (auto& gate : plugin.behaviorRouteGate) {
+        gate.store(1.0f, std::memory_order_relaxed);
+    }
     for (auto& activity : plugin.auxActivity) {
         activity.store(0.0f, std::memory_order_relaxed);
     }
@@ -715,7 +828,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
         static_cast<uint32_t>(std::lround(sampleRate / 24000.0)));
     p->routeScopeCountdown = 0u;
     p->mixer.prepare(sampleRate);
-    p->mixer.setParams(p->params);
+    syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.48f);
     resetMeters(*p);
     p->seedRequested.store(false, std::memory_order_relaxed);
@@ -731,7 +844,7 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-    p->mixer.setParams(p->params);
+    syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.48f);
     resetMeters(*p);
 }
@@ -760,7 +873,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     if (p->seedRequested.exchange(false, std::memory_order_acq_rel)) {
         p->params.seed = p->params.seed * 1664525u + 1013904223u;
         if (p->params.seed == 0u) p->params.seed = 1u;
-        p->mixer.setParams(p->params);
+        syncMixerState(*p);
         p->mixer.reseed(p->params.seed, 0.56f);
     }
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
@@ -835,6 +948,11 @@ clap_process_status process(const clap_plugin_t* plugin,
         std::memory_order_relaxed);
     p->motionPhase.store(p->mixer.motionPhase(),
         std::memory_order_relaxed);
+    for (uint32_t route = 0u;
+         route < s3g::kNoInputMixerMatrixCells; ++route) {
+        p->behaviorRouteGate[route].store(
+            p->mixer.behaviorRouteGate(route), std::memory_order_relaxed);
+    }
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
         p->auxActivity[bus].store(p->mixer.auxActivity(bus),
             std::memory_order_relaxed);
@@ -944,7 +1062,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%+.1f dB", value);
         return true;
     }
-    if (id == kLimiterParamId || id == kDcBlockParamId) {
+    if (id == kLimiterParamId || id == kDcBlockParamId
+        || id == kAuxAMuteParamId || id == kAuxBMuteParamId) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "ON" : "OFF");
         return true;
     }
@@ -960,6 +1079,29 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", s3g::matrixFlowShapeName(shape));
         return true;
     }
+    if (id == kBehaviorParamId) {
+        const uint32_t behavior = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l, 4l));
+        std::snprintf(display, size, "%s",
+            s3g::noInputMovementBehaviorName(
+                static_cast<s3g::NoInputMovementBehavior>(behavior)));
+        return true;
+    }
+    if (id == kEventRateParamId) {
+        const float hz = s3g::noInputMovementEventRateHz(
+            static_cast<float>(value));
+        std::snprintf(display, size, hz < 10.0f ? "%.2f Hz" : "%.1f Hz",
+            hz);
+        return true;
+    }
+    if (id == kEventLengthParamId || id == kEventSlewParamId) {
+        const float milliseconds = id == kEventLengthParamId
+            ? s3g::noInputMovementLengthMs(static_cast<float>(value))
+            : s3g::noInputMovementSlewMs(static_cast<float>(value));
+        std::snprintf(display, size, milliseconds < 10.0f
+            ? "%.2f ms" : "%.1f ms", milliseconds);
+        return true;
+    }
     if (id == kAuxATypeParamId || id == kAuxBTypeParamId) {
         const uint32_t type = static_cast<uint32_t>(std::clamp(
             std::lround(value), 0l,
@@ -973,13 +1115,16 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         || id == kVarianceParamId || id == kFlowParamId
         || id == kSpreadParamId || id == kMotionParamId
         || id == kMotionRateParamId || id == kMotionPhaseParamId
+        || id == kEventDensityParamId || id == kEventChaosParamId
+        || id == kEventChokeParamId
         || (id >= kAuxAGainParamId && id <= kAuxAFeedbackParamId)
         || (id >= kAuxBGainParamId && id <= kAuxBFeedbackParamId)) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
         return true;
     }
     if (id == kInternalToneParamId || id == kHouseToneParamId
-        || id == kVortexParamId) {
+        || id == kVortexParamId || id == kAuxABiasParamId
+        || id == kAuxBBiasParamId) {
         std::snprintf(display, size, "%+.2f", value);
         return true;
     }
@@ -1049,6 +1194,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (id == kBehaviorParamId) {
+        for (uint32_t behavior = 0u; behavior < 5u; ++behavior) {
+            if (std::strcmp(display, s3g::noInputMovementBehaviorName(
+                    static_cast<s3g::NoInputMovementBehavior>(behavior)))
+                == 0) {
+                *value = behavior;
+                return true;
+            }
+        }
+    }
     if (id == kAuxATypeParamId || id == kAuxBTypeParamId) {
         for (uint32_t type = 0u;
              type < s3g::kNoInputDistortionTypeCount; ++type) {
@@ -1078,6 +1233,24 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     }
     if (std::strcmp(display, "ON") == 0) { *value = 1.0; return true; }
     if (std::strcmp(display, "OFF") == 0) { *value = 0.0; return true; }
+    if (id == kEventRateParamId) {
+        const double hz = std::max(0.25, std::atof(display));
+        *value = std::clamp(std::log(hz / 0.25) / std::log(320.0),
+            0.0, 1.0);
+        return true;
+    }
+    if (id == kEventLengthParamId) {
+        const double milliseconds = std::max(0.5, std::atof(display));
+        *value = std::clamp(std::log(milliseconds / 0.5)
+            / std::log(500.0), 0.0, 1.0);
+        return true;
+    }
+    if (id == kEventSlewParamId) {
+        const double milliseconds = std::max(0.1, std::atof(display));
+        *value = std::clamp(std::log(milliseconds / 0.1)
+            / std::log(200.0), 0.0, 1.0);
+        return true;
+    }
     if (id == kQualityParamId) {
         const double parsed = std::atof(display);
         *value = parsed >= 4.0 ? 2.0 : (parsed >= 2.0 ? 1.0 : 0.0);
@@ -1116,6 +1289,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.selectedDestination = p->selectedDestination.load(
         std::memory_order_relaxed);
     state.guiPage = p->guiPage.load(std::memory_order_relaxed);
+    state.auxMute = p->auxMute;
+    state.behavior = p->behavior;
     const auto* bytes = reinterpret_cast<const uint8_t*>(&state);
     uint64_t offset = 0u;
     while (offset < sizeof(state)) {
@@ -1150,6 +1325,33 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(state) - sizeof(version))) {
             return false;
         }
+    } else if (version == 3u) {
+        Version3SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.auxMute = previous.auxMute;
+    } else if (version == 2u) {
+        Version2SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
     } else if (version == 1u) {
         LegacySavedState legacy;
         legacy.version = version;
@@ -1208,6 +1410,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     p->params = s3g::sanitizeNoInputMixerParams(state.params);
+    p->behavior = s3g::sanitizeNoInputMovementBehaviorParams(
+        state.behavior);
+    for (uint32_t bus = 0u; bus < 2u; ++bus) {
+        p->auxMute[bus] = state.auxMute[bus] != 0u ? 1u : 0u;
+    }
     p->selectedLane.store(std::min<uint32_t>(state.selectedLane,
         kChannelCount - 1u), std::memory_order_relaxed);
     p->selectedSlot.store(std::min<uint32_t>(state.selectedSlot,
@@ -1219,7 +1426,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::memory_order_relaxed);
     p->guiPage.store(std::min<uint32_t>(state.guiPage, 3u),
         std::memory_order_relaxed);
-    p->mixer.setParams(p->params);
+    syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.48f);
     resetMeters(*p);
     return true;
@@ -1243,14 +1450,17 @@ enum OpenMenu : int {
     kMenuSlot1,
     kMenuSlot2,
     kMenuMotionShape,
+    kMenuBehavior,
     kMenuQuality,
+    kMenuMixerInsert,
+    kMenuMixerAux,
 };
 
 void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
     float seedAmount)
 {
     plugin.params = s3g::sanitizeNoInputMixerParams(params);
-    plugin.mixer.setParams(plugin.params);
+    syncMixerState(plugin);
     plugin.mixer.reseed(plugin.params.seed, seedAmount);
     resetMeters(plugin);
 }
@@ -1287,6 +1497,34 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel,
         s3g::gui_layout::processorControlX(panel.frame.x),
         s3g::gui_layout::rowY(panel, row) - 1.0,
         s3g::gui_layout::processorMenuWidth(panel.frame.width), 15.0);
+}
+
+NSRect channelInsertMenuRect(uint32_t slot)
+{
+    const auto& panel =
+        s3g::gui_layout::kNoInputMixerFamilyLayout.inserts;
+    NSRect rect = processorMenuRect(panel, slot);
+    rect.size.width -= 58.0;
+    return rect;
+}
+
+NSRect channelInsertEditRect(uint32_t slot)
+{
+    const auto& panel =
+        s3g::gui_layout::kNoInputMixerFamilyLayout.inserts;
+    NSRect rect = processorMenuRect(panel, slot);
+    rect.origin.x = NSMaxX(rect) - 52.0;
+    rect.size.width = 52.0;
+    return rect;
+}
+
+NSRect movementBankButtonRect(uint32_t bank)
+{
+    const auto& panel =
+        s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
+    return NSMakeRect(panel.frame.x + panel.frame.width - 105.0
+            + static_cast<CGFloat>(bank) * 48.0,
+        panel.frame.y + 7.0, 44.0, 15.0);
 }
 
 NSRect fieldTabRect(uint32_t index)
@@ -1461,6 +1699,21 @@ NSRect popupInsertRect(NSRect strip, uint32_t slot)
         strip.size.width - 16.0, 18.0);
 }
 
+NSRect popupInsertMenuRect(NSRect strip, uint32_t slot)
+{
+    NSRect rect = popupInsertRect(strip, slot);
+    rect.size.width -= 31.0;
+    return rect;
+}
+
+NSRect popupInsertEditRect(NSRect strip, uint32_t slot)
+{
+    NSRect rect = popupInsertRect(strip, slot);
+    rect.origin.x = NSMaxX(rect) - 28.0;
+    rect.size.width = 28.0;
+    return rect;
+}
+
 NSRect popupFaderRect(NSRect strip)
 {
     return NSMakeRect(NSMidX(strip) - 7.0, strip.origin.y + 582.0,
@@ -1478,6 +1731,28 @@ NSRect popupAuxTypeRect(uint32_t bus)
     const NSRect panel = popupAuxPanelRect();
     return NSMakeRect(panel.origin.x + 114.0,
         panel.origin.y + 58.0 + bus * 248.0, 204.0, 18.0);
+}
+
+NSRect popupAuxTypeMenuRect(uint32_t bus)
+{
+    NSRect rect = popupAuxTypeRect(bus);
+    rect.size.width = 146.0;
+    return rect;
+}
+
+NSRect popupAuxTypeEditRect(uint32_t bus)
+{
+    NSRect rect = popupAuxTypeRect(bus);
+    rect.origin.x += 150.0;
+    rect.size.width = 54.0;
+    return rect;
+}
+
+NSRect popupAuxMuteRect(uint32_t bus)
+{
+    const NSRect panel = popupAuxPanelRect();
+    return NSMakeRect(panel.origin.x + 14.0,
+        panel.origin.y + 58.0 + bus * 248.0, 82.0, 18.0);
 }
 
 NSRect popupAuxSliderRect(uint32_t bus, uint32_t local)
@@ -1514,13 +1789,68 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         withAttributes:attrs];
 }
 
+struct EffectControlLabels {
+    const char* gain;
+    const char* tone;
+    const char* bias;
+};
+
+EffectControlLabels effectControlLabels(s3g::NoInputDistortionType type)
+{
+    using Type = s3g::NoInputDistortionType;
+    switch (type) {
+    case Type::Wool: return { "SUSTAIN", "CONTOUR", "ASYM" };
+    case Type::Rat: return { "DIST", "FILTER", "BIAS" };
+    case Type::ZoneA:
+    case Type::ZoneB: return { "DIST", "FOCUS", "BIAS" };
+    case Type::FuzzI: return { "GAIN", "SAG", "BIAS" };
+    case Type::FuzzII: return { "GAIN", "GATE", "BIAS" };
+    case Type::Diode: return { "GAIN", "SHAPE", "BIAS" };
+    case Type::Ring: return { "DEPTH", "CARRIER", "BIAS" };
+    case Type::Relay: return { "THRESH", "CHATTER", "ASYM" };
+    case Type::Crush: return { "BITS", "RATE", "DITHER" };
+    case Type::Splice: return { "MIX", "LENGTH", "DIRECTION" };
+    case Type::Logic: return { "DEPTH", "THRESH", "BALANCE" };
+    case Type::Shred: return { "DRIVE", "TILT", "ASYM" };
+    case Type::Void: return { "DEPTH", "RECOVER", "SKEW" };
+    case Type::Rotor: return { "DEPTH", "RATE", "SHAPE" };
+    case Type::Phase: return { "DEPTH", "RATE", "CENTER" };
+    case Type::Chorus: return { "MIX", "RATE", "REGEN" };
+    case Type::Throat: return { "MIX", "VOWEL", "SHIFT" };
+    case Type::Robot: return { "DEPTH", "CARRIER", "CHARACTER" };
+    case Type::OctDown: return { "MIX", "FILTER", "TRACK" };
+    case Type::OctUp: return { "MIX", "TONE", "SHAPE" };
+    case Type::OctStack: return { "MIX", "TONE", "BALANCE" };
+    case Type::Bypass:
+    case Type::Count: return { "AMOUNT", "TONE", "BIAS" };
+    }
+    return { "AMOUNT", "TONE", "BIAS" };
+}
+
+NSRect effectEditorTrackRect(uint32_t row)
+{
+    return NSMakeRect(126.0, 88.0 + row * 40.0, 292.0, 12.0);
+}
+
+NSRect effectEditorToggleRect(uint32_t row)
+{
+    return NSMakeRect(126.0, 82.0 + row * 40.0, 292.0, 24.0);
+}
+
 } // namespace
+
+@class S3GNoInputEffectView;
 
 @interface S3GNoInputMixerView : NSView <NSWindowDelegate> {
     void* _plugin;
     clap_id _dragParam;
     NSTimer* _timer;
     int _openMenu;
+    NSRect _menuAnchor;
+    uint32_t _effectMenuLane;
+    uint32_t _effectMenuSlot;
+    uint32_t _effectMenuBus;
+    uint32_t _movementBank;
     char _titlePresetName[64];
     clap_id _mixerDragParam;
     NSRect _mixerDragRect;
@@ -1531,6 +1861,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     S3GNoInputMixerView* _mixerPopupOwner;
     NSPanel* _pagePanels[4];
     S3GNoInputMixerView* _pagePopupViews[4];
+    NSPanel* _effectPanel;
+    S3GNoInputEffectView* _effectEditor;
     uint32_t _lockedPage;
     BOOL _wiringGridMode;
     int _wireDragSource;
@@ -1545,6 +1877,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 - (void)openPagePopup:(uint32_t)page;
 - (void)hideMixerPopup;
 - (void)destroyMixerPopup;
+- (void)openEffectEditorForLane:(uint32_t)lane slot:(uint32_t)slot;
+- (void)openEffectEditorForAux:(uint32_t)bus;
+- (void)hideEffectEditor;
+- (void)destroyEffectEditor;
+- (NSPanel*)effectPanel;
 - (NSPanel*)mixerPanel;
 - (NSPanel*)patchPanel;
 - (NSPanel*)channelPanel;
@@ -1559,6 +1896,310 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 - (void)drawPerformanceMixer:(Plugin*)plugin surface:(NSRect)surface;
 @end
 
+@interface S3GNoInputEffectView : NSView {
+    void* _plugin;
+    S3GNoInputMixerView* _owner;
+    BOOL _isAux;
+    uint32_t _lane;
+    uint32_t _slot;
+    uint32_t _bus;
+    clap_id _dragParam;
+    NSRect _dragRect;
+    double _dragMinimum;
+    double _dragMaximum;
+}
+- (id)initWithPlugin:(void*)plugin owner:(S3GNoInputMixerView*)owner;
+- (void)setLane:(uint32_t)lane slot:(uint32_t)slot;
+- (void)setAux:(uint32_t)bus;
+- (void)clearOwner;
+@end
+
+@implementation S3GNoInputEffectView
+
+- (id)initWithPlugin:(void*)plugin owner:(S3GNoInputMixerView*)owner
+{
+    self = [super initWithFrame:NSMakeRect(0.0, 0.0, 454.0, 292.0)];
+    if (self) {
+        _plugin = plugin;
+        _owner = owner;
+        _isAux = NO;
+        _lane = 0u;
+        _slot = 0u;
+        _bus = 0u;
+        _dragParam = CLAP_INVALID_ID;
+        _dragRect = NSZeroRect;
+        _dragMinimum = 0.0;
+        _dragMaximum = 1.0;
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)setLane:(uint32_t)lane slot:(uint32_t)slot
+{
+    _isAux = NO;
+    _lane = std::min<uint32_t>(lane, kChannelCount - 1u);
+    _slot = std::min<uint32_t>(slot,
+        s3g::kNoInputMixerInsertSlots - 1u);
+    _dragParam = CLAP_INVALID_ID;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setAux:(uint32_t)bus
+{
+    _isAux = YES;
+    _bus = std::min<uint32_t>(bus, 1u);
+    _dragParam = CLAP_INVALID_ID;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)clearOwner
+{
+    _owner = nil;
+}
+
+- (s3g::NoInputDistortionType)effectType
+{
+    auto* plugin = static_cast<Plugin*>(_plugin);
+    if (!plugin) return s3g::NoInputDistortionType::Bypass;
+    return _isAux ? plugin->params.aux[_bus].effect.type
+        : plugin->params.lanes[_lane].inserts[_slot].type;
+}
+
+- (uint32_t)controlCount
+{
+    return 5u;
+}
+
+- (clap_id)paramForRow:(uint32_t)row
+{
+    if (_isAux) {
+        const clap_id ids[5] = {
+            _bus == 0u ? kAuxAGainParamId : kAuxBGainParamId,
+            _bus == 0u ? kAuxAToneParamId : kAuxBToneParamId,
+            _bus == 0u ? kAuxABiasParamId : kAuxBBiasParamId,
+            _bus == 0u ? kAuxAReturnParamId : kAuxBReturnParamId,
+            _bus == 0u ? kAuxAFeedbackParamId : kAuxBFeedbackParamId,
+        };
+        return row < 5u ? ids[row] : CLAP_INVALID_ID;
+    }
+    const clap_id offsets[5] = {
+        kInsertGainOffset, kInsertToneOffset, kInsertBiasOffset,
+        kInsertLevelOffset, kInsertBypassOffset,
+    };
+    return row < 5u ? insertParamId(_lane, _slot, offsets[row])
+                    : CLAP_INVALID_ID;
+}
+
+- (NSString*)labelForRow:(uint32_t)row
+{
+    const EffectControlLabels labels = effectControlLabels([self effectType]);
+    if (row == 0u) return [NSString stringWithUTF8String:labels.gain];
+    if (row == 1u) return [NSString stringWithUTF8String:labels.tone];
+    if (row == 2u) return [NSString stringWithUTF8String:labels.bias];
+    if (row == 3u) return _isAux ? @"RETURN" : @"LEVEL";
+    return _isAux ? @"LOOP" : @"BYPASS";
+}
+
+- (void)drawRect:(NSRect)dirty
+{
+    (void)dirty;
+    auto* plugin = static_cast<Plugin*>(_plugin);
+    if (!plugin) return;
+    s3g::clap_gui::Style style;
+    [style.bg setFill];
+    NSRectFill([self bounds]);
+    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* label = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+
+    [mixerColor(0x151515) setFill];
+    NSRectFill(NSInsetRect([self bounds], 12.0, 12.0));
+    [mixerColor(0x595959) setStroke];
+    NSFrameRect(NSInsetRect([self bounds], 12.0, 12.0));
+    [mixerColor(_isAux ? (_bus == 0u ? 0xc95e3b : 0x57bfc4)
+                       : 0xb8b8b8) setFill];
+    NSRectFill(NSMakeRect(12.0, 12.0, 5.0, 50.0));
+
+    const auto type = [self effectType];
+    NSString* typeName = [NSString stringWithUTF8String:
+        s3g::noInputDistortionName(type)];
+    [@"EFFECT EDITOR" drawAtPoint:NSMakePoint(28.0, 21.0)
+        withAttributes:title];
+    NSString* target = _isAux
+        ? [NSString stringWithFormat:@"AUX %c  /  %@", 'A' + _bus,
+            typeName]
+        : [NSString stringWithFormat:@"LANE %u  /  SLOT %u  /  %@",
+            _lane + 1u, _slot + 1u, typeName];
+    [target drawAtPoint:NSMakePoint(28.0, 43.0) withAttributes:valueAttrs];
+
+    for (uint32_t row = 0u; row < [self controlCount]; ++row) {
+        const clap_id id = [self paramForRow:row];
+        double current = 0.0;
+        ParamRange range;
+        if (!paramValue(*plugin, id, current) || !paramRange(id, range))
+            continue;
+        NSString* name = [self labelForRow:row];
+        [name drawAtPoint:NSMakePoint(28.0, 82.0 + row * 40.0)
+            withAttributes:label];
+        if (!_isAux && row == 4u) {
+            drawFlatButton(effectEditorToggleRect(row),
+                current >= 0.5 ? @"BYPASSED" : @"ACTIVE",
+                current >= 0.5, valueAttrs);
+            continue;
+        }
+        const NSRect track = effectEditorTrackRect(row);
+        [mixerColor(0x080808) setFill]; NSRectFill(track);
+        [mixerColor(0x454545) setStroke]; NSFrameRect(track);
+        const CGFloat normalized = static_cast<CGFloat>(std::clamp(
+            (current - range.minimum) / (range.maximum - range.minimum),
+            0.0, 1.0));
+        NSRect fill = NSInsetRect(track, 1.0, 1.0);
+        fill.size.width *= normalized;
+        [mixerColor(_isAux ? (_bus == 0u ? 0xc95e3b : 0x57bfc4)
+                           : 0xb8b8b8, 0.88) setFill];
+        NSRectFill(fill);
+        char display[64] {};
+        if (type == s3g::NoInputDistortionType::Splice && row == 0u) {
+            std::snprintf(display, sizeof(display), "%.0f%% WET",
+                (0.25 + current * 0.75) * 100.0);
+        } else if (type == s3g::NoInputDistortionType::Splice
+            && row == 1u) {
+            const double maximumMs = std::min(80.0,
+                8190.0 * 1000.0 / std::max(1.0, plugin->sampleRate));
+            const double lengthMs = std::pow(maximumMs,
+                current * current);
+            std::snprintf(display, sizeof(display), "%.1f ms", lengthMs);
+        } else if (type == s3g::NoInputDistortionType::Splice
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%s",
+                current < -0.12 ? "REVERSE"
+                    : (current > 0.12 ? "FORWARD" : "ALTERNATE"));
+        } else if (type == s3g::NoInputDistortionType::Rotor
+            && row == 1u) {
+            std::snprintf(display, sizeof(display), "%.2f Hz",
+                0.08 * std::pow(562.5, current));
+        } else if (type == s3g::NoInputDistortionType::Rotor
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%s",
+                current < -0.12 ? "NARROW"
+                    : (current > 0.12 ? "WIDE" : "SINE"));
+        } else if (type == s3g::NoInputDistortionType::Phase
+            && row == 1u) {
+            std::snprintf(display, sizeof(display), "%.2f Hz",
+                0.03 * std::pow(266.6667, current));
+        } else if (type == s3g::NoInputDistortionType::Phase
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%.0f Hz",
+                520.0 * std::pow(2.0, current * 2.0));
+        } else if (type == s3g::NoInputDistortionType::Chorus
+            && row == 1u) {
+            std::snprintf(display, sizeof(display), "%.2f Hz",
+                0.05 * std::pow(120.0, current));
+        } else if (type == s3g::NoInputDistortionType::Chorus
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%+.0f%%",
+                current * 38.0);
+        } else if (type == s3g::NoInputDistortionType::Throat
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%+.1f st",
+                current * 8.64);
+        } else if (type == s3g::NoInputDistortionType::Robot
+            && row == 1u) {
+            std::snprintf(display, sizeof(display), "%.0f Hz",
+                28.0 * std::pow(40.0, current));
+        } else if (type == s3g::NoInputDistortionType::Robot
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%.0f%% SQUARE",
+                (current + 1.0) * 50.0);
+        } else if (type == s3g::NoInputDistortionType::OctDown
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%.3f",
+                0.001 + (current + 1.0) * 0.0495);
+        } else if (type == s3g::NoInputDistortionType::OctStack
+            && row == 2u) {
+            std::snprintf(display, sizeof(display), "%s",
+                current < -0.12 ? "DOWN"
+                    : (current > 0.12 ? "UP" : "EVEN"));
+        } else {
+            paramsValueToText(nullptr, id, current, display,
+                sizeof(display));
+        }
+        NSString* text = [NSString stringWithUTF8String:display];
+        const NSSize textSize = [text sizeWithAttributes:valueAttrs];
+        [text drawAtPoint:NSMakePoint(NSMaxX(track) - textSize.width,
+            track.origin.y - 18.0) withAttributes:valueAttrs];
+    }
+    [@"DRAG TRACKS  ·  DOUBLE-CLICK DEFAULT"
+        drawAtPoint:NSMakePoint(28.0, 270.0) withAttributes:valueAttrs];
+}
+
+- (void)updateDrag:(NSPoint)point
+{
+    if (_dragParam == CLAP_INVALID_ID || !_owner) return;
+    const double normalized = std::clamp(
+        (point.x - NSMinX(_dragRect))
+            / std::max(1.0, static_cast<double>(_dragRect.size.width)),
+        0.0, 1.0);
+    [_owner applyGuiParam:_dragParam
+        value:_dragMinimum + normalized * (_dragMaximum - _dragMinimum)];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    [[self window] makeFirstResponder:self];
+    const NSPoint point = [self convertPoint:[event locationInWindow]
+        fromView:nil];
+    auto* plugin = static_cast<Plugin*>(_plugin);
+    if (!plugin || !_owner) return;
+    for (uint32_t row = 0u; row < [self controlCount]; ++row) {
+        const clap_id id = [self paramForRow:row];
+        if (!_isAux && row == 4u) {
+            if (!NSPointInRect(point, effectEditorToggleRect(row))) continue;
+            double current = 0.0;
+            if (paramValue(*plugin, id, current)) {
+                [_owner applyGuiParam:id value:current >= 0.5 ? 0.0 : 1.0];
+            }
+            return;
+        }
+        const NSRect track = effectEditorTrackRect(row);
+        if (!NSPointInRect(point, NSInsetRect(track, -8.0, -8.0)))
+            continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(event,
+                &plugin->plugin, id, &defaultValue)) {
+            [_owner applyGuiParam:id value:defaultValue];
+            _dragParam = CLAP_INVALID_ID;
+            return;
+        }
+        ParamRange range;
+        if (!paramRange(id, range)) return;
+        _dragParam = id;
+        _dragRect = track;
+        _dragMinimum = range.minimum;
+        _dragMaximum = range.maximum;
+        [self updateDrag:point];
+        return;
+    }
+}
+
+- (void)mouseDragged:(NSEvent*)event
+{
+    [self updateDrag:[self convertPoint:[event locationInWindow]
+        fromView:nil]];
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    _dragParam = CLAP_INVALID_ID;
+}
+
+@end
+
 @implementation S3GNoInputMixerView
 
 - (id)initWithPlugin:(void*)plugin
@@ -1569,6 +2210,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         _dragParam = CLAP_INVALID_ID;
         _timer = nil;
         _openMenu = kMenuNone;
+        _menuAnchor = NSZeroRect;
+        _effectMenuLane = 0u;
+        _effectMenuSlot = 0u;
+        _effectMenuBus = 0u;
+        _movementBank = 0u;
         _mixerDragParam = CLAP_INVALID_ID;
         _mixerDragRect = NSZeroRect;
         _mixerDragMinimum = 0.0;
@@ -1580,6 +2226,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             _pagePanels[page] = nil;
             _pagePopupViews[page] = nil;
         }
+        _effectPanel = nil;
+        _effectEditor = nil;
         _lockedPage = UINT32_MAX;
         _wiringGridMode = NO;
         _wireDragSource = -1;
@@ -1665,6 +2313,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     if (![self isHidden] && _plugin
         && s3g::clap_support::hostAppIsActive()) {
         [self setNeedsDisplay:YES];
+        S3GNoInputMixerView* owner = _mixerPopupChild
+            && _mixerPopupOwner ? _mixerPopupOwner : self;
+        if (owner->_effectEditor && owner->_effectPanel
+            && [owner->_effectPanel isVisible])
+            [owner->_effectEditor setNeedsDisplay:YES];
     }
 }
 
@@ -1698,6 +2351,10 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
                 [_pagePopupViews[page] setNeedsDisplay:YES];
         }
     }
+    S3GNoInputMixerView* owner = _mixerPopupChild
+        && _mixerPopupOwner ? _mixerPopupOwner : self;
+    if (owner->_effectEditor)
+        [owner->_effectEditor setNeedsDisplay:YES];
 }
 
 - (void)clearAllConnections
@@ -1705,7 +2362,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
     plugin->params.matrix.fill(0.0f);
-    plugin->mixer.setParams(plugin->params);
+    syncMixerState(*plugin);
     [self markPatchCustom];
     [self setNeedsDisplay:YES];
     S3GNoInputMixerView* owner = _mixerPopupChild
@@ -1753,6 +2410,112 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 - (NSPanel*)patchPanel { return _pagePanels[0u]; }
 - (NSPanel*)channelPanel { return _pagePanels[2u]; }
 - (NSPanel*)safetyPanel { return _pagePanels[3u]; }
+- (NSPanel*)effectPanel { return _effectPanel; }
+
+- (void)openEffectEditorForLane:(uint32_t)lane slot:(uint32_t)slot
+{
+    if (_mixerPopupChild && _mixerPopupOwner) {
+        [_mixerPopupOwner openEffectEditorForLane:lane slot:slot];
+        NSPanel* panel = _mixerPopupOwner->_effectPanel;
+        NSWindow* parent = [self window];
+        NSWindow* previousParent = [panel parentWindow];
+        if (previousParent && previousParent != parent)
+            [previousParent removeChildWindow:panel];
+        if (parent && [panel parentWindow] != parent)
+            [parent addChildWindow:panel ordered:NSWindowAbove];
+        return;
+    }
+    if (!_effectPanel) {
+        _effectPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(
+                0.0, 0.0, 454.0, 292.0)
+            styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                | NSWindowStyleMaskUtilityWindow)
+            backing:NSBackingStoreBuffered defer:NO];
+        [_effectPanel setReleasedWhenClosed:NO];
+        [_effectPanel setHidesOnDeactivate:YES];
+        [_effectPanel setDelegate:self];
+        _effectEditor = [[S3GNoInputEffectView alloc]
+            initWithPlugin:_plugin owner:self];
+        [_effectPanel setContentView:_effectEditor];
+        [_effectPanel setContentSize:NSMakeSize(454.0, 292.0)];
+        [_effectEditor release];
+
+        NSWindow* parent = [self window];
+        const NSRect parentFrame = parent ? [parent frame]
+            : [[NSScreen mainScreen] visibleFrame];
+        const NSRect panelFrame = [_effectPanel frame];
+        NSScreen* screen = parent ? [parent screen] : [NSScreen mainScreen];
+        const NSRect visible = screen ? [screen visibleFrame] : parentFrame;
+        CGFloat x = NSMaxX(parentFrame) - panelFrame.size.width;
+        CGFloat y = NSMinY(parentFrame) - panelFrame.size.height - 8.0;
+        if (y < NSMinY(visible)) y = NSMaxY(parentFrame) + 8.0;
+        x = std::clamp(x, NSMinX(visible),
+            std::max(NSMinX(visible), NSMaxX(visible) - panelFrame.size.width));
+        y = std::clamp(y, NSMinY(visible),
+            std::max(NSMinY(visible), NSMaxY(visible) - panelFrame.size.height));
+        [_effectPanel setFrameOrigin:NSMakePoint(x, y)];
+    }
+    [_effectEditor setLane:lane slot:slot];
+    [_effectPanel setTitle:[NSString stringWithFormat:
+        @"s3g EFFECT EDITOR — LANE %u / SLOT %u", lane + 1u, slot + 1u]];
+    NSWindow* parent = [self window];
+    NSWindow* previousParent = [_effectPanel parentWindow];
+    if (previousParent && previousParent != parent)
+        [previousParent removeChildWindow:_effectPanel];
+    if (parent && [_effectPanel parentWindow] != parent)
+        [parent addChildWindow:_effectPanel ordered:NSWindowAbove];
+    [_effectPanel makeKeyAndOrderFront:nil];
+    [_effectPanel makeFirstResponder:_effectEditor];
+}
+
+- (void)openEffectEditorForAux:(uint32_t)bus
+{
+    if (_mixerPopupChild && _mixerPopupOwner) {
+        [_mixerPopupOwner openEffectEditorForAux:bus];
+        NSPanel* panel = _mixerPopupOwner->_effectPanel;
+        NSWindow* parent = [self window];
+        NSWindow* previousParent = [panel parentWindow];
+        if (previousParent && previousParent != parent)
+            [previousParent removeChildWindow:panel];
+        if (parent && [panel parentWindow] != parent)
+            [parent addChildWindow:panel ordered:NSWindowAbove];
+        return;
+    }
+    // Construct and position the shared editor through the lane path.
+    [self openEffectEditorForLane:0u slot:0u];
+    bus = std::min<uint32_t>(bus, 1u);
+    [_effectEditor setAux:bus];
+    [_effectPanel setTitle:[NSString stringWithFormat:
+        @"s3g EFFECT EDITOR — AUX %c", 'A' + bus]];
+    [_effectPanel makeKeyAndOrderFront:nil];
+    [_effectPanel makeFirstResponder:_effectEditor];
+}
+
+- (void)hideEffectEditor
+{
+    if (_mixerPopupChild && _mixerPopupOwner) {
+        [_mixerPopupOwner hideEffectEditor];
+        return;
+    }
+    if (!_effectPanel) return;
+    NSWindow* parent = [_effectPanel parentWindow];
+    if (parent) [parent removeChildWindow:_effectPanel];
+    [_effectPanel orderOut:nil];
+}
+
+- (void)destroyEffectEditor
+{
+    if (_mixerPopupChild && _mixerPopupOwner) return;
+    if (!_effectPanel) return;
+    [_effectEditor clearOwner];
+    [_effectPanel setDelegate:nil];
+    NSWindow* parent = [_effectPanel parentWindow];
+    if (parent) [parent removeChildWindow:_effectPanel];
+    [_effectPanel orderOut:nil];
+    [_effectPanel release];
+    _effectPanel = nil;
+    _effectEditor = nil;
+}
 
 - (void)openPagePopup:(uint32_t)page
 {
@@ -1830,6 +2593,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 
 - (void)hideMixerPopup
 {
+    [self hideEffectEditor];
     for (uint32_t page = 0u; page < 4u; ++page) {
         if (!_pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
@@ -1842,6 +2606,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 
 - (void)destroyMixerPopup
 {
+    [self destroyEffectEditor];
     for (uint32_t page = 0u; page < 4u; ++page) {
         if (!_pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
@@ -1857,6 +2622,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 
 - (void)windowWillClose:(NSNotification*)notification
 {
+    if ([notification object] == _effectPanel) {
+        NSWindow* parent = [_effectPanel parentWindow];
+        if (parent) [parent removeChildWindow:_effectPanel];
+        return;
+    }
     for (uint32_t page = 0u; page < 4u; ++page) {
         if ([notification object] != _pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
@@ -2056,8 +2826,15 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         std::memory_order_relaxed);
     const uint32_t selectedDestination = plugin->selectedDestination.load(
         std::memory_order_relaxed);
-    const auto motionWeights = s3g::noInputMixerMotionWeights(
+    auto motionWeights = s3g::noInputMixerMotionWeights(
         plugin->params, plugin->motionPhase.load(std::memory_order_relaxed));
+    if (plugin->behavior.behavior != s3g::NoInputMovementBehavior::Glide) {
+        for (uint32_t index = 0u;
+             index < s3g::kNoInputMixerMatrixCells; ++index) {
+            motionWeights[index] = plugin->behaviorRouteGate[index].load(
+                std::memory_order_relaxed);
+        }
+    }
     std::array<float, kChannelCount> activeMotionPeak {};
     std::array<uint32_t, kChannelCount> activeMotionRouteCount {};
     for (uint32_t destination = 0u; destination < kChannelCount;
@@ -2100,9 +2877,18 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             if (std::abs(gain) > 0.001f) {
                 const uint32_t index =
                     destination * kChannelCount + source;
-                const CGFloat motion = s3g::noInputMixerMotionGainScale(
+                CGFloat motion = s3g::noInputMixerMotionGainScale(
                     motionWeights[index], activeMotionPeak[source],
                     activeMotionRouteCount[source], plugin->params.motion);
+                if (plugin->behavior.behavior
+                        == s3g::NoInputMovementBehavior::Cut
+                    || plugin->behavior.behavior
+                        == s3g::NoInputMovementBehavior::Burst
+                    || plugin->behavior.behavior
+                        == s3g::NoInputMovementBehavior::Scramble) {
+                    motion *= s3g::lerp(1.0f, motionWeights[index],
+                        plugin->params.motion);
+                }
                 [mixerColor(gain >= 0.0f ? 0xc95e3b : 0x5daeb6,
                     0.18 + std::abs(gain) * 0.40) setFill];
                 NSRectFill(NSInsetRect(node, 1.0, 1.0));
@@ -2157,16 +2943,22 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         [reading drawAtPoint:NSMakePoint(x - readingSize.width * 0.5,
             NSMaxY(track) + 4.0) withAttributes:valueAttrs];
     }
-    const NSRect motionRail = NSMakeRect(rect.origin.x + 18.0,
-        rect.origin.y + 598.0, rect.size.width - 36.0, 38.0);
+    constexpr CGFloat motionRailMargin = 18.0;
+    const NSRect motionRail = NSMakeRect(
+        gridLeft - motionRailMargin, rect.origin.y + 598.0,
+        gridExtent + motionRailMargin * 2.0, 38.0);
     [mixerColor(0x0a0a0a) setFill]; NSRectFill(motionRail);
     [mixerColor(0x454545) setStroke]; NSFrameRect(motionRail);
-    const float rateHz = s3g::noInputMixerMotionRateHz(
-        plugin->params.motionRate);
+    const float rateHz = plugin->behavior.behavior
+            == s3g::NoInputMovementBehavior::Glide
+        ? s3g::noInputMixerMotionRateHz(plugin->params.motionRate)
+        : s3g::noInputMovementEventRateHz(plugin->behavior.eventRate);
     [[NSString stringWithFormat:
-        @"ROUTE GAIN MOD · %@ · DEPTH %.0f%% · %.2f Hz",
+        @"ROUTE GAIN MOD · %@ / %@ · DEPTH %.0f%% · %.2f Hz",
         [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
             plugin->params.motionShape)],
+        [NSString stringWithUTF8String:s3g::noInputMovementBehaviorName(
+            plugin->behavior.behavior)],
         plugin->params.motion * 100.0f, rateHz]
         drawAtPoint:NSMakePoint(motionRail.origin.x + 8.0,
             motionRail.origin.y + 4.0) withAttributes:valueAttrs];
@@ -2178,9 +2970,18 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             const uint32_t index = destination * kChannelCount + source;
             const float gain = plugin->params.matrix[index];
             if (std::abs(gain) <= 0.001f) continue;
-            const CGFloat modulation = s3g::noInputMixerMotionGainScale(
+            CGFloat modulation = s3g::noInputMixerMotionGainScale(
                 motionWeights[index], activeMotionPeak[source],
                 activeMotionRouteCount[source], plugin->params.motion);
+            if (plugin->behavior.behavior
+                    == s3g::NoInputMovementBehavior::Cut
+                || plugin->behavior.behavior
+                    == s3g::NoInputMovementBehavior::Burst
+                || plugin->behavior.behavior
+                    == s3g::NoInputMovementBehavior::Scramble) {
+                modulation *= s3g::lerp(1.0f, motionWeights[index],
+                    plugin->params.motion);
+            }
             const CGFloat effective = std::abs(gain) * modulation;
             const CGFloat height = 2.0 + effective * 9.0;
             const CGFloat x = columnX - 16.0
@@ -2263,14 +3064,19 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     case kMenuLane: return processorMenuRect(family.selectedLane, 0u);
     case kMenuSource: return processorMenuRect(family.crosspoint, 0u);
     case kMenuDestination: return processorMenuRect(family.crosspoint, 1u);
-    case kMenuSlot0: return processorMenuRect(family.inserts, 0u);
-    case kMenuSlot1: return processorMenuRect(family.inserts, 1u);
-    case kMenuSlot2: return processorMenuRect(family.inserts, 2u);
+    case kMenuSlot0: return channelInsertMenuRect(0u);
+    case kMenuSlot1: return channelInsertMenuRect(1u);
+    case kMenuSlot2: return channelInsertMenuRect(2u);
     case kMenuMotionShape:
+        return processorMenuRect(family.movement, 0u);
+    case kMenuBehavior:
         return processorMenuRect(family.movement, 0u);
     case kMenuQuality:
         return NSMakeRect(family.containment.frame.x + 108.0,
             family.containment.frame.y + 35.0, 110.0, 15.0);
+    case kMenuMixerInsert:
+    case kMenuMixerAux:
+        return _menuAnchor;
     default: return NSZeroRect;
     }
 }
@@ -2281,7 +3087,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     if (menu == kMenuSlot0 || menu == kMenuSlot1 || menu == kMenuSlot2) {
         return s3g::kNoInputDistortionTypeCount;
     }
+    if (menu == kMenuMixerInsert || menu == kMenuMixerAux) {
+        return s3g::kNoInputDistortionTypeCount;
+    }
     if (menu == kMenuMotionShape) return 6u;
+    if (menu == kMenuBehavior) return 5u;
     if (menu == kMenuQuality) return 3u;
     if (menu == kMenuLane || menu == kMenuSource
         || menu == kMenuDestination) return kChannelCount;
@@ -2291,9 +3101,28 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
 - (NSRect)menuDropdownRect:(int)menu
 {
     const NSRect anchor = [self menuAnchorRect:menu];
-    return NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 2.0,
-        anchor.size.width,
-        18.0 * static_cast<CGFloat>([self menuItemCount:menu]));
+    const CGFloat height = 18.0
+        * static_cast<CGFloat>([self menuItemCount:menu]);
+    CGFloat width = anchor.size.width;
+    CGFloat x = anchor.origin.x;
+    CGFloat y = NSMaxY(anchor) + 2.0;
+    const bool effectMenu = menu == kMenuMixerInsert
+        || menu == kMenuMixerAux
+        || menu == kMenuSlot0 || menu == kMenuSlot1
+        || menu == kMenuSlot2;
+    if (effectMenu) {
+        if (menu == kMenuMixerInsert || menu == kMenuMixerAux)
+            width = std::max<CGFloat>(148.0, width);
+        x = std::clamp(x, NSMinX([self bounds]) + 2.0,
+            NSMaxX([self bounds]) - width - 2.0);
+        if (menu == kMenuMixerInsert
+            || y + height > NSMaxY([self bounds]) - 2.0) {
+            y = anchor.origin.y - height - 2.0;
+        }
+        y = std::clamp(y, NSMinY([self bounds]) + 2.0,
+            NSMaxY([self bounds]) - height - 2.0);
+    }
+    return NSMakeRect(x, y, width, height);
 }
 
 - (void)drawOpenMenu:(Plugin*)plugin attrs:(NSDictionary*)attrs
@@ -2305,11 +3134,17 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     };
     NSString* typeItems[s3g::kNoInputDistortionTypeCount] = {
         @"BYPASS", @"WOOL", @"RAT", @"ZONE A", @"ZONE B",
-        @"FUZZ I", @"FUZZ II", @"DIODE", @"RING",
+        @"FUZZ I", @"FUZZ II", @"DIODE", @"RING", @"RELAY",
+        @"CRUSH", @"SPLICE", @"LOGIC", @"SHRED", @"VOID",
+        @"ROTOR", @"PHASE", @"CHORUS", @"THROAT", @"ROBOT",
+        @"OCT DOWN", @"OCT UP", @"OCT STACK",
     };
     NSString* qualityItems[3] = { @"1X", @"2X", @"4X" };
     NSString* shapeItems[6] = {
         @"FLOW", @"PULSE", @"CHASE", @"SWIRL", @"SCAT", @"HOLD",
+    };
+    NSString* behaviorItems[5] = {
+        @"GLIDE", @"STEP", @"CUT", @"BURST", @"SCRAMBLE",
     };
     NSString* presetItems[s3g::kNoInputMixerFactoryPresetCount] = {
         @"INIT", @"CIRCUIT LATTICE", @"RAIN FOREST", @"WOOL RING",
@@ -2347,6 +3182,20 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         items = shapeItems;
         count = 6u;
         selected = static_cast<int>(plugin->params.motionShape);
+    } else if (_openMenu == kMenuBehavior) {
+        items = behaviorItems;
+        count = 5u;
+        selected = static_cast<int>(plugin->behavior.behavior);
+    } else if (_openMenu == kMenuMixerInsert) {
+        items = typeItems;
+        count = s3g::kNoInputDistortionTypeCount;
+        selected = static_cast<int>(plugin->params.lanes[_effectMenuLane]
+            .inserts[_effectMenuSlot].type);
+    } else if (_openMenu == kMenuMixerAux) {
+        items = typeItems;
+        count = s3g::kNoInputDistortionTypeCount;
+        selected = static_cast<int>(
+            plugin->params.aux[_effectMenuBus].effect.type);
     } else {
         items = typeItems;
         count = s3g::kNoInputDistortionTypeCount;
@@ -2441,12 +3290,14 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             const auto& insert = laneParams.inserts[slot];
             NSString* name = [NSString stringWithUTF8String:
                 s3g::noInputDistortionName(insert.type)];
-            if ([name length] > 8u) name = [name substringToIndex:8u];
-            drawFlatButton(popupInsertRect(strip, slot),
+            if ([name length] > 5u) name = [name substringToIndex:5u];
+            drawFlatButton(popupInsertMenuRect(strip, slot),
                 [NSString stringWithFormat:@"%u %@", slot + 1u, name],
                 plugin->selectedLane.load(std::memory_order_relaxed) == lane
                     && plugin->selectedSlot.load(std::memory_order_relaxed)
                         == slot,
+                value);
+            drawFlatButton(popupInsertEditRect(strip, slot), @"EDIT", false,
                 value);
         }
         [@"FADER" drawAtPoint:NSMakePoint(strip.origin.x + 9.0,
@@ -2470,12 +3321,15 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
         const CGFloat baseY = auxPanel.origin.y + 48.0 + bus * 248.0;
         [[NSString stringWithFormat:@"AUX %c", 'A' + bus]
-            drawAtPoint:NSMakePoint(auxPanel.origin.x + 14.0, baseY)
+            drawAtPoint:NSMakePoint(auxPanel.origin.x + 14.0, baseY - 8.0)
             withAttributes:title];
         const auto& aux = plugin->params.aux[bus];
-        drawFlatButton(popupAuxTypeRect(bus),
+        drawFlatButton(popupAuxMuteRect(bus), @"MUTE ALL",
+            plugin->auxMute[bus] != 0u, value);
+        drawFlatButton(popupAuxTypeMenuRect(bus),
             [NSString stringWithUTF8String:
                 s3g::noInputDistortionName(aux.effect.type)], true, value);
+        drawFlatButton(popupAuxTypeEditRect(bus), @"EDIT", false, value);
         const CGFloat norms[4] = {
             aux.effect.gain, aux.effect.tone, aux.returnGain,
             aux.feedback / 0.96f,
@@ -2511,7 +3365,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             track.origin.y - 4.0) withAttributes:value];
         drawHorizontal(@"", track, toneNorms[row], 0x929292);
     }
-    [@"CLICK PROCESSOR NAME TO CYCLE · DRAG ALL TRACKS"
+    [@"EFFECT MENU + EDIT · DRAG TRACKS · MUTE ALL: BUS"
         drawAtPoint:NSMakePoint(auxPanel.origin.x + 14.0,
             NSMaxY(auxPanel) - 24.0) withAttributes:value];
     [NSGraphicsContext restoreGraphicsState];
@@ -2583,7 +3437,11 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     const auto& laneParams = plugin->params.lanes[lane];
     if (page == 0u) {
         drawPanel(@"NETWORK", family.network);
-        drawPanel(@"MATRIX MOVEMENT — ROUTE GAIN", family.movement);
+        drawPanel(@"MATRIX MOVEMENT", family.movement);
+        drawFlatButton(movementBankButtonRect(0u), @"FIELD",
+            _movementBank == 0u, value);
+        drawFlatButton(movementBankButtonRect(1u), @"CUT",
+            _movementBank == 1u, value);
         drawPanel(@"CROSSPOINT", family.crosspoint);
     } else if (page == 2u) {
         drawPanel(@"SELECTED LANE", family.selectedLane);
@@ -2767,12 +3625,16 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     for (uint32_t insertSlot = 0u;
          insertSlot < s3g::kNoInputMixerInsertSlots; ++insertSlot) {
         const auto& insert = laneParams.inserts[insertSlot];
-        s3g::clap_gui::drawProcessorMenu(
+        const NSRect menuRect = channelInsertMenuRect(insertSlot);
+        s3g::clap_gui::drawMenu(
             [NSString stringWithFormat:@"SLOT %u", insertSlot + 1u],
             [NSString stringWithUTF8String:s3g::noInputDistortionName(
                 insert.type)], s3g::gui_layout::rowY(
-                family.inserts, insertSlot), family.inserts.frame.x,
-            family.inserts.frame.width, label, value, style);
+                family.inserts, insertSlot), label, value, style,
+            s3g::gui_layout::processorLabelX(family.inserts.frame.x),
+            menuRect.origin.x, menuRect.size.width);
+        drawFlatButton(channelInsertEditRect(insertSlot), @"EDIT",
+            insertSlot == slot, value);
     }
     const auto& insert = laneParams.inserts[slot];
     [self drawSlider:@"GAIN"
@@ -2798,39 +3660,80 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     }
 
     if (page == 0u) {
-    s3g::clap_gui::drawProcessorMenu(@"SHAPE",
-        [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
-            plugin->params.motionShape)],
-        s3g::gui_layout::rowY(family.movement, 0u),
-        family.movement.frame.x, family.movement.frame.width,
-        label, value, style);
-    [self drawSlider:@"FLOW"
-        value:[NSString stringWithFormat:@"%.0f%%", plugin->params.flow * 100.0f]
-        norm:plugin->params.flow row:1u panel:family.movement label:label
-        valueAttrs:value style:style];
-    [self drawSlider:@"SPREAD"
-        value:[NSString stringWithFormat:@"%.0f%%", plugin->params.spread * 100.0f]
-        norm:plugin->params.spread row:2u panel:family.movement label:label
-        valueAttrs:value style:style];
-    [self drawSlider:@"VORTEX"
-        value:[NSString stringWithFormat:@"%+.2f", plugin->params.vortex]
-        norm:(plugin->params.vortex + 1.0f) * 0.5f row:3u
-        panel:family.movement label:label valueAttrs:value style:style];
-    [self drawSlider:@"DEPTH"
-        value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motion * 100.0f]
-        norm:plugin->params.motion row:4u panel:family.movement label:label
-        valueAttrs:value style:style];
-    [self drawSlider:@"RATE"
-        value:[NSString stringWithFormat:
-            (s3g::noInputMixerMotionRateHz(plugin->params.motionRate) < 1.0f
-                ? @"%.2f Hz" : @"%.1f Hz"),
-            s3g::noInputMixerMotionRateHz(plugin->params.motionRate)]
-        norm:plugin->params.motionRate row:5u panel:family.movement label:label
-        valueAttrs:value style:style];
-    [self drawSlider:@"PHASE"
-        value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motionPhase * 100.0f]
-        norm:plugin->params.motionPhase row:6u panel:family.movement label:label
-        valueAttrs:value style:style];
+    if (_movementBank == 0u) {
+        s3g::clap_gui::drawProcessorMenu(@"SHAPE",
+            [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
+                plugin->params.motionShape)],
+            s3g::gui_layout::rowY(family.movement, 0u),
+            family.movement.frame.x, family.movement.frame.width,
+            label, value, style);
+        [self drawSlider:@"FLOW"
+            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.flow * 100.0f]
+            norm:plugin->params.flow row:1u panel:family.movement label:label
+            valueAttrs:value style:style];
+        [self drawSlider:@"SPREAD"
+            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.spread * 100.0f]
+            norm:plugin->params.spread row:2u panel:family.movement label:label
+            valueAttrs:value style:style];
+        [self drawSlider:@"VORTEX"
+            value:[NSString stringWithFormat:@"%+.2f", plugin->params.vortex]
+            norm:(plugin->params.vortex + 1.0f) * 0.5f row:3u
+            panel:family.movement label:label valueAttrs:value style:style];
+        [self drawSlider:@"DEPTH"
+            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motion * 100.0f]
+            norm:plugin->params.motion row:4u panel:family.movement label:label
+            valueAttrs:value style:style];
+        [self drawSlider:@"RATE"
+            value:[NSString stringWithFormat:
+                (s3g::noInputMixerMotionRateHz(plugin->params.motionRate) < 1.0f
+                    ? @"%.2f Hz" : @"%.1f Hz"),
+                s3g::noInputMixerMotionRateHz(plugin->params.motionRate)]
+            norm:plugin->params.motionRate row:5u panel:family.movement label:label
+            valueAttrs:value style:style];
+        [self drawSlider:@"PHASE"
+            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motionPhase * 100.0f]
+            norm:plugin->params.motionPhase row:6u panel:family.movement label:label
+            valueAttrs:value style:style];
+    } else {
+        s3g::clap_gui::drawProcessorMenu(@"BEHAV",
+            [NSString stringWithUTF8String:s3g::noInputMovementBehaviorName(
+                plugin->behavior.behavior)],
+            s3g::gui_layout::rowY(family.movement, 0u),
+            family.movement.frame.x, family.movement.frame.width,
+            label, value, style);
+        [self drawSlider:@"EVENT"
+            value:[NSString stringWithFormat:
+                (s3g::noInputMovementEventRateHz(plugin->behavior.eventRate)
+                    < 10.0f ? @"%.2f Hz" : @"%.1f Hz"),
+                s3g::noInputMovementEventRateHz(plugin->behavior.eventRate)]
+            norm:plugin->behavior.eventRate row:1u panel:family.movement
+            label:label valueAttrs:value style:style];
+        [self drawSlider:@"LENGTH"
+            value:[NSString stringWithFormat:@"%.1f ms",
+                s3g::noInputMovementLengthMs(plugin->behavior.length)]
+            norm:plugin->behavior.length row:2u panel:family.movement
+            label:label valueAttrs:value style:style];
+        [self drawSlider:@"DENSITY"
+            value:[NSString stringWithFormat:@"%.0f%%",
+                plugin->behavior.density * 100.0f]
+            norm:plugin->behavior.density row:3u panel:family.movement
+            label:label valueAttrs:value style:style];
+        [self drawSlider:@"CHAOS"
+            value:[NSString stringWithFormat:@"%.0f%%",
+                plugin->behavior.chaos * 100.0f]
+            norm:plugin->behavior.chaos row:4u panel:family.movement
+            label:label valueAttrs:value style:style];
+        [self drawSlider:@"SLEW"
+            value:[NSString stringWithFormat:@"%.2f ms",
+                s3g::noInputMovementSlewMs(plugin->behavior.slew)]
+            norm:plugin->behavior.slew row:5u panel:family.movement
+            label:label valueAttrs:value style:style];
+        [self drawSlider:@"CHOKE"
+            value:[NSString stringWithFormat:@"%.0f%%",
+                plugin->behavior.choke * 100.0f]
+            norm:plugin->behavior.choke row:6u panel:family.movement
+            label:label valueAttrs:value style:style];
+    }
     }
 
     if (page == 3u) {
@@ -2910,6 +3813,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         return &family.network;
     if (param >= kFlowParamId && param <= kMotionPhaseParamId)
         return &family.movement;
+    if (param >= kEventRateParamId && param <= kEventChokeParamId)
+        return &family.movement;
     uint32_t destination = 0u;
     uint32_t source = 0u;
     if (decodeMatrixParam(param, destination, source))
@@ -2966,6 +3871,7 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             auto patch = s3g::noInputMixerFactoryPreset(index);
             patch = s3g::variedNoInputMixerParams(
                 patch, seed, variance);
+            plugin->behavior = s3g::noInputMixerFactoryBehavior(index);
             applyCompletePatch(*plugin,
                 patch, 0.58f);
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
@@ -3002,6 +3908,21 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         break;
     case kMenuMotionShape:
         [self applyGuiParam:kMotionShapeParamId value:index];
+        break;
+    case kMenuBehavior:
+        [self applyGuiParam:kBehaviorParamId value:index];
+        break;
+    case kMenuMixerInsert:
+        plugin->selectedLane.store(_effectMenuLane,
+            std::memory_order_relaxed);
+        plugin->selectedSlot.store(_effectMenuSlot,
+            std::memory_order_relaxed);
+        [self applyGuiParam:insertParamId(_effectMenuLane,
+                _effectMenuSlot, kInsertTypeOffset) value:index];
+        break;
+    case kMenuMixerAux:
+        [self applyGuiParam:_effectMenuBus == 0u
+                ? kAuxATypeParamId : kAuxBTypeParamId value:index];
         break;
     default: break;
     }
@@ -3271,11 +4192,24 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
                 }
                 for (uint32_t slot = 0u;
                      slot < s3g::kNoInputMixerInsertSlots; ++slot) {
-                    const NSRect insert = actual(popupInsertRect(
+                    const NSRect edit = actual(popupInsertEditRect(
                         popupStripRect(lane), slot));
-                    if (!NSPointInRect(point, insert)) continue;
+                    if (NSPointInRect(point, edit)) {
+                        plugin->selectedSlot.store(slot,
+                            std::memory_order_relaxed);
+                        [self openEffectEditorForLane:lane slot:slot];
+                        [self setNeedsDisplay:YES];
+                        return;
+                    }
+                    const NSRect menu = actual(popupInsertMenuRect(
+                        popupStripRect(lane), slot));
+                    if (!NSPointInRect(point, menu)) continue;
                     plugin->selectedSlot.store(slot,
                         std::memory_order_relaxed);
+                    _effectMenuLane = lane;
+                    _effectMenuSlot = slot;
+                    _menuAnchor = menu;
+                    _openMenu = kMenuMixerInsert;
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -3297,14 +4231,24 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
                 return;
             }
             for (uint32_t bus = 0u; bus < 2u; ++bus) {
-                const NSRect typeRect = actual(popupAuxTypeRect(bus));
+                const NSRect muteRect = actual(popupAuxMuteRect(bus));
+                if (NSPointInRect(point, muteRect)) {
+                    [self applyGuiParam:bus == 0u ? kAuxAMuteParamId
+                            : kAuxBMuteParamId
+                        value:plugin->auxMute[bus] == 0u ? 1.0 : 0.0];
+                    return;
+                }
+                const NSRect editRect = actual(popupAuxTypeEditRect(bus));
+                if (NSPointInRect(point, editRect)) {
+                    [self openEffectEditorForAux:bus];
+                    return;
+                }
+                const NSRect typeRect = actual(popupAuxTypeMenuRect(bus));
                 if (NSPointInRect(point, typeRect)) {
-                    const uint32_t current = static_cast<uint32_t>(
-                        plugin->params.aux[bus].effect.type);
-                    [self applyGuiParam:bus == 0u ? kAuxATypeParamId
-                            : kAuxBTypeParamId
-                        value:(current + 1u)
-                            % s3g::kNoInputDistortionTypeCount];
+                    _effectMenuBus = bus;
+                    _menuAnchor = typeRect;
+                    _openMenu = kMenuMixerAux;
+                    [self setNeedsDisplay:YES];
                     return;
                 }
                 const clap_id ids[4] = {
@@ -3368,9 +4312,31 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
         }
         return false;
     };
+    if (page == 2u) {
+        const uint32_t lane = plugin->selectedLane.load(
+            std::memory_order_relaxed);
+        for (uint32_t slot = 0u;
+             slot < s3g::kNoInputMixerInsertSlots; ++slot) {
+            if (!NSPointInRect(point, channelInsertEditRect(slot))) continue;
+            plugin->selectedSlot.store(slot, std::memory_order_relaxed);
+            [self openEffectEditorForLane:lane slot:slot];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    if (page == 0u) {
+        for (uint32_t bank = 0u; bank < 2u; ++bank) {
+            if (!NSPointInRect(point, movementBankButtonRect(bank))) continue;
+            _movementBank = bank;
+            _openMenu = kMenuNone;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
     if ((page == 0u && (openMenuIfHit(kMenuSource)
             || openMenuIfHit(kMenuDestination)
-            || openMenuIfHit(kMenuMotionShape)))
+            || (_movementBank == 0u && openMenuIfHit(kMenuMotionShape))
+            || (_movementBank == 1u && openMenuIfHit(kMenuBehavior))))
         || (page == 2u && (openMenuIfHit(kMenuLane)
             || openMenuIfHit(kMenuSlot0) || openMenuIfHit(kMenuSlot1)
             || openMenuIfHit(kMenuSlot2)))
@@ -3385,6 +4351,8 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     if (page == 0u && NSPointInRect(point, randomButtonRect())) {
         uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
         if (seed == 0u) seed = 1u;
+        plugin->behavior = s3g::randomizedNoInputMovementBehaviorParams(
+            seed ^ 0x43564d58u);
         applyCompletePatch(*plugin,
             s3g::randomizedNoInputMixerParams(seed), 0.64f);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
@@ -3538,14 +4506,21 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
             return;
         }
     }
-    const clap_id movementIds[6] = {
+    const clap_id fieldMovementIds[6] = {
         kFlowParamId, kSpreadParamId, kVortexParamId,
         kMotionParamId, kMotionRateParamId, kMotionPhaseParamId,
+    };
+    const clap_id cutMovementIds[6] = {
+        kEventRateParamId, kEventLengthParamId, kEventDensityParamId,
+        kEventChaosParamId, kEventSlewParamId, kEventChokeParamId,
     };
     for (uint32_t row = 1u; row < 7u; ++row) {
         if (page == 0u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
                 s3g::gui_layout::sliderHitRect(family.movement, row)))) {
-            [self beginSlider:movementIds[row - 1u] event:event point:point];
+            [self beginSlider:(_movementBank == 0u
+                    ? fieldMovementIds[row - 1u]
+                    : cutMovementIds[row - 1u])
+                event:event point:point];
             return;
         }
     }

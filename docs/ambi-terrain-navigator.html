@@ -26,14 +26,23 @@
       <main class="content" id="content">
         <h1>Ambi Encoder Surface Terrain</h1>
 
-        <p><code>s3g Ambi Encoder Surface Terrain 64</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic encoder. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
+        <p><code>s3g Ambi Encoder Surface Terrain</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic encoder. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
 
-        <p>Wave-terrain mapping normally scans a surface to produce sound; here the sampled height bends each source's azimuth, elevation, and distance instead. The field view draws the shell, traces, and source positions together. For terrain used as the sound source itself, choose <a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>.</p>
+        <p>Wave-terrain mapping normally scans a surface to produce sound; here the sampled height bends each source's azimuth, elevation, and distance instead. The field view draws the shell, traces, and source positions together. For terrain used as the sound source itself, choose <a href="ambi-wave-terrain-encoder.html">Ambi Encoder Wave Terrain</a>.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-terrain-navigator.png" aria-label="Open Ambi Encoder Surface Terrain GUI screenshot">
+              <img src="assets/plugin-guis/ambi-terrain-navigator.png" alt="Ambi Encoder Surface Terrain GUI showing nested terrain geometry, source-lane positions, traversal controls, and camera" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Surface Terrain with nested terrain geometry, source-lane positions, traversal controls, and camera.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder Surface Terrain 64</code> on a multichannel source or bus.</li>
+          <li>Insert <code>s3g Ambi Encoder Surface Terrain</code> on a multichannel source or bus.</li>
           <li>Set <code>INPUTS</code> for the number of active input lanes, up to 64.</li>
           <li>Set <code>ORDER</code> for the desired ambisonic output width.</li>
           <li>Choose a <code>TRACE</code>, then construct the shell with the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> pages.</li>
@@ -55,7 +64,7 @@
 
         <h2 id="terrain-geometry">Terrain Geometry</h2>
 
-        <p><code>PATH</code>, <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> share the upper control panel. The four terrain pages follow Ambi Wave Terrain Encoder, and the 3D field redraws the same interpreted shell used to calculate every source position.</p>
+        <p><code>PATH</code>, <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> share the upper control panel. The four terrain pages follow Ambi Encoder Wave Terrain, and the 3D field redraws the same interpreted shell used to calculate every source position.</p>
 
         <table class="readout-table">
           <thead>
@@ -129,11 +138,11 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-cloud-encoder.html">
             <span>Previous</span>
-            Ambi Cloud Encoder
+            Ambi Encoder Cloud
           </a>
           <a class="page-nav-link next" href="ambi-path-encoder.html">
             <span>Next</span>
-            Ambi Path Encoder
+            Ambi Encoder Path
           </a>
         </nav>
       </main>
@@ -151,20 +160,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -177,5 +186,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -542,15 +542,29 @@ The current primary reference is `s3g Processor Delay 8ch`:
   and docked forms use the same renderer, geometry, and plugin parameter state
 - `MIXER` includes all eight strips, expanded aux returns, and internal/house
   tone in both forms, with no controls exclusive to the detached window
+- Aux A and Aux B each expose one global `MUTE ALL` in their return block;
+  these buttons silence the bus without rewriting the eight send tracks
 - every continuous eight-strip mixer track responds to smooth click-and-drag
   gestures in both the main page and attached page
+- every lane-slot and aux processor name opens the same explicit effect menu;
+  labels do not conceal click-to-cycle behavior
+- every processor row places a distinct `EDIT` target beside that menu; one
+  shared floating editor retargets without duplicating DSP state, uses
+  algorithm-specific parameter labels, and keeps the original CLAP automation
+  IDs
+- the Channel page repeats this split for all three selected-lane insert rows,
+  including inside its detached window
 - wiring preserves stored signed topology in the cable shell and draws the
   measured post-modulation route waveform along it; the selected route reports
   dBFS, while the grid aligns crosspoints, effective-gain groups, and
-  −60-to-0 dBFS output meters by source column
+  −60-to-0 dBFS output meters by source column; the route-gain rail is centered
+  under the matrix with equal side margins
 - Matrix Movement is labeled as route-gain modulation; `DEPTH` applies a
   perceptual 30 dB generated-weight law without creating, repolarizing, or
-  exceeding stored routes, and `RATE` reports the actual 0.05–5 Hz frequency
+  exceeding stored routes, and `RATE` reports the actual 0.05–5 Hz frequency;
+  `FIELD` and `CUT` banks separate spatial allocation from `GLIDE`, `STEP`,
+  `CUT`, `BURST`, and `SCRAMBLE` articulation, with live DSP gates shown in
+  the matrix
 - focused Left/Right navigation cycles logical pages or raises their detached
   windows; it must not intercept keys while the host owns focus
 - the title-band preset menu selects complete factory networks, while bounded

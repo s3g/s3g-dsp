@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Delay Processor - s3g-dsp</title>
-    <meta name="description" content="Delay Processor documentation for s3g-dsp.">
+    <title>Processor Delay - s3g-dsp</title>
+    <meta name="description" content="Processor Delay documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,7 +24,7 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Delay Processor</h1>
+        <h1>Processor Delay</h1>
 
         <p>The s3g Processor Delay treats each active channel as a delay node. Each node can have its own time, feedback, tone, pitch, smear, and diffusion behavior. Its Echo Routes layer can then move regenerated repeats from node to node through the topology.</p>
 
@@ -49,16 +49,16 @@
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="delay_processor_gui.png" aria-label="Open Delay Processor GUI screenshot">
-              <img src="delay_processor_gui.png" alt="Screenshot of the s3g Processor Delay plugin GUI">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/delay-processor.png" aria-label="Open high-resolution Processor Delay GUI screenshot">
+              <img src="assets/plugin-guis/delay-processor.png" alt="Processor Delay 8ch patch matrix, topology field, per-node delay controls, and Echo Routes" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Delay Processor in REAPER.</figcaption>
+          <figcaption>Processor Delay 8ch with patch matrix, topology field, per-node delay controls, and Echo Routes.</figcaption>
         </figure>
 
         <h2 id="routing">REAPER Pins and Internal Matrix</h2>
 
-        <p>There are two routing layers. REAPER's FX pin connector sends track channels into and out of the plugin. The Delay Processor matrix routes those plugin lanes after they arrive.</p>
+        <p>There are two routing layers. REAPER's FX pin connector sends track channels into and out of the plugin. The Processor Delay matrix routes those plugin lanes after they arrive.</p>
 
         <p>For topology, each active matrix input row keeps its physical lane identity and becomes an active point. If only rows 3 and 7 are active, the topology is a two-point graph made from nodes 3 and 7, even if those rows feed many outputs.</p>
 
@@ -67,7 +67,7 @@
             <tr>
               <th>Goal</th>
               <th>REAPER FX pin connector</th>
-              <th>Delay Processor matrix</th>
+              <th>Processor Delay matrix</th>
             </tr>
           </thead>
           <tbody>
@@ -205,7 +205,7 @@
         <p>Echo Routes turns the topology graph into a repeat-scale transport. It does not add a second short propagation delay: every hop uses the destination node's existing delay time. An impulse can therefore appear first at node A after <code>TIME A</code>, then at node B after <code>TIME A + TIME B</code>, and continue along a longer rhythmic path while each visited node applies its own pitch and color.</p>
 
         <ul>
-          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. At zero, the earlier Delay Processor feedback path is unchanged. Since this is feedback transport, <code>FDBK</code> must be above zero for a repeat to walk.</li>
+          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. At zero, the earlier Processor Delay feedback path is unchanged. Since this is feedback transport, <code>FDBK</code> must be above zero for a repeat to walk.</li>
           <li><code>TURN</code>: signed circulation bias around the topology's current orientation. Negative and positive settings favor opposite travel directions; zero leaves the graph reciprocal.</li>
           <li><code>BRCH</code>: route focus. Low values favor one strong continuation; high values divide the repeat among more of the eligible neighbors and centroid destinations.</li>
           <li><code>LOSS</code>: distance-dependent level and high-frequency loss. Long routes become quieter and darker while the node-level <code>TONE</code> remains the main delay color.</li>
@@ -253,7 +253,7 @@
           </a>
           <a class="page-nav-link next" href="wave-geometry-processor.html">
             <span>Next</span>
-            Wave Geometry Processor
+            Processor Wave Geometry
           </a>
         </nav>
       </main>
@@ -271,8 +271,8 @@
         <div class="toc-section">
           <h2>Topology Effect Pages</h2>
           <a href="topology-framework.html">Topology Framework</a>
-          <a href="delay-processor.html">Delay Processor</a>
-          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="delay-processor.html">Processor Delay</a>
+          <a href="wave-geometry-processor.html">Processor Wave Geometry</a>
           <a href="spectral-topology-processor.html">Processor Spectral</a>
         </div>
         <div class="toc-section">
@@ -293,38 +293,6 @@
       <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
       <img data-page-lightbox-image src="" alt="">
     </div>
-    <script>
-    (() => {
-      const triggers = Array.from(document.querySelectorAll("[data-lightbox-image]"));
-      const lightbox = document.querySelector("[data-page-lightbox]");
-      if (!triggers.length || !lightbox) return;
-      const image = document.querySelector("[data-page-lightbox-image]");
-      const close = document.querySelector("[data-page-lightbox-close]");
-
-      function show(trigger) {
-        const img = trigger.querySelector("img");
-        image.src = trigger.dataset.lightboxImage;
-        image.alt = img ? img.alt : "";
-        lightbox.setAttribute("aria-hidden", "false");
-        document.body.classList.add("media-lightbox-open");
-      }
-
-      function hide() {
-        lightbox.setAttribute("aria-hidden", "true");
-        document.body.classList.remove("media-lightbox-open");
-        image.src = "";
-      }
-
-      triggers.forEach(trigger => trigger.addEventListener("click", () => show(trigger)));
-      close.addEventListener("click", hide);
-      lightbox.addEventListener("click", event => {
-        if (event.target === lightbox) hide();
-      });
-      document.addEventListener("keydown", event => {
-        if (lightbox.getAttribute("aria-hidden") === "true") return;
-        if (event.key === "Escape") hide();
-      });
-    })();
-    </script>
+    <script src="lightbox.js"></script>
   </body>
 </html>

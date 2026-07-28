@@ -5,22 +5,31 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 320u;
+constexpr uint32_t kParamCount = 331u;
 constexpr clap_id kFirstMatrixParam = 100u;
 constexpr clap_id kMotionShapeParam = 20u;
 constexpr clap_id kAuxATypeParam = 23u;
+constexpr clap_id kAuxAMuteParam = 33u;
+constexpr clap_id kAuxBMuteParam = 34u;
+constexpr clap_id kBehaviorParam = 35u;
+constexpr clap_id kEventRateParam = 36u;
+constexpr clap_id kEventChokeParam = 41u;
+constexpr clap_id kAuxABiasParam = 42u;
+constexpr clap_id kAuxBBiasParam = 43u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
 
 struct LegacyInsert {
@@ -226,9 +235,53 @@ int main(int argc, char** argv)
         && plugin->activate(plugin, 48000.0, kFrames, kFrames)
         && plugin->start_processing(plugin);
 
+    if (ok) {
+        std::atomic<bool> resetReturned { false };
+        std::thread audioThread([&]() {
+            plugin->reset(plugin);
+            resetReturned.store(true, std::memory_order_release);
+        });
+        audioThread.join();
+        ok = resetReturned.load(std::memory_order_acquire);
+    }
+
     MemoryState saved;
     clap_ostream_t outputStream { &saved, stateWrite };
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();
+
+    constexpr size_t kBehaviorStateBytes = sizeof(uint32_t)
+        + sizeof(float) * 6u;
+    MemoryState versionThree = saved;
+    if (ok && versionThree.bytes.size() > kBehaviorStateBytes) {
+        versionThree.bytes.resize(versionThree.bytes.size()
+            - kBehaviorStateBytes);
+        const uint32_t version = 3u;
+        std::memcpy(versionThree.bytes.data(), &version, sizeof(version));
+        clap_istream_t versionThreeStream { &versionThree, stateRead };
+        double migrated = -1.0;
+        ok = state->load(plugin, &versionThreeStream)
+            && params->get_value(plugin, kBehaviorParam, &migrated)
+            && migrated == 0.0;
+    } else {
+        ok = false;
+    }
+
+    MemoryState versionTwo = saved;
+    if (ok && versionTwo.bytes.size() >= sizeof(uint32_t) * 3u) {
+        versionTwo.bytes.resize(versionTwo.bytes.size()
+            - kBehaviorStateBytes - sizeof(uint32_t) * 2u);
+        const uint32_t version = 2u;
+        std::memcpy(versionTwo.bytes.data(), &version, sizeof(version));
+        clap_istream_t versionTwoStream { &versionTwo, stateRead };
+        double migratedMute = 1.0;
+        ok = state->load(plugin, &versionTwoStream)
+            && params->get_value(plugin, kAuxAMuteParam, &migratedMute)
+            && migratedMute == 0.0
+            && params->get_value(plugin, kAuxBMuteParam, &migratedMute)
+            && migratedMute == 0.0;
+    } else {
+        ok = false;
+    }
 
     EventList matrixChange;
     matrixChange.add(kFirstMatrixParam, 0.0);
@@ -265,10 +318,38 @@ int main(int argc, char** argv)
     clap_istream_t restoredStream { &saved, stateRead };
     ok = ok && state->load(plugin, &restoredStream);
 
+    EventList muteChange;
+    muteChange.add(kAuxAMuteParam, 1.0);
+    muteChange.add(kAuxBMuteParam, 1.0);
+    if (ok) params->flush(plugin, &muteChange.input, nullptr);
+    double muteValue = 0.0;
+    ok = ok && params->get_value(plugin, kAuxAMuteParam, &muteValue)
+        && muteValue == 1.0
+        && params->get_value(plugin, kAuxBMuteParam, &muteValue)
+        && muteValue == 1.0;
+    MemoryState mutedState;
+    clap_ostream_t mutedOutput { &mutedState, stateWrite };
+    ok = ok && state->save(plugin, &mutedOutput);
+    EventList unmuteChange;
+    unmuteChange.add(kAuxAMuteParam, 0.0);
+    unmuteChange.add(kAuxBMuteParam, 0.0);
+    if (ok) params->flush(plugin, &unmuteChange.input, nullptr);
+    clap_istream_t mutedInput { &mutedState, stateRead };
+    ok = ok && state->load(plugin, &mutedInput)
+        && params->get_value(plugin, kAuxAMuteParam, &muteValue)
+        && muteValue == 1.0
+        && params->get_value(plugin, kAuxBMuteParam, &muteValue)
+        && muteValue == 1.0;
+
     EventList hybridChange;
     hybridChange.add(kMotionShapeParam, 3.0);
     hybridChange.add(kAuxATypeParam, 1.0);
     hybridChange.add(kLaneOneAuxAParam, 0.72);
+    hybridChange.add(kBehaviorParam, 3.0);
+    hybridChange.add(kEventRateParam, 0.82);
+    hybridChange.add(kEventChokeParam, 1.0);
+    hybridChange.add(kAuxABiasParam, -0.63);
+    hybridChange.add(kAuxBBiasParam, 0.41);
     if (ok) params->flush(plugin, &hybridChange.input, nullptr);
     double hybridValue = 0.0;
     ok = ok && params->get_value(plugin, kMotionShapeParam, &hybridValue)
@@ -276,11 +357,33 @@ int main(int argc, char** argv)
         && params->get_value(plugin, kAuxATypeParam, &hybridValue)
         && hybridValue == 1.0
         && params->get_value(plugin, kLaneOneAuxAParam, &hybridValue)
-        && std::abs(hybridValue - 0.72) < 1.0e-6;
+        && std::abs(hybridValue - 0.72) < 1.0e-6
+        && params->get_value(plugin, kBehaviorParam, &hybridValue)
+        && hybridValue == 3.0
+        && params->get_value(plugin, kEventRateParam, &hybridValue)
+        && std::abs(hybridValue - 0.82) < 1.0e-6
+        && params->get_value(plugin, kEventChokeParam, &hybridValue)
+        && hybridValue == 1.0
+        && params->get_value(plugin, kAuxABiasParam, &hybridValue)
+        && std::abs(hybridValue + 0.63) < 1.0e-6
+        && params->get_value(plugin, kAuxBBiasParam, &hybridValue)
+        && std::abs(hybridValue - 0.41) < 1.0e-6;
     char processorName[32] {};
     ok = ok && params->value_to_text(plugin, kAuxATypeParam, 1.0,
             processorName, sizeof(processorName))
         && std::strcmp(processorName, "WOOL") == 0;
+    ok = ok && params->value_to_text(plugin, kAuxATypeParam, 14.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "VOID") == 0
+        && params->value_to_text(plugin, kAuxATypeParam, 22.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "OCT STACK") == 0
+        && params->value_to_text(plugin, kBehaviorParam, 3.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "BURST") == 0
+        && params->value_to_text(plugin, kAuxABiasParam, -0.63,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "-0.63") == 0;
 
     AudioBlock audio;
     std::array<double, kChannels> energy {};

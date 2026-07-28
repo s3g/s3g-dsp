@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Pyrosphere Encoder - s3g-dsp</title>
+    <title>Ambi Encoder Pyrosphere - s3g-dsp</title>
     <meta name="description" content="A geological ambisonic instrument for combustion, thermal stress, fracture, spall, debris, pressure, and plume behavior in s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -19,8 +19,17 @@
     </header>
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Pyrosphere Encoder</h1>
+        <h1>Ambi Encoder Pyrosphere</h1>
         <p><code>s3g Ambi Encoder Pyrosphere</code> is the thermal counterpart to Cryosphere: a zero-input geological instrument in which combustion acts on fuel, structures, and rock. It turns heat release, pyrolysis, thermal stress, fracture, spall, pressure, debris, and plume transport into a first-through-seventh-order <code>ACN/SN3D</code> field.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pyrosphere-encoder.png" aria-label="Open Ambi Encoder Pyrosphere GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pyrosphere-encoder.png" alt="Ambi Encoder Pyrosphere GUI showing thermal-process engines, entity score, spatial field, presets, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Pyrosphere with thermal-process engines, entity score, spatial field, presets, and output controls.</figcaption>
+        </figure>
 
         <h2 id="design">Thermal-geology design</h2>
         <p>The source model is aperiodic. Each field voice maintains a heat reservoir and stochastic combustion layer while its material accumulates thermal stress. Threshold crossings launch branching fracture cascades, surface-spall bursts, fragment showers, pressure releases, and occasional collapse events. Standing timber and forest materials add three independently loaded structural generations: trunk, limbs, and fine branches. Wind and plume motion drive Strouhal-scaled shedding forces; heat damage lowers failure resistance until bright branch snaps cascade into trunk rupture, a hinged descent, and a separate ground impact. Broadband and filtered-noise impulses replace the pitched ember oscillators and resonant fire patches used by the earlier prototype.</p>
@@ -43,11 +52,11 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-water-encoder.html">
             <span>Previous</span>
-            Ambi Water Encoder
+            Ambi Encoder Water
           </a>
           <a class="page-nav-link next" href="ambi-cryosphere-encoder.html">
             <span>Next</span>
-            Ambi Cryosphere Encoder
+            Ambi Encoder Cryosphere
           </a>
         </nav>
       </main>
@@ -72,5 +81,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

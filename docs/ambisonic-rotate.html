@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Transform Rotate 64 - s3g-dsp</title>
-    <meta name="description" content="Ambi Transform Rotate 64 documentation for s3g-dsp.">
+    <title>Ambi Transform Rot 64 - s3g-dsp</title>
+    <meta name="description" content="Ambi Transform Rot 64 documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,13 +24,22 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Transform Rotate 64</h1>
+        <h1>Ambi Transform Rot 64</h1>
 
         <p><code>s3g Ambi Transform Rot 64</code> is a fixed 64-in/64-out <code>ACN/SN3D</code> ambisonic utility for rotating a field before decoding, analysis, or further processing. It supports first through seventh order.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-rotate.png" aria-label="Open Ambi Transform Rot interface screenshot">
+              <img src="assets/plugin-guis/ambisonic-rotate.png" alt="Ambi Transform Rot interface showing yaw, pitch, roll, smoothing, order, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Transform Rot with yaw, pitch, roll, smoothing, order, and output controls.</figcaption>
+        </figure>
+
         <h2 id="use">Use</h2>
 
-        <p>Place Rotate between an ambisonic source and a decoder or visualizer when the field needs to turn without changing the speaker layout. For example, it can rotate a captured or generated scene before the <a href="ambi-speaker-decoder.html">Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>.</p>
+        <p>Place Rotate between an ambisonic source and a decoder or visualizer when the field needs to turn without changing the speaker layout. For example, it can rotate a captured or generated scene before the <a href="ambi-speaker-decoder.html">Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <p>The rotation uses a precomputed spherical projection matrix for the selected order. It is designed for practical field-orientation work in REAPER while keeping a stable 64-channel bus.</p>
 
@@ -59,7 +68,7 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-imprint.html">
             <span>Previous</span>
-            Ambi Imprint
+            Processor Ambi Imprint
           </a>
           <a class="page-nav-link next" href="ambisonic-bus-processors.html">
             <span>Next</span>
@@ -83,8 +92,8 @@
           <h2>Effect Pages</h2>
           <a href="ambisonic-effects.html">Ambi Effects</a>
           <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="ambisonic-rotate.html">Ambi Rotate</a>
+          <a href="ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>
           <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
           <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
@@ -96,5 +105,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

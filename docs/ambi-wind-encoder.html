@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Wind Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Wind Encoder synthesis, motion, environment, preset, and routing documentation for s3g-dsp.">
+    <title>Ambi Encoder Wind - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Wind synthesis, motion, environment, preset, and routing documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,11 +24,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Wind Encoder</h1>
+        <h1>Ambi Encoder Wind</h1>
 
-        <p><code>s3g Ambi Encoder Wind 64</code> is a zero-input filtered-noise instrument that creates a moving field of as many as 64 voices. Gusts, turbulent modulation, resonant materials, microweather motion, and an environment field are encoded directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Encoder Wind</code> is a zero-input filtered-noise instrument that creates a moving field of as many as 64 voices. Gusts, turbulent modulation, resonant materials, microweather motion, and an environment field are encoded directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>Filtered-noise synthesis starts with broadband noise, then uses moving filters and amplitude envelopes to create changes in pressure and air speed. Resonators add the tonal response of leaves, wire, metal, reeds, and other materials without using recorded wind samples.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wind-encoder.png" aria-label="Open Ambi Encoder Wind GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wind-encoder.png" alt="Ambi Encoder Wind GUI showing gust and material synthesis, the microweather field, environment, and ambisonic output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Wind with gust and material synthesis, microweather field, environment, and ambisonic output.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -90,16 +99,16 @@
           </tbody>
         </table>
 
-        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-wave-terrain-encoder.html">
             <span>Previous</span>
-            Ambi Wave Terrain Encoder
+            Ambi Encoder Wave Terrain
           </a>
           <a class="page-nav-link next" href="ambi-water-encoder.html">
             <span>Next</span>
-            Ambi Water Encoder
+            Ambi Encoder Water
           </a>
         </nav>
       </main>
@@ -117,20 +126,20 @@
         </div>
         <div class="toc-section">
           <h2>Encoder Pages</h2>
-          <a href="ambi-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-point-encoder.html">Encoder Point</a>
+          <a href="ambi-cloud-encoder.html">Encoder Cloud</a>
           <a href="ambi-terrain-navigator.html">Surface Terrain</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-wind-encoder.html">Wind Encoder</a>
-          <a href="ambi-water-encoder.html">Water Encoder</a>
-          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-path-encoder.html">Encoder Path</a>
+          <a href="ambi-ray-encoder.html">Encoder Ray</a>
+          <a href="ambi-ray-bilocation-encoder.html">Encoder Ray Bilocation</a>
+          <a href="ambi-vot-encoder.html">Encoder VOT</a>
+          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-wave-terrain-encoder.html">Encoder Wave Terrain</a>
+          <a href="ambi-wind-encoder.html">Encoder Wind</a>
+          <a href="ambi-water-encoder.html">Encoder Water</a>
+          <a href="ambi-pulsar-encoder.html">Encoder Pulsar</a>
+          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
+          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -144,5 +153,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>
