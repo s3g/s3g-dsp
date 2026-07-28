@@ -355,6 +355,7 @@ struct NoInputMixerFamilyLayout {
     Panel crosspoint {};
     Panel eq {};
     Panel inserts {};
+    Panel movement {};
     Panel containment {};
     Rect containmentMeter {};
     Rect containmentField {};
@@ -687,28 +688,30 @@ inline constexpr ImprintFamilyLayout kImprintFamilyLayout {
 
 inline constexpr NoInputMixerFamilyLayout kNoInputMixerFamilyLayout {
     { 1356.0, 820.0 },
-    { 12.0, 42.0, 620.0, 766.0 },
-    { 28.0, 78.0, 588.0, 714.0 },
+    { 12.0, 42.0, 1332.0, 766.0 },
+    { 28.0, 78.0, 1300.0, 714.0 },
     { PluginClass::EffectProcessor, PanelRole::Output,
-        { 644.0, 42.0, 344.0, 132.0 }, 36.0, 26.0, 4u },
+        { 248.0, 150.0, 392.0, 132.0 }, 36.0, 26.0, 4u },
     { PluginClass::EffectProcessor, PanelRole::Engine,
-        { 644.0, 186.0, 344.0, 184.0 }, 36.0, 26.0, 6u },
+        { 936.0, 78.0, 392.0, 262.0 }, 36.0, 26.0, 9u },
     { PluginClass::EffectProcessor, PanelRole::SelectedObject,
-        { 644.0, 382.0, 344.0, 158.0 }, 36.0, 26.0, 5u },
+        { 936.0, 78.0, 392.0, 210.0 }, 36.0, 26.0, 7u },
     { PluginClass::EffectProcessor, PanelRole::Routing,
-        { 644.0, 552.0, 344.0, 158.0 }, 36.0, 26.0, 5u },
+        { 936.0, 574.0, 392.0, 126.0 }, 36.0, 26.0, 4u },
     { PluginClass::EffectProcessor, PanelRole::ToneShape,
-        { 1000.0, 42.0, 344.0, 132.0 }, 36.0, 26.0, 4u },
+        { 936.0, 300.0, 392.0, 132.0 }, 36.0, 26.0, 4u },
     { PluginClass::EffectProcessor, PanelRole::Engine,
-        { 1000.0, 186.0, 344.0, 236.0 }, 36.0, 26.0, 8u },
+        { 936.0, 444.0, 392.0, 236.0 }, 36.0, 26.0, 8u },
+    { PluginClass::EffectProcessor, PanelRole::Motion,
+        { 936.0, 352.0, 392.0, 210.0 }, 36.0, 26.0, 7u },
     { PluginClass::EffectProcessor, PanelRole::Diagnostics,
-        { 1000.0, 434.0, 344.0, 276.0 }, 36.0, 26.0, 0u },
-    { 1108.0, 500.0, 210.0, 12.0 },
-    { 1016.0, 528.0, 312.0, 108.0 },
-    { 1212.0, 654.0, 116.0, 36.0 },
+        { 652.0, 150.0, 456.0, 520.0 }, 36.0, 26.0, 0u },
+    { 770.0, 224.0, 310.0, 12.0 },
+    { 680.0, 260.0, 400.0, 330.0 },
+    { 1120.0, 8.0, 90.0, 24.0 },
 };
 
-static_assert(kNoInputMixerFamilyLayout.output.frame.y
+static_assert(kNoInputMixerFamilyLayout.fieldPanel.y
     == kStandardMetrics.contentTop);
 static_assert(kNoInputMixerFamilyLayout.output.role == PanelRole::Output);
 

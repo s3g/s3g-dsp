@@ -622,6 +622,13 @@ int main(int argc, char** argv)
         const bool noInputMixer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
+        const bool partialTrace = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-partial-trace-64") == 0;
+        const bool responseTrace = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-response-trace-64") == 0;
+        const bool ambiEffectTrace = partialTrace || responseTrace;
         const bool parameterSurfaceEncoder = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0
@@ -658,6 +665,53 @@ int main(int argc, char** argv)
             "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0;
         const bool environmentalSurface =
             cryosphere || pyrosphere || water || wind || insect;
+        if (ok && ambiEffectTrace) {
+            failureStage = "Ambi Effect Trace AED elevation direction";
+            if (scroll) {
+                [[scroll contentView] scrollToPoint:NSMakePoint(200.0, 280.0)];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+            constexpr CGFloat maskPanelX = 648.0;
+            constexpr CGFloat maskPanelWidth = 258.0;
+            const CGFloat maskPanelY = partialTrace ? 582.0 : 438.0;
+            const CGFloat elevationRowY = maskPanelY
+                + static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.firstRowOffset)
+                + 2.0 * static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.rowPitch);
+            const CGFloat trackX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(maskPanelX));
+            const CGFloat trackWidth = static_cast<CGFloat>(
+                s3g::gui_layout::processorTrackWidth(maskPanelWidth));
+            constexpr clap_id maskElevationParam = 23u;
+            auto clickElevation = [&](double normalized,
+                                      double expectedDegrees) {
+                const NSPoint point = NSMakePoint(
+                    trackX + trackWidth * normalized, elevationRowY);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [hitView mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+                double reported = 0.0;
+                return params->get_value(
+                        plugin, maskElevationParam, &reported)
+                    && std::fabs(reported - expectedDegrees) < 0.02;
+            };
+            ok = clickElevation(0.0, 90.0)
+                && clickElevation(0.25, 45.0)
+                && clickElevation(0.75, -45.0)
+                && clickElevation(1.0, -90.0);
+            if (!ok) {
+                std::cerr << "Trace elevation did not run +90 left to -90 right\n";
+            }
+            if (scroll) {
+                [[scroll contentView] scrollToPoint:NSZeroPoint];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
         if (ok && environmentalSurface) {
             failureStage = "environmental RANDOM and SURF contract";
             const auto* pluginState =
@@ -1849,7 +1903,6 @@ int main(int argc, char** argv)
             }
         }
         if (ok && noInputMixer) {
-            failureStage = "No Input Mixer presets and randomization";
             const auto clickNoInput = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, point)];
@@ -1857,6 +1910,27 @@ int main(int argc, char** argv)
                     NSEventTypeLeftMouseUp, point)];
             };
             @try {
+                failureStage = "No Input Mixer focused arrow navigation";
+                auto pageArrow = [&](unsigned short keyCode,
+                                     NSString* characters) {
+                    NSEvent* key = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                        location:NSZeroPoint modifierFlags:0 timestamp:0.0
+                        windowNumber:0 context:nil characters:characters
+                        charactersIgnoringModifiers:characters
+                        isARepeat:NO keyCode:keyCode];
+                    [document keyDown:key];
+                };
+                ok = [document acceptsFirstResponder]
+                    && [[document valueForKey:@"activePage"]
+                        unsignedIntValue] == 0u;
+                if (ok) pageArrow(124u, @"\uF703");
+                ok = ok && [[document valueForKey:@"activePage"]
+                    unsignedIntValue] == 1u;
+                if (ok) pageArrow(123u, @"\uF702");
+                ok = ok && [[document valueForKey:@"activePage"]
+                    unsignedIntValue] == 0u;
+
+                failureStage = "No Input Mixer presets and randomization";
                 double feedbackBefore = 0.0;
                 double bodyBefore = 0.0;
                 double feedbackAfter = 0.0;
@@ -1867,7 +1941,7 @@ int main(int argc, char** argv)
                     s3g::gui_layout::kNoInputMixerFamilyLayout.network;
                 const CGFloat randomX = static_cast<CGFloat>(
                     s3g::gui_layout::processorControlX(network.frame.x)
-                    + 66.0 + 8.0 + 72.0);
+                    + 58.0 + 6.0 + 33.0);
                 const CGFloat randomY = static_cast<CGFloat>(
                     s3g::gui_layout::rowY(network, 0u) + 6.5);
                 if (ok) clickNoInput(NSMakePoint(randomX, randomY));
@@ -1893,8 +1967,325 @@ int main(int argc, char** argv)
                 ok = ok
                     && params->get_value(plugin, 5u, &presetFeedback)
                     && params->get_value(plugin, 1020u, &presetType)
-                    && std::fabs(presetFeedback - 0.89) < 0.000001
+                    && std::fabs(presetFeedback - 0.89) < 0.01
                     && presetType == 3.0;
+
+                if (ok) {
+                    failureStage = "No Input Mixer CLEAR ALL connections";
+                    const NSRect wiring = NSMakeRect(
+                        28.0, 78.0, 896.0, 714.0);
+                    clickNoInput(NSMakePoint(
+                        NSMaxX(wiring) - 196.0 + 37.0,
+                        wiring.origin.y + 19.0));
+                    for (clap_id route = 100u; ok && route < 164u;
+                         ++route) {
+                        double value = 1.0;
+                        ok = params->get_value(plugin, route, &value)
+                            && std::abs(value) < 0.000001;
+                    }
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(presetAnchor), NSMidY(presetAnchor)));
+                    if (ok) clickNoInput(NSMakePoint(
+                        NSMidX(presetAnchor),
+                        NSMaxY(presetAnchor) + 2.0
+                            + 18.0 * (zoneWebIndex + 0.5)));
+                    double restoredDiagonal = 0.0;
+                    ok = ok && params->get_value(
+                            plugin, 100u, &restoredDiagonal)
+                        && restoredDiagonal > 0.8;
+                }
+
+                if (ok) {
+                    failureStage = "No Input Mixer wiring patch gesture";
+                    const NSRect wiring = NSMakeRect(
+                        28.0, 78.0, 896.0, 714.0);
+                    const CGFloat wireGap =
+                        (wiring.size.height - 144.0) / 7.0;
+                    const NSPoint sourcePort = NSMakePoint(
+                        wiring.origin.x + 54.0,
+                        wiring.origin.y + 72.0 + wireGap);
+                    const NSPoint destinationPort = NSMakePoint(
+                        NSMaxX(wiring) - 54.0,
+                        wiring.origin.y + 72.0);
+                    double routeBefore = 0.0;
+                    double routePatched = 0.0;
+                    double routeCleared = 0.0;
+                    ok = params->get_value(plugin, 101u, &routeBefore);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, sourcePort)];
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, destinationPort)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, destinationPort)];
+                    }
+                    ok = ok && params->get_value(plugin, 101u, &routePatched);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, sourcePort)];
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, destinationPort)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, destinationPort)];
+                    }
+                    ok = ok && params->get_value(plugin, 101u, &routeCleared)
+                        && std::abs(routeBefore) < 0.000001
+                        && std::abs(routePatched - 0.25) < 0.000001
+                        && std::abs(routeCleared) < 0.000001;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, sourcePort)];
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, destinationPort)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, destinationPort)];
+                    }
+                    double routeRestored = 0.0;
+                    ok = ok && params->get_value(
+                            plugin, 101u, &routeRestored)
+                        && std::abs(routeRestored - 0.25) < 0.000001;
+                }
+                if (ok) {
+                    failureStage = "No Input Mixer routed-audio wire scope";
+                    constexpr uint32_t audioFrames = 128u;
+                    std::array<std::array<float, audioFrames>, 8u>
+                        audioOutput {};
+                    std::array<float*, 8u> outputPointers {};
+                    for (uint32_t channel = 0u; channel < 8u; ++channel) {
+                        outputPointers[channel] = audioOutput[channel].data();
+                    }
+                    clap_audio_buffer_t outputBuffer {};
+                    outputBuffer.data32 = outputPointers.data();
+                    outputBuffer.channel_count = 8u;
+                    clap_process_t processBlock {};
+                    processBlock.frames_count = audioFrames;
+                    processBlock.audio_outputs = &outputBuffer;
+                    processBlock.audio_outputs_count = 1u;
+                    ok = plugin->activate(plugin, 48000.0, 1u, audioFrames)
+                        && plugin->start_processing(plugin);
+                    float renderedPeak = 0.0f;
+                    for (uint32_t block = 0u; ok && block < 96u; ++block) {
+                        for (auto& channel : audioOutput) channel.fill(0.0f);
+                        ok = plugin->process(plugin, &processBlock)
+                            != CLAP_PROCESS_ERROR;
+                        for (const auto& channel : audioOutput) {
+                            for (float sample : channel) {
+                                renderedPeak = std::max(
+                                    renderedPeak, std::abs(sample));
+                            }
+                        }
+                    }
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                    ok = ok && renderedPeak > 1.0e-7f;
+                }
+                if (ok) {
+                    failureStage = "No Input Mixer dB matrix grid";
+                    const NSRect wiring = NSMakeRect(
+                        28.0, 78.0, 896.0, 714.0);
+                    clickNoInput(NSMakePoint(
+                        NSMaxX(wiring) - 38.0, wiring.origin.y + 19.0));
+                    const NSPoint firstGridCell = NSMakePoint(
+                        wiring.origin.x + 154.0 + 54.0,
+                        wiring.origin.y + 34.0 + 36.0);
+                    double diagonalBefore = 0.0;
+                    double diagonalSelected = 0.0;
+                    double diagonalDissolved = 1.0;
+                    double diagonalRestored = 0.0;
+                    ok = params->get_value(plugin, 100u, &diagonalBefore);
+                    if (ok) clickNoInput(firstGridCell);
+                    ok = ok && params->get_value(
+                        plugin, 100u, &diagonalSelected)
+                        && std::abs(diagonalSelected - diagonalBefore)
+                            < 0.000001;
+                    if (ok) clickNoInput(firstGridCell);
+                    ok = ok && params->get_value(
+                        plugin, 100u, &diagonalDissolved)
+                        && std::abs(diagonalDissolved) < 0.000001;
+                    if (ok) clickNoInput(firstGridCell);
+                    ok = ok && params->get_value(
+                        plugin, 100u, &diagonalRestored)
+                        && std::abs(diagonalRestored - 0.94) < 0.000001;
+                    NSData* gridRender = [document dataWithPDFInsideRect:
+                        [document bounds]];
+                    ok = gridRender && [gridRender length] > 0u;
+                    const char* captureDirectory = std::getenv(
+                        "S3G_GUI_SMOKE_PDF_DIR");
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        [[NSFileManager defaultManager]
+                            createDirectoryAtPath:directory
+                            withIntermediateDirectories:YES
+                            attributes:nil error:nil];
+                        NSString* gridName = [[NSString stringWithFormat:
+                            @"%s.grid", pluginId]
+                            stringByAppendingPathExtension:@"pdf"];
+                        ok = [gridRender writeToFile:[directory
+                                stringByAppendingPathComponent:gridName]
+                            atomically:YES];
+                    }
+                    clickNoInput(NSMakePoint(
+                        NSMaxX(wiring) - 92.0, wiring.origin.y + 19.0));
+                }
+                if (ok) {
+                    failureStage =
+                        "No Input Mixer smooth mixer drag and POP window";
+                    const auto& family =
+                        s3g::gui_layout::kNoInputMixerFamilyLayout;
+                    const NSRect plot = s3g::clap_gui::cocoaRect(
+                        family.fieldPlot);
+                    constexpr CGFloat tabWidth = 58.0;
+                    constexpr CGFloat tabGap = 5.0;
+                    const CGFloat tabStart = family.fieldPanel.x
+                        + family.fieldPanel.width - 4.0 * tabWidth
+                        - 3.0 * tabGap - 10.0;
+                    clickNoInput(NSMakePoint(
+                        tabStart + (tabWidth + tabGap) + tabWidth * 0.5,
+                        family.fieldPanel.y + 11.0));
+
+                    constexpr CGFloat mixerContentWidth = 1216.0;
+                    constexpr CGFloat mixerContentHeight = 706.0;
+                    const NSPoint mixerOffset = NSMakePoint(
+                        plot.origin.x - 12.0
+                            + (plot.size.width - mixerContentWidth) * 0.5,
+                        plot.origin.y - 42.0
+                            + (plot.size.height - mixerContentHeight) * 0.5);
+                    constexpr CGFloat popupStripWidth =
+                        (858.0 - 6.0 * 7.0) / 8.0;
+                    const NSRect bodyTrack = NSMakeRect(
+                        mixerOffset.x + 12.0 + 10.0,
+                        mixerOffset.y + 42.0 + 54.0,
+                        popupStripWidth - 20.0, 10.0);
+                    const NSPoint bodyStart = NSMakePoint(
+                        NSMinX(bodyTrack) + bodyTrack.size.width * 0.18,
+                        NSMidY(bodyTrack));
+                    const NSPoint bodyEnd = NSMakePoint(
+                        NSMinX(bodyTrack) + bodyTrack.size.width * 0.86,
+                        NSMidY(bodyTrack));
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, bodyStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, bodyEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, bodyEnd)];
+                    double draggedBody = 0.0;
+                    ok = params->get_value(plugin, 1000u, &draggedBody)
+                        && std::fabs(draggedBody - 0.86) < 0.03;
+
+                    const NSPoint popPoint = NSMakePoint(
+                        family.fieldPanel.x + family.fieldPanel.width
+                            - 4.0 * tabWidth - 3.0 * tabGap - 68.0 + 24.0,
+                        family.fieldPanel.y + 11.0);
+                    if (ok) clickNoInput(popPoint);
+                    NSPanel* mixerPanel = ok
+                        ? [document valueForKey:@"mixerPanel"] : nil;
+                    NSView* popup = mixerPanel
+                        ? [mixerPanel contentView] : nil;
+                    ok = ok && mixerPanel && [mixerPanel isVisible]
+                        && popup;
+                    if (ok) {
+                        auto popupEvent = [&](NSEventType type,
+                                              NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[popup convertPoint:point toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[mixerPanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        const NSRect popupFader = NSMakeRect(
+                            mixerOffset.x + 12.0
+                                + popupStripWidth * 0.5 - 7.0,
+                            mixerOffset.y + 42.0 + 582.0,
+                            14.0, 74.0);
+                        const NSPoint faderStart = NSMakePoint(
+                            NSMidX(popupFader), NSMaxY(popupFader) - 4.0);
+                        const NSPoint faderEnd = NSMakePoint(
+                            NSMidX(popupFader), NSMinY(popupFader) + 8.0);
+                        [popup mouseDown:popupEvent(
+                            NSEventTypeLeftMouseDown, faderStart)];
+                        [popup mouseDragged:popupEvent(
+                            NSEventTypeLeftMouseDragged, faderEnd)];
+                        [popup mouseUp:popupEvent(
+                            NSEventTypeLeftMouseUp, faderEnd)];
+                        double popupLevel = -60.0;
+                        ok = params->get_value(plugin, 1002u, &popupLevel)
+                            && popupLevel > 3.0;
+                        NSData* popupRender = ok
+                            ? [popup dataWithPDFInsideRect:[popup bounds]]
+                            : nil;
+                        ok = ok && popupRender
+                            && [popupRender length] > 0u;
+                        const char* captureDirectory = std::getenv(
+                            "S3G_GUI_SMOKE_PDF_DIR");
+                        if (ok && captureDirectory
+                            && captureDirectory[0]) {
+                            NSString* directory = [NSString
+                                stringWithUTF8String:captureDirectory];
+                            [[NSFileManager defaultManager]
+                                createDirectoryAtPath:directory
+                                withIntermediateDirectories:YES
+                                attributes:nil error:nil];
+                            NSString* popupName = [[NSString
+                                stringWithFormat:@"%s.mixer-pop", pluginId]
+                                stringByAppendingPathExtension:@"pdf"];
+                            ok = [popupRender writeToFile:[directory
+                                    stringByAppendingPathComponent:popupName]
+                                atomically:YES];
+                        }
+                    }
+                    NSPanel* channelPanel = nil;
+                    NSPanel* safetyPanel = nil;
+                    NSPanel* patchPanel = nil;
+                    if (ok) clickNoInput(popPoint);
+                    channelPanel = ok
+                        ? [document valueForKey:@"channelPanel"] : nil;
+                    if (ok) clickNoInput(popPoint);
+                    safetyPanel = ok
+                        ? [document valueForKey:@"safetyPanel"] : nil;
+                    if (ok) clickNoInput(popPoint);
+                    patchPanel = ok
+                        ? [document valueForKey:@"patchPanel"] : nil;
+                    ok = ok && channelPanel && safetyPanel && patchPanel
+                        && [channelPanel isVisible]
+                        && [safetyPanel isVisible]
+                        && [patchPanel isVisible]
+                        && NSWidth([[channelPanel contentView] bounds])
+                            == nativeWidth
+                        && NSHeight([[channelPanel contentView] bounds])
+                            == nativeHeight;
+                    const char* captureDirectory = std::getenv(
+                        "S3G_GUI_SMOKE_PDF_DIR");
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        const std::array<std::pair<NSPanel*, NSString*>, 3u>
+                            detached {{
+                                { channelPanel, @"channel-pop" },
+                                { safetyPanel, @"safety-pop" },
+                                { patchPanel, @"patch-pop" },
+                            }};
+                        for (const auto& item : detached) {
+                            NSData* rendered = [[item.first contentView]
+                                dataWithPDFInsideRect:
+                                    [[item.first contentView] bounds]];
+                            NSString* name = [[NSString stringWithFormat:
+                                @"%s.%@", pluginId, item.second]
+                                stringByAppendingPathExtension:@"pdf"];
+                            ok = ok && rendered && [rendered writeToFile:
+                                [directory stringByAppendingPathComponent:name]
+                                atomically:YES];
+                        }
+                    }
+                    [mixerPanel orderOut:nil];
+                    [channelPanel orderOut:nil];
+                    [safetyPanel orderOut:nil];
+                    [patchPanel orderOut:nil];
+                    clickNoInput(NSMakePoint(
+                        tabStart + tabWidth * 0.5,
+                        family.fieldPanel.y + 11.0));
+                }
             } @catch (NSException*) {
                 ok = false;
             }

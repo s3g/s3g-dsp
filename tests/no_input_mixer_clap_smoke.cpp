@@ -17,8 +17,58 @@ namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 282u;
+constexpr uint32_t kParamCount = 320u;
 constexpr clap_id kFirstMatrixParam = 100u;
+constexpr clap_id kMotionShapeParam = 20u;
+constexpr clap_id kAuxATypeParam = 23u;
+constexpr clap_id kLaneOneAuxAParam = 1008u;
+
+struct LegacyInsert {
+    uint32_t type = 0u;
+    float gain = 0.35f;
+    float tone = 0.50f;
+    float bias = 0.0f;
+    float levelDb = 0.0f;
+    uint32_t bypass = 0u;
+};
+
+struct LegacyLane {
+    float body = 0.50f;
+    float loss = 0.38f;
+    float levelDb = -3.0f;
+    uint32_t mute = 0u;
+    float lowDb = 0.0f;
+    float midFrequencyHz = 850.0f;
+    float midGainDb = 0.0f;
+    float highDb = 0.0f;
+    std::array<LegacyInsert, 3u> inserts {};
+};
+
+struct LegacyParams {
+    float outputGainDb = -18.0f;
+    float ceilingDb = -1.0f;
+    uint32_t limiterEnabled = 1u;
+    uint32_t dcBlockEnabled = 1u;
+    float feedback = 0.82f;
+    float coupling = 0.42f;
+    float phase = 0.34f;
+    float drift = 0.18f;
+    float formant = 0.30f;
+    uint32_t quality = 1u;
+    uint32_t seed = 0x5455444fu;
+    std::array<float, 64u> matrix {};
+    std::array<LegacyLane, 8u> lanes {};
+};
+
+struct LegacyState {
+    uint32_t version = 1u;
+    LegacyParams params {};
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+};
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -190,6 +240,47 @@ int main(int argc, char** argv)
     ok = ok && state->load(plugin, &inputStream)
         && params->get_value(plugin, kFirstMatrixParam, &matrixValue)
         && std::abs(matrixValue - 0.94) < 1.0e-6;
+
+    LegacyState legacy;
+    legacy.params.feedback = 0.73f;
+    legacy.params.matrix[0] = -0.44f;
+    legacy.params.lanes[0].body = 0.61f;
+    MemoryState legacyMemory;
+    const auto* legacyBytes = reinterpret_cast<const uint8_t*>(&legacy);
+    legacyMemory.bytes.assign(legacyBytes, legacyBytes + sizeof(legacy));
+    clap_istream_t legacyStream { &legacyMemory, stateRead };
+    double migrated = 0.0;
+    ok = ok && state->load(plugin, &legacyStream)
+        && params->get_value(plugin, 5u, &migrated)
+        && std::abs(migrated - 0.73) < 1.0e-6
+        && params->get_value(plugin, 100u, &migrated)
+        && std::abs(migrated + 0.44) < 1.0e-6
+        && params->get_value(plugin, 1000u, &migrated)
+        && std::abs(migrated - 0.61) < 1.0e-6
+        && params->get_value(plugin, 11u, &migrated)
+        && std::abs(migrated - 0.28) < 1.0e-6
+        && params->get_value(plugin, kLaneOneAuxAParam, &migrated)
+        && std::abs(migrated - 0.08) < 1.0e-6;
+    saved.offset = 0u;
+    clap_istream_t restoredStream { &saved, stateRead };
+    ok = ok && state->load(plugin, &restoredStream);
+
+    EventList hybridChange;
+    hybridChange.add(kMotionShapeParam, 3.0);
+    hybridChange.add(kAuxATypeParam, 1.0);
+    hybridChange.add(kLaneOneAuxAParam, 0.72);
+    if (ok) params->flush(plugin, &hybridChange.input, nullptr);
+    double hybridValue = 0.0;
+    ok = ok && params->get_value(plugin, kMotionShapeParam, &hybridValue)
+        && hybridValue == 3.0
+        && params->get_value(plugin, kAuxATypeParam, &hybridValue)
+        && hybridValue == 1.0
+        && params->get_value(plugin, kLaneOneAuxAParam, &hybridValue)
+        && std::abs(hybridValue - 0.72) < 1.0e-6;
+    char processorName[32] {};
+    ok = ok && params->value_to_text(plugin, kAuxATypeParam, 1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "WOOL") == 0;
 
     AudioBlock audio;
     std::array<double, kChannels> energy {};

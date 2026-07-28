@@ -529,12 +529,34 @@ The current primary reference is `s3g Processor Delay 8ch`:
 
 `s3g Processor No Input Mixer 8ch` is the feedback-matrix reference:
 
-- an exact signed 8-by-8 matrix is the primary visual object
+- signed source-to-destination wiring is the primary visual object; an exact
+  8-by-8 grid is available as an alternate editing view
 - lane, source, destination, and insert selections use bounded uppercase menus
-- all eight lane meters remain visible on the primary matrix page
-- EQ, inserts, and containment stay visible while the matrix page changes
+- wire drags create routes, repeated drags or a click on the selected cable
+  dissolve them, and Option creates negative polarity; in the grid, one click
+  patches or selects and a second click on the selected intersection dissolves
+- `CLEAR ALL` dissolves the complete graph from the same PATCH-header position
+  in WIRES and GRID
+- the four logical pages are `PATCH`, `MIXER`, `CHANNEL`, and `SAFETY`
+- each page owns its complete control group and may detach with `POP`; detached
+  and docked forms use the same renderer, geometry, and plugin parameter state
+- `MIXER` includes all eight strips, expanded aux returns, and internal/house
+  tone in both forms, with no controls exclusive to the detached window
+- every continuous eight-strip mixer track responds to smooth click-and-drag
+  gestures in both the main page and attached page
+- wiring preserves stored signed topology in the cable shell and draws the
+  measured post-modulation route waveform along it; the selected route reports
+  dBFS, while the grid aligns crosspoints, effective-gain groups, and
+  −60-to-0 dBFS output meters by source column
+- Matrix Movement is labeled as route-gain modulation; `DEPTH` applies a
+  perceptual 30 dB generated-weight law without creating, repolarizing, or
+  exceeding stored routes, and `RATE` reports the actual 0.05–5 Hz frequency
+- focused Left/Right navigation cycles logical pages or raises their detached
+  windows; it must not intercept keys while the host owns focus
 - the title-band preset menu selects complete factory networks, while bounded
-  randomization remains beside reseeding in the `NETWORK` panel
+  randomization and localized forgetting remain beside reseeding in the
+  `NETWORK` panel
+- `PANIC` stays fixed in the title band on all logical pages
 - destructive containment uses a restrained red action while ordinary signal
   and signed-route states remain cyan, orange, and grayscale
 

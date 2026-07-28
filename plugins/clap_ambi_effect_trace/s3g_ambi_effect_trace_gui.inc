@@ -93,6 +93,7 @@ struct GuiSlider {
     double maximum;
     double defaultValue;
     bool logarithmic;
+    bool reversed = false;
 };
 
 #if S3G_PARTIAL_TRACE
@@ -130,7 +131,7 @@ constexpr GuiSlider mixSlider {
 constexpr GuiSlider maskSliders[] {
     { kParamMaskAmount, "MASK", 0, 1, 0, false },
     { kParamMaskAzimuth, "AZIMUTH", -180, 180, 0, false },
-    { kParamMaskElevation, "ELEVATION", -90, 90, 0, false },
+    { kParamMaskElevation, "ELEVATION", -90, 90, 0, false, true },
     { kParamMaskWidth, "WIDTH", 0, 1, 0.35, false },
     { kParamMaskCurve, "CURVE", 0, 1, 0.5, false },
     { kParamMaskDry, "MASK DRY", -1, 0, 0, false },
@@ -138,16 +139,20 @@ constexpr GuiSlider maskSliders[] {
 
 double sliderNorm(const GuiSlider& slider, double value)
 {
+    double norm = 0.0;
     if (slider.logarithmic) {
-        return std::log(std::max(slider.minimum, value) / slider.minimum)
+        norm = std::log(std::max(slider.minimum, value) / slider.minimum)
             / std::log(slider.maximum / slider.minimum);
+    } else {
+        norm = (value - slider.minimum) / (slider.maximum - slider.minimum);
     }
-    return (value - slider.minimum) / (slider.maximum - slider.minimum);
+    return slider.reversed ? 1.0 - norm : norm;
 }
 
 double sliderValue(const GuiSlider& slider, double norm)
 {
     norm = std::clamp(norm, 0.0, 1.0);
+    if (slider.reversed) norm = 1.0 - norm;
     if (slider.logarithmic) {
         return slider.minimum * std::pow(
             slider.maximum / slider.minimum, norm);

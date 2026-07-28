@@ -696,19 +696,34 @@ The remaining layout follows the Processor subtype:
 | Loaded-media instrument | playback/source engine, source/window, `RELATIONSHIPS` |
 | Buffer/time processor | engine, `RELATIONSHIPS`, corruption/memory |
 | Developed generator | field/source, codec/shape, performance/envelope |
-| Feedback instrument | signed matrix/lanes/inserts field, then persistent network, selected-lane, crosspoint, EQ, insert, and containment toolboxes |
+| Feedback instrument | signed patching, mixer, channel, and safety groups; exceptionally dense instruments may give each group a full-width detachable page instead of retaining a permanent toolbox column |
 
 Loop and Multi Loop fit `OUTPUT`, `ENGINE`, and `RELATIONSHIPS` in their
 existing single right column, so those panels remain open without widening the
 canvas.
 
-No Input Mixer uses the full 1356 px responsive Processor width and a fitted
-820 px canvas. Its 620 px left field provides three primary pages while the
-two 344 px columns keep `OUTPUT`, `NETWORK`, `SELECTED LANE`, `CROSSPOINT`,
-`EQ`, `INSERTS`, and `CONTAINMENT` permanently visible. The native editor
-minimum width remains 1356 px and the height may scroll without scaling. Its
-bounded complete-network `RANDOM` action sits beside `NEW` in the `NETWORK`
-panel, while its eight factory patches use the title-band `PRESET` menu.
+No Input Mixer uses the full 1356 px responsive Processor width and a compact
+820 px canvas. It is the exception to the permanent-toolbox rule: `PATCH`,
+`MIXER`, `CHANNEL`, and `SAFETY` each use the full content field and contain one
+complete logical control group. `POP` detaches the current page at the same
+1356-by-820 geometry and `DOCK` closes it; docked and detached forms invoke the
+same page renderer and hit geometry. `MIXER` therefore exposes the same eight
+strips, aux returns, and internal/house tone in both forms. Mixer tracks use
+continuous click-and-drag interaction. `PANIC` remains fixed in the title band.
+The native editor minimum width remains 1356 px and the height may scroll
+without scaling. Bounded complete-network `RANDOM` and localized `FORGET`
+remain beside `NEW` in `NETWORK`, while ten factory patches use the title-band
+`PRESET` menu. `PATCH` defaults to a signed source-to-destination wiring view:
+the cable shell shows stored topology while a lock-free 24 kHz scope bends each
+route's measured post-modulation audio waveform along it. The selected route
+reports dBFS. In its alternate exact grid, a click patches or selects an
+intersection and a second click on the selected intersection dissolves it;
+Option-click creates a negative route. `CLEAR ALL` occupies the same PATCH
+header position in both modes. Grid source columns align crosspoints, grouped
+effective-route-gain indicators, and −60-to-0 dBFS output meters. Unmodified
+Left/Right cycles pages only while a plugin view owns keyboard focus. Movement
+`RATE` reports its actual 0.05–5 Hz value, and grid effective-gain marks use the
+same perceptual 30 dB law as the DSP.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,
