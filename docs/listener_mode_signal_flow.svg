@@ -29,7 +29,7 @@
   <path d="M698 270 H710 L704 276 Z" fill="#c6cdc8"/>
   <rect class="box" x="540" y="278" width="320" height="60"/>
   <text class="h" x="560" y="303">VIRTUAL PICKUP DECODING</text>
-  <text class="s" x="560" y="323">tetra · cube · icosa · dodeca · sphere · profile</text>
+  <text class="s" x="560" y="323">tetra · cube · icosa · dodeca · sphere</text>
 
   <path class="wireaudio" d="M700 338 C700 347 700 357 700 366" stroke-width="2" opacity=".92" fill="none"/>
   <path d="M694 366 H706 L700 372 Z" fill="#c6cdc8"/>
