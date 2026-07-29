@@ -3,12 +3,12 @@
   <desc id="desc">Diagram showing 3D layout points, width, distance, attenuation, and stereo output mapping.</desc>
   <rect width="1020" height="430" fill="#0d0f0f"/>
   <style>
-    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.b{fill:#111313;stroke:#303636;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.3;fill:none}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.q{fill:#222827;stroke:#4b5652;stroke-width:1}.rail{fill:#131615;stroke:#5f6864;stroke-width:1}.fill{fill:#9a9f9c}.dim{fill:#6f7774}
+    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.note{fill:#111313;stroke:#303636;stroke-width:1}.noteText{fill:#9ca5a1;font-size:10px}.b{fill:#111313;stroke:#303636;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.3;fill:none}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.q{fill:#222827;stroke:#4b5652;stroke-width:1}.rail{fill:#131615;stroke:#5f6864;stroke-width:1}.fill{fill:#9a9f9c}.dim{fill:#6f7774}
   </style>
   <g transform="translate(38 34)">
     <rect class="b" x="0" y="0" width="584" height="338"/>
-    <text class="h" x="18" y="29">3D PROJECTION VIEW</text>
-    <text class="s" x="210" y="29">sphere / hemisphere / cube layouts</text>
+    <text class="h" x="18" y="27">3D PROJECTION VIEW</text>
+    <text class="s" x="18" y="47">sphere / hemisphere / cube layouts</text>
     <line class="l" x1="94" y1="166" x2="500" y2="166" opacity=".45"/>
     <line class="l" x1="297" y1="88" x2="297" y2="244" opacity=".34"/>
     <line class="l" x1="94" y1="92" x2="500" y2="92" opacity=".16"/>
@@ -33,11 +33,12 @@
     <rect class="b" x="0" y="0" width="332" height="338"/>
     <text class="h" x="18" y="29">WHAT THE CONTROLS DO</text>
     <g transform="translate(18 62)">
-      <rect class="q" x="0" y="0" width="296" height="50"/><text class="h" x="14" y="22">WDTH</text><text class="s" x="78" y="22">stereo span of the fold-down</text><text class="s" x="78" y="39">0% collapses, 200% exaggerates</text>
-      <rect class="q" x="0" y="62" width="296" height="58"/><text class="h" x="14" y="84">DST</text><text class="s" x="78" y="84">3D spread from center</text><text class="s" x="78" y="101">upper and lower points move away</text><text class="s" x="78" y="118">from the middle of the map</text>
-      <rect class="q" x="0" y="132" width="296" height="58"/><text class="h" x="14" y="154">ATT</text><text class="s" x="78" y="154">gain attenuation from height</text><text class="s" x="78" y="171">and rear position in 3D layouts</text>
-      <rect class="q" x="0" y="202" width="296" height="50"/><text class="h" x="14" y="224">WGT</text><text class="s" x="78" y="224">how strongly the layout model</text><text class="s" x="78" y="241">affects rear/shape folding</text>
+      <rect class="q" x="0" y="0" width="296" height="50"/><text class="h" x="14" y="22">WDTH</text><text class="s" x="78" y="21">stereo span</text><text class="s" x="78" y="38">0% collapse · 200% expand</text>
+      <rect class="q" x="0" y="62" width="296" height="58"/><text class="h" x="14" y="84">DST</text><text class="s" x="78" y="82">moves 3D points</text><text class="s" x="78" y="99">toward or away from</text><text class="s" x="78" y="116">the map center</text>
+      <rect class="q" x="0" y="132" width="296" height="58"/><text class="h" x="14" y="154">ATT</text><text class="s" x="78" y="152">reduces level by height</text><text class="s" x="78" y="169">and rear position</text>
+      <rect class="q" x="0" y="202" width="296" height="50"/><text class="h" x="14" y="224">WGT</text><text class="s" x="78" y="222">layout influence on</text><text class="s" x="78" y="239">rear / shape folding</text>
     </g>
   </g>
-  <text class="s" x="38" y="400">DIST changes placement. ATT changes level. They are separate so distance can be exaggerated without automatically turning speakers down.</text>
+  <rect class="note" x="38" y="386" width="944" height="28"/>
+  <text class="noteText" x="52" y="404">DIST changes placement; ATT changes level. Increasing distance does not automatically turn speakers down.</text>
 </svg>

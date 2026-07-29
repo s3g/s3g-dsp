@@ -41,7 +41,7 @@ constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
 constexpr uint32_t kStateVersion = 4;
 constexpr uint32_t kGuiWidth = static_cast<uint32_t>(
     s3g::gui_layout::kTopologyProcessorColumns.canvasWidth);
-constexpr uint32_t kGuiHeight = 950u;
+constexpr uint32_t kGuiHeight = 820u;
 constexpr double kPrimaryPanelX =
     s3g::gui_layout::kTopologyProcessorColumns.first.x;
 constexpr double kSecondaryPanelX =

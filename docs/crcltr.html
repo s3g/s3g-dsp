@@ -30,6 +30,15 @@
 
         <p>Use it to capture two related loops, shape their playback independently, and move between them with a manual or modulated equal-power crossfade.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/crcltr.png" aria-label="Open high-resolution Effect CRCLTR GUI screenshot">
+              <img src="assets/plugin-guis/crcltr.png" alt="Effect CRCLTR output, capture, dual-loop, and crossfade controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Effect CRCLTR with output, capture, dual-loop, and manual or moving crossfade controls.</figcaption>
+        </figure>
+
         <h2 id="workflow">Workflow</h2>
 
         <ol>
@@ -82,7 +91,7 @@
         <h2 id="first-port">Host Interface and Project State</h2>
 
         <ul>
-          <li>The CLAP uses the host's generic parameter view.</li>
+          <li>The macOS CLAP provides a resizable native editor with Output, Capture, Loops, and Crossfade panels. Hosts may still expose the same controls in a generic parameter view.</li>
           <li>Project state stores control settings but not captured loop audio. Record new loops after reopening a project.</li>
           <li>Record gestures shorter than 100 ms leave existing loops unchanged.</li>
           <li>Sine and trapezoid crossfade rates map from 0.25x to 4x relative to Loop 1 timing.</li>
@@ -117,5 +126,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

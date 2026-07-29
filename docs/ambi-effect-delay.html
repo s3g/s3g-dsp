@@ -26,15 +26,15 @@
       <main class="content" id="content">
         <h1>Ambi Effect Delay</h1>
 
-        <p><strong>s3g Ambi Effect Delay 64</strong> projects a complete first- through seventh-order <code>ACN/SN3D</code> field onto an Icosa12 or Dodeca20 listener body, then delays each pickup independently. Per-pickup time and feedback trims provide local control, while macro <code>SPRD</code> and <code>DEV</code> create coherent multi-point relationships.</p>
+        <p><strong>s3g Ambi Effect Delay 64</strong> projects a complete first- through seventh-order <code>ACN/SN3D</code> field onto an Icosa12, Dodeca20, or Sphere24 listener body, then delays each pickup independently. Per-pickup time and feedback trims provide local control, while macro <code>SPRD</code> and <code>DEV</code> create coherent multi-point relationships.</p>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-effect-delay.png" aria-label="Open Ambi Effect Delay interface screenshot">
-              <img src="assets/plugin-guis/ambi-effect-delay.png" alt="Ambi Effect Delay interface showing the auditory-body pickup field, delay relationships, topology, meters, and directional mix mask" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-effect-delay.png?v=3" aria-label="Open Ambi Effect Delay interface screenshot">
+              <img src="assets/plugin-guis/ambi-effect-delay.png?v=3" alt="Ambi Effect Delay interface processing an active 3OA field with a Sphere 24 body, varied delay relationships, strong topology, and an enabled directional wet mask" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Effect Delay with auditory-body pickup field, delay relationships, topology, meters, and directional mix mask.</figcaption>
+          <figcaption>Ambi Effect Delay configured for <code>3OA</code> with a <code>SPHERE 24</code> body, varied delay relationships, and an enabled directional wet mask.</figcaption>
         </figure>
 
         <h2 id="signal-flow">Signal Flow</h2>
@@ -42,7 +42,7 @@
         <pre><code>1OA-7OA ACN/SN3D field
 -&gt; unchanged encoded field ----------------------------+
 |                                                       |
-+-&gt; decode Icosa 12 / Dodeca 20 listener pickups       |
++-&gt; decode Icosa 12 / Dodeca 20 / Sphere 24 pickups   |
     -&gt; per-pickup OLA delay time, feedback, and tone    |
     -&gt; Local / Cross / Diffuse / Roaming topology      |
     -&gt; wet-mask interpolation + outside dry level      |
@@ -64,23 +64,24 @@
         <table class="readout-table">
           <thead><tr><th>Order</th><th>Active channels</th><th>AUTO body</th></tr></thead>
           <tbody>
-            <tr><td>1OA-3OA</td><td>4-16</td><td>ICOSA 12</td></tr>
-            <tr><td>4OA-7OA</td><td>25-64</td><td>DODECA 20</td></tr>
+            <tr><td>1OA-2OA</td><td>4-9</td><td>ICOSA 12</td></tr>
+            <tr><td>3OA</td><td>16</td><td>DODECA 20</td></tr>
+            <tr><td>4OA-7OA</td><td>25-64</td><td>SPHERE 24</td></tr>
           </tbody>
         </table>
 
-        <p><code>AUTO</code> selects the body shown above. Every order is deliberately upscaled to at least twelve pickup directions; <code>ICOSA 12</code> and <code>DODECA 20</code> can also be selected directly. Settings for all twenty pickups remain stored and automatable when Icosa activates the first twelve.</p>
+        <p><code>AUTO</code> selects the body shown above. Every order is deliberately upscaled to at least twelve pickup directions; <code>ICOSA 12</code>, <code>DODECA 20</code>, and <code>SPHERE 24</code> can also be selected directly. Settings for all twenty-four pickups remain stored and automatable when a smaller body is active.</p>
 
         <h2 id="controls">Controls</h2>
 
         <table class="readout-table">
           <thead><tr><th>Control</th><th>Function</th></tr></thead>
           <tbody>
-            <tr><td>ORDER / BODY</td><td>Selects the active HOA order and <code>AUTO</code>, <code>ICOSA 12</code>, or <code>DODECA 20</code> pickup body.</td></tr>
+            <tr><td>ORDER / BODY</td><td>Selects the active HOA order and <code>AUTO</code>, <code>ICOSA 12</code>, <code>DODECA 20</code>, or <code>SPHERE 24</code> pickup body.</td></tr>
             <tr><td>TIME</td><td>Sets the global delay time from <code>5</code> to <code>2000 ms</code>. Automation uses dual-tap overlap-add transitions rather than a continuously moving read head, avoiding zippering and continuous Doppler glide.</td></tr>
-            <tr><td>PICKUP 01-20 TIME TRIM</td><td>Offsets one pickup exponentially around the global time, from shorter to longer delays.</td></tr>
+            <tr><td>PICKUP 01-24 TIME TRIM</td><td>Offsets one pickup exponentially around the global time, from shorter to longer delays.</td></tr>
             <tr><td>FEEDBACK</td><td>Sets the common repeat level up to <code>88%</code>.</td></tr>
-            <tr><td>PICKUP 01-20 FEEDBACK TRIM</td><td>Adds or subtracts feedback at one pickup, with the result constrained to the stable range.</td></tr>
+            <tr><td>PICKUP 01-24 FEEDBACK TRIM</td><td>Adds or subtracts feedback at one pickup, with the result constrained to the stable range.</td></tr>
             <tr><td>TONE</td><td>Moves the feedback-path low-pass from dark repeats toward an open high-frequency response.</td></tr>
             <tr><td>SPRD</td><td>Orders delay time across the active body and applies a smaller complementary feedback relationship.</td></tr>
             <tr><td>DEV</td><td>Adds stable irregular offsets. With spread, deviation, and pickup trims at zero, every point has the same time and feedback.</td></tr>

@@ -451,8 +451,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 950 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 950 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 820 "s3g Processor " responsive-wide
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_8ch_delay_processor_clap
@@ -597,6 +597,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_shard_scatter_clap> org.s3g.s3g-dsp.shard-scatter 760 376 "s3g Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_orbit_delay_clap> org.s3g.s3g-dsp.orbit-delay 760 376 "s3g Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_cascade_taps_clap> org.s3g.s3g-dsp.cascade-taps 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 376 "s3g Effect " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -605,6 +606,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_shard_scatter_clap
         s3g_orbit_delay_clap
         s3g_cascade_taps_clap
+        s3g_crcltr_clap
       COMMENT "Rendering and validating every compact Effect-family GUI")
 
     add_custom_target(audit_gui_output_family

@@ -31,6 +31,9 @@
 // Optional documentation-only selectors exposed by specific native views.
 @interface NSView (S3GDocumentationCapture)
 - (void)loadAtlasAtIndex:(NSUInteger)index;
+- (void)loadDocumentationScore;
+- (void)loadDocumentationPaths;
+- (void)setViewPreset:(int)mode;
 - (void)textDidChange:(NSNotification*)notification;
 @end
 
@@ -797,6 +800,41 @@ int main(int argc, char** argv)
             || std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.delay-processor-24ch") == 0;
+        const bool documentationMacroRelationship = documentationCapture
+            && (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-delay-8ch") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-delay-24ch") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-pitch-8ch") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-pitch-24ch") == 0);
+        const bool documentationOutputAutogain = documentationCapture
+            && (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.mc-to-stereo-autogain") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.mc-to-quad-autogain") == 0);
+        const bool documentationLayoutPanner = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.layout-panner") == 0;
+        const bool documentationVbapPanner = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.vbap-panner") == 0;
+        const bool documentationGroupMatrix = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.group-matrix") == 0;
+        const bool documentationNodeBusMixer = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.node-bus-mixer") == 0;
+        const bool documentationSubCrossover = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.sub-crossover") == 0;
+        const bool documentationArrayDelay = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.array-delay-16") == 0;
+        const bool documentationArrayTrim = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.array-trim-16") == 0;
         const bool faultProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.fault") == 0;
@@ -816,6 +854,39 @@ int main(int argc, char** argv)
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-effect-response-trace-64") == 0;
         const bool ambiEffectTrace = partialTrace || responseTrace;
+        const bool documentationSpeakerDecoder = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-speaker-decoder-64") == 0;
+        const bool documentationStereoDecoder = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambisonic-stereo-decoder") == 0;
+        const bool documentationHeadDecoder = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambisonic-head-decoder") == 0;
+        const bool documentationEffectDelay = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-delay-64") == 0;
+        const bool documentationEffectPitch = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-pitch-64") == 0;
+        const bool documentationEffectGain = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-gain-64") == 0;
+        const bool documentationResonancePrint = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-resonance-print-64") == 0;
+        const bool documentationDisplacement = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-displacement-64") == 0;
+        const bool documentationRotate = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambisonic-rotate-64") == 0;
+        const bool documentationOrderBand = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambisonic-order-band-tool-64") == 0;
+        const bool documentationAmbiGroupMatrix = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-group-matrix") == 0;
         const bool parameterSurfaceEncoder = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0
@@ -863,9 +934,9 @@ int main(int argc, char** argv)
             failureStage = "documentation Ambi Imprint atlas";
             ok = [document respondsToSelector:@selector(loadAtlasAtIndex:)];
             if (ok) {
-                // IMPOSSIBLE NETWORK has eight profiles and a wide, detailed
-                // room graph; it makes the field legible without external media.
-                [document loadAtlasAtIndex:18u];
+                // ECHO / TWIN CHAMBERS exposes its coupled-room geometry and
+                // long inter-chamber paths without requiring external media.
+                [document loadAtlasAtIndex:14u];
                 [document setNeedsDisplay:YES];
                 [document displayIfNeeded];
             }
@@ -998,6 +1069,17 @@ int main(int argc, char** argv)
                 if (hit != document) return false;
                 [hit mouseDown:mouseEvent(NSEventTypeLeftMouseDown, point)];
                 [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+            auto dragDocument = [&](NSPoint start, NSPoint end) {
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:start fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, start)];
+                [hit mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged, end)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, end)];
                 return true;
             };
             auto saveState = [&](MemoryPluginState& memory) {
@@ -1145,6 +1227,43 @@ int main(int argc, char** argv)
                         NSMidX(surfaceButton(2u)),
                         NSMidY(surfaceButton(2u))));
                 }
+                if (ok && water) {
+                    // Give the full-editor example a river-like asymmetric
+                    // map instead of the shared six-cell default used by the
+                    // detached Stochastic and Wrangler examples.
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        defaultPositions {{
+                            {{ 0.18, 0.18 }}, {{ 0.82, 0.18 }},
+                            {{ 0.82, 0.82 }}, {{ 0.18, 0.82 }},
+                            {{ 0.50, 0.18 }}, {{ 0.82, 0.50 }},
+                        }};
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        waterPositions {{
+                            {{ 0.10, 0.18 }}, {{ 0.26, 0.80 }},
+                            {{ 0.42, 0.38 }}, {{ 0.62, 0.14 }},
+                            {{ 0.70, 0.70 }}, {{ 0.92, 0.44 }},
+                        }};
+                    const NSRect plot = NSMakeRect(
+                        field.origin.x + 10.0, field.origin.y + 76.0,
+                        field.size.width - 20.0, field.size.height - 88.0);
+                    ok = clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(0u)),
+                        NSMidY(surfaceButton(0u))));
+                    for (uint32_t cell = 0u; ok && cell < 6u; ++cell) {
+                        const auto point = [&](const auto& position) {
+                            return NSMakePoint(
+                                plot.origin.x
+                                    + position[0] * plot.size.width,
+                                NSMaxY(plot)
+                                    - position[1] * plot.size.height);
+                        };
+                        ok = dragDocument(point(defaultPositions[cell]),
+                            point(waterPositions[cell]));
+                    }
+                    ok = ok && clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(0u)),
+                        NSMidY(surfaceButton(0u))));
+                }
                 ok = ok && clickDocument(NSMakePoint(
                     NSMidX(surfaceButton(1u)),
                     NSMidY(surfaceButton(1u))));
@@ -1175,7 +1294,13 @@ int main(int argc, char** argv)
                 const NSRect fieldTab =
                     s3g::clap_gui::environmentalFieldPageButtonRect(
                         fieldPanel, 0u);
+                // Preserve the enabled SURF state in its variant capture,
+                // then bypass it so the main FIELD screenshot can show the
+                // explicit large documentation preset staged below.
                 ok = ok && clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(1u)),
+                        NSMidY(surfaceButton(1u))))
+                    && clickDocument(NSMakePoint(
                         NSMidX(fieldTab), NSMidY(fieldTab)))
                     && [[document valueForKey:@"fieldPage"] intValue] == 0;
             }
@@ -1219,6 +1344,17 @@ int main(int argc, char** argv)
                 [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
                 return true;
             };
+            auto dragSurfaceCell = [&](NSPoint start, NSPoint end) {
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:start fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, start)];
+                [hit mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged, end)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, end)];
+                return true;
+            };
             @try {
                 ok = gui->show(plugin)
                     && clickDocument(surfaceTab)
@@ -1235,6 +1371,42 @@ int main(int argc, char** argv)
                     }
                 } else {
                     ok = ok && clickDocument(addButton);
+                }
+                if (ok && documentationCapture) {
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        defaultPositions {{
+                            {{ 0.18, 0.18 }}, {{ 0.82, 0.18 }},
+                            {{ 0.82, 0.82 }}, {{ 0.18, 0.82 }},
+                            {{ 0.50, 0.18 }}, {{ 0.82, 0.50 }},
+                        }};
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        stochasticPositions {{
+                            {{ 0.12, 0.12 }}, {{ 0.36, 0.22 }},
+                            {{ 0.76, 0.10 }}, {{ 0.18, 0.72 }},
+                            {{ 0.58, 0.54 }}, {{ 0.88, 0.82 }},
+                        }};
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        wranglerPositions {{
+                            {{ 0.50, 0.08 }}, {{ 0.84, 0.26 }},
+                            {{ 0.82, 0.72 }}, {{ 0.50, 0.90 }},
+                            {{ 0.16, 0.70 }}, {{ 0.14, 0.28 }},
+                        }};
+                    const auto& positions = wrangler
+                        ? wranglerPositions : stochasticPositions;
+                    const CGFloat plotHeight = wrangler ? 478.0 : 374.0;
+                    const NSRect plot = NSMakeRect(
+                        44.0, fieldY + 68.0, 544.0, plotHeight);
+                    for (uint32_t cell = 0u; ok && cell < 6u; ++cell) {
+                        const auto point = [&](const auto& position) {
+                            return NSMakePoint(
+                                plot.origin.x
+                                    + position[0] * plot.size.width,
+                                NSMaxY(plot)
+                                    - position[1] * plot.size.height);
+                        };
+                        ok = dragSurfaceCell(point(defaultPositions[cell]),
+                            point(positions[cell]));
+                    }
                 }
                 ok = ok && clickDocument(enableButton)
                     && clickDocument(editPlayButton)
@@ -2925,8 +3097,9 @@ int main(int argc, char** argv)
                             [surfaceView mouseUp:surfaceEvent(
                                 NSEventTypeLeftMouseUp, point)];
                         };
-                        clickSurface(NSMakePoint(205.0, 132.0));
-                        clickSurface(NSMakePoint(205.0, 132.0));
+                        for (uint32_t cell = 0u; cell < 6u; ++cell) {
+                            clickSurface(NSMakePoint(205.0, 132.0));
+                        }
                         clickSurface(NSMakePoint(141.0, 132.0));
                         // Exercise the shared CURVE, FOCUS, GLIDE control
                         // order used by every s3g SURF page.
@@ -3196,7 +3369,177 @@ int main(int argc, char** argv)
                 return true;
             };
 
+            auto setDocumentationTopologyParam = [&](
+                    const char* name, double requestedValue) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        std::cerr << "Could not inspect documentation parameter "
+                            << index << " while looking for " << name << "\n";
+                        return false;
+                    }
+                    if (std::strcmp(info.name, name) != 0) continue;
+                    SingleParamEventInput event {};
+                    const double value = std::clamp(
+                        requestedValue, info.min_value, info.max_value);
+                    setSingleParamEvent(event, info.id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = 0.0;
+                    return params->get_value(plugin, info.id, &reported)
+                        && std::fabs(reported - value) < 0.000001;
+                }
+                return false;
+            };
+
+            const uint32_t documentationCamera = waveGeometry
+                ? 0u : (spectralTopology ? 1u : 2u);
+
             @try {
+                if (documentationCapture) {
+                    failureStage = "documentation topology scene";
+                    if (delayProcessor) {
+                        const auto* pluginState =
+                            static_cast<const clap_plugin_state_t*>(
+                                plugin->get_extension(
+                                    plugin, CLAP_EXT_STATE));
+                        DelayProcessorStateV10 fixture {};
+                        const uint32_t channelCount = std::strcmp(
+                                pluginId,
+                                "org.s3g.s3g-dsp.delay-processor-24ch") == 0
+                            ? 24u : 8u;
+                        for (uint32_t lane = 0u;
+                             lane < channelCount; ++lane) {
+                            fixture.patchRows[lane] =
+                                uint64_t { 1 } << lane;
+                        }
+                        fixture.clearUnused = 1u;
+                        fixture.delayMs = 420.0;
+                        fixture.feedback = 0.48;
+                        fixture.mix = 0.78;
+                        fixture.tone = 0.64;
+                        fixture.character = 0.34;
+                        fixture.tapAmount = 0.28;
+                        fixture.outputTrimDb = -6.0;
+                        MemoryPluginState memory;
+                        const auto* first =
+                            reinterpret_cast<const uint8_t*>(&fixture);
+                        memory.bytes.assign(
+                            first, first + sizeof(fixture));
+                        clap_istream_t input { &memory, stateReadWhole };
+                        ok = pluginState && pluginState->load
+                            && pluginState->load(plugin, &input)
+                            && memory.offset == sizeof(fixture)
+                            && setDocumentationTopologyParam(
+                                "Topology Shape", 3.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Amount", 0.88)
+                            && setDocumentationTopologyParam(
+                                "Topology Pull", 0.08)
+                            && setDocumentationTopologyParam(
+                                "Topology X", 0.42)
+                            && setDocumentationTopologyParam(
+                                "Topology Y", -0.24)
+                            && setDocumentationTopologyParam(
+                                "Topology Z", 0.84)
+                            && setDocumentationTopologyParam(
+                                "Topology Twist", 0.52)
+                            && setDocumentationTopologyParam(
+                                "Topology Flare", 0.30)
+                            && setDocumentationTopologyParam(
+                                "Topology Seed", 0.16)
+                            && setDocumentationTopologyParam(
+                                "Topology Neighbors", 3.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Radius", 0.92)
+                            && setDocumentationTopologyParam(
+                                "Topology Centroid", 0.38)
+                            && setDocumentationTopologyParam(
+                                "Route", 0.68)
+                            && setDocumentationTopologyParam(
+                                "Turn", 0.26)
+                            && setDocumentationTopologyParam(
+                                "Branch", 0.62)
+                            && setDocumentationTopologyParam(
+                                "Loss", 0.30);
+                    } else if (waveGeometry) {
+                        ok = setDocumentationTopologyParam(
+                                "Topology Shape", 9.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Amount", 0.86)
+                            && setDocumentationTopologyParam(
+                                "Topology Pull", 0.04)
+                            && setDocumentationTopologyParam(
+                                "Topology X", 0.72)
+                            && setDocumentationTopologyParam(
+                                "Topology Y", -0.62)
+                            && setDocumentationTopologyParam(
+                                "Topology Z", 0.70)
+                            && setDocumentationTopologyParam(
+                                "Topology Twist", 0.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Flare", 0.08)
+                            && setDocumentationTopologyParam(
+                                "Topology Seed", 0.04)
+                            && setDocumentationTopologyParam(
+                                "Topology Neighbors", 1.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Radius", 0.88)
+                            && setDocumentationTopologyParam(
+                                "Topology Centroid", 0.08)
+                            && setDocumentationTopologyParam("Fold", 0.58)
+                            && setDocumentationTopologyParam("Drive", 0.42)
+                            && setDocumentationTopologyParam(
+                                "Mesh Coupling", 0.58)
+                            && setDocumentationTopologyParam(
+                                "Mesh Tension", 0.68)
+                            && setDocumentationTopologyParam(
+                                "Mesh Decay", 0.48)
+                            && setDocumentationTopologyParam(
+                                "Mesh Damping", 0.32);
+                    } else if (spectralTopology) {
+                        ok = setDocumentationTopologyParam(
+                                "Topology Shape", 6.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Amount", 0.68)
+                            && setDocumentationTopologyParam(
+                                "Topology Pull", 0.05)
+                            && setDocumentationTopologyParam(
+                                "Topology X", -0.28)
+                            && setDocumentationTopologyParam(
+                                "Topology Y", 0.36)
+                            && setDocumentationTopologyParam(
+                                "Topology Z", 0.72)
+                            && setDocumentationTopologyParam(
+                                "Topology Twist", -0.18)
+                            && setDocumentationTopologyParam(
+                                "Topology Flare", 0.12)
+                            && setDocumentationTopologyParam(
+                                "Topology Seed", 0.32)
+                            && setDocumentationTopologyParam(
+                                "Topology Neighbors", 3.0)
+                            && setDocumentationTopologyParam(
+                                "Topology Radius", 0.76)
+                            && setDocumentationTopologyParam(
+                                "Topology Centroid", 0.36)
+                            && setDocumentationTopologyParam(
+                                "Spray Bins", 72.0)
+                            && setDocumentationTopologyParam("Drift", 0.46)
+                            && setDocumentationTopologyParam("Hold", 0.56)
+                            && setDocumentationTopologyParam("Smear", 0.62)
+                            && setDocumentationTopologyParam("Holes", 0.24)
+                            && setDocumentationTopologyParam(
+                                "Spectral Damage", 0.34)
+                            && setDocumentationTopologyParam(
+                                "Spectral Repeat", 0.42);
+                    }
+                    if (ok) {
+                        [document setNeedsDisplay:YES];
+                        [document displayIfNeeded];
+                    }
+                }
+
                 ok = clickRect(
                         s3g::clap_gui::topologyProcessorCameraButtonRect(
                             fieldPanel, 0u))
@@ -3254,13 +3597,45 @@ int main(int argc, char** argv)
                             fieldPanel, 0u))
                     && clickRect(
                         s3g::clap_gui::topologyProcessorCameraButtonRect(
-                            fieldPanel, 2u))
+                            fieldPanel, documentationCapture
+                                ? documentationCamera : 2u))
                     && [[document valueForKey:@"fieldPage"] intValue]
                         == 0
                     && [[document valueForKey:@"cameraView"] intValue]
-                        == 2;
+                        == static_cast<int>(documentationCapture
+                            ? documentationCamera : 2u);
             } @catch (NSException*) {
                 ok = false;
+            }
+        }
+        if (ok && documentationMacroRelationship) {
+            failureStage = "documentation Macro relationship scene";
+            auto setDocumentationMacroParam = [&](const char* name,
+                                                   double requestedValue) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        return false;
+                    }
+                    if (std::strcmp(info.name, name) != 0) continue;
+                    SingleParamEventInput event {};
+                    const double value = std::clamp(
+                        requestedValue, info.min_value, info.max_value);
+                    setSingleParamEvent(event, info.id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = 0.0;
+                    return params->get_value(plugin, info.id, &reported)
+                        && std::fabs(reported - value) < 0.000001;
+                }
+                return false;
+            };
+            ok = setDocumentationMacroParam("Spread", 0.64)
+                && setDocumentationMacroParam("Deviation", 0.38);
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
             }
         }
         if (ok && documentationEncoder) {
@@ -3285,6 +3660,79 @@ int main(int argc, char** argv)
             };
 
             if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0) {
+                // TORNADO COLUMN is the widest, fastest factory wind field.
+                ok = setDocumentationParam("Preset", 16.0)
+                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Field Rate", 0.55)
+                    && setDocumentationParam("Flow Push", 0.88)
+                    && setDocumentationParam("Shear", 0.76)
+                    && setDocumentationParam("Curl", 1.0)
+                    && setDocumentationParam("Updraft", 0.86)
+                    && setDocumentationParam("Spread", 0.82)
+                    && setDocumentationParam("Deviation", 0.30);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0) {
+                // STORM SHEET keeps a dense parcel population in motion.
+                ok = setDocumentationParam("Preset", 14.0)
+                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Parcel Rate", 0.72)
+                    && setDocumentationParam("Current", 0.88)
+                    && setDocumentationParam("Eddy", 0.72)
+                    && setDocumentationParam("Width", 0.92)
+                    && setDocumentationParam("Spread", 0.90)
+                    && setDocumentationParam("Deviation", 0.34);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0) {
+                // FIRESTORM DEBRIS FIELD exposes the large-scale transport,
+                // fragments, vortex, and causal-score layers together.
+                ok = setDocumentationParam("Preset", 11.0)
+                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Field Rate", 0.72)
+                    && setDocumentationParam("Flow Push", 0.82)
+                    && setDocumentationParam("Shear", 0.76)
+                    && setDocumentationParam("Curl", 0.88)
+                    && setDocumentationParam("Updraft", 0.82)
+                    && setDocumentationParam("Fragments", 0.88)
+                    && setDocumentationParam("Plume Vortex", 0.86)
+                    && setDocumentationParam("Pressure Release", 0.82)
+                    && setDocumentationParam("Score Pace", 0.90)
+                    && setDocumentationParam("Entity Occupancy", 0.92)
+                    && setDocumentationParam("Causal Cascade", 0.90)
+                    && setDocumentationParam("Scored Rest", 0.08);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0) {
+                // AVALANCHE RELEASE provides a full descending mass rather
+                // than the sparse isolated events used by smaller scenes.
+                ok = setDocumentationParam("Preset", 7.0)
+                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Drift Rate", 0.65)
+                    && setDocumentationParam("Drift", 0.82)
+                    && setDocumentationParam("Torque", 0.72)
+                    && setDocumentationParam("Compression", 0.84)
+                    && setDocumentationParam("Width", 0.92)
+                    && setDocumentationParam("Spread", 0.90)
+                    && setDocumentationParam("Deviation", 0.38)
+                    && setDocumentationParam("Snow", 0.76)
+                    && setDocumentationParam("Grinding", 0.72)
+                    && setDocumentationParam("Score Pace", 0.90)
+                    && setDocumentationParam("Entity Occupancy", 0.90)
+                    && setDocumentationParam("Causal Cascade", 0.88)
+                    && setDocumentationParam("Scored Rest", 0.08);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0) {
+                // MIXED SUMMER NIGHT fills several strata with independently
+                // moving colonies and makes the swarm structure legible.
+                ok = setDocumentationParam("Preset", 15.0)
+                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Activity", 0.92)
+                    && setDocumentationParam("Field Rate", 0.36)
+                    && setDocumentationParam("Roam", 0.78)
+                    && setDocumentationParam("Scatter", 0.88)
+                    && setDocumentationParam("Orbit", 0.64)
+                    && setDocumentationParam("Lift", 0.52)
+                    && setDocumentationParam("Near Pass", 0.36);
+            } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-cloud-encoder-64") == 0) {
                 ok = setDocumentationParam("Clouds", 4.0)
                     && setDocumentationParam("Spread", 0.72)
@@ -3306,18 +3754,32 @@ int main(int argc, char** argv)
                     && setDocumentationParam("Cloud 4 Distance", 1.30);
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-path-encoder-64") == 0) {
-                ok = setDocumentationParam("Active Paths", 3.0)
-                    && setDocumentationParam("Phase Spread", 0.78)
-                    && setDocumentationParam("Rate", 0.16);
+                ok = setDocumentationParam("Inputs", 18.0)
+                    && setDocumentationParam("Active Paths", 4.0)
+                    && setDocumentationParam("Phase Spread", 0.92)
+                    && setDocumentationParam("Rate", 0.34);
+                if (ok) {
+                    @try {
+                        [document setValue:@1.0 forKey:@"randomDev"];
+                        [document setValue:@12 forKey:@"randomPoints"];
+                        ok = [document respondsToSelector:
+                            @selector(setViewPreset:)];
+                        if (ok) [document setViewPreset:2];
+                        if (ok) [document setValue:@YES
+                            forKey:@"editMode"];
+                    } @catch (NSException*) {
+                        ok = false;
+                    }
+                }
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-pulsar-encoder-64") == 0) {
                 ok = setDocumentationParam("Preset", 9.0)
-                    && setDocumentationParam("Spatial Points", 12.0)
-                    && setDocumentationParam("Spatial Width", 0.75)
-                    && setDocumentationParam("Spatial Scatter", 0.35)
-                    && setDocumentationParam("Orbit Rate", 0.18)
-                    && setDocumentationParam("Orbit Depth", 0.62)
-                    && setDocumentationParam("Field Motion", 1.0);
+                    && setDocumentationParam("Spatial Points", 32.0)
+                    && setDocumentationParam("Spatial Width", 0.88)
+                    && setDocumentationParam("Spatial Scatter", 0.72)
+                    && setDocumentationParam("Orbit Rate", 0.38)
+                    && setDocumentationParam("Orbit Depth", 0.86)
+                    && setDocumentationParam("Field Motion", 4.0);
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-neural-ecology-64") == 0) {
                 // Ecology 64 exposes the complete recurrent organism and its
@@ -3472,6 +3934,26 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
+
+            if (ok && std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-path-encoder-64") == 0) {
+                failureStage = "documentation Path trajectories";
+                @try {
+                    ok = [document respondsToSelector:
+                            @selector(randomizePaths)]
+                        && [document respondsToSelector:
+                            @selector(loadDocumentationPaths)];
+                    if (ok) [document performSelector:
+                        @selector(randomizePaths)];
+                    if (ok) [document loadDocumentationPaths];
+                    if (ok) {
+                        [document setNeedsDisplay:YES];
+                        [document displayIfNeeded];
+                    }
+                } @catch (NSException*) {
+                    ok = false;
+                }
+            }
 
             if (ok) {
                 failureStage = "documentation encoder alternate pages";
@@ -3683,6 +4165,691 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
+        }
+        const bool documentationRoutingScene =
+            documentationLayoutPanner
+            || documentationVbapPanner
+            || documentationGroupMatrix
+            || documentationNodeBusMixer
+            || documentationSubCrossover
+            || documentationArrayDelay
+            || documentationArrayTrim;
+        if (ok && documentationRoutingScene) {
+            failureStage = "documentation routing scene";
+            auto setDocumentationRoutingParam = [&](
+                    const char* name, double requestedValue) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        return false;
+                    }
+                    if (std::strcmp(info.name, name) != 0) continue;
+                    SingleParamEventInput event {};
+                    const double value = std::clamp(
+                        requestedValue, info.min_value, info.max_value);
+                    setSingleParamEvent(event, info.id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = 0.0;
+                    return params->get_value(plugin, info.id, &reported)
+                        && std::fabs(reported - value) < 0.000001;
+                }
+                return false;
+            };
+
+            auto setPannerSource = [&](uint32_t source, double azimuth,
+                                       double elevation, double distance) {
+                char name[32] {};
+                std::snprintf(name, sizeof(name), "S%u Azimuth", source);
+                bool configured = setDocumentationRoutingParam(name, azimuth);
+                std::snprintf(name, sizeof(name), "S%u Elevation", source);
+                configured = configured
+                    && setDocumentationRoutingParam(name, elevation);
+                std::snprintf(name, sizeof(name), "S%u Distance", source);
+                return configured
+                    && setDocumentationRoutingParam(name, distance);
+            };
+
+            if (documentationLayoutPanner) {
+                ok = setDocumentationRoutingParam("Layout", 5.0)
+                    && setDocumentationRoutingParam("Active Sources", 4.0)
+                    && setDocumentationRoutingParam("Focus", 1.18)
+                    && setDocumentationRoutingParam(
+                        "Distance Diffusion", 0.24)
+                    && setPannerSource(1u, -72.0, 12.0, 0.78)
+                    && setPannerSource(2u, -18.0, 38.0, 1.12)
+                    && setPannerSource(3u, 48.0, 22.0, 0.92)
+                    && setPannerSource(4u, 126.0, 55.0, 1.28);
+            } else if (documentationVbapPanner) {
+                // VBAP exposes layout menu indices; index 1 is CUBE 17.
+                ok = setDocumentationRoutingParam("Layout", 1.0)
+                    && setDocumentationRoutingParam("Active Sources", 4.0)
+                    && setDocumentationRoutingParam("Focus", 1.42)
+                    && setPannerSource(1u, -112.0, -24.0, 0.88)
+                    && setPannerSource(2u, -34.0, 18.0, 1.18)
+                    && setPannerSource(3u, 42.0, 48.0, 0.82)
+                    && setPannerSource(4u, 138.0, -8.0, 1.34);
+            } else if (documentationGroupMatrix) {
+                ok = setDocumentationRoutingParam("Group Size", 1.0)
+                    && setDocumentationRoutingParam("Shape", 3.0)
+                    && setDocumentationRoutingParam("Depth", 0.82)
+                    && setDocumentationRoutingParam("Spread", 0.66)
+                    && setDocumentationRoutingParam("Vortex", 0.42)
+                    && setDocumentationRoutingParam("Motion", 0.88)
+                    && setDocumentationRoutingParam("Rate", 0.47)
+                    && setDocumentationRoutingParam("Phase", 0.29)
+                    && setDocumentationRoutingParam("Smoothing", 72.0);
+                constexpr uint32_t offsets[] { 1u, 2u, 4u, 7u };
+                constexpr double levels[] { -3.0, -8.0, -14.0, -20.0 };
+                for (uint32_t source = 0u; ok && source < 8u; ++source) {
+                    for (uint32_t route = 0u;
+                         ok && route < std::size(offsets); ++route) {
+                        const uint32_t destination =
+                            (source + offsets[route]) % 8u;
+                        char name[32] {};
+                        std::snprintf(
+                            name, sizeof(name), "S%u to D%u",
+                            source + 1u, destination + 1u);
+                        ok = setDocumentationRoutingParam(
+                            name, levels[route]);
+                    }
+                }
+            } else if (documentationNodeBusMixer) {
+                ok = setDocumentationRoutingParam("Mix bed shape", 13.0)
+                    && setDocumentationRoutingParam(
+                        "Output channels", 16.0)
+                    && setDocumentationRoutingParam("Node count", 3.0)
+                    && setDocumentationRoutingParam("Cursor X", 0.12)
+                    && setDocumentationRoutingParam("Cursor Y", -0.02)
+                    && setDocumentationRoutingParam("Lock Z plane", 0.0)
+                    && setDocumentationRoutingParam("Cursor Z", 0.04)
+                    && setDocumentationRoutingParam("Cursor radius", 1.35);
+                constexpr double formats[] { 6.0, 9.0, 13.0 };
+                constexpr double channels[] { 8.0, 9.0, 16.0 };
+                constexpr double busStarts[] { 1.0, 9.0, 18.0 };
+                constexpr double positions[][3] {
+                    { -0.72, 0.12, 0.16 },
+                    { 0.08, -0.30, -0.12 },
+                    { 0.70, 0.18, 0.10 },
+                };
+                constexpr double scales[] { 0.78, 0.88, 0.72 };
+                constexpr double azimuths[] { 18.0, -28.0, 44.0 };
+                constexpr double elevations[] { 12.0, -8.0, 20.0 };
+                for (uint32_t node = 0u; ok && node < 3u; ++node) {
+                    const char* fields[] {
+                        "source format", "source channels", "bus start",
+                        "X", "Y", "Z", "shape scale", "focus",
+                        "azimuth rotate", "elevation rotate"
+                    };
+                    const double values[] {
+                        formats[node], channels[node], busStarts[node],
+                        positions[node][0], positions[node][1],
+                        positions[node][2], scales[node], 1.12,
+                        azimuths[node], elevations[node]
+                    };
+                    for (uint32_t field = 0u;
+                         ok && field < std::size(fields); ++field) {
+                        char name[64] {};
+                        std::snprintf(
+                            name, sizeof(name), "Node %02u %s",
+                            node + 1u, fields[field]);
+                        ok = setDocumentationRoutingParam(
+                            name, values[field]);
+                    }
+                }
+            } else if (documentationSubCrossover) {
+                ok = setDocumentationRoutingParam("Sub Count", 4.0)
+                    && setDocumentationRoutingParam("Sub Offset", 5.0)
+                    && setDocumentationRoutingParam("Sub Focus", 1.85)
+                    && setDocumentationRoutingParam("Cutoff", 86.0);
+            } else if (documentationArrayDelay) {
+                constexpr double delayMs[] {
+                    45.0, 180.0, 420.0, 760.0,
+                    1150.0, 1680.0, 2360.0, 3180.0
+                };
+                for (uint32_t lane = 0u;
+                     ok && lane < std::size(delayMs); ++lane) {
+                    char name[32] {};
+                    std::snprintf(
+                        name, sizeof(name), "Delay %u", lane + 1u);
+                    ok = setDocumentationRoutingParam(name, delayMs[lane]);
+                }
+            } else if (documentationArrayTrim) {
+                constexpr double trimDb[] {
+                    -1.5, -6.0, 2.5, -9.0,
+                    4.0, -12.0, -3.5, 7.0
+                };
+                for (uint32_t lane = 0u;
+                     ok && lane < std::size(trimDb); ++lane) {
+                    char name[32] {};
+                    std::snprintf(
+                        name, sizeof(name), "Trim %u", lane + 1u);
+                    ok = setDocumentationRoutingParam(name, trimDb[lane]);
+                }
+                ok = ok
+                    && setDocumentationRoutingParam("Invert 3", 1.0)
+                    && setDocumentationRoutingParam("Mute 6", 1.0)
+                    && setDocumentationRoutingParam("Invert 7", 1.0);
+            }
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+        }
+        if (ok && documentationCapture) {
+            auto setDocumentationSceneParam = [&] (
+                    const char* name, double requestedValue) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        return false;
+                    }
+                    if (std::strcmp(info.name, name) != 0) continue;
+                    SingleParamEventInput event {};
+                    const double value = std::clamp(
+                        requestedValue, info.min_value, info.max_value);
+                    setSingleParamEvent(event, info.id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = 0.0;
+                    bool matched = false;
+                    for (uint32_t attempt = 0u;
+                         attempt < 100u && !matched; ++attempt) {
+                        matched = params->get_value(
+                                plugin, info.id, &reported)
+                            && std::fabs(reported - value) < 0.000001;
+                        if (!matched) [NSThread sleepForTimeInterval:0.002];
+                    }
+                    if (!matched) {
+                        std::cerr << "Documentation scene parameter " << name
+                                  << " requested " << value
+                                  << " but reported " << reported << "\n";
+                    }
+                    return matched;
+                }
+                std::cerr << "Documentation scene parameter not found: "
+                          << name << "\n";
+                return false;
+            };
+
+            if (documentationSpeakerDecoder) {
+                failureStage = "documentation Speaker Decoder Dome 25 top view";
+                ok = setDocumentationSceneParam("Layout", 5.0)
+                    && setDocumentationSceneParam("Mode", 1.0)
+                    && setDocumentationSceneParam("Order", 3.0)
+                    && setDocumentationSceneParam("Weighting", 1.0)
+                    && setDocumentationSceneParam("Width", 1.08);
+                if (ok) {
+                    @try {
+                        ok = [document respondsToSelector:
+                            @selector(setViewPreset:)];
+                        if (!ok) {
+                            std::cerr << "Speaker Decoder view does not expose "
+                                      << "setViewPreset:\n";
+                        }
+                        if (ok) [document setViewPreset:0];
+                    } @catch (NSException* exception) {
+                        std::cerr << "Speaker Decoder top-view exception: "
+                                  << [[exception reason] UTF8String] << "\n";
+                        ok = false;
+                    }
+                }
+            } else if (documentationEffectDelay) {
+                failureStage = "documentation Ambi Effect Delay scene";
+                ok = setDocumentationSceneParam("Ambisonic order", 3.0)
+                    && setDocumentationSceneParam("Auditory body", 5.0)
+                    && setDocumentationSceneParam("Topology", 0.0)
+                    && setDocumentationSceneParam("Delay time", 1026.25)
+                    && setDocumentationSceneParam("Feedback", 0.58)
+                    && setDocumentationSceneParam("Feedback tone", 0.50)
+                    && setDocumentationSceneParam("Pickup spread", 0.27)
+                    && setDocumentationSceneParam("Pickup deviation", 0.45)
+                    && setDocumentationSceneParam("Topology amount", 0.88)
+                    && setDocumentationSceneParam("Roaming rate", 0.10)
+                    && setDocumentationSceneParam("Mix", 1.0)
+                    && setDocumentationSceneParam("Output gain", 5.2)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 1.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", -3.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", -18.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.62)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.63)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", 0.0)
+                    && setDocumentationSceneParam(
+                        "Pickup 01 time trim", 0.18)
+                    && setDocumentationSceneParam(
+                        "Pickup 01 feedback trim", 0.10);
+            } else if (documentationEffectPitch) {
+                failureStage = "documentation Ambi Effect Pitch scene";
+                ok = setDocumentationSceneParam("Ambisonic order", 3.0)
+                    && setDocumentationSceneParam("Auditory body", 4.0)
+                    && setDocumentationSceneParam("Topology", 3.0)
+                    && setDocumentationSceneParam("Pitch", 7.0)
+                    && setDocumentationSceneParam("Grain window", 124.0)
+                    && setDocumentationSceneParam("Pitch glide", 460.0)
+                    && setDocumentationSceneParam("Pickup spread", 0.74)
+                    && setDocumentationSceneParam("Pickup deviation", 0.48)
+                    && setDocumentationSceneParam("Topology amount", 0.82)
+                    && setDocumentationSceneParam("Roaming rate", 0.31)
+                    && setDocumentationSceneParam("Mix", 0.68)
+                    && setDocumentationSceneParam("Output gain", 2.4)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 0.82)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", -52.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", 24.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.46)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.71)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", 0.0)
+                    && setDocumentationSceneParam("Pickup 01 pitch trim", 0.72)
+                    && setDocumentationSceneParam("Pickup 01 window trim", -0.38);
+            } else if (documentationEffectGain) {
+                failureStage = "documentation Ambi Effect Gain scene";
+                ok = setDocumentationSceneParam("Ambisonic order", 3.0)
+                    && setDocumentationSceneParam("Auditory body", 4.0)
+                    && setDocumentationSceneParam("Topology", 0.0)
+                    && setDocumentationSceneParam("Gain", -7.5)
+                    && setDocumentationSceneParam("Pickup spread", 0.78)
+                    && setDocumentationSceneParam("Pickup deviation", 0.56)
+                    && setDocumentationSceneParam("Topology amount", 0.76)
+                    && setDocumentationSceneParam("Roaming rate", 0.17)
+                    && setDocumentationSceneParam("Mix", 0.86)
+                    && setDocumentationSceneParam("Output gain", -1.5)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 0.91)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", 68.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", -22.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.58)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.57)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", 0.0)
+                    && setDocumentationSceneParam("Pickup 01 gain trim", 0.58);
+            } else if (documentationResonancePrint) {
+                failureStage = "documentation Resonance Print scene";
+                ok = setDocumentationSceneParam("Ambisonic order", 3.0)
+                    && setDocumentationSceneParam("Auditory body", 4.0)
+                    && setDocumentationSceneParam("Topology", 2.0)
+                    && setDocumentationSceneParam("Capture duration", 0.25)
+                    && setDocumentationSceneParam("Peak sensitivity", 0.72)
+                    && setDocumentationSceneParam("Modes per pickup", 9.0)
+                    && setDocumentationSceneParam("Transpose", -2.0)
+                    && setDocumentationSceneParam("Harmonic pull", 0.35)
+                    && setDocumentationSceneParam("Harmonic stretch", 0.12)
+                    && setDocumentationSceneParam("Decay", 2.4)
+                    && setDocumentationSceneParam("Decay tilt", -0.18)
+                    && setDocumentationSceneParam("Excitation drive", 0.52)
+                    && setDocumentationSceneParam("Pickup spread", 0.62)
+                    && setDocumentationSceneParam("Pickup deviation", 0.37)
+                    && setDocumentationSceneParam("Topology amount", 0.72)
+                    && setDocumentationSceneParam("Roaming rate", 0.16)
+                    && setDocumentationSceneParam("Mix", 0.64)
+                    && setDocumentationSceneParam("Output gain", -1.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 0.76)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", -36.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", 27.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.44)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.62)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", -0.35);
+            } else if (partialTrace) {
+                failureStage = "documentation Partial Trace scene";
+                ok = setDocumentationSceneParam("Partial count", 12.0)
+                    && setDocumentationSceneParam("Sensitivity", 0.48)
+                    && setDocumentationSceneParam(
+                        "Minimum frequency", 80.0)
+                    && setDocumentationSceneParam(
+                        "Maximum frequency", 2400.0)
+                    && setDocumentationSceneParam("Tracking time", 90.0)
+                    && setDocumentationSceneParam("Trace release", 680.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 0.84)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", -68.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", 34.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.27)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.72)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", -0.42);
+            } else if (responseTrace) {
+                failureStage = "documentation Response Trace scene";
+                ok = setDocumentationSceneParam("Capture duration", 0.12)
+                    && setDocumentationSceneParam("Response gain", -4.0)
+                    && setDocumentationSceneParam("Response tone", 0.64)
+                    && setDocumentationSceneParam(
+                        "Directional mask amount", 0.72)
+                    && setDocumentationSceneParam(
+                        "Directional mask azimuth", 106.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask elevation", -28.0)
+                    && setDocumentationSceneParam(
+                        "Directional mask width", 0.58)
+                    && setDocumentationSceneParam(
+                        "Directional mask curve", 0.44)
+                    && setDocumentationSceneParam(
+                        "Directional mask dry attenuation", -0.68);
+            } else if (documentationDisplacement) {
+                failureStage = "documentation Displacement score";
+                ok = [document respondsToSelector:
+                    @selector(loadDocumentationScore)];
+                if (ok) [document loadDocumentationScore];
+                ok = ok
+                    && setDocumentationSceneParam("Clock", 2.0)
+                    && setDocumentationSceneParam("Playback", 0.0)
+                    && setDocumentationSceneParam("Position", 0.50)
+                    && setDocumentationSceneParam("Amount", 1.0)
+                    && setDocumentationSceneParam("Azimuth Scale", 1.35)
+                    && setDocumentationSceneParam("Elevation Scale", 1.35)
+                    && setDocumentationSceneParam("Radius Scale", 1.45)
+                    && setDocumentationSceneParam("Ambisonic Order", 4.0)
+                    && setDocumentationSceneParam("Listener Body", 5.0);
+            } else if (documentationRotate) {
+                failureStage = "documentation Ambi Transform Rot AED";
+                ok = setDocumentationSceneParam("Ambisonic order", 7.0)
+                    && setDocumentationSceneParam("Yaw / azimuth", 72.0)
+                    && setDocumentationSceneParam("Pitch / elevation", -26.0)
+                    && setDocumentationSceneParam("Roll", 38.0)
+                    && setDocumentationSceneParam("Dispersion spread", 0.42)
+                    && setDocumentationSceneParam("Dispersion tilt", -0.31)
+                    && setDocumentationSceneParam("Dispersion twist", 0.58)
+                    && setDocumentationSceneParam("Order width", 1.18);
+            } else if (documentationOrderBand) {
+                failureStage = "documentation Order Band MaxRE";
+                ok = setDocumentationSceneParam("Active order", 7.0)
+                    && setDocumentationSceneParam("Weighting preset", 1.0)
+                    && setDocumentationSceneParam("Weighting amount", 1.0);
+            } else if (documentationAmbiGroupMatrix) {
+                failureStage = "documentation Ambi Group Matrix motion";
+                ok = setDocumentationSceneParam("Depth", 0.94)
+                    && setDocumentationSceneParam("Spread", 0.82)
+                    && setDocumentationSceneParam("Vortex", 0.68)
+                    && setDocumentationSceneParam("Motion", 0.96)
+                    && setDocumentationSceneParam("Shape", 4.0)
+                    && setDocumentationSceneParam("Mode", 0.0)
+                    && setDocumentationSceneParam("Rate", 0.72)
+                    && setDocumentationSceneParam("Phase", 0.18)
+                    && setDocumentationSceneParam("Smoothing", 48.0);
+                constexpr double matrixLevels[4][4] {
+                    { 0.0, -5.0, -11.0, -16.0 },
+                    { -9.0, 0.0, -6.0, -13.0 },
+                    { -14.0, -7.0, 0.0, -4.0 },
+                    { -6.0, -15.0, -8.0, 0.0 },
+                };
+                for (uint32_t source = 0u; ok && source < 4u; ++source) {
+                    for (uint32_t destination = 0u;
+                         ok && destination < 4u; ++destination) {
+                        char name[32] {};
+                        std::snprintf(name, sizeof(name), "S%u to D%u",
+                            source + 1u, destination + 1u);
+                        ok = setDocumentationSceneParam(
+                            name, matrixLevels[source][destination]);
+                    }
+                }
+            }
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+        }
+        if (ok && documentationOutputAutogain) {
+            failureStage = "documentation output autogain signal";
+            const auto* audioPorts =
+                static_cast<const clap_plugin_audio_ports_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+            clap_audio_port_info_t inputInfo {};
+            clap_audio_port_info_t outputInfo {};
+            ok = audioPorts
+                && audioPorts->count(plugin, true) == 1u
+                && audioPorts->count(plugin, false) == 1u
+                && audioPorts->get(plugin, 0u, true, &inputInfo)
+                && audioPorts->get(plugin, 0u, false, &outputInfo)
+                && inputInfo.channel_count == 128u
+                && (outputInfo.channel_count == 2u
+                    || outputInfo.channel_count == 4u);
+
+            constexpr uint32_t audioFrames = 128u;
+            constexpr uint32_t inputChannels = 128u;
+            constexpr uint32_t outputChannels = 4u;
+            constexpr uint32_t activeChannels = 8u;
+            constexpr uint32_t audioBlocks = 24u;
+            std::array<std::array<float, audioFrames>, inputChannels>
+                audioInput {};
+            std::array<std::array<float, audioFrames>, outputChannels>
+                audioOutput {};
+            std::array<float*, inputChannels> inputPointers {};
+            std::array<float*, outputChannels> outputPointers {};
+            for (uint32_t channel = 0u; channel < inputChannels; ++channel) {
+                inputPointers[channel] = audioInput[channel].data();
+            }
+            for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+                outputPointers[channel] = audioOutput[channel].data();
+            }
+            clap_audio_buffer_t inputBuffer {};
+            inputBuffer.data32 = inputPointers.data();
+            inputBuffer.channel_count = inputInfo.channel_count;
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.data();
+            outputBuffer.channel_count = outputInfo.channel_count;
+            clap_process_t processBlock {};
+            processBlock.frames_count = audioFrames;
+            processBlock.audio_inputs = &inputBuffer;
+            processBlock.audio_inputs_count = 1u;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            bool activated = false;
+            bool processing = false;
+            if (ok) {
+                ok = gui->show(plugin);
+                activated = ok
+                    && plugin->activate(plugin, 48000.0, 1u, audioFrames);
+                processing = activated && plugin->start_processing(plugin);
+                ok = ok && activated && processing;
+            }
+            uint64_t sampleCursor = 0u;
+            for (uint32_t block = 0u; ok && block < audioBlocks; ++block) {
+                for (uint32_t frame = 0u; frame < audioFrames; ++frame) {
+                    const double time = static_cast<double>(sampleCursor++)
+                        / 48000.0;
+                    for (uint32_t channel = 0u;
+                         channel < activeChannels; ++channel) {
+                        const double frequency = 173.0
+                            + 47.0 * static_cast<double>(channel);
+                        const float level = 0.18f
+                            - 0.009f * static_cast<float>(channel);
+                        audioInput[channel][frame] = level
+                            * static_cast<float>(std::sin(
+                                2.0 * s3g::kPi * frequency * time
+                                + 0.31 * static_cast<double>(channel)));
+                    }
+                }
+                for (auto& channel : audioOutput) channel.fill(0.0f);
+                processBlock.steady_time =
+                    static_cast<int64_t>(block) * audioFrames;
+                ok = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+            }
+            if (processing) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+            if (ok) [document setNeedsDisplay:YES];
+        }
+        const bool documentationLiveSignal = documentationCapture
+            && (documentationStereoDecoder
+                || documentationHeadDecoder
+                || documentationEffectDelay
+                || documentationEffectPitch
+                || documentationEffectGain
+                || documentationResonancePrint
+                || partialTrace
+                || responseTrace
+                || faultProcessor
+                || documentationAmbiGroupMatrix);
+        if (ok && documentationLiveSignal) {
+            failureStage = "documentation live signal";
+            const auto* audioPorts =
+                static_cast<const clap_plugin_audio_ports_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+            clap_audio_port_info_t inputInfo {};
+            clap_audio_port_info_t outputInfo {};
+            const uint32_t inputPortCount = audioPorts
+                ? audioPorts->count(plugin, true) : 0u;
+            const uint32_t outputPortCount = audioPorts
+                ? audioPorts->count(plugin, false) : 0u;
+            const bool hasInput = inputPortCount == 1u;
+            ok = audioPorts
+                && inputPortCount <= 1u
+                && outputPortCount == 1u
+                && (!hasInput
+                    || audioPorts->get(plugin, 0u, true, &inputInfo))
+                && audioPorts->get(plugin, 0u, false, &outputInfo)
+                && (!hasInput || inputInfo.channel_count <= 64u)
+                && outputInfo.channel_count <= 64u;
+
+            constexpr uint32_t audioFrames = 128u;
+            constexpr uint32_t maximumChannels = 64u;
+            std::array<std::array<float, audioFrames>, maximumChannels>
+                audioInput {};
+            std::array<std::array<float, audioFrames>, maximumChannels>
+                audioOutput {};
+            std::array<float*, maximumChannels> inputPointers {};
+            std::array<float*, maximumChannels> outputPointers {};
+            for (uint32_t channel = 0u;
+                 channel < maximumChannels; ++channel) {
+                inputPointers[channel] = audioInput[channel].data();
+                outputPointers[channel] = audioOutput[channel].data();
+            }
+            clap_audio_buffer_t inputBuffer {};
+            inputBuffer.data32 = inputPointers.data();
+            inputBuffer.channel_count = hasInput
+                ? inputInfo.channel_count : 0u;
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.data();
+            outputBuffer.channel_count = outputInfo.channel_count;
+            clap_process_t processBlock {};
+            processBlock.frames_count = audioFrames;
+            processBlock.audio_inputs = hasInput ? &inputBuffer : nullptr;
+            processBlock.audio_inputs_count = hasInput ? 1u : 0u;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            const auto sourceA = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(-54.0f, 22.0f));
+            const auto sourceB = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(76.0f, -18.0f));
+            const auto sourceC = s3g::acnSn3dBasis7(
+                s3g::directionFromAed(146.0f, 38.0f));
+            const uint32_t audioBlocks = documentationAmbiGroupMatrix
+                ? 180u : (responseTrace ? 320u
+                    : (documentationResonancePrint ? 180u
+                        : (partialTrace ? 120u
+                        : (faultProcessor ? 36u : 28u))));
+            bool activated = false;
+            bool processing = false;
+            if (ok) {
+                ok = gui->show(plugin);
+                activated = ok
+                    && plugin->activate(plugin, 48000.0, 1u, audioFrames);
+                processing = activated && plugin->start_processing(plugin);
+                ok = ok && activated && processing;
+            }
+            clap_id captureEffectParam = CLAP_INVALID_ID;
+            clap_id applyEffectParam = CLAP_INVALID_ID;
+            if (ok && (responseTrace || documentationResonancePrint)) {
+                const char* captureName = responseTrace
+                    ? "Capture response" : "Capture print";
+                const char* applyName = responseTrace
+                    ? "Apply response" : "Apply print";
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        ok = false;
+                        break;
+                    }
+                    if (std::strcmp(info.name, captureName) == 0) {
+                        captureEffectParam = info.id;
+                    } else if (std::strcmp(info.name, applyName) == 0) {
+                        applyEffectParam = info.id;
+                    }
+                }
+                ok = ok && params->flush
+                    && captureEffectParam != CLAP_INVALID_ID
+                    && applyEffectParam != CLAP_INVALID_ID;
+                if (ok) {
+                    SingleParamEventInput event {};
+                    setSingleParamEvent(event, captureEffectParam, 1.0);
+                    params->flush(plugin, &event.events, nullptr);
+                    setSingleParamEvent(event, captureEffectParam, 0.0);
+                    params->flush(plugin, &event.events, nullptr);
+                }
+            }
+            uint64_t sampleCursor = 0u;
+            for (uint32_t block = 0u;
+                 ok && block < audioBlocks; ++block) {
+                if ((responseTrace && block == 250u)
+                    || (documentationResonancePrint && block == 120u)) {
+                    SingleParamEventInput event {};
+                    setSingleParamEvent(event, applyEffectParam, 1.0);
+                    params->flush(plugin, &event.events, nullptr);
+                }
+                if (hasInput) {
+                    for (uint32_t frame = 0u;
+                         frame < audioFrames; ++frame) {
+                        const double time =
+                            static_cast<double>(sampleCursor++) / 48000.0;
+                        const float inputScale = documentationResonancePrint
+                            ? 0.45f : 1.0f;
+                        const float a = inputScale * 0.30f * static_cast<float>(
+                            std::sin(2.0 * s3g::kPi * 197.0 * time));
+                        const float b = inputScale * 0.21f * static_cast<float>(
+                            std::sin(2.0 * s3g::kPi * 431.0 * time + 0.61));
+                        const float c = inputScale * 0.14f * static_cast<float>(
+                            std::sin(2.0 * s3g::kPi * 733.0 * time + 1.37));
+                        for (uint32_t channel = 0u;
+                             channel < inputInfo.channel_count; ++channel) {
+                            const float field = channel < sourceA.size()
+                                ? sourceA[channel] * a + sourceB[channel] * b
+                                    + sourceC[channel] * c
+                                : 0.0f;
+                            const float busAccent =
+                                1.0f - 0.08f * static_cast<float>(
+                                    (channel / 16u) % 4u);
+                            audioInput[channel][frame] = field * busAccent;
+                        }
+                    }
+                }
+                for (auto& channel : audioOutput) channel.fill(0.0f);
+                processBlock.steady_time =
+                    static_cast<int64_t>(block) * audioFrames;
+                ok = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+            }
+            if (processing) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+            if (ok) [document setNeedsDisplay:YES];
         }
         if (ok && documentationCapture && analyzer) {
             failureStage = "documentation analyzer signal";

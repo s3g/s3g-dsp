@@ -197,6 +197,7 @@ a:focus-visible {
 
 .content strong {
   color: #9cdcfe;
+  font-weight: 400;
 }
 
 .content code {

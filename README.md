@@ -32,8 +32,7 @@ Plugin areas:
 - [Multichannel](https://s3g.github.io/s3g-dsp/multichannel.html):
   [effects](https://s3g.github.io/s3g-dsp/multichannel-effects.html),
   fold-down, metering, direct panning, matrix and node mixing, and speaker
-  calibration for ordinary channel lanes, plus the stereo
-  [CRCLTR](https://s3g.github.io/s3g-dsp/crcltr.html) Versio-derived looper.
+  calibration for ordinary channel lanes.
 - [Ambisonics](https://s3g.github.io/s3g-dsp/ambisonics.html): separate
   [encoders](https://s3g.github.io/s3g-dsp/ambisonic-encoders.html),
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
@@ -214,9 +213,6 @@ sense for Max.
 [`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap) is the separate wrapper
 project for RNBO/Max-generated C++ exports. It follows the same CLAP release
 workflow but is not required to build or use `s3g-dsp`.
-
-Companion REAPER session and routing workflows are maintained with `s3g-mc`:
-<https://s3g.github.io/s3g-mc/process-guides-ambisonics.html>.
 
 ## License
 

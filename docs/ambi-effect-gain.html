@@ -21,15 +21,15 @@
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-effect-gain.png" aria-label="Open Ambi Effect Gain interface screenshot">
-              <img src="assets/plugin-guis/ambi-effect-gain.png" alt="Ambi Effect Gain interface showing the pickup gain field, macro relationships, listener view, meters, and directional mask" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-effect-gain.png?v=3" aria-label="Open Ambi Effect Gain interface screenshot">
+              <img src="assets/plugin-guis/ambi-effect-gain.png?v=3" alt="Ambi Effect Gain interface processing an active 3OA field with a Dodeca 20 body, varied gain relationships, and an enabled directional wet mask" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Effect Gain with pickup gain field, macro relationships, listener view, meters, and directional mask.</figcaption>
+          <figcaption>Ambi Effect Gain on a <code>3OA</code> <code>DODECA 20</code> body with varied gain relationships and an enabled directional wet mask.</figcaption>
         </figure>
 
         <h2 id="body">Body and Gain Model</h2>
-        <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code> through <code>3OA</code> and <code>DODECA 20</code> for <code>4OA</code> through <code>7OA</code>. <code>GAIN</code> ranges from <code>-60</code> to <code>+18 dB</code>; <code>0 dB</code> is neutral. Each of twenty persistent pickup slots adds up to <code>±24 dB</code> of local trim inside the bounded range.</p>
+        <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code>-<code>2OA</code>, <code>DODECA 20</code> for <code>3OA</code>, and <code>SPHERE 24</code> for <code>4OA</code>-<code>7OA</code>. All three bodies can also be selected directly. <code>GAIN</code> ranges from <code>-60</code> to <code>+18 dB</code>; <code>0 dB</code> is neutral. Each of twenty-four persistent pickup slots adds up to <code>±24 dB</code> of local trim inside the bounded range.</p>
 
         <h2 id="relationships">Macro Relationships</h2>
         <p><code>SPRD</code> creates an ordered level slope across the listener body and <code>DEV</code> adds stable irregular differences. This is the macro-effect gesture: at zero spread and deviation every point follows the common gain, while increasing either control opens a visible relationship field without requiring twenty manual edits.</p>

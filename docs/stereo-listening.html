@@ -26,7 +26,17 @@
       <main class="content" id="content">
         <h1>Listening on a Stereo System</h1>
 
-        <p>You do not need a multichannel loudspeaker array to use s3g-dsp. Keep the session wide while its multichannel or ambisonic processing is active, then convert the result to two channels at the end of the monitoring chain.</p>
+        <p>You do not need a multichannel loudspeaker array to use s3g-dsp. Keep each multichannel or ambisonic signal at its required width while it is being processed, then convert it to two channels at the end of the monitoring chain.</p>
+
+        <h2 id="keep-wide">Keep the Session Wide</h2>
+
+        <p>This refers to REAPER track and routing channel counts, not a single channel-count setting for the whole project. Each REAPER track has its own <code>Track channels</code> value, and one project can contain tracks with different widths.</p>
+
+        <ul>
+          <li>For ordinary multichannel audio, set every source, processor, and bus track to at least the number of lanes the signal requires. An eight-channel chain needs eight track channels through the last wide processor.</li>
+          <li>For ambisonics, preserve every channel in the field: first order requires 4 channels, second order 9, and third order 16. Tracks and sends carrying the field must pass the complete channel range.</li>
+          <li>Place the stereo mixdown or decoder after the wide processing. The track can remain wide for the upstream chain; route the plugin's stereo output on channels 1–2 to the stereo master or hardware output.</li>
+        </ul>
 
         <div class="callout">
           <p><strong>Choose by signal format, not channel count.</strong> Use Output Autogain Stereo for ordinary multichannel lanes. Use an Ambi Decoder Stereo or Ambi Decoder Head when the channels are an encoded <code>ACN/SN3D</code> field.</p>
@@ -80,7 +90,8 @@ ambisonic encoder or instrument
         <h2 id="reaper">REAPER Setup</h2>
 
         <ol>
-          <li>Set the track or monitoring bus wide enough for the source format before inserting the stereo stage.</li>
+          <li>Open the routing controls for each wide source, processor, bus, or monitoring track and set <code>Track channels</code> to the required width. There is no project-wide channel count to set.</li>
+          <li>Check that sends between wide tracks pass the complete source channel range to the same destination channels.</li>
           <li>Place the chosen mixdown or decoder after the processing that needs the wide bus.</li>
           <li>Map its left and right outputs to channels 1-2 and then to the stereo hardware output.</li>
           <li>If a following meter still shows higher channels, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</li>
@@ -114,6 +125,7 @@ ambisonic encoder or instrument
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#keep-wide">Keep the Session Wide</a>
           <a href="#choose">Choose the Stereo Path</a>
           <a href="#multichannel">Ordinary Multichannel</a>
           <a href="#ambisonics">Ambisonic Sessions</a>

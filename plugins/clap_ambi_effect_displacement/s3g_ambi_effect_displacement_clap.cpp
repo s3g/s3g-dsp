@@ -1606,6 +1606,42 @@ uint32_t displacementRowForParam(clap_id param)
     [self setNeedsDisplay:YES];
 }
 
+- (void)loadDocumentationScore
+{
+    auto score = s3g::makeDefaultAmbiEffectDisplacementScore();
+    score.sceneCount = 3u;
+    score.durationSeconds = 18.0f;
+    score.scenes[0].time = 0.0f;
+    score.scenes[0].points = score.source;
+    score.scenes[1].time = 0.50f;
+    score.scenes[2].time = 1.0f;
+    for (uint32_t point = 0u;
+         point < s3g::kAmbiEffectDisplacementScorePoints; ++point) {
+        const float sign = (point & 1u) ? -1.0f : 1.0f;
+        const float band = static_cast<float>(point % 6u) / 5.0f;
+        auto middle = score.source[point];
+        middle.azimuthDeg += sign * (34.0f + 42.0f * band);
+        middle.elevationDeg = std::clamp(
+            middle.elevationDeg * -0.55f + sign * (18.0f + 24.0f * band),
+            -86.0f, 86.0f);
+        middle.radius = 0.42f + 1.72f * band;
+        score.scenes[1].points[point] =
+            s3g::sanitizeAmbiEffectDisplacementPoint(middle);
+
+        auto ending = score.source[point];
+        ending.azimuthDeg -= sign * (52.0f + 58.0f * band);
+        ending.elevationDeg = std::clamp(
+            ending.elevationDeg * 0.30f - sign * (28.0f + 30.0f * band),
+            -86.0f, 86.0f);
+        ending.radius = 2.45f - 1.85f * band;
+        score.scenes[2].points[point] =
+            s3g::sanitizeAmbiEffectDisplacementPoint(ending);
+    }
+    installScore(*_plugin, score, 1.0f, 1.35f, 1.35f, 1.45f,
+        "DOCUMENTATION / DEFORMED SCORE");
+    [self setNeedsDisplay:YES];
+}
+
 - (void)updateParam:(clap_id)param fromPoint:(NSPoint)point
 {
     const auto* definition = std::find_if(std::begin(kParamDefs), std::end(kParamDefs),

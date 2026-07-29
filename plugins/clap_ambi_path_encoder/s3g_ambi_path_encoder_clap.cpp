@@ -812,6 +812,63 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     [self setNeedsDisplay:YES];
 }
 
+- (void)loadDocumentationPaths
+{
+    // Keep the publication scene visibly different from the radial default:
+    // four asymmetric, crossing gestures with distinct extents and folds.
+    static constexpr float points[4][12][3] {
+        {
+            { -1.12f, -0.62f, -0.55f }, { -0.44f,  0.88f,  0.46f },
+            {  0.72f, -0.38f,  0.92f }, {  0.12f,  0.18f, -0.88f },
+            { -0.86f,  0.58f,  0.72f }, {  1.02f,  0.74f, -0.18f },
+            {  0.34f, -0.94f, -0.70f }, { -0.58f, -0.08f,  1.02f },
+            {  0.94f, -0.70f,  0.32f }, { -0.20f,  0.96f, -0.62f },
+            { -1.02f,  0.04f,  0.08f }, {  0.22f, -0.44f,  0.66f },
+        },
+        {
+            { -0.90f,  0.72f, -0.86f }, { -0.14f, -0.22f,  1.12f },
+            {  0.88f,  0.42f,  0.28f }, {  0.38f, -1.04f, -0.32f },
+            { -0.72f, -0.46f,  0.82f }, {  0.62f,  0.92f, -0.58f },
+            {  1.08f, -0.12f,  0.74f }, { -0.34f,  0.28f, -1.02f },
+            { -1.10f, -0.78f,  0.24f }, {  0.18f, -0.72f,  0.98f },
+            {  0.74f,  0.10f, -0.92f }, { -0.54f,  1.02f,  0.12f },
+        },
+        {
+            { -1.04f,  0.18f,  0.94f }, {  0.04f, -0.94f, -0.18f },
+            {  0.98f,  0.18f, -0.76f }, { -0.16f,  0.66f,  1.06f },
+            { -0.74f, -0.72f, -0.58f }, {  0.56f, -0.18f,  0.62f },
+            {  0.18f,  1.04f, -0.40f }, { -0.92f,  0.46f,  0.20f },
+            {  0.82f, -0.82f,  0.42f }, {  1.10f,  0.62f,  0.06f },
+            { -0.36f, -0.16f, -1.08f }, { -0.62f,  0.92f,  0.64f },
+        },
+        {
+            { -0.76f, -0.96f,  0.76f }, {  0.52f,  0.06f, -1.08f },
+            {  0.96f,  0.86f,  0.52f }, { -0.46f,  0.36f, -0.64f },
+            { -1.08f,  0.82f,  0.06f }, {  0.28f, -0.62f,  1.08f },
+            {  1.06f, -0.42f, -0.46f }, { -0.18f,  1.04f,  0.78f },
+            { -0.94f, -0.24f, -0.92f }, {  0.66f,  0.54f, -0.10f },
+            {  0.08f, -1.06f,  0.38f }, { -0.58f,  0.06f,  1.02f },
+        },
+    };
+    static constexpr float times[12] {
+        0.00f, 0.05f, 0.13f, 0.19f, 0.31f, 0.40f,
+        0.54f, 0.61f, 0.73f, 0.81f, 0.93f, 1.00f,
+    };
+    auto paths = _plugin->encoder.paths();
+    for (uint32_t pi = 0u; pi < 4u; ++pi) {
+        paths[pi].pointCount = 12u;
+        for (uint32_t i = 0u; i < 12u; ++i) {
+            paths[pi].points[i].x = points[pi][i][0];
+            paths[pi].points[i].y = points[pi][i][1];
+            paths[pi].points[i].z = points[pi][i][2];
+            paths[pi].points[i].time = times[i];
+        }
+    }
+    _selectedPoint = -1;
+    _plugin->encoder.setPaths(paths);
+    [self setNeedsDisplay:YES];
+}
+
 - (void)updateRandomDev:(NSPoint)pt
 {
     const NSRect r = [self randomDevSliderRect];

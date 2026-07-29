@@ -4,7 +4,15 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#if defined(__APPLE__)
+#import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
+#include "../common/s3g_cocoa_gui.h"
+#endif
+
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +24,8 @@ namespace {
 
 constexpr uint32_t kChannelCount = 2u;
 constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kGuiWidth = 760u;
+constexpr uint32_t kGuiHeight = 376u;
 
 constexpr clap_id kLoop1RateParamId = 1u;
 constexpr clap_id kLoop2RateParamId = 2u;
@@ -77,6 +87,12 @@ struct Plugin {
     std::vector<float> inputRight;
     std::vector<float> outputLeft;
     std::vector<float> outputRight;
+    std::atomic<float> outputPeak { 0.0f };
+#if defined(__APPLE__)
+    void* guiView = nullptr;
+    bool guiVisible = false;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -141,8 +157,15 @@ void applyParam(Plugin& plugin, clap_id id, double value)
 
 bool init(const clap_plugin_t*) { return true; }
 
+#if defined(__APPLE__)
+void guiDestroy(const clap_plugin_t* plugin);
+#endif
+
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(__APPLE__)
+    guiDestroy(plugin);
+#endif
     delete self(plugin);
 }
 
@@ -176,6 +199,7 @@ void reset(const clap_plugin_t* plugin)
     p->params.record = false;
     p->dsp.setParams(p->params);
     p->dsp.reset();
+    p->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
 void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
@@ -230,6 +254,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     p->dsp.process(p->inputLeft.data(), p->inputRight.data(),
         p->outputLeft.data(), p->outputRight.data(), frames);
 
+    float blockPeak = 0.0f;
     for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             const float value = channel == 0u ? p->outputLeft[frame]
@@ -238,6 +263,7 @@ clap_process_status process(const clap_plugin_t* plugin,
                 output.data32[channel][frame] = value;
             if (output.data64 && output.data64[channel])
                 output.data64[channel][frame] = static_cast<double>(value);
+            blockPeak = std::max(blockPeak, std::abs(value));
         }
         for (uint32_t frame = frames; frame < processInfo->frames_count; ++frame) {
             if (output.data32 && output.data32[channel])
@@ -246,6 +272,9 @@ clap_process_status process(const clap_plugin_t* plugin,
                 output.data64[channel][frame] = 0.0;
         }
     }
+    p->outputPeak.store(std::max(
+        p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak),
+        std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -487,11 +516,551 @@ const clap_plugin_state_t stateExtension {
     stateLoad,
 };
 
+} // namespace
+
+#if defined(__APPLE__)
+
+constexpr auto kOutputPanel =
+    s3g::gui_layout::compactEffectOutputPanel(3u);
+constexpr auto kCapturePanel =
+    s3g::gui_layout::compactEffectLeftPanel(
+        kOutputPanel, s3g::gui_layout::PanelRole::EventTiming, 3u);
+constexpr auto kLoopsPanel =
+    s3g::gui_layout::compactEffectRightPanel(
+        s3g::gui_layout::PanelRole::Projection, 2u);
+constexpr auto kCrossfadePanel =
+    s3g::gui_layout::fittedStackPanel(
+        s3g::gui_layout::PanelRole::Relationships, kLoopsPanel, 2u);
+constexpr std::array kFirstColumnPanels { kOutputPanel, kCapturePanel };
+constexpr std::array kSecondColumnPanels { kLoopsPanel, kCrossfadePanel };
+static_assert(s3g::gui_layout::validateColumn(
+    kFirstColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas));
+static_assert(s3g::gui_layout::validateColumn(
+    kSecondColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas,
+    false));
+
+NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
+{
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(panel.frame.x),
+        s3g::gui_layout::rowY(panel, row) - 1.0,
+        s3g::gui_layout::processorMenuWidth(panel.frame.width), 15.0);
+}
+
+@interface S3GCrcltrView : NSView {
+    void* _plugin;
+    int _dragSlider;
+    int _openMenu;
+    int _hoverMenuItem;
+    bool _recordHeld;
+    NSPoint _menuOrigin;
+    NSTimer* _timer;
+    char _titlePresetName[64];
+}
+- (id)initWithPlugin:(void*)plugin;
+- (void)startRefreshTimer;
+- (void)stopRefreshTimer;
+- (void)updateSlider:(NSPoint)point;
+@end
+
+@implementation S3GCrcltrView
+
+- (id)initWithPlugin:(void*)plugin
+{
+    self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
+    if (self) {
+        _plugin = plugin;
+        _dragSlider = -1;
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        _recordHeld = false;
+        _menuOrigin = NSZeroPoint;
+        _timer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+    }
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)dealloc
+{
+    [self stopRefreshTimer];
+    [super dealloc];
+}
+
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    NSArray* existingAreas = [[self trackingAreas] copy];
+    for (NSTrackingArea* area in existingAreas) {
+        [self removeTrackingArea:area];
+    }
+    [existingAreas release];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved
+        | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:area];
+    [area release];
+}
+
+- (void)startRefreshTimer
+{
+    if (_timer) return;
+    _timer = [NSTimer timerWithTimeInterval:1.0 / 20.0
+        target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopRefreshTimer
+{
+    if (_recordHeld && _plugin) {
+        applyParam(*static_cast<Plugin*>(_plugin), kRecordParamId, 0.0);
+        _recordHeld = false;
+    }
+    if (!_timer) return;
+    [_timer invalidate];
+    _timer = nil;
+}
+
+- (void)refresh:(NSTimer*)timer
+{
+    (void)timer;
+    if (![self isHidden] && _plugin
+        && s3g::clap_support::hostAppIsActive()) {
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)drawSlider:(NSString*)label
+              param:(clap_id)paramId
+                row:(uint32_t)row
+              panel:(const s3g::gui_layout::Panel&)panel
+              attrs:(NSDictionary*)attrs
+             values:(NSDictionary*)values
+              style:(const s3g::clap_gui::Style&)style
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    const ParamDef* def = findParam(paramId);
+    if (!p || !def) return;
+    double value = 0.0;
+    paramsGetValue(&p->plugin, paramId, &value);
+    const double span = std::max(0.000001, def->maximum - def->minimum);
+    const CGFloat norm = static_cast<CGFloat>(
+        (value - def->minimum) / span);
+    char text[32] {};
+    paramsValueToText(&p->plugin, paramId, value, text, sizeof(text));
+    s3g::clap_gui::drawProcessorSlider(
+        label, [NSString stringWithUTF8String:text], norm,
+        s3g::gui_layout::rowY(panel, row), panel.frame.x, panel.frame.width,
+        attrs, values, style);
+}
+
+- (void)drawMenu:(NSString*)label
+            value:(NSString*)value
+              row:(uint32_t)row
+            panel:(const s3g::gui_layout::Panel&)panel
+            attrs:(NSDictionary*)attrs
+           values:(NSDictionary*)values
+            style:(const s3g::clap_gui::Style&)style
+{
+    s3g::clap_gui::drawProcessorMenu(label, value,
+        s3g::gui_layout::rowY(panel, row), panel.frame.x, panel.frame.width,
+        attrs, values, style);
+}
+
+- (void)drawRect:(NSRect)dirty
+{
+    (void)dirty;
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    s3g::clap_gui::Style style;
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* values = s3g::clap_gui::softValueAttrs();
+    [style.bg setFill];
+    NSRectFill([self bounds]);
+
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    s3g::clap_gui::drawCompactEffectTitleBand(
+        @"s3g EFFECT CRCLTR",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            p->outputPeak.load(std::memory_order_relaxed)),
+        titleBand, style);
+
+    const auto drawPanel = [&](NSString* title,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(panel, style);
+        s3g::clap_gui::drawPanelHeader(title, true, panel, labels, style);
+    };
+    drawPanel(@"OUTPUT", kOutputPanel);
+    drawPanel(@"CAPTURE", kCapturePanel);
+    drawPanel(@"LOOPS", kLoopsPanel);
+    drawPanel(@"CROSSFADE", kCrossfadePanel);
+
+    [self drawSlider:@"IN" param:kInputGainParamId row:0u panel:kOutputPanel
+        attrs:labels values:values style:style];
+    [self drawSlider:@"BLEND" param:kBlendParamId row:1u panel:kOutputPanel
+        attrs:labels values:values style:style];
+    [self drawSlider:@"OUT" param:kOutputGainParamId row:2u panel:kOutputPanel
+        attrs:labels values:values style:style];
+
+    s3g::clap_gui::drawToggle(@"RECORD", p->params.record,
+        s3g::gui_layout::rowY(kCapturePanel, 0u), labels, values, style,
+        s3g::gui_layout::processorLabelX(kCapturePanel.frame.x),
+        s3g::gui_layout::processorControlX(kCapturePanel.frame.x),
+        s3g::gui_layout::processorMenuWidth(kCapturePanel.frame.width));
+    [self drawMenu:@"TARGET"
+        value:[NSString stringWithUTF8String:targetName(
+            static_cast<uint32_t>(p->params.recordTarget))]
+        row:1u panel:kCapturePanel attrs:labels values:values style:style];
+    [self drawMenu:@"MONITOR"
+        value:[NSString stringWithUTF8String:monitorName(
+            static_cast<uint32_t>(p->params.monitorMode))]
+        row:2u panel:kCapturePanel attrs:labels values:values style:style];
+
+    [self drawSlider:@"LOOP 1" param:kLoop1RateParamId row:0u panel:kLoopsPanel
+        attrs:labels values:values style:style];
+    [self drawSlider:@"LOOP 2" param:kLoop2RateParamId row:1u panel:kLoopsPanel
+        attrs:labels values:values style:style];
+    [self drawMenu:@"TYPE"
+        value:[NSString stringWithUTF8String:crossfadeModeName(
+            static_cast<uint32_t>(p->params.crossfadeMode))]
+        row:0u panel:kCrossfadePanel attrs:labels values:values style:style];
+    [self drawSlider:(p->params.crossfadeMode == s3g::CrcltrCrossfadeMode::Manual
+            ? @"XFADE" : @"RATE")
+        param:kCrossfadeParamId row:1u panel:kCrossfadePanel
+        attrs:labels values:values style:style];
+
+    [@"hold RECORD while capturing; release to close the loop"
+        drawAtPoint:NSMakePoint(kCapturePanel.frame.x + 16.0,
+            kCapturePanel.frame.y + kCapturePanel.frame.height + 12.0)
+        withAttributes:values];
+    [@"dual loop rates feed manual or moving crossfade"
+        drawAtPoint:NSMakePoint(kCrossfadePanel.frame.x + 16.0,
+            kCrossfadePanel.frame.y + kCrossfadePanel.frame.height + 12.0)
+        withAttributes:values];
+
+    if (_openMenu > 0) {
+        static NSString* modeItems[] = {
+            @"MANUAL", @"SINE LFO", @"TRAPEZOID LFO",
+        };
+        static NSString* targetItems[] = { @"LOOP 1", @"BOTH", @"LOOP 2" };
+        static NSString* monitorItems[] = {
+            @"THRU LOOP 1", @"SILENT", @"THRU LOOP 2",
+        };
+        NSString** items = _openMenu == static_cast<int>(kCrossfadeModeParamId)
+            ? modeItems
+            : _openMenu == static_cast<int>(kRecordTargetParamId)
+            ? targetItems : monitorItems;
+        int selected = 0;
+        if (_openMenu == static_cast<int>(kCrossfadeModeParamId)) {
+            selected = static_cast<int>(p->params.crossfadeMode);
+        } else if (_openMenu == static_cast<int>(kRecordTargetParamId)) {
+            selected = static_cast<int>(p->params.recordTarget);
+        } else {
+            selected = static_cast<int>(p->params.monitorMode);
+        }
+        const NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y,
+            s3g::gui_layout::processorMenuWidth(kOutputPanel.frame.width),
+            54.0);
+        s3g::clap_gui::drawDropdownMenu(
+            menu, 18.0, items, 3u, selected, _hoverMenuItem, values, style);
+    }
+}
+
+- (void)openMenuForParam:(clap_id)paramId
+                    panel:(const s3g::gui_layout::Panel&)panel
+                      row:(uint32_t)row
+{
+    const NSRect box = processorMenuRect(panel, row);
+    _openMenu = static_cast<int>(paramId);
+    _hoverMenuItem = -1;
+    _menuOrigin = NSMakePoint(box.origin.x, NSMaxY(box) + 3.0);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (_openMenu <= 0) return;
+    const NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y,
+        s3g::gui_layout::processorMenuWidth(kOutputPanel.frame.width), 54.0);
+    const int hover = s3g::clap_gui::dropdownHitIndex(point, menu, 18.0, 3u);
+    if (hover != _hoverMenuItem) {
+        _hoverMenuItem = hover;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)updateSlider:(NSPoint)point
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    const ParamDef* def = p
+        ? findParam(static_cast<clap_id>(_dragSlider)) : nullptr;
+    if (!p || !def) return;
+    const bool output = def->id == kInputGainParamId
+        || def->id == kBlendParamId || def->id == kOutputGainParamId;
+    const bool loop = def->id == kLoop1RateParamId
+        || def->id == kLoop2RateParamId;
+    const auto& panel = output ? kOutputPanel
+        : loop ? kLoopsPanel : kCrossfadePanel;
+    const double controlX =
+        s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth =
+        s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double norm = std::clamp(
+        (point.x - controlX) / trackWidth, 0.0, 1.0);
+    applyParam(*p, def->id,
+        def->minimum + norm * (def->maximum - def->minimum));
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            point, &p->plugin, @"Effect CRCLTR", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    if (_openMenu > 0) {
+        const NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y,
+            s3g::gui_layout::processorMenuWidth(kOutputPanel.frame.width),
+            54.0);
+        const int hit = s3g::clap_gui::dropdownHitIndex(
+            point, menu, 18.0, 3u);
+        if (hit >= 0) {
+            applyParam(*p, static_cast<clap_id>(_openMenu),
+                static_cast<double>(hit));
+        }
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    if (NSPointInRect(point, processorMenuRect(kCrossfadePanel, 0u))) {
+        [self openMenuForParam:kCrossfadeModeParamId
+            panel:kCrossfadePanel row:0u];
+        return;
+    }
+    if (NSPointInRect(point, processorMenuRect(kCapturePanel, 1u))) {
+        [self openMenuForParam:kRecordTargetParamId
+            panel:kCapturePanel row:1u];
+        return;
+    }
+    if (NSPointInRect(point, processorMenuRect(kCapturePanel, 2u))) {
+        [self openMenuForParam:kMonitorModeParamId
+            panel:kCapturePanel row:2u];
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(kCapturePanel, 0u)))) {
+        applyParam(*p, kRecordParamId, 1.0);
+        _recordHeld = true;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    const struct {
+        clap_id paramId;
+        const s3g::gui_layout::Panel* panel;
+        uint32_t row;
+    } sliders[] {
+        { kInputGainParamId, &kOutputPanel, 0u },
+        { kBlendParamId, &kOutputPanel, 1u },
+        { kOutputGainParamId, &kOutputPanel, 2u },
+        { kLoop1RateParamId, &kLoopsPanel, 0u },
+        { kLoop2RateParamId, &kLoopsPanel, 1u },
+        { kCrossfadeParamId, &kCrossfadePanel, 1u },
+    };
+    for (const auto& slider : sliders) {
+        if (!NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(
+                    *slider.panel, slider.row)))) continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, slider.paramId, &defaultValue)) {
+            applyParam(*p, slider.paramId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(slider.paramId);
+            [self updateSlider:point];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:
+        [self convertPoint:[event locationInWindow] fromView:nil]];
+}
+
+- (void)mouseDragged:(NSEvent*)event
+{
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:point];
+    if (_dragSlider > 0) [self updateSlider:point];
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    if (_recordHeld && _plugin) {
+        applyParam(*static_cast<Plugin*>(_plugin), kRecordParamId, 0.0);
+        _recordHeld = false;
+        [self setNeedsDisplay:YES];
+    }
+    _dragSlider = -1;
+}
+
+@end
+
+namespace {
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating)
+{
+    return !isFloating && api
+        && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
+}
+
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating)
+{
+    if (!api || !isFloating) return false;
+    *api = CLAP_WINDOW_API_COCOA;
+    *isFloating = false;
+    return true;
+}
+
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
+{
+    if (!guiIsApiSupported(plugin, api, isFloating)) return false;
+    auto* p = self(plugin);
+    if (p->guiView) return true;
+    p->guiView = [[S3GCrcltrView alloc] initWithPlugin:p];
+    if (!p->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(
+            p->guiViewport, static_cast<NSView*>(p->guiView),
+            kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(p->guiView) release];
+        p->guiView = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (!p || !p->guiView) return;
+    p->guiVisible = false;
+    [static_cast<S3GCrcltrView*>(p->guiView) stopRefreshTimer];
+    s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
+}
+
+bool guiSetScale(const clap_plugin_t*, double) { return true; }
+
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
+}
+
+bool guiCanResize(const clap_plugin_t*) { return true; }
+
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::getResponsiveResizeHints(hints);
+}
+
+bool guiAdjustSize(const clap_plugin_t* plugin,
+                   uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::adjustResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
+}
+
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
+{
+    return s3g::clap_gui::setResponsiveViewportSize(
+        self(plugin)->guiViewport, width, height);
+}
+
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
+{
+    if (!window || !window->api
+        || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0
+        || !window->cocoa) return false;
+    auto* p = self(plugin);
+    return s3g::clap_gui::setResponsiveViewportParent(
+        p->guiViewport, static_cast<NSView*>(window->cocoa), p->host);
+}
+
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(
+            p->guiViewport, false)) return false;
+    p->guiVisible = true;
+    [static_cast<S3GCrcltrView*>(p->guiView) startRefreshTimer];
+    return true;
+}
+
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (!p->guiView) return false;
+    p->guiVisible = false;
+    [static_cast<S3GCrcltrView*>(p->guiView) stopRefreshTimer];
+    return s3g::clap_gui::setResponsiveViewportHidden(
+        p->guiViewport, true);
+}
+
+const clap_plugin_gui_t guiExtension {
+    guiIsApiSupported,
+    guiGetPreferredApi,
+    guiCreate,
+    guiDestroy,
+    guiSetScale,
+    guiGetSize,
+    guiCanResize,
+    guiGetResizeHints,
+    guiAdjustSize,
+    guiSetSize,
+    guiSetParent,
+    guiSetTransient,
+    guiSuggestTitle,
+    guiShow,
+    guiHide,
+};
+
+#else
+namespace {
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
+#if defined(__APPLE__)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
+#endif
     return nullptr;
 }
 

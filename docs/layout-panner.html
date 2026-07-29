@@ -33,10 +33,10 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/layout-panner.png" aria-label="Open high-resolution Panner Layout GUI screenshot">
-              <img src="assets/plugin-guis/layout-panner.png" alt="Panner Layout source points, speaker geometry, camera controls, and panner setup panels" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/layout-panner.png" alt="Panner Layout showing four source points against the Dome 25 speaker geometry" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Panner Layout with source points, speaker geometry, camera controls, and panner setup panels.</figcaption>
+          <figcaption>Panner Layout with four source points against the Dome 25 speaker geometry.</figcaption>
         </figure>
 
         <h2 id="signal-shape">Signal Shape</h2>
@@ -52,7 +52,7 @@
         <h2 id="pages">Pages</h2>
 
         <div class="table-wrap">
-          <table>
+          <table class="readout-table">
             <thead>
               <tr>
                 <th>Page</th>
@@ -87,7 +87,7 @@
         <p>The direct panner family uses the same source mixer, speaker layout language, camera controls, inside-source modes, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
 
         <div class="table-wrap">
-          <table>
+          <table class="readout-table">
             <thead>
               <tr>
                 <th>Plugin</th>
@@ -119,6 +119,15 @@
             </tbody>
           </table>
         </div>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/panner-vbap.png" aria-label="Open high-resolution Panner VBAP GUI screenshot">
+              <img src="assets/plugin-guis/panner-vbap.png" alt="Panner VBAP showing four source points, a Cube 17 speaker geometry, and the solver topology" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Panner VBAP with four source points against a Cube 17 speaker geometry and its solver topology.</figcaption>
+        </figure>
 
         <p>LBAP and VBAP use an internal solver topology derived from the speaker layout. The GUI overlay draws the actual topology used by the solver: faint cyan for LBAP and faint yellow for VBAP. Imaginary solver speakers may be added where the layout has weak or incomplete topology. These points help the solver but do not add output channels.</p>
 

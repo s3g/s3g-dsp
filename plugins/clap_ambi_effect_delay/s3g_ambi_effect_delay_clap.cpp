@@ -967,8 +967,6 @@ NSRect feedbackAxisRect()
             const float level = p->nodeLevel[node].load(std::memory_order_relaxed);
             const float db = 20.0f * std::log10(std::max(0.000001f, level));
             const float meter = std::clamp((db + 60.0f) / 60.0f, 0.0f, 1.0f);
-            const float wet = p->params.maskAmount < 0.005f ? 1.0f
-                : p->nodeWetMask[node].load(std::memory_order_relaxed);
             constexpr CGFloat size = 14.0;
             NSRect marker = NSMakeRect(projected.points[node].x - size * 0.5,
                 projected.points[node].y - size * 0.5, size, size);
@@ -979,13 +977,16 @@ NSRect feedbackAxisRect()
                 projected.points[node].x - halo,
                 projected.points[node].y - halo,
                 halo * 2.0, halo * 2.0)] fill];
-            [s3g::clap_gui::color(0x161918, 0.94) setFill]; NSRectFill(marker);
-            [s3g::clap_gui::color(pass ? 0xd8dcda : 0x858c89,
-                0.10 + meter * 0.28) setFill];
+            [s3g::clap_gui::color(pass ? 0xe9ecea : 0xb9bfbc,
+                node == _selectedPickup ? 1.0 : (pass ? 0.94 : 0.76)) setFill];
+            NSRectFill(marker);
+            [s3g::clap_gui::color(pass ? 0x4a504d : 0x3d4240,
+                0.94) setFill];
             NSRectFill(NSInsetRect(marker, 2.0, 2.0));
             [s3g::clap_gui::color(
-                node == _selectedPickup ? 0xe2e5e3 : 0x8c9490,
-                node == _selectedPickup ? 0.94 : 0.20 + wet * 0.66) setStroke];
+                node == _selectedPickup ? 0xffffff
+                    : (pass ? 0xe9ecea : 0xb9bfbc),
+                node == _selectedPickup ? 1.0 : (pass ? 0.94 : 0.76)) setStroke];
             NSFrameRect(marker);
             const float effectiveTime = s3g::ambiEffectPickupDelayMs(
                 p->params.timeMs, p->params.pickupTimeTrim[node],

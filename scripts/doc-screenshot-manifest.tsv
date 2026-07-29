@@ -1,6 +1,6 @@
 # Canonical CLAP ID suffix	Documentation asset stem
-# One representative GUI per detail page; CRCLTR has no custom editor.
-delay-processor-8ch	delay-processor
+# One representative GUI per detail page.
+delay-processor-24ch	delay-processor
 wave-geometry-processor	wave-geometry-processor
 spectral-topology-processor	spectral-topology-processor
 macro-shred-8ch	macro-shred
@@ -8,6 +8,7 @@ mc-to-stereo-autogain	mc-to-stereo-autogain
 mc-to-quad-autogain	mc-to-quad-autogain
 multichannel-meter-64	multichannel-meter
 layout-panner	layout-panner
+vbap-panner	panner-vbap
 
 # Ambisonic encoder detail pages.
 accelerometer-field-encoder-16	accelerometer-field-encoder
@@ -51,10 +52,11 @@ no-input-mixer-8ch	no-input-mixer
 fault	fault
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
+crcltr	crcltr
 
 # Products documented only on family pages.
 macro-delay-8ch	macro-delay
-macro-pitch-8ch	macro-pitch
+macro-pitch-24ch	macro-pitch
 8ch-spectral-spray	spectral-spray
 buffer-processor	buffer-processor
 shard-scatter	shard-scatter

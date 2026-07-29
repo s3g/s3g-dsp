@@ -3,7 +3,7 @@
   <desc id="desc">Diagram showing a multichannel REAPER track feeding MC to Stereo and returning only channels one and two, with unused host outputs needing zeroed in REAPER.</desc>
   <rect width="1020" height="360" fill="#0d0f0f"/>
   <style>
-    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.b{fill:#111313;stroke:#303636;stroke-width:1}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.d{fill:#252b29;stroke:#4b5652;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.3;fill:none}.a{stroke:#c6cdc8;stroke-width:2;fill:none}.x{stroke:#777f7b;stroke-width:1.5;fill:none}
+    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.note{fill:#111313;stroke:#303636;stroke-width:1}.noteText{fill:#9ca5a1;font-size:10px}.b{fill:#111313;stroke:#303636;stroke-width:1}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.d{fill:#252b29;stroke:#4b5652;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.3;fill:none}.a{stroke:#c6cdc8;stroke-width:2;fill:none}.x{stroke:#777f7b;stroke-width:1.5;fill:none}
   </style>
   <g transform="translate(42 42)">
     <rect class="b" x="0" y="0" width="230" height="238"/>
@@ -22,8 +22,9 @@
   <g transform="translate(360 42)">
     <rect class="b" x="0" y="0" width="286" height="238"/>
     <text class="h" x="16" y="28">s3g MC TO STEREO</text>
-    <text class="s" x="16" y="52">folds selected input count to stereo</text>
-    <g transform="translate(34 82)">
+    <text class="s" x="16" y="50">folds the selected inputs</text>
+    <text class="s" x="16" y="66">to stereo</text>
+    <g transform="translate(34 88)">
       <rect class="d" x="0" y="0" width="82" height="30"/><text class="s" x="18" y="20">LAY</text>
       <rect class="d" x="102" y="0" width="82" height="30"/><text class="s" x="120" y="20">WDTH</text>
       <rect class="d" x="0" y="46" width="82" height="30"/><text class="s" x="18" y="66">ROT</text>
@@ -43,10 +44,12 @@
       <g opacity=".62">
         <line class="x" x1="0" y1="72" x2="12" y2="84"/><line class="x" x1="12" y1="72" x2="0" y2="84"/><text class="s" x="24" y="83">out 3+ should be silent</text>
       </g>
-      <text class="s" x="0" y="124">In REAPER, enable</text>
-      <text class="s" x="0" y="142">Zero out unmapped</text>
-      <text class="s" x="0" y="160">output channels when needed.</text>
+      <text class="s" x="0" y="114">In REAPER, enable:</text>
+      <text class="s" x="0" y="131">Zero out unmapped</text>
+      <text class="s" x="0" y="148">output channels</text>
     </g>
   </g>
-  <text class="s" x="42" y="322">The plugin sums to outputs 1-2. REAPER can still preserve old track-channel data unless unmapped output channels are zeroed in the host pin connector.</text>
+  <rect class="note" x="42" y="302" width="936" height="38"/>
+  <text class="noteText" x="56" y="318">The plugin writes outputs 1–2.</text>
+  <text class="noteText" x="56" y="333">Zero unmapped host outputs when older track-channel data must not continue.</text>
 </svg>

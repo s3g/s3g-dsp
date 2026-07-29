@@ -8425,8 +8425,12 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         [_lyricsScroll setHasVerticalScroller:YES];
         [_lyricsScroll setHasHorizontalScroller:NO];
         [_lyricsScroll setBorderType:NSNoBorder];
-        [_lyricsScroll setDrawsBackground:YES];
-        [_lyricsScroll setBackgroundColor:votColor(0x0b0b0b)];
+        // Keep the AppKit text stack transparent over the editor's own dark
+        // panel. NSTextView substitutes a white paper background while PDF
+        // printing even when its screen background is dark; transparency
+        // preserves the same black field in both the live GUI and docs.
+        [_lyricsScroll setDrawsBackground:NO];
+        [[_lyricsScroll contentView] setDrawsBackground:NO];
         _lyricsEditor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 526, 370)];
         _updatingLyricsEditor = YES;
         [_lyricsEditor setDelegate:self];
@@ -8439,9 +8443,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         [[_lyricsEditor textContainer] setWidthTracksTextView:YES];
         [[_lyricsEditor textContainer] setContainerSize:NSMakeSize(526, CGFLOAT_MAX)];
         [_lyricsEditor setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]];
+        [_lyricsEditor setDrawsBackground:NO];
         [_lyricsEditor setTextColor:votColor(0xb0b0b0)];
         [_lyricsEditor setInsertionPointColor:votColor(0xd0d0d0)];
-        [_lyricsEditor setBackgroundColor:votColor(0x0b0b0b)];
         const std::string lyrics = plugin ? loadVoxLyrics(*plugin) : std::string();
         [_lyricsEditor setString:[NSString stringWithUTF8String:lyrics.c_str()]];
         _updatingLyricsEditor = NO;

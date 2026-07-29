@@ -969,8 +969,6 @@ NSRect secondaryAxisRect()
             const float level = p->nodeLevel[node].load(std::memory_order_relaxed);
             const float db = 20.0f * std::log10(std::max(.000001f, level));
             const float meter = std::clamp((db + 60.0f) / 60.0f, 0.0f, 1.0f);
-            const float wet = p->params.maskAmount < .005f ? 1.0f
-                : p->nodeWetMask[node].load(std::memory_order_relaxed);
             const CGFloat halo = 7.0 + std::sqrt(meter) * 15.0;
             [s3g::clap_gui::color(pass ? 0xd8dcda : 0x858c89,
                 .025 + meter * .22) setFill];
@@ -980,11 +978,14 @@ NSRect secondaryAxisRect()
             constexpr CGFloat size = 12.0;
             const NSRect marker = NSMakeRect(projected.points[node].x - size * .5,
                 projected.points[node].y - size * .5, size, size);
-            [s3g::clap_gui::color(0x151817, .95) setFill]; NSRectFill(marker);
-            [s3g::clap_gui::color(pass ? 0xd8dcda : 0x858c89,
-                .08 + meter * .34) setFill]; NSRectFill(NSInsetRect(marker, 2, 2));
-            [s3g::clap_gui::color(node == _selectedPickup ? 0xe2e5e3 : 0x8c9490,
-                node == _selectedPickup ? .96 : .18 + wet * .66) setStroke];
+            [s3g::clap_gui::color(pass ? 0xe9ecea : 0xb9bfbc,
+                node == _selectedPickup ? 1.0 : (pass ? .94 : .76)) setFill];
+            NSRectFill(marker);
+            [s3g::clap_gui::color(pass ? 0x4a504d : 0x3d4240, .94) setFill];
+            NSRectFill(NSInsetRect(marker, 2, 2));
+            [s3g::clap_gui::color(node == _selectedPickup ? 0xffffff
+                    : (pass ? 0xe9ecea : 0xb9bfbc),
+                node == _selectedPickup ? 1.0 : (pass ? .94 : .76)) setStroke];
             NSFrameRect(marker);
             const float relation = kPitch
                 ? s3g::ambiEffectPickupPitchSemitones(p->params.primary,

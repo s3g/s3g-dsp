@@ -25,10 +25,10 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-cryosphere-encoder.png" aria-label="Open Ambi Encoder Cryosphere GUI screenshot">
-              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere GUI showing frozen-process engines, entity score, spatial field, presets, and output controls" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere Avalanche Release preset showing a large active 64-entity frozen field" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Encoder Cryosphere with frozen-process engines, entity score, spatial field, presets, and output controls.</figcaption>
+          <figcaption>Ambi Encoder Cryosphere using the large, highly occupied <code>Avalanche Release</code> scene.</figcaption>
         </figure>
 
         <h2 id="design">Cryogeology Model</h2>
@@ -37,7 +37,7 @@
         <p><code>SINGING LAKE</code> uses a bounded modal technique with a distinct lake-ice identity. A completed fracture, surface snap, or rupture opens a short smooth force window onto that event’s own stochastic crack flux. Each spatial entity owns one stationary inharmonic pair on a seeded flexural branch, so the field blooms as a scattered lake body rather than sweeping a carrier downward. <code>SLAB SCALE</code> and <code>DEPTH</code> place the branches, <code>BRIGHTNESS</code> and <code>ICE SNAP</code> favor their upper response, <code>BODY SCATTER</code> sets modal presence, and <code>DAMPING</code> shortens the tail. There is no pitch glide, phase-reset strike, autonomous resonator bed, or sub-180 Hz plate oscillator in this regime.</p>
         <p><code>APERIODIC LATTICE</code> gives Quasicrystal Plate Bloom its own speculative planetary-material process. Mobile domain boundaries creep through a non-repeating frozen lattice, branching fracture fronts unlock mismatched regions, and defect avalanches redistribute stress as broadband crackle and shearing texture. Completed front and avalanche releases briefly drive a distributed two-mode mineral body in each spatial entity. This is not the Singing Lake profile or the low ringing plate body: the pair is scattered above the tom range, forced by the lattice’s own stochastic flux, and allowed to exist only for the finite event tail.</p>
         <p>The other speculative regimes use separate processes. <code>TIDAL SHELL</code> stores viscoelastic stress between a moon’s ocean and frozen crust, then releases distance-delayed rupture fronts and decompression texture. <code>HYDROCARBON DUNE</code> couples cohesive frost shear, avalanche packets, triboelectric microfracture, and dense-atmosphere high-frequency loss. <code>REACTIVE BRINE</code> cycles pore pressure through fingering, freeze-sealing, irregular blow-through, and resealing. Each completed physical release can illuminate a short, irregular modal pair whose identity is distributed across the active entities; score onsets never strike it directly. The stochastic process is the force source, and these regimes do not reuse the calving, snow-grain, meltwater, Singing Lake, or low plate-body paths.</p>
-        <p>The fracture, ice-segregation, basal-slip, and iceberg-impact paths are informed by field and laboratory geophysics. In particular, the delayed calving impact/cavitation stage is separate from detachment, while basal slip is treated as load-and-release rather than a continuous tone. This remains a realtime procedural interpretation rather than a predictive glacier model. See <a href="references.html#voice-physical-modeling">References</a>.</p>
+        <p>The fracture, ice-segregation, basal-slip, and iceberg-impact paths are informed by field and laboratory geophysics. In particular, the delayed calving impact/cavitation stage is separate from detachment, while basal slip is treated as load-and-release rather than a continuous tone. This remains a realtime procedural interpretation rather than a predictive glacier model. See <a href="references.html#modal-physical-modeling">References</a>.</p>
 
         <h2 id="score">Aleatoric entity score</h2>
         <p>Each field voice represents a finite plate, loaded substrate region, brine pocket, or detachable ice mass rather than a permanently sounding ambience lane. A deterministic aleatoric score moves these entities through stillness, load or thermal-strain accumulation, an initiating crack, spatial propagation, rupture or displacement, and a settling aftermath. Plates retain integrity and crack extent; brine pressure grows and drains; crack arrivals travel to nearby plates after distance-dependent delays. In calving processes the detached mass becomes a delayed impact, while Ice Under Foot uses the same propagation system as a moving load across successive plates.</p>
@@ -48,7 +48,9 @@
         <p>The <code>SURF</code> page stores complete presets as editable cells. Automatable <code>Surface X</code>/<code>Surface Y</code> coordinates blend continuous event, body, motion, environment, and score parameters; discrete regimes and materials select the nearest cell. <code>VOICES</code> stays an integer readout while surplus frozen-water parcels fade continuously in both synthesis and the field drawing. Curve, focus, and up-to-two-second glide settings are saved with project state; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
 
         <h2 id="routing">Routing</h2>
-        <p>The 64-channel output exposes first- through seventh-order Ambisonics. Set <code>ORDER</code>, then follow the encoder with the appropriate decoder or field processor.</p>
+        <p>The 64-channel output exposes first- through seventh-order Ambisonics. Set <code>ORDER</code> to choose the active channel count.</p>
+
+        <p>Follow it with an <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>, <a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>, <a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>, or <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-pyrosphere-encoder.html">

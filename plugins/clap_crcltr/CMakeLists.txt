@@ -5,6 +5,11 @@ add_library(s3g_crcltr_clap MODULE
 target_link_libraries(s3g_crcltr_clap PRIVATE s3g_dsp)
 target_include_directories(s3g_crcltr_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
 
+if(APPLE)
+  set_source_files_properties(s3g_crcltr_clap.cpp PROPERTIES LANGUAGE OBJCXX)
+  target_link_libraries(s3g_crcltr_clap PRIVATE "-framework Cocoa")
+endif()
+
 set_target_properties(s3g_crcltr_clap PROPERTIES
   PREFIX ""
   OUTPUT_NAME "s3g_crcltr"

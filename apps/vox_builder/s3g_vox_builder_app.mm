@@ -389,8 +389,10 @@ static bool writeViewPDFSnapshot(NSView* view, NSString* path)
     [_phonemeScroll setHasVerticalScroller:YES];
     [_phonemeScroll setHasHorizontalScroller:NO];
     [_phonemeScroll setBorderType:NSNoBorder];
-    [_phonemeScroll setDrawsBackground:YES];
-    [_phonemeScroll setBackgroundColor:color(0x101010)];
+    // Keep the text stack transparent so PDF documentation capture preserves
+    // the dark surface painted by the parent view instead of inserting an
+    // AppKit paper-white background.
+    [_phonemeScroll setDrawsBackground:NO];
     _phonemeEditor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 728, 232)];
     [_phonemeEditor setDelegate:self];
     [_phonemeEditor setRichText:NO];
@@ -404,13 +406,14 @@ static bool writeViewPDFSnapshot(NSView* view, NSString* path)
     [_phonemeEditor setFont:s3g::clap_gui::uiFont(11.0)];
     [_phonemeEditor setTextColor:color(0xb0b0b0)];
     [_phonemeEditor setInsertionPointColor:color(0xd0d0d0)];
-    [_phonemeEditor setBackgroundColor:color(0x101010)];
+    [_phonemeEditor setDrawsBackground:NO];
     [_phonemeEditor setSelectedTextAttributes:@{
         NSBackgroundColorAttributeName:color(0x4a4a4a),
         NSForegroundColorAttributeName:color(0xf0f0f0)
     }];
     [_phonemeEditor setString:[NSString stringWithUTF8String:kDefaultAliases]];
     [_phonemeScroll setDocumentView:_phonemeEditor];
+    [[_phonemeScroll contentView] setDrawsBackground:NO];
     [self addSubview:_phonemeScroll];
 
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.05
