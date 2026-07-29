@@ -1,5 +1,6 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
@@ -21,6 +22,8 @@ constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kParamCount = 400u;
 constexpr clap_id kOutputParam = 1u;
+constexpr clap_id kFeedbackParam = 5u;
+constexpr clap_id kQualityParam = 10u;
 constexpr clap_id kFirstMatrixParam = 100u;
 constexpr clap_id kMotionShapeParam = 20u;
 constexpr clap_id kAuxATypeParam = 23u;
@@ -36,6 +39,8 @@ constexpr clap_id kReactDepthParam = 45u;
 constexpr clap_id kClockSyncParam = 52u;
 constexpr clap_id kFieldDivisionParam = 53u;
 constexpr clap_id kSurfaceXParam = 55u;
+constexpr clap_id kLaneOneMuteParam = 1003u;
+constexpr clap_id kLaneOneMidFrequencyParam = 1005u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
 constexpr clap_id kLaneOneTuneParam = 1010u;
 constexpr clap_id kLaneOnePitchLockParam = 1012u;
@@ -209,6 +214,76 @@ struct EventList {
     }
 };
 
+struct MidiEventList {
+    std::vector<clap_event_midi_t> storage;
+    clap_input_events_t input {
+        this,
+        [](const clap_input_events_t* list) -> uint32_t {
+            const auto* self = static_cast<const MidiEventList*>(list->ctx);
+            return self ? static_cast<uint32_t>(self->storage.size()) : 0u;
+        },
+        [](const clap_input_events_t* list, uint32_t index)
+            -> const clap_event_header_t* {
+            const auto* self = static_cast<const MidiEventList*>(list->ctx);
+            return self && index < self->storage.size()
+                ? &self->storage[index].header : nullptr;
+        },
+    };
+
+    void add(uint8_t status, uint8_t dataOne, uint8_t dataTwo,
+        uint32_t time = 0u)
+    {
+        clap_event_midi_t event {};
+        event.header.size = sizeof(event);
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.header.time = time;
+        event.port_index = 0u;
+        event.data[0] = status;
+        event.data[1] = dataOne;
+        event.data[2] = dataTwo;
+        storage.push_back(event);
+    }
+
+    void addNrpn(clap_id id, uint16_t value, uint8_t channel = 15u)
+    {
+        const uint8_t status = static_cast<uint8_t>(0xb0u | channel);
+        add(status, 99u, static_cast<uint8_t>((id >> 7u) & 0x7fu));
+        add(status, 98u, static_cast<uint8_t>(id & 0x7fu));
+        add(status, 6u, static_cast<uint8_t>((value >> 7u) & 0x7fu));
+        add(status, 38u, static_cast<uint8_t>(value & 0x7fu));
+    }
+};
+
+struct OutputEventList {
+    std::vector<clap_event_param_value_t> params;
+    clap_output_events_t output {
+        this,
+        [](const clap_output_events_t* list,
+            const clap_event_header_t* event) -> bool {
+            auto* self = static_cast<OutputEventList*>(list->ctx);
+            if (!self || !event) return false;
+            if (event->space_id == CLAP_CORE_EVENT_SPACE_ID
+                && event->type == CLAP_EVENT_PARAM_VALUE
+                && event->size >= sizeof(clap_event_param_value_t)) {
+                self->params.push_back(
+                    *reinterpret_cast<const clap_event_param_value_t*>(event));
+            }
+            return true;
+        },
+    };
+
+    void clear() { params.clear(); }
+
+    const clap_event_param_value_t* last(clap_id id) const
+    {
+        for (auto it = params.rbegin(); it != params.rend(); ++it) {
+            if (it->param_id == id) return &*it;
+        }
+        return nullptr;
+    }
+};
+
 struct MemoryState {
     std::vector<uint8_t> bytes;
     size_t offset = 0u;
@@ -302,16 +377,24 @@ int main(int argc, char** argv)
     ok = ok && plugin && plugin->init(plugin);
     const auto* ports = ok ? static_cast<const clap_plugin_audio_ports_t*>(
         plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS)) : nullptr;
+    const auto* notePorts = ok ? static_cast<const clap_plugin_note_ports_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS)) : nullptr;
     const auto* params = ok ? static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS)) : nullptr;
     const auto* state = ok ? static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
     clap_audio_port_info_t outputPort {};
-    ok = ok && ports && params && state
+    clap_note_port_info_t midiInputPort {};
+    ok = ok && ports && notePorts && params && state
         && ports->count(plugin, true) == 0u
         && ports->count(plugin, false) == 1u
         && ports->get(plugin, 0u, false, &outputPort)
         && outputPort.channel_count == kChannels
+        && notePorts->count(plugin, true) == 1u
+        && notePorts->count(plugin, false) == 0u
+        && notePorts->get(plugin, 0u, true, &midiInputPort)
+        && (midiInputPort.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
+        && midiInputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
         && params->count(plugin) == kParamCount
         && plugin->activate(plugin, 48000.0, kFrames, kFrames)
         && plugin->start_processing(plugin);
@@ -540,6 +623,101 @@ int main(int argc, char** argv)
     process.frames_count = kFrames;
     process.audio_outputs = &audio.buffer;
     process.audio_outputs_count = 1u;
+
+    OutputEventList midiOutput;
+    MidiEventList feedbackNrpn;
+    constexpr uint16_t kHalf14Bit = 8192u;
+    feedbackNrpn.addNrpn(kFeedbackParam, kHalf14Bit);
+    process.in_events = &feedbackNrpn.input;
+    process.out_events = &midiOutput.output;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const double expectedFeedback = 1.25
+        * static_cast<double>(kHalf14Bit) / 16383.0;
+    double midiValue = 0.0;
+    const auto* feedbackOutput = midiOutput.last(kFeedbackParam);
+    ok = ok && params->get_value(plugin, kFeedbackParam, &midiValue)
+        && std::abs(midiValue - expectedFeedback) < 1.0e-6
+        && feedbackOutput
+        && std::abs(feedbackOutput->value - expectedFeedback) < 1.0e-6
+        && (feedbackOutput->header.flags & CLAP_EVENT_IS_LIVE) != 0u
+        && (feedbackOutput->header.flags & CLAP_EVENT_DONT_RECORD) != 0u;
+    if (!ok) std::cerr << "failed: MIDI NRPN parameter mapping\n";
+
+    midiOutput.clear();
+    MidiEventList wrongChannelNrpn;
+    wrongChannelNrpn.addNrpn(kFeedbackParam, 16383u, 14u);
+    process.in_events = &wrongChannelNrpn.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, kFeedbackParam, &midiValue)
+        && std::abs(midiValue - expectedFeedback) < 1.0e-6
+        && midiOutput.params.empty();
+    if (!ok) std::cerr << "failed: MIDI control channel isolation\n";
+
+    midiOutput.clear();
+    MidiEventList scaledNrpn;
+    scaledNrpn.addNrpn(kQualityParam, 16383u);
+    scaledNrpn.addNrpn(kLaneOneMidFrequencyParam, kHalf14Bit);
+    process.in_events = &scaledNrpn.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const double expectedMidFrequency = 80.0 * std::pow(
+        8000.0 / 80.0,
+        static_cast<double>(kHalf14Bit) / 16383.0);
+    ok = ok && params->get_value(plugin, kQualityParam, &midiValue)
+        && midiValue == 2.0
+        && params->get_value(plugin, kLaneOneMidFrequencyParam, &midiValue)
+        && std::abs(midiValue - expectedMidFrequency) < 1.0e-3;
+    if (!ok) std::cerr << "failed: MIDI stepped/logarithmic scaling\n";
+
+    double muteBefore = 0.0;
+    ok = ok && params->get_value(plugin, kLaneOneMuteParam, &muteBefore);
+    midiOutput.clear();
+    MidiEventList muteCommand;
+    muteCommand.add(0x9fu, 32u, 127u);
+    process.in_events = &muteCommand.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* muteOutput = midiOutput.last(kLaneOneMuteParam);
+    ok = ok && params->get_value(plugin, kLaneOneMuteParam, &midiValue)
+        && midiValue == (muteBefore >= 0.5 ? 0.0 : 1.0)
+        && muteOutput && muteOutput->value == midiValue;
+    if (!ok) std::cerr << "failed: MIDI push command mapping\n";
+
+    double pitchLockBefore = 0.0;
+    ok = ok && params->get_value(
+        plugin, kLaneOnePitchLockParam, &pitchLockBefore);
+    midiOutput.clear();
+    MidiEventList pitchLockCommand;
+    pitchLockCommand.add(0x9fu, 80u, 127u);
+    process.in_events = &pitchLockCommand.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* pitchLockOutput = midiOutput.last(kLaneOnePitchLockParam);
+    ok = ok && params->get_value(
+        plugin, kLaneOnePitchLockParam, &midiValue)
+        && midiValue == (pitchLockBefore >= 0.5 ? 0.0 : 1.0)
+        && pitchLockOutput && pitchLockOutput->value == midiValue;
+    if (!ok) std::cerr << "failed: MIDI pitch-lock command mapping\n";
+
+    midiOutput.clear();
+    MidiEventList randomEnergyCommands;
+    randomEnergyCommands.add(0x9fu, 125u, 127u);
+    randomEnergyCommands.add(0x9fu, 122u, 127u);
+    randomEnergyCommands.add(0x9fu, 126u, 127u);
+    process.in_events = &randomEnergyCommands.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.params.size() == 3u * kParamCount;
+    if (!ok) std::cerr << "failed: MIDI random-energy command mapping\n";
+
+    saved.offset = 0u;
+    clap_istream_t postMidiRestore { &saved, stateRead };
+    ok = ok && state->load(plugin, &postMidiRestore);
+    process.in_events = nullptr;
+    process.out_events = nullptr;
+
     for (uint32_t block = 0u; ok && block < 220u; ++block) {
         audio.clear();
         ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;

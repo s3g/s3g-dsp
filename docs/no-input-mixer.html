@@ -143,7 +143,7 @@
 
         <p>The <code>MIXER</code> page keeps all eight channel strips, both aux returns, and <code>INTERNAL</code>/<code>HOUSE</code> tone visible together. <code>BODY</code>, <code>LOSS</code>, signed local loop gain, low/mid/high EQ, Aux A/B sends, and the output fader all use smooth click-and-drag tracks. Click a processor name in any lane slot or aux return to open its effect menu. The adjacent <code>EDIT</code> action opens the floating Effect Editor for the selected processor. Use the explicit menu to change processor type; <code>MUTE</code> acts immediately.</p>
 
-        <p><code>POP</code> opens the current page in a synchronized, host-attached window. The detached page keeps the same controls, values, and gestures as its docked view. <code>PATCH</code>, <code>MIXER</code>, <code>CHANNEL</code>, <code>SAFETY</code>, <code>AUX</code>, and <code>SURF</code> can be detached independently; click <code>DOCK</code> to return a page to the main editor.</p>
+        <p><code>POP</code> opens the current page in a synchronized independent utility window. The detached page keeps the same controls, values, and gestures as its docked view, but it is not an AppKit child of the host window: it can remain on another display or macOS Space without disappearing when the main plugin window changes focus. <code>PATCH</code>, <code>MIXER</code>, <code>CHANNEL</code>, <code>SAFETY</code>, <code>AUX</code>, and <code>SURF</code> can be detached independently; click <code>DOCK</code> to return a page to the main editor. All detached windows remain owned by the plugin and are hidden or destroyed when the host hides or destroys the CLAP GUI.</p>
 
         <figure>
           <div class="doc-graphic">

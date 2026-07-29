@@ -321,18 +321,22 @@ permanent side control column:
   shared s3g Voronoi Parameter Surface.
 
 `PANIC` lives with the `SAFETY` page. `POP` detaches the current page and
-`DOCK` closes that attached window. Every detached page uses the same renderer
+`DOCK` closes that utility window. Every detached page uses the same renderer
 and native 1356-by-820 coordinate system as its nested form; there is no second
-set of mixer controls and no DSP state lives in a window. The `MIXER` renderer
-and hit geometry are shared exactly between both forms. Body, loss, signed
-local loop, three EQ gains, two aux sends, aux parameters, master tone, and
+set of mixer controls and no DSP state lives in a window. The utility panels
+are independently positioned top-level windows rather than AppKit children of
+the host window, so macOS can retain them on another display or Space. The
+owning CLAP GUI still hides and destroys them explicitly with its own
+lifecycle. The `MIXER` renderer and hit geometry are shared exactly between
+both forms. Body, loss, signed local loop, three EQ gains, two aux sends, aux
+parameters, master tone, and
 fader use continuous click-and-drag control. Clicking any of the twenty-four
 lane processor names selects that slot and opens an explicit twenty-three-item type
 menu; each aux processor name opens the same menu for its bus. Processor names
 never hide click-to-cycle behavior. Mute buttons remain discrete. Closing or
-hiding the host editor hides its attached pages.
+hiding the host editor hides its detached pages.
 When a plugin view is first responder, unmodified Left/Right moves to the
-adjacent logical page; if that page is detached, its attached window comes to
+adjacent logical page; if that page is detached, its utility window comes to
 the front. The shortcut is handled only while the plugin GUI owns focus.
 
 ## SURF state interpolation

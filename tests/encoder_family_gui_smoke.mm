@@ -2692,6 +2692,9 @@ int main(int argc, char** argv)
                         ? [document valueForKey:@"effectPanel"] : nil;
                     effectEditor = effectPanel
                         ? [effectPanel contentView] : nil;
+                    ok = ok && effectPanel
+                        && [effectPanel parentWindow] == nil
+                        && ![effectPanel hidesOnDeactivate];
                     if (ok && effectEditor) {
                         auto effectEvent = [&](NSEventType type,
                                                NSPoint point) {
@@ -2845,6 +2848,16 @@ int main(int argc, char** argv)
                         && [auxPanel isVisible]
                         && [surfacePanel isVisible]
                         && [patchPanel isVisible]
+                        && [channelPanel parentWindow] == nil
+                        && [safetyPanel parentWindow] == nil
+                        && [auxPanel parentWindow] == nil
+                        && [surfacePanel parentWindow] == nil
+                        && [patchPanel parentWindow] == nil
+                        && ![channelPanel hidesOnDeactivate]
+                        && ![safetyPanel hidesOnDeactivate]
+                        && ![auxPanel hidesOnDeactivate]
+                        && ![surfacePanel hidesOnDeactivate]
+                        && ![patchPanel hidesOnDeactivate]
                         && NSWidth([[channelPanel contentView] bounds])
                             == nativeWidth
                         && NSHeight([[channelPanel contentView] bounds])

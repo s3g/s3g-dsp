@@ -3,6 +3,7 @@
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
@@ -31,6 +32,22 @@ constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 820u;
 constexpr uint32_t kPageCount = 6u;
 constexpr double kPerformanceMixerReferenceHeight = 760.0;
+constexpr uint8_t kMidiControlChannel = 15u;
+
+constexpr uint8_t kMidiLaneMuteNoteBase = 32u;
+constexpr uint8_t kMidiLaneKillNoteBase = 40u;
+constexpr uint8_t kMidiInsertOneBypassNoteBase = 48u;
+constexpr uint8_t kMidiInsertTwoBypassNoteBase = 56u;
+constexpr uint8_t kMidiInsertThreeBypassNoteBase = 64u;
+constexpr uint8_t kMidiAuxMuteNoteBase = 72u;
+constexpr uint8_t kMidiPitchLockNoteBase = 80u;
+constexpr uint8_t kMidiNewNote = 120u;
+constexpr uint8_t kMidiForgetNote = 121u;
+constexpr uint8_t kMidiRandomMidNote = 122u;
+constexpr uint8_t kMidiPanicNote = 123u;
+constexpr uint8_t kMidiClearMatrixNote = 124u;
+constexpr uint8_t kMidiRandomLowNote = 125u;
+constexpr uint8_t kMidiRandomHighNote = 126u;
 
 constexpr clap_id kOutputParamId = 1u;
 constexpr clap_id kCeilingParamId = 2u;
@@ -663,6 +680,15 @@ struct Plugin {
     std::atomic<uint32_t> selectedSource { 2u };
     std::atomic<uint32_t> selectedDestination { 2u };
     std::atomic<uint32_t> guiPage { 0u };
+    struct NrpnState {
+        uint8_t parameterMsb = 127u;
+        uint8_t parameterLsb = 127u;
+        uint8_t dataMsb = 0u;
+        uint8_t dataLsb = 0u;
+        bool hasParameterMsb = false;
+        bool hasParameterLsb = false;
+        bool hasDataMsb = false;
+    } nrpn {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
@@ -1422,6 +1448,278 @@ void resetMeters(Plugin& plugin)
         std::memory_order_relaxed);
 }
 
+void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
+    float seedAmount)
+{
+    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
+    plugin.params = s3g::sanitizeNoInputMixerParams(params);
+    snapSurfaceCursor(plugin);
+    syncMixerState(plugin);
+    plugin.mixer.reseed(plugin.params.seed, seedAmount);
+    resetMeters(plugin);
+}
+
+void resetNrpnState(Plugin& plugin)
+{
+    plugin.nrpn = {};
+}
+
+bool emitMidiParamValue(const clap_output_events_t* events,
+    uint32_t time, clap_id id, double value)
+{
+    if (!events || !events->try_push) return false;
+    clap_event_param_value_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = time;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = CLAP_EVENT_PARAM_VALUE;
+    event.header.flags = CLAP_EVENT_IS_LIVE | CLAP_EVENT_DONT_RECORD;
+    event.param_id = id;
+    event.note_id = -1;
+    event.port_index = -1;
+    event.channel = -1;
+    event.key = -1;
+    event.value = value;
+    return events->try_push(events, &event.header);
+}
+
+void emitAllMidiParamValues(const Plugin& plugin,
+    const clap_output_events_t* events, uint32_t time)
+{
+    for (uint32_t index = 0u; index < kTotalParamCount; ++index) {
+        const clap_id id = paramIdAtIndex(index);
+        double value = 0.0;
+        if (id != CLAP_INVALID_ID && paramValue(plugin, id, value)) {
+            emitMidiParamValue(events, time, id, value);
+        }
+    }
+}
+
+double midiParamValueFrom14Bit(clap_id id, uint16_t rawValue,
+    const ParamRange& range)
+{
+    const double normalized = static_cast<double>(rawValue)
+        / 16383.0;
+    double value = range.minimum
+        + normalized * (range.maximum - range.minimum);
+    uint32_t lane = 0u;
+    clap_id offset = 0u;
+    if (decodeLaneParam(id, lane, offset)
+        && offset == kLaneMidFrequencyOffset
+        && range.minimum > 0.0 && range.maximum > range.minimum) {
+        value = range.minimum * std::pow(
+            range.maximum / range.minimum, normalized);
+    }
+    if (range.stepped) value = std::round(value);
+    return std::clamp(value, range.minimum, range.maximum);
+}
+
+bool applyMidiParam14Bit(Plugin& plugin, clap_id id, uint16_t rawValue,
+    uint32_t time, const clap_output_events_t* events)
+{
+    ParamRange range;
+    if (!paramRange(id, range)) return false;
+    applyParam(plugin, id, midiParamValueFrom14Bit(id, rawValue, range));
+    double applied = 0.0;
+    if (!paramValue(plugin, id, applied)) return false;
+    emitMidiParamValue(events, time, id, applied);
+    return true;
+}
+
+void applyMidiToggle(Plugin& plugin, clap_id id, uint32_t time,
+    const clap_output_events_t* events)
+{
+    double value = 0.0;
+    if (!paramValue(plugin, id, value)) return;
+    applyParam(plugin, id, value >= 0.5 ? 0.0 : 1.0);
+    if (paramValue(plugin, id, value)) {
+        emitMidiParamValue(events, time, id, value);
+    }
+}
+
+uint32_t nextPatchSeed(const Plugin& plugin)
+{
+    uint32_t seed = plugin.params.seed * 1664525u + 1013904223u;
+    return seed == 0u ? 1u : seed;
+}
+
+void applyMidiFactoryPreset(Plugin& plugin, uint32_t preset,
+    uint32_t time, const clap_output_events_t* events)
+{
+    if (preset >= s3g::kNoInputMixerFactoryPresetCount) return;
+    const uint32_t seed = nextPatchSeed(plugin);
+    const float variance = plugin.params.variance;
+    auto patch = s3g::noInputMixerFactoryPreset(preset);
+    patch = s3g::variedNoInputMixerParams(patch, seed, variance);
+    plugin.behavior = s3g::noInputMixerFactoryBehavior(preset);
+    applyCompletePatch(plugin, patch, 0.68f);
+    emitAllMidiParamValues(plugin, events, time);
+}
+
+void applyMidiRandom(Plugin& plugin, s3g::NoInputRandomEnergy energy,
+    uint32_t time, const clap_output_events_t* events)
+{
+    const uint32_t seed = nextPatchSeed(plugin);
+    plugin.behavior = s3g::randomizedNoInputMovementBehaviorParams(
+        seed ^ 0x43564d58u, energy);
+    applyCompletePatch(plugin,
+        s3g::randomizedNoInputMixerParams(seed, energy),
+        s3g::noInputRandomSeedAmount(energy));
+    emitAllMidiParamValues(plugin, events, time);
+}
+
+void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
+    const clap_output_events_t* events)
+{
+    if (note >= kMidiLaneMuteNoteBase
+        && note < kMidiLaneMuteNoteBase + kChannelCount) {
+        applyMidiToggle(plugin, laneParamId(
+            note - kMidiLaneMuteNoteBase, kLaneMuteOffset), time, events);
+        return;
+    }
+    if (note >= kMidiLaneKillNoteBase
+        && note < kMidiLaneKillNoteBase + kChannelCount) {
+        plugin.mixer.killLane(note - kMidiLaneKillNoteBase);
+        return;
+    }
+    const uint8_t insertBases[s3g::kNoInputMixerInsertSlots] = {
+        kMidiInsertOneBypassNoteBase,
+        kMidiInsertTwoBypassNoteBase,
+        kMidiInsertThreeBypassNoteBase,
+    };
+    for (uint32_t slot = 0u; slot < s3g::kNoInputMixerInsertSlots;
+         ++slot) {
+        const uint8_t base = insertBases[slot];
+        if (note >= base && note < base + kChannelCount) {
+            applyMidiToggle(plugin, insertParamId(
+                note - base, slot, kInsertBypassOffset), time, events);
+            return;
+        }
+    }
+    if (note >= kMidiAuxMuteNoteBase
+        && note < kMidiAuxMuteNoteBase + 2u) {
+        applyMidiToggle(plugin, note == kMidiAuxMuteNoteBase
+            ? kAuxAMuteParamId : kAuxBMuteParamId, time, events);
+        return;
+    }
+    if (note >= kMidiPitchLockNoteBase
+        && note < kMidiPitchLockNoteBase + kChannelCount) {
+        applyMidiToggle(plugin, laneParamId(
+            note - kMidiPitchLockNoteBase, kLanePitchLockOffset),
+            time, events);
+        return;
+    }
+
+    switch (note) {
+    case kMidiNewNote:
+        plugin.params.seed = nextPatchSeed(plugin);
+        syncMixerState(plugin);
+        plugin.mixer.reseed(plugin.params.seed, 0.70f);
+        return;
+    case kMidiForgetNote: {
+        const uint32_t seed = nextPatchSeed(plugin);
+        applyCompletePatch(plugin,
+            s3g::forgottenNoInputMixerParams(plugin.params, seed), 0.62f);
+        emitAllMidiParamValues(plugin, events, time);
+        return;
+    }
+    case kMidiRandomLowNote:
+        applyMidiRandom(plugin, s3g::NoInputRandomEnergy::Low,
+            time, events);
+        return;
+    case kMidiRandomMidNote:
+        applyMidiRandom(plugin, s3g::NoInputRandomEnergy::Mid,
+            time, events);
+        return;
+    case kMidiRandomHighNote:
+        applyMidiRandom(plugin, s3g::NoInputRandomEnergy::High,
+            time, events);
+        return;
+    case kMidiPanicNote:
+        plugin.mixer.panic();
+        return;
+    case kMidiClearMatrixNote:
+        plugin.params.matrix.fill(0.0f);
+        syncMixerState(plugin);
+        for (uint32_t index = 0u;
+             index < s3g::kNoInputMixerMatrixCells; ++index) {
+            emitMidiParamValue(events, time,
+                kMatrixParamBase + index, 0.0);
+        }
+        return;
+    default:
+        return;
+    }
+}
+
+bool applyCurrentNrpn(Plugin& plugin, uint32_t time,
+    const clap_output_events_t* events)
+{
+    const auto& nrpn = plugin.nrpn;
+    if (!nrpn.hasParameterMsb || !nrpn.hasParameterLsb
+        || !nrpn.hasDataMsb
+        || (nrpn.parameterMsb == 127u && nrpn.parameterLsb == 127u)) {
+        return false;
+    }
+    const clap_id id = static_cast<clap_id>(
+        (static_cast<uint16_t>(nrpn.parameterMsb) << 7u)
+        | nrpn.parameterLsb);
+    const uint16_t value = static_cast<uint16_t>(
+        (static_cast<uint16_t>(nrpn.dataMsb) << 7u) | nrpn.dataLsb);
+    return applyMidiParam14Bit(plugin, id, value, time, events);
+}
+
+void handleMidiCc(Plugin& plugin, uint8_t controller, uint8_t value,
+    uint32_t time, const clap_output_events_t* events)
+{
+    auto& nrpn = plugin.nrpn;
+    switch (controller) {
+    case 99u:
+        nrpn.parameterMsb = value;
+        nrpn.hasParameterMsb = true;
+        break;
+    case 98u:
+        nrpn.parameterLsb = value;
+        nrpn.hasParameterLsb = true;
+        break;
+    case 6u:
+        nrpn.dataMsb = value;
+        nrpn.dataLsb = 0u;
+        nrpn.hasDataMsb = true;
+        applyCurrentNrpn(plugin, time, events);
+        break;
+    case 38u:
+        nrpn.dataLsb = value;
+        applyCurrentNrpn(plugin, time, events);
+        break;
+    case 100u:
+    case 101u:
+        nrpn.hasParameterMsb = false;
+        nrpn.hasParameterLsb = false;
+        break;
+    default:
+        break;
+    }
+}
+
+void handleMidiEvent(Plugin& plugin, const clap_event_midi_t& midi,
+    const clap_output_events_t* events)
+{
+    const uint8_t status = midi.data[0] & 0xf0u;
+    const uint8_t channel = midi.data[0] & 0x0fu;
+    if (channel != kMidiControlChannel) return;
+    if (status == 0xb0u) {
+        handleMidiCc(plugin, midi.data[1] & 0x7fu,
+            midi.data[2] & 0x7fu, midi.header.time, events);
+    } else if (status == 0x90u && (midi.data[2] & 0x7fu) != 0u) {
+        applyMidiCommand(plugin, midi.data[1] & 0x7fu,
+            midi.header.time, events);
+    } else if (status == 0xc0u) {
+        applyMidiFactoryPreset(plugin, midi.data[1] & 0x7fu,
+            midi.header.time, events);
+    }
+}
+
 bool activate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t maxFrames)
 {
@@ -1441,6 +1739,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     p->seedRequested.store(false, std::memory_order_relaxed);
     p->panicRequested.store(false, std::memory_order_relaxed);
     p->killMask.store(0u, std::memory_order_relaxed);
+    resetNrpnState(*p);
     return true;
 }
 
@@ -1458,6 +1757,7 @@ void reset(const clap_plugin_t* plugin)
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
+    resetNrpnState(*p);
 }
 
 bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
@@ -1486,13 +1786,35 @@ bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
     return false;
 }
 
-void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
+void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
+    const clap_output_events_t* outputEvents)
+{
+    if (applyParamEvent(plugin, event) || !event
+        || event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
+    if (event->type == CLAP_EVENT_MIDI) {
+        handleMidiEvent(plugin,
+            *reinterpret_cast<const clap_event_midi_t*>(event),
+            outputEvents);
+        return;
+    }
+    if (event->type == CLAP_EVENT_NOTE_ON) {
+        const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (note->channel == kMidiControlChannel && note->velocity > 0.0) {
+            applyMidiCommand(plugin, static_cast<uint8_t>(
+                std::clamp<int32_t>(note->key, 0, 127)),
+                event->time, outputEvents);
+        }
+    }
+}
+
+void readInputEvents(Plugin& plugin, const clap_input_events_t* events,
+    const clap_output_events_t* outputEvents)
 {
     if (!events) return;
     const uint32_t count = events->size(events);
     for (uint32_t index = 0u; index < count; ++index) {
         const clap_event_header_t* event = events->get(events, index);
-        applyParamEvent(plugin, event);
+        applyInputEvent(plugin, event, outputEvents);
     }
 }
 
@@ -1541,18 +1863,18 @@ clap_process_status process(const clap_plugin_t* plugin,
                 continue;
             }
             if (event->time > frame) break;
-            applyParamEvent(*p, event);
+            applyInputEvent(*p, event, process->out_events);
             ++eventIndex;
         }
     };
 
     if (process->audio_outputs_count == 0u) {
-        readParamEvents(*p, process->in_events);
+        readInputEvents(*p, process->in_events, process->out_events);
         return CLAP_PROCESS_CONTINUE;
     }
     const clap_audio_buffer_t& output = process->audio_outputs[0];
     if (!output.data32 && !output.data64) {
-        readParamEvents(*p, process->in_events);
+        readInputEvents(*p, process->in_events, process->out_events);
         return CLAP_PROCESS_CONTINUE;
     }
     const uint32_t writableChannels = std::min<uint32_t>(
@@ -1665,6 +1987,27 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
 
 const clap_plugin_audio_ports_t audioPorts {
     audioPortsCount, audioPortsGet,
+};
+
+uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
+{
+    return isInput ? 1u : 0u;
+}
+
+bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
+    clap_note_port_info_t* info)
+{
+    if (!info || !isInput || index != 0u) return false;
+    info->id = 30u;
+    info->supported_dialects =
+        CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
+    std::snprintf(info->name, sizeof(info->name), "Controller MIDI In");
+    return true;
+}
+
+const clap_plugin_note_ports_t notePorts {
+    notePortsCount, notePortsGet,
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return kTotalParamCount; }
@@ -1991,9 +2334,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* in, const clap_output_events_t*)
+    const clap_input_events_t* in, const clap_output_events_t* out)
 {
-    readParamEvents(*self(plugin), in);
+    readInputEvents(*self(plugin), in, out);
 }
 
 const clap_plugin_params_t paramsExt {
@@ -2211,17 +2554,6 @@ enum OpenMenu : int {
     kMenuAuxTapA,
     kMenuAuxTapB,
 };
-
-void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
-    float seedAmount)
-{
-    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
-    plugin.params = s3g::sanitizeNoInputMixerParams(params);
-    snapSurfaceCursor(plugin);
-    syncMixerState(plugin);
-    plugin.mixer.reseed(plugin.params.seed, seedAmount);
-    resetMeters(plugin);
-}
 
 NSRect processorMenuRect(const s3g::gui_layout::Panel& panel,
     uint32_t row);
@@ -3321,13 +3653,6 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     if (_mixerPopupChild && _mixerPopupOwner) {
         [_mixerPopupOwner openEffectEditorForLane:lane slot:slot];
-        NSPanel* panel = _mixerPopupOwner->_effectPanel;
-        NSWindow* parent = [self window];
-        NSWindow* previousParent = [panel parentWindow];
-        if (previousParent && previousParent != parent)
-            [previousParent removeChildWindow:panel];
-        if (parent && [panel parentWindow] != parent)
-            [parent addChildWindow:panel ordered:NSWindowAbove];
         return;
     }
     if (!_effectPanel) {
@@ -3337,7 +3662,10 @@ NSRect effectEditorToggleRect(uint32_t row)
                 | NSWindowStyleMaskUtilityWindow)
             backing:NSBackingStoreBuffered defer:NO];
         [_effectPanel setReleasedWhenClosed:NO];
-        [_effectPanel setHidesOnDeactivate:YES];
+        // Lifetime-owned by the plugin view, but deliberately not an
+        // NSWindow child. Child utility windows are tied to the host window's
+        // Space and can disappear when dragged to another display.
+        [_effectPanel setHidesOnDeactivate:NO];
         [_effectPanel setDelegate:self];
         _effectEditor = [[S3GNoInputEffectView alloc]
             initWithPlugin:_plugin owner:self];
@@ -3363,12 +3691,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     [_effectEditor setLane:lane slot:slot];
     [_effectPanel setTitle:[NSString stringWithFormat:
         @"s3g EFFECT EDITOR — LANE %u / SLOT %u", lane + 1u, slot + 1u]];
-    NSWindow* parent = [self window];
-    NSWindow* previousParent = [_effectPanel parentWindow];
-    if (previousParent && previousParent != parent)
-        [previousParent removeChildWindow:_effectPanel];
-    if (parent && [_effectPanel parentWindow] != parent)
-        [parent addChildWindow:_effectPanel ordered:NSWindowAbove];
     [_effectPanel makeKeyAndOrderFront:nil];
     [_effectPanel makeFirstResponder:_effectEditor];
 }
@@ -3377,13 +3699,6 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     if (_mixerPopupChild && _mixerPopupOwner) {
         [_mixerPopupOwner openEffectEditorForAux:bus];
-        NSPanel* panel = _mixerPopupOwner->_effectPanel;
-        NSWindow* parent = [self window];
-        NSWindow* previousParent = [panel parentWindow];
-        if (previousParent && previousParent != parent)
-            [previousParent removeChildWindow:panel];
-        if (parent && [panel parentWindow] != parent)
-            [parent addChildWindow:panel ordered:NSWindowAbove];
         return;
     }
     // Construct and position the shared editor through the lane path.
@@ -3403,8 +3718,6 @@ NSRect effectEditorToggleRect(uint32_t row)
         return;
     }
     if (!_effectPanel) return;
-    NSWindow* parent = [_effectPanel parentWindow];
-    if (parent) [parent removeChildWindow:_effectPanel];
     [_effectPanel orderOut:nil];
 }
 
@@ -3414,8 +3727,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (!_effectPanel) return;
     [_effectEditor clearOwner];
     [_effectPanel setDelegate:nil];
-    NSWindow* parent = [_effectPanel parentWindow];
-    if (parent) [parent removeChildWindow:_effectPanel];
     [_effectPanel orderOut:nil];
     [_effectPanel release];
     _effectPanel = nil;
@@ -3437,7 +3748,11 @@ NSRect effectEditorToggleRect(uint32_t row)
         [_pagePanels[page] setTitle:[NSString stringWithFormat:
             @"s3g PROCESSOR NO INPUT MIXER — %@", pageNames[page]]];
         [_pagePanels[page] setReleasedWhenClosed:NO];
-        [_pagePanels[page] setHidesOnDeactivate:YES];
+        // Keep detached pages independent from the host NSWindow so a page
+        // moved to another display stays in that display's active Space. The
+        // owning plugin view still hides and destroys every panel through the
+        // CLAP GUI lifecycle below.
+        [_pagePanels[page] setHidesOnDeactivate:NO];
         [_pagePanels[page] setDelegate:self];
         _pagePopupViews[page] = [[S3GNoInputMixerView alloc]
             initWithPlugin:_plugin];
@@ -3473,14 +3788,6 @@ NSRect effectEditorToggleRect(uint32_t row)
         [_pagePanels[page] setFrameOrigin:NSMakePoint(
             std::max(NSMinX(visible), x), y)];
     }
-    NSWindow* parent = [self window];
-    NSWindow* previousParent = [_pagePanels[page] parentWindow];
-    if (previousParent && previousParent != parent) {
-        [previousParent removeChildWindow:_pagePanels[page]];
-    }
-    if (parent && [_pagePanels[page] parentWindow] != parent) {
-        [parent addChildWindow:_pagePanels[page] ordered:NSWindowAbove];
-    }
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (plugin && plugin->guiPage.load(std::memory_order_relaxed) == page) {
         for (uint32_t candidate = 1u; candidate <= kPageCount; ++candidate) {
@@ -3502,8 +3809,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     for (uint32_t page = 0u; page < kPageCount; ++page) {
         if (!_pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
-        NSWindow* parent = [_pagePanels[page] parentWindow];
-        if (parent) [parent removeChildWindow:_pagePanels[page]];
         [_pagePanels[page] orderOut:nil];
     }
     [self setNeedsDisplay:YES];
@@ -3516,8 +3821,6 @@ NSRect effectEditorToggleRect(uint32_t row)
         if (!_pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
         [_pagePanels[page] setDelegate:nil];
-        NSWindow* parent = [_pagePanels[page] parentWindow];
-        if (parent) [parent removeChildWindow:_pagePanels[page]];
         [_pagePanels[page] orderOut:nil];
         [_pagePanels[page] release];
         _pagePanels[page] = nil;
@@ -3528,15 +3831,11 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (void)windowWillClose:(NSNotification*)notification
 {
     if ([notification object] == _effectPanel) {
-        NSWindow* parent = [_effectPanel parentWindow];
-        if (parent) [parent removeChildWindow:_effectPanel];
         return;
     }
     for (uint32_t page = 0u; page < kPageCount; ++page) {
         if ([notification object] != _pagePanels[page]) continue;
         [_pagePopupViews[page] stopRefreshTimer];
-        NSWindow* parent = [_pagePanels[page] parentWindow];
-        if (parent) [parent removeChildWindow:_pagePanels[page]];
         [self setNeedsDisplay:YES];
         return;
     }
@@ -6092,6 +6391,7 @@ namespace {
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
+    if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
 #if defined(__APPLE__)
