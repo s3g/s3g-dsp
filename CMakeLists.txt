@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(s3g_dsp VERSION 0.1.0 LANGUAGES CXX)
+# Collection and default bundle version. Individual targets and CLAP
+# descriptors may keep component-scoped versions and advance independently.
+project(s3g_dsp VERSION 0.5.0 LANGUAGES CXX)
 
 if(APPLE)
   enable_language(OBJCXX)

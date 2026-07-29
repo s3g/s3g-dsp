@@ -1,28 +1,13 @@
 # Third-Party Notices
 
-This project can optionally build against third-party libraries. These
-dependencies are not authored by s3g and retain their original licenses.
-
-## Resonance Print design references
-
-Ambi Effect Resonance Print was independently implemented in this repository.
-Pure Data's `sigmund~`, William Brent's `martha~`, and William Brent's
-`convolve~` informed the problem framing and artistic vocabulary only. Their
-source code, patches, binaries, and media are not copied, linked, or
-redistributed by this project.
-
-- Pure Data `sigmund~`: <https://github.com/pure-data/pure-data/tree/master/extra/sigmund~>
-- `martha~`: <https://github.com/wbrent/martha_tilde>
-- `convolve~`: <https://github.com/wbrent/convolve_tilde>
-
-The Pure Data repository is BSD-licensed. The two William Brent repositories
-identify GPLv3 licensing. These entries are provenance notes, not bundled
-dependencies.
+This file reproduces the notices for third-party code incorporated into the
+distributed macOS CLAP binaries. Full license text is retained where required
+by the applicable redistribution terms.
 
 ## CLAP
 
-The CLAP plugin headers are fetched by CMake when `S3G_BUILD_CLAP_PLUGIN` is
-enabled and `S3G_CLAP_INCLUDE_DIR` is not supplied.
+The CLAP API headers are incorporated into the distributed plugin binaries.
+CMake fetches the pinned headers when `S3G_CLAP_INCLUDE_DIR` is not supplied.
 
 - Project: <https://github.com/free-audio/clap>
 - License: MIT
@@ -56,9 +41,9 @@ SOFTWARE.
 
 ## WORLD
 
-WORLD is used by the Ambi Vox Encoder CLAP plugin when `S3G_ENABLE_WORLD` is
-enabled at CMake configure time. It provides speech analysis and synthesis used
-for the plugin's vocal WAV and voicebank alias paths.
+WORLD is statically linked into the distributed Ambi Vox Encoder CLAP plugin.
+It provides speech analysis and synthesis for the plugin's vocal WAV and
+voicebank alias paths. Source builds can omit it with `S3G_ENABLE_WORLD=OFF`.
 
 - Project: <https://github.com/mmorise/World>
 - License: BSD-style 3-clause license

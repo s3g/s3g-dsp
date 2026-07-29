@@ -2271,6 +2271,27 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (id == kReactModeParamId) {
+        for (uint32_t mode = 0u;
+             mode < static_cast<uint32_t>(s3g::NoInputReactMode::Count);
+             ++mode) {
+            if (std::strcmp(display, s3g::noInputReactModeName(
+                    static_cast<s3g::NoInputReactMode>(mode))) == 0) {
+                *value = mode;
+                return true;
+            }
+        }
+    }
+    if (id == kFieldDivisionParamId || id == kEventDivisionParamId) {
+        for (uint32_t division = 0u;
+             division < s3g::kNoInputClockDivisionCount; ++division) {
+            if (std::strcmp(display,
+                    s3g::noInputClockDivisionName(division)) == 0) {
+                *value = division;
+                return true;
+            }
+        }
+    }
     if (id == kAuxATypeParamId || id == kAuxBTypeParamId) {
         for (uint32_t type = 0u;
              type < s3g::kNoInputDistortionTypeCount; ++type) {
@@ -2297,6 +2318,18 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
                 }
             }
         }
+        if (offset == kLaneAuxTapAOffset
+            || offset == kLaneAuxTapBOffset) {
+            for (uint32_t tap = 0u;
+                 tap < static_cast<uint32_t>(s3g::NoInputAuxTap::Count);
+                 ++tap) {
+                if (std::strcmp(display, s3g::noInputAuxTapName(
+                        static_cast<s3g::NoInputAuxTap>(tap))) == 0) {
+                    *value = tap;
+                    return true;
+                }
+            }
+        }
     }
     if (std::strcmp(display, "ON") == 0) { *value = 1.0; return true; }
     if (std::strcmp(display, "OFF") == 0) { *value = 0.0; return true; }
@@ -2316,6 +2349,18 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         const double milliseconds = std::max(0.1, std::atof(display));
         *value = std::clamp(std::log(milliseconds / 0.1)
             / std::log(200.0), 0.0, 1.0);
+        return true;
+    }
+    if (id == kReactAttackParamId) {
+        const double milliseconds = std::max(0.5, std::atof(display));
+        *value = std::clamp(std::log(milliseconds / 0.5)
+            / std::log(4000.0), 0.0, 1.0);
+        return true;
+    }
+    if (id == kReactReleaseParamId) {
+        const double milliseconds = std::max(5.0, std::atof(display));
+        *value = std::clamp(std::log(milliseconds / 5.0)
+            / std::log(2000.0), 0.0, 1.0);
         return true;
     }
     if (id == kQualityParamId) {
@@ -6416,7 +6461,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.1.0",
+    "0.6.3",
     "Eight-channel zero-input feedback ecology with signed routing, per-lane EQ, and nonlinear inserts.",
     features,
 };

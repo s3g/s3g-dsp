@@ -201,7 +201,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ```
 
 The package contains 93 CLAP products, the VOT wavetable library, the Ambi Vox
-demo voicebank, the applicable license notices, and an
+demo voicebank, release notes, the applicable license notices, and an
 `Install s3g-dsp CLAPs.command` installer. Run the packaged installer instead of
 drag-copying the bundles so renamed aliases can be backed up safely; pass
 `--dry-run` from Terminal to preview its work. If the installed binaries are

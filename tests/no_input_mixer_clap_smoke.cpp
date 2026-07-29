@@ -425,6 +425,36 @@ int main(int argc, char** argv)
         && (reactModeInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u;
     if (!ok) std::cerr << "failed: setup/parameter metadata\n";
 
+    for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
+        clap_param_info_t info {};
+        if (!params->get_info(plugin, index, &info)) {
+            ok = false;
+            break;
+        }
+        const std::array<double, 3u> probes {{
+            info.min_value, info.default_value, info.max_value,
+        }};
+        for (const double probe : probes) {
+            char firstText[128] {};
+            char secondText[128] {};
+            double parsed = 0.0;
+            if (!params->value_to_text(plugin, info.id, probe,
+                    firstText, sizeof(firstText))
+                || !params->text_to_value(plugin, info.id, firstText,
+                    &parsed)
+                || !params->value_to_text(plugin, info.id, parsed,
+                    secondText, sizeof(secondText))
+                || std::strcmp(firstText, secondText) != 0) {
+                std::cerr << "failed: parameter text round-trip for id "
+                    << info.id << " ('" << info.name << "'): '"
+                    << firstText << "' -> " << parsed << " -> '"
+                    << secondText << "'\n";
+                ok = false;
+                break;
+            }
+        }
+    }
+
     if (ok) {
         std::atomic<bool> resetReturned { false };
         std::thread audioThread([&]() {
