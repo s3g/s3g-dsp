@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Installing Pre-release Plugins - s3g-dsp</title>
-    <meta name="description" content="Instructions for installing pre-release s3g-dsp CLAP plugin bundles.">
+    <title>Install s3g-dsp CLAP Plugins</title>
+    <meta name="description" content="Install pre-release s3g-dsp CLAP plugins for REAPER on macOS.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,84 +24,60 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Installing Pre-release Plugins</h1>
+        <h1>Install s3g-dsp CLAP Plugins</h1>
 
-        <p>Use this procedure to install a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change while the collection remains in pre-release.</p>
-
-        <p>The supported target is macOS + REAPER.</p>
-
-        <h2 id="requirements">Requirements</h2>
-
-        <ul>
-          <li>A macOS pre-release zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">s3g-dsp GitHub releases page</a>.</li>
-          <li>REAPER.</li>
-        </ul>
+        <p>The packaged pre-release supports REAPER on macOS. Plugin names, parameters, saved states, and the included set may change before a stable release.</p>
 
         <h2 id="download">Download</h2>
 
-        <p>Pre-release builds are attached to GitHub releases when available. If no zip is available, use the <a href="building-from-source.html">Building From Source</a> page.</p>
+        <p>Download the macOS CLAP zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, then unzip it. If a binary is not available, see <a href="building-from-source.html">Building From Source</a>.</p>
 
-        <h2 id="install">Install</h2>
+        <h2 id="recommended">Recommended Installation</h2>
 
-        <p>Unzip the pre-release package and run <code>Install s3g-dsp CLAPs.command</code>. The installer places the products in the user CLAP plugin folder:</p>
+        <ol>
+          <li>Quit REAPER.</li>
+          <li>Double-click <code>Install s3g-dsp CLAPs.command</code> in the unzipped package.</li>
+          <li>Restart REAPER and rescan CLAP plugins if the new builds do not appear automatically.</li>
+        </ol>
+
+        <p>The installer places the plugins in:</p>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>Use the installer for upgrades as well as first-time installation. A manual copy replaces only identical filenames and can leave a renamed bundle installed beside its replacement. To preview every copy, replacement, and alias backup, open Terminal in the unzipped package and run:</p>
-
-        <pre><code>./Install\ s3g-dsp\ CLAPs.command --dry-run</code></pre>
-
-        <p>A normal run preflights and copies all 93 canonical bundles. If the installed binaries already match the package and only their filenames need migration, use:</p>
-
-        <pre><code>./Install\ s3g-dsp\ CLAPs.command --canonicalize-only</code></pre>
-
-        <p>The installer copies all 93 products under canonical family-first filenames, such as <code>s3g_ambi_encoder_modal_16.clap</code>, <code>s3g_ambi_decoder_stereo.clap</code>, and <code>s3g_processor_no_input_mixer_8ch.clap</code>. These filenames match the families shown in the host browser. Because the underlying CLAP IDs remain stable, renaming a verified bundle does not create a new plugin identity or intentionally break saved projects.</p>
-
-        <p>The installer checks recognized older filenames against the package's legacy manifest. When a bundle identity matches, the installer moves the alias to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> instead of deleting it. Review any reported identity mismatch manually; the installer leaves that bundle and unrelated CLAP products—including bundles from other s3g projects—in place. Package ownership is recorded in <code>~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv</code>. Rescan plugins in REAPER after installation if necessary.</p>
-
-        <p>The package also includes a <code>VOT Wavetables</code> library and an <code>Ambi Vox Demo Voicebank</code>. Both can be stored anywhere. Load a wavetable WAV from Ambi Encoder VOT, or select the complete demo voicebank folder from the Ambi Encoder Vox <code>PHRASE</code> panel.</p>
+        <p>During upgrades, it also backs up recognized older filenames so REAPER does not list duplicate versions. Other CLAP products are left untouched.</p>
 
         <p>The pre-release bundles are ad-hoc signed for bundle integrity but are not Apple notarized. If macOS blocks a downloaded build, approve it explicitly in the applicable Privacy &amp; Security prompt before rescanning REAPER.</p>
 
-        <h2 id="included">Included Groups</h2>
+        <h2 id="manual">Manual Installation</h2>
 
-        <p>The pre-release package installs 93 products. The groups below combine fixed-width variants so the inventory remains readable.</p>
+        <ol>
+          <li>Quit REAPER and unzip the package.</li>
+          <li>Copy all or selected <code>.clap</code> bundles into <code>~/Library/Audio/Plug-Ins/CLAP/</code>.</li>
+          <li>Restart REAPER and rescan CLAP plugins if needed.</li>
+        </ol>
 
-        <ul>
-          <li><a href="multichannel-effects.html">Multichannel Effects</a>: Processor Delay, Processor Wave Geometry, Processor Spectral, Macro Delay, Macro Pitch, <a href="macro-shred.html">Macro Shred</a>, Spectral Spray 2ch/8ch, Processor Buffer, Shard Scatter, Orbit Delay, and Cascade Taps.</li>
-          <li><a href="monitoring-fold-down.html">Monitoring / Fold-down</a>: Output Autogain Stereo and Output Autogain Quad, plus Analyzer Meter.</li>
-          <li><a href="direct-panning.html">Direct Panning</a>: Panner Layout, Panner DBAP, Panner LBAP, and Panner VBAP.</li>
-          <li><a href="bus-mixing-routing.html">Bus Mixing / Routing</a>: Matrix Group 32/64, Mixer Node Bus 128, and Passthrough Test 24ch.</li>
-          <li><a href="speaker-array-utilities.html">Speaker-array Utilities</a>: Output Crossover and Array HPF/Delay/Trim 16/26/32/64.</li>
-          <li><a href="ambisonics.html">Ambisonics</a>: grouped as <a href="ambisonic-encoders.html">Encoders</a>, <a href="ambisonic-decoders.html">Decoders</a>, <a href="ambisonic-effects.html">Effects</a>, and <a href="ambisonic-utilities.html">Utilities</a>, including Ambi Encoder Point, Ambi Encoder Cloud, Ambi Encoder Surface Terrain, Ambi Encoder Path, Ambi Encoder Ray, <a href="ambi-ray-bilocation-encoder.html">Ambi Encoder Ray Bilocation</a>, Ambi Encoder VOT, Ambi Encoder Vox, Ambi Encoder Wave Terrain, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>, <a href="accelerometer-field-encoder.html">Ambi Encoder Modal</a>, Ambi Encoder Pulsar, <a href="ambi-neural-ecology.html">Ambi Encoder Neural Ecology</a>, Ambi Encoder Stochastic, and Ambi Encoder Wrangler; the Ambi Decoder Speaker, Ambi Decoder Stereo, and Ambi Decoder Head families; the <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>, <a href="ambi-effect-delay.html">Ambi Effect Delay</a>, <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>, <a href="ambi-effect-gain.html">Ambi Effect Gain</a>, <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>, <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>, <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>, and <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>; field effects, interchange formats, and visualization.</li>
-          <li><a href="instruments.html">Instruments</a>: <a href="no-input-mixer.html">Processor No Input Mixer</a>, <a href="fault.html">Processor Fault</a>, Processor Loop, Processor Multi Loop, <a href="ambi-vot-encoder.html">Ambi Encoder VOT</a>, <a href="ambi-vox-encoder.html">Ambi Encoder Vox</a>, <a href="ambi-wave-terrain-encoder.html">Ambi Encoder Wave Terrain</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>, <a href="accelerometer-field-encoder.html">Ambi Encoder Modal</a>, <a href="ambi-pulsar-encoder.html">Ambi Encoder Pulsar</a>, <a href="ambi-neural-ecology.html">Ambi Encoder Neural Ecology</a>, <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, and <a href="ambi-grain-processor.html">Processor Ambi Grain</a>.</li>
-        </ul>
+        <p>In Finder, choose Go &gt; Go to Folder and enter the destination above. Or copy every bundle from Terminal:</p>
 
-        <p>In the host browser, the <code>Processor</code> family groups self-contained effects and instruments organized around delay, buffer, loop, grain, codec, or topology workflows. Choose <code>s3g Processor Ambi Grain 16ch</code> for loaded-file granulation; its ambisonic-file requirement describes the source format, while <code>Processor</code> identifies its workflow family.</p>
+        <pre><code>mkdir -p "$HOME/Library/Audio/Plug-Ins/CLAP"
+cp -R /path/to/unzipped-package/*.clap \
+  "$HOME/Library/Audio/Plug-Ins/CLAP/"</code></pre>
+
+        <p>Replace <code>/path/to/unzipped-package</code> with the package location. Manual copying cannot remove older renamed bundles, so use the packaged installer if an upgrade creates duplicate entries.</p>
 
         <h2 id="reaper">REAPER Setup</h2>
 
-        <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. Search for <code>s3g</code> in the FX browser.</p>
+        <p>Search for <code>s3g</code> in REAPER's FX browser. Set the track channel count before inserting a multichannel plugin. Processor No Input Mixer and Processor Fault require eight track channels but no audio input.</p>
 
-        <p>For multichannel sessions, set the track channel count before inserting the plugin.</p>
+        <p>See <a href="multichannel.html">Multichannel</a> for routing and channel setup, <a href="stereo-listening.html">Stereo Listening</a> for two-channel monitoring, or <a href="ambisonics.html">Ambisonics</a> for ambisonic workflows.</p>
 
-        <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g Output Autogain Stereo</code>, <code>s3g Ambi Decoder Stereo</code>, and <code>s3g Ambi Decoder Head</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
+        <h2 id="troubleshooting">If a Plugin Does Not Appear</h2>
 
-        <p><code>s3g Output Autogain Quad</code> exposes a four-channel output bus ordered <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>. <code>s3g Effect Shard Scatter</code>, <code>s3g Effect Orbit Delay</code>, and <code>s3g Effect Cascade Taps</code> expose sixteen output channels, so set the REAPER track channel count and plugin pins before auditioning those processors.</p>
-
-        <p><code>s3g Processor No Input Mixer 8ch</code> and <code>s3g Processor Fault 8ch</code> are zero-audio-input instruments with fixed eight-channel outputs. Set the REAPER track to eight channels before inserting either one; no audio input routing is required. Processor No Input Mixer self-excites after activation and needs no MIDI. Fault's <code>FREE</code> mode also needs no MIDI, while <code>MIDI</code> mode accepts note input from the track.</p>
-
-        <p>If your hardware has only two output channels, see <a href="stereo-listening.html">Listening on a Stereo System</a> for choosing between Output Autogain Stereo and the Ambi Stereo or Head decoders.</p>
-
-        <p>For mix, route, pan, and monitoring tools, see <a href="multichannel.html">Multichannel</a>. For ambisonics-specific tools, see <a href="ambisonics.html">Ambisonics</a>. Companion REAPER workflows are documented in the <a href="https://s3g.github.io/s3g-mc/process-guides-ambisonics.html" target="_blank" rel="noopener noreferrer">s3g-mc ambisonics guide</a>.</p>
-
-        <h2 id="cleanup">Cleanup</h2>
-
-        <p>If older pre-release plugins appear in REAPER, quit the host, run the packaged installer again, and rescan the user CLAP folder:</p>
-
-        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
-
-        <p>Use the installer's <code>--dry-run</code> report before making manual changes. Recognized aliases are preserved in the timestamped backup reported by the installer. Unknown or identity-mismatched bundles are deliberately left alone and must be reviewed individually.</p>
+        <ul>
+          <li>Confirm that its complete <code>.clap</code> bundle is in <code>~/Library/Audio/Plug-Ins/CLAP/</code>.</li>
+          <li>Rescan CLAP plugins in REAPER, then restart the host.</li>
+          <li>If macOS blocked the bundle, allow it in System Settings &gt; Privacy &amp; Security and rescan.</li>
+          <li>If an upgrade shows duplicate names, quit REAPER and rerun the packaged installer.</li>
+        </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="building-from-source.html">
@@ -125,12 +101,11 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#requirements">Requirements</a>
           <a href="#download">Download</a>
-          <a href="#install">Install</a>
-          <a href="#included">Included Groups</a>
+          <a href="#recommended">Recommended Installation</a>
+          <a href="#manual">Manual Installation</a>
           <a href="#reaper">REAPER Setup</a>
-          <a href="#cleanup">Cleanup</a>
+          <a href="#troubleshooting">Troubleshooting</a>
         </div>
       </aside>
     </div>

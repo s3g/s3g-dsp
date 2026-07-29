@@ -1,9 +1,9 @@
 # s3g-dsp
 
 A pre-release collection of CLAP audio plugins for multichannel work in
-REAPER. `s3g-dsp` is a sibling
-project to the `s3g-mc` multichannel REAPER package and the `s3g-max` Max/MSP
-externals package. It can be used with those projects or on its own.
+REAPER. `s3g-dsp` is a sibling project to the `s3g-mc` multichannel REAPER
+package and the `s3g-max` Max/MSP externals package. It can be used with those
+projects or on its own.
 
 Project documentation for `s3g-dsp` is available at
 <https://s3g.github.io/s3g-dsp/>.
@@ -20,13 +20,12 @@ DAWs are unsupported.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 93 CLAP products, including fixed-width
-variants for several effects, bus tools, and speaker-array utilities. Installed
-bundle filenames follow the same family-first order as the host names, such
-as `s3g_ambi_encoder_modal_16.clap` and `s3g_processor_fault_8ch.clap`.
-All bundles build. Some wrappers have incomplete clap-validator conformance,
-chiefly around parameter text conversion and buffered state I/O. Treat the
-package as a pre-release.
+The current release is **0.5.0-pre** (July 28, 2026). Its macOS package installs
+93 CLAP products, including fixed-width variants for effects, bus tools, and
+speaker-array utilities. Installed bundle filenames follow the same
+family-first order as the host names, such as
+`s3g_ambi_encoder_modal_16.clap` and
+`s3g_processor_no_input_mixer_8ch.clap`.
 
 Plugin areas:
 
@@ -41,16 +40,18 @@ Plugin areas:
   [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
   [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
   `ACN/SN3D` workflows, including Processor Ambi Imprint and the order-adaptive
-  Ambi Effect DJ Filter, Delay, Pitch, Gain, Resonance Print, and Displacement. The
-  [Listener Mode guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
+  Ambi Effect DJ Filter, Delay, Pitch, Gain, Resonance Print, Partial Trace,
+  Response Trace, and Displacement. The [Listener Mode
+  guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
   describes plugins that use their own encoded field as an internal score;
   [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
   describes preset-cell interpolation and automatable X/Y performance.
-- [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): no-input feedback, loaded-loop,
-  granular, vector-wavetable, weather, liquid, WORLD/voicebank vocal, and
-  stochastic instruments, including the eight-channel
+- [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): no-input
+  feedback, loaded-loop, granular, vector-wavetable, weather, liquid,
+  WORLD/voicebank vocal, and stochastic instruments, including the
+  eight-channel
   [Processor No Input Mixer](https://s3g.github.io/s3g-dsp/no-input-mixer.html)
-  feedback ecology and
+  output-only feedback ecology and
   [Processor Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
   and waveform-derived byte-field and codec synthesizer with free-running and
   MIDI/ADSR performance modes.
@@ -61,8 +62,7 @@ tracks and true stereo outputs.
 
 ## Design
 
-- Reusable DSP lives in `dsp/`.
-- Plugin wrappers live in `plugins/`.
+- Reusable DSP lives in `dsp/`; CLAP wrappers live in `plugins/`.
 - VOT-compatible 4 x 4 atlases live in `wavetables/vot/`; plugin loader
   examples live in `examples/`.
 - The included Ambi Vox test bank uses a documented UTAU-style folder with
@@ -71,17 +71,17 @@ tracks and true stereo outputs.
   aperiodicity analysis for its voice-model controls. Factory starting points
   and `.s3gvox` user presets retain the performance design while keeping source
   WAV and voicebank audio external.
+- Processor No Input Mixer is inherently eight-channel and generates its own
+  feedback network without an audio input. Its matrix/wiring, mixer, channel,
+  safety, AUX, and Parameter Surface pages can be detached without duplicating
+  controls; movement, listener-reactive behavior, presets, random energy modes,
+  EQ, inserts, and AUX returns remain part of one saved CLAP state.
 - Fixed-width CLAP plugins are used where REAPER pin routing needs to be
   predictable.
 - Relationship controls keep automation compact where that suits the plugin;
   point, matrix, and calibration tools expose individual controls when needed.
-- Spatial plugin camera state is saved with the plugin state where it is part
-  of the editing workflow. For example, a top-view panner or decoder display
-  should reopen that way with the project.
 - Ambi Effects use order-adaptive 12-, 20-, or 24-pickup listener bodies while
   keeping encoded-field processing separate from ordinary channel-lane effects.
-- C++ plugin and DSP work lives in `s3g-dsp`; generated RNBO exports use the
-  separate `s3g-rnbo-clap` wrapper project.
 
 ## Build
 
@@ -100,10 +100,10 @@ cmake --build --preset dev
 ./build/s3g_dsp_smoke
 ```
 
-Build CLAP plugins:
+Build CLAP plugins with the release configuration:
 
 ```sh
-cmake --preset clap
+cmake --preset clap -DS3G_ENABLE_WORLD=ON
 cmake --build --preset clap
 ```
 
@@ -118,9 +118,11 @@ cmake -S . -B build-clap \
 cmake --build build-clap
 ```
 
-WORLD speech vocoder support is enabled by default for CLAP builds and is used
-by Ambi Encoder Vox's WORLD WAV and voicebank paths. The default FetchContent
-revision is pinned for reproducible builds. WORLD support can be disabled with:
+WORLD speech vocoder support is enabled by default and is statically linked
+into the release build of Ambi Encoder Vox for its WORLD WAV and voicebank
+paths. The explicit option above also corrects an older CMake cache in which
+the feature was disabled. The FetchContent revision is pinned for reproducible
+builds. Custom builds can disable WORLD with:
 
 ```sh
 cmake -S . -B build-clap \
@@ -131,35 +133,16 @@ cmake -S . -B build-clap \
 ## Voicebank Builder
 
 `s3g Vox Builder` is a macOS companion app for preparing Ambi Encoder Vox
-voicebanks from a generated voice source, one continuous recording, several WAV
-files, or a folder of WAVs. Its procedural and source-seeded generator creates
-repeatable Core 35 or Full 92 alias banks without copying source samples. The
-app also provides automatic silence-aware segmentation for a continuous source,
-one-file-per-alias folder import, draggable boundaries, per-segment WORLD pitch
-and voicing analysis, guarded level conditioning, filename/order alias guesses,
-manual segment correction, audition, timing edits, and UTAU-style export.
+voicebanks from generated material, continuous recordings, or folders of WAV
+files. It provides segmentation, WORLD analysis, audition, timing edits, and
+UTAU-style export. See [Vox Builder](docs/vox-builder.html) for the complete
+workflow.
 
 ```sh
 cmake --preset apps
 cmake --build --preset apps
 open "build-apps/apps/vox_builder/s3g Vox Builder.app"
 ```
-
-The app writes sliced WAVs, `oto.ini`, `voicebank.json`, `markers.csv`, and the
-phoneme list. See [Vox Builder](docs/vox-builder.html) for the workflow.
-
-For batch preparation and exact CSV marker workflows, use
-`tools/voicebank_builder.py`:
-
-```sh
-python3 tools/voicebank_builder.py my-recording.wav \
-  --phonemes examples/voicebank-builder/phonemes.txt \
-  --name my_voice \
-  --output examples/voicebanks/my_voice
-```
-
-Pass `--markers markers.csv` with `alias,start_ms,end_ms` rows to bypass its
-automatic slicer.
 
 ## Install Locally
 
@@ -178,129 +161,44 @@ products under their canonical family-first filenames, and keeps their existing
 CLAP IDs stable so projects continue to resolve the same plugins. Recognized old
 filenames are moved to a timestamped backup only when their bundle identity
 matches `scripts/clap-legacy-bundles.tsv`; unrelated CLAP bundles are left
-untouched. Backups are written to
-`~/Library/Application Support/s3g-dsp/CLAP Backups/<timestamp-pid>/`, and the
-ownership receipt is
-`~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv`. REAPER may
-need a plugin rescan after installation.
+untouched. Close REAPER before installation, then restart or rescan after the
+installer completes. See the [installation
+guide](https://s3g.github.io/s3g-dsp/installing-plugins.html) for backup and
+migration details.
+
+To install manually, close REAPER, unzip the release, and copy all—or only the
+desired—`.clap` bundles into:
+
+```text
+~/Library/Audio/Plug-Ins/CLAP/
+```
+
+In Finder, choose **Go > Go to Folder…** to open that normally hidden location,
+then drag the bundles from the unzipped package. From Terminal, install the
+complete collection with:
+
+```sh
+mkdir -p "$HOME/Library/Audio/Plug-Ins/CLAP"
+cp -R /path/to/s3g-dsp-macos-clap-0.5.0-pre/*.clap \
+  "$HOME/Library/Audio/Plug-Ins/CLAP/"
+```
+
+Restart REAPER and rescan CLAP plugins if needed. Manual installation does not
+identify or back up renamed legacy bundles, so an upgrade can leave duplicate
+host entries; use the packaged installer when migrating an older collection.
 
 ## Pre-release Binaries
 
-Pre-release macOS CLAP builds may be attached to GitHub pre-releases. These
-builds are for early REAPER testing. Plugin names, parameter mappings, saved
-states, and included plugins may change before a stable release.
-
-Build output is not committed to this repository. Packaged binaries, when
-available, should be downloaded from the GitHub releases page rather than from
-the source tree.
-
-Create the local pre-release zip after a complete CLAP build with:
-
-```sh
-./scripts/package-macos-clap-prerelease.sh
-```
+The current release asset is `s3g-dsp-macos-clap-0.5.0-pre.zip`. Pre-release
+macOS CLAP builds are attached to the [GitHub releases
+page](https://github.com/s3g/s3g-dsp/releases) for early REAPER testing. Plugin
+names, parameter mappings, saved states, and included plugins may change before
+a stable release.
 
 The package contains 93 CLAP products, the VOT wavetable library, the Ambi Vox
 demo voicebank, release notes, the applicable license notices, and an
 `Install s3g-dsp CLAPs.command` installer. Run the packaged installer instead of
-drag-copying the bundles so renamed aliases can be backed up safely; pass
-`--dry-run` from Terminal to preview its work. If the installed binaries are
-already current, `--canonicalize-only` migrates their verified filenames without
-replacing the binaries. The packaging script uses the same canonical manifest
-as the source installer, ad-hoc signs and strictly verifies every bundle by
-default. Set `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity;
-notarization is a separate release step.
-
-## Documentation Screenshots
-
-The documentation screenshots are captured directly from the native CLAP
-editors, without launching REAPER. After configuring the `clap` preset, rebuild
-the documented set and render 3x PNGs plus vector PDF masters with:
-
-```sh
-python3 scripts/generate-plugin-screenshots.py \
-  --name-map scripts/doc-screenshot-manifest.tsv
-```
-
-PNGs are written to `docs/assets/plugin-guis/`; their PDF masters are retained
-in `docs/assets/plugin-guis/masters/`. The script derives its inventory and
-native sizes from the GUI audit commands in `CMakeLists.txt`, verifies each
-bundle against `scripts/clap-bundles.tsv`, and drives the existing GUI smoke
-scenarios. Documentation mode also feeds deterministic signals to analyzers,
-warms encoder DSP with representative scene settings, keeps primary encoder
-captures on `FIELD`, and emits descriptive non-`SURF` page variants where the
-manual explains Mixer, Vector, Score, Lyrics, Pulsarets, Neural, Listen, or
-Curve views. Populated six-cell `SURF` variants remain dedicated to the shared
-Parameter Surface documentation. Temporary deterministic audio fixtures fill
-the Processor Loop, Processor Multi Loop, and Processor Ambi Grain waveform
-displays, while Processor Ambi Imprint loads a bundled atlas entry; these files
-are removed after each capture.
-Use `--list` to inspect the selected inventory, `--no-build` to reuse current
-artifacts, or pass one short CLAP ID (for example `ambi-point-encoder-64`) to
-refresh a single editor. Omit both the name map and plugin IDs to capture the
-complete custom-GUI audit inventory. Capture requires macOS/AppKit and
-`pdftocairo` or `pdftoppm` from Poppler.
-
-## Validate
-
-Audit the canonical CLAP inventory against source metadata and built bundles,
-then exercise the installer in isolated fixtures:
-
-```sh
-python3 scripts/check-clap-bundle-manifest.py --build-root build-clap/plugins
-./tests/clap_bundle_installer_smoke.sh
-```
-
-The local smoke executables exercise shared DSP code:
-
-```sh
-./build/s3g_dsp_smoke
-./build/s3g_crcltr_smoke
-./build/s3g_ambi_effect_displacement_smoke
-./build/s3g_ambi_effect_resonance_print_smoke
-./build/s3g_ambi_imprint_safety_smoke
-./build/s3g_ambi_ray_encoder_smoke
-./build/s3g_ambi_ray_bilocation_encoder_smoke
-./build/s3g_ambi_pulsar_encoder_smoke
-./build/s3g_ambi_neural_ecology_smoke
-./build/s3g_accelerometer_field_encoder_smoke
-./build/s3g_parameter_surface_smoke
-./build/s3g_psd_raw_field_smoke
-./build/s3g_psd_raw_field_parameter_audit
-```
-
-The CRCLTR CLAP boundary test records and plays a loop through the loaded
-bundle:
-
-```sh
-./build-clap/s3g_crcltr_clap_smoke \
-  ./build-clap/plugins/clap_crcltr/s3g_crcltr.clap
-```
-
-The smoke tests cover multichannel routing, loop playback, finite output,
-bounded peaks, de-click stress, high-order encoder/decoder paths, Processor Ambi
-Imprint safety, Ambi Encoder Ray room-response behavior, and Processor Fault
-codec, morph, evolution,
-parameter-sensitivity behavior, plus shared Parameter Surface interpolation.
-In a CLAP build, `audit_parameter_surface` also validates both instrument
-wrappers' X/Y automation metadata and state round trips.
-
-Check the static documentation and advisory GUI conventions with:
-
-```sh
-python3 scripts/check-docs.py
-./scripts/audit-gui-style.sh
-```
-
-If `clap-validator` is installed, validate one or more installed bundles with:
-
-```sh
-clap-validator validate --only-failed \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred_mono.clap \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred.clap \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_macro_shred.clap \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_fault.clap
-```
+drag-copying the bundles so recognized older aliases can be backed up safely.
 
 ## Related Projects
 
@@ -325,11 +223,10 @@ Companion REAPER session and routing workflows are maintained with `s3g-mc`:
 BSD-3-Clause for the code in this repository unless a subdirectory states
 otherwise. See `LICENSE`.
 
-Third-party libraries used by optional builds retain their own licenses. CLAP
-headers are MIT licensed and are fetched at build time unless an existing SDK
-path is supplied. WORLD speech vocoder is BSD-style licensed and is fetched
-when CLAP builds enable `S3G_ENABLE_WORLD`. Keep third-party notices with
-source and binary distributions; see `THIRD_PARTY_NOTICES.md`.
+The distributed CLAP binaries incorporate MIT-licensed CLAP headers and the
+Ambi Vox binary statically incorporates the BSD-style licensed WORLD speech
+vocoder. Their required license texts are the complete third-party notice set
+for this release; see `THIRD_PARTY_NOTICES.md`.
 
 ## Attribution
 

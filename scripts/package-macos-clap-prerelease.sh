@@ -105,8 +105,16 @@ left untouched. To preview the exact changes from Terminal, run:
 
 ./Install\ s3g-dsp\ CLAPs.command --dry-run
 
-Manual drag-copying is possible, but it cannot retire older filenames and may
-leave duplicate host entries. The included installer is therefore preferred.
+Manual installation:
+
+1. Close REAPER.
+2. Copy all or selected .clap bundles from this folder into:
+   ~/Library/Audio/Plug-Ins/CLAP/
+3. Restart REAPER and rescan CLAP plugins if needed.
+
+Manual copying cannot retire older filenames and may leave duplicate host
+entries after an upgrade. The included installer is therefore preferred when
+migrating an existing collection.
 
 Included plugins ($bundle_count bundles):
 
