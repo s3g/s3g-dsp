@@ -43,11 +43,14 @@ those settings.
 
 ### Encoder presses
 
+- Pages 1–11, encoders 1–5: NIM Gesture Record, Playback, Clear Last,
+  Clear All, and Cancel Recording. These stable assignments override the older
+  lane-level mute and Tune Note press shortcuts in those five positions.
 - LIVE, MOTION, and AUXTONE Output: Panic.
-- MIXER lane Level: toggle the corresponding lane mute.
+- MIXER lane Level 6–8: toggle the corresponding lane mute.
 - MATRIX1 route 8→1: Panic.
 - AUXTONE Aux A/B Return: toggle the corresponding complete aux mute.
-- TUNING Tune Note: toggle the corresponding lane pitch lock.
+- TUNING Tune Note 6–8: toggle the corresponding lane pitch lock.
 - ACTIONS uses clearly labelled push-only controls for New, three Random
   energy levels, Forget, Panic, Clear Matrix, and lane kills.
 
@@ -73,9 +76,14 @@ RETURNS, and a second performance matrix page.
 Do not route the same channel-16 command stream to a musical instrument. The
 notes used by encoder presses are control commands, not performance notes.
 
-## Current limitation
+## NIM Gesture companion
 
-The CLAP sends host parameter notifications but does not have a MIDI output
-port, so E16 values and rings do not follow changes made by factory presets,
-project restore, or the plug-in GUI. This scene therefore has no soft takeover
-yet. Preset loading and `Send All` should be treated as explicit state changes.
+The optional `s3g Utility NIM Gesture` MIDI-only CLAP can record free-running
+parameter loops and return its live and played NRPN values to the E16 rings.
+Place it before No Input Mixer and select E16 USB3 as the track's MIDI hardware
+output. Keep E16 USB Thru off to prevent a feedback loop. See
+[`docs/nim_gesture.md`](../../docs/nim_gesture.md) for routing and controls.
+
+Direct changes made in the No Input Mixer GUI, factory-preset changes, and
+project restoration are not yet translated into E16 feedback. Preset loading
+and `Send All` should still be treated as explicit state changes.

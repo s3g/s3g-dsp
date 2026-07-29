@@ -254,11 +254,11 @@ const pages = [
     encoder({ name: "Output", abbr: "OUT!", id: 1, color: colors.output, pushNote: 123 }),
   ]),
   page("MOTION", [
-    encoder({ name: "Event Rt", abbr: "EVRT", id: 36, color: colors.movement }),
-    encoder({ name: "Event Ln", abbr: "EVLN", id: 37, color: colors.movement }),
-    encoder({ name: "Density", abbr: "DENS", id: 38, color: colors.movement }),
-    encoder({ name: "Chaos", abbr: "CHAO", id: 39, color: colors.movement }),
-    encoder({ name: "Slew", abbr: "SLEW", id: 40, color: colors.movement }),
+    encoder({ name: "EvRt/Rec", abbr: "E/R", id: 36, color: colors.movement, pushNote: 112 }),
+    encoder({ name: "EvL/Play", abbr: "E/P", id: 37, color: colors.movement, pushNote: 113 }),
+    encoder({ name: "Den/Last", abbr: "D/L", id: 38, color: colors.movement, pushNote: 114 }),
+    encoder({ name: "Cha/All", abbr: "C/A", id: 39, color: colors.movement, pushNote: 115 }),
+    encoder({ name: "Slw/Cncl", abbr: "S/X", id: 40, color: colors.movement, pushNote: 116 }),
     encoder({ name: "Choke", abbr: "CHOK", id: 41, color: colors.movement }),
     encoder({ name: "Move Rt", abbr: "MVRT", id: 21, color: colors.movement }),
     encoder({ name: "Move Ph", abbr: "MVPH", id: 22, color: colors.movement }),
@@ -386,6 +386,15 @@ const pages = [
   ]),
 ];
 
+// Keep the gesture transport under the same five encoder presses on every
+// performance page. ACTIONS deliberately retains its page-specific pushes.
+const gesturePushNotes = [112, 113, 114, 115, 116];
+for (const currentPage of pages.slice(0, 11)) {
+  gesturePushNotes.forEach((note, encoderIndex) => {
+    currentPage.encoders[encoderIndex].push_action = notePush(note);
+  });
+}
+
 export const scene = {
   title: "NIM P2",
   icon: iconFromRows(iconRows),
@@ -441,6 +450,7 @@ function parameterId(action) {
 function validCommandNote(note) {
   return (note >= 32 && note <= 73)
     || (note >= 80 && note <= 87)
+    || (note >= 112 && note <= 116)
     || (note >= 120 && note <= 126);
 }
 
@@ -549,6 +559,14 @@ export function validateScene(value) {
         errors.push(`${control} uses unknown command note ${currentEncoder.push_action.nr1}`);
       } else if (![0, 1].includes(currentEncoder.push_action.type)) {
         errors.push(`${control} contains unexpected push type ${currentEncoder.push_action.type}`);
+      }
+    });
+  });
+  value.pages.slice(0, 11).forEach((currentPage, pageIndex) => {
+    gesturePushNotes.forEach((expectedNote, encoderIndex) => {
+      const push = currentPage.encoders[encoderIndex].push_action;
+      if (push.type !== 1 || push.nr1 !== expectedNote) {
+        errors.push(`page ${pageIndex + 1}, encoder ${encoderIndex + 1} must keep gesture command note ${expectedNote}`);
       }
     });
   });

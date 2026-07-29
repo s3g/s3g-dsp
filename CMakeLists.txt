@@ -203,6 +203,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_link_libraries(s3g_no_input_mixer_clap_smoke PRIVATE
     ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_nim_gesture_clap_smoke
+    tests/nim_gesture_clap_smoke.cpp)
+  target_include_directories(s3g_nim_gesture_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_nim_gesture_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
   add_executable(s3g_ambi_effect_resonance_print_clap_smoke
     tests/ambi_effect_resonance_print_clap_smoke.cpp)
   target_include_directories(s3g_ambi_effect_resonance_print_clap_smoke
@@ -257,6 +264,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
   add_subdirectory(plugins/clap_no_input_mixer)
+  add_subdirectory(plugins/clap_nim_gesture)
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_ray_bilocation_encoder)
@@ -631,6 +639,16 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_encoder_family_gui_smoke
         s3g_ambi_imprint_clap
       COMMENT "Rendering and validating the Ambi Imprint GUI")
+
+    add_custom_target(audit_gui_nim_gesture
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_nim_gesture_clap>
+        org.s3g.s3g-dsp.nim-gesture 1180 820
+        "s3g Utility " responsive
+      DEPENDS
+        s3g_encoder_family_gui_smoke
+        s3g_nim_gesture_clap
+      COMMENT "Rendering and validating the NIM Gesture E16 overview GUI")
   endif()
 endif()
 

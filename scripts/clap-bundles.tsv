@@ -34,6 +34,7 @@ clap_loop_processor/s3g_loop_processor.clap	s3g_processor_loop_8ch.clap	org.s3g.
 clap_multi_loop_processor/s3g_multi_loop_processor.clap	s3g_processor_multi_loop_8ch.clap	org.s3g.s3g-dsp.multi-loop-processor-8ch	s3g Processor Multi Loop 8ch
 clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8ch.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8ch
 clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8ch.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8ch
+clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
 clap_ambi_grain_processor/s3g_ambi_grain_processor.clap	s3g_processor_ambi_grain_16ch.clap	org.s3g.s3g-dsp.ambi-grain-processor	s3g Processor Ambi Grain 16ch
 clap_macro_delay/s3g_macro_delay.clap	s3g_macro_delay_8ch.clap	org.s3g.s3g-dsp.macro-delay-8ch	s3g Macro Delay 8ch
 clap_macro_delay/s3g_24ch_macro_delay.clap	s3g_macro_delay_24ch.clap	org.s3g.s3g-dsp.macro-delay-24ch	s3g Macro Delay 24ch

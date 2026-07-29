@@ -1792,9 +1792,14 @@ void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
     if (applyParamEvent(plugin, event) || !event
         || event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
     if (event->type == CLAP_EVENT_MIDI) {
-        handleMidiEvent(plugin,
-            *reinterpret_cast<const clap_event_midi_t*>(event),
-            outputEvents);
+        const auto& midi = *reinterpret_cast<const clap_event_midi_t*>(event);
+        handleMidiEvent(plugin, midi, outputEvents);
+        const uint8_t status = midi.data[0] & 0xf0u;
+        const uint8_t channel = midi.data[0] & 0x0fu;
+        if (status == 0xb0u && channel == kMidiControlChannel
+            && outputEvents && outputEvents->try_push) {
+            outputEvents->try_push(outputEvents, event);
+        }
         return;
     }
     if (event->type == CLAP_EVENT_NOTE_ON) {
@@ -1991,18 +1996,20 @@ const clap_plugin_audio_ports_t audioPorts {
 
 uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
 {
-    return isInput ? 1u : 0u;
+    (void)isInput;
+    return 1u;
 }
 
 bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     clap_note_port_info_t* info)
 {
-    if (!info || !isInput || index != 0u) return false;
-    info->id = 30u;
+    if (!info || index != 0u) return false;
+    info->id = isInput ? 30u : 31u;
     info->supported_dialects =
         CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
-    std::snprintf(info->name, sizeof(info->name), "Controller MIDI In");
+    std::snprintf(info->name, sizeof(info->name), "%s",
+        isInput ? "Controller MIDI In" : "Controller Feedback Out");
     return true;
 }
 

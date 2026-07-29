@@ -257,6 +257,7 @@ struct MidiEventList {
 
 struct OutputEventList {
     std::vector<clap_event_param_value_t> params;
+    std::vector<clap_event_midi_t> midi;
     clap_output_events_t output {
         this,
         [](const clap_output_events_t* list,
@@ -268,12 +269,17 @@ struct OutputEventList {
                 && event->size >= sizeof(clap_event_param_value_t)) {
                 self->params.push_back(
                     *reinterpret_cast<const clap_event_param_value_t*>(event));
+            } else if (event->space_id == CLAP_CORE_EVENT_SPACE_ID
+                && event->type == CLAP_EVENT_MIDI
+                && event->size >= sizeof(clap_event_midi_t)) {
+                self->midi.push_back(
+                    *reinterpret_cast<const clap_event_midi_t*>(event));
             }
             return true;
         },
     };
 
-    void clear() { params.clear(); }
+    void clear() { params.clear(); midi.clear(); }
 
     const clap_event_param_value_t* last(clap_id id) const
     {
@@ -391,7 +397,7 @@ int main(int argc, char** argv)
         && ports->get(plugin, 0u, false, &outputPort)
         && outputPort.channel_count == kChannels
         && notePorts->count(plugin, true) == 1u
-        && notePorts->count(plugin, false) == 0u
+        && notePorts->count(plugin, false) == 1u
         && notePorts->get(plugin, 0u, true, &midiInputPort)
         && (midiInputPort.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
         && midiInputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
@@ -671,7 +677,8 @@ int main(int argc, char** argv)
         && feedbackOutput
         && std::abs(feedbackOutput->value - expectedFeedback) < 1.0e-6
         && (feedbackOutput->header.flags & CLAP_EVENT_IS_LIVE) != 0u
-        && (feedbackOutput->header.flags & CLAP_EVENT_DONT_RECORD) != 0u;
+        && (feedbackOutput->header.flags & CLAP_EVENT_DONT_RECORD) != 0u
+        && midiOutput.midi.size() == 4u;
     if (!ok) std::cerr << "failed: MIDI NRPN parameter mapping\n";
 
     midiOutput.clear();
@@ -682,7 +689,7 @@ int main(int argc, char** argv)
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
         && params->get_value(plugin, kFeedbackParam, &midiValue)
         && std::abs(midiValue - expectedFeedback) < 1.0e-6
-        && midiOutput.params.empty();
+        && midiOutput.params.empty() && midiOutput.midi.empty();
     if (!ok) std::cerr << "failed: MIDI control channel isolation\n";
 
     midiOutput.clear();
