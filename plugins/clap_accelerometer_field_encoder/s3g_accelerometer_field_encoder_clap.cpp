@@ -869,7 +869,9 @@ bool applyParamToState(
         const uint32_t index = roundedIndex(
             value, kFactoryPresetCount + 1u);
         if (index >= kFactoryPresetCount) return false;
+        const float outputGainDb = params.outputGainDb;
         params = s3g::accelerometerFieldFactoryPreset(index);
+        params.outputGainDb = outputGainDb;
         presetIndex = index;
         return true;
     }
@@ -3134,7 +3136,8 @@ NSColor* modalBodyColorFromAed(
             s3g::clap_gui::cocoaRect(kTitleBand.saveButton))) {
         if (s3g::clap_gui::handleProcessorTitleClick(
             point, &p->plugin, @"Ambi Encoder Modal",
-            kTitleBand, p->presetName, sizeof(p->presetName))) {
+            kTitleBand, p->presetName, sizeof(p->presetName),
+            kParamOutputGain)) {
             [self setNeedsDisplay:YES];
         }
         return;

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Panner VBAP - s3g-dsp</title>
+    <meta name="description" content="Vector-base amplitude panner documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Panner VBAP</h1>
+
+        <p><code>s3g Panner VBAP</code> is a direct speaker panner, not an ambisonic plugin. It steers each source through valid speaker pairs or three-speaker facets derived from the selected layout.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/panner-vbap.png" aria-label="Open high-resolution Panner VBAP GUI screenshot">
+              <img src="assets/plugin-guis/panner-vbap.png" alt="Panner VBAP showing four source points, a Cube 17 speaker geometry, and the solver topology" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Panner VBAP with four source points against a Cube 17 speaker geometry and its solver topology.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Panner VBAP on a REAPER track with the required source inputs and enough channels for its 64-channel output bus, then select or load the speaker layout and confirm its active speaker count and output order.</li>
+          <li>Route the active output lanes to the matching main speakers, directly or through a speaker-array utility chain, then begin playback.</li>
+          <li>Move sources in <code>FIELD</code> while watching the yellow solver pairs and facets used by the selected layout.</li>
+          <li>Check transitions across facet boundaries, around the poles, and through any unsupported elevation region before final calibration.</li>
+        </ol>
+
+        <h2 id="signal-shape">Signal Shape</h2>
+
+        <pre><code>source inputs
+-&gt; source direction / distance / gain
+-&gt; matching speaker pair or three-speaker facet
+-&gt; normalized VBAP vector gains and pole support
+-&gt; source distance rolloff
+-&gt; speaker outputs 1-64</code></pre>
+
+        <p>Only the active speaker count writes sound. Unused output lanes are silent.</p>
+
+        <h2 id="method">Vector-Base Amplitude Panning</h2>
+
+        <p>VBAP represents the source direction with a local speaker basis. Flat layouts use two-speaker pairs; three-dimensional layouts use triangular facets. The solved gains are power-normalized, producing focused directional steering and controlled handoffs as the source crosses from one pair or facet to the next.</p>
+
+        <p>If no valid pair or facet contains a direction, the fallback selects the nearest real speaker direction. Pole-cap blending stabilizes motion at extreme elevation rather than allowing a weak or incomplete facet to dominate.</p>
+
+        <h2 id="topology">Solver Topology</h2>
+
+        <p>The faint yellow overlay draws the pairs and facets used by the VBAP solver. It is not a decorative nearest-neighbor mesh. Imaginary solver speakers may be added where the real layout does not close cleanly; they support the solve but never create output channels.</p>
+
+        <p>Flat layouts receive silent imaginary top and bottom speakers. Partial three-dimensional layouts, such as quad plus overheads, can also receive support points and pole-cap blending near <code>+90</code> and <code>-90</code> degrees.</p>
+
+        <h2 id="distance-behavior">Speaker and Source Distance</h2>
+
+        <p>VBAP builds its solver from normalized speaker directions. Stored speaker <code>DST</code> affects the field drawing but not the pair or facet gain solution. A source at <code>DST 1</code> can therefore point exactly toward a farther Cartesian cube speaker while appearing inside its marker. See <a href="panner-layout.html#aed-layout-shapes">AED Distance and Layout Shape</a> for the preset geometry.</p>
+
+        <p>Source <code>DST</code> still controls overall rolloff and the selected <code>IN</code> behavior. For flat layouts, elevation produces a smooth attenuation away from the speaker plane. When a layout has no real lower speakers, downward motion preserves the VBAP distribution and rolls toward silence at <code>-90</code> degrees.</p>
+
+        <h2 id="interface">Field, Mixer, and Design</h2>
+
+        <p><code>FIELD</code> shows sources, speaker geometry, and the yellow VBAP topology. <code>MIXER</code> provides source gain, mute, solo, and output level. <code>DESIGN</code> edits or imports speaker positions. These pages and the custom-layout JSON format are shared with Panner Layout; see <a href="panner-layout.html#pages">Pages</a>, <a href="panner-layout.html#design-page">Design Page</a>, and <a href="panner-layout.html#json">Custom Layout JSON</a>.</p>
+
+        <p>The host project stores the selected <code>TOP</code>, <code>SIDE</code>, or <code>3/4</code> view together with manual rotation and zoom.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="panner-lbap.html">
+            <span>Previous</span>
+            Panner LBAP
+          </a>
+          <a class="page-nav-link next" href="bus-mixing-routing.html">
+            <span>Next</span>
+            Bus Mixing / Routing
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Direct Panning Pages</h2>
+          <a href="panner-layout.html">Panner Layout</a>
+          <a href="panner-dbap.html">Panner DBAP</a>
+          <a href="panner-lbap.html">Panner LBAP</a>
+          <a href="panner-vbap.html">Panner VBAP</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-shape">Signal Shape</a>
+          <a href="#method">Vector-Base Amplitude Panning</a>
+          <a href="#topology">Solver Topology</a>
+          <a href="#distance-behavior">Speaker and Source Distance</a>
+          <a href="#interface">Field, Mixer, and Design</a>
+        </div>
+      </aside>
+    </div>
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

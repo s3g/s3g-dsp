@@ -1616,7 +1616,8 @@ NSRect imprintAtlasMenuRect()
         s3g::gui_layout::kImprintFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &_plugin->plugin, @"Processor Ambi Imprint 64ch",
-            titleBand, _titlePresetName, sizeof(_titlePresetName))) {
+            titleBand, _titlePresetName, sizeof(_titlePresetName),
+            kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }

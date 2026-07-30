@@ -828,7 +828,8 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &p->plugin, @"Effect CRCLTR", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName),
+            kOutputGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

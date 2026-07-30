@@ -114,6 +114,14 @@ add_custom_target(audit_gui_style
 find_package(Python3 QUIET COMPONENTS Interpreter)
 
 if(Python3_Interpreter_FOUND)
+  add_custom_target(audit_objc_class_names
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-objc-class-uniqueness.py
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-objc-class-uniqueness.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Checking process-global Objective-C class names across CLAP bundles"
+    VERBATIM)
+
   add_custom_target(audit_clap_bundle_manifest
     COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-bundle-manifest.py
@@ -181,6 +189,20 @@ if(S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS)
 endif()
 
 if(S3G_BUILD_CLAP_PLUGIN)
+  if(APPLE AND Python3_Interpreter_FOUND)
+    add_custom_target(audit_clap_objc_symbols
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-objc-symbols.py
+        --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+        --build-root ${CMAKE_BINARY_DIR}/plugins
+      DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-objc-symbols.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Checking compiled CLAP bundles for process-global Objective-C class collisions"
+      VERBATIM)
+  endif()
+
   add_executable(s3g_accelerometer_field_encoder_clap_state_smoke
     tests/accelerometer_field_encoder_clap_state_smoke.cpp)
   target_include_directories(s3g_accelerometer_field_encoder_clap_state_smoke PRIVATE
@@ -191,6 +213,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_executable(s3g_parameter_surface_clap_smoke tests/parameter_surface_clap_smoke.cpp)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_spectral_spray_clap_routing_smoke
+    tests/spectral_spray_clap_routing_smoke.cpp)
+  target_include_directories(s3g_spectral_spray_clap_routing_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_spectral_spray_clap_routing_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
 
   add_executable(s3g_crcltr_clap_smoke tests/crcltr_clap_smoke.cpp)
   target_include_directories(s3g_crcltr_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
@@ -315,6 +344,19 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_orbit_delay)
   add_subdirectory(plugins/clap_cascade_taps)
   add_subdirectory(plugins/clap_crcltr)
+
+  add_custom_target(audit_spectral_spray_routing
+    COMMAND $<TARGET_FILE:s3g_spectral_spray_clap_routing_smoke>
+      $<TARGET_FILE:s3g_spectral_spray_clap>
+      org.s3g.s3g-dsp.spectral-spray 2 16
+    COMMAND $<TARGET_FILE:s3g_spectral_spray_clap_routing_smoke>
+      $<TARGET_FILE:s3g_8ch_spectral_spray_clap>
+      org.s3g.s3g-dsp.8ch-spectral-spray 8 16
+    DEPENDS
+      s3g_spectral_spray_clap_routing_smoke
+      s3g_spectral_spray_clap
+      s3g_8ch_spectral_spray_clap
+    COMMENT "Checking Spectral Spray routing in a wider host buffer")
 
   add_custom_target(audit_gui_layout_contract
     COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>

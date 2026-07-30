@@ -900,7 +900,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Ambi Grain", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

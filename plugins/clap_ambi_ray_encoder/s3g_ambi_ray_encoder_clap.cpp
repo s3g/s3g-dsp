@@ -1760,8 +1760,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Ray Encoder", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Ray Encoder", kParamOutput, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

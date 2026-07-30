@@ -1692,7 +1692,9 @@ void applyPreset(Plugin& p, uint32_t preset)
 {
     preset = std::min(preset, kCustomPreset);
     if (preset == kCustomPreset) { p.selectedPreset = kCustomPreset; return; }
-    transitionPatch(p, presetParams(preset), preset, 0.90f, true);
+    auto next = presetParams(preset);
+    next.gainDb = p.params.gainDb;
+    transitionPatch(p, next, preset, 0.90f, true);
 }
 
 void applyCuratedAlgorithm(Plugin& p, uint32_t algorithm)
@@ -4649,7 +4651,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &p->plugin, @"Processor Fault", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

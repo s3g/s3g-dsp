@@ -1836,8 +1836,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &titlePlugin->plugin, @"Ambi Point Encoder", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &titlePlugin->plugin, @"Ambi Point Encoder", kOutputParamId, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

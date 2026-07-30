@@ -888,8 +888,8 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Cloud Encoder", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Cloud Encoder", kOutputParamId, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

@@ -9674,7 +9674,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 {
     if (!_plugin || index >= kVoxFactoryPresetCount) return;
     const auto preset = voxFactoryPreset(index);
-    if (!queueVoxPreset(*_plugin, preset.snapshot)) {
+    auto snapshot = preset.snapshot;
+    snapshot.params.outputGainDb = _plugin->params.outputGainDb;
+    if (!queueVoxPreset(*_plugin, snapshot)) {
         NSBeep();
         return;
     }
@@ -9694,7 +9696,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     _plugin->factoryPresetIndex = static_cast<int32_t>(index);
     std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", preset.name);
     _selectedVoice = std::min<uint32_t>(_selectedVoice,
-        std::max<uint32_t>(1u, preset.snapshot.params.voices) - 1u);
+        std::max<uint32_t>(1u, snapshot.params.voices) - 1u);
     [self setNeedsDisplay:YES];
 }
 
@@ -9890,6 +9892,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         }
     }
 
+    candidate.params.outputGainDb = _plugin->params.outputGainDb;
     if (!queueVoxPreset(*_plugin, candidate)) {
         NSBeep();
         return;

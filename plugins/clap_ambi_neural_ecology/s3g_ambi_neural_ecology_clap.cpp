@@ -1116,7 +1116,9 @@ void applyGuiParam(Plugin& plugin, clap_id id, double value)
             s3g::kAmbiNeuralEcologyFactoryPresetCount - 1u);
         plugin.customPresetName[0] = '\0';
         plugin.customPresetActive.store(false, std::memory_order_relaxed);
-        publishParams(plugin, s3g::ambiNeuralEcologyFactoryPreset(preset), preset, true);
+        auto params = s3g::ambiNeuralEcologyFactoryPreset(preset);
+        params.outputGainDb = plugin.params.outputGainDb;
+        publishParams(plugin, params, preset, true);
         plugin.scoreTransportRunning.store(
             plugin.params.scoreMode != s3g::AmbiNeuralScoreMode::Off,
             std::memory_order_release);
@@ -1145,7 +1147,9 @@ void applyAudioParam(Plugin& plugin, clap_id id, double value)
     if (id == kPresetParamId) {
         const uint32_t preset = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u,
             s3g::kAmbiNeuralEcologyFactoryPresetCount - 1u);
+        const float outputGainDb = plugin.audioParams.outputGainDb;
         plugin.audioParams = s3g::ambiNeuralEcologyFactoryPreset(preset);
+        plugin.audioParams.outputGainDb = outputGainDb;
         storeParamBank(plugin, plugin.audioParams, preset);
     } else {
         if (!assignParam(plugin.audioParams, id, value)) return;
@@ -2719,6 +2723,8 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     if ([panel runModal] != NSModalResponseOK) return NO;
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return NO;
+    syncGuiParams(*_plugin);
+    file.params.outputGainDb = _plugin->params.outputGainDb;
     std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s",
         file.name[0] ? file.name : "Custom");
     _plugin->customPresetActive.store(true, std::memory_order_relaxed);

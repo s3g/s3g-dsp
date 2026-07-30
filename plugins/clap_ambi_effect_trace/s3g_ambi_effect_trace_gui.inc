@@ -203,7 +203,7 @@ bool sliderLocation(clap_id id, const s3g::gui_layout::Panel*& panel,
 
 } // namespace
 
-@interface S3GAmbiEffectTraceView : NSView {
+@interface S3G_AMBI_EFFECT_TRACE_VIEW_CLASS : NSView {
     void* _plugin;
     int _dragParam;
     int _openMenu;
@@ -224,7 +224,7 @@ bool sliderLocation(clap_id id, const s3g::gui_layout::Panel*& panel,
 - (void)storeViewState;
 @end
 
-@implementation S3GAmbiEffectTraceView
+@implementation S3G_AMBI_EFFECT_TRACE_VIEW_CLASS
 
 - (id)initWithPlugin:(void*)plugin
 {
@@ -799,7 +799,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     if (!guiIsApiSupported(plugin, api, floating)) return false;
     auto* instance = self(plugin);
     if (instance->guiView) return true;
-    instance->guiView = [[S3GAmbiEffectTraceView alloc] initWithPlugin:instance];
+    instance->guiView = [[S3G_AMBI_EFFECT_TRACE_VIEW_CLASS alloc] initWithPlugin:instance];
     if (!instance->guiView) return false;
     if (!s3g::clap_gui::createResponsiveViewport(instance->guiViewport,
         static_cast<NSView*>(instance->guiView), kGuiWidth, kGuiHeight)) {
@@ -814,7 +814,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance || !instance->guiView) return;
     instance->guiVisible.store(false, std::memory_order_relaxed);
-    [static_cast<S3GAmbiEffectTraceView*>(instance->guiView) stopRefreshTimer];
+    [static_cast<S3G_AMBI_EFFECT_TRACE_VIEW_CLASS*>(instance->guiView) stopRefreshTimer];
     s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport,
         instance->guiView);
 }
@@ -856,7 +856,7 @@ bool guiShow(const clap_plugin_t* plugin)
     if (!instance->guiView || !s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, false)) return false;
     instance->guiVisible.store(true, std::memory_order_relaxed);
-    [static_cast<S3GAmbiEffectTraceView*>(instance->guiView) startRefreshTimer];
+    [static_cast<S3G_AMBI_EFFECT_TRACE_VIEW_CLASS*>(instance->guiView) startRefreshTimer];
     return true;
 }
 bool guiHide(const clap_plugin_t* plugin)
@@ -864,7 +864,7 @@ bool guiHide(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
     instance->guiVisible.store(false, std::memory_order_relaxed);
-    [static_cast<S3GAmbiEffectTraceView*>(instance->guiView) stopRefreshTimer];
+    [static_cast<S3G_AMBI_EFFECT_TRACE_VIEW_CLASS*>(instance->guiView) stopRefreshTimer];
     return s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, true);
 }

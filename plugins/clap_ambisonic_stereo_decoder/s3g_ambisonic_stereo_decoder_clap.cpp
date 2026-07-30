@@ -1058,7 +1058,9 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     auto* titlePlugin = static_cast<Plugin*>(_plugin);
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const float outputGainDb = titlePlugin->params.outputGainDb;
         titlePlugin->params = sanitizeParams(s3g::AmbiStereoParams {});
+        titlePlugin->params.outputGainDb = outputGainDb;
         markCoeffsDirty(*titlePlugin);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setNeedsDisplay:YES];
@@ -1066,8 +1068,9 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &titlePlugin->plugin, @"Ambi Decoder Stereo", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &titlePlugin->plugin, @"Ambi Decoder Stereo",
+                kParamOutputGain, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

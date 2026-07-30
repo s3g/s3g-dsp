@@ -386,7 +386,7 @@ constexpr uint32_t kOrbitParamIndices[] { 0u, 1u, 2u, 3u, 4u, 5u };
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Effect Orbit Delay", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

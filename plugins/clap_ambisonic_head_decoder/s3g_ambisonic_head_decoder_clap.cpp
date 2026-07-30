@@ -879,7 +879,9 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     auto* titlePlugin = static_cast<Plugin*>(_plugin);
     const auto titleBand = s3g::clap_gui::encoderTitleBand(930.0, 720.0);
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const float outputGainDb = titlePlugin->params.outputGainDb;
         titlePlugin->params = sanitizeParams(s3g::AmbiHeadParams {});
+        titlePlugin->params.outputGainDb = outputGainDb;
         titlePlugin->paramsDirty = true;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setNeedsDisplay:YES];
@@ -887,8 +889,9 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &titlePlugin->plugin, @"Ambi Decoder Head", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &titlePlugin->plugin, @"Ambi Decoder Head", kParamOutput,
+                &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

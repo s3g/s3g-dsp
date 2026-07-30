@@ -3,8 +3,10 @@
 #endif
 
 #if S3G_PARTIAL_TRACE
+#define S3G_AMBI_EFFECT_TRACE_VIEW_CLASS S3GAmbiEffectPartialTraceView
 #include "s3g_ambi_effect_partial_trace.h"
 #else
+#define S3G_AMBI_EFFECT_TRACE_VIEW_CLASS S3GAmbiEffectResponseTraceView
 #include "s3g_ambi_effect_response_trace.h"
 #endif
 #include "s3g_realtime.h"

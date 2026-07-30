@@ -642,7 +642,8 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
         s3g::gui_layout::kOutputUtilityFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Output Autogain Quad", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName),
+            kParamOutputGain)) {
         [self setNeedsDisplay:YES];
         return;
     }

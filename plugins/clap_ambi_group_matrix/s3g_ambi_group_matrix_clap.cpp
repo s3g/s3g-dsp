@@ -942,7 +942,8 @@ constexpr const auto& kMatrixLayout =
         s3g::gui_layout::matrixTitleBand(kMatrixLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Ambi Matrix Group 64",
-            titleBand, p->presetName, sizeof(p->presetName))) {
+            titleBand, p->presetName, sizeof(p->presetName),
+            kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }

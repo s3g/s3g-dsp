@@ -1169,7 +1169,7 @@ NSRect secondaryAxisRect()
     if (s3g::clap_gui::handleProcessorTitleClick(point, &p->plugin,
         [NSString stringWithUTF8String:kPluginName],
         s3g::gui_layout::transformTitleBand(kCanvas),
-        p->presetName, sizeof(p->presetName))) {
+        p->presetName, sizeof(p->presetName), kParamOutput)) {
         [self setNeedsDisplay:YES]; return;
     }
     if (_openMenu > 0) {

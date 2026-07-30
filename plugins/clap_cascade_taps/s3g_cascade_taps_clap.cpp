@@ -393,7 +393,7 @@ constexpr uint32_t kTapParamIndices[] { 0u, 1u, 2u };
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Effect Cascade Taps", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

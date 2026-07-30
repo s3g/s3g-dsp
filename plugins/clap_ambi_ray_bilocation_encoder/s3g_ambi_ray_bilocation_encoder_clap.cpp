@@ -1675,8 +1675,8 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Ray Bilocation Encoder", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Ray Bilocation Encoder", kParamOutput, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

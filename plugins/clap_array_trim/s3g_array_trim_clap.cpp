@@ -1,5 +1,6 @@
 #include "s3g_array_trim.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_objc_class_name.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -25,6 +26,11 @@
 #ifndef S3G_ARRAY_TRIM_CHANNELS
 #define S3G_ARRAY_TRIM_CHANNELS 16
 #endif
+
+#define S3G_ARRAY_TRIM_VIEW_CLASS \
+    S3G_OBJC_CLASS_JOIN(S3GArrayTrimView, S3G_ARRAY_TRIM_CHANNELS)
+#define S3G_ARRAY_TRIM_TEXT_CLASS \
+    S3G_OBJC_CLASS_JOIN(S3GArrayTrimNumberTextField, S3G_ARRAY_TRIM_CHANNELS)
 
 namespace {
 
@@ -341,10 +347,10 @@ constexpr uint32_t kRowHeight =
 
 } // namespace
 
-@interface S3GNumberTextField : NSTextField
+@interface S3G_ARRAY_TRIM_TEXT_CLASS : NSTextField
 @end
 
-@implementation S3GNumberTextField
+@implementation S3G_ARRAY_TRIM_TEXT_CLASS
 - (void)mouseDown:(NSEvent*)event
 {
     if ([event clickCount] > 1) {
@@ -357,7 +363,7 @@ constexpr uint32_t kRowHeight =
 }
 @end
 
-@interface S3GArrayTrimView : NSView {
+@interface S3G_ARRAY_TRIM_VIEW_CLASS : NSView {
 @private
     Plugin* _plugin;
     int _dragControl;
@@ -371,7 +377,7 @@ constexpr uint32_t kRowHeight =
 - (void)stopRefreshTimer;
 @end
 
-@implementation S3GArrayTrimView
+@implementation S3G_ARRAY_TRIM_VIEW_CLASS
 - (instancetype)initWithPlugin:(Plugin*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -384,7 +390,7 @@ constexpr uint32_t kRowHeight =
         _fields = [[NSMutableArray alloc] initWithCapacity:kRowsPerPage];
         [self setWantsLayer:YES];
         for (uint32_t row = 0; row < kRowsPerPage; ++row) {
-            NSTextField* field = [[S3GNumberTextField alloc] initWithFrame:NSZeroRect];
+            NSTextField* field = [[S3G_ARRAY_TRIM_TEXT_CLASS alloc] initWithFrame:NSZeroRect];
             s3g::clap_gui::styleNumberTextField(field);
             [field setTarget:self];
             [field setAction:@selector(trimFieldChanged:)];
@@ -695,7 +701,7 @@ constexpr uint32_t kRowHeight =
         s3g::gui_layout::arrayTitleBand(kArrayLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &_plugin->plugin, @"Array Trim", titleBand,
-            _plugin->presetName, sizeof(_plugin->presetName))) {
+            _plugin->presetName, sizeof(_plugin->presetName), kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }
@@ -795,8 +801,8 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GArrayTrimView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G_ARRAY_TRIM_VIEW_CLASS alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3G_ARRAY_TRIM_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
@@ -806,8 +812,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3G_ARRAY_TRIM_VIEW_CLASS*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3G_ARRAY_TRIM_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 

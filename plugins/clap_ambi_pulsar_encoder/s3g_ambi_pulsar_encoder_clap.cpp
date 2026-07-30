@@ -552,7 +552,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         const uint32_t preset = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u,
             s3g::kAmbiPulsarFactoryPresetCount - 1u);
         plugin.customPresetActive.store(false, std::memory_order_relaxed);
-        publishParams(plugin, s3g::ambiPulsarFactoryPreset(preset), preset, true);
+        auto params = s3g::ambiPulsarFactoryPreset(preset);
+        params.outputGainDb = plugin.params.outputGainDb;
+        publishParams(plugin, params, preset, true);
         return;
     }
     if (!assignParam(plugin.params, id, value)) return;
@@ -894,7 +896,9 @@ void applyAudioParam(Plugin& plugin, clap_id id, double value)
     if (id == kPresetParamId) {
         const uint32_t preset = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u,
             s3g::kAmbiPulsarFactoryPresetCount - 1u);
+        const float outputGainDb = plugin.audioParams.outputGainDb;
         plugin.audioParams = s3g::ambiPulsarFactoryPreset(preset);
+        plugin.audioParams.outputGainDb = outputGainDb;
         storeParamBank(plugin, plugin.audioParams, preset);
         plugin.customPresetActive.store(false, std::memory_order_relaxed);
     } else {
@@ -1736,6 +1740,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     // the current action serial so loading a preset does not request an
     // unrelated recapture; the captured mix and neural controls are restored.
     file.params.neuralCapture = _plugin->params.neuralCapture;
+    file.params.outputGainDb = _plugin->params.outputGainDb;
     std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s",
         file.name[0] ? file.name : "Custom");
     _plugin->customPresetActive.store(true, std::memory_order_relaxed);

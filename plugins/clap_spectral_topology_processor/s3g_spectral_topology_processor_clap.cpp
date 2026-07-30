@@ -2,6 +2,7 @@
 #include "s3g_realtime.h"
 #include "s3g_spectral_topology_processor.h"
 #include "s3g_topology_heatmap.h"
+#include "../common/s3g_objc_class_name.h"
 
 #include <clap/clap.h>
 #include <clap/ext/latency.h>
@@ -28,6 +29,14 @@
 #include <vector>
 
 namespace {
+
+#ifndef S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT
+#define S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT 8
+#endif
+
+#define S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS \
+    S3G_OBJC_CLASS_JOIN(S3GSpectralTopologyView, \
+        S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT)
 
 #ifndef S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID
 #define S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID "org.s3g.s3g-dsp.spectral-topology-processor"
@@ -960,7 +969,7 @@ NSString* spectralFrequencyText(float frequencyHz)
 }
 } // namespace
 
-@interface S3GSpectralTopologyView : NSView {
+@interface S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS : NSView {
     void* _plugin;
     int _dragParam;
     bool _dragTopologyView;
@@ -989,7 +998,7 @@ NSString* spectralFrequencyText(float frequencyHz)
 - (void)updateMenuHover:(NSPoint)point;
 @end
 
-@implementation S3GSpectralTopologyView
+@implementation S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS
 - (id)initWithPlugin:(void*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -1586,7 +1595,7 @@ NSString* spectralFrequencyText(float frequencyHz)
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Spectral", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1876,8 +1885,8 @@ NSString* spectralFrequencyText(float frequencyHz)
 namespace {
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralTopologyView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight, kGuiWidth, 360u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GSpectralTopologyView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight, kGuiWidth, 360u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h, kGuiWidth, 360u); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
@@ -1887,8 +1896,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GSpectralTopologyView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GSpectralTopologyView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G_SPECTRAL_TOPOLOGY_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 } // namespace
 #endif

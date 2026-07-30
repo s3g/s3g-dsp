@@ -484,7 +484,9 @@ constexpr uint32_t kGuiHeight = 360;
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const float outputGainDb = _plugin->params.outputGainDb;
         _plugin->params = s3g::AmbiSubDecoderParams {};
+        _plugin->params.outputGainDb = outputGainDb;
         _plugin->decoder.setParams(_plugin->params);
         _plugin->params = _plugin->decoder.params();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
@@ -493,8 +495,9 @@ constexpr uint32_t kGuiHeight = 360;
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Decoder Sub", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Decoder Sub", kOutputParamId,
+                &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

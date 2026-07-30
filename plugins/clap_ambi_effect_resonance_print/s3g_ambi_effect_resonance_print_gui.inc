@@ -121,6 +121,7 @@ NSRect clearButtonRect()
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)setParam:(clap_id)param value:(double)value;
+- (void)setParamOnce:(clap_id)param value:(double)value;
 - (void)updateSliderAtPoint:(NSPoint)point;
 - (void)storeViewState;
 - (void)setViewPreset:(int)mode;
@@ -205,7 +206,16 @@ NSRect clearButtonRect()
 
 - (void)setParam:(clap_id)param value:(double)value
 {
-    applyParam(*static_cast<Plugin*>(_plugin), param, value);
+    queueGuiParamValue(*static_cast<Plugin*>(_plugin), param, value);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setParamOnce:(clap_id)param value:(double)value
+{
+    auto* instance = static_cast<Plugin*>(_plugin);
+    queueGuiParamGestureBegin(*instance, param);
+    queueGuiParamValue(*instance, param, value);
+    queueGuiParamGestureEnd(*instance, param);
     [self setNeedsDisplay:YES];
 }
 
@@ -252,6 +262,7 @@ NSRect clearButtonRect()
 {
     (void)dirty;
     auto* instance = static_cast<Plugin*>(_plugin);
+    const auto params = publishedParamsSnapshot(*instance);
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -274,7 +285,7 @@ NSRect clearButtonRect()
             20.0f * std::log10(std::max(0.000001f, safety))]
         : @"";
     NSString* status = [NSString stringWithFormat:@"%uOA · %s · %@%@%@",
-        instance->params.order, s3g::ambiEffectBodyName(body),
+        params.order, s3g::ambiEffectBodyName(body),
         s3g::clap_gui::peakDbText(peak), governorText, safetyText];
     s3g::clap_gui::drawTransformTitleBand(
         @"s3g AMBI EFFECT RESONANCE PRINT 64CH",
@@ -295,7 +306,7 @@ NSRect clearButtonRect()
 
     const bool capturingNow = instance->capturing.load(std::memory_order_relaxed);
     const bool printed = instance->hasPrint.load(std::memory_order_relaxed);
-    const bool printApplied = printed && instance->params.printEnabled != 0u;
+    const bool printApplied = printed && params.printEnabled != 0u;
     const float progress = instance->captureProgress.load(std::memory_order_relaxed);
     NSString* printStatus = capturingNow
         ? [NSString stringWithFormat:@"LISTENING  %.0f%%", progress * 100.0f]
@@ -328,10 +339,10 @@ NSRect clearButtonRect()
             [edge stroke];
         }
     }
-    if (instance->params.maskAmount > 0.001f) {
-        const float azimuth = instance->params.maskAzimuthDeg
+    if (params.maskAmount > 0.001f) {
+        const float azimuth = params.maskAzimuthDeg
             * s3g::kPi / 180.0f;
-        const float elevation = instance->params.maskElevationDeg
+        const float elevation = params.maskElevationDeg
             * s3g::kPi / 180.0f;
         const float cosElevation = std::cos(elevation);
         const s3g::Vec3 direction {
@@ -341,9 +352,9 @@ NSRect clearButtonRect()
         };
         const NSPoint target = projectDirection(direction,
             static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
-        const CGFloat radius = 15.0 + instance->params.maskWidth * 34.0;
+        const CGFloat radius = 15.0 + params.maskWidth * 34.0;
         [s3g::clap_gui::color(0xcbd0cd,
-            0.24 + instance->params.maskAmount * 0.54) setStroke];
+            0.24 + params.maskAmount * 0.54) setStroke];
         NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:
             NSMakeRect(target.x - radius, target.y - radius,
                 radius * 2.0, radius * 2.0)];
@@ -393,11 +404,11 @@ NSRect clearButtonRect()
         drawAtPoint:NSMakePoint(plot.origin.x + 12.0, NSMaxY(plot) + 20.0)
         withAttributes:value];
     [self drawAxis:tuneAxisRect()
-        value:instance->params.pickupTuneTrim[_selectedPickup]
+        value:params.pickupTuneTrim[_selectedPickup]
         left:@"TUNE -12 ST" center:@"0" right:@"+12 ST"
         attrs:label style:style];
     [self drawAxis:decayAxisRect()
-        value:instance->params.pickupDecayTrim[_selectedPickup]
+        value:params.pickupDecayTrim[_selectedPickup]
         left:@"DECAY -" center:@"0" right:@"DECAY +"
         attrs:label style:style];
 
@@ -417,25 +428,25 @@ NSRect clearButtonRect()
         kMaskPanel, label, style);
 
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB",
-        instance->params.outputGainDb]
-        norm:(instance->params.outputGainDb + 60.0f) / 72.0f
+        params.outputGainDb]
+        norm:(params.outputGainDb + 60.0f) / 72.0f
         panel:kOutputPanel row:0u attrs:value style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA",
-        instance->params.order] panel:kOutputPanel row:1u attrs:value style:style];
-    NSString* bodyText = instance->params.body == s3g::AmbiEffectBody::Auto
+        params.order] panel:kOutputPanel row:1u attrs:value style:style];
+    NSString* bodyText = params.body == s3g::AmbiEffectBody::Auto
         ? [NSString stringWithFormat:@"AUTO → %s", s3g::ambiEffectBodyName(body)]
-        : [NSString stringWithUTF8String:s3g::ambiEffectBodyName(instance->params.body)];
+        : [NSString stringWithUTF8String:s3g::ambiEffectBodyName(params.body)];
     [self drawMenu:@"BODY" value:bodyText panel:kCapturePanel row:0u
         attrs:value style:style];
     [self drawSlider:@"TIME" value:[NSString stringWithFormat:@"%.2f s",
-        instance->params.captureSeconds]
-        norm:(instance->params.captureSeconds - 0.25f) / 2.75f
+        params.captureSeconds]
+        norm:(params.captureSeconds - 0.25f) / 2.75f
         panel:kCapturePanel row:1u attrs:value style:style];
     [self drawSlider:@"SENS" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.sensitivity * 100.0f] norm:instance->params.sensitivity
+        params.sensitivity * 100.0f] norm:params.sensitivity
         panel:kCapturePanel row:2u attrs:value style:style];
     [self drawMenu:@"MODES" value:[NSString stringWithFormat:@"%u / PICKUP",
-        instance->params.modalCount] panel:kCapturePanel row:3u attrs:value style:style];
+        params.modalCount] panel:kCapturePanel row:3u attrs:value style:style];
 
     const auto drawButton = [&](NSRect rect, NSString* text, bool active) {
         [s3g::clap_gui::color(active ? 0x46564d : 0x202522) setFill];
@@ -451,69 +462,69 @@ NSRect clearButtonRect()
     drawButton(clearButtonRect(), @"CLEAR PRINT", false);
 
     [self drawSlider:@"TRANS" value:[NSString stringWithFormat:@"%+.1f st",
-        instance->params.transposeSemitones]
-        norm:(instance->params.transposeSemitones + 24.0f) / 48.0f
+        params.transposeSemitones]
+        norm:(params.transposeSemitones + 24.0f) / 48.0f
         panel:kResynthesisPanel row:0u attrs:value style:style];
     [self drawSlider:@"PULL" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.harmonicPull * 100.0f] norm:instance->params.harmonicPull
+        params.harmonicPull * 100.0f] norm:params.harmonicPull
         panel:kResynthesisPanel row:1u attrs:value style:style];
     [self drawSlider:@"STRETCH" value:[NSString stringWithFormat:@"%+.0f%%",
-        instance->params.harmonicStretch * 100.0f]
-        norm:(instance->params.harmonicStretch + 1.0f) * 0.5f
+        params.harmonicStretch * 100.0f]
+        norm:(params.harmonicStretch + 1.0f) * 0.5f
         panel:kResynthesisPanel row:2u attrs:value style:style];
-    const double decayNorm = std::log(instance->params.decaySeconds / 0.08f)
+    const double decayNorm = std::log(params.decaySeconds / 0.08f)
         / std::log(8.0 / 0.08);
     [self drawSlider:@"DECAY" value:[NSString stringWithFormat:@"%.2f s",
-        instance->params.decaySeconds] norm:decayNorm
+        params.decaySeconds] norm:decayNorm
         panel:kResynthesisPanel row:3u attrs:value style:style];
     [self drawSlider:@"TILT" value:[NSString stringWithFormat:@"%+.0f%%",
-        instance->params.decayTilt * 100.0f]
-        norm:(instance->params.decayTilt + 1.0f) * 0.5f
+        params.decayTilt * 100.0f]
+        norm:(params.decayTilt + 1.0f) * 0.5f
         panel:kResynthesisPanel row:4u attrs:value style:style];
     [self drawSlider:@"DRIVE" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.drive * 100.0f] norm:instance->params.drive
+        params.drive * 100.0f] norm:params.drive
         panel:kResynthesisPanel row:5u attrs:value style:style];
     [self drawSlider:@"SPREAD" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.spread * 100.0f] norm:instance->params.spread
+        params.spread * 100.0f] norm:params.spread
         panel:kResynthesisPanel row:6u attrs:value style:style];
     [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.deviation * 100.0f] norm:instance->params.deviation
+        params.deviation * 100.0f] norm:params.deviation
         panel:kResynthesisPanel row:7u attrs:value style:style];
     [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.mix * 100.0f] norm:instance->params.mix
+        params.mix * 100.0f] norm:params.mix
         panel:kResynthesisPanel row:8u attrs:value style:style];
 
     [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:
-        s3g::ambiEffectTopologyName(instance->params.topology)]
+        s3g::ambiEffectTopologyName(params.topology)]
         panel:kTopologyPanel row:0u attrs:value style:style];
     [self drawSlider:@"AMT" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.topologyAmount * 100.0f]
-        norm:instance->params.topologyAmount panel:kTopologyPanel row:1u
+        params.topologyAmount * 100.0f]
+        norm:params.topologyAmount panel:kTopologyPanel row:1u
         attrs:value style:style];
-    const double rateNorm = std::log(instance->params.roamingRateHz / 0.005f)
+    const double rateNorm = std::log(params.roamingRateHz / 0.005f)
         / std::log(2.0 / 0.005);
     [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f Hz",
-        instance->params.roamingRateHz] norm:rateNorm panel:kTopologyPanel row:2u
+        params.roamingRateHz] norm:rateNorm panel:kTopologyPanel row:2u
         attrs:value style:style];
 
     [self drawSlider:@"MASK" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.maskAmount * 100.0f] norm:instance->params.maskAmount
+        params.maskAmount * 100.0f] norm:params.maskAmount
         panel:kMaskPanel row:0u attrs:value style:style];
     [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f deg",
-        instance->params.maskAzimuthDeg]
-        norm:(instance->params.maskAzimuthDeg + 180.0f) / 360.0f
+        params.maskAzimuthDeg]
+        norm:(params.maskAzimuthDeg + 180.0f) / 360.0f
         panel:kMaskPanel row:1u attrs:value style:style];
     [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f deg",
-        instance->params.maskElevationDeg]
-        norm:(instance->params.maskElevationDeg + 90.0f) / 180.0f
+        params.maskElevationDeg]
+        norm:(params.maskElevationDeg + 90.0f) / 180.0f
         panel:kMaskPanel row:2u attrs:value style:style];
     [self drawSlider:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%",
-        instance->params.maskWidth * 100.0f] norm:instance->params.maskWidth
+        params.maskWidth * 100.0f] norm:params.maskWidth
         panel:kMaskPanel row:3u attrs:value style:style];
-    [self drawSlider:@"DRY" value:instance->params.maskDry < 0.005f
+    [self drawSlider:@"DRY" value:params.maskDry < 0.005f
         ? @"FX ONLY" : [NSString stringWithFormat:@"%.0f%%",
-            (instance->params.maskDry - 1.0f) * 100.0f]
-        norm:instance->params.maskDry panel:kMaskPanel row:4u
+            (params.maskDry - 1.0f) * 100.0f]
+        norm:params.maskDry panel:kMaskPanel row:4u
         attrs:value style:style];
 
     if (_openMenu > 0 && _menuItems > 0u) {
@@ -524,12 +535,12 @@ NSRect clearButtonRect()
         NSString** items = _openMenu == 1 ? orderItems
             : (_openMenu == 2 ? bodyItems : (_openMenu == 3 ? modeItems : topologyItems));
         int selected = 0;
-        if (_openMenu == 1) selected = static_cast<int>(instance->params.order) - 1;
-        else if (_openMenu == 2) selected = instance->params.body == s3g::AmbiEffectBody::Auto
-            ? 0 : (instance->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2
-                : (instance->params.body == s3g::AmbiEffectBody::Sphere24 ? 3 : 1));
-        else if (_openMenu == 3) selected = static_cast<int>(instance->params.modalCount) - 2;
-        else selected = static_cast<int>(instance->params.topology);
+        if (_openMenu == 1) selected = static_cast<int>(params.order) - 1;
+        else if (_openMenu == 2) selected = params.body == s3g::AmbiEffectBody::Auto
+            ? 0 : (params.body == s3g::AmbiEffectBody::Dodeca20 ? 2
+                : (params.body == s3g::AmbiEffectBody::Sphere24 ? 3 : 1));
+        else if (_openMenu == 3) selected = static_cast<int>(params.modalCount) - 2;
+        else selected = static_cast<int>(params.topology);
         const CGFloat width = s3g::gui_layout::processorMenuWidth(
             kOutputPanel.frame.width);
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y,
@@ -611,11 +622,11 @@ NSRect clearButtonRect()
             NSMakeRect(_menuOrigin.x, _menuOrigin.y, width, 18.0 * _menuItems),
             18.0, _menuItems);
         if (hit >= 0) {
-            if (_openMenu == 1) [self setParam:kParamOrder value:hit + 1.0];
-            else if (_openMenu == 2) [self setParam:kParamBody
+            if (_openMenu == 1) [self setParamOnce:kParamOrder value:hit + 1.0];
+            else if (_openMenu == 2) [self setParamOnce:kParamBody
                 value:(hit == 0 ? 0.0 : hit + 2.0)];
-            else if (_openMenu == 3) [self setParam:kParamModalCount value:hit + 2.0];
-            else [self setParam:kParamTopology value:hit];
+            else if (_openMenu == 3) [self setParamOnce:kParamModalCount value:hit + 2.0];
+            else [self setParamOnce:kParamTopology value:hit];
         }
         _openMenu = 0; _hoverMenuItem = -1;
         [self setNeedsDisplay:YES]; return;
@@ -630,21 +641,25 @@ NSRect clearButtonRect()
         }
     }
     if (NSPointInRect(point, captureButtonRect())) {
+        queueGuiParamGestureBegin(*instance, kParamCapture);
         [self setParam:kParamCapture value:1.0];
         [self setParam:kParamCapture value:0.0];
+        queueGuiParamGestureEnd(*instance, kParamCapture);
         return;
     }
     if (NSPointInRect(point, applyButtonRect())) {
         if (!instance->capturing.load(std::memory_order_relaxed)
             && instance->hasPrint.load(std::memory_order_relaxed)) {
-            [self setParam:kParamPrintEnabled
-                value:instance->params.printEnabled != 0u ? 0.0 : 1.0];
+            [self setParamOnce:kParamPrintEnabled
+                value:getParam(*instance, kParamPrintEnabled) != 0.0 ? 0.0 : 1.0];
         }
         return;
     }
     if (NSPointInRect(point, clearButtonRect())) {
+        queueGuiParamGestureBegin(*instance, kParamClear);
         [self setParam:kParamClear value:1.0];
         [self setParam:kParamClear value:0.0];
+        queueGuiParamGestureEnd(*instance, kParamClear);
         return;
     }
     const auto body = static_cast<s3g::AmbiEffectBody>(
@@ -658,8 +673,8 @@ NSRect clearButtonRect()
         if (dx * dx + dy * dy <= 18.0 * 18.0) {
             _selectedPickup = node;
             if ([event clickCount] >= 2) {
-                [self setParam:kParamPickupTuneFirst + node value:0.0];
-                [self setParam:kParamPickupDecayFirst + node value:0.0];
+                [self setParamOnce:kParamPickupTuneFirst + node value:0.0];
+                [self setParamOnce:kParamPickupDecayFirst + node value:0.0];
             }
             [self setNeedsDisplay:YES]; return;
         }
@@ -669,8 +684,9 @@ NSRect clearButtonRect()
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
             event, &instance->plugin, id, &defaultValue)) {
-            [self setParam:id value:defaultValue];
+            [self setParamOnce:id value:defaultValue];
         } else {
+            queueGuiParamGestureBegin(*instance, id);
             _dragSlider = static_cast<int>(id);
             [self updateSliderAtPoint:point];
         }
@@ -723,8 +739,9 @@ NSRect clearButtonRect()
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
             event, &instance->plugin, slider.param, &defaultValue)) {
-            [self setParam:slider.param value:defaultValue];
+            [self setParamOnce:slider.param value:defaultValue];
         } else {
+            queueGuiParamGestureBegin(*instance, slider.param);
             _dragSlider = static_cast<int>(slider.param);
             [self updateSliderAtPoint:point];
         }
@@ -767,6 +784,10 @@ NSRect clearButtonRect()
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
+    if (_dragSlider >= 0) {
+        queueGuiParamGestureEnd(*static_cast<Plugin*>(_plugin),
+            static_cast<clap_id>(_dragSlider));
+    }
     _dragSlider = -1;
     _dragView = NO;
 }

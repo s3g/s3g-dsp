@@ -2966,7 +2966,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (void)applyFactoryPreset:(uint32_t)index
 {
     if (!_plugin || index >= s3g::kAmbiStochasticFactoryPresetCount) return;
-    const auto params = s3g::ambiStochasticFactoryPreset(index);
+    auto params = s3g::ambiStochasticFactoryPreset(index);
+    params.outputGainDb = _plugin->params.outputGainDb;
     if (!queuePreset(*_plugin, params)) {
         NSBeep();
         return;
@@ -3041,6 +3042,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         if (!std::isfinite(value) || !assignParam(candidate, field.id, value)) continue;
         ++loaded;
     }
+    candidate.outputGainDb = _plugin->params.outputGainDb;
     if (loaded < kLegacyPresetJsonFieldCount || !queuePreset(*_plugin, candidate)) {
         NSBeep();
         return;

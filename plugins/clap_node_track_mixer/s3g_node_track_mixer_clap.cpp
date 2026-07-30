@@ -27,6 +27,7 @@
 namespace {
 
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
+#define S3G_NODE_BUS_MIXER_VIEW_CLASS S3GAmbiNodeBusMixerView
 constexpr bool kAmbi = true;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-node-bus-mixer";
 constexpr const char* kHostName = "s3g Ambi Mixer Node Bus 128";
@@ -36,6 +37,7 @@ constexpr const char* kPortName = "Ambi Node Bus Mix";
 using Processor = s3g::AmbiNodeTrackMixer;
 using Params = s3g::AmbiNodeTrackMixerParams;
 #else
+#define S3G_NODE_BUS_MIXER_VIEW_CLASS S3GNodeBusMixerView
 constexpr bool kAmbi = false;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.node-bus-mixer";
 constexpr const char* kHostName = "s3g Mixer Node Bus 128";
@@ -731,7 +733,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 
 } // namespace
 
-@interface S3GNodeBusMixerView : NSView {
+@interface S3G_NODE_BUS_MIXER_VIEW_CLASS : NSView {
     void* _plugin;
     int _selectedNode;
     int _dragSlider;
@@ -767,7 +769,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 - (void)updateSpatialAtPoint:(NSPoint)pt cursor:(BOOL)cursor;
 @end
 
-@implementation S3GNodeBusMixerView
+@implementation S3G_NODE_BUS_MIXER_VIEW_CLASS
 - (id)initWithPlugin:(void*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -1378,7 +1380,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         s3g::gui_layout::mixerTitleBand(kMixerLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, ns(kHostName), titleBand,
-            p->presetName, sizeof(p->presetName))) {
+            p->presetName, sizeof(p->presetName), kParamOutputGain)) {
         _selectedNode = std::min<int>(
             _selectedNode, static_cast<int>(p->params.nodeCount) - 1);
         [self setNeedsDisplay:YES];
@@ -1596,8 +1598,8 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GNodeBusMixerView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GNodeBusMixerView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G_NODE_BUS_MIXER_VIEW_CLASS alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3G_NODE_BUS_MIXER_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
@@ -1607,8 +1609,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GNodeBusMixerView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GNodeBusMixerView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3G_NODE_BUS_MIXER_VIEW_CLASS*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3G_NODE_BUS_MIXER_VIEW_CLASS*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif

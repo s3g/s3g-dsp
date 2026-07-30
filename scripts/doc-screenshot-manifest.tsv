@@ -8,6 +8,8 @@ mc-to-stereo-autogain	mc-to-stereo-autogain
 mc-to-quad-autogain	mc-to-quad-autogain
 multichannel-meter-64	multichannel-meter
 layout-panner	layout-panner
+dbap-panner	panner-dbap
+lbap-panner	panner-lbap
 vbap-panner	panner-vbap
 
 # Ambisonic encoder detail pages.

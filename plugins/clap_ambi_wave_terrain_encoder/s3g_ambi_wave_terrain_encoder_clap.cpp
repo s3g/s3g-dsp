@@ -1360,8 +1360,8 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Wave Terrain Encoder", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Wave Terrain Encoder", kOutputParamId, &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

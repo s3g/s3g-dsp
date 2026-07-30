@@ -1084,7 +1084,9 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 620.0);
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const float outputGainDb = _plugin->params.decoder.outputGainDb;
         _plugin->params = s3g::AmbiObjectDecoderParams {};
+        _plugin->params.decoder.outputGainDb = outputGainDb;
         _plugin->decoder.setParams(_plugin->params);
         _plugin->params = _plugin->decoder.params();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
@@ -1093,8 +1095,9 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &_plugin->plugin, @"Ambi Decoder Object", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &_plugin->plugin, @"Ambi Decoder Object", kOutputParamId,
+                &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self setNeedsDisplay:YES];

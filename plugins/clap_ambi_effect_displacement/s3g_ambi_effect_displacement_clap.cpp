@@ -1676,7 +1676,8 @@ uint32_t displacementRowForParam(clap_id param)
         s3g::gui_layout::kAmbiEffectFamilyLayout.displacementCanvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &_plugin->plugin, @"Ambi Effect Displacement",
-            titleBand, _titlePresetName, sizeof(_titlePresetName))) {
+            titleBand, _titlePresetName, sizeof(_titlePresetName),
+            kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }

@@ -1,5 +1,6 @@
 #include "s3g_realtime.h"
 #include "s3g_spectral_spray.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
 #include <clap/ext/latency.h>
@@ -13,6 +14,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -42,6 +44,7 @@ constexpr clap_id kTiltParamId = 11;
 constexpr clap_id kMixParamId = 12;
 constexpr clap_id kGainParamId = 13;
 constexpr clap_id kSafetyParamId = 14;
+constexpr uint32_t kParamCount = 14u;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -51,6 +54,7 @@ struct SavedState {
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
     s3g::SpectralSprayParams params {};
@@ -60,6 +64,8 @@ struct Plugin {
     std::vector<const float*> inputPtrs;
     std::vector<float*> outputPtrs;
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::atomic<double>, kParamCount> publishedParams {};
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
@@ -68,6 +74,77 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool paramIndex(clap_id id, uint32_t& index)
+{
+    if (id < kSprayBinsParamId || id > kSafetyParamId) return false;
+    index = static_cast<uint32_t>(id - kSprayBinsParamId);
+    return true;
+}
+
+double appliedParamValue(const Plugin& p, clap_id id)
+{
+    switch (id) {
+    case kSprayBinsParamId: return p.params.sprayBins;
+    case kDriftParamId: return p.params.drift;
+    case kHoldParamId: return p.params.hold;
+    case kFreezeParamId: return p.params.freeze;
+    case kFeedbackParamId: return p.params.feedback;
+    case kSmearParamId: return p.params.smear;
+    case kHolesParamId: return p.params.holes;
+    case kPhaseBlurParamId: return p.params.phaseBlur;
+    case kLoFreqParamId: return p.params.loFreq;
+    case kHiFreqParamId: return p.params.hiFreq;
+    case kTiltParamId: return p.params.tilt;
+    case kMixParamId: return p.params.mix;
+    case kGainParamId: return p.params.gainDb;
+    case kSafetyParamId: return p.params.safety;
+    default: return 0.0;
+    }
+}
+
+void publishParam(Plugin& p, clap_id id)
+{
+    uint32_t index = 0u;
+    if (paramIndex(id, index)) {
+        p.publishedParams[index].store(appliedParamValue(p, id),
+            std::memory_order_release);
+    }
+}
+
+void publishAllParams(Plugin& p)
+{
+    for (clap_id id = kSprayBinsParamId; id <= kSafetyParamId; ++id) {
+        publishParam(p, id);
+    }
+}
+
+double publishedParamValue(const Plugin& p, clap_id id)
+{
+    uint32_t index = 0u;
+    return paramIndex(id, index)
+        ? p.publishedParams[index].load(std::memory_order_acquire) : 0.0;
+}
+
+s3g::SpectralSprayParams publishedParamsSnapshot(const Plugin& p)
+{
+    s3g::SpectralSprayParams result {};
+    result.sprayBins = static_cast<float>(publishedParamValue(p, kSprayBinsParamId));
+    result.drift = static_cast<float>(publishedParamValue(p, kDriftParamId));
+    result.hold = static_cast<float>(publishedParamValue(p, kHoldParamId));
+    result.freeze = static_cast<float>(publishedParamValue(p, kFreezeParamId));
+    result.feedback = static_cast<float>(publishedParamValue(p, kFeedbackParamId));
+    result.smear = static_cast<float>(publishedParamValue(p, kSmearParamId));
+    result.holes = static_cast<float>(publishedParamValue(p, kHolesParamId));
+    result.phaseBlur = static_cast<float>(publishedParamValue(p, kPhaseBlurParamId));
+    result.loFreq = static_cast<float>(publishedParamValue(p, kLoFreqParamId));
+    result.hiFreq = static_cast<float>(publishedParamValue(p, kHiFreqParamId));
+    result.tilt = static_cast<float>(publishedParamValue(p, kTiltParamId));
+    result.mix = static_cast<float>(publishedParamValue(p, kMixParamId));
+    result.gainDb = static_cast<float>(publishedParamValue(p, kGainParamId));
+    result.safety = static_cast<float>(publishedParamValue(p, kSafetyParamId));
+    return result;
+}
 
 void applyParam(Plugin& p, clap_id id, double value)
 {
@@ -89,9 +166,51 @@ void applyParam(Plugin& p, clap_id id, double value)
     default: break;
     }
     p.spray.setParams(p.params);
+    p.params = p.spray.params();
+    publishParam(p, id);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
+
+void requestGuiParamService(Plugin& p)
+{
+    if (p.hostParams && p.hostParams->request_flush) {
+        p.hostParams->request_flush(p.host);
+    } else if (p.host && p.host->request_process) {
+        p.host->request_process(p.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& p, s3g::clap_gui::ParamEventKind kind,
+    clap_id id, double value = 0.0)
+{
+    if (!p.guiParamEvents.push({ kind, id, value })) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+void queueGuiParamGestureBegin(Plugin& p, clap_id id)
+{
+    (void)queueGuiParamEvent(p, s3g::clap_gui::ParamEventKind::GestureBegin, id);
+}
+
+void queueGuiParamValue(Plugin& p, clap_id id, double value)
+{
+    (void)queueGuiParamEvent(p, s3g::clap_gui::ParamEventKind::Value, id, value);
+}
+
+void queueGuiParamGestureEnd(Plugin& p, clap_id id)
+{
+    (void)queueGuiParamEvent(p, s3g::clap_gui::ParamEventKind::GestureEnd, id);
+}
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
@@ -118,6 +237,8 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     }
     if (!p->spray.prepare(sampleRate, kChannelCount, 4096u, 8u, p->maxFrames)) return false;
     p->spray.setParams(p->params);
+    p->params = p->spray.params();
+    publishAllParams(*p);
     return true;
 }
 void deactivate(const clap_plugin_t*) {}
@@ -138,15 +259,75 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
     }
 }
 
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
+{
+    s3g::clap_gui::ParamEvent pending {};
+    while (p.guiParamEvents.peek(pending)) {
+        if (!pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            applyParam(p, pending.paramId, pending.value);
+        }
+        p.guiParamEvents.pop();
+    }
+}
+
+template <typename OutputSample>
+void copyPassthroughLane(const clap_audio_buffer_t& input,
+    uint32_t channel, uint32_t frames, OutputSample* destination)
+{
+    if (!destination) return;
+    for (uint32_t frame = 0u; frame < frames; ++frame) {
+        if (channel < input.channel_count && input.data32 && input.data32[channel]) {
+            destination[frame] = static_cast<OutputSample>(input.data32[channel][frame]);
+        } else if (channel < input.channel_count && input.data64 && input.data64[channel]) {
+            destination[frame] = static_cast<OutputSample>(input.data64[channel][frame]);
+        } else {
+            destination[frame] = OutputSample(0);
+        }
+    }
+}
+
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+    serviceGuiParamEvents(*p, proc->out_events);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
     const auto& output = proc->audio_outputs[0];
     const uint32_t frames = std::min(proc->frames_count, p->maxFrames);
-    if (frames == 0u || output.channel_count < kChannelCount) return CLAP_PROCESS_CONTINUE;
+    if (frames == 0u) return CLAP_PROCESS_CONTINUE;
 
     for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
         for (uint32_t i = 0; i < frames; ++i) {
@@ -159,7 +340,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->spray.process(p->inputPtrs.data(), p->outputPtrs.data(), frames);
 
     float blockPeak = 0.0f;
-    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+    const uint32_t processedOutputs = std::min(output.channel_count, kChannelCount);
+    for (uint32_t ch = 0; ch < processedOutputs; ++ch) {
         for (uint32_t i = 0; i < frames; ++i) {
             const float v = p->output32[ch][i];
             if (output.data32 && output.data32[ch]) output.data32[ch][i] = v;
@@ -168,8 +350,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
     for (uint32_t ch = kChannelCount; ch < output.channel_count; ++ch) {
-        if (output.data32 && output.data32[ch]) std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
-        if (output.data64 && output.data64[ch]) std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
+        if (output.data32) copyPassthroughLane(input, ch, frames, output.data32[ch]);
+        if (output.data64) copyPassthroughLane(input, ch, frames, output.data64[ch]);
     }
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
@@ -224,29 +406,15 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 }
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
-    const auto& p = self(plugin)->params;
-    switch (id) {
-    case kSprayBinsParamId: *value = p.sprayBins; return true;
-    case kDriftParamId: *value = p.drift; return true;
-    case kHoldParamId: *value = p.hold; return true;
-    case kFreezeParamId: *value = p.freeze; return true;
-    case kFeedbackParamId: *value = p.feedback; return true;
-    case kSmearParamId: *value = p.smear; return true;
-    case kHolesParamId: *value = p.holes; return true;
-    case kPhaseBlurParamId: *value = p.phaseBlur; return true;
-    case kLoFreqParamId: *value = p.loFreq; return true;
-    case kHiFreqParamId: *value = p.hiFreq; return true;
-    case kTiltParamId: *value = p.tilt; return true;
-    case kMixParamId: *value = p.mix; return true;
-    case kGainParamId: *value = p.gainDb; return true;
-    case kSafetyParamId: *value = p.safety; return true;
-    default: return false;
-    }
+    uint32_t index = 0u;
+    if (!value || !paramIndex(id, index)) return false;
+    *value = self(plugin)->publishedParams[index].load(std::memory_order_acquire);
+    return true;
 }
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
-    if (!display || size == 0) return false;
+    uint32_t index = 0u;
+    if (!display || size == 0 || !paramIndex(id, index)) return false;
     if (id == kSprayBinsParamId) std::snprintf(display, size, "%.0f bins", value);
     else if (id == kLoFreqParamId || id == kHiFreqParamId) std::snprintf(display, size, "%.0f Hz", value);
     else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
@@ -254,30 +422,70 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
-    if (!display || !value) return false;
-    *value = std::atof(display);
+    uint32_t index = 0u;
+    if (!display || !value || !paramIndex(id, index)) return false;
+    char* end = nullptr;
+    const double parsed = std::strtod(display, &end);
+    if (end == display || !std::isfinite(parsed)) return false;
+    const bool percent = id == kDriftParamId || id == kHoldParamId
+        || id == kFreezeParamId || id == kFeedbackParamId
+        || id == kSmearParamId || id == kHolesParamId
+        || id == kPhaseBlurParamId || id == kMixParamId
+        || id == kSafetyParamId;
+    *value = percent ? parsed * 0.01 : parsed;
     return true;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+    readParamEvents(*p, in);
+    serviceGuiParamEvents(*p, out);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
+
+bool writeAll(const clap_ostream_t* stream, const void* source, uint64_t bytes)
+{
+    const auto* data = static_cast<const uint8_t*>(source);
+    while (bytes > 0u) {
+        const int64_t written = stream->write(stream, data, bytes);
+        if (written <= 0 || static_cast<uint64_t>(written) > bytes) return false;
+        data += written;
+        bytes -= static_cast<uint64_t>(written);
+    }
+    return true;
+}
+
+bool readAll(const clap_istream_t* stream, void* destination, uint64_t bytes)
+{
+    auto* data = static_cast<uint8_t*>(destination);
+    while (bytes > 0u) {
+        const int64_t read = stream->read(stream, data, bytes);
+        if (read <= 0 || static_cast<uint64_t>(read) > bytes) return false;
+        data += read;
+        bytes -= static_cast<uint64_t>(read);
+    }
+    return true;
+}
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {};
-    s.params = self(plugin)->params;
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    s.params = publishedParamsSnapshot(*self(plugin));
+    return writeAll(stream, &s, sizeof(s));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
-    p->params = s.params;
-    p->spray.setParams(p->params);
+    p->spray.setParams(s.params);
+    p->params = p->spray.params();
+    publishAllParams(*p);
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -356,7 +564,7 @@ static_assert(s3g::gui_layout::validateColumn(
     drawPanel(@"OUTPUT", kOutputPanel);
     drawPanel(@"RANGE / PHASE", kRangePanel);
     drawPanel(@"SPECTRAL MOTION", kMotionPanel);
-    const auto& prm = p->params;
+    const auto prm = publishedParamsSnapshot(*p);
     [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.gainDb] norm:(prm.gainDb + 60.0f) / 78.0f y:s3g::gui_layout::rowY(kOutputPanel, 0u) panel:kOutputPanel attrs:lab];
     [self drawRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:s3g::gui_layout::rowY(kOutputPanel, 1u) panel:kOutputPanel attrs:lab];
     [self drawRow:@"SAFE" value:[NSString stringWithFormat:@"%.0f%%", prm.safety * 100.0f] norm:(prm.safety - 0.05f) / 0.95f y:s3g::gui_layout::rowY(kOutputPanel, 2u) panel:kOutputPanel attrs:lab];
@@ -386,20 +594,20 @@ static_assert(s3g::gui_layout::validateColumn(
     const double trackWidth = s3g::gui_layout::processorTrackWidth(panel.frame.width);
     const double n = std::clamp((point.x - x0) / trackWidth, 0.0, 1.0);
     switch (_dragSlider) {
-    case 1: applyParam(*p, kSprayBinsParamId, n * 256.0); break;
-    case 2: applyParam(*p, kDriftParamId, n); break;
-    case 3: applyParam(*p, kHoldParamId, n); break;
-    case 4: applyParam(*p, kFreezeParamId, n); break;
-    case 5: applyParam(*p, kFeedbackParamId, n * 0.85); break;
-    case 6: applyParam(*p, kSmearParamId, n); break;
-    case 7: applyParam(*p, kHolesParamId, n * 0.95); break;
-    case 8: applyParam(*p, kPhaseBlurParamId, n); break;
-    case 9: applyParam(*p, kLoFreqParamId, n * 24000.0); break;
-    case 10: applyParam(*p, kHiFreqParamId, 20.0 + n * 23980.0); break;
-    case 11: applyParam(*p, kTiltParamId, -1.0 + n * 2.0); break;
-    case 12: applyParam(*p, kMixParamId, n); break;
-    case 13: applyParam(*p, kGainParamId, -60.0 + n * 78.0); break;
-    case 14: applyParam(*p, kSafetyParamId, 0.05 + n * 0.95); break;
+    case 1: queueGuiParamValue(*p, kSprayBinsParamId, n * 256.0); break;
+    case 2: queueGuiParamValue(*p, kDriftParamId, n); break;
+    case 3: queueGuiParamValue(*p, kHoldParamId, n); break;
+    case 4: queueGuiParamValue(*p, kFreezeParamId, n); break;
+    case 5: queueGuiParamValue(*p, kFeedbackParamId, n * 0.85); break;
+    case 6: queueGuiParamValue(*p, kSmearParamId, n); break;
+    case 7: queueGuiParamValue(*p, kHolesParamId, n * 0.95); break;
+    case 8: queueGuiParamValue(*p, kPhaseBlurParamId, n); break;
+    case 9: queueGuiParamValue(*p, kLoFreqParamId, n * 24000.0); break;
+    case 10: queueGuiParamValue(*p, kHiFreqParamId, 20.0 + n * 23980.0); break;
+    case 11: queueGuiParamValue(*p, kTiltParamId, -1.0 + n * 2.0); break;
+    case 12: queueGuiParamValue(*p, kMixParamId, n); break;
+    case 13: queueGuiParamValue(*p, kGainParamId, -60.0 + n * 78.0); break;
+    case 14: queueGuiParamValue(*p, kSafetyParamId, 0.05 + n * 0.95); break;
     default: break;
     }
     [self setNeedsDisplay:YES];
@@ -412,7 +620,7 @@ static_assert(s3g::gui_layout::validateColumn(
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Effect Spectral Spray", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }
@@ -420,9 +628,12 @@ static_assert(s3g::gui_layout::validateColumn(
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
                 event, &p->plugin, paramId, &defaultValue)) {
-            applyParam(*p, paramId, defaultValue);
+            queueGuiParamGestureBegin(*p, paramId);
+            queueGuiParamValue(*p, paramId, defaultValue);
+            queueGuiParamGestureEnd(*p, paramId);
             _dragSlider = -1;
         } else {
+            queueGuiParamGestureBegin(*p, paramId);
             _dragSlider = static_cast<int>(paramId);
             [self updateSlider:pt];
         }
@@ -456,7 +667,7 @@ static_assert(s3g::gui_layout::validateColumn(
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; }
+- (void)mouseUp:(NSEvent*)event { (void)event; if (_dragSlider > 0) queueGuiParamGestureEnd(*static_cast<Plugin*>(_plugin), static_cast<clap_id>(_dragSlider)); _dragSlider = -1; }
 @end
 
 namespace {
@@ -511,6 +722,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
+    p->spray.setParams(p->params);
+    p->params = p->spray.params();
+    publishAllParams(*p);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

@@ -3,6 +3,7 @@
 #include "s3g_delay_processor.h"
 #include "s3g_topology.h"
 #include "s3g_topology_heatmap.h"
+#include "../common/s3g_objc_class_name.h"
 
 #include <clap/clap.h>
 #include "s3g_realtime.h"
@@ -32,6 +33,9 @@ namespace {
 #ifndef S3G_DELAY_PROCESSOR_CHANNEL_COUNT
 #define S3G_DELAY_PROCESSOR_CHANNEL_COUNT 8
 #endif
+
+#define S3G_DELAY_PROCESSOR_VIEW_CLASS \
+    S3G_OBJC_CLASS_JOIN(S3GDelayProcessorView, S3G_DELAY_PROCESSOR_CHANNEL_COUNT)
 
 constexpr uint32_t kChannelCount = S3G_DELAY_PROCESSOR_CHANNEL_COUNT;
 static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
@@ -2407,7 +2411,7 @@ const clap_plugin_state_t state {
 
 } // namespace
 
-@interface S3GDelayProcessorView : NSView {
+@interface S3G_DELAY_PROCESSOR_VIEW_CLASS : NSView {
     void* _plugin;
     int _dragSlider;
     bool _dragTopologyView;
@@ -2467,7 +2471,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     return panelY + 36.0 + static_cast<CGFloat>(index) * 26.0;
 }
 
-@implementation S3GDelayProcessorView
+@implementation S3G_DELAY_PROCESSOR_VIEW_CLASS
 
 - (id)initWithPlugin:(void*)plugin
 {
@@ -3347,7 +3351,8 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         kDelayGuiWidth, kDelayGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Delay", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName),
+            kOutputTrimParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }
@@ -3685,7 +3690,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (p->guiView) {
         return true;
     }
-    p->guiView = [[S3GDelayProcessorView alloc] initWithPlugin:p];
+    p->guiView = [[S3G_DELAY_PROCESSOR_VIEW_CLASS alloc] initWithPlugin:p];
     if (!p->guiView) return false;
     if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport,
             static_cast<NSView*>(p->guiView),
@@ -3705,7 +3710,7 @@ void guiDestroy(const clap_plugin_t* plugin)
         p->guiDirty.store(false, std::memory_order_relaxed);
         NSView* view = static_cast<NSView*>(p->guiView);
         if ([view respondsToSelector:@selector(stopRefreshTimer)]) {
-            [static_cast<S3GDelayProcessorView*>(view) stopRefreshTimer];
+            [static_cast<S3G_DELAY_PROCESSOR_VIEW_CLASS*>(view) stopRefreshTimer];
         }
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
@@ -3752,7 +3757,7 @@ bool guiShow(const clap_plugin_t* plugin)
     }
     p->guiVisible.store(true, std::memory_order_relaxed);
     if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(startRefreshTimer)]) {
-        [static_cast<S3GDelayProcessorView*>(p->guiView) startRefreshTimer];
+        [static_cast<S3G_DELAY_PROCESSOR_VIEW_CLASS*>(p->guiView) startRefreshTimer];
     }
     requestGuiRedraw(*p);
     return true;
@@ -3767,7 +3772,7 @@ bool guiHide(const clap_plugin_t* plugin)
     p->guiVisible.store(false, std::memory_order_relaxed);
     p->guiDirty.store(false, std::memory_order_relaxed);
     if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(stopRefreshTimer)]) {
-        [static_cast<S3GDelayProcessorView*>(p->guiView) stopRefreshTimer];
+        [static_cast<S3G_DELAY_PROCESSOR_VIEW_CLASS*>(p->guiView) stopRefreshTimer];
     }
     return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true);
 }

@@ -26,9 +26,7 @@
       <main class="content" id="content">
         <h1>Panner Layout</h1>
 
-        <p><code>s3g Panner Layout</code> is a direct spatial panner: source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
-
-        <p>Its outputs already correspond to physical speakers, so no ambisonic decoder follows it. Use an <a href="ambisonic-encoders.html">Ambisonic Encoder</a> instead when the spatial field must remain independent of the final speaker layout.</p>
+        <p><code>s3g Panner Layout</code> is a direct speaker panner, not an ambisonic plugin. It distributes source inputs across a fixed 64-channel output bus, with each active output corresponding directly to a speaker in the selected layout. Use it when the speaker layout itself is the target.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -42,7 +40,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert the chosen direct panner on a REAPER track with the required source inputs and enough channels for its 64-channel output bus, then select a speaker-layout preset or load a custom layout and confirm its active speaker count and output order.</li>
+          <li>Insert Panner Layout on a REAPER track with the required source inputs and enough channels for its 64-channel output bus, then select a speaker-layout preset or load a custom layout and confirm its active speaker count and output order.</li>
           <li>Route the active output lanes to the matching main speakers, directly or through a speaker-array utility chain, then begin playback.</li>
           <li>Use <code>FIELD</code> to place sources, then set gain, mute, solo, and inside-source behavior in the field or mixer.</li>
           <li>Use <code>DESIGN</code> to refine and save custom speaker geometry, then verify motion across the complete array.</li>
@@ -91,60 +89,76 @@
 
         <p>Speaker markers use the same square AED color strategy as the Ambi Encoder Point and Decoder Speaker. Geometry lines show the intended layout mesh, not nearest-neighbor analysis. See <a href="interpreting-color.html#aed">Interpreting Color</a> for the shared azimuth, elevation, and distance mapping.</p>
 
-        <h2 id="panner-variants">Panner Variants</h2>
+        <h2 id="aed-layout-shapes">AED Distance and Layout Shape</h2>
 
-        <p>The direct panner family uses the same source mixer, speaker layout language, camera controls, inside-source modes, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
+        <p><code>DST</code> is always radial distance from the listener to the source or speaker. It does not automatically mean distance to the wall or perimeter of the selected layout. On a square whose side centers are one unit from the listener, a corner is <code>sqrt(2)</code>, or about <code>1.414</code>, units away. On a cube whose face centers are one unit away, an edge midpoint is <code>sqrt(2)</code> and a corner is <code>sqrt(3)</code>, or about <code>1.732</code>, units away. A dome or sphere can instead keep every point at the same radial distance.</p>
 
         <div class="table-wrap">
           <table class="readout-table">
             <thead>
               <tr>
-                <th>Plugin</th>
-                <th>Method</th>
-                <th>Use</th>
+                <th>Layout</th>
+                <th>Distance model</th>
+                <th>What the field shows</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td><code>s3g Panner Layout</code></td>
-                <td>distance / cosine</td>
-                <td>General direct panning with a design page for custom layouts. When a layout has no lower speakers, negative elevation smoothly rolls down toward silence.</td>
+                <td>Quad, rings, domes, GEO, and the <code>CUBE 8</code> preset</td>
+                <td>Speaker positions are placed at <code>DST 1</code>.</td>
+                <td>The square, cube, dome, or sphere wireframe is inscribed in the unit circle or sphere.</td>
               </tr>
               <tr>
-                <td><code>s3g Panner DBAP</code></td>
-                <td>distance-based amplitude panning</td>
-                <td>Smooth distance-weighted distribution across the selected layout, with the same lower-hemisphere rolloff as Panner Layout.</td>
+                <td><code>CUBE 17</code> and <code>CUBE 41</code></td>
+                <td>Cartesian cube-surface positions are preserved, so radial speaker distances vary with direction.</td>
+                <td>Points toward cube edges or corners can appear beyond a source at <code>DST 1</code>.</td>
               </tr>
               <tr>
-                <td><code>s3g Panner LBAP</code></td>
-                <td>layer/local-lobe amplitude panning</td>
-                <td>Topology-aware lobe panning that follows layout tiers and local speaker neighborhoods.</td>
+                <td>Custom <code>AUTO</code> with 8 speakers</td>
+                <td>The generated cube uses corners at <code>(+/-1, +/-1, +/-1)</code>, giving each corner <code>DST sqrt(3)</code>.</td>
+                <td>This generated cube is larger radially than the normalized <code>CUBE 8</code> preset.</td>
               </tr>
               <tr>
-                <td><code>s3g Panner VBAP</code></td>
-                <td>vector-base amplitude panning</td>
-                <td>Sharper vector panning against the selected layout topology.</td>
+                <td>Edited or imported custom layout</td>
+                <td>The supplied AED distance is preserved.</td>
+                <td>The field displays the literal stored speaker geometry.</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <figure>
-          <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/panner-vbap.png" aria-label="Open high-resolution Panner VBAP GUI screenshot">
-              <img src="assets/plugin-guis/panner-vbap.png" alt="Panner VBAP showing four source points, a Cube 17 speaker geometry, and the solver topology" loading="lazy" decoding="async">
-            </button>
-          </div>
-          <figcaption>Panner VBAP with four source points against a Cube 17 speaker geometry and its solver topology.</figcaption>
-        </figure>
+        <p>Consequently, a source aimed toward a Cartesian cube corner at <code>DST 1</code> can be directionally aligned with that speaker while still appearing inside its marker. This is expected: the source and speaker share azimuth and elevation but not radial distance.</p>
 
-        <p>LBAP and VBAP use an internal solver topology derived from the speaker layout. The GUI overlay draws the actual topology used by the solver: faint cyan for LBAP and faint yellow for VBAP. Imaginary solver speakers may be added where the layout has weak or incomplete topology. These points help the solver but do not add output channels.</p>
+        <p>Panner Layout offers two methods. <code>DIST</code> uses full source-to-speaker XYZ proximity, so speaker distance participates in distribution. <code>COS</code> uses speaker direction, so matching azimuth and elevation is the important part. With either method, source <code>DST</code> still controls source rolloff and <code>IN</code> behavior; placing a source at a cube point beyond <code>DST 1</code> can therefore change its overall level.</p>
 
-        <p>For flat 2D layouts, LBAP and VBAP add silent imaginary top and bottom speakers. Moving source elevation away from the speaker plane therefore becomes a smooth level change rather than a meaningless control. For partial 3D layouts, such as quad plus overheads, imaginary support points and pole-cap blending stabilize motion near <code>+90</code> and <code>-90</code> degrees elevation.</p>
+        <h2 id="panning-methods">Panning Methods</h2>
 
-        <p>All direct panners treat unsupported negative elevation as a musical rolloff case. If the selected layout has no real lower-elevation speakers, steering downward preserves the panner's normal speaker distribution first, then applies a smooth attenuation toward silence at <code>-90</code> degrees. This keeps lower-hemisphere motion meaningful for upper-only and 2D arrays without inventing extra output channels.</p>
+        <p><code>METHOD</code> changes how Panner Layout distributes each source across the selected speakers.</p>
 
-        <p><code>IN</code> selects how source distances inside the unit speaker perimeter behave: <code>HOLD</code> keeps level stable and is the default, <code>ATTENUATE</code> reduces level as the point moves inward, <code>DIFFUSE</code> spreads energy more evenly, and <code>CENTER</code> blends inward positions toward the center response.</p>
+        <div class="table-wrap">
+          <table class="readout-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Behavior</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>DIST</code></td>
+                <td>Weights speakers by full XYZ proximity. It responds to both direction and radial separation and gives broad, continuous movement through irregular layouts.</td>
+              </tr>
+              <tr>
+                <td><code>COS</code></td>
+                <td>Weights speakers from angular alignment with the source direction. Speaker radial distance does not affect the steering ratios.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Panner Layout treats unsupported negative elevation as a musical rolloff case. If the selected layout has no real lower-elevation speakers, steering downward preserves the selected method's normal speaker distribution first, then applies a smooth attenuation toward silence at <code>-90</code> degrees. This keeps lower-hemisphere motion meaningful for upper-only and 2D arrays without inventing extra output channels.</p>
+
+        <p><code>IN</code> selects how source distances inside the radial unit boundary, <code>DST &lt; 1</code>, behave. This boundary remains radial even when a Cartesian cube speaker shell extends beyond it. <code>HOLD</code> keeps level stable and is the default, <code>ATTENUATE</code> reduces level as the point moves inward, <code>DIFFUSE</code> spreads energy more evenly, and <code>CENTER</code> blends inward positions toward the center response.</p>
 
         <p>The host project stores the selected <code>TOP</code>, <code>SIDE</code>, or <code>3/4</code> view together with manual rotation and zoom. Reopening the project restores that camera state.</p>
 
@@ -156,7 +170,7 @@
           <li><code>SHAPE</code> chooses the custom layout generator: <code>AUTO</code>, <code>RING</code>, <code>DOME</code>, <code>GEO</code>, or <code>STACK</code>.</li>
           <li><code>COUNT</code> sets active speakers from 2 to 64.</li>
           <li><code>AUTO</code> chooses useful count-based defaults. For example, 8 speakers generates a cube.</li>
-          <li><code>SEL</code>, <code>AZ</code>, <code>EL</code>, and <code>DST</code> edit one speaker at a time.</li>
+          <li><code>SEL</code>, <code>AZ</code>, <code>EL</code>, and <code>DST</code> edit one speaker at a time. <code>DST</code> is radial distance from the listener, independent of the selected shape.</li>
           <li><code>COPY</code> copies the current preset into a custom editable layout.</li>
           <li><code>LOAD</code> and <code>SAVE</code> import/export readable JSON layout files.</li>
         </ul>
@@ -180,9 +194,9 @@
             <span>Previous</span>
             Direct Panning
           </a>
-          <a class="page-nav-link next" href="bus-mixing-routing.html">
+          <a class="page-nav-link next" href="panner-dbap.html">
             <span>Next</span>
-            Bus Mixing / Routing
+            Panner DBAP
           </a>
         </nav>
       </main>
@@ -200,6 +214,9 @@
         <div class="toc-section">
           <h2>Direct Panning Pages</h2>
           <a href="panner-layout.html">Panner Layout</a>
+          <a href="panner-dbap.html">Panner DBAP</a>
+          <a href="panner-lbap.html">Panner LBAP</a>
+          <a href="panner-vbap.html">Panner VBAP</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -207,7 +224,8 @@
           <a href="#signal-shape">Signal Shape</a>
           <a href="#pages">Pages</a>
           <a href="#layout-presets">Layout Presets</a>
-          <a href="#panner-variants">Panner Variants</a>
+          <a href="#aed-layout-shapes">AED Distance and Layout Shape</a>
+          <a href="#panning-methods">Panning Methods</a>
           <a href="#design-page">Design Page</a>
           <a href="#json">Custom Layout JSON</a>
         </div>

@@ -682,7 +682,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &p->plugin, @"Macro Shred", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

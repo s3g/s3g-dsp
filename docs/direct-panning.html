@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Direct Panning</h1>
 
-        <p>Direct panners calculate speaker gains from source positions and write those gains directly to discrete output channels. They share one layout editor and preset language, but they do not create an <code>ACN/SN3D</code> bus.</p>
+        <p>Direct panners calculate speaker gains from source positions and write those gains directly to discrete output channels. Each active output corresponds to a speaker in the selected layout. The four plugins share a layout editor and preset language but use different gain laws.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -40,10 +40,10 @@
         <h2 id="panners">Panner Family</h2>
 
         <ul>
-          <li><a href="panner-layout.html">Panner Layout</a>: the main source-to-speaker panner with built-in arrays, custom speaker layouts, and saved camera views.</li>
-          <li><a href="panner-layout.html#panner-variants">Panner DBAP</a>: distance-based amplitude panning across the active speaker layout.</li>
-          <li><a href="panner-layout.html#panner-variants">Panner LBAP</a>: layout-based panning for two- and three-dimensional speaker relationships.</li>
-          <li><a href="panner-layout.html#panner-variants">Panner VBAP</a>: vector-base amplitude panning over valid speaker pairs or triplets.</li>
+          <li><a href="panner-layout.html">Panner Layout</a>: selectable distance or cosine panning with built-in arrays, custom speaker layouts, and saved camera views.</li>
+          <li><a href="panner-dbap.html">Panner DBAP</a>: distance-based amplitude panning across the active speaker layout.</li>
+          <li><a href="panner-lbap.html">Panner LBAP</a>: layout-based panning for two- and three-dimensional speaker relationships.</li>
+          <li><a href="panner-vbap.html">Panner VBAP</a>: vector-base amplitude panning over valid speaker pairs or triplets.</li>
         </ul>
 
         <h2 id="choosing">Choosing Direct or Ambisonic Routing</h2>
@@ -75,6 +75,13 @@
           <a href="direct-panning.html">Direct Panning</a>
           <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
           <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Direct Panning Pages</h2>
+          <a href="panner-layout.html">Panner Layout</a>
+          <a href="panner-dbap.html">Panner DBAP</a>
+          <a href="panner-lbap.html">Panner LBAP</a>
+          <a href="panner-vbap.html">Panner VBAP</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

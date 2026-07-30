@@ -1683,7 +1683,7 @@ const clap_plugin_tail_t tailExt { tailGet };
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Wave Geometry", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

@@ -1244,7 +1244,49 @@ struct DefaultParamEventList {
     };
 };
 
-inline bool resetPluginParamsToDefaults(const clap_plugin_t* plugin)
+inline bool pluginParamValue(const clap_plugin_t* plugin,
+                            clap_id paramId,
+                            double& value)
+{
+    if (!plugin || !plugin->get_extension || paramId == CLAP_INVALID_ID)
+        return false;
+    const auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    return params && params->get_value
+        && params->get_value(plugin, paramId, &value);
+}
+
+inline bool flushPluginParamValue(const clap_plugin_t* plugin,
+                                  clap_id paramId,
+                                  double value)
+{
+    if (!plugin || !plugin->get_extension || paramId == CLAP_INVALID_ID)
+        return false;
+    const auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    if (!params || !params->flush) return false;
+
+    DefaultParamEventList events;
+    clap_event_param_value_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = CLAP_EVENT_PARAM_VALUE;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = paramId;
+    event.note_id = -1;
+    event.port_index = -1;
+    event.channel = -1;
+    event.key = -1;
+    event.value = value;
+    events.events.push_back(event);
+    params->flush(plugin, &events.input, nullptr);
+    return true;
+}
+
+inline bool resetPluginParamsToDefaults(
+    const clap_plugin_t* plugin,
+    clap_id preservedParamId = CLAP_INVALID_ID)
 {
     if (!plugin || !plugin->get_extension) return false;
     const auto* params = static_cast<const clap_plugin_params_t*>(
@@ -1258,7 +1300,8 @@ inline bool resetPluginParamsToDefaults(const clap_plugin_t* plugin)
     for (uint32_t index = 0u; index < count; ++index) {
         clap_param_info_t info {};
         if (!params->get_info(plugin, index, &info)
-            || (info.flags & CLAP_PARAM_IS_READONLY) != 0u) {
+            || (info.flags & CLAP_PARAM_IS_READONLY) != 0u
+            || info.id == preservedParamId) {
             continue;
         }
         clap_event_param_value_t event {};
@@ -1287,6 +1330,11 @@ inline bool savePluginStatePreset(const clap_plugin_t* plugin,
 inline bool loadPluginStatePreset(const clap_plugin_t* plugin,
                                   NSString* pluginName,
                                   NSString** loadedName);
+inline bool loadPluginStatePresetPreservingParam(
+    const clap_plugin_t* plugin,
+    NSString* pluginName,
+    clap_id preservedParamId,
+    NSString** loadedName);
 
 inline bool handleProcessorTitleClick(
     NSPoint point,
@@ -1294,11 +1342,12 @@ inline bool handleProcessorTitleClick(
     NSString* pluginName,
     const s3g::gui_layout::EncoderTitleBand& band,
     char* presetName,
-    size_t presetNameCapacity)
+    size_t presetNameCapacity,
+    clap_id preservedParamId = CLAP_INVALID_ID)
 {
     if (!presetName || presetNameCapacity == 0u) return false;
     if (NSPointInRect(point, cocoaRect(band.presetMenu))) {
-        if (!resetPluginParamsToDefaults(plugin)) {
+        if (!resetPluginParamsToDefaults(plugin, preservedParamId)) {
             NSBeep();
         } else {
             std::snprintf(presetName, presetNameCapacity, "%s", "INIT");
@@ -1307,7 +1356,8 @@ inline bool handleProcessorTitleClick(
     }
     if (NSPointInRect(point, cocoaRect(band.loadButton))) {
         NSString* name = nil;
-        if (!loadPluginStatePreset(plugin, pluginName, &name)) {
+        if (!loadPluginStatePresetPreservingParam(
+                plugin, pluginName, preservedParamId, &name)) {
             NSBeep();
         } else {
             std::snprintf(presetName, presetNameCapacity, "%s",
@@ -1424,6 +1474,21 @@ inline bool loadPluginStatePreset(const clap_plugin_t* plugin,
         *loadedName = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
     }
     return loaded;
+}
+
+inline bool loadPluginStatePresetPreservingParam(
+    const clap_plugin_t* plugin,
+    NSString* pluginName,
+    clap_id preservedParamId,
+    NSString** loadedName = nullptr)
+{
+    if (preservedParamId == CLAP_INVALID_ID) {
+        return loadPluginStatePreset(plugin, pluginName, loadedName);
+    }
+    double preservedValue = 0.0;
+    if (!pluginParamValue(plugin, preservedParamId, preservedValue)) return false;
+    if (!loadPluginStatePreset(plugin, pluginName, loadedName)) return false;
+    return flushPluginParamValue(plugin, preservedParamId, preservedValue);
 }
 
 struct TopologyUiValues {

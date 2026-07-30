@@ -1367,7 +1367,9 @@ void applyParamToState(
             static_cast<uint32_t>(std::lround(value)), 0u,
             s3g::kAmbiWranglerFactoryPresetCount - 1u);
         if (customPresetName) customPresetName[0] = '\0';
+        const float outputGainDb = params.outputGainDb;
         params = s3g::ambiWranglerFactoryPreset(presetIndex);
+        params.outputGainDb = outputGainDb;
         return;
     }
     assignParam(params, id, value);
@@ -3377,6 +3379,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if ([panel runModal] != NSModalResponseOK) return;
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return;
+    const auto current = controlStateSnapshot(*_plugin);
+    file.params.outputGainDb = current.params.outputGainDb;
     replaceControlState(*_plugin, file.params, 0u,
         file.name[0] ? file.name : "Custom");
     [self refreshControlSnapshot];

@@ -537,7 +537,9 @@ void applyParam(Plugin& p, clap_id id, double value)
     if (id == kPresetParamId) {
         p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiWindFactoryPresetCount - 1u);
         p.customPresetName[0] = '\0';
+        const float outputGainDb = p.params.outputGainDb;
         p.params = s3g::ambiWindFactoryPreset(p.presetIndex);
+        p.params.outputGainDb = outputGainDb;
         applyEffectiveParams(p);
         p.engine.beginTransition();
         return;
@@ -1575,6 +1577,7 @@ double rateNormToHzForDisplay(double value)
     if ([panel runModal] != NSModalResponseOK) return;
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return;
+    file.params.outputGainDb = _plugin->params.outputGainDb;
     _plugin->params = file.params;
     applyEffectiveParams(*_plugin);
     _plugin->engine.beginTransition();

@@ -817,6 +817,12 @@ int main(int argc, char** argv)
         const bool documentationLayoutPanner = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.layout-panner") == 0;
+        const bool documentationDbapPanner = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.dbap-panner") == 0;
+        const bool documentationLbapPanner = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.lbap-panner") == 0;
         const bool documentationVbapPanner = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.vbap-panner") == 0;
@@ -4168,6 +4174,8 @@ int main(int argc, char** argv)
         }
         const bool documentationRoutingScene =
             documentationLayoutPanner
+            || documentationDbapPanner
+            || documentationLbapPanner
             || documentationVbapPanner
             || documentationGroupMatrix
             || documentationNodeBusMixer
@@ -4221,6 +4229,29 @@ int main(int argc, char** argv)
                     && setPannerSource(2u, -18.0, 38.0, 1.12)
                     && setPannerSource(3u, 48.0, 22.0, 0.92)
                     && setPannerSource(4u, 126.0, 55.0, 1.28);
+            } else if (documentationDbapPanner) {
+                // DBAP exposes raw preset values; value 3 is DODECA 12.
+                ok = setDocumentationRoutingParam("Layout", 3.0)
+                    && setDocumentationRoutingParam("Active Sources", 4.0)
+                    && setDocumentationRoutingParam("Focus", 1.26)
+                    && setDocumentationRoutingParam("Distance Rolloff", 7.5)
+                    && setDocumentationRoutingParam(
+                        "Distance Diffusion", 0.20)
+                    && setPannerSource(1u, -146.0, -18.0, 0.74)
+                    && setPannerSource(2u, -58.0, 34.0, 1.18)
+                    && setPannerSource(3u, 24.0, -32.0, 0.94)
+                    && setPannerSource(4u, 112.0, 46.0, 1.36);
+            } else if (documentationLbapPanner) {
+                // LBAP exposes layout menu indices; index 8 is ICOSAHEDRON 20.
+                ok = setDocumentationRoutingParam("Layout", 8.0)
+                    && setDocumentationRoutingParam("Active Sources", 4.0)
+                    && setDocumentationRoutingParam("Focus", 1.34)
+                    && setDocumentationRoutingParam(
+                        "Distance Diffusion", 0.30)
+                    && setPannerSource(1u, -124.0, -38.0, 0.82)
+                    && setPannerSource(2u, -38.0, 28.0, 1.22)
+                    && setPannerSource(3u, 54.0, 52.0, 0.88)
+                    && setPannerSource(4u, 148.0, 8.0, 1.30);
             } else if (documentationVbapPanner) {
                 // VBAP exposes layout menu indices; index 1 is CUBE 17.
                 ok = setDocumentationRoutingParam("Layout", 1.0)
@@ -4331,6 +4362,24 @@ int main(int argc, char** argv)
                     && setDocumentationRoutingParam("Invert 3", 1.0)
                     && setDocumentationRoutingParam("Mute 6", 1.0)
                     && setDocumentationRoutingParam("Invert 7", 1.0);
+            }
+            if (ok && (documentationLayoutPanner
+                    || documentationDbapPanner
+                    || documentationLbapPanner
+                    || documentationVbapPanner)) {
+                @try {
+                    ok = [document respondsToSelector:
+                        @selector(setViewPreset:)];
+                    if (!ok) {
+                        std::cerr << "Panner view does not expose "
+                                  << "setViewPreset:\n";
+                    }
+                    if (ok) [document setViewPreset:2];
+                } @catch (NSException* exception) {
+                    std::cerr << "Panner 3/4-view exception: "
+                              << [[exception reason] UTF8String] << "\n";
+                    ok = false;
+                }
             }
             if (ok) {
                 [document setNeedsDisplay:YES];

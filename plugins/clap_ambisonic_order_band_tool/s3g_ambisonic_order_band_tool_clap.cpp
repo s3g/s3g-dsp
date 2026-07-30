@@ -500,7 +500,8 @@ constexpr const auto& kTransformLayout =
         s3g::gui_layout::transformTitleBand(kTransformLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Ambi Transform Order Band",
-            titleBand, p->presetName, sizeof(p->presetName))) {
+            titleBand, p->presetName, sizeof(p->presetName),
+            kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }

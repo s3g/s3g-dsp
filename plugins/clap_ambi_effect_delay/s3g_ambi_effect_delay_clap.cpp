@@ -1179,7 +1179,7 @@ NSRect feedbackAxisRect()
     auto* p = static_cast<Plugin*>(_plugin);
     if (s3g::clap_gui::handleProcessorTitleClick(point, &p->plugin,
         @"Ambi Effect Delay", s3g::gui_layout::transformTitleBand(kCanvas),
-        p->presetName, sizeof(p->presetName))) { [self setNeedsDisplay:YES]; return; }
+        p->presetName, sizeof(p->presetName), kParamOutput)) { [self setNeedsDisplay:YES]; return; }
     if (_openMenu > 0) {
         const CGFloat width = s3g::gui_layout::processorMenuWidth(kLayout.output.frame.width);
         const int hit = s3g::clap_gui::dropdownHitIndex(point,

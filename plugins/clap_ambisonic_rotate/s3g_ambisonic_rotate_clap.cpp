@@ -588,7 +588,7 @@ constexpr const auto& kTransformLayout =
     auto* p = static_cast<Plugin*>(_plugin);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Ambi Transform Rotate", titleBand,
-            p->presetName, sizeof(p->presetName))) {
+            p->presetName, sizeof(p->presetName), kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }

@@ -1261,7 +1261,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Multi Loop", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

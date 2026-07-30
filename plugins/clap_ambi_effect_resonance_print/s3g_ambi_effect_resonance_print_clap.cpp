@@ -1,7 +1,9 @@
 #include "s3g_ambi_effect_resonance_print.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
+#include <clap/ext/ambisonic.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
@@ -67,6 +69,7 @@ enum ParamId : clap_id {
 };
 
 constexpr uint32_t kBaseParamCount = 27u;
+constexpr uint32_t kParamSlotCount = kBaseParamCount + kPickups * 2u;
 
 // Version 1 serialized the parameter block directly. Keep its exact layout so
 // previously saved prints can be restored safely, but migrate them as bypassed.
@@ -139,6 +142,7 @@ s3g::AmbiEffectResonancePrintParams migrateParams(
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     const clap_host_tail_t* hostTail = nullptr;
     s3g::AmbiEffectResonancePrintParams params {};
     s3g::AmbiEffectResonancePrint processor {};
@@ -164,6 +168,8 @@ struct Plugin {
     std::atomic<uint32_t> printedModes { 0u };
     std::atomic<bool> hasPrint { false };
     std::atomic<bool> capturing { false };
+    std::array<std::atomic<double>, kParamSlotCount> publishedParams {};
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 35.0f;
     float guiViewElDeg = 34.0f;
@@ -203,6 +209,24 @@ bool pickupDecayIndex(clap_id id, uint32_t& index)
     return true;
 }
 
+bool paramSlotIndex(clap_id id, uint32_t& index)
+{
+    uint32_t pickup = 0u;
+    if (id >= kParamOrder && id <= kParamPrintEnabled) {
+        index = static_cast<uint32_t>(id - kParamOrder);
+        return true;
+    }
+    if (pickupTuneIndex(id, pickup)) {
+        index = kBaseParamCount + pickup;
+        return true;
+    }
+    if (pickupDecayIndex(id, pickup)) {
+        index = kBaseParamCount + kPickups + pickup;
+        return true;
+    }
+    return false;
+}
+
 bool isParam(clap_id id)
 {
     uint32_t index = 0u;
@@ -218,6 +242,8 @@ bool paramAffectsTail(clap_id id)
         || pickupDecayIndex(id, index) || id == kParamClear
         || id == kParamPrintEnabled;
 }
+
+void publishParam(Plugin& plugin, clap_id id);
 
 void markTailChanged(Plugin& plugin)
 {
@@ -289,10 +315,11 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     } else {
         plugin.processor.setParams(plugin.params);
     }
+    publishParam(plugin, id);
     if (paramAffectsTail(id)) markTailChanged(plugin);
 }
 
-double getParam(const Plugin& plugin, clap_id id)
+double appliedParamValue(const Plugin& plugin, clap_id id)
 {
     uint32_t pickup = 0u;
     if (pickupTuneIndex(id, pickup)) return plugin.params.pickupTuneTrim[pickup];
@@ -329,7 +356,115 @@ double getParam(const Plugin& plugin, clap_id id)
     }
 }
 
-bool init(const clap_plugin_t*) { return true; }
+void publishParam(Plugin& plugin, clap_id id)
+{
+    uint32_t index = 0u;
+    if (paramSlotIndex(id, index)) {
+        plugin.publishedParams[index].store(appliedParamValue(plugin, id),
+            std::memory_order_release);
+    }
+}
+
+void publishAllParams(Plugin& plugin)
+{
+    for (clap_id id = kParamOrder; id <= kParamPrintEnabled; ++id) {
+        publishParam(plugin, id);
+    }
+    for (uint32_t pickup = 0u; pickup < kPickups; ++pickup) {
+        publishParam(plugin, kParamPickupTuneFirst + pickup);
+        publishParam(plugin, kParamPickupDecayFirst + pickup);
+    }
+}
+
+double getParam(const Plugin& plugin, clap_id id)
+{
+    uint32_t index = 0u;
+    return paramSlotIndex(id, index)
+        ? plugin.publishedParams[index].load(std::memory_order_acquire) : 0.0;
+}
+
+s3g::AmbiEffectResonancePrintParams publishedParamsSnapshot(const Plugin& plugin)
+{
+    s3g::AmbiEffectResonancePrintParams params {};
+    params.order = roundedUint(getParam(plugin, kParamOrder));
+    params.body = static_cast<s3g::AmbiEffectBody>(roundedUint(getParam(plugin, kParamBody)));
+    params.topology = static_cast<s3g::AmbiEffectTopology>(
+        roundedUint(getParam(plugin, kParamTopology)));
+    params.captureSeconds = static_cast<float>(getParam(plugin, kParamCaptureSeconds));
+    params.sensitivity = static_cast<float>(getParam(plugin, kParamSensitivity));
+    params.modalCount = roundedUint(getParam(plugin, kParamModalCount));
+    params.transposeSemitones = static_cast<float>(getParam(plugin, kParamTranspose));
+    params.harmonicPull = static_cast<float>(getParam(plugin, kParamHarmonicPull));
+    params.harmonicStretch = static_cast<float>(getParam(plugin, kParamHarmonicStretch));
+    params.decaySeconds = static_cast<float>(getParam(plugin, kParamDecay));
+    params.decayTilt = static_cast<float>(getParam(plugin, kParamDecayTilt));
+    params.drive = static_cast<float>(getParam(plugin, kParamDrive));
+    params.spread = static_cast<float>(getParam(plugin, kParamSpread));
+    params.deviation = static_cast<float>(getParam(plugin, kParamDeviation));
+    params.topologyAmount = static_cast<float>(getParam(plugin, kParamTopologyAmount));
+    params.roamingRateHz = static_cast<float>(getParam(plugin, kParamRoamingRate));
+    params.mix = static_cast<float>(getParam(plugin, kParamMix));
+    params.outputGainDb = static_cast<float>(getParam(plugin, kParamOutput));
+    params.maskAmount = static_cast<float>(getParam(plugin, kParamMaskAmount));
+    params.maskAzimuthDeg = static_cast<float>(getParam(plugin, kParamMaskAzimuth));
+    params.maskElevationDeg = static_cast<float>(getParam(plugin, kParamMaskElevation));
+    params.maskWidth = static_cast<float>(getParam(plugin, kParamMaskWidth));
+    params.maskCurve = static_cast<float>(getParam(plugin, kParamMaskCurve));
+    params.maskDry = static_cast<float>(getParam(plugin, kParamMaskDry) + 1.0);
+    params.printEnabled = roundedUint(getParam(plugin, kParamPrintEnabled));
+    for (uint32_t pickup = 0u; pickup < kPickups; ++pickup) {
+        params.pickupTuneTrim[pickup] = static_cast<float>(
+            getParam(plugin, kParamPickupTuneFirst + pickup));
+        params.pickupDecayTrim[pickup] = static_cast<float>(
+            getParam(plugin, kParamPickupDecayFirst + pickup));
+    }
+    return s3g::sanitizeAmbiEffectResonancePrintParams(params);
+}
+
+void requestGuiParamService(Plugin& plugin)
+{
+    if (plugin.hostParams && plugin.hostParams->request_flush) {
+        plugin.hostParams->request_flush(plugin.host);
+    } else if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& plugin, s3g::clap_gui::ParamEventKind kind,
+    clap_id id, double value = 0.0)
+{
+    if (!plugin.guiParamEvents.push({ kind, id, value })) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+void queueGuiParamGestureBegin(Plugin& plugin, clap_id id)
+{
+    (void)queueGuiParamEvent(plugin,
+        s3g::clap_gui::ParamEventKind::GestureBegin, id);
+}
+
+void queueGuiParamValue(Plugin& plugin, clap_id id, double value)
+{
+    (void)queueGuiParamEvent(plugin,
+        s3g::clap_gui::ParamEventKind::Value, id, value);
+}
+
+void queueGuiParamGestureEnd(Plugin& plugin, clap_id id)
+{
+    (void)queueGuiParamEvent(plugin,
+        s3g::clap_gui::ParamEventKind::GestureEnd, id);
+}
+
+bool init(const clap_plugin_t* plugin)
+{
+    auto* instance = self(plugin);
+    if (instance->host && instance->host->get_extension) {
+        instance->hostParams = static_cast<const clap_host_params_t*>(
+            instance->host->get_extension(instance->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -345,6 +480,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     instance->sampleRate = std::max(1.0, sampleRate);
     instance->params = s3g::sanitizeAmbiEffectResonancePrintParams(instance->params);
     instance->processor.setParams(instance->params);
+    publishAllParams(*instance);
     if (!instance->processor.prepare(instance->sampleRate)) return false;
     instance->processor.reset();
     instance->lastTailFrames = instance->processor.tailFrames();
@@ -375,15 +511,60 @@ void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
     }
 }
 
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+void serviceGuiParamEvents(Plugin& plugin, const clap_output_events_t* out)
+{
+    s3g::clap_gui::ParamEvent pending {};
+    while (plugin.guiParamEvents.peek(pending)) {
+        if (!pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            applyParam(plugin, pending.paramId, pending.value);
+        }
+        plugin.guiParamEvents.pop();
+    }
+}
+
 void serviceCommands(Plugin& plugin)
 {
     if (plugin.clearRequest.exchange(false, std::memory_order_acq_rel)) {
         plugin.params.printEnabled = 0u;
+        publishParam(plugin, kParamPrintEnabled);
         plugin.processor.clearPrint();
         markTailChanged(plugin);
     }
     if (plugin.captureRequest.exchange(false, std::memory_order_acq_rel)) {
         plugin.params.printEnabled = 0u;
+        publishParam(plugin, kParamPrintEnabled);
         plugin.processor.setParams(plugin.params);
         if (plugin.processor.isCapturing()) plugin.processor.cancelCapture();
         else plugin.processor.beginCapture();
@@ -394,6 +575,7 @@ void serviceCommands(Plugin& plugin)
 void publishStatus(Plugin& plugin)
 {
     plugin.params.printEnabled = plugin.processor.params().printEnabled;
+    publishParam(plugin, kParamPrintEnabled);
     uint32_t modes = 0u;
     for (uint32_t node = 0u; node < kPickups; ++node) {
         plugin.nodeLevel[node].store(plugin.processor.nodeLevel(node),
@@ -452,6 +634,7 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     auto* instance = self(plugin);
     readParamEvents(*instance, processData->in_events);
+    serviceGuiParamEvents(*instance, processData->out_events);
     serviceCommands(*instance);
     deliverTailChangedOnAudioThread(*instance);
     clap_process_status status = CLAP_PROCESS_CONTINUE;
@@ -492,6 +675,26 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index,
 }
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
+
+bool ambisonicIsConfigSupported(const clap_plugin_t*,
+    const clap_ambisonic_config_t* config)
+{
+    return config && config->ordering == CLAP_AMBISONIC_ORDERING_ACN
+        && config->normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D;
+}
+
+bool ambisonicGetConfig(const clap_plugin_t*, bool, uint32_t portIndex,
+    clap_ambisonic_config_t* config)
+{
+    if (portIndex != 0u || !config) return false;
+    config->ordering = CLAP_AMBISONIC_ORDERING_ACN;
+    config->normalization = CLAP_AMBISONIC_NORMALIZATION_SN3D;
+    return true;
+}
+
+const clap_plugin_ambisonic_t ambisonicExt {
+    ambisonicIsConfigSupported, ambisonicGetConfig,
+};
 
 uint32_t paramsCount(const clap_plugin_t*)
 {
@@ -670,10 +873,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* events, const clap_output_events_t*)
+    const clap_input_events_t* events, const clap_output_events_t* out)
 {
     auto* instance = self(plugin);
     readParamEvents(*instance, events);
+    serviceGuiParamEvents(*instance, out);
     serviceCommands(*instance);
     publishStatus(*instance);
 }
@@ -711,10 +915,11 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const auto* instance = self(plugin);
+    const auto params = publishedParamsSnapshot(*instance);
     const auto print = instance->processor.printData();
     return writeAll(stream, &kStateMagic, sizeof(kStateMagic))
         && writeAll(stream, &kStateVersion, sizeof(kStateVersion))
-        && writeAll(stream, &instance->params, sizeof(instance->params))
+        && writeAll(stream, &params, sizeof(params))
         && writeAll(stream, &print, sizeof(print))
         && writeAll(stream, &instance->guiViewMode, sizeof(instance->guiViewMode))
         && writeAll(stream, &instance->guiViewAzDeg, sizeof(instance->guiViewAzDeg))
@@ -749,6 +954,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     auto* instance = self(plugin);
     instance->params = s3g::sanitizeAmbiEffectResonancePrintParams(params);
     instance->processor.setParams(instance->params);
+    publishAllParams(*instance);
     instance->processor.setPrint(print);
     instance->guiViewMode = std::clamp<int32_t>(viewMode, -1, 2);
     instance->guiViewAzDeg = std::isfinite(azimuth) ? azimuth : 35.0f;
@@ -779,6 +985,7 @@ namespace {
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
+    if (std::strcmp(id, CLAP_EXT_AMBISONIC) == 0) return &ambisonicExt;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
@@ -819,6 +1026,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
         : nullptr;
     instance->params = s3g::sanitizeAmbiEffectResonancePrintParams(instance->params);
     instance->processor.setParams(instance->params);
+    publishAllParams(*instance);
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = init;

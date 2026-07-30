@@ -1451,6 +1451,7 @@ void resetMeters(Plugin& plugin)
 void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
     float seedAmount)
 {
+    params.outputGainDb = plugin.params.outputGainDb;
     s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     plugin.params = s3g::sanitizeNoInputMixerParams(params);
     snapSurfaceCursor(plugin);
@@ -5515,7 +5516,8 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     if (s3g::clap_gui::handleProcessorTitleClick(point,
             &plugin->plugin, @"No Input Mixer", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName),
+            kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

@@ -675,7 +675,7 @@ static NSColor* bpColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::col
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Buffer", titleBand,
-            _titlePresetName, sizeof(_titlePresetName))) {
+            _titlePresetName, sizeof(_titlePresetName), kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }

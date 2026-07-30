@@ -3109,15 +3109,15 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         applyParam(*p, kCustomFieldParamId, 0.0);
         applyParam(*p, kActiveSpeakersParamId, 24.0);
         applyParam(*p, kWidthParamId, 1.0);
-        applyParam(*p, kOutputParamId, 0.0);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
-        if (s3g::clap_gui::loadPluginStatePreset(
-                &p->plugin, @"Ambi Decoder Speaker", &name)) {
+        if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
+                &p->plugin, @"Ambi Decoder Speaker", kOutputParamId,
+                &name)) {
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
             [self updateValueFields];

@@ -7,6 +7,7 @@ dist_root="$repo_root/dist"
 manifest="$repo_root/scripts/clap-bundles.tsv"
 legacy_manifest="$repo_root/scripts/clap-legacy-bundles.tsv"
 manifest_checker="$repo_root/scripts/check-clap-bundle-manifest.py"
+objc_symbol_checker="$repo_root/scripts/check-clap-objc-symbols.py"
 release_version="${S3G_RELEASE_VERSION:-0.5.0-pre}"
 release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
 codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
@@ -52,6 +53,10 @@ fi
 python3 "$manifest_checker" \
   --active-manifest "$manifest" \
   --legacy-manifest "$legacy_manifest" \
+  --build-root "$src_root"
+
+python3 "$objc_symbol_checker" \
+  --manifest "$manifest" \
   --build-root "$src_root"
 
 rm -rf "$staging" "$zip_path"

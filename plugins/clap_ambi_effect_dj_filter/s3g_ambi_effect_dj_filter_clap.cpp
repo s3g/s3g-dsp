@@ -1733,7 +1733,7 @@ NSRect pickupResonanceAxisRect()
     if (s3g::clap_gui::handleProcessorTitleClick(point, &p->plugin,
         @"Ambi Effect DJ Filter",
         s3g::gui_layout::transformTitleBand(kAmbiEffectCanvas),
-        p->presetName, sizeof(p->presetName))) {
+        p->presetName, sizeof(p->presetName), kParamOutput)) {
         [self setNeedsDisplay:YES];
         return;
     }
