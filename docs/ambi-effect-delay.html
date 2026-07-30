@@ -37,6 +37,18 @@
           <figcaption>Ambi Effect Delay configured for <code>3OA</code> with a <code>SPHERE 24</code> body, varied delay relationships, and an enabled directional wet mask.</figcaption>
         </figure>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the effect after an ambisonic source and match <code>ORDER</code> to the field.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
+          <li>Start with <code>BODY: AUTO</code>, <code>LOCAL</code>, moderate feedback, and a short enough time to identify the directional repeats.</li>
+          <li>Raise <code>SPRD</code> for an ordered delay fan, then add <code>DEV</code> for less regular timing.</li>
+          <li>Use the meters to select active pickups and refine time or feedback on the two rails.</li>
+          <li>Introduce <code>CROSS</code>, <code>DIFFUSE</code>, or <code>ROAMING</code> with <code>AMT</code> after the timing relationship is established.</li>
+          <li>Engage the directional mask when the repeats should occupy one region. Lower <code>DRY</code> when the complementary region should be attenuated rather than merely uneffected.</li>
+        </ol>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <pre><code>1OA-7OA ACN/SN3D field
@@ -107,17 +119,6 @@
 
         <p><code>MASK: OFF</code> applies the delay across the whole selected body. Raising it concentrates the processed target around <code>AZ</code>/<code>EL</code>; <code>WIDTH</code> controls its angular footprint while <code>CURVE</code> controls the softness of the boundary. Outside that island, <code>DRY: 0%</code> preserves the original pickup signal and negative values attenuate it until <code>-100% FX ONLY</code> removes it from the body correction subspace. Because <code>MIX</code> blends the correction with the original HOA field, complete outside-region removal requires a fully wet mix.</p>
 
-        <h2 id="workflow">Workflow</h2>
-
-        <ol>
-          <li>Insert the effect after an ambisonic source and before the decoder, then match <code>ORDER</code> to the field.</li>
-          <li>Start with <code>BODY: AUTO</code>, <code>LOCAL</code>, moderate feedback, and a short enough time to identify the directional repeats.</li>
-          <li>Raise <code>SPRD</code> for an ordered delay fan, then add <code>DEV</code> for less regular timing.</li>
-          <li>Use the meters to select active pickups and refine time or feedback on the two rails.</li>
-          <li>Introduce <code>CROSS</code>, <code>DIFFUSE</code>, or <code>ROAMING</code> with <code>AMT</code> after the timing relationship is established.</li>
-          <li>Engage the directional mask when the repeats should occupy one region. Lower <code>DRY</code> when the complementary region should be attenuated rather than merely uneffected.</li>
-        </ol>
-
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-effect-dj-filter.html">
             <span>Previous</span>
@@ -136,19 +137,36 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
           <a href="ambisonic-utilities.html">Utilities</a>
         </div>
         <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
+          <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
+          <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
+          <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
+          <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#signal-flow">Signal Flow</a>
           <a href="#body">Order and Body</a>
           <a href="#controls">Controls</a>
           <a href="#pickup-editor">Pickup Editor and Camera</a>
           <a href="#mask">Directional Mask</a>
-          <a href="#workflow">Workflow</a>
         </div>
       </aside>
     </div>

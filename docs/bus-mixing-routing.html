@@ -28,6 +28,16 @@
 
         <p>Bus tools treat a wide REAPER track as a collection of fixed-size source blocks. They mix or validate those blocks without assuming that the channels form an ambisonic field.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose Group Matrix, Mixer Node Bus, or Passthrough Test, then configure the REAPER track width, source-block size, and plugin pins.</li>
+          <li>Route the result to the main speakers, a direct panner, a stereo or quad fold-down, or the intended downstream bus, then begin playback.</li>
+          <li>Route complete blocks with matrix crosspoints, shape their levels with the node cursor, or isolate lanes with Passthrough Test.</li>
+          <li>Verify block boundaries and channel identity before automating routes or node motion.</li>
+          <li>Use an ambisonic bus processor instead when every source block is a complete <code>ACN/SN3D</code> field.</li>
+        </ol>
+
         <h2 id="matrix">Group Matrix</h2>
 
         <p><strong>Group Matrix 32/64</strong> routes complete source blocks through a matrix. The 32-channel build supports stereo, 4-channel, and 8-channel groups; the 64-channel build supports 4-channel, 8-channel, and 16-channel groups. Every crosspoint moves the selected block together.</p>
@@ -61,7 +71,7 @@
         <p>When every block is a complete third-order <code>ACN/SN3D</code> field, use <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a> so all sixteen channels in each field remain locked.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="layout-panner.html">
+          <a class="page-nav-link" href="panner-layout.html">
             <span>Previous</span>
             Panner Layout
           </a>
@@ -84,6 +94,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#matrix">Group Matrix</a>
           <a href="#node">Mixer Node Bus</a>
           <a href="#diagnostics">Routing Diagnostics</a>

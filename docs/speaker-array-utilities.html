@@ -28,6 +28,16 @@
 
         <p>Speaker-array utilities sit after direct panning or decoding. They prepare discrete speaker feeds for the physical system rather than moving sources or changing the artistic mix.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert fixed-width Output Crossover, Array HPF, Array Delay, or Array Trim plugins after the direct panner or decoder on a track that matches the rendered speaker bus; for Output Crossover, set the intended subwoofer count before routing its outputs.</li>
+          <li>Route the final lanes to the corresponding main-speaker and subwoofer hardware outputs, begin playback at a safe level, and confirm channel identity.</li>
+          <li>Configure crossover and main-speaker high-pass filtering for the physical system.</li>
+          <li>Set per-speaker alignment delay, then apply trim, mute, and polarity correction.</li>
+          <li>Verify the calibrated array and leave room-specific settings stable while keeping artistic automation upstream.</li>
+        </ol>
+
         <h2 id="crossover">Output Crossover</h2>
 
         <p><strong>Output Crossover</strong> derives low-frequency sends from a Panner Layout speaker array and supports as many as eight subwoofer channels. Use it when bass management belongs to the rendered speaker bus rather than the source or ambisonic field.</p>
@@ -108,6 +118,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#crossover">Output Crossover</a>
           <a href="#calibration">Array Calibration</a>
           <a href="#order">Recommended Order</a>

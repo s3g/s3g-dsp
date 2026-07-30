@@ -37,11 +37,12 @@
           <figcaption>Ambi Effect Response Trace applying 24 captured directional kernels to a live field, with a broader mask centered at <code>+106° AZ</code>, <code>-28° EL</code>.</figcaption>
         </figure>
 
-        <h2 id="quick-start">Quick Start</h2>
+        <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Place Response Trace on an ambisonic track before the final decoder.</li>
-          <li>Select the field order, leave Body at <code>AUTO</code>, and reduce Mix or Response gain.</li>
+          <li>Place Response Trace on an ambisonic track and select the field order.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
+          <li>Leave Body at <code>AUTO</code> and reduce Mix or Response gain.</li>
           <li>Set Time, play the sound that should become the kernel, and press Capture. Capture uses the next incoming passage.</li>
           <li>The completed response remains bypassed. Press Apply only when ready, then use Apply / Bypass to A/B without deleting it.</li>
           <li>Use Tone, Response gain, topology, and the directional mask to place the convolved field.</li>
@@ -118,8 +119,34 @@
       </main>
 
       <aside class="toc" aria-label="Page navigation">
-        <div class="toc-section"><h2>Ambisonics</h2><a href="ambisonics.html">Overview</a><a href="interpreting-color.html">Interpreting Color</a><a href="listener-mode.html">Listener Mode</a><a href="ambisonic-effects.html">Effects</a></div>
-        <div class="toc-section"><h2>On This Page</h2><a href="#quick-start">Quick Start</a><a href="#capture">Capture</a><a href="#signal-flow">Signal Flow</a><a href="#listener">Listener and Topology</a><a href="#controls">Controls</a><a href="#safety">Safety</a><a href="#routing">REAPER Routing</a></div>
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
+          <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
+          <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
+          <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
+          <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#capture">Capture</a><a href="#signal-flow">Signal Flow</a><a href="#listener">Listener and Topology</a><a href="#controls">Controls</a><a href="#safety">Safety</a><a href="#routing">REAPER Routing</a></div>
       </aside>
     </div>
     <script src="lightbox.js"></script>

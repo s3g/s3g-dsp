@@ -28,6 +28,16 @@
 
         <p>Distributed-output effects accept a stereo source and generate sixteen discrete output lanes. They create multichannel time and event structures without encoding the result as an ambisonic field.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Shard Scatter, Orbit Delay, or Cascade Taps on a track with at least sixteen channels, then route the stereo source to the plugin input bus.</li>
+          <li>Route the sixteen discrete outputs to a direct panner, bus mixer, fold-down, or matching speaker destination, then begin playback. Another effect may precede that destination when its build matches the sixteen-channel bus.</li>
+          <li>Set the effect's grain, delay, or tap structure while monitoring activity across all sixteen lanes.</li>
+          <li>Shape motion, density, timing, and regeneration without treating the output as an ambisonic field.</li>
+          <li>Verify the REAPER output pins and downstream levels before automating the distribution.</li>
+        </ol>
+
         <h2 id="plugins">Plugins</h2>
 
         <ul>
@@ -74,7 +84,7 @@
             <span>Previous</span>
             Spectral / Buffer Effects
           </a>
-          <a class="page-nav-link next" href="crcltr.html">
+          <a class="page-nav-link next" href="effect-crcltr.html">
             <span>Next</span>
             Effect CRCLTR
           </a>
@@ -100,6 +110,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#plugins">Plugins</a>
           <a href="#routing">Routing</a>
           <a href="#format-note">Discrete, Not Ambisonic</a>

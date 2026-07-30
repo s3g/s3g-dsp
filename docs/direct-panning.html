@@ -28,13 +28,22 @@
 
         <p>Direct panners calculate speaker gains from source positions and write those gains directly to discrete output channels. They share one layout editor and preset language, but they do not create an <code>ACN/SN3D</code> bus.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose Panner Layout, DBAP, LBAP, or VBAP, insert it on a track with enough input lanes and speaker-output channels, then select or design the physical speaker layout and confirm its active speaker count and channel order.</li>
+          <li>Route the active output lanes to the matching main speakers, directly or through a speaker-array utility chain, then begin playback.</li>
+          <li>Place the sources in the field and set their gain, mute, solo, and inside-source behavior.</li>
+          <li>Check motion across the entire array before adding downstream crossover, delay, or trim calibration.</li>
+        </ol>
+
         <h2 id="panners">Panner Family</h2>
 
         <ul>
-          <li><a href="layout-panner.html">Panner Layout</a>: the main source-to-speaker panner with built-in arrays, custom speaker layouts, and saved camera views.</li>
-          <li><a href="layout-panner.html#panner-variants">Panner DBAP</a>: distance-based amplitude panning across the active speaker layout.</li>
-          <li><a href="layout-panner.html#panner-variants">Panner LBAP</a>: layout-based panning for two- and three-dimensional speaker relationships.</li>
-          <li><a href="layout-panner.html#panner-variants">Panner VBAP</a>: vector-base amplitude panning over valid speaker pairs or triplets.</li>
+          <li><a href="panner-layout.html">Panner Layout</a>: the main source-to-speaker panner with built-in arrays, custom speaker layouts, and saved camera views.</li>
+          <li><a href="panner-layout.html#panner-variants">Panner DBAP</a>: distance-based amplitude panning across the active speaker layout.</li>
+          <li><a href="panner-layout.html#panner-variants">Panner LBAP</a>: layout-based panning for two- and three-dimensional speaker relationships.</li>
+          <li><a href="panner-layout.html#panner-variants">Panner VBAP</a>: vector-base amplitude panning over valid speaker pairs or triplets.</li>
         </ul>
 
         <h2 id="choosing">Choosing Direct or Ambisonic Routing</h2>
@@ -46,11 +55,11 @@
         <p>After a direct panner, use <a href="speaker-array-utilities.html">Speaker Array Utilities</a> for main-speaker high-pass filtering, per-output delay, trim, mute, polarity, and subwoofer sends.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="multichannel-meter.html">
+          <a class="page-nav-link" href="analyzer-meter.html">
             <span>Previous</span>
             Analyzer Meter
           </a>
-          <a class="page-nav-link next" href="layout-panner.html">
+          <a class="page-nav-link next" href="panner-layout.html">
             <span>Next</span>
             Panner Layout
           </a>
@@ -69,8 +78,9 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#panners">Panner Family</a>
-          <a href="#choosing">Choosing a Workflow</a>
+          <a href="#choosing">Choosing Direct or Ambisonic Routing</a>
           <a href="#calibration">Downstream Calibration</a>
         </div>
       </aside>

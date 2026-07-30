@@ -50,7 +50,7 @@
 
         <p>Optional display metadata includes the primary XY polygon, an XZ ceiling profile, and a connected-volume graph. <code>space.regions</code> records each region polygon, base elevation, height, family, attachment, and parent. <code>space.portals</code> records the connection endpoints, 3D center and orientation, opening shape, dimensions, area, transmission estimate, and outline. This permits wall, overhead, beneath, and stacked regions without changing the resolved audio contract.</p>
 
-        <p>An optional <code>echo_paths</code> object records the requested and resolved structure, geometry-derived interval, path points, prominence, persistence, and regularity. Coupled paths may traverse more than one portal and region. Resolved echo events remain ordinary entries in <code>early_reflections</code>, with optional path and bounce identifiers for provenance. Readers must continue to derive sound from the resolved profiles, so these additions remain backward compatible within version 1.</p>
+        <p>An optional <code>echo_paths</code> object records the requested and resolved structure, geometry-derived interval, path points, prominence, persistence, and regularity. Coupled paths may traverse more than one portal and region. Resolved echo events are ordinary entries in <code>early_reflections</code>, with optional path and bounce identifiers for provenance. Readers derive sound from the resolved profiles; the optional provenance does not change version 1 response decoding.</p>
 
         <h2 id="runtime">Runtime Limits</h2>
 
@@ -63,7 +63,7 @@
         <p>Load the exported <code>.s3gimprint</code> runtime descriptor in Processor Ambi Imprint, not the editable Imprint Sketch <code>.json</code> project. Exporting requires no <code>s3g-field</code> conversion step. To reuse a legacy <code>s3g-ir-room-sketch</code> project, import it into Imprint Sketch and export a new <code>.s3gimprint</code> file.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambisonic-energy-visualizer.html">
+          <a class="page-nav-link" href="analyzer-ambi-energy.html">
             <span>Previous</span>
             Analyzer Ambi Energy
           </a>
@@ -80,6 +80,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -87,8 +88,8 @@
         </div>
         <div class="toc-section">
           <h2>Utility Pages</h2>
-          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>
+          <a href="ambi-transform-order-band.html">Ambi Transform Order Band 64</a>
+          <a href="analyzer-ambi-energy.html">Analyzer Ambi Energy 64</a>
           <a href="s3gimprint-format.html">.s3gimprint Format</a>
           <a href="s3gray-format.html">.s3gray Format</a>
         </div>

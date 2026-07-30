@@ -28,6 +28,15 @@
 
         <p>Ambi field and bus processors work on complete ambisonic signals without breaking their channel relationships. Single-field processors expect one encoded field. Group processors treat each 16-channel third-order <code>ACN/SN3D</code> block as one locked feed.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose a processor and insert it on a correctly routed Ambisonic track whose width matches the single field or grouped fields. For a group processor, route each complete 16-channel 3OA feed into its assigned input block.</li>
+          <li>Follow a single output field with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before that decoder when their supported order and channel count match the field. For grouped outputs, apply compatible effects within each 16-channel field and route each field to its own decoder, or mix the groups to one field before its compatible effect chain and decoder.</li>
+          <li>Establish a neutral field or group state, then send audio through the complete chain.</li>
+          <li>Shape matrix connections, node relationships, rotation, or depth while listening through the decoder.</li>
+        </ol>
+
         <h2 id="plugins">Plugins</h2>
 
         <ul>
@@ -155,11 +164,11 @@
         <p>For non-ambisonic group and node mixers, use <a href="bus-mixing-routing.html">Multichannel Bus Mixing / Routing</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambisonic-rotate.html">
+          <a class="page-nav-link" href="ambi-transform-rot.html">
             <span>Previous</span>
             Ambi Transform Rot 64
           </a>
-          <a class="page-nav-link next" href="ambi-grain-processor.html">
+          <a class="page-nav-link next" href="processor-ambi-grain.html">
             <span>Next</span>
             Processor Ambi Grain
           </a>
@@ -172,6 +181,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -179,15 +189,23 @@
         </div>
         <div class="toc-section">
           <h2>Effect Pages</h2>
-          <a href="ambisonic-effects.html">Ambi Effects</a>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
+          <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
+          <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
+          <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
           <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
-          <a href="ambi-imprint.html">Processor Ambi Imprint</a>
-          <a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#plugins">Plugins</a>
           <a href="#matrix">Ambi Matrix Group Model</a>
           <a href="#node">Ambi Mixer Node Bus Model</a>

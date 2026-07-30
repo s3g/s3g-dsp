@@ -28,28 +28,29 @@
 
         <p>Voice and language tools connect source recordings, UTAU-style aliases, typed phrases, WORLD analysis, ensemble direction, and ambisonic placement.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Ambi Encoder Vox on a 64-channel REAPER track and select the ambisonic order.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Record, import, or generate a voice source.</li>
+          <li>Segment and time aliases in Vox Builder.</li>
+          <li>Export the voicebank folder.</li>
+          <li>Load the folder in Ambi Encoder Vox.</li>
+        </ol>
+
         <h2 id="instrument">Ambi Encoder Vox</h2>
 
-        <p><a href="ambi-vox-encoder.html">Ambi Encoder Vox</a> is the performance instrument. It loads a vocal WAV or voicebank, retains WORLD pitch, spectral-envelope, and aperiodicity analysis, maps typed phrases to aliases, and distributes as many as sixteen voices through a first-through-seventh-order ambisonic field.</p>
+        <p><a href="ambi-encoder-vox.html">Ambi Encoder Vox</a> is the performance instrument. It loads a vocal WAV or voicebank, retains WORLD pitch, spectral-envelope, and aperiodicity analysis, maps typed phrases to aliases, and distributes as many as sixteen voices through a first-through-seventh-order ambisonic field.</p>
 
         <h2 id="builder">Vox Builder</h2>
 
         <p><a href="vox-builder.html">Vox Builder</a> is the macOS companion app. It records, imports, generates, segments, analyzes, auditions, and exports the voicebank material used by Ambi Encoder Vox.</p>
 
-        <h2 id="workflow">Workflow</h2>
-
-        <ol>
-          <li>Record, import, or generate a voice source.</li>
-          <li>Segment and time aliases in Vox Builder.</li>
-          <li>Export the voicebank folder.</li>
-          <li>Load the folder in Ambi Encoder Vox.</li>
-          <li>Follow it with an ambisonic decoder.</li>
-        </ol>
-
         <p>Keep the complete exported folder together. The WAV aliases, <code>oto.ini</code>, <code>voicebank.json</code>, and optional pronunciation map form one portable source library.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="multi-loop-processor.html">
+          <a class="page-nav-link" href="processor-multi-loop.html">
             <span>Previous</span>
             Processor Multi Loop
           </a>
@@ -70,9 +71,9 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#instrument">Ambi Encoder Vox</a>
           <a href="#builder">Vox Builder</a>
-          <a href="#workflow">Workflow</a>
         </div>
       </aside>
     </div>

@@ -28,11 +28,19 @@
 
         <p>Utilities inspect, reshape, and exchange ambisonic material without acting as a source encoder or final listening decoder. They are useful for checking order, visualizing energy, and moving authored spatial data between <code>s3g-mc</code> and <code>s3g-dsp</code>.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Confirm the source is <code>ACN/SN3D</code> and identify its active order, then choose a utility and insert it on a correctly routed Ambisonic track at the point where the field needs inspection or order shaping.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Send audio through the chain, then inspect the live field or adjust complete order bands, keeping any file-format page alongside the authoring or loading tool it documents.</li>
+        </ol>
+
         <h2 id="inspection">Inspection and Order</h2>
 
         <ul>
-          <li><a href="ambisonic-order-band-tool.html">Ambi Order / Band</a>: solos, mutes, or trims complete ambisonic orders and channel bands.</li>
-          <li><a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>: passthrough direction, order, and energy inspection for as many as 64 channels.</li>
+          <li><a href="ambi-transform-order-band.html">Ambi Transform Order Band 64</a>: solos, mutes, or trims complete ambisonic orders and channel bands.</li>
+          <li><a href="analyzer-ambi-energy.html">Analyzer Ambi Energy 64</a>: passthrough direction, order, and energy inspection for as many as 64 channels.</li>
         </ul>
 
         <h2 id="formats">Interchange Formats</h2>
@@ -47,11 +55,11 @@
         <p>The ambisonic plugins use <code>ACN</code> channel order and <code>SN3D</code> normalization. A complete order contains <code>(order + 1)^2</code> channels: 4 for 1OA, 9 for 2OA, 16 for 3OA, and 64 for 7OA. Confirm that convention before diagnosing a decoder or visualizer as incorrect.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-grain-processor.html">
+          <a class="page-nav-link" href="processor-ambi-grain.html">
             <span>Previous</span>
             Processor Ambi Grain
           </a>
-          <a class="page-nav-link next" href="ambisonic-order-band-tool.html">
+          <a class="page-nav-link next" href="ambi-transform-order-band.html">
             <span>Next</span>
             Ambi Order / Band
           </a>
@@ -64,6 +72,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -71,6 +80,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#inspection">Inspection and Order</a>
           <a href="#formats">Interchange Formats</a>
           <a href="#format-baseline">Format Baseline</a>

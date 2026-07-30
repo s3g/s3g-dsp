@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Panner Layout - s3g-dsp</title>
+    <meta name="description" content="Direct layout panner documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Panner Layout</h1>
+
+        <p><code>s3g Panner Layout</code> is a direct spatial panner: source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
+
+        <p>Its outputs already correspond to physical speakers, so no ambisonic decoder follows it. Use an <a href="ambisonic-encoders.html">Ambisonic Encoder</a> instead when the spatial field must remain independent of the final speaker layout.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/layout-panner.png" aria-label="Open high-resolution Panner Layout GUI screenshot">
+              <img src="assets/plugin-guis/layout-panner.png" alt="Panner Layout showing four source points against the Dome 25 speaker geometry" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Panner Layout with four source points against the Dome 25 speaker geometry.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the chosen direct panner on a REAPER track with the required source inputs and enough channels for its 64-channel output bus, then select a speaker-layout preset or load a custom layout and confirm its active speaker count and output order.</li>
+          <li>Route the active output lanes to the matching main speakers, directly or through a speaker-array utility chain, then begin playback.</li>
+          <li>Use <code>FIELD</code> to place sources, then set gain, mute, solo, and inside-source behavior in the field or mixer.</li>
+          <li>Use <code>DESIGN</code> to refine and save custom speaker geometry, then verify motion across the complete array.</li>
+        </ol>
+
+        <h2 id="signal-shape">Signal Shape</h2>
+
+        <pre><code>source inputs
+-&gt; source AED / gain / mute / solo
+-&gt; selected speaker layout
+-&gt; direct source-to-speaker gain render
+-&gt; speaker outputs 1-64</code></pre>
+
+        <p>Only the active speaker count writes sound. Unused output lanes are silent. Source mute and solo are available for diagnosis and performance setup.</p>
+
+        <h2 id="pages">Pages</h2>
+
+        <div class="table-wrap">
+          <table class="readout-table">
+            <thead>
+              <tr>
+                <th>Page</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>FIELD</code></td>
+                <td>Shows speaker geometry and source points together. Drag source points in the current camera plane for free spatial positioning.</td>
+              </tr>
+              <tr>
+                <td><code>MIXER</code></td>
+                <td>Shows source gain faders, mute, solo, and output level without crowding the spatial field.</td>
+              </tr>
+              <tr>
+                <td><code>DESIGN</code></td>
+                <td>Edits the speaker layout. Source points are hidden so speaker selection, dragging, and JSON import/export stay clear.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="layout-presets">Layout Presets</h2>
+
+        <p>The layout menu provides common speaker shapes such as quad, rings, cube layouts, dodeca, domes, and custom. Presets are starting points. Switch to <code>CUSTOM</code> or edit a speaker to build a layout for a specific room or format.</p>
+
+        <p>Speaker markers use the same square AED color strategy as the Ambi Encoder Point and Decoder Speaker. Geometry lines show the intended layout mesh, not nearest-neighbor analysis. See <a href="interpreting-color.html#aed">Interpreting Color</a> for the shared azimuth, elevation, and distance mapping.</p>
+
+        <h2 id="panner-variants">Panner Variants</h2>
+
+        <p>The direct panner family uses the same source mixer, speaker layout language, camera controls, inside-source modes, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
+
+        <div class="table-wrap">
+          <table class="readout-table">
+            <thead>
+              <tr>
+                <th>Plugin</th>
+                <th>Method</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>s3g Panner Layout</code></td>
+                <td>distance / cosine</td>
+                <td>General direct panning with a design page for custom layouts. When a layout has no lower speakers, negative elevation smoothly rolls down toward silence.</td>
+              </tr>
+              <tr>
+                <td><code>s3g Panner DBAP</code></td>
+                <td>distance-based amplitude panning</td>
+                <td>Smooth distance-weighted distribution across the selected layout, with the same lower-hemisphere rolloff as Panner Layout.</td>
+              </tr>
+              <tr>
+                <td><code>s3g Panner LBAP</code></td>
+                <td>layer/local-lobe amplitude panning</td>
+                <td>Topology-aware lobe panning that follows layout tiers and local speaker neighborhoods.</td>
+              </tr>
+              <tr>
+                <td><code>s3g Panner VBAP</code></td>
+                <td>vector-base amplitude panning</td>
+                <td>Sharper vector panning against the selected layout topology.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/panner-vbap.png" aria-label="Open high-resolution Panner VBAP GUI screenshot">
+              <img src="assets/plugin-guis/panner-vbap.png" alt="Panner VBAP showing four source points, a Cube 17 speaker geometry, and the solver topology" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Panner VBAP with four source points against a Cube 17 speaker geometry and its solver topology.</figcaption>
+        </figure>
+
+        <p>LBAP and VBAP use an internal solver topology derived from the speaker layout. The GUI overlay draws the actual topology used by the solver: faint cyan for LBAP and faint yellow for VBAP. Imaginary solver speakers may be added where the layout has weak or incomplete topology. These points help the solver but do not add output channels.</p>
+
+        <p>For flat 2D layouts, LBAP and VBAP add silent imaginary top and bottom speakers. Moving source elevation away from the speaker plane therefore becomes a smooth level change rather than a meaningless control. For partial 3D layouts, such as quad plus overheads, imaginary support points and pole-cap blending stabilize motion near <code>+90</code> and <code>-90</code> degrees elevation.</p>
+
+        <p>All direct panners treat unsupported negative elevation as a musical rolloff case. If the selected layout has no real lower-elevation speakers, steering downward preserves the panner's normal speaker distribution first, then applies a smooth attenuation toward silence at <code>-90</code> degrees. This keeps lower-hemisphere motion meaningful for upper-only and 2D arrays without inventing extra output channels.</p>
+
+        <p><code>IN</code> selects how source distances inside the unit speaker perimeter behave: <code>HOLD</code> keeps level stable and is the default, <code>ATTENUATE</code> reduces level as the point moves inward, <code>DIFFUSE</code> spreads energy more evenly, and <code>CENTER</code> blends inward positions toward the center response.</p>
+
+        <p>The host project stores the selected <code>TOP</code>, <code>SIDE</code>, or <code>3/4</code> view together with manual rotation and zoom. Reopening the project restores that camera state.</p>
+
+        <h2 id="design-page">Design Page</h2>
+
+        <p><code>DESIGN</code> is for speaker geometry only. It hides panning method, focus, diffusion, and other audio-distribution controls so the page stays about the speaker layout.</p>
+
+        <ul>
+          <li><code>SHAPE</code> chooses the custom layout generator: <code>AUTO</code>, <code>RING</code>, <code>DOME</code>, <code>GEO</code>, or <code>STACK</code>.</li>
+          <li><code>COUNT</code> sets active speakers from 2 to 64.</li>
+          <li><code>AUTO</code> chooses useful count-based defaults. For example, 8 speakers generates a cube.</li>
+          <li><code>SEL</code>, <code>AZ</code>, <code>EL</code>, and <code>DST</code> edit one speaker at a time.</li>
+          <li><code>COPY</code> copies the current preset into a custom editable layout.</li>
+          <li><code>LOAD</code> and <code>SAVE</code> import/export readable JSON layout files.</li>
+        </ul>
+
+        <h2 id="json">Custom Layout JSON</h2>
+
+        <p>Saved layouts use readable JSON with a shape label, speaker count, and one AED entry per speaker.</p>
+
+        <pre><code>{
+  "shape": "AUTO",
+  "speaker_count": 8,
+  "speakers": [
+    { "azimuth": -45.0, "elevation": -35.0, "distance": 1.0 }
+  ]
+}</code></pre>
+
+        <p>Imported files preserve their speaker coordinates. The shape label is metadata after import, so loading a measured layout does not regenerate over the edited positions.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="direct-panning.html">
+            <span>Previous</span>
+            Direct Panning
+          </a>
+          <a class="page-nav-link next" href="bus-mixing-routing.html">
+            <span>Next</span>
+            Bus Mixing / Routing
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Direct Panning Pages</h2>
+          <a href="panner-layout.html">Panner Layout</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-shape">Signal Shape</a>
+          <a href="#pages">Pages</a>
+          <a href="#layout-presets">Layout Presets</a>
+          <a href="#panner-variants">Panner Variants</a>
+          <a href="#design-page">Design Page</a>
+          <a href="#json">Custom Layout JSON</a>
+        </div>
+      </aside>
+    </div>
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

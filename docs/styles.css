@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&display=swap");
+
 :root {
   color-scheme: dark;
   --bg: #2a2d2c;
@@ -64,8 +66,9 @@ a:focus-visible {
 
 .brand {
   color: var(--ink);
+  font-family: "IBM Plex Mono", Monaco, Menlo, "Courier New", monospace;
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -145,6 +148,13 @@ a:focus-visible {
   font-size: clamp(25px, 4vw, 38px);
   line-height: 1.12;
   letter-spacing: 0;
+}
+
+.content h1.home-title {
+  font-family: "IBM Plex Mono", Monaco, Menlo, "Courier New", monospace;
+  font-size: clamp(36px, 5vw, 52px);
+  font-weight: 400;
+  line-height: 1.05;
 }
 
 .content h2 {

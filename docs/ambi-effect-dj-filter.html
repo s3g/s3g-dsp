@@ -39,6 +39,19 @@
           <figcaption>Ambi Effect DJ Filter with auditory-body pickups, topology routing, per-pickup meters, and directional wet mask.</figcaption>
         </figure>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Place the effect after an ambisonic encoder or encoded-media source and match <code>ORDER</code> to the incoming field.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
+          <li>Start with <code>BODY: AUTO</code>, <code>TOPOLOGY: LOCAL</code>, and the DJ filter at <code>OPEN</code>.</li>
+          <li>Sweep left to remove high frequencies or right to remove low frequencies. Add resonance after establishing the useful range.</li>
+          <li>Select active pickup points and offset a few toward LP or HP. Their meters make it easier to place stronger variation where the encoded field is actually active.</li>
+          <li>Try <code>CROSS</code> or <code>DIFFUSE</code> with a moderate amount for spatial redistribution, then use <code>ROAMING</code> when the filtering should travel through the field.</li>
+          <li>Raise <code>MASK</code>, aim its azimuth/elevation, and adjust width when the effect should occupy one directional region while the rest remains progressively dry.</li>
+          <li>At high orders, compare <code>ICOSA 12</code> with <code>DODECA 20</code>. The former is a coarser processing body, not lower-order decoding.</li>
+        </ol>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <pre><code>1OA-7OA ACN/SN3D field
@@ -133,18 +146,6 @@
 
         <p>Topology is deliberately coupled to each pickup's filter depth. A pickup at its effective <code>OPEN</code> position receives no topology correction; with every trim at zero, the global center remains a reliable neutral point during one-knob performance sweeps.</p>
 
-        <h2 id="workflow">Workflow</h2>
-
-        <ol>
-          <li>Place the effect after an ambisonic encoder or encoded-media source and before the decoder.</li>
-          <li>Match <code>ORDER</code> to the incoming field. Start with <code>BODY: AUTO</code>, <code>TOPOLOGY: LOCAL</code>, and the DJ filter at <code>OPEN</code>.</li>
-          <li>Sweep left to remove high frequencies or right to remove low frequencies. Add resonance after establishing the useful range.</li>
-          <li>Select active pickup points and offset a few toward LP or HP. Their meters make it easier to place stronger variation where the encoded field is actually active.</li>
-          <li>Try <code>CROSS</code> or <code>DIFFUSE</code> with a moderate amount for spatial redistribution, then use <code>ROAMING</code> when the filtering should travel through the field.</li>
-          <li>Raise <code>MASK</code>, aim its azimuth/elevation, and adjust width when the effect should occupy one directional region while the rest remains progressively dry.</li>
-          <li>At high orders, compare <code>ICOSA 12</code> with <code>DODECA 20</code>. The former is a coarser processing body, not lower-order decoding.</li>
-        </ol>
-
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-effects.html">
             <span>Previous</span>
@@ -163,20 +164,37 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
           <a href="ambisonic-utilities.html">Utilities</a>
         </div>
         <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
+          <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
+          <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
+          <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
+          <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#signal-flow">Signal Flow</a>
           <a href="#body">Order and Body</a>
           <a href="#controls">Controls</a>
           <a href="#pickup-editor">Pickup Editing and Meters</a>
           <a href="#wet-mask">Directional Wet Mask</a>
           <a href="#topologies">Topology Modes</a>
-          <a href="#workflow">Workflow</a>
         </div>
       </aside>
     </div>

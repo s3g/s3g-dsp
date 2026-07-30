@@ -28,27 +28,37 @@
 
         <p>Sample and loop instruments load audio files as their source. The Processor Loop family creates discrete eight-channel playback structures; Processor Ambi Grain treats a loaded ambisonic file as one locked encoded field.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose an instrument and, for Processor Ambi Grain, select the source order. Set the REAPER track to the required channel count, then insert the plugin.</li>
+          <li>For Processor Loop or Processor Multi Loop, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Load the source file or files and confirm that the expected channels appear.</li>
+          <li>For a loop instrument, set the source assignment, loop region, playback, and lane relationships. For Processor Ambi Grain, set the shared grain controls.</li>
+          <li>Audition the result through the established output path, then keep the source files with the project or in a stable media location.</li>
+        </ol>
+
         <h2 id="loop-family">Loop Family</h2>
 
         <ul>
-          <li><a href="loop-processor.html">Processor Loop</a>: one loaded file distributed through an eight-channel loop instrument.</li>
-          <li><a href="multi-loop-processor.html">Processor Multi Loop</a>: as many as four loaded files assigned across an eight-channel loop structure.</li>
+          <li><a href="processor-loop.html">Processor Loop</a>: one loaded file distributed through an eight-channel loop instrument.</li>
+          <li><a href="processor-multi-loop.html">Processor Multi Loop</a>: as many as four loaded files assigned across an eight-channel loop structure.</li>
         </ul>
 
         <h2 id="ambisonic-grain">Ambisonic Granulation</h2>
 
-        <p><a href="ambi-grain-processor.html">Processor Ambi Grain</a> loads 1OA, 2OA, or 3OA <code>ACN/SN3D</code> media. Grain time, direction, rate, and envelope remain shared across all active channels so the encoded image stays coherent.</p>
+        <p><a href="processor-ambi-grain.html">Processor Ambi Grain</a> loads 1OA, 2OA, or 3OA <code>ACN/SN3D</code> media. Grain time, direction, rate, and envelope remain shared across all active channels so the encoded image stays coherent.</p>
 
         <h2 id="state">Files and Project State</h2>
 
         <p>Loaded-media instruments depend on external source files. Keep those files with the project or in a stable media location, and confirm the source path after moving a session to another computer.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="fault.html">
+          <a class="page-nav-link" href="processor-fault.html">
             <span>Previous</span>
             Processor Fault
           </a>
-          <a class="page-nav-link next" href="loop-processor.html">
+          <a class="page-nav-link next" href="processor-loop.html">
             <span>Next</span>
             Processor Loop
           </a>
@@ -65,6 +75,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#loop-family">Loop Family</a>
           <a href="#ambisonic-grain">Ambisonic Granulation</a>
           <a href="#state">Files and Project State</a>

@@ -28,18 +28,26 @@
 
         <p>Decoders turn an <code>ACN/SN3D</code> field into speaker, object, subwoofer, stereo, or headphone feeds. Match the decoder order to the encoded material and make its output bus the final spatial rendering stage.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose a decoder and insert it after the encoded source and any Ambisonic processing on a track wide enough for the incoming and rendered buses. Match its order and input format to the encoded material, then select its speaker layout, sub count, stereo pickup, or head model.</li>
+          <li>Route its outputs to the matching physical speakers, stereo destination, or headphones.</li>
+          <li>Refine orientation, weighting, and output level while the source is playing.</li>
+        </ol>
+
         <h2 id="speaker">Speaker and Object Rendering</h2>
 
         <ul>
-          <li><a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a>: decodes first-through-seventh-order material to built-in or custom speaker layouts.</li>
-          <li><a href="ambi-speaker-decoder.html#decoder-variants">Object, Adaptive, and Sub variants</a>: focus the decode on object directions, adapt the rendering behavior, or derive low-frequency feeds while retaining the shared layout model.</li>
+          <li><a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a>: decodes first-through-seventh-order material to built-in or custom speaker layouts.</li>
+          <li><a href="ambi-decoder-speaker.html#decoder-variants">Object, Adaptive, and Sub variants</a>: focus the decode on object directions, adapt the rendering behavior, or derive low-frequency feeds while retaining the shared layout model.</li>
         </ul>
 
         <h2 id="monitoring">Stereo and Headphone Monitoring</h2>
 
         <ul>
-          <li><a href="ambisonic-stereo-decoder.html">Ambi Decoder Stereo</a>: rotation-aware virtual-speaker decode to a true stereo output bus.</li>
-          <li><a href="ambisonic-head-decoder.html">Ambi Decoder Head</a>: binaural headphone rendering with listener orientation and room controls.</li>
+          <li><a href="ambi-decoder-stereo.html">Ambi Decoder Stereo</a>: rotation-aware virtual-speaker decode to a true stereo output bus.</li>
+          <li><a href="ambi-decoder-head.html">Ambi Decoder Head</a>: binaural headphone rendering with listener orientation and room controls.</li>
         </ul>
 
         <h2 id="host-routing">Host Routing</h2>
@@ -47,11 +55,11 @@
         <p>In REAPER, set the track wide enough for the incoming order before inserting the decoder. Stereo and headphone variants expose a true two-channel output; enable <code>Zero out unmapped output channels</code> in the pin connector if REAPER passes higher track channels around the plugin.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-wrangler-encoder.html">
+          <a class="page-nav-link" href="ambi-encoder-wrangler.html">
             <span>Previous</span>
             Ambi Encoder Wrangler
           </a>
-          <a class="page-nav-link next" href="ambi-speaker-decoder.html">
+          <a class="page-nav-link next" href="ambi-decoder-speaker.html">
             <span>Next</span>
             Ambi Decoder Speaker
           </a>
@@ -64,6 +72,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -71,6 +80,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#speaker">Speaker and Object Rendering</a>
           <a href="#monitoring">Stereo and Headphone Monitoring</a>
           <a href="#host-routing">Host Routing</a>

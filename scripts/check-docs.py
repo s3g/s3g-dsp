@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -26,6 +27,207 @@ EXPECTED_TOP_NAV = [
     "references.html",
     "https://github.com/s3g/s3g-dsp",
 ]
+EXPECTED_SHARED_TOC_LINKS = {
+    "Ambisonics": [
+        "ambisonics.html",
+        "interpreting-color.html",
+        "listener-mode.html",
+        "parameter-surface.html",
+        "ambisonic-encoders.html",
+        "ambisonic-decoders.html",
+        "ambisonic-effects.html",
+        "ambisonic-utilities.html",
+    ],
+    "Multichannel": [
+        "multichannel.html",
+        "multichannel-effects.html",
+        "monitoring-fold-down.html",
+        "direct-panning.html",
+        "bus-mixing-routing.html",
+        "speaker-array-utilities.html",
+    ],
+    "Encoder Pages": [
+        "ambi-encoder-point.html",
+        "ambi-encoder-cloud.html",
+        "ambi-encoder-surface-terrain.html",
+        "ambi-encoder-path.html",
+        "ambi-encoder-ray.html",
+        "ambi-encoder-ray-bilocation.html",
+        "ambi-encoder-modal.html",
+        "ambi-encoder-vot.html",
+        "ambi-encoder-vox.html",
+        "ambi-encoder-wave-terrain.html",
+        "ambi-encoder-wind.html",
+        "ambi-encoder-water.html",
+        "ambi-encoder-pyrosphere.html",
+        "ambi-encoder-cryosphere.html",
+        "ambi-encoder-insect.html",
+        "ambi-encoder-pulsar.html",
+        "ambi-encoder-neural-ecology.html",
+        "ambi-encoder-stochastic.html",
+        "ambi-encoder-wrangler.html",
+    ],
+    "Effect Pages": [
+        "ambisonic-effects.html",
+        "ambi-effect-dj-filter.html",
+        "ambi-effect-delay.html",
+        "ambi-effect-pitch.html",
+        "ambi-effect-gain.html",
+        "ambi-effect-resonance-print.html",
+        "ambi-effect-partial-trace.html",
+        "ambi-effect-response-trace.html",
+        "ambi-effect-displacement.html",
+        "processor-ambi-imprint.html",
+        "ambi-transform-rot.html",
+        "ambisonic-bus-processors.html",
+        "processor-ambi-grain.html",
+    ],
+    "Decoder Pages": [
+        "ambi-decoder-speaker.html",
+        "ambi-decoder-stereo.html",
+        "ambi-decoder-head.html",
+    ],
+    "Utility Pages": [
+        "ambi-transform-order-band.html",
+        "analyzer-ambi-energy.html",
+        "s3gimprint-format.html",
+        "s3gray-format.html",
+    ],
+    "Surface Instruments": [
+        "ambi-encoder-wind.html",
+        "ambi-encoder-water.html",
+        "ambi-encoder-pyrosphere.html",
+        "ambi-encoder-cryosphere.html",
+        "ambi-encoder-insect.html",
+        "ambi-encoder-stochastic.html",
+        "ambi-encoder-wrangler.html",
+        "processor-no-input-mixer.html",
+    ],
+}
+TOC_SECTION_PATTERN = re.compile(
+    r'<div class="toc-section">\s*<h2>([^<]+)</h2>(.*?)</div>', re.DOTALL
+)
+TOC_LINK_PATTERN = re.compile(r'<a href="([^"]+)">([^<]+)</a>')
+WORKFLOW_SECTION_PATTERN = re.compile(
+    r'<h2 id="workflow">.*?</h2>(.*?)(?=<h2(?:\s|>)|</main>)', re.DOTALL
+)
+WORKFLOW_HEADING_PATTERN = re.compile(r'<h2 id="workflow">(.*?)</h2>', re.DOTALL)
+WORKFLOW_LIST_PATTERN = re.compile(r'<(ol|ul)>(.*?)</\1>', re.DOTALL)
+WORKFLOW_ITEM_PATTERN = re.compile(r'<li>(.*?)</li>', re.DOTALL)
+HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
+EXPECTED_AMBI_WORKFLOW_DECODER_SECOND = {
+    "ambi-encoder-cloud.html",
+    "ambi-encoder-cryosphere.html",
+    "ambi-encoder-insect.html",
+    "ambi-encoder-neural-ecology.html",
+    "ambi-encoder-path.html",
+    "ambi-encoder-point.html",
+    "ambi-encoder-pulsar.html",
+    "ambi-encoder-pyrosphere.html",
+    "ambi-encoder-ray-bilocation.html",
+    "ambi-encoder-ray.html",
+    "ambi-encoder-stochastic.html",
+    "ambi-encoder-surface-terrain.html",
+    "ambi-encoder-vot.html",
+    "ambi-encoder-vox.html",
+    "ambi-encoder-water.html",
+    "ambi-encoder-wave-terrain.html",
+    "ambi-encoder-wind.html",
+    "ambi-encoder-wrangler.html",
+    "ambi-transform-order-band.html",
+    "ambisonic-utilities.html",
+    "analyzer-ambi-energy.html",
+    "listener-mode.html",
+    "voice-instruments.html",
+}
+EXPECTED_SINGLE_FIELD_AMBI_EFFECT_CHAIN_PAGES = {
+    "ambi-effect-delay.html",
+    "ambi-effect-displacement.html",
+    "ambi-effect-dj-filter.html",
+    "ambi-effect-gain.html",
+    "ambi-effect-partial-trace.html",
+    "ambi-effect-pitch.html",
+    "ambi-effect-resonance-print.html",
+    "ambi-effect-response-trace.html",
+    "ambi-transform-rot.html",
+    "processor-ambi-grain.html",
+    "processor-ambi-imprint.html",
+}
+EXPECTED_MULTICHANNEL_EFFECT_CHAIN_PAGES = {
+    "distributed-output-processors.html",
+    "effect-crcltr.html",
+    "macro-processors.html",
+    "macro-shred.html",
+    "multichannel-effects.html",
+    "processor-delay.html",
+    "processor-spectral.html",
+    "processor-wave-geometry.html",
+    "spectral-buffer-processors.html",
+    "topology-processors.html",
+}
+EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_SECOND = {
+    "processor-fault.html",
+    "processor-loop.html",
+    "processor-multi-loop.html",
+    "processor-no-input-mixer.html",
+}
+EXPECTED_AMBI_WORKFLOW_DECODER_STEP = "Follow it with an ambisonic decoder."
+EXPECTED_SINGLE_FIELD_AMBI_EFFECT_CHAIN_STEP = (
+    "Follow it with an ambisonic decoder. Additional Ambisonic effects may be placed "
+    "before the decoder when their supported order and channel count match the field."
+)
+EXPECTED_MULTICHANNEL_EFFECT_CHAIN_GUIDANCE = (
+    "Another effect may precede that destination when its build matches"
+)
+EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_STEP = (
+    "Route the eight ordinary output lanes to the intended main speaker outputs, "
+    "a downstream direct panner, or Output Autogain Stereo/Quad for fold-down monitoring."
+)
+EXPECTED_MODAL_WORKFLOW_OUTPUT_STEP = (
+    "With ACN/SN3D selected, follow it with an ambisonic decoder. With 8 BODY STEMS, "
+    "route the eight ordinary lanes to the intended main speaker outputs, a downstream "
+    "direct panner, or Output Autogain Stereo/Quad for fold-down monitoring."
+)
+EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_PAGES = {
+    "ambisonic-bus-processors.html",
+    "ambisonic-effects.html",
+}
+EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_STEP = (
+    "Follow a single output field with an ambisonic decoder. Additional Ambisonic "
+    "effects may be placed before that decoder when their supported order and channel "
+    "count match the field. For grouped outputs, apply compatible effects within each "
+    "16-channel field and route each field to its own decoder, or mix the groups to one "
+    "field before its compatible effect chain and decoder."
+)
+EXPECTED_AMBI_ENCODER_FAMILY_WORKFLOW_OUTPUT_STEP = (
+    "Follow an ACN/SN3D output with an ambisonic decoder. For Ambi Encoder Modal in "
+    "8 BODY STEMS mode, route the eight ordinary lanes to the main speakers, a "
+    "downstream direct panner, or Output Autogain Stereo/Quad for fold-down monitoring."
+)
+AUDIBLE_WORKFLOW_STEP_TERMS = (
+    "decoder",
+    "fold-down",
+    "headphone",
+    "monitor",
+    "panner",
+    "speaker",
+)
+SETUP_WORKFLOW_STEP_TERMS = (
+    "choose",
+    "insert",
+    "open",
+    "place",
+    "set",
+)
+EARLY_ORDER_SETUP_PATTERN = re.compile(
+    r"\b(?:order|ord|[1-7]oa|output format)\b", re.IGNORECASE
+)
+LATE_WORKFLOW_SETUP_PATTERN = re.compile(
+    r"\b(?:choose|confirm|match|select|set|use)\s+(?:the\s+)?"
+    r"(?:(?:ambisonic|hoa|field|input|output|active|source|included|displayed)\s+)?"
+    r"(?:order|ord|channel count|input count|bus width|track width|output format)\b",
+    re.IGNORECASE,
+)
 
 DOC_SEQUENCE = [
     "index.html",
@@ -36,20 +238,20 @@ DOC_SEQUENCE = [
     "multichannel-effects.html",
     "topology-processors.html",
     "topology-framework.html",
-    "delay-processor.html",
-    "wave-geometry-processor.html",
-    "spectral-topology-processor.html",
+    "processor-delay.html",
+    "processor-wave-geometry.html",
+    "processor-spectral.html",
     "macro-processors.html",
     "macro-shred.html",
     "spectral-buffer-processors.html",
     "distributed-output-processors.html",
-    "crcltr.html",
+    "effect-crcltr.html",
     "monitoring-fold-down.html",
-    "mc-to-stereo-autogain.html",
-    "mc-to-quad-autogain.html",
-    "multichannel-meter.html",
+    "output-autogain-stereo.html",
+    "output-autogain-quad.html",
+    "analyzer-meter.html",
     "direct-panning.html",
-    "layout-panner.html",
+    "panner-layout.html",
     "bus-mixing-routing.html",
     "speaker-array-utilities.html",
     "ambisonics.html",
@@ -57,29 +259,29 @@ DOC_SEQUENCE = [
     "listener-mode.html",
     "parameter-surface.html",
     "ambisonic-encoders.html",
-    "ambi-point-encoder.html",
-    "ambi-cloud-encoder.html",
-    "ambi-terrain-navigator.html",
-    "ambi-path-encoder.html",
-    "ambi-ray-encoder.html",
-    "ambi-ray-bilocation-encoder.html",
-    "accelerometer-field-encoder.html",
-    "ambi-vot-encoder.html",
-    "ambi-vox-encoder.html",
-    "ambi-wave-terrain-encoder.html",
-    "ambi-wind-encoder.html",
-    "ambi-water-encoder.html",
-    "ambi-pyrosphere-encoder.html",
-    "ambi-cryosphere-encoder.html",
-    "ambi-insect-encoder.html",
-    "ambi-pulsar-encoder.html",
-    "ambi-neural-ecology.html",
-    "ambi-stochastic-encoder.html",
-    "ambi-wrangler-encoder.html",
+    "ambi-encoder-point.html",
+    "ambi-encoder-cloud.html",
+    "ambi-encoder-surface-terrain.html",
+    "ambi-encoder-path.html",
+    "ambi-encoder-ray.html",
+    "ambi-encoder-ray-bilocation.html",
+    "ambi-encoder-modal.html",
+    "ambi-encoder-vot.html",
+    "ambi-encoder-vox.html",
+    "ambi-encoder-wave-terrain.html",
+    "ambi-encoder-wind.html",
+    "ambi-encoder-water.html",
+    "ambi-encoder-pyrosphere.html",
+    "ambi-encoder-cryosphere.html",
+    "ambi-encoder-insect.html",
+    "ambi-encoder-pulsar.html",
+    "ambi-encoder-neural-ecology.html",
+    "ambi-encoder-stochastic.html",
+    "ambi-encoder-wrangler.html",
     "ambisonic-decoders.html",
-    "ambi-speaker-decoder.html",
-    "ambisonic-stereo-decoder.html",
-    "ambisonic-head-decoder.html",
+    "ambi-decoder-speaker.html",
+    "ambi-decoder-stereo.html",
+    "ambi-decoder-head.html",
     "ambisonic-effects.html",
     "ambi-effect-dj-filter.html",
     "ambi-effect-delay.html",
@@ -89,22 +291,22 @@ DOC_SEQUENCE = [
     "ambi-effect-partial-trace.html",
     "ambi-effect-response-trace.html",
     "ambi-effect-displacement.html",
-    "ambi-imprint.html",
-    "ambisonic-rotate.html",
+    "processor-ambi-imprint.html",
+    "ambi-transform-rot.html",
     "ambisonic-bus-processors.html",
-    "ambi-grain-processor.html",
+    "processor-ambi-grain.html",
     "ambisonic-utilities.html",
-    "ambisonic-order-band-tool.html",
-    "ambisonic-energy-visualizer.html",
+    "ambi-transform-order-band.html",
+    "analyzer-ambi-energy.html",
     "s3gimprint-format.html",
     "s3gray-format.html",
     "instruments.html",
     "generative-instruments.html",
-    "no-input-mixer.html",
-    "fault.html",
+    "processor-no-input-mixer.html",
+    "processor-fault.html",
     "sample-instruments.html",
-    "loop-processor.html",
-    "multi-loop-processor.html",
+    "processor-loop.html",
+    "processor-multi-loop.html",
     "voice-instruments.html",
     "vox-builder.html",
     "references.html",
@@ -114,6 +316,50 @@ REDIRECT_PAGES = {
     "effects.html",
     "mix-pan.html",
     "processors.html",
+}
+NON_PRODUCT_PAGE_NAMES = {
+    "ambisonics.html",
+    "building-from-source.html",
+    "index.html",
+    "installing-plugins.html",
+    "instruments.html",
+    "interpreting-color.html",
+    "listener-mode.html",
+    "multichannel.html",
+    "parameter-surface.html",
+    "references.html",
+    "s3gimprint-format.html",
+    "s3gray-format.html",
+    "stereo-listening.html",
+    "topology-framework.html",
+}
+EXPECTED_PRODUCT_WORKFLOW_PAGES = set(DOC_SEQUENCE) - NON_PRODUCT_PAGE_NAMES
+EXPECTED_EARLY_ORDER_WORKFLOW_PAGES = (
+    set(EXPECTED_SHARED_TOC_LINKS["Encoder Pages"])
+    | set(EXPECTED_SHARED_TOC_LINKS["Effect Pages"])
+    | set(EXPECTED_SHARED_TOC_LINKS["Decoder Pages"])
+    | {
+        "ambi-transform-order-band.html",
+        "ambisonic-decoders.html",
+        "ambisonic-encoders.html",
+        "ambisonic-utilities.html",
+        "generative-instruments.html",
+        "sample-instruments.html",
+        "voice-instruments.html",
+    }
+)
+EXPECTED_SHARED_TOC_PAGES = {
+    "Multichannel": DOC_SEQUENCE[
+        DOC_SEQUENCE.index("multichannel.html") : DOC_SEQUENCE.index("ambisonics.html")
+    ],
+    "Ambisonics": DOC_SEQUENCE[
+        DOC_SEQUENCE.index("ambisonics.html") : DOC_SEQUENCE.index("instruments.html")
+    ],
+    "Encoder Pages": EXPECTED_SHARED_TOC_LINKS["Encoder Pages"],
+    "Effect Pages": EXPECTED_SHARED_TOC_LINKS["Effect Pages"][1:],
+    "Decoder Pages": EXPECTED_SHARED_TOC_LINKS["Decoder Pages"],
+    "Utility Pages": EXPECTED_SHARED_TOC_LINKS["Utility Pages"],
+    "Surface Instruments": ["parameter-surface.html"],
 }
 
 
@@ -148,6 +394,13 @@ class Document(HTMLParser):
         self.has_signal_flow_heading = False
         self.signal_flow_ordered_list_count = 0
         self.toc_fragment_ids: list[str] = []
+        self.toc_sections: dict[str, list[str]] = {}
+        self.toc_section_entries: dict[str, list[tuple[str, str]]] = {}
+        self.workflow_steps: list[str] = []
+        self.workflow_heading_count = 0
+        self.workflow_heading_text = ""
+        self.workflow_list_tag = ""
+        self.workflow_list_is_immediate = False
         self.top_nav_depth = 0
         self.top_nav_links: list[str] = []
         self.page_nav_depth = 0
@@ -261,8 +514,38 @@ class Document(HTMLParser):
 
 def parse_document(path: Path) -> Document:
     document = Document(path)
-    document.feed(path.read_text(encoding="utf-8"))
+    source = path.read_text(encoding="utf-8")
+    document.feed(source)
     document.close()
+    for heading, body in TOC_SECTION_PATTERN.findall(source):
+        normalized_heading = " ".join(heading.split())
+        if normalized_heading in document.toc_sections:
+            document.errors.append(f"duplicate sidebar section: {normalized_heading}")
+            continue
+        entries = [
+            (href, " ".join(label.split()))
+            for href, label in TOC_LINK_PATTERN.findall(body)
+        ]
+        document.toc_section_entries[normalized_heading] = entries
+        document.toc_sections[normalized_heading] = [href for href, _ in entries]
+    workflow_headings = WORKFLOW_HEADING_PATTERN.findall(source)
+    document.workflow_heading_count = len(workflow_headings)
+    if workflow_headings:
+        document.workflow_heading_text = " ".join(
+            unescape(HTML_TAG_PATTERN.sub("", workflow_headings[0])).split()
+        )
+    workflow_match = WORKFLOW_SECTION_PATTERN.search(source)
+    if workflow_match:
+        immediate_list_match = re.match(r"\s*<(ol|ul)>", workflow_match.group(1))
+        if immediate_list_match:
+            document.workflow_list_is_immediate = True
+            document.workflow_list_tag = immediate_list_match.group(1)
+        list_match = WORKFLOW_LIST_PATTERN.search(workflow_match.group(1))
+        if list_match:
+            document.workflow_steps = [
+                " ".join(unescape(HTML_TAG_PATTERN.sub("", item)).split())
+                for item in WORKFLOW_ITEM_PATTERN.findall(list_match.group(2))
+            ]
     if not document.has_title:
         document.errors.append("missing title element")
     if not document.has_description:
@@ -312,6 +595,63 @@ def parse_document(path: Path) -> Document:
         document.errors.append("Signal Flow must contain exactly one ordered list")
     if document.top_nav_links != EXPECTED_TOP_NAV:
         document.errors.append("top navigation does not match the documentation baseline")
+    for heading, expected_links in EXPECTED_SHARED_TOC_LINKS.items():
+        actual_links = document.toc_sections.get(heading)
+        if actual_links is not None and actual_links != expected_links:
+            document.errors.append(f"{heading} sidebar does not match the documentation baseline")
+    if document.workflow_heading_count:
+        if document.workflow_heading_count != 1:
+            document.errors.append("page must contain at most one Workflow section")
+        if document.workflow_heading_text != "Workflow":
+            document.errors.append("Workflow section must use the heading Workflow")
+        if not document.workflow_list_is_immediate or document.workflow_list_tag != "ol":
+            document.errors.append("Workflow must be immediately followed by an ordered list")
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow must contain at least two steps")
+        if document.toc_fragment_ids.count("workflow") != 1:
+            document.errors.append("On This Page must contain exactly one Workflow link")
+    if path.name in EXPECTED_AMBI_WORKFLOW_DECODER_SECOND:
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its decoder setup step")
+        elif document.workflow_steps[1] != EXPECTED_AMBI_WORKFLOW_DECODER_STEP:
+            document.errors.append("Workflow must establish its ambisonic decoder in step 2")
+        for index, step in enumerate(document.workflow_steps):
+            if index != 1 and "ambisonic decoder" in step.casefold():
+                document.errors.append("Workflow repeats decoder setup after step 2")
+    if path.name in EXPECTED_SINGLE_FIELD_AMBI_EFFECT_CHAIN_PAGES:
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its effect-chain output step")
+        elif document.workflow_steps[1] != EXPECTED_SINGLE_FIELD_AMBI_EFFECT_CHAIN_STEP:
+            document.errors.append(
+                "Workflow step 2 must establish decoding and compatible Ambisonic effects"
+            )
+    if path.name in EXPECTED_MULTICHANNEL_EFFECT_CHAIN_PAGES:
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its effect-chain output step")
+        elif EXPECTED_MULTICHANNEL_EFFECT_CHAIN_GUIDANCE not in document.workflow_steps[1]:
+            document.errors.append(
+                "Workflow step 2 must allow another effect with a matching bus build"
+            )
+    if path.name == "ambi-encoder-modal.html":
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its output setup step")
+        elif document.workflow_steps[1] != EXPECTED_MODAL_WORKFLOW_OUTPUT_STEP:
+            document.errors.append("Workflow must establish its selected output path in step 2")
+    if path.name == "ambisonic-encoders.html":
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its encoder-family output setup step")
+        elif document.workflow_steps[1] != EXPECTED_AMBI_ENCODER_FAMILY_WORKFLOW_OUTPUT_STEP:
+            document.errors.append("Workflow must cover encoded and body-stem outputs in step 2")
+    if path.name in EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_PAGES:
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its field output setup step")
+        elif document.workflow_steps[1] != EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_STEP:
+            document.errors.append("Workflow must cover single-field and grouped outputs in step 2")
+    if path.name in EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_SECOND:
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its output setup step")
+        elif document.workflow_steps[1] != EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_STEP:
+            document.errors.append("Workflow must establish its listening output in step 2")
     return document
 
 
@@ -442,6 +782,56 @@ def main() -> int:
         errors.append(f"documentation sequence references missing page docs/{missing_page}")
     for unsequenced_page in sorted(page_names - expected_pages):
         errors.append(f"docs/{unsequenced_page}: page is not in DOC_SEQUENCE or REDIRECT_PAGES")
+
+    for page_name in sorted(EXPECTED_PRODUCT_WORKFLOW_PAGES):
+        document = pages.get((DOCS / page_name).resolve())
+        if document is None:
+            continue
+        if document.workflow_heading_count != 1:
+            errors.append(f"docs/{page_name}: product page must contain one Workflow section")
+            continue
+        if not document.content_section_ids or document.content_section_ids[0] != "workflow":
+            errors.append(f"docs/{page_name}: Workflow must be the first content section")
+        if document.toc_sections.get("On This Page", [None])[0] != "#workflow":
+            errors.append(f"docs/{page_name}: Workflow must be first in On This Page")
+        if len(document.workflow_steps) < 2:
+            continue
+        setup_step = document.workflow_steps[0].casefold()
+        if not any(term in setup_step for term in SETUP_WORKFLOW_STEP_TERMS):
+            errors.append(f"docs/{page_name}: Workflow step 1 must establish setup or insertion")
+        if (
+            page_name in EXPECTED_EARLY_ORDER_WORKFLOW_PAGES
+            and not EARLY_ORDER_SETUP_PATTERN.search(document.workflow_steps[0])
+        ):
+            errors.append(f"docs/{page_name}: Workflow step 1 must establish order or format")
+        for step_number, step in enumerate(document.workflow_steps[2:], start=3):
+            if LATE_WORKFLOW_SETUP_PATTERN.search(step):
+                errors.append(
+                    f"docs/{page_name}: Workflow step {step_number} defers setup that belongs in step 1"
+                )
+        listening_step = document.workflow_steps[1].casefold()
+        if not any(term in listening_step for term in AUDIBLE_WORKFLOW_STEP_TERMS):
+            errors.append(f"docs/{page_name}: Workflow step 2 must establish an audible path")
+
+    for heading, expected_page_names in EXPECTED_SHARED_TOC_PAGES.items():
+        actual_page_names = {
+            path.name for path, document in pages.items() if heading in document.toc_sections
+        }
+        expected_page_name_set = set(expected_page_names)
+        for missing_page in sorted(expected_page_name_set - actual_page_names):
+            errors.append(f"docs/{missing_page}: missing {heading} sidebar")
+        for unexpected_page in sorted(actual_page_names - expected_page_name_set):
+            errors.append(f"docs/{unexpected_page}: unexpected {heading} sidebar")
+        baseline_entries: list[tuple[str, str]] | None = None
+        for page_name in expected_page_names:
+            document = pages.get((DOCS / page_name).resolve())
+            if document is None or heading not in document.toc_section_entries:
+                continue
+            entries = document.toc_section_entries[heading]
+            if baseline_entries is None:
+                baseline_entries = entries
+            elif entries != baseline_entries:
+                errors.append(f"docs/{page_name}: {heading} sidebar labels do not match")
 
     for index, page_name in enumerate(DOC_SEQUENCE):
         path = (DOCS / page_name).resolve()

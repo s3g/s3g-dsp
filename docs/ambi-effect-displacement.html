@@ -37,6 +37,15 @@
           <figcaption>Ambi Effect Displacement at the midpoint of a strongly deformed three-scene score.</figcaption>
         </figure>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Effect Displacement 64</code> on a correctly routed Ambisonic track after the encoder or encoded source and match <code>Order</code> to the field.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
+          <li>Load a Displacement Score and choose the listener body.</li>
+          <li>Select the clock and playback mode, start from a low <code>Amount</code>, then refine distance processing, energy, and the directional mask while the score moves.</li>
+        </ol>
+
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
@@ -103,7 +112,7 @@
             <span>Previous</span>
             Ambi Effect Response Trace
           </a>
-          <a class="page-nav-link next" href="ambi-imprint.html">
+          <a class="page-nav-link next" href="processor-ambi-imprint.html">
             <span>Next</span>
             Processor Ambi Imprint
           </a>
@@ -116,6 +125,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -123,18 +133,23 @@
         </div>
         <div class="toc-section">
           <h2>Effect Pages</h2>
-          <a href="ambisonic-effects.html">AMBISONIC Effects</a>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
           <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
           <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
           <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
           <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
-          <a href="ambi-imprint.html">Processor Ambi Imprint</a>
-          <a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#signal-flow">Signal Flow</a>
           <a href="#scores">Score Files</a>
           <a href="#controls">Controls</a>

@@ -28,6 +28,14 @@
           <figcaption>Ambi Effect Pitch on a <code>3OA</code> <code>DODECA 20</code> body with varied pitch relationships and an enabled directional wet mask.</figcaption>
         </figure>
 
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Ambi Effect Pitch 64</code> on a correctly routed Ambisonic track after the encoder or encoded source and match <code>ORDER</code> to the field.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
+          <li>Choose a listener body and begin with neutral spread, deviation, and local trims.</li>
+          <li>Set the common pitch interval and window, then introduce pickup relationships, topology movement, or a directional mask while listening.</li>
+        </ol>
+
         <h2 id="body">Body and Pitch Model</h2>
         <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code>-<code>2OA</code>, <code>DODECA 20</code> for <code>3OA</code>, and <code>SPHERE 24</code> for <code>4OA</code>-<code>7OA</code>. All three bodies can also be selected directly at every order. <code>PCH</code> sets the common interval from <code>-24</code> to <code>+24 st</code>; <code>WIN</code> controls the dual-reader grain window, and <code>GLD</code> smooths ratio changes.</p>
 
@@ -46,8 +54,34 @@
         </nav>
       </main>
       <aside class="toc" aria-label="Page navigation">
-        <div class="toc-section"><h2>Ambisonics</h2><a href="ambisonics.html">Overview</a><a href="interpreting-color.html">Interpreting Color</a><a href="listener-mode.html">Listener Mode</a><a href="ambisonic-effects.html">Effects</a></div>
-        <div class="toc-section"><h2>On This Page</h2><a href="#body">Body and Pitch</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="ambisonic-effects.html">Ambisonic Effects</a>
+          <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>
+          <a href="ambi-effect-delay.html">Ambi Effect Delay</a>
+          <a href="ambi-effect-pitch.html">Ambi Effect Pitch</a>
+          <a href="ambi-effect-gain.html">Ambi Effect Gain</a>
+          <a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a>
+          <a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>
+          <a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>
+          <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
+          <a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>
+          <a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>
+          <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#body">Body and Pitch</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
       </aside>
     </div>
     <script src="lightbox.js"></script>

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Stochastic - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Stochastic documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Stochastic</h1>
+
+        <p><code>s3g Ambi Encoder Stochastic</code> is a 64-voice stochastic synthesis instrument with first-through-seventh-order <code>ACN/SN3D</code> output. It can run freely, respond to MIDI, or combine both behaviors.</p>
+
+        <p>Each voice owns four evolving pressure-curve generators. Their breakpoint amplitudes and segment durations are controlled by reflected second-order random walks: one walk changes the step, and that step changes the audible curve. Segment durations set oscillator period directly, so pitch can leave its starting region and continue evolving.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-stochastic-encoder.png" aria-label="Open Ambi Encoder Stochastic GUI screenshot">
+              <img src="assets/plugin-guis/ambi-stochastic-encoder.png" alt="Ambi Encoder Stochastic GUI showing breakpoint generators, parameter surface, listener field, topology, and pressure display" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Stochastic with breakpoint generators, parameter surface, listener field, topology, and pressure display.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Encoder Stochastic</code> on a 64-channel REAPER track, choose a factory preset or begin from <code>FREE PERIOD</code>, and select the ambisonic <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
+          <li>Set the active voice count.</li>
+          <li>Choose a generator selection law and transition method.</li>
+          <li>Shape the random walks, time-fields, topology, AED projection, and optional field <code>LISTEN</code> mode.</li>
+        </ol>
+
+        <h2 id="presets">Preset Library</h2>
+
+        <p>The title-bar <code>PRESET</code> menu provides complete starting states. Choosing one resets the evolving generator bank under the new settings and briefly bridges the output for a continuous change.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Preset</th><th>Character</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>FREE PERIOD</td><td>Broad autonomous pitch travel with persistent generator walks.</td></tr>
+            <tr><td>MICRO POINTS</td><td>Fast, sharply articulated point events and rapid period changes.</td></tr>
+            <tr><td>PRESSURE BLOOM</td><td>Slow linked curves with long envelopes and clustered motion.</td></tr>
+            <tr><td>HARSH POLYGONS</td><td>Short binary pressure curves, rupture motion, and hard joins.</td></tr>
+            <tr><td>SPARSE SIGNALS</td><td>Separated high-register events with deliberate resting fields.</td></tr>
+            <tr><td>MARKOV CLUSTERS</td><td>Neighbor-coupled generator choices and converging voice groups.</td></tr>
+            <tr><td>METALLIC FLIGHT</td><td>Bright inharmonic curves moving through an orbital field.</td></tr>
+            <tr><td>SUBHARMONIC TIDES</td><td>Low, long-period pressure motion with slow distributed swells.</td></tr>
+            <tr><td>BINARY FRACTURE</td><td>Extreme binary timing and amplitude walks with scattered motion.</td></tr>
+            <tr><td>SLOW CONSTELLATION</td><td>Stable long-form pressure curves across a wide voice field.</td></tr>
+            <tr><td>MIDI PRESSURE</td><td>MIDI-gated stochastic voices with a focused response envelope.</td></tr>
+            <tr><td>HYBRID FIELD</td><td>MIDI and autonomous time-fields sharing a coupled topology.</td></tr>
+            <tr><td>FULL 7OA FIELD</td><td>A 64-voice, seventh-order field demonstrating maximum scale.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="user-presets">User Presets</h3>
+
+        <p><code>SAVE</code> writes the current state as a portable <code>.s3gstochastic</code> file. <code>LOAD</code> restores one through the macOS file chooser. The file contains every synthesis, selection, time-field, envelope, topology, projection, listener, ambisonic-order, and output setting.</p>
+
+        <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state stores the complete plugin state independently.</p>
+
+        <h2 id="parameter-surface">Parameter Surface</h2>
+
+        <p>The <code>SURF</code> page turns as many as 24 captured or factory states into a two-dimensional performance space. Use <code>ADD</code>, <code>DEL</code>, and <code>CAP</code> in edit mode, assign a factory state from the selected-cell menu, then switch to <code>PLAY</code> and move the crosshair. <code>CURVE</code> changes the blend response, <code>FOCUS</code> changes how tightly the cursor favors nearby cells, and <code>GLIDE</code> sets the settling time for the effective cursor, toolbox controls, and topology geometry. The target diamond follows drag or automation immediately while the active crosshair and participating controls glide. <code>POP</code> opens SURF in an attached panel and returns the primary view to FIELD so both remain visible.</p>
+
+        <p>Continuous walk, time-field, envelope, topology, projection, and listener-amount controls interpolate by distance. Menus, counts, and listener mode follow the nearest cell, while the lanes represented by <code>VOICES</code> fade continuously into or out of both synthesis and the field drawing. <code>OUT</code>, <code>ORDER</code>, and the X/Y cursor remain live rather than jumping with a cell. <code>SURFACE X</code> and <code>SURFACE Y</code> are normalized, automatable CLAP parameters. The complete surface is saved in REAPER project state; portable <code>.s3gstochastic</code> files remain single states. See <a href="parameter-surface.html">Parameter Surface</a> for the shared workflow.</p>
+
+        <h2 id="walks">Second-Order Walks</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PTS</td><td>Sets 4 to 32 breakpoints per generator.</td></tr>
+            <tr><td>A-STEP</td><td>Sets how quickly the amplitude walk changes direction and speed.</td></tr>
+            <tr><td>T-STEP</td><td>Sets how quickly the segment-duration walk changes direction and speed.</td></tr>
+            <tr><td>A-RANGE</td><td>Sets the reflected boundary for the primary amplitude walk.</td></tr>
+            <tr><td>T-RANGE</td><td>Sets the reflected boundary for the primary duration walk.</td></tr>
+            <tr><td>A-DIST</td><td>Selects the probability distribution used for amplitude changes.</td></tr>
+            <tr><td>T-DIST</td><td>Selects the probability distribution used for duration changes.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The distribution menus provide <code>UNIFORM</code>, <code>GAUSS</code>, <code>CAUCHY</code>, <code>LOGISTIC</code>, <code>ARCSINE</code>, <code>EXPON</code>, and <code>BINARY</code>. The amplitude and timing walks can use different distributions.</p>
+
+        <p>Controls that become turbulent near their upper limit use a tapered GUI response. The lower and middle regions receive more slider travel, and the most extreme walk, density, spread, and topology values occupy the right edge. The taper applies only to slider travel; displayed values, user-preset values, and REAPER automation use the underlying parameter scale.</p>
+
+        <p><code>BASE</code>, <code>SPREAD</code>, and <code>DEV</code> seed the initial periods. They are not pitch centers after initialization. <code>LOW</code> reflects the total polygon period before it becomes subaudio while preserving the relative duration of every segment. Generator identity and topology Z distribute voices upward from that floor. MIDI notes reseed a voice when assigned.</p>
+
+        <h2 id="selection">Generator Selection</h2>
+
+        <p>A selection law chooses one of each voice's four generators at a waveform boundary. A choice persists across several cycles before the law is sampled again, giving each evolving pressure curve time to become audible. The history strip shows recent choices.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Law</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>RANDOM</td><td>Chooses any generator independently.</td></tr>
+            <tr><td>SERIES</td><td>Uses every generator once before reshuffling.</td></tr>
+            <tr><td>WEIGHT</td><td>Weights generator choice from the voice's X position.</td></tr>
+            <tr><td>TENDENCY</td><td>Moves a probability center through the generator bank.</td></tr>
+            <tr><td>MARKOV</td><td>Uses the previous choice and topology direction to weight the next one.</td></tr>
+            <tr><td>WALK</td><td>Uses another reflected second-order walk to move through generator indices.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>XFER</code> lets nearby voices exchange generator tendencies and walk motion, and sets how strongly a new event can propagate to its nearest neighbors. <code>MEM</code> controls selection-law memory, generator persistence, and the stability of the slower macro state.</p>
+
+        <p><code>LINK</code> moves to the selected generator, <code>MERGE</code> interlaces it with the previous generator, and <code>VARY</code> creates a topology-weighted variation between them. A short interpolation at each cycle boundary keeps the transition continuous without blurring the pressure curve for the full cycle.</p>
+
+        <h2 id="time-fields">Time-Fields</h2>
+
+        <p>Free-running voices use renewal clocks: every active event is followed by a genuine rest before that voice can begin again. <code>DENS</code> sets the target activity, <code>DUR</code> sets the mean event duration, <code>CONT</code> increases duration variation and clustered propagation, and <code>REST</code> sets the minimum inactive time. The ADSR envelope smooths each change of state.</p>
+
+        <p><code>DENS</code> is compensated for the active voice count: the same setting uses a lower per-voice target as the field grows from 8 toward 64 voices. Gentle activity regulation steers the ensemble toward that target without hard voice limits. This keeps the texture articulated instead of automatically becoming continuous; even at maximum density, <code>REST</code> remains in force.</p>
+
+        <p>Each onset can schedule delayed events at the two nearest topology points. Distance determines propagation time, while <code>XFER</code> and <code>CONT</code> set cascade strength. The network lines brighten as a cascade arrives, making clustered activity visible as well as audible.</p>
+
+        <h3 id="macro-scenes">Macro Scenes</h3>
+
+        <p>The autonomous engine also moves through metastable macro scenes. A scene slowly changes four internal relationships together: activity, event duration, pressure-curve mutation, and cascade strength. <code>MACRO</code> sets the approximate time spent in each region. Higher <code>MEM</code> makes the changes smaller and more persistent; lower values allow wider movement between contrasting states.</p>
+
+        <p>In <code>MIDI</code> mode, note gates replace the autonomous time-fields. <code>BOTH</code> allows either source to open a voice.</p>
+
+        <h2 id="field-listener">Field Listener</h2>
+
+        <p><code>LISTEN</code> decodes the instrument's pre-output-gain <code>ACN/SN3D</code> field through eight cube-corner virtual microphones. Their smoothed directional energy charges a slow voice-local capture state rather than creating an audio return. <code>LOCAL</code> lets each voice read the pickup nearest its own direction, <code>CROSS</code> reads the opposing pickup, <code>DIFFUSE</code> gives every voice a stable weighted mixture of the complete aperture, and <code>ROAMING</code> moves independent read heads continuously around it. <code>CAPTURE</code> controls the depth of this negative-feedback viscosity, while <code>OFF</code> disables listener influence and leaves the generator autonomous.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-stochastic-encoder.listen.png" aria-label="Open Ambi Encoder Stochastic LISTEN view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-stochastic-encoder.listen.png" alt="Ambi Encoder Stochastic LISTEN view showing eight virtual microphones, a roaming selected-voice route, and effective capture rates" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LISTEN view with the eight-ear aperture, roaming voice route, listener capture, and effective system rates.</figcaption>
+        </figure>
+
+        <p>As capture rises, new amplitude and duration accelerations are reduced, their existing second-order velocities lose momentum, generator evolution becomes less frequent, time-field clocks slow, and cascades are inhibited. The sounding configuration therefore settles into metastable stasis without lowering oscillator pitch or output level. Capture has a quick attack, a long release, and bounded minimum rates so the system can eventually thaw rather than lock permanently. It never biases a generator destination or renewal probability.</p>
+
+        <p>The <code>LISTEN</code> display shows the eight-ear auditory body, the route read by the selected voice, capture depth, and the effective mutation, evolution, field-clock, and cascade rates. Listening never writes to topology or projection, so enabling it cannot periodically translate or collapse the ensemble. The spatial field remains governed only by the Topology and Projection panels.</p>
+
+        <h2 id="topology">Topology and Projection</h2>
+
+        <p>The main display is both a synthesis map and the source of each voice's AED placement. Points move in one persistent topology; there is no separate physics or spatial-motion layer.</p>
+
+        <ul>
+          <li><code>X</code> biases pressure-curve mutation and generator weighting.</li>
+          <li><code>Y</code> changes event probability, field duration, and selection tendency.</li>
+          <li><code>Z</code> biases the segment-duration walk and therefore oscillator period.</li>
+          <li>Distance from the center increases walk drive and transition variation.</li>
+          <li>Nearest-neighbor links carry generator influence, walk motion, and delayed event cascades between voices.</li>
+        </ul>
+
+        <p><code>SHAPE</code>, <code>ANIM</code>, <code>RATE</code>, <code>AMT</code>, <code>DEPTH</code>, <code>SCALE</code>, <code>COLL</code>, and <code>TWIST</code> reshape and animate the shared field. <code>AZIM</code>, <code>ELEV</code>, and <code>DIST</code> place its center. <code>FOLLOW</code> sets how fully topology position and radius are projected into AED space.</p>
+
+        <p>Click a point to inspect its current and next generators. Drag blank field space to change the camera; use <code>TOP</code>, <code>SIDE</code>, <code>3/4</code>, and the zoom buttons to restore useful views.</p>
+
+        <h2 id="pressure-display">Pressure Display</h2>
+
+        <p>The gray curve is the selected voice's current generator and the brighter curve is the next generator. Breakpoint markers belong to the next curve. <code>A1</code> and <code>T1</code> report the current primary-walk barriers for amplitude and duration.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus remains 64 channels wide. The selected order activates the corresponding ACN channels and zeroes all remaining outputs.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-neural-ecology.html">
+            <span>Previous</span>
+            Ambi Encoder Neural Ecology
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-wrangler.html">
+            <span>Next</span>
+            Ambi Encoder Wrangler
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#presets">Preset Library</a>
+          <a href="#walks">Second-Order Walks</a>
+          <a href="#user-presets">User Presets</a>
+          <a href="#parameter-surface">Parameter Surface</a>
+          <a href="#selection">Generator Selection</a>
+          <a href="#time-fields">Time-Fields</a>
+          <a href="#macro-scenes">Macro Scenes</a>
+          <a href="#field-listener">Field Listener</a>
+          <a href="#topology">Topology and Projection</a>
+          <a href="#pressure-display">Pressure Display</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

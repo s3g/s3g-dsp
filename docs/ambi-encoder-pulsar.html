@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Pulsar - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Pulsar instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Pulsar</h1>
+
+        <p><code>s3g Ambi Encoder Pulsar</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
+
+        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a selectable sixteen-, thirty-two-, or sixty-four-node recurrent ecology can sound directly or supply captured pulsaret, envelope, and FM shapes. Four or eight internal Ambisonic ears can excite, imprint, or rebalance the emitted organism as well as return the spatial field to its neural circuit.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.png" aria-label="Open Ambi Encoder Pulsar GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.png" alt="Ambi Encoder Pulsar Matrix Organism preset showing a dynamic 32-point FORSY field" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Pulsar with the <code>Matrix Organism</code> expanded into a dynamic 32-point <code>FORSY</code> field.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Encoder Pulsar</code> on a 64-channel REAPER track, choose a factory state or load a <code>.s3gpulsar</code> preset, and select the ambisonic <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Use <code>SAVE</code> when a state should remain portable, then set <code>EMISSION</code> for the overall rhythm-to-tone timescale.</li>
+          <li>Set each lane's carrier <code>TUNING</code>, <code>CARRIER HZ</code> or <code>CLOCK RATIO</code>, <code>OVERLAP</code>, <code>LEVEL</code>, <code>OFFSET</code>, and <code>PULSARET</code>.</li>
+          <li>Use <code>FM RATIO</code> and <code>FM INDEX</code> for clock-synchronous phase modulation, <code>WIN SKEW</code> to move the window peak, and <code>TRIGGER</code> to choose reset, continuous-phase, or idle-only behavior.</li>
+          <li>Choose four to thirty-two <code>POINTS</code>, then combine probability, burst/rest, sieve, and point-randomness controls.</li>
+          <li>Raise <code>DIRECT</code> to hear the neural circuit, then shape its signed ring and matrix feedback. After the capture meter arms, press <code>CAPTURE</code> to snapshot new pulsaret, envelope, and FM tables.</li>
+          <li>Open <code>LISTEN</code>, choose a <code>TETRA 4</code> or <code>CUBE 8</code> auditory body and a listening topology, then enable listening. Choose <code>RESONATE</code>, <code>IMPRINT</code>, or <code>BALANCE</code> as its response law and raise <code>ECOLOGY</code>; <code>RETURN BYPASS</code> controls only the deeper neural-audio feedback loop.</li>
+          <li>Set the field center, width, scatter, motion shape, orbit rate/depth, air, and Doppler behavior.</li>
+        </ol>
+
+        <p>User presets are stored by default in <code>~/Music/s3g/Presets/Ambi Pulsar Encoder</code>. A preset contains every editable synthesis, event, lane, neural, spatial, motion, order, and output parameter. Captured neural tables are not stored in preset files: loading a preset preserves the captured table already in memory while restoring its pulsaret, envelope, and FM mix settings. The custom preset name is retained in normal CLAP project state.</p>
+
+        <h2 id="synthesis">Synthesis Model</h2>
+
+        <p>Pulsar synthesis separates the repetition rate from the short waveform, or pulsaret, heard inside each event. At slow emission rates the events form rhythms; as the rate rises, their repetition becomes a continuous tone whose spectrum depends on the pulsaret, carrier, window, and overlap.</p>
+
+        <p>Each emission launches the A, B, and C lane pulsarets as one spatial object. <code>OVERLAP</code> controls whether events remain separate or layer into denser textures, and automation applies to newly launched events without reshaping those already sounding.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>EMISSION</td><td>Master pulsar rate. This is the primary rhythm-to-pitch axis.</td></tr>
+            <tr><td>EMIT RATE / DEPTH</td><td>Meso-scale modulation of the master emission rate.</td></tr>
+            <tr><td>FORM RATE / DEPTH</td><td>Micro-scale, phase-displaced formant modulation shared by the three lanes.</td></tr>
+            <tr><td>FORM SCAT</td><td>Seeded per-event formant displacement in semitones.</td></tr>
+            <tr><td>PHASE SCAT</td><td>Randomizes the initial pulsaret phase without changing event timing.</td></tr>
+            <tr><td>ENVELOPE</td><td>Selects Hann, Tukey, Welch, Percussive, or Reverse pulsaret windows.</td></tr>
+            <tr><td>ENV EDGE</td><td>Changes Tukey taper length and the decay curvature of one-sided envelopes.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="lanes">Pulsaret Lanes</h2>
+
+        <p>The three lanes are parallel components of one spatial object. Every accepted emission selects one point and normally launches A, B, and C there; <code>OFFSET</code> may displace each chain by a fraction of the emission period while retaining its point assignment. <code>OVERLAP</code> expresses window duration as a multiple of the current emission period, allowing isolated classical pulsars below one and dense concurrent pulsarets above one.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.pulsarets.png" aria-label="Open Ambi Encoder Pulsar PULSARETS view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.pulsarets.png" alt="Ambi Encoder Pulsar PULSARETS view showing the active waveform, envelope, and FM trace for all three lanes" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>PULSARETS view with simultaneous Lane A, B, and C waveform, envelope, and FM traces.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead><tr><th>Lane control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>TUNING</td><td><code>HZ</code> uses <code>CARRIER HZ</code>. <code>RATIO</code> multiplies the instantaneous emission clock by <code>CLOCK RATIO</code>. <code>SUB</code> divides the clock by that ratio.</td></tr>
+            <tr><td>CARRIER HZ</td><td>Independent carrier used in Hertz mode.</td></tr>
+            <tr><td>CLOCK RATIO</td><td>Carrier multiplier or divisor in Ratio and Sub modes.</td></tr>
+            <tr><td>TRIGGER</td><td><code>RETRIGGER</code> starts a phase-reset voice for every event. <code>FREE</code> reveals a continuously running lane oscillator through each window. <code>IDLE ONLY</code> ignores a trigger while that lane still has an active pulsaret.</td></tr>
+            <tr><td>FM RATIO / INDEX</td><td>Runs a sine phase modulator at a multiple of the emission clock. Index is the peak phase deviation in radians; zero disables classic FM.</td></tr>
+            <tr><td>WIN SKEW</td><td>Moves the window peak from an early attack through symmetric at 0.5 to a late attack, without changing event duration.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Pulsaret choices are Sine, Triangle, Saw, Square, Overtone, Fold, Impulse, and Noise. Saw and Square use polynomial bandlimited edge correction, Overtone removes partials above its safe band, and Impulse uses a finite bandlimited impulse train. High and Ultra render both nonlinear Fold and active phase-FM paths at two or four times the host rate and reconstruct them through cascaded low-pass stages.</p>
+
+        <h2 id="neural">Neural Synthesis</h2>
+
+        <p>The neural section is a Tudor-inspired recurrent sound circuit rather than a literal emulation of a specific neural chip. One, two, or four independently seeded lobes provide sixteen, thirty-two, or sixty-four leaky <code>tanh</code> nodes. Every lobe contains four clusters running at progressively faster nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.neural.png" aria-label="Open Ambi Encoder Pulsar NEURAL view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.neural.png" alt="Ambi Encoder Pulsar NEURAL view showing four active sixteen-node lobes and their recurrent ring activity" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>NEURAL view with the complete four-lobe, 64-node recurrent organism active.</figcaption>
+        </figure>
+
+        <p>Each cluster is a four-stage signed ring. A sparse signed matrix mixes the four clusters inside every lobe, while a second signed matrix exchanges bounded activity between lobes. Slower clusters gate the faster rings, and <code>SLOW &gt; FAST</code> varies their effective R-C time. First-order allpass memories put phase-bearing paths inside the feedback web. Population changes use smoothed lobe activation, so adding or retiring neural material does not hard-switch a completed audio signal.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>DIRECT</td><td>Distributes complementary cluster/node mixtures across the active spatial points. With multiple lobes, point direction selects an associated bilateral or tetrahedral region.</td></tr>
+            <tr><td>SIGMOID</td><td>Drive into each neuron's bounded <code>tanh</code> transfer function.</td></tr>
+            <tr><td>RING FB</td><td>Feedback around the four signed within-cluster rings.</td></tr>
+            <tr><td>MATRIX</td><td>Cross-coupling through the signed cluster and lobe matrices.</td></tr>
+            <tr><td>HIERARCHY</td><td>Amount by which each slower cluster gates and drives the next faster one.</td></tr>
+            <tr><td>PHASE</td><td>Blends phase-shifted allpass paths into the ring feedback.</td></tr>
+            <tr><td>BROWNIAN</td><td>Depth of bounded, mean-reverting random walks applied to weights and biases.</td></tr>
+            <tr><td>DRIFT</td><td>Independent ultra-slow bias movement for every active node.</td></tr>
+            <tr><td>AUDIO FB</td><td>Returns the previous lane mixture and network output to signed neural inputs. The path is high-pass conditioned, saturated, and one sample delayed.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="listening">Ambisonic Self-Listening</h2>
+
+        <p><code>AUDIO FB</code> returns a conditioned mono sum of the Pulsar field to every neural lobe. Field listening provides a separate path that retains direction. The complete, post-depth point field is encoded internally to the currently selected HOA order, then decoded through four tetrahedral or eight cube-corner ears. Each ear tracks a fast and slow envelope, directional energy, onset novelty, slow habituation, and a consumable charge reservoir. Those features drive the selected response law and can also be distributed among the neural lobes before the next sample is evaluated. Motion, width, source direction, air, distance, and HOA order can therefore alter both what Pulsar hears and what it emits next.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-pulsar-encoder.listen.png" aria-label="Open Ambi Encoder Pulsar LISTEN view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-pulsar-encoder.listen.png" alt="Ambi Encoder Pulsar LISTEN view showing the eight-ear auditory body, active route, response state, and listening controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LISTEN view with the eight-ear auditory body, neural-lobe return routes, and live response state.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead><tr><th>Listening control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>NODES</td><td>Selects one 16-node lobe, a bilateral 32-node pair, or the complete four-lobe 64-node ecology.</td></tr>
+            <tr><td>LISTEN ON/OFF</td><td>Starts or stops the directional HOA analysis and response ecology. Turning it off ramps the ears, future event response, and neural return away, and pauses roaming traversal. An imprint already latched into a sounding grain remains stable until that grain ends.</td></tr>
+            <tr><td>RETURN ACTIVE/BYPASSED</td><td>Opens only the return from the delayed ear signals into the neural equations. The HOA decoder, propagation delays, meters, roaming listener, and selected response law remain active, so this is not equivalent to <code>LISTEN OFF</code>.</td></tr>
+            <tr><td>EARS</td><td><code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds their opposites.</td></tr>
+            <tr><td>LISTENING</td><td>Sets the topology used by both the response ecology and neural return. <code>LOCAL</code> follows the nearest ear; <code>CROSS</code> listens from the opposing ear; <code>DIFFUSE</code> gives each lane, point, or lobe a stable signed mixture of the whole body; <code>ROAMING</code> continuously interpolates moving read heads across adjacent ears.</td></tr>
+            <tr><td>RESPONSE</td><td><code>CLASSIC</code> applies pulse-to-pulse field response. <code>RESONATE</code> lets novel directional energy accumulate as charge, accelerate the event clock, admit charged lanes, attract new points, and then be consumed by emitted events. <code>IMPRINT</code> keeps the base clock and lane admissions intact but latches the heard signal into each new grain's pitch, FM index, window, envelope, phase, and bounded waveshape. <code>BALANCE</code> slows an overactive ecology and favors quieter ears, under-heard points, and less saturated lanes.</td></tr>
+            <tr><td>FIELD RETURN</td><td>Amount of delayed directional audio entering the neural equations independently of the mono <code>AUDIO FB</code> depth.</td></tr>
+            <tr><td>PROPAGATION</td><td>Spreads the ears from the mandatory one-sample causal delay through 180 ms and progressively darkens longer paths.</td></tr>
+            <tr><td>FOCUS</td><td>Interpolates from the omnidirectional field component to complete directional HOA decoding.</td></tr>
+            <tr><td>ECOLOGY</td><td>Crossfades from the unlistening synthesis law into the selected listener response. At zero, listener analysis and meters can remain visible while the synthesis result stays identical to listening off.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The matched factory states <code>Ecology A: Listen Off</code>, <code>Ecology B: Ears Only</code>, and <code>Ecology C: Closed Loop</code> hold the underlying synthesis settings constant and use <code>RESONATE</code>. Step through them in order to hear the unlistening reference, the ear-driven response ecology without neural return, and the complete self-listening feedback ecology. Because the response laws act directly on event and grain synthesis, listening remains audible even when neural <code>DIRECT</code>, captured-shape mixes, and <code>FIELD RETURN</code> are all zero.</p>
+
+        <p>Both enable and bypass are smoothed. Every neural return is high-pass conditioned inside the neurons, low-pass conditioned according to propagation distance, normalized during HOA decoding, and bounded before re-entry. Grain imprint is latched at trigger time, so an active pulse does not jump when a moving listener crosses an ear boundary. Output trim is outside the internal return, so changing final gain does not alter the ecology. <code>CLASSIC</code> is the default response law.</p>
+
+        <h2 id="capture">Neural Capture Utility</h2>
+
+        <p>The utility samples the running network at 4096 Hz into a half-second rolling window. With 32 or 64 nodes, corresponding node and cluster positions are averaged across smoothly active lobes before capture. <code>CAPTURE</code> derives three different 2048-point tables: fast bipolar activity becomes the pulsaret, rectified slow activity becomes the envelope, and a zero-mean mid/fast mixture becomes the FM contour. An initial snapshot is taken automatically once the window is full.</p>
+
+        <p><code>PULSARET</code> and <code>ENVELOPE</code> blend those captured tables with the selected analytic waveform and envelope. <code>FM DEPTH</code> reads the captured FM contour across each grain and expresses its depth in semitones. Pulsaret and FM captures receive eight progressively filtered mip levels; playback selects and interpolates levels from the instantaneous phase increment. Each capture crossfades over 80 ms so active grains never see a one-sample table swap.</p>
+
+        <p>The capture strip distinguishes <code>NO TABLE</code>, <code>STORED / MIX OFF</code>, and <code>ACTIVE</code>. Its <code>PUL</code>, <code>ENV</code>, and <code>FM</code> flags show exactly which captured paths are audible. Before the first table exists, enabled paths are marked <code>ARM</code>; after capture, an active table uses the bright inverted strip.</p>
+
+        <h2 id="masks">Composable Masks</h2>
+
+        <p>The event masks are applied together. <code>PROB</code> supplies stochastic density. <code>BURST ON</code> and <code>REST</code> form a repeating gate. <code>SIEVE MOD</code> and <code>RESIDUE</code> retain one residue class of the integer event sequence; modulo one disables the sieve. <code>POINT RAND</code> moves from even round-robin point assignment toward stochastic point choice. Each accepted event still carries all three formant chains.</p>
+
+        <h2 id="spatial">Spatial Model</h2>
+
+        <p>The point count is constrained to four through thirty-two. Grains retain their assigned point for their complete lifetime; the three lane sums at each point are combined, conditioned, and multiplied by that point's complete spherical-harmonic basis vector. Point 1 starts at the field origin, while the surrounding points use polyhedral or Fibonacci-sphere anchors. <code>MOTION: FREE</code> applies Ambi Encoder Stochastic's bounded three-axis random walk: Cauchy, logistic, and Gaussian perturbations drive reflected velocities and positions without collecting at an edge. The local 3D cloud is rotated around the chosen center as a complete sphere, rather than compressing its azimuth and elevation into a center sector; <code>SPATIAL INERTIA</code> affects only trajectory smoothing in this mode. <code>FORSY</code> uses the family topology shared by Stochastic and Wrangler: a three-axis, interlaced sine structure under their FREE topology modulation, with the bounded secondary random walk underneath. Its main trajectory uses a reflected 0-to-1-to-0 phase, retracing like a palindrome instead of wrapping to a new position; a bounded angular slew also protects points at topology-basis crossings. <code>ORBIT</code>, constant-speed triangular <code>SWAY</code>, and two-axis <code>FIGURE 8</code> provide deterministic alternatives. <code>ORBIT RATE</code> and <code>ORBIT DEPTH</code> control motion speed and excursion. Individual HOA channels are never moved or scaled independently. With width and motion depth at zero, every point collapses exactly to the selected center direction.</p>
+
+        <p>The upper-left visual viewport follows the Encoder-family layout used by Water, Wind, Path, and the other spatial instruments. Its <code>FIELD</code> page provides the projected sphere, numbered square markers, ring links, event and energy halos, selectable points, zoom, and <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> camera presets. <code>PULSARETS</code> shows the window, waveform, synchronized FM, and current mode of all three lanes; selecting a trace also selects that lane in the compact editor below. <code>NEURAL</code> shows all four lobes and marks inactive populations as standby. <code>LISTEN</code> shows the tetrahedral/cube auditory body, live ear energy, ear-to-lobe relationships, return state, and the listening controls.</p>
+
+        <p>The complete control surface retains its native 1160-by-858 layout and control sizes. On a smaller display the plug-in opens inside a screen-fitted native scroll viewport, with horizontal and vertical access as needed. Hosts that support CLAP GUI resizing may reduce or restore the viewport freely; moving the window to a smaller screen requests a fitting viewport automatically instead of leaving controls beyond the visible desktop.</p>
+
+        <p><code>AIR</code> applies distance-dependent high-frequency loss before encoding. <code>DOPPLER</code> adds a smoothed variable delay for radial movement. Both paths remain internally warm and crossfade into use, so automating either amount does not expose stale filter or empty delay state. Leave Doppler at zero when the pulsar clock itself should remain the only timing structure.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus is always 64 channels wide. The selected order activates <code>(order + 1)²</code> ACN channels and clears the remainder.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-insect.html">
+            <span>Previous</span>
+            Ambi Encoder Insect
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-neural-ecology.html">
+            <span>Next</span>
+            Ambi Encoder Neural Ecology
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#synthesis">Synthesis Model</a>
+          <a href="#lanes">Pulsaret Lanes</a>
+          <a href="#neural">Neural Synthesis</a>
+          <a href="#listening">Self-Listening</a>
+          <a href="#capture">Capture Utility</a>
+          <a href="#masks">Composable Masks</a>
+          <a href="#spatial">Spatial Model</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

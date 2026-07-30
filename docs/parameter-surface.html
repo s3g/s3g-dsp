@@ -28,9 +28,9 @@
 
         <p>Parameter Surface turns several complete instrument states into a playable two-dimensional space. Each cell holds a preset or captured state. Moving the <code>X/Y</code> cursor blends the continuous synthesis controls of nearby cells and selects discrete controls from the nearest cell.</p>
 
-        <p>Parameter Surface is available in <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>, and <a href="no-input-mixer.html">Processor No Input Mixer</a>. Each provides a <code>SURF</code> page plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters.</p>
+        <p>Parameter Surface is available in <a href="ambi-encoder-stochastic.html">Ambi Encoder Stochastic</a>, <a href="ambi-encoder-wrangler.html">Ambi Encoder Wrangler</a>, <a href="ambi-encoder-water.html">Ambi Encoder Water</a>, <a href="ambi-encoder-wind.html">Ambi Encoder Wind</a>, <a href="ambi-encoder-pyrosphere.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-encoder-cryosphere.html">Ambi Encoder Cryosphere</a>, <a href="ambi-encoder-insect.html">Ambi Encoder Insect</a>, and <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>. Each provides a <code>SURF</code> page plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters.</p>
 
-        <h2 id="workflow">Building a Surface</h2>
+        <h2 id="workflow">Workflow</h2>
 
         <ol>
           <li>Choose or edit an instrument state, open <code>SURF</code>, and press <code>ADD</code>. The new cell captures the current base state.</li>
@@ -114,7 +114,7 @@
 
         <p><code>RANDOM</code> is an explicit whole-scene action. It bypasses an enabled surface so the newly generated base scene is immediately audible, but it does not delete or rewrite any cells. Turn the surface back <code>ON</code> to resume the saved map.</p>
 
-        <p>Portable single-preset files describe one instrument state; the complete multi-cell surface belongs to plugin/project state. When loading a project saved without Parameter Surface data, the plugin creates an empty, bypassed surface and leaves the recalled sound unchanged. Projects saved with eight-cell or 24-cell surface data retain their cells and use <code>LINEAR</code> interpolation with the 160 ms default glide.</p>
+        <p>Portable single-preset files describe one instrument state; the complete multi-cell surface belongs to plugin/project state.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="listener-mode.html">
@@ -142,13 +142,18 @@
         </div>
         <div class="toc-section">
           <h2>Surface Instruments</h2>
-          <a href="ambi-stochastic-encoder.html">Encoder Stochastic</a>
-          <a href="ambi-wrangler-encoder.html">Encoder Wrangler</a>
-          <a href="ambi-insect-encoder.html">Encoder Insect</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#workflow">Building a Surface</a>
+          <a href="#workflow">Workflow</a>
           <a href="#interpolation">Interpolation Rules</a>
           <a href="#automation">Automation</a>
           <a href="#presets">Presets and State</a>

@@ -26,7 +26,16 @@
       <main class="content" id="content">
         <h1>Ambisonic Effects</h1>
 
-        <p>Ambisonic effects transform a complete encoded field while preserving the relationships among its channels. Place these after an encoder or ambisonic instrument and before the final decoder.</p>
+        <p>Ambisonic effects transform complete encoded fields while preserving the relationships among their channels. Place field effects after an encoder or encoded source and before decoding. Processor Ambi Grain instead generates a field from loaded encoded media, while grouped bus processors operate on lane-locked third-order fields.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose a processor, match its supported order and bus width to the source field, and insert it on a track whose width matches its field or grouped-field buses. Place field effects after an encoder or encoded source, route complete 16-channel blocks into group processors, or load encoded media into Processor Ambi Grain.</li>
+          <li>Follow a single output field with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before that decoder when their supported order and channel count match the field. For grouped outputs, apply compatible effects within each 16-channel field and route each field to its own decoder, or mix the groups to one field before its compatible effect chain and decoder.</li>
+          <li>Establish a neutral processor state, then send audio through the complete chain.</li>
+          <li>Explore the controls appropriate to the selected processor, including effect amount, directional masks, listener relationships, transforms, topology, or grain behavior.</li>
+        </ol>
 
         <p>Selected effects and spatial instruments also use <a href="listener-mode.html">Listener Mode</a>, an internal analysis layer that lets an ambisonic field influence its own later processing.</p>
 
@@ -41,8 +50,8 @@
           <li><a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a>: follows or freezes a reconciled bank of partials across the Listener body, with temporal smear and topology-routed sinusoidal HOA resynthesis.</li>
           <li><a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a>: captures one short directional kernel per Listener pickup, then convolves and routes the wet response locally, across, diffusely, or around the field.</li>
           <li><a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>: order-adaptive time-varying field warps loaded from 24-point Displacement Score geometry and resampled onto the selected listener body.</li>
-          <li><a href="ambi-imprint.html">Processor Ambi Imprint</a>: directional convolution using <code>.s3gimprint</code> space responses.</li>
-          <li><a href="ambisonic-rotate.html">Ambi Transform Rot 64</a>: coherent first-through-seventh-order field rotation.</li>
+          <li><a href="processor-ambi-imprint.html">Processor Ambi Imprint</a>: directional convolution using <code>.s3gimprint</code> space responses.</li>
+          <li><a href="ambi-transform-rot.html">Ambi Transform Rot 64</a>: coherent first-through-seventh-order field rotation.</li>
         </ul>
 
         <h2 id="bus-effects">Field and Bus Effects</h2>
@@ -50,7 +59,7 @@
         <ul>
           <li><a href="ambisonic-bus-processors.html#field-depth">Ambi Depth</a>: depth, focus, air, tail, low-body, and width shaping for one third-order field.</li>
           <li><a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>: group matrix, node mixing, rotation, and depth across lane-locked third-order feeds.</li>
-          <li><a href="ambi-grain-processor.html">Processor Ambi Grain</a>: loaded-media granulation with one shared grain event stream across all active ambisonic channels.</li>
+          <li><a href="processor-ambi-grain.html">Processor Ambi Grain</a>: loaded-media granulation with one shared grain event stream across all active ambisonic channels.</li>
         </ul>
 
         <h2 id="signal-chain">Signal-chain Rule</h2>
@@ -63,7 +72,7 @@
         <p>Do not treat individual ambisonic channels as unrelated stems. Use the field-aware processors here when timing, filtering, geometry, or gain changes must remain coherent across the encoding.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambisonic-head-decoder.html">
+          <a class="page-nav-link" href="ambi-decoder-head.html">
             <span>Previous</span>
             Ambi Decoder Head
           </a>
@@ -80,6 +89,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -87,6 +97,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#field-effects">Field Effects</a>
           <a href="#bus-effects">Field and Bus Effects</a>
           <a href="#signal-chain">Signal-chain Rule</a>

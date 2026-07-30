@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Delay - s3g-dsp</title>
+    <meta name="description" content="Processor Delay documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Delay</h1>
+
+        <p>The s3g Processor Delay treats each active channel as a delay node. Each node can have its own time, feedback, tone, pitch, smear, and diffusion behavior. Its Echo Routes layer can then move regenerated repeats from node to node through the topology.</p>
+
+        <p>Instead of exposing every lane as a separate parameter list, the plugin uses a compact topology surface. Moving the surface changes relationships between lanes while keeping automation readable. See the <a href="topology-framework.html">Topology Framework</a> page for the shared model.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the 8-channel or 24-channel build on a REAPER track of the appropriate width, route the source with the FX pins, then use the internal patch matrix to choose the active input lanes and their output destinations.</li>
+          <li>Route the result to the main speakers, a direct panner, or a stereo or quad fold-down, then begin playback. Another effect may precede that destination when its build matches the current bus width.</li>
+          <li>Place, displace, or animate the point field so the active lanes acquire useful relationships.</li>
+          <li>Set the delay engine, Echo Routes, wet mix, and output level while listening across the full bus.</li>
+        </ol>
+
+        <h2 id="processing-layers">Processing Layers</h2>
+
+        <div class="compact-grid">
+          <div>
+            <h3>Patch Matrix</h3>
+            <p>Routes plugin inputs to outputs. Active input rows set the topology lane count.</p>
+          </div>
+          <div>
+            <h3>Point Field</h3>
+            <p>Shape, displacement, animation, and variants place active lanes as points.</p>
+          </div>
+          <div>
+            <h3>Delay Engine</h3>
+            <p>The points become smoothed per-node delay settings and repeat routes.</p>
+          </div>
+        </div>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/delay-processor.png" aria-label="Open high-resolution Processor Delay GUI screenshot">
+              <img src="assets/plugin-guis/delay-processor.png" alt="Processor Delay 24ch patch matrix, dense topology field, per-node delay controls, and Echo Routes" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Processor Delay 24ch with a dense topology, patch matrix, per-node delay controls, and Echo Routes.</figcaption>
+        </figure>
+
+        <h2 id="routing">REAPER Pins and Internal Matrix</h2>
+
+        <p>There are two routing layers. REAPER's FX pin connector sends track channels into and out of the plugin. The Processor Delay matrix routes those plugin lanes after they arrive.</p>
+
+        <p>For topology, each active matrix input row keeps its physical lane identity and becomes an active point. If only rows 3 and 7 are active, the topology is a two-point graph made from nodes 3 and 7, even if those rows feed many outputs.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Goal</th>
+              <th>REAPER FX pin connector</th>
+              <th>Processor Delay matrix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Normal 8-channel lane processing</td>
+              <td>Track channels 1-8 feed plugin inputs 1-8. Plugin outputs 1-8 return to track channels 1-8.</td>
+              <td>Use diagonal routing: input 1 to output 1, input 2 to output 2, through input 8 to output 8.</td>
+            </tr>
+            <tr>
+              <td>Stereo source as 8 topology lanes</td>
+              <td>Set the track to 8 channels. Route left to plugin inputs 1, 3, 5, 7. Route right to plugin inputs 2, 4, 6, 8.</td>
+              <td>Use diagonal routing for all 8 lanes. All 8 input rows are active, so the topology uses 8 points.</td>
+            </tr>
+            <tr>
+              <td>Quad source as 4 topology lanes</td>
+              <td>Set the track to 4 or more channels. Feed source channels 1-4 to plugin inputs 1-4.</td>
+              <td>Use diagonal routing for lanes 1-4: input 1 to output 1, through input 4 to output 4.</td>
+            </tr>
+            <tr>
+              <td>6-channel source as 6 topology lanes</td>
+              <td>Set the track to 6 or more channels. Feed source channels 1-6 to plugin inputs 1-6.</td>
+              <td>Use diagonal routing for lanes 1-6: input 1 to output 1, through input 6 to output 6.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>For sources narrower than the plugin, use REAPER pins to expand the source into the plugin inputs. Then keep the plugin matrix diagonal while shaping the topology.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Each active input lane enters its local delay node.</li>
+          <li>The node's <code>TIME</code>, <code>TONE</code>, <code>PITCH</code>, <code>CHAR</code>, and <code>SMR</code> processing produces the audible local tap.</li>
+          <li><code>FDBK</code> creates the node's regenerated return. At <code>ROUTE</code> zero, the return stays in the local topology-diffusion path; raising <code>ROUTE</code> crossfades it toward source-local feedback transported through Echo Routes.</li>
+          <li>When <code>ROUTE</code> is raised, a normalized portion of that return leaves the node and is distributed to topology neighbors or the centroid hub.</li>
+          <li>A routed repeat is written into the destination node and waits for that node's <code>TIME</code> before it is heard. Its color and pitch therefore develop at every node it visits.</li>
+          <li>The patch matrix collects the requested node lanes, followed by <code>MIX</code>, output gain, and safety.</li>
+        </ol>
+
+        <h2 id="topology-map">Topology Map</h2>
+
+        <p>The topology map shows how active lanes influence the delay. Point position, radius, lane phase, nearest neighbors, and centroid pull all feed the delay generator.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <svg viewBox="0 0 1020 340" role="img" aria-labelledby="map-title map-desc">
+              <title id="map-title">Delay topology parameter map</title>
+              <desc id="map-desc">Vector diagram showing topology point dimensions mapped to delay processor parameters.</desc>
+              <rect width="1020" height="340" fill="#0d0f0f"/>
+              <g transform="translate(48 48)">
+                <rect x="0" y="0" width="374" height="212" fill="#111313" stroke="#303636"/>
+                <text x="16" y="28" fill="#d8ddd8" font-family="Menlo, Monaco, Courier New, monospace" font-size="13" font-weight="700">POINT</text>
+                <g stroke="#8e9893" stroke-width="1" fill="none" transform="translate(128 0)">
+                  <line x1="44" y1="78" x2="128" y2="36"/>
+                  <line x1="128" y1="36" x2="204" y2="92"/>
+                  <line x1="204" y1="92" x2="120" y2="138"/>
+                  <line x1="120" y1="138" x2="44" y2="78"/>
+                  <line x1="20" y1="128" x2="104" y2="86"/>
+                  <line x1="104" y1="86" x2="180" y2="142"/>
+                  <line x1="180" y1="142" x2="96" y2="188"/>
+                  <line x1="96" y1="188" x2="20" y2="128"/>
+                  <line x1="44" y1="78" x2="20" y2="128"/>
+                  <line x1="128" y1="36" x2="104" y2="86"/>
+                  <line x1="204" y1="92" x2="180" y2="142"/>
+                  <line x1="120" y1="138" x2="96" y2="188"/>
+                </g>
+                <g fill="#d8ddd8" stroke="#080909" stroke-width="2" transform="translate(128 0)">
+                  <rect x="37" y="71" width="14" height="14"/>
+                  <rect x="121" y="29" width="14" height="14"/>
+                  <rect x="197" y="85" width="14" height="14"/>
+                  <rect x="113" y="131" width="14" height="14"/>
+                  <rect x="13" y="121" width="14" height="14"/>
+                  <rect x="97" y="79" width="14" height="14"/>
+                  <rect x="173" y="135" width="14" height="14"/>
+                  <rect x="89" y="181" width="14" height="14"/>
+                </g>
+                <g fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="11">
+                  <text x="16" y="72">X/Z spread</text>
+                  <text x="16" y="96">Y height</text>
+                  <text x="16" y="120">R radius</text>
+                  <text x="16" y="144">lane phase</text>
+                  <text x="16" y="178">8 lanes</text>
+                  <text x="16" y="196">neighbor graph</text>
+                </g>
+              </g>
+              <g stroke="#c6cdc8" stroke-width="2" fill="none">
+                <path d="M444 154 H492"/>
+                <path d="M484 148 L496 154 L484 160"/>
+              </g>
+              <g transform="translate(514 36)" font-family="Menlo, Monaco, Courier New, monospace">
+                <rect x="0" y="0" width="458" height="238" fill="#111313" stroke="#303636"/>
+                <text x="18" y="30" fill="#d8ddd8" font-size="13" font-weight="700">DELAY GENERATOR FIELD</text>
+                <g fill="#c6cdc8" font-size="12">
+                  <text x="20" y="66">TIME  = X + Z + Y + R + SEED</text>
+                  <text x="20" y="96">FDBK  = Y - Z + X + R + SEED</text>
+                  <text x="20" y="126">TONE  = -Y + X + R + SEED</text>
+                  <text x="20" y="156">PITCH = Y + R + Z + SHAPE</text>
+                  <text x="20" y="186">SMR   = lane phase + R + X/Z</text>
+                  <text x="20" y="216">DIFF  = nearest neighbors + centroid</text>
+                </g>
+              </g>
+              <text x="48" y="300" fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="10">Topology controls scale how strongly the point field offsets each delay parameter.</text>
+            </svg>
+          </div>
+          <figcaption>Delay-specific topology mapping for TIME, FDBK, TONE, PITCH, SMR, and DIFF.</figcaption>
+        </figure>
+
+        <h2 id="engine-sliders">Delay Engine Sliders</h2>
+
+        <p>The engine sliders set the base delay sound. Topology then bends those values differently for each active lane.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Slider</th>
+              <th>How it relates to topology</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>TIME</td><td>Sets the base delay time. Topology offsets create different delay times per lane around that base.</td></tr>
+            <tr><td>FDBK</td><td>Sets the feedback amount and practical ceiling. Topology changes how feedback is distributed across lanes.</td></tr>
+            <tr><td>MIX</td><td>Global dry/wet balance. It is kept separate from topology so the whole effect can be blended predictably.</td></tr>
+            <tr><td>TONE</td><td>Sets the overall delay color. Topology shifts lane tone around this center.</td></tr>
+            <tr><td>PITCH</td><td>Sets the steady pitch-shift center. Topology can spread pitch relationships between lanes.</td></tr>
+            <tr><td>CHAR</td><td>Global character trim for saturation/instability behavior inside the delay engine.</td></tr>
+            <tr><td>SMR</td><td>Controls tap smear. Topology changes how smear is distributed through lane phase and radius.</td></tr>
+            <tr><td>OUT</td><td>Output gain trim after the delay engine.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Topology controls do not replace the engine sliders. They control how far each lane departs from the base settings.</p>
+
+        <h2 id="echo-routes">Echo Routes</h2>
+
+        <p>Echo Routes turns the topology graph into a repeat-scale transport. It does not add a second short propagation delay: every hop uses the destination node's existing delay time. An impulse can therefore appear first at node A after <code>TIME A</code>, then at node B after <code>TIME A + TIME B</code>, and continue along a longer rhythmic path while each visited node applies its own pitch and color.</p>
+
+        <ul>
+          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. Set it to zero for local feedback without cross-node repeat travel. Because Echo Routes transports regenerated audio, <code>FDBK</code> must be above zero for a repeat to walk.</li>
+          <li><code>TURN</code>: signed circulation bias around the topology's current orientation. Negative and positive settings favor opposite travel directions; zero leaves the graph reciprocal.</li>
+          <li><code>BRCH</code>: route focus. Low values favor one strong continuation; high values divide the repeat among more of the eligible neighbors and centroid destinations.</li>
+          <li><code>LOSS</code>: distance-dependent level and high-frequency loss. Long routes become quieter and darker while the node-level <code>TONE</code> remains the main delay color.</li>
+        </ul>
+
+        <p><code>NN</code> sets the maximum number of neighbor continuations, <code>RAD</code> determines connection reach and proximity weighting, and <code>CENT</code> opens a normalized virtual-hub route to nodes outside the immediate neighbor set. Topology shape and motion change the destinations used by future launches; repeats already waiting inside node delays are allowed to finish naturally.</p>
+
+        <p>On the <code>TOPO</code> page, edge brightness follows actual routed energy and moving markers show the current repeat traversal. Node activity shows arrivals rather than a static estimate of the diffusion setting.</p>
+
+        <h2 id="readout">Readout Terms</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>TIME</td><td>Base delay plus topology-derived per-lane time offset.</td></tr>
+            <tr><td>FDBK</td><td>Per-lane regeneration amount.</td></tr>
+            <tr><td>TONE</td><td>Per-lane delay color.</td></tr>
+            <tr><td>PIT</td><td>Steady pitch shift in semitones.</td></tr>
+            <tr><td>SMR</td><td>Delay tap smear amount.</td></tr>
+            <tr><td>DIFF</td><td>Cross-lane diffusion based on neighbor links and centroid influence.</td></tr>
+            <tr><td>ROUT</td><td>Measured Echo Routes activity leaving or arriving at the node.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="control-model">Control Model</h2>
+
+        <ul>
+          <li>Patch matrix controls which lanes are active.</li>
+          <li>Topology controls generate per-lane differences.</li>
+          <li>ANIM and VAR provide motion scene behavior using the same topology controls.</li>
+          <li>Echo Routes changes where regenerated repeats go; it does not replace the node delay times.</li>
+          <li>Mix remains a global dry/wet control.</li>
+          <li>Per-lane details stay inside the plugin.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="topology-framework.html">
+            <span>Previous</span>
+            Topology Framework
+          </a>
+          <a class="page-nav-link next" href="processor-wave-geometry.html">
+            <span>Next</span>
+            Processor Wave Geometry
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Topology Effect Pages</h2>
+          <a href="topology-framework.html">Topology Framework</a>
+          <a href="processor-delay.html">Processor Delay</a>
+          <a href="processor-wave-geometry.html">Processor Wave Geometry</a>
+          <a href="processor-spectral.html">Processor Spectral</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#processing-layers">Processing Layers</a>
+          <a href="#routing">REAPER Pins</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#topology-map">Topology Map</a>
+          <a href="#engine-sliders">Engine Sliders</a>
+          <a href="#echo-routes">Echo Routes</a>
+          <a href="#readout">Readout Terms</a>
+          <a href="#control-model">Control Model</a>
+        </div>
+      </aside>
+    </div>
+
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -26,7 +26,11 @@
       <main class="content" id="content">
         <h1>Vox Builder</h1>
 
-        <p><code>s3g Vox Builder</code> is a macOS companion app for creating voicebanks used by <a href="ambi-vox-encoder.html">Ambi Encoder Vox</a>. It can synthesize a reproducible voice source or turn one continuous vocal recording, several WAV files, or a folder of WAVs into an editable set of aliases without embedding WORLD data in the exported bank.</p>
+        <p><code>s3g Vox Builder</code> is a macOS companion app for creating voicebanks used by <a href="ambi-encoder-vox.html">Ambi Encoder Vox</a>. It can synthesize a reproducible voice source or turn one continuous vocal recording, several WAV files, or a folder of WAVs into an editable set of aliases without embedding WORLD data in the exported bank.</p>
+
+        <div class="callout">
+          <p>Vox Builder is not currently included in the packaged pre-release. It can be <a href="building-from-source.html#standalone-apps">built from source</a> as a standalone macOS app.</p>
+        </div>
 
         <figure>
           <div class="doc-graphic">
@@ -36,6 +40,16 @@
           </div>
           <figcaption>Vox Builder with the included 35-alias demonstration source loaded, segmented, and analyzed; the alias editor uses white text on black.</figcaption>
         </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Open Vox Builder, then generate a voice source, record or load a continuous WAV, or load or drop WAV files or a folder.</li>
+          <li>Select a segment and click <code>AUDITION</code> to establish source monitoring before editing.</li>
+          <li>Set the alias inventory and run <code>ANALYZE</code> to segment the source and estimate its voice metadata.</li>
+          <li>Audition each segment, correct its alias and timing, and adjust boundaries or analysis settings as needed.</li>
+          <li>Click <code>EXPORT VOICEBANK</code>, keep the complete exported folder together, and load that folder in Ambi Encoder Vox.</li>
+        </ol>
 
         <h2 id="generation">Voice Generation</h2>
 
@@ -109,11 +123,12 @@
         </div>
         <div class="toc-section">
           <h2>Voice / Language Pages</h2>
-          <a href="ambi-vox-encoder.html">Encoder Vox</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
           <a href="vox-builder.html">Vox Builder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#generation">Voice Generation</a>
           <a href="#recording">Source Recording</a>
           <a href="#analysis">Analysis</a>

@@ -28,6 +28,16 @@
 
         <p>These effects reorganize audio inside an FFT frame or a captured time buffer. They focus on material transformation rather than topology, panning, or encoded-field processing.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose Spectral Spray or Processor Buffer in the width that matches the source, then configure the REAPER track and input pins.</li>
+          <li>Route the result to the main speakers, a direct panner, or a stereo or quad fold-down, then begin playback. Another effect may precede that destination when its build matches the current bus width.</li>
+          <li>Set the dry/wet balance, then introduce spectral displacement or buffer-address movement gradually.</li>
+          <li>Use freeze and spectral memory for sustained frequency material, or repeats, reversal, and damaged windows for time-buffer transformations.</li>
+          <li>Shape lane relationships and output level while checking the complete multichannel result.</li>
+        </ol>
+
         <h2 id="spectral-spray">Spectral Spray</h2>
 
         <p><strong>Spectral Spray 2ch/8ch</strong> scatters FFT bins while retaining a dry/wet path aligned to the transform latency. Its controls cover displacement, smear, hold, freeze, spectral holes, phase blur, feedback, and a frequency window. Use the 2-channel build for stereo material and the 8-channel build when every lane should receive the same spectral model.</p>
@@ -54,12 +64,12 @@
           <figcaption>Processor Buffer 8ch with address, repeat, reverse, damage, window, relationship, and output controls.</figcaption>
         </figure>
 
-        <h2 id="choosing">Choosing an Effect</h2>
+        <h2 id="choosing">Effect Comparison</h2>
 
         <ul>
           <li>Choose Spectral Spray for lane-local frequency-domain displacement, memory, or freeze.</li>
           <li>Choose Processor Buffer for time-address discontinuities, reverse motion, repeats, and damaged playback windows.</li>
-          <li>Choose <a href="spectral-topology-processor.html">Processor Spectral</a> when live or captured spectral material should travel between the nodes of an editable multichannel mesh, with distance, velocity, dispersion, and damping shaping each journey.</li>
+          <li>Choose <a href="processor-spectral.html">Processor Spectral</a> when live or captured spectral material should travel between the nodes of an editable multichannel mesh, with distance, velocity, dispersion, and damping shaping each journey.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
@@ -93,9 +103,10 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#spectral-spray">Spectral Spray</a>
           <a href="#buffer-processor">Processor Buffer</a>
-          <a href="#choosing">Choosing an Effect</a>
+          <a href="#choosing">Effect Comparison</a>
         </div>
       </aside>
     </div>

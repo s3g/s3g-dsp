@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Cryosphere - s3g-dsp</title>
+    <meta name="description" content="A geological ambisonic instrument for frost stress, ice fracture, stick-slip, calving, impacts, cavitation, and granular snow in s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a><a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Cryosphere</h1>
+        <p><code>s3g Ambi Encoder Cryosphere</code> is the frozen counterpart to Pyrosphere: a zero-input geological instrument in which frost and moving ice act on bedrock, substrate, snowpack, and water. Ice growth, strain, fracture, basal slip, calving, impact, cavitation, and granular transport are distributed across as many as 64 moving <code>ACN/SN3D</code> field voices.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-cryosphere-encoder.png" aria-label="Open Ambi Encoder Cryosphere GUI screenshot">
+              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere Avalanche Release preset showing a large active 64-entity frozen field" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Cryosphere using the large, highly occupied <code>Avalanche Release</code> scene.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Ambi Encoder Cryosphere</code> on a correctly routed 64-channel Ambisonic track, load a factory scene, and select the output <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Start the REAPER transport and listen to the scene's initial material and activity.</li>
+          <li>Choose an ice process and substrate, then shape its activity with the event, material, and score controls or move among stored states on the <code>SURF</code> page.</li>
+        </ol>
+
+        <h2 id="design">Cryogeology Model</h2>
+        <p>The source model is aperiodic. Each field voice accumulates frost and ice-growth stress, releases branching fracture cascades, and loads an independent basal stick-slip process. Surface ice additionally behaves as a three-generation plate: broad slab flex, secondary fault lines, and fine radial cracks accumulate pressure independently. Irregular weight steps open bright cracks, which can cascade into a through-rupture, local plate collapse, and a separate low impact. Granular snow and ice transport scrape across the selected substrate. Calving events detach mass first, then schedule a physically separate water impact and cavitation tail. A diffuse filtered body response preserves scale without using a persistent inharmonic oscillator bank.</p>
+        <p><code>ICE GROWTH</code>, <code>EVENT RATE</code>, <code>SLAB SCALE</code>, <code>BRANCHING</code>, <code>FRACTURE DENSITY</code>, <code>FRACTURE MASS</code>, <code>FRACTURE TAIL</code>, <code>BODY SCATTER</code>, and <code>BRITTLENESS</code> shape solid failure. <code>EVENT RATE</code> is a logarithmic master geological clock from <code>HOLD</code> to <code>1×</code>; it paces frost strain, basal slip, granular contacts, calving checks, and structural plate loading together, while each event retains its full material articulation. <code>SLAB SCALE</code>, <code>DEPTH</code>, substrate mass, and <code>FRACTURE MASS</code> span a broad physical body range: large/deep configurations move energy into broad sub-ice pressure and plate-flexure bands, while small/shallow settings remain crisp. Footsteps, through-fracture, calving, and delayed water impacts launch short mass-dependent flexural/ground impulses; these decay with the event and do not create a continuous resonant bed. <code>SURFACE LOAD</code> controls pressure/footstep drive, <code>ICE SNAP</code> exposes fine high-frequency radial failure, and <code>PLATE FAILURE</code> governs through-fracture and local collapse. <code>GRANULES</code>, <code>FROZEN IMPACTS</code>, <code>CALVING</code>, and <code>BRINE POCKETS</code> govern loose material and phase-boundary events. The eighteen process profiles cover frost, terrestrial ice, precipitation, meltwater, singing-lake systems, <code>APERIODIC LATTICE</code>, <code>TIDAL SHELL</code>, <code>HYDROCARBON DUNE</code>, and <code>REACTIVE BRINE</code>; substrate profiles distinguish open ice, rock, snowpack, moraine, concrete, metal, glass, ice tunnel, ice cave, and glacier.</p>
+        <p><code>SINGING LAKE</code> uses a bounded modal technique with a distinct lake-ice identity. A completed fracture, surface snap, or rupture opens a short smooth force window onto that event’s own stochastic crack flux. Each spatial entity owns one stationary inharmonic pair on a seeded flexural branch, so the field blooms as a scattered lake body rather than sweeping a carrier downward. <code>SLAB SCALE</code> and <code>DEPTH</code> place the branches, <code>BRIGHTNESS</code> and <code>ICE SNAP</code> favor their upper response, <code>BODY SCATTER</code> sets modal presence, and <code>DAMPING</code> shortens the tail. There is no pitch glide, phase-reset strike, autonomous resonator bed, or sub-180 Hz plate oscillator in this regime.</p>
+        <p><code>APERIODIC LATTICE</code> gives Quasicrystal Plate Bloom its own speculative planetary-material process. Mobile domain boundaries creep through a non-repeating frozen lattice, branching fracture fronts unlock mismatched regions, and defect avalanches redistribute stress as broadband crackle and shearing texture. Completed front and avalanche releases briefly drive a distributed two-mode mineral body in each spatial entity. This is not the Singing Lake profile or the low ringing plate body: the pair is scattered above the tom range, forced by the lattice’s own stochastic flux, and allowed to exist only for the finite event tail.</p>
+        <p>The other speculative regimes use separate processes. <code>TIDAL SHELL</code> stores viscoelastic stress between a moon’s ocean and frozen crust, then releases distance-delayed rupture fronts and decompression texture. <code>HYDROCARBON DUNE</code> couples cohesive frost shear, avalanche packets, triboelectric microfracture, and dense-atmosphere high-frequency loss. <code>REACTIVE BRINE</code> cycles pore pressure through fingering, freeze-sealing, irregular blow-through, and resealing. Each completed physical release can illuminate a short, irregular modal pair whose identity is distributed across the active entities; score onsets never strike it directly. The stochastic process is the force source, and these regimes do not reuse the calving, snow-grain, meltwater, Singing Lake, or low plate-body paths.</p>
+        <p>The fracture, ice-segregation, basal-slip, and iceberg-impact paths are informed by field and laboratory geophysics. In particular, the delayed calving impact/cavitation stage is separate from detachment, while basal slip is treated as load-and-release rather than a continuous tone. This remains a realtime procedural interpretation rather than a predictive glacier model. See <a href="references.html#modal-physical-modeling">References</a>.</p>
+
+        <h2 id="score">Aleatoric entity score</h2>
+        <p>Each field voice represents a finite plate, loaded substrate region, brine pocket, or detachable ice mass rather than a permanently sounding ambience lane. A deterministic aleatoric score moves these entities through stillness, load or thermal-strain accumulation, an initiating crack, spatial propagation, rupture or displacement, and a settling aftermath. Plates retain integrity and crack extent; brine pressure grows and drains; crack arrivals travel to nearby plates after distance-dependent delays. In calving processes the detached mass becomes a delayed impact, while Ice Under Foot uses the same propagation system as a moving load across successive plates.</p>
+        <p><code>PACE</code> moves from long cryogeological arcs to rapid event turnover. <code>OCCUPANCY</code> sets the target number of simultaneously loaded entities. <code>CASCADE</code> governs spatial crack and load transfer, <code>MEMORY</code> controls persistence between macro-scenes, and <code>REST</code> lengthens stillness while removing the residual ice bed. All four planetary regimes span a single remote entity with long empty intervals through full-field populations and far-reaching propagation. The other processes follow their defined score response. <code>EVENT RATE</code> is the physical master clock, and <code>HOLD</code> prevents scored directives from producing events.</p>
+
+        <h2 id="presets">Presets and SURF</h2>
+        <p>Eighteen factory scenes establish distinct process regions: Alpine Frost Crack, Ice Segregation Gneiss, Permafrost Heave, Basal Glacier Stick-Slip, Pressure Ridge, Calving Front, Iceberg Water Impact, Avalanche Release, Snowpack Creep, Hail on Metal, Sleet on Glass, Meltwater Under Ice, Ice Under Foot, Singing Lake Ice, Tidal Ocean-Moon Rift, Methane-Ice Dune Creep, Subsurface Brine Upwelling, and Quasicrystal Plate Bloom. The final four select four dedicated planetary engines with sparse event-excited modal matter: tidal shell rupture, cohesive hydrocarbon-frost transport, reactive brine seal cycles, and aperiodic-lattice propagation. They are unfamiliar material ecologies and planetary timescales—not conventional science-fiction weapon effects.</p>
+        <p>The <code>SURF</code> page stores complete presets as editable cells. Automatable <code>Surface X</code>/<code>Surface Y</code> coordinates blend continuous event, body, motion, environment, and score parameters; discrete regimes and materials select the nearest cell. <code>VOICES</code> stays an integer readout while surplus frozen-water parcels fade continuously in both synthesis and the field drawing. Curve, focus, and up-to-two-second glide settings are saved with project state; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
+
+        <h2 id="routing">Routing</h2>
+        <p>The 64-channel output exposes first- through seventh-order Ambisonics. Set <code>ORDER</code> to choose the active channel count.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-pyrosphere.html">
+            <span>Previous</span>
+            Ambi Encoder Pyrosphere
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-insect.html">
+            <span>Next</span>
+            Ambi Encoder Insect
+          </a>
+        </nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#design">Cryogeology Model</a>
+          <a href="#score">Aleatoric entity score</a>
+          <a href="#presets">Presets and SURF</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

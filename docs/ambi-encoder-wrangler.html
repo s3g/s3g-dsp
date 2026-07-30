@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Wrangler - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Wrangler synthesis and routing documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Wrangler</h1>
+
+        <p><code>s3g Ambi Encoder Wrangler</code> is an autonomous Benjolin/rungler-style logic instrument with as many as 64 independent voices and direct first-through-seventh-order <code>ACN/SN3D</code> output. One voice is one complete dual-oscillator, register, and state-variable-filter circuit at one ambisonic point. It has no audio input or MIDI note input; use its parameters and factory states to shape a continuously evolving field.</p>
+
+        <p>Rungler synthesis compares two coupled oscillators and clocks the result through a feedback shift register. The changing bit pattern modulates oscillator pitch and filtering, producing repeating figures that continually slip into new, irregular states.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.png" aria-label="Open Ambi Encoder Wrangler GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.png" alt="Ambi Encoder Wrangler GUI showing coupled logic voices, parameter surface, per-voice curves, topology, and output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Wrangler with coupled logic voices, parameter surface, per-voice curves, topology, and output.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the plugin on a 64-channel REAPER track, choose a factory state, and select the ambisonic <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Set the independent <code>VOICES</code>.</li>
+          <li>Choose the wide-ranging <code>LEGACY</code> or pitch-centered <code>BOUNDED</code> circuit law.</li>
+          <li>Shape oscillator coupling and rungler behavior, then move continuously from low-pass through an open center to high-pass.</li>
+          <li>Set topology motion and the field's azimuth, elevation, and distance.</li>
+          <li>Open the <code>LISTEN</code> page to let the completed ambisonic field write and steer the registers.</li>
+        </ol>
+
+        <h2 id="presets">Factory States</h2>
+
+        <p>The <code>PRESET</code> parameter recalls a complete starting state. The collection ranges from unruly clocks, masks, filters, and moving topologies to slower bass, pad, and high-register fields.</p>
+
+        <p>Use <code>Register A: Open Circuit</code>, <code>Register B: Field Written</code>, and <code>Register C: Audio Clocked</code> to compare the listener's influence. <code>Deep Current: Open</code> and <code>Deep Current: Settled</code> are a second matched pair for hearing how <code>SETTLE</code> calms an evolving texture. <code>Sixteen Voice Undertow</code>, <code>Thirty-Two Voice Dusk</code>, and <code>Sixty-Four High Constellation</code> demonstrate increasingly dense bounded fields.</p>
+
+        <p><code>SAVE</code> and <code>LOAD</code> preserve the complete instrument in portable <code>.s3gawp</code> files, including the circuit law, voice count, DJ Filter, all per-voice curves, and listener settings. <code>RANDOM</code> can produce either an energetic, wide-ranging patch or a calmer bass or pad state. Use it as a starting point, then reduce coupling, choose <code>BOUNDED</code>, or engage <code>SETTLE</code> when you want a gentler result.</p>
+
+        <h2 id="parameter-surface">Parameter Surface</h2>
+
+        <p>The <code>SURF</code> page arranges as many as 24 captured or factory states in a two-dimensional performance space. <code>EDIT</code> selects and drags cells; <code>ADD</code>, <code>DEL</code>, and <code>CAP</code> manage their contents. In <code>PLAY</code>, the crosshair interpolates the instrument and the participating toolbox controls move with the effective state. <code>CURVE</code> changes the blend response, <code>FOCUS</code> ranges from broad mixtures to tighter nearest-cell regions, and <code>GLIDE</code> smooths the active cursor, toolbox controls, and generated field geometry. The target diamond follows drag or automation immediately. <code>POP</code> opens SURF in an attached panel and restores FIELD in the main editor for simultaneous monitoring.</p>
+
+        <p>Continuous oscillator, coupling, filter, topology, projection, mask, and per-voice curve values interpolate by distance. Discrete circuit, oscillator-input, register, topology, and curve modes come from the nearest cell. <code>VOICES</code> reads as an integer nearest-cell value, but surplus circuits and points use the shared membership and Wrangler's release envelope to fade audibly and visually rather than remaining stale or vanishing at a boundary. <code>OUT</code>, <code>ORDER</code>, all Listener controls, and the cursor remain live outside the interpolation. Automate the normalized <code>SURFACE X</code> and <code>SURFACE Y</code> CLAP parameters from the DAW. Project state stores the complete surface; portable <code>.s3gawp</code> files remain single instrument states. See <a href="parameter-surface.html">Parameter Surface</a> for the shared rules.</p>
+
+        <h2 id="synthesis">Logic Synthesis</h2>
+
+        <p>The circuit-law button in the <code>OSCILLATORS</code> header changes how the same front-panel controls are interpreted.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Circuit law</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>LEGACY</td><td>Allows broad frequency excursions and mixes direct oscillator and register energy with the filtered sound. It is the more volatile option.</td></tr>
+            <tr><td>BOUNDED</td><td>Keeps FM and Rung influence close to each oscillator's base pitch, allows coupling to reach zero, softens register steps, and routes the audible source through the filter. It is better suited to basses and slowly evolving pads.</td></tr>
+          </tbody>
+        </table>
+
+        <ul>
+          <li><code>RATE A</code> and <code>RATE B</code> set the two oscillators. Their <code>LOW</code>, <code>SINGLE</code>, and <code>DOUBLE</code> ranges permit an audible bass oscillator to run against a sub-audio register clock.</li>
+          <li><code>VOICES</code> sets the number of complete synth circuits and spatial points. Increasing it makes the field denser; reducing it exposes individual patterns more clearly.</li>
+          <li><code>FM A&gt;B</code>, <code>FM B&gt;A</code>, <code>RUNG A</code>, and <code>RUNG B</code> set coupling. In <code>BOUNDED</code>, low values keep the sound close to the two base pitches.</li>
+          <li><code>CHANGE</code> controls how readily the register accepts a new bit. At zero the bounded circuit repeats its current pattern; raising it produces more variation. <code>LOOP</code> repeats the outgoing bit, while <code>XOR</code> combines it with the oscillator comparison.</li>
+          <li><code>DJ FILTER</code> is continuous: the left half moves from low-pass to an open center, and the right half moves from open to high-pass. The center keeps the instrument's saturation and body. In <code>BOUNDED</code> the complete sound follows this filter; in <code>LEGACY</code> some direct oscillator and register energy remains in the mix.</li>
+          <li><code>FIL FRQ</code>, <code>FIL RES</code>, <code>FIL RUN</code>, <code>FIL SWP</code>, and <code>SAT</code> shape the filter. <code>Z COLOR</code> adds drive and tonal variation.</li>
+        </ul>
+
+        <p>The <code>CURVE</code> page edits one parameter at a time across the independent voices. Its selected marker is the same voice shown on the <code>FIELD</code> and <code>LISTEN</code> pages. The complete editor is described below.</p>
+
+        <p>Voice-count, synthesis, filter, curve, position, and ambisonic-order changes are smoothed so they can be adjusted or automated while the instrument plays. Rung mode and size take effect at the next register step and then glide into the new structure.</p>
+
+        <h2 id="voice-curves">Per-Voice Curves</h2>
+
+        <p>The Curve page is divided into two banks. <code>HIST · 19</code> is the main bank, with nineteen per-voice controls for the oscillators, register, feedback, and filter:</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.curve.png" aria-label="Open Ambi Encoder Wrangler CURVE view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.curve.png" alt="Ambi Encoder Wrangler CURVE view showing the HIST control bank and a populated sixteen-voice breakpoint curve" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>CURVE view with the <code>HIST · 19</code> control bank and a populated sixteen-voice modulation curve.</figcaption>
+        </figure>
+
+        <ol>
+          <li><code>RATE A</code>, <code>RUNG A</code>, <code>FM B&gt;A</code>, <code>COLOR A</code></li>
+          <li><code>RATE B</code>, <code>RUNG B</code>, <code>FM A&gt;B</code>, <code>COLOR B</code></li>
+          <li><code>FILTER FREQ A</code>, <code>FILTER FREQ B</code>, <code>FILTER RES</code>, <code>FILTER COMP</code>, <code>FILTER TYPE</code></li>
+          <li><code>CROSS A</code>, <code>CROSS B</code>, <code>CROSS LPF</code></li>
+          <li><code>RUNG MODE</code>, <code>RUNG THRESH</code>, <code>RUNG SIZE</code></li>
+        </ol>
+
+        <p><code>FILTER TYPE</code> moves each voice along the same low-pass → open → high-pass path as the global DJ Filter. <code>RUNG MODE</code> selects <code>COMMON</code>, <code>SPLIT</code>, or <code>SWAP</code>: one shared register influence, separate A/B taps, or exchanged taps. <code>RUNG SIZE</code> selects a two-through-eight-bit register.</p>
+
+        <p>The <code>MODERN · 5</code> bank contains <code>PWM A</code>, <code>PWM B</code>, <code>RAMP A</code>, <code>RAMP B</code>, and <code>LEVEL</code>. The global controls on the right remain usable while the Curve page is open.</p>
+
+        <p>Most curve points act as offsets around the corresponding global control: a centered point leaves the global setting unchanged, while points above or below it create voice-to-voice variation. Color, Cross, Filter Compensation, Cross LPF, Rung Mode, and Level use direct values instead. For <code>FILTER TYPE</code>, a stored value of <code>0.5</code> follows the global DJ Filter, while <code>0</code> forces low-pass and <code>1</code> forces high-pass. <code>RUNG SIZE</code> also follows the global setting at its midpoint but selects discrete register lengths.</p>
+
+        <p>The editor protects against accidental changes when many points are visible:</p>
+
+        <ul>
+          <li><code>CURVES ON/OFF</code> is the only Curve-page control that enables or disables curve influence. Turning it off preserves every stored point.</li>
+          <li>Clicking a parameter label only selects and arms that row. It never writes a point or silently turns curves on.</li>
+          <li>The four voice banks show voices 1–16, 17–32, 33–48, and 49–64 with enough horizontal separation to select one point reliably. Inactive voices can be prepared before increasing <code>VOICES</code>.</li>
+          <li>A mouse-down inside the graph locks both the armed parameter and nearest voice for the complete gesture. Dragging changes only its vertical value; moving sideways cannot jump to another point. Labels, voice numbers, button gaps, and the area outside the graph cannot write.</li>
+          <li>The chosen parameter button and chosen point remain yellow. The solid line and <code>EFFECTIVE</code> readout show the value currently heard after the global control; the dashed line and <code>STORED</code> readout show the saved curve setting. Filter Type is continuous; only Rung Mode and Rung Size use discrete steps.</li>
+        </ul>
+
+        <h2 id="topology">Topology and Placement</h2>
+
+        <p><code>TOPOLOGY</code> selects the shared spatial shape. <code>MOTION</code> offers <code>STATIC</code>, <code>ORBIT</code>, <code>DRIFT</code>, <code>FOLD</code>, and <code>STIR</code>. Motion rate, amount, depth, scale, and collapse reshape the field while it runs.</p>
+
+        <p><code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> place the field center. <code>SPATIAL FOLLOW</code> controls how fully each voice follows its topology point instead of collapsing toward that center.</p>
+
+        <h2 id="field-listener">Field-Written Register</h2>
+
+        <p>The <code>LISTEN</code> page lets the completed ambisonic field influence what the instrument does next. Four tetrahedral or eight cubical virtual pickups listen in different directions, and each voice reads a pickup near its own position. In <code>WRITE</code>, the decoded field can influence the register whenever oscillator B produces a clock.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wrangler-encoder.listen.png" aria-label="Open Ambi Encoder Wrangler LISTEN view GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wrangler-encoder.listen.png" alt="Ambi Encoder Wrangler LISTEN view showing the eight-ear aperture, per-voice route, register write state, and listening controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>LISTEN view with the eight-ear aperture, selected-voice route, and field-written register state.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Read mode</th><th>Register interpretation</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>TRACE</td><td>Reads the pickup nearest the voice's ambisonic point and derives a bit from its decoded polarity.</td></tr>
+            <tr><td>RING</td><td>Advances through the pickup set on successive register clocks.</td></tr>
+            <tr><td>CROSS</td><td>Compares a pickup with its opposing pickup and writes the sign of their difference.</td></tr>
+            <tr><td>BALANCE</td><td>Visits the pickups in sequence and writes according to whether each direction is below the field's mean recent energy.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>SETTLE</code> keeps each voice attached to its local pickup even when <code>RING</code> or <code>BALANCE</code> is selected, preventing the stabilizing sensor from jumping to a new direction on every register clock.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Response</th><th>Function</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>WRITE</td><td>Lets decoded pickup polarity influence new register bits and can return delayed pickup audio to the circuit.</td></tr>
+            <tr><td>SETTLE</td><td>Responds to excess directional activity by slowing register changes and gently reducing coupling and motion.</td></tr>
+          </tbody>
+        </table>
+
+        <p>In <code>WRITE</code>, <code>FIELD WRITE</code> sets how often the decoded field influences a new register bit. Low settings add occasional responses; higher settings make the field more involved without replacing the oscillator and register logic. <code>REG MOTION</code> lets the register steer the spatial destination. Movement remains smooth rather than jumping between pickups.</p>
+
+        <p><code>FIELD RETURN</code> sends a controlled amount of the selected pickup audio back into the circuit. <code>PROPAGATE</code> sets its delay, from a close response to a more separated echo through the field. <code>RETURN BYPASS</code> disables only this audible return; pickup analysis, field writing, register motion, meters, and listener memory continue.</p>
+
+        <p>In <code>SETTLE</code>, <code>VISCOSITY</code> sets how strongly the listener calms the instrument, <code>CALM TARGET</code> sets how much activity is tolerated, and <code>RECOVERY</code> sets how slowly the calming influence releases. When activity rises above the target, more register clocks hold the current pattern instead of changing it. The oscillators continue to run, so the result settles into a slower evolution rather than simply fading or stopping.</p>
+
+        <p><code>SETTLE</code> works in both circuit laws. It does not turn down the output or darken the filter; it mainly slows register evolution, coupling, and topology motion. Field Return is inactive in this response mode. <code>LISTEN OFF</code>, or a <code>VISCOSITY</code> value of zero, removes the listener's influence.</p>
+
+        <p>The display follows one selected voice. In <code>WRITE</code> it shows pickup energy, active read head, comparator bit, auditory bit, final written bit, delayed-return value, and that voice's complete register word; the input cell flashes when the field performs a write. In <code>SETTLE</code>, it shows tension, capture, effective register-evolution, coupling and topology rates, the current <code>HELD</code>/<code>OPEN</code> decision, and the cumulative number of held clock edges. Use the arrow buttons to inspect another voice without changing its sound.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus is 64 channels wide. <code>ORDER</code> activates the corresponding ACN channels and clears the rest. Higher voice counts and ambisonic orders create denser fields and use more CPU.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-stochastic.html">
+            <span>Previous</span>
+            Ambi Encoder Stochastic
+          </a>
+          <a class="page-nav-link next" href="ambisonic-decoders.html">
+            <span>Next</span>
+            Ambisonic Decoders
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#presets">Factory States</a>
+          <a href="#parameter-surface">Parameter Surface</a>
+          <a href="#synthesis">Logic Synthesis</a>
+          <a href="#voice-curves">Per-Voice Curves</a>
+          <a href="#topology">Topology and Placement</a>
+          <a href="#field-listener">Field-Written Register</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -50,7 +50,7 @@ Plugin areas:
   feedback, loaded-loop, granular, vector-wavetable, weather, liquid,
   WORLD/voicebank vocal, and stochastic instruments, including the
   eight-channel
-  [Processor No Input Mixer](https://s3g.github.io/s3g-dsp/no-input-mixer.html)
+  [Processor No Input Mixer](https://s3g.github.io/s3g-dsp/processor-no-input-mixer.html)
   output-only feedback ecology.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)

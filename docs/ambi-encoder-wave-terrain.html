@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Wave Terrain - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Wave Terrain instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Wave Terrain</h1>
+
+        <p><code>s3g Ambi Encoder Wave Terrain</code> is a 64-voice wave-terrain instrument with direct first-through-seventh-order <code>ACN/SN3D</code> ambisonic output. Each voice selects a region of one shared AED terrain, scans a closed contour there, and uses that contour as its oscillator waveform.</p>
+
+        <p>The scan coordinates have two linked readings. Terrain height along the contour becomes sound, while each scan sample's longitude, latitude, and terrain height become azimuth, elevation, and distance. A voice therefore sounds and occupies the same place in the terrain model.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-wave-terrain-encoder.png" aria-label="Open Ambi Encoder Wave Terrain GUI screenshot">
+              <img src="assets/plugin-guis/ambi-wave-terrain-encoder.png" alt="Ambi Encoder Wave Terrain GUI showing the terrain surface, contour scan, voice field, spatial controls, and ambisonic output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Wave Terrain with terrain surface, contour scan, voice field, spatial controls, and output.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Encoder Wave Terrain</code> on a 64-channel REAPER track and select the ambisonic <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Use <code>FREE</code> mode for a sustained terrain oscillator bank, <code>MIDI</code> mode for note-triggered voices, or <code>BOTH</code>.</li>
+          <li>Use the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> terrain tabs to construct and interpret the surface.</li>
+          <li>Shape each contour with <code>TRACE</code> and its curved or polygon-specific controls.</li>
+          <li>Compose movement with the selection <code>LAW</code>, transition <code>JOIN</code>, time-field controls, and optional <code>LISTEN</code> mode.</li>
+          <li>Set the integer <code>VOICES</code> and AED projection controls.</li>
+        </ol>
+
+        <h2 id="terrain-controls">Terrain Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>FORM</td><td>Selects Sphere, Tetrahedron, Cube, Octahedron, Dodecahedron, or Icosahedron radial construction.</td></tr>
+            <tr><td>FACET / BEVEL</td><td>Morphs the selected polyhedron into the procedural terrain and rounds its face intersections.</td></tr>
+            <tr><td>ORIENT</td><td>Rotates the polyhedral face structure beneath the scan field.</td></tr>
+            <tr><td>SKIN</td><td>Selects Harmonic, FBM, Cellular, VOT, Ridges, Dunes, Craters, or Tectonic surface construction.</td></tr>
+            <tr><td>DEPTH</td><td>Morphs the scan profile from its smooth geometric carrier toward the procedural terrain.</td></tr>
+            <tr><td>ROUGH</td><td>Changes the frequency and weight of the four terrain layers.</td></tr>
+            <tr><td>FOLD</td><td>Folds terrain height for sharper peaks and more complex waveforms.</td></tr>
+            <tr><td>RELIEF</td><td>Scales both visible radial displacement and the terrain contribution to the scan profile.</td></tr>
+            <tr><td>TERRACE / STEPS</td><td>Quantizes terrain height into a controllable number of plateaus.</td></tr>
+            <tr><td>RIDGE / ERODE</td><td>Sharpens ridge structure or compresses exposed peaks.</td></tr>
+            <tr><td>DOMAIN / TWIST</td><td>Warps the terrain coordinates or progressively rotates longitude by latitude.</td></tr>
+            <tr><td>READ</td><td>Derives the waveform as Height, Edge, Curvature, Blend, Gradient, Ridge, Valley, Normal, or Cross data.</td></tr>
+            <tr><td>MIX</td><td>Balances height with the derived data in Blend mode.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="field-composition">Field Composition</h2>
+
+        <p><code>TRACE</code> chooses an Orbit, Lissajous, Rosette, Fold, or Polygon contour. <code>RADIUS</code>, <code>ASPECT</code>, <code>ROTATE</code>, and <code>WARP</code> shape curved traces. Polygon exposes <code>SIDES</code>, <code>ROUND</code>, <code>STAR</code>, and <code>SKEW</code>; discrete side changes generate a new table and use the normal table crossfade. Four higher table levels are reconstructed from progressively restricted harmonic sets with tapered cutoffs, keeping sharp facets, terraces, and corners cleaner as pitch rises.</p>
+
+        <p><code>MOTION: ROTATE</code> is the factory behavior. It keeps voices active and moves each scan region continuously with independent saw-phase <code>AZ RATE</code> and <code>EL RATE</code> clocks measured in rotations per minute. Elevation continues through the far side of the sphere with the corresponding azimuth turn at each pole, producing a full rotation instead of a sinusoidal reversal. <code>RATE DEV</code> gives every voice a deterministic rate variation. Current and next contours remain continuously crossfaded, so this motion does not require a duration/rest score.</p>
+
+        <p><code>MOTION: FIELD</code> selects the composed stochastic scheduler. <code>LAW</code> chooses Random, Series, Weight, Tendency, Markov, or Walk region selection. <code>JOIN</code> chooses link, neighbor merge, or local variation. Density, duration, rest, contrast, deviation, memory, transfer, and macro duration compose activity over time. <code>XFADE</code> controls its current-to-next table interpolation.</p>
+
+        <p><code>LISTEN</code> makes the output field an internal score. Eight cube-corner virtual microphones decode the instrument's pre-output-gain <code>ACN/SN3D</code> field and retain a short directional memory. <code>FOLLOW</code> attracts region choice, Markov weighting, scan orientation, and activity toward recently active directions. <code>COUNTER</code> applies the same relationships to their antipodes. <code>BALANCE</code> favors underexposed directions. The response pulls continuously toward a target rather than teleporting a scan, and it also operates in <code>ROTATE</code> mode. <code>OFF</code> disables listener influence and uses the unmodified traversal.</p>
+
+        <h2 id="voice-model">Voice Model</h2>
+
+        <p><code>VOICES</code> is an integer from 1 to 64. There is no separate monophonic/polyphonic trigger selector; the selected voice mode and envelope controls determine the behavior.</p>
+
+        <p><code>FREE</code> mode sustains the voice field. With <code>PITCH: NOTE</code>, <code>BASE</code> sets its center note. With <code>PITCH: TRAVEL</code>, <code>BASE</code> calibrates scan velocity and the measured 3D length of each contour determines frequency: larger or rougher paths take longer and sound lower. <code>SCALE</code> can leave that result Free or constrain it to the shared ordered 101-scale catalog also used by Ambi VOT and Ambi Vox. Quantization happens after contour measurement but before <code>TUNE</code> and per-voice <code>DETUNE</code>, preserving fine movement around each permitted pitch. <code>SPREAD</code> varies scan velocity across voices. <code>MIDI</code> mode retains incoming note pitch and uses the ADSR controls; <code>BOTH</code> layers both behaviors.</p>
+
+        <h2 id="spatial-model">Spatial Model</h2>
+
+        <p>Each voice is encoded into HOA at the center of its scan contour. Center longitude maps to azimuth, center latitude maps to elevation, and terrain height at that center displaces distance. The oscillator can therefore traverse the contour at audio rate without imposing audio-rate modulation on the spatial coefficients. <code>AZIM</code>, <code>ELEV</code>, and <code>DIST</code> set the formation center, <code>SPACE</code> scales its angular extent, and <code>FOLLOW</code> smooths center motion.</p>
+
+        <h2 id="display">Display</h2>
+
+        <p><code>TERRAIN VOICE FIELD</code> uses neutral relief lighting for the shared surface. Every white line is an active waveform-reading contour moving across the terrain, and its bright point is the voice's actual AED center. Click anywhere along a contour to select its voice. The selected voice also shows faint cyan and magenta references for its current and next regions.</p>
+
+        <p><code>TERRAIN TO WAVEFORM</code> places the sampled scan profile above the interpreted oscillator waveform. The profile begins with the contour's geometric carrier and morphs toward terrain height by <code>DEPTH × RELIEF</code>. A circular Orbit over a smooth sphere therefore produces a low-harmonic sinusoidal profile rather than retaining hidden terrain detail. Edge, Curvature, Ridge, and Valley are derived along the displayed profile. Gradient and Normal inspect the local two-dimensional surface, and Cross compares terrain on both sides of the trace.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus is 64 channels wide. The selected order activates the corresponding ACN channels and clears the remainder.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-vox.html">
+            <span>Previous</span>
+            Ambi Encoder Vox
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-wind.html">
+            <span>Next</span>
+            Ambi Encoder Wind
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#terrain-controls">Terrain Controls</a>
+          <a href="#field-composition">Field Composition</a>
+          <a href="#voice-model">Voice Model</a>
+          <a href="#spatial-model">Spatial Model</a>
+          <a href="#display">Display</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Analyzer Ambi Energy 64 - s3g-dsp</title>
+    <meta name="description" content="Analyzer Ambi Energy documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Analyzer Ambi Energy 64</h1>
+
+        <p><code>s3g Analyzer Ambi Energy 64ch</code> is a fixed 64-in/64-out passthrough analyzer for <code>ACN/SN3D</code> ambisonic signals up to 7OA. It does not alter the audio. It reconstructs a high-resolution rectangular view of energy across the sphere.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-energy-visualizer.png" aria-label="Open Analyzer Ambi Energy interface screenshot">
+              <img src="assets/plugin-guis/ambisonic-energy-visualizer.png" alt="Analyzer Ambi Energy interface showing the live directional energy field, camera controls, order, and display settings" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Analyzer Ambi Energy showing the live directional energy field, camera controls, order, and display settings.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Analyzer Ambi Energy 64ch</code> on a correctly routed Ambisonic track after the encoder or field processor you want to inspect.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Send audio through the chain and keep the analyzer window open so field analysis and drawing remain active.</li>
+          <li>Choose a map and display size, then compare directional concentration, spread, and motion while listening through the decoder.</li>
+        </ol>
+
+        <h2 id="what-it-shows">What It Shows</h2>
+
+        <p>The display evaluates synchronized HOA snapshots over a <code>256 x 128</code> grid of virtual probe directions. This preserves relationships between ambisonic channels instead of treating each channel as an independent meter.</p>
+
+        <ul>
+          <li><strong>Body</strong> uses orders 0-2 to keep broad and diffuse field energy visible.</li>
+          <li><strong>Detail</strong> uses the full 7OA field to reveal tighter directional structure.</li>
+          <li><strong>Wake</strong> leaves a short inverse-color afterimage behind receding energy.</li>
+        </ul>
+
+        <p>A first-order direction estimate guides contrast and wake movement; it does not add energy to the map. The result is an interpretive field monitor for concentration, spread, and motion, not a calibrated SPL or localization measurement. Its ordered magnitude palettes and inverse-color wake are explained in <a href="interpreting-color.html#magnitude">Interpreting Color</a>.</p>
+
+        <p>For raw channel routing, use <a href="analyzer-meter.html">Analyzer Meter 64</a>. For speaker output after decoding, use the <code>MAP</code> page in <a href="ambi-decoder-speaker.html">Ambi Decoder Speaker 64</a>.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MAP</td><td>Chooses between <code>FIELD</code>, <code>BLUE</code>, <code>INK</code>, <code>VOLT</code>, <code>CLASSIC</code>, <code>INFERNO</code>, <code>VIRIDIS</code>, and <code>MAGMA</code>. It changes only the display.</td></tr>
+            <tr><td>SIZE</td><td>Selects <code>NORMAL</code> or <code>LARGE</code>. <code>LARGE</code> asks REAPER to expand the embedded GUI near the available screen size; <code>NORMAL</code> restores the default <code>980 x 560</code> view.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The CLAP plugin controls its canvas size, while REAPER owns the surrounding FX window. For an OS-level fullscreen view, float or maximize that REAPER window after selecting <code>LARGE</code>.</p>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Audio passes through channel-for-channel, and unused output lanes are cleared. Insert it after an ambisonic encoder, after an ambisonic processor, or before a speaker decoder to inspect field behavior without changing the chain.</p>
+
+        <p>Field analysis and GPU drawing run only while the custom GUI is open. Closing the window leaves the channel-for-channel passthrough active without visual-analysis work.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-transform-order-band.html">
+            <span>Previous</span>
+            Ambi Order / Band
+          </a>
+          <a class="page-nav-link next" href="s3gimprint-format.html">
+            <span>Next</span>
+            .s3gimprint Format
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Utility Pages</h2>
+          <a href="ambi-transform-order-band.html">Ambi Transform Order Band 64</a>
+          <a href="analyzer-ambi-energy.html">Analyzer Ambi Energy 64</a>
+          <a href="s3gimprint-format.html">.s3gimprint Format</a>
+          <a href="s3gray-format.html">.s3gray Format</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#what-it-shows">What It Shows</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

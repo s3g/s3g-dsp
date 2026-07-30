@@ -30,27 +30,36 @@
 
         <p>For a format-first overview that also covers ambisonic Stereo and Head decoders, see <a href="stereo-listening.html">Listening on a Stereo System</a>.</p>
 
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Choose a stereo or quad fold-down for listening, or Analyzer Meter when the wide bus must pass through unchanged; configure the REAPER track and plugin pins, then set the fold-down input count or meter <code>WIDTH</code>.</li>
+          <li>Route the stereo, quad, or passthrough output to the intended main speaker or monitor destination, then begin playback.</li>
+          <li>For a fold-down, set the layout, weighting, and autogain; for the meter, choose the display view.</li>
+          <li>Confirm that unused lanes are silent where the bus narrows and that the destination receives only the intended outputs.</li>
+        </ol>
+
         <h2 id="fold-down">Fold-down Plugins</h2>
 
         <ul>
-          <li><a href="mc-to-stereo-autogain.html">Output Autogain Stereo</a>: accepts as many as 128 input channels and produces a true stereo output with automatic energy management and 3D placement controls.</li>
-          <li><a href="mc-to-quad-autogain.html">Output Autogain Quad</a>: produces <code>L</code>, <code>R</code>, <code>RB</code>, and <code>LB</code> quad output from a wide source track.</li>
+          <li><a href="output-autogain-stereo.html">Output Autogain Stereo</a>: accepts as many as 128 input channels and produces a true stereo output with automatic energy management and 3D placement controls.</li>
+          <li><a href="output-autogain-quad.html">Output Autogain Quad</a>: produces <code>L</code>, <code>R</code>, <code>RB</code>, and <code>LB</code> quad output from a wide source track.</li>
         </ul>
 
         <h2 id="metering">Metering</h2>
 
-        <p><a href="multichannel-meter.html">Analyzer Meter 64</a> is a fixed-width passthrough meter with channel-grid, spatial-layout, and energy-over-time views. It is the better choice when the monitor display must not collapse the bus.</p>
+        <p><a href="analyzer-meter.html">Analyzer Meter 64</a> is a fixed-width passthrough meter with channel-grid, spatial-layout, and energy-over-time views. It is the better choice when the monitor display must not collapse the bus.</p>
 
         <h2 id="host-routing">Host Routing</h2>
 
         <p>The stereo and quad tools expose narrower output buses. In REAPER, inspect the plugin pin connector and enable <code>Zero out unmapped output channels</code> when unused track channels would otherwise pass around a fold-down plugin.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="crcltr.html">
+          <a class="page-nav-link" href="effect-crcltr.html">
             <span>Previous</span>
             Effect CRCLTR
           </a>
-          <a class="page-nav-link next" href="mc-to-stereo-autogain.html">
+          <a class="page-nav-link next" href="output-autogain-stereo.html">
             <span>Next</span>
             Output Autogain Stereo
           </a>
@@ -69,6 +78,7 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#fold-down">Fold-down Plugins</a>
           <a href="#metering">Metering</a>
           <a href="#host-routing">Host Routing</a>

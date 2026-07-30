@@ -101,18 +101,18 @@
 
         <p>Final <code>OUT</code> trim is kept outside the listener loop where a plugin documents pre-output listening. This allows final audition level to change without retuning the ecology. Other exclusions are deliberate: Ray listens to its early and late room response but excludes the direct source, while Bilocation keeps separate listeners for its A and B spaces.</p>
 
-        <h2 id="workflow">Working with Listener Mode</h2>
+        <h2 id="workflow">Workflow</h2>
 
         <ol>
           <li>Build or recall a stable patch with listening <code>OFF</code>, and use that as the open-loop reference.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Enable the listener and choose the simplest directional mode that expresses the goal: reinforce with <code>FOLLOW</code> or <code>LOCAL</code>, oppose with <code>COUNTER</code> or <code>CROSS</code>, or redistribute with <code>BALANCE</code>.</li>
           <li>Raise the listener amount, ecology, capture, or viscosity gradually. The middle of the range usually makes the relationship easier to hear than an immediate maximum setting.</li>
           <li>Where available, compare response laws without changing the underlying patch. Watch the pickup and response meters to distinguish what the field hears from what the synthesis receives.</li>
           <li>Add <code>FIELD RETURN</code> only when audio recirculation is part of the intended instrument. Use <code>RETURN BYPASS</code> to compare that deeper loop while retaining the listener's control behavior.</li>
-          <li>Recheck the result through the intended ambisonic decoder. Listener Mode acts on the encoded field, but the final audition still depends on the output order and decoder.</li>
         </ol>
 
-        <p>Mode and amount changes are smoothed in the listeners designed for live adjustment. Saved plugin state includes the relevant listener controls; consult the plugin page for portable preset behavior and backward-compatibility details.</p>
+        <p>Mode and amount changes are smoothed in the listeners designed for live adjustment. Saved plugin state includes the relevant listener controls; consult the plugin page for its portable preset behavior.</p>
 
         <h2 id="plugins">Plugins Using the Concept</h2>
 
@@ -128,15 +128,15 @@
             <tr><td><a href="ambi-effect-resonance-print.html">Ambi Effect Resonance Print</a></td><td>Short overlapping spectral observations at each order-adaptive pickup</td><td>A saved frequency/amplitude/stability print that the continuing field excites as a topology-routed modal body</td></tr>
             <tr><td><a href="ambi-effect-partial-trace.html">Ambi Effect Partial Trace</a></td><td>Global spectral peaks reconciled with direction evidence from the order-adaptive pickups</td><td>A live or frozen sinusoidal trace with temporal smear, returned through Local, Cross, Diffuse, or Roaming topology</td></tr>
             <tr><td><a href="ambi-effect-response-trace.html">Ambi Effect Response Trace</a></td><td>Incoming pickup signals captured and replayed through one directional convolution kernel per pickup</td><td>A latency-aligned wet response returned through Local, Cross, Diffuse, or Roaming topology</td></tr>
-            <tr><td><a href="ambi-imprint.html">Processor Ambi Imprint</a></td><td>Re-encoded wet response</td><td>Directional response-profile gains</td></tr>
-            <tr><td><a href="ambi-ray-encoder.html">Ambi Encoder Ray</a> and <a href="ambi-ray-bilocation-encoder.html">Ambi Encoder Ray Bilocation</a></td><td>Early and late room fields</td><td>Bounded reflection and late-line balance</td></tr>
-            <tr><td><a href="ambi-wave-terrain-encoder.html">Ambi Encoder Wave Terrain</a></td><td>Generated pre-output field</td><td>Region choice, scan orientation, activity, and traversal weighting</td></tr>
-            <tr><td><a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, and <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a></td><td>Generated field plus encoded environment</td><td>Directional motion and response-specific event or material behavior</td></tr>
-            <tr><td><a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a></td><td>Generated pre-output field</td><td>Voice-local negative-feedback capture and evolution rates</td></tr>
-            <tr><td><a href="accelerometer-field-encoder.html">Ambi Encoder Modal</a></td><td>Internal modal HOA field at a fixed selectable Tetra 4 or Cube 8 listener</td><td>Direction-aware continuous actuation across four to eight independent resonant bodies</td></tr>
-            <tr><td><a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a></td><td>Completed generated field</td><td>Register writing or settling, with optional delayed audio return</td></tr>
-            <tr><td><a href="ambi-pulsar-encoder.html">Ambi Encoder Pulsar</a></td><td>Post-depth point field</td><td>Event and grain response ecology, with optional neural return</td></tr>
-            <tr><td><a href="ambi-neural-ecology.html">Ambi Encoder Neural Ecology</a></td><td>Live recurrent field</td><td>Neural equations, adaptive pickup directions, motion, and lattice decisions</td></tr>
+            <tr><td><a href="processor-ambi-imprint.html">Processor Ambi Imprint</a></td><td>Re-encoded wet response</td><td>Directional response-profile gains</td></tr>
+            <tr><td><a href="ambi-encoder-ray.html">Ambi Encoder Ray</a> and <a href="ambi-encoder-ray-bilocation.html">Ambi Encoder Ray Bilocation</a></td><td>Early and late room fields</td><td>Bounded reflection and late-line balance</td></tr>
+            <tr><td><a href="ambi-encoder-wave-terrain.html">Ambi Encoder Wave Terrain</a></td><td>Generated pre-output field</td><td>Region choice, scan orientation, activity, and traversal weighting</td></tr>
+            <tr><td><a href="ambi-encoder-water.html">Ambi Encoder Water</a>, <a href="ambi-encoder-wind.html">Ambi Encoder Wind</a>, and <a href="ambi-encoder-insect.html">Ambi Encoder Insect</a></td><td>Generated field plus encoded environment</td><td>Directional motion and response-specific event or material behavior</td></tr>
+            <tr><td><a href="ambi-encoder-stochastic.html">Ambi Encoder Stochastic</a></td><td>Generated pre-output field</td><td>Voice-local negative-feedback capture and evolution rates</td></tr>
+            <tr><td><a href="ambi-encoder-modal.html">Ambi Encoder Modal</a></td><td>Internal modal HOA field at a fixed selectable Tetra 4 or Cube 8 listener</td><td>Direction-aware continuous actuation across four to eight independent resonant bodies</td></tr>
+            <tr><td><a href="ambi-encoder-wrangler.html">Ambi Encoder Wrangler</a></td><td>Completed generated field</td><td>Register writing or settling, with optional delayed audio return</td></tr>
+            <tr><td><a href="ambi-encoder-pulsar.html">Ambi Encoder Pulsar</a></td><td>Post-depth point field</td><td>Event and grain response ecology, with optional neural return</td></tr>
+            <tr><td><a href="ambi-encoder-neural-ecology.html">Ambi Encoder Neural Ecology</a></td><td>Live recurrent field</td><td>Neural equations, adaptive pickup directions, motion, and lattice decisions</td></tr>
           </tbody>
         </table>
 

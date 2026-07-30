@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1><code>.s3gray</code> Format</h1>
 
-        <p><code>.s3gray</code> is the runtime interchange format between <code>s3g-mc Ray Sketch</code>, <code>s3g Ambi Encoder Ray</code>, and <a href="ambi-ray-bilocation-encoder.html"><code>s3g Ambi Encoder Ray Bilocation</code></a>. It is UTF-8 JSON with a dedicated extension, separate from the editable Ray Sketch project. It contains resolved directional events rather than audio or a realtime geometry engine.</p>
+        <p><code>.s3gray</code> is the runtime interchange format between <code>s3g-mc Ray Sketch</code>, <code>s3g Ambi Encoder Ray</code>, and <a href="ambi-encoder-ray-bilocation.html"><code>s3g Ambi Encoder Ray Bilocation</code></a>. It is UTF-8 JSON with a dedicated extension, separate from the editable Ray Sketch project. It contains resolved directional events rather than audio or a realtime geometry engine.</p>
 
         <h2 id="version">Version 1</h2>
 
@@ -57,7 +57,7 @@
 
         <h2 id="compatibility">Choosing and Updating Files</h2>
 
-        <p>Load a version 1 <code>s3g-ambi-ray-field</code> runtime file in Ambi Encoder Ray, not an editable <code>s3g-ray-sketch</code> project. To reuse an Imprint Sketch or legacy room-sketch project, import it into Ray Sketch and export a <code>.s3gray</code> file. Version 1 fields without <code>world_to_aed</code> remain supported; the encoder corrects their screen-space horizontal azimuth while loading.</p>
+        <p>Load a version 1 <code>s3g-ambi-ray-field</code> runtime file in Ambi Encoder Ray, not an editable <code>s3g-ray-sketch</code> project. To reuse an Imprint Sketch or legacy room-sketch project, import it into Ray Sketch and export a <code>.s3gray</code> file. When a version 1 field omits <code>world_to_aed</code>, the encoder corrects its screen-space horizontal azimuth while loading.</p>
 
         <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Resolved delay, gain, and AED values remain sufficient for a fixed reference listener. <code>bounce_position_m</code> enables moving-listener path resolution without requiring a live geometry simulation; generalized geometry remains display provenance. Version 1 readers may ignore the bounce field.</p>
 
@@ -79,6 +79,7 @@
           <a href="ambisonics.html">Overview</a>
           <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -86,8 +87,8 @@
         </div>
         <div class="toc-section">
           <h2>Utility Pages</h2>
-          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-energy-visualizer.html">Analyzer Ambi Energy</a>
+          <a href="ambi-transform-order-band.html">Ambi Transform Order Band 64</a>
+          <a href="analyzer-ambi-energy.html">Analyzer Ambi Energy 64</a>
           <a href="s3gimprint-format.html">.s3gimprint Format</a>
           <a href="s3gray-format.html">.s3gray Format</a>
         </div>
