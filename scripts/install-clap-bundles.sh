@@ -23,7 +23,8 @@ manifest="${S3G_CLAP_MANIFEST:-$default_manifest}"
 legacy_manifest="${S3G_CLAP_LEGACY_MANIFEST:-$default_legacy_manifest}"
 source_root="${S3G_CLAP_SOURCE_ROOT:-$default_source_root}"
 source_layout="${S3G_CLAP_SOURCE_LAYOUT:-$default_source_layout}"
-default_destination="$HOME/Library/Audio/Plug-Ins/CLAP"
+default_clap_root="$HOME/Library/Audio/Plug-Ins/CLAP"
+default_destination="$default_clap_root/s3g-dsp"
 default_receipt="$HOME/Library/Application Support/s3g-dsp/clap-install-receipt.tsv"
 destination="${S3G_CLAP_DESTINATION:-$default_destination}"
 backup_parent="${S3G_CLAP_BACKUP_ROOT:-$HOME/Library/Application Support/s3g-dsp/CLAP Backups}"
@@ -38,7 +39,8 @@ usage() {
 Usage: install-clap-bundles.sh [options] [destination]
 
 Options:
-  --destination PATH   Install into PATH instead of the user CLAP folder.
+  --destination PATH   Install directly into PATH instead of the default
+                       user CLAP/s3g-dsp folder.
   --dry-run            Validate and show changes without writing anything.
   --canonicalize-only  Rename/retire an existing install without copying builds.
   --help               Show this help.
@@ -46,15 +48,27 @@ Options:
 Renamed and retired bundles are moved to a timestamped backup under:
   ~/Library/Application Support/s3g-dsp/CLAP Backups/
 
+The default install location is:
+  ~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/
+
 Environment overrides are available for automation:
   S3G_CLAP_MANIFEST, S3G_CLAP_LEGACY_MANIFEST, S3G_CLAP_SOURCE_ROOT,
   S3G_CLAP_SOURCE_LAYOUT (build|flat), S3G_CLAP_DESTINATION,
   S3G_CLAP_BACKUP_ROOT, and S3G_CLAP_RECEIPT.
 
-The default receipt is used only for the default user CLAP folder. Set
+The default receipt is used only for the default user CLAP/s3g-dsp folder. Set
 S3G_CLAP_RECEIPT explicitly when installing to a custom destination and a
 persistent ownership receipt is desired there.
 EOF
+}
+
+normalize_install_path() {
+  local value="$1"
+  while [[ "$value" != "/" && ( "$value" == */ || "$value" == */. ) ]]; do
+    value="${value%/}"
+    value="${value%/.}"
+  done
+  printf '%s\n' "$value"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -106,11 +120,27 @@ if [[ $# -gt 0 ]]; then
   exit 2
 fi
 
+destination="$(normalize_install_path "$destination")"
+
+if [[ -L "$destination" ]]; then
+  echo "Refusing to use a symlink as the CLAP destination: $destination" >&2
+  exit 1
+fi
+if [[ -e "$destination" && ! -d "$destination" ]]; then
+  echo "CLAP destination exists but is not a directory: $destination" >&2
+  exit 1
+fi
+
 # A receipt describes one destination. Never read or overwrite the normal user
 # receipt while operating on a custom test, system, or staging folder unless
 # the caller supplied an explicit receipt path for that destination.
 if [[ "$destination" != "$default_destination" && -z "${S3G_CLAP_RECEIPT+x}" ]]; then
   receipt=""
+fi
+
+migrate_previous_default=0
+if [[ "$destination" == "$default_destination" ]]; then
+  migrate_previous_default=1
 fi
 
 if [[ "$source_layout" != "build" && "$source_layout" != "flat" ]]; then
@@ -253,6 +283,39 @@ is_protected_alias() {
   return 1
 }
 
+protected_previous_default_aliases=()
+planned_previous_default_targets=()
+
+protect_previous_default_alias() {
+  protected_previous_default_aliases+=("$1")
+}
+
+is_protected_previous_default_alias() {
+  local candidate="$1"
+  local i
+  for ((i=0; i<${#protected_previous_default_aliases[@]}; i++)); do
+    if [[ "${protected_previous_default_aliases[$i]}" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+plan_previous_default_target() {
+  planned_previous_default_targets+=("$1")
+}
+
+is_planned_previous_default_target() {
+  local candidate="$1"
+  local i
+  for ((i=0; i<${#planned_previous_default_targets[@]}; i++)); do
+    if [[ "${planned_previous_default_targets[$i]}" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 source_bundle_for() {
   local index="$1"
   if [[ "$source_layout" == "flat" ]]; then
@@ -266,11 +329,20 @@ copy_source_bundle() {
   local source_bundle="$1"
   local destination_bundle="$2"
 
-  # Downloaded release archives carry Gatekeeper quarantine metadata. Once the
-  # user has explicitly approved this installer, copy only the verified bundle
-  # without propagating that attribute. ditto preserves the remaining bundle
-  # metadata and code signature and does not change any system security setting.
+  # ditto preserves bundle metadata and the package-time code signature.
+  # --noqtn is retained as a first pass, but some macOS versions still copy
+  # quarantine metadata on nested bundle paths. The validated staged copy is
+  # therefore cleared explicitly before it is installed.
   /usr/bin/ditto --noqtn "$source_bundle" "$destination_bundle"
+}
+
+clear_bundle_quarantine() {
+  local bundle="$1"
+
+  # The user has explicitly approved this installer. Remove only Gatekeeper's
+  # quarantine attribute, recursively, from this manifest-listed staged bundle.
+  # Do not clear other extended attributes or touch the complete CLAP folder.
+  /usr/bin/xattr -drs com.apple.quarantine "$bundle"
 }
 
 validate_source_bundle() {
@@ -336,6 +408,98 @@ validate_destination_canonical() {
     echo "  found:    $actual_id" >&2
     return 1
   fi
+}
+
+backup_previous_default_alias() {
+  local name="$1"
+  local expected_id="$2"
+  local replacement="$3"
+  local path="$default_clap_root/$name"
+  local backup_dir="$backup_run/Previous CLAP Root"
+  local actual_id
+
+  if is_protected_previous_default_alias "$name"; then
+    return 0
+  fi
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    return 0
+  fi
+  if [[ -L "$path" || ! -d "$path" ]]; then
+    warn "leaving non-bundle or symlink in the previous CLAP root untouched: $path"
+    return 0
+  fi
+  if ! actual_id="$(bundle_id "$path")"; then
+    warn "leaving bundle with unreadable identity in the previous CLAP root untouched: $path"
+    return 0
+  fi
+  if ! expected_id_matches "$expected_id" "$actual_id"; then
+    warn "leaving bundle with unexpected identity in the previous CLAP root untouched: $path ($actual_id)"
+    return 0
+  fi
+
+  if [[ $dry_run -eq 1 ]]; then
+    echo "BACK UP  $path -> $backup_dir/$name ($replacement)"
+    protect_previous_default_alias "$name"
+  else
+    mkdir -p "$backup_dir"
+    backup_created=1
+    mv "$path" "$backup_dir/$name"
+    echo "BACKED UP $path ($replacement)"
+  fi
+  backed_up_count=$((backed_up_count + 1))
+}
+
+migrate_previous_default_alias() {
+  local name="$1"
+  local expected_id="$2"
+  local canonical_name="$3"
+  local path="$default_clap_root/$name"
+  local canonical_path="$destination/$canonical_name"
+  local actual_id
+
+  if is_protected_previous_default_alias "$name"; then
+    return 0
+  fi
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    return 0
+  fi
+  if [[ -L "$path" || ! -d "$path" ]]; then
+    warn "leaving non-bundle or symlink in the previous CLAP root untouched: $path"
+    protect_previous_default_alias "$name"
+    return 0
+  fi
+  if ! actual_id="$(bundle_id "$path")" || [[ "$actual_id" != "$expected_id" ]]; then
+    warn "leaving current-name bundle with unexpected identity in the previous CLAP root untouched: $path"
+    protect_previous_default_alias "$name"
+    return 0
+  fi
+
+  if [[ -e "$canonical_path" || -L "$canonical_path" ]] \
+      || is_planned_previous_default_target "$canonical_name"; then
+    if is_planned_previous_default_target "$canonical_name"; then
+      backup_previous_default_alias "$name" "$expected_id" "$canonical_name"
+      return 0
+    fi
+    if ! validate_destination_canonical "$canonical_name" "$expected_id"; then
+      warn "cannot migrate $path while the nested canonical destination conflicts"
+      protect_previous_default_alias "$name"
+      return 0
+    fi
+    backup_previous_default_alias "$name" "$expected_id" "$canonical_name"
+    return 0
+  fi
+
+  if [[ $dry_run -eq 1 ]]; then
+    echo "RENAME   $path -> $canonical_path"
+    protect_previous_default_alias "$name"
+    plan_previous_default_target "$canonical_name"
+  else
+    mkdir -p "$destination"
+    mv "$path" "$canonical_path"
+    clear_bundle_quarantine "$canonical_path"
+    echo "RENAMED  $path -> $canonical_path"
+  fi
+  migrated_count=$((migrated_count + 1))
 }
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
@@ -442,6 +606,9 @@ read_previous_receipt
 echo "s3g-dsp CLAP canonical bundle installer"
 echo "Manifest:    $manifest"
 echo "Destination: $destination"
+if [[ $migrate_previous_default -eq 1 ]]; then
+  echo "Previous root: $default_clap_root"
+fi
 if [[ $dry_run -eq 1 ]]; then
   echo "Mode:        dry run"
 elif [[ $canonicalize_only -eq 1 ]]; then
@@ -479,9 +646,11 @@ if [[ $canonicalize_only -eq 0 ]]; then
     # existing installation.
     for ((i=0; i<${#canonical_names[@]}; i++)); do
       source_bundle="$(source_bundle_for "$i")"
-      copy_source_bundle "$source_bundle" "$stage_root/${canonical_names[$i]}"
-      validate_source_bundle "$stage_root/${canonical_names[$i]}" \
+      staged_bundle="$stage_root/${canonical_names[$i]}"
+      copy_source_bundle "$source_bundle" "$staged_bundle"
+      validate_source_bundle "$staged_bundle" \
         "${bundle_ids[$i]}" "${host_names[$i]}"
+      clear_bundle_quarantine "$staged_bundle"
     done
 
     for ((i=0; i<${#canonical_names[@]}; i++)); do
@@ -574,6 +743,41 @@ for ((i=0; i<${#previous_names[@]}; i++)); do
     backup_alias "${previous_names[$i]}" "${previous_ids[$i]}" "renamed in current manifest"
   fi
 done
+
+# Earlier installers placed every bundle directly in the user CLAP root. When
+# using the new default subfolder, migrate verified current bundles during a
+# canonicalize-only run or back up those top-level copies after a normal
+# install. This prevents REAPER from discovering duplicate products while
+# leaving unrelated CLAP bundles untouched.
+if [[ $migrate_previous_default -eq 1 ]]; then
+  for ((i=0; i<${#canonical_names[@]}; i++)); do
+    canonical_name="${canonical_names[$i]}"
+    expected_id="${bundle_ids[$i]}"
+    old_name="$(basename "${relative_paths[$i]}")"
+
+    if [[ $canonicalize_only -eq 1 ]]; then
+      migrate_previous_default_alias "$canonical_name" "$expected_id" "$canonical_name"
+      if [[ "$old_name" != "$canonical_name" ]]; then
+        migrate_previous_default_alias "$old_name" "$expected_id" "$canonical_name"
+      fi
+    else
+      backup_previous_default_alias "$canonical_name" "$expected_id" "moved to s3g-dsp subfolder"
+      if [[ "$old_name" != "$canonical_name" ]]; then
+        backup_previous_default_alias "$old_name" "$expected_id" "$canonical_name"
+      fi
+    fi
+  done
+
+  for ((i=0; i<${#legacy_names[@]}; i++)); do
+    backup_previous_default_alias "${legacy_names[$i]}" "${legacy_ids[$i]}" "${legacy_replacements[$i]}"
+  done
+
+  for ((i=0; i<${#previous_names[@]}; i++)); do
+    if ! is_canonical_name "${previous_names[$i]}"; then
+      backup_previous_default_alias "${previous_names[$i]}" "${previous_ids[$i]}" "renamed in current manifest"
+    fi
+  done
+fi
 
 if [[ $dry_run -eq 0 ]]; then
   write_receipt

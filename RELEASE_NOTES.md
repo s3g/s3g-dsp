@@ -1,7 +1,7 @@
 # s3g-dsp 0.5.0-pre
 
 Apple silicon macOS CLAP pre-release collection for REAPER testing, released
-July 28, 2026.
+July 30, 2026.
 
 ## Asset
 
@@ -40,36 +40,29 @@ or newer). It is not compiled for Intel Macs and is not a universal binary.
 
 ## Installation
 
-The pre-release bundles are ad-hoc signed but are not Apple notarized. Perform
-the installation while signed in to a macOS administrator account, or have
-administrator credentials available for Gatekeeper approval. The installer
-itself writes only to the current user's Library and does not use `sudo`.
+The packaged pre-release supports REAPER on Apple silicon (`arm64`) Macs. It is
+not notarized, so macOS requires one Gatekeeper approval for the installer. The
+installer writes only to the current user's Library and does not use `sudo`.
 
 1. Quit REAPER and unzip the archive.
 2. Double-click `Install s3g-dsp CLAPs.command`.
-3. If macOS says the command cannot be opened because it is from an
-   unidentified developer, click **OK**.
-4. Open **System Settings > Privacy & Security**, scroll to **Security**, and
-   click **Open Anyway** for the installer. Confirm **Open** and authenticate
-   when macOS asks. The override is offered for about one hour after the failed
-   launch attempt.
-5. If macOS asks whether Terminal may access the downloaded package, click
-   **Allow**. Wait for the installer to finish before opening REAPER.
-6. Start REAPER and rescan CLAP plugins if they do not appear automatically.
+3. If macOS blocks it, click **OK**, open **System Settings > Privacy &
+   Security**, and choose **Open Anyway**. Confirm **Open** and authenticate if
+   asked. This option is available for about one hour after the blocked launch.
+4. If prompted, allow Terminal to access the downloaded package, then wait for
+   installation to finish.
+5. Start REAPER and rescan CLAP plugins if they do not appear automatically.
 
-The installer checks the identity of every bundle before changing the user
-CLAP directory, installs canonical product names, and backs up recognized older
-aliases under:
+The installer places the collection in
+`~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/`. On upgrades, it moves
+identity-verified older s3g-dsp bundles—including copies in the former
+top-level CLAP location—to a timestamped backup. Other CLAP products are
+untouched.
 
-```text
-~/Library/Application Support/s3g-dsp/CLAP Backups/
-```
-
-After the user approves the installer, it copies only the verified s3g-dsp
-bundles without propagating their download quarantine attribute. It does not
-disable Gatekeeper or alter other CLAP products. A blanket command such as
-`sudo xattr` against the complete CLAP folder is therefore neither required nor
-recommended.
+After approval, the installer verifies each staged bundle, removes only
+`com.apple.quarantine`, and preserves other extended attributes. Approval
+applies to the installer, so REAPER should not present a separate Gatekeeper
+dialog for each plugin afterward.
 
 Pass `--dry-run` from Terminal to preview the exact changes.
 

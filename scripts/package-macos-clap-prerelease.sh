@@ -121,15 +121,23 @@ Recommended installation:
    Allow. Wait for the installer to finish before opening REAPER.
 6. Start REAPER and rescan CLAP plugins if they do not appear automatically.
 
-The installer copies only its verified s3g-dsp bundles without propagating the
-download quarantine attribute. It does not disable Gatekeeper, change global
-security settings, use sudo, or alter unrelated CLAP products.
+The installer recursively removes only com.apple.quarantine from each verified
+staged s3g-dsp bundle before installation. It does not disable Gatekeeper,
+change global security settings, use sudo, or alter unrelated CLAP products.
 
 The installer verifies all bundle identities before changing the user plugin
 folder, installs the current bundles under their canonical product names, and
 moves recognized renamed/retired s3g-dsp aliases to a timestamped backup under:
 
 ~/Library/Application Support/s3g-dsp/CLAP Backups/
+
+The default plugin location is:
+
+~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/
+
+On the first upgrade from the earlier flat layout, verified s3g-dsp bundles in
+the parent CLAP folder are also moved to the backup after the nested install
+completes. Unrelated products and sibling folders remain untouched.
 
 Stable plugin identifiers do not change, so the filename migration does not
 break session identity. Other products, including s3g-rnbo-clap bundles, are
@@ -142,10 +150,12 @@ Manual installation:
 1. Close REAPER.
 2. In Terminal, change to this unzipped package folder and run:
 
-   mkdir -p "\$HOME/Library/Audio/Plug-Ins/CLAP"
+   destination="\$HOME/Library/Audio/Plug-Ins/CLAP/s3g-dsp"
+   mkdir -p "\$destination"
    for bundle in ./*.clap; do
-     ditto --noqtn "\$bundle" \\
-       "\$HOME/Library/Audio/Plug-Ins/CLAP/\$(basename "\$bundle")"
+     installed="\$destination/\$(basename "\$bundle")"
+     ditto "\$bundle" "\$installed"
+     xattr -drs com.apple.quarantine "\$installed"
    done
 
 3. Restart REAPER and rescan CLAP plugins if needed.

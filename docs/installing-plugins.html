@@ -26,73 +26,52 @@
       <main class="content" id="content">
         <h1>Install s3g-dsp CLAP Plugins</h1>
 
-        <p>The packaged pre-release supports REAPER on Apple silicon Macs only. Plugin names, parameters, saved states, and the included set may change before a stable release.</p>
+        <p>The packaged pre-release supports REAPER on Apple silicon (<code>arm64</code>) Macs. It is not notarized, so macOS requires one Gatekeeper approval for the installer.</p>
 
-        <div class="callout">
-          <p><strong>Compatibility:</strong> the release archive contains arm64 binaries for M1, M2, M3, M4, or newer Apple silicon Macs. It does not contain Intel <code>x86_64</code> or universal binaries. For this unnotarized pre-release, install while signed in to a macOS administrator account or have administrator credentials available for Gatekeeper approval.</p>
-          <p>The installer writes only to the current user's Library and does not use <code>sudo</code>.</p>
-        </div>
-
-        <h2 id="download">Download</h2>
-
-        <p>Download the macOS CLAP zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, then unzip it. If a binary is not available, see <a href="building-from-source.html">Building From Source</a>.</p>
-
-        <h2 id="recommended">Gatekeeper Approval and Installation</h2>
+        <h2 id="download">Download and Install</h2>
 
         <ol>
-          <li>Quit REAPER.</li>
+          <li>Quit REAPER, download the macOS CLAP zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, and unzip it.</li>
           <li>Double-click <code>Install s3g-dsp CLAPs.command</code> in the unzipped package.</li>
-          <li>If macOS says <q>Install s3g-dsp CLAPs.command cannot be opened because it is from an unidentified developer</q>, click <strong>OK</strong>.</li>
-          <li>Open <strong>System Settings &gt; Privacy &amp; Security</strong>, scroll down to <strong>Security</strong>, and find the message that the command was blocked.</li>
-          <li>Click <strong>Open Anyway</strong>. Depending on the macOS version, the first button may be labeled <strong>Open</strong>. In the confirmation dialog, click <strong>Open</strong> and authenticate when macOS asks. This override is available for about one hour after the failed launch attempt.</li>
-          <li>If macOS asks whether Terminal may access the downloaded package or Downloads folder, click <strong>Allow</strong>.</li>
-          <li>Wait for Terminal to report that installation is complete. Do not start REAPER before the installer finishes.</li>
+          <li>If macOS blocks it, click <strong>OK</strong>, open <strong>System Settings &gt; Privacy &amp; Security</strong>, and choose <strong>Open Anyway</strong>. Confirm <strong>Open</strong> and authenticate if asked. This option is available for about one hour after the blocked launch.</li>
+          <li>If prompted, allow Terminal to access the downloaded package, then wait for installation to finish.</li>
           <li>Start REAPER and rescan CLAP plugins if the new builds do not appear automatically.</li>
         </ol>
 
-        <p>Apple documents the same override in <a href="https://support.apple.com/guide/mac-help/mh40616/mac" target="_blank" rel="noopener noreferrer">Open a Mac app from an unknown developer</a>.</p>
+        <p>See Apple's <a href="https://support.apple.com/guide/mac-help/mh40616/mac" target="_blank" rel="noopener noreferrer">Open a Mac app from an unknown developer</a> for the same approval process. If a binary is unavailable, see <a href="building-from-source.html">Building From Source</a>.</p>
 
-        <p>The installer places the plugins in:</p>
+        <h2 id="location">Install Location and Safety</h2>
 
-        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
+        <pre><code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code></pre>
 
-        <p>During upgrades, it also backs up recognized older filenames so REAPER does not list duplicate versions. Other CLAP products are left untouched.</p>
-
-        <p>The pre-release bundles are ad-hoc signed for bundle integrity but are not Apple notarized. After the user explicitly approves the installer, it verifies the identities of its s3g-dsp bundles and copies them without propagating the download quarantine attribute. It does not disable Gatekeeper or change global security settings.</p>
+        <p>On upgrades, the installer moves identity-verified older s3g-dsp bundles—including copies in the former top-level CLAP location—to a timestamped backup. Other CLAP products are untouched.</p>
 
         <div class="callout">
-          <p><strong>Do not remove quarantine from the complete CLAP directory.</strong> A command such as <code>sudo xattr -rd com.apple.quarantine ~/Library/Audio/Plug-Ins/CLAP</code> also changes unrelated plug-ins and is broader than necessary. The current installer handles only the s3g-dsp bundles it installs and does not need <code>sudo</code>.</p>
+          <p>The installer verifies each bundle, removes only <code>com.apple.quarantine</code> from its staged s3g-dsp copies, and preserves other extended attributes. It writes to the current user's Library without <code>sudo</code> and does not change global Gatekeeper settings or unrelated plugins.</p>
+          <p>Approval applies to the installer; REAPER should not show a separate Gatekeeper dialog for each plugin afterward.</p>
         </div>
-
-        <p>This first-launch workflow is unavoidable for the current ad-hoc-signed archive. A future distribution must use Developer ID signing and <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution" target="_blank" rel="noopener noreferrer">Apple notarization</a>—preferably as a signed and notarized installer package—to pass Gatekeeper without the manual override.</p>
 
         <h2 id="manual">Manual Installation</h2>
 
-        <p>The packaged installer is preferred because manual copying cannot retire older aliases. If a manual installation is necessary, use Terminal so quarantine is omitted only from the selected release bundles:</p>
+        <p>Use this only for a fresh manual install; it cannot migrate older top-level copies or retire renamed aliases. In Terminal, type <code>cd</code> followed by a space, drag the unzipped <code>s3g-dsp-macos-clap-0.5.0-pre</code> folder from Finder into the Terminal window, and press Return. Then run:</p>
 
-        <pre><code>mkdir -p "$HOME/Library/Audio/Plug-Ins/CLAP"
-for bundle in /path/to/unzipped-package/*.clap; do
-  ditto --noqtn "$bundle" \
-    "$HOME/Library/Audio/Plug-Ins/CLAP/$(basename "$bundle")"
+        <pre><code>destination="$HOME/Library/Audio/Plug-Ins/CLAP/s3g-dsp"
+mkdir -p "$destination"
+for bundle in ./*.clap; do
+  installed="$destination/$(basename "$bundle")"
+  ditto "$bundle" "$installed"
+  xattr -drs com.apple.quarantine "$installed"
 done</code></pre>
-
-        <p>Replace <code>/path/to/unzipped-package</code> with the package location. Manual copying cannot remove older renamed bundles, so use the packaged installer if an upgrade creates duplicate entries.</p>
-
-        <h2 id="reaper">REAPER Setup</h2>
-
-        <p>Search for <code>s3g</code> in REAPER's FX browser. Set the track channel count before inserting a multichannel plugin. Processor No Input Mixer and Processor Fault require eight track channels but no audio input.</p>
-
-        <p>See <a href="multichannel.html">Multichannel</a> for routing and channel setup, <a href="stereo-listening.html">Stereo Listening</a> for two-channel monitoring, or <a href="ambisonics.html">Ambisonics</a> for ambisonic workflows.</p>
 
         <h2 id="troubleshooting">If a Plugin Does Not Appear</h2>
 
         <ul>
-          <li>Confirm that its complete <code>.clap</code> bundle is in <code>~/Library/Audio/Plug-Ins/CLAP/</code>.</li>
+          <li>Confirm that its complete <code>.clap</code> bundle is in <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>.</li>
           <li>Rescan CLAP plugins in REAPER, then restart the host.</li>
-          <li>If REAPER reports that Apple cannot check every plug-in for malicious software, quit REAPER and rerun the current packaged installer. It replaces only recognized s3g-dsp bundles without propagating their quarantine attribute.</li>
-          <li>If the installer itself remains blocked, repeat the Privacy &amp; Security approval within one hour of trying to open it.</li>
-          <li>If an upgrade shows duplicate names, quit REAPER and rerun the packaged installer.</li>
+          <li>If REAPER shows per-plugin Gatekeeper dialogs or duplicate names, quit REAPER and rerun the packaged installer. If the installer itself is blocked, repeat the <strong>Open Anyway</strong> step within one hour.</li>
         </ul>
+
+        <p>For routing after installation, see <a href="multichannel.html">Multichannel</a>, <a href="stereo-listening.html">Stereo Listening</a>, or <a href="ambisonics.html">Ambisonics</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="building-from-source.html">
@@ -116,10 +95,9 @@ done</code></pre>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#download">Download</a>
-          <a href="#recommended">Gatekeeper and Install</a>
+          <a href="#download">Download and Install</a>
+          <a href="#location">Location and Safety</a>
           <a href="#manual">Manual Installation</a>
-          <a href="#reaper">REAPER Setup</a>
           <a href="#troubleshooting">Troubleshooting</a>
         </div>
       </aside>

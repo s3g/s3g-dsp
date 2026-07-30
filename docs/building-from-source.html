@@ -100,11 +100,11 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <p>The default install location is:</p>
 
-        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
+        <pre><code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code></pre>
 
         <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies exactly 94 products from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
 
-        <p>A normal run validates the complete source and destination set before changing the destination, then stages and copies all 93 canonical bundles. <code>--canonicalize-only</code> instead renames verified current installations without replacing their binaries. The installer uses <code>scripts/clap-legacy-bundles.tsv</code> to recognize earlier filenames. A legacy bundle is moved to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> only when its identity matches the manifest; unrelated plugins are not pruned. The <code>--dry-run</code> form reports the planned installs, replacements, and alias backups without writing anything.</p>
+        <p>A normal run validates the complete source and destination set before changing the destination, then stages and copies the manifest-listed bundles. On the first upgrade from the former flat layout, it identity-checks recognized s3g-dsp bundles in the parent CLAP folder and moves those old copies to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/Previous CLAP Root/</code> after installing the current set. <code>--canonicalize-only</code> instead moves verified current installations into the nested folder without replacing their binaries. The installer uses <code>scripts/clap-legacy-bundles.tsv</code> to recognize earlier filenames; unrelated plugins are not pruned. The <code>--dry-run</code> form reports the planned installs, migrations, and alias backups without writing anything.</p>
 
         <p>After a successful run, <code>~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv</code> records the filenames owned by this package so later updates can distinguish them from other CLAP products.</p>
 
