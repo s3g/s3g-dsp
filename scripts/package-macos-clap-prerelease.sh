@@ -14,6 +14,11 @@ package_name="${1:-s3g-dsp-macos-clap-$release_version}"
 staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 
+codesign_args=(--force --deep --sign "$codesign_identity")
+if [[ "$codesign_identity" != "-" ]]; then
+  codesign_args+=(--options runtime --timestamp)
+fi
+
 if [[ ! "$package_name" =~ ^s3g-dsp-macos-clap-[A-Za-z0-9._-]+$ ]]; then
   echo "Unsafe package name: $package_name" >&2
   exit 2
@@ -58,8 +63,16 @@ mkdir -p "$staging"
 for ((i=0; i<bundle_count; i++)); do
   source_bundle="$src_root/${relative_paths[$i]}"
   staged_bundle="$staging/${canonical_names[$i]}"
+  executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+    "$source_bundle/Contents/Info.plist")"
+  executable_path="$source_bundle/Contents/MacOS/$executable_name"
+  architectures="$(/usr/bin/lipo -archs "$executable_path")"
+  if [[ "$architectures" != "arm64" ]]; then
+    echo "Release bundles must be Apple-silicon-only arm64 binaries: $executable_path ($architectures)" >&2
+    exit 1
+  fi
   cp -R "$source_bundle" "$staged_bundle"
-  codesign --force --deep --sign "$codesign_identity" "$staged_bundle"
+  codesign "${codesign_args[@]}" "$staged_bundle"
   codesign --verify --deep --strict "$staged_bundle"
 done
 
@@ -81,6 +94,12 @@ s3g-dsp pre-release macOS CLAP builds for REAPER testing.
 Version: $release_version
 Release date: $release_date
 
+Compatibility:
+
+- Apple silicon Macs only (arm64: M1, M2, M3, M4, or newer).
+- Intel Macs are not supported by this package.
+- REAPER with CLAP support.
+
 These binaries are provided for early testing only. Plugin names, parameter
 mappings, state compatibility, and the included plugin set may change before a
 stable release.
@@ -90,8 +109,21 @@ are not Apple notarized.
 
 Recommended installation:
 
-1. Double-click "Install s3g-dsp CLAPs.command".
-2. Rescan CLAP plugins in REAPER.
+1. Quit REAPER. For this unnotarized pre-release, sign in with a macOS
+   administrator account or have administrator credentials available.
+2. Double-click "Install s3g-dsp CLAPs.command".
+3. If macOS says it cannot open the command because it is from an unidentified
+   developer, click OK.
+4. Open System Settings > Privacy & Security, scroll to Security, and click
+   Open Anyway for "Install s3g-dsp CLAPs.command". Confirm Open and
+   authenticate when macOS asks.
+5. If macOS asks whether Terminal may access the downloaded package, click
+   Allow. Wait for the installer to finish before opening REAPER.
+6. Start REAPER and rescan CLAP plugins if they do not appear automatically.
+
+The installer copies only its verified s3g-dsp bundles without propagating the
+download quarantine attribute. It does not disable Gatekeeper, change global
+security settings, use sudo, or alter unrelated CLAP products.
 
 The installer verifies all bundle identities before changing the user plugin
 folder, installs the current bundles under their canonical product names, and
@@ -108,8 +140,14 @@ left untouched. To preview the exact changes from Terminal, run:
 Manual installation:
 
 1. Close REAPER.
-2. Copy all or selected .clap bundles from this folder into:
-   ~/Library/Audio/Plug-Ins/CLAP/
+2. In Terminal, change to this unzipped package folder and run:
+
+   mkdir -p "\$HOME/Library/Audio/Plug-Ins/CLAP"
+   for bundle in ./*.clap; do
+     ditto --noqtn "\$bundle" \\
+       "\$HOME/Library/Audio/Plug-Ins/CLAP/\$(basename "\$bundle")"
+   done
+
 3. Restart REAPER and rescan CLAP plugins if needed.
 
 Manual copying cannot retire older filenames and may leave duplicate host

@@ -12,18 +12,19 @@ The project focuses on predictable multichannel routing, compact automation,
 and clear control models. Some plugins use topology; others use simpler
 relationship controls when that better fits the sound.
 
-The supported environment is macOS + REAPER. Other operating systems and
-DAWs are unsupported.
+The packaged pre-release supports REAPER on Apple silicon Macs only
+(arm64—M1, M2, M3, M4, or newer). It does not contain Intel `x86_64`
+binaries. Other operating systems and DAWs are unsupported.
 
 ## Status
 
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current release is **0.5.0-pre** (July 28, 2026). Its macOS package installs
-93 CLAP products, including fixed-width variants for effects, bus tools, and
-speaker-array utilities. Installed bundle filenames follow the same
-family-first order as the host names, such as
+The current release is **0.5.0-pre** (July 28, 2026). Its Apple-silicon-only
+macOS package installs 94 CLAP products, including fixed-width variants for
+effects, bus tools, and speaker-array utilities. Installed bundle filenames
+follow the same family-first order as the host names, such as
 `s3g_ambi_encoder_modal_16.clap` and
 `s3g_processor_no_input_mixer_8ch.clap`.
 
@@ -50,10 +51,7 @@ Plugin areas:
   WORLD/voicebank vocal, and stochastic instruments, including the
   eight-channel
   [Processor No Input Mixer](https://s3g.github.io/s3g-dsp/no-input-mixer.html)
-  output-only feedback ecology and
-  [Processor Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
-  and waveform-derived byte-field and codec synthesizer with free-running and
-  MIDI/ADSR performance modes.
+  output-only feedback ecology.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)
 lists the included families and the REAPER routing notes that matter for wide
@@ -161,7 +159,11 @@ CLAP IDs stable so projects continue to resolve the same plugins. Recognized old
 filenames are moved to a timestamped backup only when their bundle identity
 matches `scripts/clap-legacy-bundles.tsv`; unrelated CLAP bundles are left
 untouched. Close REAPER before installation, then restart or rescan after the
-installer completes. See the [installation
+installer completes. The default destination is in the current user's Library,
+so the installer does not invoke `sudo`; downloaded pre-release packages still
+require a one-time Gatekeeper approval in System Settings because they are not
+Apple notarized. The packaged installer then copies its verified bundles
+without propagating their quarantine attribute. See the [installation
 guide](https://s3g.github.io/s3g-dsp/installing-plugins.html) for backup and
 migration details.
 
@@ -172,14 +174,15 @@ desired—`.clap` bundles into:
 ~/Library/Audio/Plug-Ins/CLAP/
 ```
 
-In Finder, choose **Go > Go to Folder…** to open that normally hidden location,
-then drag the bundles from the unzipped package. From Terminal, install the
-complete collection with:
+For a manual Terminal install, use `ditto --noqtn` so a downloaded package does
+not propagate its quarantine attribute into REAPER's plugin folder:
 
 ```sh
 mkdir -p "$HOME/Library/Audio/Plug-Ins/CLAP"
-cp -R /path/to/s3g-dsp-macos-clap-0.5.0-pre/*.clap \
-  "$HOME/Library/Audio/Plug-Ins/CLAP/"
+for bundle in /path/to/s3g-dsp-macos-clap-0.5.0-pre/*.clap; do
+  ditto --noqtn "$bundle" \
+    "$HOME/Library/Audio/Plug-Ins/CLAP/$(basename "$bundle")"
+done
 ```
 
 Restart REAPER and rescan CLAP plugins if needed. Manual installation does not
@@ -188,13 +191,14 @@ host entries; use the packaged installer when migrating an older collection.
 
 ## Pre-release Binaries
 
-The current release asset is `s3g-dsp-macos-clap-0.5.0-pre.zip`. Pre-release
-macOS CLAP builds are attached to the [GitHub releases
+The current release asset is `s3g-dsp-macos-clap-0.5.0-pre.zip`. It contains
+arm64 binaries for Apple silicon only, not Intel-compatible or universal
+binaries. Pre-release macOS CLAP builds are attached to the [GitHub releases
 page](https://github.com/s3g/s3g-dsp/releases) for early REAPER testing. Plugin
 names, parameter mappings, saved states, and included plugins may change before
 a stable release.
 
-The package contains 93 CLAP products, the VOT wavetable library, the Ambi Vox
+The package contains 94 CLAP products, the VOT wavetable library, the Ambi Vox
 demo voicebank, release notes, the applicable license notices, and an
 `Install s3g-dsp CLAPs.command` installer. Run the packaged installer instead of
 drag-copying the bundles so recognized older aliases can be backed up safely.

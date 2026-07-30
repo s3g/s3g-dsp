@@ -157,6 +157,13 @@ cp -R "$source_root/clap_alpha/s3g_old_alpha.clap" \
 cp -R "$source_root/clap_beta/s3g_old_beta.clap" \
   "$package_root/s3g_family_beta.clap"
 
+# A downloaded archive can quarantine both a bundle and its executable. The
+# approved installer must not propagate that metadata to installed products.
+xattr -w com.apple.quarantine '0083;fixture;Safari;' \
+  "$package_root/s3g_family_alpha.clap"
+xattr -w com.apple.quarantine '0083;fixture;Safari;' \
+  "$package_root/s3g_family_alpha.clap/Contents/MacOS/fixture"
+
 S3G_CLAP_BACKUP_ROOT="$test_root/package-backups" \
 S3G_CLAP_RECEIPT="$test_root/package-receipt.tsv" \
   "$package_root/Install s3g-dsp CLAPs.command" \
@@ -164,6 +171,11 @@ S3G_CLAP_RECEIPT="$test_root/package-receipt.tsv" \
 [[ -d "$package_destination/s3g_family_alpha.clap" ]]
 [[ -d "$package_destination/s3g_family_beta.clap" ]]
 [[ "$(grep -c '^s3g_family_.*\.clap' "$test_root/package-receipt.tsv")" == "2" ]]
+! xattr -p com.apple.quarantine \
+  "$package_destination/s3g_family_alpha.clap" >/dev/null 2>&1
+! xattr -p com.apple.quarantine \
+  "$package_destination/s3g_family_alpha.clap/Contents/MacOS/fixture" \
+  >/dev/null 2>&1
 
 # Direct build-layout installs reject stale host metadata and non-executable
 # binaries before touching the destination.

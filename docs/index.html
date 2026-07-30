@@ -26,11 +26,11 @@
       <main class="content" id="content">
         <h1>s3g-dsp</h1>
 
-        <p><code>s3g-dsp</code> is the main CLAP audio plugin package for multichannel work in REAPER. Its sibling projects are the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code> multichannel REAPER package</a> and the <a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code> Max/MSP externals package</a>. It can be used with those projects or on its own.</p>
+        <p><code>s3g-dsp</code> is a collection of CLAP plugins for spatial audio, ambisonics, multichannel processing, and synthesis on macOS, designed for use with REAPER.</p>
 
         <p>The collection emphasizes predictable multichannel routing, compact automation, and clear multichannel control models.</p>
 
-        <p>The supported platform is macOS with REAPER.</p>
+        <p>The packaged pre-release supports REAPER on Apple silicon Macs only (arm64—M1, M2, M3, M4, or newer). It does not contain Intel-compatible or universal binaries.</p>
 
         <h2 id="start-here">Start Here</h2>
 
@@ -46,7 +46,7 @@
 
         <h2 id="status">Release Status</h2>
 
-        <p><code>s3g-dsp</code> is pre-release software. Plugin names, parameters, included bundles, and saved states may change. The macOS package includes 72 plugins, with some available in additional channel-width variants.</p>
+        <p><code>s3g-dsp</code> is pre-release software. Plugin names, parameters, included bundles, and saved states may change. The macOS package installs 94 CLAP products, including fixed-width variants for several plugin families.</p>
 
         <p>When installing or upgrading, use the packaged installer so bundle filenames match the family-first names shown in the host. The migration preserves the stable CLAP IDs used by saved projects. Run it with <code>--dry-run</code> to preview changes or <code>--canonicalize-only</code> to rename verified installed binaries; recognized legacy aliases are moved to a timestamped backup rather than deleted.</p>
 

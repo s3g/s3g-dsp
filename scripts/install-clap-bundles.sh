@@ -262,6 +262,17 @@ source_bundle_for() {
   fi
 }
 
+copy_source_bundle() {
+  local source_bundle="$1"
+  local destination_bundle="$2"
+
+  # Downloaded release archives carry Gatekeeper quarantine metadata. Once the
+  # user has explicitly approved this installer, copy only the verified bundle
+  # without propagating that attribute. ditto preserves the remaining bundle
+  # metadata and code signature and does not change any system security setting.
+  /usr/bin/ditto --noqtn "$source_bundle" "$destination_bundle"
+}
+
 validate_source_bundle() {
   local source_bundle="$1"
   local expected_id="$2"
@@ -468,7 +479,7 @@ if [[ $canonicalize_only -eq 0 ]]; then
     # existing installation.
     for ((i=0; i<${#canonical_names[@]}; i++)); do
       source_bundle="$(source_bundle_for "$i")"
-      cp -R "$source_bundle" "$stage_root/${canonical_names[$i]}"
+      copy_source_bundle "$source_bundle" "$stage_root/${canonical_names[$i]}"
       validate_source_bundle "$stage_root/${canonical_names[$i]}" \
         "${bundle_ids[$i]}" "${host_names[$i]}"
     done
