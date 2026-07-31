@@ -2817,6 +2817,8 @@ bool isListenerGuiParam(clap_id id)
 
 double sliderNorm(const GuiSliderSpec& spec, double value)
 {
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
     if (spec.logarithmic) {
         const double minValue = std::max(0.000001, spec.min);
         return std::clamp(std::log(std::max(minValue, value) / minValue) / std::log(spec.max / minValue), 0.0, 1.0);
@@ -2827,6 +2829,8 @@ double sliderNorm(const GuiSliderSpec& spec, double value)
 double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     const double norm = std::clamp((static_cast<double>(point.x) - (spec.panelX + 108.0)) / 82.0, 0.0, 1.0);
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm));
     if (spec.logarithmic) return spec.min * std::pow(spec.max / spec.min, norm);
     return spec.min + norm * (spec.max - spec.min);
 }

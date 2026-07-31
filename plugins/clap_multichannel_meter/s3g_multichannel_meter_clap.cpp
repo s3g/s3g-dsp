@@ -336,8 +336,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         return true;
     }
     if (id == kLayoutParamId) {
-        *value = std::atof(display);
-        return true;
+        static constexpr const char* names[] = { "AUTO", "CUBE 8", "CUBE 17", "DODECA 12", "DOME 24", "DOME 25", "DBL RING 16", "DBL RING 20", "OCTO RING", "QUAD", "QUAD+OH", "RING 12", "RING 16", "SPHERE 24" };
+        for (uint32_t index = 0u; index < std::size(names); ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
     }
     return false;
 }

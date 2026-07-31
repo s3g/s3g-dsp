@@ -1,4 +1,5 @@
 #include "s3g_ambisonic_head_decoder.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include "s3g_realtime.h"
@@ -244,9 +245,23 @@ bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin) { self(plugin)->decoder.reset(); }
 
+void readParamEvents(Plugin& p, const clap_input_events_t* in)
+{
+    if (!in) return;
+    const uint32_t n = in->size(in);
+    for (uint32_t i = 0; i < n; ++i) {
+        const clap_event_header_t* h = in->get(in, i);
+        if (!h || h->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || h->type != CLAP_EVENT_PARAM_VALUE) continue;
+        const auto* ev = reinterpret_cast<const clap_event_param_value_t*>(h);
+        setParamValue(p, ev->param_id, ev->value);
+    }
+}
+
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* p = self(plugin);
+    readParamEvents(*p, process ? process->in_events : nullptr);
     if (!process || !process->audio_inputs || !process->audio_outputs || process->audio_inputs_count == 0 || process->audio_outputs_count == 0) {
         return CLAP_PROCESS_CONTINUE;
     }
@@ -368,40 +383,49 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
     if (!display || !value) return false;
+    const auto parseNamed = [display, value](uint32_t count, const auto& nameForIndex) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, nameForIndex(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (paramId == kParamLayout) return parseNamed(5u, layoutName);
+    if (paramId == kParamDecodeMode) return parseNamed(2u, decodeModeName);
+    if (paramId == kParamWeighting) return parseNamed(3u, weightingName);
+    if (paramId == kParamAutogain) return parseNamed(3u, autogainName);
+    if (paramId == kParamHead) return parseNamed(3u, headName);
+    if (paramId == kParamMode) return parseNamed(2u, modeName);
+    if (paramId == kParamXtcMode) return parseNamed(2u, xtcModeName);
     *value = std::strtod(display, nullptr);
     return true;
 }
 
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
 {
-    auto* p = self(plugin);
-    if (!in) return;
-    const uint32_t n = in->size(in);
-    for (uint32_t i = 0; i < n; ++i) {
-        const clap_event_header_t* h = in->get(in, i);
-        if (!h || h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) continue;
-        const auto* ev = reinterpret_cast<const clap_event_param_value_t*>(h);
-        setParamValue(*p, ev->param_id, ev->value);
-    }
+    readParamEvents(*self(plugin), in);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsInfo, paramsValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    SavedState state;
+    SavedState state {};
     state.params = self(plugin)->params;
-    return stream->write(stream, &state, sizeof(state)) == sizeof(state);
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedState state;
-    if (stream->read(stream, &state, sizeof(state)) != sizeof(state) || state.version != kStateVersion) return false;
+    SavedState state {};
+    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))
+        || state.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = sanitizeParams(state.params);
     markDirty(*p);

@@ -1445,6 +1445,8 @@ CGFloat guiNormalize(clap_id id, double value)
 {
     const auto* param = findParam(id);
     if (!param) return 0.0;
+    if (id == kAzimuthParamId) return static_cast<CGFloat>(
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value)));
     if (logarithmicParam(id)) {
         const double low = std::log(std::max(1.0e-9, param->minimum));
         const double high = std::log(std::max(1.0e-9, param->maximum));
@@ -1458,6 +1460,8 @@ double guiValue(clap_id id, CGFloat normalized)
     const auto* param = findParam(id);
     if (!param) return 0.0;
     normalized = std::clamp(normalized, static_cast<CGFloat>(0.0), static_cast<CGFloat>(1.0));
+    if (id == kAzimuthParamId) return s3g::aedAzimuthFromSliderNorm(
+        static_cast<float>(normalized));
     double value = 0.0;
     if (logarithmicParam(id)) {
         value = std::exp(std::log(std::max(1.0e-9, param->minimum))

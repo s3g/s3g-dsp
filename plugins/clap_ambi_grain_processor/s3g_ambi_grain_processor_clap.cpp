@@ -1,5 +1,6 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -453,7 +454,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 {
     if (!display || !value) return false;
     double v = std::atof(display);
-    if (id == kSyncParamId) {
+    if (id == kModeParamId) {
+        for (uint32_t index = 0u; index <= 3u; ++index) {
+            if (std::strcmp(display, modeName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    } else if (id == kSyncParamId) {
         if (std::strstr(display, "ASY") || std::strstr(display, "asy")) v = 0.0;
         else if (std::strstr(display, "SYN") || std::strstr(display, "syn")) v = 1.0;
     } else if (id == kEnvelopeParamId) {
@@ -462,7 +471,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         else if (std::strstr(display, "TRI") || std::strstr(display, "tri")) v = 3.0;
         else if (std::strstr(display, "GAU") || std::strstr(display, "gau")) v = 4.0;
         else v = 0.0;
-    } else if ((id == kSourcePosParamId || id == kJitterParamId || id == kRateJitterParamId || id == kReverseParamId || id == kFreezeParamId) && v > 1.0) v *= 0.01;
+    } else if (id == kSourcePosParamId || id == kJitterParamId || id == kRateJitterParamId || id == kReverseParamId || id == kFreezeParamId) v *= 0.01;
     *value = v;
     return true;
 }
@@ -474,7 +483,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const auto* p = self(plugin);
-    SavedState s {};
+    SavedState s;
+    std::memset(&s, 0, sizeof(s));
+    s.version = kStateVersion;
     paramsGetValue(plugin, kOrderParamId, &s.order);
     paramsGetValue(plugin, kModeParamId, &s.mode);
     paramsGetValue(plugin, kDensityParamId, &s.density);
@@ -492,14 +503,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     paramsGetValue(plugin, kGainParamId, &s.gainDb);
     s.playing = p->playing.load(std::memory_order_acquire) ? 1u : 0u;
     std::strncpy(s.samplePath, p->samplePath.c_str(), sizeof(s.samplePath) - 1u);
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
     setParam(*p, kOrderParamId, s.order);
     setParam(*p, kModeParamId, s.mode);

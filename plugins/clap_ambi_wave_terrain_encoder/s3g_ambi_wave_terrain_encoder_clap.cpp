@@ -1190,7 +1190,11 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
         else {
             double value = 0.0; paramsGetValue(&_plugin->plugin, row.param, &value); const ParamDef* def = paramDef(row.param);
-            const CGFloat norm = def ? std::clamp<CGFloat>((value - def->min) / std::max(0.000001, def->max - def->min), 0.0, 1.0) : 0.0;
+            const CGFloat norm = def ? (row.param == kAzimuthParamId
+                ? s3g::aedAzimuthSliderNorm(static_cast<float>(value))
+                : std::clamp<CGFloat>((value - def->min)
+                    / std::max(0.000001, def->max - def->min), 0.0, 1.0))
+                : 0.0;
             s3g::clap_gui::drawSlider(label, [self valueText:row.param], norm, y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, row.panelX + 200, 82);
         }
     }
@@ -1337,7 +1341,10 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 {
     const GuiRow* row = guiRow(param); const ParamDef* def = paramDef(param); if (!row || !def) return;
     const double norm = std::clamp((static_cast<double>(point.x) - (row->panelX + 108.0)) / 82.0, 0.0, 1.0);
-    double value = def->min + norm * (def->max - def->min); if (def->stepped) value = std::round(value);
+    double value = param == kAzimuthParamId
+        ? s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm))
+        : def->min + norm * (def->max - def->min);
+    if (def->stepped) value = std::round(value);
     applyParam(*_plugin, param, value); [self setNeedsDisplay:YES];
 }
 - (void)mouseDown:(NSEvent*)event

@@ -738,6 +738,16 @@ int main(int argc, char** argv)
         && pitchLockOutput && pitchLockOutput->value == midiValue;
     if (!ok) std::cerr << "failed: MIDI pitch-lock command mapping\n";
 
+    constexpr double kPreservedOutputDb = -47.25;
+    midiOutput.clear();
+    EventList lowOutput;
+    lowOutput.add(kOutputParam, kPreservedOutputDb);
+    process.in_events = &lowOutput.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, kOutputParam, &midiValue)
+        && std::abs(midiValue - kPreservedOutputDb) < 1.0e-6;
+
     midiOutput.clear();
     MidiEventList randomEnergyCommands;
     randomEnergyCommands.add(0x9fu, 125u, 127u);
@@ -746,8 +756,25 @@ int main(int argc, char** argv)
     process.in_events = &randomEnergyCommands.input;
     audio.clear();
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
-        && midiOutput.params.size() == 3u * kParamCount;
-    if (!ok) std::cerr << "failed: MIDI random-energy command mapping\n";
+        && midiOutput.params.size() == 3u * kParamCount
+        && params->get_value(plugin, kOutputParam, &midiValue)
+        && std::abs(midiValue - kPreservedOutputDb) < 1.0e-6;
+    if (!ok) {
+        std::cerr << "failed: MIDI random-energy output preservation\n";
+    }
+
+    midiOutput.clear();
+    MidiEventList factoryPresetCommand;
+    factoryPresetCommand.add(0xcfu, 2u, 0u);
+    process.in_events = &factoryPresetCommand.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.params.size() == kParamCount
+        && params->get_value(plugin, kOutputParam, &midiValue)
+        && std::abs(midiValue - kPreservedOutputDb) < 1.0e-6;
+    if (!ok) {
+        std::cerr << "failed: MIDI factory-preset output preservation\n";
+    }
 
     saved.offset = 0u;
     clap_istream_t postMidiRestore { &saved, stateRead };

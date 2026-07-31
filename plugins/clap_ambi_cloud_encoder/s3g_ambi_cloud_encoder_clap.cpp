@@ -399,10 +399,25 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kShapeParamId || id == kForceParamId) {
+        const auto name = id == kShapeParamId ? shapeName : forceName;
+        for (uint32_t index = 0; index < 5u; ++index) {
+            if (std::strcmp(display, name(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
     *value = std::atof(display);
+    if (id == kSpreadParamId || id == kElevationSpreadParamId || id == kJitterParamId
+        || id == kDriftParamId || id == kDecorrelateParamId || id == kDopplerParamId
+        || id == kAirParamId) {
+        *value *= 0.01;
+    }
     return true;
 }
 
@@ -647,7 +662,9 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 - (void)drawSlider:(NSString*)name value:(double)value min:(double)min max:(double)max y:(CGFloat)y suffix:(NSString*)suffix attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     double norm = (value - min) / std::max(0.000001, max - min);
-    if ([name isEqualToString:@"RATE"]) {
+    if ([name isEqualToString:@"AZIM"]) {
+        norm = s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    } else if ([name isEqualToString:@"RATE"]) {
         const double safeMin = std::max(0.000001, min);
         norm = std::log(std::max(safeMin, value) / safeMin) / std::log(max / safeMin);
     }
@@ -847,7 +864,14 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     case kCloudsParamId: slider(1, 4); break;
     case kCloudParamId: slider(1, 4); break;
     case kOrderParamId: slider(1, 7); break;
-    case kAzimuthParamId: slider(-180, 180); break;
+    case kAzimuthParamId: {
+        const double norm = std::clamp(
+            (static_cast<double>(pt.x) - kToolboxControlX)
+                / kToolboxTrackWidth, 0.0, 1.0);
+        applyParam(*_plugin, param, s3g::aedAzimuthFromSliderNorm(
+            static_cast<float>(norm)));
+        break;
+    }
     case kElevationParamId: slider(-90, 90); break;
     case kDistanceParamId: slider(0.05, 8.0); break;
     case kSpreadParamId: slider(0, 1); break;

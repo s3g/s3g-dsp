@@ -714,13 +714,9 @@ struct ProjectedBody {
 NSPoint projectDirection(s3g::Vec3 direction, float azDeg, float elDeg)
 {
     const NSRect field = s3g::clap_gui::cocoaRect(kFieldPlot);
-    const float yaw = -azDeg * s3g::kPi / 180.0f;
-    const float elevation = elDeg * s3g::kPi / 180.0f;
-    const float x = direction.x * std::cos(yaw) - direction.y * std::sin(yaw);
-    const float y = direction.x * std::sin(yaw) + direction.y * std::cos(yaw);
-    const float projectedY = y * std::cos(elevation) - direction.z * std::sin(elevation);
-    return NSMakePoint(NSMidX(field) + x * kBodyRadius,
-        field.origin.y + 190.0 - projectedY * kBodyRadius);
+    const auto projected = s3g::projectAedDirection(direction, azDeg, elDeg);
+    return NSMakePoint(NSMidX(field) + projected.horizontal * kBodyRadius,
+        field.origin.y + 190.0 - projected.vertical * kBodyRadius);
 }
 
 ProjectedBody projectBody(s3g::AmbiEffectBody body, float azDeg, float elDeg)
@@ -728,14 +724,10 @@ ProjectedBody projectBody(s3g::AmbiEffectBody body, float azDeg, float elDeg)
     ProjectedBody result {};
     const auto directions = s3g::ambiEffectBodyDirections(body);
     const uint32_t count = s3g::ambiEffectBodyPickupCount(body);
-    const float yaw = -azDeg * s3g::kPi / 180.0f;
-    const float elevation = elDeg * s3g::kPi / 180.0f;
     for (uint32_t node = 0u; node < count; ++node) {
         result.points[node] = projectDirection(directions[node], azDeg, elDeg);
-        const float y = directions[node].x * std::sin(yaw)
-            + directions[node].y * std::cos(yaw);
-        result.depths[node] = y * std::sin(elevation)
-            + directions[node].z * std::cos(elevation);
+        result.depths[node] = s3g::projectAedDirection(
+            directions[node], azDeg, elDeg).depth;
     }
     return result;
 }
@@ -946,10 +938,8 @@ NSRect secondaryAxisRect()
     [heardRoute setLineWidth:1.6]; [heardRoute stroke];
 
     if (p->params.maskAmount > .001f) {
-        const float az = p->params.maskAzimuthDeg * s3g::kPi / 180.0f;
-        const float el = p->params.maskElevationDeg * s3g::kPi / 180.0f;
-        const s3g::Vec3 direction { std::cos(el) * std::cos(az),
-            std::cos(el) * std::sin(az), std::sin(el) };
+        const s3g::Vec3 direction = s3g::directionFromAed(
+            p->params.maskAzimuthDeg, p->params.maskElevationDeg);
         const NSPoint point = projectDirection(direction,
             static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
         const CGFloat radius = 13.0 + p->params.maskWidth * 34.0;
@@ -1096,7 +1086,8 @@ NSRect secondaryAxisRect()
         : [NSString stringWithFormat:@"%.0f%%", p->params.maskAmount * 100.0f])
         norm:p->params.maskAmount panel:kMaskPanel row:0u attrs:value style:style];
     [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f deg", p->params.maskAzimuthDeg]
-        norm:(p->params.maskAzimuthDeg + 180.0f) / 360.0f panel:kMaskPanel row:1u attrs:value style:style];
+        norm:s3g::aedAzimuthSliderNorm(p->params.maskAzimuthDeg)
+        panel:kMaskPanel row:1u attrs:value style:style];
     [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f deg", p->params.maskElevationDeg]
         norm:(p->params.maskElevationDeg + 90.0f) / 180.0f panel:kMaskPanel row:2u attrs:value style:style];
     [self drawSlider:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%", p->params.maskWidth * 100.0f]
@@ -1153,7 +1144,8 @@ NSRect secondaryAxisRect()
     case kParamMix: [self setParam:kParamMix value:norm]; break;
     case kParamOutput: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
     case kParamMaskAmount: [self setParam:kParamMaskAmount value:norm]; break;
-    case kParamMaskAzimuth: [self setParam:kParamMaskAzimuth value:-180.0 + norm * 360.0]; break;
+    case kParamMaskAzimuth: [self setParam:kParamMaskAzimuth
+        value:s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm))]; break;
     case kParamMaskElevation: [self setParam:kParamMaskElevation value:-90.0 + norm * 180.0]; break;
     case kParamMaskWidth: [self setParam:kParamMaskWidth value:norm]; break;
     case kParamMaskCurve: [self setParam:kParamMaskCurve value:norm]; break;

@@ -719,11 +719,8 @@ private:
     {
         maskGain_.fill(1.0f);
         if (!currentMatrix_ || params_.maskAmount <= 0.0f) return;
-        const float azimuth = params_.maskAzimuthDeg * kPi / 180.0f;
-        const float elevation = params_.maskElevationDeg * kPi / 180.0f;
-        const float cosElevation = std::cos(elevation);
-        const Vec3 direction { cosElevation * std::cos(azimuth),
-            cosElevation * std::sin(azimuth), std::sin(elevation) };
+        const Vec3 direction = directionFromAed(
+            params_.maskAzimuthDeg, params_.maskElevationDeg);
         float maximum = 0.000001f;
         std::array<float, kAmbiEffectDjFilterMaxPickups> alignment {};
         for (uint32_t node = 0u; node < currentMatrix_->count; ++node) {

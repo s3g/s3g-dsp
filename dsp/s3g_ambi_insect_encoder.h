@@ -792,6 +792,7 @@ private:
     static float wrapSignedDeg(float value)
     {
         if (!std::isfinite(value)) return 0.0f;
+        if (value >= -180.0f && value <= 180.0f) return value;
         value = std::fmod(value + 180.0f, 360.0f);
         if (value < 0.0f) value += 360.0f;
         return value - 180.0f;

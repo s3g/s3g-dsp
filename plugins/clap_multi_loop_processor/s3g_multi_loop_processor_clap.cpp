@@ -1,6 +1,7 @@
 #include "s3g_loop_processor.h"
 #include "s3g_multi_loop_processor.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -597,12 +598,19 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 {
     if (!display || !value) return false;
     double v = std::atof(display);
-    if ((id == kXfadeParamId || id == kLoopStartParamId || id == kLoopLengthParamId) && v > 1.0) {
+    if (id == kXfadeParamId || id == kLoopStartParamId || id == kLoopLengthParamId) {
         v *= 0.01;
-    } else if ((id == kSourceRateParamId || id == kSourceBlendParamId) && v > 1.0) {
+    } else if (id == kSourceRateParamId || id == kSourceBlendParamId) {
         v *= 0.01;
-    } else if (id == kSpreadParamId && (v > 1.0 || v < -1.0)) {
+    } else if (id == kSpreadParamId) {
         v *= 0.01;
+    } else if (id == kRuleParamId) {
+        for (uint32_t index = 0u; index <= 3u; ++index) {
+            if (std::strcmp(display, ruleName(index)) == 0) {
+                v = static_cast<double>(index);
+                break;
+            }
+        }
     } else if (id == kMidiModeParamId) {
         if (std::strstr(display, "GATE") || std::strstr(display, "gate")) v = 1.0;
         else if (std::strstr(display, "TRIG") || std::strstr(display, "trig")) v = 2.0;
@@ -620,7 +628,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     const auto* p = self(plugin);
     const s3g::LoopProcessorParams params = snapshotParams(*p);
-    SavedState s {};
+    SavedState s;
+    std::memset(&s, 0, sizeof(s));
+    s.version = kStateVersion;
     s.baseRate = params.baseRate;
     s.rateSpread = params.rateSpread;
     s.driftAmount = params.driftAmount;
@@ -642,14 +652,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     for (uint32_t i = 0; i < kMaxSources; ++i) {
         std::strncpy(s.samplePaths[i], p->samplePaths[i].c_str(), sizeof(s.samplePaths[i]) - 1u);
     }
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
     setParam(*p, kRateParamId, s.baseRate);
     setParam(*p, kSpreadParamId, s.rateSpread);

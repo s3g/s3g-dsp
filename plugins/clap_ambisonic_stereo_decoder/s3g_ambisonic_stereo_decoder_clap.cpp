@@ -1,4 +1,5 @@
 #include "s3g_ambisonic_stereo_decoder.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/ambisonic.h>
@@ -519,6 +520,19 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
 bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
     if (!display || !value) return false;
+    const auto parseNamed = [display, value](uint32_t count, const auto& nameForIndex) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, nameForIndex(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (paramId == kParamLayout) return parseNamed(5u, layoutName);
+    if (paramId == kParamMethod) return parseNamed(10u, methodName);
+    if (paramId == kParamWeighting) return parseNamed(4u, weightingName);
+    if (paramId == kParamAutogain) return parseNamed(3u, autogainName);
     *value = std::atof(display);
     return paramId >= kParamOrder && paramId <= kParamMicElevation;
 }
@@ -534,15 +548,15 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const SavedState state { kStateVersion, self(plugin)->params };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
-    const int64_t got = stream->read(stream, &state, sizeof(state));
-    if (got != static_cast<int64_t>(sizeof(state)) || state.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))
+        || state.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = sanitizeParams(state.params);
     markCoeffsDirty(*p);

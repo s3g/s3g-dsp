@@ -2080,6 +2080,13 @@ const char* shortParamName(clap_id id)
 double normalizedParam(const ParamSpec& spec, double value)
 {
     value = std::clamp(value, spec.minimum, spec.maximum);
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (spec.id == kParamFieldAzimuth
+        || (decodeBodyAedParam(spec.id, body, kind)
+            && kind == BodyAedParamKind::AzimuthOffset)) {
+        return s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    }
     if (spec.logarithmic && spec.minimum > 0.0) {
         return std::log(value / spec.minimum)
             / std::log(spec.maximum / spec.minimum);
@@ -2091,6 +2098,14 @@ double normalizedParam(const ParamSpec& spec, double value)
 double valueFromNormalized(const ParamSpec& spec, double normalized)
 {
     normalized = std::clamp(normalized, 0.0, 1.0);
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (spec.id == kParamFieldAzimuth
+        || (decodeBodyAedParam(spec.id, body, kind)
+            && kind == BodyAedParamKind::AzimuthOffset)) {
+        return s3g::aedAzimuthFromSliderNorm(
+            static_cast<float>(normalized));
+    }
     if (spec.logarithmic && spec.minimum > 0.0) {
         return spec.minimum * std::pow(
             spec.maximum / spec.minimum, normalized);

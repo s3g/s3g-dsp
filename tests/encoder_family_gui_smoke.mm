@@ -34,6 +34,7 @@
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
 - (void)setViewPreset:(int)mode;
+- (void)setDocumentationViewAzimuth:(double)azimuth elevation:(double)elevation;
 - (void)textDidChange:(NSNotification*)notification;
 @end
 
@@ -4375,6 +4376,18 @@ int main(int argc, char** argv)
                                   << "setViewPreset:\n";
                     }
                     if (ok) [document setViewPreset:2];
+                    if (ok && documentationDbapPanner) {
+                        ok = [document respondsToSelector:
+                            @selector(setDocumentationViewAzimuth:elevation:)];
+                        if (!ok) {
+                            std::cerr << "DBAP view does not expose "
+                                      << "setDocumentationViewAzimuth:elevation:\n";
+                        }
+                        if (ok) {
+                            [document setDocumentationViewAzimuth:-82.0
+                                elevation:26.0];
+                        }
+                    }
                 } @catch (NSException* exception) {
                     std::cerr << "Panner 3/4-view exception: "
                               << [[exception reason] UTF8String] << "\n";

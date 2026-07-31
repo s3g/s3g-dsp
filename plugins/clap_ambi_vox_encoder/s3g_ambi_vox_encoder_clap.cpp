@@ -9413,7 +9413,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 - (void)drawSliderAtX:(CGFloat)panelX name:(NSString*)name param:(clap_id)param value:(double)value min:(double)min max:(double)max y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     double norm = (value - min) / std::max(0.000001, max - min);
-    if (param == kMotionRateParamId || param == kScoreDurationParamId || param == kVibratoRateParamId) norm = std::log(value / min) / std::log(max / min);
+    if (param == kCenterAzimuthParamId) norm =
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    else if (param == kMotionRateParamId || param == kScoreDurationParamId || param == kVibratoRateParamId) norm = std::log(value / min) / std::log(max / min);
     else if (param == kAttackParamId || param == kDecayParamId || param == kReleaseParamId) norm = std::log(value / min) / std::log(max / min);
     else if (param == kPvocStretchParamId) norm = std::log(value / min) / std::log(max / min);
     char text[64] {};
@@ -10387,7 +10389,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     case kMotionRateParamId: value = 0.001 * std::pow(2000.0, norm); break;
     case kScoreDurationParamId: value = 0.25 * std::pow(240.0, norm); break;
     case kSyncDivisionParamId: value = 0.25 + norm * 63.75; break;
-    case kCenterAzimuthParamId: value = -180.0 + norm * 360.0; break;
+    case kCenterAzimuthParamId: value = s3g::aedAzimuthFromSliderNorm(
+        static_cast<float>(norm)); break;
     case kCenterElevationParamId: value = -90.0 + norm * 180.0; break;
     case kCenterDistanceParamId: value = 0.15 + norm * 1.85; break;
     case kNeighborRadiusParamId: value = 0.05 + norm * 3.95; break;

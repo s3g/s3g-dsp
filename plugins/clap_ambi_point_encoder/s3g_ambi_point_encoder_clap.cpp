@@ -179,6 +179,9 @@ struct Plugin {
     uint32_t maxFrames = 0;
     s3g::AmbiPointEncoderParams params {};
     s3g::AmbiPointEncoder encoder;
+    // Host-authored point parameters are distinct from the audio-rate motion
+    // simulation positions held by the encoder.
+    std::array<s3g::AmbiPoint, kPointCount> parameterPoints {};
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -520,13 +523,32 @@ bool decodePerPointParam(clap_id id, uint32_t& point, PerPointParamKind& kind)
 
 void applyPerPointParam(Plugin& p, uint32_t point, PerPointParamKind kind, double value)
 {
+    auto& target = p.parameterPoints[point];
     switch (kind) {
-    case PerPointParamKind::Azimuth: p.encoder.setPointAzimuth(point, static_cast<float>(std::clamp(value, -180.0, 180.0))); break;
-    case PerPointParamKind::Elevation: p.encoder.setPointElevation(point, static_cast<float>(std::clamp(value, p.params.upperHemisphereOnly ? 0.0 : -90.0, 90.0))); break;
-    case PerPointParamKind::Distance: p.encoder.setPointDistance(point, static_cast<float>(std::clamp(value, 0.15, 2.0))); break;
-    case PerPointParamKind::Gain: p.encoder.setPointGain(point, static_cast<float>(std::clamp(value, 0.0, 2.0))); break;
-    case PerPointParamKind::Mute: p.encoder.setPointEnabled(point, value < 0.5); break;
-    case PerPointParamKind::Solo: p.encoder.setPointSolo(point, value >= 0.5); break;
+    case PerPointParamKind::Azimuth:
+        target.azimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0));
+        p.encoder.setPointAzimuth(point, target.azimuthDeg);
+        break;
+    case PerPointParamKind::Elevation:
+        target.elevationDeg = static_cast<float>(std::clamp(value, p.params.upperHemisphereOnly ? 0.0 : -90.0, 90.0));
+        p.encoder.setPointElevation(point, target.elevationDeg);
+        break;
+    case PerPointParamKind::Distance:
+        target.distance = static_cast<float>(std::clamp(value, 0.15, 2.0));
+        p.encoder.setPointDistance(point, target.distance);
+        break;
+    case PerPointParamKind::Gain:
+        target.gain = static_cast<float>(std::clamp(value, 0.0, 2.0));
+        p.encoder.setPointGain(point, target.gain);
+        break;
+    case PerPointParamKind::Mute:
+        target.enabled = value < 0.5;
+        p.encoder.setPointEnabled(point, target.enabled);
+        break;
+    case PerPointParamKind::Solo:
+        target.solo = value >= 0.5;
+        p.encoder.setPointSolo(point, target.solo);
+        break;
     }
     p.params = p.encoder.params();
 }
@@ -579,6 +601,17 @@ void applyParam(Plugin& p, clap_id id, double value)
     }
     p.encoder.setParams(p.params);
     p.params = p.encoder.params();
+    const uint32_t selected = std::min<uint32_t>(p.params.selectedPoint, kPointCount - 1u);
+    const auto edited = p.encoder.editPoint(selected);
+    switch (id) {
+    case kAzimuthParamId: p.parameterPoints[selected].azimuthDeg = edited.azimuthDeg; break;
+    case kElevationParamId: p.parameterPoints[selected].elevationDeg = edited.elevationDeg; break;
+    case kDistanceParamId: p.parameterPoints[selected].distance = edited.distance; break;
+    case kPointGainParamId: p.parameterPoints[selected].gain = edited.gain; break;
+    case kPointMuteParamId: p.parameterPoints[selected].enabled = edited.enabled; break;
+    case kUpperHemisphereParamId: p.parameterPoints = p.encoder.editPoints(); break;
+    default: break;
+    }
 }
 
 bool init(const clap_plugin_t* plugin)
@@ -589,6 +622,7 @@ bool init(const clap_plugin_t* plugin)
     p->encoder.prepare(p->sampleRate, kPointCount);
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
+    p->parameterPoints = p->encoder.editPoints();
     return true;
 }
 
@@ -608,12 +642,14 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
 {
     auto* p = self(plugin);
     const auto scene = p->encoder.editPoints();
+    const auto parameterPoints = p->parameterPoints;
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
     p->encoder.prepare(sampleRate, kPointCount);
     p->encoder.setParams(p->params);
     p->encoder.setScene(scene);
     p->params = p->encoder.params();
+    p->parameterPoints = parameterPoints;
     return true;
 }
 
@@ -784,7 +820,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     uint32_t point = 0;
     PerPointParamKind kind {};
     if (decodePerPointParam(id, point, kind)) {
-        const auto pnt = self(plugin)->encoder.editPoint(point);
+        const auto pnt = self(plugin)->parameterPoints[point];
         switch (kind) {
         case PerPointParamKind::Azimuth: *value = pnt.azimuthDeg; return true;
         case PerPointParamKind::Elevation: *value = pnt.elevationDeg; return true;
@@ -863,10 +899,56 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    uint32_t point = 0u;
+    PerPointParamKind kind {};
+    if (decodePerPointParam(id, point, kind)) {
+        if (kind == PerPointParamKind::Mute) {
+            if (std::strcmp(display, "MUT") == 0) { *value = 1.0; return true; }
+            if (std::strcmp(display, "ON") == 0) { *value = 0.0; return true; }
+            return false;
+        }
+        if (kind == PerPointParamKind::Solo) {
+            if (std::strcmp(display, "SOLO") == 0) { *value = 1.0; return true; }
+            if (std::strcmp(display, "OFF") == 0) { *value = 0.0; return true; }
+            return false;
+        }
+        *value = std::atof(display);
+        return true;
+    }
+    if (id == kMotionModeParamId) {
+        for (uint32_t index = 0u; index <= 5u; ++index) {
+            if (std::strcmp(display, motionName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kMotionSceneParamId) {
+        for (uint32_t index = 0u; index <= s3g::kAmbiPointEncoderMaxMotionScene; ++index) {
+            if (std::strcmp(display, sceneName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kUpperHemisphereParamId) {
+        if (std::strcmp(display, "UPR") == 0) { *value = 1.0; return true; }
+        if (std::strcmp(display, "FULL") == 0) { *value = 0.0; return true; }
+        return false;
+    }
     *value = std::atof(display);
+    if (id == kMotionAmountParamId || id == kAttractParamId || id == kRepelParamId
+        || id == kDragParamId || id == kSwirlParamId || id == kBrownianParamId
+        || id == kCollisionParamId || id == kImpactParamId || id == kPoltergeistParamId
+        || id == kPoltergeistReachParamId || id == kPoltergeistChaosParamId
+        || id == kDopplerParamId || id == kAirParamId) {
+        *value *= 0.01;
+    }
     return true;
 }
 
@@ -879,7 +961,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     auto* p = self(plugin);
     SavedState s {};
     s.params = p->params;
-    s.points = p->encoder.editPoints();
+    s.points = p->parameterPoints;
+    const uint32_t selected = std::min<uint32_t>(s.params.selectedPoint, kPointCount - 1u);
+    const auto& selectedPoint = s.points[selected];
+    s.params.selectedAzimuthDeg = selectedPoint.azimuthDeg;
+    s.params.selectedElevationDeg = selectedPoint.elevationDeg;
+    s.params.selectedDistance = selectedPoint.distance;
+    s.params.selectedGain = selectedPoint.gain;
+    s.params.selectedEnabled = selectedPoint.enabled;
 #if defined(__APPLE__)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
@@ -943,6 +1032,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->encoder.setParams(p->params);
     p->encoder.setScene(s.points);
     p->params = p->encoder.params();
+    p->parameterPoints = s.points;
 #if defined(__APPLE__)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, -1, 2);
     p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
@@ -1752,7 +1842,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:103 attrs:small small:small];
     [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:128 attrs:small small:small];
     [self drawSlider:@"POINTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:153 attrs:small small:small];
-    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:178 attrs:small small:small];
+    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:s3g::aedAzimuthSliderNorm(prm.selectedAzimuthDeg) y:178 attrs:small small:small];
     [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:203 attrs:small small:small];
     [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:228 attrs:small small:small];
     [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:250 attrs:small small:small];
@@ -1786,7 +1876,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     switch (_dragSlider) {
     case 1: applyParam(*p, kPointParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, p->params.activePoints) - 1u)); break;
     case 2: applyParam(*p, kActivePointsParamId, 1.0 + n * static_cast<double>(kPointCount - 1u)); break;
-    case 3: applyParam(*p, kAzimuthParamId, -180.0 + n * 360.0); break;
+    case 3: applyParam(*p, kAzimuthParamId,
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(n))); break;
     case 4: applyParam(*p, kElevationParamId, p->params.upperHemisphereOnly ? n * 90.0 : -90.0 + n * 180.0); break;
     case 5: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
     case 6: applyParam(*p, kPointGainParamId, n * 2.0); break;

@@ -1095,17 +1095,11 @@ NSPoint projectBodyDirection(
     s3g::Vec3 direction, float azimuthDeg, float elevationDeg)
 {
     const NSRect field = s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot);
-    const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
-    const float elevation = elevationDeg * s3g::kPi / 180.0f;
-    const float rotatedX = direction.x * std::cos(yaw)
-        - direction.y * std::sin(yaw);
-    const float rotatedY = direction.x * std::sin(yaw)
-        + direction.y * std::cos(yaw);
-    const float projectedY = rotatedY * std::cos(elevation)
-        - direction.z * std::sin(elevation);
+    const auto projected = s3g::projectAedDirection(
+        direction, azimuthDeg, elevationDeg);
     return NSMakePoint(
-        NSMidX(field) + rotatedX * kBodyRadius,
-        field.origin.y + 190.0 - projectedY * kBodyRadius);
+        NSMidX(field) + projected.horizontal * kBodyRadius,
+        field.origin.y + 190.0 - projected.vertical * kBodyRadius);
 }
 
 ProjectedBody projectBody(
@@ -1117,12 +1111,8 @@ ProjectedBody projectBody(
     for (uint32_t node = 0u; node < count; ++node) {
         result.points[node] = projectBodyDirection(
             directions[node], azimuthDeg, elevationDeg);
-        const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
-        const float elevation = elevationDeg * s3g::kPi / 180.0f;
-        const float rotatedY = directions[node].x * std::sin(yaw)
-            + directions[node].y * std::cos(yaw);
-        result.depths[node] = rotatedY * std::sin(elevation)
-            + directions[node].z * std::cos(elevation);
+        result.depths[node] = s3g::projectAedDirection(
+            directions[node], azimuthDeg, elevationDeg).depth;
     }
     return result;
 }
@@ -1385,16 +1375,8 @@ NSRect pickupResonanceAxisRect()
     [heardRoute setLineWidth:1.5]; [heardRoute stroke];
 
     if (p->params.maskAmount > 0.001f) {
-        const float azimuth = p->params.maskAzimuthDeg
-            * s3g::kPi / 180.0f;
-        const float elevation = p->params.maskElevationDeg
-            * s3g::kPi / 180.0f;
-        const float cosElevation = std::cos(elevation);
-        const s3g::Vec3 direction {
-            cosElevation * std::cos(azimuth),
-            cosElevation * std::sin(azimuth),
-            std::sin(elevation),
-        };
+        const s3g::Vec3 direction = s3g::directionFromAed(
+            p->params.maskAzimuthDeg, p->params.maskElevationDeg);
         const NSPoint maskPoint = projectBodyDirection(direction,
             static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
         const CGFloat maskRadius = 16.0 + p->params.maskWidth * 38.0;
@@ -1603,7 +1585,7 @@ NSRect pickupResonanceAxisRect()
     [self drawSlider:@"AZ"
         value:[NSString stringWithFormat:@"%+.0f deg",
             p->params.maskAzimuthDeg]
-        norm:(p->params.maskAzimuthDeg + 180.0f) / 360.0f
+        norm:s3g::aedAzimuthSliderNorm(p->params.maskAzimuthDeg)
         panel:kMaskPanel row:1u attrs:value style:style];
     [self drawSlider:@"EL"
         value:[NSString stringWithFormat:@"%+.0f deg",
@@ -1700,7 +1682,8 @@ NSRect pickupResonanceAxisRect()
     case kParamMaskAmount:
         [self setParam:kParamMaskAmount value:norm]; break;
     case kParamMaskAzimuth:
-        [self setParam:kParamMaskAzimuth value:-180.0 + norm * 360.0]; break;
+        [self setParam:kParamMaskAzimuth
+            value:s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm))]; break;
     case kParamMaskElevation:
         [self setParam:kParamMaskElevation value:-90.0 + norm * 180.0]; break;
     case kParamMaskWidth:

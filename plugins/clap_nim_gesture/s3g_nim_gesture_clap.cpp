@@ -959,6 +959,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         *value = std::strcmp(display, "PAUSE") == 0 ? 0.0 : 1.0;
         return true;
     }
+    if (id == kClearLastParamId || id == kClearAllParamId) {
+        *value = std::strcmp(display, "CLEAR") == 0 ? 1.0 : 0.0;
+        return true;
+    }
     *value = std::strtod(display, nullptr);
     return true;
 }

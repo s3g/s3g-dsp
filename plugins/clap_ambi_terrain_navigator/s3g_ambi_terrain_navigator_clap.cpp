@@ -996,7 +996,9 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     if (!def) return;
     const double value = [self paramValue:param];
     double norm = (value - def->min) / std::max(0.000001, def->max - def->min);
-    if (param == kRateParamId || param == kDivisionParamId) {
+    if (param == kAzimuthParamId) {
+        norm = s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    } else if (param == kRateParamId || param == kDivisionParamId) {
         const double safeMin = std::max(0.000001, def->min);
         norm = std::log(std::max(safeMin, value) / safeMin) / std::log(def->max / safeMin);
     }
@@ -1221,7 +1223,9 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     if (!def) return;
     double norm = std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
     double value = def->min + norm * (def->max - def->min);
-    if (param == kRateParamId || param == kDivisionParamId) value = def->min * std::pow(def->max / def->min, norm);
+    if (param == kAzimuthParamId) value = s3g::aedAzimuthFromSliderNorm(
+        static_cast<float>(norm));
+    else if (param == kRateParamId || param == kDivisionParamId) value = def->min * std::pow(def->max / def->min, norm);
     if (def->stepped) value = std::round(value);
     applyParam(*_plugin, param, value);
     [self setNeedsDisplay:YES];

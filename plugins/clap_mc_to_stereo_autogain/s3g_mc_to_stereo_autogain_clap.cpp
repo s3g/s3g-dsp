@@ -1,4 +1,5 @@
 #include "s3g_mc_to_stereo.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include "s3g_realtime.h"
@@ -615,7 +616,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         return false;
     }
     const SavedState state { kStateVersion, self(plugin)->params };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -624,21 +625,21 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
 
-    std::array<uint8_t, sizeof(SavedState)> bytes {};
-    const int64_t bytesRead = stream->read(stream, bytes.data(), bytes.size());
-    if (bytesRead == static_cast<int64_t>(sizeof(SavedState))) {
+    uint32_t version = 0u;
+    if (!s3g::clap_state::readAll(stream, &version, sizeof(version))) return false;
+    if (version == kStateVersion) {
         SavedState state {};
-        std::memcpy(&state, bytes.data(), sizeof(state));
-        if (state.version != kStateVersion) {
-            return false;
-        }
+        state.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(version),
+                sizeof(state) - sizeof(version))) return false;
         self(plugin)->params = sanitizeParams(state.params);
-    } else if (bytesRead == static_cast<int64_t>(sizeof(SavedStateV1))) {
+    } else if (version == kLegacyStateVersion) {
         SavedStateV1 state {};
-        std::memcpy(&state, bytes.data(), sizeof(state));
-        if (state.version != kLegacyStateVersion) {
-            return false;
-        }
+        state.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(version),
+                sizeof(state) - sizeof(version))) return false;
         s3g::McStereoParams params {};
         params.inputChannels = state.inputChannels;
         params.widthPercent = state.widthPercent;
@@ -1416,7 +1417,11 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+#ifndef S3G_CLAP_ENTRY_SYMBOL
+#define S3G_CLAP_ENTRY_SYMBOL clap_entry
+#endif
+
+extern "C" const clap_plugin_entry_t S3G_CLAP_ENTRY_SYMBOL {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

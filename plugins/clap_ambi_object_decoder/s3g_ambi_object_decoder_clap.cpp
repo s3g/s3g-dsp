@@ -457,10 +457,34 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kLayoutParamId) {
+        for (uint32_t index = 0u; index < kLayoutMenuCount; ++index) {
+            if (std::strcmp(display, layoutName(layoutPresetForMenuIndex(index))) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kModeParamId || id == kWeightingParamId || id == kObjectMethodParamId) {
+        for (uint32_t index = 0u; index < 3u; ++index) {
+            const char* name = id == kModeParamId
+                ? modeName(static_cast<s3g::AmbiSpeakerDecoderMode>(index))
+                : id == kWeightingParamId
+                    ? weightingName(static_cast<s3g::AmbiSpeakerDecoderWeighting>(index))
+                    : s3g::ambiObjectMethodName(static_cast<s3g::AmbiObjectMethod>(index));
+            if (std::strcmp(display, name) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
     *value = std::atof(display);
+    if (id == kObjectConfidenceParamId) *value *= 0.01;
     return true;
 }
 

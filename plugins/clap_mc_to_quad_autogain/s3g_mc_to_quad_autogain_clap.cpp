@@ -1,5 +1,6 @@
 #include "s3g_mc_to_quad.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/params.h>
@@ -347,7 +348,30 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else std::snprintf(display, size, "%.0f%%", value);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value) { if (!display || !value) return false; *value = std::atof(display); return true; }
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
+{
+    if (!display || !value) return false;
+    if (id == kParamAutogain) {
+        for (uint32_t index = 0; index <= 2u; ++index) {
+            if (std::strcmp(display, autogainName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kParamLayout) {
+        for (uint32_t index = 0; index <= 7u; ++index) {
+            if (std::strcmp(display, layoutName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    *value = std::atof(display);
+    return true;
+}
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
 {
     auto* p = self(plugin);
@@ -367,13 +391,13 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {}; s.params = self(plugin)->params;
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = sanitizeParams(s.params);
     p->gainsDirty = true;
@@ -797,4 +821,8 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+#ifndef S3G_CLAP_ENTRY_SYMBOL
+#define S3G_CLAP_ENTRY_SYMBOL clap_entry
+#endif
+
+extern "C" const clap_plugin_entry_t S3G_CLAP_ENTRY_SYMBOL { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

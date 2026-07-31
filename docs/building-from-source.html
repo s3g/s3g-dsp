@@ -84,7 +84,10 @@ cmake --build --preset apps</code></pre>
         <p>The standalone app targets are:</p>
 
         <pre><code>build-apps/apps/multi_loop_processor_standalone/s3g Processor Multi Loop.app
+build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app
 build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
+
+        <p>No Input Mixer embeds the same No Input Mixer, Stereo Autogain, and Quad Autogain CLAP implementations used by the plugin builds. It offers stereo, quad, and direct eight-channel Core Audio output and launches monitoring-muted. Check its processor chain with <code>cmake --build build-apps --target audit_no_input_mixer_standalone</code>.</p>
 
         <p>Vox Builder uses the same pinned WORLD dependency as Ambi Encoder Vox. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
 

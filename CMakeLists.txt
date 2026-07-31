@@ -214,6 +214,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_preset_output_preservation_clap_smoke
+    tests/preset_output_preservation_clap_smoke.cpp)
+  target_include_directories(s3g_preset_output_preservation_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_preset_output_preservation_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
   add_executable(s3g_spectral_spray_clap_routing_smoke
     tests/spectral_spray_clap_routing_smoke.cpp)
   target_include_directories(s3g_spectral_spray_clap_routing_smoke PRIVATE
@@ -345,6 +352,35 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_cascade_taps)
   add_subdirectory(plugins/clap_crcltr)
 
+  find_program(S3G_CLAP_VALIDATOR_EXECUTABLE NAMES clap-validator)
+  if(S3G_CLAP_VALIDATOR_EXECUTABLE)
+    if(APPLE)
+      set(S3G_SPEAKER_DECODER_VALIDATOR_PATH
+        $<TARGET_BUNDLE_DIR:s3g_ambi_speaker_decoder_clap>)
+      set(S3G_STOCHASTIC_ENCODER_VALIDATOR_PATH
+        $<TARGET_BUNDLE_DIR:s3g_ambi_stochastic_encoder_clap>)
+    else()
+      set(S3G_SPEAKER_DECODER_VALIDATOR_PATH
+        $<TARGET_FILE:s3g_ambi_speaker_decoder_clap>)
+      set(S3G_STOCHASTIC_ENCODER_VALIDATOR_PATH
+        $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap>)
+    endif()
+    add_custom_target(audit_clap_state_validator
+      COMMAND ${S3G_CLAP_VALIDATOR_EXECUTABLE} validate
+        --no-parallel --only-failed
+        --test-filter state-reproducibility|state-buffered
+        ${S3G_SPEAKER_DECODER_VALIDATOR_PATH}
+      COMMAND ${S3G_CLAP_VALIDATOR_EXECUTABLE} validate
+        --no-parallel --only-failed
+        --test-filter param-conversions|state-reproducibility|state-buffered
+        ${S3G_STOCHASTIC_ENCODER_VALIDATOR_PATH}
+      DEPENDS
+        s3g_ambi_speaker_decoder_clap
+        s3g_ambi_stochastic_encoder_clap
+      COMMENT "Validating Speaker Decoder and Stochastic parameter/state contracts"
+      VERBATIM)
+  endif()
+
   add_custom_target(audit_spectral_spray_routing
     COMMAND $<TARGET_FILE:s3g_spectral_spray_clap_routing_smoke>
       $<TARGET_FILE:s3g_spectral_spray_clap>
@@ -405,6 +441,51 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_ambi_insect_encoder_clap
       s3g_no_input_mixer_clap
     COMMENT "Validating shared Parameter Surface DSP, CLAP parameters, and state")
+
+  add_custom_target(audit_preset_output_preservation
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_accelerometer_field_encoder_clap>
+      org.s3g.s3g-dsp.accelerometer-field-encoder-16 30 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_cryosphere_encoder_clap>
+      org.s3g.s3g-dsp.ambi-cryosphere-encoder-64 34 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_insect_encoder_clap>
+      org.s3g.s3g-dsp.ambi-insect-encoder-64 32 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_neural_ecology_clap>
+      org.s3g.s3g-dsp.ambi-neural-ecology-64 33 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap>
+      org.s3g.s3g-dsp.ambi-pulsar-encoder-64 48 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap>
+      org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64 32 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_water_encoder_clap>
+      org.s3g.s3g-dsp.ambi-water-encoder-64 34 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_wind_encoder_clap>
+      org.s3g.s3g-dsp.ambi-wind-encoder-64 32 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_wrangler_encoder_clap>
+      org.s3g.s3g-dsp.ambi-wrangler-encoder-64 32 1 1
+    COMMAND $<TARGET_FILE:s3g_preset_output_preservation_clap_smoke>
+      $<TARGET_FILE:s3g_psd_raw_field_clap>
+      org.s3g.s3g-dsp.fault 17 50 1
+    DEPENDS
+      s3g_preset_output_preservation_clap_smoke
+      s3g_accelerometer_field_encoder_clap
+      s3g_ambi_cryosphere_encoder_clap
+      s3g_ambi_insect_encoder_clap
+      s3g_ambi_neural_ecology_clap
+      s3g_ambi_pulsar_encoder_clap
+      s3g_ambi_pyrosphere_encoder_clap
+      s3g_ambi_water_encoder_clap
+      s3g_ambi_wind_encoder_clap
+      s3g_ambi_wrangler_encoder_clap
+      s3g_psd_raw_field_clap
+    COMMENT "Checking that factory presets preserve user output levels")
 
   if(APPLE)
     add_custom_target(audit_gui_encoder_family
@@ -697,6 +778,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
 endif()
 
 if(S3G_BUILD_STANDALONE_APPS)
+  add_subdirectory(standalone)
   add_subdirectory(apps/multi_loop_processor_standalone)
+  add_subdirectory(apps/no_input_mixer_standalone)
   add_subdirectory(apps/vox_builder)
 endif()

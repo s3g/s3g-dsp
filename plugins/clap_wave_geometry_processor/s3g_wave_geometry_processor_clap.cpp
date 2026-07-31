@@ -801,9 +801,21 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    const auto parseNamed = [display, value](uint32_t count, const auto& nameForIndex) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, nameForIndex(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (id == kTopologyShapeParamId) return parseNamed(s3g::kTopologyShapeCount, s3g::topologyShapeName);
+    if (id == kTopologyMotionParamId) return parseNamed(s3g::kTopologyMotionModeCount, s3g::topologyMotionModeName);
+    if (id == kTopologyVariantParamId) return parseNamed(s3g::kTopologyVariantCount, s3g::topologyVariantName);
     *value = std::atof(display);
     if (std::strchr(display, '%')) *value *= 0.01;
     return true;
@@ -955,6 +967,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     auto* p = self(plugin);
     syncGuiSettings(*p);
     s.settings = p->settings;
+    // Motion phase advances while processing and has no corresponding CLAP
+    // parameter. Serialize a canonical phase for reproducible snapshots.
+    s.settings.topology.motionPhase = 0.0;
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
         s.patchRows[row] = p->patch.rowMask(row);
     }

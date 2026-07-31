@@ -141,6 +141,18 @@ cmake --build --preset apps
 open "build-apps/apps/vox_builder/s3g Vox Builder.app"
 ```
 
+The apps preset also builds `s3g No Input Mixer`, a safety-muted standalone
+host for the existing No Input Mixer CLAP implementation. Its output section
+selects Stereo Autogain, Quad Autogain, or direct eight-channel Core Audio
+output. The reusable host architecture is documented in
+[`standalone/README.md`](standalone/README.md).
+
+```sh
+cmake --build build-apps --target s3g_no_input_mixer_app
+cmake --build build-apps --target audit_no_input_mixer_standalone
+open "build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app"
+```
+
 ## Install Locally
 
 On macOS, install the built CLAP bundles into the user CLAP plugin folder:

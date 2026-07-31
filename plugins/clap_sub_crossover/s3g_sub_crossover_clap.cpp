@@ -1,5 +1,6 @@
 #include "s3g_realtime.h"
 #include "s3g_sub_crossover.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -309,9 +310,28 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (paramId == kParamLayout) {
+        for (uint32_t index = 0u; index < kLayoutCount; ++index) {
+            if (std::strcmp(display, s3g::layoutPannerPresetName(static_cast<s3g::LayoutPannerPreset>(index))) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (paramId == kParamMode) {
+        if (std::strcmp(display, "SPLIT") == 0) { *value = 0.0; return true; }
+        if (std::strcmp(display, "SEND") == 0) { *value = 1.0; return true; }
+        return false;
+    }
+    if (paramId == kParamBypass || paramId == kParamFoldBypass) {
+        if (std::strcmp(display, "OFF") == 0) { *value = 0.0; return true; }
+        if (std::strcmp(display, "ON") == 0) { *value = 1.0; return true; }
+        return false;
+    }
     *value = std::atof(display);
     return true;
 }
@@ -327,14 +347,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const SavedState state { kStateVersion, self(plugin)->params };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
-    if (stream->read(stream, &state, sizeof(state)) != static_cast<int64_t>(sizeof(state))) return false;
+    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))) return false;
     if (state.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = sanitize(state.params);

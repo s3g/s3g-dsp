@@ -1,5 +1,6 @@
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/ambisonic.h>
@@ -258,7 +259,19 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
 bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (paramId == kParamWeighting) {
+        for (uint32_t index = 0u; index <= 3u; ++index) {
+            if (std::strcmp(display, weightingName(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
     *value = std::atof(display);
+    if (paramId == kParamBlend || (paramId >= kParamOrder0 && paramId <= kParamOrder7)) {
+        *value *= 0.01;
+    }
     return (paramId >= kParamOrder && paramId <= kParamOutput) || (paramId >= kParamOrder0 && paramId <= kParamOrder7);
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
@@ -268,14 +281,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const SavedState state { kStateVersion, self(plugin)->params };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
-    const int64_t got = stream->read(stream, &state, sizeof(state));
-    if (got != static_cast<int64_t>(sizeof(state)) || state.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))
+        || state.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = s3g::sanitizeAmbiOrderBandParams(state.params);
     p->processor.setParams(p->params);

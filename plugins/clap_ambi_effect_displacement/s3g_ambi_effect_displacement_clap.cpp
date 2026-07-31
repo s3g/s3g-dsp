@@ -1241,7 +1241,9 @@ uint32_t displacementRowForParam(clap_id param)
 {
     const double value = getParam(*_plugin, param);
     CGFloat normalized = static_cast<CGFloat>(std::clamp((value - minimum) / std::max(0.000001, maximum - minimum), 0.0, 1.0));
-    if (param == kParamRate || param == kParamLength) {
+    if (param == kParamMaskAzimuth) {
+        normalized = s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    } else if (param == kParamRate || param == kParamLength) {
         normalized = static_cast<CGFloat>(std::clamp(
             std::log(std::max(minimum, value) / minimum) / std::log(maximum / minimum), 0.0, 1.0));
     }
@@ -1655,7 +1657,10 @@ uint32_t displacementRowForParam(clap_id param)
     const double normalized =
         std::clamp((point.x - controlX) / trackWidth, 0.0, 1.0);
     double value = definition->minimum + normalized * (definition->maximum - definition->minimum);
-    if (param == kParamRate || param == kParamLength) {
+    if (param == kParamMaskAzimuth) {
+        value = s3g::aedAzimuthFromSliderNorm(
+            static_cast<float>(normalized));
+    } else if (param == kParamRate || param == kParamLength) {
         value = definition->minimum * std::pow(definition->maximum / definition->minimum, normalized);
     }
     [self setParam:param value:value];

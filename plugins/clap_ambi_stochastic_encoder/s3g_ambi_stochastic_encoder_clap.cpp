@@ -1278,6 +1278,56 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (!display || !value) return false;
     const auto* definition = paramDef(id);
     if (!definition) return false;
+    auto parseNamedValue = [display, value](uint32_t count, auto name) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, name(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (id == kModeParamId
+        && parseNamedValue(3u, [](uint32_t index) {
+            return s3g::ambiStochasticModeName(
+                static_cast<s3g::AmbiStochasticMode>(index));
+        })) {
+        return true;
+    }
+    if (id == kSelectionParamId
+        && parseNamedValue(6u, [](uint32_t index) {
+            return s3g::ambiStochasticSelectionName(
+                static_cast<s3g::AmbiStochasticSelection>(index));
+        })) {
+        return true;
+    }
+    if (id == kTransitionParamId
+        && parseNamedValue(3u, [](uint32_t index) {
+            return s3g::ambiStochasticTransitionName(
+                static_cast<s3g::AmbiStochasticTransition>(index));
+        })) {
+        return true;
+    }
+    if ((id == kAmplitudeDistributionParamId
+            || id == kDurationDistributionParamId)
+        && parseNamedValue(7u, [](uint32_t index) {
+            return s3g::ambiStochasticDistributionName(
+                static_cast<s3g::AmbiStochasticDistribution>(index));
+        })) {
+        return true;
+    }
+    if (id == kTopologyShapeParamId
+        && parseNamedValue(s3g::kTopologyShapeCount,
+            [](uint32_t index) { return s3g::topologyShapeName(index); })) {
+        return true;
+    }
+    if (id == kTopologyMotionParamId
+        && parseNamedValue(s3g::kTopologyMotionModeCount,
+            [](uint32_t index) {
+                return s3g::topologyMotionModeName(index);
+            })) {
+        return true;
+    }
     if (id == kFieldListenModeParamId) {
         static constexpr const char* names[] { "OFF", "LOCAL", "CROSS", "DIFFUSE", "ROAMING" };
         for (uint32_t index = 0u; index < std::size(names); ++index) {
@@ -1290,7 +1340,26 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         if (std::strcmp(display, "COUNTER") == 0) { *value = 2.0; return true; }
         if (std::strcmp(display, "BALANCE") == 0) { *value = 3.0; return true; }
     }
-    *value = std::clamp(std::atof(display), definition->minimum, definition->maximum);
+    const char* numeric = display;
+    if (id == kBaseNoteParamId && numeric[0] == 'M') ++numeric;
+    double parsed = std::atof(numeric);
+    const bool percentage = id == kAmplitudeStepParamId
+        || id == kDurationStepParamId
+        || id == kAmplitudeRangeParamId
+        || id == kDurationRangeParamId
+        || id == kFieldDensityParamId
+        || id == kNeighborTransferParamId
+        || id == kSelectionMemoryParamId
+        || id == kFieldContrastParamId
+        || id == kSustainParamId
+        || id == kTopologyAmountParamId
+        || id == kTopologyDepthParamId
+        || id == kTopologyCollapseParamId
+        || id == kTopologyTwistParamId
+        || id == kSpatialFollowParamId
+        || id == kFieldListenAmountParamId;
+    if (percentage) parsed *= 0.01;
+    *value = std::clamp(parsed, definition->minimum, definition->maximum);
     return true;
 }
 
@@ -1325,7 +1394,18 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.guiViewZoom = state->guiViewZoom;
 #endif
     saved.surface = state->surface;
-    return stream->write(stream, &saved, sizeof(saved)) == static_cast<int64_t>(sizeof(saved));
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&saved);
+    uint64_t written = 0u;
+    while (written < sizeof(saved)) {
+        const int64_t amount = stream->write(
+            stream, bytes + written, sizeof(saved) - written);
+        if (amount <= 0
+            || static_cast<uint64_t>(amount) > sizeof(saved) - written) {
+            return false;
+        }
+        written += static_cast<uint64_t>(amount);
+    }
+    return true;
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -1625,6 +1705,8 @@ double sliderCurvePower(clap_id id)
 
 double sliderNorm(const GuiSliderSpec& spec, double value)
 {
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
     value = std::clamp(value, spec.minimum, spec.maximum);
     if (spec.logarithmic) return std::log(value / spec.minimum) / std::log(spec.maximum / spec.minimum);
     const double linear = (value - spec.minimum) / (spec.maximum - spec.minimum);
@@ -1640,6 +1722,8 @@ double sliderNorm(const GuiSliderSpec& spec, double value)
 double sliderValue(const GuiSliderSpec& spec, double norm)
 {
     norm = std::clamp(norm, 0.0, 1.0);
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm));
     if (spec.logarithmic) return spec.minimum * std::pow(spec.maximum / spec.minimum, norm);
     const double power = sliderCurvePower(spec.id);
     double linear = std::pow(norm, power);

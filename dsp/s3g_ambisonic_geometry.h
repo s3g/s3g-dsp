@@ -18,6 +18,42 @@ struct Vec3 {
     float z = 0.0f;
 };
 
+// AED uses the ambisonic axis convention: +Y is listener-left, so +90
+// degrees is left and -90 degrees is right when viewed from above.  A
+// horizontal position control therefore runs from positive azimuth on its
+// left to negative azimuth on its right.
+inline float aedAzimuthSliderNorm(float azimuthDeg)
+{
+    return clamp((180.0f - azimuthDeg) / 360.0f, 0.0f, 1.0f);
+}
+
+inline float aedAzimuthFromSliderNorm(float norm)
+{
+    return 180.0f - clamp(norm, 0.0f, 1.0f) * 360.0f;
+}
+
+struct AedViewProjection {
+    float horizontal = 0.0f;
+    float vertical = 0.0f;
+    float depth = 0.0f;
+};
+
+inline AedViewProjection projectAedDirection(
+    Vec3 direction, float viewAzimuthDeg, float viewElevationDeg)
+{
+    const float yaw = viewAzimuthDeg * kPi / 180.0f;
+    const float elevation = viewElevationDeg * kPi / 180.0f;
+    const float rotatedX = direction.x * std::cos(yaw)
+        - direction.y * std::sin(yaw);
+    const float rotatedY = direction.x * std::sin(yaw)
+        + direction.y * std::cos(yaw);
+    return {
+        rotatedX,
+        rotatedY * std::cos(elevation) - direction.z * std::sin(elevation),
+        rotatedY * std::sin(elevation) + direction.z * std::cos(elevation),
+    };
+}
+
 inline constexpr std::array<Vec3, kAmbisonicSphere24PointCount> kAmbisonicSphere24Points {{
     { 0.285652275f, 0.000000000f, 0.958333333f },
     { -0.356977173f, 0.327020333f, 0.875000000f },

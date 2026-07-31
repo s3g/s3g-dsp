@@ -54,16 +54,10 @@ struct ProjectedBody {
 NSPoint projectTraceDirection(s3g::Vec3 direction, float azimuthDeg,
     float elevationDeg)
 {
-    const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
-    const float elevation = elevationDeg * s3g::kPi / 180.0f;
-    const float x = direction.x * std::cos(yaw)
-        - direction.y * std::sin(yaw);
-    const float y = direction.x * std::sin(yaw)
-        + direction.y * std::cos(yaw);
-    const float projectedY = y * std::cos(elevation)
-        + direction.z * std::sin(elevation);
-    return NSMakePoint(NSMidX(kPlot) + x * 188.0f,
-        NSMidY(kPlot) - projectedY * 188.0f);
+    const auto projected = s3g::projectAedDirection(
+        direction, azimuthDeg, -elevationDeg);
+    return NSMakePoint(NSMidX(kPlot) + projected.horizontal * 188.0f,
+        NSMidY(kPlot) - projected.vertical * 188.0f);
 }
 
 ProjectedBody projectTraceBody(s3g::AmbiEffectBody body, float azimuthDeg,
@@ -72,14 +66,10 @@ ProjectedBody projectTraceBody(s3g::AmbiEffectBody body, float azimuthDeg,
     ProjectedBody result {};
     const auto directions = s3g::ambiEffectBodyDirections(body);
     const uint32_t count = s3g::ambiEffectBodyPickupCount(body);
-    const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
-    const float elevation = elevationDeg * s3g::kPi / 180.0f;
     for (uint32_t node = 0u; node < count; ++node) {
         const auto direction = directions[node];
-        const float y = direction.x * std::sin(yaw)
-            + direction.y * std::cos(yaw);
-        result.depths[node] = -y * std::sin(elevation)
-            + direction.z * std::cos(elevation);
+        result.depths[node] = s3g::projectAedDirection(
+            direction, azimuthDeg, -elevationDeg).depth;
         result.points[node] = projectTraceDirection(direction,
             azimuthDeg, elevationDeg);
     }
@@ -130,7 +120,7 @@ constexpr GuiSlider mixSlider {
 
 constexpr GuiSlider maskSliders[] {
     { kParamMaskAmount, "MASK", 0, 1, 0, false },
-    { kParamMaskAzimuth, "AZIMUTH", -180, 180, 0, false },
+    { kParamMaskAzimuth, "AZIMUTH", -180, 180, 0, false, true },
     { kParamMaskElevation, "ELEVATION", -90, 90, 0, false, true },
     { kParamMaskWidth, "WIDTH", 0, 1, 0.35, false },
     { kParamMaskCurve, "CURVE", 0, 1, 0.5, false },
@@ -444,13 +434,9 @@ bool sliderLocation(clap_id id, const s3g::gui_layout::Panel*& panel,
         }
     }
     if (instance->params.maskAmount > 0.001f) {
-        const float azimuth = instance->params.maskAzimuthDeg
-            * s3g::kPi / 180.0f;
-        const float elevation = instance->params.maskElevationDeg
-            * s3g::kPi / 180.0f;
-        const float cosElevation = std::cos(elevation);
-        const s3g::Vec3 direction { cosElevation * std::cos(azimuth),
-            cosElevation * std::sin(azimuth), std::sin(elevation) };
+        const s3g::Vec3 direction = s3g::directionFromAed(
+            instance->params.maskAzimuthDeg,
+            instance->params.maskElevationDeg);
         const NSPoint target = projectTraceDirection(direction,
             static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
         const CGFloat radius = 15.0 + instance->params.maskWidth * 38.0;

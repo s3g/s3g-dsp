@@ -23,6 +23,7 @@
 #include <mutex>
 #include <new>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -1705,6 +1706,16 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
     auto* pluginState = self(plugin);
+    // Most decoder changes are rebuilt on the background worker so the audio
+    // thread never constructs a decoding matrix. Parameter queries are a
+    // main-thread operation in CLAP, and must observe every event already
+    // accepted by process()/flush(). Without this synchronization a host can
+    // query the old snapshot immediately after process(), then save the newer
+    // worker snapshot, making the same state appear to reload differently.
+    if (!waitForSubmittedCommands(
+            *pluginState, std::chrono::milliseconds(2000))) {
+        return false;
+    }
     auto snapshot = acquireDecoderSnapshot(*pluginState);
     const auto p = visibleDecoderParams(
         *pluginState, snapshot.decoder(), snapshot.runtimeMixer());
@@ -1821,7 +1832,13 @@ bool readStateBytes(
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    SavedState s {};
+    SavedState s;
+    // This version's wire format is the raw legacy aggregate. Clear it first
+    // so padding after bool members is deterministic across save/load cycles.
+    // Member-wise assignment does not copy padding bytes.
+    static_assert(std::is_trivially_copyable_v<SavedState>);
+    std::memset(&s, 0, sizeof(s));
+    s.version = kStateVersion;
     auto* p = self(plugin);
     if (!waitForSubmittedCommands(*p, std::chrono::milliseconds(2000))) return false;
     {
@@ -3069,7 +3086,9 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         ? static_cast<CGFloat>(prm.selectedSpeaker) / static_cast<CGFloat>(prm.activeSpeakers - 1u)
         : 0.0;
     [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", prm.selectedSpeaker + 1u] norm:selectedNorm y:366 attrs:small style:style];
-    [self drawSlider:@"AZ" value:@"" norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:392 attrs:small style:style];
+    [self drawSlider:@"AZ" value:@""
+        norm:s3g::aedAzimuthSliderNorm(prm.selectedAzimuthDeg)
+        y:392 attrs:small style:style];
     [self drawSlider:@"EL" value:@"" norm:(prm.selectedElevationDeg + 90.0f) / 180.0f y:418 attrs:small style:style];
     [self drawSlider:@"DST" value:@"" norm:(prm.selectedDistance - 0.15f) / 1.85f y:444 attrs:small style:style];
     [self updateValueFields];
@@ -3086,7 +3105,8 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     case 4: applyParam(*p, kActiveSpeakersParamId, 2.0 + n * 62.0); break;
     case 6: applyParam(*p, kWidthParamId, n * 1.50); break;
     case 7: applyParam(*p, kSelectedSpeakerParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSpeakers) - 1u)); break;
-    case 8: applyParam(*p, kAzimuthParamId, -180.0 + n * 360.0); break;
+    case 8: applyParam(*p, kAzimuthParamId,
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(n))); break;
     case 9: applyParam(*p, kElevationParamId, -90.0 + n * 180.0); break;
     case 10: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
     case 11: applyParam(*p, kSpeakerGainParamId, n * 2.0); break;

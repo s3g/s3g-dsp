@@ -2074,8 +2074,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.routeTurn = p->routeTurn;
     state.routeBranch = p->routeBranch;
     state.routeLoss = p->routeLoss;
-    state.topologyMotionPhase = p->publishedMotionPhase.load(
-        std::memory_order_relaxed);
+    // Motion phase is runtime transport state, not a host parameter. Omitting
+    // it keeps process() and params.flush() snapshots reproducible.
+    state.topologyMotionPhase = 0.0;
     return writeAll(stream, &state, sizeof(state));
 }
 

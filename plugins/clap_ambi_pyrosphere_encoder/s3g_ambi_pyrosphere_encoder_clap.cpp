@@ -1269,6 +1269,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     }
 
     *value = std::atof(display);
+    if (id == kRateModeAParamId
+        && (std::strstr(display, "mHz") || std::strstr(display, "mhz"))) {
+        *value *= 0.001;
+        return true;
+    }
     if (id == kRateBParamId) {
         if (std::strstr(display, "mHz") || std::strstr(display, "mhz")) {
             *value *= 0.001;
@@ -1481,6 +1486,8 @@ const GuiSliderSpec* guiSliderSpec(clap_id id)
 
 double sliderNorm(const GuiSliderSpec& spec, double value)
 {
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
     if (spec.logarithmic) {
         if (spec.min <= 0.0) {
             if (value <= 0.0) return 0.0;
@@ -1499,6 +1506,8 @@ double sliderNorm(const GuiSliderSpec& spec, double value)
 double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     const double norm = std::clamp((static_cast<double>(point.x) - (spec.panelX + 108.0)) / 82.0, 0.0, 1.0);
+    if (spec.id == kAzimuthParamId) return
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm));
     if (spec.logarithmic) {
         if (spec.min <= 0.0) {
             constexpr double zeroZone = 0.02;

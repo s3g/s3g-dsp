@@ -38,6 +38,25 @@ or newer). It is not compiled for Intel Macs and is not a universal binary.
   responsive layout audits, signal-flow explanations, parameter references,
   and installation guidance.
 
+## Reliability fixes in this replacement build
+
+- Makes CLAP saved state deterministic and resilient to short or buffered host
+  streams across the stateful plugin families. This includes synchronizing the
+  Speaker Decoder's background layout worker before state capture and fixing
+  Stochastic Encoder state and parameter-text conversions.
+- Stabilizes Layout, DBAP, LBAP, and VBAP Panner state restoration so the saved
+  layout, selected source, and source coordinates are reapplied together. This
+  addresses a path that could leave REAPER channel behavior appearing
+  inconsistent after using multiple panner instances.
+- Corrects named-value and unit conversions found by the CLAP validator across
+  encoder, decoder, processor, matrix, mixer, and compact-effect families.
+- Preserves a user's output-volume setting when loading presets, matching the
+  existing Random behavior, and aligns AED azimuth controls, DSP positioning,
+  and spatial diagrams to +90 degrees on the left and -90 degrees on the right.
+- Adds regression checks for saved-state reproducibility, buffered state I/O,
+  parameter conversions, preset output preservation, and Spectral Spray when a
+  wider-channel plugin precedes it on a REAPER track.
+
 ## Installation
 
 The packaged pre-release supports REAPER on Apple silicon (`arm64`) Macs. It is

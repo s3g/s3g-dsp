@@ -1,5 +1,6 @@
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/ambisonic.h>
@@ -254,6 +255,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
 {
     if (!display || !value) return false;
     *value = std::atof(display);
+    if (paramId == kParamSpread || paramId == kParamTilt || paramId == kParamTwist) {
+        *value *= 0.01;
+    }
     return paramId >= kParamOrder && paramId <= kParamOutput;
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
@@ -264,35 +268,46 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     const auto* p = self(plugin);
     const SavedState state { kStateVersion, p->params, p->guiViewMode };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedState state {};
-    const int64_t got = stream->read(stream, &state, sizeof(state));
     auto* p = self(plugin);
-    if (got == static_cast<int64_t>(sizeof(state)) && state.version == kStateVersion) {
+    uint32_t version = 0u;
+    if (!s3g::clap_state::readAll(stream, &version, sizeof(version))) return false;
+    if (version == kStateVersion) {
+        SavedState state {};
+        state.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(version),
+                sizeof(state) - sizeof(version))) return false;
         p->params = s3g::sanitizeAmbiRotateParams(state.params);
         p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, -1, 2);
-    } else if (got == static_cast<int64_t>(sizeof(SavedStateV2))) {
-        const auto* old = reinterpret_cast<const SavedStateV2*>(&state);
-        if (old->version != 2u) return false;
-        p->params = s3g::sanitizeAmbiRotateParams(old->params);
+    } else if (version == 2u) {
+        SavedStateV2 old {};
+        old.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&old) + sizeof(version),
+                sizeof(old) - sizeof(version))) return false;
+        p->params = s3g::sanitizeAmbiRotateParams(old.params);
         p->guiViewMode = 2;
-    } else if (got == static_cast<int64_t>(sizeof(OldSavedStateV1))) {
-        const auto* old = reinterpret_cast<const OldSavedStateV1*>(&state);
-        if (old->version != 1u) return false;
+    } else if (version == 1u) {
+        OldSavedStateV1 old {};
+        old.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&old) + sizeof(version),
+                sizeof(old) - sizeof(version))) return false;
         p->params = s3g::sanitizeAmbiRotateParams({
-            old->params.order,
-            old->params.yawDeg,
-            old->params.pitchDeg,
-            old->params.rollDeg,
+            old.params.order,
+            old.params.yawDeg,
+            old.params.pitchDeg,
+            old.params.rollDeg,
             0.0f,
             0.0f,
             0.0f,
-            old->params.width,
-            old->params.outputGainDb,
+            old.params.width,
+            old.params.outputGainDb,
         });
     } else {
         return false;

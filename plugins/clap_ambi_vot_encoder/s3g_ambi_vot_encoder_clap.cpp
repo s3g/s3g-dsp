@@ -871,6 +871,20 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    const auto parseNamed = [display, value](uint32_t count, const auto& nameForIndex) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, nameForIndex(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (id == kModeParamId) return parseNamed(3u, [](uint32_t index) { return s3g::ambiVotModeName(static_cast<s3g::AmbiVotMode>(index)); });
+    if (id == kPresetParamId) return parseNamed(5u, [](uint32_t index) { return s3g::ambiVotPresetName(static_cast<s3g::AmbiVotPreset>(index)); });
+    if (id == kMotionSceneParamId) return parseNamed(5u, [](uint32_t index) { return s3g::ambiVotMotionSceneName(static_cast<s3g::AmbiVotMotionScene>(index)); });
+    if (id == kMotionClockParamId) return parseNamed(2u, [](uint32_t index) { return s3g::ambiVotMotionClockName(static_cast<s3g::AmbiVotMotionClock>(index)); });
+    if (id == kScoreModeParamId) return parseNamed(4u, [](uint32_t index) { return s3g::ambiVotScoreModeName(static_cast<s3g::AmbiVotScoreMode>(index)); });
     if (id == kScaleParamId) {
         uint32_t scale = 0u;
         if (!s3g::musicalScaleValueFromText(display, scale)) return false;
@@ -878,6 +892,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         return true;
     }
     *value = std::atof(display);
+    if (id == kDetuneParamId || id == kPitchSpreadParamId || id == kMotionAmountParamId
+        || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId
+        || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId
+        || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId
+        || id == kSubharmonicsParamId || id == kScoreDepthParamId) {
+        *value *= 0.01;
+    }
     return true;
 }
 
@@ -1775,7 +1796,9 @@ static std::vector<float> readWavMono(NSURL* url)
 - (void)drawSliderAtX:(CGFloat)panelX name:(NSString*)name param:(clap_id)param value:(double)value min:(double)min max:(double)max y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     double norm = (value - min) / std::max(0.000001, max - min);
-    if (param == kMotionRateParamId || param == kScoreDurationParamId) norm = std::log(value / min) / std::log(max / min);
+    if (param == kCenterAzimuthParamId) norm =
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
+    else if (param == kMotionRateParamId || param == kScoreDurationParamId) norm = std::log(value / min) / std::log(max / min);
     else if (param == kAttackParamId || param == kDecayParamId || param == kReleaseParamId) norm = std::log(value / min) / std::log(max / min);
     char text[64] {};
     paramsValueToText(nullptr, param, value, text, sizeof(text));
@@ -2009,7 +2032,8 @@ static std::vector<float> readWavMono(NSURL* url)
     case kMotionRateParamId: value = 0.001 * std::pow(2000.0, norm); break;
     case kScoreDurationParamId: value = 0.25 * std::pow(240.0, norm); break;
     case kSyncDivisionParamId: value = 0.25 + norm * 63.75; break;
-    case kCenterAzimuthParamId: value = -180.0 + norm * 360.0; break;
+    case kCenterAzimuthParamId: value = s3g::aedAzimuthFromSliderNorm(
+        static_cast<float>(norm)); break;
     case kCenterElevationParamId: value = -90.0 + norm * 180.0; break;
     case kCenterDistanceParamId: value = 0.15 + norm * 1.85; break;
     case kNeighborRadiusParamId: value = 0.05 + norm * 3.95; break;

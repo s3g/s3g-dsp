@@ -76,6 +76,63 @@ bool bodyDefaultsCheck()
             == s3g::AmbiEffectBody::Icosa12;
 }
 
+bool aedConventionCheck()
+{
+    const auto left = s3g::directionFromAed(90.0f, 0.0f);
+    const auto right = s3g::directionFromAed(-90.0f, 0.0f);
+    const auto leftTop = s3g::projectAedDirection(left, 90.0f, 0.0f);
+    const auto rightTop = s3g::projectAedDirection(right, 90.0f, 0.0f);
+    if (left.y < 0.999f || right.y > -0.999f
+        || leftTop.horizontal > -0.999f
+        || rightTop.horizontal < 0.999f
+        || std::fabs(s3g::aedAzimuthSliderNorm(90.0f) - 0.25f)
+            > 1.0e-6f
+        || std::fabs(s3g::aedAzimuthSliderNorm(-90.0f) - 0.75f)
+            > 1.0e-6f
+        || std::fabs(s3g::aedAzimuthFromSliderNorm(0.25f) - 90.0f)
+            > 1.0e-6f
+        || std::fabs(s3g::aedAzimuthFromSliderNorm(0.75f) + 90.0f)
+            > 1.0e-6f) {
+        return false;
+    }
+
+    s3g::AmbiEffectDjFilterParams params {};
+    params.order = 1u;
+    params.body = s3g::AmbiEffectBody::Icosa12;
+    params.maskAmount = 1.0f;
+    params.maskWidth = 0.0f;
+    params.maskCurve = 1.0f;
+
+    s3g::AmbiEffectDjFilter processor;
+    processor.prepare(kSampleRate);
+    processor.setParams(params);
+    processor.reset();
+    uint32_t leftNode = 0u;
+    uint32_t rightNode = 0u;
+    for (uint32_t node = 1u; node < processor.activePickupCount(); ++node) {
+        if (processor.nodeDirection(node).y
+            > processor.nodeDirection(leftNode).y) leftNode = node;
+        if (processor.nodeDirection(node).y
+            < processor.nodeDirection(rightNode).y) rightNode = node;
+    }
+
+    params.maskAzimuthDeg = 90.0f;
+    processor.setParams(params);
+    processor.reset();
+    const float leftAtPositive = processor.nodeWetMask(leftNode);
+    const float rightAtPositive = processor.nodeWetMask(rightNode);
+    params.maskAzimuthDeg = -90.0f;
+    processor.setParams(params);
+    processor.reset();
+    const float leftAtNegative = processor.nodeWetMask(leftNode);
+    const float rightAtNegative = processor.nodeWetMask(rightNode);
+    std::printf("AED convention mask +90 L/R %.3f/%.3f; -90 L/R %.3f/%.3f\n",
+        leftAtPositive, rightAtPositive,
+        leftAtNegative, rightAtNegative);
+    return leftAtPositive > rightAtPositive + 0.25f
+        && rightAtNegative > leftAtNegative + 0.25f;
+}
+
 bool openIdentityCheck()
 {
     constexpr uint32_t frames = 257u;
@@ -350,6 +407,10 @@ bool automationSafetyCheck()
 
 int main()
 {
+    if (!aedConventionCheck()) {
+        std::fprintf(stderr, "AED direction convention failed\n");
+        return 1;
+    }
     if (!bodyDefaultsCheck()) {
         std::fprintf(stderr, "Ambi Effect body defaults failed\n");
         return 1;

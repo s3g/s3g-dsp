@@ -2525,6 +2525,8 @@ const GuiSliderSpec* guiSlider(clap_id id)
 
 double sliderNorm(const GuiSliderSpec& slider, double value)
 {
+    if (slider.id == kAzimuthParamId) return
+        s3g::aedAzimuthSliderNorm(static_cast<float>(value));
     if (slider.logarithmic) {
         const double minimum = std::max(0.001, slider.minimum);
         const double current = std::max(minimum, value);
@@ -2536,6 +2538,8 @@ double sliderNorm(const GuiSliderSpec& slider, double value)
 double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 {
     const double normalized = std::clamp((static_cast<double>(point.x) - (slider.x + 108.0)) / 82.0, 0.0, 1.0);
+    if (slider.id == kAzimuthParamId) return
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(normalized));
     if (slider.logarithmic) {
         const double minimum = std::max(0.001, slider.minimum);
         return minimum * std::pow(slider.maximum / minimum, normalized);

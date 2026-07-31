@@ -1,5 +1,6 @@
 #include "s3g_buffer_processor.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/params.h>
@@ -378,10 +379,29 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kSkipGridParamId || id == kErrorModeParamId) {
+        const auto name = id == kSkipGridParamId ? skipGridName : errorModeName;
+        for (uint32_t index = 0u; index <= 4u; ++index) {
+            if (std::strcmp(display, name(index)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kSkipSyncParamId) {
+        if (std::strcmp(display, "FREE") == 0) { *value = 0.0; return true; }
+        if (std::strcmp(display, "SYNC") == 0) { *value = 1.0; return true; }
+        return false;
+    }
     *value = std::atof(display);
+    if (id != kSizeParamId && id != kGlideParamId && id != kRateParamId
+        && id != kSkewParamId && id != kOutputParamId) {
+        *value *= 0.01;
+    }
     return true;
 }
 
@@ -393,14 +413,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     SavedState s {};
     s.params = self(plugin)->params;
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
     p->params = s.params;
     p->processor.setParams(p->params);

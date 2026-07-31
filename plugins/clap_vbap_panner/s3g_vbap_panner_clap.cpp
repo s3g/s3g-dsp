@@ -493,21 +493,77 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
-    *value = std::atof(display);
+    if (id == kLayoutParamId) {
+        for (uint32_t index = 0u; index < kLayoutCount; ++index) {
+            if (std::strcmp(display, s3g::layoutPannerPresetName(
+                    static_cast<s3g::LayoutPannerPreset>(
+                        layoutPresetForMenuIndex(index)))) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    } else if (id == kMethodParamId
+        && std::strcmp(display, s3g::layoutPannerMethodName(kFixedMethod)) == 0) {
+        *value = static_cast<double>(static_cast<uint32_t>(kFixedMethod));
+        return true;
+    } else if (id == kInsideModeParamId) {
+        for (uint32_t index = 0u; index <= 3u; ++index) {
+            if (std::strcmp(display, s3g::layoutPannerInsideModeName(
+                    static_cast<s3g::LayoutPannerInsideMode>(index))) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    } else if (id >= kSourceParamBase) {
+        const uint32_t offset = static_cast<uint32_t>(
+            (id - kSourceParamBase) % kSourceParamStride);
+        if (offset == kSourceMuteOffset || offset == kSourceSoloOffset) {
+            if (std::strcmp(display, "ON") == 0) { *value = 1.0; return true; }
+            if (std::strcmp(display, "OFF") == 0) { *value = 0.0; return true; }
+        }
+    }
+    *value = std::atof(id == kSelectedSourceParamId && display[0] == 'S'
+        ? display + 1 : display);
     return true;
 }
 
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
+bool writeStateBytes(const clap_ostream_t* stream, const void* source, size_t size)
+{
+    const auto* bytes = static_cast<const uint8_t*>(source);
+    size_t written = 0u;
+    while (written < size) {
+        const int64_t amount = stream->write(stream, bytes + written, size - written);
+        if (amount <= 0 || static_cast<uint64_t>(amount) > size - written) return false;
+        written += static_cast<size_t>(amount);
+    }
+    return true;
+}
+
+bool readStateBytes(const clap_istream_t* stream, void* destination, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(destination);
+    size_t read = 0u;
+    while (read < size) {
+        const int64_t amount = stream->read(stream, bytes + read, size - read);
+        if (amount <= 0 || static_cast<uint64_t>(amount) > size - read) return false;
+        read += static_cast<size_t>(amount);
+    }
+    return true;
+}
+
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
-    SavedState s {};
+    SavedState s;
+    std::memset(&s, 0, sizeof(s));
+    s.version = kStateVersion;
     s.params = p->panner.params();
     s.sources = p->panner.sources();
     s.speakers = p->panner.speakers();
@@ -517,26 +573,26 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.guiViewElDeg = p->guiViewElDeg;
     s.guiViewZoom = p->guiViewZoom;
 #endif
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return writeStateBytes(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     uint32_t version = 0;
-    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
+    if (!readStateBytes(stream, &version, sizeof(version))) return false;
     SavedState s {};
     s.version = version;
     if (version == kStateVersion) {
         char* rest = reinterpret_cast<char*>(&s) + sizeof(s.version);
         const size_t restSize = sizeof(s) - sizeof(s.version);
-        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        if (!readStateBytes(stream, rest, restSize)) return false;
     } else if (version == 6u) {
         SavedStateV6 legacy {};
         legacy.version = version;
         char* rest = reinterpret_cast<char*>(&legacy) + sizeof(legacy.version);
         const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
-        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        if (!readStateBytes(stream, rest, restSize)) return false;
         s.params = legacy.params;
         s.sources = legacy.sources;
         s.speakers = legacy.speakers;
@@ -545,7 +601,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         char* rest = reinterpret_cast<char*>(&legacy) + sizeof(legacy.version);
         const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
-        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        if (!readStateBytes(stream, rest, restSize)) return false;
         s.params.layout = legacy.params.layout;
         s.params.method = kFixedMethod;
         s.params.activeSources = s3g::kLayoutPannerSources;
@@ -574,6 +630,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (s.params.layout == s3g::LayoutPannerPreset::Custom) {
         p->panner.setSpeakers(s.speakers, s.params.activeSpeakers);
     }
+    p->panner.setParams(p->params);
     p->params = p->panner.params();
 #if defined(__APPLE__)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
@@ -1812,7 +1869,7 @@ static clap_id lpSliderParamId(int slider)
             ? static_cast<CGFloat>(params.selectedSpeaker) / static_cast<CGFloat>(params.activeSpeakers - 1u)
             : 0.0;
         [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", params.selectedSpeaker + 1u] norm:speakerNorm y:306 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:(speaker.azimuthDeg + 180.0f) / 360.0f y:332 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:s3g::aedAzimuthSliderNorm(speaker.azimuthDeg) y:332 attrs:small style:style];
         [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:358 attrs:small style:style];
         [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:384 attrs:small style:style];
     } else {
@@ -1833,7 +1890,7 @@ static clap_id lpSliderParamId(int slider)
         [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", params.focus] norm:(params.focus - 0.25f) / 3.75f y:196 attrs:small style:style];
         [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%.1f", params.distanceRolloffDb] norm:params.distanceRolloffDb / 48.0f y:222 attrs:small style:style];
         [self drawSlider:@"SMTH" value:[NSString stringWithFormat:@"%.0f", params.smoothingMs] norm:(params.smoothingMs - 1.0f) / 249.0f y:248 attrs:small style:style];
-        [self drawSlider:@"GAZ" value:[NSString stringWithFormat:@"%+.0f", params.globalAzimuthDeg] norm:(params.globalAzimuthDeg + 180.0f) / 360.0f y:274 attrs:small style:style];
+        [self drawSlider:@"GAZ" value:[NSString stringWithFormat:@"%+.0f", params.globalAzimuthDeg] norm:s3g::aedAzimuthSliderNorm(params.globalAzimuthDeg) y:274 attrs:small style:style];
         [self drawSlider:@"GEL" value:[NSString stringWithFormat:@"%+.0f", params.globalElevationDeg] norm:(params.globalElevationDeg + 90.0f) / 180.0f y:300 attrs:small style:style];
         [self drawSlider:@"GDST" value:[NSString stringWithFormat:@"%+.2f", params.globalDistanceOffset] norm:(params.globalDistanceOffset + 3.0f) / 6.0f y:326 attrs:small style:style];
         [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.2f", params.distanceDiffusion] norm:params.distanceDiffusion y:352 attrs:small style:style];
@@ -1844,7 +1901,7 @@ static clap_id lpSliderParamId(int slider)
             ? static_cast<CGFloat>(params.selectedSource) / static_cast<CGFloat>(params.activeSources - 1u)
             : 0.0;
         [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:470 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:496 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:s3g::aedAzimuthSliderNorm(source.azimuthDeg) y:496 attrs:small style:style];
         [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:522 attrs:small style:style];
         [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:548 attrs:small style:style];
         [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f dB", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:574 attrs:small style:style];
@@ -1874,7 +1931,8 @@ static clap_id lpSliderParamId(int slider)
             break;
         case 25: {
             auto sp = p->panner.speaker(params.selectedSpeaker);
-            sp.azimuthDeg = static_cast<float>(-180.0 + n * 360.0);
+            sp.azimuthDeg = s3g::aedAzimuthFromSliderNorm(
+                static_cast<float>(n));
             p->panner.setSpeaker(params.selectedSpeaker, sp);
             break;
         }
@@ -1901,7 +1959,8 @@ static clap_id lpSliderParamId(int slider)
     case 3: applyParam(*p, kFocusParamId, 0.25 + n * 3.75); break;
     case 4: applyParam(*p, kRolloffParamId, n * 48.0); break;
     case 5: applyParam(*p, kSmoothingParamId, 1.0 + n * 249.0); break;
-    case 6: applyParam(*p, kGlobalAzimuthParamId, -180.0 + n * 360.0); break;
+    case 6: applyParam(*p, kGlobalAzimuthParamId,
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(n))); break;
     case 7: applyParam(*p, kGlobalElevationParamId, -90.0 + n * 180.0); break;
     case 8: applyParam(*p, kGlobalDistanceParamId, -3.0 + n * 6.0); break;
     case 9: applyParam(*p, kDiffusionParamId, n); break;
@@ -1911,7 +1970,8 @@ static clap_id lpSliderParamId(int slider)
         applyParam(*p, kSelectedSourceParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSources) - 1u));
         break;
     }
-    case 12: applyParam(*p, kSelectedAzimuthParamId, -180.0 + n * 360.0); break;
+    case 12: applyParam(*p, kSelectedAzimuthParamId,
+        s3g::aedAzimuthFromSliderNorm(static_cast<float>(n))); break;
     case 13: applyParam(*p, kSelectedElevationParamId, -90.0 + n * 180.0); break;
     case 14: applyParam(*p, kSelectedDistanceParamId, 0.1 + n * 2.9); break;
     case 15: applyParam(*p, kSelectedGainParamId, -60.0 + n * 84.0); break;

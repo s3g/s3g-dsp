@@ -1,5 +1,6 @@
 #include "s3g_realtime.h"
 #include "s3g_shard_scatter.h"
+#include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/params.h>
@@ -243,7 +244,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value) { if (!display || !value) return false; *value = std::atof(display); return true; }
+bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value) { if (!display || !value) return false; *value = std::atof(display); if (std::strchr(display, '%')) *value *= 0.01; return true; }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
@@ -251,13 +252,13 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {}; s.params = self(plugin)->params;
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin); p->params = s.params; p->scatter.setParams(p->params); return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
