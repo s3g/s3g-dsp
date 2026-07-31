@@ -127,32 +127,6 @@ cmake -S . -B build-clap \
   -DS3G_ENABLE_WORLD=OFF
 ```
 
-## Voicebank Builder
-
-`s3g Vox Builder` is a macOS companion app for preparing Ambi Encoder Vox
-voicebanks from generated material, continuous recordings, or folders of WAV
-files. It provides segmentation, WORLD analysis, audition, timing edits, and
-UTAU-style export. See [Vox Builder](docs/vox-builder.html) for the complete
-workflow.
-
-```sh
-cmake --preset apps
-cmake --build --preset apps
-open "build-apps/apps/vox_builder/s3g Vox Builder.app"
-```
-
-The apps preset also builds `s3g No Input Mixer`, a safety-muted standalone
-host for the existing No Input Mixer CLAP implementation. Its output section
-selects Stereo Autogain, Quad Autogain, or direct eight-channel Core Audio
-output. The reusable host architecture is documented in
-[`standalone/README.md`](standalone/README.md).
-
-```sh
-cmake --build build-apps --target s3g_no_input_mixer_app
-cmake --build build-apps --target audit_no_input_mixer_standalone
-open "build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app"
-```
-
 ## Install
 
 The packaged pre-release supports REAPER on Apple silicon (`arm64`) Macs. It is
