@@ -16,6 +16,20 @@ constexpr uint32_t kNoInputMixerChannels = 8u;
 constexpr uint32_t kNoInputMixerInsertSlots = 3u;
 constexpr uint32_t kNoInputMixerMatrixCells =
     kNoInputMixerChannels * kNoInputMixerChannels;
+constexpr uint8_t kNoInputMatrixGridChannels = 4u;
+constexpr uint8_t kNoInputMatrixGridNotesPerController = 16u;
+
+inline bool decodeNoInputMatrixGridNote(uint8_t channel, uint8_t note,
+    uint32_t& destination, uint32_t& source)
+{
+    if (channel >= kNoInputMatrixGridChannels
+        || note >= kNoInputMatrixGridNotesPerController) return false;
+    const uint32_t tileRow = channel / 2u;
+    const uint32_t tileColumn = channel % 2u;
+    destination = tileRow * 4u + note / 4u;
+    source = tileColumn * 4u + note % 4u;
+    return true;
+}
 
 enum class NoInputDistortionType : uint32_t {
     Bypass = 0u,
@@ -2394,6 +2408,39 @@ public:
         rebuildMotionTargets();
     }
 
+    void setMidiMatrixConnection(uint32_t destination, uint32_t source,
+        float gain)
+    {
+        if (destination >= kNoInputMixerChannels
+            || source >= kNoInputMixerChannels) return;
+        const uint32_t index = destination * kNoInputMixerChannels + source;
+        midiMatrixGain_[index] = clamp(gain, -1.0f, 1.0f);
+        midiMatrixActive_[index] = 1u;
+    }
+
+    void releaseMidiMatrixConnection(uint32_t destination, uint32_t source)
+    {
+        if (destination >= kNoInputMixerChannels
+            || source >= kNoInputMixerChannels) return;
+        const uint32_t index = destination * kNoInputMixerChannels + source;
+        midiMatrixActive_[index] = 0u;
+        midiMatrixGain_[index] = 0.0f;
+    }
+
+    void clearMidiMatrixConnections()
+    {
+        midiMatrixActive_.fill(0u);
+        midiMatrixGain_.fill(0.0f);
+    }
+
+    float effectiveMatrixGain(uint32_t destination, uint32_t source) const
+    {
+        if (destination >= kNoInputMixerChannels
+            || source >= kNoInputMixerChannels) return 0.0f;
+        return effectiveMatrixGain(
+            destination * kNoInputMixerChannels + source);
+    }
+
     void setTransport(double tempoBpm, bool hasTempo)
     {
         transportTempoBpm_ = std::clamp(
@@ -2436,6 +2483,7 @@ public:
 
     void reset()
     {
+        clearMidiMatrixConnections();
         clearSignalState();
         silenced_ = true;
         seedRemaining_ = 0u;
@@ -2464,6 +2512,7 @@ public:
 
     void panic()
     {
+        clearMidiMatrixConnections();
         panicRemaining_ = panicSamplesTotal_;
     }
 
@@ -2532,7 +2581,7 @@ public:
                  source < kNoInputMixerChannels; ++source) {
                 const uint32_t index =
                     destination * kNoInputMixerChannels + source;
-                if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
+                if (std::abs(effectiveMatrixGain(index)) < 1.0e-7f) continue;
                 activeMotionPeak[source] = std::max(
                     activeMotionPeak[source], effectiveMotionWeight(index));
                 ++activeMotionRouteCount[source];
@@ -2552,7 +2601,7 @@ public:
                  source < kNoInputMixerChannels; ++source) {
                 const uint32_t index =
                     destination * kNoInputMixerChannels + source;
-                const float matrixGain = params_.matrix[index];
+                const float matrixGain = effectiveMatrixGain(index);
                 if (std::abs(matrixGain) < 1.0e-7f) continue;
                 const float networkScale = source == destination
                     ? params_.feedback
@@ -3518,6 +3567,13 @@ private:
         return behaviorCurrent_[index];
     }
 
+    float effectiveMatrixGain(uint32_t index) const
+    {
+        if (index >= kNoInputMixerMatrixCells) return 0.0f;
+        return midiMatrixActive_[index] != 0u
+            ? midiMatrixGain_[index] : params_.matrix[index];
+    }
+
     uint32_t behaviorHash(uint32_t salt) const
     {
         uint32_t value = params_.seed ^ (behaviorEventCount_ * 0x9e3779b9u)
@@ -3556,7 +3612,8 @@ private:
                      destination < kNoInputMixerChannels; ++destination) {
                     const uint32_t index = destination
                         * kNoInputMixerChannels + source;
-                    if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
+                    if (std::abs(effectiveMatrixGain(index)) < 1.0e-7f)
+                        continue;
                     const float random = behaviorHashUnit(index * 0x45d9f3bu
                         + 0x53544550u);
                     float probability = density;
@@ -3655,7 +3712,8 @@ private:
                  ++source) {
                 const uint32_t index = destination
                     * kNoInputMixerChannels + source;
-                if (std::abs(params_.matrix[index]) < 1.0e-7f) continue;
+                if (std::abs(effectiveMatrixGain(index)) < 1.0e-7f)
+                    continue;
                 hasRoute = true;
                 laneBehaviorGate_[destination] = std::max(
                     laneBehaviorGate_[destination], behaviorCurrent_[index]);
@@ -3883,6 +3941,8 @@ private:
 
     double sampleRate_ = 48000.0;
     NoInputMixerParams params_ = defaultNoInputMixerParams();
+    std::array<float, kNoInputMixerMatrixCells> midiMatrixGain_ {};
+    std::array<uint32_t, kNoInputMixerMatrixCells> midiMatrixActive_ {};
     NoInputMovementBehaviorParams behaviorParams_ {};
     std::array<LaneState, kNoInputMixerChannels> laneState_ {};
     std::array<AuxState, 2u> auxState_ {};

@@ -151,10 +151,17 @@ a:focus-visible {
 }
 
 .content h1.home-title {
+  margin-bottom: 0;
   font-family: "IBM Plex Mono", Monaco, Menlo, "Courier New", monospace;
   font-size: clamp(36px, 5vw, 52px);
   font-weight: 400;
   line-height: 1.05;
+}
+
+.content .home-title-rule {
+  margin: 20px 0 24px;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 
 .content h2 {

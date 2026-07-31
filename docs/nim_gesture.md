@@ -20,6 +20,22 @@ track output for ring feedback.
 Turn **USB Thru off on the E16**. Otherwise the returned ring-feedback stream
 can be sent back into REAPER and form a MIDI loop.
 
+## Standalone application
+
+The No Input Mixer standalone embeds this same CLAP before the embedded No
+Input Mixer processor. Open **MIDI** in the application's output strip to pick
+one CoreMIDI destination for E16 ring feedback, or leave feedback off. All
+CoreMIDI sources present at launch feed the Gesture processor; non-channel-16
+events pass through to No Input Mixer. The Gesture GUI and its free-running
+loops are available from **EDIT NIM GESTURES**, and its state is restored with
+the application.
+
+The standalone's four-controller matrix protocol reserves MIDI channels 1–4
+for four 4-by-4 button grids. Notes 0–15 cover one quadrant per controller;
+note-on velocity sets a momentary connection gain and note-off restores the
+underlying saved matrix connection. Channel 16 remains reserved for the E16
+NRPN and command protocol.
+
 ## Free recording
 
 Record is global for a take, but the resulting loops belong to parameters:

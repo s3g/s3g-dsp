@@ -7,26 +7,19 @@
 #include <cstring>
 
 namespace s3g::standalone {
-namespace {
-
-bool outputTryPush(const clap_output_events_t*,
-    const clap_event_header_t*)
-{
-    // MIDI feedback will be bridged to CoreMIDI in the next integration slice.
-    // Accepting and dropping it keeps the processor's real-time path unblocked.
-    return true;
-}
-
-} // namespace
 
 bool NoInputMixerStandaloneEngine::create(
     const clap_plugin_entry_t* noInputEntry,
+    const clap_plugin_entry_t* gestureEntry,
     const clap_plugin_entry_t* stereoEntry,
     const clap_plugin_entry_t* quadEntry)
 {
     destroy();
     if (!noInput_.create(noInputEntry,
             "org.s3g.s3g-dsp.no-input-mixer-8ch",
+            "s3g No Input Mixer Standalone")
+        || !gesture_.create(gestureEntry,
+            "org.s3g.s3g-dsp.nim-gesture",
             "s3g No Input Mixer Standalone")
         || !stereo_.create(stereoEntry,
             "org.s3g.s3g-dsp.mc-to-stereo-autogain",
@@ -56,8 +49,49 @@ bool NoInputMixerStandaloneEngine::create(
             || self->midiEvents_[index].header.size == 0u) return nullptr;
         return &self->midiEvents_[index].header;
     };
-    outputEvents_.ctx = this;
-    outputEvents_.try_push = outputTryPush;
+    gestureInputEvents_.ctx = this;
+    gestureInputEvents_.size = [](const clap_input_events_t* events) {
+        const auto* self = static_cast<const NoInputMixerStandaloneEngine*>(
+            events ? events->ctx : nullptr);
+        return self ? self->gestureMidiEventCount_ : 0u;
+    };
+    gestureInputEvents_.get = [](const clap_input_events_t* events,
+        uint32_t index) -> const clap_event_header_t* {
+        const auto* self = static_cast<const NoInputMixerStandaloneEngine*>(
+            events ? events->ctx : nullptr);
+        return self && index < self->gestureMidiEventCount_
+            ? &self->gestureMidiEvents_[index].header : nullptr;
+    };
+    gestureOutputEvents_.ctx = this;
+    gestureOutputEvents_.try_push = [](const clap_output_events_t* events,
+        const clap_event_header_t* event) {
+        auto* self = static_cast<NoInputMixerStandaloneEngine*>(
+            events ? events->ctx : nullptr);
+        if (!self || !event) return false;
+        if (event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_MIDI
+            || event->size < sizeof(clap_event_midi_t)) return true;
+        if (self->gestureMidiEventCount_
+            >= kMaximumGestureEventsPerBlock) return false;
+        self->gestureMidiEvents_[self->gestureMidiEventCount_++] =
+            *reinterpret_cast<const clap_event_midi_t*>(event);
+        return true;
+    };
+    noInputOutputEvents_.ctx = this;
+    noInputOutputEvents_.try_push = [](const clap_output_events_t* events,
+        const clap_event_header_t* event) {
+        auto* self = static_cast<NoInputMixerStandaloneEngine*>(
+            events ? events->ctx : nullptr);
+        if (!self || !event) return false;
+        if (event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_MIDI
+            || event->size < sizeof(clap_event_midi_t)) return true;
+        const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
+        const uint8_t status = midi->data[0];
+        if ((status & 0xf0u) != 0xb0u || (status & 0x0fu) != 15u)
+            return true;
+        return self->enqueueMidiOutput(status, midi->data[1], midi->data[2]);
+    };
     return true;
 }
 
@@ -66,6 +100,7 @@ void NoInputMixerStandaloneEngine::destroy()
     release();
     quad_.destroy();
     stereo_.destroy();
+    gesture_.destroy();
     noInput_.destroy();
 }
 
@@ -73,7 +108,8 @@ bool NoInputMixerStandaloneEngine::prepare(double sampleRate,
     uint32_t maximumFrames)
 {
     release();
-    if (!noInput_.isCreated() || !stereo_.isCreated() || !quad_.isCreated()
+    if (!noInput_.isCreated() || !gesture_.isCreated()
+        || !stereo_.isCreated() || !quad_.isCreated()
         || sampleRate <= 0.0 || maximumFrames == 0u) return false;
     sampleRate_ = sampleRate;
     maximumFrames_ = maximumFrames;
@@ -91,7 +127,8 @@ bool NoInputMixerStandaloneEngine::prepare(double sampleRate,
         quadPointers_[channel] = quadStorage_.data()
             + static_cast<size_t>(channel) * maximumFrames_;
     const uint32_t minimumFrames = 1u;
-    if (!noInput_.activate(sampleRate_, minimumFrames, maximumFrames_)
+    if (!gesture_.activate(sampleRate_, minimumFrames, maximumFrames_)
+        || !noInput_.activate(sampleRate_, minimumFrames, maximumFrames_)
         || !stereo_.activate(sampleRate_, minimumFrames, maximumFrames_)
         || !quad_.activate(sampleRate_, minimumFrames, maximumFrames_)) {
         release();
@@ -111,6 +148,7 @@ void NoInputMixerStandaloneEngine::release()
     quad_.deactivate();
     stereo_.deactivate();
     noInput_.deactivate();
+    gesture_.deactivate();
     sourceStorage_.clear();
     stereoStorage_.clear();
     quadStorage_.clear();
@@ -118,6 +156,7 @@ void NoInputMixerStandaloneEngine::release()
     stereoPointers_.fill(nullptr);
     quadPointers_.fill(nullptr);
     maximumFrames_ = 0u;
+    gestureMidiEventCount_ = 0u;
 }
 
 void NoInputMixerStandaloneEngine::setOutputMode(NoInputOutputMode mode)
@@ -203,6 +242,31 @@ bool NoInputMixerStandaloneEngine::dequeueMidi(MidiMessage& message)
     return true;
 }
 
+bool NoInputMixerStandaloneEngine::enqueueMidiOutput(uint8_t status,
+    uint8_t dataOne, uint8_t dataTwo)
+{
+    const uint32_t write = midiOutputWrite_.load(std::memory_order_relaxed);
+    const uint32_t next = (write + 1u) % kMidiOutputQueueCapacity;
+    if (next == midiOutputRead_.load(std::memory_order_acquire)) return false;
+    midiOutputQueue_[write] = { status, dataOne, dataTwo };
+    midiOutputWrite_.store(next, std::memory_order_release);
+    return true;
+}
+
+bool NoInputMixerStandaloneEngine::dequeueMidiOutput(uint8_t& status,
+    uint8_t& dataOne, uint8_t& dataTwo)
+{
+    const uint32_t read = midiOutputRead_.load(std::memory_order_relaxed);
+    if (read == midiOutputWrite_.load(std::memory_order_acquire)) return false;
+    const MidiMessage message = midiOutputQueue_[read];
+    midiOutputRead_.store((read + 1u) % kMidiOutputQueueCapacity,
+        std::memory_order_release);
+    status = message.status;
+    dataOne = message.dataOne;
+    dataTwo = message.dataTwo;
+    return true;
+}
+
 void NoInputMixerStandaloneEngine::clearOutput(float* const* output,
     uint32_t channels, uint32_t frames) const
 {
@@ -253,6 +317,15 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
     transport.flags = CLAP_TRANSPORT_HAS_TEMPO;
     transport.tempo = tempo();
 
+    gestureMidiEventCount_ = 0u;
+    clap_process_t gestureProcess {};
+    gestureProcess.steady_time = steadyTime_;
+    gestureProcess.frames_count = frames;
+    gestureProcess.transport = &transport;
+    gestureProcess.in_events = &inputEvents_;
+    gestureProcess.out_events = &gestureOutputEvents_;
+    gesture_.process(gestureProcess);
+
     clap_audio_buffer_t sourceOutput {};
     sourceOutput.data32 = sourcePointers_.data();
     sourceOutput.channel_count = kSourceChannels;
@@ -262,8 +335,8 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
     sourceProcess.transport = &transport;
     sourceProcess.audio_outputs = &sourceOutput;
     sourceProcess.audio_outputs_count = 1u;
-    sourceProcess.in_events = &inputEvents_;
-    sourceProcess.out_events = &outputEvents_;
+    sourceProcess.in_events = &gestureInputEvents_;
+    sourceProcess.out_events = &noInputOutputEvents_;
     noInput_.process(sourceProcess);
 
     const NoInputOutputMode mode = outputMode();

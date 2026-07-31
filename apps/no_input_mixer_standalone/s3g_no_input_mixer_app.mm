@@ -13,10 +13,12 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
 extern "C" const clap_plugin_entry_t s3g_no_input_mixer_embedded_entry;
+extern "C" const clap_plugin_entry_t s3g_nim_gesture_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_mc_to_stereo_autogain_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_mc_to_quad_autogain_embedded_entry;
 
@@ -34,6 +36,12 @@ using s3g::standalone::NoInputOutputMode;
 using s3g::standalone::outputChannelsForMode;
 
 struct AppState {
+    struct MidiDestination {
+        MIDIEndpointRef endpoint = 0;
+        MIDIUniqueID uniqueId = 0;
+        std::string name;
+    };
+
     NoInputMixerStandaloneEngine engine;
     CoreAudioOutput audio;
     std::vector<CoreAudioDeviceInfo> devices;
@@ -42,6 +50,10 @@ struct AppState {
     std::vector<float*> hardwarePointers;
     MIDIClientRef midiClient = 0;
     MIDIPortRef midiInputPort = 0;
+    MIDIPortRef midiOutputPort = 0;
+    std::vector<MidiDestination> midiDestinations;
+    uint32_t selectedMidiDestination = std::numeric_limits<uint32_t>::max();
+    uint32_t connectedMidiSourceCount = 0u;
     std::atomic<bool> deviceOpen { false };
     std::string audioError;
 };
@@ -164,10 +176,15 @@ void midiReadProc(const MIDIPacketList* packetList, void* context,
     for (UInt32 packetIndex = 0u; packetIndex < packetList->numPackets;
          ++packetIndex) {
         UInt16 offset = 0u;
-        while (offset + 2u < packet->length) {
+        while (offset < packet->length) {
             const uint8_t status = packet->data[offset];
             if ((status & 0x80u) == 0u) break;
+            if (status >= 0xf8u) {
+                ++offset;
+                continue;
+            }
             const uint8_t type = status & 0xf0u;
+            if (type == 0xf0u) break;
             const uint32_t length = type == 0xc0u || type == 0xd0u ? 2u : 3u;
             if (offset + length > packet->length) break;
             const uint8_t dataOne = packet->data[offset + 1u] & 0x7fu;
@@ -191,7 +208,65 @@ void connectMidiInputs(AppState& state)
     const ItemCount count = MIDIGetNumberOfSources();
     for (ItemCount index = 0u; index < count; ++index) {
         MIDIEndpointRef source = MIDIGetSource(index);
-        if (source) MIDIPortConnectSource(state.midiInputPort, source, nullptr);
+        if (source && MIDIPortConnectSource(state.midiInputPort, source,
+                nullptr) == noErr) ++state.connectedMidiSourceCount;
+    }
+
+    MIDIOutputPortCreate(state.midiClient, CFSTR("Controller Feedback"),
+        &state.midiOutputPort);
+    const ItemCount destinationCount = MIDIGetNumberOfDestinations();
+    for (ItemCount index = 0u; index < destinationCount; ++index) {
+        MIDIEndpointRef endpoint = MIDIGetDestination(index);
+        if (!endpoint) continue;
+        CFStringRef displayName = nullptr;
+        MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName,
+            &displayName);
+        char name[512] {};
+        if (displayName) {
+            CFStringGetCString(displayName, name, sizeof(name),
+                kCFStringEncodingUTF8);
+            CFRelease(displayName);
+        }
+        MIDIUniqueID uniqueId = 0;
+        MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID,
+            &uniqueId);
+        AppState::MidiDestination destination;
+        destination.endpoint = endpoint;
+        destination.uniqueId = uniqueId;
+        destination.name = name[0] != '\0' ? name : "MIDI Destination";
+        state.midiDestinations.push_back(std::move(destination));
+    }
+
+    const NSInteger savedUniqueId = [[NSUserDefaults standardUserDefaults]
+        integerForKey:@"MidiFeedbackDestinationUniqueID"];
+    if (savedUniqueId != 0) {
+        for (uint32_t index = 0u; index < state.midiDestinations.size();
+             ++index) {
+            if (state.midiDestinations[index].uniqueId != savedUniqueId)
+                continue;
+            state.selectedMidiDestination = index;
+            break;
+        }
+    }
+}
+
+void drainMidiOutput(AppState& state)
+{
+    uint8_t status = 0u;
+    uint8_t dataOne = 0u;
+    uint8_t dataTwo = 0u;
+    while (state.engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
+        if (!state.midiOutputPort
+            || state.selectedMidiDestination >= state.midiDestinations.size())
+            continue;
+        MIDIPacketList packetList {};
+        MIDIPacket* packet = MIDIPacketListInit(&packetList);
+        const Byte bytes[3] { status, dataOne, dataTwo };
+        packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet,
+            0u, sizeof(bytes), bytes);
+        if (packet) MIDISend(state.midiOutputPort,
+            state.midiDestinations[state.selectedMidiDestination].endpoint,
+            &packetList);
     }
 }
 
@@ -217,6 +292,7 @@ void restoreProcessorState(AppState& state)
         if (!bytes.empty()) plugin.loadState(bytes);
     };
     restore(state.engine.noInputPlugin(), @"NoInputMixerState");
+    restore(state.engine.gesturePlugin(), @"NimGestureState");
     restore(state.engine.stereoPlugin(), @"StereoAutogainState");
     restore(state.engine.quadPlugin(), @"QuadAutogainState");
     const NSInteger mode = [defaults integerForKey:@"OutputMode"];
@@ -242,6 +318,7 @@ void saveProcessorState(AppState& state)
             forKey:key];
     };
     save(state.engine.noInputPlugin(), @"NoInputMixerState");
+    save(state.engine.gesturePlugin(), @"NimGestureState");
     save(state.engine.stereoPlugin(), @"StereoAutogainState");
     save(state.engine.quadPlugin(), @"QuadAutogainState");
     [defaults setInteger:static_cast<NSInteger>(state.engine.outputMode())
@@ -252,6 +329,13 @@ void saveProcessorState(AppState& state)
             static_cast<NoInputOutputMode>(index)) forKey:key];
     }
     [defaults setDouble:state.engine.tempo() forKey:@"TempoBpm"];
+    if (state.selectedMidiDestination < state.midiDestinations.size()) {
+        [defaults setInteger:state.midiDestinations[
+            state.selectedMidiDestination].uniqueId
+            forKey:@"MidiFeedbackDestinationUniqueID"];
+    } else {
+        [defaults removeObjectForKey:@"MidiFeedbackDestinationUniqueID"];
+    }
     if (state.selectedDevice < state.devices.size()) {
         [defaults setObject:[NSString stringWithUTF8String:
             state.devices[state.selectedDevice].uid.c_str()]
@@ -482,6 +566,25 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 
 @end
 
+@interface S3GStandalonePanelView : NSView
+@end
+
+@implementation S3GStandalonePanelView
+
+- (void)drawRect:(NSRect)dirty
+{
+    (void)dirty;
+    [s3g::clap_gui::color(0x0c0c0c) setFill];
+    NSRectFill([self bounds]);
+    const NSRect panel = NSInsetRect([self bounds], 12.0, 12.0);
+    [s3g::clap_gui::color(0x131313) setFill];
+    NSRectFill(panel);
+    [s3g::clap_gui::color(0x565656) setStroke];
+    NSFrameRect(panel);
+}
+
+@end
+
 @interface S3GNoInputStandaloneView : NSView {
     AppState* _state;
     NSView* _pluginContainer;
@@ -490,6 +593,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     NSPopUpButton* _outputBankMenu;
     NSButton* _audioButton;
     NSButton* _editButton;
+    NSButton* _midiButton;
     NSSlider* _tempoSlider;
     NSTextField* _tempoLabel;
     NSTextField* _statusLabel;
@@ -497,6 +601,12 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     NSPanel* _outputPanel;
     NSView* _outputPluginContainer;
     EmbeddedClapPlugin* _outputEditorPlugin;
+    NSPanel* _midiPanel;
+    NSView* _midiPanelContent;
+    NSPopUpButton* _midiOutputMenu;
+    NSPanel* _gesturePanel;
+    NSView* _gesturePluginContainer;
+    bool _gestureGuiAttached;
 }
 - (id)initWithFrame:(NSRect)frame state:(AppState*)state;
 - (NSView*)pluginContainer;
@@ -504,6 +614,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 - (void)refreshOutputBankMenu;
 - (void)refreshControls;
 - (void)closeOutputEditor;
+- (void)closeMidiPanels;
 @end
 
 @implementation S3GNoInputStandaloneView
@@ -531,6 +642,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     if (!self) return nil;
     _state = state;
     _outputEditorPlugin = nullptr;
+    _gestureGuiAttached = false;
     [self setWantsLayer:YES];
     [[self layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.055
         alpha:1.0] CGColor]];
@@ -630,6 +742,15 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_tempoLabel setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
     [self addSubview:_tempoLabel];
 
+    _midiButton = [[S3GStandaloneActionButton alloc]
+        initWithFrame:NSMakeRect(1292.0, y + 9.0, 52.0, 34.0)];
+    [_midiButton setTitle:@"MIDI"];
+    [_midiButton setBordered:NO];
+    [_midiButton setTarget:self];
+    [_midiButton setAction:@selector(showMidiSetup:)];
+    [_midiButton setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [self addSubview:_midiButton];
+
     _statusLabel = [[NSTextField labelWithString:@""] retain];
     [_statusLabel setTextColor:s3g::clap_gui::color(0x8f8f8f)];
     [_statusLabel setFont:s3g::clap_gui::uiFont(10.0)];
@@ -650,12 +771,14 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_timer invalidate];
     [_timer release];
     [self closeOutputEditor];
+    [self closeMidiPanels];
     [_pluginContainer release];
     [_modeControl release];
     [_deviceMenu release];
     [_outputBankMenu release];
     [_audioButton release];
     [_editButton release];
+    [_midiButton release];
     [_tempoSlider release];
     [_tempoLabel release];
     [_statusLabel release];
@@ -749,8 +872,10 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 {
     (void)timer;
     _state->engine.noInputPlugin().serviceMainThreadCallback();
+    _state->engine.gesturePlugin().serviceMainThreadCallback();
     _state->engine.stereoPlugin().serviceMainThreadCallback();
     _state->engine.quadPlugin().serviceMainThreadCallback();
+    drainMidiOutput(*_state);
     uint32_t width = 0u;
     uint32_t height = 0u;
     if (_state->engine.noInputPlugin().takeGuiResizeRequest(width, height)
@@ -761,6 +886,10 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     if (_outputEditorPlugin && _outputPanel
         && _outputEditorPlugin->takeGuiResizeRequest(width, height)) {
         [_outputPanel setContentSize:NSMakeSize(width, height)];
+    }
+    if (_gestureGuiAttached && _gesturePanel
+        && _state->engine.gesturePlugin().takeGuiResizeRequest(width, height)) {
+        [_gesturePanel setContentSize:NSMakeSize(width, height)];
     }
     [self refreshControls];
 }
@@ -836,6 +965,143 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [self refreshControls];
 }
 
+- (void)refreshMidiOutputMenu
+{
+    if (!_midiOutputMenu) return;
+    [_midiOutputMenu removeAllItems];
+    [_midiOutputMenu addItemWithTitle:@"FEEDBACK OFF"];
+    [[_midiOutputMenu lastItem] setTag:0];
+    for (uint32_t index = 0u; index < _state->midiDestinations.size();
+         ++index) {
+        NSString* title = [NSString stringWithUTF8String:
+            _state->midiDestinations[index].name.c_str()];
+        [_midiOutputMenu addItemWithTitle:title];
+        [[_midiOutputMenu lastItem] setTag:index + 1u];
+        if (index == _state->selectedMidiDestination)
+            [_midiOutputMenu selectItem:[_midiOutputMenu lastItem]];
+    }
+}
+
+- (void)showMidiSetup:(id)sender
+{
+    (void)sender;
+    if (_midiPanel) {
+        [_midiPanel makeKeyAndOrderFront:nil];
+        return;
+    }
+    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 250.0);
+    _midiPanel = [[NSPanel alloc] initWithContentRect:frame
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+        backing:NSBackingStoreBuffered defer:NO];
+    [_midiPanel setReleasedWhenClosed:NO];
+    [_midiPanel setTitle:@"No Input Mixer MIDI"];
+    _midiPanelContent = [[S3GStandalonePanelView alloc] initWithFrame:frame];
+    [_midiPanel setContentView:_midiPanelContent];
+
+    auto addLabel = [&](NSString* text, NSRect rect, int color, CGFloat size) {
+        NSTextField* label = [NSTextField labelWithString:text];
+        [label setTextColor:s3g::clap_gui::color(color)];
+        [label setFont:s3g::clap_gui::uiFont(size)];
+        [label setFrame:rect];
+        [_midiPanelContent addSubview:label];
+    };
+    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 205.0, 200.0, 18.0),
+        0xc8c8c8, 11.0);
+    addLabel(@"INPUT", NSMakeRect(28.0, 166.0, 130.0, 18.0),
+        0xa8a8a8, 10.0);
+    addLabel([NSString stringWithFormat:@"ALL CONNECTED SOURCES  •  %u",
+        _state->connectedMidiSourceCount],
+        NSMakeRect(180.0, 166.0, 400.0, 18.0), 0xc8c8c8, 10.0);
+    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 137.0, 130.0, 18.0),
+        0xa8a8a8, 10.0);
+    addLabel(@"CH 1–4  •  NOTES 0–15  •  VELOCITY GAIN  •  NOTE-OFF RELEASE",
+        NSMakeRect(180.0, 137.0, 410.0, 18.0), 0x929292, 9.5);
+    addLabel(@"E16 FEEDBACK", NSMakeRect(28.0, 96.0, 130.0, 18.0),
+        0xa8a8a8, 10.0);
+
+    _midiOutputMenu = [[S3GStandalonePopupButton alloc]
+        initWithFrame:NSMakeRect(180.0, 88.0, 400.0, 34.0)
+        pullsDown:NO];
+    [_midiOutputMenu setBordered:NO];
+    [_midiOutputMenu setTarget:self];
+    [_midiOutputMenu setAction:@selector(changeMidiOutput:)];
+    [_midiPanelContent addSubview:_midiOutputMenu];
+    [self refreshMidiOutputMenu];
+
+    NSButton* gestures = [[S3GStandaloneActionButton alloc]
+        initWithFrame:NSMakeRect(28.0, 34.0, 150.0, 34.0)];
+    [gestures setTitle:@"EDIT NIM GESTURES"];
+    [gestures setBordered:NO];
+    [gestures setTarget:self];
+    [gestures setAction:@selector(editGestures:)];
+    [_midiPanelContent addSubview:gestures];
+    [gestures release];
+    addLabel(@"E16 USB THRU MUST BE OFF WHEN FEEDBACK IS ENABLED",
+        NSMakeRect(196.0, 42.0, 390.0, 18.0), 0xb56c61, 9.5);
+
+    [_midiPanel center];
+    [_midiPanel makeKeyAndOrderFront:nil];
+}
+
+- (void)changeMidiOutput:(NSPopUpButton*)sender
+{
+    const NSInteger tag = [[sender selectedItem] tag];
+    _state->selectedMidiDestination = tag <= 0
+        ? std::numeric_limits<uint32_t>::max()
+        : static_cast<uint32_t>(tag - 1);
+}
+
+- (void)editGestures:(id)sender
+{
+    (void)sender;
+    if (_gesturePanel) {
+        [_gesturePanel makeKeyAndOrderFront:nil];
+        return;
+    }
+    _gesturePanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(
+        0.0, 0.0, 1180.0, 820.0)
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+            | NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    [_gesturePanel setReleasedWhenClosed:NO];
+    [_gesturePanel setTitle:@"NIM Gesture Recorder"];
+    _gesturePluginContainer = [[NSView alloc] initWithFrame:NSMakeRect(
+        0.0, 0.0, 1180.0, 820.0)];
+    [_gesturePluginContainer setAutoresizingMask:NSViewWidthSizable
+        | NSViewHeightSizable];
+    [_gesturePanel setContentView:_gesturePluginContainer];
+    _gestureGuiAttached = attachPluginGui(_state->engine.gesturePlugin(),
+        _gesturePluginContainer);
+    if (!_gestureGuiAttached) {
+        [_gesturePanel release];
+        _gesturePanel = nil;
+        [_gesturePluginContainer release];
+        _gesturePluginContainer = nil;
+        return;
+    }
+    [_gesturePanel center];
+    [_gesturePanel makeKeyAndOrderFront:nil];
+}
+
+- (void)closeMidiPanels
+{
+    if (_gestureGuiAttached)
+        detachPluginGui(_state->engine.gesturePlugin());
+    _gestureGuiAttached = false;
+    if (_gesturePanel) [_gesturePanel orderOut:nil];
+    [_gesturePanel release];
+    _gesturePanel = nil;
+    [_gesturePluginContainer release];
+    _gesturePluginContainer = nil;
+    if (_midiPanel) [_midiPanel orderOut:nil];
+    [_midiPanel release];
+    _midiPanel = nil;
+    [_midiOutputMenu release];
+    _midiOutputMenu = nil;
+    [_midiPanelContent release];
+    _midiPanelContent = nil;
+}
+
 - (void)editOutput:(id)sender
 {
     (void)sender;
@@ -893,6 +1159,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     (void)notification;
     _state = new AppState();
     if (!_state->engine.create(&s3g_no_input_mixer_embedded_entry,
+            &s3g_nim_gesture_embedded_entry,
             &s3g_mc_to_stereo_autogain_embedded_entry,
             &s3g_mc_to_quad_autogain_embedded_entry)) {
         [NSApp terminate:nil];
@@ -968,9 +1235,11 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _state->engine.release();
     saveProcessorState(*_state);
     [_rootView closeOutputEditor];
+    [_rootView closeMidiPanels];
     if (_mainGuiAttached) detachPluginGui(_state->engine.noInputPlugin());
     _mainGuiAttached = false;
     if (_state->midiInputPort) MIDIPortDispose(_state->midiInputPort);
+    if (_state->midiOutputPort) MIDIPortDispose(_state->midiOutputPort);
     if (_state->midiClient) MIDIClientDispose(_state->midiClient);
     _state->engine.destroy();
     delete _state;

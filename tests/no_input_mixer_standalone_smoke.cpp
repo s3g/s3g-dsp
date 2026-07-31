@@ -6,11 +6,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <cstdint>
 #include <iostream>
 #include <vector>
 
 extern "C" const clap_plugin_entry_t s3g_no_input_mixer_embedded_entry;
+extern "C" const clap_plugin_entry_t s3g_nim_gesture_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_mc_to_stereo_autogain_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_mc_to_quad_autogain_embedded_entry;
 
@@ -67,9 +69,34 @@ int main()
 {
     s3g::standalone::NoInputMixerStandaloneEngine engine;
     bool ok = engine.create(&s3g_no_input_mixer_embedded_entry,
+        &s3g_nim_gesture_embedded_entry,
         &s3g_mc_to_stereo_autogain_embedded_entry,
         &s3g_mc_to_quad_autogain_embedded_entry);
     ok = ok && engine.prepare(48000.0, kFrames);
+
+    std::array<std::array<float, kFrames>, kChannels> midiStorage {};
+    std::array<float*, kChannels> midiPointers {};
+    for (uint32_t channel = 0u; channel < kChannels; ++channel)
+        midiPointers[channel] = midiStorage[channel].data();
+    engine.enqueueMidi(0x9fu, 112u, 127u);
+    engine.enqueueMidi(0xbfu, 99u, 0u);
+    engine.enqueueMidi(0xbfu, 98u, 5u);
+    engine.enqueueMidi(0xbfu, 6u, 64u);
+    engine.enqueueMidi(0xbfu, 38u, 0u);
+    engine.render(midiPointers.data(), kChannels, kFrames);
+    engine.render(midiPointers.data(), kChannels, kFrames);
+    engine.enqueueMidi(0x9fu, 112u, 127u);
+    engine.render(midiPointers.data(), kChannels, kFrames);
+    uint32_t feedbackCount = 0u;
+    uint8_t status = 0u;
+    uint8_t dataOne = 0u;
+    uint8_t dataTwo = 0u;
+    while (engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
+        ok = ok && status == 0xbfu && dataOne < 128u && dataTwo < 128u;
+        ++feedbackCount;
+    }
+    ok = ok && feedbackCount >= 4u;
+
     ok = ok && renderMode(engine,
         s3g::standalone::NoInputOutputMode::StereoAutogain, 2u);
     ok = ok && renderMode(engine,
@@ -96,14 +123,23 @@ int main()
 
     engine.release();
     std::vector<uint8_t> noInputState;
+    std::vector<uint8_t> gestureState;
     std::vector<uint8_t> stereoState;
     std::vector<uint8_t> quadState;
     ok = ok && engine.noInputPlugin().saveState(noInputState)
+        && engine.gesturePlugin().saveState(gestureState)
         && engine.stereoPlugin().saveState(stereoState)
         && engine.quadPlugin().saveState(quadState)
-        && !noInputState.empty() && !stereoState.empty()
+        && !noInputState.empty() && !gestureState.empty()
+        && !stereoState.empty()
         && !quadState.empty();
+    uint32_t gestureLoopCount = 0u;
+    if (gestureState.size() >= 21u)
+        std::memcpy(&gestureLoopCount, gestureState.data() + 17u,
+            sizeof(gestureLoopCount));
+    ok = ok && gestureLoopCount == 1u;
     ok = ok && engine.noInputPlugin().loadState(noInputState)
+        && engine.gesturePlugin().loadState(gestureState)
         && engine.stereoPlugin().loadState(stereoState)
         && engine.quadPlugin().loadState(quadState);
     engine.destroy();

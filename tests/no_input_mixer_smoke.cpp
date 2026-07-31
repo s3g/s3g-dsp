@@ -842,6 +842,63 @@ bool testPanic()
     return true;
 }
 
+bool testMidiMatrixGrid()
+{
+    std::array<uint32_t, s3g::kNoInputMixerMatrixCells> visits {};
+    for (uint8_t channel = 0u;
+         channel < s3g::kNoInputMatrixGridChannels; ++channel) {
+        for (uint8_t note = 0u;
+             note < s3g::kNoInputMatrixGridNotesPerController; ++note) {
+            uint32_t destination = 0u;
+            uint32_t source = 0u;
+            if (!s3g::decodeNoInputMatrixGridNote(
+                    channel, note, destination, source)
+                || destination >= s3g::kNoInputMixerChannels
+                || source >= s3g::kNoInputMixerChannels) {
+                std::cerr << "No Input Mixer MIDI grid decode failed\n";
+                return false;
+            }
+            ++visits[destination * s3g::kNoInputMixerChannels + source];
+        }
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](uint32_t count) {
+            return count == 1u;
+        })) {
+        std::cerr << "No Input Mixer MIDI grid did not cover 8x8 once\n";
+        return false;
+    }
+
+    auto params = s3g::defaultNoInputMixerParams();
+    constexpr uint32_t destination = 5u;
+    constexpr uint32_t source = 6u;
+    const uint32_t index = destination * s3g::kNoInputMixerChannels + source;
+    params.matrix[index] = -0.42f;
+    s3g::NoInputMixer mixer;
+    mixer.prepare(48000.0);
+    mixer.setParams(params);
+    mixer.setMidiMatrixConnection(destination, source, -0.75f);
+    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.75f)
+            > 1.0e-6f
+        || std::abs(mixer.params().matrix[index] + 0.42f) > 1.0e-6f) {
+        std::cerr << "No Input Mixer MIDI matrix overlay changed base state\n";
+        return false;
+    }
+    mixer.releaseMidiMatrixConnection(destination, source);
+    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.42f)
+        > 1.0e-6f) {
+        std::cerr << "No Input Mixer MIDI matrix release did not restore base\n";
+        return false;
+    }
+    mixer.setMidiMatrixConnection(destination, source, 0.9f);
+    mixer.panic();
+    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.42f)
+        > 1.0e-6f) {
+        std::cerr << "No Input Mixer PANIC did not clear MIDI matrix overlay\n";
+        return false;
+    }
+    return true;
+}
+
 bool testSanitization()
 {
     auto params = s3g::defaultNoInputMixerParams();
@@ -886,6 +943,7 @@ int main()
     if (!testHybridControlEcology()) return 1;
     if (!testMovementBehaviors()) return 1;
     if (!testReactClockTuningAndAuxTopology()) return 1;
+    if (!testMidiMatrixGrid()) return 1;
     if (!testPanic()) return 1;
     if (!testSanitization()) return 1;
     std::cout << "No Input Mixer smoke passed\n";

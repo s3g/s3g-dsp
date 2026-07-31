@@ -30,6 +30,7 @@ inline uint32_t outputChannelsForMode(NoInputOutputMode mode)
 class NoInputMixerStandaloneEngine {
 public:
     bool create(const clap_plugin_entry_t* noInputEntry,
+        const clap_plugin_entry_t* gestureEntry,
         const clap_plugin_entry_t* stereoEntry,
         const clap_plugin_entry_t* quadEntry);
     void destroy();
@@ -49,15 +50,19 @@ public:
     double tempo() const;
     void requestPanic();
     bool enqueueMidi(uint8_t status, uint8_t dataOne, uint8_t dataTwo);
+    bool dequeueMidiOutput(uint8_t& status, uint8_t& dataOne,
+        uint8_t& dataTwo);
 
     // Output is planar. Extra hardware channels are always zeroed.
     void render(float* const* output, uint32_t outputChannels,
         uint32_t frames);
 
     EmbeddedClapPlugin& noInputPlugin() { return noInput_; }
+    EmbeddedClapPlugin& gesturePlugin() { return gesture_; }
     EmbeddedClapPlugin& stereoPlugin() { return stereo_; }
     EmbeddedClapPlugin& quadPlugin() { return quad_; }
     const EmbeddedClapPlugin& noInputPlugin() const { return noInput_; }
+    const EmbeddedClapPlugin& gesturePlugin() const { return gesture_; }
     const EmbeddedClapPlugin& stereoPlugin() const { return stereo_; }
     const EmbeddedClapPlugin& quadPlugin() const { return quad_; }
 
@@ -73,14 +78,19 @@ private:
     };
 
     static constexpr uint32_t kSourceChannels = 8u;
-    static constexpr uint32_t kMidiQueueCapacity = 256u;
-    static constexpr uint32_t kMaximumEventsPerBlock = 128u;
+    static constexpr uint32_t kMidiQueueCapacity = 2048u;
+    static constexpr uint32_t kMidiOutputQueueCapacity = 4096u;
+    static constexpr uint32_t kMaximumEventsPerBlock = 512u;
+    static constexpr uint32_t kMaximumGestureEventsPerBlock = 2048u;
 
     bool dequeueMidi(MidiMessage& message);
+    bool enqueueMidiOutput(uint8_t status, uint8_t dataOne,
+        uint8_t dataTwo);
     void clearOutput(float* const* output, uint32_t channels,
         uint32_t frames) const;
 
     EmbeddedClapPlugin noInput_;
+    EmbeddedClapPlugin gesture_;
     EmbeddedClapPlugin stereo_;
     EmbeddedClapPlugin quad_;
 
@@ -92,10 +102,18 @@ private:
     std::array<float*, 4u> quadPointers_ {};
     std::array<clap_event_midi_t, kMaximumEventsPerBlock> midiEvents_ {};
     clap_input_events_t inputEvents_ {};
-    clap_output_events_t outputEvents_ {};
+    std::array<clap_event_midi_t,
+        kMaximumGestureEventsPerBlock> gestureMidiEvents_ {};
+    uint32_t gestureMidiEventCount_ = 0u;
+    clap_input_events_t gestureInputEvents_ {};
+    clap_output_events_t gestureOutputEvents_ {};
+    clap_output_events_t noInputOutputEvents_ {};
     std::array<MidiMessage, kMidiQueueCapacity> midiQueue_ {};
     std::atomic<uint32_t> midiWrite_ { 0u };
     std::atomic<uint32_t> midiRead_ { 0u };
+    std::array<MidiMessage, kMidiOutputQueueCapacity> midiOutputQueue_ {};
+    std::atomic<uint32_t> midiOutputWrite_ { 0u };
+    std::atomic<uint32_t> midiOutputRead_ { 0u };
 
     std::atomic<uint32_t> outputMode_ {
         static_cast<uint32_t>(NoInputOutputMode::StereoAutogain) };

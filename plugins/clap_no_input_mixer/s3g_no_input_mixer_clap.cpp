@@ -669,6 +669,8 @@ struct Plugin {
         s3g::kNoInputMixerMatrixCells> behaviorRouteGate {};
     std::array<std::atomic<float>,
         s3g::kNoInputMixerMatrixCells> reactRouteGate {};
+    std::array<std::atomic<float>,
+        s3g::kNoInputMixerMatrixCells> midiMatrixGridGain {};
     std::atomic<float> minimumGovernor { 1.0f };
     std::atomic<uint32_t> containmentState {
         static_cast<uint32_t>(s3g::NoInputContainmentState::Quiet) };
@@ -699,6 +701,22 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+void clearMidiMatrixGrid(Plugin& plugin)
+{
+    plugin.mixer.clearMidiMatrixConnections();
+    for (auto& gain : plugin.midiMatrixGridGain)
+        gain.store(0.0f, std::memory_order_relaxed);
+}
+
+float displayedMatrixGain(const Plugin& plugin, uint32_t index)
+{
+    if (index >= s3g::kNoInputMixerMatrixCells) return 0.0f;
+    const float midiGain = plugin.midiMatrixGridGain[index].load(
+        std::memory_order_relaxed);
+    return std::abs(midiGain) > 1.0e-7f
+        ? midiGain : plugin.params.matrix[index];
 }
 
 void syncMixerStateLegacy(Plugin& plugin)
@@ -1637,6 +1655,7 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
             time, events);
         return;
     case kMidiPanicNote:
+        clearMidiMatrixGrid(plugin);
         plugin.mixer.panic();
         return;
     case kMidiClearMatrixNote:
@@ -1703,11 +1722,45 @@ void handleMidiCc(Plugin& plugin, uint8_t controller, uint8_t value,
     }
 }
 
+bool applyMidiMatrixGridNote(Plugin& plugin, uint8_t channel, uint8_t note,
+    uint8_t velocity, bool pressed)
+{
+    uint32_t destination = 0u;
+    uint32_t source = 0u;
+    if (!s3g::decodeNoInputMatrixGridNote(
+            channel, note, destination, source))
+        return false;
+    if (pressed) {
+        const uint32_t index = destination * kChannelCount + source;
+        const float polarity = plugin.effectiveParams.matrix[index] < 0.0f
+            ? -1.0f : 1.0f;
+        const float gain = polarity * static_cast<float>(velocity) / 127.0f;
+        plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+        plugin.midiMatrixGridGain[index].store(gain,
+            std::memory_order_relaxed);
+        plugin.selectedDestination.store(destination,
+            std::memory_order_relaxed);
+        plugin.selectedSource.store(source, std::memory_order_relaxed);
+    } else {
+        plugin.mixer.releaseMidiMatrixConnection(destination, source);
+        plugin.midiMatrixGridGain[
+            destination * kChannelCount + source].store(0.0f,
+                std::memory_order_relaxed);
+    }
+    return true;
+}
+
 void handleMidiEvent(Plugin& plugin, const clap_event_midi_t& midi,
     const clap_output_events_t* events)
 {
     const uint8_t status = midi.data[0] & 0xf0u;
     const uint8_t channel = midi.data[0] & 0x0fu;
+    if (status == 0x90u || status == 0x80u) {
+        const uint8_t velocity = midi.data[2] & 0x7fu;
+        const bool pressed = status == 0x90u && velocity != 0u;
+        if (applyMidiMatrixGridNote(plugin, channel,
+                midi.data[1] & 0x7fu, velocity, pressed)) return;
+    }
     if (channel != kMidiControlChannel) return;
     if (status == 0xb0u) {
         handleMidiCc(plugin, midi.data[1] & 0x7fu,
@@ -1746,7 +1799,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
 
 void deactivate(const clap_plugin_t* plugin)
 {
-    self(plugin)->active.store(false, std::memory_order_release);
+    auto* p = self(plugin);
+    clearMidiMatrixGrid(*p);
+    p->active.store(false, std::memory_order_release);
 }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
@@ -1759,6 +1814,7 @@ void reset(const clap_plugin_t* plugin)
     p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
     resetNrpnState(*p);
+    clearMidiMatrixGrid(*p);
 }
 
 bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
@@ -1805,10 +1861,28 @@ void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
     }
     if (event->type == CLAP_EVENT_NOTE_ON) {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        const uint8_t velocity = static_cast<uint8_t>(std::clamp<int32_t>(
+            static_cast<int32_t>(std::lround(note->velocity * 127.0)),
+            0, 127));
+        if (note->channel >= 0 && note->channel <= 15
+            && applyMidiMatrixGridNote(plugin,
+                static_cast<uint8_t>(note->channel),
+                static_cast<uint8_t>(std::clamp<int32_t>(note->key, 0, 127)),
+                velocity, velocity != 0u)) return;
         if (note->channel == kMidiControlChannel && note->velocity > 0.0) {
             applyMidiCommand(plugin, static_cast<uint8_t>(
                 std::clamp<int32_t>(note->key, 0, 127)),
                 event->time, outputEvents);
+        }
+        return;
+    }
+    if (event->type == CLAP_EVENT_NOTE_OFF) {
+        const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (note->channel >= 0 && note->channel <= 15) {
+            applyMidiMatrixGridNote(plugin,
+                static_cast<uint8_t>(note->channel),
+                static_cast<uint8_t>(std::clamp<int32_t>(
+                    note->key, 0, 127)), 0u, false);
         }
     }
 }
@@ -1849,6 +1923,7 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->mixer.reseed(p->params.seed, 0.70f);
     }
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
+        clearMidiMatrixGrid(*p);
         p->mixer.panic();
     }
     uint32_t killMask = p->killMask.exchange(0u,
@@ -3934,7 +4009,7 @@ NSRect effectEditorToggleRect(uint32_t row)
          ++destination) {
         for (uint32_t source = 0u; source < kChannelCount; ++source) {
             const uint32_t index = destination * kChannelCount + source;
-            const float stored = plugin->params.matrix[index];
+            const float stored = displayedMatrixGain(*plugin, index);
             const CGFloat manual = std::abs(stored);
             if (manual <= 0.001f) continue;
             const NSPoint a = wiringPortPoint(false, source);
@@ -4103,7 +4178,8 @@ NSRect effectEditorToggleRect(uint32_t row)
          ++destination) {
         for (uint32_t source = 0u; source < kChannelCount; ++source) {
             const uint32_t index = destination * kChannelCount + source;
-            if (std::abs(plugin->params.matrix[index]) <= 0.001f) continue;
+            if (std::abs(displayedMatrixGain(*plugin, index)) <= 0.001f)
+                continue;
             activeMotionPeak[source] = std::max(
                 activeMotionPeak[source], motionWeights[index]);
             ++activeMotionRouteCount[source];
@@ -4129,8 +4205,8 @@ NSRect effectEditorToggleRect(uint32_t row)
     for (uint32_t destination = 0u; destination < kChannelCount;
          ++destination) {
         for (uint32_t source = 0u; source < kChannelCount; ++source) {
-            const float gain = plugin->params.matrix[
-                destination * kChannelCount + source];
+            const float gain = displayedMatrixGain(*plugin,
+                destination * kChannelCount + source);
             const CGFloat x = gridLeft + spacing * source;
             const CGFloat y = gridTop + spacing * destination;
             const NSRect node = NSMakeRect(x - 7.0, y - 7.0, 14.0, 14.0);

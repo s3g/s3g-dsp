@@ -65,11 +65,14 @@ The No Input Mixer application is emitted as
 - Unused hardware channels are explicitly cleared.
 - Processor state is saved and loaded only through `CLAP_EXT_STATE`.
 - Core Audio device identity is persisted by UID rather than `AudioDeviceID`.
+- MIDI input reaches the embedded processors through bounded real-time queues;
+  CoreMIDI transmission is drained on the main thread.
+- Controller feedback is disabled until the user chooses one MIDI destination.
 
 ## Follow-up infrastructure
 
-The next shared additions should be device hot-plug listeners, CoreMIDI output
-feedback, a versioned document format for explicit Save/Load, and
-signing/notarization helpers. Once No Input Mixer and Multi Loop both use this
-layer, the common assumptions can be reduced into a higher-level CMake product
-declaration.
+The next shared additions should be device hot-plug listeners, selectable MIDI
+input sets, timestamp-to-sample scheduling, a versioned document format for
+explicit Save/Load, and signing/notarization helpers. Once No Input Mixer and
+Multi Loop both use this layer, the common assumptions can be reduced into a
+higher-level CMake product declaration.

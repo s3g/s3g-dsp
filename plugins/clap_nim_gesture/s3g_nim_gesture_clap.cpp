@@ -1959,6 +1959,14 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const CLAP_EXPORT clap_plugin_entry_t clap_entry {
+#ifndef S3G_CLAP_ENTRY_SYMBOL
+#define S3G_CLAP_ENTRY_SYMBOL clap_entry
+#define S3G_CLAP_ENTRY_EXPORT CLAP_EXPORT
+#else
+#define S3G_CLAP_ENTRY_EXPORT
+#endif
+
+extern "C" const S3G_CLAP_ENTRY_EXPORT clap_plugin_entry_t
+    S3G_CLAP_ENTRY_SYMBOL {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory,
 };

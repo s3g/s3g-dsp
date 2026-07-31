@@ -84,6 +84,11 @@ Place it before No Input Mixer and select E16 USB3 as the track's MIDI hardware
 output. Keep E16 USB Thru off to prevent a feedback loop. See
 [`docs/nim_gesture.md`](../../docs/nim_gesture.md) for routing and controls.
 
+The No Input Mixer standalone already embeds NIM Gesture. Open **MIDI**, select
+E16 USB3 as the feedback destination, and use **EDIT NIM GESTURES** for its
+recorder. Input from all CoreMIDI sources present at application launch feeds
+the embedded chain. E16 USB Thru must still remain off.
+
 Direct changes made in the No Input Mixer GUI, factory-preset changes, and
 project restoration are not yet translated into E16 feedback. Preset loading
 and `Send All` should still be treated as explicit state changes.
