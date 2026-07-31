@@ -153,57 +153,72 @@ cmake --build build-apps --target audit_no_input_mixer_standalone
 open "build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app"
 ```
 
-## Install Locally
+## Install
 
-On macOS, install the built CLAP bundles into the user CLAP plugin folder:
+The packaged pre-release supports REAPER on Apple silicon (`arm64`) Macs. It is
+not notarized, so macOS requires one Gatekeeper approval for the installer.
 
-```sh
-./scripts/install-clap-bundles.sh --dry-run
-./scripts/install-clap-bundles.sh
-# Or rename verified current installs without replacing their binaries:
-./scripts/install-clap-bundles.sh --canonicalize-only
-```
+1. Quit REAPER, download the macOS CLAP zip from the
+   [GitHub releases page](https://github.com/s3g/s3g-dsp/releases), and unzip
+   it.
+2. Double-click `Install s3g-dsp CLAPs.command` in the unzipped package.
+3. If macOS blocks it, click **OK**, open **System Settings > Privacy &
+   Security**, and choose **Open Anyway**. Confirm **Open** and authenticate if
+   asked. This option is available for about one hour after the blocked launch.
+4. If prompted, allow Terminal to access the downloaded package, then wait for
+   installation to finish.
+5. Start REAPER and rescan CLAP plugins if the new builds do not appear
+   automatically.
 
-The first command previews the complete transaction without changing the
-plugin folder. The installer reads `scripts/clap-bundles.tsv`, installs the 93
-products under their canonical family-first filenames, and keeps their existing
-CLAP IDs stable so projects continue to resolve the same plugins. Recognized old
-filenames are moved to a timestamped backup only when their bundle identity
-matches `scripts/clap-legacy-bundles.tsv`. On the first upgrade from the former
-flat layout, verified s3g-dsp bundles in the parent CLAP folder are backed up
-after the nested install completes; unrelated CLAP bundles and sibling folders
-are left untouched. The default destination is in the current user's Library,
-so the installer does not invoke `sudo`; downloaded pre-release packages still
-require a one-time Gatekeeper approval in System Settings because they are not
-Apple notarized. The packaged installer then removes only the quarantine
-attribute from each verified s3g-dsp bundle before installing it. See the
-[installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html) for
-backup and migration details. Close REAPER before installation, then restart or
-rescan after the installer completes.
+See Apple's
+[Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/mh40616/mac)
+for the same approval process. If a binary is unavailable, see
+[Building From Source](https://s3g.github.io/s3g-dsp/building-from-source.html).
 
-To install manually, close REAPER, unzip the release, and copy all—or only the
-desired—`.clap` bundles into:
+### Install Location and Safety
 
 ```text
 ~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/
 ```
 
-For a manual Terminal install, remove quarantine only from each copied
-s3g-dsp bundle:
+On upgrades, the installer moves identity-verified older s3g-dsp
+bundles—including copies in the former top-level CLAP location—to a timestamped
+backup. Other CLAP products are untouched.
+
+The installer verifies each bundle, removes only `com.apple.quarantine` from
+its staged s3g-dsp copies, and preserves other extended attributes. It writes
+to the current user's Library without `sudo` and does not change global
+Gatekeeper settings or unrelated plugins. Approval applies to the installer;
+REAPER should not show a separate Gatekeeper dialog for each plugin afterward.
+
+### Manual Installation
+
+Use this only for a fresh manual install; it cannot migrate older top-level
+copies or retire renamed aliases. In Terminal, type `cd` followed by a space,
+drag the unzipped `s3g-dsp-macos-clap-0.5.0-pre` folder from Finder into the
+Terminal window, and press Return. Then run:
 
 ```sh
 destination="$HOME/Library/Audio/Plug-Ins/CLAP/s3g-dsp"
 mkdir -p "$destination"
-for bundle in /path/to/s3g-dsp-macos-clap-0.5.0-pre/*.clap; do
+for bundle in ./*.clap; do
   installed="$destination/$(basename "$bundle")"
   ditto "$bundle" "$installed"
   xattr -drs com.apple.quarantine "$installed"
 done
 ```
 
-Restart REAPER and rescan CLAP plugins if needed. Manual installation does not
-identify or back up renamed legacy bundles, so an upgrade can leave duplicate
-host entries; use the packaged installer when migrating an older collection.
+### If a Plugin Does Not Appear
+
+- Confirm that its complete `.clap` bundle is in
+  `~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/`.
+- Rescan CLAP plugins in REAPER, then restart the host.
+- If REAPER shows per-plugin Gatekeeper dialogs or duplicate names, quit REAPER
+  and rerun the packaged installer. If the installer itself is blocked, repeat
+  the **Open Anyway** step within one hour.
+
+For more detail, see the
+[installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html).
 
 ## Pre-release Binaries
 
