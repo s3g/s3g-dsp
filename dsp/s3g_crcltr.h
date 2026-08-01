@@ -6,7 +6,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#if !defined(S3G_CRCLTR_EXTERNAL_MEMORY_ONLY)
 #include <vector>
+#endif
 
 namespace s3g {
 
@@ -94,9 +96,13 @@ public:
             assignExternalMemory(*externalMemory);
             usingExternalMemory_ = true;
         } else {
+#if defined(S3G_CRCLTR_EXTERNAL_MEMORY_ONLY)
+            return false;
+#else
             if (!allocateOwnedMemory()) return false;
             assignOwnedMemory();
             usingExternalMemory_ = false;
+#endif
         }
 
         loops_[0].recordedFrames = 0u;
@@ -338,6 +344,7 @@ private:
         loops_[1].preRollRight = memory.preRoll2Right;
     }
 
+#if !defined(S3G_CRCLTR_EXTERNAL_MEMORY_ONLY)
     bool allocateOwnedMemory()
     {
         try {
@@ -362,6 +369,7 @@ private:
         loops_[1].preRollLeft = ownedPreRollMemory_[2].data();
         loops_[1].preRollRight = ownedPreRollMemory_[3].data();
     }
+#endif
 
     bool targetIncludes(uint32_t loopIndex) const
     {
@@ -585,8 +593,10 @@ private:
     SmoothedValue blend_ {};
     SmoothedValue inputGain_ {};
     SmoothedValue outputGain_ {};
+#if !defined(S3G_CRCLTR_EXTERNAL_MEMORY_ONLY)
     std::array<std::vector<float>, 4u> ownedLoopMemory_ {};
     std::array<std::vector<float>, 4u> ownedPreRollMemory_ {};
+#endif
 };
 
 } // namespace s3g

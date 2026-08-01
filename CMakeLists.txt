@@ -26,6 +26,14 @@ endif()
 add_executable(s3g_crcltr_smoke tests/crcltr_smoke.cpp)
 target_link_libraries(s3g_crcltr_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_crcltr_external_memory_smoke
+  tests/crcltr_external_memory_smoke.cpp)
+target_link_libraries(s3g_crcltr_external_memory_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_crcltr_external_memory_smoke PRIVATE
+    -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(s3g_ambi_effect_displacement_smoke tests/ambi_effect_displacement_smoke.cpp)
 target_link_libraries(s3g_ambi_effect_displacement_smoke PRIVATE s3g_dsp)
 
