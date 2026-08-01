@@ -3,6 +3,9 @@
 #if defined(__APPLE__)
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <mach/mach_time.h>
 #include <vector>
 
 namespace s3g::standalone {
@@ -68,6 +71,90 @@ void setError(std::string* error, const char* operation, OSStatus status)
 
 } // namespace
 
+void RealtimeCallbackTelemetry::updateMaximum(
+    std::atomic<uint64_t>& destination, uint64_t value)
+{
+    uint64_t current = destination.load(std::memory_order_relaxed);
+    while (current < value && !destination.compare_exchange_weak(current,
+        value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
+
+void RealtimeCallbackTelemetry::reset()
+{
+    callbackCount_.store(0u, std::memory_order_relaxed);
+    deadlineMissCount_.store(0u, std::memory_order_relaxed);
+    oversizedCallbackCount_.store(0u, std::memory_order_relaxed);
+    processorOverloadCount_.store(0u, std::memory_order_relaxed);
+    callbackErrorCount_.store(0u, std::memory_order_relaxed);
+    smoothedLoadPartsPerMillion_.store(0u, std::memory_order_relaxed);
+    peakLoadPartsPerMillion_.store(0u, std::memory_order_relaxed);
+    lastCallbackNanoseconds_.store(0u, std::memory_order_relaxed);
+    maximumCallbackNanoseconds_.store(0u, std::memory_order_relaxed);
+}
+
+void RealtimeCallbackTelemetry::recordCallbackNanoseconds(
+    uint64_t durationNanoseconds, uint32_t frames, double sampleRate,
+    uint32_t maximumFrames, bool callbackFailed)
+{
+    callbackCount_.fetch_add(1u, std::memory_order_relaxed);
+    lastCallbackNanoseconds_.store(durationNanoseconds,
+        std::memory_order_relaxed);
+    updateMaximum(maximumCallbackNanoseconds_, durationNanoseconds);
+    if (maximumFrames > 0u && frames > maximumFrames)
+        oversizedCallbackCount_.fetch_add(1u, std::memory_order_relaxed);
+    if (callbackFailed)
+        callbackErrorCount_.fetch_add(1u, std::memory_order_relaxed);
+    if (!(sampleRate > 0.0) || frames == 0u) return;
+
+    const double deadlineNanoseconds = static_cast<double>(frames)
+        * 1.0e9 / sampleRate;
+    if (static_cast<double>(durationNanoseconds) > deadlineNanoseconds)
+        deadlineMissCount_.fetch_add(1u, std::memory_order_relaxed);
+    const double load = static_cast<double>(durationNanoseconds)
+        / deadlineNanoseconds;
+    // A pathological stalled callback should not overflow the fixed-point
+    // EMA. Capping display load at 1000x still leaves ample diagnostic range.
+    const uint64_t loadPartsPerMillion = static_cast<uint64_t>(std::llround(
+        std::min(load, 1000.0) * 1000000.0));
+    const uint64_t previous = smoothedLoadPartsPerMillion_.load(
+        std::memory_order_relaxed);
+    const uint64_t smoothed = previous == 0u ? loadPartsPerMillion
+        : (previous * 15u + loadPartsPerMillion) / 16u;
+    smoothedLoadPartsPerMillion_.store(smoothed,
+        std::memory_order_relaxed);
+    updateMaximum(peakLoadPartsPerMillion_, loadPartsPerMillion);
+}
+
+void RealtimeCallbackTelemetry::recordProcessorOverload()
+{
+    processorOverloadCount_.fetch_add(1u, std::memory_order_relaxed);
+}
+
+RealtimeCallbackTelemetrySnapshot RealtimeCallbackTelemetry::snapshot() const
+{
+    RealtimeCallbackTelemetrySnapshot result;
+    result.callbackCount = callbackCount_.load(std::memory_order_relaxed);
+    result.deadlineMissCount = deadlineMissCount_.load(
+        std::memory_order_relaxed);
+    result.oversizedCallbackCount = oversizedCallbackCount_.load(
+        std::memory_order_relaxed);
+    result.processorOverloadCount = processorOverloadCount_.load(
+        std::memory_order_relaxed);
+    result.callbackErrorCount = callbackErrorCount_.load(
+        std::memory_order_relaxed);
+    result.smoothedLoad = static_cast<double>(
+        smoothedLoadPartsPerMillion_.load(std::memory_order_relaxed))
+        / 1000000.0;
+    result.peakLoad = static_cast<double>(
+        peakLoadPartsPerMillion_.load(std::memory_order_relaxed))
+        / 1000000.0;
+    result.lastCallbackMilliseconds = static_cast<double>(
+        lastCallbackNanoseconds_.load(std::memory_order_relaxed)) / 1.0e6;
+    result.maximumCallbackMilliseconds = static_cast<double>(
+        maximumCallbackNanoseconds_.load(std::memory_order_relaxed)) / 1.0e6;
+    return result;
+}
+
 CoreAudioOutput::~CoreAudioOutput() { close(); }
 
 std::vector<CoreAudioDeviceInfo> CoreAudioOutput::enumerateDevices()
@@ -123,6 +210,7 @@ bool CoreAudioOutput::open(AudioDeviceID device, uint32_t renderChannels,
     RenderCallback render, void* context, std::string* error)
 {
     close();
+    telemetry_.reset();
     if (device == kAudioObjectUnknown || !render || renderChannels == 0u) {
         if (error) *error = "Invalid Core Audio output configuration";
         return false;
@@ -209,6 +297,27 @@ bool CoreAudioOutput::open(AudioDeviceID device, uint32_t renderChannels,
     config_.renderChannels = renderChannels;
     config_.maximumFrames = maximumFrames;
     config_.sampleRate = sampleRate;
+    mach_timebase_info_data_t timebase {};
+    if (mach_timebase_info(&timebase) == KERN_SUCCESS
+        && timebase.numer != 0u && timebase.denom != 0u) {
+        hostTimeNumerator_ = timebase.numer;
+        hostTimeDenominator_ = timebase.denom;
+    } else {
+        hostTimeNumerator_ = 1u;
+        hostTimeDenominator_ = 1u;
+    }
+    config_.hostTicksPerSecond = 1.0e9
+        * static_cast<double>(hostTimeDenominator_)
+        / static_cast<double>(hostTimeNumerator_);
+
+    AudioObjectPropertyAddress overloadAddress {
+        kAudioDeviceProcessorOverload,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain,
+    };
+    overloadListenerInstalled_ = AudioObjectHasProperty(device,
+        &overloadAddress) && AudioObjectAddPropertyListener(device,
+        &overloadAddress, devicePropertyListener, this) == noErr;
     return true;
 }
 
@@ -237,6 +346,17 @@ void CoreAudioOutput::stop()
 void CoreAudioOutput::close()
 {
     stop();
+    if (overloadListenerInstalled_
+        && config_.device != kAudioObjectUnknown) {
+        AudioObjectPropertyAddress overloadAddress {
+            kAudioDeviceProcessorOverload,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain,
+        };
+        AudioObjectRemovePropertyListener(config_.device, &overloadAddress,
+            devicePropertyListener, this);
+    }
+    overloadListenerInstalled_ = false;
     if (unit_) {
         AudioUnitUninitialize(unit_);
         AudioComponentInstanceDispose(unit_);
@@ -248,12 +368,41 @@ void CoreAudioOutput::close()
 }
 
 OSStatus CoreAudioOutput::renderThunk(void* context,
-    AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32, UInt32 frames,
-    AudioBufferList* output)
+    AudioUnitRenderActionFlags*, const AudioTimeStamp* timestamp, UInt32,
+    UInt32 frames, AudioBufferList* output)
 {
     auto* self = static_cast<CoreAudioOutput*>(context);
-    return self && self->render_
-        ? self->render_(self->renderContext_, output, frames) : noErr;
+    if (!self || !self->render_) return noErr;
+    const uint64_t start = mach_absolute_time();
+    const uint64_t blockHostTime = timestamp
+        && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0u
+        ? timestamp->mHostTime : start;
+    const OSStatus status = self->render_(self->renderContext_, output,
+        frames, blockHostTime);
+    const uint64_t elapsedTicks = mach_absolute_time() - start;
+    const long double elapsedNanoseconds = static_cast<long double>(
+        elapsedTicks) * self->hostTimeNumerator_
+        / self->hostTimeDenominator_;
+    self->telemetry_.recordCallbackNanoseconds(static_cast<uint64_t>(
+        std::min<long double>(elapsedNanoseconds,
+            std::numeric_limits<uint64_t>::max())), frames,
+        self->config_.sampleRate, self->config_.maximumFrames,
+        status != noErr);
+    return status;
+}
+
+OSStatus CoreAudioOutput::devicePropertyListener(AudioObjectID,
+    UInt32 addressCount, const AudioObjectPropertyAddress* addresses,
+    void* context)
+{
+    auto* self = static_cast<CoreAudioOutput*>(context);
+    if (!self || !addresses) return noErr;
+    for (UInt32 index = 0u; index < addressCount; ++index) {
+        if (addresses[index].mSelector != kAudioDeviceProcessorOverload)
+            continue;
+        self->telemetry_.recordProcessorOverload();
+    }
+    return noErr;
 }
 
 } // namespace s3g::standalone

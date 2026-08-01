@@ -317,8 +317,10 @@ bool testRandomEnergyProfiles()
         const auto low = s3g::randomizedNoInputMovementBehaviorParams(
             seed, Energy::Low);
         const float highLengthMs = s3g::noInputMovementLengthMs(high.length);
+        const float highEdgeMs = s3g::noInputMovementSlewMs(high.slew);
         const float midLengthMs = s3g::noInputMovementLengthMs(mid.length);
         if (highLengthMs < 5.999f || highLengthMs > 40.001f
+            || highEdgeMs < 0.999f || highEdgeMs > 2.001f
             || midLengthMs < 19.999f || midLengthMs > 140.001f
             || high.behavior < s3g::NoInputMovementBehavior::Cut
             || mid.behavior < s3g::NoInputMovementBehavior::Step
@@ -864,6 +866,103 @@ bool testMovementBehaviors()
     return true;
 }
 
+bool testNeutralMovementBehaviorAndTransitions()
+{
+    auto params = s3g::noInputMixerFactoryPreset(9u);
+    params.motion = 0.86f;
+    params.motionRate = 0.63f;
+    uint32_t activeRoute = 0u;
+    while (activeRoute < params.matrix.size()
+        && std::abs(params.matrix[activeRoute]) <= 1.0e-7f) {
+        ++activeRoute;
+    }
+    if (activeRoute >= params.matrix.size()) return false;
+
+    s3g::NoInputMovementBehaviorParams glide;
+    glide.behavior = s3g::NoInputMovementBehavior::Glide;
+    glide.eventRate = 0.82f;
+    glide.length = 0.21f;
+    glide.density = 0.37f;
+    glide.chaos = 0.91f;
+    glide.slew = 0.74f;
+    glide.choke = 1.0f;
+    auto neutralCut = glide;
+    neutralCut.behavior = s3g::NoInputMovementBehavior::Cut;
+    neutralCut.choke = 0.0f;
+
+    s3g::NoInputMixer glideMixer;
+    s3g::NoInputMixer neutralMixer;
+    glideMixer.prepare(48000.0);
+    neutralMixer.prepare(48000.0);
+    glideMixer.setParams(params);
+    neutralMixer.setParams(params);
+    glideMixer.setMovementBehaviorParams(glide);
+    neutralMixer.setMovementBehaviorParams(neutralCut);
+    glideMixer.setMovementBehaviorDepth(1.0f);
+    neutralMixer.setMovementBehaviorDepth(0.0f);
+    glideMixer.reset();
+    neutralMixer.reset();
+    constexpr uint32_t seed = 0x4e455554u;
+    glideMixer.reseed(seed, 0.68f);
+    neutralMixer.reseed(seed, 0.68f);
+
+    Frame glideFrame {};
+    Frame neutralFrame {};
+    for (uint32_t sample = 0u; sample < 24000u; ++sample) {
+        glideMixer.processFrame(glideFrame.data());
+        neutralMixer.processFrame(neutralFrame.data());
+        for (uint32_t lane = 0u; lane < glideFrame.size(); ++lane) {
+            if (!std::isfinite(neutralFrame[lane])
+                || std::abs(glideFrame[lane] - neutralFrame[lane])
+                    > 1.0e-7f) {
+                std::cerr << "Zero-depth Behavior was not transparent at "
+                          << sample << " lane " << lane + 1u << "\n";
+                return false;
+            }
+        }
+    }
+
+    // Turning the dormant behavior on must enter through the transparent
+    // state. The cached vactrol path may then close, but cannot jump there.
+    neutralMixer.setMovementBehaviorDepth(1.0f);
+    float previousGate = 1.0f;
+    float minimumGate = 1.0f;
+    float maximumGateDelta = 0.0f;
+    for (uint32_t sample = 0u; sample < 24000u; ++sample) {
+        neutralMixer.processFrame(neutralFrame.data());
+        for (float value : neutralFrame) {
+            if (!std::isfinite(value) || std::abs(value) > 1.01f) {
+                std::cerr << "Behavior activation produced invalid audio\n";
+                return false;
+            }
+        }
+        const float gate = neutralMixer.behaviorRouteGate(activeRoute);
+        minimumGate = std::min(minimumGate, gate);
+        maximumGateDelta = std::max(maximumGateDelta,
+            std::abs(gate - previousGate));
+        previousGate = gate;
+    }
+    if (!(minimumGate < 0.95f) || maximumGateDelta > 0.025f) {
+        std::cerr << "Behavior activation did not use a smooth circuit ramp: "
+                  << minimumGate << " min, " << maximumGateDelta
+                  << " delta\n";
+        return false;
+    }
+
+    neutralMixer.setMovementBehaviorParams(glide);
+    for (uint32_t sample = 0u; sample < 12000u; ++sample) {
+        neutralMixer.processFrame(neutralFrame.data());
+        for (float value : neutralFrame) {
+            if (!std::isfinite(value) || std::abs(value) > 1.01f) {
+                std::cerr << "Behavior bypass transition produced invalid "
+                             "audio\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool testReactClockTuningAndAuxTopology()
 {
     if (std::abs(s3g::noInputMixerMotionRateHz(0.0f, true)
@@ -1329,6 +1428,7 @@ int main()
     if (!testSignedMatrixChangesState()) return 1;
     if (!testHybridControlEcology()) return 1;
     if (!testMovementBehaviors()) return 1;
+    if (!testNeutralMovementBehaviorAndTransitions()) return 1;
     if (!testReactClockTuningAndAuxTopology()) return 1;
     if (!testMidiMatrixGrid()) return 1;
     if (!testLiveParameterDezippering()) return 1;

@@ -22,6 +22,7 @@
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build-apps",
       "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
         "S3G_BUILD_STANDALONE_APPS": "ON"
       }
     }

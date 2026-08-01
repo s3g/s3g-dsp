@@ -1,5 +1,7 @@
 #include "s3g_coreaudio_output.h"
 #include "s3g_cocoa_gui.h"
+#include "s3g_nim_midi_feedback.h"
+#include "s3g_nim_gesture_session.h"
 #include "s3g_no_input_mixer.h"
 #include "s3g_no_input_mixer_standalone_engine.h"
 
@@ -28,6 +30,7 @@ namespace {
 constexpr CGFloat kNativePluginWidth = 1356.0;
 constexpr CGFloat kNativePluginHeight = 820.0;
 constexpr CGFloat kOutputStripHeight = 92.0;
+constexpr size_t kMaximumGestureSessionBytes = 256u * 1024u * 1024u;
 
 using s3g::standalone::CoreAudioDeviceInfo;
 using s3g::standalone::CoreAudioOutput;
@@ -182,7 +185,8 @@ void clearAudioBufferList(AudioBufferList* output)
     }
 }
 
-OSStatus renderAudio(void* context, AudioBufferList* output, uint32_t frames)
+OSStatus renderAudio(void* context, AudioBufferList* output, uint32_t frames,
+    uint64_t blockHostTime)
 {
     auto* state = static_cast<AppState*>(context);
     if (!state || !output || !state->deviceOpen.load(
@@ -193,7 +197,7 @@ OSStatus renderAudio(void* context, AudioBufferList* output, uint32_t frames)
     }
     const uint32_t renderChannels = state->audio.config().renderChannels;
     state->engine.render(state->hardwarePointers.data(), renderChannels,
-        frames);
+        frames, blockHostTime);
 
     uint32_t channelBase = 0u;
     for (UInt32 buffer = 0u; buffer < output->mNumberBuffers; ++buffer) {
@@ -238,6 +242,7 @@ bool openSelectedAudioDevice(AppState& state)
     if (renderChannels < 2u || !state.audio.open(device.id, renderChannels,
             renderAudio, &state, &state.audioError)) return false;
     const auto& config = state.audio.config();
+    state.engine.setHostTicksPerSecond(config.hostTicksPerSecond);
     if (!state.engine.prepare(config.sampleRate, config.maximumFrames)) {
         state.audioError = "Could not activate the embedded CLAP processors";
         state.audio.close();
@@ -287,15 +292,30 @@ void midiReadProc(const MIDIPacketList* packetList, void* context,
             const uint8_t dataOne = packet->data[offset + 1u] & 0x7fu;
             const uint8_t dataTwo = length == 3u
                 ? packet->data[offset + 2u] & 0x7fu : 0u;
-            state->engine.enqueueMidi(status, dataOne, dataTwo);
+            state->engine.enqueueMidi(status, dataOne, dataTwo,
+                packet->timeStamp);
             offset = static_cast<UInt16>(offset + length);
         }
         packet = MIDIPacketNext(packet);
     }
 }
 
+void updateMidiFeedbackProducers(AppState& state)
+{
+    const auto* feedback = state.engine.noInputPlugin()
+        .extension<s3g_nim_midi_feedback_t>(
+            S3G_NIM_MIDI_FEEDBACK_EXTENSION_ID);
+    if (!feedback || !feedback->set_enabled) return;
+    feedback->set_enabled(state.engine.noInputPlugin().plugin(),
+        state.selectedE16MidiDestination < state.midiDestinations.size(),
+        state.selectedGridMidiDestination < state.midiDestinations.size());
+}
+
 void connectMidiInputs(AppState& state)
 {
+    // Ordinary CLAP hosts default to feedback on. The standalone can avoid
+    // generating and scanning unused feedback as soon as it owns the plugin.
+    updateMidiFeedbackProducers(state);
     MIDIClientCreate(CFSTR("s3g No Input Mixer"), nullptr, nullptr,
         &state.midiClient);
     if (!state.midiClient) return;
@@ -337,6 +357,7 @@ void connectMidiInputs(AppState& state)
         state.selectedE16MidiDestination);
     restoreDestination(@"GridFeedbackDestinationUniqueID",
         state.selectedGridMidiDestination);
+    updateMidiFeedbackProducers(state);
 }
 
 void drainMidiOutput(AppState& state)
@@ -380,6 +401,87 @@ std::vector<uint8_t> bytesFromData(NSData* data)
     return std::vector<uint8_t>(begin, begin + [data length]);
 }
 
+int64_t writeGestureSession(const clap_ostream_t* stream,
+    const void* source, uint64_t byteCount)
+{
+    if (!stream || !stream->ctx || (!source && byteCount > 0u)) return -1;
+    if (byteCount == 0u) return 0;
+    auto* destination = static_cast<std::vector<uint8_t>*>(stream->ctx);
+    if (byteCount > kMaximumGestureSessionBytes
+        || destination->size() > kMaximumGestureSessionBytes - byteCount) {
+        return -1;
+    }
+    const auto* bytes = static_cast<const uint8_t*>(source);
+    try {
+        destination->insert(destination->end(), bytes, bytes + byteCount);
+    } catch (...) {
+        return -1;
+    }
+    return static_cast<int64_t>(byteCount);
+}
+
+struct GestureSessionReader {
+    const std::vector<uint8_t>* source = nullptr;
+    size_t offset = 0u;
+};
+
+int64_t readGestureSession(const clap_istream_t* stream, void* destination,
+    uint64_t byteCount)
+{
+    if (!stream || !stream->ctx || (!destination && byteCount > 0u))
+        return -1;
+    auto* reader = static_cast<GestureSessionReader*>(stream->ctx);
+    if (!reader->source) return -1;
+    const size_t remaining = reader->offset < reader->source->size()
+        ? reader->source->size() - reader->offset : 0u;
+    const size_t count = std::min<size_t>(remaining,
+        static_cast<size_t>(byteCount));
+    if (count > 0u) {
+        std::memcpy(destination, reader->source->data() + reader->offset,
+            count);
+        reader->offset += count;
+    }
+    return static_cast<int64_t>(count);
+}
+
+const s3g_nim_gesture_session_t* gestureSessionExtension(
+    EmbeddedClapPlugin& plugin)
+{
+    return plugin.extension<s3g_nim_gesture_session_t>(
+        S3G_NIM_GESTURE_SESSION_EXTENSION);
+}
+
+bool saveGestureSession(EmbeddedClapPlugin& plugin,
+    std::vector<uint8_t>& destination)
+{
+    const auto* session = gestureSessionExtension(plugin);
+    if (!session || !session->save) return false;
+    destination.clear();
+    clap_ostream_t stream { &destination, writeGestureSession };
+    if (!session->save(plugin.plugin(), &stream)) {
+        destination.clear();
+        return false;
+    }
+    return !destination.empty();
+}
+
+bool loadGestureSession(EmbeddedClapPlugin& plugin,
+    const std::vector<uint8_t>& source)
+{
+    const auto* session = gestureSessionExtension(plugin);
+    if (!session || !session->load || source.empty()
+        || source.size() > kMaximumGestureSessionBytes) return false;
+    GestureSessionReader reader { &source, 0u };
+    clap_istream_t stream { &reader, readGestureSession };
+    return session->load(plugin.plugin(), &stream);
+}
+
+bool clearGestureSession(EmbeddedClapPlugin& plugin)
+{
+    const auto* session = gestureSessionExtension(plugin);
+    return session && session->clear && session->clear(plugin.plugin());
+}
+
 void restoreProcessorState(AppState& state)
 {
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
@@ -389,9 +491,12 @@ void restoreProcessorState(AppState& state)
         if (!bytes.empty()) plugin.loadState(bytes);
     };
     restore(state.engine.noInputPlugin(), @"NoInputMixerState");
-    restore(state.engine.gesturePlugin(), @"NimGestureState");
     restore(state.engine.stereoPlugin(), @"StereoAutogainState");
     restore(state.engine.quadPlugin(), @"QuadAutogainState");
+    // Gesture recordings are deliberately session-only. Remove preferences
+    // written by older builds, begin empty, and require an explicit PLAY.
+    [defaults removeObjectForKey:@"NimGestureState"];
+    clearGestureSession(state.engine.gesturePlugin());
     const NSInteger mode = [defaults integerForKey:@"OutputMode"];
     state.engine.setOutputMode(static_cast<NoInputOutputMode>(
         std::clamp<NSInteger>(mode, 0, 2)));
@@ -415,9 +520,9 @@ void saveProcessorState(AppState& state)
             forKey:key];
     };
     save(state.engine.noInputPlugin(), @"NoInputMixerState");
-    save(state.engine.gesturePlugin(), @"NimGestureState");
     save(state.engine.stereoPlugin(), @"StereoAutogainState");
     save(state.engine.quadPlugin(), @"QuadAutogainState");
+    [defaults removeObjectForKey:@"NimGestureState"];
     [defaults setInteger:static_cast<NSInteger>(state.engine.outputMode())
         forKey:@"OutputMode"];
     for (uint32_t index = 0u; index < 3u; ++index) {
@@ -710,6 +815,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     NSPopUpButton* _midiInputMenu;
     NSPopUpButton* _e16MidiOutputMenu;
     NSPopUpButton* _gridMidiOutputMenu;
+    NSTextField* _gestureSessionLabel;
     NSPanel* _gesturePanel;
     NSView* _gesturePluginContainer;
     bool _gestureGuiAttached;
@@ -721,6 +827,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 - (void)refreshControls;
 - (void)closeOutputEditor;
 - (void)closeMidiPanels;
+- (void)setGestureSessionStatus:(NSString*)status color:(int)color;
 @end
 
 @implementation S3GNoInputStandaloneView
@@ -963,12 +1070,29 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         ? @"STEREO AUTOGAIN" : mode == NoInputOutputMode::QuadAutogain
             ? @"QUAD AUTOGAIN" : @"DIRECT 8";
     if (_state->deviceOpen.load(std::memory_order_acquire)) {
+        const auto telemetry = _state->audio.telemetry();
+        const uint64_t midiDrops = _state->engine.midiInputDropCount();
+        const bool realtimeFault = telemetry.deadlineMissCount != 0u
+            || telemetry.processorOverloadCount != 0u
+            || telemetry.oversizedCallbackCount != 0u
+            || telemetry.callbackErrorCount != 0u || midiDrops != 0u;
+        [_statusLabel setTextColor:s3g::clap_gui::color(realtimeFault
+            ? 0xd49a69 : 0x8f8f8f)];
         [_statusLabel setStringValue:[NSString stringWithFormat:
-            @"%@  •  OUT %u–%u  •  %.0f Hz  •  %u hardware channels  •  peak %.3f  •  %@",
+            @"%@  •  OUT %u–%u  •  %.0f Hz / %u ch  •  signal %.3f  •  RT %.0f%% / max %.2f ms (%.0f%%)  •  misses %llu / HAL %llu / size %llu / err %llu / MIDI %llu  •  %@",
             modeName, outputOffset + 1u, outputOffset + routedChannels,
             config.sampleRate, config.renderChannels, peak,
+            telemetry.smoothedLoad * 100.0,
+            telemetry.maximumCallbackMilliseconds,
+            telemetry.peakLoad * 100.0,
+            static_cast<unsigned long long>(telemetry.deadlineMissCount),
+            static_cast<unsigned long long>(telemetry.processorOverloadCount),
+            static_cast<unsigned long long>(telemetry.oversizedCallbackCount),
+            static_cast<unsigned long long>(telemetry.callbackErrorCount),
+            static_cast<unsigned long long>(midiDrops),
             _state->engine.audioEnabled() ? @"LIVE" : @"SAFE MUTED"]];
     } else {
+        [_statusLabel setTextColor:s3g::clap_gui::color(0xd49a69)];
         [_statusLabel setStringValue:[NSString stringWithFormat:
             @"AUDIO ERROR  •  %s", _state->audioError.c_str()]];
     }
@@ -1189,19 +1313,133 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_midiPanelContent addSubview:_e16MidiOutputMenu];
     [self refreshMidiOutputMenus];
 
+    _gestureSessionLabel = [[NSTextField labelWithString:
+        @"GESTURE RECORDINGS ARE SESSION-ONLY  ·  LOADS OPEN PAUSED"] retain];
+    [_gestureSessionLabel setTextColor:s3g::clap_gui::color(0x8f8f8f)];
+    [_gestureSessionLabel setFont:s3g::clap_gui::uiFont(9.2)];
+    [_gestureSessionLabel setFrame:NSMakeRect(28.0, 105.0, 552.0, 18.0)];
+    [_midiPanelContent addSubview:_gestureSessionLabel];
+    addLabel(@"E16 USB THRU MUST BE OFF WHEN FEEDBACK IS ENABLED",
+        NSMakeRect(28.0, 82.0, 552.0, 18.0), 0xb56c61, 9.5);
+
     NSButton* gestures = [[S3GStandaloneActionButton alloc]
-        initWithFrame:NSMakeRect(28.0, 34.0, 150.0, 34.0)];
+        initWithFrame:NSMakeRect(28.0, 34.0, 176.0, 34.0)];
     [gestures setTitle:@"EDIT NIM GESTURES"];
     [gestures setBordered:NO];
     [gestures setTarget:self];
     [gestures setAction:@selector(editGestures:)];
     [_midiPanelContent addSubview:gestures];
     [gestures release];
-    addLabel(@"E16 USB THRU MUST BE OFF WHEN FEEDBACK IS ENABLED",
-        NSMakeRect(196.0, 42.0, 390.0, 18.0), 0xb56c61, 9.5);
+
+    NSButton* load = [[S3GStandaloneActionButton alloc]
+        initWithFrame:NSMakeRect(216.0, 34.0, 128.0, 34.0)];
+    [load setTitle:@"LOAD SESSION"];
+    [load setBordered:NO];
+    [load setTarget:self];
+    [load setAction:@selector(loadGestureSession:)];
+    [_midiPanelContent addSubview:load];
+    [load release];
+
+    NSButton* save = [[S3GStandaloneActionButton alloc]
+        initWithFrame:NSMakeRect(356.0, 34.0, 128.0, 34.0)];
+    [save setTitle:@"SAVE SESSION"];
+    [save setBordered:NO];
+    [save setTarget:self];
+    [save setAction:@selector(saveGestureSession:)];
+    [_midiPanelContent addSubview:save];
+    [save release];
 
     [_midiPanel center];
     [_midiPanel makeKeyAndOrderFront:nil];
+}
+
+- (void)setGestureSessionStatus:(NSString*)status color:(int)color
+{
+    if (!_gestureSessionLabel) return;
+    [_gestureSessionLabel setStringValue:status ?: @""];
+    [_gestureSessionLabel setTextColor:s3g::clap_gui::color(color)];
+}
+
+- (void)showGestureSessionError:(NSString*)message
+{
+    NSAlert* alert = [[[NSAlert alloc] init] autorelease];
+    [alert setAlertStyle:NSAlertStyleWarning];
+    [alert setMessageText:@"NIM Gesture Session"];
+    [alert setInformativeText:message ?: @"The session operation failed."];
+    [alert runModal];
+}
+
+- (void)loadGestureSession:(id)sender
+{
+    (void)sender;
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setCanChooseDirectories:NO];
+    [panel setCanChooseFiles:YES];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setAllowedFileTypes:@[ @"nimgesture" ]];
+    [panel setAllowsOtherFileTypes:NO];
+    [panel setMessage:@"Loading replaces the current gesture recordings. The session opens paused."];
+    if ([panel runModal] != NSModalResponseOK) return;
+
+    NSURL* url = [panel URL];
+    NSError* error = nil;
+    NSData* data = [NSData dataWithContentsOfURL:url
+        options:NSDataReadingMappedIfSafe error:&error];
+    if (!data || [data length] == 0u
+        || [data length] > kMaximumGestureSessionBytes) {
+        NSString* detail = error ? [error localizedDescription]
+            : @"The selected file is empty or too large.";
+        [self showGestureSessionError:detail];
+        return;
+    }
+
+    const auto bytes = bytesFromData(data);
+    const bool loaded = loadGestureSession(
+        _state->engine.gesturePlugin(), bytes);
+    if (!loaded) {
+        [self showGestureSessionError:
+            @"This is not a valid or compatible .nimgesture session. The current recordings were left unchanged."];
+        return;
+    }
+    NSString* filename = [url lastPathComponent] ?: @"session";
+    [self setGestureSessionStatus:[NSString stringWithFormat:
+        @"LOADED %@  ·  PAUSED — CLICK PLAY IN THE EDITOR", filename]
+        color:0x8fbfc2];
+}
+
+- (void)saveGestureSession:(id)sender
+{
+    (void)sender;
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    [panel setAllowedFileTypes:@[ @"nimgesture" ]];
+    [panel setAllowsOtherFileTypes:NO];
+    [panel setCanCreateDirectories:YES];
+    [panel setNameFieldStringValue:@"NIM Gesture Session.nimgesture"];
+    [panel setMessage:@"Exports the current gesture recordings. Sessions are never restored automatically."];
+    if ([panel runModal] != NSModalResponseOK) return;
+
+    std::vector<uint8_t> bytes;
+    const bool captured = saveGestureSession(
+        _state->engine.gesturePlugin(), bytes);
+    if (!captured) {
+        [self showGestureSessionError:
+            @"The current gesture recordings could not be exported. Stop RECORD before saving."];
+        return;
+    }
+
+    NSError* error = nil;
+    NSData* data = dataFromBytes(bytes);
+    const bool written = data && [data writeToURL:[panel URL]
+        options:NSDataWritingAtomic error:&error];
+    if (!written) {
+        [self showGestureSessionError:error ? [error localizedDescription]
+            : @"The session file could not be written."];
+        return;
+    }
+    NSString* filename = [[panel URL] lastPathComponent] ?: @"session";
+    [self setGestureSessionStatus:[NSString stringWithFormat:
+        @"SAVED %@  ·  NOT RESTORED AUTOMATICALLY", filename]
+        color:0xd49a69];
 }
 
 - (void)changeMidiInput:(NSPopUpButton*)sender
@@ -1226,6 +1464,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _state->selectedGridMidiDestination = tag <= 0
         ? std::numeric_limits<uint32_t>::max()
         : static_cast<uint32_t>(tag - 1);
+    updateMidiFeedbackProducers(*_state);
 }
 
 - (void)changeE16MidiOutput:(NSPopUpButton*)sender
@@ -1234,6 +1473,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _state->selectedE16MidiDestination = tag <= 0
         ? std::numeric_limits<uint32_t>::max()
         : static_cast<uint32_t>(tag - 1);
+    updateMidiFeedbackProducers(*_state);
 }
 
 - (void)editGestures:(id)sender
@@ -1287,6 +1527,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _e16MidiOutputMenu = nil;
     [_gridMidiOutputMenu release];
     _gridMidiOutputMenu = nil;
+    [_gestureSessionLabel release];
+    _gestureSessionLabel = nil;
     [_midiPanelContent release];
     _midiPanelContent = nil;
 }
@@ -1355,6 +1597,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         return;
     }
     restoreProcessorState(*_state);
+    updateMidiFeedbackProducers(*_state);
     _state->devices = CoreAudioOutput::enumerateDevices();
     const AudioDeviceID defaultDevice = CoreAudioOutput::defaultOutputDevice();
     NSString* savedUid = [[NSUserDefaults standardUserDefaults]
@@ -1421,6 +1664,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _state->engine.setAudioEnabled(false);
     _state->deviceOpen.store(false, std::memory_order_release);
     _state->audio.close();
+    clearGestureSession(_state->engine.gesturePlugin());
     _state->engine.release();
     saveProcessorState(*_state);
     [_rootView closeOutputEditor];

@@ -36,19 +36,14 @@ bool NoInputMixerStandaloneEngine::create(
     inputEvents_.size = [](const clap_input_events_t* events) -> uint32_t {
         const auto* self = static_cast<const NoInputMixerStandaloneEngine*>(
             events ? events->ctx : nullptr);
-        if (!self) return 0u;
-        uint32_t count = 0u;
-        while (count < kMaximumEventsPerBlock
-            && self->midiEvents_[count].header.size != 0u) ++count;
-        return count;
+        return self ? self->midiEventCount_ : 0u;
     };
     inputEvents_.get = [](const clap_input_events_t* events,
         uint32_t index) -> const clap_event_header_t* {
         const auto* self = static_cast<const NoInputMixerStandaloneEngine*>(
             events ? events->ctx : nullptr);
-        if (!self || index >= kMaximumEventsPerBlock
-            || self->midiEvents_[index].header.size == 0u) return nullptr;
-        return &self->midiEvents_[index].header;
+        if (!self || index >= self->midiEventCount_) return nullptr;
+        return &self->midiEvents_[index].event.header;
     };
     gestureInputEvents_.ctx = this;
     gestureInputEvents_.size = [](const clap_input_events_t* events) {
@@ -162,7 +157,9 @@ void NoInputMixerStandaloneEngine::release()
     stereoPointers_.fill(nullptr);
     quadPointers_.fill(nullptr);
     maximumFrames_ = 0u;
+    midiEventCount_ = 0u;
     gestureMidiEventCount_ = 0u;
+    pendingMidiCount_ = 0u;
 }
 
 void NoInputMixerStandaloneEngine::setOutputMode(NoInputOutputMode mode)
@@ -222,20 +219,123 @@ double NoInputMixerStandaloneEngine::tempo() const
     return tempoBpm_.load(std::memory_order_acquire);
 }
 
+void NoInputMixerStandaloneEngine::setHostTicksPerSecond(
+    double ticksPerSecond)
+{
+    if (std::isfinite(ticksPerSecond) && ticksPerSecond > 0.0)
+        hostTicksPerSecond_ = ticksPerSecond;
+}
+
 void NoInputMixerStandaloneEngine::requestPanic()
 {
     panicRequested_.store(true, std::memory_order_release);
 }
 
 bool NoInputMixerStandaloneEngine::enqueueMidi(uint8_t status,
-    uint8_t dataOne, uint8_t dataTwo)
+    uint8_t dataOne, uint8_t dataTwo, uint64_t hostTime)
 {
     const uint32_t write = midiWrite_.load(std::memory_order_relaxed);
     const uint32_t next = (write + 1u) % kMidiQueueCapacity;
-    if (next == midiRead_.load(std::memory_order_acquire)) return false;
-    midiQueue_[write] = { status, dataOne, dataTwo };
+    if (next == midiRead_.load(std::memory_order_acquire)) {
+        midiInputDropCount_.fetch_add(1u, std::memory_order_relaxed);
+        return false;
+    }
+    midiQueue_[write] = { status, dataOne, dataTwo, hostTime,
+        midiSequence_.fetch_add(1u, std::memory_order_relaxed) };
     midiWrite_.store(next, std::memory_order_release);
     return true;
+}
+
+bool NoInputMixerStandaloneEngine::deferMidi(const MidiMessage& message)
+{
+    if (pendingMidiCount_ >= pendingMidi_.size()) {
+        midiInputDropCount_.fetch_add(1u, std::memory_order_relaxed);
+        return false;
+    }
+    pendingMidi_[pendingMidiCount_++] = message;
+    return true;
+}
+
+uint32_t NoInputMixerStandaloneEngine::midiFrameOffset(
+    uint64_t eventHostTime, uint64_t blockHostTime,
+    double hostTicksPerSecond, double sampleRate, uint32_t frames)
+{
+    if (frames == 0u) return 0u;
+    if (eventHostTime == 0u || blockHostTime == 0u
+        || eventHostTime <= blockHostTime
+        || !(hostTicksPerSecond > 0.0) || !(sampleRate > 0.0)) return 0u;
+    const long double deltaTicks = static_cast<long double>(eventHostTime
+        - blockHostTime);
+    const long double frame = deltaTicks * sampleRate / hostTicksPerSecond;
+    if (frame >= frames) return frames;
+    return static_cast<uint32_t>(frame);
+}
+
+void NoInputMixerStandaloneEngine::appendMidiEvent(
+    const MidiMessage& message, uint32_t frameOffset, uint32_t& eventCount)
+{
+    if (eventCount >= midiEvents_.size()) return;
+    auto& blockEvent = midiEvents_[eventCount++];
+    blockEvent.event = {};
+    blockEvent.event.header.size = sizeof(blockEvent.event);
+    blockEvent.event.header.time = frameOffset;
+    blockEvent.event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    blockEvent.event.header.type = CLAP_EVENT_MIDI;
+    blockEvent.event.port_index = 0u;
+    blockEvent.event.data[0] = message.status;
+    blockEvent.event.data[1] = message.dataOne;
+    blockEvent.event.data[2] = message.dataTwo;
+    blockEvent.sequence = message.sequence;
+}
+
+void NoInputMixerStandaloneEngine::prepareMidiEvents(uint32_t frames,
+    uint64_t blockHostTime)
+{
+    uint32_t eventCount = 0u;
+    if (panicRequested_.exchange(false, std::memory_order_acq_rel)) {
+        appendMidiEvent({ 0x9fu, 123u, 127u, 0u, 0u }, 0u,
+            eventCount);
+    }
+
+    // Revisit timestamped events retained for a future callback. Compact the
+    // fixed-capacity array in place; events which exceed this block's CLAP
+    // budget remain pending and become frame-zero events on the next block.
+    uint32_t retainedCount = 0u;
+    for (uint32_t index = 0u; index < pendingMidiCount_; ++index) {
+        MidiMessage message = pendingMidi_[index];
+        const uint32_t offset = midiFrameOffset(message.hostTime,
+            blockHostTime, hostTicksPerSecond_, sampleRate_, frames);
+        if (offset < frames && eventCount < midiEvents_.size()) {
+            appendMidiEvent(message, offset, eventCount);
+        } else {
+            if (offset < frames) message.hostTime = 0u;
+            pendingMidi_[retainedCount++] = message;
+        }
+    }
+    pendingMidiCount_ = retainedCount;
+
+    MidiMessage message;
+    while (dequeueMidi(message)) {
+        const uint32_t offset = midiFrameOffset(message.hostTime,
+            blockHostTime, hostTicksPerSecond_, sampleRate_, frames);
+        if (offset < frames && eventCount < midiEvents_.size()) {
+            appendMidiEvent(message, offset, eventCount);
+        } else {
+            if (offset < frames) message.hostTime = 0u;
+            deferMidi(message);
+        }
+    }
+
+    // CoreMIDI normally supplies monotonic packets, but several connected
+    // sources may interleave. CLAP requires time-ordered events, with NRPN
+    // byte ordering retained when timestamps are equal.
+    std::sort(midiEvents_.begin(), midiEvents_.begin() + eventCount,
+        [](const BlockMidiEvent& left, const BlockMidiEvent& right) {
+            if (left.event.header.time != right.event.header.time)
+                return left.event.header.time < right.event.header.time;
+            return left.sequence < right.sequence;
+        });
+    midiEventCount_ = eventCount;
 }
 
 bool NoInputMixerStandaloneEngine::dequeueMidi(MidiMessage& message)
@@ -283,38 +383,13 @@ void NoInputMixerStandaloneEngine::clearOutput(float* const* output,
 }
 
 void NoInputMixerStandaloneEngine::render(float* const* output,
-    uint32_t outputChannels, uint32_t frames)
+    uint32_t outputChannels, uint32_t frames, uint64_t blockHostTime)
 {
     if (!prepared_ || !output || frames == 0u || frames > maximumFrames_) {
         clearOutput(output, outputChannels, frames);
         return;
     }
-    for (auto& event : midiEvents_) event = {};
-    uint32_t eventCount = 0u;
-    if (panicRequested_.exchange(false, std::memory_order_acq_rel)) {
-        MidiMessage panic { 0x9fu, 123u, 127u };
-        auto& event = midiEvents_[eventCount++];
-        event.header.size = sizeof(event);
-        event.header.time = 0u;
-        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-        event.header.type = CLAP_EVENT_MIDI;
-        event.port_index = 0u;
-        event.data[0] = panic.status;
-        event.data[1] = panic.dataOne;
-        event.data[2] = panic.dataTwo;
-    }
-    MidiMessage message;
-    while (eventCount < kMaximumEventsPerBlock && dequeueMidi(message)) {
-        auto& event = midiEvents_[eventCount++];
-        event.header.size = sizeof(event);
-        event.header.time = 0u;
-        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-        event.header.type = CLAP_EVENT_MIDI;
-        event.port_index = 0u;
-        event.data[0] = message.status;
-        event.data[1] = message.dataOne;
-        event.data[2] = message.dataTwo;
-    }
+    prepareMidiEvents(frames, blockHostTime);
 
     clap_event_transport_t transport {};
     transport.header.size = sizeof(transport);

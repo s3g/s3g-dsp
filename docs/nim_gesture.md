@@ -32,13 +32,20 @@ separate CoreMIDI destinations for E16 and Grid feedback, or leave either one
 off. The window also lists every available CoreMIDI input source with an
 independent checkmark; Enable All and Disable All are provided, and the
 selection is remembered by device ID. Checked sources feed the Gesture
-processor; non-channel-16 events pass through to No Input Mixer. The Gesture GUI and its
-free-running loops are available from **EDIT NIM GESTURES**, and its state is
-restored with the application.
+processor; non-channel-16 events pass through to No Input Mixer. The Gesture
+GUI and its free-running loops are available from **EDIT NIM GESTURES**.
 
-Playback remains active when the Gesture window is closed and is restored on
-the next launch. Pause **Play** before comparing static presets or DSP changes;
-an active loop continues to write its parameter, including Output or Drift.
+Every application launch starts NIM Gesture empty and paused: there are no
+motion loops, Record is off, and Play is off. Closing the Gesture window does
+not stop an active performance during the current application run, but quitting
+the application discards all in-memory Gesture recordings and transport state.
+They are not written to the application's automatic preferences. Use **SAVE
+SESSION** before quitting if the performance should be kept.
+
+**LOAD SESSION** replaces the current in-memory loops but does not start them.
+Open **EDIT NIM GESTURES** and click **Play** deliberately after loading. This
+prevents an old Output, Drift, or other parameter loop from silently changing
+the mixer at the next launch.
 
 The standalone's four-controller matrix protocol reserves MIDI channels 1–4
 for four 4-by-4 button grids. Notes 0–15 cover one quadrant per controller.
@@ -75,10 +82,67 @@ discards the current take and restores those existing loops.
 
 The CLAP exposes Record, Playback, Clear Last, Clear All, and Live Takeover in
 the host's generic parameter view. Loop Count and Last Loop Length are
-read-only status parameters. Loops are stored in CLAP project state.
+read-only status parameters. A fresh utility instance starts paused. When the
+utility is used as a CLAP in REAPER, loops and the Play state are stored in the
+host's project state. This host-managed behavior is separate from the
+standalone application, which never restores Gesture loops from its automatic
+application preferences.
 
 Live Takeover suppresses a parameter's recorded playback briefly after a live
 turn. The default is 650 ms.
+
+## Gesture session files
+
+Use **SAVE SESSION** in the standalone application's MIDI Routing window to
+export the current performance as a `.nimgesture` file. Stop or cancel an
+active recording first; only completed loops can be saved. The file contains
+the recorded parameter loops, their point timing and loop lengths, and Gesture
+settings such as Live Takeover. It does not contain the No Input Mixer sound,
+matrix state, audio-output setup, MIDI-device selections, E16/BU16 scene
+configuration, or an instruction to begin playback.
+
+Use **LOAD SESSION** to replace the current performance with a `.nimgesture`
+file. Loading always leaves Record off and Play paused, regardless of the
+transport state when the file was saved. Review the loaded loops in **EDIT NIM
+GESTURES**, then click **Play** to begin the performance. Saving or loading is
+always explicit; the standalone does not automatically reopen the last-used
+file. Exported files remain on disk when the application quits, while any
+unsaved in-memory recording is discarded.
+
+### `.nimgesture` version 1 format
+
+The format uses packed, fixed-width little-endian integers; it never writes a
+native C or C++ structure. The 40-byte header is:
+
+| Field | Type | Version 1 value or meaning |
+| --- | --- | --- |
+| Magic | 8 bytes | ASCII `S3GNIMGS` |
+| Version | `u16` | `1` |
+| Header bytes | `u16` | `40` |
+| Flags | `u32` | `0` |
+| Loop count | `u32` | Number of loop records |
+| Total point count | `u32` | Points across every loop |
+| Payload bytes | `u64` | Exact byte count after the header |
+| Payload CRC-32 | `u32` | IEEE CRC-32 of the payload only |
+| Live Takeover | `u32` | Microseconds, `0`–`5000000` |
+
+The CRC uses polynomial `0xEDB88320`, with initial and final XOR values of
+`0xFFFFFFFF`. Each loop begins with a 16-byte record: `u16 parameterId`, `u16
+reserved`, `u32 pointCount`, and `u64 lengthNanoseconds`. Each point is a
+12-byte record: `u64 timeNanoseconds`, `u16 value`, and `u16 reserved`. Reserved
+fields must be zero. Values are 14-bit (`0`–`16383`), point times are monotonic
+and no later than the loop length, and a loop may be at most 24 hours long.
+
+`parameterId` is the stable No Input Mixer NRPN/CLAP parameter ID documented in
+the [MIDI specification](no_input_mixer_midi.md#nrpn-parameter-addressing).
+Every ID must be current, unique within the file, and have at least one point;
+export writes loops in canonical NIM parameter order. Payload size must equal
+`loopCount * 16 + totalPointCount * 12`, and trailing bytes are invalid.
+
+Import is transactional: an invalid or unsupported file leaves the current
+loops untouched. A successful import replaces all loops, applies Live
+Takeover, cancels any active recording, and leaves Play paused. Transport state
+is deliberately absent from the format.
 
 ## Native overview
 

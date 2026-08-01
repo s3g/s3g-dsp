@@ -48,14 +48,24 @@ public:
     bool audioEnabled() const;
     void setTempo(double bpm);
     double tempo() const;
+    void setHostTicksPerSecond(double ticksPerSecond);
+    double hostTicksPerSecond() const { return hostTicksPerSecond_; }
     void requestPanic();
-    bool enqueueMidi(uint8_t status, uint8_t dataOne, uint8_t dataTwo);
+    bool enqueueMidi(uint8_t status, uint8_t dataOne, uint8_t dataTwo,
+        uint64_t hostTime = 0u);
     bool dequeueMidiOutput(uint8_t& status, uint8_t& dataOne,
         uint8_t& dataTwo);
 
+    // Returns [0, frames - 1] for an event in or before this block, and
+    // frames when the timestamp belongs to a future block. A zero timestamp
+    // means "as soon as possible" and maps to frame zero.
+    static uint32_t midiFrameOffset(uint64_t eventHostTime,
+        uint64_t blockHostTime, double hostTicksPerSecond,
+        double sampleRate, uint32_t frames);
+
     // Output is planar. Extra hardware channels are always zeroed.
     void render(float* const* output, uint32_t outputChannels,
-        uint32_t frames);
+        uint32_t frames, uint64_t blockHostTime = 0u);
 
     EmbeddedClapPlugin& noInputPlugin() { return noInput_; }
     EmbeddedClapPlugin& gesturePlugin() { return gesture_; }
@@ -69,12 +79,23 @@ public:
     double sampleRate() const { return sampleRate_; }
     uint32_t maximumFrames() const { return maximumFrames_; }
     float outputPeak(uint32_t channel) const;
+    uint64_t midiInputDropCount() const
+    {
+        return midiInputDropCount_.load(std::memory_order_relaxed);
+    }
 
 private:
     struct MidiMessage {
         uint8_t status = 0u;
         uint8_t dataOne = 0u;
         uint8_t dataTwo = 0u;
+        uint64_t hostTime = 0u;
+        uint64_t sequence = 0u;
+    };
+
+    struct BlockMidiEvent {
+        clap_event_midi_t event {};
+        uint64_t sequence = 0u;
     };
 
     static constexpr uint32_t kSourceChannels = 8u;
@@ -84,6 +105,10 @@ private:
     static constexpr uint32_t kMaximumGestureEventsPerBlock = 2048u;
 
     bool dequeueMidi(MidiMessage& message);
+    bool deferMidi(const MidiMessage& message);
+    void appendMidiEvent(const MidiMessage& message, uint32_t frameOffset,
+        uint32_t& eventCount);
+    void prepareMidiEvents(uint32_t frames, uint64_t blockHostTime);
     bool enqueueMidiOutput(uint8_t status, uint8_t dataOne,
         uint8_t dataTwo);
     void clearOutput(float* const* output, uint32_t channels,
@@ -100,7 +125,8 @@ private:
     std::array<float*, kSourceChannels> sourcePointers_ {};
     std::array<float*, 2u> stereoPointers_ {};
     std::array<float*, 4u> quadPointers_ {};
-    std::array<clap_event_midi_t, kMaximumEventsPerBlock> midiEvents_ {};
+    std::array<BlockMidiEvent, kMaximumEventsPerBlock> midiEvents_ {};
+    uint32_t midiEventCount_ = 0u;
     clap_input_events_t inputEvents_ {};
     std::array<clap_event_midi_t,
         kMaximumGestureEventsPerBlock> gestureMidiEvents_ {};
@@ -111,6 +137,10 @@ private:
     std::array<MidiMessage, kMidiQueueCapacity> midiQueue_ {};
     std::atomic<uint32_t> midiWrite_ { 0u };
     std::atomic<uint32_t> midiRead_ { 0u };
+    std::array<MidiMessage, kMidiQueueCapacity> pendingMidi_ {};
+    uint32_t pendingMidiCount_ = 0u;
+    std::atomic<uint64_t> midiSequence_ { 1u };
+    std::atomic<uint64_t> midiInputDropCount_ { 0u };
     std::array<MidiMessage, kMidiOutputQueueCapacity> midiOutputQueue_ {};
     std::atomic<uint32_t> midiOutputWrite_ { 0u };
     std::atomic<uint32_t> midiOutputRead_ { 0u };
@@ -123,6 +153,7 @@ private:
     std::atomic<double> tempoBpm_ { 120.0 };
     std::array<std::atomic<float>, kSourceChannels> outputPeaks_ {};
     double sampleRate_ = 48000.0;
+    double hostTicksPerSecond_ = 1.0e9;
     uint32_t maximumFrames_ = 0u;
     int64_t steadyTime_ = 0;
     float monitorGain_ = 0.0f;

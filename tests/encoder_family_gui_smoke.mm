@@ -2708,7 +2708,7 @@ int main(int argc, char** argv)
                             s3g::gui_layout::processorControlX(
                                 movement.frame.x);
                         const CGFloat toggleY =
-                            s3g::gui_layout::rowY(movement, 6u) + 6.0;
+                            s3g::gui_layout::rowY(movement, 8u) + 6.0;
                         clickNoInput(NSMakePoint(toggleX + 26.0, toggleY));
                         clickNoInput(NSMakePoint(toggleX + 83.0, toggleY));
                         clickNoInput(NSMakePoint(toggleX + 140.0, toggleY));
@@ -2727,6 +2727,12 @@ int main(int argc, char** argv)
                             && slow == 1.0
                             && params->get_value(plugin, 52u, &sync)
                             && sync == 1.0;
+                        if (!ok) {
+                            std::cerr << "No Input Mixer REACT values: mode="
+                                      << reactMode << " depth=" << reactDepth
+                                      << " hold=" << hold << " slow=" << slow
+                                      << " sync=" << sync << "\n";
+                        }
                     }
                 }
                 if (ok) {
@@ -2738,9 +2744,10 @@ int main(int argc, char** argv)
                         family.fieldPlot);
                     constexpr CGFloat tabWidth = 52.0;
                     constexpr CGFloat tabGap = 3.0;
+                    constexpr CGFloat pageCount = 5.0;
                     const CGFloat tabStart = family.fieldPanel.x
-                        + family.fieldPanel.width - 6.0 * tabWidth
-                        - 5.0 * tabGap - 10.0;
+                        + family.fieldPanel.width - pageCount * tabWidth
+                        - (pageCount - 1.0) * tabGap - 10.0;
                     clickNoInput(NSMakePoint(
                         tabStart + (tabWidth + tabGap) + tabWidth * 0.5,
                         family.fieldPanel.y + 11.0));
@@ -3002,7 +3009,6 @@ int main(int argc, char** argv)
                     NSPanel* channelPanel = nil;
                     NSPanel* safetyPanel = nil;
                     NSPanel* auxPanel = nil;
-                    NSPanel* surfacePanel = nil;
                     NSPanel* patchPanel = nil;
                     failureStage = "No Input Mixer logical POP windows";
                     if (ok) clickNoInput(popPoint);
@@ -3015,27 +3021,21 @@ int main(int argc, char** argv)
                     auxPanel = ok
                         ? [document valueForKey:@"auxPanel"] : nil;
                     if (ok) clickNoInput(popPoint);
-                    surfacePanel = ok
-                        ? [document valueForKey:@"surfacePanel"] : nil;
-                    if (ok) clickNoInput(popPoint);
                     patchPanel = ok
                         ? [document valueForKey:@"patchPanel"] : nil;
                     ok = ok && channelPanel && safetyPanel && auxPanel
-                        && surfacePanel && patchPanel
+                        && patchPanel
                         && [channelPanel isVisible]
                         && [safetyPanel isVisible]
                         && [auxPanel isVisible]
-                        && [surfacePanel isVisible]
                         && [patchPanel isVisible]
                         && [channelPanel parentWindow] == nil
                         && [safetyPanel parentWindow] == nil
                         && [auxPanel parentWindow] == nil
-                        && [surfacePanel parentWindow] == nil
                         && [patchPanel parentWindow] == nil
                         && ![channelPanel hidesOnDeactivate]
                         && ![safetyPanel hidesOnDeactivate]
                         && ![auxPanel hidesOnDeactivate]
-                        && ![surfacePanel hidesOnDeactivate]
                         && ![patchPanel hidesOnDeactivate]
                         && NSWidth([[channelPanel contentView] bounds])
                             == nativeWidth
@@ -3083,46 +3083,6 @@ int main(int argc, char** argv)
                             && tapValue == 3.0
                             && params->get_value(plugin, 1015u, &returnValue)
                             && std::fabs(returnValue + 0.75) < 0.03;
-                    }
-                    if (ok) {
-                        failureStage =
-                            "No Input Mixer SURF interaction";
-                        NSView* surfaceView = [surfacePanel contentView];
-                        auto surfaceEvent = [&](NSEventType type,
-                                                NSPoint point) {
-                            return [NSEvent mouseEventWithType:type
-                                location:[surfaceView convertPoint:point
-                                    toView:nil]
-                                modifierFlags:0 timestamp:0.0
-                                windowNumber:[surfacePanel windowNumber]
-                                context:nil eventNumber:0 clickCount:1
-                                pressure:1.0];
-                        };
-                        const auto clickSurface = [&](NSPoint point) {
-                            [surfaceView mouseDown:surfaceEvent(
-                                NSEventTypeLeftMouseDown, point)];
-                            [surfaceView mouseUp:surfaceEvent(
-                                NSEventTypeLeftMouseUp, point)];
-                        };
-                        for (uint32_t cell = 0u; cell < 6u; ++cell) {
-                            clickSurface(NSMakePoint(205.0, 132.0));
-                        }
-                        clickSurface(NSMakePoint(141.0, 132.0));
-                        // Exercise the shared CURVE, FOCUS, GLIDE control
-                        // order used by every s3g SURF page.
-                        clickSurface(NSMakePoint(98.0, 165.0));
-                        clickSurface(NSMakePoint(251.0, 165.0));
-                        clickSurface(NSMakePoint(425.0, 165.0));
-                        const NSPoint cursor = NSMakePoint(
-                            42.0 + 1272.0 * 0.73,
-                            774.0 - 580.0 * 0.27);
-                        clickSurface(cursor);
-                        double surfaceX = 0.0;
-                        double surfaceY = 0.0;
-                        ok = params->get_value(plugin, 55u, &surfaceX)
-                            && std::fabs(surfaceX - 0.73) < 0.02
-                            && params->get_value(plugin, 56u, &surfaceY)
-                            && std::fabs(surfaceY - 0.27) < 0.02;
                     }
                     if (ok) {
                         failureStage =
@@ -3232,12 +3192,11 @@ int main(int argc, char** argv)
                     if (ok && captureDirectory && captureDirectory[0]) {
                         NSString* directory = [NSString
                             stringWithUTF8String:captureDirectory];
-                        const std::array<std::pair<NSPanel*, NSString*>, 5u>
+                        const std::array<std::pair<NSPanel*, NSString*>, 4u>
                             detached {{
                                 { channelPanel, @"channel-pop" },
                                 { safetyPanel, @"safety-pop" },
                                 { auxPanel, @"aux-pop" },
-                                { surfacePanel, @"surf-pop" },
                                 { patchPanel, @"patch-pop" },
                             }};
                         for (const auto& item : detached) {
@@ -3256,7 +3215,6 @@ int main(int argc, char** argv)
                     [channelPanel orderOut:nil];
                     [safetyPanel orderOut:nil];
                     [auxPanel orderOut:nil];
-                    [surfacePanel orderOut:nil];
                     [patchPanel orderOut:nil];
                     [effectPanel orderOut:nil];
                     clickNoInput(NSMakePoint(

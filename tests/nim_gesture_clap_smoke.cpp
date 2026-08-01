@@ -3,14 +3,20 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#include "../plugins/common/s3g_nim_gesture_session.h"
+
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -20,6 +26,9 @@ constexpr clap_id kFeedbackParameter = 5u;
 constexpr uint16_t kBehaviorDepthParameter = 60u;
 constexpr uint32_t kGestureStateMagic = 0x474d494eu;
 constexpr uint32_t kGestureStateVersion = 1u;
+constexpr std::array<uint8_t, 8u> kSessionMagic {
+    'S', '3', 'G', 'N', 'I', 'M', 'G', 'S',
+};
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -142,11 +151,38 @@ struct MemoryState {
     size_t offset = 0u;
 };
 
+struct BlockingMemoryState {
+    std::vector<uint8_t> bytes;
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool entered = false;
+    bool released = false;
+};
+
 int64_t stateWrite(const clap_ostream_t* stream,
     const void* source, uint64_t requested)
 {
     auto* state = static_cast<MemoryState*>(stream->ctx);
     if (!state || (!source && requested > 0u)) return -1;
+    const size_t count = std::min<size_t>(requested, 11u);
+    const auto* bytes = static_cast<const uint8_t*>(source);
+    state->bytes.insert(state->bytes.end(), bytes, bytes + count);
+    return static_cast<int64_t>(count);
+}
+
+int64_t blockingStateWrite(const clap_ostream_t* stream,
+    const void* source, uint64_t requested)
+{
+    auto* state = static_cast<BlockingMemoryState*>(stream->ctx);
+    if (!state || (!source && requested > 0u)) return -1;
+    {
+        std::unique_lock<std::mutex> lock(state->mutex);
+        if (!state->entered) {
+            state->entered = true;
+            state->condition.notify_all();
+        }
+        state->condition.wait(lock, [&] { return state->released; });
+    }
     const size_t count = std::min<size_t>(requested, 11u);
     const auto* bytes = static_cast<const uint8_t*>(source);
     state->bytes.insert(state->bytes.end(), bytes, bytes + count);
@@ -203,6 +239,59 @@ MemoryState legacyGestureStateWithRetiredLoops()
     appendGestureLoop(state, 56u, 222u);
     appendGestureLoop(state, kBehaviorDepthParameter, 333u);
     return state;
+}
+
+uint16_t decodeU16Le(const uint8_t* bytes)
+{
+    return static_cast<uint16_t>(bytes[0])
+        | static_cast<uint16_t>(bytes[1] << 8u);
+}
+
+uint32_t decodeU32Le(const uint8_t* bytes)
+{
+    uint32_t value = 0u;
+    for (uint32_t index = 0u; index < 4u; ++index)
+        value |= static_cast<uint32_t>(bytes[index]) << (index * 8u);
+    return value;
+}
+
+uint64_t decodeU64Le(const uint8_t* bytes)
+{
+    uint64_t value = 0u;
+    for (uint32_t index = 0u; index < 8u; ++index)
+        value |= static_cast<uint64_t>(bytes[index]) << (index * 8u);
+    return value;
+}
+
+void encodeU32Le(uint32_t value, uint8_t* bytes)
+{
+    for (uint32_t index = 0u; index < 4u; ++index)
+        bytes[index] = static_cast<uint8_t>((value >> (index * 8u)) & 0xffu);
+}
+
+void encodeU64Le(uint64_t value, uint8_t* bytes)
+{
+    for (uint32_t index = 0u; index < 8u; ++index)
+        bytes[index] = static_cast<uint8_t>((value >> (index * 8u)) & 0xffu);
+}
+
+uint32_t payloadCrc32(const std::vector<uint8_t>& bytes)
+{
+    uint32_t crc = 0xffffffffu;
+    for (size_t byteIndex = 40u; byteIndex < bytes.size(); ++byteIndex) {
+        crc ^= bytes[byteIndex];
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = (crc >> 1u)
+                ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+    }
+    return crc ^ 0xffffffffu;
+}
+
+void refreshPayloadCrc(MemoryState& state)
+{
+    const uint32_t crc = payloadCrc32(state.bytes);
+    encodeU32Le(crc, state.bytes.data() + 32u);
 }
 
 std::vector<std::pair<uint32_t, uint16_t>> decodeNrpn(
@@ -316,9 +405,14 @@ int main(int argc, char** argv)
         plugin->get_extension(plugin, CLAP_EXT_PARAMS)) : nullptr;
     const auto* state = ok ? static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
+    const auto* session = ok
+        ? static_cast<const s3g_nim_gesture_session_t*>(
+            plugin->get_extension(plugin,
+                S3G_NIM_GESTURE_SESSION_EXTENSION))
+        : nullptr;
     clap_note_port_info_t inputPort {};
     clap_note_port_info_t outputPort {};
-    ok = ok && ports && params && state
+    ok = ok && ports && params && state && session
         && ports->count(plugin, true) == 1u
         && ports->count(plugin, false) == 1u
         && ports->get(plugin, 0u, true, &inputPort)
@@ -334,6 +428,17 @@ int main(int argc, char** argv)
     process.frames_count = kFrames;
     OutputEvents output;
     process.out_events = &output.output;
+
+    double playbackValue = 1.0;
+    ok = ok && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+    InputEvents beginPlayback;
+    beginPlayback.addMidi(0x9fu, 113u, 127u, 0u);
+    process.in_events = &beginPlayback.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 1.0;
+    if (!ok) std::cerr << "failed: paused startup and explicit play\n";
 
     InputEvents live;
     live.addNrpn(kFeedbackParameter, 8193u, 3u);
@@ -422,7 +527,6 @@ int main(int argc, char** argv)
     pause.addMidi(0x9fu, 113u, 127u, 0u);
     process.in_events = &pause.input;
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
-    double playbackValue = 1.0;
     ok = ok && params->get_value(plugin, 2u, &playbackValue)
         && playbackValue == 0.0 && output.midi.empty();
     if (!ok) std::cerr << "failed: playback command\n";
@@ -458,6 +562,240 @@ int main(int argc, char** argv)
     ok = ok && migratedLoopCount == 1u
         && migratedLoopId == kBehaviorDepthParameter;
     if (!ok) std::cerr << "failed: retired-ID state migration\n";
+
+    // Explicit performance files are intentionally separate from CLAP host
+    // state. They contain committed motion only and never restore transport.
+    output.clear();
+    InputEvents pauseForExport;
+    pauseForExport.addMidi(0x9fu, 113u, 127u, 0u);
+    process.in_events = &pauseForExport.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+
+    InputEvents beginIncompleteTake;
+    beginIncompleteTake.addMidi(0x9fu, 112u, 127u, 0u);
+    process.in_events = &beginIncompleteTake.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    MemoryState incompleteExport;
+    clap_ostream_t incompleteOutput { &incompleteExport, stateWrite };
+    ok = ok && !session->save(plugin, &incompleteOutput)
+        && incompleteExport.bytes.empty();
+    InputEvents cancelIncompleteTake;
+    cancelIncompleteTake.addMidi(0x9fu, 116u, 127u, 0u);
+    process.in_events = &cancelIncompleteTake.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+
+    // Export stream I/O must not hold the realtime state lock. Leave a partial
+    // NRPN address in the decoder, block the writer on another thread, and
+    // prove processing continues with a reset parser while the file is saved.
+    output.clear();
+    InputEvents partialBeforeSave;
+    partialBeforeSave.addMidi(0xbfu, 99u,
+        static_cast<uint8_t>((kBehaviorDepthParameter >> 7u) & 0x7fu));
+    partialBeforeSave.addMidi(0xbfu, 98u,
+        static_cast<uint8_t>(kBehaviorDepthParameter & 0x7fu));
+    process.in_events = &partialBeforeSave.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && output.midi.empty();
+
+    BlockingMemoryState blockingExport;
+    clap_ostream_t blockingOutput { &blockingExport, blockingStateWrite };
+    bool blockingSaveOk = false;
+    std::thread saveThread([&] {
+        blockingSaveOk = session->save(plugin, &blockingOutput);
+    });
+    bool writerEntered = false;
+    {
+        std::unique_lock<std::mutex> lock(blockingExport.mutex);
+        writerEntered = blockingExport.condition.wait_for(lock,
+            std::chrono::seconds(2), [&] { return blockingExport.entered; });
+    }
+    if (writerEntered) {
+        output.clear();
+        InputEvents partialAfterSave;
+        partialAfterSave.addMidi(0xbfu, 6u, 3u);
+        partialAfterSave.addMidi(0xbfu, 38u, 4u);
+        process.in_events = &partialAfterSave.input;
+        ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+            && output.midi.size() == 2u
+            && output.midi[0].data[1] == 6u
+            && output.midi[1].data[1] == 38u;
+
+        output.clear();
+        InputEvents liveDuringSave;
+        liveDuringSave.addNrpn(kFeedbackParameter, 4444u, 0u);
+        process.in_events = &liveDuringSave.input;
+        ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+        const auto duringSave = decodeNrpn(output.midi);
+        ok = ok && duringSave.size() == 1u
+            && duringSave[0].second == 4444u;
+    }
+    {
+        const std::lock_guard<std::mutex> lock(blockingExport.mutex);
+        blockingExport.released = true;
+    }
+    blockingExport.condition.notify_all();
+    saveThread.join();
+    ok = ok && writerEntered && blockingSaveOk
+        && !blockingExport.bytes.empty();
+    if (!ok) std::cerr << "failed: nonblocking session export\n";
+
+    MemoryState portable;
+    clap_ostream_t portableOutput { &portable, stateWrite };
+    ok = ok && session->save(plugin, &portableOutput)
+        && portable.bytes.size() == 68u
+        && std::equal(kSessionMagic.begin(), kSessionMagic.end(),
+            portable.bytes.begin())
+        && decodeU16Le(portable.bytes.data() + 8u) == 1u
+        && decodeU16Le(portable.bytes.data() + 10u) == 40u
+        && decodeU32Le(portable.bytes.data() + 12u) == 0u
+        && decodeU32Le(portable.bytes.data() + 16u) == 1u
+        && decodeU32Le(portable.bytes.data() + 20u) == 1u
+        && decodeU64Le(portable.bytes.data() + 24u) == 28u
+        && decodeU32Le(portable.bytes.data() + 32u)
+            == payloadCrc32(portable.bytes)
+        && decodeU32Le(portable.bytes.data() + 36u) == 650000u
+        && decodeU16Le(portable.bytes.data() + 40u)
+            == kBehaviorDepthParameter
+        && decodeU32Le(portable.bytes.data() + 44u) == 1u
+        && decodeU64Le(portable.bytes.data() + 48u) == 10000000u
+        && decodeU64Le(portable.bytes.data() + 56u) == 0u
+        && decodeU16Le(portable.bytes.data() + 64u) == 333u;
+    if (!ok) std::cerr << "failed: portable session export contract\n";
+
+    ok = ok && session->clear(plugin)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 0.0
+        && params->get_value(plugin, 1u, &recordingValue)
+        && recordingValue == 0.0
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+    portable.offset = 0u;
+    clap_istream_t portableInput { &portable, stateRead };
+    ok = ok && session->load(plugin, &portableInput)
+        && portable.offset == portable.bytes.size()
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0
+        && params->get_value(plugin, 1u, &recordingValue)
+        && recordingValue == 0.0
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+    output.clear();
+    process.in_events = nullptr;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && output.midi.empty();
+    if (!ok) std::cerr << "failed: explicit import remains paused\n";
+
+    // CRC failure, truncation, and trailing data must all be transactional.
+    MemoryState corrupt = portable;
+    corrupt.offset = 0u;
+    corrupt.bytes.back() ^= 0x01u;
+    clap_istream_t corruptInput { &corrupt, stateRead };
+    ok = ok && !session->load(plugin, &corruptInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+    MemoryState truncated = portable;
+    truncated.offset = 0u;
+    truncated.bytes.pop_back();
+    clap_istream_t truncatedInput { &truncated, stateRead };
+    ok = ok && !session->load(plugin, &truncatedInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0;
+    MemoryState sparseMaximum = portable;
+    sparseMaximum.offset = 0u;
+    constexpr uint32_t maximumPoints = 16u * 1024u * 1024u;
+    encodeU32Le(maximumPoints, sparseMaximum.bytes.data() + 20u);
+    encodeU64Le(16u + static_cast<uint64_t>(maximumPoints) * 12u,
+        sparseMaximum.bytes.data() + 24u);
+    encodeU32Le(maximumPoints, sparseMaximum.bytes.data() + 44u);
+    clap_istream_t sparseMaximumInput { &sparseMaximum, stateRead };
+    ok = ok && !session->load(plugin, &sparseMaximumInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0;
+    MemoryState trailing = portable;
+    trailing.offset = 0u;
+    trailing.bytes.push_back(0u);
+    clap_istream_t trailingInput { &trailing, stateRead };
+    ok = ok && !session->load(plugin, &trailingInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0;
+    MemoryState retiredId = portable;
+    retiredId.offset = 0u;
+    retiredId.bytes[40u] = 55u;
+    retiredId.bytes[41u] = 0u;
+    refreshPayloadCrc(retiredId);
+    clap_istream_t retiredIdInput { &retiredId, stateRead };
+    ok = ok && !session->load(plugin, &retiredIdInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0;
+    MemoryState outOfRangeTime = portable;
+    outOfRangeTime.offset = 0u;
+    encodeU64Le(10000001u, outOfRangeTime.bytes.data() + 56u);
+    refreshPayloadCrc(outOfRangeTime);
+    clap_istream_t outOfRangeTimeInput { &outOfRangeTime, stateRead };
+    ok = ok && !session->load(plugin, &outOfRangeTimeInput)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 1.0;
+    if (!ok) std::cerr << "failed: transactional session validation\n";
+
+    output.clear();
+    InputEvents playImported;
+    playImported.addMidi(0x9fu, 113u, 127u, 0u);
+    process.in_events = &playImported.input;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    decoded = decodeNrpn(output.midi);
+    ok = ok && decoded.size() == 1u
+        && decoded[0] == std::make_pair(0u, static_cast<uint16_t>(333u));
+    ok = ok && session->clear(plugin)
+        && params->get_value(plugin, 6u, &loopCount) && loopCount == 0.0
+        && params->get_value(plugin, 1u, &recordingValue)
+        && recordingValue == 0.0
+        && params->get_value(plugin, 2u, &playbackValue)
+        && playbackValue == 0.0;
+    if (!ok) std::cerr << "failed: explicit play after session import\n";
+
+    // Recording storage is fixed before processing starts. A take beyond the
+    // prepared capacity must stay bounded and retain its newest endpoint
+    // instead of reallocating from the audio callback.
+    constexpr uint32_t kPreparedPointCapacity = 1024u;
+    constexpr uint32_t kAttemptedPoints = kPreparedPointCapacity + 17u;
+    InputEvents boundedBegin;
+    boundedBegin.addMidi(0x9fu, 112u, 127u, 0u);
+    process.in_events = &boundedBegin.input;
+    output.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    uint16_t finalBoundedValue = 0u;
+    for (uint32_t point = 0u; point < kAttemptedPoints; ++point) {
+        finalBoundedValue = static_cast<uint16_t>((point % 16000u) + 1u);
+        InputEvents boundedPoint;
+        boundedPoint.addNrpn(kBehaviorDepthParameter,
+            finalBoundedValue, 0u);
+        process.in_events = &boundedPoint.input;
+        output.clear();
+        ok = ok && plugin->process(plugin, &process)
+            == CLAP_PROCESS_CONTINUE;
+    }
+    InputEvents boundedStop;
+    boundedStop.addMidi(0x9fu, 112u, 127u, 0u);
+    process.in_events = &boundedStop.input;
+    output.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    MemoryState boundedSession;
+    clap_ostream_t boundedOutput { &boundedSession, stateWrite };
+    ok = ok && session->save(plugin, &boundedOutput)
+        && boundedSession.bytes.size()
+            == 40u + 16u + kPreparedPointCapacity * 12u
+        && decodeU32Le(boundedSession.bytes.data() + 16u) == 1u
+        && decodeU32Le(boundedSession.bytes.data() + 20u)
+            == kPreparedPointCapacity
+        && decodeU32Le(boundedSession.bytes.data() + 44u)
+            == kPreparedPointCapacity;
+    const size_t finalPointOffset = 40u + 16u
+        + static_cast<size_t>(kPreparedPointCapacity - 1u) * 12u;
+    if (boundedSession.bytes.size() >= finalPointOffset + 10u) {
+        ok = ok && decodeU16Le(
+            boundedSession.bytes.data() + finalPointOffset + 8u)
+            == finalBoundedValue;
+    } else {
+        ok = false;
+    }
+    ok = ok && session->clear(plugin);
+    if (!ok) std::cerr << "failed: bounded realtime recording storage\n";
 
     if (plugin) {
         plugin->stop_processing(plugin);

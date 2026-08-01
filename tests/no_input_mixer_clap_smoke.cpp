@@ -6,6 +6,7 @@
 
 #include "../dsp/s3g_no_input_mixer.h"
 #include "../dsp/s3g_parameter_surface.h"
+#include "../plugins/common/s3g_nim_midi_feedback.h"
 
 #include <algorithm>
 #include <array>
@@ -1596,6 +1597,42 @@ int main(int argc, char** argv)
         << firstHalf << " / " << secondHalf << " final "
         << finalOutputValue << "\n";
     process.in_events = nullptr;
+
+    const auto* feedbackControl =
+        static_cast<const s3g_nim_midi_feedback_t*>(plugin->get_extension(
+            plugin, S3G_NIM_MIDI_FEEDBACK_EXTENSION_ID));
+    OutputEventList feedbackProbe;
+    process.out_events = &feedbackProbe.output;
+    if (feedbackControl && feedbackControl->set_enabled) {
+        feedbackControl->set_enabled(plugin, false, false);
+        EventList silentFeedbackChange;
+        silentFeedbackChange.add(kFeedbackParam, 0.71);
+        process.in_events = &silentFeedbackChange.input;
+        audio.clear();
+        ok = ok && plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE
+            && feedbackProbe.midi.empty();
+        feedbackProbe.clear();
+        MidiEventList silentNrpnInput;
+        silentNrpnInput.addNrpn(kFeedbackParam, kHalf14Bit);
+        process.in_events = &silentNrpnInput.input;
+        audio.clear();
+        ok = ok && plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE
+            && feedbackProbe.midi.empty();
+        feedbackControl->set_enabled(plugin, true, true);
+        feedbackProbe.clear();
+        process.in_events = nullptr;
+        audio.clear();
+        ok = ok && plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE
+            && feedbackProbe.nrpnFeedbackCount() == 16u
+            && feedbackProbe.matrixFeedbackCount() == 64u;
+    } else {
+        ok = false;
+    }
+    if (!ok) std::cerr << "failed: destination-aware MIDI feedback\n";
+    process.out_events = nullptr;
 
     if (plugin) {
         plugin->stop_processing(plugin);

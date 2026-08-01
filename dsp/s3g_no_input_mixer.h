@@ -400,6 +400,13 @@ inline float noInputMovementSlewMs(float normalizedSlew)
     return 0.5f * std::pow(40.0f, normalizedSlew);
 }
 
+inline float noInputMovementSlewNormalized(float milliseconds)
+{
+    milliseconds = clamp(std::isfinite(milliseconds)
+        ? milliseconds : noInputMovementSlewMs(0.22f), 0.5f, 20.0f);
+    return std::log(milliseconds / 0.5f) / std::log(40.0f);
+}
+
 inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
     uint32_t seed, NoInputRandomEnergy energy = NoInputRandomEnergy::Mid)
 {
@@ -438,7 +445,8 @@ inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
         params.length = randomLength(6.0f, 40.0f);
         params.density = 0.34f + unit() * 0.46f;
         params.chaos = 0.58f + unit() * 0.40f;
-        params.slew = 0.01f + unit() * 0.12f;
+        params.slew = noInputMovementSlewNormalized(
+            lerp(1.0f, 2.0f, unit()));
         params.choke = 0.66f + unit() * 0.34f;
     } else if (energy == NoInputRandomEnergy::Low) {
         params.behavior = NoInputMovementBehavior::Glide;
@@ -2667,6 +2675,8 @@ public:
             / static_cast<float>(sampleRate_ * 0.420));
         auxMuteSlew_ = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.004));
+        movementCoefficientSlew_ = -1.0f;
+        refreshMovementCoefficients();
         setMidiMatrixRampMs(midiMatrixRampMs_);
         panicSamplesTotal_ = std::max<uint32_t>(
             1u, static_cast<uint32_t>(sampleRate_ * 0.008));
@@ -2698,8 +2708,10 @@ public:
         if (!parameterSmoothingInitialized_ || !audioProcessingStarted_) {
             params_ = targetParams_;
             parameterSmoothingInitialized_ = true;
+            parameterSmoothingActive_ = false;
         } else {
             copyDiscreteParameters();
+            parameterSmoothingActive_ = true;
         }
         for (uint32_t index = 0u;
              index < kNoInputMixerMatrixCells; ++index) {
@@ -2840,6 +2852,7 @@ public:
             behaviorParams_ = behaviorTargetParams_;
         } else {
             behaviorParams_.behavior = behaviorTargetParams_.behavior;
+            parameterSmoothingActive_ = true;
         }
         if (previous != behaviorParams_.behavior) {
             behaviorSamplesUntilEvent_ = 0u;
@@ -2865,7 +2878,11 @@ public:
     {
         behaviorDepthTarget_ = clamp(std::isfinite(depth) ? depth : 0.0f,
             0.0f, 1.0f);
-        if (!audioProcessingStarted_) behaviorDepth_ = behaviorDepthTarget_;
+        if (!audioProcessingStarted_) {
+            behaviorDepth_ = behaviorDepthTarget_;
+        } else {
+            parameterSmoothingActive_ = true;
+        }
     }
 
     float movementBehaviorDepth() const { return behaviorDepthTarget_; }
@@ -2886,6 +2903,7 @@ public:
         params_ = targetParams_;
         behaviorParams_ = behaviorTargetParams_;
         behaviorDepth_ = behaviorDepthTarget_;
+        parameterSmoothingActive_ = false;
         audioProcessingStarted_ = false;
         clearMidiMatrixConnections();
         clearSignalState();
@@ -2952,7 +2970,13 @@ public:
     {
         if (!output) return;
         audioProcessingStarted_ = true;
-        advanceParameterSmoothing();
+        if (parameterSmoothingActive_) {
+            advanceParameterSmoothing();
+        } else {
+            // Preserve the coefficient-refresh phase used by active ramps
+            // without scanning every continuous parameter while stationary.
+            ++parameterUpdateCounter_;
+        }
         routeSignals_.fill(0.0f);
         advanceMidiMatrixConnections();
         if (silenced_ && seedRemaining_ == 0u) {
@@ -2971,14 +2995,16 @@ public:
             motionPhase_ = noInputWrapPhase(motionPhase_
                 + hz / static_cast<float>(sampleRate_));
         }
+        const bool behaviorNeutral = movementBehaviorLayerIsNeutral();
         if (params_.controllerHold == 0u) {
             if ((controlCounter_++ & 31u) == 0u) updateSlowControl();
-            updateMovementBehavior();
+            if (!behaviorNeutral) updateMovementBehavior();
         }
         // HOLD freezes the field and behavior clocks, but Response remains a
         // live audio follower. Its own OFF mode is the explicit way to stop it.
         updateReact();
-        advanceMovementCircuitGates();
+        if (!behaviorNeutral || movementCircuitProcessing_)
+            advanceMovementCircuitGates(behaviorNeutral);
         previousReturns_ = returns_;
         previousTapPreEq_ = tapPreEq_;
         previousTapPostEq_ = tapPostEq_;
@@ -3053,10 +3079,14 @@ public:
                 phaseMemory_[index] = flushDenormal(
                     input + coefficient * allpass);
                 const float phased = lerp(input, allpass, params_.phase);
-                const float behaviorGate = lerp(1.0f,
-                    behaviorCircuitGate_[index], behaviorDepth_);
-                const float conditioned = processMovementLpg(phased,
-                    behaviorGate, behaviorRouteLowpass_[index]);
+                float conditioned = phased;
+                if (movementCircuitProcessing_
+                    && behaviorDepth_ > 1.0e-7f) {
+                    const float behaviorGate = lerp(1.0f,
+                        behaviorCircuitGate_[index], behaviorDepth_);
+                    conditioned = processMovementLpg(phased,
+                        behaviorGate, behaviorRouteLowpass_[index]);
+                }
                 routeSignals_[index] = flushDenormal(conditioned * gain);
                 sum += routeSignals_[index];
                 // Normalize the graph, not the movement envelope. Including
@@ -3113,10 +3143,13 @@ public:
             responseEnergy_[lane] = std::max(0.0f,
                 flushDenormal(responseEnergy_[lane]));
             const float responseRms = std::sqrt(responseEnergy_[lane]);
-            const float chokeGate = lerp(1.0f,
-                laneBehaviorCircuitGate_[lane], behaviorParams_.choke);
-            value = processMovementLpg(value, chokeGate,
-                laneBehaviorLowpass_[lane]);
+            if (movementCircuitProcessing_
+                && behaviorParams_.choke > 1.0e-7f) {
+                const float chokeGate = lerp(1.0f,
+                    laneBehaviorCircuitGate_[lane], behaviorParams_.choke);
+                value = processMovementLpg(value, chokeGate,
+                    laneBehaviorLowpass_[lane]);
+            }
             tapPostInsert_[lane] = value;
             value = clamp(value, -8.0f, 8.0f);
 
@@ -3274,6 +3307,7 @@ private:
 
     void advanceParameterSmoothing()
     {
+        bool anySmoothing = false;
         const auto smoothWith = [](float& current, float target,
             float coefficient) {
             const float difference = target - current;
@@ -3285,9 +3319,11 @@ private:
             current = flushDenormal(current);
             return true;
         };
-        const auto smooth = [this, &smoothWith](float& current,
-            float target) {
-            return smoothWith(current, target, parameterSlew_);
+        const auto smooth = [this, &smoothWith, &anySmoothing](
+            float& current, float target) {
+            const bool moving = smoothWith(current, target, parameterSlew_);
+            anySmoothing = anySmoothing || moving;
+            return moving;
         };
 
         smooth(params_.outputGainDb, targetParams_.outputGainDb);
@@ -3317,9 +3353,9 @@ private:
 
         for (uint32_t index = 0u;
              index < kNoInputMixerMatrixCells; ++index) {
-            smoothWith(params_.matrix[index], targetParams_.matrix[index],
-                parameterSurfaceMutationEnabled_ ? surfaceMatrixSlew_
-                    : parameterSlew_);
+            anySmoothing = smoothWith(params_.matrix[index],
+                targetParams_.matrix[index], parameterSurfaceMutationEnabled_
+                    ? surfaceMatrixSlew_ : parameterSlew_) || anySmoothing;
         }
         for (uint32_t bus = 0u; bus < 2u; ++bus) {
             auto& current = params_.aux[bus];
@@ -3390,6 +3426,14 @@ private:
                 }
             }
         }
+        bool coefficientsDirty = false;
+        for (uint32_t lane = 0u;
+             lane < kNoInputMixerChannels; ++lane) {
+            coefficientsDirty = coefficientsDirty
+                || eqCoefficientsDirty_[lane] != 0u
+                || bodyCoefficientsDirty_[lane] != 0u;
+        }
+        parameterSmoothingActive_ = anySmoothing || coefficientsDirty;
     }
 
     struct Biquad {
@@ -4315,11 +4359,7 @@ private:
         }
 
         if (behavior == NoInputMovementBehavior::Erode) {
-            const float edgeSeconds = noInputMovementSlewMs(
-                behaviorParams_.slew) * 0.001f;
-            const float edgeCoefficient = 1.0f - std::exp(-1.0f
-                / std::max(1.0f, static_cast<float>(sampleRate_)
-                    * edgeSeconds));
+            const float edgeCoefficient = movementBehaviorSlewCoefficient_;
             if (behaviorEnvelopeSamples_ <= 1u
                 || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
                 for (float& gate : behaviorCurrent_) {
@@ -4398,9 +4438,9 @@ private:
     void updateMovementBehavior()
     {
         if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
-            laneBehaviorGate_.fill(1.0f);
             return;
         }
+        refreshMovementCoefficients();
         if (behaviorSamplesUntilEvent_ == 0u) {
             triggerMovementBehaviorEvent();
         } else {
@@ -4411,15 +4451,11 @@ private:
                 behaviorParams_.behavior)) {
             updateWindowedMovementBehavior();
         } else {
-            const float slewSeconds = noInputMovementSlewMs(
-                behaviorParams_.slew) * 0.001f;
-            const float coefficient = 1.0f - std::exp(-1.0f
-                / std::max(1.0f,
-                    static_cast<float>(sampleRate_) * slewSeconds));
             for (uint32_t index = 0u;
                  index < kNoInputMixerMatrixCells; ++index) {
                 behaviorCurrent_[index] += (behaviorTarget_[index]
-                    - behaviorCurrent_[index]) * coefficient;
+                    - behaviorCurrent_[index])
+                    * movementBehaviorSlewCoefficient_;
                 behaviorCurrent_[index] = flushDenormal(
                     clamp(behaviorCurrent_[index], 0.0f, 1.0f));
             }
@@ -4442,11 +4478,29 @@ private:
         }
     }
 
-    void advanceMovementCircuitGates()
+    bool movementBehaviorLayerIsNeutral() const
     {
-        const bool circuitBehavior = noInputMovementBehaviorUsesAmplitude(
-            behaviorParams_.behavior);
+        if (behaviorParams_.behavior == NoInputMovementBehavior::Glide)
+            return true;
+        // CHOKE is an independent use of the behavior window, so a zero
+        // route depth is neutral only when the post-lane choke is also zero.
+        return behaviorDepth_ <= 1.0e-7f
+            && behaviorDepthTarget_ <= 1.0e-7f
+            && behaviorParams_.choke <= 1.0e-7f
+            && behaviorTargetParams_.choke <= 1.0e-7f;
+    }
+
+    void refreshMovementCoefficients()
+    {
+        if (movementCoefficientSlew_ == behaviorParams_.slew
+            && movementCoefficientSampleRate_ == sampleRate_) return;
+        movementCoefficientSlew_ = behaviorParams_.slew;
+        movementCoefficientSampleRate_ = sampleRate_;
         const float slewMs = noInputMovementSlewMs(behaviorParams_.slew);
+        const float slewSeconds = slewMs * 0.001f;
+        movementBehaviorSlewCoefficient_ = 1.0f - std::exp(-1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * slewSeconds));
         // Times describe near-complete (60 dB) settling. The asymmetric
         // release is the slow, memory-bearing half of the vactrol response.
         const float openMs = 8.0f + slewMs * 1.6f;
@@ -4457,28 +4511,72 @@ private:
                 / std::max(1.0f, static_cast<float>(sampleRate_)
                     * milliseconds * 0.001f));
         };
-        const float openCoefficient = coefficient(openMs);
-        const float closeCoefficient = coefficient(closeMs);
+        movementCircuitOpenCoefficient_ = coefficient(openMs);
+        movementCircuitCloseCoefficient_ = coefficient(closeMs);
+    }
+
+    void advanceMovementCircuitGates(bool behaviorNeutral)
+    {
+        const bool circuitBehavior = noInputMovementBehaviorUsesAmplitude(
+            behaviorParams_.behavior) && !behaviorNeutral;
+        const bool routeCircuitAudible = behaviorDepth_ > 1.0e-7f;
+        const bool laneCircuitAudible = behaviorParams_.choke > 1.0e-7f;
+        const bool targetActive = circuitBehavior
+            && (routeCircuitAudible || laneCircuitAudible);
+
+        if (targetActive && !movementCircuitProcessing_) {
+            // A disabled behavior has no meaningful hidden optical state.
+            // Re-enter from the transparent side and let both the parameter
+            // ramp and vactrol response close smoothly toward the new target.
+            behaviorCircuitGate_.fill(1.0f);
+            laneBehaviorCircuitGate_.fill(1.0f);
+            movementCircuitProcessing_ = true;
+        }
+        if (!targetActive) {
+            if (!routeCircuitAudible && !laneCircuitAudible) {
+                movementCircuitProcessing_ = false;
+                return;
+            }
+            // Non-amplitude modes release the previous LPG to transparent.
+            if (!movementCircuitProcessing_) return;
+        }
+
+        refreshMovementCoefficients();
+        bool released = !targetActive;
         for (uint32_t index = 0u;
              index < kNoInputMixerMatrixCells; ++index) {
-            const float target = circuitBehavior
+            const float target = targetActive
                 ? behaviorCurrent_[index] : 1.0f;
             const float amount = target > behaviorCircuitGate_[index]
-                ? openCoefficient : closeCoefficient;
+                ? movementCircuitOpenCoefficient_
+                : movementCircuitCloseCoefficient_;
             behaviorCircuitGate_[index] += (target
                 - behaviorCircuitGate_[index]) * amount;
             behaviorCircuitGate_[index] = flushDenormal(clamp(
                 behaviorCircuitGate_[index], 0.0f, 1.0f));
+            if (released
+                && behaviorCircuitGate_[index] < 0.9995f) released = false;
         }
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
-            const float target = circuitBehavior
+            const float target = targetActive
                 ? laneBehaviorGate_[lane] : 1.0f;
             const float amount = target > laneBehaviorCircuitGate_[lane]
-                ? openCoefficient : closeCoefficient;
+                ? movementCircuitOpenCoefficient_
+                : movementCircuitCloseCoefficient_;
             laneBehaviorCircuitGate_[lane] += (target
                 - laneBehaviorCircuitGate_[lane]) * amount;
             laneBehaviorCircuitGate_[lane] = flushDenormal(clamp(
                 laneBehaviorCircuitGate_[lane], 0.0f, 1.0f));
+            if (released
+                && laneBehaviorCircuitGate_[lane] < 0.9995f)
+                released = false;
+        }
+        if (released) {
+            // processMovementLpg() is already exactly transparent at this
+            // threshold, so subsequent samples can omit all circuit work.
+            behaviorCircuitGate_.fill(1.0f);
+            laneBehaviorCircuitGate_.fill(1.0f);
+            movementCircuitProcessing_ = false;
         }
     }
 
@@ -4646,6 +4744,7 @@ private:
         behaviorRouteLowpass_.fill(0.0f);
         laneBehaviorCircuitGate_.fill(1.0f);
         laneBehaviorLowpass_.fill(0.0f);
+        movementCircuitProcessing_ = false;
         routeSpaceGate_.fill(1.0f);
         reactCurrent_.fill(1.0f);
         reactEdge_.fill(0.0f);
@@ -4789,6 +4888,11 @@ private:
     float surfaceMatrixSlew_ = 0.002f;
     float midiMatrixSlew_ = 0.005f;
     float midiMatrixRampMs_ = kNoInputMatrixMidiRampDefaultMs;
+    double movementCoefficientSampleRate_ = 0.0;
+    float movementCoefficientSlew_ = -1.0f;
+    float movementBehaviorSlewCoefficient_ = 1.0f;
+    float movementCircuitOpenCoefficient_ = 1.0f;
+    float movementCircuitCloseCoefficient_ = 1.0f;
     float behaviorDepth_ = 0.0f;
     float behaviorDepthTarget_ = 0.0f;
     float seedAmount_ = 0.45f;
@@ -4811,8 +4915,10 @@ private:
     float behaviorCascadeDirection_ = 1.0f;
     bool transportHasTempo_ = false;
     bool parameterSmoothingInitialized_ = false;
+    bool parameterSmoothingActive_ = false;
     bool audioProcessingStarted_ = false;
     bool parameterSurfaceMutationEnabled_ = false;
+    bool movementCircuitProcessing_ = false;
     bool silenced_ = true;
     NoInputContainmentState containmentState_ =
         NoInputContainmentState::Quiet;

@@ -1,6 +1,9 @@
 #include "s3g_no_input_mixer_standalone_engine.h"
+#include "s3g_nim_gesture_session.h"
+#include "s3g_coreaudio_output.h"
 
 #include <clap/clap.h>
+#include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
 #include <algorithm>
@@ -20,6 +23,40 @@ namespace {
 
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 16u;
+
+int64_t writeMemory(const clap_ostream_t* stream, const void* source,
+    uint64_t byteCount)
+{
+    if (!stream || !stream->ctx || (!source && byteCount != 0u)) return -1;
+    if (byteCount == 0u) return 0;
+    auto* bytes = static_cast<std::vector<uint8_t>*>(stream->ctx);
+    const auto* begin = static_cast<const uint8_t*>(source);
+    bytes->insert(bytes->end(), begin, begin + byteCount);
+    return static_cast<int64_t>(byteCount);
+}
+
+struct MemoryReader {
+    const std::vector<uint8_t>* bytes = nullptr;
+    size_t offset = 0u;
+};
+
+int64_t readMemory(const clap_istream_t* stream, void* destination,
+    uint64_t byteCount)
+{
+    if (!stream || !stream->ctx || (!destination && byteCount != 0u))
+        return -1;
+    auto* reader = static_cast<MemoryReader*>(stream->ctx);
+    if (!reader->bytes) return -1;
+    const size_t count = std::min<size_t>(static_cast<size_t>(byteCount),
+        reader->bytes->size() - std::min(reader->offset,
+            reader->bytes->size()));
+    if (count != 0u) {
+        std::memcpy(destination, reader->bytes->data() + reader->offset,
+            count);
+        reader->offset += count;
+    }
+    return static_cast<int64_t>(count);
+}
 
 bool renderMode(s3g::standalone::NoInputMixerStandaloneEngine& engine,
     s3g::standalone::NoInputOutputMode mode, uint32_t outputOffset)
@@ -67,12 +104,71 @@ bool renderMode(s3g::standalone::NoInputMixerStandaloneEngine& engine,
 
 int main()
 {
+    s3g::standalone::RealtimeCallbackTelemetry callbackTelemetry;
+    callbackTelemetry.recordCallbackNanoseconds(1000000u, 256u, 48000.0,
+        256u);
+    callbackTelemetry.recordCallbackNanoseconds(6000000u, 256u, 48000.0,
+        256u);
+    callbackTelemetry.recordCallbackNanoseconds(1000000u, 512u, 48000.0,
+        256u, true);
+    callbackTelemetry.recordProcessorOverload();
+    auto callbackSnapshot = callbackTelemetry.snapshot();
+    bool ok = callbackSnapshot.callbackCount == 3u
+        && callbackSnapshot.deadlineMissCount == 1u
+        && callbackSnapshot.oversizedCallbackCount == 1u
+        && callbackSnapshot.processorOverloadCount == 1u
+        && callbackSnapshot.callbackErrorCount == 1u
+        && callbackSnapshot.smoothedLoad > 0.0
+        && std::abs(callbackSnapshot.peakLoad - 1.125) < 1.0e-6
+        && std::abs(callbackSnapshot.lastCallbackMilliseconds - 1.0)
+            < 1.0e-6
+        && std::abs(callbackSnapshot.maximumCallbackMilliseconds - 6.0)
+            < 1.0e-6;
+    callbackTelemetry.reset();
+    callbackSnapshot = callbackTelemetry.snapshot();
+    ok = ok && callbackSnapshot.callbackCount == 0u
+        && callbackSnapshot.deadlineMissCount == 0u
+        && callbackSnapshot.maximumCallbackMilliseconds == 0.0;
+
+    constexpr uint64_t blockHostTime = 1000000000u;
+    ok = ok && s3g::standalone::NoInputMixerStandaloneEngine::
+            midiFrameOffset(0u, blockHostTime, 1.0e9, 48000.0,
+                kFrames) == 0u
+        && s3g::standalone::NoInputMixerStandaloneEngine::midiFrameOffset(
+            blockHostTime - 1u, blockHostTime, 1.0e9, 48000.0,
+            kFrames) == 0u
+        && s3g::standalone::NoInputMixerStandaloneEngine::midiFrameOffset(
+            blockHostTime + 2500000u, blockHostTime, 1.0e9, 48000.0,
+            kFrames) == 120u
+        && s3g::standalone::NoInputMixerStandaloneEngine::midiFrameOffset(
+            blockHostTime + 6000000u, blockHostTime, 1.0e9, 48000.0,
+            kFrames) == kFrames;
+
     s3g::standalone::NoInputMixerStandaloneEngine engine;
-    bool ok = engine.create(&s3g_no_input_mixer_embedded_entry,
+    ok = ok && engine.create(&s3g_no_input_mixer_embedded_entry,
         &s3g_nim_gesture_embedded_entry,
         &s3g_mc_to_stereo_autogain_embedded_entry,
         &s3g_mc_to_quad_autogain_embedded_entry);
     ok = ok && engine.prepare(48000.0, kFrames);
+
+    const auto* gestureSession = engine.gesturePlugin()
+        .extension<s3g_nim_gesture_session_t>(
+            S3G_NIM_GESTURE_SESSION_EXTENSION);
+    const auto* gestureParams = engine.gesturePlugin()
+        .extension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+    double loopCount = -1.0;
+    double recording = -1.0;
+    double playing = -1.0;
+    ok = ok && gestureSession && gestureSession->save
+        && gestureSession->load && gestureSession->clear && gestureParams
+        && gestureSession->clear(engine.gesturePlugin().plugin())
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 6u,
+            &loopCount)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 1u,
+            &recording)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 2u,
+            &playing)
+        && loopCount == 0.0 && recording == 0.0 && playing == 0.0;
 
     std::array<std::array<float, kFrames>, kChannels> midiStorage {};
     std::array<float*, kChannels> midiPointers {};
@@ -118,6 +214,50 @@ int main()
     ok = ok && renderMode(engine,
         s3g::standalone::NoInputOutputMode::DirectEight, 8u);
 
+    // Standalone session I/O must not deactivate, reprepare, or alter the NIM
+    // processor. Exercise the extension while the audio chain is active.
+    std::vector<uint8_t> noInputBeforeGestureSession;
+    std::vector<uint8_t> noInputAfterGestureSession;
+    std::vector<uint8_t> portableSession;
+    ok = ok && engine.isPrepared()
+        && engine.noInputPlugin().saveState(noInputBeforeGestureSession);
+    clap_ostream_t sessionOutput { &portableSession, writeMemory };
+    ok = ok && gestureSession->save(engine.gesturePlugin().plugin(),
+            &sessionOutput)
+        && !portableSession.empty();
+    ok = ok && gestureSession->clear(engine.gesturePlugin().plugin())
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 6u,
+            &loopCount)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 1u,
+            &recording)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 2u,
+            &playing)
+        && loopCount == 0.0 && recording == 0.0 && playing == 0.0;
+    MemoryReader sessionReader { &portableSession, 0u };
+    clap_istream_t sessionInput { &sessionReader, readMemory };
+    ok = ok && gestureSession->load(engine.gesturePlugin().plugin(),
+            &sessionInput)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 6u,
+            &loopCount)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 1u,
+            &recording)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 2u,
+            &playing)
+        && loopCount == 1.0 && recording == 0.0 && playing == 0.0
+        && engine.isPrepared()
+        && engine.noInputPlugin().saveState(noInputAfterGestureSession)
+        && noInputAfterGestureSession == noInputBeforeGestureSession;
+    ok = ok && gestureSession->clear(engine.gesturePlugin().plugin())
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 6u,
+            &loopCount)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 1u,
+            &recording)
+        && gestureParams->get_value(engine.gesturePlugin().plugin(), 2u,
+            &playing)
+        && loopCount == 0.0 && recording == 0.0 && playing == 0.0
+        && renderMode(engine,
+            s3g::standalone::NoInputOutputMode::StereoAutogain, 0u);
+
     engine.setAudioEnabled(false);
     std::array<std::array<float, kFrames>, kChannels> mutedStorage {};
     std::array<float*, kChannels> mutedPointers {};
@@ -137,23 +277,14 @@ int main()
 
     engine.release();
     std::vector<uint8_t> noInputState;
-    std::vector<uint8_t> gestureState;
     std::vector<uint8_t> stereoState;
     std::vector<uint8_t> quadState;
     ok = ok && engine.noInputPlugin().saveState(noInputState)
-        && engine.gesturePlugin().saveState(gestureState)
         && engine.stereoPlugin().saveState(stereoState)
         && engine.quadPlugin().saveState(quadState)
-        && !noInputState.empty() && !gestureState.empty()
-        && !stereoState.empty()
+        && !noInputState.empty() && !stereoState.empty()
         && !quadState.empty();
-    uint32_t gestureLoopCount = 0u;
-    if (gestureState.size() >= 21u)
-        std::memcpy(&gestureLoopCount, gestureState.data() + 17u,
-            sizeof(gestureLoopCount));
-    ok = ok && gestureLoopCount == 1u;
     ok = ok && engine.noInputPlugin().loadState(noInputState)
-        && engine.gesturePlugin().loadState(gestureState)
         && engine.stereoPlugin().loadState(stereoState)
         && engine.quadPlugin().loadState(quadState);
     engine.destroy();

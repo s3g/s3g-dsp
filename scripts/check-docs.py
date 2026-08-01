@@ -101,7 +101,6 @@ EXPECTED_SHARED_TOC_LINKS = {
         "ambi-encoder-insect.html",
         "ambi-encoder-stochastic.html",
         "ambi-encoder-wrangler.html",
-        "processor-no-input-mixer.html",
     ],
 }
 TOC_SECTION_PATTERN = re.compile(

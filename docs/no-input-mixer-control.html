@@ -43,12 +43,12 @@
           <tbody>
             <tr><td>Host or custom MIDI mapping</td><td>Maps any suitable controller to the exposed No Input Mixer parameters.</td></tr>
             <tr><td>OXI E16 <code>NIM P2</code></td><td>Provides twelve pages of named encoder turns, action presses, and returned encoder-ring values.</td></tr>
-            <tr><td>Four Intech Grid BU16 modules</td><td>Present the complete signed 8-by-8 matrix as four aligned 4-by-4 pressure-sensitive quadrants with LED feedback.</td></tr>
+            <tr><td>One or four Intech Grid BU16 modules</td><td>Present the signed 8-by-8 matrix as four 4-by-4 pressure-sensitive quadrants with LED feedback: simultaneously on four modules, or page-by-page on one module.</td></tr>
             <tr><td>NIM Gesture utility</td><td>Optional companion used in conjunction with the OXI E16. It records free-running E16 parameter loops and returns live or played values to the E16 rings.</td></tr>
           </tbody>
         </table>
 
-        <p>Channel 16 is reserved by the supplied setup for NRPN and command messages. The four BU16 quadrants use channels 1–4. Keep those streams away from unrelated musical instruments when using the ready-made mappings.</p>
+        <p>Channel 16 is reserved by the supplied setup for NRPN and command messages. The four BU16 quadrant profiles use channels 1–4 whether they occupy four physical modules or four user pages of one module. Keep those streams away from unrelated musical instruments when using the ready-made mappings.</p>
 
         <p>No Input Mixer mirrors its current parameter state as channel-16 NRPN on the final MIDI output. A single GUI or host-automation change is returned on the next process block. Startup, Random, factory-preset, and restored-state changes are sent as a throttled complete snapshot, sixteen parameters per block, so E16 rings reach the new positions without placing one large MIDI burst in the audio callback. Generated feedback is marked <code>DONT_RECORD</code>.</p>
 
@@ -151,7 +151,11 @@
           <figcaption>NIM Gesture is the optional recording companion for the OXI E16. It mirrors all twelve <code>NIM P2</code> pages: inner rings show values, and an outer ring identifies controls with recorded loops.</figcaption>
         </figure>
 
-        <p>Record, Play/Pause, Clear Selected, Clear All, Cancel, and Live Takeover are available in the utility GUI and as host parameters. The resulting loops are stored in CLAP project state. Playback continues when the utility window is closed and is restored with the project or standalone application, so pause <code>Play</code> before comparing static presets or DSP revisions; an active loop continues to write its parameter, including Output or Drift. Without NIM Gesture, the E16 scene can still control No Input Mixer directly, and No Input Mixer's own state mirror still updates the hardware rings; only the utility's recorder and loop playback are absent.</p>
+        <p>Record, Play/Pause, Clear Selected, Clear All, Cancel, and Live Takeover are available in the utility GUI and as host parameters. A fresh utility instance starts paused. In REAPER, the resulting loops and Play state are stored in CLAP project state. Playback continues when the utility window is closed and can be restored with the REAPER project, so pause <code>Play</code> before comparing static presets or DSP revisions; an active loop continues to write its parameter, including Output or Drift.</p>
+
+        <p>The standalone application deliberately has a different lifecycle. Every launch begins with no Gesture loops, Record off, and Play paused; it never restores a prior recording from application preferences. Closing <strong>EDIT NIM GESTURES</strong> does not interrupt playback during the current run, but quitting discards unsaved loops. Use <strong>SAVE SESSION</strong> in MIDI Routing to export a <code>.nimgesture</code> file, and <strong>LOAD SESSION</strong> to replace the current loops explicitly. A loaded session remains paused until the user opens <strong>EDIT NIM GESTURES</strong> and turns Play on. The last file is never reopened automatically. The portable file contract is documented in <a href="nim_gesture.md#gesture-session-files"><code>nim_gesture.md</code></a>.</p>
+
+        <p>Without NIM Gesture, the E16 scene can still control No Input Mixer directly, and No Input Mixer's own state mirror still updates the hardware rings; only the utility's recorder and loop playback are absent.</p>
 
         <h2 id="reaper">REAPER Track and MIDI Routing</h2>
 
@@ -167,7 +171,7 @@
 
         <p>The CLAP and standalone receive the same MIDI protocol, but they acquire hardware differently. The CLAP never opens a MIDI device: REAPER or another host decides which track inputs reach its <code>Controller MIDI In</code> port. The standalone opens CoreMIDI sources itself.</p>
 
-        <p>In the standalone output strip, open <code>MIDI</code> and use <code>INPUT SOURCES</code> to check any combination of connected devices. <code>ENABLE ALL</code> and <code>DISABLE ALL</code> are available in the same menu. The app remembers the selection by CoreMIDI device ID and rescans the available source list whenever the MIDI window opens. This allows an E16, four BU16 modules, a different commercial controller, a virtual MIDI port, or a DIY surface to be used alone or together without sending every machine-wide MIDI source into the feedback instrument.</p>
+        <p>In the standalone output strip, open <code>MIDI</code> and use <code>INPUT SOURCES</code> to check any combination of connected devices. <code>ENABLE ALL</code> and <code>DISABLE ALL</code> are available in the same menu. The app remembers the selection by CoreMIDI device ID and rescans the available source list whenever the MIDI window opens. This allows an E16, one or four BU16 modules, a different commercial controller, a virtual MIDI port, or a DIY surface to be used alone or together without sending every machine-wide MIDI source into the feedback instrument.</p>
 
         <h2 id="e16">Implemented OXI E16 Setup</h2>
 
@@ -256,7 +260,11 @@
 
         <h2 id="bu16">Implemented BU16 Matrix Setup</h2>
 
-        <p>Four supplied Grid profiles combine four BU16 modules into the complete matrix. Notes 0–15 run left-to-right and top-to-bottom on each module:</p>
+        <p>Four supplied Grid profiles divide the complete matrix into quadrants. Notes 0–15 run left-to-right and top-to-bottom in each profile:</p>
+
+        <div class="callout">
+          <p><strong>One-module or four-module layout.</strong> For simultaneous access, load one quadrant profile onto each of four BU16 modules and arrange them as an 8-by-8 surface. A single BU16 can instead hold the Upper Left, Upper Right, Lower Left, and Lower Right profiles on its four user pages. Switching BU16 pages then selects the corresponding matrix quadrant while the complete saved matrix remains intact. Only one quadrant is physically playable at a time in this layout; the processor's periodic matrix feedback repopulates its LED state after a page change. The MIDI channels and note assignments below are identical in both layouts.</p>
+        </div>
 
         <table class="readout-table">
           <thead><tr><th>BU16</th><th>MIDI channel</th><th>Destination rows</th><th>Source columns</th></tr></thead>
@@ -272,7 +280,7 @@
 
         <p><code>BU16 RAMP</code> is shared by both modes. It adjusts the matrix transition from 20 ms through 10000 ms and defaults to 1000 ms. In Latch, this fades a connection in or out instead of changing it abruptly. In Flip, it smooths the pressure-driven trip toward the opposite polarity and the return after release. The GUI matrix and returned BU16 LED brightness follow the effective ramped value, while the saved matrix parameter keeps the destination value. Ramp time is stored in plugin and standalone state and is also exposed as automatable parameter/NRPN address 59.</p>
 
-        <p>The processor sends the displayed matrix back as polyphonic pressure on the same channel and note. Zero turns the LED off, positive magnitude fades in s3g orange, and negative magnitude fades in cyan. Load the four JSON profiles from <code>controllers/intech_grid_bu16</code> with Grid Editor; older profile revisions may send notes correctly without receiving the current LED callback.</p>
+        <p>The processor sends the displayed matrix back as polyphonic pressure on the same channel and note. Zero turns the LED off, positive magnitude fades in s3g orange, and negative magnitude fades in cyan. Load the four JSON profiles from <code>controllers/intech_grid_bu16</code> with Grid Editor, either across four modules or into the four user pages of one BU16; older profile revisions may send notes correctly without receiving the current LED callback.</p>
 
         <h2 id="safety">Audio and Safety Routing</h2>
 

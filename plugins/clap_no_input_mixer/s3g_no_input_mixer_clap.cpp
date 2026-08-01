@@ -1,6 +1,7 @@
 #include "s3g_no_input_mixer.h"
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_nim_midi_feedback.h"
 
 #include <clap/clap.h>
 #include <clap/ext/note-ports.h>
@@ -153,6 +154,8 @@ constexpr uint32_t kLaneParamCount = kLaneDirectParamCount
 constexpr uint32_t kTotalParamCount = kGlobalParamCount
     + s3g::kNoInputMixerMatrixCells
     + kChannelCount * kLaneParamCount;
+constexpr uint32_t kNrpnFeedbackWordCount =
+    (kTotalParamCount + 63u) / 64u;
 
 const s3g::NoInputMixerParams kDefaultParams =
     s3g::defaultNoInputMixerParams();
@@ -875,6 +878,32 @@ NoInputSurface migrateLegacySurfaceV8(
     return destination;
 }
 
+enum class GuiCommandType : uint8_t {
+    ParamValue = 0u,
+    FactoryPreset,
+    RandomPatch,
+    ForgetPatch,
+    NewSeed,
+    SetSeed,
+    ClearMatrix,
+    Panic,
+    KillLane,
+    ApplyUiSnapshot,
+};
+
+// GUI commands are intentionally compact and trivially copyable. Complete
+// patches are described by their deterministic recipe; state loads publish a
+// complete atomic UI snapshot and enqueue ApplyUiSnapshot as the commit point.
+struct GuiCommand {
+    GuiCommandType type = GuiCommandType::ParamValue;
+    clap_id paramId = CLAP_INVALID_ID;
+    double value = 0.0;
+    uint32_t argument = 0u;
+    uint32_t seed = 0u;
+};
+
+constexpr uint32_t kGuiCommandCapacity = 2048u;
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -896,6 +925,15 @@ struct Plugin {
     std::atomic<float> effectiveSurfaceX { 0.5f };
     std::atomic<float> effectiveSurfaceY { 0.5f };
     std::array<double, kTotalParamCount> modulation {};
+    // Parameter values used by Cocoa and by host get_value/state-save calls.
+    // They keep immediate GUI feedback without allowing the main thread to
+    // read or write the audio thread's mutable patch structures.
+    std::array<std::atomic<double>, kTotalParamCount> uiParamValue {};
+    std::atomic<uint32_t> uiSeed { 0x5455444fu };
+    std::array<GuiCommand, kGuiCommandCapacity> guiCommands {};
+    std::atomic<uint32_t> guiCommandWrite { 0u };
+    std::atomic<uint32_t> guiCommandRead { 0u };
+    std::atomic<uint64_t> guiCommandDrops { 0u };
     std::atomic<bool> active { false };
     double transportTempoBpm = 120.0;
     bool transportHasTempo = false;
@@ -941,16 +979,18 @@ struct Plugin {
         s3g::kNoInputMixerMatrixCells> matrixFeedbackValue {};
     std::array<bool,
         s3g::kNoInputMixerMatrixCells> matrixFeedbackSent {};
-    uint64_t matrixFeedbackRefreshFrames = 0u;
+    uint64_t matrixFeedbackDirtyMask = ~uint64_t { 0u };
+    uint64_t matrixFeedbackTrackedMask = 0u;
     std::array<uint16_t, kTotalParamCount> nrpnFeedbackValue {};
     std::array<bool, kTotalParamCount> nrpnFeedbackSent {};
-    uint32_t nrpnFeedbackCursor = 0u;
+    std::array<uint64_t, kNrpnFeedbackWordCount> nrpnFeedbackDirty {};
+    uint32_t nrpnFeedbackWordCursor = 0u;
+    std::atomic<bool> nrpnFeedbackEnabled { true };
+    std::atomic<bool> matrixFeedbackEnabled { true };
+    std::atomic<bool> feedbackConfigurationChanged { false };
     std::atomic<float> minimumGovernor { 1.0f };
     std::atomic<uint32_t> containmentState {
         static_cast<uint32_t>(s3g::NoInputContainmentState::Quiet) };
-    std::atomic<bool> seedRequested { false };
-    std::atomic<bool> panicRequested { false };
-    std::atomic<uint32_t> killMask { 0u };
     std::atomic<uint32_t> selectedLane { 2u };
     std::atomic<uint32_t> selectedSlot { 0u };
     std::atomic<uint32_t> selectedSource { 2u };
@@ -990,6 +1030,8 @@ Plugin* self(const clap_plugin_t* plugin)
 void clearMidiMatrixGrid(Plugin& plugin)
 {
     plugin.mixer.clearMidiMatrixConnections();
+    plugin.matrixFeedbackTrackedMask = 0u;
+    plugin.matrixFeedbackDirtyMask = ~uint64_t { 0u };
     for (uint32_t index = 0u;
          index < s3g::kNoInputMixerMatrixCells; ++index) {
         plugin.midiMatrixGridGain[index].store(0.0f,
@@ -1012,10 +1054,19 @@ void advanceMidiMatrixLatchCapture(Plugin& plugin, uint32_t frames)
     }
 }
 
+float displayedMatrixGain(const Plugin& plugin, uint32_t index);
+
 void refreshMidiMatrixOverlayState(Plugin& plugin)
 {
-    for (uint32_t index = 0u;
-         index < s3g::kNoInputMixerMatrixCells; ++index) {
+    uint64_t tracked = plugin.matrixFeedbackTrackedMask;
+    while (tracked != 0u) {
+        const uint32_t index = static_cast<uint32_t>(
+            __builtin_ctzll(tracked));
+        const uint64_t bit = uint64_t { 1u } << index;
+        tracked &= ~bit;
+        const uint8_t previousValue =
+            s3g::encodeNoInputMatrixFeedbackValue(
+                displayedMatrixGain(plugin, index));
         const uint32_t destination = index / kChannelCount;
         const uint32_t source = index % kChannelCount;
         const auto& destinationMixer = controlMixer(plugin);
@@ -1027,6 +1078,14 @@ void refreshMidiMatrixOverlayState(Plugin& plugin)
                 ? destinationMixer.effectiveMatrixGain(destination, source)
                 : 0.0f,
             std::memory_order_relaxed);
+        const uint8_t nextValue = s3g::encodeNoInputMatrixFeedbackValue(
+            displayedMatrixGain(plugin, index));
+        if (nextValue != previousValue)
+            plugin.matrixFeedbackDirtyMask |= bit;
+        if (!active && !plugin.midiMatrixGridHeld[index].load(
+                std::memory_order_relaxed)) {
+            plugin.matrixFeedbackTrackedMask &= ~bit;
+        }
     }
 }
 
@@ -1038,7 +1097,8 @@ float displayedMatrixGain(const Plugin& plugin, uint32_t index)
         return plugin.midiMatrixGridGain[index].load(
             std::memory_order_relaxed);
     }
-    return plugin.params.matrix[index];
+    return static_cast<float>(plugin.uiParamValue[
+        kGlobalParamCount + index].load(std::memory_order_relaxed));
 }
 
 struct RouteStageReadout {
@@ -1051,6 +1111,7 @@ struct RouteStageReadout {
 };
 
 RouteStageReadout routeStageReadout(const Plugin& plugin,
+    const NoInputSurfaceSnapshot& visible,
     uint32_t source, uint32_t destination)
 {
     RouteStageReadout result;
@@ -1058,14 +1119,14 @@ RouteStageReadout routeStageReadout(const Plugin& plugin,
         return result;
     const uint32_t selected = destination * kChannelCount + source;
     result.base = displayedMatrixGain(plugin, selected);
-    auto weights = s3g::noInputMixerMotionWeights(plugin.params,
+    auto weights = s3g::noInputMixerMotionWeights(visible.params,
         plugin.motionPhase.load(std::memory_order_relaxed));
-    if (plugin.behavior.behavior == s3g::NoInputMovementBehavior::Step) {
+    if (visible.behavior.behavior == s3g::NoInputMovementBehavior::Step) {
         for (uint32_t index = 0u; index < weights.size(); ++index) {
             const float stepped = plugin.behaviorRouteGate[index].load(
                 std::memory_order_relaxed);
             weights[index] = s3g::lerp(weights[index], stepped,
-                plugin.behaviorDepth);
+                visible.behaviorDepth);
         }
     }
     float activePeak = 0.0f;
@@ -1079,23 +1140,23 @@ RouteStageReadout routeStageReadout(const Plugin& plugin,
         ++activeCount;
     }
     result.field = s3g::noInputMixerMotionGainScale(weights[selected],
-        activePeak, activeCount, plugin.params.motion);
-    const auto behavior = plugin.behavior.behavior;
+        activePeak, activeCount, visible.params.motion);
+    const auto behavior = visible.behavior.behavior;
     if (s3g::noInputMovementBehaviorUsesAmplitude(behavior)) {
         result.behavior = s3g::lerp(1.0f,
             plugin.behaviorRouteGate[selected].load(
-                std::memory_order_relaxed), plugin.behaviorDepth);
+                std::memory_order_relaxed), visible.behaviorDepth);
     }
-    if (plugin.params.reactMode != s3g::NoInputReactMode::Off
-        && plugin.params.reactDepth > 1.0e-6f) {
+    if (visible.params.reactMode != s3g::NoInputReactMode::Off
+        && visible.params.reactDepth > 1.0e-6f) {
         const float response = 0.0316227766f
             + plugin.reactRouteGate[selected].load(
                 std::memory_order_relaxed) * 0.9683772234f;
         result.response = s3g::lerp(1.0f, response,
-            plugin.params.reactDepth);
+            visible.params.reactDepth);
     }
     if (behavior != s3g::NoInputMovementBehavior::Glide
-        && plugin.behavior.choke > 1.0e-6f) {
+        && visible.behavior.choke > 1.0e-6f) {
         float laneGate = 0.0f;
         bool hasRoute = false;
         for (uint32_t routeSource = 0u;
@@ -1110,7 +1171,7 @@ RouteStageReadout routeStageReadout(const Plugin& plugin,
         }
         if (!hasRoute) laneGate = 1.0f;
         result.choke = s3g::lerp(1.0f, laneGate,
-            plugin.behavior.choke);
+            visible.behavior.choke);
     }
     result.effective = std::abs(result.base) * result.field
         * result.behavior * result.response;
@@ -1138,31 +1199,37 @@ bool emitMatrixFeedbackEvent(const clap_output_events_t* events,
 void emitMatrixFeedback(Plugin& plugin,
     const clap_output_events_t* events, uint32_t time, uint32_t frames)
 {
-    plugin.matrixFeedbackRefreshFrames += frames;
-    const uint64_t refreshInterval = static_cast<uint64_t>(
-        std::max(1.0, plugin.sampleRate));
-    const bool refresh = plugin.matrixFeedbackRefreshFrames
-        >= refreshInterval;
-    if (!events || !events->try_push) return;
-    if (refresh) plugin.matrixFeedbackRefreshFrames = 0u;
-
-    for (uint32_t index = 0u;
-         index < s3g::kNoInputMixerMatrixCells; ++index) {
+    (void)frames;
+    if (!plugin.matrixFeedbackEnabled.load(std::memory_order_relaxed)
+        || !events || !events->try_push) return;
+    uint64_t dirty = plugin.matrixFeedbackDirtyMask;
+    while (dirty != 0u) {
+        const uint32_t index = static_cast<uint32_t>(
+            __builtin_ctzll(dirty));
+        const uint64_t bit = uint64_t { 1u } << index;
+        dirty &= ~bit;
         const uint8_t value = s3g::encodeNoInputMatrixFeedbackValue(
             displayedMatrixGain(plugin, index));
-        if (!refresh && plugin.matrixFeedbackSent[index]
-            && plugin.matrixFeedbackValue[index] == value) continue;
+        if (plugin.matrixFeedbackSent[index]
+            && plugin.matrixFeedbackValue[index] == value) {
+            plugin.matrixFeedbackDirtyMask &= ~bit;
+            continue;
+        }
         uint8_t channel = 0u;
         uint8_t note = 0u;
         if (!s3g::encodeNoInputMatrixGridPoint(
                 index / kChannelCount, index % kChannelCount,
-                channel, note)) continue;
+                channel, note)) {
+            plugin.matrixFeedbackDirtyMask &= ~bit;
+            continue;
+        }
         if (!emitMatrixFeedbackEvent(events, time, channel, note, value)) {
             plugin.matrixFeedbackSent[index] = false;
-            continue;
+            return;
         }
         plugin.matrixFeedbackValue[index] = value;
         plugin.matrixFeedbackSent[index] = true;
+        plugin.matrixFeedbackDirtyMask &= ~bit;
     }
 }
 
@@ -1835,6 +1902,155 @@ int32_t paramIndexForId(clap_id id)
     return -1;
 }
 
+bool uiParameterValue(const Plugin& plugin, clap_id id, double& value)
+{
+    const int32_t index = paramIndexForId(id);
+    if (index < 0) return false;
+    value = plugin.uiParamValue[static_cast<uint32_t>(index)].load(
+        std::memory_order_relaxed);
+    return true;
+}
+
+NoInputSurfaceSnapshot uiSnapshot(const Plugin& plugin)
+{
+    NoInputSurfaceSnapshot snapshot {};
+    snapshot.params.seed = plugin.uiSeed.load(std::memory_order_relaxed);
+    for (uint32_t index = 0u; index < kTotalParamCount; ++index) {
+        const clap_id id = paramIdAtIndex(index);
+        if (id == CLAP_INVALID_ID) continue;
+        assignSnapshotParam(snapshot, id,
+            plugin.uiParamValue[index].load(std::memory_order_relaxed));
+    }
+    return snapshot;
+}
+
+void publishUiParameter(Plugin& plugin, clap_id id, double value)
+{
+    const int32_t index = paramIndexForId(id);
+    ParamRange range;
+    if (index < 0 || !paramRange(id, range)) return;
+    value = std::clamp(std::isfinite(value) ? value : range.defaultValue,
+        range.minimum, range.maximum);
+    if (range.stepped) value = std::round(value);
+    plugin.uiParamValue[static_cast<uint32_t>(index)].store(value,
+        std::memory_order_relaxed);
+}
+
+void publishUiSnapshot(Plugin& plugin,
+    const NoInputSurfaceSnapshot& snapshot)
+{
+    plugin.uiSeed.store(snapshot.params.seed, std::memory_order_relaxed);
+    for (uint32_t index = 0u; index < kTotalParamCount; ++index) {
+        const clap_id id = paramIdAtIndex(index);
+        double value = 0.0;
+        if (id != CLAP_INVALID_ID
+            && snapshotParamValue(snapshot, id, value)) {
+            plugin.uiParamValue[index].store(value,
+                std::memory_order_relaxed);
+        }
+    }
+}
+
+void publishUiBaseState(Plugin& plugin)
+{
+    publishUiSnapshot(plugin, baseSnapshot(plugin));
+    publishUiParameter(plugin, kMatrixMidiModeParamId,
+        plugin.matrixMidiMode.load(std::memory_order_relaxed));
+    publishUiParameter(plugin, kMatrixMidiSignParamId,
+        plugin.matrixMidiSign.load(std::memory_order_relaxed));
+    publishUiParameter(plugin, kMatrixMidiRampParamId,
+        plugin.matrixMidiRampMs.load(std::memory_order_relaxed));
+}
+
+void requestGuiCommandDrain(Plugin& plugin)
+{
+    if (!plugin.host) return;
+    if (plugin.host->request_process) plugin.host->request_process(plugin.host);
+    if (!plugin.host->get_extension) return;
+    const auto* hostParams = static_cast<const clap_host_params_t*>(
+        plugin.host->get_extension(plugin.host, CLAP_EXT_PARAMS));
+    if (hostParams && hostParams->request_flush)
+        hostParams->request_flush(plugin.host);
+}
+
+bool enqueueGuiCommand(Plugin& plugin, const GuiCommand& command)
+{
+    const uint32_t write = plugin.guiCommandWrite.load(
+        std::memory_order_relaxed);
+    const uint32_t read = plugin.guiCommandRead.load(
+        std::memory_order_acquire);
+    if (write - read >= kGuiCommandCapacity) {
+        plugin.guiCommandDrops.fetch_add(1u, std::memory_order_relaxed);
+        requestGuiCommandDrain(plugin);
+        return false;
+    }
+    plugin.guiCommands[write % kGuiCommandCapacity] = command;
+    plugin.guiCommandWrite.store(write + 1u, std::memory_order_release);
+    requestGuiCommandDrain(plugin);
+    return true;
+}
+
+bool dequeueGuiCommand(Plugin& plugin, GuiCommand& command)
+{
+    const uint32_t read = plugin.guiCommandRead.load(
+        std::memory_order_relaxed);
+    const uint32_t write = plugin.guiCommandWrite.load(
+        std::memory_order_acquire);
+    if (read == write) return false;
+    command = plugin.guiCommands[read % kGuiCommandCapacity];
+    plugin.guiCommandRead.store(read + 1u, std::memory_order_release);
+    return true;
+}
+
+void markNrpnFeedbackIndexDirty(Plugin& plugin, uint32_t index)
+{
+    if (index >= kTotalParamCount) return;
+    plugin.nrpnFeedbackDirty[index / 64u] |=
+        uint64_t { 1u } << (index % 64u);
+}
+
+void markNrpnFeedbackDirty(Plugin& plugin, clap_id id)
+{
+    const int32_t index = paramIndexForId(id);
+    if (index >= 0)
+        markNrpnFeedbackIndexDirty(plugin, static_cast<uint32_t>(index));
+}
+
+void markAllNrpnFeedbackDirty(Plugin& plugin)
+{
+    plugin.nrpnFeedbackDirty.fill(~uint64_t { 0u });
+    constexpr uint32_t remainder = kTotalParamCount % 64u;
+    if constexpr (remainder != 0u) {
+        plugin.nrpnFeedbackDirty.back() =
+            (uint64_t { 1u } << remainder) - 1u;
+    }
+    plugin.nrpnFeedbackWordCursor = 0u;
+}
+
+void clearNrpnFeedbackDirty(Plugin& plugin, uint32_t index)
+{
+    if (index >= kTotalParamCount) return;
+    plugin.nrpnFeedbackDirty[index / 64u] &=
+        ~(uint64_t { 1u } << (index % 64u));
+}
+
+void markMatrixFeedbackDirty(Plugin& plugin, uint32_t index)
+{
+    if (index < s3g::kNoInputMixerMatrixCells)
+        plugin.matrixFeedbackDirtyMask |= uint64_t { 1u } << index;
+}
+
+void markAllMatrixFeedbackDirty(Plugin& plugin)
+{
+    plugin.matrixFeedbackDirtyMask = ~uint64_t { 0u };
+}
+
+void trackMatrixFeedback(Plugin& plugin, uint32_t index)
+{
+    if (index < s3g::kNoInputMixerMatrixCells)
+        plugin.matrixFeedbackTrackedMask |= uint64_t { 1u } << index;
+}
+
 double modulatedBaseValue(const Plugin& plugin, clap_id id)
 {
     double value = 0.0;
@@ -1917,7 +2133,8 @@ void syncMixerState(Plugin& plugin)
     }
 }
 
-void applyParam(Plugin& plugin, clap_id id, double value)
+void applyParam(Plugin& plugin, clap_id id, double value,
+    bool publishUi = true, bool synchronize = true)
 {
     ParamRange publishedRange;
     if (!paramRange(id, publishedRange)) return;
@@ -1928,8 +2145,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         clearMidiMatrixGrid(plugin);
         plugin.matrixMidiMode.store(mode, std::memory_order_relaxed);
         plugin.matrixFeedbackSent.fill(false);
-        plugin.matrixFeedbackRefreshFrames = 0u;
-        syncMixerState(plugin);
+        markAllMatrixFeedbackDirty(plugin);
+        markNrpnFeedbackDirty(plugin, id);
+        if (publishUi) publishUiParameter(plugin, id, mode);
+        if (synchronize) syncMixerState(plugin);
         return;
     }
     if (id == kMatrixMidiSignParamId) {
@@ -1937,6 +2156,8 @@ void applyParam(Plugin& plugin, clap_id id, double value)
             std::lround(value), 0l,
             static_cast<long>(s3g::NoInputMatrixMidiSign::Count) - 1l));
         plugin.matrixMidiSign.store(sign, std::memory_order_relaxed);
+        markNrpnFeedbackDirty(plugin, id);
+        if (publishUi) publishUiParameter(plugin, id, sign);
         return;
     }
     if (id == kMatrixMidiRampParamId) {
@@ -1949,6 +2170,8 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         plugin.matrixMidiRampMs.store(milliseconds,
             std::memory_order_relaxed);
         plugin.mixer.setMidiMatrixRampMs(milliseconds);
+        markNrpnFeedbackDirty(plugin, id);
+        if (publishUi) publishUiParameter(plugin, id, milliseconds);
         return;
     }
     auto snapshot = baseSnapshot(plugin);
@@ -1957,7 +2180,18 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     plugin.behavior = snapshot.behavior;
     plugin.auxMute = snapshot.auxMute;
     plugin.behaviorDepth = snapshot.behaviorDepth;
-    syncMixerState(plugin);
+    if (synchronize) syncMixerState(plugin);
+    markNrpnFeedbackDirty(plugin, id);
+    uint32_t destination = 0u;
+    uint32_t source = 0u;
+    if (decodeMatrixParam(id, destination, source))
+        markMatrixFeedbackDirty(plugin,
+            destination * kChannelCount + source);
+    if (publishUi) {
+        double applied = 0.0;
+        if (snapshotParamValue(baseSnapshot(plugin), id, applied))
+            publishUiParameter(plugin, id, applied);
+    }
 }
 
 bool paramValue(const Plugin& plugin, clap_id id, double& value)
@@ -2022,19 +2256,21 @@ void resetMeters(Plugin& plugin)
 }
 
 void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
-    float seedAmount)
+    float seedAmount, bool publishUi = true)
 {
     params.outputGainDb = plugin.params.outputGainDb;
     plugin.params = s3g::sanitizeNoInputMixerParams(params);
     plugin.nrpnFeedbackSent.fill(false);
-    plugin.nrpnFeedbackCursor = 0u;
+    markAllNrpnFeedbackDirty(plugin);
     clearMidiMatrixGrid(plugin);
+    plugin.matrixFeedbackSent.fill(false);
     syncMixerState(plugin);
     // Complete patch recall deliberately starts a fresh network. Parameter
     // edits and state restores keep their normal DSP ramps.
     plugin.mixer.reset();
     plugin.mixer.reseed(plugin.params.seed, seedAmount);
     resetMeters(plugin);
+    if (publishUi) publishUiBaseState(plugin);
 }
 
 void resetNrpnState(Plugin& plugin)
@@ -2120,6 +2356,7 @@ void markNrpnFeedbackSent(Plugin& plugin, clap_id id, double value)
     plugin.nrpnFeedbackValue[static_cast<uint32_t>(index)] =
         midiParamValueTo14Bit(id, value, range);
     plugin.nrpnFeedbackSent[static_cast<uint32_t>(index)] = true;
+    clearNrpnFeedbackDirty(plugin, static_cast<uint32_t>(index));
 }
 
 bool emitNrpnFeedbackCc(const clap_output_events_t* events,
@@ -2155,34 +2392,84 @@ bool emitNrpnFeedbackValue(const clap_output_events_t* events,
 void emitNrpnFeedback(Plugin& plugin,
     const clap_output_events_t* events, uint32_t time)
 {
-    if (!events || !events->try_push) return;
-    uint32_t scanned = 0u;
+    if (!plugin.nrpnFeedbackEnabled.load(std::memory_order_relaxed)
+        || !events || !events->try_push) return;
     uint32_t emitted = 0u;
-    uint32_t index = plugin.nrpnFeedbackCursor % kTotalParamCount;
-    while (scanned < kTotalParamCount
+    uint32_t visitedWords = 0u;
+    while (visitedWords < kNrpnFeedbackWordCount
         && emitted < kNrpnFeedbackParamsPerBlock) {
-        const clap_id id = paramIdAtIndex(index);
-        double value = 0.0;
-        ParamRange range;
-        if (id != CLAP_INVALID_ID && paramValue(plugin, id, value)
-            && paramRange(id, range)) {
-            const uint16_t raw = midiParamValueTo14Bit(id, value, range);
-            if (!plugin.nrpnFeedbackSent[index]
-                || plugin.nrpnFeedbackValue[index] != raw) {
-                if (!emitNrpnFeedbackValue(events, time, id, raw)) {
-                    plugin.nrpnFeedbackCursor = index;
-                    return;
-                }
-                plugin.nrpnFeedbackValue[index] = raw;
-                plugin.nrpnFeedbackSent[index] = true;
-                ++emitted;
+        const uint32_t word = plugin.nrpnFeedbackWordCursor
+            % kNrpnFeedbackWordCount;
+        uint64_t dirty = plugin.nrpnFeedbackDirty[word];
+        while (dirty != 0u && emitted < kNrpnFeedbackParamsPerBlock) {
+            const uint32_t bitIndex = static_cast<uint32_t>(
+                __builtin_ctzll(dirty));
+            const uint64_t bit = uint64_t { 1u } << bitIndex;
+            const uint32_t index = word * 64u + bitIndex;
+            dirty &= ~bit;
+            if (index >= kTotalParamCount) {
+                plugin.nrpnFeedbackDirty[word] &= ~bit;
+                continue;
             }
+            const clap_id id = paramIdAtIndex(index);
+            double value = 0.0;
+            ParamRange range;
+            if (id == CLAP_INVALID_ID || !paramValue(plugin, id, value)
+                || !paramRange(id, range)) {
+                plugin.nrpnFeedbackDirty[word] &= ~bit;
+                continue;
+            }
+            const uint16_t raw = midiParamValueTo14Bit(id, value, range);
+            if (plugin.nrpnFeedbackSent[index]
+                && plugin.nrpnFeedbackValue[index] == raw) {
+                plugin.nrpnFeedbackDirty[word] &= ~bit;
+                continue;
+            }
+            if (!emitNrpnFeedbackValue(events, time, id, raw)) return;
+            plugin.nrpnFeedbackValue[index] = raw;
+            plugin.nrpnFeedbackSent[index] = true;
+            plugin.nrpnFeedbackDirty[word] &= ~bit;
+            ++emitted;
         }
-        index = (index + 1u) % kTotalParamCount;
-        ++scanned;
+        plugin.nrpnFeedbackWordCursor = (word + 1u)
+            % kNrpnFeedbackWordCount;
+        ++visitedWords;
     }
-    plugin.nrpnFeedbackCursor = index;
 }
+
+void applyFeedbackConfigurationChange(Plugin& plugin)
+{
+    if (!plugin.feedbackConfigurationChanged.exchange(false,
+            std::memory_order_acq_rel)) return;
+    if (plugin.nrpnFeedbackEnabled.load(std::memory_order_relaxed)) {
+        plugin.nrpnFeedbackSent.fill(false);
+        markAllNrpnFeedbackDirty(plugin);
+    }
+    if (plugin.matrixFeedbackEnabled.load(std::memory_order_relaxed)) {
+        plugin.matrixFeedbackSent.fill(false);
+        markAllMatrixFeedbackDirty(plugin);
+    }
+}
+
+void setMidiFeedbackEnabled(const clap_plugin_t* instance,
+    bool nrpnEnabled, bool matrixEnabled)
+{
+    auto* plugin = self(instance);
+    if (!plugin) return;
+    const bool nrpnChanged = plugin->nrpnFeedbackEnabled.exchange(
+        nrpnEnabled, std::memory_order_acq_rel) != nrpnEnabled;
+    const bool matrixChanged = plugin->matrixFeedbackEnabled.exchange(
+        matrixEnabled, std::memory_order_acq_rel) != matrixEnabled;
+    if (nrpnChanged || matrixChanged) {
+        plugin->feedbackConfigurationChanged.store(true,
+            std::memory_order_release);
+        requestGuiCommandDrain(*plugin);
+    }
+}
+
+const s3g_nim_midi_feedback_t midiFeedbackExt {
+    setMidiFeedbackEnabled,
+};
 
 bool applyMidiParam14Bit(Plugin& plugin, clap_id id, uint16_t rawValue,
     uint32_t time, const clap_output_events_t* events)
@@ -2239,6 +2526,129 @@ void applyMidiRandom(Plugin& plugin, s3g::NoInputRandomEnergy energy,
     applyCompletePatch(plugin, patch,
         s3g::noInputRandomSeedAmount(energy));
     emitAllMidiParamValues(plugin, events, time);
+}
+
+void applyUiSnapshotOnAudioThread(Plugin& plugin, float seedAmount)
+{
+    const auto snapshot = uiSnapshot(plugin);
+    plugin.params = s3g::sanitizeNoInputMixerParams(snapshot.params);
+    plugin.behavior = s3g::sanitizeNoInputMovementBehaviorParams(
+        snapshot.behavior);
+    plugin.auxMute = snapshot.auxMute;
+    plugin.behaviorDepth = std::clamp(snapshot.behaviorDepth, 0.0f, 1.0f);
+
+    double value = 0.0;
+    if (uiParameterValue(plugin, kMatrixMidiModeParamId, value)) {
+        plugin.matrixMidiMode.store(static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiMode::Count) - 1l)),
+            std::memory_order_relaxed);
+    }
+    if (uiParameterValue(plugin, kMatrixMidiSignParamId, value)) {
+        plugin.matrixMidiSign.store(static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiSign::Count) - 1l)),
+            std::memory_order_relaxed);
+    }
+    if (uiParameterValue(plugin, kMatrixMidiRampParamId, value)) {
+        plugin.matrixMidiRampMs.store(static_cast<float>(std::clamp(value,
+            static_cast<double>(s3g::kNoInputMatrixMidiRampMinimumMs),
+            static_cast<double>(s3g::kNoInputMatrixMidiRampMaximumMs))),
+            std::memory_order_relaxed);
+    }
+
+    plugin.nrpnFeedbackSent.fill(false);
+    markAllNrpnFeedbackDirty(plugin);
+    clearMidiMatrixGrid(plugin);
+    plugin.matrixFeedbackSent.fill(false);
+    syncMixerState(plugin);
+    plugin.mixer.reset();
+    plugin.mixer.reseed(plugin.params.seed, seedAmount);
+    resetMeters(plugin);
+}
+
+void drainGuiCommands(Plugin& plugin)
+{
+    constexpr uint32_t kMaximumCommandsPerBlock = 256u;
+    bool needsSync = false;
+    GuiCommand command;
+    for (uint32_t count = 0u;
+         count < kMaximumCommandsPerBlock
+            && dequeueGuiCommand(plugin, command); ++count) {
+        if (command.type == GuiCommandType::ParamValue) {
+            applyParam(plugin, command.paramId, command.value,
+                false, false);
+            needsSync = true;
+            continue;
+        }
+        if (needsSync) {
+            syncMixerState(plugin);
+            needsSync = false;
+        }
+        switch (command.type) {
+        case GuiCommandType::FactoryPreset: {
+            auto patch = s3g::noInputMixerFactoryPreset(command.argument);
+            patch = s3g::variedNoInputMixerParams(
+                patch, command.seed, static_cast<float>(command.value));
+            plugin.behavior = s3g::noInputMixerFactoryBehavior(
+                command.argument);
+            plugin.behaviorDepth = patch.motion;
+            applyCompletePatch(plugin, patch, 0.68f, false);
+            break;
+        }
+        case GuiCommandType::RandomPatch: {
+            const auto energy = static_cast<s3g::NoInputRandomEnergy>(
+                std::min<uint32_t>(command.argument,
+                    static_cast<uint32_t>(
+                        s3g::NoInputRandomEnergy::Count) - 1u));
+            plugin.behavior = s3g::randomizedNoInputMovementBehaviorParams(
+                command.seed ^ 0x43564d58u, energy);
+            const auto patch = s3g::randomizedNoInputMixerParams(
+                command.seed, energy);
+            plugin.behaviorDepth = patch.motion;
+            applyCompletePatch(plugin, patch,
+                s3g::noInputRandomSeedAmount(energy), false);
+            break;
+        }
+        case GuiCommandType::ForgetPatch:
+            applyCompletePatch(plugin,
+                s3g::forgottenNoInputMixerParams(
+                    plugin.params, command.seed), 0.62f, false);
+            break;
+        case GuiCommandType::NewSeed:
+            plugin.params.seed = nextPatchSeed(plugin);
+            plugin.uiSeed.store(plugin.params.seed,
+                std::memory_order_relaxed);
+            syncMixerState(plugin);
+            controlMixer(plugin).reseed(plugin.params.seed, 0.70f);
+            break;
+        case GuiCommandType::SetSeed:
+            plugin.params.seed = command.seed == 0u ? 1u : command.seed;
+            syncMixerState(plugin);
+            break;
+        case GuiCommandType::ClearMatrix:
+            clearMidiMatrixGrid(plugin);
+            plugin.params.matrix.fill(0.0f);
+            syncMixerState(plugin);
+            markAllNrpnFeedbackDirty(plugin);
+            break;
+        case GuiCommandType::Panic:
+            clearMidiMatrixGrid(plugin);
+            plugin.mixer.panic();
+            break;
+        case GuiCommandType::KillLane:
+            plugin.mixer.killLane(std::min<uint32_t>(
+                command.argument, kChannelCount - 1u));
+            break;
+        case GuiCommandType::ApplyUiSnapshot:
+            applyUiSnapshotOnAudioThread(plugin,
+                static_cast<float>(command.value));
+            break;
+        case GuiCommandType::ParamValue:
+            break;
+        }
+    }
+    if (needsSync) syncMixerState(plugin);
 }
 
 void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
@@ -2301,6 +2711,7 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
         return;
     case kMidiNewNote:
         plugin.params.seed = nextPatchSeed(plugin);
+        plugin.uiSeed.store(plugin.params.seed, std::memory_order_relaxed);
         syncMixerState(plugin);
         controlMixer(plugin).reseed(plugin.params.seed, 0.70f);
         return;
@@ -2344,6 +2755,8 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
         syncMixerState(plugin);
         for (uint32_t index = 0u;
              index < s3g::kNoInputMixerMatrixCells; ++index) {
+            publishUiParameter(plugin, kMatrixParamBase + index, 0.0);
+            markNrpnFeedbackDirty(plugin, kMatrixParamBase + index);
             emitMidiParamValue(events, time,
                 kMatrixParamBase + index, 0.0);
         }
@@ -2414,9 +2827,13 @@ void applyMidiMatrixLatchGain(Plugin& plugin, uint32_t index, float gain,
     // glide to the new persistent value and then retire the overlay.
     auto& destinationMixer = controlMixer(plugin);
     destinationMixer.setMidiMatrixConnection(destination, source, gain);
+    trackMatrixFeedback(plugin, index);
     plugin.params.matrix[index] = gain;
     syncMixerState(plugin);
     destinationMixer.releaseMidiMatrixConnection(destination, source);
+    publishUiParameter(plugin, kMatrixParamBase + index, gain);
+    markNrpnFeedbackDirty(plugin, kMatrixParamBase + index);
+    markMatrixFeedbackDirty(plugin, index);
     emitMidiParamValue(events, time, kMatrixParamBase + index, gain);
 }
 
@@ -2500,6 +2917,7 @@ bool applyMidiMatrixGridNote(Plugin& plugin, uint8_t channel, uint8_t note,
             mode, baseGain, velocity);
         auto& destinationMixer = controlMixer(plugin);
         destinationMixer.setMidiMatrixConnection(destination, source, gain);
+        trackMatrixFeedback(plugin, index);
         plugin.midiMatrixGridGain[index].store(
             destinationMixer.effectiveMatrixGain(destination, source),
             std::memory_order_relaxed);
@@ -2509,6 +2927,7 @@ bool applyMidiMatrixGridNote(Plugin& plugin, uint8_t channel, uint8_t note,
             std::memory_order_relaxed);
     } else {
         controlMixer(plugin).releaseMidiMatrixConnection(destination, source);
+        trackMatrixFeedback(plugin, index);
         plugin.midiMatrixGridHeld[index].store(false,
             std::memory_order_relaxed);
     }
@@ -2538,6 +2957,7 @@ bool applyMidiMatrixGridPressure(Plugin& plugin, uint8_t channel,
     const float gain = s3g::noInputMatrixMidiGain(
         mode, baseGain, pressure);
     controlMixer(plugin).setMidiMatrixConnection(destination, source, gain);
+    trackMatrixFeedback(plugin, index);
     return true;
 }
 
@@ -2584,13 +3004,10 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
-    p->seedRequested.store(false, std::memory_order_relaxed);
-    p->panicRequested.store(false, std::memory_order_relaxed);
-    p->killMask.store(0u, std::memory_order_relaxed);
     p->matrixFeedbackSent.fill(false);
-    p->matrixFeedbackRefreshFrames = 0u;
+    markAllMatrixFeedbackDirty(*p);
     p->nrpnFeedbackSent.fill(false);
-    p->nrpnFeedbackCursor = 0u;
+    markAllNrpnFeedbackDirty(*p);
     resetNrpnState(*p);
     return true;
 }
@@ -2613,9 +3030,9 @@ void reset(const clap_plugin_t* plugin)
     resetNrpnState(*p);
     clearMidiMatrixGrid(*p);
     p->matrixFeedbackSent.fill(false);
-    p->matrixFeedbackRefreshFrames = 0u;
+    markAllMatrixFeedbackDirty(*p);
     p->nrpnFeedbackSent.fill(false);
-    p->nrpnFeedbackCursor = 0u;
+    markAllNrpnFeedbackDirty(*p);
 }
 
 bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
@@ -2652,6 +3069,7 @@ void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
         const uint8_t status = midi.data[0] & 0xf0u;
         const uint8_t channel = midi.data[0] & 0x0fu;
         if (status == 0xb0u && channel == kMidiControlChannel
+            && plugin.nrpnFeedbackEnabled.load(std::memory_order_relaxed)
             && outputEvents && outputEvents->try_push) {
             outputEvents->try_push(outputEvents, event);
         }
@@ -2703,6 +3121,8 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     auto* p = self(plugin);
     if (!process) return CLAP_PROCESS_CONTINUE;
+    applyFeedbackConfigurationChange(*p);
+    drainGuiCommands(*p);
     if (process->transport) {
         const bool hasTempo = (process->transport->flags
             & CLAP_TRANSPORT_HAS_TEMPO) != 0;
@@ -2716,24 +3136,6 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->transportHasTempo = false;
         p->mixer.setTransport(120.0, false);
     }
-    if (p->seedRequested.exchange(false, std::memory_order_acq_rel)) {
-        p->params.seed = p->params.seed * 1664525u + 1013904223u;
-        if (p->params.seed == 0u) p->params.seed = 1u;
-        syncMixerState(*p);
-        controlMixer(*p).reseed(p->params.seed, 0.70f);
-    }
-    if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
-        clearMidiMatrixGrid(*p);
-        p->mixer.panic();
-    }
-    uint32_t killMask = p->killMask.exchange(0u,
-        std::memory_order_acq_rel);
-    for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
-        if ((killMask & (1u << lane)) != 0u) {
-            p->mixer.killLane(lane);
-        }
-    }
-
     const uint32_t eventCount = process->in_events
         ? process->in_events->size(process->in_events) : 0u;
     uint32_t eventIndex = 0u;
@@ -2862,7 +3264,12 @@ clap_process_status process(const clap_plugin_t* plugin,
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p && !p->active.load(std::memory_order_acquire))
+        drainGuiCommands(*p);
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput)
 {
@@ -2975,7 +3382,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    return value && paramValue(*self(plugin), id, *value);
+    return value && uiParameterValue(*self(plugin), id, *value);
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
@@ -3343,7 +3750,10 @@ void paramsFlush(const clap_plugin_t* plugin,
     const clap_input_events_t* in, const clap_output_events_t* out)
 {
     auto& p = *self(plugin);
+    applyFeedbackConfigurationChange(p);
+    drainGuiCommands(p);
     readInputEvents(p, in, out);
+    emitNrpnFeedback(p, out, 0u);
     emitMatrixFeedback(p, out, 0u, 0u);
 }
 
@@ -3357,7 +3767,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     const auto* p = self(plugin);
     SavedState state;
-    state.params = p->params;
+    const auto visible = uiSnapshot(*p);
+    state.params = visible.params;
     state.selectedLane = p->selectedLane.load(std::memory_order_relaxed);
     state.selectedSlot = p->selectedSlot.load(std::memory_order_relaxed);
     state.selectedSource = p->selectedSource.load(std::memory_order_relaxed);
@@ -3370,9 +3781,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         std::memory_order_relaxed);
     state.matrixMidiRampMs = p->matrixMidiRampMs.load(
         std::memory_order_relaxed);
-    state.auxMute = p->auxMute;
-    state.behavior = p->behavior;
-    state.behaviorDepth = p->behaviorDepth;
+    state.auxMute = visible.auxMute;
+    state.behavior = visible.behavior;
+    state.behaviorDepth = visible.behaviorDepth;
     state.surface = p->surface;
     state.surfaceTopologyMode = p->surfaceTopologyMode;
     state.surfaceTopologyCell = p->surfaceTopologyCell;
@@ -3698,13 +4109,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = kStateVersion;
     }
     auto* p = self(plugin);
-    p->params = s3g::sanitizeNoInputMixerParams(state.params);
-    p->behavior = s3g::sanitizeNoInputMovementBehaviorParams(
+    NoInputSurfaceSnapshot loaded;
+    loaded.params = s3g::sanitizeNoInputMixerParams(state.params);
+    loaded.behavior = s3g::sanitizeNoInputMovementBehaviorParams(
         state.behavior);
-    p->behaviorDepth = std::clamp(std::isfinite(state.behaviorDepth)
-        ? state.behaviorDepth : p->params.motion, 0.0f, 1.0f);
+    loaded.behaviorDepth = std::clamp(std::isfinite(state.behaviorDepth)
+        ? state.behaviorDepth : loaded.params.motion, 0.0f, 1.0f);
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
-        p->auxMute[bus] = state.auxMute[bus] != 0u ? 1u : 0u;
+        loaded.auxMute[bus] = state.auxMute[bus] != 0u ? 1u : 0u;
     }
     p->surface = state.surface;
     s3g::sanitizeParameterSurface(p->surface);
@@ -3715,7 +4127,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         ? state.surfaceTopologyCell : kNoInputSurfaceNoTopologyCell;
     if (captureLegacyNearestAnchor) {
         const auto weights = s3g::parameterSurfaceWeights(p->surface,
-            p->params.surfaceX, p->params.surfaceY);
+            loaded.params.surfaceX, loaded.params.surfaceY);
         p->surfaceTopologyCell = weights.activeCount > 0u
             ? weights.nearest : kNoInputSurfaceNoTopologyCell;
     }
@@ -3759,14 +4171,32 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         s3g::kNoInputMatrixMidiRampMinimumMs,
         s3g::kNoInputMatrixMidiRampMaximumMs),
         std::memory_order_relaxed);
-    clearMidiMatrixGrid(*p);
-    p->matrixFeedbackSent.fill(false);
-    p->matrixFeedbackRefreshFrames = 0u;
-    p->nrpnFeedbackSent.fill(false);
-    p->nrpnFeedbackCursor = 0u;
-    syncMixerState(*p);
-    p->mixer.reseed(p->params.seed, 0.62f);
-    resetMeters(*p);
+    publishUiSnapshot(*p, loaded);
+    publishUiParameter(*p, kMatrixMidiModeParamId,
+        p->matrixMidiMode.load(std::memory_order_relaxed));
+    publishUiParameter(*p, kMatrixMidiSignParamId,
+        p->matrixMidiSign.load(std::memory_order_relaxed));
+    publishUiParameter(*p, kMatrixMidiRampParamId,
+        p->matrixMidiRampMs.load(std::memory_order_relaxed));
+    if (p->active.load(std::memory_order_acquire)) {
+        if (!enqueueGuiCommand(*p, { GuiCommandType::ApplyUiSnapshot,
+                CLAP_INVALID_ID, 0.62, 0u, loaded.params.seed })) {
+            return false;
+        }
+    } else {
+        p->params = loaded.params;
+        p->behavior = loaded.behavior;
+        p->behaviorDepth = loaded.behaviorDepth;
+        p->auxMute = loaded.auxMute;
+        clearMidiMatrixGrid(*p);
+        p->matrixFeedbackSent.fill(false);
+        markAllMatrixFeedbackDirty(*p);
+        p->nrpnFeedbackSent.fill(false);
+        markAllNrpnFeedbackDirty(*p);
+        syncMixerState(*p);
+        p->mixer.reseed(p->params.seed, 0.62f);
+        resetMeters(*p);
+    }
     return true;
 }
 
@@ -4453,8 +4883,9 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return s3g::NoInputDistortionType::Bypass;
-    return _isAux ? plugin->params.aux[_bus].effect.type
-        : plugin->params.lanes[_lane].inserts[_slot].type;
+    const auto visible = uiSnapshot(*plugin);
+    return _isAux ? visible.params.aux[_bus].effect.type
+        : visible.params.lanes[_lane].inserts[_slot].type;
 }
 
 - (uint32_t)controlCount
@@ -4497,6 +4928,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     (void)dirty;
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
+    const auto visible = uiSnapshot(*plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -4528,7 +4960,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         const clap_id id = [self paramForRow:row];
         double current = 0.0;
         ParamRange range;
-        if (!paramValue(*plugin, id, current) || !paramRange(id, range))
+        if (!uiParameterValue(*plugin, id, current) || !paramRange(id, range))
             continue;
         NSString* name = [self labelForRow:row];
         [name drawAtPoint:NSMakePoint(28.0, 82.0 + row * 40.0)
@@ -4649,7 +5081,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         if (!_isAux && row == 4u) {
             if (!NSPointInRect(point, effectEditorToggleRect(row))) continue;
             double current = 0.0;
-            if (paramValue(*plugin, id, current)) {
+            if (uiParameterValue(*plugin, id, current)) {
                 [_owner applyGuiParam:id value:current >= 0.5 ? 0.0 : 1.0];
             }
             return;
@@ -4851,7 +5283,16 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
-    applyParam(*plugin, param, value);
+    double previous = 0.0;
+    uiParameterValue(*plugin, param, previous);
+    publishUiParameter(*plugin, param, value);
+    double applied = value;
+    uiParameterValue(*plugin, param, applied);
+    if (!enqueueGuiCommand(*plugin, { GuiCommandType::ParamValue,
+            param, applied, 0u, 0u })) {
+        publishUiParameter(*plugin, param, previous);
+        return;
+    }
     [self markPatchCustom];
     [self setNeedsDisplay:YES];
     if (_mixerPopupChild && _mixerPopupOwner) {
@@ -4877,9 +5318,11 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
-    clearMidiMatrixGrid(*plugin);
-    plugin->params.matrix.fill(0.0f);
-    syncMixerState(*plugin);
+    for (uint32_t index = 0u;
+         index < s3g::kNoInputMixerMatrixCells; ++index) {
+        publishUiParameter(*plugin, kMatrixParamBase + index, 0.0);
+    }
+    if (!enqueueGuiCommand(*plugin, { GuiCommandType::ClearMatrix })) return;
     [self markPatchCustom];
     [self setNeedsDisplay:YES];
     S3GNoInputMixerView* owner = _mixerPopupChild
@@ -4937,9 +5380,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (index >= plugin->surface.cellCount) return;
     plugin->surface.cells[index].x = x;
     plugin->surface.cells[index].y = y;
-    syncMixerState(*plugin);
-    if (plugin->host && plugin->host->request_process)
-        plugin->host->request_process(plugin->host);
     [self setNeedsDisplay:YES];
 }
 
@@ -5161,6 +5601,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (void)drawPrimaryWiring:(Plugin*)plugin rect:(NSRect)rect
     label:(NSDictionary*)label valueAttrs:(NSDictionary*)valueAttrs
 {
+    const auto visible = uiSnapshot(*plugin);
     [mixerColor(0x101010) setFill]; NSRectFill(rect);
     [mixerColor(0x454545) setStroke]; NSFrameRect(rect);
     const uint32_t matrixMidiMode = plugin->matrixMidiMode.load(
@@ -5233,7 +5674,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             const NSPoint b = wiringPortPoint(true, destination);
             NSPoint c1;
             NSPoint c2;
-            wiringControlPoints(a, b, plugin->params.vortex, c1, c2);
+            wiringControlPoints(a, b, visible.params.vortex, c1, c2);
             NSBezierPath* path = [NSBezierPath bezierPath];
             [path moveToPoint:a];
             [path curveToPoint:b controlPoint1:c1 controlPoint2:c2];
@@ -5350,7 +5791,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     const CGFloat selectedDb = 20.0 * std::log10(
         std::max<CGFloat>(selectedRms, 1.0e-6));
-    const auto stages = routeStageReadout(*plugin, selectedSource,
+    const auto stages = routeStageReadout(*plugin, visible, selectedSource,
         selectedDestination);
     [[NSString stringWithFormat:
         @"BASE %.2f  →  FIELD %.2f  →  BEHAV %.2f  →  RESP %.2f  =  %.2f  ·  CHOKE %.2f",
@@ -5371,6 +5812,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (void)drawPrimaryMatrix:(Plugin*)plugin rect:(NSRect)rect
     label:(NSDictionary*)label valueAttrs:(NSDictionary*)valueAttrs
 {
+    const auto visible = uiSnapshot(*plugin);
     [mixerColor(0x101010) setFill];
     NSRectFill(rect);
     [mixerColor(0x454545) setStroke];
@@ -5383,14 +5825,14 @@ NSRect effectEditorToggleRect(uint32_t row)
         std::memory_order_relaxed);
     const uint32_t selectedDestination = plugin->selectedDestination.load(
         std::memory_order_relaxed);
-    auto motionWeights = s3g::noInputMixerMotionWeights(
-        plugin->params, plugin->motionPhase.load(std::memory_order_relaxed));
-    if (plugin->behavior.behavior == s3g::NoInputMovementBehavior::Step) {
+    auto motionWeights = s3g::noInputMixerMotionWeights(visible.params,
+        plugin->motionPhase.load(std::memory_order_relaxed));
+    if (visible.behavior.behavior == s3g::NoInputMovementBehavior::Step) {
         for (uint32_t index = 0u;
              index < s3g::kNoInputMixerMatrixCells; ++index) {
             motionWeights[index] = s3g::lerp(motionWeights[index],
                 plugin->behaviorRouteGate[index].load(
-                    std::memory_order_relaxed), plugin->behaviorDepth);
+                    std::memory_order_relaxed), visible.behaviorDepth);
         }
     }
     std::array<float, kChannelCount> activeMotionPeak {};
@@ -5438,23 +5880,23 @@ NSRect effectEditorToggleRect(uint32_t row)
                     destination * kChannelCount + source;
                 CGFloat motion = s3g::noInputMixerMotionGainScale(
                     motionWeights[index], activeMotionPeak[source],
-                    activeMotionRouteCount[source], plugin->params.motion);
+                    activeMotionRouteCount[source], visible.params.motion);
                 if (s3g::noInputMovementBehaviorUsesAmplitude(
-                        plugin->behavior.behavior)) {
+                        visible.behavior.behavior)) {
                     const float articulation =
                         plugin->behaviorRouteGate[index].load(
                             std::memory_order_relaxed);
                     motion *= s3g::lerp(1.0f, articulation,
-                        plugin->behaviorDepth);
+                        visible.behaviorDepth);
                 }
-                if (plugin->params.reactMode
+                if (visible.params.reactMode
                         != s3g::NoInputReactMode::Off
-                    && plugin->params.reactDepth > 1.0e-6f) {
+                    && visible.params.reactDepth > 1.0e-6f) {
                     const float response = 0.0316227766f
                         + plugin->reactRouteGate[index].load(
                             std::memory_order_relaxed) * 0.9683772234f;
                     motion *= s3g::lerp(1.0f, response,
-                        plugin->params.reactDepth);
+                        visible.params.reactDepth);
                 }
                 [mixerColor(gain >= 0.0f ? 0xc95e3b : 0x5daeb6,
                     0.18 + std::abs(gain) * 0.40) setFill];
@@ -5516,24 +5958,24 @@ NSRect effectEditorToggleRect(uint32_t row)
         gridExtent + motionRailMargin * 2.0, 38.0);
     [mixerColor(0x0a0a0a) setFill]; NSRectFill(motionRail);
     [mixerColor(0x454545) setStroke]; NSFrameRect(motionRail);
-    const float rateHz = plugin->behavior.behavior
+    const float rateHz = visible.behavior.behavior
             == s3g::NoInputMovementBehavior::Glide
-        ? s3g::noInputMixerMotionRateHz(plugin->params.motionRate)
-        : s3g::noInputMovementEventRateHz(plugin->behavior.eventRate);
+        ? s3g::noInputMixerMotionRateHz(visible.params.motionRate)
+        : s3g::noInputMovementEventRateHz(visible.behavior.eventRate);
     [[NSString stringWithFormat:
         @"ROUTE GAIN · %@ / %@ %.0f%% · RESP %@ %.0f%% · FIELD %.0f%% · %.2f Hz",
         [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
-            plugin->params.motionShape)],
+            visible.params.motionShape)],
         [NSString stringWithUTF8String:s3g::noInputMovementBehaviorName(
-            plugin->behavior.behavior)],
-        plugin->behaviorDepth * 100.0f,
+            visible.behavior.behavior)],
+        visible.behaviorDepth * 100.0f,
         [NSString stringWithUTF8String:s3g::noInputReactModeName(
-            plugin->params.reactMode)],
-        plugin->params.reactDepth * 100.0f,
-        plugin->params.motion * 100.0f, rateHz]
+            visible.params.reactMode)],
+        visible.params.reactDepth * 100.0f,
+        visible.params.motion * 100.0f, rateHz]
         drawAtPoint:NSMakePoint(motionRail.origin.x + 8.0,
             motionRail.origin.y + 4.0) withAttributes:valueAttrs];
-    const auto stages = routeStageReadout(*plugin, selectedSource,
+    const auto stages = routeStageReadout(*plugin, visible, selectedSource,
         selectedDestination);
     [[NSString stringWithFormat:
         @"S%u>D%u  BASE %.2f · FIELD %.2f · BEHAV %.2f · RESP %.2f · EFF %.2f · CHOKE %.2f",
@@ -5551,6 +5993,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (void)drawPrimaryLanes:(Plugin*)plugin rect:(NSRect)rect
     label:(NSDictionary*)label valueAttrs:(NSDictionary*)valueAttrs
 {
+    const auto visible = uiSnapshot(*plugin);
     [mixerColor(0x101010) setFill]; NSRectFill(rect);
     [mixerColor(0x454545) setStroke]; NSFrameRect(rect);
     const uint32_t selected = plugin->selectedLane.load(
@@ -5572,7 +6015,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         [[NSString stringWithFormat:@"L%u", lane + 1u]
             drawAtPoint:NSMakePoint(cell.origin.x + 10.0,
                 cell.origin.y + 9.0) withAttributes:label];
-        const auto& laneParams = plugin->params.lanes[lane];
+        const auto& laneParams = visible.params.lanes[lane];
         [[NSString stringWithFormat:@"BODY %.0f  LOSS %.0f",
             laneParams.body * 100.0f, laneParams.loss * 100.0f]
             drawAtPoint:NSMakePoint(cell.origin.x + 10.0,
@@ -5701,6 +6144,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     style:(const s3g::clap_gui::Style&)style
 {
     if (_openMenu == kMenuNone) return;
+    const auto visible = uiSnapshot(*plugin);
     NSString* laneItems[kChannelCount] = {
         @"L1", @"L2", @"L3", @"L4", @"L5", @"L6", @"L7", @"L8",
     };
@@ -5771,39 +6215,39 @@ NSRect effectEditorToggleRect(uint32_t row)
     } else if (_openMenu == kMenuQuality) {
         items = qualityItems;
         count = 3u;
-        selected = static_cast<int>(plugin->params.quality);
+        selected = static_cast<int>(visible.params.quality);
     } else if (_openMenu == kMenuMotionShape) {
         items = shapeItems;
         count = s3g::kMatrixFlowShapeCount;
-        selected = static_cast<int>(plugin->params.motionShape);
+        selected = static_cast<int>(visible.params.motionShape);
     } else if (_openMenu == kMenuBehavior) {
         items = behaviorItems;
         count = s3g::kNoInputMovementBehaviorCount;
-        selected = static_cast<int>(plugin->behavior.behavior);
+        selected = static_cast<int>(visible.behavior.behavior);
     } else if (_openMenu == kMenuMixerInsert) {
         items = typeItems;
         count = s3g::kNoInputDistortionTypeCount;
-        selected = static_cast<int>(plugin->params.lanes[_effectMenuLane]
+        selected = static_cast<int>(visible.params.lanes[_effectMenuLane]
             .inserts[_effectMenuSlot].type);
     } else if (_openMenu == kMenuMixerAux) {
         items = typeItems;
         count = s3g::kNoInputDistortionTypeCount;
         selected = static_cast<int>(
-            plugin->params.aux[_effectMenuBus].effect.type);
+            visible.params.aux[_effectMenuBus].effect.type);
     } else if (_openMenu == kMenuReactMode) {
         items = reactItemsFull;
         count = static_cast<uint32_t>(s3g::NoInputReactMode::Count);
-        selected = static_cast<int>(plugin->params.reactMode);
+        selected = static_cast<int>(visible.params.reactMode);
     } else if (_openMenu == kMenuFieldDivision
             || _openMenu == kMenuEventDivision) {
         items = divisionItems;
         count = s3g::kNoInputClockDivisionCount;
         selected = static_cast<int>(_openMenu == kMenuFieldDivision
-            ? plugin->params.fieldDivision : plugin->params.eventDivision);
+            ? visible.params.fieldDivision : visible.params.eventDivision);
     } else if (_openMenu == kMenuAuxTapA || _openMenu == kMenuAuxTapB) {
         items = tapItems;
         count = static_cast<uint32_t>(s3g::NoInputAuxTap::Count);
-        selected = static_cast<int>(plugin->params.lanes[_effectMenuLane]
+        selected = static_cast<int>(visible.params.lanes[_effectMenuLane]
             .auxTap[_openMenu == kMenuAuxTapA ? 0u : 1u]);
     } else {
         items = typeItems;
@@ -5812,7 +6256,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             std::memory_order_relaxed);
         const uint32_t slot = static_cast<uint32_t>(
             _openMenu - kMenuSlot0);
-        selected = static_cast<int>(plugin->params.lanes[lane]
+        selected = static_cast<int>(visible.params.lanes[lane]
             .inserts[slot].type);
     }
     s3g::clap_gui::drawDropdownMenu([self menuDropdownRect:_openMenu],
@@ -5821,6 +6265,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 
 - (void)drawPerformanceMixer:(Plugin*)plugin surface:(NSRect)surface
 {
+    const auto visible = uiSnapshot(*plugin);
     [NSGraphicsContext saveGraphicsState];
     const NSPoint offset = mixerSurfaceOffset(surface);
     NSAffineTransform* transform = [NSAffineTransform transform];
@@ -5862,8 +6307,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         [[NSString stringWithFormat:@"LANE %u", lane + 1u]
             drawAtPoint:NSMakePoint(strip.origin.x + 10.0,
                 strip.origin.y + 10.0) withAttributes:label];
-        const auto& laneParams = plugin->params.lanes[lane];
-        const float loop = plugin->params.matrix[lane * 8u + lane];
+        const auto& laneParams = visible.params.lanes[lane];
+        const float loop = visible.params.matrix[lane * 8u + lane];
         drawHorizontal(@"BODY", popupBodyRect(strip), laneParams.body,
             0x929292);
         drawHorizontal(@"LOSS", popupLossRect(strip), laneParams.loss,
@@ -5932,9 +6377,9 @@ NSRect effectEditorToggleRect(uint32_t row)
         [[NSString stringWithFormat:@"AUX %c", 'A' + bus]
             drawAtPoint:NSMakePoint(auxPanel.origin.x + 14.0, baseY - 8.0)
             withAttributes:title];
-        const auto& aux = plugin->params.aux[bus];
+        const auto& aux = visible.params.aux[bus];
         drawFlatButton(popupAuxMuteRect(bus), @"MUTE ALL",
-            plugin->auxMute[bus] != 0u, value);
+            visible.auxMute[bus] != 0u, value);
         drawFlatButton(popupAuxTypeMenuRect(bus),
             [NSString stringWithUTF8String:
                 s3g::noInputDistortionName(aux.effect.type)], true, value);
@@ -5965,8 +6410,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         auxPanel.origin.y + 554.0) withAttributes:title];
     const NSString* toneLabels[2] = { @"INTERNAL", @"HOUSE" };
     const CGFloat toneNorms[2] = {
-        (plugin->params.internalTone + 1.0f) * 0.5f,
-        (plugin->params.houseTone + 1.0f) * 0.5f,
+        (visible.params.internalTone + 1.0f) * 0.5f,
+        (visible.params.houseTone + 1.0f) * 0.5f,
     };
     for (uint32_t row = 0u; row < 2u; ++row) {
         const NSRect track = popupToneRect(row);
@@ -5983,6 +6428,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (void)drawAuxTopology:(Plugin*)plugin label:(NSDictionary*)label
     value:(NSDictionary*)value
 {
+    const auto visible = uiSnapshot(*plugin);
     const NSRect page = widePageRect();
     [mixerColor(0x101010) setFill]; NSRectFill(page);
     [mixerColor(0x4b4b4b) setStroke]; NSFrameRect(page);
@@ -6005,7 +6451,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         [[NSString stringWithFormat:@"LANE %u", lane + 1u]
             drawAtPoint:NSMakePoint(column.origin.x + 12.0,
                 column.origin.y + 12.0) withAttributes:label];
-        const auto& laneParams = plugin->params.lanes[lane];
+        const auto& laneParams = visible.params.lanes[lane];
         const NSString* labels[6] = {
             @"SEND A", @"TAP A", @"RETURN A", @"SEND B", @"TAP B", @"RETURN B",
         };
@@ -6042,6 +6488,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     (void)dirty;
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
+    const auto visible = uiSnapshot(*plugin);
     const auto& family = s3g::gui_layout::kNoInputMixerFamilyLayout;
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
@@ -6101,7 +6548,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         std::memory_order_relaxed);
     const uint32_t slot = plugin->selectedSlot.load(
         std::memory_order_relaxed);
-    const auto& laneParams = plugin->params.lanes[lane];
+    const auto& laneParams = visible.params.lanes[lane];
     if (page == 0u) {
         drawPanel(@"NETWORK", family.network);
         drawPanel(@"MOVEMENT", family.movement);
@@ -6127,21 +6574,21 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (page == 3u) {
     [self drawSlider:@"OUT"
         value:[NSString stringWithFormat:@"%+.1f dB",
-            plugin->params.outputGainDb]
-        norm:(plugin->params.outputGainDb + 60.0f) / 66.0f row:0u
+            visible.params.outputGainDb]
+        norm:(visible.params.outputGainDb + 60.0f) / 66.0f row:0u
         panel:family.output label:label valueAttrs:value style:style];
     [self drawSlider:@"CEIL"
         value:[NSString stringWithFormat:@"%+.1f dB",
-            plugin->params.ceilingDb]
-        norm:(plugin->params.ceilingDb + 18.0f) / 18.0f row:1u
+            visible.params.ceilingDb]
+        norm:(visible.params.ceilingDb + 18.0f) / 18.0f row:1u
         panel:family.output label:label valueAttrs:value style:style];
     s3g::clap_gui::drawToggle(@"LIMIT",
-        plugin->params.limiterEnabled != 0u,
+        visible.params.limiterEnabled != 0u,
         s3g::gui_layout::rowY(family.output, 2u), label, value, style,
         s3g::gui_layout::processorLabelX(family.output.frame.x),
         s3g::gui_layout::processorControlX(family.output.frame.x), 82.0);
     s3g::clap_gui::drawToggle(@"DC BLOCK",
-        plugin->params.dcBlockEnabled != 0u,
+        visible.params.dcBlockEnabled != 0u,
         s3g::gui_layout::rowY(family.output, 3u), label, value, style,
         s3g::gui_layout::processorLabelX(family.output.frame.x),
         s3g::gui_layout::processorControlX(family.output.frame.x), 82.0);
@@ -6157,43 +6604,43 @@ NSRect effectEditorToggleRect(uint32_t row)
     drawFlatButton(forgetButtonRect(), @"FORGET", false, value);
     [self drawSlider:@"FDBK"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.feedback * 100.0f]
-        norm:plugin->params.feedback / 1.25f row:1u panel:family.network
+            visible.params.feedback * 100.0f]
+        norm:visible.params.feedback / 1.25f row:1u panel:family.network
         label:label valueAttrs:value style:style];
     [self drawSlider:@"COUPL"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.coupling * 100.0f]
-        norm:plugin->params.coupling / 1.25f row:2u panel:family.network
+            visible.params.coupling * 100.0f]
+        norm:visible.params.coupling / 1.25f row:2u panel:family.network
         label:label valueAttrs:value style:style];
     [self drawSlider:@"PHASE"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.phase * 100.0f]
-        norm:plugin->params.phase row:3u panel:family.network label:label
+            visible.params.phase * 100.0f]
+        norm:visible.params.phase row:3u panel:family.network label:label
         valueAttrs:value style:style];
     [self drawSlider:@"DRIFT"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.drift * 100.0f]
-        norm:plugin->params.drift row:4u panel:family.network label:label
+            visible.params.drift * 100.0f]
+        norm:visible.params.drift row:4u panel:family.network label:label
         valueAttrs:value style:style];
     [self drawSlider:@"FORMANT"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.formant * 100.0f]
-        norm:plugin->params.formant row:5u panel:family.network label:label
+            visible.params.formant * 100.0f]
+        norm:visible.params.formant row:5u panel:family.network label:label
         valueAttrs:value style:style];
     [self drawSlider:@"AGENCY"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.agency * 100.0f]
-        norm:plugin->params.agency row:6u panel:family.network label:label
+            visible.params.agency * 100.0f]
+        norm:visible.params.agency row:6u panel:family.network label:label
         valueAttrs:value style:style];
     [self drawSlider:@"SPACE"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.space * 100.0f]
-        norm:plugin->params.space row:7u panel:family.network label:label
+            visible.params.space * 100.0f]
+        norm:visible.params.space row:7u panel:family.network label:label
         valueAttrs:value style:style];
     [self drawSlider:@"VARIANCE"
         value:[NSString stringWithFormat:@"%.0f%%",
-            plugin->params.variance * 100.0f]
-        norm:plugin->params.variance row:8u panel:family.network label:label
+            visible.params.variance * 100.0f]
+        norm:visible.params.variance row:8u panel:family.network label:label
         valueAttrs:value style:style];
     }
 
@@ -6248,7 +6695,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     const uint32_t destination = plugin->selectedDestination.load(
         std::memory_order_relaxed);
     const uint32_t routeIndex = destination * kChannelCount + source;
-    const float storedRoute = plugin->params.matrix[routeIndex];
+    const float storedRoute = visible.params.matrix[routeIndex];
     const float displayedRoute = displayedMatrixGain(*plugin, routeIndex);
     s3g::clap_gui::drawProcessorMenu(@"SRC",
         [NSString stringWithFormat:@"L%u", source + 1u],
@@ -6339,36 +6786,36 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (_movementBank == 0u) {
         s3g::clap_gui::drawProcessorMenu(@"SHAPE",
             [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
-                plugin->params.motionShape)],
+                visible.params.motionShape)],
             s3g::gui_layout::rowY(family.movement, 0u),
             family.movement.frame.x, family.movement.frame.width,
             label, value, style);
         [self drawSlider:@"FLOW"
-            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.flow * 100.0f]
-            norm:plugin->params.flow row:1u panel:family.movement label:label
+            value:[NSString stringWithFormat:@"%.0f%%", visible.params.flow * 100.0f]
+            norm:visible.params.flow row:1u panel:family.movement label:label
             valueAttrs:value style:style];
         [self drawSlider:@"SPREAD"
-            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.spread * 100.0f]
-            norm:plugin->params.spread row:2u panel:family.movement label:label
+            value:[NSString stringWithFormat:@"%.0f%%", visible.params.spread * 100.0f]
+            norm:visible.params.spread row:2u panel:family.movement label:label
             valueAttrs:value style:style];
         [self drawSlider:@"VORTEX"
-            value:[NSString stringWithFormat:@"%+.2f", plugin->params.vortex]
-            norm:(plugin->params.vortex + 1.0f) * 0.5f row:3u
+            value:[NSString stringWithFormat:@"%+.2f", visible.params.vortex]
+            norm:(visible.params.vortex + 1.0f) * 0.5f row:3u
             panel:family.movement label:label valueAttrs:value style:style];
         [self drawSlider:@"DEPTH"
-            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motion * 100.0f]
-            norm:plugin->params.motion row:4u panel:family.movement label:label
+            value:[NSString stringWithFormat:@"%.0f%%", visible.params.motion * 100.0f]
+            norm:visible.params.motion row:4u panel:family.movement label:label
             valueAttrs:value style:style];
-        const float fieldRate = plugin->params.clockSync
-            ? s3g::noInputSyncedRateHz(plugin->params.fieldDivision,
+        const float fieldRate = visible.params.clockSync
+            ? s3g::noInputSyncedRateHz(visible.params.fieldDivision,
                 plugin->transportTempoBpm)
-            : s3g::noInputMixerMotionRateHz(plugin->params.motionRate,
-                plugin->params.slowTime != 0u);
-        if (plugin->params.clockSync) {
+            : s3g::noInputMixerMotionRateHz(visible.params.motionRate,
+                visible.params.slowTime != 0u);
+        if (visible.params.clockSync) {
             s3g::clap_gui::drawProcessorMenu(@"RATE",
                 [NSString stringWithFormat:@"%@ · %.3f Hz",
                     [NSString stringWithUTF8String:s3g::noInputClockDivisionName(
-                        plugin->params.fieldDivision)], fieldRate],
+                        visible.params.fieldDivision)], fieldRate],
                 s3g::gui_layout::rowY(family.movement, 5u),
                 family.movement.frame.x, family.movement.frame.width,
                 label, value, style);
@@ -6376,15 +6823,15 @@ NSRect effectEditorToggleRect(uint32_t row)
             [self drawSlider:@"RATE"
                 value:[NSString stringWithFormat:(fieldRate < 1.0f
                         ? @"%.3f Hz" : @"%.1f Hz"), fieldRate]
-                norm:plugin->params.motionRate row:5u panel:family.movement
+                norm:visible.params.motionRate row:5u panel:family.movement
                 label:label valueAttrs:value style:style];
         }
         [self drawSlider:@"PHASE"
-            value:[NSString stringWithFormat:@"%.0f%%", plugin->params.motionPhase * 100.0f]
-            norm:plugin->params.motionPhase row:6u panel:family.movement label:label
+            value:[NSString stringWithFormat:@"%.0f%%", visible.params.motionPhase * 100.0f]
+            norm:visible.params.motionPhase row:6u panel:family.movement label:label
             valueAttrs:value style:style];
     } else if (_movementBank == 1u) {
-        const auto behavior = plugin->behavior.behavior;
+        const auto behavior = visible.behavior.behavior;
         const bool behaviorActive = behavior
             != s3g::NoInputMovementBehavior::Glide;
         const bool hasTimedWindow =
@@ -6400,21 +6847,21 @@ NSRect effectEditorToggleRect(uint32_t row)
         [self drawSlider:@"DEPTH"
             value:behaviorActive
                 ? [NSString stringWithFormat:@"%.0f%%",
-                    plugin->behaviorDepth * 100.0f]
+                    visible.behaviorDepth * 100.0f]
                 : @"—"
-            norm:(behaviorActive ? plugin->behaviorDepth : 0.0f)
+            norm:(behaviorActive ? visible.behaviorDepth : 0.0f)
             row:1u panel:family.movement label:label
             valueAttrs:value style:style];
-        const float eventRate = plugin->params.clockSync
-            ? s3g::noInputSyncedRateHz(plugin->params.eventDivision,
+        const float eventRate = visible.params.clockSync
+            ? s3g::noInputSyncedRateHz(visible.params.eventDivision,
                 plugin->transportTempoBpm)
-            : s3g::noInputMovementEventRateHz(plugin->behavior.eventRate,
-                plugin->params.slowTime != 0u);
-        if (behaviorActive && plugin->params.clockSync) {
+            : s3g::noInputMovementEventRateHz(visible.behavior.eventRate,
+                visible.params.slowTime != 0u);
+        if (behaviorActive && visible.params.clockSync) {
             s3g::clap_gui::drawProcessorMenu(@"EVENT",
                 [NSString stringWithFormat:@"%@ · %.3f Hz",
                     [NSString stringWithUTF8String:s3g::noInputClockDivisionName(
-                        plugin->params.eventDivision)], eventRate],
+                        visible.params.eventDivision)], eventRate],
                 s3g::gui_layout::rowY(family.movement, 2u),
                 family.movement.frame.x, family.movement.frame.width,
                 label, value, style);
@@ -6424,32 +6871,32 @@ NSRect effectEditorToggleRect(uint32_t row)
                     ? [NSString stringWithFormat:(eventRate < 10.0f
                             ? @"%.3f Hz" : @"%.1f Hz"), eventRate]
                     : @"—"
-                norm:(behaviorActive ? plugin->behavior.eventRate : 0.0f)
+                norm:(behaviorActive ? visible.behavior.eventRate : 0.0f)
                 row:2u panel:family.movement
                 label:label valueAttrs:value style:style];
         }
         [self drawSlider:@"LENGTH"
             value:hasTimedWindow
                 ? [NSString stringWithFormat:@"%.1f ms",
-                    s3g::noInputMovementLengthMs(plugin->behavior.length)]
+                    s3g::noInputMovementLengthMs(visible.behavior.length)]
                 : @"—"
-            norm:(hasTimedWindow ? plugin->behavior.length : 0.0f)
+            norm:(hasTimedWindow ? visible.behavior.length : 0.0f)
             row:3u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"DENSITY"
             value:hasDensity
                 ? [NSString stringWithFormat:@"%.0f%%",
-                    plugin->behavior.density * 100.0f]
+                    visible.behavior.density * 100.0f]
                 : @"—"
-            norm:(hasDensity ? plugin->behavior.density : 0.0f)
+            norm:(hasDensity ? visible.behavior.density : 0.0f)
             row:4u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"CHAOS"
             value:behaviorActive
                 ? [NSString stringWithFormat:@"%.0f%%",
-                    plugin->behavior.chaos * 100.0f]
+                    visible.behavior.chaos * 100.0f]
                 : @"—"
-            norm:(behaviorActive ? plugin->behavior.chaos : 0.0f)
+            norm:(behaviorActive ? visible.behavior.chaos : 0.0f)
             row:5u panel:family.movement
             label:label valueAttrs:value style:style];
         NSString* transitionLabel = behavior
@@ -6464,54 +6911,54 @@ NSRect effectEditorToggleRect(uint32_t row)
         [self drawSlider:transitionLabel
             value:behaviorActive
                 ? [NSString stringWithFormat:@"%.2f ms",
-                    s3g::noInputMovementSlewMs(plugin->behavior.slew)]
+                    s3g::noInputMovementSlewMs(visible.behavior.slew)]
                 : @"—"
-            norm:(behaviorActive ? plugin->behavior.slew : 0.0f)
+            norm:(behaviorActive ? visible.behavior.slew : 0.0f)
             row:6u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"CHOKE"
             value:behaviorActive
                 ? [NSString stringWithFormat:@"%.0f%%",
-                    plugin->behavior.choke * 100.0f]
+                    visible.behavior.choke * 100.0f]
                 : @"—"
-            norm:(behaviorActive ? plugin->behavior.choke : 0.0f)
+            norm:(behaviorActive ? visible.behavior.choke : 0.0f)
             row:7u panel:family.movement
             label:label valueAttrs:value style:style];
     } else {
         s3g::clap_gui::drawProcessorMenu(@"MODE",
             [NSString stringWithUTF8String:s3g::noInputReactModeName(
-                plugin->params.reactMode)],
+                visible.params.reactMode)],
             s3g::gui_layout::rowY(family.movement, 0u),
             family.movement.frame.x, family.movement.frame.width,
             label, value, style);
         [self drawSlider:@"DEPTH"
             value:[NSString stringWithFormat:@"%.0f%%",
-                plugin->params.reactDepth * 100.0f]
-            norm:plugin->params.reactDepth row:1u panel:family.movement
+                visible.params.reactDepth * 100.0f]
+            norm:visible.params.reactDepth row:1u panel:family.movement
             label:label valueAttrs:value style:style];
         const float thresholdDb = 20.0f * std::log10(std::max(1.0e-6f,
-            s3g::noInputReactThreshold(plugin->params.reactThreshold)));
+            s3g::noInputReactThreshold(visible.params.reactThreshold)));
         [self drawSlider:@"THRESH"
             value:[NSString stringWithFormat:@"%+.1f dB", thresholdDb]
-            norm:plugin->params.reactThreshold row:2u panel:family.movement
+            norm:visible.params.reactThreshold row:2u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"ATTACK"
             value:[NSString stringWithFormat:@"%.1f ms",
-                s3g::noInputReactAttackMs(plugin->params.reactAttack)]
-            norm:plugin->params.reactAttack row:3u panel:family.movement
+                s3g::noInputReactAttackMs(visible.params.reactAttack)]
+            norm:visible.params.reactAttack row:3u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"RELEASE"
             value:[NSString stringWithFormat:@"%.0f ms",
-                s3g::noInputReactReleaseMs(plugin->params.reactRelease)]
-            norm:plugin->params.reactRelease row:4u panel:family.movement
+                s3g::noInputReactReleaseMs(visible.params.reactRelease)]
+            norm:visible.params.reactRelease row:4u panel:family.movement
             label:label valueAttrs:value style:style];
         [@"DIRECTION" drawAtPoint:NSMakePoint(
             s3g::gui_layout::processorLabelX(family.movement.frame.x),
             s3g::gui_layout::rowY(family.movement, 5u) - 2.0)
             withAttributes:label];
         drawFlatButton(reactDirectionButtonRect(),
-            plugin->params.reactPolarity < 0.0f ? @"INVERT" : @"NORMAL",
-            plugin->params.reactPolarity < 0.0f, value);
+            visible.params.reactPolarity < 0.0f ? @"INVERT" : @"NORMAL",
+            visible.params.reactPolarity < 0.0f, value);
         const float listenLevel = std::max(1.0e-6f,
             plugin->laneActivity[lane].load(std::memory_order_relaxed));
         const float listenDb = 20.0f * std::log10(listenLevel);
@@ -6523,11 +6970,11 @@ NSRect effectEditorToggleRect(uint32_t row)
             valueAttrs:value style:style];
     }
     drawFlatButton(movementGlobalToggleRect(0u), @"HOLD",
-        plugin->params.controllerHold != 0u, value);
+        visible.params.controllerHold != 0u, value);
     drawFlatButton(movementGlobalToggleRect(1u), @"SLOW",
-        plugin->params.slowTime != 0u, value);
+        visible.params.slowTime != 0u, value);
     drawFlatButton(movementGlobalToggleRect(2u), @"SYNC",
-        plugin->params.clockSync != 0u, value);
+        visible.params.clockSync != 0u, value);
     }
 
     if (page == 3u) {
@@ -6535,7 +6982,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         family.containment.frame.x + 16.0,
         family.containment.frame.y + 34.0) withAttributes:label];
     s3g::clap_gui::drawMenu(@"",
-        [NSString stringWithFormat:@"%uX", 1u << plugin->params.quality],
+        [NSString stringWithFormat:@"%uX", 1u << visible.params.quality],
         family.containment.frame.y + 36.0, label, value, style,
         family.containment.frame.x + 16.0,
         family.containment.frame.x + 108.0, 110.0);
@@ -6675,16 +7122,24 @@ NSRect effectEditorToggleRect(uint32_t row)
     switch (_openMenu) {
     case kMenuPreset:
         if (index < s3g::kNoInputMixerFactoryPresetCount) {
-            uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+            const auto previous = uiSnapshot(*plugin);
+            uint32_t seed = previous.params.seed * 1664525u + 1013904223u;
             if (seed == 0u) seed = 1u;
-            const float variance = plugin->params.variance;
+            const float variance = previous.params.variance;
             auto patch = s3g::noInputMixerFactoryPreset(index);
             patch = s3g::variedNoInputMixerParams(
                 patch, seed, variance);
-            plugin->behavior = s3g::noInputMixerFactoryBehavior(index);
-            plugin->behaviorDepth = patch.motion;
-            applyCompletePatch(*plugin,
-                patch, 0.68f);
+            patch.outputGainDb = previous.params.outputGainDb;
+            NoInputSurfaceSnapshot desired { patch,
+                s3g::noInputMixerFactoryBehavior(index),
+                previous.auxMute, patch.motion };
+            publishUiSnapshot(*plugin, desired);
+            if (!enqueueGuiCommand(*plugin, {
+                    GuiCommandType::FactoryPreset, CLAP_INVALID_ID,
+                    variance, index, seed })) {
+                publishUiSnapshot(*plugin, previous);
+                break;
+            }
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 s3g::noInputMixerFactoryPresetName(index));
         }
@@ -6692,16 +7147,24 @@ NSRect effectEditorToggleRect(uint32_t row)
     case kMenuRandomEnergy:
         if (index < static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count)) {
             const auto energy = static_cast<s3g::NoInputRandomEnergy>(index);
-            uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+            const auto previous = uiSnapshot(*plugin);
+            uint32_t seed = previous.params.seed * 1664525u + 1013904223u;
             if (seed == 0u) seed = 1u;
             _randomEnergyProfile = index;
-            plugin->behavior = s3g::randomizedNoInputMovementBehaviorParams(
-                seed ^ 0x43564d58u, energy);
-            const auto patch = s3g::randomizedNoInputMixerParams(
+            auto patch = s3g::randomizedNoInputMixerParams(
                 seed, energy);
-            plugin->behaviorDepth = patch.motion;
-            applyCompletePatch(*plugin, patch,
-                s3g::noInputRandomSeedAmount(energy));
+            patch.outputGainDb = previous.params.outputGainDb;
+            NoInputSurfaceSnapshot desired { patch,
+                s3g::randomizedNoInputMovementBehaviorParams(
+                    seed ^ 0x43564d58u, energy),
+                previous.auxMute, patch.motion };
+            publishUiSnapshot(*plugin, desired);
+            if (!enqueueGuiCommand(*plugin, {
+                    GuiCommandType::RandomPatch, CLAP_INVALID_ID, 0.0,
+                    index, seed })) {
+                publishUiSnapshot(*plugin, previous);
+                break;
+            }
             std::snprintf(_titlePresetName, sizeof(_titlePresetName),
                 "RANDOM %s", energy == s3g::NoInputRandomEnergy::High
                     ? "HIGH" : (energy == s3g::NoInputRandomEnergy::Low
@@ -6794,6 +7257,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     [[self window] makeFirstResponder:self];
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* plugin = static_cast<Plugin*>(_plugin);
+    const auto visible = uiSnapshot(*plugin);
     const auto& family = s3g::gui_layout::kNoInputMixerFamilyLayout;
 
 
@@ -6896,15 +7360,13 @@ NSRect effectEditorToggleRect(uint32_t row)
             if (plugin->surface.cellCount < 2u) NSBeep();
             else {
                 plugin->surface.enabled = plugin->surface.enabled ? 0u : 1u;
-                snapSurfaceCursor(*plugin);
-                syncMixerState(*plugin);
             }
             [self setNeedsDisplay:YES];
             return;
         }
         if (NSPointInRect(point, surfaceButtonRect(2u))) {
             if (s3g::addParameterSurfaceCell(plugin->surface,
-                    baseSnapshot(*plugin), -1, _titlePresetName)) {
+                    uiSnapshot(*plugin), -1, _titlePresetName)) {
                 _selectedSurfaceCell = static_cast<int>(
                     plugin->surface.cellCount) - 1;
             } else NSBeep();
@@ -6930,7 +7392,6 @@ NSRect effectEditorToggleRect(uint32_t row)
             _selectedSurfaceCell = plugin->surface.cellCount == 0u ? -1
                 : std::min(_selectedSurfaceCell,
                     static_cast<int>(plugin->surface.cellCount) - 1);
-            syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -6941,11 +7402,10 @@ NSRect effectEditorToggleRect(uint32_t row)
             else {
                 auto& cell = plugin->surface.cells[
                     static_cast<uint32_t>(_selectedSurfaceCell)];
-                cell.params = baseSnapshot(*plugin);
+                cell.params = uiSnapshot(*plugin);
                 cell.presetIndex = -1;
                 std::snprintf(cell.name, sizeof(cell.name), "%s",
                     _titlePresetName);
-                syncMixerState(*plugin);
             }
             [self setNeedsDisplay:YES];
             return;
@@ -6955,7 +7415,6 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->surface.focus = std::clamp(plugin->surface.focus
                 * (NSPointInRect(point, surfaceFocusRect(0u))
                     ? 0.8f : 1.25f), 0.25f, 8.0f);
-            syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -6963,7 +7422,6 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->surface.curve = static_cast<s3g::ParameterSurfaceCurve>(
                 (static_cast<uint32_t>(plugin->surface.curve) + 1u)
                     % s3g::kParameterSurfaceCurveCount);
-            syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -6972,7 +7430,6 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->surface.glideMs = s3g::parameterSurfaceSteppedGlide(
                 plugin->surface.glideMs,
                 NSPointInRect(point, surfaceGlideRect(0u)) ? -1 : 1);
-            syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -6981,10 +7438,10 @@ NSRect effectEditorToggleRect(uint32_t row)
                     NoInputSurfaceTopologyMode::Base)) {
                 const float x = plugin->active.load(std::memory_order_acquire)
                     ? plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
-                    : plugin->params.surfaceX;
+                    : visible.params.surfaceX;
                 const float y = plugin->active.load(std::memory_order_acquire)
                     ? plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
-                    : plugin->params.surfaceY;
+                    : visible.params.surfaceY;
                 const auto weights = s3g::parameterSurfaceWeights(
                     plugin->surface, x, y);
                 plugin->surfaceTopologyCell = weights.activeCount > 0u
@@ -7000,7 +7457,6 @@ NSRect effectEditorToggleRect(uint32_t row)
                 plugin->surfaceTopologyMode = static_cast<uint32_t>(
                     NoInputSurfaceTopologyMode::Base);
             }
-            syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -7101,7 +7557,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                     plugin->selectedLane.store(destination,
                         std::memory_order_relaxed);
                     const clap_id id = matrixParamId(destination, source);
-                    const float current = plugin->params.matrix[
+                    const float current = visible.params.matrix[
                         destination * kChannelCount + source];
                     const bool negative = ([event modifierFlags]
                         & NSEventModifierFlagOption) != 0;
@@ -7135,14 +7591,14 @@ NSRect effectEditorToggleRect(uint32_t row)
                      destination < kChannelCount; ++destination) {
                     for (uint32_t source = 0u; source < kChannelCount;
                          ++source) {
-                        const float stored = plugin->params.matrix[
+                        const float stored = visible.params.matrix[
                             destination * kChannelCount + source];
                         if (std::abs(stored) <= 0.001f) continue;
                         const NSPoint a = wiringPortPoint(false, source);
                         const NSPoint b = wiringPortPoint(true, destination);
                         NSPoint c1;
                         NSPoint c2;
-                        wiringControlPoints(a, b, plugin->params.vortex,
+                        wiringControlPoints(a, b, visible.params.vortex,
                             c1, c2);
                         for (uint32_t sample = 1u; sample < 32u; ++sample) {
                             const NSPoint curve = cubicPoint(a, c1, c2, b,
@@ -7275,7 +7731,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                 if (NSPointInRect(point,
                         actual(popupMuteRect(popupStripRect(lane))))) {
                     [self applyGuiParam:laneParamId(lane, kLaneMuteOffset)
-                        value:(plugin->params.lanes[lane].mute == 0u
+                        value:(visible.params.lanes[lane].mute == 0u
                             ? 1.0 : 0.0)];
                     return;
                 }
@@ -7287,7 +7743,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                 if (NSPointInRect(point, muteRect)) {
                     [self applyGuiParam:bus == 0u ? kAuxAMuteParamId
                             : kAuxBMuteParamId
-                        value:plugin->auxMute[bus] == 0u ? 1.0 : 0.0];
+                        value:visible.auxMute[bus] == 0u ? 1.0 : 0.0];
                     return;
                 }
                 const NSRect editRect = actual(popupAuxTypeEditRect(bus));
@@ -7393,12 +7849,12 @@ NSRect effectEditorToggleRect(uint32_t row)
             || (_movementBank == 0u && openMenuIfHit(kMenuMotionShape))
             || (_movementBank == 1u && openMenuIfHit(kMenuBehavior))
             || (_movementBank == 2u && openMenuIfHit(kMenuReactMode))
-            || (_movementBank == 0u && plugin->params.clockSync
+            || (_movementBank == 0u && visible.params.clockSync
                 && openMenuIfHit(kMenuFieldDivision))
             || (_movementBank == 1u
-                && plugin->behavior.behavior
+                && visible.behavior.behavior
                     != s3g::NoInputMovementBehavior::Glide
-                && plugin->params.clockSync
+                && visible.params.clockSync
                 && openMenuIfHit(kMenuEventDivision))))
         || (page == 2u && (openMenuIfHit(kMenuLane)
             || openMenuIfHit(kMenuSlot0) || openMenuIfHit(kMenuSlot1)
@@ -7406,19 +7862,20 @@ NSRect effectEditorToggleRect(uint32_t row)
         || (page == 3u && openMenuIfHit(kMenuQuality))) return;
 
     if (page == 0u && NSPointInRect(point, seedNewButtonRect())) {
-        plugin->seedRequested.store(true, std::memory_order_release);
+        enqueueGuiCommand(*plugin, { GuiCommandType::NewSeed });
         [self markPatchCustom];
         [self setNeedsDisplay:YES];
         return;
     }
     if (page == 0u) {
+        const auto visible = uiSnapshot(*plugin);
         const clap_id toggleIds[3] = {
             kControllerHoldParamId, kSlowTimeParamId, kClockSyncParamId,
         };
         const uint32_t toggleValues[3] = {
-            plugin->params.controllerHold,
-            plugin->params.slowTime,
-            plugin->params.clockSync,
+            visible.params.controllerHold,
+            visible.params.slowTime,
+            visible.params.clockSync,
         };
         for (uint32_t index = 0u; index < 3u; ++index) {
             if (!NSPointInRect(point,
@@ -7430,15 +7887,23 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     if (page == 0u && _movementBank == 2u
         && NSPointInRect(point, reactDirectionButtonRect())) {
+        const auto visible = uiSnapshot(*plugin);
         [self applyGuiParam:kReactPolarityParamId
-            value:plugin->params.reactPolarity < 0.0f ? 1.0 : -1.0];
+            value:visible.params.reactPolarity < 0.0f ? 1.0 : -1.0];
         return;
     }
     if (page == 0u && NSPointInRect(point,
             movementSectionRandomRect())) {
-        uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+        const auto previous = uiSnapshot(*plugin);
+        uint32_t seed = previous.params.seed * 1664525u + 1013904223u;
         if (seed == 0u) seed = 1u;
-        plugin->params.seed = seed;
+        plugin->uiSeed.store(seed, std::memory_order_relaxed);
+        if (!enqueueGuiCommand(*plugin, { GuiCommandType::SetSeed,
+                CLAP_INVALID_ID, 0.0, 0u, seed })) {
+            plugin->uiSeed.store(previous.params.seed,
+                std::memory_order_relaxed);
+            return;
+        }
         const auto energy = static_cast<s3g::NoInputRandomEnergy>(
             std::min<uint32_t>(_randomEnergyProfile,
                 static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count) - 1u));
@@ -7498,10 +7963,20 @@ NSRect effectEditorToggleRect(uint32_t row)
         return;
     }
     if (page == 0u && NSPointInRect(point, forgetButtonRect())) {
-        uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+        const auto previous = uiSnapshot(*plugin);
+        uint32_t seed = previous.params.seed * 1664525u + 1013904223u;
         if (seed == 0u) seed = 1u;
-        applyCompletePatch(*plugin,
-            s3g::forgottenNoInputMixerParams(plugin->params, seed), 0.62f);
+        auto patch = s3g::forgottenNoInputMixerParams(
+            previous.params, seed);
+        patch.outputGainDb = previous.params.outputGainDb;
+        NoInputSurfaceSnapshot desired { patch, previous.behavior,
+            previous.auxMute, previous.behaviorDepth };
+        publishUiSnapshot(*plugin, desired);
+        if (!enqueueGuiCommand(*plugin, { GuiCommandType::ForgetPatch,
+                CLAP_INVALID_ID, 0.0, 0u, seed })) {
+            publishUiSnapshot(*plugin, previous);
+            return;
+        }
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
             "FORGOTTEN");
         [self setNeedsDisplay:YES];
@@ -7509,7 +7984,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             family.panicButton))) {
-        plugin->panicRequested.store(true, std::memory_order_release);
+        enqueueGuiCommand(*plugin, { GuiCommandType::Panic });
         return;
     }
 
@@ -7520,13 +7995,13 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.output, 2u)))) {
         [self applyGuiParam:kLimiterParamId
-            value:(plugin->params.limiterEnabled == 0u ? 1.0 : 0.0)];
+            value:(visible.params.limiterEnabled == 0u ? 1.0 : 0.0)];
         return;
     }
     if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(family.output, 3u)))) {
         [self applyGuiParam:kDcBlockParamId
-            value:(plugin->params.dcBlockEnabled == 0u ? 1.0 : 0.0)];
+            value:(visible.params.dcBlockEnabled == 0u ? 1.0 : 0.0)];
         return;
     }
     if (page == 2u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
@@ -7535,14 +8010,14 @@ NSRect effectEditorToggleRect(uint32_t row)
             family.selectedLane.frame.x);
         if (point.x < controlX + 54.0) {
             [self applyGuiParam:laneParamId(lane, kLanePitchLockOffset)
-                value:(plugin->params.lanes[lane].pitchLock == 0u
+                value:(visible.params.lanes[lane].pitchLock == 0u
                     ? 1.0 : 0.0)];
         } else if (point.x < controlX + 112.0) {
             [self applyGuiParam:laneParamId(lane, kLaneMuteOffset)
-                value:(plugin->params.lanes[lane].mute == 0u ? 1.0 : 0.0)];
+                value:(visible.params.lanes[lane].mute == 0u ? 1.0 : 0.0)];
         } else {
-            plugin->killMask.fetch_or(1u << lane,
-                std::memory_order_release);
+            enqueueGuiCommand(*plugin, { GuiCommandType::KillLane,
+                CLAP_INVALID_ID, 0.0, lane, 0u });
         }
         return;
     }
@@ -7558,7 +8033,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             std::memory_order_relaxed);
         const clap_id id = matrixParamId(destination, source);
         double route = 0.0;
-        paramValue(*plugin, id, route);
+        uiParameterValue(*plugin, id, route);
         [self applyGuiParam:id value:(std::abs(route) < 0.001
             ? -0.50 : -route)];
         return;
@@ -7574,7 +8049,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             s3g::gui_layout::sliderHitRect(family.inserts, 7u)))) {
         [self applyGuiParam:insertParamId(
             lane, slot, kInsertBypassOffset)
-            value:(plugin->params.lanes[lane].inserts[slot].bypass == 0u
+            value:(visible.params.lanes[lane].inserts[slot].bypass == 0u
                 ? 1.0 : 0.0)];
         return;
     }
@@ -7666,7 +8141,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             if (_movementBank == 0u && row > 6u) return;
             if (_movementBank == 2u && row > 4u) return;
             if (_movementBank == 1u) {
-                const auto behavior = plugin->behavior.behavior;
+                const auto behavior = visible.behavior.behavior;
                 const bool active = behavior
                     != s3g::NoInputMovementBehavior::Glide;
                 const bool timed =
@@ -7705,6 +8180,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         const NSPoint point = [self convertPoint:[event locationInWindow]
             fromView:nil];
         auto* plugin = static_cast<Plugin*>(_plugin);
+        const auto visible = uiSnapshot(*plugin);
         for (uint32_t destination = 0u; destination < kChannelCount;
              ++destination) {
             const NSPoint port = wiringPortPoint(true, destination);
@@ -7717,7 +8193,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->selectedLane.store(destination,
                 std::memory_order_relaxed);
             const clap_id id = matrixParamId(destination, source);
-            const float current = plugin->params.matrix[
+            const float current = visible.params.matrix[
                 destination * kChannelCount + source];
             const bool negative = ([event modifierFlags]
                 & NSEventModifierFlagOption) != 0;
@@ -7891,6 +8367,8 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
+    if (std::strcmp(id, S3G_NIM_MIDI_FEEDBACK_EXTENSION_ID) == 0)
+        return &midiFeedbackExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
@@ -7928,6 +8406,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     p->surface.curve = s3g::ParameterSurfaceCurve::Soft;
     p->surface.glideMs = kNoInputSurfaceDefaultGlideMs;
     p->host = host;
+    publishUiBaseState(*p);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

@@ -3,6 +3,8 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#include "../common/s3g_nim_gesture_session.h"
+
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
@@ -17,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <vector>
 
@@ -77,7 +80,22 @@ constexpr uint32_t kGuiSetTakeover = 1u << 5u;
 constexpr uint32_t kStateMagic = 0x474d494eu; // "NIMG"
 constexpr uint32_t kStateVersion = 1u;
 constexpr uint32_t kMaximumStatePoints = 16u * 1024u * 1024u;
+// Recording must never grow a vector from the audio thread. Each parameter
+// owns two prepared buffers (the committed loop and the current take). This
+// accommodates roughly 17 seconds at 60 updates/second per continuously moved
+// control; when full, the final point is coalesced instead of allocating.
+constexpr uint32_t kRealtimePointsPerParameter = 1024u;
 constexpr double kMaximumLoopSeconds = 24.0 * 60.0 * 60.0;
+
+constexpr std::array<uint8_t, 8u> kSessionMagic {
+    'S', '3', 'G', 'N', 'I', 'M', 'G', 'S',
+};
+constexpr uint16_t kSessionVersion = 1u;
+constexpr uint16_t kSessionHeaderBytes = 40u;
+constexpr uint32_t kSessionFlags = 0u;
+constexpr uint64_t kSessionLoopHeaderBytes = 16u;
+constexpr uint64_t kSessionPointBytes = 12u;
+constexpr long double kNanosecondsPerSecond = 1000000000.0L;
 
 struct Point {
     double seconds = 0.0;
@@ -91,6 +109,23 @@ struct Loop {
     uint64_t cycleStartFrame = 0u;
     uint64_t nextEventFrame = 0u;
     uint64_t suppressUntilFrame = 0u;
+};
+
+struct ScheduledLoop {
+    uint64_t frame = 0u;
+    uint32_t index = 0u;
+};
+
+struct GestureSnapshot {
+    bool playing = false;
+    double takeoverMs = 650.0;
+    std::array<Loop, kNimParameterCount> loops {};
+};
+
+struct ImportedGestureSession {
+    std::array<Loop, kNimParameterCount> loops {};
+    double takeoverMs = 650.0;
+    int32_t lastTouchedIndex = -1;
 };
 
 struct NrpnDecoder {
@@ -112,25 +147,31 @@ struct Plugin {
     uint64_t framePosition = 0u;
     bool active = false;
     bool recording = false;
-    bool playing = true;
+    bool playing = false;
     double takeoverMs = 650.0;
     uint64_t recordStartFrame = 0u;
     int32_t lastTouchedIndex = -1;
     std::array<Loop, kNimParameterCount> loops {};
     std::array<std::vector<Point>, kNimParameterCount> take {};
     std::array<bool, kNimParameterCount> takeTouched {};
+    std::array<ScheduledLoop, kNimParameterCount> playbackHeap {};
+    uint32_t playbackHeapSize = 0u;
+    std::atomic<uint64_t> droppedRecordPoints { 0u };
     NrpnDecoder nrpn {};
     std::array<std::atomic<uint16_t>, kNimParameterCount> uiValues {};
     std::array<std::atomic<uint8_t>, kNimParameterCount> uiFlags {};
     std::array<std::atomic<float>, kNimParameterCount> uiLoopLengths {};
     std::atomic<bool> uiRecording { false };
-    std::atomic<bool> uiPlaying { true };
+    std::atomic<bool> uiPlaying { false };
     std::atomic<double> uiTakeoverMs { 650.0 };
     std::atomic<uint32_t> uiLoopCount { 0u };
     std::atomic<double> uiLastLength { 0.0 };
     std::atomic<int32_t> uiSelectedIndex { -1 };
     std::atomic<uint32_t> guiCommands { 0u };
     std::atomic<double> guiTakeoverMs { 650.0 };
+    // File operations may happen while the standalone audio callback runs.
+    // The callback never blocks: it passes input through if this lock is held.
+    mutable std::mutex sessionMutex;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
@@ -329,6 +370,99 @@ void prepareAllLoops(Plugin& plugin, uint64_t origin)
     for (auto& loop : plugin.loops) prepareLoop(plugin, loop, origin);
 }
 
+void clearLoopContents(Loop& loop)
+{
+    loop.points.clear();
+    loop.lengthSeconds = 0.0;
+    loop.cursor = 0u;
+    loop.cycleStartFrame = 0u;
+    loop.nextEventFrame = 0u;
+    loop.suppressUntilFrame = 0u;
+}
+
+bool prepareRealtimeStorage(Plugin& plugin)
+{
+    try {
+        for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
+            plugin.loops[index].points.reserve(
+                std::max<size_t>(kRealtimePointsPerParameter,
+                    plugin.loops[index].points.size()));
+            plugin.take[index].reserve(
+                std::max<size_t>(kRealtimePointsPerParameter,
+                    plugin.take[index].size()));
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool scheduledBefore(const ScheduledLoop& left, const ScheduledLoop& right)
+{
+    return left.frame < right.frame
+        || (left.frame == right.frame && left.index < right.index);
+}
+
+void clearPlaybackSchedule(Plugin& plugin)
+{
+    plugin.playbackHeapSize = 0u;
+}
+
+void pushPlaybackSchedule(Plugin& plugin, ScheduledLoop scheduled)
+{
+    if (plugin.playbackHeapSize >= plugin.playbackHeap.size()) return;
+    uint32_t child = plugin.playbackHeapSize++;
+    plugin.playbackHeap[child] = scheduled;
+    while (child > 0u) {
+        const uint32_t parent = (child - 1u) / 2u;
+        if (!scheduledBefore(plugin.playbackHeap[child],
+                plugin.playbackHeap[parent])) {
+            break;
+        }
+        std::swap(plugin.playbackHeap[child], plugin.playbackHeap[parent]);
+        child = parent;
+    }
+}
+
+ScheduledLoop popPlaybackSchedule(Plugin& plugin)
+{
+    const ScheduledLoop result = plugin.playbackHeap[0u];
+    --plugin.playbackHeapSize;
+    if (plugin.playbackHeapSize == 0u) return result;
+    plugin.playbackHeap[0u] = plugin.playbackHeap[plugin.playbackHeapSize];
+    uint32_t parent = 0u;
+    for (;;) {
+        const uint32_t left = parent * 2u + 1u;
+        if (left >= plugin.playbackHeapSize) break;
+        const uint32_t right = left + 1u;
+        uint32_t child = left;
+        if (right < plugin.playbackHeapSize
+            && scheduledBefore(plugin.playbackHeap[right],
+                plugin.playbackHeap[left])) {
+            child = right;
+        }
+        if (!scheduledBefore(plugin.playbackHeap[child],
+                plugin.playbackHeap[parent])) {
+            break;
+        }
+        std::swap(plugin.playbackHeap[parent], plugin.playbackHeap[child]);
+        parent = child;
+    }
+    return result;
+}
+
+void rebuildPlaybackSchedule(Plugin& plugin)
+{
+    clearPlaybackSchedule(plugin);
+    if (!plugin.playing) return;
+    for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
+        const auto& loop = plugin.loops[index];
+        if (!loop.points.empty()) {
+            pushPlaybackSchedule(plugin, { loop.nextEventFrame, index });
+        }
+    }
+}
+
 void beginRecording(Plugin& plugin, uint64_t absoluteFrame)
 {
     if (plugin.recording) return;
@@ -364,6 +498,7 @@ void stopRecording(Plugin& plugin, uint64_t absoluteFrame)
     }
     plugin.recording = false;
     plugin.takeTouched.fill(false);
+    rebuildPlaybackSchedule(plugin);
     syncAllUi(plugin);
 }
 
@@ -378,6 +513,7 @@ void setPlaying(Plugin& plugin, bool enabled, uint64_t absoluteFrame)
     if (plugin.playing == enabled) return;
     plugin.playing = enabled;
     if (enabled) prepareAllLoops(plugin, absoluteFrame);
+    rebuildPlaybackSchedule(plugin);
     syncUiSummary(plugin);
 }
 
@@ -388,7 +524,8 @@ void clearLastLoop(Plugin& plugin)
         return;
     }
     const uint32_t index = static_cast<uint32_t>(plugin.lastTouchedIndex);
-    plugin.loops[index] = {};
+    clearLoopContents(plugin.loops[index]);
+    rebuildPlaybackSchedule(plugin);
     syncUiIndex(plugin, index);
     syncUiSummary(plugin);
 }
@@ -396,17 +533,19 @@ void clearLastLoop(Plugin& plugin)
 void clearLoop(Plugin& plugin, uint32_t index)
 {
     if (index >= kNimParameterCount) return;
-    plugin.loops[index] = {};
+    clearLoopContents(plugin.loops[index]);
     plugin.take[index].clear();
     plugin.takeTouched[index] = false;
     plugin.lastTouchedIndex = static_cast<int32_t>(index);
+    rebuildPlaybackSchedule(plugin);
     syncUiIndex(plugin, index);
     syncUiSummary(plugin);
 }
 
 void clearAllLoops(Plugin& plugin)
 {
-    for (auto& loop : plugin.loops) loop = {};
+    for (auto& loop : plugin.loops) clearLoopContents(loop);
+    clearPlaybackSchedule(plugin);
     plugin.lastTouchedIndex = -1;
     cancelRecording(plugin);
     syncAllUi(plugin);
@@ -428,8 +567,15 @@ void recordValue(Plugin& plugin, uint32_t index, uint16_t value,
         return;
     }
     if (!points.empty() && points.back().value == value) return;
-    if (points.empty()) points.reserve(1024u);
-    points.push_back({ seconds, value });
+    if (points.size() < points.capacity()) {
+        points.push_back({ seconds, value });
+        return;
+    }
+    // Preserve the newest gesture endpoint while remaining allocation-free.
+    // The overflow is observable in diagnostics even though the file format
+    // and published parameter surface remain unchanged.
+    if (!points.empty()) points.back() = { seconds, value };
+    plugin.droppedRecordPoints.fetch_add(1u, std::memory_order_relaxed);
 }
 
 void acceptNrpnValue(Plugin& plugin, uint16_t id, uint16_t value,
@@ -596,8 +742,10 @@ void applyParameter(Plugin& plugin, clap_id id, double value,
         if (value >= 0.5) clearAllLoops(plugin);
         break;
     case kTakeoverParamId:
-        plugin.takeoverMs = std::clamp(value, 0.0, 5000.0);
-        syncUiSummary(plugin);
+        if (std::isfinite(value)) {
+            plugin.takeoverMs = std::clamp(value, 0.0, 5000.0);
+            syncUiSummary(plugin);
+        }
         break;
     default:
         break;
@@ -716,7 +864,48 @@ void processInputEvent(Plugin& plugin, const clap_event_header_t* event,
     pushEvent(output, event);
 }
 
-void advanceLoopAtFrame(Plugin& plugin, uint32_t index,
+bool isGestureCommandEvent(const clap_event_header_t* event)
+{
+    if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) return false;
+    if (event->type == CLAP_EVENT_PARAM_VALUE
+        && event->size >= sizeof(clap_event_param_value_t)) {
+        const auto* parameter =
+            reinterpret_cast<const clap_event_param_value_t*>(event);
+        return parameter->param_id >= kRecordParamId
+            && parameter->param_id <= kLastLengthParamId;
+    }
+    if (event->type == CLAP_EVENT_MIDI
+        && event->size >= sizeof(clap_event_midi_t)) {
+        const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
+        const uint8_t status = midi->data[0] & 0xf0u;
+        const uint8_t channel = midi->data[0] & 0x0fu;
+        const uint8_t note = midi->data[1] & 0x7fu;
+        return channel == kControlChannel
+            && (status == 0x80u || status == 0x90u)
+            && note >= kRecordNote && note <= kCancelRecordNote;
+    }
+    if ((event->type == CLAP_EVENT_NOTE_ON
+            || event->type == CLAP_EVENT_NOTE_OFF)
+        && event->size >= sizeof(clap_event_note_t)) {
+        const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        return note->channel == kControlChannel
+            && note->key >= kRecordNote && note->key <= kCancelRecordNote;
+    }
+    return false;
+}
+
+void passThroughWhileSessionBusy(const clap_input_events_t* input,
+    const clap_output_events_t* output)
+{
+    if (!input || !input->size || !input->get) return;
+    const uint32_t count = input->size(input);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const clap_event_header_t* event = input->get(input, index);
+        if (!isGestureCommandEvent(event)) pushEvent(output, event);
+    }
+}
+
+void dispatchScheduledLoop(Plugin& plugin, uint32_t index,
     uint64_t absoluteFrame, uint32_t outputTime,
     const clap_output_events_t* output)
 {
@@ -741,6 +930,9 @@ void advanceLoopAtFrame(Plugin& plugin, uint32_t index,
         loop.nextEventFrame = loop.cycleStartFrame + secondsToFrames(
             plugin, loop.points[loop.cursor].seconds);
     }
+    if (!loop.points.empty()) {
+        pushPlaybackSchedule(plugin, { loop.nextEventFrame, index });
+    }
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -762,12 +954,15 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
 {
     auto* p = self(plugin);
     if (!std::isfinite(sampleRate) || sampleRate <= 0.0) return false;
+    if (!prepareRealtimeStorage(*p)) return false;
     p->sampleRate = sampleRate;
     p->framePosition = 0u;
     p->active = true;
     p->nrpn = {};
     cancelRecording(*p);
     prepareAllLoops(*p, 0u);
+    rebuildPlaybackSchedule(*p);
+    p->droppedRecordPoints.store(0u, std::memory_order_relaxed);
     syncAllUi(*p);
     return true;
 }
@@ -787,6 +982,7 @@ void reset(const clap_plugin_t* plugin)
     p->nrpn = {};
     cancelRecording(*p);
     prepareAllLoops(*p, 0u);
+    rebuildPlaybackSchedule(*p);
     syncAllUi(*p);
 }
 
@@ -795,31 +991,60 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     if (!processData) return CLAP_PROCESS_CONTINUE;
     auto* p = self(plugin);
+    std::unique_lock<std::mutex> sessionLock(
+        p->sessionMutex, std::try_to_lock);
+    if (!sessionLock.owns_lock()) {
+        passThroughWhileSessionBusy(processData->in_events,
+            processData->out_events);
+        return CLAP_PROCESS_CONTINUE;
+    }
     const uint64_t blockStart = p->framePosition;
     applyGuiCommands(*p, blockStart, processData->out_events);
     const uint32_t eventCount = processData->in_events
         ? processData->in_events->size(processData->in_events) : 0u;
     uint32_t eventIndex = 0u;
+    const uint64_t blockEnd = blockStart + processData->frames_count;
 
-    for (uint32_t frame = 0u; frame < processData->frames_count; ++frame) {
-        while (eventIndex < eventCount) {
-            const clap_event_header_t* event = processData->in_events->get(
+    // Merge host input and recorded events by timestamp. The fixed min-heap
+    // visits only active loops when an event is actually due; the previous
+    // implementation checked all 402 parameters for every audio frame.
+    for (;;) {
+        const clap_event_header_t* inputEvent = nullptr;
+        while (eventIndex < eventCount && !inputEvent) {
+            inputEvent = processData->in_events->get(
                 processData->in_events, eventIndex);
-            if (!event) {
-                ++eventIndex;
-                continue;
-            }
-            if (event->time > frame) break;
-            processInputEvent(*p, event, blockStart, processData->out_events);
+            if (!inputEvent) ++eventIndex;
+        }
+        const bool inputInBlock = inputEvent
+            && inputEvent->time < processData->frames_count;
+        const uint64_t inputFrame = inputInBlock
+            ? blockStart + inputEvent->time
+            : std::numeric_limits<uint64_t>::max();
+        const bool playbackInBlock = p->playing
+            && p->playbackHeapSize > 0u
+            && p->playbackHeap[0u].frame < blockEnd;
+        const uint64_t playbackFrame = playbackInBlock
+            ? p->playbackHeap[0u].frame
+            : std::numeric_limits<uint64_t>::max();
+        if (!inputInBlock && !playbackInBlock) break;
+
+        // Live input wins ties, matching the old frame loop and ensuring that
+        // takeover suppresses a recorded point scheduled for the same sample.
+        if (inputFrame <= playbackFrame) {
+            processInputEvent(*p, inputEvent, blockStart,
+                processData->out_events);
             ++eventIndex;
+            continue;
         }
-        if (p->playing) {
-            const uint64_t absoluteFrame = blockStart + frame;
-            for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
-                advanceLoopAtFrame(*p, index, absoluteFrame, frame,
-                    processData->out_events);
-            }
-        }
+
+        const ScheduledLoop scheduled = popPlaybackSchedule(*p);
+        const uint32_t outputTime = static_cast<uint32_t>(std::min<uint64_t>(
+            processData->frames_count - 1u,
+            scheduled.frame > blockStart
+                ? scheduled.frame - blockStart : 0u));
+        dispatchScheduledLoop(*p, scheduled.index,
+            std::max(blockStart, scheduled.frame),
+            outputTime, processData->out_events);
     }
     while (eventIndex < eventCount) {
         const clap_event_header_t* event = processData->in_events->get(
@@ -865,7 +1090,7 @@ struct ParameterDefinition {
 constexpr ParameterDefinition kParameterDefinitions[] {
     { kRecordParamId, "Record", 0.0, 1.0, 0.0,
         CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_AUTOMATABLE },
-    { kPlayParamId, "Playback", 0.0, 1.0, 1.0,
+    { kPlayParamId, "Playback", 0.0, 1.0, 0.0,
         CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_AUTOMATABLE },
     { kClearLastParamId, "Clear Last", 0.0, 1.0, 0.0,
         CLAP_PARAM_IS_STEPPED },
@@ -987,6 +1212,12 @@ void paramsFlush(const clap_plugin_t* plugin,
     const clap_input_events_t* input, const clap_output_events_t* output)
 {
     auto* p = self(plugin);
+    std::unique_lock<std::mutex> sessionLock(
+        p->sessionMutex, std::try_to_lock);
+    if (!sessionLock.owns_lock()) {
+        passThroughWhileSessionBusy(input, output);
+        return;
+    }
     applyGuiCommands(*p, p->framePosition, output);
     if (!input) return;
     const uint32_t count = input->size(input);
@@ -1011,7 +1242,10 @@ bool writeExact(const clap_ostream_t* stream, const void* source,
     while (offset < size) {
         const int64_t written = stream->write(stream, bytes + offset,
             size - offset);
-        if (written <= 0) return false;
+        if (written <= 0
+            || static_cast<uint64_t>(written) > size - offset) {
+            return false;
+        }
         offset += static_cast<uint64_t>(written);
     }
     return true;
@@ -1026,38 +1260,248 @@ bool readExact(const clap_istream_t* stream, void* destination,
     while (offset < size) {
         const int64_t read = stream->read(stream, bytes + offset,
             size - offset);
-        if (read <= 0) return false;
+        if (read <= 0 || static_cast<uint64_t>(read) > size - offset)
+            return false;
         offset += static_cast<uint64_t>(read);
     }
     return true;
 }
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+void encodeU16Le(uint16_t value, uint8_t* bytes)
 {
-    const auto* p = self(plugin);
-    const uint8_t playing = p->playing ? 1u : 0u;
-    const uint32_t count = loopCount(*p);
-    if (!writeExact(stream, &kStateMagic, sizeof(kStateMagic))
-        || !writeExact(stream, &kStateVersion, sizeof(kStateVersion))
-        || !writeExact(stream, &playing, sizeof(playing))
-        || !writeExact(stream, &p->takeoverMs, sizeof(p->takeoverMs))
-        || !writeExact(stream, &count, sizeof(count))) {
+    bytes[0] = static_cast<uint8_t>(value & 0xffu);
+    bytes[1] = static_cast<uint8_t>((value >> 8u) & 0xffu);
+}
+
+void encodeU32Le(uint32_t value, uint8_t* bytes)
+{
+    for (uint32_t index = 0u; index < 4u; ++index)
+        bytes[index] = static_cast<uint8_t>((value >> (index * 8u)) & 0xffu);
+}
+
+void encodeU64Le(uint64_t value, uint8_t* bytes)
+{
+    for (uint32_t index = 0u; index < 8u; ++index)
+        bytes[index] = static_cast<uint8_t>((value >> (index * 8u)) & 0xffu);
+}
+
+uint16_t decodeU16Le(const uint8_t* bytes)
+{
+    return static_cast<uint16_t>(bytes[0])
+        | static_cast<uint16_t>(bytes[1] << 8u);
+}
+
+uint32_t decodeU32Le(const uint8_t* bytes)
+{
+    uint32_t value = 0u;
+    for (uint32_t index = 0u; index < 4u; ++index)
+        value |= static_cast<uint32_t>(bytes[index]) << (index * 8u);
+    return value;
+}
+
+uint64_t decodeU64Le(const uint8_t* bytes)
+{
+    uint64_t value = 0u;
+    for (uint32_t index = 0u; index < 8u; ++index)
+        value |= static_cast<uint64_t>(bytes[index]) << (index * 8u);
+    return value;
+}
+
+bool writeU16Le(const clap_ostream_t* stream, uint16_t value)
+{
+    uint8_t bytes[2u] {};
+    encodeU16Le(value, bytes);
+    return writeExact(stream, bytes, sizeof(bytes));
+}
+
+bool writeU32Le(const clap_ostream_t* stream, uint32_t value)
+{
+    uint8_t bytes[4u] {};
+    encodeU32Le(value, bytes);
+    return writeExact(stream, bytes, sizeof(bytes));
+}
+
+bool writeU64Le(const clap_ostream_t* stream, uint64_t value)
+{
+    uint8_t bytes[8u] {};
+    encodeU64Le(value, bytes);
+    return writeExact(stream, bytes, sizeof(bytes));
+}
+
+bool readU16Le(const clap_istream_t* stream, uint16_t& value,
+    uint32_t* crc = nullptr);
+bool readU32Le(const clap_istream_t* stream, uint32_t& value,
+    uint32_t* crc = nullptr);
+bool readU64Le(const clap_istream_t* stream, uint64_t& value,
+    uint32_t* crc = nullptr);
+
+void updateCrc32(uint32_t& crc, const uint8_t* bytes, size_t size)
+{
+    for (size_t byteIndex = 0u; byteIndex < size; ++byteIndex) {
+        crc ^= bytes[byteIndex];
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = (crc >> 1u)
+                ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+    }
+}
+
+bool readU16Le(const clap_istream_t* stream, uint16_t& value, uint32_t* crc)
+{
+    uint8_t bytes[2u] {};
+    if (!readExact(stream, bytes, sizeof(bytes))) return false;
+    if (crc) updateCrc32(*crc, bytes, sizeof(bytes));
+    value = decodeU16Le(bytes);
+    return true;
+}
+
+bool readU32Le(const clap_istream_t* stream, uint32_t& value, uint32_t* crc)
+{
+    uint8_t bytes[4u] {};
+    if (!readExact(stream, bytes, sizeof(bytes))) return false;
+    if (crc) updateCrc32(*crc, bytes, sizeof(bytes));
+    value = decodeU32Le(bytes);
+    return true;
+}
+
+bool readU64Le(const clap_istream_t* stream, uint64_t& value, uint32_t* crc)
+{
+    uint8_t bytes[8u] {};
+    if (!readExact(stream, bytes, sizeof(bytes))) return false;
+    if (crc) updateCrc32(*crc, bytes, sizeof(bytes));
+    value = decodeU64Le(bytes);
+    return true;
+}
+
+void updateCrcU16(uint32_t& crc, uint16_t value)
+{
+    uint8_t bytes[2u] {};
+    encodeU16Le(value, bytes);
+    updateCrc32(crc, bytes, sizeof(bytes));
+}
+
+void updateCrcU32(uint32_t& crc, uint32_t value)
+{
+    uint8_t bytes[4u] {};
+    encodeU32Le(value, bytes);
+    updateCrc32(crc, bytes, sizeof(bytes));
+}
+
+void updateCrcU64(uint32_t& crc, uint64_t value)
+{
+    uint8_t bytes[8u] {};
+    encodeU64Le(value, bytes);
+    updateCrc32(crc, bytes, sizeof(bytes));
+}
+
+bool secondsToNanoseconds(double seconds, uint64_t& nanoseconds)
+{
+    if (!std::isfinite(seconds) || seconds < 0.0
+        || seconds > kMaximumLoopSeconds) {
+        return false;
+    }
+    const long double value = static_cast<long double>(seconds)
+        * kNanosecondsPerSecond;
+    if (value > static_cast<long double>(
+            std::numeric_limits<uint64_t>::max())) {
+        return false;
+    }
+    nanoseconds = static_cast<uint64_t>(std::llround(value));
+    return true;
+}
+
+bool sessionPayloadDescription(const GestureSnapshot& snapshot,
+    uint32_t& loopTotal,
+    uint32_t& pointTotal, uint64_t& payloadBytes, uint32_t& payloadCrc)
+{
+    loopTotal = 0u;
+    uint64_t points = 0u;
+    payloadBytes = 0u;
+    uint32_t crc = 0xffffffffu;
+    for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
+        const auto& loop = snapshot.loops[index];
+        if (loop.points.empty()) continue;
+        if (loop.points.size() > std::numeric_limits<uint32_t>::max())
+            return false;
+        const uint32_t count = static_cast<uint32_t>(loop.points.size());
+        points += count;
+        if (points > kMaximumStatePoints) return false;
+        uint64_t lengthNs = 0u;
+        if (!secondsToNanoseconds(loop.lengthSeconds, lengthNs)
+            || lengthNs == 0u) {
+            return false;
+        }
+        ++loopTotal;
+        updateCrcU16(crc, parameterId(index));
+        updateCrcU16(crc, 0u);
+        updateCrcU32(crc, count);
+        updateCrcU64(crc, lengthNs);
+        uint64_t previousTime = 0u;
+        bool first = true;
+        for (const auto& point : loop.points) {
+            uint64_t timeNs = 0u;
+            if (!secondsToNanoseconds(point.seconds, timeNs)
+                || timeNs > lengthNs || point.value > 16383u
+                || (!first && timeNs < previousTime)) {
+                return false;
+            }
+            first = false;
+            previousTime = timeNs;
+            updateCrcU64(crc, timeNs);
+            updateCrcU16(crc, point.value);
+            updateCrcU16(crc, 0u);
+        }
+    }
+    pointTotal = static_cast<uint32_t>(points);
+    payloadBytes = static_cast<uint64_t>(loopTotal)
+        * kSessionLoopHeaderBytes + points * kSessionPointBytes;
+    payloadCrc = crc ^ 0xffffffffu;
+    return true;
+}
+
+bool sessionSaveSnapshot(const GestureSnapshot& snapshot,
+    const clap_ostream_t* stream)
+{
+    if (!std::isfinite(snapshot.takeoverMs)) return false;
+    uint32_t loopTotal = 0u;
+    uint32_t pointTotal = 0u;
+    uint64_t payloadBytes = 0u;
+    uint32_t payloadCrc = 0u;
+    if (!sessionPayloadDescription(snapshot, loopTotal, pointTotal,
+            payloadBytes, payloadCrc)) {
+        return false;
+    }
+    const uint32_t takeoverMicros = static_cast<uint32_t>(std::llround(
+        std::clamp(snapshot.takeoverMs, 0.0, 5000.0) * 1000.0));
+    if (!writeExact(stream, kSessionMagic.data(), kSessionMagic.size())
+        || !writeU16Le(stream, kSessionVersion)
+        || !writeU16Le(stream, kSessionHeaderBytes)
+        || !writeU32Le(stream, kSessionFlags)
+        || !writeU32Le(stream, loopTotal)
+        || !writeU32Le(stream, pointTotal)
+        || !writeU64Le(stream, payloadBytes)
+        || !writeU32Le(stream, payloadCrc)
+        || !writeU32Le(stream, takeoverMicros)) {
         return false;
     }
     for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
-        const auto& loop = p->loops[index];
+        const auto& loop = snapshot.loops[index];
         if (loop.points.empty()) continue;
-        const uint16_t id = parameterId(index);
-        const uint32_t pointCount = static_cast<uint32_t>(loop.points.size());
-        if (!writeExact(stream, &id, sizeof(id))
-            || !writeExact(stream, &loop.lengthSeconds,
-                sizeof(loop.lengthSeconds))
-            || !writeExact(stream, &pointCount, sizeof(pointCount))) {
+        uint64_t lengthNs = 0u;
+        if (!secondsToNanoseconds(loop.lengthSeconds, lengthNs)
+            || !writeU16Le(stream, parameterId(index))
+            || !writeU16Le(stream, 0u)
+            || !writeU32Le(stream,
+                static_cast<uint32_t>(loop.points.size()))
+            || !writeU64Le(stream, lengthNs)) {
             return false;
         }
         for (const auto& point : loop.points) {
-            if (!writeExact(stream, &point.seconds, sizeof(point.seconds))
-                || !writeExact(stream, &point.value, sizeof(point.value))) {
+            uint64_t timeNs = 0u;
+            if (!secondsToNanoseconds(point.seconds, timeNs)
+                || !writeU64Le(stream, timeNs)
+                || !writeU16Le(stream, point.value)
+                || !writeU16Le(stream, 0u)) {
                 return false;
             }
         }
@@ -1065,8 +1509,259 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return true;
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+void resetImportedUiValues(Plugin& plugin)
 {
+    for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
+        plugin.uiValues[index].store(0u, std::memory_order_relaxed);
+        plugin.uiFlags[index].store(0u, std::memory_order_relaxed);
+        plugin.uiLoopLengths[index].store(0.0f, std::memory_order_relaxed);
+        if (!plugin.loops[index].points.empty()) {
+            showUiValue(plugin, index, plugin.loops[index].points.front().value);
+        }
+    }
+}
+
+bool parseGestureSession(const clap_istream_t* stream,
+    ImportedGestureSession& imported)
+{
+    std::array<uint8_t, 8u> magic {};
+    uint16_t version = 0u;
+    uint16_t headerBytes = 0u;
+    uint32_t flags = 0u;
+    uint32_t declaredLoops = 0u;
+    uint32_t declaredPoints = 0u;
+    uint64_t declaredPayloadBytes = 0u;
+    uint32_t declaredCrc = 0u;
+    uint32_t takeoverMicros = 0u;
+    if (!readExact(stream, magic.data(), magic.size())
+        || !readU16Le(stream, version)
+        || !readU16Le(stream, headerBytes)
+        || !readU32Le(stream, flags)
+        || !readU32Le(stream, declaredLoops)
+        || !readU32Le(stream, declaredPoints)
+        || !readU64Le(stream, declaredPayloadBytes)
+        || !readU32Le(stream, declaredCrc)
+        || !readU32Le(stream, takeoverMicros)
+        || magic != kSessionMagic || version != kSessionVersion
+        || headerBytes != kSessionHeaderBytes || flags != kSessionFlags
+        || declaredLoops > kNimParameterCount
+        || declaredPoints > kMaximumStatePoints
+        || takeoverMicros > 5000000u
+        || declaredPayloadBytes != static_cast<uint64_t>(declaredLoops)
+                * kSessionLoopHeaderBytes
+            + static_cast<uint64_t>(declaredPoints) * kSessionPointBytes) {
+        return false;
+    }
+
+    std::array<Loop, kNimParameterCount> loaded {};
+    uint64_t pointsRead = 0u;
+    uint64_t payloadRead = 0u;
+    uint32_t crc = 0xffffffffu;
+    int32_t lastTouched = -1;
+    const uint64_t maximumLengthNs = static_cast<uint64_t>(
+        kMaximumLoopSeconds * static_cast<double>(kNanosecondsPerSecond));
+    for (uint32_t loopIndex = 0u; loopIndex < declaredLoops; ++loopIndex) {
+        uint16_t id = 0u;
+        uint16_t reserved = 0u;
+        uint32_t pointCount = 0u;
+        uint64_t lengthNs = 0u;
+        if (!readU16Le(stream, id, &crc)
+            || !readU16Le(stream, reserved, &crc)
+            || !readU32Le(stream, pointCount, &crc)
+            || !readU64Le(stream, lengthNs, &crc)) {
+            return false;
+        }
+        payloadRead += kSessionLoopHeaderBytes;
+        const int32_t index = parameterIndex(id);
+        pointsRead += pointCount;
+        if (reserved != 0u || index < 0 || pointCount == 0u
+            || pointsRead > declaredPoints || pointsRead > kMaximumStatePoints
+            || lengthNs == 0u || lengthNs > maximumLengthNs
+            || !loaded[static_cast<uint32_t>(index)].points.empty()) {
+            return false;
+        }
+        auto& loop = loaded[static_cast<uint32_t>(index)];
+        loop.lengthSeconds = static_cast<double>(lengthNs)
+            / static_cast<double>(kNanosecondsPerSecond);
+        // Grow only as point records are actually read. A truncated file must
+        // not be able to request a maximum-sized allocation from a tiny input.
+        loop.points.reserve(std::min<uint32_t>(pointCount, 4096u));
+        uint64_t previousTime = 0u;
+        for (uint32_t pointIndex = 0u; pointIndex < pointCount;
+                ++pointIndex) {
+            uint64_t timeNs = 0u;
+            uint16_t value = 0u;
+            uint16_t pointReserved = 0u;
+            if (!readU64Le(stream, timeNs, &crc)
+                || !readU16Le(stream, value, &crc)
+                || !readU16Le(stream, pointReserved, &crc)
+                || pointReserved != 0u || timeNs > lengthNs
+                || value > 16383u
+                || (pointIndex != 0u && timeNs < previousTime)) {
+                return false;
+            }
+            previousTime = timeNs;
+            loop.points.push_back({
+                static_cast<double>(timeNs)
+                    / static_cast<double>(kNanosecondsPerSecond),
+                value,
+            });
+            payloadRead += kSessionPointBytes;
+        }
+        lastTouched = index;
+    }
+    crc ^= 0xffffffffu;
+    uint8_t trailing = 0u;
+    if (pointsRead != declaredPoints || payloadRead != declaredPayloadBytes
+        || crc != declaredCrc || !stream || !stream->read
+        || stream->read(stream, &trailing, 1u) != 0) {
+        return false;
+    }
+
+    imported.loops = std::move(loaded);
+    imported.takeoverMs = static_cast<double>(takeoverMicros) * 0.001;
+    imported.lastTouchedIndex = lastTouched;
+    return true;
+}
+
+bool sessionSave(const clap_plugin_t* plugin,
+    const clap_ostream_t* stream)
+{
+    if (!plugin || !stream) return false;
+    auto* p = self(plugin);
+    try {
+        GestureSnapshot snapshot;
+        {
+            const std::lock_guard<std::mutex> lock(p->sessionMutex);
+            // A take is not committed until recording stops. Refuse an
+            // ambiguous partial export instead of silently omitting it.
+            if (p->recording || !std::isfinite(p->takeoverMs)) return false;
+            // Audio passes input through while the snapshot lock is held. Do
+            // not retain a partial NRPN decode across that interval.
+            p->nrpn = {};
+            snapshot.playing = p->playing;
+            snapshot.takeoverMs = p->takeoverMs;
+            snapshot.loops = p->loops;
+        }
+        // CRC calculation and stream I/O happen after releasing the realtime
+        // state lock. Processing can resume while the immutable copy is saved.
+        return sessionSaveSnapshot(snapshot, stream);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool sessionLoad(const clap_plugin_t* plugin,
+    const clap_istream_t* stream)
+{
+    if (!plugin || !stream) return false;
+    auto* p = self(plugin);
+    try {
+        ImportedGestureSession imported;
+        // Parse and validate without holding the realtime state lock. Only the
+        // final replacement is synchronized with processing.
+        if (!parseGestureSession(stream, imported)) return false;
+        for (auto& loop : imported.loops) {
+            loop.points.reserve(std::max<size_t>(
+                kRealtimePointsPerParameter, loop.points.size()));
+        }
+        const std::lock_guard<std::mutex> lock(p->sessionMutex);
+        p->loops = std::move(imported.loops);
+        p->playing = false;
+        p->takeoverMs = imported.takeoverMs;
+        p->lastTouchedIndex = imported.lastTouchedIndex;
+        p->nrpn = {};
+        p->guiCommands.store(0u, std::memory_order_release);
+        p->uiSelectedIndex.store(imported.lastTouchedIndex,
+            std::memory_order_relaxed);
+        cancelRecording(*p);
+        prepareAllLoops(*p, p->framePosition);
+        rebuildPlaybackSchedule(*p);
+        resetImportedUiValues(*p);
+        syncAllUi(*p);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool sessionClear(const clap_plugin_t* plugin)
+{
+    if (!plugin) return false;
+    auto* p = self(plugin);
+    const std::lock_guard<std::mutex> lock(p->sessionMutex);
+    p->playing = false;
+    p->guiCommands.store(0u, std::memory_order_release);
+    p->nrpn = {};
+    clearAllLoops(*p);
+    rebuildPlaybackSchedule(*p);
+    return true;
+}
+
+const s3g_nim_gesture_session_t sessionExt {
+    sessionSave, sessionLoad, sessionClear,
+};
+
+bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+{
+    if (!plugin || !stream) return false;
+    auto* p = self(plugin);
+    try {
+        GestureSnapshot snapshot;
+        {
+            const std::lock_guard<std::mutex> lock(p->sessionMutex);
+            // Host state serialization has the same nonblocking process
+            // fallback as explicit export. Do not retain an NRPN fragment
+            // across the snapshot interval.
+            p->nrpn = {};
+            snapshot.playing = p->playing;
+            snapshot.takeoverMs = p->takeoverMs;
+            snapshot.loops = p->loops;
+        }
+        const uint8_t playing = snapshot.playing ? 1u : 0u;
+        uint32_t count = 0u;
+        for (const auto& loop : snapshot.loops) {
+            if (!loop.points.empty()) ++count;
+        }
+        if (!writeExact(stream, &kStateMagic, sizeof(kStateMagic))
+            || !writeExact(stream, &kStateVersion, sizeof(kStateVersion))
+            || !writeExact(stream, &playing, sizeof(playing))
+            || !writeExact(stream, &snapshot.takeoverMs,
+                sizeof(snapshot.takeoverMs))
+            || !writeExact(stream, &count, sizeof(count))) {
+            return false;
+        }
+        for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
+            const auto& loop = snapshot.loops[index];
+            if (loop.points.empty()) continue;
+            const uint16_t id = parameterId(index);
+            const uint32_t pointCount = static_cast<uint32_t>(
+                loop.points.size());
+            if (!writeExact(stream, &id, sizeof(id))
+                || !writeExact(stream, &loop.lengthSeconds,
+                    sizeof(loop.lengthSeconds))
+                || !writeExact(stream, &pointCount, sizeof(pointCount))) {
+                return false;
+            }
+            for (const auto& point : loop.points) {
+                if (!writeExact(stream, &point.seconds,
+                        sizeof(point.seconds))
+                    || !writeExact(stream, &point.value,
+                        sizeof(point.value))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool stateLoadImpl(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!plugin || !stream) return false;
+    auto* p = self(plugin);
     uint32_t magic = 0u;
     uint32_t version = 0u;
     uint8_t playing = 0u;
@@ -1109,19 +1804,26 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             ? loaded[static_cast<uint32_t>(index)] : retiredLoop;
         if (index >= 0 && !loop.points.empty()) return false;
         loop.lengthSeconds = lengthSeconds;
-        loop.points.resize(pointCount);
-        for (auto& point : loop.points) {
+        loop.points.reserve(std::min<uint32_t>(pointCount, 4096u));
+        for (uint32_t pointIndex = 0u; pointIndex < pointCount;
+                ++pointIndex) {
+            Point point;
             if (!readExact(stream, &point.seconds, sizeof(point.seconds))
                 || !readExact(stream, &point.value, sizeof(point.value))
                 || !std::isfinite(point.seconds) || point.seconds < 0.0
                 || point.seconds > lengthSeconds || point.value > 16383u) {
                 return false;
             }
+            loop.points.push_back(point);
         }
         if (index >= 0) lastTouched = index;
     }
 
-    auto* p = self(plugin);
+    for (auto& loop : loaded) {
+        loop.points.reserve(std::max<size_t>(
+            kRealtimePointsPerParameter, loop.points.size()));
+    }
+    const std::lock_guard<std::mutex> lock(p->sessionMutex);
     p->loops = std::move(loaded);
     p->playing = playing != 0u;
     p->takeoverMs = std::clamp(takeoverMs, 0.0, 5000.0);
@@ -1129,6 +1831,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->nrpn = {};
     cancelRecording(*p);
     prepareAllLoops(*p, p->framePosition);
+    rebuildPlaybackSchedule(*p);
     for (uint32_t index = 0u; index < kNimParameterCount; ++index) {
         if (!p->loops[index].points.empty()) {
             showUiValue(*p, index, p->loops[index].points.front().value);
@@ -1136,6 +1839,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     syncAllUi(*p);
     return true;
+}
+
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    try {
+        return stateLoadImpl(plugin, stream);
+    } catch (...) {
+        return false;
+    }
 }
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -1655,7 +2367,7 @@ void strokeGuiArc(NSPoint center, CGFloat radius, CGFloat startDegrees,
     const bool playing = _plugin->uiPlaying.load(std::memory_order_relaxed);
     [self drawButton:0u label:@"RECORD" active:recording
         semanticColor:s3g::clap_gui::color(0xb56a5e)];
-    [self drawButton:1u label:(playing ? @"PLAY" : @"PAUSE") active:playing
+    [self drawButton:1u label:@"PLAY" active:playing
         semanticColor:s3g::clap_gui::color(0x70866f)];
     [self drawButton:2u label:@"CLEAR SEL" active:false semanticColor:nil];
     [self drawButton:3u label:@"CLEAR ALL" active:false semanticColor:nil];
@@ -1938,6 +2650,8 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
+    if (std::strcmp(id, S3G_NIM_GESTURE_SESSION_EXTENSION) == 0)
+        return &sessionExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif

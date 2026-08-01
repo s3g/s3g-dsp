@@ -144,6 +144,13 @@ recorder. The same window lists the available CoreMIDI input sources; check
 only the devices that should feed the embedded chain. The remembered list is
 rescanned whenever the MIDI window opens. E16 USB Thru must still remain off.
 
+The standalone starts every run with no Gesture loops and with playback
+paused. It does not restore recordings automatically. Use **SAVE SESSION** in
+MIDI Routing to export a `.nimgesture` file before quitting. **LOAD SESSION**
+replaces the current loops but leaves them paused; open **EDIT NIM GESTURES**
+and turn Play on deliberately. This differs from the separate NIM Gesture CLAP
+in REAPER, whose loops and Play state can be restored as part of project state.
+
 No Input Mixer mirrors its current parameters as channel-16 NRPN on the final
 MIDI output. Direct GUI and automation changes return on the next process
 block. Activation, Random, factory-preset changes, and project restoration send

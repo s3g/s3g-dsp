@@ -1,7 +1,15 @@
-# Four Intech Grid BU16 modules: No Input Mixer matrix
+# One or four Intech Grid BU16 modules: No Input Mixer matrix
 
-No Input Mixer accepts four 4-by-4 note grids as one velocity-sensitive 8-by-8
-feedback matrix. The mapping works identically in the CLAP and standalone app.
+No Input Mixer accepts four 4-by-4 note-grid layouts as one velocity-sensitive
+8-by-8 feedback matrix. The mapping works identically in the CLAP and
+standalone app. The four layouts can be deployed in either of two ways:
+
+- Load one quadrant profile onto each of four BU16 modules for simultaneous
+  access to the complete matrix.
+- Load all four quadrant profiles onto the four user pages of one BU16. Page
+  switching then selects Upper Left, Upper Right, Lower Left, or Lower Right;
+  the complete matrix remains stored, but only the active quadrant is
+  physically playable at that moment.
 
 Configure each BU16 to emit notes 0–15 from left to right and top to bottom,
 with a distinct MIDI channel:
@@ -24,15 +32,18 @@ This directory includes four generated Grid Editor profiles:
 | Lower left | `nim_bu16_ch3_lower_left.json` |
 | Lower right | `nim_bu16_ch4_lower_right.json` |
 
-Load the matching profile onto each physical BU16 with Grid Editor. Keep each
-module in its normal orientation so its buttons are numbered left-to-right,
-top-to-bottom. Each press begins in the BU16's native velocity mode and sends
-that measured strike velocity once. The held pad then switches to pressure
-mode and emits continuous polyphonic-pressure updates. FLIP follows that
-pressure through the shared DSP ramp. LATCH captures the native event, then uses
-only the largest pressure value in a roughly 50 ms attack window to correct an
-occasionally under-reported strike. Release emits Note Off and restores
-velocity mode for the next strike.
+With Grid Editor, load the matching profile onto each physical BU16, or assign
+the four profiles in table order to user pages 1–4 of one BU16. Keep each module
+in its normal orientation so its buttons are numbered left-to-right,
+top-to-bottom. In the single-module layout, the processor's periodic complete
+feedback snapshot repopulates the active quadrant's LEDs after a page change.
+Each press begins in the BU16's native velocity mode and sends that measured
+strike velocity once. The held pad then switches to pressure mode and emits
+continuous polyphonic-pressure updates. FLIP follows that pressure through the
+shared DSP ramp. LATCH captures the native event, then uses only the largest
+pressure value in a roughly 50 ms attack window to correct an occasionally
+under-reported strike. Release emits Note Off and restores velocity mode for
+the next strike.
 
 The System element's Setup event installs the firmware 1.5.5+
 `self.midirx_cb` callback used for LED feedback. If an earlier revision of
