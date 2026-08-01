@@ -37,6 +37,14 @@ using s3g::standalone::NoInputOutputMode;
 using s3g::standalone::outputChannelsForMode;
 
 struct AppState {
+    struct MidiSource {
+        MIDIEndpointRef endpoint = 0;
+        MIDIUniqueID uniqueId = 0;
+        std::string name;
+        bool enabled = false;
+        bool connected = false;
+    };
+
     struct MidiDestination {
         MIDIEndpointRef endpoint = 0;
         MIDIUniqueID uniqueId = 0;
@@ -52,6 +60,7 @@ struct AppState {
     MIDIClientRef midiClient = 0;
     MIDIPortRef midiInputPort = 0;
     MIDIPortRef midiOutputPort = 0;
+    std::vector<MidiSource> midiSources;
     std::vector<MidiDestination> midiDestinations;
     uint32_t selectedE16MidiDestination =
         std::numeric_limits<uint32_t>::max();
@@ -61,6 +70,90 @@ struct AppState {
     std::atomic<bool> deviceOpen { false };
     std::string audioError;
 };
+
+std::string midiEndpointDisplayName(MIDIEndpointRef endpoint,
+    const char* fallback)
+{
+    CFStringRef displayName = nullptr;
+    MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName,
+        &displayName);
+    char name[512] {};
+    if (displayName) {
+        CFStringGetCString(displayName, name, sizeof(name),
+            kCFStringEncodingUTF8);
+        CFRelease(displayName);
+    }
+    return name[0] != '\0' ? name : fallback;
+}
+
+void saveMidiInputSelection(const AppState& state)
+{
+    NSMutableArray* identifiers = [NSMutableArray array];
+    for (const auto& source : state.midiSources) {
+        if (!source.enabled) continue;
+        [identifiers addObject:[NSNumber numberWithInt:source.uniqueId]];
+    }
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:YES forKey:@"MidiInputSelectionConfigured"];
+    [defaults setObject:identifiers forKey:@"MidiInputSourceUniqueIDs"];
+}
+
+void refreshMidiInputs(AppState& state)
+{
+    if (!state.midiInputPort) return;
+    for (const auto& source : state.midiSources) {
+        if (source.connected && source.endpoint)
+            MIDIPortDisconnectSource(state.midiInputPort, source.endpoint);
+    }
+    state.midiSources.clear();
+    state.connectedMidiSourceCount = 0u;
+
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    const bool configured = [defaults boolForKey:
+        @"MidiInputSelectionConfigured"];
+    NSArray* savedIdentifiers = [defaults arrayForKey:
+        @"MidiInputSourceUniqueIDs"];
+    const ItemCount count = MIDIGetNumberOfSources();
+    for (ItemCount index = 0u; index < count; ++index) {
+        MIDIEndpointRef endpoint = MIDIGetSource(index);
+        if (!endpoint) continue;
+        MIDIUniqueID uniqueId = 0;
+        MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID,
+            &uniqueId);
+        AppState::MidiSource source;
+        source.endpoint = endpoint;
+        source.uniqueId = uniqueId;
+        source.name = midiEndpointDisplayName(endpoint, "MIDI Source");
+        source.enabled = !configured || [savedIdentifiers containsObject:
+            [NSNumber numberWithInt:uniqueId]];
+        if (source.enabled) {
+            source.connected = MIDIPortConnectSource(state.midiInputPort,
+                endpoint, nullptr) == noErr;
+            if (source.connected) ++state.connectedMidiSourceCount;
+        }
+        state.midiSources.push_back(std::move(source));
+    }
+}
+
+void setMidiSourceEnabled(AppState& state, uint32_t index, bool enabled)
+{
+    if (!state.midiInputPort || index >= state.midiSources.size()) return;
+    auto& source = state.midiSources[index];
+    if (!enabled && source.connected) {
+        MIDIPortDisconnectSource(state.midiInputPort, source.endpoint);
+        source.connected = false;
+    }
+    source.enabled = enabled;
+    if (enabled && !source.connected) {
+        source.connected = MIDIPortConnectSource(state.midiInputPort,
+            source.endpoint, nullptr) == noErr;
+    }
+    state.connectedMidiSourceCount = 0u;
+    for (const auto& candidate : state.midiSources) {
+        if (candidate.connected) ++state.connectedMidiSourceCount;
+    }
+    saveMidiInputSelection(state);
+}
 
 void clampOutputChannelOffset(AppState& state, NoInputOutputMode mode)
 {
@@ -209,12 +302,7 @@ void connectMidiInputs(AppState& state)
     MIDIInputPortCreate(state.midiClient, CFSTR("Controller Input"),
         midiReadProc, &state, &state.midiInputPort);
     if (!state.midiInputPort) return;
-    const ItemCount count = MIDIGetNumberOfSources();
-    for (ItemCount index = 0u; index < count; ++index) {
-        MIDIEndpointRef source = MIDIGetSource(index);
-        if (source && MIDIPortConnectSource(state.midiInputPort, source,
-                nullptr) == noErr) ++state.connectedMidiSourceCount;
-    }
+    refreshMidiInputs(state);
 
     MIDIOutputPortCreate(state.midiClient, CFSTR("Controller Feedback"),
         &state.midiOutputPort);
@@ -222,22 +310,14 @@ void connectMidiInputs(AppState& state)
     for (ItemCount index = 0u; index < destinationCount; ++index) {
         MIDIEndpointRef endpoint = MIDIGetDestination(index);
         if (!endpoint) continue;
-        CFStringRef displayName = nullptr;
-        MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName,
-            &displayName);
-        char name[512] {};
-        if (displayName) {
-            CFStringGetCString(displayName, name, sizeof(name),
-                kCFStringEncodingUTF8);
-            CFRelease(displayName);
-        }
         MIDIUniqueID uniqueId = 0;
         MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID,
             &uniqueId);
         AppState::MidiDestination destination;
         destination.endpoint = endpoint;
         destination.uniqueId = uniqueId;
-        destination.name = name[0] != '\0' ? name : "MIDI Destination";
+        destination.name = midiEndpointDisplayName(endpoint,
+            "MIDI Destination");
         state.midiDestinations.push_back(std::move(destination));
     }
 
@@ -627,6 +707,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     EmbeddedClapPlugin* _outputEditorPlugin;
     NSPanel* _midiPanel;
     NSView* _midiPanelContent;
+    NSPopUpButton* _midiInputMenu;
     NSPopUpButton* _e16MidiOutputMenu;
     NSPopUpButton* _gridMidiOutputMenu;
     NSPanel* _gesturePanel;
@@ -1010,14 +1091,49 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     populate(_gridMidiOutputMenu, _state->selectedGridMidiDestination);
 }
 
+- (void)refreshMidiInputMenu
+{
+    if (!_midiInputMenu) return;
+    [_midiInputMenu removeAllItems];
+    uint32_t enabled = 0u;
+    for (const auto& source : _state->midiSources) {
+        if (source.enabled) ++enabled;
+    }
+    NSString* summary = _state->midiSources.empty()
+        ? @"NO MIDI SOURCES"
+        : [NSString stringWithFormat:@"INPUT SOURCES  ·  %u / %zu ON",
+            enabled, _state->midiSources.size()];
+    [_midiInputMenu addItemWithTitle:summary];
+    [[_midiInputMenu lastItem] setTag:-100];
+    [[_midiInputMenu lastItem] setEnabled:NO];
+    [_midiInputMenu addItemWithTitle:@"ENABLE ALL"];
+    [[_midiInputMenu lastItem] setTag:-2];
+    [_midiInputMenu addItemWithTitle:@"DISABLE ALL"];
+    [[_midiInputMenu lastItem] setTag:-3];
+    [[_midiInputMenu menu] addItem:[NSMenuItem separatorItem]];
+    for (uint32_t index = 0u; index < _state->midiSources.size(); ++index) {
+        const auto& source = _state->midiSources[index];
+        NSString* title = [NSString stringWithUTF8String:source.name.c_str()];
+        [_midiInputMenu addItemWithTitle:title];
+        NSMenuItem* item = [_midiInputMenu lastItem];
+        [item setTag:static_cast<NSInteger>(index)];
+        [item setState:source.enabled
+            ? NSControlStateValueOn : NSControlStateValueOff];
+    }
+    [_midiInputMenu selectItemAtIndex:0];
+}
+
 - (void)showMidiSetup:(id)sender
 {
     (void)sender;
     if (_midiPanel) {
+        refreshMidiInputs(*_state);
+        [self refreshMidiInputMenu];
         [_midiPanel makeKeyAndOrderFront:nil];
         return;
     }
-    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 320.0);
+    refreshMidiInputs(*_state);
+    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 390.0);
     _midiPanel = [[NSPanel alloc] initWithContentRect:frame
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
         backing:NSBackingStoreBuffered defer:NO];
@@ -1033,32 +1149,39 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         [label setFrame:rect];
         [_midiPanelContent addSubview:label];
     };
-    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 277.0, 200.0, 18.0),
+    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 347.0, 200.0, 18.0),
         0xc8c8c8, 11.0);
-    addLabel(@"INPUT", NSMakeRect(28.0, 240.0, 130.0, 18.0),
+    addLabel(@"INPUT SOURCES", NSMakeRect(28.0, 310.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
-    addLabel([NSString stringWithFormat:@"ALL CONNECTED SOURCES  •  %u",
-        _state->connectedMidiSourceCount],
-        NSMakeRect(180.0, 240.0, 400.0, 18.0), 0xc8c8c8, 10.0);
-    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 211.0, 130.0, 18.0),
+    _midiInputMenu = [[S3GStandalonePopupButton alloc]
+        initWithFrame:NSMakeRect(180.0, 302.0, 400.0, 34.0)
+        pullsDown:NO];
+    [_midiInputMenu setBordered:NO];
+    [_midiInputMenu setTarget:self];
+    [_midiInputMenu setAction:@selector(changeMidiInput:)];
+    [_midiPanelContent addSubview:_midiInputMenu];
+    [self refreshMidiInputMenu];
+    addLabel(@"CHECKED SOURCES FEED THE EMBEDDED CHAIN  ·  CLAP INPUT IS HOST-ROUTED",
+        NSMakeRect(180.0, 280.0, 410.0, 16.0), 0x777777, 8.8);
+    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 250.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     addLabel(@"CH 1–4  •  NOTES 0–15  •  FLIP / LATCH  •  SHARED RAMP",
-        NSMakeRect(180.0, 211.0, 410.0, 18.0), 0x929292, 9.5);
-    addLabel(@"GRID FEEDBACK", NSMakeRect(28.0, 170.0, 130.0, 18.0),
+        NSMakeRect(180.0, 250.0, 410.0, 18.0), 0x929292, 9.5);
+    addLabel(@"GRID FEEDBACK", NSMakeRect(28.0, 210.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
 
     _gridMidiOutputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 162.0, 400.0, 34.0)
+        initWithFrame:NSMakeRect(180.0, 202.0, 400.0, 34.0)
         pullsDown:NO];
     [_gridMidiOutputMenu setBordered:NO];
     [_gridMidiOutputMenu setTarget:self];
     [_gridMidiOutputMenu setAction:@selector(changeGridMidiOutput:)];
     [_midiPanelContent addSubview:_gridMidiOutputMenu];
 
-    addLabel(@"E16 FEEDBACK", NSMakeRect(28.0, 116.0, 130.0, 18.0),
+    addLabel(@"NRPN FEEDBACK", NSMakeRect(28.0, 156.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     _e16MidiOutputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 108.0, 400.0, 34.0)
+        initWithFrame:NSMakeRect(180.0, 148.0, 400.0, 34.0)
         pullsDown:NO];
     [_e16MidiOutputMenu setBordered:NO];
     [_e16MidiOutputMenu setTarget:self];
@@ -1079,6 +1202,22 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 
     [_midiPanel center];
     [_midiPanel makeKeyAndOrderFront:nil];
+}
+
+- (void)changeMidiInput:(NSPopUpButton*)sender
+{
+    const NSInteger tag = [[sender selectedItem] tag];
+    if (tag == -2 || tag == -3) {
+        const bool enabled = tag == -2;
+        for (uint32_t index = 0u; index < _state->midiSources.size(); ++index)
+            setMidiSourceEnabled(*_state, index, enabled);
+    } else if (tag >= 0
+        && static_cast<uint32_t>(tag) < _state->midiSources.size()) {
+        const uint32_t index = static_cast<uint32_t>(tag);
+        setMidiSourceEnabled(*_state, index,
+            !_state->midiSources[index].enabled);
+    }
+    [self refreshMidiInputMenu];
 }
 
 - (void)changeGridMidiOutput:(NSPopUpButton*)sender
@@ -1142,6 +1281,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     if (_midiPanel) [_midiPanel orderOut:nil];
     [_midiPanel release];
     _midiPanel = nil;
+    [_midiInputMenu release];
+    _midiInputMenu = nil;
     [_e16MidiOutputMenu release];
     _e16MidiOutputMenu = nil;
     [_gridMidiOutputMenu release];

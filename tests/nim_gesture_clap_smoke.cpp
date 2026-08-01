@@ -17,7 +17,9 @@ namespace {
 
 constexpr uint32_t kFrames = 10u;
 constexpr clap_id kFeedbackParameter = 5u;
-constexpr uint16_t kMatrixRampParameter = 59u;
+constexpr uint16_t kBehaviorDepthParameter = 60u;
+constexpr uint32_t kGestureStateMagic = 0x474d494eu;
+constexpr uint32_t kGestureStateVersion = 1u;
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -167,6 +169,42 @@ int64_t stateRead(const clap_istream_t* stream,
     return static_cast<int64_t>(count);
 }
 
+template <typename Value>
+void appendStateValue(MemoryState& state, const Value& value)
+{
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    state.bytes.insert(state.bytes.end(), bytes, bytes + sizeof(value));
+}
+
+void appendGestureLoop(MemoryState& state, uint16_t id, uint16_t value)
+{
+    constexpr double lengthSeconds = 0.01;
+    constexpr uint32_t pointCount = 1u;
+    constexpr double pointSeconds = 0.0;
+    appendStateValue(state, id);
+    appendStateValue(state, lengthSeconds);
+    appendStateValue(state, pointCount);
+    appendStateValue(state, pointSeconds);
+    appendStateValue(state, value);
+}
+
+MemoryState legacyGestureStateWithRetiredLoops()
+{
+    MemoryState state;
+    constexpr uint8_t playing = 1u;
+    constexpr double takeoverMs = 650.0;
+    constexpr uint32_t loopCount = 3u;
+    appendStateValue(state, kGestureStateMagic);
+    appendStateValue(state, kGestureStateVersion);
+    appendStateValue(state, playing);
+    appendStateValue(state, takeoverMs);
+    appendStateValue(state, loopCount);
+    appendGestureLoop(state, 55u, 111u);
+    appendGestureLoop(state, 56u, 222u);
+    appendGestureLoop(state, kBehaviorDepthParameter, 333u);
+    return state;
+}
+
 std::vector<std::pair<uint32_t, uint16_t>> decodeNrpn(
     const std::vector<clap_event_midi_t>& midi)
 {
@@ -199,6 +237,39 @@ std::vector<std::pair<uint32_t, uint16_t>> decodeNrpn(
         }
     }
     return values;
+}
+
+std::vector<uint16_t> decodeNrpnParameters(
+    const std::vector<clap_event_midi_t>& midi)
+{
+    std::vector<uint16_t> parameters;
+    uint16_t parameter = 0u;
+    bool hasMsb = false;
+    for (const auto& event : midi) {
+        if ((event.data[0] & 0xf0u) != 0xb0u) continue;
+        switch (event.data[1] & 0x7fu) {
+        case 99u:
+            parameter = static_cast<uint16_t>(
+                (event.data[2] & 0x7fu) << 7u);
+            break;
+        case 98u:
+            parameter = static_cast<uint16_t>(
+                parameter | (event.data[2] & 0x7fu));
+            break;
+        case 6u:
+            hasMsb = true;
+            break;
+        case 38u:
+            if (hasMsb) {
+                parameters.push_back(parameter);
+                hasMsb = false;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return parameters;
 }
 
 } // namespace
@@ -285,8 +356,8 @@ int main(int argc, char** argv)
     output.clear();
     InputEvents record;
     record.addMidi(0x9fu, 112u, 127u, 0u);
-    record.addNrpn(kMatrixRampParameter, 100u, 2u);
-    record.addNrpn(kMatrixRampParameter, 200u, 8u);
+    record.addNrpn(kBehaviorDepthParameter, 100u, 2u);
+    record.addNrpn(kBehaviorDepthParameter, 200u, 8u);
     process.in_events = &record.input;
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
     double recordingValue = 0.0;
@@ -355,6 +426,38 @@ int main(int argc, char** argv)
     ok = ok && params->get_value(plugin, 2u, &playbackValue)
         && playbackValue == 0.0 && output.midi.empty();
     if (!ok) std::cerr << "failed: playback command\n";
+
+    MemoryState legacy = legacyGestureStateWithRetiredLoops();
+    clap_istream_t legacyInput { &legacy, stateRead };
+    ok = ok && state->load(plugin, &legacyInput)
+        && legacy.offset == legacy.bytes.size()
+        && params->get_value(plugin, 6u, &loopCount)
+        && loopCount == 1.0;
+    output.clear();
+    process.in_events = nullptr;
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    decoded = decodeNrpn(output.midi);
+    const auto decodedParameters = decodeNrpnParameters(output.midi);
+    ok = ok && decoded.size() == 1u
+        && decoded[0] == std::make_pair(0u, static_cast<uint16_t>(333u))
+        && decodedParameters.size() == 1u
+        && decodedParameters[0] == kBehaviorDepthParameter;
+
+    MemoryState migrated;
+    clap_ostream_t migratedOutput { &migrated, stateWrite };
+    ok = ok && state->save(plugin, &migratedOutput)
+        && migrated.bytes.size() >= 23u;
+    uint32_t migratedLoopCount = 0u;
+    uint16_t migratedLoopId = 0u;
+    if (migrated.bytes.size() >= 23u) {
+        std::memcpy(&migratedLoopCount, migrated.bytes.data() + 17u,
+            sizeof(migratedLoopCount));
+        std::memcpy(&migratedLoopId, migrated.bytes.data() + 21u,
+            sizeof(migratedLoopId));
+    }
+    ok = ok && migratedLoopCount == 1u
+        && migratedLoopId == kBehaviorDepthParameter;
+    if (!ok) std::cerr << "failed: retired-ID state migration\n";
 
     if (plugin) {
         plugin->stop_processing(plugin);

@@ -1,9 +1,12 @@
 # NIM Gesture CLAP
 
-`s3g Utility NIM Gesture` is a MIDI-only CLAP note effect paired with
-`s3g Processor No Input Mixer 8ch`. It records free-running OXI E16 encoder
+`s3g Utility NIM Gesture` is a MIDI-only CLAP note effect designed specifically
+for use in conjunction with the OXI E16, its `NIM P2` scene, and
+`s3g Processor No Input Mixer 8ch`. It records free-running E16 encoder
 gestures without using the E16's finite internal motion tracks and returns the
-played values to the E16 for LED-ring feedback.
+played values to the E16 for LED-ring feedback. It is not required for BU16,
+DIY MIDI mappings, ordinary host automation, or direct E16 control when
+gesture recording is not wanted.
 
 ## Signal path in REAPER
 
@@ -26,10 +29,16 @@ can be sent back into REAPER and form a MIDI loop.
 The No Input Mixer standalone embeds this same CLAP before the embedded No
 Input Mixer processor. Open **MIDI** in the application's output strip to pick
 separate CoreMIDI destinations for E16 and Grid feedback, or leave either one
-off. All CoreMIDI sources present at launch feed the Gesture processor;
-non-channel-16 events pass through to No Input Mixer. The Gesture GUI and its
+off. The window also lists every available CoreMIDI input source with an
+independent checkmark; Enable All and Disable All are provided, and the
+selection is remembered by device ID. Checked sources feed the Gesture
+processor; non-channel-16 events pass through to No Input Mixer. The Gesture GUI and its
 free-running loops are available from **EDIT NIM GESTURES**, and its state is
 restored with the application.
+
+Playback remains active when the Gesture window is closed and is restored on
+the next launch. Pause **Play** before comparing static presets or DSP changes;
+an active loop continues to write its parameter, including Output or Drift.
 
 The standalone's four-controller matrix protocol reserves MIDI channels 1–4
 for four 4-by-4 button grids. Notes 0–15 cover one quadrant per controller.

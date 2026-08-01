@@ -189,8 +189,14 @@ enum class NoInputMovementBehavior : uint32_t {
     Cut,
     Burst,
     Scramble,
+    Ratchet,
+    Cascade,
+    Erode,
     Count,
 };
+
+constexpr uint32_t kNoInputMovementBehaviorCount =
+    static_cast<uint32_t>(NoInputMovementBehavior::Count);
 
 enum class NoInputReactMode : uint32_t {
     Off = 0u,
@@ -294,9 +300,40 @@ inline const char* noInputMovementBehaviorName(NoInputMovementBehavior behavior)
     case NoInputMovementBehavior::Cut: return "CUT";
     case NoInputMovementBehavior::Burst: return "BURST";
     case NoInputMovementBehavior::Scramble: return "SCRAMBLE";
+    case NoInputMovementBehavior::Ratchet: return "RATCHET";
+    case NoInputMovementBehavior::Cascade: return "CASCADE";
+    case NoInputMovementBehavior::Erode: return "ERODE";
     case NoInputMovementBehavior::Count: break;
     }
     return "GLIDE";
+}
+
+inline bool noInputMovementBehaviorUsesAmplitude(
+    NoInputMovementBehavior behavior)
+{
+    return behavior == NoInputMovementBehavior::Cut
+        || behavior == NoInputMovementBehavior::Burst
+        || behavior == NoInputMovementBehavior::Scramble
+        || behavior == NoInputMovementBehavior::Ratchet
+        || behavior == NoInputMovementBehavior::Cascade
+        || behavior == NoInputMovementBehavior::Erode;
+}
+
+inline bool noInputMovementBehaviorUsesLength(
+    NoInputMovementBehavior behavior)
+{
+    return behavior == NoInputMovementBehavior::Cut
+        || behavior == NoInputMovementBehavior::Burst
+        || behavior == NoInputMovementBehavior::Ratchet
+        || behavior == NoInputMovementBehavior::Cascade
+        || behavior == NoInputMovementBehavior::Erode;
+}
+
+inline bool noInputMovementBehaviorUsesDensity(
+    NoInputMovementBehavior behavior)
+{
+    return noInputMovementBehaviorUsesLength(behavior)
+        || behavior == NoInputMovementBehavior::Scramble;
 }
 
 struct NoInputMovementBehaviorParams {
@@ -386,8 +423,17 @@ inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
             lerp(minimumMs, maximumMs, unit()));
     };
     if (energy == NoInputRandomEnergy::High) {
-        params.behavior = static_cast<NoInputMovementBehavior>(
-            2u + static_cast<uint32_t>(unit() * 3.0f) % 3u);
+        static constexpr std::array<NoInputMovementBehavior, 5u>
+            highBehaviors {{
+                NoInputMovementBehavior::Cut,
+                NoInputMovementBehavior::Burst,
+                NoInputMovementBehavior::Scramble,
+                NoInputMovementBehavior::Ratchet,
+                NoInputMovementBehavior::Cascade,
+            }};
+        params.behavior = highBehaviors[
+            static_cast<uint32_t>(unit() * highBehaviors.size())
+                % highBehaviors.size()];
         params.eventRate = 0.75f + unit() * 0.23f;
         params.length = randomLength(6.0f, 40.0f);
         params.density = 0.34f + unit() * 0.46f;
@@ -403,8 +449,19 @@ inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
         params.slew = 0.24f + unit() * 0.30f;
         params.choke = 0.0f;
     } else {
-        params.behavior = static_cast<NoInputMovementBehavior>(
-            1u + static_cast<uint32_t>(unit() * 4.0f) % 4u);
+        static constexpr std::array<NoInputMovementBehavior, 7u>
+            midBehaviors {{
+                NoInputMovementBehavior::Step,
+                NoInputMovementBehavior::Cut,
+                NoInputMovementBehavior::Burst,
+                NoInputMovementBehavior::Scramble,
+                NoInputMovementBehavior::Ratchet,
+                NoInputMovementBehavior::Cascade,
+                NoInputMovementBehavior::Erode,
+            }};
+        params.behavior = midBehaviors[
+            static_cast<uint32_t>(unit() * midBehaviors.size())
+                % midBehaviors.size()];
         params.eventRate = 0.42f + unit() * 0.28f;
         params.length = randomLength(20.0f, 140.0f);
         params.density = 0.46f + unit() * 0.42f;
@@ -639,8 +696,9 @@ inline NoInputMixerParams sanitizeNoInputMixerParams(
         ? params.reactAttack : 0.18f, 0.0f, 1.0f);
     params.reactRelease = clamp(std::isfinite(params.reactRelease)
         ? params.reactRelease : 0.42f, 0.0f, 1.0f);
-    params.reactPolarity = clamp(std::isfinite(params.reactPolarity)
-        ? params.reactPolarity : 1.0f, -1.0f, 1.0f);
+    params.reactPolarity = std::isfinite(params.reactPolarity)
+            && params.reactPolarity < 0.0f
+        ? -1.0f : 1.0f;
     params.controllerHold = params.controllerHold != 0u ? 1u : 0u;
     params.slowTime = params.slowTime != 0u ? 1u : 0u;
     params.clockSync = params.clockSync != 0u ? 1u : 0u;
@@ -870,6 +928,117 @@ noInputMixerMotionWeights(const NoInputMixerParams& rawParams, float phase)
         return weights;
     }
 
+    if (params.motionShape == MatrixFlowShape::Bloom) {
+        // A shell opens away from each source, reaches the opposite side of
+        // the ring, then folds home. VORTEX twists the center of that shell
+        // without destroying its two-sided bloom.
+        const float bloom = 0.5f - 0.5f * std::cos(angle);
+        const float radius = bloom * (0.30f + flowAmount * 3.70f);
+        const float shellWidth = 0.16f + params.spread * 1.15f;
+        const float twist = std::sin(angle) * params.vortex
+            * (0.25f + flowAmount * 0.90f);
+        for (uint32_t source = 0u; source < 8u; ++source) {
+            float center = std::fmod(
+                static_cast<float>(source) + twist, 8.0f);
+            if (center < 0.0f) center += 8.0f;
+            float sum = 0.0f;
+            for (uint32_t destination = 0u; destination < 8u;
+                 ++destination) {
+                float distance = std::abs(
+                    static_cast<float>(destination) - center);
+                distance = std::min(distance, 8.0f - distance);
+                const float shellDistance = distance - radius;
+                const float value = std::exp(-(shellDistance * shellDistance)
+                    / std::max(0.001f, shellWidth * shellWidth));
+                weights[destination * 8u + source] = value;
+                sum += value;
+            }
+            if (sum > 1.0e-6f) {
+                for (uint32_t destination = 0u; destination < 8u;
+                     ++destination) {
+                    weights[destination * 8u + source] /= sum;
+                }
+            }
+        }
+        return weights;
+    }
+
+    if (params.motionShape == MatrixFlowShape::Braid) {
+        // Two counter-moving strands exchange prominence twice per cycle.
+        // Source parity offsets the exchange so adjacent columns interleave
+        // rather than moving as one block.
+        const float travel = phaseForShape * 8.0f
+            * (0.35f + flowAmount * 1.65f);
+        const float strandWidth = 0.20f + params.spread * 1.30f;
+        for (uint32_t source = 0u; source < 8u; ++source) {
+            const float parity = (source & 1u) == 0u ? 0.0f : kPi;
+            const float exchange = 0.5f + 0.5f * std::sin(
+                angle * 2.0f + parity + params.vortex * kPi * 0.75f);
+            float forwardCenter = std::fmod(static_cast<float>(source)
+                + travel + params.vortex * 0.65f, 8.0f);
+            float reverseCenter = std::fmod(static_cast<float>(source)
+                + 4.0f - travel + params.vortex * 0.65f, 8.0f);
+            if (forwardCenter < 0.0f) forwardCenter += 8.0f;
+            if (reverseCenter < 0.0f) reverseCenter += 8.0f;
+            float sum = 0.0f;
+            for (uint32_t destination = 0u; destination < 8u;
+                 ++destination) {
+                const float forward = matrixFlowRingWeight(8u, destination,
+                    forwardCenter, strandWidth);
+                const float reverse = matrixFlowRingWeight(8u, destination,
+                    reverseCenter, strandWidth);
+                const float value = forward * (0.18f + exchange * 0.82f)
+                    + reverse * (1.0f - exchange * 0.82f);
+                weights[destination * 8u + source] = value;
+                sum += value;
+            }
+            if (sum > 1.0e-6f) {
+                for (uint32_t destination = 0u; destination < 8u;
+                     ++destination) {
+                    weights[destination * 8u + source] /= sum;
+                }
+            }
+        }
+        return weights;
+    }
+
+    if (params.motionShape == MatrixFlowShape::Attract) {
+        // A shared attractor travels around the destination ring. FLOW is the
+        // pull strength, SPREAD is its halo, and VORTEX adds a source-offset
+        // orbit so a fully attracted field still retains internal motion.
+        const float direction = params.vortex < -0.001f ? -1.0f : 1.0f;
+        const float attractor = phaseForShape * 8.0f * direction;
+        const float pull = 0.12f + flowAmount * 0.86f;
+        const float halo = 0.18f + params.spread * 1.55f;
+        for (uint32_t source = 0u; source < 8u; ++source) {
+            float delta = attractor - static_cast<float>(source);
+            while (delta > 4.0f) delta -= 8.0f;
+            while (delta < -4.0f) delta += 8.0f;
+            const float sourceAngle = static_cast<float>(source)
+                * kPi * 0.25f;
+            const float orbit = std::sin(angle + sourceAngle)
+                * params.vortex * (1.0f - pull * 0.55f);
+            float center = std::fmod(static_cast<float>(source)
+                + delta * pull + orbit, 8.0f);
+            if (center < 0.0f) center += 8.0f;
+            float sum = 0.0f;
+            for (uint32_t destination = 0u; destination < 8u;
+                 ++destination) {
+                const float value = matrixFlowRingWeight(8u, destination,
+                    center, halo);
+                weights[destination * 8u + source] = value;
+                sum += value;
+            }
+            if (sum > 1.0e-6f) {
+                for (uint32_t destination = 0u; destination < 8u;
+                     ++destination) {
+                    weights[destination * 8u + source] /= sum;
+                }
+            }
+        }
+        return weights;
+    }
+
     const float vortex = params.vortex + (swirlShape ? 1.35f : 0.0f);
     const float orbitX = std::cos(angle) * flowAmount
         * (swirlShape ? 1.12f : 1.0f);
@@ -955,6 +1124,15 @@ inline NoInputMovementBehaviorParams noInputMixerFactoryBehavior(
         params.slew = 0.18f;
         params.choke = 0.16f;
         break;
+    case 2u:
+        params.behavior = NoInputMovementBehavior::Erode;
+        params.eventRate = 0.24f;
+        params.length = 0.78f;
+        params.density = 0.62f;
+        params.chaos = 0.28f;
+        params.slew = 0.48f;
+        params.choke = 0.22f;
+        break;
     case 3u:
         params.behavior = NoInputMovementBehavior::Cut;
         params.eventRate = 0.48f;
@@ -989,7 +1167,7 @@ inline NoInputMovementBehaviorParams noInputMixerFactoryBehavior(
         params.choke = 0.86f;
         break;
     case 7u:
-        params.behavior = NoInputMovementBehavior::Burst;
+        params.behavior = NoInputMovementBehavior::Ratchet;
         params.eventRate = 0.50f;
         params.length = 0.38f;
         params.density = 0.58f;
@@ -997,8 +1175,9 @@ inline NoInputMovementBehaviorParams noInputMixerFactoryBehavior(
         params.choke = 0.58f;
         break;
     case 9u:
-        params.behavior = NoInputMovementBehavior::Step;
+        params.behavior = NoInputMovementBehavior::Cascade;
         params.eventRate = 0.44f;
+        params.length = 0.58f;
         params.density = 0.62f;
         params.chaos = 0.46f;
         params.choke = 0.24f;
@@ -1149,7 +1328,7 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.agency = 0.54f;
         params.space = 0.36f;
         params.motion = 0.28f;
-        params.motionShape = MatrixFlowShape::Scatter;
+        params.motionShape = MatrixFlowShape::Attract;
         params.reactMode = NoInputReactMode::Edge;
         params.reactDepth = 0.42f;
         params.reactThreshold = 0.16f;
@@ -1317,7 +1496,7 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.agency = 0.70f;
         params.space = 0.28f;
         params.motion = 0.46f;
-        params.motionShape = MatrixFlowShape::Scatter;
+        params.motionShape = MatrixFlowShape::Bloom;
         params.reactMode = NoInputReactMode::Edge;
         params.reactDepth = 0.62f;
         params.reactThreshold = 0.32f;
@@ -1418,7 +1597,7 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.spread = 0.58f;
         params.vortex = 0.76f;
         params.motion = 0.72f;
-        params.motionShape = MatrixFlowShape::Swirl;
+        params.motionShape = MatrixFlowShape::Braid;
         params.motionRate = 0.22f;
         params.clockSync = 1u;
         params.fieldDivision = 4u;
@@ -2160,15 +2339,27 @@ inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed,
         : (lowEnergy ? 0.38f + unit() * 0.18f
             : 0.42f + unit() * 0.26f);
     if (highEnergy) {
-        params.motionShape = matrixFlowShapeFromIndex(1u + next() % 4u);
+        static constexpr std::array<MatrixFlowShape, 6u> highShapes {{
+            MatrixFlowShape::Pulse, MatrixFlowShape::Chase,
+            MatrixFlowShape::Swirl, MatrixFlowShape::Scatter,
+            MatrixFlowShape::Bloom, MatrixFlowShape::Braid,
+        }};
+        params.motionShape = highShapes[next() % highShapes.size()];
     } else if (lowEnergy) {
-        static constexpr std::array<MatrixFlowShape, 3u> slowShapes {{
+        static constexpr std::array<MatrixFlowShape, 5u> slowShapes {{
             MatrixFlowShape::Flow, MatrixFlowShape::Chase,
-            MatrixFlowShape::Swirl,
+            MatrixFlowShape::Swirl, MatrixFlowShape::Bloom,
+            MatrixFlowShape::Attract,
         }};
         params.motionShape = slowShapes[next() % slowShapes.size()];
     } else {
-        params.motionShape = matrixFlowShapeFromIndex(next() % 5u);
+        static constexpr std::array<MatrixFlowShape, 8u> midShapes {{
+            MatrixFlowShape::Flow, MatrixFlowShape::Pulse,
+            MatrixFlowShape::Chase, MatrixFlowShape::Swirl,
+            MatrixFlowShape::Scatter, MatrixFlowShape::Bloom,
+            MatrixFlowShape::Braid, MatrixFlowShape::Attract,
+        }};
+        params.motionShape = midShapes[next() % midShapes.size()];
     }
     params.motionRate = highEnergy ? 0.72f + unit() * 0.23f
         : (lowEnergy ? 0.58f + unit() * 0.20f
@@ -2451,6 +2642,19 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        // A Parameter Surface gesture is evaluated at control rate.  Give
+        // every continuous DSP parameter one final audio-rate ramp so those
+        // control-rate updates cannot become impulses inside the feedback
+        // network.  The time is a near-complete (60 dB) settling interval.
+        constexpr float kSixtyDb = 6.90775527898f;
+        constexpr float kParameterRampSeconds = 0.020f;
+        parameterSlew_ = 1.0f - std::exp(-kSixtyDb
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * kParameterRampSeconds));
+        constexpr float kSurfaceMatrixRampSeconds = 0.080f;
+        surfaceMatrixSlew_ = 1.0f - std::exp(-kSixtyDb
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * kSurfaceMatrixRampSeconds));
         dcPole_ = std::exp(-2.0f * kPi * 12.0f
             / static_cast<float>(sampleRate_));
         energyAttack_ = 1.0f - std::exp(-1.0f
@@ -2466,22 +2670,44 @@ public:
         setMidiMatrixRampMs(midiMatrixRampMs_);
         panicSamplesTotal_ = std::max<uint32_t>(
             1u, static_cast<uint32_t>(sampleRate_ * 0.008));
-        setParams(params_);
+        parameterSmoothingInitialized_ = false;
+        setParams(targetParams_);
         reset();
     }
 
     void setParams(NoInputMixerParams params)
     {
-        params_ = sanitizeNoInputMixerParams(params);
+        const auto sanitized = sanitizeNoInputMixerParams(params);
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            const auto& previous = targetParams_.lanes[lane];
+            const auto& next = sanitized.lanes[lane];
+            if (previous.body != next.body || previous.loss != next.loss
+                || previous.tuneNote != next.tuneNote
+                || previous.tuneCents != next.tuneCents
+                || previous.pitchLock != next.pitchLock) {
+                bodyCoefficientsDirty_[lane] = 1u;
+            }
+            if (previous.lowDb != next.lowDb
+                || previous.midFrequencyHz != next.midFrequencyHz
+                || previous.midGainDb != next.midGainDb
+                || previous.highDb != next.highDb) {
+                eqCoefficientsDirty_[lane] = 1u;
+            }
+        }
+        targetParams_ = sanitized;
+        if (!parameterSmoothingInitialized_ || !audioProcessingStarted_) {
+            params_ = targetParams_;
+            parameterSmoothingInitialized_ = true;
+        } else {
+            copyDiscreteParameters();
+        }
         for (uint32_t index = 0u;
              index < kNoInputMixerMatrixCells; ++index) {
             if (midiMatrixReleasePending_[index] != 0u) {
-                midiMatrixTarget_[index] = params_.matrix[index];
+                midiMatrixTarget_[index] = targetParams_.matrix[index];
             }
         }
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
-            updateEq(lane);
-            updateBodyCoefficients(lane);
             for (uint32_t slot = 0u;
                  slot < kNoInputMixerInsertSlots; ++slot) {
                 auto& runtime = laneState_[lane].inserts[slot];
@@ -2514,7 +2740,14 @@ public:
                 runtime.crossfade = 0.0f;
             }
         }
-        rebuildMotionTargets();
+        if (controlCounter_ == 0u) {
+            for (uint32_t lane = 0u;
+                 lane < kNoInputMixerChannels; ++lane) {
+                updateEq(lane);
+                updateBodyCoefficients(lane);
+            }
+            rebuildMotionTargets();
+        }
     }
 
     void setMidiMatrixRampMs(float milliseconds)
@@ -2592,12 +2825,22 @@ public:
         transportHasTempo_ = hasTempo;
     }
 
-    const NoInputMixerParams& params() const { return params_; }
+    const NoInputMixerParams& params() const { return targetParams_; }
+
+    void setParameterSurfaceMutationEnabled(bool enabled)
+    {
+        parameterSurfaceMutationEnabled_ = enabled;
+    }
 
     void setMovementBehaviorParams(NoInputMovementBehaviorParams params)
     {
         const auto previous = behaviorParams_.behavior;
-        behaviorParams_ = sanitizeNoInputMovementBehaviorParams(params);
+        behaviorTargetParams_ = sanitizeNoInputMovementBehaviorParams(params);
+        if (!audioProcessingStarted_) {
+            behaviorParams_ = behaviorTargetParams_;
+        } else {
+            behaviorParams_.behavior = behaviorTargetParams_.behavior;
+        }
         if (previous != behaviorParams_.behavior) {
             behaviorSamplesUntilEvent_ = 0u;
             behaviorEnvelopeSample_ = 0u;
@@ -2615,8 +2858,17 @@ public:
 
     const NoInputMovementBehaviorParams& movementBehaviorParams() const
     {
-        return behaviorParams_;
+        return behaviorTargetParams_;
     }
+
+    void setMovementBehaviorDepth(float depth)
+    {
+        behaviorDepthTarget_ = clamp(std::isfinite(depth) ? depth : 0.0f,
+            0.0f, 1.0f);
+        if (!audioProcessingStarted_) behaviorDepth_ = behaviorDepthTarget_;
+    }
+
+    float movementBehaviorDepth() const { return behaviorDepthTarget_; }
 
     void setAuxMuted(uint32_t bus, bool muted)
     {
@@ -2631,6 +2883,10 @@ public:
 
     void reset()
     {
+        params_ = targetParams_;
+        behaviorParams_ = behaviorTargetParams_;
+        behaviorDepth_ = behaviorDepthTarget_;
+        audioProcessingStarted_ = false;
         clearMidiMatrixConnections();
         clearSignalState();
         silenced_ = true;
@@ -2675,10 +2931,17 @@ public:
         tapPostInsert_[lane] = previousTapPostInsert_[lane] = 0.0f;
         lanePeak_[lane] = 0.0f;
         laneActivity_[lane] = 0.0f;
+        responseEnergy_[lane] = 0.0f;
+        laneBehaviorCircuitGate_[lane] = 1.0f;
+        laneBehaviorLowpass_[lane] = 0.0f;
         for (uint32_t source = 0u; source < kNoInputMixerChannels;
              ++source) {
             phaseMemory_[lane * kNoInputMixerChannels + source] = 0.0f;
             phaseMemory_[source * kNoInputMixerChannels + lane] = 0.0f;
+            behaviorRouteLowpass_[lane * kNoInputMixerChannels + source]
+                = 0.0f;
+            behaviorRouteLowpass_[source * kNoInputMixerChannels + lane]
+                = 0.0f;
         }
         updateEq(lane);
         updateBodyCoefficients(lane);
@@ -2688,6 +2951,8 @@ public:
     void processFrame(float* output)
     {
         if (!output) return;
+        audioProcessingStarted_ = true;
+        advanceParameterSmoothing();
         routeSignals_.fill(0.0f);
         advanceMidiMatrixConnections();
         if (silenced_ && seedRemaining_ == 0u) {
@@ -2709,8 +2974,11 @@ public:
         if (params_.controllerHold == 0u) {
             if ((controlCounter_++ & 31u) == 0u) updateSlowControl();
             updateMovementBehavior();
-            updateReact();
         }
+        // HOLD freezes the field and behavior clocks, but Response remains a
+        // live audio follower. Its own OFF mode is the explicit way to stop it.
+        updateReact();
+        advanceMovementCircuitGates();
         previousReturns_ = returns_;
         previousTapPreEq_ = tapPreEq_;
         previousTapPostEq_ = tapPostEq_;
@@ -2760,14 +3028,6 @@ public:
                 float motionScale = noInputMixerMotionGainScale(
                     effectiveMotionWeight(index), activeMotionPeak[source],
                     activeMotionRouteCount[source], params_.motion);
-                if (behaviorParams_.behavior == NoInputMovementBehavior::Cut
-                    || behaviorParams_.behavior
-                        == NoInputMovementBehavior::Burst
-                    || behaviorParams_.behavior
-                        == NoInputMovementBehavior::Scramble) {
-                    motionScale *= lerp(1.0f, behaviorCurrent_[index],
-                        params_.motion);
-                }
                 if (params_.reactMode != NoInputReactMode::Off
                     && params_.reactDepth > 1.0e-6f) {
                     const float reactScale = 0.0316227766f
@@ -2793,7 +3053,11 @@ public:
                 phaseMemory_[index] = flushDenormal(
                     input + coefficient * allpass);
                 const float phased = lerp(input, allpass, params_.phase);
-                routeSignals_[index] = flushDenormal(phased * gain);
+                const float behaviorGate = lerp(1.0f,
+                    behaviorCircuitGate_[index], behaviorDepth_);
+                const float conditioned = processMovementLpg(phased,
+                    behaviorGate, behaviorRouteLowpass_[index]);
+                routeSignals_[index] = flushDenormal(conditioned * gain);
                 sum += routeSignals_[index];
                 // Normalize the graph, not the movement envelope. Including
                 // the modulated gain here applies inverse compensation and
@@ -2837,11 +3101,22 @@ public:
                 killLane(lane);
                 value = 0.0f;
             }
-            if (behaviorParams_.behavior != NoInputMovementBehavior::Glide
-                && behaviorParams_.choke > 1.0e-6f) {
-                value *= lerp(1.0f, laneBehaviorGate_[lane],
-                    behaviorParams_.choke);
-            }
+            // Response listens to the completed processor lane before CHOKE.
+            // Keep this detector separate from the post-choke governor so a
+            // movement window cannot recursively manufacture its own activity.
+            const float responseEnergyInput = value * value;
+            const float responseCoefficient = responseEnergyInput
+                    > responseEnergy_[lane]
+                ? energyAttack_ : energyRelease_;
+            responseEnergy_[lane] += (responseEnergyInput
+                - responseEnergy_[lane]) * responseCoefficient;
+            responseEnergy_[lane] = std::max(0.0f,
+                flushDenormal(responseEnergy_[lane]));
+            const float responseRms = std::sqrt(responseEnergy_[lane]);
+            const float chokeGate = lerp(1.0f,
+                laneBehaviorCircuitGate_[lane], behaviorParams_.choke);
+            value = processMovementLpg(value, chokeGate,
+                laneBehaviorLowpass_[lane]);
             tapPostInsert_[lane] = value;
             value = clamp(value, -8.0f, 8.0f);
 
@@ -2888,7 +3163,8 @@ public:
                 ? flushDenormal(audition) : 0.0f;
             lanePeak_[lane] = std::max(
                 lanePeak_[lane] * 0.9994f, std::abs(output[lane]));
-            laneActivity_[lane] += (rms - laneActivity_[lane]) * 0.003f;
+            laneActivity_[lane] += (responseRms - laneActivity_[lane])
+                * 0.003f;
         }
 
         if (seedRemaining_ > 0u) --seedRemaining_;
@@ -2940,8 +3216,10 @@ public:
     float motionPhase() const { return motionPhase_; }
     float behaviorRouteGate(uint32_t route) const
     {
-        return route < kNoInputMixerMatrixCells
-            ? behaviorCurrent_[route] : 0.0f;
+        if (route >= kNoInputMixerMatrixCells) return 0.0f;
+        return noInputMovementBehaviorUsesAmplitude(
+                behaviorParams_.behavior)
+            ? behaviorCircuitGate_[route] : behaviorCurrent_[route];
     }
     float reactRouteGate(uint32_t route) const
     {
@@ -2955,6 +3233,165 @@ public:
     }
 
 private:
+    void copyDiscreteParameters()
+    {
+        params_.limiterEnabled = targetParams_.limiterEnabled;
+        params_.dcBlockEnabled = targetParams_.dcBlockEnabled;
+        params_.motionShape = targetParams_.motionShape;
+        params_.reactMode = targetParams_.reactMode;
+        params_.reactPolarity = targetParams_.reactPolarity;
+        params_.controllerHold = targetParams_.controllerHold;
+        params_.slowTime = targetParams_.slowTime;
+        params_.clockSync = targetParams_.clockSync;
+        params_.fieldDivision = targetParams_.fieldDivision;
+        params_.eventDivision = targetParams_.eventDivision;
+        params_.quality = targetParams_.quality;
+        params_.seed = targetParams_.seed;
+        for (uint32_t bus = 0u; bus < 2u; ++bus) {
+            params_.aux[bus].effect.type =
+                targetParams_.aux[bus].effect.type;
+            params_.aux[bus].effect.bypass =
+                targetParams_.aux[bus].effect.bypass;
+        }
+        for (uint32_t lane = 0u;
+             lane < kNoInputMixerChannels; ++lane) {
+            params_.lanes[lane].mute = targetParams_.lanes[lane].mute;
+            params_.lanes[lane].pitchLock =
+                targetParams_.lanes[lane].pitchLock;
+            for (uint32_t bus = 0u; bus < 2u; ++bus) {
+                params_.lanes[lane].auxTap[bus] =
+                    targetParams_.lanes[lane].auxTap[bus];
+            }
+            for (uint32_t slot = 0u;
+                 slot < kNoInputMixerInsertSlots; ++slot) {
+                params_.lanes[lane].inserts[slot].type =
+                    targetParams_.lanes[lane].inserts[slot].type;
+                params_.lanes[lane].inserts[slot].bypass =
+                    targetParams_.lanes[lane].inserts[slot].bypass;
+            }
+        }
+    }
+
+    void advanceParameterSmoothing()
+    {
+        const auto smoothWith = [](float& current, float target,
+            float coefficient) {
+            const float difference = target - current;
+            if (std::abs(difference) <= 1.0e-7f) {
+                current = target;
+                return false;
+            }
+            current += difference * coefficient;
+            current = flushDenormal(current);
+            return true;
+        };
+        const auto smooth = [this, &smoothWith](float& current,
+            float target) {
+            return smoothWith(current, target, parameterSlew_);
+        };
+
+        smooth(params_.outputGainDb, targetParams_.outputGainDb);
+        smooth(params_.ceilingDb, targetParams_.ceilingDb);
+        smooth(params_.feedback, targetParams_.feedback);
+        smooth(params_.coupling, targetParams_.coupling);
+        smooth(params_.phase, targetParams_.phase);
+        smooth(params_.drift, targetParams_.drift);
+        smooth(params_.formant, targetParams_.formant);
+        smooth(params_.agency, targetParams_.agency);
+        smooth(params_.space, targetParams_.space);
+        smooth(params_.variance, targetParams_.variance);
+        smooth(params_.internalTone, targetParams_.internalTone);
+        smooth(params_.houseTone, targetParams_.houseTone);
+        smooth(params_.flow, targetParams_.flow);
+        smooth(params_.spread, targetParams_.spread);
+        smooth(params_.vortex, targetParams_.vortex);
+        smooth(params_.motion, targetParams_.motion);
+        smooth(params_.motionRate, targetParams_.motionRate);
+        smooth(params_.motionPhase, targetParams_.motionPhase);
+        smooth(params_.reactDepth, targetParams_.reactDepth);
+        smooth(params_.reactThreshold, targetParams_.reactThreshold);
+        smooth(params_.reactAttack, targetParams_.reactAttack);
+        smooth(params_.reactRelease, targetParams_.reactRelease);
+        smooth(params_.surfaceX, targetParams_.surfaceX);
+        smooth(params_.surfaceY, targetParams_.surfaceY);
+
+        for (uint32_t index = 0u;
+             index < kNoInputMixerMatrixCells; ++index) {
+            smoothWith(params_.matrix[index], targetParams_.matrix[index],
+                parameterSurfaceMutationEnabled_ ? surfaceMatrixSlew_
+                    : parameterSlew_);
+        }
+        for (uint32_t bus = 0u; bus < 2u; ++bus) {
+            auto& current = params_.aux[bus];
+            const auto& target = targetParams_.aux[bus];
+            smooth(current.effect.gain, target.effect.gain);
+            smooth(current.effect.tone, target.effect.tone);
+            smooth(current.effect.bias, target.effect.bias);
+            smooth(current.effect.levelDb, target.effect.levelDb);
+            smooth(current.feedback, target.feedback);
+            smooth(current.returnGain, target.returnGain);
+        }
+        for (uint32_t lane = 0u;
+             lane < kNoInputMixerChannels; ++lane) {
+            auto& current = params_.lanes[lane];
+            const auto& target = targetParams_.lanes[lane];
+            bodyCoefficientsDirty_[lane] |= smooth(current.body,
+                target.body) ? 1u : 0u;
+            bodyCoefficientsDirty_[lane] |= smooth(current.loss,
+                target.loss) ? 1u : 0u;
+            smooth(current.levelDb, target.levelDb);
+            eqCoefficientsDirty_[lane] |= smooth(current.lowDb,
+                target.lowDb) ? 1u : 0u;
+            eqCoefficientsDirty_[lane] |= smooth(current.midFrequencyHz,
+                target.midFrequencyHz) ? 1u : 0u;
+            eqCoefficientsDirty_[lane] |= smooth(current.midGainDb,
+                target.midGainDb) ? 1u : 0u;
+            eqCoefficientsDirty_[lane] |= smooth(current.highDb,
+                target.highDb) ? 1u : 0u;
+            bodyCoefficientsDirty_[lane] |= smooth(current.tuneNote,
+                target.tuneNote) ? 1u : 0u;
+            bodyCoefficientsDirty_[lane] |= smooth(current.tuneCents,
+                target.tuneCents) ? 1u : 0u;
+            for (uint32_t bus = 0u; bus < 2u; ++bus) {
+                smooth(current.auxSend[bus], target.auxSend[bus]);
+                smooth(current.auxReturn[bus], target.auxReturn[bus]);
+            }
+            for (uint32_t slot = 0u;
+                 slot < kNoInputMixerInsertSlots; ++slot) {
+                auto& currentInsert = current.inserts[slot];
+                const auto& targetInsert = target.inserts[slot];
+                smooth(currentInsert.gain, targetInsert.gain);
+                smooth(currentInsert.tone, targetInsert.tone);
+                smooth(currentInsert.bias, targetInsert.bias);
+                smooth(currentInsert.levelDb, targetInsert.levelDb);
+            }
+        }
+
+        smooth(behaviorParams_.eventRate, behaviorTargetParams_.eventRate);
+        smooth(behaviorParams_.length, behaviorTargetParams_.length);
+        smooth(behaviorParams_.density, behaviorTargetParams_.density);
+        smooth(behaviorParams_.chaos, behaviorTargetParams_.chaos);
+        smooth(behaviorParams_.slew, behaviorTargetParams_.slew);
+        smooth(behaviorParams_.choke, behaviorTargetParams_.choke);
+        smooth(behaviorDepth_, behaviorDepthTarget_);
+
+        // Trigonometric coefficient construction is relatively expensive.
+        // Refresh only lanes whose smoothed controls actually moved.
+        if ((parameterUpdateCounter_++ & 31u) == 0u) {
+            for (uint32_t lane = 0u;
+                 lane < kNoInputMixerChannels; ++lane) {
+                if (eqCoefficientsDirty_[lane] != 0u) {
+                    updateEq(lane);
+                    eqCoefficientsDirty_[lane] = 0u;
+                }
+                if (bodyCoefficientsDirty_[lane] != 0u) {
+                    updateBodyCoefficients(lane);
+                    bodyCoefficientsDirty_[lane] = 0u;
+                }
+            }
+        }
+    }
+
     struct Biquad {
         float b0 = 1.0f;
         float b1 = 0.0f;
@@ -3524,7 +3961,8 @@ private:
             return motionCurrent_[index];
         }
         if (behaviorParams_.behavior == NoInputMovementBehavior::Step) {
-            return behaviorCurrent_[index];
+            return lerp(motionCurrent_[index], behaviorCurrent_[index],
+                behaviorDepth_);
         }
         // Binary articulation selects a topology mask independently from the
         // continuously moving field. The field supplies motion weight while
@@ -3585,6 +4023,7 @@ private:
             behaviorTarget_ = motionTarget_;
         } else {
             behaviorTarget_.fill(0.0f);
+            behaviorOrder_.fill(0.0f);
             const float density = behaviorParams_.density;
             const uint32_t burstDestination = behaviorHash(0x42555253u)
                 % kNoInputMixerChannels;
@@ -3601,6 +4040,11 @@ private:
                         continue;
                     const float random = behaviorHashUnit(index * 0x45d9f3bu
                         + 0x53544550u);
+                    behaviorOrder_[index] = clamp(
+                        motionTarget_[index]
+                            * (1.0f - behaviorParams_.chaos)
+                        + random * behaviorParams_.chaos,
+                        0.0f, 1.0f);
                     float probability = density;
                     if (behavior == NoInputMovementBehavior::Cut) {
                         probability *= 0.45f + motionTarget_[index] * 0.75f;
@@ -3621,17 +4065,58 @@ private:
                         strongest = ranking;
                         strongestIndex = index;
                     }
-                    if (random < clamp(probability, 0.0f, 1.0f)) {
+                    if (behavior == NoInputMovementBehavior::Cascade
+                        || behavior == NoInputMovementBehavior::Erode
+                        || random < clamp(probability, 0.0f, 1.0f)) {
                         behaviorTarget_[index] = 1.0f;
                         ++activeCount;
                     }
                 }
-                if (behavior == NoInputMovementBehavior::Scramble
+                if ((behavior == NoInputMovementBehavior::Scramble
+                        || behavior == NoInputMovementBehavior::Ratchet)
                     && activeCount == 0u && strongest >= 0.0f
                     && density > 0.001f) {
                     behaviorTarget_[strongestIndex] = 1.0f;
                 }
+                if (behavior == NoInputMovementBehavior::Erode
+                    && activeCount > 0u) {
+                    for (uint32_t destination = 0u;
+                         destination < kNoInputMixerChannels;
+                         ++destination) {
+                        const uint32_t index = destination
+                            * kNoInputMixerChannels + source;
+                        if (behaviorTarget_[index] <= 0.0f) continue;
+                        uint32_t rank = 0u;
+                        for (uint32_t other = 0u;
+                             other < kNoInputMixerChannels; ++other) {
+                            const uint32_t otherIndex = other
+                                * kNoInputMixerChannels + source;
+                            if (behaviorTarget_[otherIndex] > 0.0f
+                                && behaviorOrder_[otherIndex]
+                                    < behaviorOrder_[index]) {
+                                ++rank;
+                            }
+                        }
+                        behaviorOrder_[index] =
+                            (static_cast<float>(rank) + 0.5f)
+                            / static_cast<float>(activeCount);
+                    }
+                }
             }
+        }
+
+        behaviorRatchetCount_ = 2u + static_cast<uint32_t>(std::lround(
+            behaviorParams_.density * 3.0f
+                + behaviorParams_.chaos * 4.0f));
+        const float deterministicStart = static_cast<float>(
+            (behaviorEventCount_ - 1u) % kNoInputMixerChannels);
+        const float randomStart = static_cast<float>(
+            behaviorHash(0x43415343u) % kNoInputMixerChannels);
+        behaviorCascadeStart_ = lerp(deterministicStart, randomStart,
+            behaviorParams_.chaos);
+        behaviorCascadeDirection_ = params_.vortex < -0.001f ? -1.0f : 1.0f;
+        if (behaviorHashUnit(0x44495245u) < behaviorParams_.chaos * 0.5f) {
+            behaviorCascadeDirection_ = -behaviorCascadeDirection_;
         }
 
         const float hz = params_.clockSync != 0u && transportHasTempo_
@@ -3642,8 +4127,10 @@ private:
         float interval = static_cast<float>(sampleRate_) / hz;
         const float jitter = (behaviorHashUnit(0x4a495454u) * 2.0f - 1.0f)
             * behaviorParams_.chaos;
-        const float jitterDepth = behavior
-            == NoInputMovementBehavior::Burst ? 0.82f : 0.38f;
+        const float jitterDepth = behavior == NoInputMovementBehavior::Burst
+                || behavior == NoInputMovementBehavior::Ratchet
+            ? 0.82f : (behavior == NoInputMovementBehavior::Cascade
+                ? 0.56f : 0.38f);
         interval *= std::max(0.12f, 1.0f + jitter * jitterDepth);
         behaviorSamplesUntilEvent_ = std::max<uint32_t>(1u,
             static_cast<uint32_t>(interval));
@@ -3652,14 +4139,30 @@ private:
             static_cast<uint32_t>(std::lround(
                 static_cast<float>(sampleRate_)
                 * noInputMovementSlewMs(behaviorParams_.slew) * 0.001f)));
-        if (behavior == NoInputMovementBehavior::Cut
-            || behavior == NoInputMovementBehavior::Burst) {
+        if (noInputMovementBehaviorUsesLength(behavior)) {
             const float lengthSamples = static_cast<float>(sampleRate_)
                 * noInputMovementLengthMs(behaviorParams_.length) * 0.001f;
             behaviorEnvelopeSamples_ = std::max<uint32_t>(4u,
                 static_cast<uint32_t>(std::min(lengthSamples,
                     interval * lerp(0.25f, 0.95f,
                         behaviorParams_.density))));
+            if (behavior == NoInputMovementBehavior::Ratchet) {
+                const uint32_t minimumSmoothRatchet =
+                    behaviorRatchetCount_ * edgeSamples * 4u;
+                const uint32_t maximumEventLength = std::max<uint32_t>(
+                    4u, static_cast<uint32_t>(interval * 0.95f));
+                behaviorEnvelopeSamples_ = std::max(
+                    behaviorEnvelopeSamples_, std::min(
+                        minimumSmoothRatchet, maximumEventLength));
+            }
+            if (behavior == NoInputMovementBehavior::Erode) {
+                const uint32_t minimumSmoothErosion = edgeSamples * 12u;
+                const uint32_t maximumEventLength = std::max<uint32_t>(
+                    4u, static_cast<uint32_t>(interval * 0.95f));
+                behaviorEnvelopeSamples_ = std::max(
+                    behaviorEnvelopeSamples_, std::min(
+                        minimumSmoothErosion, maximumEventLength));
+            }
             const float attackScale = behavior
                     == NoInputMovementBehavior::Burst
                 ? lerp(0.90f, 0.72f, behaviorParams_.chaos)
@@ -3722,6 +4225,136 @@ private:
             return;
         }
 
+        if (behavior == NoInputMovementBehavior::Ratchet) {
+            if (behaviorEnvelopeSamples_ <= 1u
+                || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
+                behaviorCurrent_.fill(0.0f);
+                return;
+            }
+            const float phase = static_cast<float>(behaviorEnvelopeSample_)
+                / static_cast<float>(behaviorEnvelopeSamples_);
+            const float cycles = static_cast<float>(
+                std::max<uint32_t>(2u, behaviorRatchetCount_));
+            const float pulsePhase = std::fmod(phase * cycles, 1.0f);
+            const float duty = lerp(0.24f, 0.78f,
+                behaviorParams_.density);
+            const float subcycleSamples = static_cast<float>(
+                behaviorEnvelopeSamples_) / cycles;
+            const float edge = clamp(static_cast<float>(
+                behaviorAttackSamples_) / std::max(2.0f, subcycleSamples),
+                0.01f, duty * 0.48f);
+            float window = 0.0f;
+            if (pulsePhase < duty) {
+                const float attack = raisedCosine(
+                    pulsePhase / std::max(0.001f, edge));
+                const float release = 1.0f - raisedCosine(
+                    (pulsePhase - (duty - edge))
+                        / std::max(0.001f, edge));
+                window = std::min(attack, release);
+            }
+            const float eventAttack = raisedCosine(
+                static_cast<float>(behaviorEnvelopeSample_)
+                    / static_cast<float>(
+                        std::max<uint32_t>(2u, behaviorAttackSamples_)));
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                const float target = behaviorTarget_[index] * window;
+                behaviorCurrent_[index] = flushDenormal(clamp(
+                    lerp(behaviorStart_[index], target, eventAttack),
+                    0.0f, 1.0f));
+            }
+            ++behaviorEnvelopeSample_;
+            return;
+        }
+
+        if (behavior == NoInputMovementBehavior::Cascade) {
+            if (behaviorEnvelopeSamples_ <= 1u
+                || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
+                behaviorCurrent_.fill(0.0f);
+                return;
+            }
+            const float phase = static_cast<float>(behaviorEnvelopeSample_)
+                / static_cast<float>(behaviorEnvelopeSamples_ - 1u);
+            float center = std::fmod(behaviorCascadeStart_
+                + behaviorCascadeDirection_ * phase * 8.0f, 8.0f);
+            if (center < 0.0f) center += 8.0f;
+            const float trail = 0.20f
+                + behaviorParams_.density * 2.65f;
+            const float attack = raisedCosine(
+                static_cast<float>(behaviorEnvelopeSample_)
+                    / static_cast<float>(
+                        std::max<uint32_t>(2u, behaviorAttackSamples_)));
+            const uint32_t releaseStart = behaviorEnvelopeSamples_
+                - behaviorReleaseSamples_;
+            const float release = behaviorEnvelopeSample_ < releaseStart
+                ? 1.0f : 1.0f - raisedCosine(
+                    static_cast<float>(behaviorEnvelopeSample_
+                        - releaseStart)
+                    / static_cast<float>(
+                        std::max<uint32_t>(2u, behaviorReleaseSamples_)));
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                const uint32_t destination = index
+                    / kNoInputMixerChannels;
+                float point = static_cast<float>(destination)
+                    + (behaviorOrder_[index] - 0.5f)
+                        * behaviorParams_.chaos * 0.90f;
+                point = std::fmod(point, 8.0f);
+                if (point < 0.0f) point += 8.0f;
+                float distance = std::abs(point - center);
+                distance = std::min(distance, 8.0f - distance);
+                const float gate = behaviorTarget_[index]
+                    * std::exp(-(distance * distance)
+                        / std::max(0.001f, trail * trail));
+                behaviorCurrent_[index] = flushDenormal(clamp(
+                    lerp(behaviorStart_[index], gate, attack)
+                        * release, 0.0f, 1.0f));
+            }
+            ++behaviorEnvelopeSample_;
+            return;
+        }
+
+        if (behavior == NoInputMovementBehavior::Erode) {
+            const float edgeSeconds = noInputMovementSlewMs(
+                behaviorParams_.slew) * 0.001f;
+            const float edgeCoefficient = 1.0f - std::exp(-1.0f
+                / std::max(1.0f, static_cast<float>(sampleRate_)
+                    * edgeSeconds));
+            if (behaviorEnvelopeSamples_ <= 1u
+                || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
+                for (float& gate : behaviorCurrent_) {
+                    gate += (1.0f - gate) * edgeCoefficient;
+                    gate = flushDenormal(clamp(gate, 0.0f, 1.0f));
+                }
+                return;
+            }
+            const float phase = static_cast<float>(behaviorEnvelopeSample_)
+                / static_cast<float>(behaviorEnvelopeSamples_ - 1u);
+            const float erosion = phase < 0.72f
+                ? raisedCosine(phase / 0.72f)
+                : 1.0f - raisedCosine((phase - 0.72f) / 0.28f);
+            const float removal = erosion
+                * (1.0f - behaviorParams_.density * 0.90f);
+            const float softness = 0.015f
+                + static_cast<float>(behaviorAttackSamples_)
+                    / static_cast<float>(behaviorEnvelopeSamples_)
+                    * 2.25f;
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                float gate = 1.0f;
+                if (behaviorTarget_[index] > 0.0f && removal > 0.0f) {
+                    gate = raisedCosine((behaviorOrder_[index] - removal)
+                        / std::max(0.001f, softness) + 0.5f);
+                }
+                behaviorCurrent_[index] += (gate
+                    - behaviorCurrent_[index]) * edgeCoefficient;
+                behaviorCurrent_[index] = flushDenormal(clamp(
+                    behaviorCurrent_[index], 0.0f, 1.0f));
+            }
+            ++behaviorEnvelopeSample_;
+            return;
+        }
+
         if (behavior != NoInputMovementBehavior::Cut
             && behavior != NoInputMovementBehavior::Burst) return;
         if (behaviorEnvelopeSamples_ <= 1u
@@ -3774,10 +4407,8 @@ private:
             --behaviorSamplesUntilEvent_;
         }
 
-        if (behaviorParams_.behavior == NoInputMovementBehavior::Cut
-            || behaviorParams_.behavior == NoInputMovementBehavior::Burst
-            || behaviorParams_.behavior
-                == NoInputMovementBehavior::Scramble) {
+        if (noInputMovementBehaviorUsesAmplitude(
+                behaviorParams_.behavior)) {
             updateWindowedMovementBehavior();
         } else {
             const float slewSeconds = noInputMovementSlewMs(
@@ -3809,6 +4440,66 @@ private:
             }
             if (!hasRoute) laneBehaviorGate_[destination] = 1.0f;
         }
+    }
+
+    void advanceMovementCircuitGates()
+    {
+        const bool circuitBehavior = noInputMovementBehaviorUsesAmplitude(
+            behaviorParams_.behavior);
+        const float slewMs = noInputMovementSlewMs(behaviorParams_.slew);
+        // Times describe near-complete (60 dB) settling. The asymmetric
+        // release is the slow, memory-bearing half of the vactrol response.
+        const float openMs = 8.0f + slewMs * 1.6f;
+        const float closeMs = 45.0f + slewMs * 5.25f;
+        const auto coefficient = [this](float milliseconds) {
+            constexpr float kSettle = 6.90775527898f;
+            return 1.0f - std::exp(-kSettle
+                / std::max(1.0f, static_cast<float>(sampleRate_)
+                    * milliseconds * 0.001f));
+        };
+        const float openCoefficient = coefficient(openMs);
+        const float closeCoefficient = coefficient(closeMs);
+        for (uint32_t index = 0u;
+             index < kNoInputMixerMatrixCells; ++index) {
+            const float target = circuitBehavior
+                ? behaviorCurrent_[index] : 1.0f;
+            const float amount = target > behaviorCircuitGate_[index]
+                ? openCoefficient : closeCoefficient;
+            behaviorCircuitGate_[index] += (target
+                - behaviorCircuitGate_[index]) * amount;
+            behaviorCircuitGate_[index] = flushDenormal(clamp(
+                behaviorCircuitGate_[index], 0.0f, 1.0f));
+        }
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            const float target = circuitBehavior
+                ? laneBehaviorGate_[lane] : 1.0f;
+            const float amount = target > laneBehaviorCircuitGate_[lane]
+                ? openCoefficient : closeCoefficient;
+            laneBehaviorCircuitGate_[lane] += (target
+                - laneBehaviorCircuitGate_[lane]) * amount;
+            laneBehaviorCircuitGate_[lane] = flushDenormal(clamp(
+                laneBehaviorCircuitGate_[lane], 0.0f, 1.0f));
+        }
+    }
+
+    float processMovementLpg(float input, float gate, float& lowpass)
+    {
+        gate = clamp(gate, 0.0f, 1.0f);
+        if (gate >= 0.9995f) {
+            lowpass = input;
+            return input;
+        }
+        // A one-pole low-pass follows the optical gate. At an open gate the
+        // path is transparent; as it closes, bandwidth falls before silence,
+        // avoiding a broadband edge inside the feedback circuit.
+        const float cutoff = 70.0f + gate * gate * 17930.0f;
+        const float angular = 2.0f * kPi * cutoff
+            / static_cast<float>(sampleRate_);
+        const float filterCoefficient = angular / (1.0f + angular);
+        lowpass += (input - lowpass) * filterCoefficient;
+        lowpass = flushDenormal(lowpass);
+        const float toneMix = 1.0f - gate;
+        return flushDenormal(lerp(input, lowpass, toneMix) * gate);
     }
 
     void updateReact()
@@ -3871,9 +4562,7 @@ private:
                 case NoInputReactMode::Count:
                     target = 1.0f; break;
                 }
-                const float polarity = std::abs(params_.reactPolarity);
-                target = lerp(0.5f, params_.reactPolarity < 0.0f
-                    ? 1.0f - target : target, polarity);
+                if (params_.reactPolarity < 0.0f) target = 1.0f - target;
                 const float coefficient = target > reactCurrent_[index]
                     ? attack : release;
                 reactCurrent_[index] += (target - reactCurrent_[index])
@@ -3919,9 +4608,6 @@ private:
             routeSpaceGate_[index] += (gateTarget
                 - routeSpaceGate_[index]) * gateSpeed;
         }
-        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
-            updateBodyCoefficients(lane);
-        }
     }
 
     void rebuildMotionTargets()
@@ -3954,7 +4640,12 @@ private:
         behaviorTarget_.fill(1.0f);
         behaviorStart_.fill(1.0f);
         behaviorCurrent_.fill(1.0f);
+        behaviorOrder_.fill(0.0f);
         laneBehaviorGate_.fill(1.0f);
+        behaviorCircuitGate_.fill(1.0f);
+        behaviorRouteLowpass_.fill(0.0f);
+        laneBehaviorCircuitGate_.fill(1.0f);
+        laneBehaviorLowpass_.fill(0.0f);
         routeSpaceGate_.fill(1.0f);
         reactCurrent_.fill(1.0f);
         reactEdge_.fill(0.0f);
@@ -3968,6 +4659,7 @@ private:
         }
         lanePeak_.fill(0.0f);
         laneActivity_.fill(0.0f);
+        responseEnergy_.fill(0.0f);
         networkActivity_ = 0.0f;
         controlCounter_ = 0u;
         behaviorEventCount_ = 0u;
@@ -3976,10 +4668,15 @@ private:
         behaviorEnvelopeSamples_ = 0u;
         behaviorAttackSamples_ = 0u;
         behaviorReleaseSamples_ = 0u;
+        behaviorRatchetCount_ = 2u;
+        behaviorCascadeStart_ = 0.0f;
+        behaviorCascadeDirection_ = 1.0f;
         motionPhase_ = params_.motionPhase;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             updateEq(lane);
             updateBodyCoefficients(lane);
+            eqCoefficientsDirty_[lane] = 0u;
+            bodyCoefficientsDirty_[lane] = 0u;
             initializeInsertTypes(lane);
         }
         for (uint32_t bus = 0u; bus < 2u; ++bus) {
@@ -4034,12 +4731,14 @@ private:
 
     double sampleRate_ = 48000.0;
     NoInputMixerParams params_ = defaultNoInputMixerParams();
+    NoInputMixerParams targetParams_ = defaultNoInputMixerParams();
     std::array<float, kNoInputMixerMatrixCells> midiMatrixGain_ {};
     std::array<float, kNoInputMixerMatrixCells> midiMatrixTarget_ {};
     std::array<uint32_t, kNoInputMixerMatrixCells> midiMatrixActive_ {};
     std::array<uint32_t,
         kNoInputMixerMatrixCells> midiMatrixReleasePending_ {};
     NoInputMovementBehaviorParams behaviorParams_ {};
+    NoInputMovementBehaviorParams behaviorTargetParams_ {};
     std::array<LaneState, kNoInputMixerChannels> laneState_ {};
     std::array<AuxState, 2u> auxState_ {};
     std::array<float, kNoInputMixerChannels> returns_ {};
@@ -4064,13 +4763,21 @@ private:
     std::array<float, kNoInputMixerMatrixCells> behaviorTarget_ {};
     std::array<float, kNoInputMixerMatrixCells> behaviorStart_ {};
     std::array<float, kNoInputMixerMatrixCells> behaviorCurrent_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorOrder_ {};
     std::array<float, kNoInputMixerChannels> laneBehaviorGate_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorCircuitGate_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorRouteLowpass_ {};
+    std::array<float, kNoInputMixerChannels> laneBehaviorCircuitGate_ {};
+    std::array<float, kNoInputMixerChannels> laneBehaviorLowpass_ {};
     std::array<float, kNoInputMixerMatrixCells> routeSpaceGate_ {};
     std::array<float, kNoInputMixerMatrixCells> reactCurrent_ {};
     std::array<float, kNoInputMixerChannels> reactEdge_ {};
     std::array<uint32_t, kNoInputMixerChannels> reactWasAbove_ {};
     std::array<float, kNoInputMixerChannels> lanePeak_ {};
     std::array<float, kNoInputMixerChannels> laneActivity_ {};
+    std::array<float, kNoInputMixerChannels> responseEnergy_ {};
+    std::array<uint8_t, kNoInputMixerChannels> eqCoefficientsDirty_ {};
+    std::array<uint8_t, kNoInputMixerChannels> bodyCoefficientsDirty_ {};
     float networkActivity_ = 0.0f;
     float dcPole_ = 0.998f;
     float energyAttack_ = 0.002f;
@@ -4078,23 +4785,34 @@ private:
     float governorAttack_ = 0.001f;
     float governorRelease_ = 0.00005f;
     float auxMuteSlew_ = 0.005f;
+    float parameterSlew_ = 0.01f;
+    float surfaceMatrixSlew_ = 0.002f;
     float midiMatrixSlew_ = 0.005f;
     float midiMatrixRampMs_ = kNoInputMatrixMidiRampDefaultMs;
+    float behaviorDepth_ = 0.0f;
+    float behaviorDepthTarget_ = 0.0f;
     float seedAmount_ = 0.45f;
     float motionPhase_ = 0.0f;
     uint32_t seedRemaining_ = 0u;
     uint32_t randomState_ = 0x5455444fu;
     uint32_t controlCounter_ = 0u;
+    uint32_t parameterUpdateCounter_ = 0u;
     uint32_t behaviorEventCount_ = 0u;
     uint32_t behaviorSamplesUntilEvent_ = 0u;
     uint32_t behaviorEnvelopeSample_ = 0u;
     uint32_t behaviorEnvelopeSamples_ = 0u;
     uint32_t behaviorAttackSamples_ = 0u;
     uint32_t behaviorReleaseSamples_ = 0u;
+    uint32_t behaviorRatchetCount_ = 2u;
     uint32_t panicRemaining_ = 0u;
     uint32_t panicSamplesTotal_ = 384u;
     double transportTempoBpm_ = 120.0;
+    float behaviorCascadeStart_ = 0.0f;
+    float behaviorCascadeDirection_ = 1.0f;
     bool transportHasTempo_ = false;
+    bool parameterSmoothingInitialized_ = false;
+    bool audioProcessingStarted_ = false;
+    bool parameterSurfaceMutationEnabled_ = false;
     bool silenced_ = true;
     NoInputContainmentState containmentState_ =
         NoInputContainmentState::Quiet;

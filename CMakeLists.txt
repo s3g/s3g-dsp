@@ -477,9 +477,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
     COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
       $<TARGET_FILE:s3g_ambi_insect_encoder_clap>
       org.s3g.s3g-dsp.ambi-insect-encoder-64 42 43
-    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
-      $<TARGET_FILE:s3g_no_input_mixer_clap>
-      org.s3g.s3g-dsp.no-input-mixer-8ch 55 56
     DEPENDS
       s3g_parameter_surface_smoke
       s3g_parameter_surface_clap_smoke
@@ -490,7 +487,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_ambi_pyrosphere_encoder_clap
       s3g_ambi_cryosphere_encoder_clap
       s3g_ambi_insect_encoder_clap
-      s3g_no_input_mixer_clap
     COMMENT "Validating shared Parameter Surface DSP, CLAP parameters, and state")
 
   add_custom_target(audit_preset_output_preservation

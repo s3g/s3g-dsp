@@ -1,6 +1,6 @@
 # s3g Processor No Input Mixer 8ch — MIDI protocol
 
-Status: development draft, version 0.4.
+Status: published protocol, version 0.6.
 
 The No Input Mixer CLAP accepts a dedicated MIDI 1 controller stream on its
 single `Controller MIDI In` note port. The initial implementation is designed
@@ -100,7 +100,7 @@ The current parameter address families are:
 
 | Family | NRPN parameter number |
 | --- | --- |
-| Global parameters | CLAP IDs `1` through `59` |
+| Global parameters | CLAP IDs `1`–`54` and `57`–`60`; IDs `55/56` are unused |
 | Matrix source `s` to destination `d` | `100 + 8 * d + s` |
 | Lane direct parameter | `1000 + 100 * lane + offset` |
 | Lane insert parameter | `1000 + 100 * lane + 20 + 10 * slot + field` |
@@ -113,6 +113,17 @@ and `1` is negative. For a conventional E16 NRPN mapping, raw value `0` selects
 positive and `16383` selects negative.
 Global parameter `59` is continuous `BU16 Ramp`, from `20` to `10000 ms`, with
 a default of `1000 ms`.
+Global parameter `60` is continuous Behavior Depth, from `0` to `1`.
+Global parameter `20` is stepped Field Shape: `0` Flow, `1` Pulse, `2` Chase,
+`3` Swirl, `4` Scat, `5` Hold, `6` Bloom, `7` Braid, and `8` Attract.
+Global parameter `35` is stepped Behavior: `0` Glide, `1` Step, `2` Cut,
+`3` Burst, `4` Scramble, `5` Ratchet, `6` Cascade, and `7` Erode. The new
+choices are appended, so all previously published values retain their meaning.
+
+The complete global-ID table, enum order, Note commands, matrix formulas, and
+lane/insert offsets are also published on the user-facing
+`No Input Mixer MIDI Control` documentation page. Controllers do not need to
+imitate the E16 page layout: they may send any published address directly.
 
 Lane direct offsets:
 
@@ -204,6 +215,7 @@ Only Note On messages with non-zero velocity on channel 16 trigger commands.
 | 124 | Clear the complete 8-by-8 matrix |
 | 125 | Random, low-energy profile |
 | 126 | Random, high-energy profile |
+| 127 | Toggle Response direction between Normal and Invert |
 
 All three Random commands generate free-running movement and set Tempo Sync
 off. Sync can be enabled deliberately after randomization when host-clocked
@@ -226,3 +238,12 @@ recall. Controller interfaces may display these wire values as programs 1–20.
 - The first performance scene is generated from
   `controllers/oxi_e16/generate_no_input_mixer_scene.mjs`; full-matrix and
   independent insert deep-edit scenes are not generated yet.
+
+## Standalone and CLAP input selection
+
+The CLAP does not open hardware ports. Its host decides which MIDI devices and
+channels feed the plugin's single `Controller MIDI In` port. The standalone
+opens CoreMIDI sources directly. Its MIDI window lists every currently
+available source with an independent checkmark, plus Enable All and Disable
+All actions. The selection is remembered by CoreMIDI unique ID and the source
+list is rescanned whenever the MIDI window is opened.

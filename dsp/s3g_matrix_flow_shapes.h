@@ -13,11 +13,22 @@ enum class MatrixFlowShape : uint32_t {
     Swirl = 3,
     Scatter = 4,
     Hold = 5,
+    // Appended so the original six values remain project-compatible.  These
+    // extended shapes are currently exposed by No Input Mixer; other matrix
+    // products retain their existing 0..5 parameter range.
+    Bloom = 6,
+    Braid = 7,
+    Attract = 8,
+    Count,
 };
+
+constexpr uint32_t kMatrixFlowShapeCount =
+    static_cast<uint32_t>(MatrixFlowShape::Count);
 
 inline MatrixFlowShape matrixFlowShapeFromIndex(uint32_t index)
 {
-    return static_cast<MatrixFlowShape>(std::min<uint32_t>(index, static_cast<uint32_t>(MatrixFlowShape::Hold)));
+    return static_cast<MatrixFlowShape>(std::min<uint32_t>(index,
+        static_cast<uint32_t>(MatrixFlowShape::Count) - 1u));
 }
 
 inline const char* matrixFlowShapeName(MatrixFlowShape shape)
@@ -29,8 +40,13 @@ inline const char* matrixFlowShapeName(MatrixFlowShape shape)
     case MatrixFlowShape::Swirl: return "SWIRL";
     case MatrixFlowShape::Scatter: return "SCAT";
     case MatrixFlowShape::Hold: return "HOLD";
+    case MatrixFlowShape::Bloom: return "BLOOM";
+    case MatrixFlowShape::Braid: return "BRAID";
+    case MatrixFlowShape::Attract: return "ATTRACT";
+    case MatrixFlowShape::Count: break;
     default: return "FLOW";
     }
+    return "FLOW";
 }
 
 inline float matrixFlowHash01(uint32_t src, uint32_t dst, uint32_t seed)

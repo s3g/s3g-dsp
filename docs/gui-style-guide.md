@@ -562,10 +562,12 @@ The current primary reference is `s3g Processor Delay 8ch`:
 - Matrix Movement is labeled as route-gain modulation; `DEPTH` applies a
   perceptual 30 dB generated-weight law without creating, repolarizing, or
   exceeding stored routes, and `RATE` reports the actual 0.05–5 Hz frequency;
-  `FIELD` and `CUT` banks separate spatial allocation from `GLIDE`, `STEP`,
-  `CUT`, `BURST`, and `SCRAMBLE` articulation, with live DSP gates shown in
-  the matrix; binary articulation uses raised-cosine windows, and `LENGTH`
-  appears inactive when the selected behavior has no timed window
+  `FIELD`, `BEHAV`, and `RESP` banks separate spatial allocation from
+  `GLIDE`, `STEP`, `CUT`, `BURST`, `SCRAMBLE`, `RATCHET`, `CASCADE`, and
+  `ERODE` articulation, with live DSP gates shown in the matrix; windowed
+  articulation uses smooth edges, and `LENGTH` appears inactive when the
+  selected behavior has no timed window; the NIM Field vocabulary includes
+  `BLOOM`, `BRAID`, and `ATTRACT` after the original shared shapes
 - focused Left/Right navigation cycles logical pages or raises their detached
   windows; it must not intercept keys while the host owns focus
 - the title-band preset menu selects complete factory networks, while bounded

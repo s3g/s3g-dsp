@@ -246,8 +246,8 @@ const pages = [
     encoder({ name: "Vortex", abbr: "VRTX", id: 18, color: colors.movement, bipolar: true }),
     encoder({ name: "Formant", abbr: "FORM", id: 9, color: colors.tone }),
     encoder({ name: "Space", abbr: "SPAC", id: 12, color: colors.network }),
-    encoder({ name: "SurfaceX", abbr: "SRFX", id: 55, color: colors.surface }),
-    encoder({ name: "SurfaceY", abbr: "SRFY", id: 56, color: colors.surface }),
+    encoder({ name: "Variance", abbr: "VAR", id: 13, color: colors.network }),
+    encoder({ name: "R Mode", abbr: "RMOD", id: 44, color: colors.surface }),
     encoder({ name: "Aux A Rt", abbr: "ARET", id: 26, color: colors.auxA }),
     encoder({ name: "Aux B Rt", abbr: "BRET", id: 31, color: colors.auxB }),
     encoder({ name: "Drift", abbr: "DRFT", id: 8, color: colors.network }),
@@ -266,7 +266,7 @@ const pages = [
     encoder({ name: "R Thresh", abbr: "RTHR", id: 46, color: colors.surface }),
     encoder({ name: "R Attack", abbr: "RATK", id: 47, color: colors.surface }),
     encoder({ name: "R Relea", abbr: "RREL", id: 48, color: colors.surface }),
-    encoder({ name: "R Polar", abbr: "RPOL", id: 49, color: colors.surface, bipolar: true }),
+    encoder({ name: "B Depth", abbr: "BDEP", id: 60, color: colors.movement, pushNote: 127 }),
     encoder({ name: "Shape", abbr: "SHAP", id: 20, color: colors.movement }),
     encoder({ name: "Behavior", abbr: "BEHV", id: 35, color: colors.movement }),
     encoder({ name: "Output", abbr: "OUT!", id: 1, color: colors.output, pushNote: 123 }),
@@ -430,7 +430,7 @@ export const scene = {
 };
 
 function validParameterId(id) {
-  if (id >= 1 && id <= 59) return true;
+  if (id >= 1 && id <= 60) return true;
   if (id >= 100 && id <= 163) return true;
   if (id < 1000 || id > 1799) return false;
   const lane = Math.floor((id - 1000) / 100);
@@ -443,13 +443,13 @@ function validParameterId(id) {
 }
 
 const categoricalGlobalIds = new Set([
-  3, 4, 10, 20, 23, 28, 33, 34, 35, 44, 50, 51, 52, 53, 54, 57, 58,
+  3, 4, 10, 20, 23, 28, 33, 34, 35, 44, 49, 50, 51, 52, 53, 54, 57, 58,
 ]);
 
 // These finite selectors are intentionally exposed as E16 turns. No Input
 // Mixer rounds their normalized 14-bit NRPN values to the nearest choice and
 // returns that choice to the encoder ring.
-const e16TurnCategoricalIds = new Set([20, 23, 28, 35]);
+const e16TurnCategoricalIds = new Set([20, 23, 28, 35, 44]);
 
 function categoricalParameterId(id) {
   if (categoricalGlobalIds.has(id)) return true;
@@ -469,7 +469,7 @@ function validCommandNote(note) {
   return (note >= 32 && note <= 73)
     || (note >= 80 && note <= 87)
     || (note >= 112 && note <= 119)
-    || (note >= 120 && note <= 126);
+    || (note >= 120 && note <= 127);
 }
 
 const pushFields = [

@@ -721,16 +721,19 @@ Lane targets end in `LEVEL / BYPASS`; aux targets end in `RETURN / LOOP`.
 The three insert rows on `CHANNEL` repeat the same menu-plus-`EDIT` split in
 both docked and detached forms; detailed editing never requires returning to
 `MIXER`.
-The compact Matrix Movement panel uses `FIELD` and
-`CUT` banks so continuous spatial controls and event articulation controls fit
-without increasing editor height.
+The compact Matrix Movement panel uses `FIELD`, `BEHAV`, and `RESP` banks to
+separate spatial allocation, time articulation, and signal-following response.
+Behavior has an independent depth. Controls irrelevant to the selected
+behavior appear inactive, while `HOLD`, `SLOW`, and `SYNC` remain visible in
+the shared footer. Each bank also has a section-level `RND` action.
 The native editor minimum width remains 1356 px and the height may scroll
 without scaling. Bounded complete-network `RANDOM` and localized `FORGET`
 remain beside `NEW` in `NETWORK`, while ten factory patches use the title-band
 `PRESET` menu. `PATCH` defaults to a signed source-to-destination wiring view:
 the cable shell shows stored topology while a lock-free 24 kHz scope bends each
 route's measured post-modulation audio waveform along it. The selected route
-reports dBFS. In its alternate exact grid, a click patches or selects an
+reports dBFS and the `BASE`, `FIELD`, `BEHAV`, `RESPONSE`, `EFFECTIVE`, and
+`CHOKE` stages. In its alternate exact grid, a click patches or selects an
 intersection and a second click on the selected intersection dissolves it;
 Option-click creates a negative route. `CLEAR ALL` occupies the same PATCH
 header position in both modes. Grid source columns align crosspoints, grouped
@@ -738,11 +741,16 @@ effective-route-gain indicators, and −60-to-0 dBFS output meters; the route-ga
 rail uses the matrix width with equal side margins. Unmodified
 Left/Right cycles pages only while a plugin view owns keyboard focus. Movement
 `RATE` reports its actual 0.05–5 Hz value, and grid effective-gain marks use the
-same perceptual 30 dB law as the DSP. `STEP`, `CUT`, `BURST`, and `SCRAMBLE`
+same perceptual 30 dB law as the DSP. `STEP`, `CUT`, `BURST`, `SCRAMBLE`,
+`RATCHET`, `CASCADE`, and `ERODE`
 read live DSP route gates in the grid rather than a predicted animation. CUT
-and BURST use timed raised-cosine windows; SCRAMBLE crossfades between masks.
+and BURST use timed raised-cosine windows; Ratchet repeats those windows,
+Cascade sweeps a softened trail, Erode thins and regrows ranked routes, and
+Scramble crossfades between masks.
 `LENGTH` appears inactive when the selected behavior does not use a timed
-window, while `SLEW` remains the edge or crossfade duration.
+window. The transition control changes label to `TRANSITION`, `EDGE`, or
+`XFADE`, `TRAIL`, or `SOFTEN` to match its active role. The Field menu appends
+`BLOOM`, `BRAID`, and `ATTRACT` after the original six state-compatible values.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,

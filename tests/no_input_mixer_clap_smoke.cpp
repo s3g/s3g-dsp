@@ -4,9 +4,13 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#include "../dsp/s3g_no_input_mixer.h"
+#include "../dsp/s3g_parameter_surface.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -20,7 +24,7 @@ namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 403u;
+constexpr uint32_t kParamCount = 402u;
 constexpr clap_id kOutputParam = 1u;
 constexpr clap_id kFeedbackParam = 5u;
 constexpr clap_id kQualityParam = 10u;
@@ -36,12 +40,13 @@ constexpr clap_id kAuxABiasParam = 42u;
 constexpr clap_id kAuxBBiasParam = 43u;
 constexpr clap_id kReactModeParam = 44u;
 constexpr clap_id kReactDepthParam = 45u;
+constexpr clap_id kReactDirectionParam = 49u;
 constexpr clap_id kClockSyncParam = 52u;
 constexpr clap_id kFieldDivisionParam = 53u;
-constexpr clap_id kSurfaceXParam = 55u;
 constexpr clap_id kMatrixMidiModeParam = 57u;
 constexpr clap_id kMatrixMidiSignParam = 58u;
 constexpr clap_id kMatrixMidiRampParam = 59u;
+constexpr clap_id kBehaviorDepthParam = 60u;
 constexpr clap_id kLaneOneMuteParam = 1003u;
 constexpr clap_id kLaneOneMidFrequencyParam = 1005u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
@@ -166,6 +171,54 @@ struct Version4State {
     std::array<uint32_t, 2u> auxMute {};
     Version4Behavior behavior {};
 };
+
+struct Version13SceneSnapshot {
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    s3g::NoInputMovementBehaviorParams behavior {};
+    std::array<uint32_t, 2u> auxMute {};
+    float behaviorDepth = 0.0f;
+};
+
+using Version13Surface =
+    s3g::ParameterSurfaceState<Version13SceneSnapshot>;
+
+// Version thirteen briefly appended a manual A/B scene crossfader and two
+// complete scene snapshots to the version-eleven state prefix. Keep this
+// fixture byte-for-byte compatible so the migration test exercises the real
+// retired format rather than a rewritten approximation.
+struct Version13State {
+    uint32_t version = 13u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = 0u;
+    uint32_t matrixMidiSign = 0u;
+    float matrixMidiRampMs = 1000.0f;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    Version13Surface surface {};
+    uint32_t surfaceTopologyMode = 0u;
+    uint32_t surfaceTopologyCell = ~0u;
+    float sceneCrossfade = 0.0f;
+    float scenePrerollMs = 250.0f;
+    std::array<Version13SceneSnapshot, 2u> sceneStates {{
+        Version13SceneSnapshot {}, Version13SceneSnapshot {},
+    }};
+    uint32_t sceneTargetMixerIndex = 0u;
+};
+
+static_assert(sizeof(Version13SceneSnapshot) == 1624u,
+    "v13 scene snapshot ABI changed");
+static_assert(offsetof(Version13State, sceneCrossfade) == 41820u,
+    "v13 scene crossfade offset changed");
+static_assert(offsetof(Version13State, sceneStates) == 41828u,
+    "v13 scene-bank offset changed");
+static_assert(sizeof(Version13State) == 45080u,
+    "v13 state ABI changed");
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -474,11 +527,19 @@ int main(int argc, char** argv)
 
     clap_param_info_t reactDepthInfo {};
     clap_param_info_t reactModeInfo {};
+    clap_param_info_t reactDirectionInfo {};
+    clap_param_info_t behaviorDepthInfo {};
+    clap_param_info_t behaviorInfo {};
+    clap_param_info_t fieldShapeInfo {};
     clap_param_info_t matrixMidiModeInfo {};
     clap_param_info_t matrixMidiSignInfo {};
     clap_param_info_t matrixMidiRampInfo {};
     bool foundReactDepth = false;
     bool foundReactMode = false;
+    bool foundReactDirection = false;
+    bool foundBehaviorDepth = false;
+    bool foundBehavior = false;
+    bool foundFieldShape = false;
     bool foundMatrixMidiMode = false;
     bool foundMatrixMidiSign = false;
     bool foundMatrixMidiRamp = false;
@@ -496,6 +557,22 @@ int main(int argc, char** argv)
             reactModeInfo = info;
             foundReactMode = true;
         }
+        if (info.id == kReactDirectionParam) {
+            reactDirectionInfo = info;
+            foundReactDirection = true;
+        }
+        if (info.id == kBehaviorDepthParam) {
+            behaviorDepthInfo = info;
+            foundBehaviorDepth = true;
+        }
+        if (info.id == kBehaviorParam) {
+            behaviorInfo = info;
+            foundBehavior = true;
+        }
+        if (info.id == kMotionShapeParam) {
+            fieldShapeInfo = info;
+            foundFieldShape = true;
+        }
         if (info.id == kMatrixMidiModeParam) {
             matrixMidiModeInfo = info;
             foundMatrixMidiMode = true;
@@ -509,12 +586,24 @@ int main(int argc, char** argv)
             foundMatrixMidiRamp = true;
         }
     }
-    ok = ok && foundReactDepth && foundReactMode && foundMatrixMidiMode
+    ok = ok && foundReactDepth && foundReactMode
+        && foundReactDirection && foundBehaviorDepth && foundBehavior
+        && foundFieldShape && foundMatrixMidiMode
         && foundMatrixMidiSign && foundMatrixMidiRamp
         && (reactDepthInfo.flags & CLAP_PARAM_IS_MODULATABLE) != 0u
         && (reactDepthInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
         && (reactModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
         && (reactModeInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
+        && (reactDirectionInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && (reactDirectionInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
+        && reactDirectionInfo.min_value == -1.0
+        && reactDirectionInfo.max_value == 1.0
+        && (behaviorDepthInfo.flags & CLAP_PARAM_IS_MODULATABLE) != 0u
+        && (behaviorDepthInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
+        && (behaviorInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && behaviorInfo.max_value == 7.0
+        && (fieldShapeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && fieldShapeInfo.max_value == 8.0
         && (matrixMidiModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
         && matrixMidiModeInfo.default_value == 0.0
         && (matrixMidiSignInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
@@ -571,8 +660,131 @@ int main(int argc, char** argv)
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();
     if (!ok) std::cerr << "failed: current state save\n";
 
+    bool versionThirteenMigrationOk = ok;
+    if (versionThirteenMigrationOk) {
+        Version13State versionThirteen;
+        // Keep the legacy top-level patch distinct from both banks. Version
+        // fourteen is documented to retain the dominant audible bank, not
+        // this control target or sceneTargetMixerIndex.
+        versionThirteen.params.feedback = 0.31f;
+        versionThirteen.params.matrix[0] = 0.11f;
+        versionThirteen.auxMute = {{ 0u, 0u }};
+        versionThirteen.behavior.behavior =
+            s3g::NoInputMovementBehavior::Glide;
+        versionThirteen.behaviorDepth = 0.42f;
+
+        auto& sceneA = versionThirteen.sceneStates[0u];
+        sceneA.params.feedback = 0.61f;
+        sceneA.params.matrix[0] = -0.21f;
+        sceneA.behavior.behavior = s3g::NoInputMovementBehavior::Cut;
+        sceneA.auxMute = {{ 1u, 0u }};
+        sceneA.behaviorDepth = 0.23f;
+
+        auto& sceneB = versionThirteen.sceneStates[1u];
+        sceneB.params.feedback = 0.87f;
+        sceneB.params.matrix[0] = 0.72f;
+        sceneB.behavior.behavior = s3g::NoInputMovementBehavior::Cascade;
+        sceneB.auxMute = {{ 0u, 1u }};
+        sceneB.behaviorDepth = 0.77f;
+
+        struct MigrationProbe {
+            float crossfade;
+            uint32_t expectedBank;
+        };
+        const std::array<MigrationProbe, 4u> probes {{
+            { 0.0f, 0u }, { 0.49f, 0u },
+            { 0.51f, 1u }, { 1.0f, 1u },
+        }};
+        for (const auto& probe : probes) {
+            versionThirteen.sceneCrossfade = probe.crossfade;
+            // Deliberately point at the other bank so this also verifies that
+            // migration follows the dominant crossfade side.
+            versionThirteen.sceneTargetMixerIndex = 1u - probe.expectedBank;
+            MemoryState versionThirteenMemory;
+            const auto* bytes = reinterpret_cast<const uint8_t*>(
+                &versionThirteen);
+            versionThirteenMemory.bytes.assign(bytes,
+                bytes + sizeof(versionThirteen));
+            clap_istream_t versionThirteenStream {
+                &versionThirteenMemory, stateRead
+            };
+            const auto& expected = versionThirteen.sceneStates[
+                probe.expectedBank];
+            double feedback = 0.0;
+            double matrix = 0.0;
+            double behavior = 0.0;
+            double behaviorDepth = 0.0;
+            double auxA = 0.0;
+            double auxB = 0.0;
+            const bool probeOk = state->load(plugin,
+                    &versionThirteenStream)
+                && versionThirteenMemory.offset
+                    == versionThirteenMemory.bytes.size()
+                && params->get_value(plugin, kFeedbackParam, &feedback)
+                && std::abs(feedback - expected.params.feedback) < 1.0e-6
+                && params->get_value(plugin, kFirstMatrixParam, &matrix)
+                && std::abs(matrix - expected.params.matrix[0]) < 1.0e-6
+                && params->get_value(plugin, kBehaviorParam, &behavior)
+                && behavior == static_cast<double>(expected.behavior.behavior)
+                && params->get_value(plugin, kBehaviorDepthParam,
+                    &behaviorDepth)
+                && std::abs(behaviorDepth - expected.behaviorDepth) < 1.0e-6
+                && params->get_value(plugin, kAuxAMuteParam, &auxA)
+                && auxA == static_cast<double>(expected.auxMute[0u])
+                && params->get_value(plugin, kAuxBMuteParam, &auxB)
+                && auxB == static_cast<double>(expected.auxMute[1u]);
+            if (!probeOk) {
+                std::cerr << "failed: v13 dominant-bank migration at "
+                    << probe.crossfade << "\n";
+                versionThirteenMigrationOk = false;
+                break;
+            }
+        }
+        saved.offset = 0u;
+        clap_istream_t postV13Restore { &saved, stateRead };
+        versionThirteenMigrationOk = versionThirteenMigrationOk
+            && state->load(plugin, &postV13Restore)
+            && saved.offset == saved.bytes.size();
+        saved.offset = 0u;
+    }
+    ok = ok && versionThirteenMigrationOk;
+    if (!versionThirteenMigrationOk)
+        std::cerr << "failed: v13 state migration\n";
+
+    // Version eleven keeps the version-ten layout but converts dynamic cell
+    // topology into a stable mutation anchor.
+    MemoryState versionTen = saved;
+    if (versionTen.bytes.size() >= sizeof(uint32_t)) {
+        const uint32_t version = 10u;
+        std::memcpy(versionTen.bytes.data(), &version, sizeof(version));
+        clap_istream_t versionTenStream { &versionTen, stateRead };
+        ok = ok && state->load(plugin, &versionTenStream);
+    } else {
+        ok = false;
+    }
+    if (!ok) std::cerr << "failed: v10 state migration\n";
+
+    // Version ten originally appended the NIM-specific surface topology mode
+    // and cell. Removing those final fields recreates version nine exactly.
+    MemoryState versionNine = saved;
+    if (versionNine.bytes.size() >= sizeof(uint32_t) * 2u) {
+        const uint32_t version = 9u;
+        std::memcpy(versionNine.bytes.data(), &version, sizeof(version));
+        versionNine.bytes.resize(versionNine.bytes.size()
+            - sizeof(uint32_t) * 2u);
+        clap_istream_t versionNineStream { &versionNine, stateRead };
+        ok = ok && state->load(plugin, &versionNineStream);
+    } else {
+        ok = false;
+    }
+    if (!ok) std::cerr << "failed: v9 state migration\n";
+    saved.offset = 0u;
+    clap_istream_t postV9Restore { &saved, stateRead };
+    ok = ok && state->load(plugin, &postV9Restore);
+
     Version4State versionFour;
     versionFour.params.feedback = 0.71f;
+    versionFour.params.motion = 0.64f;
     versionFour.params.matrix[0] = 0.88f;
     versionFour.params.lanes[0].body = 0.67f;
     versionFour.params.lanes[0].auxSend[0] = 0.62f;
@@ -594,6 +806,8 @@ int main(int argc, char** argv)
         && std::abs(versionFourValue - 0.62) < 1.0e-6
         && params->get_value(plugin, kBehaviorParam, &versionFourValue)
         && versionFourValue == 4.0
+        && params->get_value(plugin, kBehaviorDepthParam, &versionFourValue)
+        && std::abs(versionFourValue - 0.64) < 1.0e-6
         && params->get_value(plugin, kReactModeParam, &versionFourValue)
         && versionFourValue == 0.0
         && params->get_value(plugin, kLaneOneTuneParam, &versionFourValue)
@@ -675,13 +889,14 @@ int main(int argc, char** argv)
     hybridChange.add(kBehaviorParam, 3.0);
     hybridChange.add(kEventRateParam, 0.82);
     hybridChange.add(kEventChokeParam, 1.0);
+    hybridChange.add(kBehaviorDepthParam, 0.61);
     hybridChange.add(kAuxABiasParam, -0.63);
     hybridChange.add(kAuxBBiasParam, 0.41);
     hybridChange.add(kReactModeParam, 1.0);
     hybridChange.add(kReactDepthParam, 0.78);
+    hybridChange.add(kReactDirectionParam, -1.0);
     hybridChange.add(kClockSyncParam, 1.0);
     hybridChange.add(kFieldDivisionParam, 8.0);
-    hybridChange.add(kSurfaceXParam, 0.19);
     hybridChange.add(kLaneOneTuneParam, 57.25);
     hybridChange.add(kLaneOnePitchLockParam, 1.0);
     hybridChange.add(kLaneOneAuxTapAParam, 3.0);
@@ -700,6 +915,8 @@ int main(int argc, char** argv)
         && std::abs(hybridValue - 0.82) < 1.0e-6
         && params->get_value(plugin, kEventChokeParam, &hybridValue)
         && hybridValue == 1.0
+        && params->get_value(plugin, kBehaviorDepthParam, &hybridValue)
+        && std::abs(hybridValue - 0.61) < 1.0e-6
         && params->get_value(plugin, kAuxABiasParam, &hybridValue)
         && std::abs(hybridValue + 0.63) < 1.0e-6
         && params->get_value(plugin, kAuxBBiasParam, &hybridValue)
@@ -708,12 +925,12 @@ int main(int argc, char** argv)
         && hybridValue == 1.0
         && params->get_value(plugin, kReactDepthParam, &hybridValue)
         && std::abs(hybridValue - 0.78) < 1.0e-6
+        && params->get_value(plugin, kReactDirectionParam, &hybridValue)
+        && hybridValue == -1.0
         && params->get_value(plugin, kClockSyncParam, &hybridValue)
         && hybridValue == 1.0
         && params->get_value(plugin, kFieldDivisionParam, &hybridValue)
         && hybridValue == 8.0
-        && params->get_value(plugin, kSurfaceXParam, &hybridValue)
-        && std::abs(hybridValue - 0.19) < 1.0e-6
         && params->get_value(plugin, kLaneOneTuneParam, &hybridValue)
         && std::abs(hybridValue - 57.25) < 1.0e-6
         && params->get_value(plugin, kLaneOnePitchLockParam, &hybridValue)
@@ -736,12 +953,36 @@ int main(int argc, char** argv)
         && params->value_to_text(plugin, kBehaviorParam, 3.0,
             processorName, sizeof(processorName))
         && std::strcmp(processorName, "BURST") == 0
+        && params->value_to_text(plugin, kBehaviorParam, 5.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "RATCHET") == 0
+        && params->value_to_text(plugin, kBehaviorParam, 6.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "CASCADE") == 0
+        && params->value_to_text(plugin, kBehaviorParam, 7.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "ERODE") == 0
+        && params->value_to_text(plugin, kMotionShapeParam, 6.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "BLOOM") == 0
+        && params->value_to_text(plugin, kMotionShapeParam, 7.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "BRAID") == 0
+        && params->value_to_text(plugin, kMotionShapeParam, 8.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "ATTRACT") == 0
         && params->value_to_text(plugin, kAuxABiasParam, -0.63,
             processorName, sizeof(processorName))
         && std::strcmp(processorName, "-0.63") == 0
         && params->value_to_text(plugin, kReactModeParam, 1.0,
             processorName, sizeof(processorName))
         && std::strcmp(processorName, "FOLLOW") == 0
+        && params->value_to_text(plugin, kReactDirectionParam, -1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "INVERT") == 0
+        && params->value_to_text(plugin, kReactDirectionParam, 1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "NORMAL") == 0
         && params->value_to_text(plugin, kLaneOneAuxTapAParam, 3.0,
             processorName, sizeof(processorName))
         && std::strcmp(processorName, "POST INSERT") == 0
@@ -1229,6 +1470,21 @@ int main(int argc, char** argv)
         && pitchLockOutput && pitchLockOutput->value == midiValue;
     if (!ok) std::cerr << "failed: MIDI pitch-lock command mapping\n";
 
+    double directionBefore = 1.0;
+    ok = ok && params->get_value(
+        plugin, kReactDirectionParam, &directionBefore);
+    midiOutput.clear();
+    MidiEventList directionCommand;
+    directionCommand.add(0x9fu, 127u, 127u);
+    process.in_events = &directionCommand.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* directionOutput = midiOutput.last(kReactDirectionParam);
+    ok = ok && params->get_value(plugin, kReactDirectionParam, &midiValue)
+        && midiValue == (directionBefore < 0.0 ? 1.0 : -1.0)
+        && directionOutput && directionOutput->value == midiValue;
+    if (!ok) std::cerr << "failed: MIDI response-direction toggle\n";
+
     constexpr double kPreservedOutputDb = -47.25;
     midiOutput.clear();
     EventList lowOutput;
@@ -1270,6 +1526,14 @@ int main(int argc, char** argv)
     if (!ok) {
         std::cerr << "failed: MIDI factory-preset output preservation\n";
     }
+
+    // IDs 55/56 were retired with the discarded transition experiment.
+    // Complete factory recall above has already reset and reseeded the one
+    // live engine directly.
+    double retiredSceneValue = 0.0;
+    ok = ok && !params->get_value(plugin, 55u, &retiredSceneValue)
+        && !params->get_value(plugin, 56u, &retiredSceneValue);
+    if (!ok) std::cerr << "failed: retired scene parameters\n";
 
     saved.offset = 0u;
     clap_istream_t postMidiRestore { &saved, stateRead };
@@ -1324,7 +1588,10 @@ int main(int argc, char** argv)
     double finalOutputValue = -999.0;
     ok = ok && params->get_value(plugin, kOutputParam, &finalOutputValue)
         && std::abs(finalOutputValue - 6.0) < 1.0e-9
-        && secondHalf > firstHalf * 20.0;
+        // The event boundary remains sample-accurate, while the shared DSP
+        // now de-zippers its continuous gain target over 20 ms.  Require a
+        // clear rise in the second half without demanding a discontinuity.
+        && secondHalf > firstHalf * 1.5;
     if (!ok) std::cerr << "failed: sample-accurate event ratio "
         << firstHalf << " / " << secondHalf << " final "
         << finalOutputValue << "\n";

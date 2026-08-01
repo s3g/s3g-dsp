@@ -32,7 +32,7 @@
           <p><strong>External control is optional.</strong> No Input Mixer can be played entirely from its editor and host automation without a MIDI device or the NIM Gesture utility. Add only the parts of this setup that are useful for a particular performance.</p>
         </div>
 
-        <p>This page describes the CLAP setup in REAPER. The standalone application uses the same underlying mappings and embeds NIM Gesture, but its audio-device and controller instructions will be documented separately when the app is prepared for release.</p>
+        <p>This page describes the shared wire protocol, the CLAP setup in REAPER, and the standalone application's MIDI-source selector. The standalone uses the same mappings and embeds NIM Gesture; its complete audio-device and release instructions will remain on the eventual standalone page.</p>
 
         <h2 id="mapping">Optional MIDI Mapping</h2>
 
@@ -44,7 +44,7 @@
             <tr><td>Host or custom MIDI mapping</td><td>Maps any suitable controller to the exposed No Input Mixer parameters.</td></tr>
             <tr><td>OXI E16 <code>NIM P2</code></td><td>Provides twelve pages of named encoder turns, action presses, and returned encoder-ring values.</td></tr>
             <tr><td>Four Intech Grid BU16 modules</td><td>Present the complete signed 8-by-8 matrix as four aligned 4-by-4 pressure-sensitive quadrants with LED feedback.</td></tr>
-            <tr><td>NIM Gesture utility</td><td>Records free-running E16 parameter loops and returns live or played values to the E16 rings.</td></tr>
+            <tr><td>NIM Gesture utility</td><td>Optional companion used in conjunction with the OXI E16. It records free-running E16 parameter loops and returns live or played values to the E16 rings.</td></tr>
           </tbody>
         </table>
 
@@ -52,9 +52,95 @@
 
         <p>No Input Mixer mirrors its current parameter state as channel-16 NRPN on the final MIDI output. A single GUI or host-automation change is returned on the next process block. Startup, Random, factory-preset, and restored-state changes are sent as a throttled complete snapshot, sixteen parameters per block, so E16 rings reach the new positions without placing one large MIDI burst in the audio callback. Generated feedback is marked <code>DONT_RECORD</code>.</p>
 
+        <h2 id="diy">DIY Controller Protocol</h2>
+
+        <p>The protocol is controller-independent. A DIY surface can map only the controls it needs; it does not need to reproduce the supplied E16 pages. Parameter control, command buttons, preset recall, and matrix pressure use ordinary MIDI 1 messages. The canonical source specification is also available as <a href="no_input_mixer_midi.md"><code>no_input_mixer_midi.md</code></a>.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Message</th><th>Assignment</th></tr></thead>
+          <tbody>
+            <tr><td>14-bit NRPN, channel 16</td><td>Parameter number equals the stable CLAP parameter ID. Send CC 99, CC 98, CC 6, then CC 38.</td></tr>
+            <tr><td>Note On, channel 16</td><td>Non-zero velocity invokes the command assigned below. Note Off is ignored for commands.</td></tr>
+            <tr><td>Program Change, channel 16</td><td>Values 0–19 recall factory presets 1–20.</td></tr>
+            <tr><td>Notes and poly pressure, channels 1–4</td><td>Optional four-quadrant matrix performance protocol described under BU16 below.</td></tr>
+          </tbody>
+        </table>
+
+        <p>NRPN data combines to <code>raw = 128 × CC6 + CC38</code>, from 0 through 16383. Continuous values map linearly across the published parameter range unless the control is described as normalized; stepped parameters round to the nearest enum value. Bipolar center is raw 8192. Selecting RPN with CC 100 or 101 clears the active NRPN, and null NRPN 127/127 is ignored.</p>
+
+        <h3>Global NRPN addresses</h3>
+
+        <table class="readout-table">
+          <thead><tr><th>ID</th><th>Control</th><th>Range / values</th><th>ID</th><th>Control</th><th>Range / values</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Output</td><td>−60…+6 dB</td><td>31</td><td>Aux B Return</td><td>0…1</td></tr>
+            <tr><td>2</td><td>Ceiling</td><td>−18…0 dB</td><td>32</td><td>Aux B Feedback</td><td>0…0.96</td></tr>
+            <tr><td>3</td><td>Limiter</td><td>0 Off, 1 On</td><td>33</td><td>Aux A Mute All</td><td>0 Off, 1 On</td></tr>
+            <tr><td>4</td><td>DC Block</td><td>0 Off, 1 On</td><td>34</td><td>Aux B Mute All</td><td>0 Off, 1 On</td></tr>
+            <tr><td>5</td><td>Feedback</td><td>0…1.25</td><td>35</td><td>Behavior</td><td>0 Glide, 1 Step, 2 Cut, 3 Burst, 4 Scramble, 5 Ratchet, 6 Cascade, 7 Erode</td></tr>
+            <tr><td>6</td><td>Coupling</td><td>0…1.25</td><td>36</td><td>Event Rate</td><td>Normalized 0…1</td></tr>
+            <tr><td>7</td><td>Phase</td><td>0…1</td><td>37</td><td>Event Length</td><td>Normalized 0…1</td></tr>
+            <tr><td>8</td><td>Drift</td><td>0…1</td><td>38</td><td>Density</td><td>0…1</td></tr>
+            <tr><td>9</td><td>Formant</td><td>0…1</td><td>39</td><td>Chaos</td><td>0…1</td></tr>
+            <tr><td>10</td><td>Quality</td><td>0 1×, 1 2×, 2 4×</td><td>40</td><td>Transition / Edge / Xfade</td><td>Normalized 0…1</td></tr>
+            <tr><td>11</td><td>Agency</td><td>0…1</td><td>41</td><td>Choke</td><td>0…1</td></tr>
+            <tr><td>12</td><td>Space</td><td>0…1</td><td>42</td><td>Aux A Bias</td><td>−1…+1</td></tr>
+            <tr><td>13</td><td>Preset Variance</td><td>0…1</td><td>43</td><td>Aux B Bias</td><td>−1…+1</td></tr>
+            <tr><td>14</td><td>Internal Tone</td><td>−1…+1</td><td>44</td><td>Response Mode</td><td>0 Off, 1 Follow, 2 Avoid, 3 Edge, 4 Balance</td></tr>
+            <tr><td>15</td><td>House Tone</td><td>−1…+1</td><td>45</td><td>Response Depth</td><td>0…1</td></tr>
+            <tr><td>16</td><td>Flow</td><td>0…1</td><td>46</td><td>Response Threshold</td><td>0…1</td></tr>
+            <tr><td>17</td><td>Spread</td><td>0…1</td><td>47</td><td>Response Attack</td><td>Normalized 0…1</td></tr>
+            <tr><td>18</td><td>Vortex</td><td>−1…+1</td><td>48</td><td>Response Release</td><td>Normalized 0…1</td></tr>
+            <tr><td>19</td><td>Field Depth</td><td>0…1</td><td>49</td><td>Response Direction</td><td>−1 Invert, +1 Normal</td></tr>
+            <tr><td>20</td><td>Field Shape</td><td>0 Flow, 1 Pulse, 2 Chase, 3 Swirl, 4 Scat, 5 Hold, 6 Bloom, 7 Braid, 8 Attract</td><td>50</td><td>Hold Ecology</td><td>0 Off, 1 On</td></tr>
+            <tr><td>21</td><td>Field Rate</td><td>Normalized 0…1</td><td>51</td><td>Slow Time</td><td>0 Off, 1 On</td></tr>
+            <tr><td>22</td><td>Field Phase</td><td>0…1</td><td>52</td><td>Tempo Sync</td><td>0 Off, 1 On</td></tr>
+            <tr><td>23</td><td>Aux A Type</td><td>Effect index 0…22</td><td>53</td><td>Field Division</td><td>0…9: 1/64 through 8 Bars</td></tr>
+            <tr><td>24</td><td>Aux A Gain</td><td>0…1</td><td>54</td><td>Event Division</td><td>0…9: 1/64 through 8 Bars</td></tr>
+            <tr><td>25</td><td>Aux A Tone</td><td>0…1</td><td></td><td></td><td></td></tr>
+            <tr><td>26</td><td>Aux A Return</td><td>0…1</td><td></td><td></td><td></td></tr>
+            <tr><td>27</td><td>Aux A Feedback</td><td>0…0.96</td><td>57</td><td>BU16 Mode</td><td>0 Flip, 1 Latch</td></tr>
+            <tr><td>28</td><td>Aux B Type</td><td>Effect index 0…22</td><td>58</td><td>BU16 New Sign</td><td>0 Positive, 1 Negative</td></tr>
+            <tr><td>29</td><td>Aux B Gain</td><td>0…1</td><td>59</td><td>BU16 Ramp</td><td>20…10000 ms</td></tr>
+            <tr><td>30</td><td>Aux B Tone</td><td>0…1</td><td>60</td><td>Behavior Depth</td><td>0…1</td></tr>
+          </tbody>
+        </table>
+
+        <p>Effect indices 0–22 are Bypass, Wool, Rat, Zone A, Zone B, Fuzz I, Fuzz II, Diode, Ring, Relay, Crush, Splice, Logic, Shred, Void, Rotor, Phase, Chorus, Throat, Robot, Oct Down, Oct Up, and Oct Stack. Division indices 0–9 are 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1 Bar, 2 Bars, 4 Bars, and 8 Bars.</p>
+
+        <h3>Matrix, lane, and insert addresses</h3>
+
+        <table class="readout-table">
+          <thead><tr><th>Family</th><th>NRPN formula</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr><td>Matrix source <code>s</code> to destination <code>d</code></td><td><code>100 + 8 × d + s</code></td><td><code>d</code> and <code>s</code> are zero-based 0–7; value is −1…+1.</td></tr>
+            <tr><td>Lane direct</td><td><code>1000 + 100 × lane + offset</code></td><td>Lane is zero-based 0–7. Offsets: 0 Body, 1 Loss, 2 Level, 3 Mute, 4 Low, 5 Mid Frequency, 6 Mid Gain, 7 High, 8 Aux A Send, 9 Aux B Send, 10 Tune Note, 11 Tune Cents, 12 Pitch Lock, 13 Aux A Tap, 14 Aux B Tap, 15 Aux A Return, 16 Aux B Return.</td></tr>
+            <tr><td>Lane insert</td><td><code>1000 + 100 × lane + 20 + 10 × slot + field</code></td><td>Slot is zero-based 0–2. Fields: 0 Type, 1 Gain, 2 Tone, 3 Bias, 4 Level, 5 Bypass.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Lane Mid Frequency maps exponentially over 80–8000 Hz. Aux tap values are 0 Return, 1 Pre EQ, 2 Post EQ, and 3 Post Insert. Matrix and NRPN state feedback use these same stable IDs, so motor rings or LED displays can decode the returned stream without a second address map.</p>
+
+        <h3>Channel-16 Note commands</h3>
+
+        <table class="readout-table">
+          <thead><tr><th>Note</th><th>Command</th><th>Note</th><th>Command</th></tr></thead>
+          <tbody>
+            <tr><td>32–39</td><td>Toggle lane mute 1–8</td><td>72</td><td>Toggle Aux A mute</td></tr>
+            <tr><td>40–47</td><td>Kill lane 1–8</td><td>73</td><td>Toggle Aux B mute</td></tr>
+            <tr><td>48–55</td><td>Toggle Insert 1 bypass, lanes 1–8</td><td>80–87</td><td>Toggle pitch lock, lanes 1–8</td></tr>
+            <tr><td>56–63</td><td>Toggle Insert 2 bypass, lanes 1–8</td><td>117 / 118</td><td>Select BU16 Flip / Latch</td></tr>
+            <tr><td>64–71</td><td>Toggle Insert 3 bypass, lanes 1–8</td><td>119</td><td>Toggle new-wire sign</td></tr>
+            <tr><td>120</td><td>New excitation seed</td><td>121</td><td>Forget</td></tr>
+            <tr><td>122</td><td>Random Mid</td><td>123</td><td>Panic</td></tr>
+            <tr><td>124</td><td>Clear matrix</td><td>125 / 126</td><td>Random Low / High</td></tr>
+            <tr><td>127</td><td>Toggle Response Normal / Invert</td><td></td><td></td></tr>
+          </tbody>
+        </table>
+
         <h2 id="gesture">Optional NIM Gesture Utility</h2>
 
-        <p><code>s3g Utility NIM Gesture</code> is a MIDI-only CLAP companion. Place it before No Input Mixer when free-running encoder loops are wanted; omit it when direct MIDI control and ordinary host automation are sufficient. Starting Record opens one take, and stopping Record gives every parameter touched during that take its own loop. Later takes can have different lengths, while Live Takeover briefly gives a moved hardware encoder priority over recorded playback.</p>
+        <p><code>s3g Utility NIM Gesture</code> is an optional MIDI-only companion designed specifically for use in conjunction with the OXI E16 and its supplied <code>NIM P2</code> scene. Place it before No Input Mixer when free-running E16 encoder loops are wanted. It is not required for BU16 control, a DIY mapping, ordinary host automation, or direct E16 control without gesture recording. Starting Record opens one take, and stopping Record gives every E16 parameter touched during that take its own loop. Later takes can have different lengths, while Live Takeover briefly gives a moved E16 encoder priority over recorded playback.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -62,10 +148,10 @@
               <img src="assets/plugin-guis/nim-gesture.png" alt="NIM Gesture utility showing Record, Play, loop controls, and the complete twelve-page OXI E16 No Input Mixer overview" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The optional NIM Gesture utility mirrors all twelve <code>NIM P2</code> E16 pages. Inner rings show values; an outer ring identifies controls with recorded loops.</figcaption>
+          <figcaption>NIM Gesture is the optional recording companion for the OXI E16. It mirrors all twelve <code>NIM P2</code> pages: inner rings show values, and an outer ring identifies controls with recorded loops.</figcaption>
         </figure>
 
-        <p>Record, Play/Pause, Clear Selected, Clear All, Cancel, and Live Takeover are available in the utility GUI and as host parameters. The resulting loops are stored in CLAP project state. Without NIM Gesture, the E16 scene can still control No Input Mixer directly, and No Input Mixer's own state mirror still updates the hardware rings; only the utility's recorder and loop playback are absent.</p>
+        <p>Record, Play/Pause, Clear Selected, Clear All, Cancel, and Live Takeover are available in the utility GUI and as host parameters. The resulting loops are stored in CLAP project state. Playback continues when the utility window is closed and is restored with the project or standalone application, so pause <code>Play</code> before comparing static presets or DSP revisions; an active loop continues to write its parameter, including Output or Drift. Without NIM Gesture, the E16 scene can still control No Input Mixer directly, and No Input Mixer's own state mirror still updates the hardware rings; only the utility's recorder and loop playback are absent.</p>
 
         <h2 id="reaper">REAPER Track and MIDI Routing</h2>
 
@@ -76,6 +162,12 @@
           <li>Return the track's plugin MIDI output to E16 USB3 for encoder-ring feedback and to Grid for BU16 LED feedback. If the instrument track can address only one MIDI hardware output, create two MIDI-only receive tracks. Receive all MIDI from the No Input Mixer track, disable audio on both receives, and assign one hardware output to E16 USB3 and the other to Grid.</li>
           <li>Turn <strong>USB Thru off on the E16</strong>. Returned NRPN ring data must not loop back into the instrument track.</li>
         </ol>
+
+        <h2 id="standalone">Standalone MIDI Routing</h2>
+
+        <p>The CLAP and standalone receive the same MIDI protocol, but they acquire hardware differently. The CLAP never opens a MIDI device: REAPER or another host decides which track inputs reach its <code>Controller MIDI In</code> port. The standalone opens CoreMIDI sources itself.</p>
+
+        <p>In the standalone output strip, open <code>MIDI</code> and use <code>INPUT SOURCES</code> to check any combination of connected devices. <code>ENABLE ALL</code> and <code>DISABLE ALL</code> are available in the same menu. The app remembers the selection by CoreMIDI device ID and rescans the available source list whenever the MIDI window opens. This allows an E16, four BU16 modules, a different commercial controller, a virtual MIDI port, or a DIY surface to be used alone or together without sending every machine-wide MIDI source into the feedback instrument.</p>
 
         <h2 id="e16">Implemented OXI E16 Setup</h2>
 
@@ -88,8 +180,8 @@
         <table class="readout-table">
           <thead><tr><th>Page</th><th>Title</th><th>Encoders 1–8</th><th>Encoders 9–16</th></tr></thead>
           <tbody>
-            <tr><td>1</td><td>LIVE</td><td>Feedback, Coupling, Flow, Phase, Agency, Motion, Spread, Vortex</td><td>Formant, Space, Surface X/Y, Aux A/B Return, Drift, Output</td></tr>
-            <tr><td>2</td><td>MOTION</td><td>Event Rate/Length, Density, Chaos, Slew, Choke, Movement Rate/Phase</td><td>React Depth/Threshold/Attack/Release/Polarity, Field Shape, Cut Behavior, Output</td></tr>
+            <tr><td>1</td><td>LIVE</td><td>Feedback, Coupling, Flow, Phase, Agency, Motion, Spread, Vortex</td><td>Formant, Space, Preset Variance/Response Mode, Aux A/B Return, Drift, Output</td></tr>
+            <tr><td>2</td><td>MOTION</td><td>Event Rate/Length, Density, Chaos, Slew, Choke, Field Rate/Phase</td><td>Response Depth/Threshold/Attack/Release, Behavior Depth, Field Shape, Behavior, Output</td></tr>
             <tr><td>3</td><td>AUXTONE</td><td>Internal/House Tone, Aux A/B Type, Aux A Gain/Tone/Bias/Return</td><td>Aux B Gain/Tone/Bias/Return, Aux A/B Feedback, Ceiling, Output</td></tr>
             <tr><td>4</td><td>ACTIONS</td><td>Record, Playback, Clear Last, Clear All, Cancel, BU16 Flip/Latch, Sign</td><td>Seed, Random Low/Mid/High, Forget, Matrix Zero, BU16 Ramp, Output/Panic</td></tr>
             <tr><td>5</td><td>MATRIX1</td><td>Matrix self-routes 1–8</td><td>Forward ring routes 1→2 through 8→1</td></tr>
@@ -107,7 +199,7 @@
 
         <p>RETURNS follows the same bus-first convention with <code>RN</code> for return. For example, <code>A1RN</code> is lane 1's signed Aux A return and <code>B1RN</code> is lane 1's signed Aux B return.</p>
 
-        <p>Field Shape, Cut Behavior, and the Aux A/B effect Type selectors are stepped encoder turns. React Mode, Quality, clock divisions, and insert Type remain in the plug-in GUI.</p>
+        <p>Field Shape, Behavior, and the Aux A/B effect Type selectors are stepped encoder turns. Field Shape includes Bloom, Braid, and Attract after the original six choices; Behavior includes Ratchet, Cascade, and Erode after Scramble. Response Mode, Quality, clock divisions, and insert Type remain in the plug-in GUI.</p>
 
         <h3>Encoder presses</h3>
 
@@ -134,6 +226,7 @@
           <thead><tr><th>Page</th><th>Encoder/turn label</th><th>Press action</th></tr></thead>
           <tbody>
             <tr><td>LIVE, MOTION, AUXTONE, ACTIONS</td><td><code>OUT!</code></td><td>Panic</td></tr>
+            <tr><td>MOTION</td><td><code>BDEP</code></td><td>Toggle Response direction between Normal and Invert</td></tr>
             <tr><td>MIXER</td><td>Lane Level 6–8</td><td>Toggle that lane's mute</td></tr>
             <tr><td>MATRIX1</td><td><code>8&gt;1</code></td><td>Panic</td></tr>
             <tr><td>AUXTONE</td><td><code>AR/M</code>, <code>BR/M</code></td><td>Toggle complete Aux A or Aux B mute</td></tr>
@@ -157,7 +250,7 @@
 
         <p>On AUXTONE, <code>ABIA</code> and <code>BBIA</code> are bipolar −1 to +1 third-parameter macros for the selected Aux effect, not signal-routing polarity. In the plugin or standalone app, open <code>MIXER</code>, then click the Aux A or Aux B <code>EDIT</code> button. The third Effect Editor row shows the current effect-specific name—Bias, Asymmetry, Direction, Balance, Center, Regeneration, or another label—and its signed value. Matrix crosspoints and the signed <code>A1RN</code>–<code>B8RN</code> return controls set routing polarity.</p>
 
-        <p>Field Shape, Cut Behavior, and both Aux effect Type selectors are stepped E16 turns. React Mode, Quality, clock divisions, and insert Type remain in the plugin GUI. BU16 Ramp is also available to host automation and directly as NRPN address 59.</p>
+        <p>Field Shape, Behavior, Response Mode, and both Aux effect Type selectors are stepped E16 turns. The same encoders reach Bloom/Braid/Attract and Ratchet/Cascade/Erode; no controller-scene remap is required because their stable NRPN addresses remain 20 and 35. Quality, clock divisions, and insert Type remain in the plugin GUI. LIVE encoders 11–12 expose Preset Variance and Response Mode. MOTION encoder 13 turns Behavior Depth at NRPN address 60; pressing it toggles Response direction without changing the depth. BU16 Ramp is also available to host automation and directly as NRPN address 59.</p>
 
         <p>Copy <code>controllers/oxi_e16/Scenes/NIM P2.oxie16</code> into the OXI App's <code>Scenes</code> folder, refresh its computer-side scene list, and drag <code>NIM P2</code> to an E16 scene slot. Leave automatic scene transmission off initially; use Send All only when intentionally replacing the current plugin settings.</p>
 
@@ -214,8 +307,10 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#mapping">Optional MIDI Mapping</a>
+          <a href="#diy">DIY Protocol</a>
           <a href="#gesture">NIM Gesture Utility</a>
           <a href="#reaper">REAPER Routing</a>
+          <a href="#standalone">Standalone Routing</a>
           <a href="#e16">OXI E16 Setup</a>
           <a href="#bu16">BU16 Matrix Setup</a>
           <a href="#safety">Audio and Safety</a>

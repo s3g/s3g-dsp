@@ -25,8 +25,8 @@ The encoders are numbered left-to-right, top-to-bottom across the physical
 
 | Page | Title | Encoders 1–8 | Encoders 9–16 |
 | ---: | --- | --- | --- |
-| 1 | LIVE | Feedback, Coupling, Flow, Phase, Agency, Motion, Spread, Vortex | Formant, Space, Surface X/Y, Aux A/B Return, Drift, Output |
-| 2 | MOTION | Event Rate/Length, Density, Chaos, Slew, Choke, Movement Rate/Phase | React Depth/Threshold/Attack/Release/Polarity, Field Shape, Cut Behavior, Output |
+| 1 | LIVE | Feedback, Coupling, Flow, Phase, Agency, Motion, Spread, Vortex | Formant, Space, Preset Variance/Response Mode, Aux A/B Return, Drift, Output |
+| 2 | MOTION | Event Rate/Length, Density, Chaos, Slew, Choke, Field Rate/Phase | Response Depth/Threshold/Attack/Release, Behavior Depth, Field Shape, Behavior, Output |
 | 3 | AUXTONE | Internal/House Tone, Aux A/B Type, Aux A Gain/Tone/Bias/Return | Aux B Gain/Tone/Bias/Return, Aux A/B Feedback, Ceiling, Output |
 | 4 | ACTIONS | Record, Playback, Clear Last, Clear All, Cancel, BU16 Flip/Latch, Sign | Seed, Random Low/Mid/High, Forget, Matrix Clear, BU16 Ramp, Output/Panic |
 | 5 | MATRIX1 | Matrix self-routes 1–8 | Forward ring routes 1→2 through 8→1 |
@@ -73,6 +73,7 @@ Additional presses are page-specific:
 | Page | Encoder/turn label | Press action |
 | --- | --- | --- |
 | LIVE, MOTION, AUXTONE, ACTIONS | `OUT!` | Panic |
+| MOTION | `BDEP` | Toggle Response direction between Normal and Invert |
 | MIXER | Lane Level 6–8 | Toggle that lane's mute |
 | MATRIX1 | `8>1` | Panic |
 | AUXTONE | `AR/M`, `BR/M` | Toggle complete Aux A or Aux B mute |
@@ -99,9 +100,13 @@ Balance, Center, Regeneration, or another label—and its signed value. Routing
 polarity is controlled by the signed matrix and the `A1RN`–`B8RN` return
 encoders.
 
-Field Shape, Cut Behavior, and both Aux effect Type selectors are mapped as
-stepped E16 turns. React Mode, Quality, clock divisions, and insert Type remain
-in the plug-in GUI. BU16
+Field Shape, Behavior, Response Mode, and both Aux effect Type selectors are
+mapped as stepped E16 turns. Quality, clock divisions, and insert Type remain
+in the plug-in GUI. MOTION encoder 13 turns Behavior Depth at NRPN 60;
+the existing Shape and Behavior encoders automatically include the appended
+Bloom/Braid/Attract and Ratchet/Cascade/Erode choices, so the scene does not
+need a new mapping.
+pressing it toggles Response direction without disturbing that depth. BU16
 mode and New Sign are deliberate press-control exceptions; continuous BU16
 Ramp is on ACTIONS encoder 15 and remains available in the GUI, host automation,
 or at NRPN 59. The three insert
@@ -126,16 +131,18 @@ notes used by encoder presses are control commands, not performance notes.
 
 ## NIM Gesture companion
 
-The optional `s3g Utility NIM Gesture` MIDI-only CLAP can record free-running
-parameter loops and return its live and played NRPN values to the E16 rings.
+The optional `s3g Utility NIM Gesture` MIDI-only CLAP is used in conjunction
+with this E16 scene. It can record free-running E16 parameter loops and return
+its live and played NRPN values to the E16 rings.
 Place it before No Input Mixer and select E16 USB3 as the track's MIDI hardware
 output. Keep E16 USB Thru off to prevent a feedback loop. See
 [`docs/nim_gesture.md`](../../docs/nim_gesture.md) for routing and controls.
 
 The No Input Mixer standalone already embeds NIM Gesture. Open **MIDI**, select
 E16 USB3 as the feedback destination, and use **EDIT NIM GESTURES** for its
-recorder. Input from all CoreMIDI sources present at application launch feeds
-the embedded chain. E16 USB Thru must still remain off.
+recorder. The same window lists the available CoreMIDI input sources; check
+only the devices that should feed the embedded chain. The remembered list is
+rescanned whenever the MIDI window opens. E16 USB Thru must still remain off.
 
 No Input Mixer mirrors its current parameters as channel-16 NRPN on the final
 MIDI output. Direct GUI and automation changes return on the next process

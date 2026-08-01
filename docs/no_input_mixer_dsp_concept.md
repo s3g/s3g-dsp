@@ -73,7 +73,7 @@ e_i[n] = seed_i[n]
        + aux_A[n] * return_A[i]
        + aux_B[n] * return_B[i]
        + sum_j matrix[i,j] * move_ij[n] * space_ij[n]
-             * agency_ij[n] * phase_ij(return_j[n - 1])
+             * agency_ij[n] * LPG_ij(phase_ij(return_j[n - 1]))
 ```
 
 The lane then runs:
@@ -85,7 +85,7 @@ MATRIX SUM
   -> INSERT 1
   -> INSERT 2
   -> INSERT 3
-  -> ARTICULATION CHOKE
+  -> ARTICULATION LPG / CHOKE
   -> AUX A/B SENDS
   -> INTERNAL TONE
   -> DC BLOCK
@@ -122,12 +122,20 @@ intersection and a second click on the selected intersection dissolves it.
 
 ## s3g Matrix movement
 
-The movement layer uses the existing Group Matrix vocabulary and equations:
-`FLOW`, `PULSE`, `CHASE`, `SWIRL`, `SCAT`, and `HOLD`, with `FLOW`, `SPREAD`,
-`VORTEX`, `DEPTH`, `RATE`, and `PHASE` controls. `DEPTH` is the public label for
+The Field layer begins with the Group Matrix vocabulary and adds three
+NIM-specific forms: `FLOW`, `PULSE`, `CHASE`, `SWIRL`, `SCAT`, `HOLD`,
+`BLOOM`, `BRAID`, and `ATTRACT`, with `FLOW`, `SPREAD`,
+`VORTEX`, `DEPTH`, `RATE`, and `PHASE` controls. Field `DEPTH` is the public label for
 the stable CLAP Motion parameter. Generated weights multiply the stored manual
 gains. They never create a connection in an empty cell, change its sign, or
 raise it beyond the performer's stored ceiling.
+
+`BLOOM` expands a two-sided shell away from every source and folds it home;
+Vortex twists that shell. `BRAID` runs two counter-moving destination strands
+and exchanges their prominence twice per cycle. `ATTRACT` gives all sources a
+shared moving destination, with Flow setting pull, Spread setting its halo,
+and Vortex retaining a source-dependent orbit around it. Every source column
+is normalized before the existing perceptual depth law is applied.
 
 The control-rate field is converted into a perceptual gain law. For sources
 with several patched destinations, `w_peak` is the largest active weight for
@@ -150,42 +158,71 @@ counteract attenuation and perceptually mask the route transfer. At the
 default 38% depth, a 10% weight sits about 11 dB below the focused route.
 
 Spatial allocation and articulation are separate. The compact editor switches
-between a `FIELD` bank for the controls above and a `CUT` bank containing
-`BEHAV`, `EVENT`, `LENGTH`, `DENSITY`, `CHAOS`, `SLEW`, and `CHOKE`:
+among `FIELD`, `BEHAV`, and `RESP` banks. `BEHAV` has its own independent
+`DEPTH`, followed by `EVENT`, `LENGTH`, `DENSITY`, `CHAOS`, a mode-aware
+transition control, and `CHOKE`:
 
-- `GLIDE` is the original continuously interpolated field.
-- `STEP` samples and holds generated field weights at the event clock.
+- `GLIDE` bypasses the Behavior layer and leaves the continuously interpolated
+  Field intact.
+- `STEP` uses Behavior Depth to crossfade from the continuous Field to sampled
+  and held generated weights at the event clock.
 - `CUT` chooses binary open/closed route sets and applies a cosine-edged
-  attack/hold/release window with a flat center.
+  attack/hold/release window with a flat center; Behavior Depth blends from
+  unarticulated to fully gated.
 - `BURST` biases those sets toward irregular destination clusters and applies
-  a short raised-cosine pulse with a Chaos-dependent release.
+  a short raised-cosine pulse with a Chaos-dependent release and the same
+  Behavior Depth blend.
 - `SCRAMBLE` rapidly chooses a new subset for every source, then cosine-
-  crossfades from the previous mask while guaranteeing that an empty matrix
-  cell stays empty.
+  crossfades from the previous mask with Behavior Depth while guaranteeing
+  that an empty matrix cell stays empty.
+- `RATCHET` selects a route subset and repeats two to nine cosine-edged pulses
+  inside one event. Density broadens each pulse and, together with Chaos,
+  raises the repeat count.
+- `CASCADE` moves a softened head and trail through all eight destinations.
+  Density widens the trail, Chaos perturbs individual route positions and may
+  reverse direction, and the Field remains the underlying gain layer.
+- `ERODE` ranks each source's patched routes from the current Field plus seeded
+  Chaos, removes them progressively, then regrows them through the same event
+  window. Density determines how much of the ranked set survives.
 
 The event clock spans 0.25–80 Hz. Event length spans 0.5–250 ms and defines the
-complete CUT/BURST window. It is inactive for GLIDE, STEP, and SCRAMBLE. SLEW
-spans 0.5–20 ms and sets the CUT/BURST edge or SCRAMBLE mask-crossfade time.
+complete CUT/BURST/RATCHET/CASCADE/ERODE window. It is inactive for GLIDE,
+STEP, and SCRAMBLE. The
+transition control spans 0.5–20 ms and is labelled `TRANSITION` for STEP,
+`EDGE` for CUT/BURST/RATCHET, `XFADE` for SCRAMBLE, `TRAIL` for CASCADE, and
+`SOFTEN` for ERODE. Very short Ratchet and Erode windows are extended only as
+needed to honor the edge time without a discontinuity. Controls irrelevant to the
+selected mode are inactive rather than implying an effect they do not have.
 Route gates are deterministic from the patch seed, reach their endpoints with
 a zero-slope raised-cosine edge, and are published back to the grid renderer
-from the running DSP. The three binary modes preserve the continuous field as
+from the running DSP. The articulated modes preserve the continuous field as
 one layer and apply the route-selection window once as a separate articulation
 layer, so full-depth closed routes reach zero without compounding the same gate.
-`CHOKE` then optionally applies the destination's live articulation gate after
-its EQ and three nonlinear inserts but before the governed return and audition
-branch. This downstream stage makes dropouts remain audible when saturated
-parallel feedback would otherwise refill the gap.
+For CUT, BURST, SCRAMBLE, RATCHET, CASCADE, and ERODE, each route window drives
+an asymmetric vactrol follower rather than multiplying the feedback path
+directly. Its opening settles over approximately 8–40 ms and its slower closing
+over approximately 47–150 ms as the transition control rises. A one-pole
+low-pass closes with the optical gain, so a route darkens before silence rather
+than producing a broadband edge. `CHOKE` drives the same LPG response after the
+destination's EQ and three nonlinear inserts but before the governed return and
+audition branch. This downstream circuit keeps gaps audible when saturated
+parallel feedback would otherwise refill them. GLIDE is transparent, STEP keeps
+its continuous transition law, and leaving an articulated mode releases back
+to bypass instead of jumping.
 
-The third `REACT` bank derives route gain from measured lane activity rather
-than a free controller. `FOLLOW` follows source activity, `AVOID` recedes from
-active destinations, `EDGE` responds to source threshold crossings, and
-`BALANCE` compares source and destination activity. Threshold, attack,
-release, bipolar polarity, and a 30 dB depth law make this a listener-like view
-from inside the circuit. REACT multiplies only existing signed gains and never
-opens an empty matrix cell or exceeds a stored route ceiling.
+The third `RESP` bank derives route gain from measured lane activity rather
+than a free controller. Its detector measures the lane after body, EQ, and
+inserts but before Choke; downstream articulation therefore cannot starve the
+detector of the circuit it is meant to follow. `FOLLOW` follows source
+activity, `AVOID` recedes from active destinations, `EDGE` responds to source
+threshold crossings, and `BALANCE` compares source and destination activity.
+Threshold, attack, release, a two-state `NORMAL`/`INVERT` direction, and a
+30 dB depth law make this a listener-like view from inside the circuit.
+Response multiplies only existing signed gains and never opens an empty matrix
+cell or exceeds a stored route ceiling.
 
-`HOLD ECOLOGY` freezes field phase, articulation clocks, slow drift, and REACT
-controller state while the audio graph continues. `SLOW TIME` remaps field and
+`HOLD ECOLOGY` freezes Field phase, Behavior clocks, and slow drift while the
+Response detector continues to follow live audio. `SLOW TIME` remaps field and
 event rates down to one cycle/event per ten minutes without removing their
 faster ranges. `TEMPO SYNC` derives independent FIELD and EVENT clocks from
 host tempo at divisions from `1/64` through `8 BARS`; absent host tempo falls
@@ -197,9 +234,11 @@ The wiring renderer shows the signal itself rather than a proxy for movement.
 Each matrix route publishes its exact post-phase, post-gain, post-motion audio
 contribution into a lock-free 24 kHz scope ring. The GUI bends that measured
 waveform around the signed cable shell, derives visibility from its RMS level,
-and reports the selected route in dBFS. Motion, drift, agency, space, polarity,
-and phase are visible only insofar as they change the routed audio. The
-alternate grid keeps stored/effective movement cells, groups effective gain
+and reports the selected route in dBFS. The GUI also exposes the selected
+route's `BASE`, `FIELD`, `BEHAV`, `RESPONSE`, `EFFECTIVE`, and `CHOKE` stages,
+making gain changes attributable without changing the signal path. Motion,
+drift, agency, space, direction, and phase are visible only insofar as they
+change the routed audio. The alternate grid keeps stored/effective movement cells, groups effective gain
 indicators under their corresponding source columns, and aligns each lane's
 output peak meter to that same column. Output meters map −60 to 0 dBFS instead
 of displaying linear amplitude.
@@ -313,7 +352,7 @@ per-lane EQ, and `HOUSE` cannot alter the feedback ecology.
 
 ## Editor and mixer interaction contract
 
-The editor is a full-width shell with six logical pages rather than a
+The editor is a full-width shell with five logical pages rather than a
 permanent side control column:
 
 - `PATCH` combines signed wiring (or the alternate exact grid), network,
@@ -324,10 +363,8 @@ permanent side control column:
   insert controls.
 - `SAFETY` combines output and containment controls.
 - `AUX` exposes all sixteen send taps and sixteen signed destination returns.
-- `SURF` captures and performs between complete parameter snapshots using the
-  shared s3g Voronoi Parameter Surface.
 
-`PANIC` lives with the `SAFETY` page. `POP` detaches the current page and
+`PANIC` remains in the persistent title strip on every page. `POP` detaches the current page and
 `DOCK` closes that utility window. Every detached page uses the same renderer
 and native 1356-by-820 coordinate system as its nested form; there is no second
 set of mixer controls and no DSP state lives in a window. The utility panels
@@ -346,43 +383,32 @@ When a plugin view is first responder, unmodified Left/Right moves to the
 adjacent logical page; if that page is detached, its utility window comes to
 the front. The shortcut is handled only while the plugin GUI owns focus.
 
-## SURF state interpolation
+## Direct complete recall
 
-The No Input Mixer uses the shared `ParameterSurfaceState` format with up to
-twenty-four Voronoi cells, distance focus, selectable weight curve, and a
-0–2000 ms target-cursor glide. `ADD` and `CAP` store a complete base parameter
-snapshot: network, signed matrix, body/tuning, EQ, processors, movement,
-REACT, and aux topology. Continuous fields use weighted interpolation;
-stepped processor, routing-tap, movement-shape, reaction, and clock choices
-come from the nearest active cell.
+The No Input Mixer treats a complete preset as a circuit initialization rather
+than a collection of continuously interpolable coefficients. The plugin owns
+one `NoInputMixer` engine. A factory preset, `RANDOM`, or `FORGET` replaces its
+complete parameter state, clears its former delay, resonator, filter,
+processor, envelope, and feedback histories, and reseeds it immediately.
+There is no preset interpolation, second engine, crossfader, pre-roll, pending
+recall, or transition timer. `NEW` remains a reseed action that leaves the
+current matrix and processors unchanged.
 
-Its native SURF page follows the shared control hierarchy rather than using
-plugin-specific abbreviations: the cell actions occupy the first row, followed
-by `CURVE`, `FOCUS -/+` with its numeric value, and `GLIDE -/+` with its time.
-Curve reshapes normalized weights, focus changes their spatial concentration,
-and glide changes only the target cursor's temporal settling.
-
-Output trim/ceiling, limiter/DC, quality, lane faders and mutes, global aux
-mutes, house tone, preset variance, and the X/Y cursor remain a live audition
-and containment frame outside interpolation. CLAP modulation is applied after
-the surface blend. A factory preset, `RANDOM`, or `FORGET` bypasses the surface
-so the new complete scene is immediately audible but deliberately preserves
-the captured cells for later re-enabling.
-
-Only parameters are captured. Feedback returns, filters, resonators,
-envelopes, processor delay buffers, and random-controller memory are not
-serialized into cells. Cursor motion therefore changes the coefficients of
-one continuous live graph rather than crossfading frozen audio states.
+Version-fourteen state migration selects the dominant A/B bank from the brief
+version-thirteen crossfader implementation and makes it the single current
+patch. Versions containing the retired NIM Parameter Surface likewise retain
+their core patch, but Surface X/Y, cells, anchors, and interpolation no longer
+participate in NIM DSP.
 
 ## Energy-coherent randomization
 
 The full-network randomizer exposes three coordinated distributions instead
 of independently rolling every new controller. `HIGH / QUICK` couples dense
 signed routing to rapid non-hold fields, Cut/Burst/Scramble articulation,
-6–40 ms Cut/Burst windows, strong choke, fast REACT, higher drive, and a
+6–40 ms Cut/Burst windows, strong choke, fast Response, higher drive, and a
 stronger excitation packet. `MID / MODERATE` narrows those ranges into
 Step-through-Scramble movement at intermediate rates, with 20–140 ms
-Cut/Burst windows. `LOW / SLOW` uses sparse coupling, shallow REACT, output
+Cut/Burst windows. `LOW / SLOW` uses sparse coupling, shallow Response, output
 compensation, long-time Flow/Chase/Swirl motion, and continuous Glide behavior
 without choke. Its internal energy is restrained, but its onset and sustained
 ecology remain audible.
@@ -426,16 +452,14 @@ signal colors.
   names: SPLICE, for example, exposes `MIX`, `LENGTH`, and `DIRECTION`. Lane
   targets add `LEVEL` and `BYPASS`; aux targets add `RETURN` and `LOOP`.
 - The native editor and each synchronized detachable page are 1356 by 820
-  pixels. Detaching a page does not create another audio engine or parameter
-  surface.
+  pixels. Detaching a page does not create another audio engine.
 - Seeds, matrix state, resonator variations, insert types, all lane controls,
   and containment settings are serialized.
 - Twenty deterministic factory patches, preset variance, localized forgetting,
   and three bounded, energy-coherent full-network randomization profiles
-  resolve into the same stored base parameter set; each whole-scene action
-  bypasses, but does not delete, the optional SURF map. Reseeding remains an
+  resolve directly into the single current mixer state. Reseeding remains an
   independent action.
-- The CLAP surface contains 400 parameters: 56 globals, 64 matrix gains,
+- The CLAP parameter set contains 402 parameters: 58 globals, 64 matrix gains,
   seventeen direct controls per lane, and six controls for every insert.
   Continuous controls advertise CLAP modulation and parameter/modulation
   events are applied at their sample offsets. Version-one state is migrated by
@@ -444,9 +468,18 @@ signal colors.
   retained directly; both older formats initialize the aux mutes off and the
   articulation layer to `GLIDE`. Version-three preserves its aux mutes and also
   initializes articulation to `GLIDE`; version four stores all seven new
-  articulation parameters. Version five adds REACT, hold/slow/sync clocks,
-  pitch targets, editable aux taps/returns, and the complete Parameter Surface
-  state while migrating versions one through four conservatively.
+  articulation parameters. Version five adds Response, hold/slow/sync clocks,
+  pitch targets and editable aux taps/returns while migrating versions one
+  through four conservatively. Versions six
+  through eight add controller and editor state. Version nine separates
+  Behavior Depth from Field Depth; older states seed the new Behavior Depth
+  from the former shared movement depth to retain their sound. Version ten
+  stores the former NIM topology mode and cell field. Version eleven reuses
+  that layout for stable Base/Cell mutation anchors. Versions twelve and
+  thirteen contain the discarded transition experiments formerly assigned to
+  IDs 55/56. Version fourteen retires those IDs, migrates the dominant stored
+  version-thirteen patch, and returns complete recalls to the single live
+  mixer.
 - Processing is allocation-free after `prepare()`.
 - Fixed SPLICE/CHORUS time buffers live inside the heap-allocated plugin
   engine. Audio-thread `reset` and lane `KILL` clear them in place, without
@@ -494,7 +527,7 @@ For this instrument, those findings imply:
   feedback result is not made falsely deterministic;
 - WIRE and MATRIX visualization reports measured signal activity and automated
   gain changes instead of displaying decorative or predictive motion;
-- FIELD and CUT preserve distinct time scales: sustained drift can coexist with
+- FIELD and BEHAV preserve distinct time scales: sustained drift can coexist with
   discontinuous gates, bursts, splices, and relationship changes;
 - presets provide useful launch points without claiming to reproduce a past
   performance or a named artist's sound; and
@@ -505,7 +538,7 @@ For this instrument, those findings imply:
 Mantione's practical [no-input patching guide](https://waveinformer.com/2024/02/17/no-input-mixing/)
 supports treating filters, distortion, delay, VCAs, clocks, and decay stages as
 parts of the feedback topology rather than a conventional linear effects rack.
-Its lane-envelope and clock-divider directions are represented here by REACT's
+Its lane-envelope and clock-divider directions are represented here by Response's
 measured activity followers and the host-synchronized FIELD/EVENT divisions.
 Short rolling capture of unrepeatable incidents remains a compatible future
 direction, provided it extends the CV-like movement and effect-placement model

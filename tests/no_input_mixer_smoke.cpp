@@ -174,10 +174,16 @@ bool testFactoryPresetsAndRandomization()
             "STATIC CHOIR") != 0
         || std::strcmp(s3g::noInputMixerFactoryPresetName(19u),
             "WALL ENGINE") != 0
+        || s3g::noInputMixerFactoryBehavior(2u).behavior
+            != s3g::NoInputMovementBehavior::Erode
         || s3g::noInputMixerFactoryBehavior(4u).behavior
             != s3g::NoInputMovementBehavior::Burst
         || s3g::noInputMixerFactoryBehavior(5u).behavior
             != s3g::NoInputMovementBehavior::Scramble
+        || s3g::noInputMixerFactoryBehavior(7u).behavior
+            != s3g::NoInputMovementBehavior::Ratchet
+        || s3g::noInputMixerFactoryBehavior(9u).behavior
+            != s3g::NoInputMovementBehavior::Cascade
         || s3g::noInputMixerFactoryBehavior(11u).behavior
             != s3g::NoInputMovementBehavior::Cut
         || s3g::noInputMixerFactoryBehavior(14u).behavior
@@ -201,6 +207,11 @@ bool testFactoryPresetsAndRandomization()
     if (lattice.reactMode != s3g::NoInputReactMode::Balance
         || lattice.lanes[0].pitchLock == 0u
         || rain.slowTime == 0u
+        || rain.motionShape != s3g::MatrixFlowShape::Attract
+        || s3g::noInputMixerFactoryPreset(7u).motionShape
+            != s3g::MatrixFlowShape::Bloom
+        || s3g::noInputMixerFactoryPreset(9u).motionShape
+            != s3g::MatrixFlowShape::Braid
         || ratCage.clockSync == 0u
         || openHouse.lanes[0].auxTap[0]
             == s3g::NoInputAuxTap::Return
@@ -530,6 +541,60 @@ bool testHybridControlEcology()
         return false;
     }
 
+    for (const auto shape : { s3g::MatrixFlowShape::Bloom,
+             s3g::MatrixFlowShape::Braid,
+             s3g::MatrixFlowShape::Attract }) {
+        auto extended = params;
+        extended.motionShape = shape;
+        extended.flow = 0.78f;
+        extended.spread = 0.36f;
+        extended.vortex = 0.42f;
+        const auto first = s3g::noInputMixerMotionWeights(extended, 0.08f);
+        const auto second = s3g::noInputMixerMotionWeights(extended, 0.43f);
+        if (first == second) {
+            std::cerr << "Extended Field did not move: "
+                      << s3g::matrixFlowShapeName(shape) << "\n";
+            return false;
+        }
+        for (uint32_t source = 0u;
+             source < s3g::kNoInputMixerChannels; ++source) {
+            float columnSum = 0.0f;
+            for (uint32_t destination = 0u;
+                 destination < s3g::kNoInputMixerChannels; ++destination) {
+                const float weight = first[destination
+                    * s3g::kNoInputMixerChannels + source];
+                if (!std::isfinite(weight) || weight < 0.0f
+                    || weight > 1.0001f) {
+                    std::cerr << "Extended Field escaped bounds: "
+                              << s3g::matrixFlowShapeName(shape) << "\n";
+                    return false;
+                }
+                columnSum += weight;
+            }
+            if (std::abs(columnSum - 1.0f) > 1.0e-4f) {
+                std::cerr << "Extended Field lost column normalization: "
+                          << s3g::matrixFlowShapeName(shape) << " / "
+                          << columnSum << "\n";
+                return false;
+            }
+        }
+    }
+    if (std::strcmp(s3g::matrixFlowShapeName(
+                s3g::MatrixFlowShape::Bloom), "BLOOM") != 0
+        || std::strcmp(s3g::matrixFlowShapeName(
+                s3g::MatrixFlowShape::Braid), "BRAID") != 0
+        || std::strcmp(s3g::matrixFlowShapeName(
+                s3g::MatrixFlowShape::Attract), "ATTRACT") != 0
+        || std::strcmp(s3g::noInputMovementBehaviorName(
+                s3g::NoInputMovementBehavior::Ratchet), "RATCHET") != 0
+        || std::strcmp(s3g::noInputMovementBehaviorName(
+                s3g::NoInputMovementBehavior::Cascade), "CASCADE") != 0
+        || std::strcmp(s3g::noInputMovementBehaviorName(
+                s3g::NoInputMovementBehavior::Erode), "ERODE") != 0) {
+        std::cerr << "Extended Field or Behavior names regressed\n";
+        return false;
+    }
+
     const auto varied = s3g::variedNoInputMixerParams(
         params, 0x56415259u, 0.72f);
     for (uint32_t index = 0u; index < params.matrix.size(); ++index) {
@@ -603,7 +668,10 @@ bool testHybridControlEcology()
     }
     if (mutedDifference > 1.0e-6 || mutedAux.auxActivity(0u) != 0.0f
         || mutedAux.auxActivity(1u) != 0.0f) {
-        std::cerr << "Global aux mutes did not silence both return buses\n";
+        std::cerr << "Global aux mutes did not silence both return buses: "
+                  << mutedDifference << " / "
+                  << mutedAux.auxActivity(0u) << " / "
+                  << mutedAux.auxActivity(1u) << "\n";
         return false;
     }
     mutedAux.setAuxMuted(0u, false);
@@ -627,6 +695,12 @@ bool testHybridControlEcology()
 
 bool testMovementBehaviors()
 {
+    auto normalDirection = s3g::defaultNoInputMixerParams();
+    normalDirection.reactPolarity = 0.0f;
+    normalDirection = s3g::sanitizeNoInputMixerParams(normalDirection);
+    auto invertedDirection = normalDirection;
+    invertedDirection.reactPolarity = -0.25f;
+    invertedDirection = s3g::sanitizeNoInputMixerParams(invertedDirection);
     if (std::abs(s3g::noInputMovementEventRateHz(0.0f) - 0.25f)
             > 1.0e-6f
         || std::abs(s3g::noInputMovementEventRateHz(1.0f) - 80.0f)
@@ -635,6 +709,8 @@ bool testMovementBehaviors()
             > 1.0e-6f
         || std::abs(s3g::noInputMovementSlewMs(1.0f) - 20.0f)
             > 1.0e-4f
+        || normalDirection.reactPolarity != 1.0f
+        || invertedDirection.reactPolarity != -1.0f
         || std::strcmp(s3g::noInputMovementBehaviorName(
                 s3g::NoInputMovementBehavior::Scramble), "SCRAMBLE") != 0) {
         std::cerr << "No Input Mixer articulation control laws regressed\n";
@@ -651,6 +727,19 @@ bool testMovementBehaviors()
         return false;
     }
 
+    s3g::NoInputMixer depthControl;
+    depthControl.prepare(48000.0);
+    depthControl.setMovementBehaviorDepth(1.5f);
+    if (depthControl.movementBehaviorDepth() != 1.0f) {
+        std::cerr << "Behavior Depth did not clamp independently\n";
+        return false;
+    }
+    depthControl.setMovementBehaviorDepth(-0.5f);
+    if (depthControl.movementBehaviorDepth() != 0.0f) {
+        std::cerr << "Behavior Depth did not reach its neutral state\n";
+        return false;
+    }
+
     auto params = s3g::noInputMixerFactoryPreset(9u);
     params.motion = 1.0f;
     params.motionRate = 1.0f;
@@ -661,7 +750,8 @@ bool testMovementBehaviors()
     }
     if (closedRoute >= params.matrix.size()) return false;
 
-    for (uint32_t mode = 1u; mode < 5u; ++mode) {
+    for (uint32_t mode = 1u;
+         mode < s3g::kNoInputMovementBehaviorCount; ++mode) {
         s3g::NoInputMovementBehaviorParams behavior;
         behavior.behavior = static_cast<s3g::NoInputMovementBehavior>(mode);
         behavior.eventRate = 0.74f;
@@ -705,21 +795,31 @@ bool testMovementBehaviors()
                 return false;
             }
         }
-        if (!(minimumGate < 0.12f) || !(maximumGate > 0.45f)) {
+        const float requiredMinimum = behavior.behavior
+                == s3g::NoInputMovementBehavior::Erode
+            ? 0.75f : 0.12f;
+        if (!(minimumGate < requiredMinimum) || !(maximumGate > 0.45f)) {
             std::cerr << "Movement behavior did not articulate routes: "
                       << s3g::noInputMovementBehaviorName(behavior.behavior)
                       << " min " << minimumGate << " max " << maximumGate
                       << "\n";
             return false;
         }
-        if (maximumGateDelta > 0.10f) {
+        const float maximumAllowedDelta =
+            s3g::noInputMovementBehaviorUsesAmplitude(behavior.behavior)
+            ? 0.025f : 0.10f;
+        if (maximumGateDelta > maximumAllowedDelta) {
             std::cerr << "Movement behavior window discontinuity: "
                       << s3g::noInputMovementBehaviorName(behavior.behavior)
                       << " delta " << maximumGateDelta << "\n";
             return false;
         }
         if ((behavior.behavior == s3g::NoInputMovementBehavior::Cut
-                || behavior.behavior == s3g::NoInputMovementBehavior::Burst)
+                || behavior.behavior == s3g::NoInputMovementBehavior::Burst
+                || behavior.behavior
+                    == s3g::NoInputMovementBehavior::Ratchet
+                || behavior.behavior
+                    == s3g::NoInputMovementBehavior::Cascade)
             && silentFrames < 64u) {
             std::cerr << "Post-insert CHOKE did not expose cut gaps: "
                       << silentFrames << " frames\n";
@@ -1058,6 +1158,134 @@ bool testMidiMatrixGrid()
     return true;
 }
 
+bool testLiveParameterDezippering()
+{
+    s3g::NoInputMixer mixer;
+    mixer.prepare(48000.0);
+    std::array<float, s3g::kNoInputMixerChannels> frame {};
+
+    // Once processing has begun, continuous parameter changes must ramp. This
+    // is the final audio-rate stage behind the Parameter Surface's control-rate
+    // cursor and protects the feedback network from coefficient steps.
+    mixer.processFrame(frame.data());
+    auto params = mixer.params();
+    constexpr uint32_t destination = 0u;
+    constexpr uint32_t source = 1u;
+    constexpr uint32_t index = destination
+        * s3g::kNoInputMixerChannels + source;
+    params.matrix[index] = 1.0f;
+    mixer.setParams(params);
+    if (mixer.params().matrix[index] != 1.0f
+        || mixer.effectiveMatrixGain(destination, source) != 0.0f) {
+        std::cerr << "Live parameter target bypassed matrix dezipper\n";
+        return false;
+    }
+    mixer.processFrame(frame.data());
+    const float firstPositive = mixer.effectiveMatrixGain(
+        destination, source);
+    if (!(firstPositive > 0.0f && firstPositive < 0.05f)) {
+        std::cerr << "Live matrix attack was discontinuous: "
+                  << firstPositive << "\n";
+        return false;
+    }
+    float previous = firstPositive;
+    for (uint32_t sample = 1u; sample < 960u; ++sample) {
+        mixer.processFrame(frame.data());
+        const float current = mixer.effectiveMatrixGain(
+            destination, source);
+        if (current + 1.0e-7f < previous) {
+            std::cerr << "Live matrix attack was not monotonic\n";
+            return false;
+        }
+        previous = current;
+    }
+    if (previous < 0.998f) {
+        std::cerr << "Live matrix attack did not settle: "
+                  << previous << "\n";
+        return false;
+    }
+
+    params.matrix[index] = -1.0f;
+    mixer.setParams(params);
+    const float beforeCrossing = mixer.effectiveMatrixGain(
+        destination, source);
+    mixer.processFrame(frame.data());
+    const float firstCrossing = mixer.effectiveMatrixGain(
+        destination, source);
+    if (!(firstCrossing < beforeCrossing && firstCrossing > 0.90f)) {
+        std::cerr << "Signed live matrix crossing jumped: "
+                  << beforeCrossing << " -> " << firstCrossing << "\n";
+        return false;
+    }
+    for (uint32_t sample = 1u; sample < 960u; ++sample) {
+        mixer.processFrame(frame.data());
+    }
+    if (mixer.effectiveMatrixGain(destination, source) > -0.996f) {
+        std::cerr << "Signed live matrix crossing did not settle\n";
+        return false;
+    }
+    return true;
+}
+
+bool testAtomicWallEngineRecall()
+{
+    const auto wall = s3g::noInputMixerFactoryPreset(19u);
+    const auto wallBehavior = s3g::noInputMixerFactoryBehavior(19u);
+    s3g::NoInputMixer fresh;
+    s3g::NoInputMixer recalled;
+    fresh.prepare(48000.0);
+    recalled.prepare(48000.0);
+
+    fresh.setParams(wall);
+    fresh.setMovementBehaviorParams(wallBehavior);
+    fresh.setMovementBehaviorDepth(wall.motion);
+    fresh.reset();
+    fresh.reseed(wall.seed, 0.68f);
+
+    const auto previous = s3g::noInputMixerFactoryPreset(4u);
+    recalled.setParams(previous);
+    recalled.setMovementBehaviorParams(
+        s3g::noInputMixerFactoryBehavior(4u));
+    recalled.setMovementBehaviorDepth(previous.motion);
+    recalled.reset();
+    recalled.reseed(previous.seed, 0.68f);
+    render(recalled, 4096u);
+
+    // This is the complete-scene path used before a factory recall reseeds
+    // the network. It must produce the same circuit as a fresh instance,
+    // independent of the coefficients and nonlinear state of the old scene.
+    recalled.setParams(wall);
+    recalled.setMovementBehaviorParams(wallBehavior);
+    recalled.setMovementBehaviorDepth(wall.motion);
+    recalled.reset();
+    recalled.reseed(wall.seed, 0.68f);
+
+    Frame freshFrame {};
+    Frame recalledFrame {};
+    float peak = 0.0f;
+    for (uint32_t sample = 0u; sample < 24000u; ++sample) {
+        fresh.processFrame(freshFrame.data());
+        recalled.processFrame(recalledFrame.data());
+        for (uint32_t lane = 0u; lane < freshFrame.size(); ++lane) {
+            peak = std::max(peak, std::abs(freshFrame[lane]));
+            if (!std::isfinite(freshFrame[lane])
+                || std::abs(freshFrame[lane] - recalledFrame[lane])
+                    > 1.0e-7f) {
+                std::cerr << "Wall Engine recall retained previous scene "
+                             "state at sample " << sample << " lane "
+                          << lane + 1u << "\n";
+                return false;
+            }
+        }
+    }
+    if (peak <= 1.0e-5f || peak > 1.01f) {
+        std::cerr << "Wall Engine atomic recall was not a stable audible "
+                     "circuit: " << peak << "\n";
+        return false;
+    }
+    return true;
+}
+
 bool testSanitization()
 {
     auto params = s3g::defaultNoInputMixerParams();
@@ -1079,7 +1307,7 @@ bool testSanitization()
         || clean.lanes[0].inserts[0].type
             != s3g::NoInputDistortionType::OctStack
         || clean.agency != 0.0f
-        || clean.motionShape != s3g::MatrixFlowShape::Hold
+        || clean.motionShape != s3g::MatrixFlowShape::Attract
         || clean.aux[0].feedback != 0.96f
         || clean.lanes[0].auxSend[0] != 0.0f) {
         std::cerr << "No Input Mixer parameter sanitization failed\n";
@@ -1103,6 +1331,8 @@ int main()
     if (!testMovementBehaviors()) return 1;
     if (!testReactClockTuningAndAuxTopology()) return 1;
     if (!testMidiMatrixGrid()) return 1;
+    if (!testLiveParameterDezippering()) return 1;
+    if (!testAtomicWallEngineRecall()) return 1;
     if (!testPanic()) return 1;
     if (!testSanitization()) return 1;
     std::cout << "No Input Mixer smoke passed\n";

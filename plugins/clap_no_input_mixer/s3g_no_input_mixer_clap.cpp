@@ -25,12 +25,12 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 14u;
 constexpr uint32_t kChannelCount = s3g::kNoInputMixerChannels;
 constexpr uint32_t kRouteScopeSamples = 96u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 820u;
-constexpr uint32_t kPageCount = 6u;
+constexpr uint32_t kPageCount = 5u;
 constexpr double kPerformanceMixerReferenceHeight = 760.0;
 constexpr double kMatrixLatchAttackCaptureSeconds = 0.050;
 constexpr uint32_t kNrpnFeedbackParamsPerBlock = 16u;
@@ -53,6 +53,7 @@ constexpr uint8_t kMidiPanicNote = 123u;
 constexpr uint8_t kMidiClearMatrixNote = 124u;
 constexpr uint8_t kMidiRandomLowNote = 125u;
 constexpr uint8_t kMidiRandomHighNote = 126u;
+constexpr uint8_t kMidiReactDirectionToggleNote = 127u;
 
 constexpr clap_id kOutputParamId = 1u;
 constexpr clap_id kCeilingParamId = 2u;
@@ -108,11 +109,14 @@ constexpr clap_id kSlowTimeParamId = 51u;
 constexpr clap_id kClockSyncParamId = 52u;
 constexpr clap_id kFieldDivisionParamId = 53u;
 constexpr clap_id kEventDivisionParamId = 54u;
+// Retired NIM Parameter Surface IDs. They remain only in legacy state decoder
+// helpers and are no longer published as live parameters.
 constexpr clap_id kSurfaceXParamId = 55u;
 constexpr clap_id kSurfaceYParamId = 56u;
 constexpr clap_id kMatrixMidiModeParamId = 57u;
 constexpr clap_id kMatrixMidiSignParamId = 58u;
 constexpr clap_id kMatrixMidiRampParamId = 59u;
+constexpr clap_id kBehaviorDepthParamId = 60u;
 constexpr clap_id kMatrixParamBase = 100u;
 constexpr clap_id kLaneParamBase = 1000u;
 constexpr clap_id kLaneParamStride = 100u;
@@ -141,7 +145,7 @@ constexpr clap_id kInsertToneOffset = 2u;
 constexpr clap_id kInsertBiasOffset = 3u;
 constexpr clap_id kInsertLevelOffset = 4u;
 constexpr clap_id kInsertBypassOffset = 5u;
-constexpr uint32_t kGlobalParamCount = 59u;
+constexpr uint32_t kGlobalParamCount = 58u;
 constexpr uint32_t kLaneDirectParamCount = 17u;
 constexpr uint32_t kInsertParamCount = 6u;
 constexpr uint32_t kLaneParamCount = kLaneDirectParamCount
@@ -251,7 +255,8 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         kDefaultParams.vortex, false },
     { kMotionParamId, "Motion", "Movement", 0.0, 1.0,
         kDefaultParams.motion, false },
-    { kMotionShapeParamId, "Shape", "Movement", 0.0, 5.0,
+    { kMotionShapeParamId, "Shape", "Movement", 0.0,
+        static_cast<double>(s3g::kMatrixFlowShapeCount - 1u),
         static_cast<double>(kDefaultParams.motionShape), true },
     { kMotionRateParamId, "Rate", "Movement", 0.0, 1.0,
         kDefaultParams.motionRate, false },
@@ -283,7 +288,8 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         0.0, true },
     { kAuxBMuteParamId, "Mute All", "Aux Return B", 0.0, 1.0,
         0.0, true },
-    { kBehaviorParamId, "Behavior", "Movement / Articulation", 0.0, 4.0,
+    { kBehaviorParamId, "Behavior", "Movement / Articulation", 0.0,
+        static_cast<double>(s3g::kNoInputMovementBehaviorCount - 1u),
         static_cast<double>(kDefaultBehaviorParams.behavior), true },
     { kEventRateParamId, "Event Rate", "Movement / Articulation", 0.0, 1.0,
         kDefaultBehaviorParams.eventRate, false },
@@ -301,19 +307,19 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         kDefaultParams.aux[0].effect.bias, false },
     { kAuxBBiasParamId, "Bias", "Aux Return B", -1.0, 1.0,
         kDefaultParams.aux[1].effect.bias, false },
-    { kReactModeParamId, "Mode", "Movement / React", 0.0,
+    { kReactModeParamId, "Mode", "Movement / Response", 0.0,
         static_cast<double>(s3g::NoInputReactMode::Count) - 1.0,
         static_cast<double>(kDefaultParams.reactMode), true },
-    { kReactDepthParamId, "Depth", "Movement / React", 0.0, 1.0,
+    { kReactDepthParamId, "Depth", "Movement / Response", 0.0, 1.0,
         kDefaultParams.reactDepth, false },
-    { kReactThresholdParamId, "Threshold", "Movement / React", 0.0, 1.0,
+    { kReactThresholdParamId, "Threshold", "Movement / Response", 0.0, 1.0,
         kDefaultParams.reactThreshold, false },
-    { kReactAttackParamId, "Attack", "Movement / React", 0.0, 1.0,
+    { kReactAttackParamId, "Attack", "Movement / Response", 0.0, 1.0,
         kDefaultParams.reactAttack, false },
-    { kReactReleaseParamId, "Release", "Movement / React", 0.0, 1.0,
+    { kReactReleaseParamId, "Release", "Movement / Response", 0.0, 1.0,
         kDefaultParams.reactRelease, false },
-    { kReactPolarityParamId, "Polarity", "Movement / React", -1.0, 1.0,
-        kDefaultParams.reactPolarity, false },
+    { kReactPolarityParamId, "Direction", "Movement / Response", -1.0, 1.0,
+        kDefaultParams.reactPolarity, true },
     { kControllerHoldParamId, "Hold Ecology", "Movement", 0.0, 1.0,
         static_cast<double>(kDefaultParams.controllerHold), true },
     { kSlowTimeParamId, "Slow Time", "Movement", 0.0, 1.0,
@@ -326,10 +332,6 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
     { kEventDivisionParamId, "Event Division", "Movement", 0.0,
         static_cast<double>(s3g::kNoInputClockDivisionCount - 1u),
         static_cast<double>(kDefaultParams.eventDivision), true },
-    { kSurfaceXParamId, "Surface X", "Parameter Surface", 0.0, 1.0,
-        kDefaultParams.surfaceX, false },
-    { kSurfaceYParamId, "Surface Y", "Parameter Surface", 0.0, 1.0,
-        kDefaultParams.surfaceY, false },
     { kMatrixMidiModeParamId, "BU16 Mode", "MIDI / Matrix", 0.0,
         static_cast<double>(s3g::NoInputMatrixMidiMode::Count) - 1.0,
         static_cast<double>(s3g::NoInputMatrixMidiMode::Flip), true },
@@ -340,6 +342,8 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         s3g::kNoInputMatrixMidiRampMinimumMs,
         s3g::kNoInputMatrixMidiRampMaximumMs,
         s3g::kNoInputMatrixMidiRampDefaultMs, false },
+    { kBehaviorDepthParamId, "Depth", "Movement / Behavior", 0.0, 1.0,
+        kDefaultParams.motion, false },
 }};
 
 struct ParamRange {
@@ -463,9 +467,30 @@ struct NoInputSurfaceSnapshot {
     s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
     s3g::NoInputMovementBehaviorParams behavior {};
     std::array<uint32_t, 2u> auxMute {};
+    float behaviorDepth = 0.0f;
 };
 
 using NoInputSurface = s3g::ParameterSurfaceState<NoInputSurfaceSnapshot>;
+
+enum class NoInputSurfaceTopologyMode : uint32_t {
+    Base = 0u,
+    Cell,
+    Count,
+};
+
+constexpr float kNoInputSurfaceDefaultFocus = 0.75f;
+constexpr float kNoInputSurfaceDefaultGlideMs = 640.0f;
+constexpr uint32_t kNoInputSurfaceNoTopologyCell = ~0u;
+constexpr uint32_t kNoInputSurfaceControlFrames = 256u;
+
+struct LegacyNoInputSurfaceSnapshotV8 {
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    s3g::NoInputMovementBehaviorParams behavior {};
+    std::array<uint32_t, 2u> auxMute {};
+};
+
+using LegacyNoInputSurfaceV8 =
+    s3g::ParameterSurfaceState<LegacyNoInputSurfaceSnapshotV8>;
 
 struct LegacyNoInputLaneParamsV4 {
     float body = 0.50f;
@@ -525,7 +550,128 @@ struct SavedState {
     float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
     std::array<uint32_t, 2u> auxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
     NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+};
+
+// Version thirteen briefly stored two complete mixer engines and a blend
+// control. Version fourteen migrates whichever side was dominant into the
+// single direct-recall engine and discards those experimental fields.
+struct Version13SavedState {
+    uint32_t version = 13u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+    float retiredBlend = 0.0f;
+    float retiredWarmupMs = 250.0f;
+    std::array<NoInputSurfaceSnapshot, 2u> retiredStates {{
+        NoInputSurfaceSnapshot {}, NoInputSurfaceSnapshot {},
+    }};
+    uint32_t retiredTargetIndex = 0u;
+};
+
+struct Version12SavedState {
+    uint32_t version = 12u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+    float retiredDurationMs = 4000.0f;
+    float retiredWarmupMs = 250.0f;
+};
+
+// Versions 10 and 11 carried the retired Parameter Surface state but no
+// experimental transition controls. Preserve the core patch on migration and
+// discard the Surface runtime behavior.
+struct Version11SavedState {
+    uint32_t version = 11u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+};
+
+struct Version9SavedState {
+    uint32_t version = 9u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    NoInputSurface surface {};
+};
+
+struct Version8SavedState {
+    uint32_t version = 8u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    LegacyNoInputSurfaceV8 surface {};
 };
 
 struct Version7SavedState {
@@ -542,7 +688,7 @@ struct Version7SavedState {
         s3g::NoInputMatrixMidiSign::Positive);
     std::array<uint32_t, 2u> auxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
-    NoInputSurface surface {};
+    LegacyNoInputSurfaceV8 surface {};
 };
 
 struct Version6SavedState {
@@ -557,7 +703,7 @@ struct Version6SavedState {
         s3g::NoInputMatrixMidiMode::Flip);
     std::array<uint32_t, 2u> auxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
-    NoInputSurface surface {};
+    LegacyNoInputSurfaceV8 surface {};
 };
 
 struct Version5SavedState {
@@ -570,7 +716,7 @@ struct Version5SavedState {
     uint32_t guiPage = 0u;
     std::array<uint32_t, 2u> auxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
-    NoInputSurface surface {};
+    LegacyNoInputSurfaceV8 surface {};
 };
 
 struct Version4SavedState {
@@ -700,6 +846,35 @@ s3g::NoInputMixerParams migrateV4Params(
     return destination;
 }
 
+NoInputSurface migrateLegacySurfaceV8(
+    const LegacyNoInputSurfaceV8& source)
+{
+    NoInputSurface destination {};
+    destination.enabled = source.enabled;
+    destination.cellCount = std::min<uint32_t>(source.cellCount,
+        s3g::kParameterSurfaceMaxCells);
+    destination.focus = source.focus;
+    destination.curve = source.curve;
+    destination.glideMs = source.glideMs;
+    for (uint32_t index = 0u; index < destination.cellCount; ++index) {
+        const auto& oldCell = source.cells[index];
+        auto& newCell = destination.cells[index];
+        newCell.active = oldCell.active;
+        newCell.presetIndex = oldCell.presetIndex;
+        newCell.x = oldCell.x;
+        newCell.y = oldCell.y;
+        std::memcpy(newCell.name, oldCell.name, sizeof(newCell.name));
+        newCell.params.params = oldCell.params.params;
+        newCell.params.behavior = oldCell.params.behavior;
+        newCell.params.auxMute = oldCell.params.auxMute;
+        // Version 8 and earlier used Field Depth for both field motion and
+        // articulation. Seed the independent depth from that value.
+        newCell.params.behaviorDepth = oldCell.params.params.motion;
+    }
+    s3g::sanitizeParameterSurface(destination);
+    return destination;
+}
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -712,7 +887,12 @@ struct Plugin {
     std::array<uint32_t, 2u> effectiveAuxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
     s3g::NoInputMovementBehaviorParams effectiveBehavior {};
+    float behaviorDepth = 0.0f;
+    float effectiveBehaviorDepth = 0.0f;
     NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
     std::atomic<float> effectiveSurfaceX { 0.5f };
     std::atomic<float> effectiveSurfaceY { 0.5f };
     std::array<double, kTotalParamCount> modulation {};
@@ -792,6 +972,16 @@ struct Plugin {
 #endif
 };
 
+s3g::NoInputMixer& controlMixer(Plugin& plugin)
+{
+    return plugin.mixer;
+}
+
+const s3g::NoInputMixer& controlMixer(const Plugin& plugin)
+{
+    return plugin.mixer;
+}
+
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
@@ -828,12 +1018,13 @@ void refreshMidiMatrixOverlayState(Plugin& plugin)
          index < s3g::kNoInputMixerMatrixCells; ++index) {
         const uint32_t destination = index / kChannelCount;
         const uint32_t source = index % kChannelCount;
-        const bool active = plugin.mixer.midiMatrixConnectionActive(
+        const auto& destinationMixer = controlMixer(plugin);
+        const bool active = destinationMixer.midiMatrixConnectionActive(
             destination, source);
         plugin.midiMatrixGridActive[index].store(active,
             std::memory_order_relaxed);
         plugin.midiMatrixGridGain[index].store(active
-                ? plugin.mixer.effectiveMatrixGain(destination, source)
+                ? destinationMixer.effectiveMatrixGain(destination, source)
                 : 0.0f,
             std::memory_order_relaxed);
     }
@@ -848,6 +1039,82 @@ float displayedMatrixGain(const Plugin& plugin, uint32_t index)
             std::memory_order_relaxed);
     }
     return plugin.params.matrix[index];
+}
+
+struct RouteStageReadout {
+    float base = 0.0f;
+    float field = 1.0f;
+    float behavior = 1.0f;
+    float response = 1.0f;
+    float effective = 0.0f;
+    float choke = 1.0f;
+};
+
+RouteStageReadout routeStageReadout(const Plugin& plugin,
+    uint32_t source, uint32_t destination)
+{
+    RouteStageReadout result;
+    if (source >= kChannelCount || destination >= kChannelCount)
+        return result;
+    const uint32_t selected = destination * kChannelCount + source;
+    result.base = displayedMatrixGain(plugin, selected);
+    auto weights = s3g::noInputMixerMotionWeights(plugin.params,
+        plugin.motionPhase.load(std::memory_order_relaxed));
+    if (plugin.behavior.behavior == s3g::NoInputMovementBehavior::Step) {
+        for (uint32_t index = 0u; index < weights.size(); ++index) {
+            const float stepped = plugin.behaviorRouteGate[index].load(
+                std::memory_order_relaxed);
+            weights[index] = s3g::lerp(weights[index], stepped,
+                plugin.behaviorDepth);
+        }
+    }
+    float activePeak = 0.0f;
+    uint32_t activeCount = 0u;
+    for (uint32_t routeDestination = 0u;
+         routeDestination < kChannelCount; ++routeDestination) {
+        const uint32_t index = routeDestination * kChannelCount + source;
+        if (std::abs(displayedMatrixGain(plugin, index)) <= 0.001f)
+            continue;
+        activePeak = std::max(activePeak, weights[index]);
+        ++activeCount;
+    }
+    result.field = s3g::noInputMixerMotionGainScale(weights[selected],
+        activePeak, activeCount, plugin.params.motion);
+    const auto behavior = plugin.behavior.behavior;
+    if (s3g::noInputMovementBehaviorUsesAmplitude(behavior)) {
+        result.behavior = s3g::lerp(1.0f,
+            plugin.behaviorRouteGate[selected].load(
+                std::memory_order_relaxed), plugin.behaviorDepth);
+    }
+    if (plugin.params.reactMode != s3g::NoInputReactMode::Off
+        && plugin.params.reactDepth > 1.0e-6f) {
+        const float response = 0.0316227766f
+            + plugin.reactRouteGate[selected].load(
+                std::memory_order_relaxed) * 0.9683772234f;
+        result.response = s3g::lerp(1.0f, response,
+            plugin.params.reactDepth);
+    }
+    if (behavior != s3g::NoInputMovementBehavior::Glide
+        && plugin.behavior.choke > 1.0e-6f) {
+        float laneGate = 0.0f;
+        bool hasRoute = false;
+        for (uint32_t routeSource = 0u;
+             routeSource < kChannelCount; ++routeSource) {
+            const uint32_t index = destination * kChannelCount + routeSource;
+            if (std::abs(displayedMatrixGain(plugin, index)) <= 0.001f)
+                continue;
+            hasRoute = true;
+            laneGate = std::max(laneGate,
+                plugin.behaviorRouteGate[index].load(
+                    std::memory_order_relaxed));
+        }
+        if (!hasRoute) laneGate = 1.0f;
+        result.choke = s3g::lerp(1.0f, laneGate,
+            plugin.behavior.choke);
+    }
+    result.effective = std::abs(result.base) * result.field
+        * result.behavior * result.response;
+    return result;
 }
 
 bool emitMatrixFeedbackEvent(const clap_output_events_t* events,
@@ -1271,6 +1538,7 @@ bool assignSnapshotParam(NoInputSurfaceSnapshot& snapshot,
     case kEventChaosParamId: behavior.chaos = value; return true;
     case kEventSlewParamId: behavior.slew = value; return true;
     case kEventChokeParamId: behavior.choke = value; return true;
+    case kBehaviorDepthParamId: snapshot.behaviorDepth = value; return true;
     case kAuxABiasParamId:
     case kAuxBBiasParamId:
         params.aux[id == kAuxABiasParamId ? 0u : 1u].effect.bias = value;
@@ -1393,6 +1661,7 @@ bool snapshotParamValue(const NoInputSurfaceSnapshot& snapshot,
     case kEventChaosParamId: value = behavior.chaos; return true;
     case kEventSlewParamId: value = behavior.slew; return true;
     case kEventChokeParamId: value = behavior.choke; return true;
+    case kBehaviorDepthParamId: value = snapshot.behaviorDepth; return true;
     case kAuxABiasParamId: value = params.aux[0].effect.bias; return true;
     case kAuxBBiasParamId: value = params.aux[1].effect.bias; return true;
     case kReactModeParamId: value = static_cast<double>(params.reactMode); return true;
@@ -1457,7 +1726,8 @@ bool snapshotParamValue(const NoInputSurfaceSnapshot& snapshot,
 
 NoInputSurfaceSnapshot baseSnapshot(const Plugin& plugin)
 {
-    return { plugin.params, plugin.behavior, plugin.auxMute };
+    return { plugin.params, plugin.behavior, plugin.auxMute,
+        plugin.behaviorDepth };
 }
 
 bool surfaceKeepsLive(clap_id id)
@@ -1474,6 +1744,50 @@ bool surfaceKeepsLive(clap_id id)
         && (offset == kLaneLevelOffset || offset == kLaneMuteOffset);
 }
 
+bool surfaceMutates(clap_id id)
+{
+    uint32_t destination = 0u;
+    uint32_t source = 0u;
+    if (decodeMatrixParam(id, destination, source)) return true;
+
+    switch (id) {
+    case kDriftParamId:
+    case kFormantParamId:
+    case kAgencyParamId:
+    case kSpaceParamId:
+    case kInternalToneParamId:
+    case kFlowParamId:
+    case kSpreadParamId:
+    case kVortexParamId:
+    case kMotionParamId:
+    case kMotionRateParamId:
+    case kMotionPhaseParamId:
+    case kAuxAReturnParamId:
+    case kAuxBReturnParamId:
+    case kEventRateParamId:
+    case kEventLengthParamId:
+    case kEventDensityParamId:
+    case kEventChaosParamId:
+    case kEventSlewParamId:
+    case kEventChokeParamId:
+    case kReactDepthParamId:
+    case kReactThresholdParamId:
+    case kReactAttackParamId:
+    case kReactReleaseParamId:
+    case kBehaviorDepthParamId:
+        return true;
+    default:
+        break;
+    }
+
+    uint32_t lane = 0u;
+    clap_id offset = 0u;
+    if (!decodeLaneParam(id, lane, offset)) return false;
+    return offset == kLaneAuxAOffset || offset == kLaneAuxBOffset
+        || offset == kLaneAuxReturnAOffset
+        || offset == kLaneAuxReturnBOffset;
+}
+
 NoInputSurfaceSnapshot surfaceSnapshot(const Plugin& plugin,
     float cursorX, float cursorY)
 {
@@ -1482,17 +1796,24 @@ NoInputSurfaceSnapshot surfaceSnapshot(const Plugin& plugin,
     const auto weights = s3g::parameterSurfaceWeights(
         plugin.surface, cursorX, cursorY);
     if (weights.activeCount < 2u) return base;
-    auto result = s3g::parameterSurfaceNearestParams(
-        plugin.surface, weights, base);
+    auto result = base;
+    if (plugin.surfaceTopologyMode == static_cast<uint32_t>(
+            NoInputSurfaceTopologyMode::Cell)
+        && plugin.surfaceTopologyCell < plugin.surface.cellCount
+        && plugin.surface.cells[plugin.surfaceTopologyCell].active) {
+        result = plugin.surface.cells[plugin.surfaceTopologyCell].params;
+    }
     for (uint32_t index = 0u; index < kTotalParamCount; ++index) {
         const clap_id id = paramIdAtIndex(index);
-        ParamRange range;
-        double baseValue = 0.0;
-        if (!paramRange(id, range)
-            || !snapshotParamValue(base, id, baseValue)) continue;
         if (surfaceKeepsLive(id)) {
+            double baseValue = 0.0;
+            if (!snapshotParamValue(base, id, baseValue)) continue;
             assignSnapshotParam(result, id, baseValue);
-        } else if (!range.stepped) {
+        } else if (surfaceMutates(id)) {
+            ParamRange range;
+            double baseValue = 0.0;
+            if (!paramRange(id, range) || range.stepped
+                || !snapshotParamValue(base, id, baseValue)) continue;
             const float blended = s3g::parameterSurfaceBlend(
                 plugin.surface, weights,
                 [id](const NoInputSurfaceSnapshot& cell) {
@@ -1557,19 +1878,13 @@ bool advanceSurfaceCursor(Plugin& plugin, float deltaSeconds)
 
 void syncMixerState(Plugin& plugin)
 {
-    const bool active = plugin.active.load(std::memory_order_acquire);
-    const float x = active ? plugin.effectiveSurfaceX.load(std::memory_order_relaxed)
-        : static_cast<float>(modulatedBaseValue(plugin, kSurfaceXParamId));
-    const float y = active ? plugin.effectiveSurfaceY.load(std::memory_order_relaxed)
-        : static_cast<float>(modulatedBaseValue(plugin, kSurfaceYParamId));
-    auto effective = surfaceSnapshot(plugin, x, y);
+    auto effective = baseSnapshot(plugin);
     for (uint32_t index = 0u; index < kTotalParamCount; ++index) {
         const double amount = plugin.modulation[index];
         if (amount == 0.0) continue;
         const clap_id id = paramIdAtIndex(index);
         ParamRange range;
-        if (!paramRange(id, range) || range.stepped
-            || id == kSurfaceXParamId || id == kSurfaceYParamId) continue;
+        if (!paramRange(id, range) || range.stepped) continue;
         double value = 0.0;
         if (!snapshotParamValue(effective, id, value)) continue;
         assignSnapshotParam(effective, id,
@@ -1584,19 +1899,28 @@ void syncMixerState(Plugin& plugin)
     }
     plugin.effectiveBehavior = s3g::sanitizeNoInputMovementBehaviorParams(
         effective.behavior);
+    plugin.effectiveBehaviorDepth = std::clamp(
+        std::isfinite(effective.behaviorDepth)
+            ? effective.behaviorDepth : 0.0f, 0.0f, 1.0f);
     plugin.effectiveAuxMute = effective.auxMute;
-    plugin.mixer.setMidiMatrixRampMs(plugin.matrixMidiRampMs.load(
+    auto& destination = controlMixer(plugin);
+    destination.setMidiMatrixRampMs(plugin.matrixMidiRampMs.load(
         std::memory_order_relaxed));
-    plugin.mixer.setParams(plugin.effectiveParams);
-    plugin.mixer.setMovementBehaviorParams(plugin.effectiveBehavior);
-    plugin.mixer.setTransport(plugin.transportTempoBpm, plugin.transportHasTempo);
+    destination.setParameterSurfaceMutationEnabled(false);
+    destination.setParams(plugin.effectiveParams);
+    destination.setMovementBehaviorParams(plugin.effectiveBehavior);
+    destination.setMovementBehaviorDepth(plugin.effectiveBehaviorDepth);
+    destination.setTransport(plugin.transportTempoBpm,
+        plugin.transportHasTempo);
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
-        plugin.mixer.setAuxMuted(bus, plugin.effectiveAuxMute[bus] != 0u);
+        destination.setAuxMuted(bus, plugin.effectiveAuxMute[bus] != 0u);
     }
 }
 
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
+    ParamRange publishedRange;
+    if (!paramRange(id, publishedRange)) return;
     if (id == kMatrixMidiModeParamId) {
         const uint32_t mode = static_cast<uint32_t>(std::clamp(
             std::lround(value), 0l,
@@ -1632,15 +1956,14 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     plugin.params = snapshot.params;
     plugin.behavior = snapshot.behavior;
     plugin.auxMute = snapshot.auxMute;
-    if (!plugin.active.load(std::memory_order_acquire)
-        || !plugin.surface.enabled || plugin.surface.glideMs <= 0.0f) {
-        snapSurfaceCursor(plugin);
-    }
+    plugin.behaviorDepth = snapshot.behaviorDepth;
     syncMixerState(plugin);
 }
 
 bool paramValue(const Plugin& plugin, clap_id id, double& value)
 {
+    ParamRange publishedRange;
+    if (!paramRange(id, publishedRange)) return false;
     if (id == kMatrixMidiModeParamId) {
         value = plugin.matrixMidiMode.load(std::memory_order_relaxed);
         return true;
@@ -1701,14 +2024,15 @@ void resetMeters(Plugin& plugin)
 void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
     float seedAmount)
 {
-    clearMidiMatrixGrid(plugin);
     params.outputGainDb = plugin.params.outputGainDb;
-    s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     plugin.params = s3g::sanitizeNoInputMixerParams(params);
     plugin.nrpnFeedbackSent.fill(false);
     plugin.nrpnFeedbackCursor = 0u;
-    snapSurfaceCursor(plugin);
+    clearMidiMatrixGrid(plugin);
     syncMixerState(plugin);
+    // Complete patch recall deliberately starts a fresh network. Parameter
+    // edits and state restores keep their normal DSP ramps.
+    plugin.mixer.reset();
     plugin.mixer.reseed(plugin.params.seed, seedAmount);
     resetMeters(plugin);
 }
@@ -1899,6 +2223,7 @@ void applyMidiFactoryPreset(Plugin& plugin, uint32_t preset,
     auto patch = s3g::noInputMixerFactoryPreset(preset);
     patch = s3g::variedNoInputMixerParams(patch, seed, variance);
     plugin.behavior = s3g::noInputMixerFactoryBehavior(preset);
+    plugin.behaviorDepth = patch.motion;
     applyCompletePatch(plugin, patch, 0.68f);
     emitAllMidiParamValues(plugin, events, time);
 }
@@ -1909,8 +2234,9 @@ void applyMidiRandom(Plugin& plugin, s3g::NoInputRandomEnergy energy,
     const uint32_t seed = nextPatchSeed(plugin);
     plugin.behavior = s3g::randomizedNoInputMovementBehaviorParams(
         seed ^ 0x43564d58u, energy);
-    applyCompletePatch(plugin,
-        s3g::randomizedNoInputMixerParams(seed, energy),
+    const auto patch = s3g::randomizedNoInputMixerParams(seed, energy);
+    plugin.behaviorDepth = patch.motion;
+    applyCompletePatch(plugin, patch,
         s3g::noInputRandomSeedAmount(energy));
     emitAllMidiParamValues(plugin, events, time);
 }
@@ -1976,7 +2302,7 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
     case kMidiNewNote:
         plugin.params.seed = nextPatchSeed(plugin);
         syncMixerState(plugin);
-        plugin.mixer.reseed(plugin.params.seed, 0.70f);
+        controlMixer(plugin).reseed(plugin.params.seed, 0.70f);
         return;
     case kMidiForgetNote: {
         const uint32_t seed = nextPatchSeed(plugin);
@@ -1997,6 +2323,17 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
         applyMidiRandom(plugin, s3g::NoInputRandomEnergy::High,
             time, events);
         return;
+    case kMidiReactDirectionToggleNote: {
+        double direction = 1.0;
+        paramValue(plugin, kReactPolarityParamId, direction);
+        applyParam(plugin, kReactPolarityParamId,
+            direction < 0.0 ? 1.0 : -1.0);
+        if (paramValue(plugin, kReactPolarityParamId, direction)) {
+            emitMidiParamValue(events, time, kReactPolarityParamId,
+                direction);
+        }
+        return;
+    }
     case kMidiPanicNote:
         clearMidiMatrixGrid(plugin);
         plugin.mixer.panic();
@@ -2075,10 +2412,11 @@ void applyMidiMatrixLatchGain(Plugin& plugin, uint32_t index, float gain,
     // Start from the currently heard value before updating the saved matrix.
     // Releasing this temporary overlay after the state update lets the DSP
     // glide to the new persistent value and then retire the overlay.
-    plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+    auto& destinationMixer = controlMixer(plugin);
+    destinationMixer.setMidiMatrixConnection(destination, source, gain);
     plugin.params.matrix[index] = gain;
     syncMixerState(plugin);
-    plugin.mixer.releaseMidiMatrixConnection(destination, source);
+    destinationMixer.releaseMidiMatrixConnection(destination, source);
     emitMidiParamValue(events, time, kMatrixParamBase + index, gain);
 }
 
@@ -2160,16 +2498,17 @@ bool applyMidiMatrixGridNote(Plugin& plugin, uint8_t channel, uint8_t note,
             std::memory_order_relaxed);
         const float gain = s3g::noInputMatrixMidiGain(
             mode, baseGain, velocity);
-        plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+        auto& destinationMixer = controlMixer(plugin);
+        destinationMixer.setMidiMatrixConnection(destination, source, gain);
         plugin.midiMatrixGridGain[index].store(
-            plugin.mixer.effectiveMatrixGain(destination, source),
+            destinationMixer.effectiveMatrixGain(destination, source),
             std::memory_order_relaxed);
         plugin.midiMatrixGridHeld[index].store(true,
             std::memory_order_relaxed);
         plugin.midiMatrixGridActive[index].store(true,
             std::memory_order_relaxed);
     } else {
-        plugin.mixer.releaseMidiMatrixConnection(destination, source);
+        controlMixer(plugin).releaseMidiMatrixConnection(destination, source);
         plugin.midiMatrixGridHeld[index].store(false,
             std::memory_order_relaxed);
     }
@@ -2198,7 +2537,7 @@ bool applyMidiMatrixGridPressure(Plugin& plugin, uint8_t channel,
         std::memory_order_relaxed);
     const float gain = s3g::noInputMatrixMidiGain(
         mode, baseGain, pressure);
-    plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+    controlMixer(plugin).setMidiMatrixConnection(destination, source, gain);
     return true;
 }
 
@@ -2240,9 +2579,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     p->routeScopeDecimation = std::max<uint32_t>(1u,
         static_cast<uint32_t>(std::lround(sampleRate / 24000.0)));
     p->routeScopeCountdown = 0u;
-    p->surfaceControlCountdown = 64u;
     p->mixer.prepare(sampleRate);
-    snapSurfaceCursor(*p);
     p->active.store(true, std::memory_order_release);
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
@@ -2270,7 +2607,6 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-    snapSurfaceCursor(*p);
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
@@ -2299,9 +2635,6 @@ bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
         if (index < 0 || !paramRange(param->param_id, range)
             || range.stepped) return false;
         plugin.modulation[static_cast<uint32_t>(index)] = param->amount;
-        if (!plugin.surface.enabled || plugin.surface.glideMs <= 0.0f) {
-            snapSurfaceCursor(plugin);
-        }
         syncMixerState(plugin);
         return true;
     }
@@ -2387,7 +2720,7 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->params.seed = p->params.seed * 1664525u + 1013904223u;
         if (p->params.seed == 0u) p->params.seed = 1u;
         syncMixerState(*p);
-        p->mixer.reseed(p->params.seed, 0.70f);
+        controlMixer(*p).reseed(p->params.seed, 0.70f);
     }
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
         clearMidiMatrixGrid(*p);
@@ -2396,7 +2729,9 @@ clap_process_status process(const clap_plugin_t* plugin,
     uint32_t killMask = p->killMask.exchange(0u,
         std::memory_order_acq_rel);
     for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
-        if ((killMask & (1u << lane)) != 0u) p->mixer.killLane(lane);
+        if ((killMask & (1u << lane)) != 0u) {
+            p->mixer.killLane(lane);
+        }
     }
 
     const uint32_t eventCount = process->in_events
@@ -2446,14 +2781,6 @@ clap_process_status process(const clap_plugin_t* plugin,
 
     for (uint32_t frame = 0u; frame < process->frames_count; ++frame) {
         applyEventsThrough(frame);
-        if (p->surfaceControlCountdown == 0u) {
-            if (advanceSurfaceCursor(*p,
-                    64.0f / static_cast<float>(p->sampleRate))) {
-                syncMixerState(*p);
-            }
-            p->surfaceControlCountdown = 64u;
-        }
-        --p->surfaceControlCountdown;
         p->mixer.processFrame(p->frame.data());
         if (p->routeScopeCountdown == 0u) {
             const uint64_t sequence = p->routeScopeSequence.load(
@@ -2497,26 +2824,27 @@ clap_process_status process(const clap_plugin_t* plugin,
     p->outputPeak.store(std::max(
         p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak),
         std::memory_order_relaxed);
+    const auto& meterMixer = controlMixer(*p);
     for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
         p->lanePeaks[lane].store(std::max(
             p->lanePeaks[lane].load(std::memory_order_relaxed) * 0.90f,
             blockPeaks[lane]), std::memory_order_relaxed);
-        p->laneActivity[lane].store(p->mixer.laneActivity(lane),
+        p->laneActivity[lane].store(meterMixer.laneActivity(lane),
             std::memory_order_relaxed);
     }
-    p->networkActivity.store(p->mixer.networkActivity(),
+    p->networkActivity.store(meterMixer.networkActivity(),
         std::memory_order_relaxed);
-    p->motionPhase.store(p->mixer.motionPhase(),
+    p->motionPhase.store(meterMixer.motionPhase(),
         std::memory_order_relaxed);
     for (uint32_t route = 0u;
          route < s3g::kNoInputMixerMatrixCells; ++route) {
         p->behaviorRouteGate[route].store(
-            p->mixer.behaviorRouteGate(route), std::memory_order_relaxed);
+            meterMixer.behaviorRouteGate(route), std::memory_order_relaxed);
         p->reactRouteGate[route].store(
-            p->mixer.reactRouteGate(route), std::memory_order_relaxed);
+            meterMixer.reactRouteGate(route), std::memory_order_relaxed);
     }
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
-        p->auxActivity[bus].store(p->mixer.auxActivity(bus),
+        p->auxActivity[bus].store(meterMixer.auxActivity(bus),
             std::memory_order_relaxed);
     }
     p->minimumGovernor.store(p->mixer.minimumGovernor(),
@@ -2673,13 +3001,15 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     }
     if (id == kMotionShapeParamId) {
         const auto shape = s3g::matrixFlowShapeFromIndex(
-            static_cast<uint32_t>(std::clamp(std::lround(value), 0l, 5l)));
+            static_cast<uint32_t>(std::clamp(std::lround(value), 0l,
+                static_cast<long>(s3g::kMatrixFlowShapeCount) - 1l)));
         std::snprintf(display, size, "%s", s3g::matrixFlowShapeName(shape));
         return true;
     }
     if (id == kBehaviorParamId) {
         const uint32_t behavior = static_cast<uint32_t>(std::clamp(
-            std::lround(value), 0l, 4l));
+            std::lround(value), 0l,
+            static_cast<long>(s3g::kNoInputMovementBehaviorCount) - 1l));
         std::snprintf(display, size, "%s",
             s3g::noInputMovementBehaviorName(
                 static_cast<s3g::NoInputMovementBehavior>(behavior)));
@@ -2691,6 +3021,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<long>(s3g::NoInputReactMode::Count) - 1l));
         std::snprintf(display, size, "%s", s3g::noInputReactModeName(
             static_cast<s3g::NoInputReactMode>(mode)));
+        return true;
+    }
+    if (id == kReactPolarityParamId) {
+        std::snprintf(display, size, "%s",
+            value < 0.0 ? "INVERT" : "NORMAL");
         return true;
     }
     if (id == kMatrixMidiModeParamId) {
@@ -2755,9 +3090,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         || id == kSpreadParamId || id == kMotionParamId
         || id == kMotionRateParamId || id == kMotionPhaseParamId
         || id == kEventDensityParamId || id == kEventChaosParamId
-        || id == kEventChokeParamId || id == kReactDepthParamId
+        || id == kEventChokeParamId || id == kBehaviorDepthParamId
+        || id == kReactDepthParamId
         || id == kReactThresholdParamId
-        || id == kSurfaceXParamId || id == kSurfaceYParamId
         || (id >= kAuxAGainParamId && id <= kAuxAFeedbackParamId)
         || (id >= kAuxBGainParamId && id <= kAuxBFeedbackParamId)) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
@@ -2765,7 +3100,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     }
     if (id == kInternalToneParamId || id == kHouseToneParamId
         || id == kVortexParamId || id == kAuxABiasParamId
-        || id == kAuxBBiasParamId || id == kReactPolarityParamId) {
+        || id == kAuxBBiasParamId) {
         std::snprintf(display, size, "%+.2f", value);
         return true;
     }
@@ -2845,7 +3180,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 {
     if (!display || !value) return false;
     if (id == kMotionShapeParamId) {
-        for (uint32_t shape = 0u; shape <= 5u; ++shape) {
+        for (uint32_t shape = 0u;
+             shape < s3g::kMatrixFlowShapeCount; ++shape) {
             if (std::strcmp(display, s3g::matrixFlowShapeName(
                     s3g::matrixFlowShapeFromIndex(shape))) == 0) {
                 *value = shape;
@@ -2865,7 +3201,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         }
     }
     if (id == kBehaviorParamId) {
-        for (uint32_t behavior = 0u; behavior < 5u; ++behavior) {
+        for (uint32_t behavior = 0u;
+             behavior < s3g::kNoInputMovementBehaviorCount; ++behavior) {
             if (std::strcmp(display, s3g::noInputMovementBehaviorName(
                     static_cast<s3g::NoInputMovementBehavior>(behavior)))
                 == 0) {
@@ -2883,6 +3220,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
                 *value = mode;
                 return true;
             }
+        }
+    }
+    if (id == kReactPolarityParamId) {
+        if (std::strcmp(display, "INVERT") == 0) {
+            *value = -1.0;
+            return true;
+        }
+        if (std::strcmp(display, "NORMAL") == 0) {
+            *value = 1.0;
+            return true;
         }
     }
     if (id == kMatrixMidiModeParamId) {
@@ -3025,7 +3372,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         std::memory_order_relaxed);
     state.auxMute = p->auxMute;
     state.behavior = p->behavior;
+    state.behaviorDepth = p->behaviorDepth;
     state.surface = p->surface;
+    state.surfaceTopologyMode = p->surfaceTopologyMode;
+    state.surfaceTopologyCell = p->surfaceTopologyCell;
     const auto* bytes = reinterpret_cast<const uint8_t*>(&state);
     uint64_t offset = 0u;
     while (offset < sizeof(state)) {
@@ -3054,12 +3404,138 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0u;
     if (!readExact(&version, sizeof(version))) return false;
     SavedState state;
+    bool captureLegacyNearestAnchor = false;
     if (version == kStateVersion) {
         state.version = version;
         if (!readExact(reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) {
             return false;
         }
+    } else if (version == 13u) {
+        Version13SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        const float blend = std::clamp(
+            std::isfinite(previous.retiredBlend)
+                ? previous.retiredBlend : 0.0f, 0.0f, 1.0f);
+        const auto& dominant = previous.retiredStates[
+            blend < 0.5f ? 0u : 1u];
+        state.params = dominant.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage < kPageCount
+            ? previous.guiPage : 0u;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = dominant.auxMute;
+        state.behavior = dominant.behavior;
+        state.behaviorDepth = dominant.behaviorDepth;
+        state.surface = previous.surface;
+        state.surfaceTopologyMode = previous.surfaceTopologyMode;
+        state.surfaceTopologyCell = previous.surfaceTopologyCell;
+    } else if (version == 12u) {
+        Version12SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.behaviorDepth = previous.behaviorDepth;
+        state.surface = previous.surface;
+        state.surfaceTopologyMode = previous.surfaceTopologyMode;
+        state.surfaceTopologyCell = previous.surfaceTopologyCell;
+    } else if (version == 11u || version == 10u) {
+        // Version ten used the same final fields, but CELL changed topology
+        // dynamically and LOCK optionally carried a captured cell. Migrate
+        // both models to a stable base or cell anchor.
+        Version11SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.behaviorDepth = previous.behaviorDepth;
+        state.surface = previous.surface;
+        state.surfaceTopologyMode = previous.surfaceTopologyMode;
+        state.surfaceTopologyCell = previous.surfaceTopologyCell;
+        if (version == 10u && previous.surfaceTopologyMode == 0u) {
+            state.surfaceTopologyMode =
+                previous.surfaceTopologyCell != kNoInputSurfaceNoTopologyCell
+                ? static_cast<uint32_t>(NoInputSurfaceTopologyMode::Cell)
+                : static_cast<uint32_t>(NoInputSurfaceTopologyMode::Base);
+        } else if (version == 10u) {
+            state.surfaceTopologyMode = static_cast<uint32_t>(
+                NoInputSurfaceTopologyMode::Cell);
+            captureLegacyNearestAnchor = true;
+        }
+    } else if (version == 9u) {
+        Version9SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.behaviorDepth = previous.behaviorDepth;
+        state.surface = previous.surface;
+    } else if (version == 8u) {
+        Version8SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.behaviorDepth = previous.params.motion;
+        state.surface = migrateLegacySurfaceV8(previous.surface);
     } else if (version == 7u) {
         Version7SavedState previous;
         previous.version = version;
@@ -3077,7 +3553,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.matrixMidiSign = previous.matrixMidiSign;
         state.auxMute = previous.auxMute;
         state.behavior = previous.behavior;
-        state.surface = previous.surface;
+        state.behaviorDepth = previous.params.motion;
+        state.surface = migrateLegacySurfaceV8(previous.surface);
     } else if (version == 6u) {
         Version6SavedState previous;
         previous.version = version;
@@ -3094,7 +3571,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.matrixMidiMode = previous.matrixMidiMode;
         state.auxMute = previous.auxMute;
         state.behavior = previous.behavior;
-        state.surface = previous.surface;
+        state.behaviorDepth = previous.params.motion;
+        state.surface = migrateLegacySurfaceV8(previous.surface);
     } else if (version == 5u) {
         Version5SavedState previous;
         previous.version = version;
@@ -3110,7 +3588,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.guiPage = previous.guiPage;
         state.auxMute = previous.auxMute;
         state.behavior = previous.behavior;
-        state.surface = previous.surface;
+        state.behaviorDepth = previous.params.motion;
+        state.surface = migrateLegacySurfaceV8(previous.surface);
     } else if (version == 4u) {
         Version4SavedState previous;
         previous.version = version;
@@ -3206,6 +3685,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    if (version <= 4u) state.behaviorDepth = state.params.motion;
+    if (version < 10u) {
+        // Versions one through nine followed the nearest cell. Capture that
+        // nearest cell once so reopening an older project preserves its
+        // saved location without retaining boundary-triggered topology jumps.
+        state.surfaceTopologyMode = static_cast<uint32_t>(
+            NoInputSurfaceTopologyMode::Cell);
+        captureLegacyNearestAnchor = true;
+    }
     if (state.version != kStateVersion) {
         state.version = kStateVersion;
     }
@@ -3213,16 +3701,39 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->params = s3g::sanitizeNoInputMixerParams(state.params);
     p->behavior = s3g::sanitizeNoInputMovementBehaviorParams(
         state.behavior);
+    p->behaviorDepth = std::clamp(std::isfinite(state.behaviorDepth)
+        ? state.behaviorDepth : p->params.motion, 0.0f, 1.0f);
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
         p->auxMute[bus] = state.auxMute[bus] != 0u ? 1u : 0u;
     }
     p->surface = state.surface;
     s3g::sanitizeParameterSurface(p->surface);
+    p->surfaceTopologyMode = std::min<uint32_t>(state.surfaceTopologyMode,
+        static_cast<uint32_t>(NoInputSurfaceTopologyMode::Count) - 1u);
+    p->surfaceTopologyCell = state.surfaceTopologyCell < p->surface.cellCount
+            && p->surface.cells[state.surfaceTopologyCell].active
+        ? state.surfaceTopologyCell : kNoInputSurfaceNoTopologyCell;
+    if (captureLegacyNearestAnchor) {
+        const auto weights = s3g::parameterSurfaceWeights(p->surface,
+            p->params.surfaceX, p->params.surfaceY);
+        p->surfaceTopologyCell = weights.activeCount > 0u
+            ? weights.nearest : kNoInputSurfaceNoTopologyCell;
+    }
+    if (p->surfaceTopologyMode == static_cast<uint32_t>(
+            NoInputSurfaceTopologyMode::Cell)
+        && p->surfaceTopologyCell == kNoInputSurfaceNoTopologyCell) {
+        p->surfaceTopologyMode = static_cast<uint32_t>(
+            NoInputSurfaceTopologyMode::Base);
+    }
     for (uint32_t index = 0u; index < p->surface.cellCount; ++index) {
         auto& snapshot = p->surface.cells[index].params;
         snapshot.params = s3g::sanitizeNoInputMixerParams(snapshot.params);
         snapshot.behavior = s3g::sanitizeNoInputMovementBehaviorParams(
             snapshot.behavior);
+        snapshot.behaviorDepth = std::clamp(
+            std::isfinite(snapshot.behaviorDepth)
+                ? snapshot.behaviorDepth : snapshot.params.motion,
+            0.0f, 1.0f);
         for (auto& muted : snapshot.auxMute) muted = muted != 0u;
     }
     p->selectedLane.store(std::min<uint32_t>(state.selectedLane,
@@ -3253,7 +3764,6 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->matrixFeedbackRefreshFrames = 0u;
     p->nrpnFeedbackSent.fill(false);
     p->nrpnFeedbackCursor = 0u;
-    snapSurfaceCursor(*p);
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
@@ -3443,13 +3953,33 @@ NSRect surfaceGlideRect(uint32_t index)
         page.origin.y + 76.0, 22.0, 22.0);
 }
 
-NSRect reactModeToggleRect(uint32_t index)
+NSRect surfaceTopologyRect()
+{
+    const NSRect page = widePageRect();
+    return NSMakeRect(page.origin.x + 500.0, page.origin.y + 76.0,
+        138.0, 22.0);
+}
+
+NSRect movementGlobalToggleRect(uint32_t index)
 {
     const auto& panel = s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
     const CGFloat x = s3g::gui_layout::processorControlX(panel.frame.x);
     const CGFloat width = 52.0;
     return NSMakeRect(x + index * (width + 5.0),
-        s3g::gui_layout::rowY(panel, 6u) - 1.0, width, 17.0);
+        s3g::gui_layout::rowY(panel, 8u) - 1.0, width, 17.0);
+}
+
+NSRect movementSectionRandomRect()
+{
+    const auto& panel = s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
+    return NSMakeRect(panel.frame.x + panel.frame.width - 199.0,
+        panel.frame.y + 7.0, 40.0, 15.0);
+}
+
+NSRect reactDirectionButtonRect()
+{
+    const auto& panel = s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
+    return processorMenuRect(panel, 5u);
 }
 
 NSRect patchVisualRect()
@@ -3841,7 +4371,6 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)channelPanel;
 - (NSPanel*)safetyPanel;
 - (NSPanel*)auxPanel;
-- (NSPanel*)surfacePanel;
 - (NSInteger)hoverMenuItem;
 - (uint32_t)activePage;
 - (void)navigatePageBy:(NSInteger)delta;
@@ -3853,8 +4382,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     vertical:(BOOL)vertical point:(NSPoint)point;
 - (void)drawPerformanceMixer:(Plugin*)plugin surface:(NSRect)surface;
 - (void)drawAuxTopology:(Plugin*)plugin label:(NSDictionary*)label
-    value:(NSDictionary*)value;
-- (void)drawSurface:(Plugin*)plugin label:(NSDictionary*)label
     value:(NSDictionary*)value;
 @end
 
@@ -4425,7 +4952,6 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)channelPanel { return _pagePanels[2u]; }
 - (NSPanel*)safetyPanel { return _pagePanels[3u]; }
 - (NSPanel*)auxPanel { return _pagePanels[4u]; }
-- (NSPanel*)surfacePanel { return _pagePanels[5u]; }
 - (NSInteger)hoverMenuItem { return _hoverMenuItem; }
 - (NSPanel*)effectPanel { return _effectPanel; }
 
@@ -4517,7 +5043,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     if (_mixerPopupChild || page >= kPageCount) return;
     static NSString* pageNames[kPageCount] = {
-        @"PATCH", @"MIXER", @"CHANNEL", @"SAFETY", @"AUX", @"SURF",
+        @"PATCH", @"MIXER", @"CHANNEL", @"SAFETY", @"AUX",
     };
     if (!_pagePanels[page]) {
         _pagePanels[page] = [[NSPanel alloc] initWithContentRect:NSMakeRect(
@@ -4824,6 +5350,14 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     const CGFloat selectedDb = 20.0 * std::log10(
         std::max<CGFloat>(selectedRms, 1.0e-6));
+    const auto stages = routeStageReadout(*plugin, selectedSource,
+        selectedDestination);
+    [[NSString stringWithFormat:
+        @"BASE %.2f  →  FIELD %.2f  →  BEHAV %.2f  →  RESP %.2f  =  %.2f  ·  CHOKE %.2f",
+        std::abs(stages.base), stages.field, stages.behavior,
+        stages.response, stages.effective, stages.choke]
+        drawAtPoint:NSMakePoint(rect.origin.x + 18.0,
+            NSMaxY(rect) - 70.0) withAttributes:valueAttrs];
     [[NSString stringWithFormat:
         @"ROUTED AUDIO  S%u > D%u  %+.1f dBFS  ·  24 kHz SCOPE",
         selectedSource + 1u, selectedDestination + 1u, selectedDb]
@@ -4854,14 +5388,10 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (plugin->behavior.behavior == s3g::NoInputMovementBehavior::Step) {
         for (uint32_t index = 0u;
              index < s3g::kNoInputMixerMatrixCells; ++index) {
-            motionWeights[index] = plugin->behaviorRouteGate[index].load(
-                std::memory_order_relaxed);
+            motionWeights[index] = s3g::lerp(motionWeights[index],
+                plugin->behaviorRouteGate[index].load(
+                    std::memory_order_relaxed), plugin->behaviorDepth);
         }
-    }
-    for (uint32_t index = 0u;
-         index < s3g::kNoInputMixerMatrixCells; ++index) {
-        motionWeights[index] *= plugin->reactRouteGate[index].load(
-            std::memory_order_relaxed);
     }
     std::array<float, kChannelCount> activeMotionPeak {};
     std::array<uint32_t, kChannelCount> activeMotionRouteCount {};
@@ -4909,17 +5439,22 @@ NSRect effectEditorToggleRect(uint32_t row)
                 CGFloat motion = s3g::noInputMixerMotionGainScale(
                     motionWeights[index], activeMotionPeak[source],
                     activeMotionRouteCount[source], plugin->params.motion);
-                if (plugin->behavior.behavior
-                        == s3g::NoInputMovementBehavior::Cut
-                    || plugin->behavior.behavior
-                        == s3g::NoInputMovementBehavior::Burst
-                    || plugin->behavior.behavior
-                        == s3g::NoInputMovementBehavior::Scramble) {
+                if (s3g::noInputMovementBehaviorUsesAmplitude(
+                        plugin->behavior.behavior)) {
                     const float articulation =
                         plugin->behaviorRouteGate[index].load(
                             std::memory_order_relaxed);
                     motion *= s3g::lerp(1.0f, articulation,
-                        plugin->params.motion);
+                        plugin->behaviorDepth);
+                }
+                if (plugin->params.reactMode
+                        != s3g::NoInputReactMode::Off
+                    && plugin->params.reactDepth > 1.0e-6f) {
+                    const float response = 0.0316227766f
+                        + plugin->reactRouteGate[index].load(
+                            std::memory_order_relaxed) * 0.9683772234f;
+                    motion *= s3g::lerp(1.0f, response,
+                        plugin->params.reactDepth);
                 }
                 [mixerColor(gain >= 0.0f ? 0xc95e3b : 0x5daeb6,
                     0.18 + std::abs(gain) * 0.40) setFill];
@@ -4986,49 +5521,27 @@ NSRect effectEditorToggleRect(uint32_t row)
         ? s3g::noInputMixerMotionRateHz(plugin->params.motionRate)
         : s3g::noInputMovementEventRateHz(plugin->behavior.eventRate);
     [[NSString stringWithFormat:
-        @"ROUTE GAIN MOD · %@ / %@ · REACT %@ %.0f%% · DEPTH %.0f%% · %.2f Hz",
+        @"ROUTE GAIN · %@ / %@ %.0f%% · RESP %@ %.0f%% · FIELD %.0f%% · %.2f Hz",
         [NSString stringWithUTF8String:s3g::matrixFlowShapeName(
             plugin->params.motionShape)],
         [NSString stringWithUTF8String:s3g::noInputMovementBehaviorName(
             plugin->behavior.behavior)],
+        plugin->behaviorDepth * 100.0f,
         [NSString stringWithUTF8String:s3g::noInputReactModeName(
             plugin->params.reactMode)],
         plugin->params.reactDepth * 100.0f,
         plugin->params.motion * 100.0f, rateHz]
         drawAtPoint:NSMakePoint(motionRail.origin.x + 8.0,
             motionRail.origin.y + 4.0) withAttributes:valueAttrs];
-    const CGFloat baseline = NSMaxY(motionRail) - 5.0;
-    for (uint32_t source = 0u; source < kChannelCount; ++source) {
-        const CGFloat columnX = gridLeft + spacing * source;
-        for (uint32_t destination = 0u;
-             destination < kChannelCount; ++destination) {
-            const uint32_t index = destination * kChannelCount + source;
-            const float gain = plugin->params.matrix[index];
-            if (std::abs(gain) <= 0.001f) continue;
-            CGFloat modulation = s3g::noInputMixerMotionGainScale(
-                motionWeights[index], activeMotionPeak[source],
-                activeMotionRouteCount[source], plugin->params.motion);
-            if (plugin->behavior.behavior
-                    == s3g::NoInputMovementBehavior::Cut
-                || plugin->behavior.behavior
-                    == s3g::NoInputMovementBehavior::Burst
-                || plugin->behavior.behavior
-                    == s3g::NoInputMovementBehavior::Scramble) {
-                const float articulation =
-                    plugin->behaviorRouteGate[index].load(
-                        std::memory_order_relaxed);
-                modulation *= s3g::lerp(1.0f, articulation,
-                    plugin->params.motion);
-            }
-            const CGFloat effective = std::abs(gain) * modulation;
-            const CGFloat height = 2.0 + effective * 9.0;
-            const CGFloat x = columnX - 16.0
-                + static_cast<CGFloat>(destination) * 4.5;
-            [mixerColor(gain >= 0.0f ? 0xc95e3b : 0x57bfc4,
-                0.30 + modulation * 0.65) setFill];
-            NSRectFill(NSMakeRect(x, baseline - height, 3.0, height));
-        }
-    }
+    const auto stages = routeStageReadout(*plugin, selectedSource,
+        selectedDestination);
+    [[NSString stringWithFormat:
+        @"S%u>D%u  BASE %.2f · FIELD %.2f · BEHAV %.2f · RESP %.2f · EFF %.2f · CHOKE %.2f",
+        selectedSource + 1u, selectedDestination + 1u,
+        std::abs(stages.base), stages.field, stages.behavior,
+        stages.response, stages.effective, stages.choke]
+        drawAtPoint:NSMakePoint(motionRail.origin.x + 8.0,
+            motionRail.origin.y + 19.0) withAttributes:valueAttrs];
     [@"CLICK: PATCH / SELECT · CLICK AGAIN: DISSOLVE · OPTION: NEGATIVE"
         drawAtPoint:NSMakePoint(rect.origin.x + 14.0,
             NSMaxY(rect) - 19.0) withAttributes:valueAttrs];
@@ -5118,7 +5631,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     case kMenuFieldDivision:
         return processorMenuRect(family.movement, 5u);
     case kMenuEventDivision:
-        return processorMenuRect(family.movement, 1u);
+        return processorMenuRect(family.movement, 2u);
     case kMenuMixerInsert:
     case kMenuMixerAux:
     case kMenuAuxTapA:
@@ -5145,8 +5658,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         return s3g::kNoInputClockDivisionCount;
     if (menu == kMenuAuxTapA || menu == kMenuAuxTapB)
         return static_cast<uint32_t>(s3g::NoInputAuxTap::Count);
-    if (menu == kMenuMotionShape) return 6u;
-    if (menu == kMenuBehavior) return 5u;
+    if (menu == kMenuMotionShape) return s3g::kMatrixFlowShapeCount;
+    if (menu == kMenuBehavior) return s3g::kNoInputMovementBehaviorCount;
     if (menu == kMenuQuality) return 3u;
     if (menu == kMenuLane || menu == kMenuSource
         || menu == kMenuDestination) return kChannelCount;
@@ -5202,11 +5715,13 @@ NSRect effectEditorToggleRect(uint32_t row)
     NSString* randomEnergyItems[3] = {
         @"HIGH / QUICK", @"MID / MODERATE", @"LOW / SLOW",
     };
-    NSString* shapeItems[6] = {
+    NSString* shapeItems[s3g::kMatrixFlowShapeCount] = {
         @"FLOW", @"PULSE", @"CHASE", @"SWIRL", @"SCAT", @"HOLD",
+        @"BLOOM", @"BRAID", @"ATTRACT",
     };
-    NSString* behaviorItems[5] = {
+    NSString* behaviorItems[s3g::kNoInputMovementBehaviorCount] = {
         @"GLIDE", @"STEP", @"CUT", @"BURST", @"SCRAMBLE",
+        @"RATCHET", @"CASCADE", @"ERODE",
     };
     NSString* reactItemsFull[5] = {
         @"OFF", @"FOLLOW", @"AVOID", @"EDGE", @"BALANCE",
@@ -5259,11 +5774,11 @@ NSRect effectEditorToggleRect(uint32_t row)
         selected = static_cast<int>(plugin->params.quality);
     } else if (_openMenu == kMenuMotionShape) {
         items = shapeItems;
-        count = 6u;
+        count = s3g::kMatrixFlowShapeCount;
         selected = static_cast<int>(plugin->params.motionShape);
     } else if (_openMenu == kMenuBehavior) {
         items = behaviorItems;
-        count = 5u;
+        count = s3g::kNoInputMovementBehaviorCount;
         selected = static_cast<int>(plugin->behavior.behavior);
     } else if (_openMenu == kMenuMixerInsert) {
         items = typeItems;
@@ -5522,60 +6037,6 @@ NSRect effectEditorToggleRect(uint32_t row)
             NSMaxY(page) - 22.0) withAttributes:value];
 }
 
-- (void)drawSurface:(Plugin*)plugin label:(NSDictionary*)label
-    value:(NSDictionary*)value
-{
-    const NSRect page = widePageRect();
-    [mixerColor(0x101010) setFill]; NSRectFill(page);
-    [mixerColor(0x4b4b4b) setStroke]; NSFrameRect(page);
-    [@"PARAMETER SURFACE · NETWORK STATES BLEND CONTINUOUSLY / TOPOLOGY FOLLOWS NEAREST CELL"
-        drawAtPoint:NSMakePoint(page.origin.x + 14.0, page.origin.y + 14.0)
-        withAttributes:label];
-    drawFlatButton(surfaceButtonRect(0u), _surfaceEdit ? @"EDIT" : @"PLAY",
-        _surfaceEdit, value);
-    drawFlatButton(surfaceButtonRect(1u), plugin->surface.enabled ? @"ON" : @"OFF",
-        plugin->surface.enabled != 0u, value);
-    drawFlatButton(surfaceButtonRect(2u), @"ADD", false, value);
-    drawFlatButton(surfaceButtonRect(3u), @"DEL", false, value);
-    drawFlatButton(surfaceButtonRect(4u), @"CAP", false, value);
-    drawFlatButton(surfaceCurveRect(),
-        [NSString stringWithFormat:@"CURVE  %s",
-            s3g::parameterSurfaceCurveName(plugin->surface.curve)],
-        false, value);
-    [@"FOCUS" drawAtPoint:NSMakePoint(page.origin.x + 140.0,
-        page.origin.y + 80.0) withAttributes:label];
-    drawFlatButton(surfaceFocusRect(0u), @"-", false, value);
-    drawFlatButton(surfaceFocusRect(1u), @"+", false, value);
-    [[NSString stringWithFormat:@"%.2f", plugin->surface.focus]
-        drawAtPoint:NSMakePoint(page.origin.x + 242.0,
-            page.origin.y + 80.0) withAttributes:value];
-    [@"GLIDE" drawAtPoint:NSMakePoint(page.origin.x + 306.0,
-        page.origin.y + 80.0) withAttributes:label];
-    drawFlatButton(surfaceGlideRect(0u), @"-", false, value);
-    drawFlatButton(surfaceGlideRect(1u), @"+", false, value);
-    NSString* glide = plugin->surface.glideMs < 0.5f ? @"OFF"
-        : [NSString stringWithFormat:@"%.0f MS", plugin->surface.glideMs];
-    [glide drawAtPoint:NSMakePoint(page.origin.x + 416.0,
-        page.origin.y + 80.0) withAttributes:value];
-    const float effectiveX = plugin->active.load(std::memory_order_acquire)
-        ? plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
-        : plugin->params.surfaceX;
-    const float effectiveY = plugin->active.load(std::memory_order_acquire)
-        ? plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
-        : plugin->params.surfaceY;
-    s3g::clap_gui::drawParameterSurfaceVoronoi(
-        plugin->surface, surfacePlotRect(), effectiveX, effectiveY,
-        _selectedSurfaceCell, value,
-        plugin->params.surfaceX, plugin->params.surfaceY);
-    [[NSString stringWithFormat:@"T %.3f %.3f  /  A %.3f %.3f  /  %u CELLS  /  %@",
-        plugin->params.surfaceX, plugin->params.surfaceY,
-        effectiveX, effectiveY, plugin->surface.cellCount,
-        plugin->surface.cellCount < 2u ? @"ADD TWO CELLS"
-            : (plugin->surface.enabled ? @"INTERPOLATING" : @"BYPASSED")]
-        drawAtPoint:NSMakePoint(surfacePlotRect().origin.x + 8.0,
-            NSMaxY(surfacePlotRect()) - 19.0) withAttributes:value];
-}
-
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
@@ -5603,7 +6064,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     const uint32_t page = _lockedPage < kPageCount ? _lockedPage
         : plugin->guiPage.load(std::memory_order_relaxed);
     static NSString* pageNames[kPageCount] = {
-        @"PATCH", @"MIXER", @"CHANNEL", @"SAFETY", @"AUX", @"SURF",
+        @"PATCH", @"MIXER", @"CHANNEL", @"SAFETY", @"AUX",
     };
     s3g::clap_gui::drawPanelHeader(pageNames[page], true,
         family.fieldPanel.x, family.fieldPanel.y, family.fieldPanel.width,
@@ -5626,7 +6087,6 @@ NSRect effectEditorToggleRect(uint32_t row)
     else if (page == 2u) [self drawPrimaryLanes:plugin
         rect:channelOverviewRect() label:label valueAttrs:value];
     else if (page == 4u) [self drawAuxTopology:plugin label:label value:value];
-    else if (page == 5u) [self drawSurface:plugin label:label value:value];
     else {
         [mixerColor(0x101010) setFill]; NSRectFill(fieldPlot);
         [mixerColor(0x454545) setStroke]; NSFrameRect(fieldPlot);
@@ -5644,12 +6104,13 @@ NSRect effectEditorToggleRect(uint32_t row)
     const auto& laneParams = plugin->params.lanes[lane];
     if (page == 0u) {
         drawPanel(@"NETWORK", family.network);
-        drawPanel(@"MATRIX MOVEMENT", family.movement);
+        drawPanel(@"MOVEMENT", family.movement);
+        drawFlatButton(movementSectionRandomRect(), @"RND", false, value);
         drawFlatButton(movementBankButtonRect(0u), @"FIELD",
             _movementBank == 0u, value);
-        drawFlatButton(movementBankButtonRect(1u), @"CUT",
+        drawFlatButton(movementBankButtonRect(1u), @"BEHAV",
             _movementBank == 1u, value);
-        drawFlatButton(movementBankButtonRect(2u), @"REACT",
+        drawFlatButton(movementBankButtonRect(2u), @"RESP",
             _movementBank == 2u, value);
         drawPanel(@"CROSSPOINT", family.crosspoint);
     } else if (page == 2u) {
@@ -5923,63 +6384,98 @@ NSRect effectEditorToggleRect(uint32_t row)
             norm:plugin->params.motionPhase row:6u panel:family.movement label:label
             valueAttrs:value style:style];
     } else if (_movementBank == 1u) {
+        const auto behavior = plugin->behavior.behavior;
+        const bool behaviorActive = behavior
+            != s3g::NoInputMovementBehavior::Glide;
+        const bool hasTimedWindow =
+            s3g::noInputMovementBehaviorUsesLength(behavior);
+        const bool hasDensity =
+            s3g::noInputMovementBehaviorUsesDensity(behavior);
         s3g::clap_gui::drawProcessorMenu(@"BEHAV",
             [NSString stringWithUTF8String:s3g::noInputMovementBehaviorName(
-                plugin->behavior.behavior)],
+                behavior)],
             s3g::gui_layout::rowY(family.movement, 0u),
             family.movement.frame.x, family.movement.frame.width,
             label, value, style);
+        [self drawSlider:@"DEPTH"
+            value:behaviorActive
+                ? [NSString stringWithFormat:@"%.0f%%",
+                    plugin->behaviorDepth * 100.0f]
+                : @"—"
+            norm:(behaviorActive ? plugin->behaviorDepth : 0.0f)
+            row:1u panel:family.movement label:label
+            valueAttrs:value style:style];
         const float eventRate = plugin->params.clockSync
             ? s3g::noInputSyncedRateHz(plugin->params.eventDivision,
                 plugin->transportTempoBpm)
             : s3g::noInputMovementEventRateHz(plugin->behavior.eventRate,
                 plugin->params.slowTime != 0u);
-        if (plugin->params.clockSync) {
+        if (behaviorActive && plugin->params.clockSync) {
             s3g::clap_gui::drawProcessorMenu(@"EVENT",
                 [NSString stringWithFormat:@"%@ · %.3f Hz",
                     [NSString stringWithUTF8String:s3g::noInputClockDivisionName(
                         plugin->params.eventDivision)], eventRate],
-                s3g::gui_layout::rowY(family.movement, 1u),
+                s3g::gui_layout::rowY(family.movement, 2u),
                 family.movement.frame.x, family.movement.frame.width,
                 label, value, style);
         } else {
             [self drawSlider:@"EVENT"
-                value:[NSString stringWithFormat:(eventRate < 10.0f
-                        ? @"%.3f Hz" : @"%.1f Hz"), eventRate]
-                norm:plugin->behavior.eventRate row:1u panel:family.movement
+                value:behaviorActive
+                    ? [NSString stringWithFormat:(eventRate < 10.0f
+                            ? @"%.3f Hz" : @"%.1f Hz"), eventRate]
+                    : @"—"
+                norm:(behaviorActive ? plugin->behavior.eventRate : 0.0f)
+                row:2u panel:family.movement
                 label:label valueAttrs:value style:style];
         }
-        const bool hasTimedWindow = plugin->behavior.behavior
-                == s3g::NoInputMovementBehavior::Cut
-            || plugin->behavior.behavior
-                == s3g::NoInputMovementBehavior::Burst;
         [self drawSlider:@"LENGTH"
             value:hasTimedWindow
                 ? [NSString stringWithFormat:@"%.1f ms",
                     s3g::noInputMovementLengthMs(plugin->behavior.length)]
                 : @"—"
             norm:(hasTimedWindow ? plugin->behavior.length : 0.0f)
-            row:2u panel:family.movement
+            row:3u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"DENSITY"
-            value:[NSString stringWithFormat:@"%.0f%%",
-                plugin->behavior.density * 100.0f]
-            norm:plugin->behavior.density row:3u panel:family.movement
+            value:hasDensity
+                ? [NSString stringWithFormat:@"%.0f%%",
+                    plugin->behavior.density * 100.0f]
+                : @"—"
+            norm:(hasDensity ? plugin->behavior.density : 0.0f)
+            row:4u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"CHAOS"
-            value:[NSString stringWithFormat:@"%.0f%%",
-                plugin->behavior.chaos * 100.0f]
-            norm:plugin->behavior.chaos row:4u panel:family.movement
+            value:behaviorActive
+                ? [NSString stringWithFormat:@"%.0f%%",
+                    plugin->behavior.chaos * 100.0f]
+                : @"—"
+            norm:(behaviorActive ? plugin->behavior.chaos : 0.0f)
+            row:5u panel:family.movement
             label:label valueAttrs:value style:style];
-        [self drawSlider:@"SLEW"
-            value:[NSString stringWithFormat:@"%.2f ms",
-                s3g::noInputMovementSlewMs(plugin->behavior.slew)]
-            norm:plugin->behavior.slew row:5u panel:family.movement
+        NSString* transitionLabel = behavior
+                == s3g::NoInputMovementBehavior::Step
+            ? @"TRANSITION"
+            : (behavior == s3g::NoInputMovementBehavior::Scramble
+                ? @"XFADE"
+                : (behavior == s3g::NoInputMovementBehavior::Cascade
+                    ? @"TRAIL"
+                    : (behavior == s3g::NoInputMovementBehavior::Erode
+                        ? @"SOFTEN" : @"EDGE")));
+        [self drawSlider:transitionLabel
+            value:behaviorActive
+                ? [NSString stringWithFormat:@"%.2f ms",
+                    s3g::noInputMovementSlewMs(plugin->behavior.slew)]
+                : @"—"
+            norm:(behaviorActive ? plugin->behavior.slew : 0.0f)
+            row:6u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"CHOKE"
-            value:[NSString stringWithFormat:@"%.0f%%",
-                plugin->behavior.choke * 100.0f]
-            norm:plugin->behavior.choke row:6u panel:family.movement
+            value:behaviorActive
+                ? [NSString stringWithFormat:@"%.0f%%",
+                    plugin->behavior.choke * 100.0f]
+                : @"—"
+            norm:(behaviorActive ? plugin->behavior.choke : 0.0f)
+            row:7u panel:family.movement
             label:label valueAttrs:value style:style];
     } else {
         s3g::clap_gui::drawProcessorMenu(@"MODE",
@@ -6009,18 +6505,29 @@ NSRect effectEditorToggleRect(uint32_t row)
                 s3g::noInputReactReleaseMs(plugin->params.reactRelease)]
             norm:plugin->params.reactRelease row:4u panel:family.movement
             label:label valueAttrs:value style:style];
-        [self drawSlider:@"POLARITY"
-            value:[NSString stringWithFormat:@"%+.2f",
-                plugin->params.reactPolarity]
-            norm:(plugin->params.reactPolarity + 1.0f) * 0.5f row:5u
-            panel:family.movement label:label valueAttrs:value style:style];
-        drawFlatButton(reactModeToggleRect(0u), @"HOLD",
-            plugin->params.controllerHold != 0u, value);
-        drawFlatButton(reactModeToggleRect(1u), @"SLOW",
-            plugin->params.slowTime != 0u, value);
-        drawFlatButton(reactModeToggleRect(2u), @"SYNC",
-            plugin->params.clockSync != 0u, value);
+        [@"DIRECTION" drawAtPoint:NSMakePoint(
+            s3g::gui_layout::processorLabelX(family.movement.frame.x),
+            s3g::gui_layout::rowY(family.movement, 5u) - 2.0)
+            withAttributes:label];
+        drawFlatButton(reactDirectionButtonRect(),
+            plugin->params.reactPolarity < 0.0f ? @"INVERT" : @"NORMAL",
+            plugin->params.reactPolarity < 0.0f, value);
+        const float listenLevel = std::max(1.0e-6f,
+            plugin->laneActivity[lane].load(std::memory_order_relaxed));
+        const float listenDb = 20.0f * std::log10(listenLevel);
+        [self drawSlider:[NSString stringWithFormat:@"LISTEN L%u", lane + 1u]
+            value:listenDb <= -59.9f ? @"−∞"
+                : [NSString stringWithFormat:@"%+.1f dB", listenDb]
+            norm:std::clamp((listenDb + 60.0f) / 60.0f, 0.0f, 1.0f)
+            row:6u panel:family.movement label:label
+            valueAttrs:value style:style];
     }
+    drawFlatButton(movementGlobalToggleRect(0u), @"HOLD",
+        plugin->params.controllerHold != 0u, value);
+    drawFlatButton(movementGlobalToggleRect(1u), @"SLOW",
+        plugin->params.slowTime != 0u, value);
+    drawFlatButton(movementGlobalToggleRect(2u), @"SYNC",
+        plugin->params.clockSync != 0u, value);
     }
 
     if (page == 3u) {
@@ -6102,6 +6609,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         return &family.movement;
     if (param >= kEventRateParamId && param <= kEventChokeParamId)
         return &family.movement;
+    if (param == kBehaviorDepthParamId) return &family.movement;
     if (param >= kReactDepthParamId && param <= kReactPolarityParamId)
         return &family.movement;
     uint32_t destination = 0u;
@@ -6174,6 +6682,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             patch = s3g::variedNoInputMixerParams(
                 patch, seed, variance);
             plugin->behavior = s3g::noInputMixerFactoryBehavior(index);
+            plugin->behaviorDepth = patch.motion;
             applyCompletePatch(*plugin,
                 patch, 0.68f);
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
@@ -6188,8 +6697,10 @@ NSRect effectEditorToggleRect(uint32_t row)
             _randomEnergyProfile = index;
             plugin->behavior = s3g::randomizedNoInputMovementBehaviorParams(
                 seed ^ 0x43564d58u, energy);
-            applyCompletePatch(*plugin,
-                s3g::randomizedNoInputMixerParams(seed, energy),
+            const auto patch = s3g::randomizedNoInputMixerParams(
+                seed, energy);
+            plugin->behaviorDepth = patch.motion;
+            applyCompletePatch(*plugin, patch,
                 s3g::noInputRandomSeedAmount(energy));
             std::snprintf(_titlePresetName, sizeof(_titlePresetName),
                 "RANDOM %s", energy == s3g::NoInputRandomEnergy::High
@@ -6374,7 +6885,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         }
         return;
     }
-    if (page == 5u && NSPointInRect(point, widePageRect())) {
+    if (false && page == 5u && NSPointInRect(point, widePageRect())) {
         if (NSPointInRect(point, surfaceButtonRect(0u))) {
             _surfaceEdit = !_surfaceEdit;
             _surfaceDragCell = -1;
@@ -6401,9 +6912,21 @@ NSRect effectEditorToggleRect(uint32_t row)
             return;
         }
         if (NSPointInRect(point, surfaceButtonRect(3u))) {
+            const uint32_t removed = _selectedSurfaceCell < 0
+                ? kNoInputSurfaceNoTopologyCell
+                : static_cast<uint32_t>(_selectedSurfaceCell);
             if (_selectedSurfaceCell < 0
                 || !s3g::removeParameterSurfaceCell(plugin->surface,
-                    static_cast<uint32_t>(_selectedSurfaceCell))) NSBeep();
+                    removed)) NSBeep();
+            else if (plugin->surfaceTopologyCell == removed) {
+                plugin->surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+                plugin->surfaceTopologyMode = static_cast<uint32_t>(
+                    NoInputSurfaceTopologyMode::Base);
+            } else if (plugin->surfaceTopologyCell !=
+                    kNoInputSurfaceNoTopologyCell
+                && plugin->surfaceTopologyCell > removed) {
+                --plugin->surfaceTopologyCell;
+            }
             _selectedSurfaceCell = plugin->surface.cellCount == 0u ? -1
                 : std::min(_selectedSurfaceCell,
                     static_cast<int>(plugin->surface.cellCount) - 1);
@@ -6449,6 +6972,34 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->surface.glideMs = s3g::parameterSurfaceSteppedGlide(
                 plugin->surface.glideMs,
                 NSPointInRect(point, surfaceGlideRect(0u)) ? -1 : 1);
+            syncMixerState(*plugin);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, surfaceTopologyRect())) {
+            if (plugin->surfaceTopologyMode == static_cast<uint32_t>(
+                    NoInputSurfaceTopologyMode::Base)) {
+                const float x = plugin->active.load(std::memory_order_acquire)
+                    ? plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+                    : plugin->params.surfaceX;
+                const float y = plugin->active.load(std::memory_order_acquire)
+                    ? plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+                    : plugin->params.surfaceY;
+                const auto weights = s3g::parameterSurfaceWeights(
+                    plugin->surface, x, y);
+                plugin->surfaceTopologyCell = weights.activeCount > 0u
+                    ? weights.nearest : kNoInputSurfaceNoTopologyCell;
+                if (plugin->surfaceTopologyCell
+                        != kNoInputSurfaceNoTopologyCell) {
+                    plugin->surfaceTopologyMode = static_cast<uint32_t>(
+                        NoInputSurfaceTopologyMode::Cell);
+                } else {
+                    NSBeep();
+                }
+            } else {
+                plugin->surfaceTopologyMode = static_cast<uint32_t>(
+                    NoInputSurfaceTopologyMode::Base);
+            }
             syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
@@ -6844,7 +7395,10 @@ NSRect effectEditorToggleRect(uint32_t row)
             || (_movementBank == 2u && openMenuIfHit(kMenuReactMode))
             || (_movementBank == 0u && plugin->params.clockSync
                 && openMenuIfHit(kMenuFieldDivision))
-            || (_movementBank == 1u && plugin->params.clockSync
+            || (_movementBank == 1u
+                && plugin->behavior.behavior
+                    != s3g::NoInputMovementBehavior::Glide
+                && plugin->params.clockSync
                 && openMenuIfHit(kMenuEventDivision))))
         || (page == 2u && (openMenuIfHit(kMenuLane)
             || openMenuIfHit(kMenuSlot0) || openMenuIfHit(kMenuSlot1)
@@ -6857,7 +7411,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (page == 0u && _movementBank == 2u) {
+    if (page == 0u) {
         const clap_id toggleIds[3] = {
             kControllerHoldParamId, kSlowTimeParamId, kClockSyncParamId,
         };
@@ -6867,11 +7421,75 @@ NSRect effectEditorToggleRect(uint32_t row)
             plugin->params.clockSync,
         };
         for (uint32_t index = 0u; index < 3u; ++index) {
-            if (!NSPointInRect(point, reactModeToggleRect(index))) continue;
+            if (!NSPointInRect(point,
+                    movementGlobalToggleRect(index))) continue;
             [self applyGuiParam:toggleIds[index]
                 value:toggleValues[index] == 0u ? 1.0 : 0.0];
             return;
         }
+    }
+    if (page == 0u && _movementBank == 2u
+        && NSPointInRect(point, reactDirectionButtonRect())) {
+        [self applyGuiParam:kReactPolarityParamId
+            value:plugin->params.reactPolarity < 0.0f ? 1.0 : -1.0];
+        return;
+    }
+    if (page == 0u && NSPointInRect(point,
+            movementSectionRandomRect())) {
+        uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+        if (seed == 0u) seed = 1u;
+        plugin->params.seed = seed;
+        const auto energy = static_cast<s3g::NoInputRandomEnergy>(
+            std::min<uint32_t>(_randomEnergyProfile,
+                static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count) - 1u));
+        const auto randomParams = s3g::randomizedNoInputMixerParams(
+            seed, energy);
+        if (_movementBank == 0u) {
+            [self applyGuiParam:kFlowParamId value:randomParams.flow];
+            [self applyGuiParam:kSpreadParamId value:randomParams.spread];
+            [self applyGuiParam:kVortexParamId value:randomParams.vortex];
+            [self applyGuiParam:kMotionParamId value:randomParams.motion];
+            [self applyGuiParam:kMotionShapeParamId
+                value:static_cast<double>(randomParams.motionShape)];
+            [self applyGuiParam:kMotionRateParamId
+                value:randomParams.motionRate];
+            [self applyGuiParam:kMotionPhaseParamId
+                value:randomParams.motionPhase];
+        } else if (_movementBank == 1u) {
+            const auto randomBehavior =
+                s3g::randomizedNoInputMovementBehaviorParams(
+                    seed ^ 0x43564d58u, energy);
+            [self applyGuiParam:kBehaviorParamId
+                value:static_cast<double>(randomBehavior.behavior)];
+            [self applyGuiParam:kBehaviorDepthParamId
+                value:randomParams.motion];
+            [self applyGuiParam:kEventRateParamId
+                value:randomBehavior.eventRate];
+            [self applyGuiParam:kEventLengthParamId
+                value:randomBehavior.length];
+            [self applyGuiParam:kEventDensityParamId
+                value:randomBehavior.density];
+            [self applyGuiParam:kEventChaosParamId
+                value:randomBehavior.chaos];
+            [self applyGuiParam:kEventSlewParamId
+                value:randomBehavior.slew];
+            [self applyGuiParam:kEventChokeParamId
+                value:randomBehavior.choke];
+        } else {
+            [self applyGuiParam:kReactModeParamId
+                value:static_cast<double>(randomParams.reactMode)];
+            [self applyGuiParam:kReactDepthParamId
+                value:randomParams.reactDepth];
+            [self applyGuiParam:kReactThresholdParamId
+                value:randomParams.reactThreshold];
+            [self applyGuiParam:kReactAttackParamId
+                value:randomParams.reactAttack];
+            [self applyGuiParam:kReactReleaseParamId
+                value:randomParams.reactRelease];
+            [self applyGuiParam:kReactPolarityParamId
+                value:randomParams.reactPolarity];
+        }
+        return;
     }
     if (page == 0u && NSPointInRect(point, randomButtonRect())) {
         _openMenu = kMenuRandomEnergy;
@@ -7033,26 +7651,34 @@ NSRect effectEditorToggleRect(uint32_t row)
         kFlowParamId, kSpreadParamId, kVortexParamId,
         kMotionParamId, kMotionRateParamId, kMotionPhaseParamId,
     };
-    const clap_id cutMovementIds[6] = {
-        kEventRateParamId, kEventLengthParamId, kEventDensityParamId,
-        kEventChaosParamId, kEventSlewParamId, kEventChokeParamId,
+    const clap_id behaviorMovementIds[7] = {
+        kBehaviorDepthParamId, kEventRateParamId, kEventLengthParamId,
+        kEventDensityParamId, kEventChaosParamId, kEventSlewParamId,
+        kEventChokeParamId,
     };
-    const clap_id reactMovementIds[5] = {
+    const clap_id reactMovementIds[4] = {
         kReactDepthParamId, kReactThresholdParamId, kReactAttackParamId,
-        kReactReleaseParamId, kReactPolarityParamId,
+        kReactReleaseParamId,
     };
-    for (uint32_t row = 1u; row < 7u; ++row) {
+    for (uint32_t row = 1u; row < 8u; ++row) {
         if (page == 0u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
                 s3g::gui_layout::sliderHitRect(family.movement, row)))) {
-            if (_movementBank == 2u && row == 6u) return;
-            if (_movementBank == 1u && row == 2u
-                && plugin->behavior.behavior
-                    != s3g::NoInputMovementBehavior::Cut
-                && plugin->behavior.behavior
-                    != s3g::NoInputMovementBehavior::Burst) return;
+            if (_movementBank == 0u && row > 6u) return;
+            if (_movementBank == 2u && row > 4u) return;
+            if (_movementBank == 1u) {
+                const auto behavior = plugin->behavior.behavior;
+                const bool active = behavior
+                    != s3g::NoInputMovementBehavior::Glide;
+                const bool timed =
+                    s3g::noInputMovementBehaviorUsesLength(behavior);
+                const bool density =
+                    s3g::noInputMovementBehaviorUsesDensity(behavior);
+                if (!active || (row == 3u && !timed)
+                    || (row == 4u && !density)) return;
+            }
             const clap_id movementParam = _movementBank == 0u
                 ? fieldMovementIds[row - 1u]
-                : (_movementBank == 1u ? cutMovementIds[row - 1u]
+                : (_movementBank == 1u ? behaviorMovementIds[row - 1u]
                     : reactMovementIds[row - 1u]);
             [self beginSlider:movementParam
                 event:event point:point];
@@ -7287,7 +7913,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.3",
+    "0.6.5",
     "Eight-channel zero-input feedback ecology with signed routing, per-lane EQ, and nonlinear inserts.",
     features,
 };
@@ -7298,6 +7924,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     if (std::strcmp(pluginId, descriptor.id) != 0) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
+    p->surface.focus = kNoInputSurfaceDefaultFocus;
+    p->surface.curve = s3g::ParameterSurfaceCurve::Soft;
+    p->surface.glideMs = kNoInputSurfaceDefaultGlideMs;
     p->host = host;
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;

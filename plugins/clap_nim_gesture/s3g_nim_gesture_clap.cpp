@@ -37,13 +37,28 @@ constexpr clap_id kTakeoverParamId = 5u;
 constexpr clap_id kLoopCountParamId = 6u;
 constexpr clap_id kLastLengthParamId = 7u;
 
-constexpr uint32_t kGlobalParameterCount = 59u;
+constexpr std::array<uint16_t, 58u> makeNimGlobalParameterIds()
+{
+    std::array<uint16_t, 58u> ids {};
+    for (uint16_t index = 0u; index < 54u; ++index)
+        ids[index] = static_cast<uint16_t>(index + 1u);
+    ids[54u] = 57u;
+    ids[55u] = 58u;
+    ids[56u] = 59u;
+    ids[57u] = 60u;
+    return ids;
+}
+
+constexpr auto kNimGlobalParameterIds = makeNimGlobalParameterIds();
+constexpr uint32_t kGlobalParameterCount =
+    static_cast<uint32_t>(kNimGlobalParameterIds.size());
 constexpr uint32_t kMatrixParameterCount = 64u;
 constexpr uint32_t kLaneCount = 8u;
 constexpr uint32_t kLaneParameterCount = 35u;
 constexpr uint32_t kNimParameterCount = kGlobalParameterCount
     + kMatrixParameterCount + kLaneCount * kLaneParameterCount;
-static_assert(kNimParameterCount == 403u);
+constexpr uint32_t kLegacyNimParameterCount = 403u;
+static_assert(kNimParameterCount == 402u);
 
 constexpr uint32_t kGuiWidth = 1180u;
 constexpr uint32_t kGuiHeight = 820u;
@@ -130,8 +145,9 @@ Plugin* self(const clap_plugin_t* plugin)
 
 int32_t parameterIndex(uint16_t id)
 {
-    if (id >= 1u && id <= 59u) {
-        return static_cast<int32_t>(id - 1u);
+    for (uint32_t index = 0u; index < kGlobalParameterCount; ++index) {
+        if (kNimGlobalParameterIds[index] == id)
+            return static_cast<int32_t>(index);
     }
     if (id >= 100u && id <= 163u) {
         return static_cast<int32_t>(kGlobalParameterCount + id - 100u);
@@ -158,7 +174,7 @@ int32_t parameterIndex(uint16_t id)
 uint16_t parameterId(uint32_t index)
 {
     if (index < kGlobalParameterCount) {
-        return static_cast<uint16_t>(index + 1u);
+        return kNimGlobalParameterIds[index];
     }
     index -= kGlobalParameterCount;
     if (index < kMatrixParameterCount) {
@@ -1062,7 +1078,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || !readExact(stream, &takeoverMs, sizeof(takeoverMs))
         || !readExact(stream, &count, sizeof(count))
         || magic != kStateMagic || version != kStateVersion
-        || !std::isfinite(takeoverMs) || count > kNimParameterCount) {
+        || !std::isfinite(takeoverMs)
+        || count > kLegacyNimParameterCount) {
         return false;
     }
 
@@ -1079,15 +1096,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             return false;
         }
         const int32_t index = parameterIndex(id);
+        const bool retired = id == 55u || id == 56u;
         totalPoints += pointCount;
-        if (index < 0 || pointCount == 0u
+        if ((index < 0 && !retired) || pointCount == 0u
             || totalPoints > kMaximumStatePoints
             || !std::isfinite(lengthSeconds) || lengthSeconds <= 0.0
             || lengthSeconds > kMaximumLoopSeconds) {
             return false;
         }
-        auto& loop = loaded[static_cast<uint32_t>(index)];
-        if (!loop.points.empty()) return false;
+        Loop retiredLoop;
+        auto& loop = index >= 0
+            ? loaded[static_cast<uint32_t>(index)] : retiredLoop;
+        if (index >= 0 && !loop.points.empty()) return false;
         loop.lengthSeconds = lengthSeconds;
         loop.points.resize(pointCount);
         for (auto& point : loop.points) {
@@ -1098,7 +1118,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 return false;
             }
         }
-        lastTouched = index;
+        if (index >= 0) lastTouched = index;
     }
 
     auto* p = self(plugin);
@@ -1182,13 +1202,13 @@ const std::array<GuiPage, 12u>& guiPages()
 
         const char* liveNames[] { "Feedback", "Coupling", "Flow", "Phase",
             "Agency", "Motion", "Spread", "Vortex", "Formant", "Space",
-            "Surface X", "Surface Y", "Aux A Ret", "Aux B Ret", "Drift",
+            "Variance", "R Mode", "Aux A Ret", "Aux B Ret", "Drift",
             "Output" };
         const char* liveLabels[] { "FDBK", "COUP", "FLOW", "PHAS", "AGCY",
-            "MOTN", "SPRD", "VRTX", "FORM", "SPAC", "SRFX", "SRFY",
+            "MOTN", "SPRD", "VRTX", "FORM", "SPAC", "VAR", "RMOD",
             "ARET", "BRET", "DRFT", "OUT!" };
         const uint16_t liveIds[] { 5u, 6u, 16u, 7u, 11u, 19u, 17u, 18u,
-            9u, 12u, 55u, 56u, 26u, 31u, 8u, 1u };
+            9u, 12u, 13u, 44u, 26u, 31u, 8u, 1u };
         const uint32_t liveColors[] { kNetworkColor, kNetworkColor,
             kMovementColor, kNetworkColor, kNetworkColor, kMovementColor,
             kMovementColor, kMovementColor, kToneColor, kNetworkColor,
