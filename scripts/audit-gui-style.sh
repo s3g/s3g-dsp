@@ -767,6 +767,9 @@ macro_family_names=(
   "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred Mono"
   "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 8ch"
   "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 24ch"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture Mono"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 8ch"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 24ch"
 )
 for contract in "${macro_family_names[@]}"; do
   file="${contract%%|*}"
@@ -781,6 +784,7 @@ macro_family_sources=(
   plugins/clap_macro_delay/s3g_macro_delay_clap.cpp
   plugins/clap_macro_pitch/s3g_macro_pitch_clap.cpp
   plugins/clap_macro_shred/s3g_macro_shred_clap.cpp
+  plugins/clap_macro_fracture/s3g_macro_fracture_clap.cpp
 )
 for file in "${macro_family_sources[@]}"; do
   if ! rg -q 'drawMacroTitleBand' "$file" \

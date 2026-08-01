@@ -25,13 +25,15 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr uint32_t kChannelCount = s3g::kNoInputMixerChannels;
 constexpr uint32_t kRouteScopeSamples = 96u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 820u;
 constexpr uint32_t kPageCount = 6u;
 constexpr double kPerformanceMixerReferenceHeight = 760.0;
+constexpr double kMatrixLatchAttackCaptureSeconds = 0.050;
+constexpr uint32_t kNrpnFeedbackParamsPerBlock = 16u;
 constexpr uint8_t kMidiControlChannel = 15u;
 
 constexpr uint8_t kMidiLaneMuteNoteBase = 32u;
@@ -41,6 +43,9 @@ constexpr uint8_t kMidiInsertTwoBypassNoteBase = 56u;
 constexpr uint8_t kMidiInsertThreeBypassNoteBase = 64u;
 constexpr uint8_t kMidiAuxMuteNoteBase = 72u;
 constexpr uint8_t kMidiPitchLockNoteBase = 80u;
+constexpr uint8_t kMidiMatrixFlipNote = 117u;
+constexpr uint8_t kMidiMatrixLatchNote = 118u;
+constexpr uint8_t kMidiMatrixSignToggleNote = 119u;
 constexpr uint8_t kMidiNewNote = 120u;
 constexpr uint8_t kMidiForgetNote = 121u;
 constexpr uint8_t kMidiRandomMidNote = 122u;
@@ -105,6 +110,9 @@ constexpr clap_id kFieldDivisionParamId = 53u;
 constexpr clap_id kEventDivisionParamId = 54u;
 constexpr clap_id kSurfaceXParamId = 55u;
 constexpr clap_id kSurfaceYParamId = 56u;
+constexpr clap_id kMatrixMidiModeParamId = 57u;
+constexpr clap_id kMatrixMidiSignParamId = 58u;
+constexpr clap_id kMatrixMidiRampParamId = 59u;
 constexpr clap_id kMatrixParamBase = 100u;
 constexpr clap_id kLaneParamBase = 1000u;
 constexpr clap_id kLaneParamStride = 100u;
@@ -133,7 +141,7 @@ constexpr clap_id kInsertToneOffset = 2u;
 constexpr clap_id kInsertBiasOffset = 3u;
 constexpr clap_id kInsertLevelOffset = 4u;
 constexpr clap_id kInsertBypassOffset = 5u;
-constexpr uint32_t kGlobalParamCount = 56u;
+constexpr uint32_t kGlobalParamCount = 59u;
 constexpr uint32_t kLaneDirectParamCount = 17u;
 constexpr uint32_t kInsertParamCount = 6u;
 constexpr uint32_t kLaneParamCount = kLaneDirectParamCount
@@ -322,6 +330,16 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         kDefaultParams.surfaceX, false },
     { kSurfaceYParamId, "Surface Y", "Parameter Surface", 0.0, 1.0,
         kDefaultParams.surfaceY, false },
+    { kMatrixMidiModeParamId, "BU16 Mode", "MIDI / Matrix", 0.0,
+        static_cast<double>(s3g::NoInputMatrixMidiMode::Count) - 1.0,
+        static_cast<double>(s3g::NoInputMatrixMidiMode::Flip), true },
+    { kMatrixMidiSignParamId, "BU16 New Sign", "MIDI / Matrix", 0.0,
+        static_cast<double>(s3g::NoInputMatrixMidiSign::Count) - 1.0,
+        static_cast<double>(s3g::NoInputMatrixMidiSign::Positive), true },
+    { kMatrixMidiRampParamId, "BU16 Ramp", "MIDI / Matrix",
+        s3g::kNoInputMatrixMidiRampMinimumMs,
+        s3g::kNoInputMatrixMidiRampMaximumMs,
+        s3g::kNoInputMatrixMidiRampDefaultMs, false },
 }};
 
 struct ParamRange {
@@ -500,6 +518,56 @@ struct SavedState {
     uint32_t selectedSource = 2u;
     uint32_t selectedDestination = 2u;
     uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    NoInputSurface surface {};
+};
+
+struct Version7SavedState {
+    uint32_t version = 7u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    NoInputSurface surface {};
+};
+
+struct Version6SavedState {
+    uint32_t version = 6u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    NoInputSurface surface {};
+};
+
+struct Version5SavedState {
+    uint32_t version = 5u;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
     std::array<uint32_t, 2u> auxMute {};
     s3g::NoInputMovementBehaviorParams behavior {};
     NoInputSurface surface {};
@@ -671,6 +739,32 @@ struct Plugin {
         s3g::kNoInputMixerMatrixCells> reactRouteGate {};
     std::array<std::atomic<float>,
         s3g::kNoInputMixerMatrixCells> midiMatrixGridGain {};
+    std::array<std::atomic<float>,
+        s3g::kNoInputMixerMatrixCells> midiMatrixBaseGain {};
+    std::array<std::atomic<bool>,
+        s3g::kNoInputMixerMatrixCells> midiMatrixGridHeld {};
+    std::array<std::atomic<bool>,
+        s3g::kNoInputMixerMatrixCells> midiMatrixGridActive {};
+    std::array<uint8_t,
+        s3g::kNoInputMixerMatrixCells> midiMatrixLatchPeakVelocity {};
+    std::array<uint8_t,
+        s3g::kNoInputMixerMatrixCells> midiMatrixLatchSign {};
+    std::array<uint32_t,
+        s3g::kNoInputMixerMatrixCells> midiMatrixLatchCaptureFrames {};
+    std::atomic<uint32_t> matrixMidiMode { static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip) };
+    std::atomic<uint32_t> matrixMidiSign { static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive) };
+    std::atomic<float> matrixMidiRampMs {
+        s3g::kNoInputMatrixMidiRampDefaultMs };
+    std::array<uint8_t,
+        s3g::kNoInputMixerMatrixCells> matrixFeedbackValue {};
+    std::array<bool,
+        s3g::kNoInputMixerMatrixCells> matrixFeedbackSent {};
+    uint64_t matrixFeedbackRefreshFrames = 0u;
+    std::array<uint16_t, kTotalParamCount> nrpnFeedbackValue {};
+    std::array<bool, kTotalParamCount> nrpnFeedbackSent {};
+    uint32_t nrpnFeedbackCursor = 0u;
     std::atomic<float> minimumGovernor { 1.0f };
     std::atomic<uint32_t> containmentState {
         static_cast<uint32_t>(s3g::NoInputContainmentState::Quiet) };
@@ -706,21 +800,109 @@ Plugin* self(const clap_plugin_t* plugin)
 void clearMidiMatrixGrid(Plugin& plugin)
 {
     plugin.mixer.clearMidiMatrixConnections();
-    for (auto& gain : plugin.midiMatrixGridGain)
-        gain.store(0.0f, std::memory_order_relaxed);
+    for (uint32_t index = 0u;
+         index < s3g::kNoInputMixerMatrixCells; ++index) {
+        plugin.midiMatrixGridGain[index].store(0.0f,
+            std::memory_order_relaxed);
+        plugin.midiMatrixGridHeld[index].store(false,
+            std::memory_order_relaxed);
+        plugin.midiMatrixGridActive[index].store(false,
+            std::memory_order_relaxed);
+        plugin.midiMatrixLatchPeakVelocity[index] = 0u;
+        plugin.midiMatrixLatchSign[index] = static_cast<uint8_t>(
+            s3g::NoInputMatrixMidiSign::Positive);
+        plugin.midiMatrixLatchCaptureFrames[index] = 0u;
+    }
+}
+
+void advanceMidiMatrixLatchCapture(Plugin& plugin, uint32_t frames)
+{
+    for (auto& remaining : plugin.midiMatrixLatchCaptureFrames) {
+        remaining = remaining > frames ? remaining - frames : 0u;
+    }
+}
+
+void refreshMidiMatrixOverlayState(Plugin& plugin)
+{
+    for (uint32_t index = 0u;
+         index < s3g::kNoInputMixerMatrixCells; ++index) {
+        const uint32_t destination = index / kChannelCount;
+        const uint32_t source = index % kChannelCount;
+        const bool active = plugin.mixer.midiMatrixConnectionActive(
+            destination, source);
+        plugin.midiMatrixGridActive[index].store(active,
+            std::memory_order_relaxed);
+        plugin.midiMatrixGridGain[index].store(active
+                ? plugin.mixer.effectiveMatrixGain(destination, source)
+                : 0.0f,
+            std::memory_order_relaxed);
+    }
 }
 
 float displayedMatrixGain(const Plugin& plugin, uint32_t index)
 {
     if (index >= s3g::kNoInputMixerMatrixCells) return 0.0f;
-    const float midiGain = plugin.midiMatrixGridGain[index].load(
-        std::memory_order_relaxed);
-    return std::abs(midiGain) > 1.0e-7f
-        ? midiGain : plugin.params.matrix[index];
+    if (plugin.midiMatrixGridActive[index].load(
+            std::memory_order_relaxed)) {
+        return plugin.midiMatrixGridGain[index].load(
+            std::memory_order_relaxed);
+    }
+    return plugin.params.matrix[index];
+}
+
+bool emitMatrixFeedbackEvent(const clap_output_events_t* events,
+    uint32_t time, uint8_t channel, uint8_t note, uint8_t value)
+{
+    if (!events || !events->try_push) return false;
+    clap_event_midi_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = time;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = CLAP_EVENT_MIDI;
+    event.header.flags = CLAP_EVENT_DONT_RECORD;
+    event.port_index = 0u;
+    event.data[0] = static_cast<uint8_t>(
+        s3g::kNoInputMatrixFeedbackCommand | channel);
+    event.data[1] = note;
+    event.data[2] = value;
+    return events->try_push(events, &event.header);
+}
+
+void emitMatrixFeedback(Plugin& plugin,
+    const clap_output_events_t* events, uint32_t time, uint32_t frames)
+{
+    plugin.matrixFeedbackRefreshFrames += frames;
+    const uint64_t refreshInterval = static_cast<uint64_t>(
+        std::max(1.0, plugin.sampleRate));
+    const bool refresh = plugin.matrixFeedbackRefreshFrames
+        >= refreshInterval;
+    if (!events || !events->try_push) return;
+    if (refresh) plugin.matrixFeedbackRefreshFrames = 0u;
+
+    for (uint32_t index = 0u;
+         index < s3g::kNoInputMixerMatrixCells; ++index) {
+        const uint8_t value = s3g::encodeNoInputMatrixFeedbackValue(
+            displayedMatrixGain(plugin, index));
+        if (!refresh && plugin.matrixFeedbackSent[index]
+            && plugin.matrixFeedbackValue[index] == value) continue;
+        uint8_t channel = 0u;
+        uint8_t note = 0u;
+        if (!s3g::encodeNoInputMatrixGridPoint(
+                index / kChannelCount, index % kChannelCount,
+                channel, note)) continue;
+        if (!emitMatrixFeedbackEvent(events, time, channel, note, value)) {
+            plugin.matrixFeedbackSent[index] = false;
+            continue;
+        }
+        plugin.matrixFeedbackValue[index] = value;
+        plugin.matrixFeedbackSent[index] = true;
+    }
 }
 
 void syncMixerStateLegacy(Plugin& plugin)
 {
+    plugin.mixer.setMidiMatrixRampMs(plugin.matrixMidiRampMs.load(
+        std::memory_order_relaxed));
     plugin.mixer.setParams(plugin.params);
     plugin.mixer.setMovementBehaviorParams(plugin.behavior);
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
@@ -1394,9 +1576,17 @@ void syncMixerState(Plugin& plugin)
             std::clamp(value + amount, range.minimum, range.maximum));
     }
     plugin.effectiveParams = s3g::sanitizeNoInputMixerParams(effective.params);
+    for (uint32_t index = 0u;
+         index < s3g::kNoInputMixerMatrixCells; ++index) {
+        plugin.midiMatrixBaseGain[index].store(
+            plugin.effectiveParams.matrix[index],
+            std::memory_order_relaxed);
+    }
     plugin.effectiveBehavior = s3g::sanitizeNoInputMovementBehaviorParams(
         effective.behavior);
     plugin.effectiveAuxMute = effective.auxMute;
+    plugin.mixer.setMidiMatrixRampMs(plugin.matrixMidiRampMs.load(
+        std::memory_order_relaxed));
     plugin.mixer.setParams(plugin.effectiveParams);
     plugin.mixer.setMovementBehaviorParams(plugin.effectiveBehavior);
     plugin.mixer.setTransport(plugin.transportTempoBpm, plugin.transportHasTempo);
@@ -1407,6 +1597,36 @@ void syncMixerState(Plugin& plugin)
 
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
+    if (id == kMatrixMidiModeParamId) {
+        const uint32_t mode = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiMode::Count) - 1l));
+        clearMidiMatrixGrid(plugin);
+        plugin.matrixMidiMode.store(mode, std::memory_order_relaxed);
+        plugin.matrixFeedbackSent.fill(false);
+        plugin.matrixFeedbackRefreshFrames = 0u;
+        syncMixerState(plugin);
+        return;
+    }
+    if (id == kMatrixMidiSignParamId) {
+        const uint32_t sign = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiSign::Count) - 1l));
+        plugin.matrixMidiSign.store(sign, std::memory_order_relaxed);
+        return;
+    }
+    if (id == kMatrixMidiRampParamId) {
+        const double finiteValue = std::isfinite(value) ? value
+            : static_cast<double>(s3g::kNoInputMatrixMidiRampDefaultMs);
+        const float milliseconds = static_cast<float>(std::clamp(
+            finiteValue, static_cast<double>(
+                s3g::kNoInputMatrixMidiRampMinimumMs), static_cast<double>(
+                s3g::kNoInputMatrixMidiRampMaximumMs)));
+        plugin.matrixMidiRampMs.store(milliseconds,
+            std::memory_order_relaxed);
+        plugin.mixer.setMidiMatrixRampMs(milliseconds);
+        return;
+    }
     auto snapshot = baseSnapshot(plugin);
     if (!assignSnapshotParam(snapshot, id, value)) return;
     plugin.params = snapshot.params;
@@ -1421,6 +1641,18 @@ void applyParam(Plugin& plugin, clap_id id, double value)
 
 bool paramValue(const Plugin& plugin, clap_id id, double& value)
 {
+    if (id == kMatrixMidiModeParamId) {
+        value = plugin.matrixMidiMode.load(std::memory_order_relaxed);
+        return true;
+    }
+    if (id == kMatrixMidiSignParamId) {
+        value = plugin.matrixMidiSign.load(std::memory_order_relaxed);
+        return true;
+    }
+    if (id == kMatrixMidiRampParamId) {
+        value = plugin.matrixMidiRampMs.load(std::memory_order_relaxed);
+        return true;
+    }
     return snapshotParamValue(baseSnapshot(plugin), id, value);
 }
 
@@ -1469,9 +1701,12 @@ void resetMeters(Plugin& plugin)
 void applyCompletePatch(Plugin& plugin, s3g::NoInputMixerParams params,
     float seedAmount)
 {
+    clearMidiMatrixGrid(plugin);
     params.outputGainDb = plugin.params.outputGainDb;
     s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
     plugin.params = s3g::sanitizeNoInputMixerParams(params);
+    plugin.nrpnFeedbackSent.fill(false);
+    plugin.nrpnFeedbackCursor = 0u;
     snapSurfaceCursor(plugin);
     syncMixerState(plugin);
     plugin.mixer.reseed(plugin.params.seed, seedAmount);
@@ -1533,6 +1768,98 @@ double midiParamValueFrom14Bit(clap_id id, uint16_t rawValue,
     return std::clamp(value, range.minimum, range.maximum);
 }
 
+uint16_t midiParamValueTo14Bit(clap_id id, double value,
+    const ParamRange& range)
+{
+    value = std::clamp(value, range.minimum, range.maximum);
+    double normalized = range.maximum > range.minimum
+        ? (value - range.minimum) / (range.maximum - range.minimum)
+        : 0.0;
+    uint32_t lane = 0u;
+    clap_id offset = 0u;
+    if (decodeLaneParam(id, lane, offset)
+        && offset == kLaneMidFrequencyOffset
+        && range.minimum > 0.0 && range.maximum > range.minimum) {
+        normalized = std::log(value / range.minimum)
+            / std::log(range.maximum / range.minimum);
+    }
+    return static_cast<uint16_t>(std::clamp<long>(
+        std::lround(std::clamp(normalized, 0.0, 1.0) * 16383.0),
+        0l, 16383l));
+}
+
+void markNrpnFeedbackSent(Plugin& plugin, clap_id id, double value)
+{
+    const int32_t index = paramIndexForId(id);
+    ParamRange range;
+    if (index < 0 || !paramRange(id, range)) return;
+    plugin.nrpnFeedbackValue[static_cast<uint32_t>(index)] =
+        midiParamValueTo14Bit(id, value, range);
+    plugin.nrpnFeedbackSent[static_cast<uint32_t>(index)] = true;
+}
+
+bool emitNrpnFeedbackCc(const clap_output_events_t* events,
+    uint32_t time, uint8_t controller, uint8_t value)
+{
+    if (!events || !events->try_push) return false;
+    clap_event_midi_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = time;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = CLAP_EVENT_MIDI;
+    event.header.flags = CLAP_EVENT_DONT_RECORD;
+    event.port_index = 0u;
+    event.data[0] = static_cast<uint8_t>(0xb0u | kMidiControlChannel);
+    event.data[1] = controller;
+    event.data[2] = value;
+    return events->try_push(events, &event.header);
+}
+
+bool emitNrpnFeedbackValue(const clap_output_events_t* events,
+    uint32_t time, clap_id id, uint16_t value)
+{
+    return emitNrpnFeedbackCc(events, time, 99u,
+            static_cast<uint8_t>((id >> 7u) & 0x7fu))
+        && emitNrpnFeedbackCc(events, time, 98u,
+            static_cast<uint8_t>(id & 0x7fu))
+        && emitNrpnFeedbackCc(events, time, 6u,
+            static_cast<uint8_t>((value >> 7u) & 0x7fu))
+        && emitNrpnFeedbackCc(events, time, 38u,
+            static_cast<uint8_t>(value & 0x7fu));
+}
+
+void emitNrpnFeedback(Plugin& plugin,
+    const clap_output_events_t* events, uint32_t time)
+{
+    if (!events || !events->try_push) return;
+    uint32_t scanned = 0u;
+    uint32_t emitted = 0u;
+    uint32_t index = plugin.nrpnFeedbackCursor % kTotalParamCount;
+    while (scanned < kTotalParamCount
+        && emitted < kNrpnFeedbackParamsPerBlock) {
+        const clap_id id = paramIdAtIndex(index);
+        double value = 0.0;
+        ParamRange range;
+        if (id != CLAP_INVALID_ID && paramValue(plugin, id, value)
+            && paramRange(id, range)) {
+            const uint16_t raw = midiParamValueTo14Bit(id, value, range);
+            if (!plugin.nrpnFeedbackSent[index]
+                || plugin.nrpnFeedbackValue[index] != raw) {
+                if (!emitNrpnFeedbackValue(events, time, id, raw)) {
+                    plugin.nrpnFeedbackCursor = index;
+                    return;
+                }
+                plugin.nrpnFeedbackValue[index] = raw;
+                plugin.nrpnFeedbackSent[index] = true;
+                ++emitted;
+            }
+        }
+        index = (index + 1u) % kTotalParamCount;
+        ++scanned;
+    }
+    plugin.nrpnFeedbackCursor = index;
+}
+
 bool applyMidiParam14Bit(Plugin& plugin, clap_id id, uint16_t rawValue,
     uint32_t time, const clap_output_events_t* events)
 {
@@ -1541,6 +1868,7 @@ bool applyMidiParam14Bit(Plugin& plugin, clap_id id, uint16_t rawValue,
     applyParam(plugin, id, midiParamValueFrom14Bit(id, rawValue, range));
     double applied = 0.0;
     if (!paramValue(plugin, id, applied)) return false;
+    markNrpnFeedbackSent(plugin, id, applied);
     emitMidiParamValue(events, time, id, applied);
     return true;
 }
@@ -1630,6 +1958,21 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
     }
 
     switch (note) {
+    case kMidiMatrixFlipNote:
+        applyParam(plugin, kMatrixMidiModeParamId,
+            static_cast<double>(s3g::NoInputMatrixMidiMode::Flip));
+        emitMidiParamValue(events, time, kMatrixMidiModeParamId,
+            static_cast<double>(s3g::NoInputMatrixMidiMode::Flip));
+        return;
+    case kMidiMatrixLatchNote:
+        applyParam(plugin, kMatrixMidiModeParamId,
+            static_cast<double>(s3g::NoInputMatrixMidiMode::Latch));
+        emitMidiParamValue(events, time, kMatrixMidiModeParamId,
+            static_cast<double>(s3g::NoInputMatrixMidiMode::Latch));
+        return;
+    case kMidiMatrixSignToggleNote:
+        applyMidiToggle(plugin, kMatrixMidiSignParamId, time, events);
+        return;
     case kMidiNewNote:
         plugin.params.seed = nextPatchSeed(plugin);
         syncMixerState(plugin);
@@ -1659,6 +2002,7 @@ void applyMidiCommand(Plugin& plugin, uint8_t note, uint32_t time,
         plugin.mixer.panic();
         return;
     case kMidiClearMatrixNote:
+        clearMidiMatrixGrid(plugin);
         plugin.params.matrix.fill(0.0f);
         syncMixerState(plugin);
         for (uint32_t index = 0u;
@@ -1722,31 +2066,139 @@ void handleMidiCc(Plugin& plugin, uint8_t controller, uint8_t value,
     }
 }
 
+void applyMidiMatrixLatchGain(Plugin& plugin, uint32_t index, float gain,
+    uint32_t time, const clap_output_events_t* events)
+{
+    if (index >= s3g::kNoInputMixerMatrixCells) return;
+    const uint32_t destination = index / kChannelCount;
+    const uint32_t source = index % kChannelCount;
+    // Start from the currently heard value before updating the saved matrix.
+    // Releasing this temporary overlay after the state update lets the DSP
+    // glide to the new persistent value and then retire the overlay.
+    plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+    plugin.params.matrix[index] = gain;
+    syncMixerState(plugin);
+    plugin.mixer.releaseMidiMatrixConnection(destination, source);
+    emitMidiParamValue(events, time, kMatrixParamBase + index, gain);
+}
+
+bool refineMidiMatrixLatchAttack(Plugin& plugin, uint32_t index,
+    uint8_t velocity, uint32_t time, const clap_output_events_t* events)
+{
+    if (index >= s3g::kNoInputMixerMatrixCells
+        || plugin.midiMatrixLatchCaptureFrames[index] == 0u
+        || !plugin.midiMatrixGridHeld[index].load(
+            std::memory_order_relaxed)
+        || velocity <= plugin.midiMatrixLatchPeakVelocity[index]
+        || std::abs(plugin.params.matrix[index]) <= 1.0e-7f) {
+        return false;
+    }
+    plugin.midiMatrixLatchPeakVelocity[index] = velocity;
+    const auto sign = static_cast<s3g::NoInputMatrixMidiSign>(
+        plugin.midiMatrixLatchSign[index]);
+    const float gain = s3g::noInputMatrixMidiGain(
+        s3g::NoInputMatrixMidiMode::Latch, 0.0f, velocity, sign);
+    applyMidiMatrixLatchGain(plugin, index, gain, time, events);
+    return true;
+}
+
 bool applyMidiMatrixGridNote(Plugin& plugin, uint8_t channel, uint8_t note,
-    uint8_t velocity, bool pressed)
+    uint8_t velocity, bool pressed, uint32_t time,
+    const clap_output_events_t* events)
 {
     uint32_t destination = 0u;
     uint32_t source = 0u;
     if (!s3g::decodeNoInputMatrixGridNote(
             channel, note, destination, source))
         return false;
+    const uint32_t index = destination * kChannelCount + source;
     if (pressed) {
-        const uint32_t index = destination * kChannelCount + source;
-        const float polarity = plugin.effectiveParams.matrix[index] < 0.0f
-            ? -1.0f : 1.0f;
-        const float gain = polarity * static_cast<float>(velocity) / 127.0f;
-        plugin.mixer.setMidiMatrixConnection(destination, source, gain);
-        plugin.midiMatrixGridGain[index].store(gain,
-            std::memory_order_relaxed);
         plugin.selectedDestination.store(destination,
             std::memory_order_relaxed);
         plugin.selectedSource.store(source, std::memory_order_relaxed);
+    }
+    const auto mode = static_cast<s3g::NoInputMatrixMidiMode>(
+        plugin.matrixMidiMode.load(std::memory_order_relaxed));
+    if (mode == s3g::NoInputMatrixMidiMode::Latch) {
+        const bool held = plugin.midiMatrixGridHeld[index].load(
+            std::memory_order_relaxed);
+        if (!pressed) {
+            plugin.midiMatrixGridHeld[index].store(false,
+                std::memory_order_relaxed);
+            plugin.midiMatrixLatchPeakVelocity[index] = 0u;
+            plugin.midiMatrixLatchCaptureFrames[index] = 0u;
+            return true;
+        }
+        if (held) {
+            // Older BU16 profiles sent pressure as repeated Note Ons. Accept
+            // only a larger value during the short strike-capture window.
+            refineMidiMatrixLatchAttack(
+                plugin, index, velocity, time, events);
+            return true;
+        }
+        plugin.midiMatrixGridHeld[index].store(true,
+            std::memory_order_relaxed);
+        float gain = 0.0f;
+        if (std::abs(plugin.params.matrix[index]) <= 1.0e-7f) {
+            const auto sign = static_cast<s3g::NoInputMatrixMidiSign>(
+                plugin.matrixMidiSign.load(std::memory_order_relaxed));
+            gain = s3g::noInputMatrixMidiGain(
+                mode, 0.0f, velocity, sign);
+            plugin.midiMatrixLatchPeakVelocity[index] = velocity;
+            plugin.midiMatrixLatchSign[index] =
+                static_cast<uint8_t>(sign);
+            plugin.midiMatrixLatchCaptureFrames[index] =
+                std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(
+                    plugin.sampleRate * kMatrixLatchAttackCaptureSeconds)));
+        } else {
+            plugin.midiMatrixLatchPeakVelocity[index] = 0u;
+            plugin.midiMatrixLatchCaptureFrames[index] = 0u;
+        }
+        applyMidiMatrixLatchGain(plugin, index, gain, time, events);
+    } else if (pressed) {
+        const float baseGain = plugin.midiMatrixBaseGain[index].load(
+            std::memory_order_relaxed);
+        const float gain = s3g::noInputMatrixMidiGain(
+            mode, baseGain, velocity);
+        plugin.mixer.setMidiMatrixConnection(destination, source, gain);
+        plugin.midiMatrixGridGain[index].store(
+            plugin.mixer.effectiveMatrixGain(destination, source),
+            std::memory_order_relaxed);
+        plugin.midiMatrixGridHeld[index].store(true,
+            std::memory_order_relaxed);
+        plugin.midiMatrixGridActive[index].store(true,
+            std::memory_order_relaxed);
     } else {
         plugin.mixer.releaseMidiMatrixConnection(destination, source);
-        plugin.midiMatrixGridGain[
-            destination * kChannelCount + source].store(0.0f,
-                std::memory_order_relaxed);
+        plugin.midiMatrixGridHeld[index].store(false,
+            std::memory_order_relaxed);
     }
+    return true;
+}
+
+bool applyMidiMatrixGridPressure(Plugin& plugin, uint8_t channel,
+    uint8_t note, uint8_t pressure, uint32_t time,
+    const clap_output_events_t* events)
+{
+    uint32_t destination = 0u;
+    uint32_t source = 0u;
+    if (!s3g::decodeNoInputMatrixGridNote(
+            channel, note, destination, source)) return false;
+    const uint32_t index = destination * kChannelCount + source;
+    const auto mode = static_cast<s3g::NoInputMatrixMidiMode>(
+        plugin.matrixMidiMode.load(std::memory_order_relaxed));
+    if (mode == s3g::NoInputMatrixMidiMode::Latch) {
+        refineMidiMatrixLatchAttack(
+            plugin, index, pressure, time, events);
+        return true;
+    }
+    if (!plugin.midiMatrixGridHeld[index].load(
+            std::memory_order_relaxed)) return true;
+    const float baseGain = plugin.midiMatrixBaseGain[index].load(
+        std::memory_order_relaxed);
+    const float gain = s3g::noInputMatrixMidiGain(
+        mode, baseGain, pressure);
+    plugin.mixer.setMidiMatrixConnection(destination, source, gain);
     return true;
 }
 
@@ -1759,8 +2211,13 @@ void handleMidiEvent(Plugin& plugin, const clap_event_midi_t& midi,
         const uint8_t velocity = midi.data[2] & 0x7fu;
         const bool pressed = status == 0x90u && velocity != 0u;
         if (applyMidiMatrixGridNote(plugin, channel,
-                midi.data[1] & 0x7fu, velocity, pressed)) return;
+                midi.data[1] & 0x7fu, velocity, pressed,
+                midi.header.time, events)) return;
     }
+    if (status == 0xa0u
+        && applyMidiMatrixGridPressure(plugin, channel,
+            midi.data[1] & 0x7fu, midi.data[2] & 0x7fu,
+            midi.header.time, events)) return;
     if (channel != kMidiControlChannel) return;
     if (status == 0xb0u) {
         handleMidiCc(plugin, midi.data[1] & 0x7fu,
@@ -1793,6 +2250,10 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     p->seedRequested.store(false, std::memory_order_relaxed);
     p->panicRequested.store(false, std::memory_order_relaxed);
     p->killMask.store(0u, std::memory_order_relaxed);
+    p->matrixFeedbackSent.fill(false);
+    p->matrixFeedbackRefreshFrames = 0u;
+    p->nrpnFeedbackSent.fill(false);
+    p->nrpnFeedbackCursor = 0u;
     resetNrpnState(*p);
     return true;
 }
@@ -1815,6 +2276,10 @@ void reset(const clap_plugin_t* plugin)
     resetMeters(*p);
     resetNrpnState(*p);
     clearMidiMatrixGrid(*p);
+    p->matrixFeedbackSent.fill(false);
+    p->matrixFeedbackRefreshFrames = 0u;
+    p->nrpnFeedbackSent.fill(false);
+    p->nrpnFeedbackCursor = 0u;
 }
 
 bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event)
@@ -1868,7 +2333,8 @@ void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
             && applyMidiMatrixGridNote(plugin,
                 static_cast<uint8_t>(note->channel),
                 static_cast<uint8_t>(std::clamp<int32_t>(note->key, 0, 127)),
-                velocity, velocity != 0u)) return;
+                velocity, velocity != 0u, event->time,
+                outputEvents)) return;
         if (note->channel == kMidiControlChannel && note->velocity > 0.0) {
             applyMidiCommand(plugin, static_cast<uint8_t>(
                 std::clamp<int32_t>(note->key, 0, 127)),
@@ -1882,7 +2348,8 @@ void applyInputEvent(Plugin& plugin, const clap_event_header_t* event,
             applyMidiMatrixGridNote(plugin,
                 static_cast<uint8_t>(note->channel),
                 static_cast<uint8_t>(std::clamp<int32_t>(
-                    note->key, 0, 127)), 0u, false);
+                    note->key, 0, 127)), 0u, false, event->time,
+                outputEvents);
         }
     }
 }
@@ -1951,11 +2418,25 @@ clap_process_status process(const clap_plugin_t* plugin,
 
     if (process->audio_outputs_count == 0u) {
         readInputEvents(*p, process->in_events, process->out_events);
+        refreshMidiMatrixOverlayState(*p);
+        advanceMidiMatrixLatchCapture(*p, process->frames_count);
+        emitNrpnFeedback(*p, process->out_events,
+            process->frames_count > 0u ? process->frames_count - 1u : 0u);
+        emitMatrixFeedback(*p, process->out_events,
+            process->frames_count > 0u ? process->frames_count - 1u : 0u,
+            process->frames_count);
         return CLAP_PROCESS_CONTINUE;
     }
     const clap_audio_buffer_t& output = process->audio_outputs[0];
     if (!output.data32 && !output.data64) {
         readInputEvents(*p, process->in_events, process->out_events);
+        refreshMidiMatrixOverlayState(*p);
+        advanceMidiMatrixLatchCapture(*p, process->frames_count);
+        emitNrpnFeedback(*p, process->out_events,
+            process->frames_count > 0u ? process->frames_count - 1u : 0u);
+        emitMatrixFeedback(*p, process->out_events,
+            process->frames_count > 0u ? process->frames_count - 1u : 0u,
+            process->frames_count);
         return CLAP_PROCESS_CONTINUE;
     }
     const uint32_t writableChannels = std::min<uint32_t>(
@@ -2043,6 +2524,13 @@ clap_process_status process(const clap_plugin_t* plugin,
     p->containmentState.store(
         static_cast<uint32_t>(p->mixer.containmentState()),
         std::memory_order_relaxed);
+    refreshMidiMatrixOverlayState(*p);
+    advanceMidiMatrixLatchCapture(*p, process->frames_count);
+    emitNrpnFeedback(*p, process->out_events,
+        process->frames_count > 0u ? process->frames_count - 1u : 0u);
+    emitMatrixFeedback(*p, process->out_events,
+        process->frames_count > 0u ? process->frames_count - 1u : 0u,
+        process->frames_count);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -2104,9 +2592,10 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     if (id == CLAP_INVALID_ID || !paramRange(id, range)) return false;
     std::memset(info, 0, sizeof(*info));
     info->id = id;
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE
-        | (range.stepped ? CLAP_PARAM_IS_STEPPED
-            : CLAP_PARAM_IS_MODULATABLE);
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+    if (range.stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
+    else if (id != kMatrixMidiRampParamId)
+        info->flags |= CLAP_PARAM_IS_MODULATABLE;
     info->min_value = range.minimum;
     info->max_value = range.maximum;
     info->default_value = range.defaultValue;
@@ -2202,6 +2691,26 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<long>(s3g::NoInputReactMode::Count) - 1l));
         std::snprintf(display, size, "%s", s3g::noInputReactModeName(
             static_cast<s3g::NoInputReactMode>(mode)));
+        return true;
+    }
+    if (id == kMatrixMidiModeParamId) {
+        const uint32_t mode = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiMode::Count) - 1l));
+        std::snprintf(display, size, "%s", s3g::noInputMatrixMidiModeName(
+            static_cast<s3g::NoInputMatrixMidiMode>(mode)));
+        return true;
+    }
+    if (id == kMatrixMidiSignParamId) {
+        const uint32_t sign = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l,
+            static_cast<long>(s3g::NoInputMatrixMidiSign::Count) - 1l));
+        std::snprintf(display, size, "%s", s3g::noInputMatrixMidiSignName(
+            static_cast<s3g::NoInputMatrixMidiSign>(sign)));
+        return true;
+    }
+    if (id == kMatrixMidiRampParamId) {
+        std::snprintf(display, size, "%.0f ms", value);
         return true;
     }
     if (id == kFieldDivisionParamId || id == kEventDivisionParamId) {
@@ -2344,6 +2853,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (id == kMatrixMidiSignParamId) {
+        for (uint32_t sign = 0u;
+             sign < static_cast<uint32_t>(
+                 s3g::NoInputMatrixMidiSign::Count); ++sign) {
+            if (std::strcmp(display, s3g::noInputMatrixMidiSignName(
+                    static_cast<s3g::NoInputMatrixMidiSign>(sign))) == 0) {
+                *value = sign;
+                return true;
+            }
+        }
+    }
     if (id == kBehaviorParamId) {
         for (uint32_t behavior = 0u; behavior < 5u; ++behavior) {
             if (std::strcmp(display, s3g::noInputMovementBehaviorName(
@@ -2360,6 +2880,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
              ++mode) {
             if (std::strcmp(display, s3g::noInputReactModeName(
                     static_cast<s3g::NoInputReactMode>(mode))) == 0) {
+                *value = mode;
+                return true;
+            }
+        }
+    }
+    if (id == kMatrixMidiModeParamId) {
+        for (uint32_t mode = 0u;
+             mode < static_cast<uint32_t>(
+                 s3g::NoInputMatrixMidiMode::Count); ++mode) {
+            if (std::strcmp(display, s3g::noInputMatrixMidiModeName(
+                    static_cast<s3g::NoInputMatrixMidiMode>(mode))) == 0) {
                 *value = mode;
                 return true;
             }
@@ -2429,9 +2960,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         return true;
     }
     if (id == kEventSlewParamId) {
-        const double milliseconds = std::max(0.1, std::atof(display));
-        *value = std::clamp(std::log(milliseconds / 0.1)
-            / std::log(200.0), 0.0, 1.0);
+        const double milliseconds = std::max(0.5, std::atof(display));
+        *value = std::clamp(std::log(milliseconds / 0.5)
+            / std::log(40.0), 0.0, 1.0);
         return true;
     }
     if (id == kReactAttackParamId) {
@@ -2464,7 +2995,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 void paramsFlush(const clap_plugin_t* plugin,
     const clap_input_events_t* in, const clap_output_events_t* out)
 {
-    readInputEvents(*self(plugin), in, out);
+    auto& p = *self(plugin);
+    readInputEvents(p, in, out);
+    emitMatrixFeedback(p, out, 0u, 0u);
 }
 
 const clap_plugin_params_t paramsExt {
@@ -2484,6 +3017,12 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.selectedDestination = p->selectedDestination.load(
         std::memory_order_relaxed);
     state.guiPage = p->guiPage.load(std::memory_order_relaxed);
+    state.matrixMidiMode = p->matrixMidiMode.load(
+        std::memory_order_relaxed);
+    state.matrixMidiSign = p->matrixMidiSign.load(
+        std::memory_order_relaxed);
+    state.matrixMidiRampMs = p->matrixMidiRampMs.load(
+        std::memory_order_relaxed);
     state.auxMute = p->auxMute;
     state.behavior = p->behavior;
     state.surface = p->surface;
@@ -2521,6 +3060,57 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(state) - sizeof(version))) {
             return false;
         }
+    } else if (version == 7u) {
+        Version7SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.surface = previous.surface;
+    } else if (version == 6u) {
+        Version6SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.surface = previous.surface;
+    } else if (version == 5u) {
+        Version5SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.surface = previous.surface;
     } else if (version == 4u) {
         Version4SavedState previous;
         previous.version = version;
@@ -2646,6 +3236,23 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::memory_order_relaxed);
     p->guiPage.store(std::min<uint32_t>(state.guiPage, kPageCount - 1u),
         std::memory_order_relaxed);
+    p->matrixMidiMode.store(std::min<uint32_t>(state.matrixMidiMode,
+        static_cast<uint32_t>(s3g::NoInputMatrixMidiMode::Count) - 1u),
+        std::memory_order_relaxed);
+    p->matrixMidiSign.store(std::min<uint32_t>(state.matrixMidiSign,
+        static_cast<uint32_t>(s3g::NoInputMatrixMidiSign::Count) - 1u),
+        std::memory_order_relaxed);
+    p->matrixMidiRampMs.store(std::clamp(
+        std::isfinite(state.matrixMidiRampMs) ? state.matrixMidiRampMs
+            : s3g::kNoInputMatrixMidiRampDefaultMs,
+        s3g::kNoInputMatrixMidiRampMinimumMs,
+        s3g::kNoInputMatrixMidiRampMaximumMs),
+        std::memory_order_relaxed);
+    clearMidiMatrixGrid(*p);
+    p->matrixFeedbackSent.fill(false);
+    p->matrixFeedbackRefreshFrames = 0u;
+    p->nrpnFeedbackSent.fill(false);
+    p->nrpnFeedbackCursor = 0u;
     snapSurfaceCursor(*p);
     syncMixerState(*p);
     p->mixer.reseed(p->params.seed, 0.62f);
@@ -2860,6 +3467,36 @@ NSRect wiringModeButtonRect(uint32_t index)
     const NSRect visual = patchVisualRect();
     return NSMakeRect(NSMaxX(visual) - 116.0 + index * 54.0,
         visual.origin.y + 10.0, 48.0, 18.0);
+}
+
+NSRect matrixMidiModeButtonRect(uint32_t index)
+{
+    const NSRect visual = patchVisualRect();
+    return NSMakeRect(visual.origin.x + 18.0
+            + static_cast<CGFloat>(index) * 96.0,
+        visual.origin.y + 10.0, 90.0, 18.0);
+}
+
+NSRect matrixMidiSignButtonRect(uint32_t index)
+{
+    const NSRect visual = patchVisualRect();
+    return NSMakeRect(visual.origin.x + 222.0
+            + static_cast<CGFloat>(index) * 86.0,
+        visual.origin.y + 10.0, 80.0, 18.0);
+}
+
+NSRect matrixMidiRampTrackRect()
+{
+    const NSRect visual = patchVisualRect();
+    return NSMakeRect(visual.origin.x + 459.0,
+        visual.origin.y + 17.0, 142.0, 4.0);
+}
+
+NSRect matrixMidiRampHitRect()
+{
+    const NSRect track = matrixMidiRampTrackRect();
+    return NSMakeRect(track.origin.x - 42.0, track.origin.y - 9.0,
+        track.size.width + 123.0, 22.0);
 }
 
 NSRect clearConnectionsButtonRect()
@@ -3079,6 +3716,20 @@ void drawFlatButton(NSRect rect, NSString* text, bool active,
     [mixerColor(active ? 0x303030 : 0x151515) setFill];
     NSRectFill(rect);
     [mixerColor(active ? 0xb8b8b8 : 0x555555) setStroke];
+    NSFrameRect(rect);
+    const NSSize size = [text sizeWithAttributes:attrs];
+    [text drawAtPoint:NSMakePoint(
+        rect.origin.x + (rect.size.width - size.width) * 0.5,
+        rect.origin.y + (rect.size.height - size.height) * 0.5 - 0.5)
+        withAttributes:attrs];
+}
+
+void drawPolarityButton(NSRect rect, NSString* text, bool active,
+    int rgb, NSDictionary* attrs)
+{
+    [mixerColor(active ? rgb : 0x151515, active ? 0.34 : 1.0) setFill];
+    NSRectFill(rect);
+    [mixerColor(active ? rgb : 0x555555) setStroke];
     NSFrameRect(rect);
     const NSSize size = [text sizeWithAttributes:attrs];
     [text drawAtPoint:NSMakePoint(
@@ -3699,6 +4350,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
+    clearMidiMatrixGrid(*plugin);
     plugin->params.matrix.fill(0.0f);
     syncMixerState(*plugin);
     [self markPatchCustom];
@@ -3985,6 +4637,45 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     [mixerColor(0x101010) setFill]; NSRectFill(rect);
     [mixerColor(0x454545) setStroke]; NSFrameRect(rect);
+    const uint32_t matrixMidiMode = plugin->matrixMidiMode.load(
+        std::memory_order_relaxed);
+    drawFlatButton(matrixMidiModeButtonRect(0u), @"BU16 FLIP",
+        matrixMidiMode == static_cast<uint32_t>(
+            s3g::NoInputMatrixMidiMode::Flip), valueAttrs);
+    drawFlatButton(matrixMidiModeButtonRect(1u), @"BU16 LATCH",
+        matrixMidiMode == static_cast<uint32_t>(
+            s3g::NoInputMatrixMidiMode::Latch), valueAttrs);
+    const uint32_t matrixMidiSign = plugin->matrixMidiSign.load(
+        std::memory_order_relaxed);
+    drawPolarityButton(matrixMidiSignButtonRect(0u), @"NEW +",
+        matrixMidiSign == static_cast<uint32_t>(
+            s3g::NoInputMatrixMidiSign::Positive), 0xc95e3b, valueAttrs);
+    drawPolarityButton(matrixMidiSignButtonRect(1u), @"NEW -",
+        matrixMidiSign == static_cast<uint32_t>(
+            s3g::NoInputMatrixMidiSign::Negative), 0x57bfc4, valueAttrs);
+    const float matrixMidiRampMs = plugin->matrixMidiRampMs.load(
+        std::memory_order_relaxed);
+    const CGFloat rampNorm = std::sqrt(std::clamp<CGFloat>(
+        (matrixMidiRampMs - s3g::kNoInputMatrixMidiRampMinimumMs)
+            / (s3g::kNoInputMatrixMidiRampMaximumMs
+                - s3g::kNoInputMatrixMidiRampMinimumMs),
+        0.0, 1.0));
+    const NSRect rampTrack = matrixMidiRampTrackRect();
+    [@"RAMP" drawAtPoint:NSMakePoint(rampTrack.origin.x - 40.0,
+        rampTrack.origin.y - 5.0) withAttributes:valueAttrs];
+    [mixerColor(0x080808) setFill]; NSRectFill(rampTrack);
+    [mixerColor(0x454545) setStroke]; NSFrameRect(rampTrack);
+    [mixerColor(0xc95e3b, 0.88) setFill];
+    NSRect rampFill = NSInsetRect(rampTrack, 1.0, 1.0);
+    rampFill.size.width *= rampNorm;
+    NSRectFill(rampFill);
+    [mixerColor(0xe0e0e0) setFill];
+    NSRectFill(NSMakeRect(rampTrack.origin.x
+            + rampNorm * rampTrack.size.width - 1.5,
+        rampTrack.origin.y - 2.0, 3.0, rampTrack.size.height + 4.0));
+    [[NSString stringWithFormat:@"%.0f MS", matrixMidiRampMs]
+        drawAtPoint:NSMakePoint(NSMaxX(rampTrack) + 8.0,
+            rampTrack.origin.y - 5.0) withAttributes:valueAttrs];
     drawFlatButton(wiringModeButtonRect(0u), @"WIRES",
         !_wiringGridMode, valueAttrs);
     drawFlatButton(wiringModeButtonRect(1u), @"GRID",
@@ -4160,7 +4851,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         std::memory_order_relaxed);
     auto motionWeights = s3g::noInputMixerMotionWeights(
         plugin->params, plugin->motionPhase.load(std::memory_order_relaxed));
-    if (plugin->behavior.behavior != s3g::NoInputMovementBehavior::Glide) {
+    if (plugin->behavior.behavior == s3g::NoInputMovementBehavior::Step) {
         for (uint32_t index = 0u;
              index < s3g::kNoInputMixerMatrixCells; ++index) {
             motionWeights[index] = plugin->behaviorRouteGate[index].load(
@@ -4224,7 +4915,10 @@ NSRect effectEditorToggleRect(uint32_t row)
                         == s3g::NoInputMovementBehavior::Burst
                     || plugin->behavior.behavior
                         == s3g::NoInputMovementBehavior::Scramble) {
-                    motion *= s3g::lerp(1.0f, motionWeights[index],
+                    const float articulation =
+                        plugin->behaviorRouteGate[index].load(
+                            std::memory_order_relaxed);
+                    motion *= s3g::lerp(1.0f, articulation,
                         plugin->params.motion);
                 }
                 [mixerColor(gain >= 0.0f ? 0xc95e3b : 0x5daeb6,
@@ -4320,7 +5014,10 @@ NSRect effectEditorToggleRect(uint32_t row)
                     == s3g::NoInputMovementBehavior::Burst
                 || plugin->behavior.behavior
                     == s3g::NoInputMovementBehavior::Scramble) {
-                modulation *= s3g::lerp(1.0f, motionWeights[index],
+                const float articulation =
+                    plugin->behaviorRouteGate[index].load(
+                        std::memory_order_relaxed);
+                modulation *= s3g::lerp(1.0f, articulation,
                     plugin->params.motion);
             }
             const CGFloat effective = std::abs(gain) * modulation;
@@ -5089,8 +5786,9 @@ NSRect effectEditorToggleRect(uint32_t row)
         std::memory_order_relaxed);
     const uint32_t destination = plugin->selectedDestination.load(
         std::memory_order_relaxed);
-    const float route = plugin->params.matrix[
-        destination * kChannelCount + source];
+    const uint32_t routeIndex = destination * kChannelCount + source;
+    const float storedRoute = plugin->params.matrix[routeIndex];
+    const float displayedRoute = displayedMatrixGain(*plugin, routeIndex);
     s3g::clap_gui::drawProcessorMenu(@"SRC",
         [NSString stringWithFormat:@"L%u", source + 1u],
         s3g::gui_layout::rowY(family.crosspoint, 0u),
@@ -5102,8 +5800,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         family.crosspoint.frame.x, family.crosspoint.frame.width,
         label, value, style);
     [self drawSlider:@"GAIN"
-        value:[NSString stringWithFormat:@"%+.2f", route]
-        norm:(route + 1.0f) * 0.5f row:2u panel:family.crosspoint
+        value:[NSString stringWithFormat:@"%+.2f", displayedRoute]
+        norm:(displayedRoute + 1.0f) * 0.5f row:2u panel:family.crosspoint
         label:label valueAttrs:value style:style];
     const CGFloat routeButtonX = s3g::gui_layout::processorControlX(
         family.crosspoint.frame.x);
@@ -5111,8 +5809,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         s3g::gui_layout::rowY(family.crosspoint, 3u) - 1.0;
     drawFlatButton(NSMakeRect(routeButtonX,
         routeButtonY, 78.0, 17.0),
-        route < 0.0f ? @"NEGATIVE" : @"POSITIVE",
-        route != 0.0f, value);
+        storedRoute < 0.0f ? @"NEGATIVE" : @"POSITIVE",
+        storedRoute != 0.0f, value);
     drawFlatButton(NSMakeRect(routeButtonX + 88.0,
         routeButtonY, 78.0, 17.0), @"CLEAR", false, value);
     }
@@ -5251,10 +5949,17 @@ NSRect effectEditorToggleRect(uint32_t row)
                 norm:plugin->behavior.eventRate row:1u panel:family.movement
                 label:label valueAttrs:value style:style];
         }
+        const bool hasTimedWindow = plugin->behavior.behavior
+                == s3g::NoInputMovementBehavior::Cut
+            || plugin->behavior.behavior
+                == s3g::NoInputMovementBehavior::Burst;
         [self drawSlider:@"LENGTH"
-            value:[NSString stringWithFormat:@"%.1f ms",
-                s3g::noInputMovementLengthMs(plugin->behavior.length)]
-            norm:plugin->behavior.length row:2u panel:family.movement
+            value:hasTimedWindow
+                ? [NSString stringWithFormat:@"%.1f ms",
+                    s3g::noInputMovementLengthMs(plugin->behavior.length)]
+                : @"—"
+            norm:(hasTimedWindow ? plugin->behavior.length : 0.0f)
+            row:2u panel:family.movement
             label:label valueAttrs:value style:style];
         [self drawSlider:@"DENSITY"
             value:[NSString stringWithFormat:@"%.0f%%",
@@ -5373,16 +6078,14 @@ NSRect effectEditorToggleRect(uint32_t row)
             NSMaxY(s3g::clap_gui::cocoaRect(family.containmentField)) + 22.0)
         withAttributes:value];
     }
-    if (page == 3u) {
-        NSRect panicRect = s3g::clap_gui::cocoaRect(family.panicButton);
-        [mixerColor(0x7e2924) setFill]; NSRectFill(panicRect);
-        [mixerColor(0xc95e3b) setStroke]; NSFrameRect(panicRect);
-        const NSSize panicSize = [@"PANIC" sizeWithAttributes:label];
-        [@"PANIC" drawAtPoint:NSMakePoint(
-            panicRect.origin.x + (panicRect.size.width - panicSize.width) * 0.5,
-            panicRect.origin.y + (panicRect.size.height - panicSize.height) * 0.5)
-            withAttributes:label];
-    }
+    NSRect panicRect = s3g::clap_gui::cocoaRect(family.panicButton);
+    [mixerColor(0x7e2924) setFill]; NSRectFill(panicRect);
+    [mixerColor(0xc95e3b) setStroke]; NSFrameRect(panicRect);
+    const NSSize panicSize = [@"PANIC" sizeWithAttributes:label];
+    [@"PANIC" drawAtPoint:NSMakePoint(
+        panicRect.origin.x + (panicRect.size.width - panicSize.width) * 0.5,
+        panicRect.origin.y + (panicRect.size.height - panicSize.height) * 0.5)
+        withAttributes:label];
 
     [self drawOpenMenu:plugin attrs:value style:style];
 }
@@ -5424,6 +6127,18 @@ NSRect effectEditorToggleRect(uint32_t row)
 {
     if (_dragParam == CLAP_INVALID_ID) return;
     auto* plugin = static_cast<Plugin*>(_plugin);
+    if (_dragParam == kMatrixMidiRampParamId) {
+        const NSRect track = matrixMidiRampTrackRect();
+        const double normalized = std::clamp(
+            (point.x - track.origin.x) / track.size.width, 0.0, 1.0);
+        [self applyGuiParam:_dragParam value:
+            s3g::kNoInputMatrixMidiRampMinimumMs
+                + normalized * normalized
+                    * (s3g::kNoInputMatrixMidiRampMaximumMs
+                        - s3g::kNoInputMatrixMidiRampMinimumMs)];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const auto* panel = [self panelForParam:_dragParam];
     ParamRange range;
     if (!panel || !paramRange(_dragParam, range)) return;
@@ -5767,6 +6482,27 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     if (NSPointInRect(point, plot)) {
         if (page == 0u) {
+            for (uint32_t mode = 0u;
+                 mode < static_cast<uint32_t>(
+                     s3g::NoInputMatrixMidiMode::Count); ++mode) {
+                if (!NSPointInRect(point, matrixMidiModeButtonRect(mode)))
+                    continue;
+                [self applyGuiParam:kMatrixMidiModeParamId value:mode];
+                return;
+            }
+            for (uint32_t sign = 0u;
+                 sign < static_cast<uint32_t>(
+                     s3g::NoInputMatrixMidiSign::Count); ++sign) {
+                if (!NSPointInRect(point, matrixMidiSignButtonRect(sign)))
+                    continue;
+                [self applyGuiParam:kMatrixMidiSignParamId value:sign];
+                return;
+            }
+            if (NSPointInRect(point, matrixMidiRampHitRect())) {
+                [self beginSlider:kMatrixMidiRampParamId
+                    event:event point:point];
+                return;
+            }
             if (NSPointInRect(point, clearConnectionsButtonRect())) {
                 [self clearAllConnections];
                 return;
@@ -6153,7 +6889,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             family.panicButton))) {
         plugin->panicRequested.store(true, std::memory_order_release);
         return;
@@ -6309,6 +7045,11 @@ NSRect effectEditorToggleRect(uint32_t row)
         if (page == 0u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
                 s3g::gui_layout::sliderHitRect(family.movement, row)))) {
             if (_movementBank == 2u && row == 6u) return;
+            if (_movementBank == 1u && row == 2u
+                && plugin->behavior.behavior
+                    != s3g::NoInputMovementBehavior::Cut
+                && plugin->behavior.behavior
+                    != s3g::NoInputMovementBehavior::Burst) return;
             const clap_id movementParam = _movementBank == 0u
                 ? fieldMovementIds[row - 1u]
                 : (_movementBank == 1u ? cutMovementIds[row - 1u]

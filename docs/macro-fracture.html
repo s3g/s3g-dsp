@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Macro Fracture - s3g-dsp</title>
+    <meta name="description" content="Macro Fracture relay, digital disruption, logic, vocal, robotic, and octave processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Macro Fracture</h1>
+
+        <p><code>s3g Macro Fracture</code> gathers ten NIM-derived disruption and voice processors into one Mono, 8-channel, or 24-channel CLAP. The selected model changes the meaning of three contextual controls while <code>REACT</code>, <code>MEMORY</code>, mix, and the multichannel relationship system stay consistent.</p>
+
+        <p>The processor menu covers contact-like gating, sample and bit reduction, short-buffer rearrangement, two-input logic, amplitude voids, formant coloration, robot modulation, and three octave treatments. Model changes crossfade over 20 ms, and every signal path is DC-blocked and bounded.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/macro-fracture.png" aria-label="Open high-resolution Macro Fracture GUI screenshot">
+              <img src="assets/plugin-guis/macro-fracture.png" alt="Macro Fracture 8ch processor menu, contextual controls, lane relationships, and bounded recurrence activity" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Macro Fracture 8ch with a NIM-derived processor, contextual macro labels, coordinated lane color and bias, and bounded recurrence.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the Mono, 8-channel, or 24-channel build on a matching REAPER track, configure the input pins, and begin at a conservative monitoring level.</li>
+          <li>Route the result to the main speakers, a direct panner, or a stereo or quad fold-down, then begin playback. Another effect may precede that destination when its build matches the current bus width.</li>
+          <li>Choose a <code>PROCESSOR</code>, set its three contextual controls, and use <code>REACT</code> to make transients push the treatment.</li>
+          <li>Add <code>MEMORY</code> only when the processor should recur or smear into itself, then set <code>MIX</code> and <code>OUT</code>.</li>
+          <li>On the multichannel builds, shape color and bias relationships across the lanes before automating the shared voice.</li>
+        </ol>
+
+        <h2 id="versions">Versions and Routing</h2>
+
+        <ul>
+          <li><code>s3g Macro Fracture Mono</code>: one input and output channel. LOGIC compares the input against an internal carrier.</li>
+          <li><code>s3g Macro Fracture 8ch</code>: eight independent processor states. LOGIC compares each lane against its next neighbor.</li>
+          <li><code>s3g Macro Fracture 24ch</code>: twenty-four independent states and the same ring-neighbor LOGIC relationship.</li>
+        </ul>
+
+        <p>The plugin preserves lane identity and does not mix or ambisonically encode the bus. In the multichannel LOGIC model, the last lane wraps around to the first, so the comparison forms a closed ring.</p>
+
+        <h2 id="controls">Shared Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PROCESSOR</td><td>Selects one of the ten fracture models. Changes use a 20 ms crossfade.</td></tr>
+            <tr><td>INPUT</td><td>Applies gain before activity analysis and the selected model.</td></tr>
+            <tr><td>Context controls</td><td>The next three labels change with the selected model. Their host parameter names remain Amount, Color, and Bias so automation and saved state stay stable.</td></tr>
+            <tr><td>REACT</td><td>Lets signal energy and transients increase processing amount and briefly brighten or accelerate the model.</td></tr>
+            <tr><td>MEMORY</td><td>Feeds a bounded version of the model output back into its input. At zero, the shared NIM kernel receives the unrecirculated signal.</td></tr>
+            <tr><td>MIX / OUT</td><td>Sets the processed blend and final level.</td></tr>
+            <tr><td>PANIC</td><td>Clears processor histories, short buffers, and recurrence without changing parameter values.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="processors">Processors</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Processor</th><th>Context controls</th><th>Character</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>RELAY</td><td>THRESH / CHATTER / ASYM</td><td>Envelope-driven contact gate with hysteresis and controllable chatter.</td></tr>
+            <tr><td>CRUSH</td><td>BITS / RATE / DITHER</td><td>Bit quantization and sample holding with bias-controlled deterministic dither.</td></tr>
+            <tr><td>SPLICE</td><td>DEPTH / LENGTH / DIRECTION</td><td>Short-buffer repeats that alternate or force playback direction.</td></tr>
+            <tr><td>LOGIC</td><td>DEPTH / THRESH / BALANCE</td><td>XOR-like comparison against the mono carrier or next multichannel lane.</td></tr>
+            <tr><td>VOID</td><td>DEPTH / RECOVER / SKEW</td><td>Envelope-following removal that opens and closes around asymmetric thresholds.</td></tr>
+            <tr><td>THROAT</td><td>MIX / VOWEL / SHIFT</td><td>Two resonant formant regions for vocal and constricted timbres.</td></tr>
+            <tr><td>ROBOT</td><td>DEPTH / CARRIER / CHARACTER</td><td>Sine-to-square carrier modulation with driven output shaping.</td></tr>
+            <tr><td>OCT DOWN</td><td>MIX / FILTER / TRACK</td><td>Zero-crossing octave division with envelope tracking and smoothing.</td></tr>
+            <tr><td>OCT UP</td><td>MIX / TONE / SHAPE</td><td>Rectification-based octave doubling with envelope removal and filtering.</td></tr>
+            <tr><td>OCT STACK</td><td>MIX / TONE / BALANCE</td><td>Blend of octave-down division and octave-up rectification.</td></tr>
+          </tbody>
+        </table>
+
+        <p>These are the same shared kernels used by the corresponding NIM insert types. Macro Fracture adds oversampled stepping, click-free model selection, reactive control, recurrence, wet/dry mixing, and lane relationships around them.</p>
+
+        <h2 id="relationships">Multichannel Relationships</h2>
+
+        <ul>
+          <li><code>SPREAD</code> distributes the contextual Color setting around the selected center lane.</li>
+          <li><code>DEVIATION</code> adds repeatable lane-specific variation to Amount, Color, Bias, and a small amount of Memory.</li>
+          <li><code>SKEW</code> creates a first-to-last-lane bias slope.</li>
+          <li><code>CENTER</code> moves the neutral lane of the Color spread.</li>
+          <li><code>GLIDE</code> smooths all relationship changes.</li>
+        </ul>
+
+        <p>The relationship preview uses a bright marker for contextual Color and a darker marker for Bias. Relationship controls are omitted from the Mono build.</p>
+
+        <h2 id="safety">Memory and Safety</h2>
+
+        <p><code>MEMORY</code> uses a sub-unity, saturated recurrence path rather than exposing an unrestricted feedback gain. The processor also clamps internal excursions, removes output DC, rejects non-finite values, and applies a final soft bound. The activity panel shows how strongly the result differs from the driven input.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="macro-shred.html">
+            <span>Previous</span>
+            Macro Shred
+          </a>
+          <a class="page-nav-link next" href="spectral-buffer-processors.html">
+            <span>Next</span>
+            Spectral / Buffer Effects
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Macro Effect Pages</h2>
+          <a href="macro-shred.html">Macro Shred</a>
+          <a href="macro-fracture.html">Macro Fracture</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#versions">Versions and Routing</a>
+          <a href="#controls">Shared Controls</a>
+          <a href="#processors">Processors</a>
+          <a href="#relationships">Relationships</a>
+          <a href="#safety">Memory and Safety</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -256,6 +256,7 @@ bool testFactoryPresetsAndRandomization()
         || randomA.lanes[3].tuneNote != randomB.lanes[3].tuneNote
         || randomA.lanes[3].auxTap != randomB.lanes[3].auxTap
         || randomA.lanes[3].auxReturn != randomB.lanes[3].auxReturn
+        || randomA.clockSync != 0u
         || randomA.controllerHold != 0u
         || (randomA.feedback == randomC.feedback
             && randomA.matrix == randomC.matrix)) {
@@ -297,6 +298,27 @@ bool testRandomEnergyProfiles()
         return false;
     }
 
+    for (uint32_t seed = 1u; seed <= 512u; ++seed) {
+        const auto high = s3g::randomizedNoInputMovementBehaviorParams(
+            seed, Energy::High);
+        const auto mid = s3g::randomizedNoInputMovementBehaviorParams(
+            seed, Energy::Mid);
+        const auto low = s3g::randomizedNoInputMovementBehaviorParams(
+            seed, Energy::Low);
+        const float highLengthMs = s3g::noInputMovementLengthMs(high.length);
+        const float midLengthMs = s3g::noInputMovementLengthMs(mid.length);
+        if (highLengthMs < 5.999f || highLengthMs > 40.001f
+            || midLengthMs < 19.999f || midLengthMs > 140.001f
+            || high.behavior < s3g::NoInputMovementBehavior::Cut
+            || mid.behavior < s3g::NoInputMovementBehavior::Step
+            || low.behavior != s3g::NoInputMovementBehavior::Glide
+            || low.choke != 0.0f) {
+            std::cerr << "No Input Mixer random articulation profile escaped "
+                         "its behavior or window range\n";
+            return false;
+        }
+    }
+
     const std::array<Energy, 3u> profiles {{
         Energy::High, Energy::Mid, Energy::Low,
     }};
@@ -313,9 +335,11 @@ bool testRandomEnergyProfiles()
             if (params.matrix != repeat.matrix
                 || params.motion != repeat.motion
                 || params.slowTime != repeat.slowTime
+                || params.clockSync != 0u
+                || repeat.clockSync != 0u
                 || params.controllerHold != 0u) {
                 std::cerr << "No Input Mixer energy randomization was not "
-                             "deterministic and controller-safe\n";
+                             "deterministic, free-running, and controller-safe\n";
                 return false;
             }
 
@@ -345,8 +369,8 @@ bool testRandomEnergyProfiles()
                 profileValid = params.slowTime != 0u
                     && params.motion >= 0.38f && params.motion <= 0.561f
                     && behavior.behavior
-                        <= s3g::NoInputMovementBehavior::Step
-                    && behavior.choke <= 0.301f
+                        == s3g::NoInputMovementBehavior::Glide
+                    && behavior.choke == 0.0f
                     && fieldHz >= 0.03f && fieldHz <= 1.01f
                     && eventHz >= 0.03f && eventHz <= 1.01f;
             }
@@ -607,6 +631,10 @@ bool testMovementBehaviors()
             > 1.0e-6f
         || std::abs(s3g::noInputMovementEventRateHz(1.0f) - 80.0f)
             > 1.0e-3f
+        || std::abs(s3g::noInputMovementSlewMs(0.0f) - 0.5f)
+            > 1.0e-6f
+        || std::abs(s3g::noInputMovementSlewMs(1.0f) - 20.0f)
+            > 1.0e-4f
         || std::strcmp(s3g::noInputMovementBehaviorName(
                 s3g::NoInputMovementBehavior::Scramble), "SCRAMBLE") != 0) {
         std::cerr << "No Input Mixer articulation control laws regressed\n";
@@ -640,7 +668,7 @@ bool testMovementBehaviors()
         behavior.length = 0.16f;
         behavior.density = 0.48f;
         behavior.chaos = 0.72f;
-        behavior.slew = 0.04f;
+        behavior.slew = 0.0f;
         behavior.choke = 1.0f;
         s3g::NoInputMixer mixer;
         mixer.prepare(48000.0);
@@ -650,6 +678,9 @@ bool testMovementBehaviors()
         Frame frame {};
         float minimumGate = 1.0f;
         float maximumGate = 0.0f;
+        float maximumGateDelta = 0.0f;
+        std::array<float, s3g::kNoInputMixerMatrixCells> previousGate {};
+        previousGate.fill(1.0f);
         uint32_t silentFrames = 0u;
         for (uint32_t sample = 0u; sample < 36000u; ++sample) {
             mixer.processFrame(frame.data());
@@ -664,6 +695,9 @@ bool testMovementBehaviors()
                 const float gate = mixer.behaviorRouteGate(route);
                 minimumGate = std::min(minimumGate, gate);
                 maximumGate = std::max(maximumGate, gate);
+                maximumGateDelta = std::max(maximumGateDelta,
+                    std::abs(gate - previousGate[route]));
+                previousGate[route] = gate;
             }
             if (sample > 2000u && framePeak < 1.0e-4f) ++silentFrames;
             if (std::abs(mixer.routeSignal(closedRoute)) > 1.0e-9f) {
@@ -678,12 +712,53 @@ bool testMovementBehaviors()
                       << "\n";
             return false;
         }
+        if (maximumGateDelta > 0.10f) {
+            std::cerr << "Movement behavior window discontinuity: "
+                      << s3g::noInputMovementBehaviorName(behavior.behavior)
+                      << " delta " << maximumGateDelta << "\n";
+            return false;
+        }
         if ((behavior.behavior == s3g::NoInputMovementBehavior::Cut
                 || behavior.behavior == s3g::NoInputMovementBehavior::Burst)
             && silentFrames < 64u) {
             std::cerr << "Post-insert CHOKE did not expose cut gaps: "
                       << silentFrames << " frames\n";
             return false;
+        }
+    }
+
+    s3g::NoInputMovementBehaviorParams scrambleA;
+    scrambleA.behavior = s3g::NoInputMovementBehavior::Scramble;
+    scrambleA.eventRate = 0.78f;
+    scrambleA.length = 0.0f;
+    scrambleA.density = 0.52f;
+    scrambleA.chaos = 0.74f;
+    scrambleA.slew = 0.08f;
+    scrambleA.choke = 0.5f;
+    auto scrambleB = scrambleA;
+    scrambleB.length = 1.0f;
+    s3g::NoInputMixer first;
+    s3g::NoInputMixer second;
+    first.prepare(48000.0);
+    second.prepare(48000.0);
+    first.setParams(params);
+    second.setParams(params);
+    first.setMovementBehaviorParams(scrambleA);
+    second.setMovementBehaviorParams(scrambleB);
+    first.reseed(0x5343524du, 0.72f);
+    second.reseed(0x5343524du, 0.72f);
+    Frame firstFrame {};
+    Frame secondFrame {};
+    for (uint32_t sample = 0u; sample < 12000u; ++sample) {
+        first.processFrame(firstFrame.data());
+        second.processFrame(secondFrame.data());
+        for (uint32_t route = 0u;
+             route < s3g::kNoInputMixerMatrixCells; ++route) {
+            if (std::abs(first.behaviorRouteGate(route)
+                    - second.behaviorRouteGate(route)) > 1.0e-7f) {
+                std::cerr << "SCRAMBLE unexpectedly depends on LENGTH\n";
+                return false;
+            }
         }
     }
     return true;
@@ -858,6 +933,14 @@ bool testMidiMatrixGrid()
                 std::cerr << "No Input Mixer MIDI grid decode failed\n";
                 return false;
             }
+            uint8_t encodedChannel = 0u;
+            uint8_t encodedNote = 0u;
+            if (!s3g::encodeNoInputMatrixGridPoint(
+                    destination, source, encodedChannel, encodedNote)
+                || encodedChannel != channel || encodedNote != note) {
+                std::cerr << "No Input Mixer MIDI grid encode failed\n";
+                return false;
+            }
             ++visits[destination * s3g::kNoInputMixerChannels + source];
         }
     }
@@ -865,6 +948,45 @@ bool testMidiMatrixGrid()
             return count == 1u;
         })) {
         std::cerr << "No Input Mixer MIDI grid did not cover 8x8 once\n";
+        return false;
+    }
+    if (s3g::encodeNoInputMatrixFeedbackValue(-1.0f) != 0u
+        || s3g::encodeNoInputMatrixFeedbackValue(-0.5f) != 32u
+        || s3g::encodeNoInputMatrixFeedbackValue(0.0f) != 64u
+        || s3g::encodeNoInputMatrixFeedbackValue(0.5f) != 96u
+        || s3g::encodeNoInputMatrixFeedbackValue(1.0f) != 127u
+        || std::abs(s3g::decodeNoInputMatrixFeedbackValue(0u) + 1.0f)
+            > 1.0e-6f
+        || s3g::decodeNoInputMatrixFeedbackValue(32u) >= 0.0f
+        || s3g::decodeNoInputMatrixFeedbackValue(64u) != 0.0f
+        || s3g::decodeNoInputMatrixFeedbackValue(96u) <= 0.0f
+        || std::abs(s3g::decodeNoInputMatrixFeedbackValue(127u) - 1.0f)
+            > 1.0e-6f) {
+        std::cerr << "No Input Mixer signed matrix feedback encoding failed\n";
+        return false;
+    }
+    if (std::abs(s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Flip, 0.8f, 0u) - 0.8f)
+            > 1.0e-6f
+        || std::abs(s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Flip, 0.8f, 127u) + 1.0f)
+            > 1.0e-6f
+        || std::abs(s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Flip, -0.8f, 127u) - 1.0f)
+            > 1.0e-6f
+        || s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Flip, 0.0f, 127u) != 0.0f
+        || std::abs(s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Latch, -0.5f, 64u)
+            - 64.0f / 127.0f) > 1.0e-6f
+        || std::abs(s3g::noInputMatrixMidiGain(
+            s3g::NoInputMatrixMidiMode::Latch, 0.0f, 127u,
+            s3g::NoInputMatrixMidiSign::Negative) + 1.0f) > 1.0e-6f
+        || std::strcmp(s3g::noInputMatrixMidiModeName(
+            s3g::NoInputMatrixMidiMode::Latch), "LATCH") != 0
+        || std::strcmp(s3g::noInputMatrixMidiSignName(
+            s3g::NoInputMatrixMidiSign::Negative), "NEGATIVE") != 0) {
+        std::cerr << "No Input Mixer MIDI matrix mode gain failed\n";
         return false;
     }
 
@@ -876,16 +998,53 @@ bool testMidiMatrixGrid()
     s3g::NoInputMixer mixer;
     mixer.prepare(48000.0);
     mixer.setParams(params);
+    if (mixer.midiMatrixRampMs()
+            != s3g::kNoInputMatrixMidiRampDefaultMs) {
+        std::cerr << "No Input Mixer MIDI matrix ramp default failed\n";
+        return false;
+    }
     mixer.setMidiMatrixConnection(destination, source, -0.75f);
-    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.75f)
+    std::array<float, s3g::kNoInputMixerChannels> frame {};
+    for (uint32_t sample = 0u; sample < 48000u; ++sample) {
+        mixer.processFrame(frame.data());
+    }
+    const float halfway = mixer.effectiveMatrixGain(destination, source);
+    if (!(halfway < -0.60f && halfway > -0.75f)) {
+        std::cerr << "No Input Mixer MIDI matrix 1000 ms ramp failed: "
+                  << halfway << "\n";
+        return false;
+    }
+    mixer.clearMidiMatrixConnections();
+    mixer.setMidiMatrixRampMs(s3g::kNoInputMatrixMidiRampMinimumMs);
+    mixer.setMidiMatrixConnection(destination, source, -0.75f);
+    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.42f)
             > 1.0e-6f
+        || !mixer.midiMatrixConnectionActive(destination, source)
         || std::abs(mixer.params().matrix[index] + 0.42f) > 1.0e-6f) {
         std::cerr << "No Input Mixer MIDI matrix overlay changed base state\n";
         return false;
     }
+    for (uint32_t sample = 0u; sample < 12000u; ++sample) {
+        mixer.processFrame(frame.data());
+    }
+    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.75f)
+        > 1.0e-3f) {
+        std::cerr << "No Input Mixer MIDI matrix attack did not converge\n";
+        return false;
+    }
     mixer.releaseMidiMatrixConnection(destination, source);
-    if (std::abs(mixer.effectiveMatrixGain(destination, source) + 0.42f)
-        > 1.0e-6f) {
+    if (!mixer.midiMatrixConnectionActive(destination, source)
+        || std::abs(mixer.effectiveMatrixGain(destination, source) + 0.75f)
+            > 1.0e-3f) {
+        std::cerr << "No Input Mixer MIDI matrix release was not slewed\n";
+        return false;
+    }
+    for (uint32_t sample = 0u; sample < 12000u; ++sample) {
+        mixer.processFrame(frame.data());
+    }
+    if (mixer.midiMatrixConnectionActive(destination, source)
+        || std::abs(mixer.effectiveMatrixGain(destination, source) + 0.42f)
+            > 1.0e-6f) {
         std::cerr << "No Input Mixer MIDI matrix release did not restore base\n";
         return false;
     }

@@ -40,7 +40,7 @@ add_s3g_macro_shred_target(
   "s3g_macro_shred_mono"
   "org.s3g.s3g-dsp.macro-shred-mono"
   "s3g Macro Shred Mono"
-  "Mono pressure, wavefolding, and bounded resonant-feedback processor for voice and microphone input."
+  "Mono pressure, selectable circuit distortion, and bounded resonant-feedback processor for voice and microphone input."
 )
 
 add_s3g_macro_shred_target(
@@ -49,7 +49,7 @@ add_s3g_macro_shred_target(
   "s3g_macro_shred"
   "org.s3g.s3g-dsp.macro-shred-8ch"
   "s3g Macro Shred 8ch"
-  "8-channel macro shred processor with shared voice controls and smoothed lane relationships."
+  "8-channel selectable circuit-distortion processor with shared voice controls and smoothed lane relationships."
 )
 
 add_s3g_macro_shred_target(
@@ -58,5 +58,5 @@ add_s3g_macro_shred_target(
   "s3g_24ch_macro_shred"
   "org.s3g.s3g-dsp.macro-shred-24ch"
   "s3g Macro Shred 24ch"
-  "24-channel macro shred processor with shared voice controls and smoothed lane relationships."
+  "24-channel selectable circuit-distortion processor with shared voice controls and smoothed lane relationships."
 )

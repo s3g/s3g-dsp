@@ -53,8 +53,29 @@
           <li>Select <code>MIXER</code> for continuous click-and-drag control of all eight strips, both aux returns, and master tone. Click any lane-slot or aux processor name to choose from the complete effect menu. <code>POP</code> detaches that exact page without duplicating or relocating controls.</li>
           <li>Use <code>CHANNEL</code> to select a lane, set <code>BODY</code>, <code>LOSS</code>, <code>TUNE</code>, and <code>FINE</code>, then shape it with EQ and the three insert slots. <code>LOCK</code> quantizes the resonant body around that lane's MIDI-note target.</li>
           <li>Use <code>AUX</code> to choose where each lane feeds Aux A/B and how each signed return re-enters each destination. Use <code>SURF</code> to capture and perform between complete network states.</li>
-          <li>Use <code>SAFETY</code> for output, containment, and <code>PANIC</code>.</li>
+          <li>Use <code>SAFETY</code> for output and containment settings. <code>PANIC</code> remains in the persistent title strip on every page.</li>
         </ol>
+
+        <div class="callout">
+          <p>MIDI and external controllers are optional. See <a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a> for general MIDI mapping, the optional NIM Gesture utility, and the implemented OXI E16 and Intech Grid BU16 setup.</p>
+        </div>
+
+        <h2 id="signal-flow">Signal Flow and Gain Stages</h2>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="no_input_mixer_signal_flow.svg" alt="No Input Mixer signal-flow diagram showing the signed matrix and lane processors feeding a contained feedback return without a send fader before a separate channel level, mute, and output branch">
+          </div>
+          <figcaption>Each processed lane splits before <code>LEVEL</code> and <code>MUTE</code>. The upper branch returns through containment without a user send fader; the lower branch controls only the audible eight-channel output.</figcaption>
+        </figure>
+
+        <ol>
+          <li>Eight return memories enter the signed matrix. Each crosspoint, together with <code>FDBK</code>, <code>COUPL</code>, and movement, determines how much of one source excites one destination.</li>
+          <li>The destination lane passes that sum through its body, formant path, EQ, inserts, and choke.</li>
+          <li>The processed lane splits: one branch passes through the governor, internal tone, and DC block before returning to the matrix; the other passes through channel <code>LEVEL</code>/<code>MUTE</code> and the final output path.</li>
+        </ol>
+
+        <p>Matrix crosspoint gain and channel <code>LEVEL</code> are deliberately separate. A crosspoint changes the regenerative graph: it determines how strongly one source return excites one destination and therefore changes stability, spectrum, and interaction. Channel <code>LEVEL</code>, channel <code>MUTE</code>, master <code>OUT</code>, and <code>HOUSE</code> tone sit on the audition branch after the feedback return splits away. Lowering a fader can therefore make a lane quiet at the hardware output without removing its energy from the internal network.</p>
 
         <h2 id="presets">Presets and Randomization</h2>
 
@@ -86,14 +107,14 @@
           </tbody>
         </table>
 
-        <p><code>RANDOM</code> is an energy-profile menu rather than one uncorrelated roll. Each choice generates a new deterministic seed and varies the complete matrix, bodies, EQ, tuning and lock states, processor types, insert settings, aux taps and signed destination returns, movement field, optional host sync, listening response, articulation behavior, phase, drift, formant, feedback, and coupling. The profile coordinates those dimensions so slow clocks, sparse choke, and deep listening attenuation do not accidentally accumulate into an inaudible start.</p>
+        <p><code>RANDOM</code> is an energy-profile menu rather than one uncorrelated roll. Each choice generates a new deterministic seed and varies the complete matrix, bodies, EQ, tuning and lock states, processor types, insert settings, aux taps and signed destination returns, free-running movement field, listening response, articulation behavior, phase, drift, formant, feedback, and coupling. Random always leaves <code>Tempo Sync</code> off so it cannot unexpectedly lock matrix movement to the host; enable Sync deliberately afterward when wanted. The profile coordinates those dimensions so slow clocks, sparse choke, and deep listening attenuation do not accidentally accumulate into an inaudible start.</p>
 
         <table class="readout-table">
           <thead><tr><th>Random profile</th><th>Coordinated behavior</th></tr></thead>
           <tbody>
-            <tr><td>HIGH / QUICK</td><td>Dense signed routing, stronger regeneration and distortion, 1–32 Hz field motion, 4–72 Hz Cut/Burst/Scramble articulation, fast REACT, deep choke, and the strongest startup packet.</td></tr>
-            <tr><td>MID / MODERATE</td><td>Moderate routing and drive, approximately 0.35–8 Hz field motion, 1–16 Hz Step/Cut/Burst/Scramble articulation, and restrained listening depth.</td></tr>
-            <tr><td>LOW / SLOW</td><td>Sparse lower-energy coupling with output compensation, continuously moving Flow/Chase/Swirl fields, approximately 0.03–1 Hz motion, Glide or gently choked Step behavior, shallow REACT, and a still-audible startup packet.</td></tr>
+            <tr><td>HIGH / QUICK</td><td>Dense signed routing, stronger regeneration and distortion, 1–32 Hz field motion, 4–72 Hz Cut/Burst/Scramble articulation with 6–40 ms Cut/Burst windows, fast REACT, deep choke, and the strongest startup packet.</td></tr>
+            <tr><td>MID / MODERATE</td><td>Moderate routing and drive, approximately 0.35–8 Hz field motion, 1–16 Hz Step/Cut/Burst/Scramble articulation with 20–140 ms Cut/Burst windows, and restrained listening depth.</td></tr>
+            <tr><td>LOW / SLOW</td><td>Sparse lower-energy coupling with output compensation, continuously moving Flow/Chase/Swirl fields, approximately 0.03–1 Hz motion, smooth Glide behavior without Cut, Burst, Scramble, or choke, shallow REACT, and a still-audible startup packet.</td></tr>
           </tbody>
         </table>
 
@@ -103,7 +124,7 @@
 
         <p>The default <code>WIRES</code> view places eight source ports at left and eight destination ports at right. Every route is bipolar from <code>-1.00</code> to <code>+1.00</code>: orange cables are positive and cyan cables are negative. Positive sends the source return into the destination with its waveform polarity unchanged; negative multiplies it by <code>-1</code> before the destination sum. Negative therefore means inverted feedback, not simply less feedback. It may cancel or inhibit correlated energy, but phase paths, delays, EQ, and nonlinear inserts can make it excite a different resonance or feedback state instead. The magnitude still sets how much signal is coupled. Drag between ports to connect, repeat to dissolve, or click a cable to select it for exact editing in <code>CROSSPOINT</code>; its <code>POSITIVE</code>/<code>NEGATIVE</code> button reverses the selected route without changing its magnitude. The alternate <code>GRID</code> view reads sources across columns and destinations down rows. Clicking an empty intersection patches and selects it; clicking a different existing intersection selects it without changing its gain; clicking the selected intersection again dissolves it. Option-click creates negative polarity. <code>CLEAR ALL</code> dissolves the complete graph from either view. The signal takes at least one sample of return memory before re-entering the matrix, so the graph never forms an algebraic loop.</p>
 
-        <p>Four MIDI 4-by-4 button grids can play the same matrix without rewriting the saved patch. Controllers on MIDI channels 1–4 use notes 0–15 as four quadrants: channels 1 and 2 cover destinations 1–4 against sources 1–4 and 5–8; channels 3 and 4 cover destinations 5–8 against those source groups. Note-on velocity sets the momentary route magnitude, preserving an existing route's negative polarity, and note-off releases the overlay to reveal the stored crosspoint again. The active route is shown in both <code>WIRES</code> and <code>GRID</code>. MIDI channel 16 remains the NRPN, preset, and performance-command channel.</p>
+        <p>Four MIDI 4-by-4 button grids play the same saved matrix. Controllers on MIDI channels 1–4 use notes 0–15 as four quadrants: channels 1 and 2 cover destinations 1–4 against sources 1–4 and 5–8; channels 3 and 4 cover destinations 5–8 against those source groups. Each supplied profile sends one native-velocity Note On, changes the held pad to pressure mode, then sends a separate polyphonic-pressure stream. <code>BU16 FLIP</code> moves each existing positive crosspoint toward −1, or each existing negative crosspoint toward +1; release moves back to the saved value and empty points remain empty. <code>BU16 LATCH</code> writes the shared saved matrix. Pressing an empty point creates it from strike velocity; for roughly 50 ms only a larger pressure sample may correct a falsely low attack value, after which pressure is ignored. This attack-peak rule is identical for positive and negative polarity. Release leaves the value latched, and pressing the lit point again removes it. <code>BU16 RAMP</code> applies the same adjustable 20–10000 ms transition to Flip movement and Latch creation/removal; it defaults to 1000 ms. <code>NEW +</code> and <code>NEW −</code> select the polarity for new latch points. Switching Flip/Latch preserves the matrix, while Clear Matrix and Random work in either mode. The processor returns each displayed crosspoint as polyphonic pressure on the same channel and note throughout the ramp: values above the zero center fade the matching BU16 LED s3g orange for positive magnitude, values below center fade it cyan for negative magnitude, and zero turns it off. A periodic complete snapshot resynchronizes reconnected controllers. Current Grid profiles install their MIDI receive callback in System Setup; reload older profile revisions if notes arrive but the LEDs remain dark. The active route is shown in both <code>WIRES</code> and <code>GRID</code>. MIDI channel 16 remains the NRPN, preset, and performance-command channel.</p>
 
         <p><code>PHASE</code> blends direct returns with short all-pass-bearing paths. <code>DRIFT</code> introduces slow component-like tolerance movement, and <code>FORMANT</code> blends in a normalized product of low- and high-passed body signals. These are part of the feedback behavior rather than post-effects.</p>
 
@@ -123,9 +144,9 @@
 
         <h2 id="movement">Matrix Movement</h2>
 
-        <p><code>MATRIX MOVEMENT</code> separates spatial allocation from articulation. The <code>FIELD</code> bank offers <code>FLOW</code>, <code>PULSE</code>, <code>CHASE</code>, <code>SWIRL</code>, <code>SCAT</code>, and <code>HOLD</code>. <code>FLOW</code>, <code>SPREAD</code>, <code>VORTEX</code>, <code>DEPTH</code>, <code>RATE</code>, and <code>PHASE</code> determine how the field scales each patched crosspoint. <code>GLIDE</code> applies the field continuously. <code>STEP</code> samples and holds it; <code>CUT</code> opens and closes binary route sets; <code>BURST</code> produces irregular clustered ratchets and gaps; and <code>SCRAMBLE</code> rapidly chooses different subsets of the patched graph. These modes affect only existing connections and cannot reverse a route's sign or exceed its stored gain.</p>
+        <p><code>MATRIX MOVEMENT</code> separates spatial allocation from articulation. The <code>FIELD</code> bank offers <code>FLOW</code>, <code>PULSE</code>, <code>CHASE</code>, <code>SWIRL</code>, <code>SCAT</code>, and <code>HOLD</code>. <code>FLOW</code>, <code>SPREAD</code>, <code>VORTEX</code>, <code>DEPTH</code>, <code>RATE</code>, and <code>PHASE</code> determine how the field scales each patched crosspoint. <code>GLIDE</code> applies the field continuously and <code>STEP</code> samples and holds it. The three binary modes retain that moving field underneath a separate route-selection envelope: <code>CUT</code> uses a cosine-edged gate with a flat center, <code>BURST</code> uses a clustered pulse whose cosine release lengthens with Chaos, and <code>SCRAMBLE</code> cosine-crossfades from the previous route subset to the next. These modes affect only existing connections and cannot reverse a route's sign or exceed its stored gain.</p>
 
-        <p>The compact <code>CUT</code> bank exposes <code>BEHAV</code>, 0.25–80 Hz <code>EVENT</code> rate, 0.5–250 ms <code>LENGTH</code>, <code>DENSITY</code>, <code>CHAOS</code>, 0.1–20 ms click-safe <code>SLEW</code>, and <code>CHOKE</code>. <code>CHOKE</code> applies the articulated gate after each lane's EQ and three inserts, before its signal returns to the graph and audition output. Use it when saturated feedback refills route-level gaps and makes cuts less distinct. At zero <code>DEPTH</code>, stored gains pass unchanged; at full depth the field uses a perceptual 30 dB contrast law, with binary modes additionally closing their gated routes. Destination normalization follows the unmodulated graph, preventing background gain from masking the motion.</p>
+        <p>The compact <code>CUT</code> bank exposes <code>BEHAV</code>, 0.25–80 Hz <code>EVENT</code> rate, 0.5–250 ms <code>LENGTH</code>, <code>DENSITY</code>, <code>CHAOS</code>, 0.5–20 ms <code>SLEW</code>, and <code>CHOKE</code>. <code>LENGTH</code> is the complete CUT/BURST window and displays as inactive for GLIDE, STEP, and SCRAMBLE. <code>SLEW</code> sets CUT/BURST edge time and SCRAMBLE crossfade time; its raised-cosine shape reaches the endpoints with zero slope instead of treating the control as a one-pole filter. <code>CHOKE</code> applies the same live articulation after each lane's EQ and three inserts, before its signal returns to the graph and audition output. Use it when saturated feedback refills route-level gaps and makes cuts less distinct. At zero <code>DEPTH</code>, stored gains pass unchanged; at full depth the field uses a perceptual 30 dB contrast law and one separate articulation multiplier closes gated routes. Destination normalization follows the unmodulated graph, preventing background gain from masking the motion.</p>
 
         <p>The <code>REACT</code> bank derives another route-gain layer from measured lane activity, analogous to listening from inside the feedback field. <code>FOLLOW</code> follows source energy, <code>AVOID</code> recedes from active destinations, <code>EDGE</code> responds to threshold crossings, and <code>BALANCE</code> compares source and destination activity. <code>DEPTH</code> reaches a 30 dB range, while <code>THRESH</code>, <code>ATTACK</code>, <code>RELEASE</code>, and bipolar <code>POLARITY</code> shape the response. REACT multiplies only patched gains: it cannot invent a connection, reverse its stored sign, or exceed its ceiling.</p>
 
@@ -217,7 +238,7 @@
           </tbody>
         </table>
 
-        <p>The underlying <code>GAIN</code>, <code>TONE</code>, <code>BIAS</code>, and <code>LEVEL</code> parameters are interpreted musically for the selected family. The floating editor names that interpretation directly: SPLICE presents <code>MIX</code>, <code>LENGTH</code>, and <code>DIRECTION</code>; ROTOR presents <code>DEPTH</code>, <code>RATE</code>, and <code>SHAPE</code>; THROAT presents <code>MIX</code>, <code>VOWEL</code>, and <code>SHIFT</code>; OCT STACK presents <code>MIX</code>, <code>TONE</code>, and <code>BALANCE</code>. <code>BYPASS</code> removes only the selected lane slot. Aux editing substitutes <code>RETURN</code> and <code>LOOP</code> for lane level and bypass.</p>
+        <p>The underlying <code>GAIN</code>, <code>TONE</code>, <code>BIAS</code>, and <code>LEVEL</code> parameters are interpreted musically for the selected family. The floating editor names that interpretation directly: SPLICE presents <code>MIX</code>, <code>LENGTH</code>, and <code>DIRECTION</code>; ROTOR presents <code>DEPTH</code>, <code>RATE</code>, and <code>SHAPE</code>; THROAT presents <code>MIX</code>, <code>VOWEL</code>, and <code>SHIFT</code>; OCT STACK presents <code>MIX</code>, <code>TONE</code>, and <code>BALANCE</code>. The generic bipolar −1 to +1 Bias parameter therefore controls an effect-specific third macro; it is not matrix or Aux-return polarity. <code>BYPASS</code> removes only the selected lane slot. Aux editing substitutes <code>RETURN</code> and <code>LOOP</code> for lane level and bypass. In the plugin or standalone app's MIXER popup, click the Aux A/B <code>EDIT</code> action to expose its third macro, exact label, and signed value.</p>
 
         <h2 id="surf">SURF Parameter Surface</h2>
 
@@ -242,20 +263,20 @@
 
         <p>Per-lane RMS and peak observers drive a slow feedback governor only when loop energy becomes unsafe. Normal transients are not treated as compressor input. Optional DC blocking surrounds the feedback path, and eight independent ceiling limiters protect the final outputs. The monitor reports <code>QUIET</code>, <code>STABLE</code>, <code>EDGE</code>, or <code>RUNAWAY</code>.</p>
 
-        <p><code>PANIC</code> ramps the outputs down, clears all feedback, resonator, filter, oversampling, and limiter memories, and rearms from silence. It does not automatically reseed; click <code>NEW</code> when a fresh excitation is wanted.</p>
+        <p><code>PANIC</code> remains visible in the title strip on every page. It ramps the outputs down, clears all feedback, resonator, filter, oversampling, and limiter memories, and rearms from silence. It does not automatically reseed; click <code>NEW</code> when a fresh excitation is wanted.</p>
 
         <h2 id="state">Automation and State</h2>
 
-        <p>The plugin exposes 400 CLAP parameters for host automation: 56 globals; all sixty-four signed matrix gains; seventeen direct controls per lane, including tuning and aux topology; and six controls per insert slot. Continuous controls also advertise CLAP modulation, and parameter/modulation events take effect at their sample offsets inside each process block. Project state stores the full patch, SURF cells and interpolation settings, selected lane/slot/source/destination, aux mutes, behavior state, and editor page. State loading supplies conservative defaults for controls omitted from stored data; saving records the complete state.</p>
+        <p>The plugin exposes 403 CLAP parameters for host automation: 59 globals; all sixty-four signed matrix gains; seventeen direct controls per lane, including tuning and aux topology; and six controls per insert slot. Continuous sound controls advertise CLAP modulation, and parameter/modulation events take effect at their sample offsets inside each process block. Project state stores the full patch, SURF cells and interpolation settings, selected lane/slot/source/destination, aux mutes, behavior state, BU16 mode, new-point sign and ramp time, and editor page. State loading supplies conservative defaults for controls omitted from stored data; saving records the complete state.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="generative-instruments.html">
             <span>Previous</span>
             Generative Instruments
           </a>
-          <a class="page-nav-link next" href="processor-fault.html">
+          <a class="page-nav-link next" href="no-input-mixer-control.html">
             <span>Next</span>
-            Processor Fault
+            No Input Mixer MIDI Control
           </a>
         </nav>
       </main>
@@ -271,11 +292,13 @@
         <div class="toc-section">
           <h2>Generative Pages</h2>
           <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="no-input-mixer-control.html">No Input Mixer Control</a>
           <a href="processor-fault.html">Processor Fault</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
           <a href="#presets">Presets and Randomization</a>
           <a href="#matrix">Feedback Matrix</a>
           <a href="#movement">Matrix Movement</a>

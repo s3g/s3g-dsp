@@ -39,10 +39,10 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 #define S3G_MACRO_SHRED_PLUGIN_NAME "s3g Macro Shred 8ch"
 #endif
 #ifndef S3G_MACRO_SHRED_DESCRIPTION
-#define S3G_MACRO_SHRED_DESCRIPTION "8-channel macro pressure, wavefolding, and bounded resonant-feedback processor."
+#define S3G_MACRO_SHRED_DESCRIPTION "8-channel macro pressure, selectable circuit distortion, and bounded resonant-feedback processor."
 #endif
 
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kStateVersion = 3;
 constexpr uint32_t kGuiWidth = kChannelCount == 1u ? 416u : 760u;
 constexpr uint32_t kGuiHeight = kChannelCount == 1u ? 498u : 620u;
 
@@ -61,6 +61,28 @@ constexpr clap_id kGlideParamId = 12;
 constexpr clap_id kMixParamId = 13;
 constexpr clap_id kOutputParamId = 14;
 constexpr clap_id kTuneParamId = 15;
+constexpr clap_id kCircuitParamId = 16;
+
+struct LegacyMacroShredParamsV2 {
+    float inputGainDb;
+    float pressure;
+    float shred;
+    float feedback;
+    float color;
+    float react;
+    float tune;
+    float body;
+    float spread;
+    float deviation;
+    float skew;
+    float center;
+    float glideMs;
+    float mix;
+    float outputGainDb;
+};
+
+static_assert(sizeof(LegacyMacroShredParamsV2) == sizeof(float) * 15u,
+    "Macro Shred v2 state layout changed.");
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -102,6 +124,7 @@ bool paramAffectsTail(clap_id id)
     case kSkewParamId:
     case kCenterParamId:
     case kGlideParamId:
+    case kCircuitParamId:
         return true;
     default:
         return false;
@@ -127,6 +150,12 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kGlideParamId: p.params.glideMs = static_cast<float>(std::clamp(value, 10.0, 2000.0)); break;
     case kMixParamId: p.params.mix = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kOutputParamId: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 6.0)); break;
+    case kCircuitParamId:
+        p.params.circuit = static_cast<s3g::MacroShredCircuit>(
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(value)), 0u,
+                s3g::kMacroShredCircuitCount - 1u));
+        break;
     default: break;
     }
     p.shred.setParams(p.params);
@@ -296,8 +325,17 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-struct ParamDef { clap_id id; const char* name; double min; double max; double def; };
+struct ParamDef {
+    clap_id id;
+    const char* name;
+    double min;
+    double max;
+    double def;
+    bool stepped = false;
+};
 constexpr ParamDef kParamDefs[] {
+    { kCircuitParamId, "Circuit", 0.0,
+        static_cast<double>(s3g::kMacroShredCircuitCount - 1u), 0.0, true },
     { kInputParamId, "Input", -24.0, 36.0, 0.0 },
     { kPressureParamId, "Pressure", 0.0, 1.0, 0.28 },
     { kShredParamId, "Shred", 0.0, 1.0, 0.18 },
@@ -324,7 +362,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     if (!info || index >= paramsCount(nullptr)) return false;
     const auto& def = kParamDefs[index];
     info->id = def.id;
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE
+        | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0u);
     std::strncpy(info->name, def.name, sizeof(info->name));
     std::strncpy(info->module, "Macro Shred", sizeof(info->module));
     info->min_value = def.min;
@@ -338,6 +377,9 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     if (!value) return false;
     const auto& p = self(plugin)->params;
     switch (id) {
+    case kCircuitParamId:
+        *value = static_cast<uint32_t>(p.circuit);
+        return true;
     case kInputParamId: *value = p.inputGainDb; return true;
     case kPressureParamId: *value = p.pressure; return true;
     case kShredParamId: *value = p.shred; return true;
@@ -360,16 +402,33 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
     if (!display || size == 0) return false;
-    if (id == kInputParamId || id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
+    if (id == kCircuitParamId) {
+        const uint32_t circuit = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u,
+            s3g::kMacroShredCircuitCount - 1u);
+        std::snprintf(display, size, "%s", s3g::macroShredCircuitName(
+            static_cast<s3g::MacroShredCircuit>(circuit)));
+    }
+    else if (id == kInputParamId || id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kGlideParamId) std::snprintf(display, size, "%.0f ms", value);
     else if (id == kSkewParamId) std::snprintf(display, size, "%+.2f", value);
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kCircuitParamId) {
+        for (uint32_t circuit = 0u;
+             circuit < s3g::kMacroShredCircuitCount; ++circuit) {
+            if (std::strcmp(display, s3g::macroShredCircuitName(
+                    static_cast<s3g::MacroShredCircuit>(circuit))) == 0) {
+                *value = static_cast<double>(circuit);
+                return true;
+            }
+        }
+    }
     *value = std::atof(display);
     if (std::strchr(display, '%')) {
         *value *= 0.01;
@@ -398,21 +457,56 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return true;
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool readStateBytes(const clap_istream_t* stream, void* destination,
+    uint64_t size)
 {
-    if (!stream || !stream->read) return false;
-    SavedState state {};
-    auto* bytes = reinterpret_cast<uint8_t*>(&state);
+    auto* bytes = static_cast<uint8_t*>(destination);
     uint64_t offset = 0u;
-    while (offset < sizeof(state)) {
-        const int64_t read = stream->read(stream, bytes + offset, sizeof(state) - offset);
+    while (offset < size) {
+        const int64_t read = stream->read(
+            stream, bytes + offset, size - offset);
         if (read <= 0) return false;
         offset += static_cast<uint64_t>(read);
     }
-    if (state.version != kStateVersion) return false;
+    return true;
+}
+
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    uint32_t version = 0u;
+    if (!readStateBytes(stream, &version, sizeof(version))) return false;
+
+    s3g::MacroShredParams loaded {};
+    if (version == kStateVersion) {
+        if (!readStateBytes(stream, &loaded, sizeof(loaded))) return false;
+    } else if (version == 2u) {
+        LegacyMacroShredParamsV2 legacy {};
+        if (!readStateBytes(stream, &legacy, sizeof(legacy))) return false;
+        loaded.inputGainDb = legacy.inputGainDb;
+        loaded.pressure = legacy.pressure;
+        loaded.shred = legacy.shred;
+        loaded.feedback = legacy.feedback;
+        loaded.color = legacy.color;
+        loaded.react = legacy.react;
+        loaded.tune = legacy.tune;
+        loaded.body = legacy.body;
+        loaded.spread = legacy.spread;
+        loaded.deviation = legacy.deviation;
+        loaded.skew = legacy.skew;
+        loaded.center = legacy.center;
+        loaded.glideMs = legacy.glideMs;
+        loaded.mix = legacy.mix;
+        loaded.outputGainDb = legacy.outputGainDb;
+        loaded.circuit = s3g::MacroShredCircuit::Shred;
+    } else {
+        return false;
+    }
+
     auto* p = self(plugin);
-    p->params = state.params;
+    p->params = loaded;
     p->shred.setParams(p->params);
+    p->params = p->shred.params();
     return true;
 }
 
@@ -443,7 +537,7 @@ const clap_plugin_tail_t tailExt { tailGet };
 #else
 #define S3GMacroShredView S3GMacroShred24View
 #endif
-@interface S3GMacroShredView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; char _titlePresetName[64]; }
+@interface S3GMacroShredView : NSView { void* _plugin; int _dragSlider; int _openMenu; NSTimer* _timer; char _titlePresetName[64]; }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
@@ -461,6 +555,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     if (self) {
         _plugin = plugin;
         _dragSlider = -1;
+        _openMenu = 0;
         _timer = nil;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
@@ -567,14 +662,21 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     const auto& prm = p->params;
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 66.0f y:s3g::gui_layout::rowY(family.output, 0u) panel:family.output attrs:small];
     [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:s3g::gui_layout::rowY(family.output, 1u) panel:family.output attrs:small];
-    [self drawSlider:@"INPUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.inputGainDb] norm:(prm.inputGainDb + 24.0f) / 60.0f y:s3g::gui_layout::rowY(family.engine, 0u) panel:family.engine attrs:small];
-    [self drawSlider:@"PRS" value:[NSString stringWithFormat:@"%.0f%%", prm.pressure * 100.0f] norm:prm.pressure y:s3g::gui_layout::rowY(family.engine, 1u) panel:family.engine attrs:small];
-    [self drawSlider:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", prm.shred * 100.0f] norm:prm.shred y:s3g::gui_layout::rowY(family.engine, 2u) panel:family.engine attrs:small];
-    [self drawSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback y:s3g::gui_layout::rowY(family.engine, 3u) panel:family.engine attrs:small];
-    [self drawSlider:@"COLOR" value:[NSString stringWithFormat:@"%.0f%%", prm.color * 100.0f] norm:prm.color y:s3g::gui_layout::rowY(family.engine, 4u) panel:family.engine attrs:small];
-    [self drawSlider:@"REACT" value:[NSString stringWithFormat:@"%.0f%%", prm.react * 100.0f] norm:prm.react y:s3g::gui_layout::rowY(family.engine, 5u) panel:family.engine attrs:small];
-    [self drawSlider:@"TUNE" value:[NSString stringWithFormat:@"%.0f%%", prm.tune * 100.0f] norm:prm.tune y:s3g::gui_layout::rowY(family.engine, 6u) panel:family.engine attrs:small];
-    [self drawSlider:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", prm.body * 100.0f] norm:prm.body y:s3g::gui_layout::rowY(family.engine, 7u) panel:family.engine attrs:small];
+    s3g::clap_gui::drawProcessorMenu(
+        @"CIRCUIT",
+        [NSString stringWithUTF8String:s3g::macroShredCircuitName(
+            prm.circuit)],
+        s3g::gui_layout::rowY(family.engine, 0u),
+        family.engine.frame.x, family.engine.frame.width,
+        label, small, style);
+    [self drawSlider:@"INPUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.inputGainDb] norm:(prm.inputGainDb + 24.0f) / 60.0f y:s3g::gui_layout::rowY(family.engine, 1u) panel:family.engine attrs:small];
+    [self drawSlider:@"PRS" value:[NSString stringWithFormat:@"%.0f%%", prm.pressure * 100.0f] norm:prm.pressure y:s3g::gui_layout::rowY(family.engine, 2u) panel:family.engine attrs:small];
+    [self drawSlider:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", prm.shred * 100.0f] norm:prm.shred y:s3g::gui_layout::rowY(family.engine, 3u) panel:family.engine attrs:small];
+    [self drawSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback y:s3g::gui_layout::rowY(family.engine, 4u) panel:family.engine attrs:small];
+    [self drawSlider:@"COLOR" value:[NSString stringWithFormat:@"%.0f%%", prm.color * 100.0f] norm:prm.color y:s3g::gui_layout::rowY(family.engine, 5u) panel:family.engine attrs:small];
+    [self drawSlider:@"REACT" value:[NSString stringWithFormat:@"%.0f%%", prm.react * 100.0f] norm:prm.react y:s3g::gui_layout::rowY(family.engine, 6u) panel:family.engine attrs:small];
+    [self drawSlider:@"TUNE" value:[NSString stringWithFormat:@"%.0f%%", prm.tune * 100.0f] norm:prm.tune y:s3g::gui_layout::rowY(family.engine, 7u) panel:family.engine attrs:small];
+    [self drawSlider:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", prm.body * 100.0f] norm:prm.body y:s3g::gui_layout::rowY(family.engine, 8u) panel:family.engine attrs:small];
 
     NSRect loopTrack;
     NSRect panicRect;
@@ -629,6 +731,26 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         panicRect.origin.x + (panicRect.size.width - panicTextSize.width) * 0.5,
         panicRect.origin.y + (panicRect.size.height - panicTextSize.height) * 0.5)
         withAttributes:label];
+
+    if (_openMenu == 1) {
+        static NSString* circuitItems[] = {
+            @"SHRED", @"WOOL", @"RAT", @"ZONE A",
+            @"ZONE B", @"FUZZ I", @"FUZZ II", @"DIODE"
+        };
+        static_assert(std::size(circuitItems)
+            == s3g::kMacroShredCircuitCount);
+        constexpr CGFloat itemHeight = 18.0;
+        const NSRect menuRect = NSMakeRect(
+            s3g::gui_layout::processorControlX(family.engine.frame.x),
+            s3g::gui_layout::rowY(family.engine, 0u) + 17.0,
+            s3g::gui_layout::processorMenuWidth(family.engine.frame.width),
+            itemHeight * static_cast<CGFloat>(
+                s3g::kMacroShredCircuitCount));
+        s3g::clap_gui::drawDropdownMenu(
+            menuRect, itemHeight, circuitItems,
+            s3g::kMacroShredCircuitCount,
+            static_cast<int>(prm.circuit), -1, small, style);
+    }
 }
 - (void)updateSlider:(NSPoint)point
 {
@@ -679,6 +801,23 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     const auto& family = kChannelCount == 1u
         ? s3g::gui_layout::kMacroShredMonoFamilyLayout
         : s3g::gui_layout::kMacroShredFamilyLayout;
+    if (_openMenu == 1) {
+        constexpr CGFloat itemHeight = 18.0;
+        const NSRect menuRect = NSMakeRect(
+            s3g::gui_layout::processorControlX(family.engine.frame.x),
+            s3g::gui_layout::rowY(family.engine, 0u) + 17.0,
+            s3g::gui_layout::processorMenuWidth(family.engine.frame.width),
+            itemHeight * static_cast<CGFloat>(
+                s3g::kMacroShredCircuitCount));
+        const int hit = s3g::clap_gui::dropdownHitIndex(
+            point, menuRect, itemHeight, s3g::kMacroShredCircuitCount);
+        _openMenu = 0;
+        if (hit >= 0) {
+            applyParam(*p, kCircuitParamId, static_cast<double>(hit));
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
             point, &p->plugin, @"Macro Shred", titleBand,
@@ -690,6 +829,16 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         s3g::clap_gui::cocoaRect(family.panicButton);
     if (NSPointInRect(point, panicRect)) {
         p->panicRequested.store(true, std::memory_order_release);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const NSRect circuitBox = NSMakeRect(
+        s3g::gui_layout::processorControlX(family.engine.frame.x),
+        s3g::gui_layout::rowY(family.engine, 0u) - 5.0,
+        s3g::gui_layout::processorMenuWidth(family.engine.frame.width),
+        24.0);
+    if (NSPointInRect(point, circuitBox)) {
+        _openMenu = 1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -723,7 +872,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     }
     for (int i = 0; i < 8; ++i) {
         if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
-                s3g::gui_layout::sliderHitRect(family.engine, i)))) {
+                s3g::gui_layout::sliderHitRect(family.engine, i + 1u)))) {
             beginSlider(engineParamIds[i]);
             return;
         }

@@ -37,13 +37,13 @@ constexpr clap_id kTakeoverParamId = 5u;
 constexpr clap_id kLoopCountParamId = 6u;
 constexpr clap_id kLastLengthParamId = 7u;
 
-constexpr uint32_t kGlobalParameterCount = 56u;
+constexpr uint32_t kGlobalParameterCount = 59u;
 constexpr uint32_t kMatrixParameterCount = 64u;
 constexpr uint32_t kLaneCount = 8u;
 constexpr uint32_t kLaneParameterCount = 35u;
 constexpr uint32_t kNimParameterCount = kGlobalParameterCount
     + kMatrixParameterCount + kLaneCount * kLaneParameterCount;
-static_assert(kNimParameterCount == 400u);
+static_assert(kNimParameterCount == 403u);
 
 constexpr uint32_t kGuiWidth = 1180u;
 constexpr uint32_t kGuiHeight = 820u;
@@ -130,7 +130,7 @@ Plugin* self(const clap_plugin_t* plugin)
 
 int32_t parameterIndex(uint16_t id)
 {
-    if (id >= 1u && id <= 56u) {
+    if (id >= 1u && id <= 59u) {
         return static_cast<int32_t>(id - 1u);
     }
     if (id >= 100u && id <= 163u) {
@@ -1200,19 +1200,19 @@ const std::array<GuiPage, 12u>& guiPages()
         }
 
         const char* motionNames[] { "Event Rate", "Event Length", "Density",
-            "Chance", "Slew", "Choke", "Move Rate", "Move Phase",
+            "Chaos", "Slew", "Choke", "Move Rate", "Move Phase",
             "Random Depth", "Random Thresh", "Random Attack", "Random Release",
-            "Random Polar", "Flow", "Agency", "Output" };
-        const char* motionLabels[] { "E/R", "E/P", "D/L", "C/A", "S/X",
+            "Random Polar", "Shape", "Behavior", "Output" };
+        const char* motionLabels[] { "EVRT", "EVLN", "DENS", "CHAO", "SLEW",
             "CHOK", "MVRT", "MVPH", "RDEP", "RTHR", "RATK", "RREL",
-            "RPOL", "FLOW", "AGCY", "OUT!" };
+            "RPOL", "SHAP", "BEHV", "OUT!" };
         const uint16_t motionIds[] { 36u, 37u, 38u, 39u, 40u, 41u, 21u, 22u,
-            45u, 46u, 47u, 48u, 49u, 16u, 11u, 1u };
+            45u, 46u, 47u, 48u, 49u, 20u, 35u, 1u };
         for (uint32_t slot = 0u; slot < 16u; ++slot) {
             set(1u, slot, motionNames[slot], motionLabels[slot],
                 motionIds[slot], slot >= 8u && slot <= 12u
-                    ? kSurfaceColor : (slot == 14u ? kNetworkColor
-                        : (slot == 15u ? kOutputColor : kMovementColor)));
+                    ? kSurfaceColor
+                    : (slot == 15u ? kOutputColor : kMovementColor));
         }
 
         for (uint32_t lane = 0u; lane < 8u; ++lane) {
@@ -1294,25 +1294,38 @@ const std::array<GuiPage, 12u>& guiPages()
                     laneParameter(lane, secondOffset), secondColor);
             }
         };
-        laneRows(5u, 8u, "Aux A", "AUX", kAuxAColor,
-            9u, "Aux B", "BFX", kAuxBColor);
+        for (uint32_t lane = 0u; lane < 8u; ++lane) {
+            char name[20] {};
+            char label[6] {};
+            std::snprintf(name, sizeof(name), "Aux A Lane %u Send",
+                lane + 1u);
+            std::snprintf(label, sizeof(label), "A%uSD", lane + 1u);
+            set(5u, lane, name, label, laneParameter(lane, 8u),
+                kAuxAColor);
+            std::snprintf(name, sizeof(name), "Aux B Lane %u Send",
+                lane + 1u);
+            std::snprintf(label, sizeof(label), "B%uSD", lane + 1u);
+            set(5u, lane + 8u, name, label, laneParameter(lane, 9u),
+                kAuxBColor);
+        }
 
-        const char* auxNames[] { "Interaction", "House Tone", "Formant",
-            "Space", "A Gain", "A Tone", "A Bias", "A Return", "B Gain",
+        const char* auxNames[] { "Interaction", "House Tone", "A Type",
+            "B Type", "A Gain", "A Tone", "A Bias", "A Return", "B Gain",
             "B Tone", "B Bias", "B Return", "A Feedback", "B Feedback",
             "Ceiling", "Output" };
-        const char* auxLabels[] { "INTR", "HOUS", "FORM", "SPAC", "AGAN",
+        const char* auxLabels[] { "INTR", "HOUS", "ATYP", "BTYP", "AGAN",
             "ATON", "ABIA", "AR/M", "BGAN", "BTON", "BBIA", "BR/M",
             "AFBK", "BFBK", "CEIL", "OUT!" };
-        const uint16_t auxIds[] { 14u, 15u, 9u, 12u, 24u, 25u, 42u, 26u,
+        const uint16_t auxIds[] { 14u, 15u, 23u, 28u, 24u, 25u, 42u, 26u,
             29u, 30u, 43u, 31u, 27u, 32u, 2u, 1u };
         for (uint32_t slot = 0u; slot < 16u; ++slot) {
-            const uint32_t color = slot < 3u ? kToneColor
-                : (slot == 3u ? kNetworkColor
-                    : (slot >= 4u && slot <= 7u) || slot == 12u
-                        ? kAuxAColor
-                        : ((slot >= 8u && slot <= 11u) || slot == 13u
-                            ? kAuxBColor : kOutputColor));
+            const uint32_t color = slot < 2u ? kToneColor
+                : ((slot == 2u) || (slot >= 4u && slot <= 7u)
+                        || slot == 12u)
+                    ? kAuxAColor
+                    : ((slot == 3u) || (slot >= 8u && slot <= 11u)
+                            || slot == 13u)
+                        ? kAuxBColor : kOutputColor;
             set(6u, slot, auxNames[slot], auxLabels[slot], auxIds[slot], color);
         }
 
@@ -1322,20 +1335,36 @@ const std::array<GuiPage, 12u>& guiPages()
             6u, "Mid Gain", "MGN", kEqColor);
         laneRows(9u, 10u, "Note", "NOT", kTuneColor,
             11u, "Cents", "CTS", kTuneColor);
-        laneRows(10u, 15u, "A Return", "AR", kAuxAColor,
-            16u, "B Return", "BR", kAuxBColor);
+        for (uint32_t lane = 0u; lane < 8u; ++lane) {
+            char name[20] {};
+            char label[6] {};
+            std::snprintf(name, sizeof(name), "Aux A Lane %u Return",
+                lane + 1u);
+            std::snprintf(label, sizeof(label), "A%uRN", lane + 1u);
+            set(10u, lane, name, label, laneParameter(lane, 15u),
+                kAuxAColor);
+            std::snprintf(name, sizeof(name), "Aux B Lane %u Return",
+                lane + 1u);
+            std::snprintf(label, sizeof(label), "B%uRN", lane + 1u);
+            set(10u, lane + 8u, name, label, laneParameter(lane, 16u),
+                kAuxBColor);
+        }
 
-        const char* actionNames[] { "New", "Random Low", "Random Mid",
-            "Random High", "Forget", "Panic", "Clear Matrix", "Output",
-            "Kill Lane 1", "Kill Lane 2", "Kill Lane 3", "Kill Lane 4",
-            "Kill Lane 5", "Kill Lane 6", "Kill Lane 7", "Kill Lane 8" };
-        const char* actionLabels[] { "NEW", "RLO", "RMD", "RHI", "FORG",
-            "PNIC", "CLRM", "OUT", "K1", "K2", "K3", "K4", "K5",
-            "K6", "K7", "K8" };
+        const char* actionNames[] { "Record", "Playback", "Clear Last",
+            "Clear All", "Cancel", "Matrix Flip", "Matrix Latch",
+            "New Sign", "Seed", "Random Low", "Random Mid", "Random High",
+            "Forget", "Clear Matrix", "BU16 Ramp", "Output / Panic" };
+        const char* actionLabels[] { "REC", "PLAY", "CLRL", "CLRA", "CNCL",
+            "FLIP", "LTCH", "SIGN", "SEED", "RLO", "RMD", "RHI", "FORG",
+            "MX0", "RAMP", "OUT!" };
+        const uint16_t actionIds[] { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 59u, 1u };
         for (uint32_t slot = 0u; slot < 16u; ++slot) {
             set(11u, slot, actionNames[slot], actionLabels[slot],
-                slot == 7u ? 1u : 0u,
-                slot == 7u ? kOutputColor : kOutputColor, slot != 7u);
+                actionIds[slot], slot == 5u ? kMatrixNextColor
+                    : (slot == 6u || slot == 7u) ? kMatrixFarColor
+                    : slot == 14u ? kMovementColor : kOutputColor,
+                slot < 14u);
         }
         return result;
     }();
@@ -1343,9 +1372,9 @@ const std::array<GuiPage, 12u>& guiPages()
 }
 
 constexpr std::array<uint8_t, 12u> kPageLayoutOrder {
-    0u, 1u, 2u, 3u,
-    4u, 5u, 6u, 7u,
-    8u, 9u, 10u, 11u,
+    0u, 1u, 6u, 11u,
+    3u, 4u, 5u, 10u,
+    2u, 7u, 8u, 9u,
 };
 
 NSRect guiCardRect(uint32_t layoutSlot)
@@ -1670,7 +1699,7 @@ void strokeGuiArc(NSPoint center, CGFloat radius, CGFloat startDegrees,
         s3g::clap_gui::drawPanelFrame(card.origin.x, card.origin.y,
             card.size.width, card.size.height, style);
         NSString* header = [NSString stringWithFormat:@"P%02u  %s",
-            pageIndex + 1u, page.title];
+            layoutSlot + 1u, page.title];
         s3g::clap_gui::drawPanelHeader(header, true, card.origin.x,
             card.origin.y, card.size.width, 23.0, labelAttrs, style);
         uint32_t pageLoops = 0u;

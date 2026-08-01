@@ -1,4 +1,5 @@
 #include "s3g_no_input_mixer_standalone_engine.h"
+#include "s3g_no_input_mixer.h"
 
 #include <clap/ext/params.h>
 
@@ -88,8 +89,13 @@ bool NoInputMixerStandaloneEngine::create(
             || event->size < sizeof(clap_event_midi_t)) return true;
         const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
         const uint8_t status = midi->data[0];
-        if ((status & 0xf0u) != 0xb0u || (status & 0x0fu) != 15u)
-            return true;
+        const uint8_t command = status & 0xf0u;
+        const uint8_t channel = status & 0x0fu;
+        const bool e16Feedback = command == 0xb0u && channel == 15u;
+        const bool gridFeedback = command
+                == s3g::kNoInputMatrixFeedbackCommand
+            && channel < s3g::kNoInputMatrixGridChannels;
+        if (!e16Feedback && !gridFeedback) return true;
         return self->enqueueMidiOutput(status, midi->data[1], midi->data[2]);
     };
     return true;

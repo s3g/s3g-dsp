@@ -20,6 +20,7 @@ clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap	s3g_ambi_encoder_p
 clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap	s3g_ambi_encoder_cryosphere.clap	org.s3g.s3g-dsp.ambi-cryosphere-encoder-64	s3g Ambi Encoder Cryosphere
 clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap	s3g_ambi_encoder_insect.clap	org.s3g.s3g-dsp.ambi-insect-encoder-64	s3g Ambi Encoder Insect
 clap_accelerometer_field_encoder/s3g_ambi_encoder_modal.clap	s3g_ambi_encoder_modal_16.clap	org.s3g.s3g-dsp.accelerometer-field-encoder-16	s3g Ambi Encoder Modal 16
+clap_ambi_encoder_medium/s3g_ambi_encoder_medium.clap	s3g_ambi_encoder_medium_16.clap	org.s3g.s3g-dsp.ambi-encoder-medium-16	s3g Ambi Encoder Medium 16
 clap_ambi_imprint/s3g_ambi_imprint.clap	s3g_processor_ambi_imprint_64ch.clap	org.s3g.s3g-dsp.ambi-imprint-64	s3g Processor Ambi Imprint 64ch
 clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap	s3g_ambi_encoder_ray.clap	org.s3g.s3g-dsp.ambi-ray-encoder	s3g Ambi Encoder Ray
 clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap	s3g_ambi_encoder_ray_bilocation.clap	org.s3g.s3g-dsp.ambi-ray-bilocation-encoder	s3g Ambi Encoder Ray Bilocation
@@ -43,6 +44,9 @@ clap_macro_pitch/s3g_24ch_macro_pitch.clap	s3g_macro_pitch_24ch.clap	org.s3g.s3g
 clap_macro_shred/s3g_macro_shred_mono.clap	s3g_macro_shred_mono.clap	org.s3g.s3g-dsp.macro-shred-mono	s3g Macro Shred Mono
 clap_macro_shred/s3g_macro_shred.clap	s3g_macro_shred_8ch.clap	org.s3g.s3g-dsp.macro-shred-8ch	s3g Macro Shred 8ch
 clap_macro_shred/s3g_24ch_macro_shred.clap	s3g_macro_shred_24ch.clap	org.s3g.s3g-dsp.macro-shred-24ch	s3g Macro Shred 24ch
+clap_macro_fracture/s3g_macro_fracture_mono.clap	s3g_macro_fracture_mono.clap	org.s3g.s3g-dsp.macro-fracture-mono	s3g Macro Fracture Mono
+clap_macro_fracture/s3g_macro_fracture.clap	s3g_macro_fracture_8ch.clap	org.s3g.s3g-dsp.macro-fracture-8ch	s3g Macro Fracture 8ch
+clap_macro_fracture/s3g_24ch_macro_fracture.clap	s3g_macro_fracture_24ch.clap	org.s3g.s3g-dsp.macro-fracture-24ch	s3g Macro Fracture 24ch
 clap_buffer_processor/s3g_buffer_processor.clap	s3g_processor_buffer_8ch.clap	org.s3g.s3g-dsp.buffer-processor	s3g Processor Buffer 8ch
 clap_wave_geometry_processor/s3g_wave_geometry_processor.clap	s3g_processor_wave_geometry_8ch.clap	org.s3g.s3g-dsp.wave-geometry-processor	s3g Processor Wave Geometry 8ch
 clap_multichannel_meter/s3g_multichannel_meter.clap	s3g_analyzer_meter_64ch.clap	org.s3g.s3g-dsp.multichannel-meter-64	s3g Analyzer Meter 64ch

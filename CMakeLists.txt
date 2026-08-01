@@ -38,6 +38,10 @@ endif()
 add_executable(s3g_ambi_ray_encoder_smoke tests/ambi_ray_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_fractional_waveguide_network_smoke
+  tests/fractional_waveguide_network_smoke.cpp)
+target_link_libraries(s3g_fractional_waveguide_network_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_ambi_ray_bilocation_encoder_smoke tests/ambi_ray_bilocation_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_bilocation_encoder_smoke PRIVATE s3g_dsp)
 
@@ -239,6 +243,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_link_libraries(s3g_no_input_mixer_clap_smoke PRIVATE
     ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_macro_shred_clap_smoke
+    tests/macro_shred_clap_smoke.cpp)
+  target_include_directories(s3g_macro_shred_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_macro_shred_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_macro_fracture_clap_smoke
+    tests/macro_fracture_clap_smoke.cpp)
+  target_include_directories(s3g_macro_fracture_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_macro_fracture_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
   add_executable(s3g_nim_gesture_clap_smoke
     tests/nim_gesture_clap_smoke.cpp)
   target_include_directories(s3g_nim_gesture_clap_smoke PRIVATE
@@ -258,6 +276,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_ambi_effect_trace_clap_smoke
     PRIVATE ${S3G_CLAP_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
   target_link_libraries(s3g_ambi_effect_trace_clap_smoke
+    PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_fractional_waveguide_network_clap_smoke
+    tests/fractional_waveguide_network_clap_smoke.cpp)
+  target_include_directories(s3g_fractional_waveguide_network_clap_smoke
+    PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_fractional_waveguide_network_clap_smoke
     PRIVATE ${CMAKE_DL_LIBS})
 
   if(APPLE)
@@ -297,6 +322,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_cryosphere_encoder)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
+  add_subdirectory(plugins/clap_ambi_encoder_medium)
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
   add_subdirectory(plugins/clap_no_input_mixer)
@@ -315,6 +341,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_multi_loop_processor)
   add_subdirectory(plugins/clap_ambi_grain_processor)
   add_subdirectory(plugins/clap_macro_delay)
+  add_subdirectory(plugins/clap_macro_fracture)
   add_subdirectory(plugins/clap_macro_pitch)
   add_subdirectory(plugins/clap_macro_shred)
   add_subdirectory(plugins/clap_buffer_processor)
@@ -351,6 +378,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_orbit_delay)
   add_subdirectory(plugins/clap_cascade_taps)
   add_subdirectory(plugins/clap_crcltr)
+
+  add_custom_target(audit_ambi_encoder_medium
+    COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_smoke>
+    COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
+      org.s3g.s3g-dsp.ambi-encoder-medium-16
+    COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+      $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
+      org.s3g.s3g-dsp.ambi-encoder-medium-16
+      920 680 "s3g Ambi Encoder Medium" responsive
+    DEPENDS
+      s3g_fractional_waveguide_network_smoke
+      s3g_fractional_waveguide_network_clap_smoke
+      s3g_encoder_family_gui_smoke
+      s3g_ambi_encoder_medium_clap
+    COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
 
   find_program(S3G_CLAP_VALIDATOR_EXECUTABLE NAMES clap-validator)
   if(S3G_CLAP_VALIDATOR_EXECUTABLE)
@@ -600,6 +643,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_mono_clap> org.s3g.s3g-dsp.macro-shred-mono 416 498 "s3g Macro " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-8ch 760 620 "s3g Macro " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-24ch 760 620 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_mono_clap> org.s3g.s3g-dsp.macro-fracture-mono 416 498 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-8ch 760 620 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-24ch 760 620 "s3g Macro " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -610,7 +656,44 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_macro_shred_mono_clap
         s3g_macro_shred_clap
         s3g_24ch_macro_shred_clap
+        s3g_macro_fracture_mono_clap
+        s3g_macro_fracture_clap
+        s3g_24ch_macro_fracture_clap
       COMMENT "Rendering and validating every Macro-family GUI")
+
+    add_custom_target(audit_macro_shred_circuits
+      COMMAND $<TARGET_FILE:s3g_macro_shred_clap_smoke>
+        $<TARGET_FILE:s3g_macro_shred_mono_clap>
+        org.s3g.s3g-dsp.macro-shred-mono
+      COMMAND $<TARGET_FILE:s3g_macro_shred_clap_smoke>
+        $<TARGET_FILE:s3g_macro_shred_clap>
+        org.s3g.s3g-dsp.macro-shred-8ch
+      COMMAND $<TARGET_FILE:s3g_macro_shred_clap_smoke>
+        $<TARGET_FILE:s3g_24ch_macro_shred_clap>
+        org.s3g.s3g-dsp.macro-shred-24ch
+      DEPENDS
+        s3g_macro_shred_clap_smoke
+        s3g_macro_shred_mono_clap
+        s3g_macro_shred_clap
+        s3g_24ch_macro_shred_clap
+      COMMENT "Validating Macro Shred circuits, parameters, and state migration")
+
+    add_custom_target(audit_macro_fracture_processors
+      COMMAND $<TARGET_FILE:s3g_macro_fracture_clap_smoke>
+        $<TARGET_FILE:s3g_macro_fracture_mono_clap>
+        org.s3g.s3g-dsp.macro-fracture-mono 1
+      COMMAND $<TARGET_FILE:s3g_macro_fracture_clap_smoke>
+        $<TARGET_FILE:s3g_macro_fracture_clap>
+        org.s3g.s3g-dsp.macro-fracture-8ch 8
+      COMMAND $<TARGET_FILE:s3g_macro_fracture_clap_smoke>
+        $<TARGET_FILE:s3g_24ch_macro_fracture_clap>
+        org.s3g.s3g-dsp.macro-fracture-24ch 24
+      DEPENDS
+        s3g_macro_fracture_clap_smoke
+        s3g_macro_fracture_mono_clap
+        s3g_macro_fracture_clap
+        s3g_24ch_macro_fracture_clap
+      COMMENT "Validating Macro Fracture processors, ports, parameters, and state")
 
     add_custom_target(audit_gui_array_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
@@ -766,10 +849,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating the Ambi Imprint GUI")
 
     add_custom_target(audit_gui_nim_gesture
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
-        $<TARGET_FILE:s3g_nim_gesture_clap>
-        org.s3g.s3g-dsp.nim-gesture 1180 820
-        "s3g Utility " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_nim_gesture_clap> org.s3g.s3g-dsp.nim-gesture 1180 820 "s3g Utility " responsive
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_nim_gesture_clap

@@ -17,6 +17,7 @@ namespace {
 
 constexpr uint32_t kFrames = 10u;
 constexpr clap_id kFeedbackParameter = 5u;
+constexpr uint16_t kMatrixRampParameter = 59u;
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -284,8 +285,8 @@ int main(int argc, char** argv)
     output.clear();
     InputEvents record;
     record.addMidi(0x9fu, 112u, 127u, 0u);
-    record.addNrpn(kFeedbackParameter, 100u, 2u);
-    record.addNrpn(kFeedbackParameter, 200u, 8u);
+    record.addNrpn(kMatrixRampParameter, 100u, 2u);
+    record.addNrpn(kMatrixRampParameter, 200u, 8u);
     process.in_events = &record.input;
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
     double recordingValue = 0.0;

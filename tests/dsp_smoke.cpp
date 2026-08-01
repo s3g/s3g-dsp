@@ -50,6 +50,7 @@
 #include "s3g_mc_to_stereo.h"
 #include "s3g_mc_to_quad.h"
 #include "s3g_macro_delay.h"
+#include "s3g_macro_fracture.h"
 #include "s3g_macro_pitch.h"
 #include "s3g_macro_shred.h"
 
@@ -2955,6 +2956,50 @@ int main()
         }
     }
 
+    std::array<float, s3g::kMacroShredCircuitCount>
+        macroShredCircuitLevels {};
+    for (uint32_t circuit = 0u;
+         circuit < s3g::kMacroShredCircuitCount; ++circuit) {
+        s3g::MacroShredCore circuitCore;
+        circuitCore.prepare(48000.0);
+        s3g::MacroShredCoreParams circuitParams;
+        circuitParams.pressure = 0.42f;
+        circuitParams.shred = 0.78f;
+        circuitParams.feedback = 0.18f;
+        circuitParams.color = 0.46f;
+        circuitParams.react = 0.35f;
+        circuitParams.body = 0.38f;
+        circuitParams.mix = 1.0f;
+        circuitParams.outputGainDb = -6.0f;
+        circuitParams.circuit =
+            static_cast<s3g::MacroShredCircuit>(circuit);
+        circuitCore.setParams(circuitParams);
+        float sumSquares = 0.0f;
+        for (int i = 0; i < 16000; ++i) {
+            const float input =
+                std::sin(6.28318530718f * 173.0f
+                    * static_cast<float>(i) / 48000.0f) * 0.16f
+                + std::sin(6.28318530718f * 911.0f
+                    * static_cast<float>(i) / 48000.0f) * 0.05f;
+            const float value = circuitCore.processSample(input);
+            if (!std::isfinite(value) || std::abs(value) > 1.0001f) {
+                std::cerr << "Macro Shred circuit output invalid for "
+                          << s3g::macroShredCircuitName(
+                              circuitParams.circuit) << "\n";
+                return 1;
+            }
+            if (i >= 2000) sumSquares += value * value;
+        }
+        macroShredCircuitLevels[circuit] =
+            std::sqrt(sumSquares / 14000.0f);
+        if (macroShredCircuitLevels[circuit] <= 0.00001f) {
+            std::cerr << "Macro Shred circuit was silent: "
+                      << s3g::macroShredCircuitName(
+                          circuitParams.circuit) << "\n";
+            return 1;
+        }
+    }
+
     const auto measureMacroShredTuning = [](float frequencyHz) {
         s3g::MacroShredCore core;
         s3g::MacroShredCoreParams params;
@@ -3030,6 +3075,124 @@ int main()
     }
     if (macroShredLaneDifference <= 0.00001f) {
         std::cerr << "Macro Shred lane relationships did not create channel variation\n";
+        return 1;
+    }
+
+    std::array<float, s3g::kFractureProcessorCount>
+        macroFractureProcessorLevels {};
+    for (uint32_t processor = 0u;
+         processor < s3g::kFractureProcessorCount; ++processor) {
+        s3g::MacroFractureCore core;
+        core.prepare(48000.0);
+        s3g::MacroFractureCoreParams params;
+        params.processor =
+            static_cast<s3g::FractureProcessor>(processor);
+        params.amount = 0.72f;
+        params.color = 0.58f;
+        params.bias = -0.18f;
+        params.react = 0.45f;
+        params.memory = 0.22f;
+        params.mix = 1.0f;
+        params.outputGainDb = -6.0f;
+        core.setParams(params);
+        float peak = 0.0f;
+        for (uint32_t i = 0u; i < 8192u; ++i) {
+            const float input = std::sin(6.28318530718f
+                * 173.0f * static_cast<float>(i) / 48000.0f) * 0.28f;
+            const float modulator = std::sin(6.28318530718f
+                * 317.0f * static_cast<float>(i) / 48000.0f) * 0.31f;
+            const float value = core.processSample(input, modulator);
+            if (!std::isfinite(value)) {
+                std::cerr << "Macro Fracture "
+                          << s3g::fractureProcessorName(params.processor)
+                          << " output is not finite\n";
+                return 1;
+            }
+            peak = std::max(peak, std::abs(value));
+        }
+        macroFractureProcessorLevels[processor] = peak;
+        if (peak <= 0.00001f || peak > 1.0001f) {
+            std::cerr << "Macro Fracture "
+                      << s3g::fractureProcessorName(params.processor)
+                      << " peak outside expected range: " << peak << "\n";
+            return 1;
+        }
+    }
+
+    s3g::MacroFracture macroFracture;
+    macroFracture.prepare(48000.0, s3g::kMacroFractureChannels);
+    s3g::MacroFractureParams macroFractureParams;
+    macroFractureParams.amount = 0.70f;
+    macroFractureParams.color = 0.54f;
+    macroFractureParams.bias = 0.12f;
+    macroFractureParams.react = 0.62f;
+    macroFractureParams.memory = 0.35f;
+    macroFractureParams.spread = 0.78f;
+    macroFractureParams.deviation = 0.48f;
+    macroFractureParams.skew = -0.38f;
+    macroFractureParams.center = 0.46f;
+    macroFractureParams.glideMs = 75.0f;
+    macroFractureParams.mix = 0.86f;
+    macroFractureParams.outputGainDb = -4.0f;
+    macroFracture.setParams(macroFractureParams);
+    float macroFractureIn[s3g::kMacroFractureChannels] {};
+    float macroFractureOut[s3g::kMacroFractureChannels] {};
+    float macroFracturePeak = 0.0f;
+    float macroFractureLaneDifference = 0.0f;
+    float macroFractureMaxStep = 0.0f;
+    std::array<float, s3g::kMacroFractureChannels>
+        macroFracturePrevious {};
+    for (uint32_t i = 0u; i < 48000u; ++i) {
+        if (i > 0u && i % 4096u == 0u) {
+            macroFractureParams.processor =
+                static_cast<s3g::FractureProcessor>(
+                    (i / 4096u) % s3g::kFractureProcessorCount);
+            macroFracture.setParams(macroFractureParams);
+        }
+        for (uint32_t ch = 0u;
+             ch < s3g::kMacroFractureChannels; ++ch) {
+            macroFractureIn[ch] = std::sin(6.28318530718f
+                * (127.0f + static_cast<float>(ch) * 3.0f)
+                * static_cast<float>(i) / 48000.0f) * 0.19f;
+        }
+        macroFracture.processFrame(
+            macroFractureIn, macroFractureOut);
+        for (uint32_t ch = 0u;
+             ch < s3g::kMacroFractureChannels; ++ch) {
+            const float value = macroFractureOut[ch];
+            if (!std::isfinite(value)) {
+                std::cerr
+                    << "Macro Fracture multichannel output is not finite\n";
+                return 1;
+            }
+            macroFracturePeak =
+                std::max(macroFracturePeak, std::abs(value));
+            macroFractureMaxStep = std::max(
+                macroFractureMaxStep,
+                std::abs(value - macroFracturePrevious[ch]));
+            macroFracturePrevious[ch] = value;
+        }
+        macroFractureLaneDifference = std::max(
+            macroFractureLaneDifference,
+            std::abs(macroFractureOut[0]
+                - macroFractureOut[
+                    s3g::kMacroFractureChannels - 1u]));
+    }
+    if (macroFracturePeak <= 0.00001f
+        || macroFracturePeak > 1.0001f) {
+        std::cerr
+            << "Macro Fracture multichannel peak outside expected range: "
+            << macroFracturePeak << "\n";
+        return 1;
+    }
+    if (macroFractureLaneDifference <= 0.00001f) {
+        std::cerr
+            << "Macro Fracture lane relationships did not create variation\n";
+        return 1;
+    }
+    if (macroFractureMaxStep > 1.25f) {
+        std::cerr << "Macro Fracture processor switch discontinuity: "
+                  << macroFractureMaxStep << "\n";
         return 1;
     }
 
@@ -8665,6 +8828,9 @@ int main()
     std::cout << "macro shred centroid/feedback low-high: "
               << macroShredLowTune[0] << " / " << macroShredHighTune[0] << " -> "
               << macroShredLowTune[1] << " / " << macroShredHighTune[1] << "\n";
+    std::cout << "macro fracture peak/step/lane difference: "
+              << macroFracturePeak << " / " << macroFractureMaxStep
+              << " / " << macroFractureLaneDifference << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
     std::cout << "wave mesh fast/slow onset, tail, partition: "

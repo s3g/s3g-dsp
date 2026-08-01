@@ -218,6 +218,8 @@ static_assert(kMacroShred.preview.frame.width
     == layout::kMacroSecondColumn.width);
 static_assert(layout::processorSliderFitsPanel(kMacroShred.output));
 static_assert(layout::processorSliderFitsPanel(kMacroShred.engine));
+static_assert(kMacroShred.engine.rowCount == 9u);
+static_assert(layout::panelRowsFit(kMacroShred.engine));
 static_assert(layout::processorSliderFitsPanel(
     kMacroShred.relationships));
 static_assert(layout::panelContainsRect(
@@ -248,6 +250,8 @@ static_assert(layout::processorSliderFitsPanel(
     kMacroShredMono.output));
 static_assert(layout::processorSliderFitsPanel(
     kMacroShredMono.engine));
+static_assert(kMacroShredMono.engine.rowCount == 9u);
+static_assert(layout::panelRowsFit(kMacroShredMono.engine));
 static_assert(layout::panelContainsRect(
     kMacroShredMono.containment, kMacroShredMono.containmentMeter));
 static_assert(layout::panelContainsRect(

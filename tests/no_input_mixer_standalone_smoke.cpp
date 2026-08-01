@@ -87,15 +87,29 @@ int main()
     engine.render(midiPointers.data(), kChannels, kFrames);
     engine.enqueueMidi(0x9fu, 112u, 127u);
     engine.render(midiPointers.data(), kChannels, kFrames);
-    uint32_t feedbackCount = 0u;
+    uint32_t e16FeedbackCount = 0u;
+    uint32_t gridFeedbackCount = 0u;
+    std::array<bool, 64u> gridFeedbackSeen {};
     uint8_t status = 0u;
     uint8_t dataOne = 0u;
     uint8_t dataTwo = 0u;
     while (engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
-        ok = ok && status == 0xbfu && dataOne < 128u && dataTwo < 128u;
-        ++feedbackCount;
+        if (status == 0xbfu) {
+            ok = ok && dataOne < 128u && dataTwo < 128u;
+            ++e16FeedbackCount;
+        } else if ((status & 0xf0u) == 0xa0u
+            && (status & 0x0fu) < 4u) {
+            ok = ok && dataOne < 16u && dataTwo < 128u;
+            const uint32_t index = (status & 0x0fu) * 16u + dataOne;
+            gridFeedbackSeen[index] = true;
+            ++gridFeedbackCount;
+        } else {
+            ok = false;
+        }
     }
-    ok = ok && feedbackCount >= 4u;
+    ok = ok && e16FeedbackCount >= 4u && gridFeedbackCount == 64u
+        && std::all_of(gridFeedbackSeen.begin(), gridFeedbackSeen.end(),
+            [](bool seen) { return seen; });
 
     ok = ok && renderMode(engine,
         s3g::standalone::NoInputOutputMode::StereoAutogain, 2u);

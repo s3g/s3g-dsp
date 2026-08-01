@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>No Input Mixer MIDI Control - s3g-dsp</title>
+    <meta name="description" content="Optional MIDI mapping, NIM Gesture, OXI E16, and Intech Grid BU16 control for s3g Processor No Input Mixer.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>No Input Mixer MIDI Control</h1>
+
+        <p><a href="processor-no-input-mixer.html">Processor No Input Mixer</a> exposes MIDI alongside its native GUI and automatable CLAP parameters. Any suitable controller or host mapping can use that interface. The supplied OXI E16 scene, four Intech Grid BU16 profiles, and <code>s3g Utility NIM Gesture</code> provide one complete control system, but they are not requirements for using the instrument.</p>
+
+        <div class="callout">
+          <p><strong>External control is optional.</strong> No Input Mixer can be played entirely from its editor and host automation without a MIDI device or the NIM Gesture utility. Add only the parts of this setup that are useful for a particular performance.</p>
+        </div>
+
+        <p>This page describes the CLAP setup in REAPER. The standalone application uses the same underlying mappings and embeds NIM Gesture, but its audio-device and controller instructions will be documented separately when the app is prepared for release.</p>
+
+        <h2 id="mapping">Optional MIDI Mapping</h2>
+
+        <p>The processor publishes one <code>Controller MIDI In</code> note port and normal automatable CLAP parameters. A host can map other MIDI hardware to those parameters, or a controller can address the processor directly with MIDI 1. The implemented direct protocol uses channel 16 for 14-bit NRPN parameter turns, performance-command Note On messages, and Program Change preset recall. Stable CLAP parameter IDs are also the NRPN addresses, so a mapping does not depend on the physical E16 layout.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Optional layer</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td>Host or custom MIDI mapping</td><td>Maps any suitable controller to the exposed No Input Mixer parameters.</td></tr>
+            <tr><td>OXI E16 <code>NIM P2</code></td><td>Provides twelve pages of named encoder turns, action presses, and returned encoder-ring values.</td></tr>
+            <tr><td>Four Intech Grid BU16 modules</td><td>Present the complete signed 8-by-8 matrix as four aligned 4-by-4 pressure-sensitive quadrants with LED feedback.</td></tr>
+            <tr><td>NIM Gesture utility</td><td>Records free-running E16 parameter loops and returns live or played values to the E16 rings.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Channel 16 is reserved by the supplied setup for NRPN and command messages. The four BU16 quadrants use channels 1–4. Keep those streams away from unrelated musical instruments when using the ready-made mappings.</p>
+
+        <p>No Input Mixer mirrors its current parameter state as channel-16 NRPN on the final MIDI output. A single GUI or host-automation change is returned on the next process block. Startup, Random, factory-preset, and restored-state changes are sent as a throttled complete snapshot, sixteen parameters per block, so E16 rings reach the new positions without placing one large MIDI burst in the audio callback. Generated feedback is marked <code>DONT_RECORD</code>.</p>
+
+        <h2 id="gesture">Optional NIM Gesture Utility</h2>
+
+        <p><code>s3g Utility NIM Gesture</code> is a MIDI-only CLAP companion. Place it before No Input Mixer when free-running encoder loops are wanted; omit it when direct MIDI control and ordinary host automation are sufficient. Starting Record opens one take, and stopping Record gives every parameter touched during that take its own loop. Later takes can have different lengths, while Live Takeover briefly gives a moved hardware encoder priority over recorded playback.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/nim-gesture.png" aria-label="Open the NIM Gesture utility GUI screenshot">
+              <img src="assets/plugin-guis/nim-gesture.png" alt="NIM Gesture utility showing Record, Play, loop controls, and the complete twelve-page OXI E16 No Input Mixer overview" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The optional NIM Gesture utility mirrors all twelve <code>NIM P2</code> E16 pages. Inner rings show values; an outer ring identifies controls with recorded loops.</figcaption>
+        </figure>
+
+        <p>Record, Play/Pause, Clear Selected, Clear All, Cancel, and Live Takeover are available in the utility GUI and as host parameters. The resulting loops are stored in CLAP project state. Without NIM Gesture, the E16 scene can still control No Input Mixer directly, and No Input Mixer's own state mirror still updates the hardware rings; only the utility's recorder and loop playback are absent.</p>
+
+        <h2 id="reaper">REAPER Track and MIDI Routing</h2>
+
+        <ol>
+          <li>In REAPER's MIDI-device preferences, enable the OXI E16 USB3 port and Intech Grid connection as inputs. Enable their outputs when E16 ring and BU16 LED feedback are wanted.</li>
+          <li>Create one eight-channel track. When using NIM Gesture, place <code>s3g Utility NIM Gesture</code> first and <code>s3g Processor No Input Mixer 8ch</code> second. Otherwise insert No Input Mixer by itself.</li>
+          <li>Select the E16 and Grid inputs—or <code>All MIDI Inputs / All Channels</code> on a dedicated controller track—arm the track, and turn input monitoring on. Choose <code>Record: disable (input monitoring only)</code> unless the raw MIDI performance should also be written to a REAPER item.</li>
+          <li>Return the track's plugin MIDI output to E16 USB3 for encoder-ring feedback and to Grid for BU16 LED feedback. If the instrument track can address only one MIDI hardware output, create two MIDI-only receive tracks. Receive all MIDI from the No Input Mixer track, disable audio on both receives, and assign one hardware output to E16 USB3 and the other to Grid.</li>
+          <li>Turn <strong>USB Thru off on the E16</strong>. Returned NRPN ring data must not loop back into the instrument track.</li>
+        </ol>
+
+        <h2 id="e16">Implemented OXI E16 Setup</h2>
+
+        <p>The supplied <code>NIM P2</code> scene uses E16 USB3 and MIDI channel 16. Its twelve pages cover live network controls, movement, mixer levels and bodies, two matrix selections, sends, aux tone, low/high EQ, mid EQ, tuning, signed returns, and performance actions. All turns send 14-bit NRPN.</p>
+
+        <h3>Page map</h3>
+
+        <p>Encoders are numbered left-to-right and top-to-bottom across the physical 4-by-4 grid. Except for the press-oriented ACTIONS page, each E16 label names the encoder-turn parameter.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Page</th><th>Title</th><th>Encoders 1–8</th><th>Encoders 9–16</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>LIVE</td><td>Feedback, Coupling, Flow, Phase, Agency, Motion, Spread, Vortex</td><td>Formant, Space, Surface X/Y, Aux A/B Return, Drift, Output</td></tr>
+            <tr><td>2</td><td>MOTION</td><td>Event Rate/Length, Density, Chaos, Slew, Choke, Movement Rate/Phase</td><td>React Depth/Threshold/Attack/Release/Polarity, Field Shape, Cut Behavior, Output</td></tr>
+            <tr><td>3</td><td>AUXTONE</td><td>Internal/House Tone, Aux A/B Type, Aux A Gain/Tone/Bias/Return</td><td>Aux B Gain/Tone/Bias/Return, Aux A/B Feedback, Ceiling, Output</td></tr>
+            <tr><td>4</td><td>ACTIONS</td><td>Record, Playback, Clear Last, Clear All, Cancel, BU16 Flip/Latch, Sign</td><td>Seed, Random Low/Mid/High, Forget, Matrix Zero, BU16 Ramp, Output/Panic</td></tr>
+            <tr><td>5</td><td>MATRIX1</td><td>Matrix self-routes 1–8</td><td>Forward ring routes 1→2 through 8→1</td></tr>
+            <tr><td>6</td><td>MATRIX2</td><td>Reverse ring routes 2→1 through 1→8</td><td>Opposite-lane routes 1↔5, 2↔6, 3↔7, and 4↔8</td></tr>
+            <tr><td>7</td><td>SENDS</td><td>Aux A lane sends <code>A1SD</code>–<code>A8SD</code></td><td>Aux B lane sends <code>B1SD</code>–<code>B8SD</code></td></tr>
+            <tr><td>8</td><td>RETURNS</td><td>Signed Aux A lane returns <code>A1RN</code>–<code>A8RN</code></td><td>Signed Aux B lane returns <code>B1RN</code>–<code>B8RN</code></td></tr>
+            <tr><td>9</td><td>MIXER</td><td>Lane 1–8 Level</td><td>Lane 1–8 Body</td></tr>
+            <tr><td>10</td><td>EQ LOHI</td><td>Lane 1–8 Low</td><td>Lane 1–8 High</td></tr>
+            <tr><td>11</td><td>EQ MID</td><td>Lane 1–8 Mid Frequency</td><td>Lane 1–8 Mid Gain</td></tr>
+            <tr><td>12</td><td>TUNING</td><td>Lane 1–8 Tune Note</td><td>Lane 1–8 Tune Cents</td></tr>
+          </tbody>
+        </table>
+
+        <p>On SENDS, the first letter identifies the aux bus, the number identifies the source lane, and <code>SD</code> means send. For example, <code>A1SD</code> is lane 1's Aux A send and <code>B1SD</code> is lane 1's Aux B send.</p>
+
+        <p>RETURNS follows the same bus-first convention with <code>RN</code> for return. For example, <code>A1RN</code> is lane 1's signed Aux A return and <code>B1RN</code> is lane 1's signed Aux B return.</p>
+
+        <p>Field Shape, Cut Behavior, and the Aux A/B effect Type selectors are stepped encoder turns. React Mode, Quality, clock divisions, and insert Type remain in the plug-in GUI.</p>
+
+        <h3>Encoder presses</h3>
+
+        <p>The four-character page label always names the <strong>turn</strong> action. Pressing the encoder can issue a separate command and does not change what turning that dial controls.</p>
+
+        <h4>Shared presses on every page</h4>
+
+        <table class="readout-table">
+          <thead><tr><th>Encoder</th><th>Press action</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>NIM Gesture Record</td></tr>
+            <tr><td>2</td><td>NIM Gesture Play/Stop</td></tr>
+            <tr><td>3</td><td>Clear selected/last gesture loop</td></tr>
+            <tr><td>4</td><td>Clear all gesture loops</td></tr>
+            <tr><td>5</td><td>Cancel recording</td></tr>
+          </tbody>
+        </table>
+
+        <p>These presses remain in the same physical positions on all twelve pages. For example, the first five MOTION labels still describe the turn controls—Event Rate, Event Length, Density, Chaos, and Slew—while pressing those encoders operates the gesture recorder.</p>
+
+        <h4>Additional page-specific presses</h4>
+
+        <table class="readout-table">
+          <thead><tr><th>Page</th><th>Encoder/turn label</th><th>Press action</th></tr></thead>
+          <tbody>
+            <tr><td>LIVE, MOTION, AUXTONE, ACTIONS</td><td><code>OUT!</code></td><td>Panic</td></tr>
+            <tr><td>MIXER</td><td>Lane Level 6–8</td><td>Toggle that lane's mute</td></tr>
+            <tr><td>MATRIX1</td><td><code>8&gt;1</code></td><td>Panic</td></tr>
+            <tr><td>AUXTONE</td><td><code>AR/M</code>, <code>BR/M</code></td><td>Toggle complete Aux A or Aux B mute</td></tr>
+            <tr><td>TUNING</td><td>Tune Note 6–8</td><td>Toggle that lane's pitch lock</td></tr>
+          </tbody>
+        </table>
+
+        <h4>ACTIONS page</h4>
+
+        <table class="readout-table">
+          <thead><tr><th>Encoders</th><th>Press actions</th></tr></thead>
+          <tbody>
+            <tr><td>1–5</td><td>Record, Play/Stop, Clear Last, Clear All, Cancel</td></tr>
+            <tr><td>6–8</td><td>BU16 Flip, BU16 Latch, New Sign</td></tr>
+            <tr><td>9–12</td><td>Seed, Random Low, Random Mid, Random High</td></tr>
+            <tr><td>13–14</td><td>Forget, Clear Matrix (<code>MX0</code>)</td></tr>
+            <tr><td>15</td><td>No press; turn <code>RAMP</code></td></tr>
+            <tr><td>16</td><td>Press Panic; turn <code>OUT!</code></td></tr>
+          </tbody>
+        </table>
+
+        <p>On AUXTONE, <code>ABIA</code> and <code>BBIA</code> are bipolar −1 to +1 third-parameter macros for the selected Aux effect, not signal-routing polarity. In the plugin or standalone app, open <code>MIXER</code>, then click the Aux A or Aux B <code>EDIT</code> button. The third Effect Editor row shows the current effect-specific name—Bias, Asymmetry, Direction, Balance, Center, Regeneration, or another label—and its signed value. Matrix crosspoints and the signed <code>A1RN</code>–<code>B8RN</code> return controls set routing polarity.</p>
+
+        <p>Field Shape, Cut Behavior, and both Aux effect Type selectors are stepped E16 turns. React Mode, Quality, clock divisions, and insert Type remain in the plugin GUI. BU16 Ramp is also available to host automation and directly as NRPN address 59.</p>
+
+        <p>Copy <code>controllers/oxi_e16/Scenes/NIM P2.oxie16</code> into the OXI App's <code>Scenes</code> folder, refresh its computer-side scene list, and drag <code>NIM P2</code> to an E16 scene slot. Leave automatic scene transmission off initially; use Send All only when intentionally replacing the current plugin settings.</p>
+
+        <h2 id="bu16">Implemented BU16 Matrix Setup</h2>
+
+        <p>Four supplied Grid profiles combine four BU16 modules into the complete matrix. Notes 0–15 run left-to-right and top-to-bottom on each module:</p>
+
+        <table class="readout-table">
+          <thead><tr><th>BU16</th><th>MIDI channel</th><th>Destination rows</th><th>Source columns</th></tr></thead>
+          <tbody>
+            <tr><td>Upper left</td><td>1</td><td>1–4</td><td>1–4</td></tr>
+            <tr><td>Upper right</td><td>2</td><td>1–4</td><td>5–8</td></tr>
+            <tr><td>Lower left</td><td>3</td><td>5–8</td><td>1–4</td></tr>
+            <tr><td>Lower right</td><td>4</td><td>5–8</td><td>5–8</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>BU16 FLIP</code> moves an existing positive crosspoint toward −1 or an existing negative point toward +1, then returns to the saved value on release. Empty points remain empty. <code>BU16 LATCH</code> creates or removes saved connections. Strike velocity sets a new point's magnitude; during the first roughly 50 ms, only a larger pressure sample may correct a falsely low strike. <code>NEW +</code> and <code>NEW −</code> choose the polarity for newly latched points.</p>
+
+        <p><code>BU16 RAMP</code> is shared by both modes. It adjusts the matrix transition from 20 ms through 10000 ms and defaults to 1000 ms. In Latch, this fades a connection in or out instead of changing it abruptly. In Flip, it smooths the pressure-driven trip toward the opposite polarity and the return after release. The GUI matrix and returned BU16 LED brightness follow the effective ramped value, while the saved matrix parameter keeps the destination value. Ramp time is stored in plugin and standalone state and is also exposed as automatable parameter/NRPN address 59.</p>
+
+        <p>The processor sends the displayed matrix back as polyphonic pressure on the same channel and note. Zero turns the LED off, positive magnitude fades in s3g orange, and negative magnitude fades in cyan. Load the four JSON profiles from <code>controllers/intech_grid_bu16</code> with Grid Editor; older profile revisions may send notes correctly without receiving the current LED callback.</p>
+
+        <h2 id="safety">Audio and Safety Routing</h2>
+
+        <p>MIDI routing does not replace the eight-channel audio path. Keep the No Input Mixer track at eight channels and route its lanes deliberately to direct outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a>. Avoid an unintended parallel path through the REAPER master when using direct hardware sends. Begin with the monitor path low and leave the ceiling limiter enabled. <code>PANIC</code> remains visible in the plugin's persistent title strip on every page and is also available from the E16 ACTIONS page.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="processor-no-input-mixer.html">
+            <span>Previous</span>
+            Processor No Input Mixer
+          </a>
+          <a class="page-nav-link next" href="processor-fault.html">
+            <span>Next</span>
+            Processor Fault
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>Generative Pages</h2>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="no-input-mixer-control.html">No Input Mixer Control</a>
+          <a href="processor-fault.html">Processor Fault</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#mapping">Optional MIDI Mapping</a>
+          <a href="#gesture">NIM Gesture Utility</a>
+          <a href="#reaper">REAPER Routing</a>
+          <a href="#e16">OXI E16 Setup</a>
+          <a href="#bu16">BU16 Matrix Setup</a>
+          <a href="#safety">Audio and Safety</a>
+        </div>
+      </aside>
+    </div>
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

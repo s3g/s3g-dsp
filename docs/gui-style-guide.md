@@ -564,7 +564,8 @@ The current primary reference is `s3g Processor Delay 8ch`:
   exceeding stored routes, and `RATE` reports the actual 0.05–5 Hz frequency;
   `FIELD` and `CUT` banks separate spatial allocation from `GLIDE`, `STEP`,
   `CUT`, `BURST`, and `SCRAMBLE` articulation, with live DSP gates shown in
-  the matrix
+  the matrix; binary articulation uses raised-cosine windows, and `LENGTH`
+  appears inactive when the selected behavior has no timed window
 - focused Left/Right navigation cycles logical pages or raises their detached
   windows; it must not intercept keys while the host owns focus
 - the title-band preset menu selects complete factory networks, while bounded

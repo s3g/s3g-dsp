@@ -20,7 +20,7 @@ namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 400u;
+constexpr uint32_t kParamCount = 403u;
 constexpr clap_id kOutputParam = 1u;
 constexpr clap_id kFeedbackParam = 5u;
 constexpr clap_id kQualityParam = 10u;
@@ -39,6 +39,9 @@ constexpr clap_id kReactDepthParam = 45u;
 constexpr clap_id kClockSyncParam = 52u;
 constexpr clap_id kFieldDivisionParam = 53u;
 constexpr clap_id kSurfaceXParam = 55u;
+constexpr clap_id kMatrixMidiModeParam = 57u;
+constexpr clap_id kMatrixMidiSignParam = 58u;
+constexpr clap_id kMatrixMidiRampParam = 59u;
 constexpr clap_id kLaneOneMuteParam = 1003u;
 constexpr clap_id kLaneOneMidFrequencyParam = 1005u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
@@ -288,6 +291,70 @@ struct OutputEventList {
         }
         return nullptr;
     }
+
+    uint32_t matrixFeedbackCount() const
+    {
+        return static_cast<uint32_t>(std::count_if(midi.begin(), midi.end(),
+            [](const clap_event_midi_t& event) {
+                return (event.data[0] & 0xf0u) == 0xa0u
+                    && (event.data[0] & 0x0fu) < 4u
+                    && event.data[1] < 16u;
+            }));
+    }
+
+    const clap_event_midi_t* matrixFeedback(uint8_t channel,
+        uint8_t note) const
+    {
+        for (auto it = midi.rbegin(); it != midi.rend(); ++it) {
+            if (it->data[0] == static_cast<uint8_t>(0xa0u | channel)
+                && it->data[1] == note) return &*it;
+        }
+        return nullptr;
+    }
+
+    uint32_t nrpnFeedbackCount() const
+    {
+        uint32_t count = 0u;
+        for (size_t index = 0u; index + 3u < midi.size(); ++index) {
+            if (midi[index].data[0] != 0xbfu
+                || midi[index].data[1] != 99u
+                || midi[index + 1u].data[0] != 0xbfu
+                || midi[index + 1u].data[1] != 98u
+                || midi[index + 2u].data[0] != 0xbfu
+                || midi[index + 2u].data[1] != 6u
+                || midi[index + 3u].data[0] != 0xbfu
+                || midi[index + 3u].data[1] != 38u) continue;
+            ++count;
+            index += 3u;
+        }
+        return count;
+    }
+
+    bool nrpnFeedbackValue(clap_id target, uint16_t& value) const
+    {
+        bool found = false;
+        for (size_t index = 0u; index + 3u < midi.size(); ++index) {
+            if (midi[index].data[0] != 0xbfu
+                || midi[index].data[1] != 99u
+                || midi[index + 1u].data[0] != 0xbfu
+                || midi[index + 1u].data[1] != 98u
+                || midi[index + 2u].data[0] != 0xbfu
+                || midi[index + 2u].data[1] != 6u
+                || midi[index + 3u].data[0] != 0xbfu
+                || midi[index + 3u].data[1] != 38u) continue;
+            const clap_id id = static_cast<clap_id>(
+                (static_cast<uint16_t>(midi[index].data[2]) << 7u)
+                | midi[index + 1u].data[2]);
+            if (id == target) {
+                value = static_cast<uint16_t>(
+                    (static_cast<uint16_t>(midi[index + 2u].data[2]) << 7u)
+                    | midi[index + 3u].data[2]);
+                found = true;
+            }
+            index += 3u;
+        }
+        return found;
+    }
 };
 
 struct MemoryState {
@@ -407,8 +474,14 @@ int main(int argc, char** argv)
 
     clap_param_info_t reactDepthInfo {};
     clap_param_info_t reactModeInfo {};
+    clap_param_info_t matrixMidiModeInfo {};
+    clap_param_info_t matrixMidiSignInfo {};
+    clap_param_info_t matrixMidiRampInfo {};
     bool foundReactDepth = false;
     bool foundReactMode = false;
+    bool foundMatrixMidiMode = false;
+    bool foundMatrixMidiSign = false;
+    bool foundMatrixMidiRamp = false;
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
         clap_param_info_t info {};
         if (!params->get_info(plugin, index, &info)) {
@@ -423,12 +496,34 @@ int main(int argc, char** argv)
             reactModeInfo = info;
             foundReactMode = true;
         }
+        if (info.id == kMatrixMidiModeParam) {
+            matrixMidiModeInfo = info;
+            foundMatrixMidiMode = true;
+        }
+        if (info.id == kMatrixMidiSignParam) {
+            matrixMidiSignInfo = info;
+            foundMatrixMidiSign = true;
+        }
+        if (info.id == kMatrixMidiRampParam) {
+            matrixMidiRampInfo = info;
+            foundMatrixMidiRamp = true;
+        }
     }
-    ok = ok && foundReactDepth && foundReactMode
+    ok = ok && foundReactDepth && foundReactMode && foundMatrixMidiMode
+        && foundMatrixMidiSign && foundMatrixMidiRamp
         && (reactDepthInfo.flags & CLAP_PARAM_IS_MODULATABLE) != 0u
         && (reactDepthInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
         && (reactModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
-        && (reactModeInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u;
+        && (reactModeInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
+        && (matrixMidiModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && matrixMidiModeInfo.default_value == 0.0
+        && (matrixMidiSignInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && matrixMidiSignInfo.default_value == 0.0
+        && (matrixMidiRampInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+        && (matrixMidiRampInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
+        && matrixMidiRampInfo.min_value == 20.0
+        && matrixMidiRampInfo.max_value == 10000.0
+        && matrixMidiRampInfo.default_value == 1000.0;
     if (!ok) std::cerr << "failed: setup/parameter metadata\n";
 
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
@@ -649,7 +744,22 @@ int main(int argc, char** argv)
         && std::strcmp(processorName, "FOLLOW") == 0
         && params->value_to_text(plugin, kLaneOneAuxTapAParam, 3.0,
             processorName, sizeof(processorName))
-        && std::strcmp(processorName, "POST INSERT") == 0;
+        && std::strcmp(processorName, "POST INSERT") == 0
+        && params->value_to_text(plugin, kMatrixMidiModeParam, 0.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "FLIP") == 0
+        && params->value_to_text(plugin, kMatrixMidiModeParam, 1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "LATCH") == 0
+        && params->value_to_text(plugin, kMatrixMidiSignParam, 0.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "POSITIVE") == 0
+        && params->value_to_text(plugin, kMatrixMidiSignParam, 1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "NEGATIVE") == 0
+        && params->value_to_text(plugin, kMatrixMidiRampParam, 1000.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "1000 ms") == 0;
     if (!ok) std::cerr << "failed: parameter text\n";
 
     AudioBlock audio;
@@ -678,8 +788,385 @@ int main(int argc, char** argv)
         && std::abs(feedbackOutput->value - expectedFeedback) < 1.0e-6
         && (feedbackOutput->header.flags & CLAP_EVENT_IS_LIVE) != 0u
         && (feedbackOutput->header.flags & CLAP_EVENT_DONT_RECORD) != 0u
-        && midiOutput.midi.size() == 4u;
+        && midiOutput.midi.size() == 132u
+        && midiOutput.nrpnFeedbackCount() == 17u
+        && midiOutput.matrixFeedbackCount() == 64u
+        && std::all_of(midiOutput.midi.begin(), midiOutput.midi.end(),
+            [](const clap_event_midi_t& event) {
+                return (event.data[0] & 0xf0u) != 0xa0u
+                    || (event.header.flags & CLAP_EVENT_DONT_RECORD) != 0u;
+            });
     if (!ok) std::cerr << "failed: MIDI NRPN parameter mapping\n";
+
+    // Let the throttled initial E16 state snapshot finish before testing a
+    // single host-originated parameter change.
+    for (uint32_t block = 0u; block < 30u; ++block) {
+        midiOutput.clear();
+        process.in_events = nullptr;
+        audio.clear();
+        ok = ok && plugin->process(plugin, &process)
+            == CLAP_PROCESS_CONTINUE;
+    }
+
+    // The DSP default is a visible one-second controller transition. Use a
+    // shorter ramp for the block-sized Flip protocol assertions below.
+    midiOutput.clear();
+    EventList immediateMatrixRamp;
+    immediateMatrixRamp.add(kMatrixMidiRampParam, 100.0);
+    process.in_events = &immediateMatrixRamp.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, kMatrixMidiRampParam, &midiValue)
+        && midiValue == 100.0;
+
+    midiOutput.clear();
+    EventList negativeMatrix;
+    negativeMatrix.add(kFirstMatrixParam, -0.5);
+    process.in_events = &negativeMatrix.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* negativeFeedback = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && negativeFeedback && negativeFeedback->data[2] == 32u;
+    uint16_t matrixNrpnValue = 0u;
+    ok = ok && midiOutput.nrpnFeedbackValue(
+            kFirstMatrixParam, matrixNrpnValue)
+        && matrixNrpnValue == 4096u;
+
+    midiOutput.clear();
+    MidiEventList matrixPress;
+    matrixPress.add(0x90u, 0u, 64u);
+    process.in_events = &matrixPress.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* pressedFeedback = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && pressedFeedback && pressedFeedback->data[2] > 32u
+        && pressedFeedback->data[2] < 64u;
+    const uint8_t pressedFlipValue = pressedFeedback
+        ? pressedFeedback->data[2] : 0u;
+
+    midiOutput.clear();
+    MidiEventList matrixRelease;
+    matrixRelease.add(0x80u, 0u, 0u);
+    process.in_events = &matrixRelease.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* releasedFeedback = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && releasedFeedback && releasedFeedback->data[2] < pressedFlipValue
+        && releasedFeedback->data[2] > 32u;
+
+    // Even an out-of-range host event cannot restore the old immediate path.
+    midiOutput.clear();
+    EventList minimumLatchRamp;
+    minimumLatchRamp.add(kMatrixMidiRampParam, 0.0);
+    process.in_events = &minimumLatchRamp.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, kMatrixMidiRampParam, &midiValue)
+        && midiValue == 20.0;
+
+    // A 20 ms ramp spans several 256-frame test blocks at 48 kHz. Retain the
+    // most recent feedback value while allowing each transition to settle.
+    auto settleMatrixFeedback = [&](uint8_t channel, uint8_t note,
+                                    uint8_t initialValue) {
+        uint8_t latestValue = initialValue;
+        for (uint32_t block = 0u; block < 4u; ++block) {
+            midiOutput.clear();
+            process.in_events = nullptr;
+            audio.clear();
+            ok = ok && plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE;
+            if (const auto* feedback = midiOutput.matrixFeedback(
+                    channel, note)) {
+                latestValue = feedback->data[2];
+            }
+        }
+        return latestValue;
+    };
+
+    midiOutput.clear();
+    EventList latchMode;
+    latchMode.add(kMatrixMidiModeParam, 1.0);
+    process.in_events = &latchMode.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* latchIdle = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && midiOutput.matrixFeedbackCount() == 64u
+        && latchIdle && latchIdle->data[2] == 32u
+        && params->get_value(plugin, kMatrixMidiModeParam, &midiValue)
+        && midiValue == 1.0;
+
+    // Latch shares the stored matrix with Flip. The first press removes the
+    // existing negative wire instead of starting from an empty performance
+    // overlay.
+    midiOutput.clear();
+    MidiEventList latchPress;
+    latchPress.add(0x90u, 0u, 32u);
+    process.in_events = &latchPress.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* latchRemoved = midiOutput.matrixFeedback(0u, 0u);
+    const auto* removedParam = midiOutput.last(kFirstMatrixParam);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && latchRemoved && removedParam && removedParam->value == 0.0;
+    const uint8_t latchRemovedValue = settleMatrixFeedback(0u, 0u,
+        latchRemoved ? latchRemoved->data[2] : 0u);
+    ok = ok && latchRemovedValue == 64u;
+
+    midiOutput.clear();
+    MidiEventList latchPressureUpdate;
+    latchPressureUpdate.add(0x90u, 0u, 96u);
+    process.in_events = &latchPressureUpdate.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    ok = ok && midiOutput.matrixFeedbackCount() == 0u;
+
+    midiOutput.clear();
+    MidiEventList latchVelocityZeroRelease;
+    latchVelocityZeroRelease.add(0x90u, 0u, 0u);
+    process.in_events = &latchVelocityZeroRelease.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    ok = ok && midiOutput.matrixFeedbackCount() == 0u;
+
+    // The next native strike creates a positive stored wire. A larger pressure
+    // value in the short attack window corrects a falsely low strike velocity.
+    midiOutput.clear();
+    process.in_events = &latchPress.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* latchCreated = midiOutput.matrixFeedback(0u, 0u);
+    const auto* createdParam = midiOutput.last(kFirstMatrixParam);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && latchCreated && createdParam
+        && std::abs(createdParam->value - 32.0 / 127.0) < 1.0e-6;
+    const uint8_t latchCreatedValue = settleMatrixFeedback(0u, 0u,
+        latchCreated ? latchCreated->data[2] : 0u);
+    ok = ok && latchCreatedValue == 80u;
+
+    midiOutput.clear();
+    MidiEventList latchPressurePeak;
+    latchPressurePeak.add(0xa0u, 0u, 96u);
+    process.in_events = &latchPressurePeak.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* positivePeakFeedback = midiOutput.matrixFeedback(0u, 0u);
+    const auto* positivePeakParam = midiOutput.last(kFirstMatrixParam);
+    ok = ok && midiOutput.matrixFeedbackCount() == 1u
+        && positivePeakFeedback && positivePeakParam
+        && std::abs(positivePeakParam->value - 96.0 / 127.0) < 1.0e-6;
+    const uint8_t positivePeakValue = settleMatrixFeedback(0u, 0u,
+        positivePeakFeedback ? positivePeakFeedback->data[2] : 0u);
+    ok = ok && positivePeakValue == 112u;
+
+    // Falling pressure cannot pull down the captured peak.
+    midiOutput.clear();
+    MidiEventList latchPressureLower;
+    latchPressureLower.add(0xa0u, 0u, 48u);
+    process.in_events = &latchPressureLower.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.matrixFeedbackCount() == 0u
+        && midiOutput.params.empty();
+
+    // Once the 50 ms attack window closes, later hold pressure is ignored.
+    for (uint32_t block = 0u; block < 8u; ++block) {
+        midiOutput.clear();
+        process.in_events = nullptr;
+        audio.clear();
+        ok = ok && plugin->process(plugin, &process)
+            == CLAP_PROCESS_CONTINUE;
+    }
+    midiOutput.clear();
+    MidiEventList latchPressureLate;
+    latchPressureLate.add(0xa0u, 0u, 127u);
+    process.in_events = &latchPressureLate.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.matrixFeedbackCount() == 0u
+        && midiOutput.params.empty();
+
+    midiOutput.clear();
+    process.in_events = &matrixRelease.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.matrixFeedbackCount() == 0u;
+
+    // E16 mode buttons select modes without clearing the shared wires.
+    MidiEventList selectFlip;
+    selectFlip.add(0x9fu, 117u, 127u);
+    midiOutput.clear();
+    process.in_events = &selectFlip.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* flipWire = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && params->get_value(plugin, kMatrixMidiModeParam, &midiValue)
+        && midiValue == 0.0 && flipWire && flipWire->data[2] == 112u;
+
+    MidiEventList selectLatch;
+    selectLatch.add(0x9fu, 118u, 127u);
+    midiOutput.clear();
+    process.in_events = &selectLatch.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* latchWire = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && params->get_value(plugin, kMatrixMidiModeParam, &midiValue)
+        && midiValue == 1.0 && latchWire && latchWire->data[2] == 112u;
+
+    MidiEventList toggleLatchSign;
+    toggleLatchSign.add(0x9fu, 119u, 127u);
+    midiOutput.clear();
+    process.in_events = &toggleLatchSign.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* signOutput = midiOutput.last(kMatrixMidiSignParam);
+    ok = ok && params->get_value(plugin, kMatrixMidiSignParam, &midiValue)
+        && midiValue == 1.0 && signOutput && signOutput->value == 1.0;
+
+    // Remove the positive wire, release, then create a negative one.
+    midiOutput.clear();
+    process.in_events = &matrixPress.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* removedPositiveFeedback = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && removedPositiveFeedback;
+    const uint8_t removedPositiveValue = settleMatrixFeedback(0u, 0u,
+        removedPositiveFeedback ? removedPositiveFeedback->data[2] : 0u);
+    ok = ok && removedPositiveValue == 64u;
+    midiOutput.clear();
+    process.in_events = &matrixRelease.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    midiOutput.clear();
+    process.in_events = &matrixPress.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* negativeLatchCreated = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && negativeLatchCreated;
+    const uint8_t negativeLatchCreatedValue = settleMatrixFeedback(0u, 0u,
+        negativeLatchCreated ? negativeLatchCreated->data[2] : 0u);
+    ok = ok && negativeLatchCreatedValue == 32u;
+
+    // Negative Latch uses the same increasing attack capture as positive.
+    midiOutput.clear();
+    MidiEventList negativeLatchPressure;
+    negativeLatchPressure.add(0xa0u, 0u, 100u);
+    process.in_events = &negativeLatchPressure.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* negativePeakFeedback = midiOutput.matrixFeedback(0u, 0u);
+    const auto* negativePeakParam = midiOutput.last(kFirstMatrixParam);
+    ok = ok && negativePeakFeedback && negativePeakParam
+        && std::abs(negativePeakParam->value + 100.0 / 127.0) < 1.0e-6;
+    const uint8_t negativePeakValue = settleMatrixFeedback(0u, 0u,
+        negativePeakFeedback ? negativePeakFeedback->data[2] : 0u);
+    ok = ok && negativePeakValue == 14u;
+    midiOutput.clear();
+    process.in_events = &matrixRelease.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+
+    MemoryState latchState;
+    clap_ostream_t latchOutput { &latchState, stateWrite };
+    ok = ok && state->save(plugin, &latchOutput);
+    if (!ok) std::cerr << "failed: signed MIDI matrix feedback\n";
+
+    auto captureNonzeroMatrixOutput = [&](clap_id& id, double& value) {
+        for (const auto& event : midiOutput.params) {
+            if (event.param_id >= kFirstMatrixParam
+                && event.param_id < kFirstMatrixParam + 64u
+                && std::abs(event.value) > 1.0e-7) {
+                id = event.param_id;
+                value = event.value;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Random generates a stored matrix in Latch, and switching to Flip keeps
+    // the exact values intact.
+    MidiEventList randomLow;
+    randomLow.add(0x9fu, 125u, 127u);
+    midiOutput.clear();
+    process.in_events = &randomLow.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    clap_id latchRandomParam = CLAP_INVALID_ID;
+    double latchRandomValue = 0.0;
+    ok = ok && captureNonzeroMatrixOutput(
+        latchRandomParam, latchRandomValue)
+        && midiOutput.nrpnFeedbackCount() > 0u;
+    midiOutput.clear();
+    process.in_events = &selectFlip.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    double persistedMatrixValue = 0.0;
+    ok = ok && latchRandomParam != CLAP_INVALID_ID
+        && params->get_value(plugin, latchRandomParam, &persistedMatrixValue)
+        && std::abs(persistedMatrixValue - latchRandomValue) < 1.0e-9;
+
+    // Clear works in Flip.
+    MidiEventList clearMatrix;
+    clearMatrix.add(0x9fu, 124u, 127u);
+    midiOutput.clear();
+    process.in_events = &clearMatrix.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, latchRandomParam, &persistedMatrixValue)
+        && persistedMatrixValue == 0.0;
+
+    // Random also generates in Flip; switching to Latch preserves it, and
+    // Clear works there as well.
+    MidiEventList randomMid;
+    randomMid.add(0x9fu, 122u, 127u);
+    midiOutput.clear();
+    process.in_events = &randomMid.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    clap_id flipRandomParam = CLAP_INVALID_ID;
+    double flipRandomValue = 0.0;
+    ok = ok && captureNonzeroMatrixOutput(flipRandomParam, flipRandomValue);
+    midiOutput.clear();
+    process.in_events = &selectLatch.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    ok = ok && flipRandomParam != CLAP_INVALID_ID
+        && params->get_value(plugin, flipRandomParam, &persistedMatrixValue)
+        && std::abs(persistedMatrixValue - flipRandomValue) < 1.0e-9;
+    midiOutput.clear();
+    process.in_events = &clearMatrix.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && params->get_value(plugin, flipRandomParam, &persistedMatrixValue)
+        && persistedMatrixValue == 0.0;
+
+    // Restoring the earlier Latch state restores its signed wire too.
+    latchState.offset = 0u;
+    clap_istream_t latchInput { &latchState, stateRead };
+    ok = ok && state->load(plugin, &latchInput)
+        && params->get_value(plugin, kMatrixMidiModeParam, &midiValue)
+        && midiValue == 1.0
+        && params->get_value(plugin, kMatrixMidiSignParam, &midiValue)
+        && midiValue == 1.0
+        && params->get_value(plugin, kMatrixMidiRampParam, &midiValue)
+        && midiValue == 20.0;
+    midiOutput.clear();
+    process.in_events = nullptr;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    const auto* restoredLatchIdle = midiOutput.matrixFeedback(0u, 0u);
+    ok = ok && midiOutput.matrixFeedbackCount() == 64u
+        && restoredLatchIdle && restoredLatchIdle->data[2] == 14u;
+    midiOutput.clear();
+    process.in_events = &selectFlip.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+        && midiOutput.matrixFeedbackCount() == 64u
+        && midiOutput.matrixFeedback(0u, 0u)
+        && midiOutput.matrixFeedback(0u, 0u)->data[2] == 14u;
 
     midiOutput.clear();
     MidiEventList wrongChannelNrpn;
@@ -689,7 +1176,11 @@ int main(int argc, char** argv)
     ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
         && params->get_value(plugin, kFeedbackParam, &midiValue)
         && std::abs(midiValue - expectedFeedback) < 1.0e-6
-        && midiOutput.params.empty() && midiOutput.midi.empty();
+        && midiOutput.params.empty()
+        && std::none_of(midiOutput.midi.begin(), midiOutput.midi.end(),
+            [](const clap_event_midi_t& event) {
+                return event.data[0] == 0xbeu;
+            });
     if (!ok) std::cerr << "failed: MIDI control channel isolation\n";
 
     midiOutput.clear();
@@ -759,6 +1250,10 @@ int main(int argc, char** argv)
         && midiOutput.params.size() == 3u * kParamCount
         && params->get_value(plugin, kOutputParam, &midiValue)
         && std::abs(midiValue - kPreservedOutputDb) < 1.0e-6;
+    double randomClockSync = 1.0;
+    ok = ok && params->get_value(
+        plugin, kClockSyncParam, &randomClockSync)
+        && randomClockSync == 0.0;
     if (!ok) {
         std::cerr << "failed: MIDI random-energy output preservation\n";
     }

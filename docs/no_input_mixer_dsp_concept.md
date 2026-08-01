@@ -155,19 +155,26 @@ between a `FIELD` bank for the controls above and a `CUT` bank containing
 
 - `GLIDE` is the original continuously interpolated field.
 - `STEP` samples and holds generated field weights at the event clock.
-- `CUT` chooses binary open/closed route sets, then inserts a timed gap.
-- `BURST` biases those sets toward irregular destination clusters and ratchets.
-- `SCRAMBLE` rapidly chooses a new subset for every source while guaranteeing
-  that an empty matrix cell stays empty.
+- `CUT` chooses binary open/closed route sets and applies a cosine-edged
+  attack/hold/release window with a flat center.
+- `BURST` biases those sets toward irregular destination clusters and applies
+  a short raised-cosine pulse with a Chaos-dependent release.
+- `SCRAMBLE` rapidly chooses a new subset for every source, then cosine-
+  crossfades from the previous mask while guaranteeing that an empty matrix
+  cell stays empty.
 
-The event clock spans 0.25–80 Hz. Event length spans 0.5–250 ms and slew spans
-0.1–20 ms. Route gates are click-safe, deterministic from the patch seed, and
-published back to the grid renderer from the running DSP. In the three binary
-modes, the route gate multiplies the perceptual movement law so full-depth
-closed routes reach zero. `CHOKE` then optionally applies the destination's
-live articulation gate after its EQ and three nonlinear inserts but before the
-governed return and audition branch. This second stage makes dropouts remain
-audible when saturated parallel feedback would otherwise refill the gap.
+The event clock spans 0.25–80 Hz. Event length spans 0.5–250 ms and defines the
+complete CUT/BURST window. It is inactive for GLIDE, STEP, and SCRAMBLE. SLEW
+spans 0.5–20 ms and sets the CUT/BURST edge or SCRAMBLE mask-crossfade time.
+Route gates are deterministic from the patch seed, reach their endpoints with
+a zero-slope raised-cosine edge, and are published back to the grid renderer
+from the running DSP. The three binary modes preserve the continuous field as
+one layer and apply the route-selection window once as a separate articulation
+layer, so full-depth closed routes reach zero without compounding the same gate.
+`CHOKE` then optionally applies the destination's live articulation gate after
+its EQ and three nonlinear inserts but before the governed return and audition
+branch. This downstream stage makes dropouts remain audible when saturated
+parallel feedback would otherwise refill the gap.
 
 The third `REACT` bank derives route gain from measured lane activity rather
 than a free controller. `FOLLOW` follows source activity, `AVOID` recedes from
@@ -372,12 +379,13 @@ one continuous live graph rather than crossfading frozen audio states.
 The full-network randomizer exposes three coordinated distributions instead
 of independently rolling every new controller. `HIGH / QUICK` couples dense
 signed routing to rapid non-hold fields, Cut/Burst/Scramble articulation,
-strong choke, fast REACT, higher drive, and a stronger excitation packet.
-`MID / MODERATE` narrows those ranges into Step-through-Scramble movement at
-intermediate free or clocked rates. `LOW / SLOW` uses sparse coupling, shallow
-REACT, output compensation, long-time Flow/Chase/Swirl motion, and Glide or a
-gently choked Step. Its internal energy is restrained, but its onset and
-sustained ecology remain audible.
+6–40 ms Cut/Burst windows, strong choke, fast REACT, higher drive, and a
+stronger excitation packet. `MID / MODERATE` narrows those ranges into
+Step-through-Scramble movement at intermediate rates, with 20–140 ms
+Cut/Burst windows. `LOW / SLOW` uses sparse coupling, shallow REACT, output
+compensation, long-time Flow/Chase/Swirl motion, and continuous Glide behavior
+without choke. Its internal energy is restrained, but its onset and sustained
+ecology remain audible.
 
 All three profiles keep controller Hold off, exclude a static Hold field,
 retain every diagonal return, and choose the first lane insert from algorithms

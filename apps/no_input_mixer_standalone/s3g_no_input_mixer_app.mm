@@ -1,5 +1,6 @@
 #include "s3g_coreaudio_output.h"
 #include "s3g_cocoa_gui.h"
+#include "s3g_no_input_mixer.h"
 #include "s3g_no_input_mixer_standalone_engine.h"
 
 #import <Cocoa/Cocoa.h>
@@ -52,7 +53,10 @@ struct AppState {
     MIDIPortRef midiInputPort = 0;
     MIDIPortRef midiOutputPort = 0;
     std::vector<MidiDestination> midiDestinations;
-    uint32_t selectedMidiDestination = std::numeric_limits<uint32_t>::max();
+    uint32_t selectedE16MidiDestination =
+        std::numeric_limits<uint32_t>::max();
+    uint32_t selectedGridMidiDestination =
+        std::numeric_limits<uint32_t>::max();
     uint32_t connectedMidiSourceCount = 0u;
     std::atomic<bool> deviceOpen { false };
     std::string audioError;
@@ -237,17 +241,22 @@ void connectMidiInputs(AppState& state)
         state.midiDestinations.push_back(std::move(destination));
     }
 
-    const NSInteger savedUniqueId = [[NSUserDefaults standardUserDefaults]
-        integerForKey:@"MidiFeedbackDestinationUniqueID"];
-    if (savedUniqueId != 0) {
+    auto restoreDestination = [&](NSString* key, uint32_t& selected) {
+        const NSInteger savedUniqueId = [[NSUserDefaults standardUserDefaults]
+            integerForKey:key];
+        if (savedUniqueId == 0) return;
         for (uint32_t index = 0u; index < state.midiDestinations.size();
              ++index) {
             if (state.midiDestinations[index].uniqueId != savedUniqueId)
                 continue;
-            state.selectedMidiDestination = index;
+            selected = index;
             break;
         }
-    }
+    };
+    restoreDestination(@"MidiFeedbackDestinationUniqueID",
+        state.selectedE16MidiDestination);
+    restoreDestination(@"GridFeedbackDestinationUniqueID",
+        state.selectedGridMidiDestination);
 }
 
 void drainMidiOutput(AppState& state)
@@ -256,16 +265,24 @@ void drainMidiOutput(AppState& state)
     uint8_t dataOne = 0u;
     uint8_t dataTwo = 0u;
     while (state.engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
+        const uint8_t command = status & 0xf0u;
+        const uint8_t channel = status & 0x0fu;
+        uint32_t destinationIndex = std::numeric_limits<uint32_t>::max();
+        if (command == 0xb0u && channel == 15u) {
+            destinationIndex = state.selectedE16MidiDestination;
+        } else if (command == s3g::kNoInputMatrixFeedbackCommand
+            && channel < s3g::kNoInputMatrixGridChannels) {
+            destinationIndex = state.selectedGridMidiDestination;
+        }
         if (!state.midiOutputPort
-            || state.selectedMidiDestination >= state.midiDestinations.size())
-            continue;
+            || destinationIndex >= state.midiDestinations.size()) continue;
         MIDIPacketList packetList {};
         MIDIPacket* packet = MIDIPacketListInit(&packetList);
         const Byte bytes[3] { status, dataOne, dataTwo };
         packet = MIDIPacketListAdd(&packetList, sizeof(packetList), packet,
             0u, sizeof(bytes), bytes);
         if (packet) MIDISend(state.midiOutputPort,
-            state.midiDestinations[state.selectedMidiDestination].endpoint,
+            state.midiDestinations[destinationIndex].endpoint,
             &packetList);
     }
 }
@@ -329,12 +346,19 @@ void saveProcessorState(AppState& state)
             static_cast<NoInputOutputMode>(index)) forKey:key];
     }
     [defaults setDouble:state.engine.tempo() forKey:@"TempoBpm"];
-    if (state.selectedMidiDestination < state.midiDestinations.size()) {
+    if (state.selectedE16MidiDestination < state.midiDestinations.size()) {
         [defaults setInteger:state.midiDestinations[
-            state.selectedMidiDestination].uniqueId
+            state.selectedE16MidiDestination].uniqueId
             forKey:@"MidiFeedbackDestinationUniqueID"];
     } else {
         [defaults removeObjectForKey:@"MidiFeedbackDestinationUniqueID"];
+    }
+    if (state.selectedGridMidiDestination < state.midiDestinations.size()) {
+        [defaults setInteger:state.midiDestinations[
+            state.selectedGridMidiDestination].uniqueId
+            forKey:@"GridFeedbackDestinationUniqueID"];
+    } else {
+        [defaults removeObjectForKey:@"GridFeedbackDestinationUniqueID"];
     }
     if (state.selectedDevice < state.devices.size()) {
         [defaults setObject:[NSString stringWithUTF8String:
@@ -603,7 +627,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     EmbeddedClapPlugin* _outputEditorPlugin;
     NSPanel* _midiPanel;
     NSView* _midiPanelContent;
-    NSPopUpButton* _midiOutputMenu;
+    NSPopUpButton* _e16MidiOutputMenu;
+    NSPopUpButton* _gridMidiOutputMenu;
     NSPanel* _gesturePanel;
     NSView* _gesturePluginContainer;
     bool _gestureGuiAttached;
@@ -965,21 +990,24 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [self refreshControls];
 }
 
-- (void)refreshMidiOutputMenu
+- (void)refreshMidiOutputMenus
 {
-    if (!_midiOutputMenu) return;
-    [_midiOutputMenu removeAllItems];
-    [_midiOutputMenu addItemWithTitle:@"FEEDBACK OFF"];
-    [[_midiOutputMenu lastItem] setTag:0];
-    for (uint32_t index = 0u; index < _state->midiDestinations.size();
-         ++index) {
-        NSString* title = [NSString stringWithUTF8String:
-            _state->midiDestinations[index].name.c_str()];
-        [_midiOutputMenu addItemWithTitle:title];
-        [[_midiOutputMenu lastItem] setTag:index + 1u];
-        if (index == _state->selectedMidiDestination)
-            [_midiOutputMenu selectItem:[_midiOutputMenu lastItem]];
-    }
+    auto populate = [&](NSPopUpButton* menu, uint32_t selected) {
+        if (!menu) return;
+        [menu removeAllItems];
+        [menu addItemWithTitle:@"FEEDBACK OFF"];
+        [[menu lastItem] setTag:0];
+        for (uint32_t index = 0u; index < _state->midiDestinations.size();
+             ++index) {
+            NSString* title = [NSString stringWithUTF8String:
+                _state->midiDestinations[index].name.c_str()];
+            [menu addItemWithTitle:title];
+            [[menu lastItem] setTag:index + 1u];
+            if (index == selected) [menu selectItem:[menu lastItem]];
+        }
+    };
+    populate(_e16MidiOutputMenu, _state->selectedE16MidiDestination);
+    populate(_gridMidiOutputMenu, _state->selectedGridMidiDestination);
 }
 
 - (void)showMidiSetup:(id)sender
@@ -989,7 +1017,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         [_midiPanel makeKeyAndOrderFront:nil];
         return;
     }
-    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 250.0);
+    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 320.0);
     _midiPanel = [[NSPanel alloc] initWithContentRect:frame
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
         backing:NSBackingStoreBuffered defer:NO];
@@ -1005,28 +1033,38 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         [label setFrame:rect];
         [_midiPanelContent addSubview:label];
     };
-    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 205.0, 200.0, 18.0),
+    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 277.0, 200.0, 18.0),
         0xc8c8c8, 11.0);
-    addLabel(@"INPUT", NSMakeRect(28.0, 166.0, 130.0, 18.0),
+    addLabel(@"INPUT", NSMakeRect(28.0, 240.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     addLabel([NSString stringWithFormat:@"ALL CONNECTED SOURCES  •  %u",
         _state->connectedMidiSourceCount],
-        NSMakeRect(180.0, 166.0, 400.0, 18.0), 0xc8c8c8, 10.0);
-    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 137.0, 130.0, 18.0),
+        NSMakeRect(180.0, 240.0, 400.0, 18.0), 0xc8c8c8, 10.0);
+    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 211.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
-    addLabel(@"CH 1–4  •  NOTES 0–15  •  VELOCITY GAIN  •  NOTE-OFF RELEASE",
-        NSMakeRect(180.0, 137.0, 410.0, 18.0), 0x929292, 9.5);
-    addLabel(@"E16 FEEDBACK", NSMakeRect(28.0, 96.0, 130.0, 18.0),
+    addLabel(@"CH 1–4  •  NOTES 0–15  •  FLIP / LATCH  •  SHARED RAMP",
+        NSMakeRect(180.0, 211.0, 410.0, 18.0), 0x929292, 9.5);
+    addLabel(@"GRID FEEDBACK", NSMakeRect(28.0, 170.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
 
-    _midiOutputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 88.0, 400.0, 34.0)
+    _gridMidiOutputMenu = [[S3GStandalonePopupButton alloc]
+        initWithFrame:NSMakeRect(180.0, 162.0, 400.0, 34.0)
         pullsDown:NO];
-    [_midiOutputMenu setBordered:NO];
-    [_midiOutputMenu setTarget:self];
-    [_midiOutputMenu setAction:@selector(changeMidiOutput:)];
-    [_midiPanelContent addSubview:_midiOutputMenu];
-    [self refreshMidiOutputMenu];
+    [_gridMidiOutputMenu setBordered:NO];
+    [_gridMidiOutputMenu setTarget:self];
+    [_gridMidiOutputMenu setAction:@selector(changeGridMidiOutput:)];
+    [_midiPanelContent addSubview:_gridMidiOutputMenu];
+
+    addLabel(@"E16 FEEDBACK", NSMakeRect(28.0, 116.0, 130.0, 18.0),
+        0xa8a8a8, 10.0);
+    _e16MidiOutputMenu = [[S3GStandalonePopupButton alloc]
+        initWithFrame:NSMakeRect(180.0, 108.0, 400.0, 34.0)
+        pullsDown:NO];
+    [_e16MidiOutputMenu setBordered:NO];
+    [_e16MidiOutputMenu setTarget:self];
+    [_e16MidiOutputMenu setAction:@selector(changeE16MidiOutput:)];
+    [_midiPanelContent addSubview:_e16MidiOutputMenu];
+    [self refreshMidiOutputMenus];
 
     NSButton* gestures = [[S3GStandaloneActionButton alloc]
         initWithFrame:NSMakeRect(28.0, 34.0, 150.0, 34.0)];
@@ -1043,10 +1081,18 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_midiPanel makeKeyAndOrderFront:nil];
 }
 
-- (void)changeMidiOutput:(NSPopUpButton*)sender
+- (void)changeGridMidiOutput:(NSPopUpButton*)sender
 {
     const NSInteger tag = [[sender selectedItem] tag];
-    _state->selectedMidiDestination = tag <= 0
+    _state->selectedGridMidiDestination = tag <= 0
+        ? std::numeric_limits<uint32_t>::max()
+        : static_cast<uint32_t>(tag - 1);
+}
+
+- (void)changeE16MidiOutput:(NSPopUpButton*)sender
+{
+    const NSInteger tag = [[sender selectedItem] tag];
+    _state->selectedE16MidiDestination = tag <= 0
         ? std::numeric_limits<uint32_t>::max()
         : static_cast<uint32_t>(tag - 1);
 }
@@ -1096,8 +1142,10 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     if (_midiPanel) [_midiPanel orderOut:nil];
     [_midiPanel release];
     _midiPanel = nil;
-    [_midiOutputMenu release];
-    _midiOutputMenu = nil;
+    [_e16MidiOutputMenu release];
+    _e16MidiOutputMenu = nil;
+    [_gridMidiOutputMenu release];
+    _gridMidiOutputMenu = nil;
     [_midiPanelContent release];
     _midiPanelContent = nil;
 }

@@ -2,6 +2,12 @@ if(NOT APPLE)
   return()
 endif()
 
+set(S3G_NO_INPUT_MIXER_APP_ICON
+  "${CMAKE_CURRENT_SOURCE_DIR}/assets/no_input_mixer.icns")
+set_source_files_properties(${S3G_NO_INPUT_MIXER_APP_ICON} PROPERTIES
+  MACOSX_PACKAGE_LOCATION "Resources"
+)
+
 add_executable(s3g_no_input_mixer_app MACOSX_BUNDLE
   s3g_no_input_mixer_app.mm
   s3g_no_input_mixer_standalone_engine.cpp
@@ -9,6 +15,7 @@ add_executable(s3g_no_input_mixer_app MACOSX_BUNDLE
   embed_nim_gesture.mm
   embed_mc_to_stereo_autogain.mm
   embed_mc_to_quad_autogain.mm
+  ${S3G_NO_INPUT_MIXER_APP_ICON}
 )
 
 target_include_directories(s3g_no_input_mixer_app PRIVATE
@@ -32,8 +39,16 @@ set_target_properties(s3g_no_input_mixer_app PROPERTIES
   OUTPUT_NAME "s3g No Input Mixer"
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.no-input-mixer-standalone"
   MACOSX_BUNDLE_BUNDLE_NAME "s3g No Input Mixer"
+  MACOSX_BUNDLE_ICON_FILE "no_input_mixer.icns"
   MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+)
+
+add_custom_command(TARGET s3g_no_input_mixer_app POST_BUILD
+  COMMAND /usr/bin/codesign --force --deep --sign -
+    "$<TARGET_BUNDLE_DIR:s3g_no_input_mixer_app>"
+  COMMENT "Ad-hoc signing the No Input Mixer standalone bundle"
+  VERBATIM
 )
 
 add_executable(s3g_no_input_mixer_standalone_smoke

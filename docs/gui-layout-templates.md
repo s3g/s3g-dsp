@@ -739,7 +739,10 @@ rail uses the matrix width with equal side margins. Unmodified
 Left/Right cycles pages only while a plugin view owns keyboard focus. Movement
 `RATE` reports its actual 0.05–5 Hz value, and grid effective-gain marks use the
 same perceptual 30 dB law as the DSP. `STEP`, `CUT`, `BURST`, and `SCRAMBLE`
-read live DSP route gates in the grid rather than a predicted animation.
+read live DSP route gates in the grid rather than a predicted animation. CUT
+and BURST use timed raised-cosine windows; SCRAMBLE crossfades between masks.
+`LENGTH` appears inactive when the selected behavior does not use a timed
+window, while `SLEW` remains the edge or crossfade duration.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,

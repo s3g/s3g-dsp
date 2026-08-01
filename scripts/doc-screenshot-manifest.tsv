@@ -4,6 +4,7 @@ delay-processor-24ch	delay-processor
 wave-geometry-processor	wave-geometry-processor
 spectral-topology-processor	spectral-topology-processor
 macro-shred-8ch	macro-shred
+macro-fracture-8ch	macro-fracture
 mc-to-stereo-autogain	mc-to-stereo-autogain
 mc-to-quad-autogain	mc-to-quad-autogain
 multichannel-meter-64	multichannel-meter
@@ -51,6 +52,7 @@ ambi-grain-processor	ambi-grain-processor
 ambisonic-order-band-tool-64	ambisonic-order-band-tool
 ambisonic-energy-visualizer-64	ambisonic-energy-visualizer
 no-input-mixer-8ch	no-input-mixer
+nim-gesture	nim-gesture
 fault	fault
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_analog_drive_circuits.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -12,6 +13,32 @@
 namespace s3g {
 
 constexpr uint32_t kMacroShredChannels = 24;
+
+enum class MacroShredCircuit : uint32_t {
+    Shred = 0,
+    Wool,
+    Rat,
+    ZoneA,
+    ZoneB,
+    FuzzI,
+    FuzzII,
+    Diode,
+    Count,
+};
+
+constexpr uint32_t kMacroShredCircuitCount =
+    static_cast<uint32_t>(MacroShredCircuit::Count);
+
+inline const char* macroShredCircuitName(MacroShredCircuit circuit)
+{
+    if (circuit == MacroShredCircuit::Shred) return "SHRED";
+    const uint32_t index = static_cast<uint32_t>(circuit);
+    if (index > 0u && index < kMacroShredCircuitCount) {
+        return analogDriveCircuitName(
+            static_cast<AnalogDriveCircuit>(index - 1u));
+    }
+    return "SHRED";
+}
 
 struct MacroShredCoreParams {
     float inputGainDb = 0.0f;
@@ -26,6 +53,7 @@ struct MacroShredCoreParams {
     float outputGainDb = -3.0f;
     float colorShiftOctaves = 0.0f;
     float intensityTrim = 0.0f;
+    MacroShredCircuit circuit = MacroShredCircuit::Shred;
 };
 
 class MacroShredCore {
@@ -60,6 +88,10 @@ public:
         centroidHz_ = 900.0f;
         centroidConfidence_ = 0.0f;
         centroidCounter_ = 0u;
+        circuitStates_.fill({});
+        activeCircuit_ = target_.circuit;
+        previousCircuit_ = activeCircuit_;
+        circuitFade_ = 1.0f;
         smoothed_ = target_;
         if (feedbackBuffer_.empty()) {
             return;
@@ -126,7 +158,28 @@ public:
 
         const float excitation = pressured + loopLowpass_ * feedbackGain;
         const float midpoint = 0.5f * (previousExcitation_ + excitation);
-        const float shaped = 0.5f * (shape(midpoint, smoothed_.shred) + shape(excitation, smoothed_.shred));
+        if (target_.circuit != activeCircuit_) {
+            previousCircuit_ = activeCircuit_;
+            activeCircuit_ = target_.circuit;
+            circuitFade_ = 0.0f;
+        }
+        const float circuitBias = clamp(
+            smoothed_.intensityTrim * 0.35f, -0.22f, 0.22f);
+        const auto shapePair = [&](MacroShredCircuit circuit) {
+            return 0.5f * (
+                processCircuit(circuit, midpoint, smoothed_.shred,
+                    smoothed_.color, circuitBias)
+                + processCircuit(circuit, excitation, smoothed_.shred,
+                    smoothed_.color, circuitBias));
+        };
+        const float activeShape = shapePair(activeCircuit_);
+        float shaped = activeShape;
+        if (circuitFade_ < 1.0f) {
+            const float previousShape = shapePair(previousCircuit_);
+            shaped = lerp(previousShape, activeShape, circuitFade_);
+            circuitFade_ = std::min(
+                1.0f, circuitFade_ + circuitFadeCoeff_);
+        }
         previousExcitation_ = excitation;
 
         feedbackBuffer_[writeIndex_] = flushDenormal(std::tanh(shaped * 0.92f));
@@ -165,6 +218,9 @@ private:
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 6.0f);
         params.colorShiftOctaves = clamp(params.colorShiftOctaves, -2.0f, 2.0f);
         params.intensityTrim = clamp(params.intensityTrim, -0.35f, 0.35f);
+        params.circuit = static_cast<MacroShredCircuit>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.circuit),
+                kMacroShredCircuitCount - 1u));
         return params;
     }
 
@@ -183,6 +239,27 @@ private:
         const float foldedValue = folded(value * (1.0f + amount * 6.0f));
         const float foldMix = amount * amount * 0.72f;
         return saturated + (foldedValue - saturated) * foldMix;
+    }
+
+    struct CircuitState {
+        float memory = 0.0f;
+        float low = 0.0f;
+        float high = 0.0f;
+        float envelope = 0.0f;
+    };
+
+    float processCircuit(MacroShredCircuit circuit, float input,
+        float amount, float tone, float bias)
+    {
+        if (circuit == MacroShredCircuit::Shred) {
+            return shape(input, amount);
+        }
+        const uint32_t index = std::min<uint32_t>(
+            static_cast<uint32_t>(circuit), kMacroShredCircuitCount - 1u);
+        return processAnalogDriveCircuit(
+            static_cast<AnalogDriveCircuit>(index - 1u),
+            circuitStates_[index], input, amount, tone, bias,
+            static_cast<float>(sampleRate_ * 2.0));
     }
 
     static float softLimit(float value)
@@ -322,6 +399,7 @@ private:
         centroidSmoothingCoeff_ = 1.0f - std::exp(-static_cast<float>(kCentroidUpdateInterval) / (sr * 0.100f));
         centroidConfidenceAttackCoeff_ = 1.0f - std::exp(-static_cast<float>(kCentroidUpdateInterval) / (sr * 0.035f));
         centroidConfidenceReleaseCoeff_ = 1.0f - std::exp(-static_cast<float>(kCentroidUpdateInterval) / (sr * 0.400f));
+        circuitFadeCoeff_ = 1.0f / std::max(1.0f, sr * 0.020f);
     }
 
     double sampleRate_ = 48000.0;
@@ -374,6 +452,11 @@ private:
     float derivedInputGainDb_ = 1000.0f;
     float derivedOutputGainDb_ = 1000.0f;
     float derivedColor_ = -1.0f;
+    std::array<CircuitState, kMacroShredCircuitCount> circuitStates_ {};
+    MacroShredCircuit activeCircuit_ = MacroShredCircuit::Shred;
+    MacroShredCircuit previousCircuit_ = MacroShredCircuit::Shred;
+    float circuitFade_ = 1.0f;
+    float circuitFadeCoeff_ = 0.001f;
 };
 
 struct MacroShredParams {
@@ -392,6 +475,7 @@ struct MacroShredParams {
     float glideMs = 250.0f;
     float mix = 0.65f;
     float outputGainDb = -3.0f;
+    MacroShredCircuit circuit = MacroShredCircuit::Shred;
 };
 
 class MacroShred {
@@ -520,6 +604,9 @@ private:
         params.glideMs = clamp(params.glideMs, 10.0f, 2000.0f);
         params.mix = clamp(params.mix, 0.0f, 1.0f);
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 6.0f);
+        params.circuit = static_cast<MacroShredCircuit>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.circuit),
+                kMacroShredCircuitCount - 1u));
         return params;
     }
 
@@ -552,6 +639,7 @@ private:
         lane.body = params_.body;
         lane.mix = params_.mix;
         lane.outputGainDb = params_.outputGainDb;
+        lane.circuit = params_.circuit;
         lane.colorShiftOctaves = centered * smoothedSpread_ * 1.5f
             + random * laneDeviation * 0.75f
             + smoothedSkew_ * (u - 0.5f) * 0.75f;

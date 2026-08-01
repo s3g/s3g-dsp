@@ -1,5 +1,7 @@
 #pragma once
 
+#include "s3g_analog_drive_circuits.h"
+#include "s3g_fracture_processors.h"
 #include "s3g_math.h"
 #include "s3g_matrix_flow_shapes.h"
 #include "s3g_realtime.h"
@@ -18,6 +20,55 @@ constexpr uint32_t kNoInputMixerMatrixCells =
     kNoInputMixerChannels * kNoInputMixerChannels;
 constexpr uint8_t kNoInputMatrixGridChannels = 4u;
 constexpr uint8_t kNoInputMatrixGridNotesPerController = 16u;
+constexpr uint8_t kNoInputMatrixFeedbackCommand = 0xa0u;
+constexpr uint8_t kNoInputMatrixFeedbackCenter = 64u;
+
+enum class NoInputMatrixMidiMode : uint32_t {
+    Flip = 0u,
+    Latch,
+    Count,
+};
+
+enum class NoInputMatrixMidiSign : uint32_t {
+    Positive = 0u,
+    Negative,
+    Count,
+};
+
+constexpr float kNoInputMatrixMidiRampMinimumMs = 20.0f;
+constexpr float kNoInputMatrixMidiRampDefaultMs = 1000.0f;
+constexpr float kNoInputMatrixMidiRampMaximumMs = 10000.0f;
+
+inline const char* noInputMatrixMidiModeName(NoInputMatrixMidiMode mode)
+{
+    switch (mode) {
+    case NoInputMatrixMidiMode::Flip: return "FLIP";
+    case NoInputMatrixMidiMode::Latch: return "LATCH";
+    default: return "FLIP";
+    }
+}
+
+inline const char* noInputMatrixMidiSignName(NoInputMatrixMidiSign sign)
+{
+    return sign == NoInputMatrixMidiSign::Negative
+        ? "NEGATIVE" : "POSITIVE";
+}
+
+inline float noInputMatrixMidiGain(NoInputMatrixMidiMode mode,
+    float baseGain, uint8_t velocity,
+    NoInputMatrixMidiSign latchSign = NoInputMatrixMidiSign::Positive)
+{
+    baseGain = std::clamp(std::isfinite(baseGain) ? baseGain : 0.0f,
+        -1.0f, 1.0f);
+    const float normalized = static_cast<float>(velocity & 0x7fu) / 127.0f;
+    if (mode == NoInputMatrixMidiMode::Flip) {
+        if (std::abs(baseGain) <= 1.0e-7f) return 0.0f;
+        const float opposite = baseGain > 0.0f ? -1.0f : 1.0f;
+        return baseGain + (opposite - baseGain) * normalized;
+    }
+    return latchSign == NoInputMatrixMidiSign::Negative
+        ? -normalized : normalized;
+}
 
 inline bool decodeNoInputMatrixGridNote(uint8_t channel, uint8_t note,
     uint32_t& destination, uint32_t& source)
@@ -29,6 +80,46 @@ inline bool decodeNoInputMatrixGridNote(uint8_t channel, uint8_t note,
     destination = tileRow * 4u + note / 4u;
     source = tileColumn * 4u + note % 4u;
     return true;
+}
+
+inline bool encodeNoInputMatrixGridPoint(uint32_t destination,
+    uint32_t source, uint8_t& channel, uint8_t& note)
+{
+    if (destination >= kNoInputMixerChannels
+        || source >= kNoInputMixerChannels) return false;
+    channel = static_cast<uint8_t>((destination / 4u) * 2u
+        + source / 4u);
+    note = static_cast<uint8_t>((destination % 4u) * 4u
+        + source % 4u);
+    return true;
+}
+
+inline uint8_t encodeNoInputMatrixFeedbackValue(float gain)
+{
+    gain = std::clamp(std::isfinite(gain) ? gain : 0.0f, -1.0f, 1.0f);
+    if (gain > 0.0f) {
+        return static_cast<uint8_t>(kNoInputMatrixFeedbackCenter
+            + std::lround(gain * 63.0f));
+    }
+    if (gain < 0.0f) {
+        return static_cast<uint8_t>(kNoInputMatrixFeedbackCenter
+            - std::lround(-gain * 64.0f));
+    }
+    return kNoInputMatrixFeedbackCenter;
+}
+
+inline float decodeNoInputMatrixFeedbackValue(uint8_t value)
+{
+    value &= 0x7fu;
+    if (value > kNoInputMatrixFeedbackCenter) {
+        return static_cast<float>(value - kNoInputMatrixFeedbackCenter)
+            / 63.0f;
+    }
+    if (value < kNoInputMatrixFeedbackCenter) {
+        return -static_cast<float>(kNoInputMatrixFeedbackCenter - value)
+            / 64.0f;
+    }
+    return 0.0f;
 }
 
 enum class NoInputDistortionType : uint32_t {
@@ -258,11 +349,18 @@ inline float noInputMovementLengthMs(float normalizedLength)
     return 0.5f * std::pow(500.0f, normalizedLength);
 }
 
+inline float noInputMovementLengthNormalized(float milliseconds)
+{
+    milliseconds = clamp(std::isfinite(milliseconds)
+        ? milliseconds : noInputMovementLengthMs(0.32f), 0.5f, 250.0f);
+    return std::log(milliseconds / 0.5f) / std::log(500.0f);
+}
+
 inline float noInputMovementSlewMs(float normalizedSlew)
 {
     normalizedSlew = clamp(std::isfinite(normalizedSlew)
         ? normalizedSlew : 0.22f, 0.0f, 1.0f);
-    return 0.1f * std::pow(200.0f, normalizedSlew);
+    return 0.5f * std::pow(40.0f, normalizedSlew);
 }
 
 inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
@@ -283,31 +381,32 @@ inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
     energy = static_cast<NoInputRandomEnergy>(std::min<uint32_t>(
         static_cast<uint32_t>(energy),
         static_cast<uint32_t>(NoInputRandomEnergy::Count) - 1u));
+    const auto randomLength = [&unit](float minimumMs, float maximumMs) {
+        return noInputMovementLengthNormalized(
+            lerp(minimumMs, maximumMs, unit()));
+    };
     if (energy == NoInputRandomEnergy::High) {
         params.behavior = static_cast<NoInputMovementBehavior>(
             2u + static_cast<uint32_t>(unit() * 3.0f) % 3u);
         params.eventRate = 0.75f + unit() * 0.23f;
-        params.length = 0.02f + unit() * 0.18f;
+        params.length = randomLength(6.0f, 40.0f);
         params.density = 0.34f + unit() * 0.46f;
         params.chaos = 0.58f + unit() * 0.40f;
         params.slew = 0.01f + unit() * 0.12f;
         params.choke = 0.66f + unit() * 0.34f;
     } else if (energy == NoInputRandomEnergy::Low) {
-        params.behavior = unit() < 0.58f
-            ? NoInputMovementBehavior::Glide
-            : NoInputMovementBehavior::Step;
+        params.behavior = NoInputMovementBehavior::Glide;
         params.eventRate = 0.64f + unit() * 0.20f;
         params.length = 0.36f + unit() * 0.40f;
         params.density = 0.70f + unit() * 0.24f;
         params.chaos = 0.08f + unit() * 0.28f;
         params.slew = 0.24f + unit() * 0.30f;
-        params.choke = params.behavior == NoInputMovementBehavior::Glide
-            ? 0.0f : 0.10f + unit() * 0.20f;
+        params.choke = 0.0f;
     } else {
         params.behavior = static_cast<NoInputMovementBehavior>(
             1u + static_cast<uint32_t>(unit() * 4.0f) % 4u);
         params.eventRate = 0.42f + unit() * 0.28f;
-        params.length = 0.14f + unit() * 0.38f;
+        params.length = randomLength(20.0f, 140.0f);
         params.density = 0.46f + unit() * 0.42f;
         params.chaos = 0.24f + unit() * 0.54f;
         params.slew = 0.04f + unit() * 0.25f;
@@ -2100,8 +2199,11 @@ inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed,
         : (lowEnergy ? 0.35f + unit() * 0.35f : bipolar());
     params.controllerHold = 0u;
     params.slowTime = lowEnergy ? 1u : 0u;
-    params.clockSync = unit() > (highEnergy ? 0.64f
-        : (lowEnergy ? 0.70f : 0.68f)) ? 1u : 0u;
+    // Random movement is always free-running. Host sync is a deliberate
+    // performance choice and should never be enabled by a random patch.
+    // Retain this draw so existing seeds keep every later random value.
+    (void)unit();
+    params.clockSync = 0u;
     params.fieldDivision = highEnergy ? next() % 4u
         : (lowEnergy ? 5u + next() % 3u : 2u + next() % 4u);
     params.eventDivision = highEnergy ? next() % 4u
@@ -2361,6 +2463,7 @@ public:
             / static_cast<float>(sampleRate_ * 0.420));
         auxMuteSlew_ = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.004));
+        setMidiMatrixRampMs(midiMatrixRampMs_);
         panicSamplesTotal_ = std::max<uint32_t>(
             1u, static_cast<uint32_t>(sampleRate_ * 0.008));
         setParams(params_);
@@ -2370,6 +2473,12 @@ public:
     void setParams(NoInputMixerParams params)
     {
         params_ = sanitizeNoInputMixerParams(params);
+        for (uint32_t index = 0u;
+             index < kNoInputMixerMatrixCells; ++index) {
+            if (midiMatrixReleasePending_[index] != 0u) {
+                midiMatrixTarget_[index] = params_.matrix[index];
+            }
+        }
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             updateEq(lane);
             updateBodyCoefficients(lane);
@@ -2408,13 +2517,36 @@ public:
         rebuildMotionTargets();
     }
 
+    void setMidiMatrixRampMs(float milliseconds)
+    {
+        midiMatrixRampMs_ = clamp(std::isfinite(milliseconds)
+                ? milliseconds : kNoInputMatrixMidiRampDefaultMs,
+            kNoInputMatrixMidiRampMinimumMs,
+            kNoInputMatrixMidiRampMaximumMs);
+        // Treat the displayed time as a near-complete (60 dB) settling
+        // interval rather than a one-pole time constant. This makes a
+        // 1000 ms setting read as an approximately one-second fade.
+        constexpr float kSixtyDb = 6.90775527898f;
+        const float samples = static_cast<float>(sampleRate_)
+            * midiMatrixRampMs_ * 0.001f;
+        midiMatrixSlew_ = 1.0f - std::exp(-kSixtyDb
+            / std::max(1.0f, samples));
+    }
+
+    float midiMatrixRampMs() const { return midiMatrixRampMs_; }
+
     void setMidiMatrixConnection(uint32_t destination, uint32_t source,
         float gain)
     {
         if (destination >= kNoInputMixerChannels
             || source >= kNoInputMixerChannels) return;
         const uint32_t index = destination * kNoInputMixerChannels + source;
-        midiMatrixGain_[index] = clamp(gain, -1.0f, 1.0f);
+        if (midiMatrixActive_[index] == 0u) {
+            midiMatrixGain_[index] = params_.matrix[index];
+            midiMatrixActive_[index] = 1u;
+        }
+        midiMatrixTarget_[index] = clamp(gain, -1.0f, 1.0f);
+        midiMatrixReleasePending_[index] = 0u;
         midiMatrixActive_[index] = 1u;
     }
 
@@ -2423,14 +2555,17 @@ public:
         if (destination >= kNoInputMixerChannels
             || source >= kNoInputMixerChannels) return;
         const uint32_t index = destination * kNoInputMixerChannels + source;
-        midiMatrixActive_[index] = 0u;
-        midiMatrixGain_[index] = 0.0f;
+        if (midiMatrixActive_[index] == 0u) return;
+        midiMatrixTarget_[index] = params_.matrix[index];
+        midiMatrixReleasePending_[index] = 1u;
     }
 
     void clearMidiMatrixConnections()
     {
         midiMatrixActive_.fill(0u);
         midiMatrixGain_.fill(0.0f);
+        midiMatrixTarget_.fill(0.0f);
+        midiMatrixReleasePending_.fill(0u);
     }
 
     float effectiveMatrixGain(uint32_t destination, uint32_t source) const
@@ -2439,6 +2574,15 @@ public:
             || source >= kNoInputMixerChannels) return 0.0f;
         return effectiveMatrixGain(
             destination * kNoInputMixerChannels + source);
+    }
+
+    bool midiMatrixConnectionActive(
+        uint32_t destination, uint32_t source) const
+    {
+        if (destination >= kNoInputMixerChannels
+            || source >= kNoInputMixerChannels) return false;
+        return midiMatrixActive_[
+            destination * kNoInputMixerChannels + source] != 0u;
     }
 
     void setTransport(double tempoBpm, bool hasTempo)
@@ -2456,10 +2600,14 @@ public:
         behaviorParams_ = sanitizeNoInputMovementBehaviorParams(params);
         if (previous != behaviorParams_.behavior) {
             behaviorSamplesUntilEvent_ = 0u;
-            behaviorSamplesUntilClose_ = 0u;
+            behaviorEnvelopeSample_ = 0u;
+            behaviorEnvelopeSamples_ = 0u;
+            behaviorAttackSamples_ = 0u;
+            behaviorReleaseSamples_ = 0u;
             if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
                 behaviorTarget_.fill(1.0f);
                 behaviorCurrent_.fill(1.0f);
+                behaviorStart_.fill(1.0f);
                 laneBehaviorGate_.fill(1.0f);
             }
         }
@@ -2541,6 +2689,7 @@ public:
     {
         if (!output) return;
         routeSignals_.fill(0.0f);
+        advanceMidiMatrixConnections();
         if (silenced_ && seedRemaining_ == 0u) {
             std::fill(output, output + kNoInputMixerChannels, 0.0f);
             return;
@@ -3183,155 +3332,45 @@ private:
         switch (type) {
         case NoInputDistortionType::Bypass:
             return input;
-        case NoInputDistortionType::Wool: {
-            const float drive = 1.0f + gain * gain * 44.0f;
-            const float first = std::tanh((input + bias) * drive);
-            state.memory += (first - state.memory) * onePole(5200.0f);
-            const float second = std::tanh(
-                (state.memory - bias * 0.45f) * (2.2f + gain * 6.0f));
-            state.low += (second - state.low)
-                * onePole(lerp(360.0f, 2200.0f, tone));
-            const float high = second - state.low;
-            return std::tanh(lerp(state.low * 1.7f, high * 1.45f,
-                tone) * 1.05f);
-        }
-        case NoInputDistortionType::Rat: {
-            state.low += (input - state.low) * onePole(720.0f);
-            const float pre = input - state.low * 0.78f;
-            const float driven = pre * (2.0f + gain * gain * 78.0f) + bias;
-            const float clipped = clamp(driven, -0.72f, 0.72f) / 0.72f;
-            const float cutoff = 14000.0f
-                * std::pow(420.0f / 14000.0f, tone);
-            state.memory += (clipped - state.memory) * onePole(cutoff);
-            return state.memory;
-        }
+        case NoInputDistortionType::Wool:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::Wool,
+                state, input, gain, tone, bias, sr);
+        case NoInputDistortionType::Rat:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::Rat,
+                state, input, gain, tone, bias, sr);
         case NoInputDistortionType::ZoneA:
-        case NoInputDistortionType::ZoneB: {
-            const bool lower = type == NoInputDistortionType::ZoneB;
-            const float lowCut = lower ? 120.0f : 260.0f;
-            state.low += (input - state.low) * onePole(lowCut);
-            const float upper = input - state.low;
-            const float first = std::tanh((upper * (3.0f + gain * 54.0f)
-                + bias) * (lower ? 0.72f : 1.0f));
-            const float focusHz = lerp(lower ? 420.0f : 780.0f,
-                lower ? 2600.0f : 5200.0f, tone);
-            state.high += (first - state.high) * onePole(focusHz);
-            const float focused = lower
-                ? first + state.high * 0.48f
-                : first + (first - state.high) * 0.72f;
-            return std::tanh((focused - bias * 0.35f)
-                * (2.2f + gain * 5.5f));
-        }
-        case NoInputDistortionType::FuzzI: {
-            const float absolute = std::abs(input);
-            state.envelope += (absolute - state.envelope)
-                * onePole(lerp(4.0f, 30.0f, tone));
-            const float sag = 1.0f
-                / (1.0f + state.envelope * (1.0f + gain * 8.0f));
-            const float drive = (2.0f + gain * gain * 64.0f) * sag;
-            return std::tanh((input + bias) * drive)
-                - std::tanh(bias * drive);
-        }
-        case NoInputDistortionType::FuzzII: {
-            const float threshold = lerp(0.22f, 0.015f, gain);
-            const float hold = state.memory;
-            const float driven = input * (3.0f + gain * 72.0f) + bias;
-            if (driven > threshold) state.memory = 1.0f;
-            else if (driven < -threshold) state.memory = -1.0f;
-            const float speed = onePole(lerp(900.0f, 9000.0f, tone));
-            return lerp(hold, state.memory, speed);
-        }
-        case NoInputDistortionType::Diode: {
-            const float drive = 1.0f + gain * gain * 36.0f;
-            const float positive = std::tanh((input + bias) * drive);
-            const float negative = std::tanh((input - bias)
-                * drive * lerp(0.68f, 1.32f, tone));
-            return (positive + negative) * 0.5f;
-        }
+            return processAnalogDriveCircuit(AnalogDriveCircuit::ZoneA,
+                state, input, gain, tone, bias, sr);
+        case NoInputDistortionType::ZoneB:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::ZoneB,
+                state, input, gain, tone, bias, sr);
+        case NoInputDistortionType::FuzzI:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::FuzzI,
+                state, input, gain, tone, bias, sr);
+        case NoInputDistortionType::FuzzII:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::FuzzII,
+                state, input, gain, tone, bias, sr);
+        case NoInputDistortionType::Diode:
+            return processAnalogDriveCircuit(AnalogDriveCircuit::Diode,
+                state, input, gain, tone, bias, sr);
         case NoInputDistortionType::Ring: {
             const float depth = gain;
             const float carrier = std::tanh(ringSource
                 * (1.0f + tone * 8.0f));
             return lerp(input, input * carrier * 2.0f + bias, depth);
         }
-        case NoInputDistortionType::Relay: {
-            const float absolute = std::abs(input + bias);
-            const float attack = onePole(lerp(180.0f, 4200.0f, tone));
-            const float release = onePole(lerp(3.0f, 120.0f, tone));
-            state.envelope += (absolute - state.envelope)
-                * (absolute > state.envelope ? attack : release);
-            const float threshold = lerp(0.34f, 0.008f, gain);
-            const float hysteresis = 0.18f + std::abs(rawBias) * 0.62f;
-            if (state.gate < 0.5f && state.envelope > threshold) {
-                state.gate = 1.0f;
-            } else if (state.gate > 0.5f
-                && state.envelope < threshold * hysteresis) {
-                state.gate = 0.0f;
-            }
-            const float chatter = std::sin(state.phase * 2.0f * kPi) * tone
-                * (0.08f + gain * 0.24f);
-            state.phase = noInputWrapPhase(state.phase
-                + (80.0f + tone * 1700.0f) / sr);
-            const float gateTarget = state.gate > 0.5f
-                ? 1.0f : clamp(chatter, 0.0f, 1.0f);
-            state.memory += (gateTarget - state.memory)
-                * onePole(lerp(90.0f, 4800.0f, tone));
-            return input * state.memory;
-        }
-        case NoInputDistortionType::Crush: {
-            const float holdSamples = lerp(sr / 420.0f,
-                std::max(1.0f, sr / 18000.0f), tone * tone);
-            state.phase += 1.0f;
-            if (state.phase >= holdSamples) {
-                state.phase -= holdSamples;
-                state.memory = input + rawBias * gain * 0.018f;
-            }
-            const float bits = lerp(16.0f, 2.0f, gain * gain);
-            const float steps = std::pow(2.0f, bits - 1.0f);
-            state.envelope += 0.754877666f;
-            if (state.envelope >= 1.0f) state.envelope -= 1.0f;
-            const float dither = (state.envelope - 0.5f)
-                * std::abs(rawBias) / steps;
-            return std::round((state.memory + dither) * steps) / steps;
-        }
-        case NoInputDistortionType::Splice: {
-            constexpr uint32_t size = 8192u;
-            runtime.timeBuffer[runtime.timeWrite] = input;
-            runtime.timeWrite = (runtime.timeWrite + 1u) % size;
-            const float maximumMs = std::min(80.0f,
-                static_cast<float>(size - 2u) * 1000.0f / sr);
-            const float lengthMs = 1.0f * std::pow(maximumMs,
-                tone * tone);
-            const uint32_t length = std::clamp<uint32_t>(
-                static_cast<uint32_t>(sr * lengthMs * 0.001f), 2u,
-                size - 2u);
-            state.phase += 1.0f;
-            if (state.phase >= static_cast<float>(length)) {
-                state.phase -= static_cast<float>(length);
-                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
-            }
-            const uint32_t position = static_cast<uint32_t>(state.phase)
-                % length;
-            const bool reverse = rawBias < -0.12f
-                || (std::abs(rawBias) < 0.12f && state.gate > 0.5f);
-            const uint32_t offset = reverse ? position : length - position;
-            const uint32_t read = (runtime.timeWrite + size
-                - std::min<uint32_t>(offset + 1u, size - 1u)) % size;
-            const float repeat = runtime.timeBuffer[read];
-            return lerp(input, std::tanh(repeat * (1.0f + gain * 4.0f)),
-                0.25f + gain * 0.75f);
-        }
-        case NoInputDistortionType::Logic: {
-            const float threshold = lerp(0.42f, 0.015f, tone);
-            const bool a = input + bias >= threshold;
-            const bool b = ringSource - bias >= threshold;
-            const float logic = (a != b ? 1.0f : -1.0f)
-                * (0.34f + gain * 0.66f);
-            state.memory += (logic - state.memory)
-                * onePole(lerp(350.0f, 12000.0f,
-                    0.5f + rawBias * 0.5f));
-            return lerp(input, state.memory, gain);
-        }
+        case NoInputDistortionType::Relay:
+            return processFractureProcessor(FractureProcessor::Relay,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::Crush:
+            return processFractureProcessor(FractureProcessor::Crush,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::Splice:
+            return processFractureProcessor(FractureProcessor::Splice,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::Logic:
+            return processFractureProcessor(FractureProcessor::Logic,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
         case NoInputDistortionType::Shred: {
             const float lowCut = lerp(180.0f, 2400.0f, tone);
             const float highCut = lerp(1800.0f, 12000.0f, tone);
@@ -3353,20 +3392,9 @@ private:
             return std::tanh(low * 0.52f + middle * 0.68f
                 + upper * 0.46f);
         }
-        case NoInputDistortionType::Void: {
-            const float absolute = std::abs(input);
-            const float follow = onePole(lerp(2.0f, 80.0f, tone));
-            state.envelope += (absolute - state.envelope) * follow;
-            const float threshold = lerp(0.012f, 0.46f, gain);
-            const float skew = rawBias * 0.35f;
-            const bool shouldOpen = input + skew > 0.0f
-                ? state.envelope > threshold
-                : state.envelope > threshold * (1.0f + std::abs(skew));
-            const float target = shouldOpen ? 1.0f : 0.0f;
-            const float speed = onePole(lerp(4.0f, 850.0f, tone));
-            state.gate += (target - state.gate) * speed;
-            return input * lerp(1.0f - gain, state.gate, gain);
-        }
+        case NoInputDistortionType::Void:
+            return processFractureProcessor(FractureProcessor::Void,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
         case NoInputDistortionType::Rotor: {
             const float rate = 0.08f * std::pow(562.5f, tone);
             state.phase = noInputWrapPhase(state.phase + rate / sr);
@@ -3422,90 +3450,21 @@ private:
             state.gate = flushDenormal(delayed);
             return lerp(input, delayed, gain * 0.78f);
         }
-        case NoInputDistortionType::Throat: {
-            const float shift = std::pow(2.0f, rawBias * 0.72f);
-            const float firstHz = clamp(
-                lerp(230.0f, 920.0f, tone) * shift,
-                80.0f, sr * 0.18f);
-            const float secondHz = clamp(
-                lerp(2450.0f, 1050.0f, tone) * shift,
-                180.0f, sr * 0.24f);
-            const float firstCoefficient = 2.0f * std::sin(
-                kPi * firstHz / sr);
-            const float secondCoefficient = 2.0f * std::sin(
-                kPi * secondHz / sr);
-            const float damping = 0.10f + (1.0f - gain) * 0.18f;
-            state.low += firstCoefficient * state.high;
-            const float firstHigh = input - state.low
-                - damping * state.high;
-            state.high += firstCoefficient * firstHigh;
-            state.memory += secondCoefficient * state.envelope;
-            const float secondHigh = input - state.memory
-                - damping * state.envelope;
-            state.envelope += secondCoefficient * secondHigh;
-            state.low = flushDenormal(clamp(state.low, -8.0f, 8.0f));
-            state.high = flushDenormal(clamp(state.high, -8.0f, 8.0f));
-            state.memory = flushDenormal(clamp(state.memory, -8.0f, 8.0f));
-            state.envelope = flushDenormal(clamp(
-                state.envelope, -8.0f, 8.0f));
-            const float voiced = std::tanh((state.high * 1.35f
-                + state.envelope) * (1.2f + gain * 3.8f));
-            return lerp(input, voiced, gain);
-        }
-        case NoInputDistortionType::Robot: {
-            const float carrierHz = 28.0f * std::pow(40.0f, tone);
-            state.phase = noInputWrapPhase(
-                state.phase + carrierHz / sr);
-            const float sine = std::sin(state.phase * 2.0f * kPi);
-            const float square = sine >= 0.0f ? 1.0f : -1.0f;
-            const float carrier = lerp(sine, square,
-                (rawBias + 1.0f) * 0.5f);
-            const float robotic = std::tanh(input * carrier
-                * (1.5f + gain * 6.5f));
-            return lerp(input, robotic, gain);
-        }
-        case NoInputDistortionType::OctDown: {
-            const float threshold = lerp(0.001f, 0.10f,
-                (rawBias + 1.0f) * 0.5f);
-            if (input > threshold && state.memory <= threshold)
-                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
-            state.memory = input;
-            state.envelope += (std::abs(input) - state.envelope)
-                * onePole(lerp(18.0f, 110.0f, tone));
-            const float divided = (state.gate > 0.5f ? 1.0f : -1.0f)
-                * state.envelope * 1.65f;
-            state.low += (divided - state.low)
-                * onePole(lerp(140.0f, 5200.0f, tone));
-            return lerp(input, state.low, gain);
-        }
-        case NoInputDistortionType::OctUp: {
-            const float shifted = input + rawBias * 0.035f;
-            const float rectified = std::abs(shifted);
-            state.envelope += (rectified - state.envelope)
-                * onePole(lerp(8.0f, 42.0f, tone));
-            const float doubled = (rectified - state.envelope) * 2.1f;
-            state.high += (doubled - state.high)
-                * onePole(lerp(900.0f, 15000.0f, tone));
-            return lerp(input, state.high, gain);
-        }
-        case NoInputDistortionType::OctStack: {
-            const float threshold = 0.008f;
-            if (input > threshold && state.memory <= threshold)
-                state.gate = state.gate > 0.5f ? 0.0f : 1.0f;
-            state.memory = input;
-            const float absolute = std::abs(input);
-            state.envelope += (absolute - state.envelope)
-                * onePole(38.0f);
-            state.low += (absolute - state.low) * onePole(16.0f);
-            const float upper = (absolute - state.low) * 2.0f;
-            const float lower = (state.gate > 0.5f ? 1.0f : -1.0f)
-                * state.envelope * 1.55f;
-            const float stacked = lerp(lower, upper,
-                (rawBias + 1.0f) * 0.5f);
-            state.high += (stacked - state.high)
-                * onePole(lerp(240.0f, 13000.0f, tone));
-            return lerp(input, state.high, gain);
-        }
+        case NoInputDistortionType::Throat:
+            return processFractureProcessor(FractureProcessor::Throat,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::Robot:
+            return processFractureProcessor(FractureProcessor::Robot,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::OctDown:
+            return processFractureProcessor(FractureProcessor::OctDown,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::OctUp:
+            return processFractureProcessor(FractureProcessor::OctUp,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
+        case NoInputDistortionType::OctStack:
+            return processFractureProcessor(FractureProcessor::OctStack,
+                runtime, state, input, ringSource, gain, tone, rawBias, sr);
         case NoInputDistortionType::Count:
             break;
         }
@@ -3564,7 +3523,13 @@ private:
         if (behaviorParams_.behavior == NoInputMovementBehavior::Glide) {
             return motionCurrent_[index];
         }
-        return behaviorCurrent_[index];
+        if (behaviorParams_.behavior == NoInputMovementBehavior::Step) {
+            return behaviorCurrent_[index];
+        }
+        // Binary articulation selects a topology mask independently from the
+        // continuously moving field. The field supplies motion weight while
+        // behaviorCurrent_ supplies one explicit amplitude window below.
+        return motionCurrent_[index];
     }
 
     float effectiveMatrixGain(uint32_t index) const
@@ -3572,6 +3537,25 @@ private:
         if (index >= kNoInputMixerMatrixCells) return 0.0f;
         return midiMatrixActive_[index] != 0u
             ? midiMatrixGain_[index] : params_.matrix[index];
+    }
+
+    void advanceMidiMatrixConnections()
+    {
+        for (uint32_t index = 0u;
+             index < kNoInputMixerMatrixCells; ++index) {
+            if (midiMatrixActive_[index] == 0u) continue;
+            midiMatrixGain_[index] +=
+                (midiMatrixTarget_[index] - midiMatrixGain_[index])
+                * midiMatrixSlew_;
+            if (midiMatrixReleasePending_[index] != 0u
+                && std::abs(midiMatrixTarget_[index]
+                    - midiMatrixGain_[index]) <= 1.0e-3f) {
+                midiMatrixActive_[index] = 0u;
+                midiMatrixReleasePending_[index] = 0u;
+                midiMatrixGain_[index] = 0.0f;
+                midiMatrixTarget_[index] = 0.0f;
+            }
+        }
     }
 
     uint32_t behaviorHash(uint32_t salt) const
@@ -3596,6 +3580,7 @@ private:
     {
         ++behaviorEventCount_;
         const auto behavior = behaviorParams_.behavior;
+        behaviorStart_ = behaviorCurrent_;
         if (behavior == NoInputMovementBehavior::Step) {
             behaviorTarget_ = motionTarget_;
         } else {
@@ -3662,17 +3647,119 @@ private:
         interval *= std::max(0.12f, 1.0f + jitter * jitterDepth);
         behaviorSamplesUntilEvent_ = std::max<uint32_t>(1u,
             static_cast<uint32_t>(interval));
+
+        const uint32_t edgeSamples = std::max<uint32_t>(2u,
+            static_cast<uint32_t>(std::lround(
+                static_cast<float>(sampleRate_)
+                * noInputMovementSlewMs(behaviorParams_.slew) * 0.001f)));
         if (behavior == NoInputMovementBehavior::Cut
             || behavior == NoInputMovementBehavior::Burst) {
             const float lengthSamples = static_cast<float>(sampleRate_)
                 * noInputMovementLengthMs(behaviorParams_.length) * 0.001f;
-            behaviorSamplesUntilClose_ = std::max<uint32_t>(1u,
+            behaviorEnvelopeSamples_ = std::max<uint32_t>(4u,
                 static_cast<uint32_t>(std::min(lengthSamples,
                     interval * lerp(0.25f, 0.95f,
                         behaviorParams_.density))));
+            const float attackScale = behavior
+                    == NoInputMovementBehavior::Burst
+                ? lerp(0.90f, 0.72f, behaviorParams_.chaos)
+                : 1.0f;
+            const uint32_t desiredAttack = std::max<uint32_t>(2u,
+                static_cast<uint32_t>(std::lround(
+                    static_cast<float>(edgeSamples) * attackScale)));
+            behaviorAttackSamples_ = std::max<uint32_t>(2u,
+                std::min<uint32_t>(desiredAttack,
+                    behaviorEnvelopeSamples_ / 2u));
+            const float releaseScale = behavior
+                    == NoInputMovementBehavior::Burst
+                ? lerp(1.35f, 2.15f, behaviorParams_.chaos)
+                : 1.0f;
+            const uint32_t desiredRelease = std::max<uint32_t>(2u,
+                static_cast<uint32_t>(std::lround(
+                    static_cast<float>(edgeSamples) * releaseScale)));
+            behaviorReleaseSamples_ = std::max<uint32_t>(2u,
+                std::min<uint32_t>(desiredRelease,
+                    behaviorEnvelopeSamples_ - behaviorAttackSamples_));
+            behaviorEnvelopeSample_ = 0u;
+        } else if (behavior == NoInputMovementBehavior::Scramble) {
+            behaviorEnvelopeSamples_ = edgeSamples;
+            behaviorAttackSamples_ = edgeSamples;
+            behaviorReleaseSamples_ = 0u;
+            behaviorEnvelopeSample_ = 0u;
         } else {
-            behaviorSamplesUntilClose_ = 0u;
+            behaviorEnvelopeSample_ = 0u;
+            behaviorEnvelopeSamples_ = 0u;
+            behaviorAttackSamples_ = 0u;
+            behaviorReleaseSamples_ = 0u;
         }
+    }
+
+    static float raisedCosine(float normalized)
+    {
+        normalized = clamp(normalized, 0.0f, 1.0f);
+        return 0.5f - 0.5f * std::cos(kPi * normalized);
+    }
+
+    void updateWindowedMovementBehavior()
+    {
+        const auto behavior = behaviorParams_.behavior;
+        if (behavior == NoInputMovementBehavior::Scramble) {
+            if (behaviorEnvelopeSamples_ <= 1u
+                || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
+                behaviorCurrent_ = behaviorTarget_;
+                return;
+            }
+            const float phase = static_cast<float>(behaviorEnvelopeSample_)
+                / static_cast<float>(behaviorEnvelopeSamples_ - 1u);
+            const float crossfade = raisedCosine(phase);
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                behaviorCurrent_[index] = flushDenormal(clamp(
+                    lerp(behaviorStart_[index], behaviorTarget_[index],
+                        crossfade), 0.0f, 1.0f));
+            }
+            ++behaviorEnvelopeSample_;
+            return;
+        }
+
+        if (behavior != NoInputMovementBehavior::Cut
+            && behavior != NoInputMovementBehavior::Burst) return;
+        if (behaviorEnvelopeSamples_ <= 1u
+            || behaviorEnvelopeSample_ >= behaviorEnvelopeSamples_) {
+            behaviorCurrent_.fill(0.0f);
+            return;
+        }
+
+        const uint32_t sample = behaviorEnvelopeSample_;
+        const uint32_t releaseStart = behaviorEnvelopeSamples_
+            - behaviorReleaseSamples_;
+        if (sample < behaviorAttackSamples_) {
+            const float phase = behaviorAttackSamples_ > 1u
+                ? static_cast<float>(sample)
+                    / static_cast<float>(behaviorAttackSamples_ - 1u)
+                : 1.0f;
+            const float attack = raisedCosine(phase);
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                behaviorCurrent_[index] = flushDenormal(clamp(
+                    lerp(behaviorStart_[index], behaviorTarget_[index],
+                        attack), 0.0f, 1.0f));
+            }
+        } else if (sample >= releaseStart) {
+            const float phase = behaviorReleaseSamples_ > 1u
+                ? static_cast<float>(sample - releaseStart)
+                    / static_cast<float>(behaviorReleaseSamples_ - 1u)
+                : 1.0f;
+            const float release = 1.0f - raisedCosine(phase);
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                behaviorCurrent_[index] = flushDenormal(
+                    behaviorTarget_[index] * release);
+            }
+        } else {
+            behaviorCurrent_ = behaviorTarget_;
+        }
+        ++behaviorEnvelopeSample_;
     }
 
     void updateMovementBehavior()
@@ -3686,23 +3773,25 @@ private:
         } else {
             --behaviorSamplesUntilEvent_;
         }
-        if (behaviorSamplesUntilClose_ > 0u) {
-            --behaviorSamplesUntilClose_;
-            if (behaviorSamplesUntilClose_ == 0u) {
-                behaviorTarget_.fill(0.0f);
-            }
-        }
 
-        const float slewSeconds = noInputMovementSlewMs(
-            behaviorParams_.slew) * 0.001f;
-        const float coefficient = 1.0f - std::exp(-1.0f
-            / std::max(1.0f, static_cast<float>(sampleRate_) * slewSeconds));
-        for (uint32_t index = 0u; index < kNoInputMixerMatrixCells;
-             ++index) {
-            behaviorCurrent_[index] += (behaviorTarget_[index]
-                - behaviorCurrent_[index]) * coefficient;
-            behaviorCurrent_[index] = flushDenormal(
-                clamp(behaviorCurrent_[index], 0.0f, 1.0f));
+        if (behaviorParams_.behavior == NoInputMovementBehavior::Cut
+            || behaviorParams_.behavior == NoInputMovementBehavior::Burst
+            || behaviorParams_.behavior
+                == NoInputMovementBehavior::Scramble) {
+            updateWindowedMovementBehavior();
+        } else {
+            const float slewSeconds = noInputMovementSlewMs(
+                behaviorParams_.slew) * 0.001f;
+            const float coefficient = 1.0f - std::exp(-1.0f
+                / std::max(1.0f,
+                    static_cast<float>(sampleRate_) * slewSeconds));
+            for (uint32_t index = 0u;
+                 index < kNoInputMixerMatrixCells; ++index) {
+                behaviorCurrent_[index] += (behaviorTarget_[index]
+                    - behaviorCurrent_[index]) * coefficient;
+                behaviorCurrent_[index] = flushDenormal(
+                    clamp(behaviorCurrent_[index], 0.0f, 1.0f));
+            }
         }
         laneBehaviorGate_.fill(0.0f);
         for (uint32_t destination = 0u;
@@ -3863,6 +3952,7 @@ private:
         motionTarget_.fill(1.0f);
         motionCurrent_.fill(1.0f);
         behaviorTarget_.fill(1.0f);
+        behaviorStart_.fill(1.0f);
         behaviorCurrent_.fill(1.0f);
         laneBehaviorGate_.fill(1.0f);
         routeSpaceGate_.fill(1.0f);
@@ -3882,7 +3972,10 @@ private:
         controlCounter_ = 0u;
         behaviorEventCount_ = 0u;
         behaviorSamplesUntilEvent_ = 0u;
-        behaviorSamplesUntilClose_ = 0u;
+        behaviorEnvelopeSample_ = 0u;
+        behaviorEnvelopeSamples_ = 0u;
+        behaviorAttackSamples_ = 0u;
+        behaviorReleaseSamples_ = 0u;
         motionPhase_ = params_.motionPhase;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             updateEq(lane);
@@ -3942,7 +4035,10 @@ private:
     double sampleRate_ = 48000.0;
     NoInputMixerParams params_ = defaultNoInputMixerParams();
     std::array<float, kNoInputMixerMatrixCells> midiMatrixGain_ {};
+    std::array<float, kNoInputMixerMatrixCells> midiMatrixTarget_ {};
     std::array<uint32_t, kNoInputMixerMatrixCells> midiMatrixActive_ {};
+    std::array<uint32_t,
+        kNoInputMixerMatrixCells> midiMatrixReleasePending_ {};
     NoInputMovementBehaviorParams behaviorParams_ {};
     std::array<LaneState, kNoInputMixerChannels> laneState_ {};
     std::array<AuxState, 2u> auxState_ {};
@@ -3966,6 +4062,7 @@ private:
     std::array<float, kNoInputMixerMatrixCells> motionTarget_ {};
     std::array<float, kNoInputMixerMatrixCells> motionCurrent_ {};
     std::array<float, kNoInputMixerMatrixCells> behaviorTarget_ {};
+    std::array<float, kNoInputMixerMatrixCells> behaviorStart_ {};
     std::array<float, kNoInputMixerMatrixCells> behaviorCurrent_ {};
     std::array<float, kNoInputMixerChannels> laneBehaviorGate_ {};
     std::array<float, kNoInputMixerMatrixCells> routeSpaceGate_ {};
@@ -3981,6 +4078,8 @@ private:
     float governorAttack_ = 0.001f;
     float governorRelease_ = 0.00005f;
     float auxMuteSlew_ = 0.005f;
+    float midiMatrixSlew_ = 0.005f;
+    float midiMatrixRampMs_ = kNoInputMatrixMidiRampDefaultMs;
     float seedAmount_ = 0.45f;
     float motionPhase_ = 0.0f;
     uint32_t seedRemaining_ = 0u;
@@ -3988,7 +4087,10 @@ private:
     uint32_t controlCounter_ = 0u;
     uint32_t behaviorEventCount_ = 0u;
     uint32_t behaviorSamplesUntilEvent_ = 0u;
-    uint32_t behaviorSamplesUntilClose_ = 0u;
+    uint32_t behaviorEnvelopeSample_ = 0u;
+    uint32_t behaviorEnvelopeSamples_ = 0u;
+    uint32_t behaviorAttackSamples_ = 0u;
+    uint32_t behaviorReleaseSamples_ = 0u;
     uint32_t panicRemaining_ = 0u;
     uint32_t panicSamplesTotal_ = 384u;
     double transportTempoBpm_ = 120.0;

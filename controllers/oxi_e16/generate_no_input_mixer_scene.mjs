@@ -254,11 +254,11 @@ const pages = [
     encoder({ name: "Output", abbr: "OUT!", id: 1, color: colors.output, pushNote: 123 }),
   ]),
   page("MOTION", [
-    encoder({ name: "EvRt/Rec", abbr: "E/R", id: 36, color: colors.movement, pushNote: 112 }),
-    encoder({ name: "EvL/Play", abbr: "E/P", id: 37, color: colors.movement, pushNote: 113 }),
-    encoder({ name: "Den/Last", abbr: "D/L", id: 38, color: colors.movement, pushNote: 114 }),
-    encoder({ name: "Cha/All", abbr: "C/A", id: 39, color: colors.movement, pushNote: 115 }),
-    encoder({ name: "Slw/Cncl", abbr: "S/X", id: 40, color: colors.movement, pushNote: 116 }),
+    encoder({ name: "Event Rt", abbr: "EVRT", id: 36, color: colors.movement }),
+    encoder({ name: "Event Ln", abbr: "EVLN", id: 37, color: colors.movement }),
+    encoder({ name: "Density", abbr: "DENS", id: 38, color: colors.movement }),
+    encoder({ name: "Chaos", abbr: "CHAO", id: 39, color: colors.movement }),
+    encoder({ name: "Slew", abbr: "SLEW", id: 40, color: colors.movement }),
     encoder({ name: "Choke", abbr: "CHOK", id: 41, color: colors.movement }),
     encoder({ name: "Move Rt", abbr: "MVRT", id: 21, color: colors.movement }),
     encoder({ name: "Move Ph", abbr: "MVPH", id: 22, color: colors.movement }),
@@ -267,8 +267,8 @@ const pages = [
     encoder({ name: "R Attack", abbr: "RATK", id: 47, color: colors.surface }),
     encoder({ name: "R Relea", abbr: "RREL", id: 48, color: colors.surface }),
     encoder({ name: "R Polar", abbr: "RPOL", id: 49, color: colors.surface, bipolar: true }),
-    encoder({ name: "Flow", abbr: "FLOW", id: 16, color: colors.movement }),
-    encoder({ name: "Agency", abbr: "AGCY", id: 11, color: colors.network }),
+    encoder({ name: "Shape", abbr: "SHAP", id: 20, color: colors.movement }),
+    encoder({ name: "Behavior", abbr: "BEHV", id: 35, color: colors.movement }),
     encoder({ name: "Output", abbr: "OUT!", id: 1, color: colors.output, pushNote: 123 }),
   ]),
   mixPage(),
@@ -315,18 +315,21 @@ const pages = [
       bipolar: true,
     })),
   ]),
-  twoLaneRowsPage("SENDS", {
-    offset: 8, name: "AuxA", abbr: "AUX", color: colors.auxA,
-    bipolar: false,
-  }, {
-    offset: 9, name: "AuxB", abbr: "BFX", color: colors.auxB,
-    bipolar: false,
-  }),
+  page("SENDS", [
+    ...lanes(8, (lane, id) => encoder({
+      name: `A${lane + 1} Send`, abbr: `A${lane + 1}SD`, id,
+      color: colors.auxA,
+    })),
+    ...lanes(9, (lane, id) => encoder({
+      name: `B${lane + 1} Send`, abbr: `B${lane + 1}SD`, id,
+      color: colors.auxB,
+    })),
+  ]),
   page("AUXTONE", [
     encoder({ name: "Int Tone", abbr: "INTR", id: 14, color: colors.tone, bipolar: true }),
     encoder({ name: "Hse Tone", abbr: "HOUS", id: 15, color: colors.tone, bipolar: true }),
-    encoder({ name: "Formant", abbr: "FORM", id: 9, color: colors.tone }),
-    encoder({ name: "Space", abbr: "SPAC", id: 12, color: colors.network }),
+    encoder({ name: "A Type", abbr: "ATYP", id: 23, color: colors.auxA }),
+    encoder({ name: "B Type", abbr: "BTYP", id: 28, color: colors.auxB }),
     encoder({ name: "A Gain", abbr: "AGAN", id: 24, color: colors.auxA }),
     encoder({ name: "A Tone", abbr: "ATON", id: 25, color: colors.auxA }),
     encoder({ name: "A Bias", abbr: "ABIA", id: 42, color: colors.auxA, bipolar: true }),
@@ -361,35 +364,45 @@ const pages = [
     offset: 11, name: "Cents", abbr: "CTS", color: colors.tune,
     bipolar: true,
   }),
-  twoLaneRowsPage("RETURNS", {
-    offset: 15, name: "A Ret", abbr: "AR", color: colors.auxA,
-    bipolar: true,
-  }, {
-    offset: 16, name: "B Ret", abbr: "BR", color: colors.auxB,
-    bipolar: true,
-  }),
+  page("RETURNS", [
+    ...lanes(15, (lane, id) => encoder({
+      name: `A${lane + 1} Ret`, abbr: `A${lane + 1}RN`, id,
+      color: colors.auxA, bipolar: true,
+    })),
+    ...lanes(16, (lane, id) => encoder({
+      name: `B${lane + 1} Ret`, abbr: `B${lane + 1}RN`, id,
+      color: colors.auxB, bipolar: true,
+    })),
+  ]),
   page("ACTIONS", [
-    pushEncoder({ name: "New", abbr: "NEW", color: colors.action, pushNote: 120 }),
+    pushEncoder({ name: "Record", abbr: "REC", color: colors.action, pushNote: 112 }),
+    pushEncoder({ name: "Playback", abbr: "PLAY", color: colors.action, pushNote: 113 }),
+    pushEncoder({ name: "Clr Last", abbr: "CLRL", color: colors.action, pushNote: 114 }),
+    pushEncoder({ name: "Clr All", abbr: "CLRA", color: colors.action, pushNote: 115 }),
+    pushEncoder({ name: "Cancel", abbr: "CNCL", color: colors.action, pushNote: 116 }),
+    pushEncoder({ name: "Mx Flip", abbr: "FLIP", color: colors.matrixNext, pushNote: 117 }),
+    pushEncoder({ name: "Mx Latch", abbr: "LTCH", color: colors.matrixFar, pushNote: 118 }),
+    pushEncoder({ name: "New Sign", abbr: "SIGN", color: colors.matrixFar, pushNote: 119 }),
+    pushEncoder({ name: "Seed", abbr: "SEED", color: colors.action, pushNote: 120 }),
     pushEncoder({ name: "Rand Low", abbr: "RLO", color: colors.action, pushNote: 125 }),
     pushEncoder({ name: "Rand Mid", abbr: "RMD", color: colors.action, pushNote: 122 }),
     pushEncoder({ name: "Rand Hi", abbr: "RHI", color: colors.action, pushNote: 126 }),
     pushEncoder({ name: "Forget", abbr: "FORG", color: colors.action, pushNote: 121 }),
-    pushEncoder({ name: "Panic", abbr: "PNIC", color: colors.action, pushNote: 123 }),
-    pushEncoder({ name: "Clear Mx", abbr: "CLRM", color: colors.action, pushNote: 124 }),
-    encoder({ name: "Output", abbr: "OUT", id: 1, color: colors.output }),
-    ...Array.from({ length: 8 }, (_, lane) => pushEncoder({
-      name: `Kill L${lane + 1}`,
-      abbr: `K${lane + 1}`,
-      color: colors.action,
-      pushNote: 40 + lane,
-    })),
+    pushEncoder({ name: "Clear Mx", abbr: "MX0", color: colors.action, pushNote: 124 }),
+    encoder({ name: "BU16Ramp", abbr: "RAMP", id: 59, color: colors.movement }),
+    encoder({ name: "Output", abbr: "OUT!", id: 1, color: colors.output, pushNote: 123 }),
   ]),
 ];
 
+// Arrange the 4-by-3 page grid by application area: global/performance,
+// routing, then per-lane shaping.
+const pageLayoutOrder = [0, 1, 6, 11, 3, 4, 5, 10, 2, 7, 8, 9];
+const orderedPages = pageLayoutOrder.map((index) => pages[index]);
+
 // Keep the gesture transport under the same five encoder presses on every
-// performance page. ACTIONS deliberately retains its page-specific pushes.
+// performance page, including ACTIONS.
 const gesturePushNotes = [112, 113, 114, 115, 116];
-for (const currentPage of pages.slice(0, 11)) {
+for (const currentPage of orderedPages) {
   gesturePushNotes.forEach((note, encoderIndex) => {
     currentPage.encoders[encoderIndex].push_action = notePush(note);
   });
@@ -413,11 +426,11 @@ export const scene = {
   holdMode: 0,
   acceleration: 3,
   code: { code: "", fullScript: "", scriptName: "" },
-  pages,
+  pages: orderedPages,
 };
 
 function validParameterId(id) {
-  if (id >= 1 && id <= 56) return true;
+  if (id >= 1 && id <= 59) return true;
   if (id >= 100 && id <= 163) return true;
   if (id < 1000 || id > 1799) return false;
   const lane = Math.floor((id - 1000) / 100);
@@ -430,8 +443,13 @@ function validParameterId(id) {
 }
 
 const categoricalGlobalIds = new Set([
-  3, 4, 10, 20, 23, 28, 33, 34, 35, 44, 50, 51, 52, 53, 54,
+  3, 4, 10, 20, 23, 28, 33, 34, 35, 44, 50, 51, 52, 53, 54, 57, 58,
 ]);
+
+// These finite selectors are intentionally exposed as E16 turns. No Input
+// Mixer rounds their normalized 14-bit NRPN values to the nearest choice and
+// returns that choice to the encoder ring.
+const e16TurnCategoricalIds = new Set([20, 23, 28, 35]);
 
 function categoricalParameterId(id) {
   if (categoricalGlobalIds.has(id)) return true;
@@ -450,7 +468,7 @@ function parameterId(action) {
 function validCommandNote(note) {
   return (note >= 32 && note <= 73)
     || (note >= 80 && note <= 87)
-    || (note >= 112 && note <= 116)
+    || (note >= 112 && note <= 119)
     || (note >= 120 && note <= 126);
 }
 
@@ -544,7 +562,7 @@ export function validateScene(value) {
           if (!validParameterId(id)) {
             errors.push(`${control} addresses invalid NRPN parameter ${id}`);
           }
-          if (categoricalParameterId(id)) {
+          if (categoricalParameterId(id) && !e16TurnCategoricalIds.has(id)) {
             errors.push(`${control} assigns categorical parameter ${id} to a turn`);
           }
           if (action.lower !== 0 || action.upper !== kRawMaximum) {
@@ -562,7 +580,7 @@ export function validateScene(value) {
       }
     });
   });
-  value.pages.slice(0, 11).forEach((currentPage, pageIndex) => {
+  value.pages.forEach((currentPage, pageIndex) => {
     gesturePushNotes.forEach((expectedNote, encoderIndex) => {
       const push = currentPage.encoders[encoderIndex].push_action;
       if (push.type !== 1 || push.nr1 !== expectedNote) {
@@ -574,8 +592,13 @@ export function validateScene(value) {
 }
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const outputPath = process.argv.find((argument) => argument.endsWith(".oxie16"))
-  ?? path.join(scriptDirectory, "s3g_no_input_mixer.oxie16");
+const explicitOutputPath = process.argv.find((argument) => argument.endsWith(".oxie16"));
+const outputPaths = explicitOutputPath === undefined
+  ? [
+      path.join(scriptDirectory, "s3g_no_input_mixer.oxie16"),
+      path.join(scriptDirectory, "Scenes", "NIM P2.oxie16"),
+    ]
+  : [explicitOutputPath];
 const errors = validateScene(scene);
 if (errors.length !== 0) {
   for (const error of errors) console.error(`error: ${error}`);
@@ -584,13 +607,21 @@ if (errors.length !== 0) {
 
 const rendered = `${JSON.stringify(scene)}\n`;
 if (process.argv.includes("--check")) {
-  if (!fs.existsSync(outputPath)
-      || fs.readFileSync(outputPath, "utf8") !== rendered) {
-    console.error(`error: generated scene is stale: ${outputPath}`);
-    process.exit(1);
+  let stale = false;
+  for (const outputPath of outputPaths) {
+    if (!fs.existsSync(outputPath)
+        || fs.readFileSync(outputPath, "utf8") !== rendered) {
+      console.error(`error: generated scene is stale: ${outputPath}`);
+      stale = true;
+    } else {
+      console.log(`OXI E16 scene valid: ${outputPath}`);
+    }
   }
-  console.log(`OXI E16 scene valid: ${outputPath}`);
+  if (stale) process.exit(1);
 } else {
-  fs.writeFileSync(outputPath, rendered);
-  console.log(`Wrote OXI E16 scene: ${outputPath}`);
+  for (const outputPath of outputPaths) {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, rendered);
+    console.log(`Wrote OXI E16 scene: ${outputPath}`);
+  }
 }

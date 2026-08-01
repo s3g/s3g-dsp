@@ -26,17 +26,17 @@
       <main class="content" id="content">
         <h1>Macro Shred</h1>
 
-        <p><code>s3g Macro Shred</code> is a pressure, wavefolding, and bounded resonant-feedback processor designed for voice and microphone input. It is available as Mono, 8-channel, and 24-channel CLAP plugins.</p>
+        <p><code>s3g Macro Shred</code> is a pressure, circuit-distortion, and bounded resonant-feedback processor designed for voice and microphone input. It is available as Mono, 8-channel, and 24-channel CLAP plugins.</p>
 
-        <p>Wavefolding reflects peaks back into the signal instead of clipping them flat, creating new edges and harmonics. The resonant loop can follow the input's broad spectral center, so vocal color and articulation steer the processed tone.</p>
+        <p>The default <code>SHRED</code> circuit reflects peaks back into the signal instead of clipping them flat. Seven additional NIM-derived drive circuits provide compressed, hard-clipped, asymmetric, sagging, and gated alternatives. The resonant loop can follow the input's broad spectral center, so vocal color and articulation steer the processed tone.</p>
 
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/macro-shred.png" aria-label="Open high-resolution Macro Shred GUI screenshot">
-              <img src="assets/plugin-guis/macro-shred.png" alt="Macro Shred 8ch pressure, wavefolding, resonant feedback, centroid tuning, lane relationships, and containment controls" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/macro-shred.png" alt="Macro Shred 8ch circuit selection, pressure, distortion, resonant feedback, centroid tuning, lane relationships, and containment controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Macro Shred 8ch with pressure, wavefolding, resonant feedback, centroid tuning, lane relationships, and containment.</figcaption>
+          <figcaption>Macro Shred 8ch with circuit selection, pressure, resonant feedback, centroid tuning, lane relationships, and containment.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -44,7 +44,7 @@
         <ol>
           <li>Insert the mono, 8-channel, or 24-channel build on a matching REAPER track, route the input, and begin with a low monitor level.</li>
           <li>Route the result to the main speakers, a direct panner, or a stereo or quad fold-down, then begin playback. Another effect may precede that destination when its build matches the current bus width.</li>
-          <li>Raise <code>PRESSURE</code>, <code>SHRED</code>, <code>BODY</code>, and <code>MIX</code> to establish the core voice treatment.</li>
+          <li>Choose a <code>CIRCUIT</code>, then raise <code>PRESSURE</code>, <code>SHRED</code>, <code>BODY</code>, and <code>MIX</code> to establish the core voice treatment.</li>
           <li>Introduce <code>FEEDBACK</code> deliberately, then use <code>COLOR</code> and <code>TUNE</code> to set its fixed or centroid-following behavior.</li>
           <li>On multichannel builds, shape the lane relationships and confirm containment and final output level before automating.</li>
         </ol>
@@ -66,17 +66,38 @@
             <tr><th>Control</th><th>Meaning</th></tr>
           </thead>
           <tbody>
+            <tr><td>CIRCUIT</td><td>Selects SHRED, WOOL, RAT, ZONE A/B, FUZZ I/II, or DIODE. Changes crossfade over 20 ms.</td></tr>
             <tr><td>INPUT</td><td>Applies gain before envelope analysis, pressure, and the feedback loop.</td></tr>
             <tr><td>PRESSURE</td><td>Raises pre-saturation density and compression-like vocal force.</td></tr>
-            <tr><td>SHRED</td><td>Morphs the nonlinear path from saturation toward stronger wavefolding.</td></tr>
+            <tr><td>SHRED</td><td>Sets circuit intensity. In the SHRED circuit it morphs from saturation toward stronger wavefolding; in the other circuits it acts as gain, sustain, or distortion.</td></tr>
             <tr><td>FEEDBACK</td><td>Raises the bounded internal resonant loop. It is not an acoustic microphone-feedback path.</td></tr>
-            <tr><td>COLOR</td><td>Sets the fixed loop frequency. With centroid tuning active, it biases the tracked frequency by as much as one octave down or up.</td></tr>
+            <tr><td>COLOR</td><td>Voices the selected circuit and sets the fixed loop frequency. With centroid tuning active, it also biases the tracked frequency by as much as one octave down or up.</td></tr>
             <tr><td>REACT</td><td>Lets input energy and transients push pressure and feedback more strongly.</td></tr>
             <tr><td>TUNE</td><td>Blends from the fixed Color frequency toward a smoothed estimate of the input spectral centroid.</td></tr>
             <tr><td>BODY</td><td>Restores a lower, cleaner vocal component alongside the folded signal.</td></tr>
             <tr><td>MIX / OUTPUT</td><td>Sets the processed blend and final level.</td></tr>
           </tbody>
         </table>
+
+        <h2 id="circuits">Circuits</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Circuit</th><th>Character</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SHRED</td><td>The original Macro Shred saturation and wavefolding path. It remains the default for old sessions and presets.</td></tr>
+            <tr><td>WOOL</td><td>Two compressed clipping stages with interstage recovery and a broad tilt.</td></tr>
+            <tr><td>RAT</td><td>Frequency-dependent high gain, hard clipping, and a variable post-filter.</td></tr>
+            <tr><td>ZONE A</td><td>Tighter upper-mid focus after two high-gain stages.</td></tr>
+            <tr><td>ZONE B</td><td>A lower, wider, more asymmetric Zone response.</td></tr>
+            <tr><td>FUZZ I</td><td>Asymmetric saturation with envelope-driven voltage sag.</td></tr>
+            <tr><td>FUZZ II</td><td>Gated comparator fuzz with hysteretic memory.</td></tr>
+            <tr><td>DIODE</td><td>A color-variable symmetric-to-asymmetric diode curve.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The seven added models use the same shared transfer kernels as the corresponding NIM inserts. Macro Shred supplies its own pressure stage, resonant loop, body blend, lane relationships, and containment around those kernels.</p>
 
         <h2 id="centroid-tuning">Centroid Tuning</h2>
 
@@ -107,9 +128,9 @@
             <span>Previous</span>
             Macro Effects
           </a>
-          <a class="page-nav-link next" href="spectral-buffer-processors.html">
+          <a class="page-nav-link next" href="macro-fracture.html">
             <span>Next</span>
-            Spectral / Buffer Effects
+            Macro Fracture
           </a>
         </nav>
       </main>
@@ -127,12 +148,14 @@
         <div class="toc-section">
           <h2>Macro Effect Pages</h2>
           <a href="macro-shred.html">Macro Shred</a>
+          <a href="macro-fracture.html">Macro Fracture</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#versions">Versions and Routing</a>
           <a href="#voice-controls">Voice Controls</a>
+          <a href="#circuits">Circuits</a>
           <a href="#centroid-tuning">Centroid Tuning</a>
           <a href="#relationships">Relationships</a>
           <a href="#containment">Containment</a>

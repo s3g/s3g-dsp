@@ -67,7 +67,14 @@ The No Input Mixer application is emitted as
 - Core Audio device identity is persisted by UID rather than `AudioDeviceID`.
 - MIDI input reaches the embedded processors through bounded real-time queues;
   CoreMIDI transmission is drained on the main thread.
-- Controller feedback is disabled until the user chooses one MIDI destination.
+- Controller feedback is disabled until the user chooses destinations. No
+  Input Mixer exposes separate E16 and Grid destinations so NRPN ring feedback
+  and signed BU16 matrix LEDs can operate simultaneously.
+- The embedded processor exposes the same `BU16 FLIP` and `BU16 LATCH` modes
+  as the CLAP: pressure-morph an existing point across polarity, or create,
+  pressure-set, latch, and toggle signed performance points. NRPN parameter 58
+  selects the sign used for new latches. The shared `BU16 Ramp` at NRPN 59
+  fades both modes from 20 to 10000 ms and defaults to 1000 ms.
 
 ## Follow-up infrastructure
 
