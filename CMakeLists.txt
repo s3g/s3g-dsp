@@ -17,6 +17,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(s3g_dsp INTERFACE)
 target_include_directories(s3g_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
 
+# Future-release previews are source-build opt-ins. They are intentionally
+# absent from the active 0.6.0-pre bundle manifest and release-gate inventory.
+option(S3G_BUILD_FUTURE_COMPONENTS
+  "Build future-release DSP previews that are excluded from 0.6.0-pre" OFF)
+
 include(FetchContent)
 include(cmake/S3GRealtimeAllocProbe.cmake)
 
@@ -113,6 +118,12 @@ endif()
 
 add_executable(s3g_environmental_encoder_smoke tests/environmental_encoder_smoke.cpp)
 target_link_libraries(s3g_environmental_encoder_smoke PRIVATE s3g_dsp)
+
+if(S3G_BUILD_FUTURE_COMPONENTS)
+  add_executable(s3g_ambi_horizon_encoder_smoke
+    tests/ambi_horizon_encoder_smoke.cpp)
+  target_link_libraries(s3g_ambi_horizon_encoder_smoke PRIVATE s3g_dsp)
+endif()
 
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
@@ -218,6 +229,13 @@ if(BUILD_TESTING)
       LABELS "non_nim;smoke"
       TIMEOUT 300)
   endforeach()
+
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_test(NAME s3g_ambi_horizon_encoder_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
+    set_tests_properties(s3g_ambi_horizon_encoder_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+  endif()
 
   add_test(NAME s3g_no_input_mixer_smoke
     COMMAND $<TARGET_FILE:s3g_no_input_mixer_smoke>)
@@ -460,6 +478,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_link_libraries(s3g_fractional_waveguide_network_clap_smoke
     PRIVATE ${CMAKE_DL_LIBS})
 
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_executable(s3g_ambi_horizon_encoder_clap_smoke
+      tests/ambi_horizon_encoder_clap_smoke.cpp)
+    target_include_directories(s3g_ambi_horizon_encoder_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_horizon_encoder_clap_smoke PRIVATE
+      ${CMAKE_DL_LIBS})
+  endif()
+
   if(APPLE)
     add_executable(s3g_ambi_pulsar_encoder_gui_smoke tests/pulsar_encoder_gui_smoke.mm)
     target_include_directories(s3g_ambi_pulsar_encoder_gui_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
@@ -498,6 +525,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
   add_subdirectory(plugins/clap_ambi_encoder_medium)
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_ambi_horizon_encoder)
+  endif()
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
   add_subdirectory(plugins/clap_no_input_mixer)
@@ -775,6 +805,61 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_encoder_family_gui_smoke
       s3g_ambi_encoder_medium_clap
     COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
+
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    set(S3G_HORIZON_REALTIME_REPORT
+      "${CMAKE_BINARY_DIR}/ambi-horizon-realtime.json")
+    add_custom_target(audit_ambi_horizon_future
+      COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>
+      COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_clap_smoke>
+        $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
+        org.s3g.s3g-dsp.ambi-horizon-encoder-64
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 48000,96000 --blocks 16,32,64,256
+        --event-bursts 1,8,32 --distributed-events
+        --json "${S3G_HORIZON_REALTIME_REPORT}"
+        $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
+        org.s3g.s3g-dsp.ambi-horizon-encoder-64
+      COMMAND ${CMAKE_COMMAND}
+        "-DREPORT=${S3G_HORIZON_REALTIME_REPORT}"
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_horizon_realtime_report.cmake
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
+        org.s3g.s3g-dsp.ambi-horizon-encoder-64
+        1160 760 "s3g Ambi Encoder Horizon" responsive
+      DEPENDS
+        s3g_ambi_horizon_encoder_smoke
+        s3g_ambi_horizon_encoder_clap_smoke
+        s3g_clap_realtime_audit
+        s3g_encoder_family_gui_smoke
+        s3g_ambi_horizon_encoder_clap
+      COMMENT "Validating future-release Horizon DSP, realtime CLAP, and GUI")
+
+    if(TARGET s3g_realtime_alloc_probe)
+      set(S3G_HORIZON_ALLOC_REPORT
+        "${CMAKE_BINARY_DIR}/ambi-horizon-realtime-alloc.json")
+      add_custom_target(audit_ambi_horizon_future_alloc
+        COMMAND ${CMAKE_COMMAND} -E env
+          "DYLD_INSERT_LIBRARIES=$<TARGET_FILE:s3g_realtime_alloc_probe>"
+          $<TARGET_FILE:s3g_clap_realtime_audit>
+          --sample-rates 48000,96000 --blocks 16,32,64,256
+          --iterations 500 --event-bursts 1,8,32 --distributed-events
+          --allocation-probe --json "${S3G_HORIZON_ALLOC_REPORT}"
+          $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
+          org.s3g.s3g-dsp.ambi-horizon-encoder-64
+        COMMAND ${CMAKE_COMMAND}
+          "-DREPORT=${S3G_HORIZON_ALLOC_REPORT}"
+          -DREQUIRE_ZERO_ALLOC=TRUE
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_horizon_realtime_report.cmake
+        DEPENDS
+          s3g_ambi_horizon_encoder_clap
+          s3g_clap_realtime_audit
+          s3g_realtime_alloc_probe
+        COMMENT "Allocation-probing Horizon underrun scenarios")
+      add_dependencies(audit_ambi_horizon_future
+        audit_ambi_horizon_future_alloc)
+    endif()
+  endif()
 
   # Discover the module targets contributed by each already-configured CLAP
   # subdirectory so release checks cannot run against a partial build.

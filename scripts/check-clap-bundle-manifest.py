@@ -28,6 +28,12 @@ SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SAFE_LEGACY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\*?$")
 VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
+# Source-build previews may have CLAP CMake directories before they are
+# promoted into the active package. Keeping the exception explicit here makes
+# the release audit fail if an ordinary plugin is omitted accidentally, while
+# also making preview status reviewable in the same place as the manifest rule.
+FUTURE_ONLY_CMAKE_DIRECTORIES = {"clap_ambi_horizon_encoder"}
+
 
 @dataclass(frozen=True)
 class ActiveBundle:
@@ -319,9 +325,10 @@ def validate_source_metadata(
         audit.error(location(top_cmake), f"cannot read top-level CMake file: {exc}")
         return
 
-    active_directories = set(
+    configured_directories = set(
         re.findall(r"add_subdirectory\(plugins/(clap_[A-Za-z0-9_]+)\)", top_text)
     )
+    active_directories = configured_directories - FUTURE_ONLY_CMAKE_DIRECTORIES
     manifest_directories = {
         PurePosixPath(bundle.build_path).parts[0]
         for bundle in bundles
@@ -334,6 +341,27 @@ def validate_source_metadata(
             location(active_manifest),
             f"manifest directory {directory!r} is not active in the top-level CMake file",
         )
+    for directory in sorted(
+        manifest_directories & FUTURE_ONLY_CMAKE_DIRECTORIES
+    ):
+        audit.error(
+            location(active_manifest),
+            f"future-only CMake directory {directory!r} must not be in the active manifest",
+        )
+    for directory in sorted(
+        configured_directories & FUTURE_ONLY_CMAKE_DIRECTORIES
+    ):
+        gated = re.search(
+            rf"if\(S3G_BUILD_FUTURE_COMPONENTS\)\s*"
+            rf"add_subdirectory\(plugins/{re.escape(directory)}\)\s*endif\(\)",
+            top_text,
+        )
+        if gated is None:
+            audit.error(
+                location(top_cmake),
+                f"future-only CMake directory {directory!r} is not gated by "
+                "S3G_BUILD_FUTURE_COMPONENTS",
+            )
 
     cache: dict[str, tuple[Path, str, list[Path], str]] = {}
     for bundle in bundles:

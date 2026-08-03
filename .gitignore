@@ -19,3 +19,19 @@ __pycache__/
 
 # Local high-resolution GUI sources; docs use the rendered PNGs.
 docs/assets/**/masters/*.pdf
+
+# Local social/video production. Keep reel automation, capture notes, raw
+# ScreenFlow sessions, and rendered movies out of the GitHub repository.
+**/*[Rr]eel*
+**/*[Ii]nstagram*
+**/*[Ss]creen[Ff]low*
+*.scc
+*.scc.sqlite3
+*.screenflow
+*.screenflowf
+*.mp4
+*.m4v
+*.mov
+*.webm
+*.mkv
+*.avi

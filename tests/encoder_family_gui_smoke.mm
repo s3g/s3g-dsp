@@ -1083,8 +1083,11 @@ int main(int argc, char** argv)
                 pluginId,
                 "org.s3g.s3g-dsp.fault") == 0;
         const bool noInputMixer = std::strcmp(
-                pluginId,
-                "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
+            pluginId,
+            "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
+        const bool horizonEncoder = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-horizon-encoder-64") == 0;
         const bool analyzer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.multichannel-meter-64") == 0
@@ -1150,6 +1153,77 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && horizonEncoder) {
+            // Reproduce a host such as REAPER that drains the Cocoa
+            // autorelease pool between opening a menu and redrawing it.
+            // Dynamically generated static labels must own their strings.
+            failureStage = "Horizon preset menu autorelease lifetime";
+            const NSRect presetAnchor =
+                s3g::clap_gui::encoderTitleActionRect(
+                    nativeWidth, nativeHeight,
+                    s3g::gui_layout::EncoderTitleAction::Preset);
+            @try {
+                @autoreleasepool {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(presetAnchor),
+                            NSMidY(presetAnchor)))];
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+                const NSPoint secondPreset = NSMakePoint(
+                    NSMidX(presetAnchor),
+                    NSMaxY(presetAnchor) + 2.0 + 21.0 * 1.5);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, secondPreset)];
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+
+                // The row has a generous hit target, but value mapping must
+                // use the exact 82 px track drawn from panelX + 108.
+                const auto clickHorizonSlider = [&](CGFloat x) {
+                    const NSPoint point = NSMakePoint(x, 84.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                };
+                double reported = 0.0;
+                clickHorizonSlider(738.0);
+                ok = params->get_value(plugin, 24u, &reported)
+                    && std::fabs(reported - (-60.0)) < 0.001;
+                if (ok) {
+                    clickHorizonSlider(820.0);
+                    ok = params->get_value(plugin, 24u, &reported)
+                        && std::fabs(reported - 12.0) < 0.001;
+                }
+                if (ok) clickHorizonSlider(799.5); // Restore -6 dB.
+                const auto clickAzimuth = [&](CGFloat x) {
+                    const NSPoint point = NSMakePoint(x, 110.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                };
+                if (ok) {
+                    clickAzimuth(1004.0);
+                    ok = params->get_value(plugin, 14u, &reported)
+                        && std::fabs(reported - 180.0) < 0.001;
+                }
+                if (ok) {
+                    clickAzimuth(1086.0);
+                    ok = params->get_value(plugin, 14u, &reported)
+                        && std::fabs(reported - (-180.0)) < 0.001;
+                }
+                if (ok) clickAzimuth(1045.0); // Restore 0 degrees.
+            } @catch (NSException* exception) {
+                std::cerr << "Horizon preset lifetime exception: "
+                          << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         if (ok && queuedOwnershipEncoder && !documentationCapture) {
             failureStage = "queued GUI gesture publication";
             clap_param_info_t outputInfo {};
