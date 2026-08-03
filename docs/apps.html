@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Standalone Apps - s3g-dsp</title>
+    <meta name="description" content="Standalone macOS applications built from shared s3g-dsp processors, beginning with s3g No Input Mixer.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Standalone Apps</h1>
+
+        <p>s3g standalone apps make selected instruments available without a CLAP host. They reuse the same processor implementations as the plug-ins, while adding the audio-device, output-routing, MIDI-device, session, and diagnostic controls needed to run as independent macOS applications.</p>
+
+        <div class="callout">
+          <p>The apps are separate downloads. Installing an app does not install, update, or require the s3g-dsp CLAP collection.</p>
+        </div>
+
+        <h2 id="available-apps">Available Apps</h2>
+
+        <h3><a href="no-input-mixer-standalone.html">s3g No Input Mixer</a></h3>
+
+        <p>The standalone No Input Mixer embeds the same eight-lane feedback instrument as <a href="processor-no-input-mixer.html"><code>s3g Processor No Input Mixer 8ch</code></a>. It adds direct Core Audio operation, Stereo Autogain, Quad Autogain, direct eight-channel output, selectable hardware-output banks, Safe Mute and persistent Panic controls, CoreMIDI source and feedback selection, portable gesture sessions, and realtime diagnostics.</p>
+
+        <p><a href="no-input-mixer-standalone.html">Open the No Input Mixer Standalone guide</a> for installation, first launch, output routing, MIDI, saved settings, and troubleshooting.</p>
+
+        <h2 id="shared-dsp">Shared DSP, Separate Application</h2>
+
+        <p>The sound engine is documented once on the corresponding processor page. App guides concentrate on the parts that differ outside a host. This keeps the plug-in and app aligned when the shared DSP changes without asking app users to work through REAPER-specific setup.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Documentation</th><th>What it covers</th></tr></thead>
+          <tbody>
+            <tr><td><a href="processor-no-input-mixer.html">No Input Mixer processor</a></td><td>The matrix, lanes, feedback network, movement, behavior, effects, presets, randomization, and safety controls shared by the CLAP and app.</td></tr>
+            <tr><td><a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a></td><td>The shared MIDI protocol, DIY mappings, OXI E16 scene, Intech Grid BU16 layouts, LED feedback, and optional gesture recorder.</td></tr>
+            <tr><td><a href="no-input-mixer-standalone.html">No Input Mixer Standalone</a></td><td>Installing and running the app, choosing Core Audio and CoreMIDI devices, routing hardware outputs, saving gesture files, and using diagnostics.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="platform">Current Platform</h2>
+
+        <p>The current pre-release app is an Apple-silicon-only <code>arm64</code> build for macOS 15 or newer. It is not compiled for Intel Macs and is not a universal binary. See the individual app guide for its current release and Gatekeeper instructions.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install CLAP Plugins
+          </a>
+          <a class="page-nav-link next" href="no-input-mixer-standalone.html">
+            <span>Next</span>
+            No Input Mixer Standalone
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Apps</h2>
+          <a href="apps.html">Overview</a>
+          <a href="no-input-mixer-standalone.html">No Input Mixer</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#available-apps">Available Apps</a>
+          <a href="#shared-dsp">Shared DSP</a>
+          <a href="#platform">Current Platform</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

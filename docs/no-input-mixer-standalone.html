@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Install No Input Mixer Standalone - s3g-dsp</title>
-    <meta name="description" content="Install and safely configure the Apple-silicon s3g No Input Mixer standalone app on macOS.">
+    <title>No Input Mixer Standalone App - s3g-dsp</title>
+    <meta name="description" content="Install and use the s3g No Input Mixer standalone app, including Core Audio output routing, MIDI devices, gesture sessions, safety, and diagnostics.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -14,6 +14,7 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
         <a href="multichannel.html">Multichannel</a>
         <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
@@ -24,13 +25,21 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Install No Input Mixer Standalone</h1>
+        <h1>No Input Mixer Standalone App</h1>
 
         <p><strong>s3g No Input Mixer</strong> runs the same No Input Mixer DSP outside a plugin host and adds Stereo Autogain, Quad Autogain, and direct eight-channel Core Audio output. The app embeds its processors: REAPER and the separately distributed s3g-dsp CLAP package are not required.</p>
 
         <div class="callout">
           <p>The current pre-release is an Apple-silicon-only <code>arm64</code> build for macOS 15 or newer. It is ad-hoc signed but not Apple notarized, so macOS requires one Gatekeeper approval for the installer.</p>
         </div>
+
+        <h2 id="shared-instrument">One Instrument, Two Ways to Run It</h2>
+
+        <p>The app and <a href="processor-no-input-mixer.html"><code>s3g Processor No Input Mixer 8ch</code></a> share the matrix, feedback network, lanes, effects, movement, behavior, presets, randomization, safety processing, and processor state format. Their storage remains separate: the app saves preferences locally, while a host saves the CLAP state in its project. Use the <a href="processor-no-input-mixer.html">No Input Mixer processor guide</a> for the common controls.</p>
+
+        <p>The standalone opens no hardware audio inputs. The no-input feedback network generates its signal internally, just as the CLAP instrument does.</p>
+
+        <p>This page covers the standalone layer: installation, Core Audio devices, hardware-output modes, Safe Mute, CoreMIDI routing, embedded gesture sessions, remembered settings, and diagnostics. The <a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a> page remains the reference for the MIDI protocol and E16, BU16, and DIY controller mappings.</p>
 
         <h2 id="download">Download and Install</h2>
 
@@ -68,11 +77,69 @@
           <li><code>PANIC</code> remains available in the output strip on every processor page. <code>EDIT OUTPUT</code> opens the Stereo or Quad Autogain controls; Direct 8 sends the eight NIM lanes directly to the selected hardware bank.</li>
         </ol>
 
+        <h2 id="output-routing">Output Modes and Hardware Routing</h2>
+
+        <p>The persistent <code>ROUTE</code> strip sits above every No Input Mixer page. It contains the output mode, Core Audio device, hardware bank, output editor, Safe Mute control, Panic, tempo, MIDI setup, and a status line. Changing the NIM page never hides these controls.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/app-guis/no-input-mixer-standalone.route.png" aria-label="Open the No Input Mixer standalone main-window screenshot">
+              <img src="assets/app-guis/no-input-mixer-standalone.route.png" alt="s3g No Input Mixer standalone main window with the NIM Patch page below the persistent Route strip, showing Stereo, Quad, Direct 8, audio device, output bank, Edit Output, Audio On, Panic, tempo, MIDI, and Safe Muted status" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The standalone's persistent <code>ROUTE</code> strip stays above every NIM page. This safe-muted stereo route shows the output mode, Core Audio device and bank, output editor, monitoring gate, Panic, tempo, MIDI setup, and status.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Hardware outputs</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td><code>STEREO · 2CH</code></td><td>Two consecutive outputs</td><td>Folds the eight NIM lanes into stereo through the embedded Output Autogain Stereo processor. <code>EDIT OUTPUT</code> opens its layout, width, rotation, weighting, 3D, autogain, and trim controls.</td></tr>
+            <tr><td><code>QUAD · 4CH</code></td><td>Four consecutive outputs</td><td>Folds the eight lanes to Left, Right, Right Back, and Left Back through Output Autogain Quad. <code>EDIT OUTPUT</code> opens the quad fold-down controls.</td></tr>
+            <tr><td><code>DIRECT · 8CH</code></td><td>Eight consecutive outputs</td><td>Sends NIM lanes 1–8 directly to the selected hardware bank. No fold-down processor is used, so <code>EDIT OUTPUT</code> is unavailable.</td></tr>
+          </tbody>
+        </table>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/app-guis/no-input-mixer-standalone.quad-output.png" aria-label="Open the Quad Autogain Output window screenshot">
+              <img src="assets/app-guis/no-input-mixer-standalone.quad-output.png" alt="Quad Autogain Output window with input count set to eight and the four-channel layout, routing, autogain, output meters, and trim controls visible" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption><code>EDIT OUTPUT</code> opens the embedded fold-down editor. Keep <code>IN</code> at <code>8</code>; Stereo opens the corresponding two-channel editor, while Direct 8 bypasses this stage.</figcaption>
+        </figure>
+
+        <p>In either Output Editor, leave <code>IN</code> at <code>8</code> so all eight NIM lanes reach the fold-down. A lower value deliberately omits higher-numbered lanes; a value above eight cannot add sources because the embedded NIM chain supplies exactly eight. See <a href="output-autogain-stereo.html">Output Autogain Stereo</a> and <a href="output-autogain-quad.html">Output Autogain Quad</a> for the shared layout and gain controls.</p>
+
+        <p>A mode is available only when the selected device has enough outputs. The <code>OUT</code> menu lists complete, non-overlapping banks for that mode: for example, an eight-output device offers four stereo banks, two quad banks, or one direct eight-channel bank. Check the device and displayed channel numbers before selecting <code>AUDIO ON</code>.</p>
+
+        <p>The app follows the selected Core Audio device's current sample rate and hardware buffer size; it does not add a separate buffer setting. Configure those values in the device's control software when available, then reselect the device or relaunch the app after a hardware configuration change. The status line reports the active sample rate, and Realtime Diagnostics adds buffer and timing details.</p>
+
+        <p><code>AUDIO ON</code> opens the final monitoring gate; selecting it changes the status from <code>SAFE MUTED</code> to <code>LIVE</code>. Selecting <code>AUDIO OFF</code> closes that gate without changing the patch. Choosing another Core Audio device also returns the app to Safe Mute. <code>PANIC</code> invokes the NIM emergency fade/reset and returns the app to Safe Mute. After a panic, inspect or reseed the network before turning audio on again.</p>
+
         <h2 id="midi">MIDI and Gesture Sessions</h2>
 
-        <p>MIDI is optional. Select <code>MIDI</code> in the output strip and enable only the connected CoreMIDI sources that should control NIM. The app uses the same E16, BU16, NRPN, note/velocity, polarity, and LED-feedback protocol as the CLAP processor. See <a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a> for the supplied controller setup and complete DIY mapping specification.</p>
+        <p>MIDI is optional. Select <code>MIDI</code> in the output strip and use <code>INPUT SOURCES</code> to enable only the CoreMIDI devices that should control NIM. Before the first selection is configured, all connected sources are enabled; review this menu when first setting up the app. The list is rescanned whenever the MIDI window opens and includes <code>ENABLE ALL</code> and <code>DISABLE ALL</code>. Unlike the CLAP processor, the app opens these hardware sources itself rather than receiving whatever a host routes to a track.</p>
+
+        <p><code>GRID FEEDBACK</code> selects the destination for BU16 colors, and <code>NRPN FEEDBACK</code> selects the destination for E16 ring and state updates. Either destination can be set to <code>FEEDBACK OFF</code>. Turn E16 USB Thru off whenever returned NRPN feedback is enabled, or the controller can send the returned state back into the app.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/app-guis/no-input-mixer-standalone.midi.png" aria-label="Open the No Input Mixer MIDI Routing window screenshot">
+              <img src="assets/app-guis/no-input-mixer-standalone.midi.png" alt="No Input Mixer MIDI window showing input-source selection, BU16 Grid feedback, E16 NRPN feedback, and Edit, Load, and Save NIM Gesture controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The app manages hardware MIDI directly. Select input sources and controller-feedback destinations here; gesture recordings can be edited, loaded, or saved without a separate host.</figcaption>
+        </figure>
+
+        <p>The app uses the same E16, BU16, NRPN, note/velocity, polarity, and LED-feedback protocol as the CLAP processor. See <a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a> for the supplied controller setup and complete DIY mapping specification.</p>
 
         <p>Embedded NIM Gesture recordings are deliberately transient. Unsaved loops are cleared when the app quits, Play is not restored on launch, and the last session is never reopened automatically. Use <strong>SAVE SESSION</strong> to export a <code>.nimgesture</code> file and <strong>LOAD SESSION</strong> to load one deliberately. A loaded session remains paused until Play is turned on.</p>
+
+        <h2 id="saved-settings">What the App Remembers</h2>
+
+        <p>When the app quits normally, it remembers the No Input Mixer processor state, Stereo and Quad Autogain settings, selected output mode and bank, tempo, Core Audio device, enabled MIDI input sources, and E16/Grid feedback destinations. It restores the saved audio device when available and otherwise uses the current default output device.</p>
+
+        <p>For safety, the final audio gate always starts muted. Gesture recordings, Gesture Play, realtime diagnostic counters, and an exported session's file location are not restored automatically. This separates a reusable processor setup from a deliberate performance recording.</p>
 
         <h2 id="manual">Manual Installation</h2>
 
@@ -97,19 +164,21 @@
 
         <p>Removing the app does not remove separately installed s3g-dsp CLAP plugins or user-saved <code>.nimgesture</code> sessions.</p>
 
-        <h2 id="troubleshooting">Troubleshooting and Diagnostics</h2>
+        <h2 id="diagnostics">Troubleshooting and Diagnostics</h2>
 
         <ul>
           <li>If the installer is blocked, repeat the <strong>Open Anyway</strong> sequence within one hour of the attempted launch.</li>
           <li>If a route mode is unavailable, select a Core Audio device with the required two, four, or eight hardware outputs.</li>
           <li>If the strip shows <code>AUDIO ERROR</code>, confirm that the selected device is connected and not exclusively held by another application, then select another device if necessary.</li>
+          <li>Restart the app after connecting a new audio interface or a new E16/Grid feedback destination. Audio devices and MIDI feedback destinations are listed at launch; MIDI input sources alone are rescanned while the app is running.</li>
+          <li>If audio crackles and the diagnostics report overloads or late callbacks, increase the hardware buffer in the device's control software, reselect the device or restart the app, reset the diagnostic counters, and test again.</li>
           <li>Choose <strong>Show Realtime Diagnostics</strong> from the application menu to observe callback timing, Core Audio overloads and discontinuities, embedded processing errors, non-finite output, and MIDI drops. <strong>Reset Realtime Diagnostics</strong> starts a fresh observation and <strong>Copy Realtime Diagnostics Report</strong> copies the current configuration and counters.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="installing-plugins.html">
+          <a class="page-nav-link" href="apps.html">
             <span>Previous</span>
-            Install CLAP Plugins
+            Standalone Apps
           </a>
           <a class="page-nav-link next" href="stereo-listening.html">
             <span>Next</span>
@@ -120,24 +189,25 @@
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Setup Pages</h2>
-          <a href="index.html">Getting Started</a>
-          <a href="building-from-source.html">Build From Source</a>
-          <a href="installing-plugins.html">Install CLAP Plugins</a>
-          <a href="no-input-mixer-standalone.html">Install NIM App</a>
-          <a href="stereo-listening.html">Stereo Listening</a>
+          <h2>Apps</h2>
+          <a href="apps.html">Overview</a>
+          <a href="no-input-mixer-standalone.html">No Input Mixer</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#shared-instrument">Shared Instrument</a>
           <a href="#download">Download and Install</a>
           <a href="#location">Location and Updates</a>
           <a href="#first-launch">First Launch</a>
+          <a href="#output-routing">Output Routing</a>
           <a href="#midi">MIDI and Sessions</a>
+          <a href="#saved-settings">Saved Settings</a>
           <a href="#manual">Manual Installation</a>
           <a href="#uninstall">Uninstall</a>
-          <a href="#troubleshooting">Troubleshooting</a>
+          <a href="#diagnostics">Diagnostics</a>
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

@@ -21,6 +21,7 @@ EXPECTED_TOP_NAV = [
     "index.html",
     "building-from-source.html",
     "installing-plugins.html",
+    "apps.html",
     "multichannel.html",
     "ambisonics.html",
     "instruments.html",
@@ -28,6 +29,10 @@ EXPECTED_TOP_NAV = [
     "https://github.com/s3g/s3g-dsp",
 ]
 EXPECTED_SHARED_TOC_LINKS = {
+    "Apps": [
+        "apps.html",
+        "no-input-mixer-standalone.html",
+    ],
     "Ambisonics": [
         "ambisonics.html",
         "interpreting-color.html",
@@ -235,6 +240,7 @@ DOC_SEQUENCE = [
     "index.html",
     "building-from-source.html",
     "installing-plugins.html",
+    "apps.html",
     "no-input-mixer-standalone.html",
     "stereo-listening.html",
     "multichannel.html",
@@ -327,6 +333,7 @@ REDIRECT_PAGES = {
     "processors.html",
 }
 NON_PRODUCT_PAGE_NAMES = {
+    "apps.html",
     "ambisonics.html",
     "building-from-source.html",
     "index.html",
@@ -360,6 +367,7 @@ EXPECTED_EARLY_ORDER_WORKFLOW_PAGES = (
     }
 )
 EXPECTED_SHARED_TOC_PAGES = {
+    "Apps": EXPECTED_SHARED_TOC_LINKS["Apps"],
     "Multichannel": DOC_SEQUENCE[
         DOC_SEQUENCE.index("multichannel.html") : DOC_SEQUENCE.index("ambisonics.html")
     ],

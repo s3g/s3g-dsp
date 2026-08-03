@@ -38,7 +38,7 @@ separately rather than being embedded in the CLAP collection archive.
   calibration, and distributed-output tools.
 - Includes 28 VOT wavetable banks and the synthetic Ambi Vox demonstration
   voicebank, with third-party attribution and loading instructions.
-  Documentation now includes 90 checked HTML pages with native GUI captures,
+  Documentation now includes 91 checked HTML pages with native GUI captures,
   responsive-layout checks, signal-flow explanations, parameter references,
   and installation guidance.
 
