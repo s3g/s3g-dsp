@@ -172,6 +172,17 @@ add_custom_target(audit_clap_bundle_installer
   COMMENT "Testing canonical CLAP install and legacy migration"
   VERBATIM)
 
+if(APPLE)
+  add_custom_target(audit_no_input_mixer_app_installer
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_input_mixer_app_installer_smoke.sh
+    DEPENDS
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_input_mixer_app_installer_smoke.sh
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/install-no-input-mixer-app.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Testing No Input Mixer user-app install, upgrade, and rollback"
+    VERBATIM)
+endif()
+
 if(BUILD_TESTING)
   set(S3G_NON_NIM_CORE_SMOKE_TARGETS
     s3g_dsp_smoke
@@ -218,6 +229,13 @@ if(BUILD_TESTING)
   set_tests_properties(clap_bundle_installer_smoke PROPERTIES
     LABELS "non_nim;packaging" TIMEOUT 120)
 
+  if(APPLE)
+    add_test(NAME no_input_mixer_app_installer_smoke
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_input_mixer_app_installer_smoke.sh)
+    set_tests_properties(no_input_mixer_app_installer_smoke PROPERTIES
+      LABELS "nim;packaging" TIMEOUT 120)
+  endif()
+
   if(Python3_Interpreter_FOUND)
     add_test(NAME clap_bundle_manifest_source_audit
       COMMAND ${Python3_EXECUTABLE}
@@ -236,6 +254,9 @@ if(BUILD_TESTING)
     add_test(NAME non_nim_release_checks_runner_unit
       COMMAND ${Python3_EXECUTABLE} -m unittest
         tests/test_run_non_nim_release_checks.py)
+    add_test(NAME nim_app_package_verifier_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_verify_macos_nim_app_package.py)
     set_tests_properties(
       clap_bundle_manifest_source_audit
       docs_static_audit
@@ -247,6 +268,10 @@ if(BUILD_TESTING)
         LABELS "non_nim;structural"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         TIMEOUT 120)
+    set_tests_properties(nim_app_package_verifier_unit PROPERTIES
+      LABELS "nim;packaging"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      TIMEOUT 120)
   endif()
 endif()
 

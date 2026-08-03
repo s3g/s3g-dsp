@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Install No Input Mixer Standalone - s3g-dsp</title>
+    <meta name="description" content="Install and safely configure the Apple-silicon s3g No Input Mixer standalone app on macOS.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Install No Input Mixer Standalone</h1>
+
+        <p><strong>s3g No Input Mixer</strong> runs the same No Input Mixer DSP outside a plugin host and adds Stereo Autogain, Quad Autogain, and direct eight-channel Core Audio output. The app embeds its processors: REAPER and the separately distributed s3g-dsp CLAP package are not required.</p>
+
+        <div class="callout">
+          <p>The current pre-release is an Apple-silicon-only <code>arm64</code> build for macOS 15 or newer. It is ad-hoc signed but not Apple notarized, so macOS requires one Gatekeeper approval for the installer.</p>
+        </div>
+
+        <h2 id="download">Download and Install</h2>
+
+        <ol>
+          <li>Download <code>s3g-no-input-mixer-app-macos-arm64-0.6.0-pre.zip</code> from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, unzip it, and quit s3g No Input Mixer if an earlier copy is running.</li>
+          <li>Double-click <code>Install s3g No Input Mixer.command</code>.</li>
+          <li>If macOS blocks it, click <strong>OK</strong>, open <strong>System Settings &gt; Privacy &amp; Security</strong>, and choose <strong>Open Anyway</strong>. Confirm <strong>Open</strong> and authenticate if asked. This option remains available for about one hour after the blocked launch.</li>
+          <li>If prompted, allow Terminal to access the downloaded folder and wait for the installer to finish.</li>
+          <li>Open <strong>s3g No Input Mixer</strong> from the current user's Applications folder. The installer deliberately does not launch an audio application automatically.</li>
+        </ol>
+
+        <p>See Apple's <a href="https://support.apple.com/guide/mac-help/mh40616/mac" target="_blank" rel="noopener noreferrer">Open a Mac app from an unknown developer</a> for the same approval process.</p>
+
+        <h2 id="location">Install Location and Update Safety</h2>
+
+        <pre><code>~/Applications/s3g No Input Mixer.app</code></pre>
+
+        <p>The installer validates the app's identity, executable, architecture, and signature before changing the destination. It stages and verifies the complete new copy first, removes only <code>com.apple.quarantine</code> from that staged app, then moves an identity-verified previous version to:</p>
+
+        <pre><code>~/Library/Application Support/s3g-dsp/No Input Mixer Backups/</code></pre>
+
+        <p>An unrelated app, ordinary file, or symlink at the destination is never replaced. The installer writes only inside the current user's folders, never uses <code>sudo</code>, never changes global Gatekeeper settings, and does not touch the CLAP collection, application preferences, or user-saved <code>.nimgesture</code> files.</p>
+
+        <p>To validate the source and preview the exact destination and backup operation without writing anything, run this from the unzipped package folder:</p>
+
+        <pre><code>./Install\ s3g\ No\ Input\ Mixer.command --dry-run</code></pre>
+
+        <h2 id="first-launch">First Launch and Audio Safety</h2>
+
+        <ol>
+          <li>Begin with interface, amplifier, and monitor levels low.</li>
+          <li>The app opens its selected Core Audio device on launch but starts signal-muted. Confirm that the status strip reads <code>SAFE MUTED</code>.</li>
+          <li>In the persistent <code>ROUTE</code> strip, choose <code>STEREO · 2CH</code>, <code>QUAD · 4CH</code>, or <code>DIRECT · 8CH</code>. Select the intended device and <code>OUT</code> channel bank. A mode is disabled when the device does not provide enough outputs.</li>
+          <li>Keep the No Input Mixer's ceiling limiter enabled while establishing the feedback patch. Select <code>AUDIO ON</code> only after checking the entire hardware route.</li>
+          <li><code>PANIC</code> remains available in the output strip on every processor page. <code>EDIT OUTPUT</code> opens the Stereo or Quad Autogain controls; Direct 8 sends the eight NIM lanes directly to the selected hardware bank.</li>
+        </ol>
+
+        <h2 id="midi">MIDI and Gesture Sessions</h2>
+
+        <p>MIDI is optional. Select <code>MIDI</code> in the output strip and enable only the connected CoreMIDI sources that should control NIM. The app uses the same E16, BU16, NRPN, note/velocity, polarity, and LED-feedback protocol as the CLAP processor. See <a href="no-input-mixer-control.html">No Input Mixer MIDI Control</a> for the supplied controller setup and complete DIY mapping specification.</p>
+
+        <p>Embedded NIM Gesture recordings are deliberately transient. Unsaved loops are cleared when the app quits, Play is not restored on launch, and the last session is never reopened automatically. Use <strong>SAVE SESSION</strong> to export a <code>.nimgesture</code> file and <strong>LOAD SESSION</strong> to load one deliberately. A loaded session remains paused until Play is turned on.</p>
+
+        <h2 id="manual">Manual Installation</h2>
+
+        <p>Use this only for a fresh install. Quit the app, open Terminal in the unzipped package folder, and run:</p>
+
+        <pre><code>mkdir -p "$HOME/Applications"
+/usr/bin/ditto --noqtn "./s3g No Input Mixer.app" \
+  "$HOME/Applications/s3g No Input Mixer.app"
+/usr/bin/xattr -drs com.apple.quarantine \
+  "$HOME/Applications/s3g No Input Mixer.app"</code></pre>
+
+        <p>The included installer is preferred for an update because it verifies and backs up the prior application before replacement.</p>
+
+        <h2 id="uninstall">Uninstall</h2>
+
+        <ol>
+          <li>Quit s3g No Input Mixer.</li>
+          <li>Move <code>~/Applications/s3g No Input Mixer.app</code> to Trash.</li>
+          <li>Optionally reset its saved DSP, MIDI-source, device, and output-routing preferences with <code>defaults delete org.s3g.s3g-dsp.no-input-mixer-standalone</code>.</li>
+          <li>Optionally remove no-longer-needed copies from the backup folder above.</li>
+        </ol>
+
+        <p>Removing the app does not remove separately installed s3g-dsp CLAP plugins or user-saved <code>.nimgesture</code> sessions.</p>
+
+        <h2 id="troubleshooting">Troubleshooting and Diagnostics</h2>
+
+        <ul>
+          <li>If the installer is blocked, repeat the <strong>Open Anyway</strong> sequence within one hour of the attempted launch.</li>
+          <li>If a route mode is unavailable, select a Core Audio device with the required two, four, or eight hardware outputs.</li>
+          <li>If the strip shows <code>AUDIO ERROR</code>, confirm that the selected device is connected and not exclusively held by another application, then select another device if necessary.</li>
+          <li>Choose <strong>Show Realtime Diagnostics</strong> from the application menu to observe callback timing, Core Audio overloads and discontinuities, embedded processing errors, non-finite output, and MIDI drops. <strong>Reset Realtime Diagnostics</strong> starts a fresh observation and <strong>Copy Realtime Diagnostics Report</strong> copies the current configuration and counters.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install CLAP Plugins
+          </a>
+          <a class="page-nav-link next" href="stereo-listening.html">
+            <span>Next</span>
+            Stereo Listening
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Setup Pages</h2>
+          <a href="index.html">Getting Started</a>
+          <a href="building-from-source.html">Build From Source</a>
+          <a href="installing-plugins.html">Install CLAP Plugins</a>
+          <a href="no-input-mixer-standalone.html">Install NIM App</a>
+          <a href="stereo-listening.html">Stereo Listening</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#download">Download and Install</a>
+          <a href="#location">Location and Updates</a>
+          <a href="#first-launch">First Launch</a>
+          <a href="#midi">MIDI and Sessions</a>
+          <a href="#manual">Manual Installation</a>
+          <a href="#uninstall">Uninstall</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

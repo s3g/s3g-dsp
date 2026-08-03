@@ -1,13 +1,14 @@
 # Third-Party Notices
 
-This file reproduces the notices for third-party code incorporated into the
-distributed macOS CLAP binaries. Full license text is retained where required
-by the applicable redistribution terms.
+This file reproduces the notices for third-party code incorporated into
+distributed s3g-dsp macOS binaries. Full license text is retained where
+required by the applicable redistribution terms.
 
 ## CLAP
 
-The CLAP API headers are incorporated into the distributed plugin binaries.
-CMake fetches the pinned headers when `S3G_CLAP_INCLUDE_DIR` is not supplied.
+The CLAP API headers are incorporated into the distributed plugin binaries and
+standalone applications that embed CLAP processors. CMake fetches the pinned
+headers when `S3G_CLAP_INCLUDE_DIR` is not supplied.
 
 - Project: <https://github.com/free-audio/clap>
 - License: MIT

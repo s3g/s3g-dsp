@@ -163,6 +163,12 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <p>No Input Mixer embeds the same No Input Mixer, Stereo Autogain, and Quad Autogain CLAP implementations used by the plugin builds. It offers stereo, quad, and direct eight-channel Core Audio output and launches monitoring-muted. Check its processor chain with <code>cmake --build build-apps --target audit_no_input_mixer_standalone</code>.</p>
 
+        <p>To build a separately installable No Input Mixer app ZIP from the exact Release target, validate the staged package and an independent extraction, exercise the installer in an isolated dry run, and emit a SHA-256 checksum:</p>
+
+        <pre><code>./scripts/package-macos-nim-app-prerelease.sh</code></pre>
+
+        <p>The app packager uses the same clean-source policy as the CLAP packager. It refuses a dirty tree unless <code>S3G_PACKAGE_ALLOW_DIRTY=1</code> is supplied for an explicitly non-final test artifact. The packaged installer writes to <code>~/Applications/s3g No Input Mixer.app</code> without <code>sudo</code>, verifies the app before replacement, and backs up only an identity-matched prior copy.</p>
+
         <p>Vox Builder uses the same pinned WORLD dependency as Ambi Encoder Vox. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
 
         <h2 id="nim-coreaudio-audit">Audit NIM Core Audio</h2>

@@ -77,6 +77,10 @@ done
 For more detail, see the
 [installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html).
 
+The optional No Input Mixer standalone application is distributed in its own
+ZIP with a user-level installer and does not require REAPER or the CLAP archive.
+See [Install No Input Mixer Standalone](https://s3g.github.io/s3g-dsp/no-input-mixer-standalone.html).
+
 ## Build From Source
 
 See [Building From Source](https://s3g.github.io/s3g-dsp/building-from-source.html)

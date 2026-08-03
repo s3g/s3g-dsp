@@ -14,5 +14,8 @@ _deps/
 __pycache__/
 *.py[cod]
 
+# Generated development reports.
+/reports/*.pdf
+
 # Local high-resolution GUI sources; docs use the rendered PNGs.
 docs/assets/**/masters/*.pdf
