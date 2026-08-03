@@ -7,10 +7,12 @@ from __future__ import annotations
 import argparse
 import csv
 from dataclasses import dataclass
+import json
 from pathlib import Path, PurePosixPath
 import os
 import plistlib
 import re
+import subprocess
 import sys
 from typing import Iterable
 
@@ -18,6 +20,7 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ACTIVE_MANIFEST = ROOT / "scripts" / "clap-bundles.tsv"
 DEFAULT_LEGACY_MANIFEST = ROOT / "scripts" / "clap-legacy-bundles.tsv"
+PACKAGE_VERIFIER = ROOT / "scripts" / "verify-macos-clap-package.py"
 
 SAFE_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 SAFE_BUNDLE_RE = re.compile(r"^[a-z0-9][a-z0-9_]*\.clap$")
@@ -419,18 +422,27 @@ def validate_source_metadata(
 
 
 def validate_built_bundles(
-    build_root: Path, active_manifest: Path, bundles: list[ActiveBundle], audit: Audit
+    build_root: Path,
+    active_manifest: Path,
+    bundles: list[ActiveBundle],
+    audit: Audit,
+    *,
+    verify_descriptors: bool,
+    verify_descriptor_versions: bool,
 ) -> None:
     for bundle in bundles:
         if validate_build_path(bundle.build_path) is not None:
             continue
         row_location = location(active_manifest, bundle.line)
         bundle_path = build_root / PurePosixPath(bundle.build_path)
-        if not bundle_path.is_dir():
+        if not bundle_path.is_dir() or bundle_path.is_symlink():
             audit.error(row_location, f"built bundle is missing: {bundle_path}")
             continue
 
         plist_path = bundle_path / "Contents" / "Info.plist"
+        if plist_path.is_symlink():
+            audit.error(row_location, f"built bundle plist is a symlink: {plist_path}")
+            continue
         try:
             with plist_path.open("rb") as stream:
                 metadata = plistlib.load(stream)
@@ -451,6 +463,25 @@ def validate_built_bundles(
                 f"built CFBundleName is {actual_name!r}, expected {bundle.host_name!r}",
             )
 
+        short_version = metadata.get("CFBundleShortVersionString")
+        bundle_version = metadata.get("CFBundleVersion")
+        if not isinstance(short_version, str) or not short_version:
+            audit.error(row_location, "built plist has no valid CFBundleShortVersionString")
+        if not isinstance(bundle_version, str) or not bundle_version:
+            audit.error(row_location, "built plist has no valid CFBundleVersion")
+        if (
+            isinstance(short_version, str)
+            and short_version
+            and isinstance(bundle_version, str)
+            and bundle_version
+            and short_version != bundle_version
+        ):
+            audit.error(
+                row_location,
+                f"built CFBundleShortVersionString {short_version!r} does not match "
+                f"CFBundleVersion {bundle_version!r}",
+            )
+
         executable_name = metadata.get("CFBundleExecutable")
         if not isinstance(executable_name, str) or not executable_name:
             audit.error(row_location, "built plist has no valid CFBundleExecutable")
@@ -459,10 +490,46 @@ def validate_built_bundles(
             audit.error(row_location, f"unsafe CFBundleExecutable {executable_name!r}")
             continue
         executable = bundle_path / "Contents" / "MacOS" / executable_name
-        if not executable.is_file():
+        if not executable.is_file() or executable.is_symlink():
             audit.error(row_location, f"bundle executable is missing: {executable}")
         elif not os.access(executable, os.X_OK):
             audit.error(row_location, f"bundle executable is not executable: {executable}")
+        elif verify_descriptors:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PACKAGE_VERIFIER),
+                    "--inspect-descriptor",
+                    str(executable),
+                    bundle.plugin_id,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip() or "unknown loader error"
+                audit.error(row_location, f"cannot inspect built CLAP descriptor: {detail}")
+                continue
+            try:
+                descriptor = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                audit.error(row_location, f"descriptor inspector returned invalid JSON: {exc}")
+                continue
+            descriptor_name = descriptor.get("name")
+            if descriptor_name != bundle.host_name:
+                audit.error(
+                    row_location,
+                    f"built CLAP descriptor name is {descriptor_name!r}, "
+                    f"expected {bundle.host_name!r}",
+                )
+            descriptor_version = descriptor.get("version")
+            if verify_descriptor_versions and descriptor_version != short_version:
+                audit.error(
+                    row_location,
+                    f"built CLAP descriptor version {descriptor_version!r} does not match "
+                    f"CFBundleShortVersionString {short_version!r}",
+                )
 
 
 def parse_args() -> argparse.Namespace:
@@ -477,6 +544,22 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_ACTIVE_MANIFEST,
         help=f"active four-column TSV (default: {DEFAULT_ACTIVE_MANIFEST})",
+    )
+    parser.add_argument(
+        "--skip-descriptor-check",
+        action="store_true",
+        help=(
+            "skip loading built CLAP descriptors when parity is deferred to the "
+            "package staging synchronizer or during a cross-architecture audit"
+        ),
+    )
+    parser.add_argument(
+        "--defer-descriptor-version",
+        action="store_true",
+        help=(
+            "verify runtime descriptor IDs and names but defer descriptor/plist "
+            "version parity to the package staging synchronizer"
+        ),
     )
     parser.add_argument(
         "--legacy-manifest",
@@ -495,7 +578,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help=(
             "optional directory containing manifest-relative bundles, normally "
-            "build-clap/plugins"
+            "build-clap-release/plugins"
         ),
     )
     return parser.parse_args()
@@ -511,7 +594,14 @@ def main() -> int:
     legacy = parse_legacy(legacy_manifest, active, audit)
     validate_source_metadata(source_root, active_manifest, active, audit)
     if args.build_root is not None:
-        validate_built_bundles(args.build_root.resolve(), active_manifest, active, audit)
+        validate_built_bundles(
+            args.build_root.resolve(),
+            active_manifest,
+            active,
+            audit,
+            verify_descriptors=not args.skip_descriptor_check,
+            verify_descriptor_versions=not args.defer_descriptor_version,
+        )
     audit.finish()
 
     message = (
@@ -520,6 +610,10 @@ def main() -> int:
     )
     if args.build_root is not None:
         message += f"; built bundles verified under {args.build_root.resolve()}"
+        if args.skip_descriptor_check:
+            message += "; runtime descriptor parity deferred"
+        elif args.defer_descriptor_version:
+            message += "; runtime descriptor versions deferred"
     print(message)
     return 0
 

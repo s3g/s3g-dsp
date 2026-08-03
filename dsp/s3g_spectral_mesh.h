@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace s3g {
@@ -40,12 +41,50 @@ public:
 
         bins_ = fft_.bins();
         const size_t spectrumSize = static_cast<size_t>(channels_) * bins_;
+        normalizedFrequency_.assign(bins_, 0.0f);
+        lowShelf_.assign(bins_, 0.0f);
+        highShelf_.assign(bins_, 0.0f);
+        expectedAdvanceR_.assign(bins_, 1.0f);
+        expectedAdvanceI_.assign(bins_, 0.0f);
+        patternASin_.assign(bins_, 0.0f);
+        patternACos_.assign(bins_, 1.0f);
+        patternBSin_.assign(bins_, 0.0f);
+        patternBCos_.assign(bins_, 1.0f);
+        holePatternSin_.assign(bins_, 0.0f);
+        holePatternCos_.assign(bins_, 1.0f);
+        const float expectedBase = (2.0f * kPi) * static_cast<float>(fft_.hopSize())
+            / static_cast<float>(fft_.fftSize());
+        for (uint32_t bin = 0; bin < bins_; ++bin) {
+            const float norm = bins_ > 1u
+                ? static_cast<float>(bin) / static_cast<float>(bins_ - 1u)
+                : 0.0f;
+            normalizedFrequency_[bin] = norm;
+            lowShelf_[bin] = std::pow(std::max(1.0f - norm, 0.0f), 0.72f);
+            highShelf_[bin] = std::pow(std::max(norm, 0.0f), 0.72f);
+            const float expected = expectedBase * static_cast<float>(bin);
+            expectedAdvanceR_[bin] = std::cos(expected);
+            expectedAdvanceI_[bin] = std::sin(expected);
+            const float binValue = static_cast<float>(bin);
+            const float patternAPhase = binValue * 0.071f;
+            const float patternBPhase = binValue * 0.017f
+                + std::sin(binValue * 0.0031f) * kPi;
+            const float holePhase = binValue * 1.618f;
+            patternASin_[bin] = std::sin(patternAPhase);
+            patternACos_[bin] = std::cos(patternAPhase);
+            patternBSin_[bin] = std::sin(patternBPhase);
+            patternBCos_[bin] = std::cos(patternBPhase);
+            holePatternSin_[bin] = std::sin(holePhase);
+            holePatternCos_[bin] = std::cos(holePhase);
+        }
+        bandMasks_.assign(spectrumSize, 1.0f);
         inputMag_.assign(spectrumSize, 0.0f);
         previousInputMag_.assign(spectrumSize, 0.0f);
         inputPhaseR_.assign(spectrumSize, 1.0f);
         inputPhaseI_.assign(spectrumSize, 0.0f);
-        previousInputPhase_.assign(spectrumSize, 0.0f);
-        inputAdvance_.assign(spectrumSize, 0.0f);
+        previousInputPhaseR_.assign(spectrumSize, 1.0f);
+        previousInputPhaseI_.assign(spectrumSize, 0.0f);
+        inputAdvanceR_.assign(spectrumSize, 1.0f);
+        inputAdvanceI_.assign(spectrumSize, 0.0f);
         holdMag_.assign(spectrumSize, 0.0f);
         phaseMemoryR_.assign(spectrumSize, 1.0f);
         phaseMemoryI_.assign(spectrumSize, 0.0f);
@@ -53,17 +92,25 @@ public:
         localPhaseR_.assign(spectrumSize, 1.0f);
         localPhaseI_.assign(spectrumSize, 0.0f);
         sourceEnergy_.assign(spectrumSize, 0.0f);
+        sourceMagnitude_.assign(spectrumSize, 0.0f);
+        sendAmount_.assign(spectrumSize, 0.0f);
         sourcePhaseR_.assign(spectrumSize, 1.0f);
         sourcePhaseI_.assign(spectrumSize, 0.0f);
         destinationEnergy_.assign(spectrumSize, 0.0f);
         destinationPhaseR_.assign(spectrumSize, 0.0f);
         destinationPhaseI_.assign(spectrumSize, 0.0f);
+        globalEnergy_.assign(bins_, 0.0);
+        globalEligibleEnergy_.assign(bins_, 0.0);
+        globalPhaseR_.assign(bins_, 0.0);
+        globalPhaseI_.assign(bins_, 0.0);
         fieldMag_.assign(spectrumSize, 0.0f);
         fieldPhaseR_.assign(spectrumSize, 1.0f);
         fieldPhaseI_.assign(spectrumSize, 0.0f);
         captureMag_.assign(spectrumSize, 0.0f);
-        captureAdvance_.assign(spectrumSize, 0.0f);
-        capturePhase_.assign(spectrumSize, 0.0f);
+        capturePhaseR_.assign(spectrumSize, 1.0f);
+        capturePhaseI_.assign(spectrumSize, 0.0f);
+        captureAdvanceR_.assign(spectrumSize, 1.0f);
+        captureAdvanceI_.assign(spectrumSize, 0.0f);
         historyMag_.assign(
             static_cast<size_t>(kSpectralMeshHistoryFrames) * spectrumSize, 0.0f);
         propagationHistoryR_.assign(
@@ -72,6 +119,8 @@ public:
             static_cast<size_t>(kSpectralMeshPropagationFrames) * spectrumSize, 0.0f);
         edgeLaunchHistory_.assign(
             static_cast<size_t>(kSpectralMeshPropagationFrames) * kGraphCapacity, 0.0f);
+        propagationAmplitudeCache_.assign(
+            static_cast<size_t>(channels_) * kSpectralMeshMaxChannels * bins_, 1.0f);
 
         wetBuffers_.assign(channels_, std::vector<float>(maxBlockFrames_, 0.0f));
         wetPtrs_.assign(channels_, nullptr);
@@ -83,13 +132,15 @@ public:
             laneParams_[ch] = sanitize(laneParams_[ch]);
             smoothedLaneParams_[ch] = laneParams_[ch];
             mixSmoothed_[ch] = laneParams_[ch].mix;
-            gainSmoothed_[ch] = dbToGain(laneParams_[ch].gainDb);
+            gainTarget_[ch] = dbToGain(laneParams_[ch].gainDb);
+            gainSmoothed_[ch] = gainTarget_[ch];
             safetySmoothed_[ch] = laneParams_[ch].safety;
         }
         rebuildGraphTargets();
         graphLowCurrent_ = graphLowTarget_;
         graphHighCurrent_ = graphHighTarget_;
         graphDistanceCurrent_ = graphDistanceTarget_;
+        rebuildActiveEdges();
         meshAmountSmoothed_ = meshAmountTarget_;
         centroidSmoothed_ = centroidTarget_;
         flareSmoothed_ = flareTarget_;
@@ -125,12 +176,14 @@ public:
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             smoothedLaneParams_[ch] = laneParams_[ch];
             mixSmoothed_[ch] = laneParams_[ch].mix;
-            gainSmoothed_[ch] = dbToGain(laneParams_[ch].gainDb);
+            gainTarget_[ch] = dbToGain(laneParams_[ch].gainDb);
+            gainSmoothed_[ch] = gainTarget_[ch];
             safetySmoothed_[ch] = laneParams_[ch].safety;
         }
         graphLowCurrent_ = graphLowTarget_;
         graphHighCurrent_ = graphHighTarget_;
         graphDistanceCurrent_ = graphDistanceTarget_;
+        rebuildActiveEdges();
         meshAmountSmoothed_ = meshAmountTarget_;
         centroidSmoothed_ = centroidTarget_;
         flareSmoothed_ = flareTarget_;
@@ -155,10 +208,11 @@ public:
     {
         if (lane >= kSpectralMeshMaxChannels) return;
         laneParams_[lane] = sanitize(params);
+        gainTarget_[lane] = dbToGain(laneParams_[lane].gainDb);
         if (!hasProcessed_) {
             smoothedLaneParams_[lane] = laneParams_[lane];
             mixSmoothed_[lane] = laneParams_[lane].mix;
-            gainSmoothed_[lane] = dbToGain(laneParams_[lane].gainDb);
+            gainSmoothed_[lane] = gainTarget_[lane];
             safetySmoothed_[lane] = laneParams_[lane].safety;
         }
     }
@@ -237,6 +291,11 @@ public:
             std::memory_order_relaxed);
     }
 
+    // Telemetry never participates in audio feedback. Hosts can disable it
+    // while the editor is closed to avoid atomics and the propagation-pulse
+    // history scan on the realtime thread.
+    void setTelemetryEnabled(bool enabled) { telemetryEnabled_ = enabled; }
+
     void process(const float* const* input,
                  uint32_t inputChannels,
                  float* const* output,
@@ -261,7 +320,7 @@ public:
             for (uint32_t ch = 0; ch < channels_; ++ch) {
                 const auto& target = laneParams_[ch];
                 mixSmoothed_[ch] += (target.mix - mixSmoothed_[ch]) * 0.0015f;
-                gainSmoothed_[ch] += (dbToGain(target.gainDb) - gainSmoothed_[ch]) * 0.0015f;
+                gainSmoothed_[ch] += (gainTarget_[ch] - gainSmoothed_[ch]) * 0.0015f;
                 safetySmoothed_[ch] += (target.safety - safetySmoothed_[ch]) * 0.0015f;
                 const float dryIn = inputPtrs_[ch][i];
                 const float dry = dryDelay_[ch][dryWritePos_];
@@ -364,8 +423,10 @@ private:
         clear(previousInputMag_);
         std::fill(inputPhaseR_.begin(), inputPhaseR_.end(), 1.0f);
         clear(inputPhaseI_);
-        clear(previousInputPhase_);
-        clear(inputAdvance_);
+        std::fill(previousInputPhaseR_.begin(), previousInputPhaseR_.end(), 1.0f);
+        clear(previousInputPhaseI_);
+        std::fill(inputAdvanceR_.begin(), inputAdvanceR_.end(), 1.0f);
+        clear(inputAdvanceI_);
         clear(holdMag_);
         std::fill(phaseMemoryR_.begin(), phaseMemoryR_.end(), 1.0f);
         clear(phaseMemoryI_);
@@ -373,21 +434,93 @@ private:
         std::fill(localPhaseR_.begin(), localPhaseR_.end(), 1.0f);
         clear(localPhaseI_);
         clear(sourceEnergy_);
+        clear(sourceMagnitude_);
+        clear(sendAmount_);
         std::fill(sourcePhaseR_.begin(), sourcePhaseR_.end(), 1.0f);
         clear(sourcePhaseI_);
         clear(destinationEnergy_);
         clear(destinationPhaseR_);
         clear(destinationPhaseI_);
+        std::fill(globalEnergy_.begin(), globalEnergy_.end(), 0.0);
+        std::fill(globalEligibleEnergy_.begin(), globalEligibleEnergy_.end(), 0.0);
+        std::fill(globalPhaseR_.begin(), globalPhaseR_.end(), 0.0);
+        std::fill(globalPhaseI_.begin(), globalPhaseI_.end(), 0.0);
         clear(fieldMag_);
         std::fill(fieldPhaseR_.begin(), fieldPhaseR_.end(), 1.0f);
         clear(fieldPhaseI_);
         clear(captureMag_);
-        clear(captureAdvance_);
-        clear(capturePhase_);
+        std::fill(capturePhaseR_.begin(), capturePhaseR_.end(), 1.0f);
+        clear(capturePhaseI_);
+        std::fill(captureAdvanceR_.begin(), captureAdvanceR_.end(), 1.0f);
+        clear(captureAdvanceI_);
         clear(historyMag_);
         clear(propagationHistoryR_);
         clear(propagationHistoryI_);
         clear(edgeLaunchHistory_);
+    }
+
+    std::array<int, 3> nearestCachedNeighbors(uint32_t source) const
+    {
+        if (channels_ < 2u || source >= channels_) {
+            const int lane = static_cast<int>(source);
+            return { lane, lane, lane };
+        }
+        std::array<double, 3> best {
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max()
+        };
+        std::array<int, 3> neighbors {
+            static_cast<int>((source + channels_ - 1u) % channels_),
+            static_cast<int>((source + 1u) % channels_),
+            static_cast<int>((source + channels_ / 2u) % channels_)
+        };
+        const auto& here = topologyPoints_[source];
+        for (uint32_t other = 0; other < channels_; ++other) {
+            if (other == source) continue;
+            const auto& there = topologyPoints_[other];
+            const double dx = here.x - there.x;
+            const double dy = here.y - there.y;
+            const double dz = here.z - there.z;
+            const double distanceSquared = dx * dx + dy * dy + dz * dz;
+            for (uint32_t slot = 0; slot < 3u; ++slot) {
+                if (distanceSquared < best[slot]) {
+                    for (uint32_t move = 2u; move > slot; --move) {
+                        best[move] = best[move - 1u];
+                        neighbors[move] = neighbors[move - 1u];
+                    }
+                    best[slot] = distanceSquared;
+                    neighbors[slot] = static_cast<int>(other);
+                    break;
+                }
+            }
+        }
+        const double radius = 0.18
+            + std::clamp(topology_.neighborRadius, 0.0, 1.0) * 3.20;
+        const double radiusSquared = radius * radius;
+        const uint32_t requested = std::clamp<uint32_t>(
+            topology_.neighborCount, 1u, 3u);
+        for (uint32_t slot = 0; slot < 3u; ++slot) {
+            if (slot >= requested || (slot > 0u && best[slot] > radiusSquared)) {
+                neighbors[slot] = neighbors[0];
+            }
+        }
+        return neighbors;
+    }
+
+    void rebuildActiveEdges()
+    {
+        activeEdgeCounts_.fill(0u);
+        for (uint32_t source = 0; source < channels_; ++source) {
+            auto& count = activeEdgeCounts_[source];
+            for (uint32_t destination = 0; destination < channels_; ++destination) {
+                const size_t graph = graphIndex(source, destination);
+                if (std::max(graphLowCurrent_[graph], graphHighCurrent_[graph])
+                    <= 0.000001f) continue;
+                activeEdgeDestinations_[source][count++] =
+                    static_cast<uint8_t>(destination);
+            }
+        }
     }
 
     void rebuildGraphTargets()
@@ -396,15 +529,14 @@ private:
         graphHighTarget_.fill(0.0f);
         graphDistanceTarget_.fill(0.0f);
         const auto controls = topologyControlsFromState(topology_);
-        std::array<TopologyPoint, kSpectralMeshMaxChannels> points {};
         for (uint32_t lane = 0; lane < channels_; ++lane) {
-            points[lane] = topologyPointForLane(lane, channels_, controls);
+            topologyPoints_[lane] = topologyPointForLane(lane, channels_, controls);
         }
 
         const float twist = static_cast<float>(std::clamp(controls.twist, -1.0, 1.0));
         float longestEdge = 0.0f;
         for (uint32_t source = 0; source < channels_; ++source) {
-            const auto neighbors = nearestTopologyNeighbors(topology_, source, channels_);
+            const auto neighbors = nearestCachedNeighbors(source);
             std::array<float, kSpectralMeshMaxChannels> base {};
             std::array<float, kSpectralMeshMaxChannels> direction {};
             const uint32_t requested = std::clamp<uint32_t>(topology_.neighborCount, 1u, 3u);
@@ -413,9 +545,9 @@ private:
                 if (candidate < 0 || static_cast<uint32_t>(candidate) >= channels_
                     || static_cast<uint32_t>(candidate) == source) continue;
                 const uint32_t destination = static_cast<uint32_t>(candidate);
-                const double dx = points[source].x - points[destination].x;
-                const double dy = points[source].y - points[destination].y;
-                const double dz = points[source].z - points[destination].z;
+                const double dx = topologyPoints_[source].x - topologyPoints_[destination].x;
+                const double dy = topologyPoints_[source].y - topologyPoints_[destination].y;
+                const double dz = topologyPoints_[source].z - topologyPoints_[destination].z;
                 const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                 const double reach = 0.20 + topology_.neighborRadius * 2.80;
                 const float weight = static_cast<float>(
@@ -425,8 +557,8 @@ private:
                 graphDistanceTarget_[graphIndex(source, destination)] = edgeDistance;
                 longestEdge = std::max(longestEdge, edgeDistance);
                 direction[destination] = static_cast<float>(std::clamp(
-                    (points[destination].lane - points[source].lane) * 0.82
-                        + (points[destination].y - points[source].y) * 0.28,
+                    (topologyPoints_[destination].lane - topologyPoints_[source].lane) * 0.82
+                        + (topologyPoints_[destination].y - topologyPoints_[source].y) * 0.28,
                     -1.0, 1.0));
             }
 
@@ -457,9 +589,12 @@ private:
         // use almost the whole fixed history while preserving relative graph
         // distances. Degenerate/self edges remain instantaneous.
         if (longestEdge > 0.000001f) {
-            for (size_t graph = 0; graph < kGraphCapacity; ++graph) {
-                graphDistanceTarget_[graph] = clamp(
-                    graphDistanceTarget_[graph] / longestEdge, 0.0f, 1.0f);
+            for (uint32_t source = 0; source < channels_; ++source) {
+                for (uint32_t destination = 0; destination < channels_; ++destination) {
+                    const size_t graph = graphIndex(source, destination);
+                    graphDistanceTarget_[graph] = clamp(
+                        graphDistanceTarget_[graph] / longestEdge, 0.0f, 1.0f);
+                }
             }
         } else {
             graphDistanceTarget_.fill(0.0f);
@@ -499,10 +634,13 @@ private:
             smoothParam(current.hiFreq, target.hiFreq, slow);
             smoothParam(current.tilt, target.tilt, medium);
         }
-        for (size_t i = 0; i < kGraphCapacity; ++i) {
-            smoothParam(graphLowCurrent_[i], graphLowTarget_[i], medium);
-            smoothParam(graphHighCurrent_[i], graphHighTarget_[i], medium);
-            smoothParam(graphDistanceCurrent_[i], graphDistanceTarget_[i], medium);
+        for (uint32_t source = 0; source < channels_; ++source) {
+            for (uint32_t destination = 0; destination < channels_; ++destination) {
+                const size_t graph = graphIndex(source, destination);
+                smoothParam(graphLowCurrent_[graph], graphLowTarget_[graph], medium);
+                smoothParam(graphHighCurrent_[graph], graphHighTarget_[graph], medium);
+                smoothParam(graphDistanceCurrent_[graph], graphDistanceTarget_[graph], medium);
+            }
         }
         smoothParam(meshAmountSmoothed_, meshAmountTarget_, medium);
         smoothParam(centroidSmoothed_, centroidTarget_, medium);
@@ -511,6 +649,7 @@ private:
         smoothParam(propagationVelocitySmoothed_, propagationVelocityTarget_, medium);
         smoothParam(propagationDispersionSmoothed_, propagationDispersionTarget_, medium);
         smoothParam(propagationDampingSmoothed_, propagationDampingTarget_, medium);
+        rebuildActiveEdges();
     }
 
     float bandMask(uint32_t bin, const SpectralSprayParams& params) const
@@ -529,39 +668,99 @@ private:
         return lowSmooth * highSmooth;
     }
 
+    void updateBandMasks()
+    {
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            const auto& params = smoothedLaneParams_[ch];
+            const size_t offset = static_cast<size_t>(ch) * bins_;
+            for (uint32_t bin = 0; bin < bins_; ++bin) {
+                bandMasks_[offset + bin] = bandMask(bin, params);
+            }
+        }
+    }
+
+    void updatePropagationAmplitudes()
+    {
+        if (propagationDampingSmoothed_ <= 0.000001f || bins_ == 0u) return;
+        for (uint32_t source = 0; source < channels_; ++source) {
+            const uint32_t activeEdgeCount = activeEdgeCounts_[source];
+            for (uint32_t edge = 0; edge < activeEdgeCount; ++edge) {
+                const uint32_t destination =
+                    activeEdgeDestinations_[source][edge];
+                const size_t graph = graphIndex(source, destination);
+                const float distance = clamp(
+                    graphDistanceCurrent_[graph], 0.0f, 1.0f);
+                const double base = static_cast<double>(
+                    propagationDampingSmoothed_ * distance);
+                float* amplitudes = propagationAmplitudeCache_.data()
+                    + graph * bins_;
+                double amplitude = std::exp(-base * 0.35);
+                const double step = bins_ > 1u
+                    ? std::exp(-base * 2.40
+                        / static_cast<double>(bins_ - 1u))
+                    : 1.0;
+                for (uint32_t bin = 0u; bin < bins_; ++bin) {
+                    amplitudes[bin] = static_cast<float>(amplitude);
+                    amplitude *= step;
+                }
+            }
+        }
+    }
+
     void analyzeInput(SpectralFrameBlockView block)
     {
-        const float expectedBase = (2.0f * kPi) * static_cast<float>(fft_.hopSize())
-            / static_cast<float>(fft_.fftSize());
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             const float* real = block.real(ch);
             const float* imag = block.imag(ch);
+#if S3G_HAS_ACCELERATE_FFT
+            DSPSplitComplex inputSplit {
+                const_cast<float*>(real), const_cast<float*>(imag)
+            };
+            vDSP_zvabs(
+                &inputSplit, 1,
+                inputMag_.data() + static_cast<size_t>(ch) * bins_, 1,
+                bins_);
+#endif
             float positiveFlux = 0.0f;
             float magnitudeSum = 0.0000001f;
             for (uint32_t bin = 0; bin < bins_; ++bin) {
                 const size_t index = spectrumIndex(ch, bin);
                 const float r = real[bin];
                 const float i = imag[bin];
+#if S3G_HAS_ACCELERATE_FFT
+                const float magnitude = inputMag_[index];
+#else
                 const float magnitude = std::sqrt(r * r + i * i);
+#endif
                 float unitR = 1.0f;
                 float unitI = 0.0f;
                 if (magnitude > 0.0000001f) {
                     unitR = r / magnitude;
                     unitI = i / magnitude;
                 }
-                const float phase = std::atan2(unitI, unitR);
-                const float expected = expectedBase * static_cast<float>(bin);
-                const float advance = phaseReady_[ch]
-                    ? expected + std::remainder(
-                        phase - previousInputPhase_[index] - expected, 2.0f * kPi)
-                    : expected;
+                // The capture engine only needs exp(i * phaseAdvance). The
+                // previous atan2/remainder path recovered an unwrapped angle,
+                // then immediately converted it back through sin/cos. The
+                // conjugate phasor product is algebraically identical modulo
+                // 2pi and removes two transcendental operations per bin.
+                if (phaseReady_[ch]) {
+                    const float previousR = previousInputPhaseR_[index];
+                    const float previousI = previousInputPhaseI_[index];
+                    inputAdvanceR_[index] = unitR * previousR
+                        + unitI * previousI;
+                    inputAdvanceI_[index] = unitI * previousR
+                        - unitR * previousI;
+                } else {
+                    inputAdvanceR_[index] = expectedAdvanceR_[bin];
+                    inputAdvanceI_[index] = expectedAdvanceI_[bin];
+                }
                 positiveFlux += std::max(0.0f, magnitude - previousInputMag_[index]);
                 magnitudeSum += magnitude;
                 inputMag_[index] = magnitude;
                 inputPhaseR_[index] = unitR;
                 inputPhaseI_[index] = unitI;
-                inputAdvance_[index] = advance;
-                previousInputPhase_[index] = phase;
+                previousInputPhaseR_[index] = unitR;
+                previousInputPhaseI_[index] = unitI;
                 previousInputMag_[index] = magnitude;
             }
             phaseReady_[ch] = true;
@@ -577,6 +776,15 @@ private:
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             const auto& params = smoothedLaneParams_[ch];
             const float motion = static_cast<float>(frameCounter_) * params.drift * 0.03125f;
+            const float motionSin = std::sin(motion);
+            const float motionCos = std::cos(motion);
+            const float secondaryMotion = motion * 2.137f;
+            const float secondaryMotionSin = std::sin(secondaryMotion);
+            const float secondaryMotionCos = std::cos(secondaryMotion);
+            const float holeMotion = static_cast<float>(frameCounter_)
+                * params.drift * 0.017f;
+            const float holeMotionSin = std::sin(holeMotion);
+            const float holeMotionCos = std::cos(holeMotion);
             const float damage = params.damage * params.damage;
             const uint32_t damageFrame = frameCounter_ / std::max<uint32_t>(
                 1u, static_cast<uint32_t>(std::floor(9.0f - damage * 7.0f)));
@@ -600,10 +808,10 @@ private:
             for (uint32_t bin = 0; bin < bins_; ++bin) {
                 const size_t index = spectrumIndex(ch, bin);
                 const float magnitude = inputMag_[index];
-                const float patternA = std::sin(static_cast<float>(bin) * 0.071f + motion);
-                const float patternB = std::sin(
-                    static_cast<float>(bin) * 0.017f + motion * 2.137f
-                    + std::sin(static_cast<float>(bin) * 0.0031f) * kPi);
+                const float patternA = patternASin_[bin] * motionCos
+                    + patternACos_[bin] * motionSin;
+                const float patternB = patternBSin_[bin] * secondaryMotionCos
+                    + patternBCos_[bin] * secondaryMotionSin;
                 const int offset = static_cast<int>(std::floor(
                     (patternA * 0.62f + patternB * 0.38f) * params.sprayBins + 0.5f));
                 const uint32_t source = static_cast<uint32_t>(std::clamp<int>(
@@ -630,9 +838,9 @@ private:
                     + holdMag_[spectrumIndex(ch, high)]) * 0.33333334f;
                 transformed = lerp(transformed, wide, params.smear);
 
-                const float holePattern = 0.5f + 0.5f * std::sin(
-                    static_cast<float>(bin) * 1.618f
-                    + static_cast<float>(frameCounter_) * params.drift * 0.017f);
+                const float holePattern = 0.5f + 0.5f * (
+                    holePatternSin_[bin] * holeMotionCos
+                    + holePatternCos_[bin] * holeMotionSin);
                 const float holeThreshold = lerp(1.01f, 0.32f, params.holes);
                 if (holePattern >= holeThreshold) {
                     transformed *= lerp(0.18f, 0.65f, params.smear);
@@ -644,16 +852,11 @@ private:
                     transformed *= lerp(1.0f, 0.08f, damage);
                 }
 
-                const float norm = bins_ > 1u
-                    ? static_cast<float>(bin) / static_cast<float>(bins_ - 1u)
-                    : 0.0f;
-                const float lowShelf = std::pow(std::max(1.0f - norm, 0.0f), 0.72f);
-                const float highShelf = std::pow(std::max(norm, 0.0f), 0.72f);
-                transformed *= lerp(1.0f, lowShelf, std::max(-params.tilt, 0.0f) * 0.45f);
-                transformed *= lerp(1.0f, highShelf, std::max(params.tilt, 0.0f) * 0.45f);
+                transformed *= lerp(1.0f, lowShelf_[bin], std::max(-params.tilt, 0.0f) * 0.45f);
+                transformed *= lerp(1.0f, highShelf_[bin], std::max(params.tilt, 0.0f) * 0.45f);
                 transformed = std::max(0.0f, transformed);
 
-                const float mask = bandMask(bin, params) * transientDepth;
+                const float mask = bandMasks_[index] * transientDepth;
                 localMag_[index] = lerp(magnitude, transformed, mask);
 
                 const size_t damagedIndex = spectrumIndex(ch, damagedSource);
@@ -689,9 +892,11 @@ private:
         const bool requested = captureRequested_.exchange(false, std::memory_order_acq_rel);
         if (requested || automaticCapture) {
             std::copy(localMag_.begin(), localMag_.end(), captureMag_.begin());
-            std::copy(inputAdvance_.begin(), inputAdvance_.end(), captureAdvance_.begin());
-            for (size_t i = 0; i < capturePhase_.size(); ++i) {
-                capturePhase_[i] = std::atan2(localPhaseI_[i], localPhaseR_[i]);
+            for (size_t i = 0; i < capturePhaseR_.size(); ++i) {
+                capturePhaseR_[i] = localPhaseR_[i];
+                capturePhaseI_[i] = localPhaseI_[i];
+                captureAdvanceR_[i] = inputAdvanceR_[i];
+                captureAdvanceI_[i] = inputAdvanceI_[i];
             }
             captureValid_.store(true, std::memory_order_release);
         }
@@ -707,15 +912,15 @@ private:
                 - transientProtectSmoothed_ * transientAmount_[ch] * 0.88f;
             for (uint32_t bin = 0; bin < bins_; ++bin) {
                 const size_t index = spectrumIndex(ch, bin);
-                const float memoryDepth = bandMask(bin, params) * transientReduction;
+                const float memoryDepth = bandMasks_[index] * transientReduction;
                 const float freeze = captured ? params.freeze * memoryDepth : 0.0f;
                 const float feedback = params.feedback * 0.92f * memoryDepth;
                 float phaseR = localPhaseR_[index];
                 float phaseI = localPhaseI_[index];
                 float magnitude = localMag_[index];
                 if (freeze > 0.0f) {
-                    const float frozenR = std::cos(capturePhase_[index]);
-                    const float frozenI = std::sin(capturePhase_[index]);
+                    const float frozenR = capturePhaseR_[index];
+                    const float frozenI = capturePhaseI_[index];
                     magnitude = lerp(magnitude, captureMag_[index], freeze);
                     phaseR = lerp(phaseR, frozenR, freeze);
                     phaseI = lerp(phaseI, frozenI, freeze);
@@ -727,6 +932,7 @@ private:
                 phaseI = magnitude * phaseI + feedbackMagnitude * fieldPhaseI_[index];
                 normalizedPhasor(phaseR, phaseI);
                 sourceEnergy_[index] = withFeedback * withFeedback;
+                sourceMagnitude_[index] = withFeedback;
                 sourcePhaseR_[index] = phaseR;
                 sourcePhaseI_[index] = phaseI;
             }
@@ -738,7 +944,7 @@ private:
         const size_t spectrumSize = static_cast<size_t>(channels_) * bins_;
         const size_t frameOffset = static_cast<size_t>(propagationWrite_) * spectrumSize;
         for (size_t index = 0; index < spectrumSize; ++index) {
-            const float magnitude = std::sqrt(std::max(0.0f, sourceEnergy_[index]));
+            const float magnitude = sourceMagnitude_[index];
             propagationHistoryR_[frameOffset + index] = magnitude * sourcePhaseR_[index];
             propagationHistoryI_[frameOffset + index] = magnitude * sourcePhaseI_[index];
         }
@@ -824,70 +1030,95 @@ private:
         }
     }
 
-    float propagationAmplitude(uint32_t source,
-                               uint32_t destination,
-                               float normalizedFrequency) const
-    {
-        if (propagationDampingSmoothed_ <= 0.000001f) return 1.0f;
-        const float distance = clamp(
-            graphDistanceCurrent_[graphIndex(source, destination)], 0.0f, 1.0f);
-        // At maximum damping a full-length edge loses roughly 3 dB at DC and
-        // 24 dB at Nyquist. Short edges lose proportionally less.
-        const float exponent = propagationDampingSmoothed_ * distance
-            * lerp(0.35f, 2.75f, normalizedFrequency);
-        return std::exp(-exponent);
-    }
-
     void transportMesh()
     {
         std::fill(destinationEnergy_.begin(), destinationEnergy_.end(), 0.0f);
         std::fill(destinationPhaseR_.begin(), destinationPhaseR_.end(), 0.0f);
         std::fill(destinationPhaseI_.begin(), destinationPhaseI_.end(), 0.0f);
-        edgeAccum_.fill(0.0);
-        edgeSourceTotal_.fill(0.0);
-        edgeLaunchAccum_.fill(0.0);
+        std::fill(globalEnergy_.begin(), globalEnergy_.end(), 0.0);
+        std::fill(globalEligibleEnergy_.begin(), globalEligibleEnergy_.end(), 0.0);
+        std::fill(globalPhaseR_.begin(), globalPhaseR_.end(), 0.0);
+        std::fill(globalPhaseI_.begin(), globalPhaseI_.end(), 0.0);
+        if (telemetryEnabled_) {
+            edgeAccum_.fill(0.0);
+            edgeSourceTotal_.fill(0.0);
+            edgeLaunchAccum_.fill(0.0);
+        }
 
-        for (uint32_t bin = 0; bin < bins_; ++bin) {
-            const float norm = bins_ > 1u
-                ? static_cast<float>(bin) / static_cast<float>(bins_ - 1u)
-                : 0.0f;
-            const float frequencySigned = norm * 2.0f - 1.0f;
-            double globalEnergy = 0.0;
-            double globalEligibleEnergy = 0.0;
-            double globalPhaseR = 0.0;
-            double globalPhaseI = 0.0;
-            for (uint32_t source = 0; source < channels_; ++source) {
-                const size_t sourceIndex = spectrumIndex(source, bin);
-                const float energy = sourceEnergy_[sourceIndex];
-                const float transientReduction = 1.0f
-                    - transientProtectSmoothed_ * transientAmount_[source] * 0.88f;
-                const float processBand = bandMask(
-                    bin, smoothedLaneParams_[source]);
-                globalEnergy += energy;
-                globalEligibleEnergy += energy * processBand * transientReduction;
-                globalPhaseR += energy * sourcePhaseR_[sourceIndex];
-                globalPhaseI += energy * sourcePhaseI_[sourceIndex];
-
+        // Source-major traversal keeps each spectrum, propagation history,
+        // and band-mask lane contiguous in cache. For every destination/bin,
+        // contributions still arrive in ascending source order, preserving
+        // the previous floating-point accumulation order.
+        for (uint32_t source = 0; source < channels_; ++source) {
+            const float transientReduction = 1.0f
+                - transientProtectSmoothed_ * transientAmount_[source] * 0.88f;
+            const uint32_t activeEdgeCount = activeEdgeCounts_[source];
+            for (uint32_t bin = 0; bin < bins_; ++bin) {
+                const float norm = normalizedFrequency_[bin];
+                const float frequencySigned = norm * 2.0f - 1.0f;
                 const float flare = clamp(
                     1.0f + flareSmoothed_ * frequencySigned * 0.65f,
                     0.20f, 1.80f);
+                const size_t sourceIndex = spectrumIndex(source, bin);
+                const float energy = sourceEnergy_[sourceIndex];
+                const float processBand = bandMasks_[sourceIndex];
+                globalEnergy_[bin] += energy;
+                globalEligibleEnergy_[bin] += energy * processBand * transientReduction;
+                globalPhaseR_[bin] += energy * sourcePhaseR_[sourceIndex];
+                globalPhaseI_[bin] += energy * sourcePhaseI_[sourceIndex];
+
                 const float send = clamp(
                     meshAmountSmoothed_ * processBand * transientReduction * flare,
                     0.0f, 0.96f);
+                sendAmount_[sourceIndex] = send;
                 const float kept = energy * (1.0f - send);
                 const size_t selfIndex = spectrumIndex(source, bin);
                 destinationEnergy_[selfIndex] += kept;
                 destinationPhaseR_[selfIndex] += kept * sourcePhaseR_[sourceIndex];
                 destinationPhaseI_[selfIndex] += kept * sourcePhaseI_[sourceIndex];
 
-                for (uint32_t destination = 0; destination < channels_; ++destination) {
-                    const size_t graph = graphIndex(source, destination);
-                    const float weight = lerp(
-                        graphLowCurrent_[graph], graphHighCurrent_[graph], norm);
-                    if (weight <= 0.000001f) continue;
-                    edgeLaunchAccum_[graph] += static_cast<double>(energy * send * weight);
+            }
 
-                    const float delay = propagationDelayFrames(graph, norm);
+            for (uint32_t edge = 0; edge < activeEdgeCount; ++edge) {
+                const uint32_t destination =
+                    activeEdgeDestinations_[source][edge];
+                const size_t graph = graphIndex(source, destination);
+                const float graphLow = graphLowCurrent_[graph];
+                const float graphHigh = graphHighCurrent_[graph];
+                const float* amplitudes = propagationDampingSmoothed_ <= 0.000001f
+                    ? nullptr
+                    : propagationAmplitudeCache_.data() + graph * bins_;
+                constexpr float kMaximumPropagationDelay =
+                    static_cast<float>(kSpectralMeshPropagationFrames - 2u);
+                const float baseDelay = propagationVelocitySmoothed_ >= 0.999999f
+                    ? 0.0f
+                    : (1.0f - propagationVelocitySmoothed_)
+                        * clamp(graphDistanceCurrent_[graph], 0.0f, 1.0f)
+                        * kMaximumPropagationDelay;
+                const float dispersion = propagationDispersionSmoothed_ * 0.75f;
+                const size_t sourceOffset = static_cast<size_t>(source) * bins_;
+                const size_t destinationOffset =
+                    static_cast<size_t>(destination) * bins_;
+                for (uint32_t bin = 0; bin < bins_; ++bin) {
+                    const float norm = normalizedFrequency_[bin];
+                    const size_t sourceIndex = sourceOffset + bin;
+                    const float energy = sourceEnergy_[sourceIndex];
+                    const float send = sendAmount_[sourceIndex];
+                    const float weight = lerp(
+                        graphLow, graphHigh, norm);
+                    if (weight <= 0.000001f) continue;
+                    if (telemetryEnabled_) {
+                        edgeLaunchAccum_[graph] += static_cast<double>(
+                            energy * send * weight);
+                    }
+
+                    const float frequencySigned = norm * 2.0f - 1.0f;
+                    const float delay = baseDelay <= 0.000001f
+                        ? 0.0f
+                        : clamp(baseDelay * clamp(
+                            1.0f + dispersion * frequencySigned,
+                            0.25f, 1.75f),
+                            0.0f, kMaximumPropagationDelay);
                     float routedEnergy = energy;
                     float routedPhaseR = sourcePhaseR_[sourceIndex];
                     float routedPhaseI = sourcePhaseI_[sourceIndex];
@@ -896,35 +1127,39 @@ private:
                             source, bin, delay,
                             routedEnergy, routedPhaseR, routedPhaseI);
                     }
-                    const float amplitude = propagationAmplitude(source, destination, norm);
+                    const float amplitude = amplitudes ? amplitudes[bin] : 1.0f;
                     const float contribution = routedEnergy * send * weight
                         * amplitude * amplitude;
-                    const size_t destinationIndex = spectrumIndex(destination, bin);
+                    const size_t destinationIndex = destinationOffset + bin;
                     destinationEnergy_[destinationIndex] += contribution;
                     destinationPhaseR_[destinationIndex] += contribution
                         * routedPhaseR;
                     destinationPhaseI_[destinationIndex] += contribution
                         * routedPhaseI;
-                    edgeAccum_[graph] += static_cast<double>(contribution);
-                    edgeSourceTotal_[source] += static_cast<double>(contribution);
+                    if (telemetryEnabled_) {
+                        edgeAccum_[graph] += static_cast<double>(contribution);
+                        edgeSourceTotal_[source] += static_cast<double>(contribution);
+                    }
                 }
             }
+        }
 
+        for (uint32_t bin = 0; bin < bins_; ++bin) {
             const float centroidEnergy = static_cast<float>(
-                globalEnergy / static_cast<double>(channels_));
+                globalEnergy_[bin] / static_cast<double>(channels_));
             const float centroidPhaseR = static_cast<float>(
-                globalPhaseR / static_cast<double>(channels_));
+                globalPhaseR_[bin] / static_cast<double>(channels_));
             const float centroidPhaseI = static_cast<float>(
-                globalPhaseI / static_cast<double>(channels_));
-            const float centroidEligibility = globalEnergy > 0.000000001
+                globalPhaseI_[bin] / static_cast<double>(channels_));
+            const float centroidEligibility = globalEnergy_[bin] > 0.000000001
                 ? static_cast<float>(std::clamp(
-                    globalEligibleEnergy / globalEnergy, 0.0, 1.0))
+                    globalEligibleEnergy_[bin] / globalEnergy_[bin], 0.0, 1.0))
                 : 0.0f;
             for (uint32_t destination = 0; destination < channels_; ++destination) {
                 const size_t index = spectrumIndex(destination, bin);
                 const float centroid = centroidSmoothed_ * meshAmountSmoothed_
                     * centroidEligibility
-                    * bandMask(bin, smoothedLaneParams_[destination]);
+                    * bandMasks_[index];
                 destinationEnergy_[index] = lerp(
                     destinationEnergy_[index], centroidEnergy, centroid);
                 destinationPhaseR_[index] = lerp(
@@ -933,6 +1168,8 @@ private:
                     destinationPhaseI_[index], centroidPhaseI, centroid);
             }
         }
+
+        if (!telemetryEnabled_) return;
 
         const size_t launchFrameOffset =
             static_cast<size_t>(propagationWrite_) * kGraphCapacity;
@@ -1019,7 +1256,7 @@ private:
                 const float repeated = historyMag_[
                     static_cast<size_t>(historyRead) * spectrumSize + index];
                 const float repeat = params.repeat * 0.82f
-                    * bandMask(bin, params) * transientReduction;
+                    * bandMasks_[index] * transientReduction;
                 magnitude = lerp(magnitude, repeated, repeat);
                 if (!std::isfinite(magnitude)) magnitude = 0.0f;
                 magnitude = std::min(magnitude, 1000000.0f);
@@ -1038,9 +1275,19 @@ private:
         }
 
         if (captureValid_.load(std::memory_order_acquire)) {
-            for (size_t i = 0; i < capturePhase_.size(); ++i) {
-                capturePhase_[i] = std::remainder(
-                    capturePhase_[i] + captureAdvance_[i], 2.0f * kPi);
+            for (size_t i = 0; i < capturePhaseR_.size(); ++i) {
+                const float phaseR = capturePhaseR_[i];
+                const float phaseI = capturePhaseI_[i];
+                capturePhaseR_[i] = phaseR * captureAdvanceR_[i]
+                    - phaseI * captureAdvanceI_[i];
+                capturePhaseI_[i] = phaseR * captureAdvanceI_[i]
+                    + phaseI * captureAdvanceR_[i];
+                // Float phasor multiplication accumulates very slowly. Spread
+                // normalization across hops so long captures remain at unity
+                // without recreating a once-per-hop CPU spike.
+                if (((i + frameCounter_) & 63u) == 0u) {
+                    normalizedPhasor(capturePhaseR_[i], capturePhaseI_[i]);
+                }
             }
         }
         historyWrite_ = (historyWrite_ + 1u) % kSpectralMeshHistoryFrames;
@@ -1052,6 +1299,8 @@ private:
     {
         if (block.channels != channels_ || block.bins != bins_) return;
         updateSmoothing();
+        updateBandMasks();
+        updatePropagationAmplitudes();
         analyzeInput(block);
         createLocalMaterial();
         updateCapture();
@@ -1072,16 +1321,22 @@ private:
     bool ready_ = false;
     bool hasProcessed_ = false;
     bool freezeWasActive_ = false;
+    bool telemetryEnabled_ = true;
 
     SpectralFftProcessor fft_;
     TopologyState topology_ {};
     std::array<SpectralSprayParams, kSpectralMeshMaxChannels> laneParams_ {};
     std::array<SpectralSprayParams, kSpectralMeshMaxChannels> smoothedLaneParams_ {};
     std::array<float, kSpectralMeshMaxChannels> mixSmoothed_ {};
+    std::array<float, kSpectralMeshMaxChannels> gainTarget_ {};
     std::array<float, kSpectralMeshMaxChannels> gainSmoothed_ {};
     std::array<float, kSpectralMeshMaxChannels> safetySmoothed_ {};
     std::array<float, kSpectralMeshMaxChannels> transientAmount_ {};
     std::array<bool, kSpectralMeshMaxChannels> phaseReady_ {};
+    std::array<TopologyPoint, kSpectralMeshMaxChannels> topologyPoints_ {};
+    std::array<std::array<uint8_t, kSpectralMeshMaxChannels>,
+               kSpectralMeshMaxChannels> activeEdgeDestinations_ {};
+    std::array<uint8_t, kSpectralMeshMaxChannels> activeEdgeCounts_ {};
 
     std::array<float, kGraphCapacity> graphLowTarget_ {};
     std::array<float, kGraphCapacity> graphHighTarget_ {};
@@ -1114,11 +1369,25 @@ private:
     std::atomic<bool> captureValid_ { false };
 
     std::vector<float> inputMag_;
+    std::vector<float> normalizedFrequency_;
+    std::vector<float> lowShelf_;
+    std::vector<float> highShelf_;
+    std::vector<float> expectedAdvanceR_;
+    std::vector<float> expectedAdvanceI_;
+    std::vector<float> patternASin_;
+    std::vector<float> patternACos_;
+    std::vector<float> patternBSin_;
+    std::vector<float> patternBCos_;
+    std::vector<float> holePatternSin_;
+    std::vector<float> holePatternCos_;
+    std::vector<float> bandMasks_;
     std::vector<float> previousInputMag_;
     std::vector<float> inputPhaseR_;
     std::vector<float> inputPhaseI_;
-    std::vector<float> previousInputPhase_;
-    std::vector<float> inputAdvance_;
+    std::vector<float> previousInputPhaseR_;
+    std::vector<float> previousInputPhaseI_;
+    std::vector<float> inputAdvanceR_;
+    std::vector<float> inputAdvanceI_;
     std::vector<float> holdMag_;
     std::vector<float> phaseMemoryR_;
     std::vector<float> phaseMemoryI_;
@@ -1126,20 +1395,29 @@ private:
     std::vector<float> localPhaseR_;
     std::vector<float> localPhaseI_;
     std::vector<float> sourceEnergy_;
+    std::vector<float> sourceMagnitude_;
+    std::vector<float> sendAmount_;
     std::vector<float> sourcePhaseR_;
     std::vector<float> sourcePhaseI_;
     std::vector<float> destinationEnergy_;
     std::vector<float> destinationPhaseR_;
     std::vector<float> destinationPhaseI_;
+    std::vector<double> globalEnergy_;
+    std::vector<double> globalEligibleEnergy_;
+    std::vector<double> globalPhaseR_;
+    std::vector<double> globalPhaseI_;
     std::vector<float> fieldMag_;
     std::vector<float> fieldPhaseR_;
     std::vector<float> fieldPhaseI_;
     std::vector<float> captureMag_;
-    std::vector<float> captureAdvance_;
-    std::vector<float> capturePhase_;
+    std::vector<float> capturePhaseR_;
+    std::vector<float> capturePhaseI_;
+    std::vector<float> captureAdvanceR_;
+    std::vector<float> captureAdvanceI_;
     std::vector<float> historyMag_;
     std::vector<float> propagationHistoryR_;
     std::vector<float> propagationHistoryI_;
+    std::vector<float> propagationAmplitudeCache_;
     std::vector<float> edgeLaunchHistory_;
 
     std::vector<std::vector<float>> wetBuffers_;

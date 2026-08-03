@@ -70,7 +70,10 @@ struct OldSavedStateV1 {
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
-    s3g::AmbiRotateParams params {};
+    s3g::AmbiRotateParams audioParams {};
+    std::array<std::atomic<float>, 9u> publishedParams {};
+    std::atomic<uint64_t> parameterRevision { 0u };
+    uint64_t audioRevision = 0u;
     s3g::AmbiRotateProcessor processor {};
     std::atomic<float> outputPeak { 0.0f };
     int32_t guiViewMode = 2;
@@ -88,38 +91,95 @@ void guiDestroy(const clap_plugin_t* plugin);
 #endif
 uint32_t roundedUint(double value) { return static_cast<uint32_t>(std::max(0.0, std::floor(value + 0.5))); }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool setParamValue(s3g::AmbiRotateParams& params, clap_id id, double value)
 {
     switch (id) {
-    case kParamOrder: p.params.order = std::clamp<uint32_t>(roundedUint(value), 1u, s3g::kAmbiUtilityMaxOrder); break;
-    case kParamYaw: p.params.yawDeg = static_cast<float>(value); break;
-    case kParamPitch: p.params.pitchDeg = static_cast<float>(value); break;
-    case kParamRoll: p.params.rollDeg = static_cast<float>(value); break;
-    case kParamSpread: p.params.spread = static_cast<float>(value); break;
-    case kParamTilt: p.params.tilt = static_cast<float>(value); break;
-    case kParamTwist: p.params.twist = static_cast<float>(value); break;
-    case kParamWidth: p.params.width = static_cast<float>(value); break;
-    case kParamOutput: p.params.outputGainDb = static_cast<float>(value); break;
-    default: return;
+    case kParamOrder: params.order = std::clamp<uint32_t>(roundedUint(value), 1u, s3g::kAmbiUtilityMaxOrder); break;
+    case kParamYaw: params.yawDeg = static_cast<float>(value); break;
+    case kParamPitch: params.pitchDeg = static_cast<float>(value); break;
+    case kParamRoll: params.rollDeg = static_cast<float>(value); break;
+    case kParamSpread: params.spread = static_cast<float>(value); break;
+    case kParamTilt: params.tilt = static_cast<float>(value); break;
+    case kParamTwist: params.twist = static_cast<float>(value); break;
+    case kParamWidth: params.width = static_cast<float>(value); break;
+    case kParamOutput: params.outputGainDb = static_cast<float>(value); break;
+    default: return false;
     }
-    p.params = s3g::sanitizeAmbiRotateParams(p.params);
-    p.processor.setParams(p.params);
+    return true;
+}
+
+double paramValue(const s3g::AmbiRotateParams& params, clap_id id)
+{
+    switch (id) {
+    case kParamOrder: return params.order;
+    case kParamYaw: return params.yawDeg;
+    case kParamPitch: return params.pitchDeg;
+    case kParamRoll: return params.rollDeg;
+    case kParamSpread: return params.spread;
+    case kParamTilt: return params.tilt;
+    case kParamTwist: return params.twist;
+    case kParamWidth: return params.width;
+    case kParamOutput: return params.outputGainDb;
+    default: return 0.0;
+    }
+}
+
+s3g::AmbiRotateParams snapshotPublishedParams(const Plugin& p)
+{
+    s3g::AmbiRotateParams params {};
+    params.order = std::clamp<uint32_t>(roundedUint(
+        p.publishedParams[kParamOrder - 1u].load(std::memory_order_relaxed)),
+        1u, s3g::kAmbiUtilityMaxOrder);
+    params.yawDeg = p.publishedParams[kParamYaw - 1u].load(std::memory_order_relaxed);
+    params.pitchDeg = p.publishedParams[kParamPitch - 1u].load(std::memory_order_relaxed);
+    params.rollDeg = p.publishedParams[kParamRoll - 1u].load(std::memory_order_relaxed);
+    params.spread = p.publishedParams[kParamSpread - 1u].load(std::memory_order_relaxed);
+    params.tilt = p.publishedParams[kParamTilt - 1u].load(std::memory_order_relaxed);
+    params.twist = p.publishedParams[kParamTwist - 1u].load(std::memory_order_relaxed);
+    params.width = p.publishedParams[kParamWidth - 1u].load(std::memory_order_relaxed);
+    params.outputGainDb = p.publishedParams[kParamOutput - 1u].load(std::memory_order_relaxed);
+    return s3g::sanitizeAmbiRotateParams(params);
+}
+
+void storePublishedParam(Plugin& p, clap_id id, const s3g::AmbiRotateParams& params)
+{
+    if (id < kParamOrder || id > kParamOutput) return;
+    p.publishedParams[id - 1u].store(static_cast<float>(paramValue(params, id)), std::memory_order_relaxed);
+}
+
+void publishParams(Plugin& p, const s3g::AmbiRotateParams& requested, bool notifyAudio)
+{
+    const auto params = s3g::sanitizeAmbiRotateParams(requested);
+    for (clap_id id = kParamOrder; id <= kParamOutput; ++id) storePublishedParam(p, id, params);
+    if (notifyAudio) {
+        p.parameterRevision.fetch_add(1u, std::memory_order_release);
+        if (p.host && p.host->request_process) p.host->request_process(p.host);
+    }
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    auto params = snapshotPublishedParams(p);
+    if (!setParamValue(params, id, value)) return;
+    params = s3g::sanitizeAmbiRotateParams(params);
+    storePublishedParam(p, id, params);
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+    if (p.host && p.host->request_process) p.host->request_process(p.host);
 }
 
 double getParam(const Plugin& p, clap_id id)
 {
-    switch (id) {
-    case kParamOrder: return p.params.order;
-    case kParamYaw: return p.params.yawDeg;
-    case kParamPitch: return p.params.pitchDeg;
-    case kParamRoll: return p.params.rollDeg;
-    case kParamSpread: return p.params.spread;
-    case kParamTilt: return p.params.tilt;
-    case kParamTwist: return p.params.twist;
-    case kParamWidth: return p.params.width;
-    case kParamOutput: return p.params.outputGainDb;
-    default: return 0.0;
-    }
+    if (id < kParamOrder || id > kParamOutput) return 0.0;
+    return p.publishedParams[id - 1u].load(std::memory_order_relaxed);
+}
+
+bool syncPendingParams(Plugin& p)
+{
+    const uint64_t revision = p.parameterRevision.load(std::memory_order_acquire);
+    if (revision == p.audioRevision) return false;
+    p.audioParams = snapshotPublishedParams(p);
+    p.audioRevision = revision;
+    return true;
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -134,9 +194,10 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double, uint32_t, uint32_t)
 {
     auto* p = self(plugin);
-    p->params = s3g::sanitizeAmbiRotateParams(p->params);
-    p->processor.setParams(p->params);
+    p->audioParams = snapshotPublishedParams(*p);
+    p->processor.setParams(p->audioParams);
     p->processor.reset();
+    p->audioRevision = p->parameterRevision.load(std::memory_order_acquire);
     return true;
 }
 
@@ -150,21 +211,59 @@ void reset(const clap_plugin_t* plugin)
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
-void readParamEvents(Plugin& p, const clap_input_events_t* in)
+void flushParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    auto params = snapshotPublishedParams(p);
+    uint16_t changedMask = 0u;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            if (setParamValue(params, param->param_id, param->value)) {
+                changedMask |= static_cast<uint16_t>(1u << (param->param_id - 1u));
+            }
         }
     }
+    if (changedMask == 0u) return;
+    params = s3g::sanitizeAmbiRotateParams(params);
+    for (clap_id id = kParamOrder; id <= kParamOutput; ++id) {
+        if ((changedMask & static_cast<uint16_t>(1u << (id - 1u))) != 0u) {
+            storePublishedParam(p, id, params);
+        }
+    }
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+    if (p.host && p.host->request_process) p.host->request_process(p.host);
+}
+
+bool applyParamEventsForBlock(Plugin& p, const clap_input_events_t* events)
+{
+    auto params = p.audioParams;
+    uint16_t changedMask = 0u;
+    const uint32_t count = events ? events->size(events) : 0u;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto* event = events->get(events, i);
+        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_PARAM_VALUE) continue;
+        const auto* value = reinterpret_cast<const clap_event_param_value_t*>(event);
+        if (setParamValue(params, value->param_id, value->value)) {
+            changedMask |= static_cast<uint16_t>(1u << (value->param_id - 1u));
+        }
+    }
+    if (changedMask == 0u) return false;
+    p.audioParams = s3g::sanitizeAmbiRotateParams(params);
+    for (clap_id id = kParamOrder; id <= kParamOutput; ++id) {
+        if ((changedMask & static_cast<uint16_t>(1u << (id - 1u))) != 0u) {
+            storePublishedParam(p, id, p.audioParams);
+        }
+    }
+    return true;
 }
 
 template <typename Sample>
-clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t frames, Sample** in, Sample** out)
+clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input,
+    const clap_audio_buffer_t& output, uint32_t frames, Sample** in, Sample** out)
 {
     s3g::clearAudioBuffer(output, frames);
     if (!in || !out) return CLAP_PROCESS_CONTINUE;
@@ -184,7 +283,12 @@ clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input, co
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
-    readParamEvents(*p, proc->in_events);
+    const bool pendingParamsChanged = syncPendingParams(*p);
+    // This processor has historically treated CLAP automation as block-rate.
+    // Fold the whole event list into one snapshot so dense host bursts cause a
+    // single matrix build without changing the established timing contract.
+    const bool eventParamsChanged = applyParamEventsForBlock(*p, proc->in_events);
+    if (pendingParamsChanged || eventParamsChanged) p->processor.setParams(p->audioParams);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
     const auto& output = proc->audio_outputs[0];
@@ -260,14 +364,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     }
     return paramId >= kParamOrder && paramId <= kParamOutput;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { flushParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const auto* p = self(plugin);
-    const SavedState state { kStateVersion, p->params, p->guiViewMode };
+    const SavedState state { kStateVersion, snapshotPublishedParams(*p), p->guiViewMode };
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -282,7 +386,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
-        p->params = s3g::sanitizeAmbiRotateParams(state.params);
+        publishParams(*p, state.params, true);
         p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, -1, 2);
     } else if (version == 2u) {
         SavedStateV2 old {};
@@ -290,7 +394,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&old) + sizeof(version),
                 sizeof(old) - sizeof(version))) return false;
-        p->params = s3g::sanitizeAmbiRotateParams(old.params);
+        publishParams(*p, old.params, true);
         p->guiViewMode = 2;
     } else if (version == 1u) {
         OldSavedStateV1 old {};
@@ -298,7 +402,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&old) + sizeof(version),
                 sizeof(old) - sizeof(version))) return false;
-        p->params = s3g::sanitizeAmbiRotateParams({
+        publishParams(*p, {
             old.params.order,
             old.params.yawDeg,
             old.params.pitchDeg,
@@ -308,11 +412,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             0.0f,
             old.params.width,
             old.params.outputGainDb,
-        });
+        }, true);
     } else {
         return false;
     }
-    p->processor.setParams(p->params);
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -456,6 +559,7 @@ constexpr const auto& kTransformLayout =
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto params = snapshotPublishedParams(*p);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
@@ -503,13 +607,13 @@ constexpr const auto& kTransformLayout =
     for (int i = 0; i < 8; ++i) {
         s3g::Vec3 v = s3g::normalize({ pts[i][0], pts[i][1], pts[i][2] });
         const float az = std::atan2(v.y, v.x);
-        const float yawOffset = std::sin(az) * p->params.spread * 54.0f;
-        const float pitchOffset = std::sin(az) * p->params.tilt * 42.0f;
-        const float rollOffset = std::cos(az) * p->params.twist * 90.0f;
+        const float yawOffset = std::sin(az) * params.spread * 54.0f;
+        const float pitchOffset = std::sin(az) * params.tilt * 42.0f;
+        const float rollOffset = std::cos(az) * params.twist * 90.0f;
         v = s3g::ambiUtilityRotate(v,
-            p->params.yawDeg + yawOffset,
-            p->params.pitchDeg + pitchOffset,
-            p->params.rollDeg + rollOffset);
+            params.yawDeg + yawOffset,
+            params.pitchDeg + pitchOffset,
+            params.rollDeg + rollOffset);
         projected[i] = [self project:v rect:field scale:scale * 0.88];
     }
     [s3g::clap_gui::color(0xd0d0d0, 0.48) setStroke];
@@ -517,8 +621,8 @@ constexpr const auto& kTransformLayout =
     [style.text setFill];
     for (auto pt : projected) NSRectFill(NSMakeRect(pt.x - 3, pt.y - 3, 6, 6));
     [[NSString stringWithFormat:@"%uOA ACN/SN3D  /  YAW %+.0f  PITCH %+.0f  ROLL %+.0f",
-      p->params.order,
-      static_cast<double>(p->params.yawDeg), static_cast<double>(p->params.pitchDeg), static_cast<double>(p->params.rollDeg)]
+      params.order,
+      static_cast<double>(params.yawDeg), static_cast<double>(params.pitchDeg), static_cast<double>(params.rollDeg)]
         drawAtPoint:NSMakePoint(
             fieldPanel.origin.x + 16.0, NSMaxY(field) + 12.0)
         withAttributes:small];
@@ -533,12 +637,12 @@ constexpr const auto& kTransformLayout =
     drawPanel(@"ROTATION", kTransformLayout.primarySeven);
     [self drawSlider:@"OUT"
         value:[NSString stringWithFormat:@"%+.1f dB",
-            static_cast<double>(p->params.outputGainDb)]
-        norm:(p->params.outputGainDb + 60.0) / 72.0
+            static_cast<double>(params.outputGainDb)]
+        norm:(params.outputGainDb + 60.0) / 72.0
         y:s3g::gui_layout::rowY(kTransformLayout.output, 0u)
         attrs:small style:style];
     s3g::clap_gui::drawProcessorMenu(
-        @"ORDER", [NSString stringWithFormat:@"%uOA", p->params.order],
+        @"ORDER", [NSString stringWithFormat:@"%uOA", params.order],
         s3g::gui_layout::rowY(kTransformLayout.output, 1u),
         kTransformLayout.output.frame.x,
         kTransformLayout.output.frame.width,
@@ -552,13 +656,13 @@ constexpr const auto& kTransformLayout =
         s3g::gui_layout::rowY(kTransformLayout.primarySeven, 5u),
         s3g::gui_layout::rowY(kTransformLayout.primarySeven, 6u),
     };
-    [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(p->params.yawDeg)] norm:(p->params.yawDeg + 180.0) / 360.0 y:rows[0] attrs:small style:style];
-    [self drawSlider:@"PITCH" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(p->params.pitchDeg)] norm:(p->params.pitchDeg + 90.0) / 180.0 y:rows[1] attrs:small style:style];
-    [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(p->params.rollDeg)] norm:(p->params.rollDeg + 180.0) / 360.0 y:rows[2] attrs:small style:style];
-    [self drawSlider:@"SPREAD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:rows[3] attrs:small style:style];
-    [self drawSlider:@"TILT" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.tilt * 100.0f)] norm:(p->params.tilt + 1.0) * 0.5 y:rows[4] attrs:small style:style];
-    [self drawSlider:@"TWIST" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.twist * 100.0f)] norm:(p->params.twist + 1.0) * 0.5 y:rows[5] attrs:small style:style];
-    [self drawSlider:@"WIDTH" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:rows[6] attrs:small style:style];
+    [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(params.yawDeg)] norm:(params.yawDeg + 180.0) / 360.0 y:rows[0] attrs:small style:style];
+    [self drawSlider:@"PITCH" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(params.pitchDeg)] norm:(params.pitchDeg + 90.0) / 180.0 y:rows[1] attrs:small style:style];
+    [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(params.rollDeg)] norm:(params.rollDeg + 180.0) / 360.0 y:rows[2] attrs:small style:style];
+    [self drawSlider:@"SPREAD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(params.spread * 100.0f)] norm:(params.spread + 1.0) * 0.5 y:rows[3] attrs:small style:style];
+    [self drawSlider:@"TILT" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(params.tilt * 100.0f)] norm:(params.tilt + 1.0) * 0.5 y:rows[4] attrs:small style:style];
+    [self drawSlider:@"TWIST" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(params.twist * 100.0f)] norm:(params.twist + 1.0) * 0.5 y:rows[5] attrs:small style:style];
+    [self drawSlider:@"WIDTH" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(params.width)] norm:params.width / 1.5 y:rows[6] attrs:small style:style];
 
     if (_openMenu == 1) {
         static NSString* items[] = {
@@ -571,7 +675,7 @@ constexpr const auto& kTransformLayout =
             18.0 * 7.0);
         s3g::clap_gui::drawDropdownMenu(
             menuRect, 18.0, items, 7u,
-            static_cast<int>(p->params.order) - 1,
+            static_cast<int>(params.order) - 1,
             _hoverMenuItem, small, style);
     }
 }
@@ -788,8 +892,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
-    p->params = s3g::sanitizeAmbiRotateParams(p->params);
-    p->processor.setParams(p->params);
+    p->audioParams = s3g::sanitizeAmbiRotateParams(p->audioParams);
+    publishParams(*p, p->audioParams, false);
+    p->processor.setParams(p->audioParams);
     p->processor.reset();
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;

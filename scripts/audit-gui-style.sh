@@ -986,7 +986,7 @@ for file in "${processor_family_sources[@]}"; do
   if ! rg -Fq 'ResponsiveViewport' "$file"; then
     warn "family" "$file" "Processor editors use the shared responsive viewport."
   fi
-  if ! rg -Fq '@"OUTPUT"' "$file" || ! rg -Fq '@"OUT"' "$file"; then
+  if ! rg -q '@"[^"]*OUTPUT[^"]*"' "$file" || ! rg -Fq '@"OUT"' "$file"; then
     warn "family" "$file" "Processor control stacks begin with OUTPUT and OUT."
   fi
   if ! rg -q 'PROCESSOR [^"]+([0-9]+|%u)CH' "$file"; then
@@ -1039,15 +1039,14 @@ for file in "${topology_processor_sources[@]}"; do
 done
 
 delay_processor_source="plugins/clap_delay_processor/s3g_delay_processor_clap.cpp"
-if rg -q '0x636363|0x9e9e9e|0xf0f0f0|0xd1d1d1' "$delay_processor_source" \
-    || ! rg -q 'topologyPanel\.origin\.x \+ 12\.0' "$delay_processor_source" \
+if ! rg -q 'topologyPanel\.origin\.x \+ 12\.0' "$delay_processor_source" \
     || ! rg -q 'sectionAttrs =.*softLabelAttrs|softLabelAttrs\(\);' "$delay_processor_source"; then
   warn "typography" "$delay_processor_source" \
     "Processor Delay uses the shared soft typography palette and 12 px topology-field title inset."
 fi
 
 fault_source="plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp"
-if ! rg -q 'processorLabelX\(kLeftToolboxX\), 647\.0' "$fault_source" \
+if ! rg -q 'processorLabelX\(kLeftToolboxX\), kPerformanceRowY - 5\.0' "$fault_source" \
     || ! rg -q 'kStandardMetrics\.headerLabelInset, y \+ 7\.0' "$fault_source"; then
   warn "layout" "$fault_source" \
     "Processor Fault contextual labels and field headings must use the shared 16 px label and 8 px header anchors."

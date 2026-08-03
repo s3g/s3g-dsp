@@ -71,6 +71,7 @@
             <tr><td>Mixed Swarm</td><td>Mixed production</td><td>Generic controls shared across a population containing all methods</td></tr>
           </tbody>
         </table>
+
         <p>Each flyer retains the periodic partial structure of an individual wing cycle, but population fundamentals are distributed across deterministic quasi-irrational log-frequency offsets. The spread increases with population size, and <code>COUPLING</code> coordinates calls without tuning wingbeats together. Mixed swarms map their flyer subset into the flight-frequency range before applying the same distribution, avoiding a shared upper-frequency clamp. Flyer sound also includes bounded cycle-to-cycle thrust and timing variation, thorax response, and body-size-dependent wake turbulence. Cicada colonies move slowly among locked, half-rate, double-rate, and irregular pulse states; changes are smoothed and energy-compensated so they read as massed actuation rather than level jumps. Tremulation uses body motion and intermittent contact to excite a low substrate path, with a smaller airborne component. Regime and call-type changes use a short transition crossfade.</p>
 
         <h2 id="model-basis">Model Basis</h2>
@@ -111,6 +112,10 @@
           </tbody>
         </table>
 
+        <h2 id="realtime-limits">Realtime Use</h2>
+
+        <p>The strict maximum-density release profile covers 48 kHz at 32, 64, 128, and 256 frames. At 96 kHz the full 64-voice, seventh-order population is measured for reference but is not claimed as a realtime-safe maximum-load configuration. For 96 kHz sessions, begin with fewer <code>VOICES</code>, a lower ambisonic <code>ORDER</code>, and a larger device buffer, then verify the complete REAPER project on the intended computer. The output bus remains 64 channels wide even when fewer orders are active.</p>
+
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-encoder-cryosphere.html">
             <span>Previous</span>
@@ -144,6 +149,7 @@
           <a href="ambi-encoder-ray.html">Encoder Ray</a>
           <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
           <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-medium.html">Encoder Medium</a>
           <a href="ambi-encoder-vot.html">Encoder VOT</a>
           <a href="ambi-encoder-vox.html">Encoder Vox</a>
           <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
@@ -170,6 +176,7 @@
           <a href="#surface">Parameter Surface</a>
           <a href="#presets">Presets</a>
           <a href="#routing">Order and Routing</a>
+          <a href="#realtime-limits">Realtime Use</a>
         </div>
       </aside>
     </div>

@@ -177,7 +177,9 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
+    uint32_t guiTelemetryFramesUntilPublish = 0u;
+    bool guiTelemetryWasVisible = false;
     int guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
@@ -581,20 +583,29 @@ void requestSurfaceProcess(Plugin& plugin)
     }
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool stageParam(Plugin& p, clap_id id, double value,
+    bool& transitionRequested)
 {
     if (id == kPresetParamId) {
-        p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        p.presetIndex = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u,
+            s3g::kAmbiInsectFactoryPresetCount - 1u);
         p.customPresetName[0] = '\0';
         const float outputGainDb = p.params.outputGainDb;
         p.params = s3g::ambiInsectFactoryPreset(p.presetIndex);
         p.params.outputGainDb = outputGainDb;
-        applyEffectiveParams(p);
-        p.engine.beginTransition();
-        return;
+        transitionRequested = true;
+        return true;
     }
-    if (!assignParam(p.params, id, value)) return;
+    return assignParam(p.params, id, value);
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    bool transitionRequested = false;
+    if (!stageParam(p, id, value, transitionRequested)) return;
     applyEffectiveParams(p);
+    if (transitionRequested) p.engine.beginTransition();
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -603,6 +614,7 @@ void destroy(const clap_plugin_t* plugin)
     auto* p = self(plugin);
 #if defined(__APPLE__)
     if (p && p->guiView) {
+        p->guiVisible.store(false, std::memory_order_release);
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
 #endif
@@ -645,14 +657,21 @@ void reset(const clap_plugin_t* plugin)
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    bool changed = false;
+    bool transitionRequested = false;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            changed = stageParam(
+                p, param->param_id, param->value,
+                transitionRequested) || changed;
         }
     }
+    if (!changed) return;
+    applyEffectiveParams(p);
+    if (transitionRequested) p.engine.beginTransition();
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
@@ -663,11 +682,20 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
     const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
-    if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
-    if (!output.data32 || outChannels == 0u) return CLAP_PROCESS_CONTINUE;
+    if (!output.data32 || outChannels == 0u) {
+        s3g::clearAudioBufferFromChannel(output, 0u, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
+
+    bool guiVisible = false;
+#if defined(__APPLE__)
+    guiVisible = p->guiVisible.load(std::memory_order_acquire);
+#endif
+    p->engine.setListenerTelemetryEnabled(guiVisible);
 
     constexpr uint32_t kSurfaceControlFrames = 64u;
     uint32_t surfaceOffset = 0u;
+    uint32_t renderedChannelLimit = 0u;
     while (surfaceOffset < frames) {
         const float currentX = p->effectiveSurfaceX.load(
             std::memory_order_relaxed);
@@ -691,40 +719,84 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             spanOutputs[ch] = output.data32[ch]
                 ? output.data32[ch] + surfaceOffset : nullptr;
         }
-        p->engine.process(spanOutputs.data(), outChannels, spanFrames);
+        const uint32_t renderedChannels = p->engine.processActiveChannels(
+            spanOutputs.data(), outChannels, spanFrames);
+        renderedChannelLimit = std::max(
+            renderedChannelLimit, renderedChannels);
+        for (uint32_t channel = renderedChannels;
+             channel < outChannels; ++channel) {
+            if (spanOutputs[channel]) {
+                std::fill(spanOutputs[channel],
+                    spanOutputs[channel] + spanFrames, 0.0f);
+            }
+        }
         surfaceOffset += spanFrames;
     }
     p->effectiveParams = p->engine.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
-    float peak = 0.0f;
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) {
-        if (!output.data32[ch]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) peak = std::max(peak, std::fabs(output.data32[ch][frame]));
-    }
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
-    const uint32_t voices = std::min<uint32_t>(
-        p->engine.processingVoiceCount(), s3g::kAmbiInsectMaxVoices);
-    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
-    for (uint32_t voice = 0u; voice < voices; ++voice) {
-        const auto point = p->engine.voicePoint(voice);
-        p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
-        p->guiElevation[voice].store(point.elevationDeg, std::memory_order_relaxed);
-        p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
-        p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
-        p->guiCall[voice].store(p->engine.voiceCallLevel(voice), std::memory_order_relaxed);
-        p->guiRenderGain[voice].store(
-            p->engine.voiceRenderGain(voice), std::memory_order_relaxed);
-        p->guiMethod[voice].store(
-            p->engine.voiceProductionMethod(voice),
-            std::memory_order_relaxed);
-    }
-    for (uint32_t lobe = 0u; lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
-        p->guiListenEnvelope[lobe].store(
-            p->engine.fieldListenEnvelope(lobe), std::memory_order_relaxed);
-        p->guiListenWeight[lobe].store(
-            p->engine.fieldListenWeight(lobe), std::memory_order_relaxed);
+    const bool becameVisible = guiVisible && !p->guiTelemetryWasVisible;
+    p->guiTelemetryWasVisible = guiVisible;
+    if (!guiVisible) {
+        p->guiTelemetryFramesUntilPublish = 0u;
+    } else {
+        const bool publish = becameVisible
+            || p->guiTelemetryFramesUntilPublish <= frames;
+        if (publish) {
+            p->guiTelemetryFramesUntilPublish = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(p->sampleRate / 30.0));
+            float peak = 0.0f;
+            for (uint32_t channel = 0u;
+                 channel < renderedChannelLimit; ++channel) {
+                if (!output.data32[channel]) continue;
+                for (uint32_t frame = 0u; frame < frames; ++frame) {
+                    peak = std::max(
+                        peak, std::fabs(output.data32[channel][frame]));
+                }
+            }
+            const float previousPeak = becameVisible ? 0.0f
+                : p->outputPeak.load(std::memory_order_relaxed) * 0.90f;
+            p->outputPeak.store(
+                std::max(previousPeak, peak), std::memory_order_relaxed);
+
+            const uint32_t voices = std::min<uint32_t>(
+                p->engine.processingVoiceCount(),
+                s3g::kAmbiInsectMaxVoices);
+            p->guiVoiceCount.store(voices, std::memory_order_relaxed);
+            for (uint32_t voice = 0u; voice < voices; ++voice) {
+                const auto point = p->engine.voicePoint(voice);
+                p->guiAzimuth[voice].store(
+                    point.azimuthDeg, std::memory_order_relaxed);
+                p->guiElevation[voice].store(
+                    point.elevationDeg, std::memory_order_relaxed);
+                p->guiDistance[voice].store(
+                    point.distance, std::memory_order_relaxed);
+                p->guiEnergy[voice].store(
+                    p->engine.voiceEnergy(voice),
+                    std::memory_order_relaxed);
+                p->guiCall[voice].store(
+                    p->engine.voiceCallLevel(voice),
+                    std::memory_order_relaxed);
+                p->guiRenderGain[voice].store(
+                    p->engine.voiceRenderGain(voice),
+                    std::memory_order_relaxed);
+                p->guiMethod[voice].store(
+                    p->engine.voiceProductionMethod(voice),
+                    std::memory_order_relaxed);
+            }
+            for (uint32_t lobe = 0u;
+                 lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
+                p->guiListenEnvelope[lobe].store(
+                    p->engine.fieldListenEnvelope(lobe),
+                    std::memory_order_relaxed);
+                p->guiListenWeight[lobe].store(
+                    p->engine.fieldListenWeight(lobe),
+                    std::memory_order_relaxed);
+            }
+        } else {
+            p->guiTelemetryFramesUntilPublish -= frames;
+        }
     }
 #endif
     return CLAP_PROCESS_CONTINUE;
@@ -2490,10 +2562,10 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (!p->guiView) return;
+    p->guiVisible.store(false, std::memory_order_release);
     [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) destroySurfacePopup];
     [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer];
     s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
-    p->guiVisible = false;
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
@@ -2513,8 +2585,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) hideSurfacePopup]; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_release); [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_release); [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) hideSurfacePopup]; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif

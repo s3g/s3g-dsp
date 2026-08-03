@@ -120,6 +120,11 @@ public:
         }
         // vDSP real inverse FFT plus Hann/Hann OLA reconstructs unity with this gain.
         windowScale_ = overlap_ > 0u ? (4.0f / (3.0f * static_cast<float>(overlap_))) : 1.0f;
+        synthesisWindow_.assign(fftSize_, 0.0f);
+        const float synthesisScale = windowScale_ / static_cast<float>(fftSize_);
+        vDSP_vsmul(
+            window_.data(), 1, &synthesisScale,
+            synthesisWindow_.data(), 1, fftSize_);
 
         frame_.assign(fftSize_, 0.0f);
         splitReal_.assign(halfSize_, 0.0f);
@@ -229,6 +234,7 @@ private:
         windowScale_ = 1.0f;
         ready_ = false;
         window_.clear();
+        synthesisWindow_.clear();
         frame_.clear();
         splitReal_.clear();
         splitImag_.clear();
@@ -254,43 +260,12 @@ private:
     {
 #if S3G_HAS_ACCELERATE_FFT
         for (uint32_t ch = 0; ch < channels_; ++ch) {
-            auto& state = states_[ch];
-            for (uint32_t i = 0; i < fftSize_; ++i) {
-                const uint32_t index = (writePos_ + i) % fftSize_;
-                frame_[i] = state.input[index] * window_[i];
-            }
-
-            DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
-            vDSP_ctoz(reinterpret_cast<const DSPComplex*>(frame_.data()), 2, &split, 1, halfSize_);
-            vDSP_fft_zrip(fftSetup_, &split, 1, fftLog2_, FFT_FORWARD);
-
-            binReal_[0] = splitReal_[0];
-            binImag_[0] = 0.0f;
-            binReal_[halfSize_] = splitImag_[0];
-            binImag_[halfSize_] = 0.0f;
-            for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
-                binReal_[bin] = splitReal_[bin];
-                binImag_[bin] = splitImag_[bin];
-            }
+            analyzeChannel(ch, binReal_.data(), binImag_.data());
 
             SpectralFrameView view { binReal_.data(), binImag_.data(), bins_, fftSize_, ch };
             kernel(view);
 
-            splitReal_[0] = binReal_[0];
-            splitImag_[0] = binReal_[halfSize_];
-            for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
-                splitReal_[bin] = binReal_[bin];
-                splitImag_[bin] = binImag_[bin];
-            }
-
-            vDSP_fft_zrip(fftSetup_, &split, 1, fftLog2_, FFT_INVERSE);
-            vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(frame_.data()), 2, halfSize_);
-
-            const float scale = windowScale_ / static_cast<float>(fftSize_);
-            for (uint32_t i = 0; i < fftSize_; ++i) {
-                const uint32_t index = (writePos_ + i) % fftSize_;
-                state.output[index] += flushDenormal(frame_[i] * window_[i] * scale);
-            }
+            synthesizeChannel(ch, binReal_.data(), binImag_.data());
         }
 #else
         (void)kernel;
@@ -301,9 +276,16 @@ private:
     {
 #if S3G_HAS_ACCELERATE_FFT
         auto& state = states_[ch];
-        for (uint32_t i = 0; i < fftSize_; ++i) {
-            const uint32_t index = (writePos_ + i) % fftSize_;
-            frame_[i] = state.input[index] * window_[i];
+        const uint32_t first = fftSize_ - writePos_;
+        vDSP_vmul(
+            state.input.data() + writePos_, 1,
+            window_.data(), 1,
+            frame_.data(), 1, first);
+        if (writePos_ > 0u) {
+            vDSP_vmul(
+                state.input.data(), 1,
+                window_.data() + first, 1,
+                frame_.data() + first, 1, writePos_);
         }
 
         DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
@@ -314,9 +296,9 @@ private:
         imag[0] = 0.0f;
         real[halfSize_] = splitImag_[0];
         imag[halfSize_] = 0.0f;
-        for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
-            real[bin] = splitReal_[bin];
-            imag[bin] = splitImag_[bin];
+        if (halfSize_ > 1u) {
+            std::copy_n(splitReal_.data() + 1u, halfSize_ - 1u, real + 1u);
+            std::copy_n(splitImag_.data() + 1u, halfSize_ - 1u, imag + 1u);
         }
 #else
         (void)ch;
@@ -330,9 +312,9 @@ private:
 #if S3G_HAS_ACCELERATE_FFT
         splitReal_[0] = real[0];
         splitImag_[0] = real[halfSize_];
-        for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
-            splitReal_[bin] = real[bin];
-            splitImag_[bin] = imag[bin];
+        if (halfSize_ > 1u) {
+            std::copy_n(real + 1u, halfSize_ - 1u, splitReal_.data() + 1u);
+            std::copy_n(imag + 1u, halfSize_ - 1u, splitImag_.data() + 1u);
         }
 
         DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
@@ -340,10 +322,20 @@ private:
         vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(frame_.data()), 2, halfSize_);
 
         auto& state = states_[ch];
-        const float scale = windowScale_ / static_cast<float>(fftSize_);
-        for (uint32_t i = 0; i < fftSize_; ++i) {
-            const uint32_t index = (writePos_ + i) % fftSize_;
-            state.output[index] += flushDenormal(frame_[i] * window_[i] * scale);
+        vDSP_vmul(
+            frame_.data(), 1,
+            synthesisWindow_.data(), 1,
+            frame_.data(), 1, fftSize_);
+        const uint32_t first = fftSize_ - writePos_;
+        vDSP_vadd(
+            state.output.data() + writePos_, 1,
+            frame_.data(), 1,
+            state.output.data() + writePos_, 1, first);
+        if (writePos_ > 0u) {
+            vDSP_vadd(
+                state.output.data(), 1,
+                frame_.data() + first, 1,
+                state.output.data(), 1, writePos_);
         }
 #else
         (void)ch;
@@ -394,6 +386,7 @@ private:
     bool ready_ = false;
 
     std::vector<float> window_;
+    std::vector<float> synthesisWindow_;
     std::vector<float> frame_;
     std::vector<float> splitReal_;
     std::vector<float> splitImag_;

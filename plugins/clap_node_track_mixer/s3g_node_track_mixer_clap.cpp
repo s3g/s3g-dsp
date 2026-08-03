@@ -2,6 +2,7 @@
 #include "s3g_realtime.h"
 #include "../common/s3g_gui_layout.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -58,6 +59,7 @@ constexpr uint32_t kParamNodeLimit = kAmbi ? s3g::kAmbiNodeBusMixerMaxNodes : s3
 constexpr clap_id kParamNodeStride = kAmbi ? 7 : 10;
 constexpr clap_id kParamNodeRotateAzBase = 2000;
 constexpr clap_id kParamNodeRotateElBase = 2100;
+constexpr uint32_t kParameterBankSize = 2200u;
 
 enum ParamId : clap_id {
     kParamLayoutOrOrder = 1,
@@ -76,18 +78,49 @@ enum ParamId : clap_id {
     kParamLockZ = 14,
 };
 
+constexpr std::array<clap_id, 14> kGlobalParamIds {
+    kParamLayoutOrOrder,
+    kParamOutputChannels,
+    kParamNodeCount,
+    kParamMixMode,
+    kParamCursorInfluence,
+    kParamCursorX,
+    kParamCursorY,
+    kParamCursorZ,
+    kParamStackPosition,
+    kParamCursorRadius,
+    kParamCursorFocus,
+    kParamCursorGate,
+    kParamOutputGain,
+    kParamLockZ,
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     Params params {};
 };
 
+struct PublishedParamBank {
+    std::array<std::atomic<double>, kParameterBankSize> values {};
+    std::atomic<uint64_t> sequence { 0u };
+    std::atomic<uint64_t> stamp { 0u };
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     Params params {};
+    Params audioParams {};
     Processor processor {};
+    PublishedParamBank controlParamBank {};
+    PublishedParamBank audioParamBank {};
+    std::atomic<uint64_t> publicationClock { 0u };
+    uint64_t audioConsumedControlStamp = 0u;
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>, s3g::kNodeTrackMixerMaxNodes> nodePeaks {};
+    std::array<std::atomic<float>, s3g::kNodeTrackMixerMaxNodes> publishedNodeWeights {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -95,6 +128,9 @@ struct Plugin {
     char presetName[64] { "INIT" };
 #endif
 };
+
+static_assert(std::atomic<double>::is_always_lock_free,
+    "Node Bus parameter publication must remain lock-free");
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
@@ -109,14 +145,24 @@ const char* mixModeName(uint32_t mode)
     return "SPATIAL";
 }
 
-void sanitizeAndSet(Plugin& p)
+Params sanitizeParams(Params params)
 {
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    p.params = s3g::sanitizeAmbiNodeTrackMixerParams(p.params);
+    return s3g::sanitizeAmbiNodeTrackMixerParams(params);
 #else
-    p.params = s3g::sanitizeNodeTrackMixerParams(p.params);
+    return s3g::sanitizeNodeTrackMixerParams(params);
 #endif
-    p.processor.setParams(p.params);
+}
+
+void setAudioParams(Plugin& p, Params params)
+{
+    p.audioParams = sanitizeParams(params);
+    p.processor.setParams(p.audioParams);
+    const auto weights = p.processor.nodeWeights();
+    for (uint32_t node = 0u; node < weights.size(); ++node) {
+        p.publishedNodeWeights[node].store(weights[node],
+            std::memory_order_relaxed);
+    }
 }
 
 void initializeDefaultParams(Plugin& p)
@@ -146,11 +192,11 @@ void initializeDefaultParams(Plugin& p)
 #endif
 }
 
-void applyNodeParam(Plugin& p, uint32_t node, uint32_t field, double value)
+bool applyNodeParam(Params& params, uint32_t node, uint32_t field, double value)
 {
-    if (node >= kParamNodeLimit) return;
+    if (node >= kParamNodeLimit) return false;
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    auto& n = p.params.nodes[node];
+    auto& n = params.nodes[node];
     switch (field) {
     case 0: n.active = value >= 0.5; break;
     case 1: n.levelDb = static_cast<float>(value); break;
@@ -159,10 +205,10 @@ void applyNodeParam(Plugin& p, uint32_t node, uint32_t field, double value)
     case 4: n.z = static_cast<float>(value); break;
     case 5: n.radius = static_cast<float>(value); break;
     case 6: n.focus = static_cast<float>(value); break;
-    default: return;
+    default: return false;
     }
 #else
-    auto& n = p.params.nodes[node];
+    auto& n = params.nodes[node];
     switch (field) {
     case 0: n.active = value >= 0.5; break;
     case 1: n.levelDb = static_cast<float>(value); break;
@@ -174,67 +220,64 @@ void applyNodeParam(Plugin& p, uint32_t node, uint32_t field, double value)
     case 7: n.z = static_cast<float>(value); break;
     case 8: n.scale = static_cast<float>(value); break;
     case 9: n.focus = static_cast<float>(value); break;
-    default: return;
+    default: return false;
     }
 #endif
-    sanitizeAndSet(p);
+    return true;
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool applyParam(Params& params, clap_id id, double value)
 {
     if (id >= kParamNodeBase && id < kParamNodeBase + kParamNodeLimit * kParamNodeStride) {
         const uint32_t rel = id - kParamNodeBase;
-        applyNodeParam(p, rel / kParamNodeStride, rel % kParamNodeStride, value);
-        return;
+        return applyNodeParam(params, rel / kParamNodeStride, rel % kParamNodeStride, value);
     }
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
     if (id >= kParamNodeRotateAzBase && id < kParamNodeRotateAzBase + s3g::kNodeTrackMixerMaxNodes) {
-        p.params.nodes[id - kParamNodeRotateAzBase].rotateAzDeg = static_cast<float>(value);
-        sanitizeAndSet(p);
-        return;
+        params.nodes[id - kParamNodeRotateAzBase].rotateAzDeg = static_cast<float>(value);
+        return true;
     }
     if (id >= kParamNodeRotateElBase && id < kParamNodeRotateElBase + s3g::kNodeTrackMixerMaxNodes) {
-        p.params.nodes[id - kParamNodeRotateElBase].rotateElDeg = static_cast<float>(value);
-        sanitizeAndSet(p);
-        return;
+        params.nodes[id - kParamNodeRotateElBase].rotateElDeg = static_cast<float>(value);
+        return true;
     }
 #endif
     switch (id) {
     case kParamLayoutOrOrder:
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-        p.params.order = s3g::AmbiNodeTrackOrder::O3;
+        params.order = s3g::AmbiNodeTrackOrder::O3;
 #else
-        p.params.outputLayout = s3g::nodeTrackRegularLayoutFromIndex(roundedUint(value));
+        params.outputLayout = s3g::nodeTrackRegularLayoutFromIndex(roundedUint(value));
 #endif
         break;
     case kParamOutputChannels:
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        p.params.outputChannels = roundedUint(value);
+        params.outputChannels = roundedUint(value);
 #endif
         break;
-    case kParamNodeCount: p.params.nodeCount = roundedUint(value); break;
+    case kParamNodeCount: params.nodeCount = roundedUint(value); break;
     case kParamMixMode:
-        p.params.mixMode = s3g::NodeTrackMixMode::SpatialObjects;
+        params.mixMode = s3g::NodeTrackMixMode::SpatialObjects;
         break;
-    case kParamCursorInfluence: p.params.cursorInfluence = static_cast<float>(value); break;
-    case kParamCursorX: p.params.cursorX = static_cast<float>(value); break;
-    case kParamCursorY: p.params.cursorY = static_cast<float>(value); break;
-    case kParamCursorZ: p.params.cursorZ = static_cast<float>(value); break;
-    case kParamStackPosition: p.params.stackPosition = static_cast<float>(value); break;
-    case kParamCursorRadius: p.params.cursorRadius = static_cast<float>(value); break;
-    case kParamCursorFocus: p.params.cursorFocus = static_cast<float>(value); break;
-    case kParamCursorGate: p.params.cursorGate = static_cast<float>(value); break;
-    case kParamOutputGain: p.params.outputGainDb = static_cast<float>(value); break;
-    case kParamLockZ: p.params.lockZ = value >= 0.5; break;
-    default: return;
+    case kParamCursorInfluence: params.cursorInfluence = static_cast<float>(value); break;
+    case kParamCursorX: params.cursorX = static_cast<float>(value); break;
+    case kParamCursorY: params.cursorY = static_cast<float>(value); break;
+    case kParamCursorZ: params.cursorZ = static_cast<float>(value); break;
+    case kParamStackPosition: params.stackPosition = static_cast<float>(value); break;
+    case kParamCursorRadius: params.cursorRadius = static_cast<float>(value); break;
+    case kParamCursorFocus: params.cursorFocus = static_cast<float>(value); break;
+    case kParamCursorGate: params.cursorGate = static_cast<float>(value); break;
+    case kParamOutputGain: params.outputGainDb = static_cast<float>(value); break;
+    case kParamLockZ: params.lockZ = value >= 0.5; break;
+    default: return false;
     }
-    sanitizeAndSet(p);
+    return true;
 }
 
-double nodeParamValue(const Plugin& p, uint32_t node, uint32_t field)
+double nodeParamValue(const Params& params, uint32_t node, uint32_t field)
 {
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    const auto& n = p.params.nodes[node];
+    const auto& n = params.nodes[node];
     switch (field) {
     case 0: return n.active ? 1.0 : 0.0;
     case 1: return n.levelDb;
@@ -246,7 +289,7 @@ double nodeParamValue(const Plugin& p, uint32_t node, uint32_t field)
     default: return 0.0;
     }
 #else
-    const auto& n = p.params.nodes[node];
+    const auto& n = params.nodes[node];
     switch (field) {
     case 0: return n.active ? 1.0 : 0.0;
     case 1: return n.levelDb;
@@ -263,63 +306,301 @@ double nodeParamValue(const Plugin& p, uint32_t node, uint32_t field)
 #endif
 }
 
-double getParam(const Plugin& p, clap_id id)
+double getParam(const Params& params, clap_id id)
 {
     if (id >= kParamNodeBase && id < kParamNodeBase + kParamNodeLimit * kParamNodeStride) {
         const uint32_t rel = id - kParamNodeBase;
-        return nodeParamValue(p, rel / kParamNodeStride, rel % kParamNodeStride);
+        return nodeParamValue(params, rel / kParamNodeStride, rel % kParamNodeStride);
     }
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
     if (id >= kParamNodeRotateAzBase && id < kParamNodeRotateAzBase + s3g::kNodeTrackMixerMaxNodes) {
-        return p.params.nodes[id - kParamNodeRotateAzBase].rotateAzDeg;
+        return params.nodes[id - kParamNodeRotateAzBase].rotateAzDeg;
     }
     if (id >= kParamNodeRotateElBase && id < kParamNodeRotateElBase + s3g::kNodeTrackMixerMaxNodes) {
-        return p.params.nodes[id - kParamNodeRotateElBase].rotateElDeg;
+        return params.nodes[id - kParamNodeRotateElBase].rotateElDeg;
     }
 #endif
     switch (id) {
     case kParamLayoutOrOrder:
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-        return static_cast<uint32_t>(p.params.order);
+        return static_cast<uint32_t>(params.order);
 #else
-        return s3g::nodeTrackRegularLayoutIndex(p.params.outputLayout);
+        return s3g::nodeTrackRegularLayoutIndex(params.outputLayout);
 #endif
     case kParamOutputChannels:
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
         return 128.0;
 #else
-        return p.params.outputChannels;
+        return params.outputChannels;
 #endif
-    case kParamNodeCount: return p.params.nodeCount;
-    case kParamMixMode: return static_cast<uint32_t>(p.params.mixMode);
-    case kParamCursorInfluence: return p.params.cursorInfluence;
-    case kParamCursorX: return p.params.cursorX;
-    case kParamCursorY: return p.params.cursorY;
-    case kParamCursorZ: return p.params.cursorZ;
-    case kParamStackPosition: return p.params.stackPosition;
-    case kParamCursorRadius: return p.params.cursorRadius;
-    case kParamCursorFocus: return p.params.cursorFocus;
-    case kParamCursorGate: return p.params.cursorGate;
-    case kParamOutputGain: return p.params.outputGainDb;
-    case kParamLockZ: return p.params.lockZ ? 1.0 : 0.0;
+    case kParamNodeCount: return params.nodeCount;
+    case kParamMixMode: return static_cast<uint32_t>(params.mixMode);
+    case kParamCursorInfluence: return params.cursorInfluence;
+    case kParamCursorX: return params.cursorX;
+    case kParamCursorY: return params.cursorY;
+    case kParamCursorZ: return params.cursorZ;
+    case kParamStackPosition: return params.stackPosition;
+    case kParamCursorRadius: return params.cursorRadius;
+    case kParamCursorFocus: return params.cursorFocus;
+    case kParamCursorGate: return params.cursorGate;
+    case kParamOutputGain: return params.outputGainDb;
+    case kParamLockZ: return params.lockZ ? 1.0 : 0.0;
     default: return 0.0;
     }
 }
 
-void readParamEvents(Plugin& p, const clap_input_events_t* in)
+template <typename Fn>
+void forEachStoredParamId(Fn&& fn)
+{
+    for (const clap_id id : kGlobalParamIds) fn(id);
+    for (uint32_t node = 0; node < kParamNodeLimit; ++node) {
+        for (uint32_t field = 0; field < kParamNodeStride; ++field) {
+            fn(kParamNodeBase + node * kParamNodeStride + field);
+        }
+    }
+#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
+    for (uint32_t node = 0; node < s3g::kNodeTrackMixerMaxNodes; ++node) {
+        fn(kParamNodeRotateAzBase + node);
+        fn(kParamNodeRotateElBase + node);
+    }
+#endif
+}
+
+void writeParamsToBank(PublishedParamBank& bank, const Params& params,
+                       uint64_t stamp)
+{
+    // Each bank has exactly one producer: the host/control thread for the
+    // control bank and the audio thread for the audio-report bank. The stamp
+    // becomes visible only after the complete even-sequence snapshot.
+    bank.sequence.fetch_add(1u, std::memory_order_acq_rel);
+    forEachStoredParamId([&](clap_id id) {
+        bank.values[id].store(getParam(params, id),
+            std::memory_order_relaxed);
+    });
+    bank.sequence.fetch_add(1u, std::memory_order_release);
+    bank.stamp.store(stamp, std::memory_order_release);
+}
+
+bool tryParamsFromBank(const PublishedParamBank& bank, Params base,
+                       Params& result)
+{
+    const uint64_t before = bank.sequence.load(std::memory_order_acquire);
+    if ((before & 1u) != 0u) return false;
+    forEachStoredParamId([&](clap_id id) {
+        applyParam(base, id,
+            bank.values[id].load(std::memory_order_relaxed));
+    });
+    const uint64_t after = bank.sequence.load(std::memory_order_acquire);
+    if (before != after || (after & 1u) != 0u) return false;
+    result = sanitizeParams(base);
+    return true;
+}
+
+uint64_t nextPublicationStamp(Plugin& p)
+{
+    return p.publicationClock.fetch_add(
+        1u, std::memory_order_relaxed) + 1u;
+}
+
+Params latestParamsSnapshot(const Plugin& p, Params fallback)
+{
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint64_t controlStamp = p.controlParamBank.stamp.load(
+            std::memory_order_acquire);
+        const uint64_t audioStamp = p.audioParamBank.stamp.load(
+            std::memory_order_acquire);
+        const PublishedParamBank* first = audioStamp > controlStamp
+            ? &p.audioParamBank : &p.controlParamBank;
+        const PublishedParamBank* second = first == &p.audioParamBank
+            ? &p.controlParamBank : &p.audioParamBank;
+        Params snapshot {};
+        if (tryParamsFromBank(*first, fallback, snapshot)) return snapshot;
+        if (tryParamsFromBank(*second, fallback, snapshot)) return snapshot;
+    }
+    return sanitizeParams(fallback);
+}
+
+double latestPublishedValue(const Plugin& p, clap_id id)
+{
+    const uint64_t controlStamp = p.controlParamBank.stamp.load(
+        std::memory_order_acquire);
+    const uint64_t audioStamp = p.audioParamBank.stamp.load(
+        std::memory_order_acquire);
+    const auto& bank = audioStamp > controlStamp
+        ? p.audioParamBank : p.controlParamBank;
+    return bank.values[id].load(std::memory_order_acquire);
+}
+
+void syncGuiParams(Plugin& p)
+{
+    p.params = latestParamsSnapshot(p, p.params);
+}
+
+void syncAudioParams(Plugin& p, bool force = false)
+{
+    const uint64_t controlStamp = p.controlParamBank.stamp.load(
+        std::memory_order_acquire);
+    if (!force && controlStamp <= p.audioConsumedControlStamp) return;
+
+    Params next {};
+    const bool valid = force
+        ? (next = latestParamsSnapshot(p, p.audioParams), true)
+        : tryParamsFromBank(p.controlParamBank, p.audioParams, next);
+    if (!valid) return;
+    setAudioParams(p, next);
+    p.audioConsumedControlStamp = controlStamp;
+}
+
+void publishControlParams(Plugin& p, Params params)
+{
+    p.params = sanitizeParams(params);
+    writeParamsToBank(p.controlParamBank, p.params,
+        nextPublicationStamp(p));
+    if (p.host && p.host->request_process) p.host->request_process(p.host);
+}
+
+void publishAudioParams(Plugin& p)
+{
+    writeParamsToBank(p.audioParamBank, p.audioParams,
+        nextPublicationStamp(p));
+}
+
+void readControlParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    Params next = latestParamsSnapshot(p, p.params);
+    bool changed = false;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            changed = applyParam(next, param->param_id, param->value) || changed;
         }
+    }
+    if (changed) publishControlParams(p, next);
+}
+
+void applyProcessParamEvents(Plugin& p, const clap_input_events_t* in)
+{
+    syncAudioParams(p);
+    if (!in) return;
+    Params next = p.audioParams;
+    bool changed = false;
+    const uint32_t n = in->size(in);
+    for (uint32_t i = 0; i < n; ++i) {
+        const clap_event_header_t* ev = in->get(in, i);
+        if (!ev || ev->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || ev->type != CLAP_EVENT_PARAM_VALUE) {
+            continue;
+        }
+        const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
+        if (param->param_id >= kParameterBankSize
+            || !applyParam(next, param->param_id, param->value)) {
+            continue;
+        }
+        changed = true;
+    }
+    if (!changed) return;
+
+    setAudioParams(p, next);
+    publishAudioParams(p);
+}
+
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
+
+void requestGuiParamService(Plugin& p)
+{
+    if (p.hostParams && p.hostParams->request_flush) {
+        p.hostParams->request_flush(p.host);
+    } else if (p.host && p.host->request_process) {
+        p.host->request_process(p.host);
     }
 }
 
-bool init(const clap_plugin_t*) { return true; }
+void queueGuiParamEvent(Plugin& p, s3g::clap_gui::ParamEventKind kind,
+                        clap_id id, double value = 0.0)
+{
+    if (p.guiParamEvents.push({
+            kind, id, value })) {
+        requestGuiParamService(p);
+    }
+}
+
+void queueGuiParamGestureBegin(Plugin& p, clap_id id)
+{
+    queueGuiParamEvent(
+        p, s3g::clap_gui::ParamEventKind::GestureBegin, id);
+}
+
+void queueGuiParamValue(Plugin& p, clap_id id, double value)
+{
+    queueGuiParamEvent(
+        p, s3g::clap_gui::ParamEventKind::Value, id, value);
+}
+
+void queueGuiParamGestureEnd(Plugin& p, clap_id id)
+{
+    queueGuiParamEvent(
+        p, s3g::clap_gui::ParamEventKind::GestureEnd, id);
+}
+
+bool pushGuiParamEvent(const clap_output_events_t* out,
+                       const s3g::clap_gui::ParamEvent& pending)
+{
+    if (!out || !out->try_push) return true;
+    if (pending.kind != s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_gesture_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = pending.kind
+                == s3g::clap_gui::ParamEventKind::GestureBegin
+            ? CLAP_EVENT_PARAM_GESTURE_BEGIN
+            : CLAP_EVENT_PARAM_GESTURE_END;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        return out->try_push(out, &event.header);
+    }
+    clap_event_param_value_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = CLAP_EVENT_PARAM_VALUE;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    event.note_id = -1;
+    event.port_index = -1;
+    event.channel = -1;
+    event.key = -1;
+    event.value = pending.value;
+    return out->try_push(out, &event.header);
+}
+
+void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
+{
+    Params next = latestParamsSnapshot(p, p.params);
+    bool changed = false;
+    s3g::clap_gui::ParamEvent pending {};
+    while (p.guiParamEvents.peek(pending)) {
+        if (!pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            changed = applyParam(next, pending.paramId, pending.value)
+                || changed;
+        }
+        p.guiParamEvents.pop();
+    }
+    if (changed) publishControlParams(p, next);
+}
+
 void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
@@ -334,7 +615,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
 {
     auto* p = self(plugin);
     p->processor.prepare(sampleRate);
-    sanitizeAndSet(*p);
+    syncAudioParams(*p, true);
     p->processor.reset();
     return true;
 }
@@ -366,13 +647,15 @@ void updateNodePeaks(Plugin& p, Sample** in, uint32_t inputChannels, uint32_t fr
 {
     const auto weights = p.processor.nodeWeights();
     for (uint32_t node = 0; node < s3g::kNodeTrackMixerMaxNodes; ++node) {
+        p.publishedNodeWeights[node].store(weights[node],
+            std::memory_order_relaxed);
         float peak = 0.0f;
-        if (in && node < p.params.nodeCount) {
+        if (in && node < p.audioParams.nodeCount) {
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
             const uint32_t srcCh = s3g::kAmbiNodeBusMixerChannelsPerNode;
             const uint32_t inputStart = node * s3g::kAmbiNodeBusMixerChannelsPerNode;
 #else
-            const auto& n = p.params.nodes[node];
+            const auto& n = p.audioParams.nodes[node];
             const uint32_t srcCh = std::min<uint32_t>(n.sourceChannels, s3g::kNodeTrackMixerMaxChannels);
             const uint32_t inputStart = n.inputStart - 1u;
 #endif
@@ -405,7 +688,8 @@ clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input, co
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
-    readParamEvents(*p, proc->in_events);
+    serviceGuiParamEvents(*p, proc->out_events);
+    applyProcessParamEvents(*p, proc->in_events);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
     const auto& output = proc->audio_outputs[0];
@@ -586,7 +870,7 @@ bool isParamId(clap_id id)
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
     if (!value || !isParamId(paramId)) return false;
-    *value = getParam(*self(plugin), paramId);
+    *value = latestPublishedValue(*self(plugin), paramId);
     return true;
 }
 
@@ -661,13 +945,22 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     *value = std::atof(display);
     return true;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+                 const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+    readControlParamEvents(*p, in);
+    serviceGuiParamEvents(*p, out);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    const SavedState state { kStateVersion, self(plugin)->params };
+    auto* p = self(plugin);
+    const SavedState state {
+        kStateVersion, latestParamsSnapshot(*p, p->params)
+    };
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -676,8 +969,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedState state {};
     if (!s3g::clap_state::readAll(stream, &state, sizeof(state)) || state.version != kStateVersion) return false;
     auto* p = self(plugin);
-    p->params = state.params;
-    sanitizeAndSet(*p);
+    publishControlParams(*p, state.params);
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -768,11 +1060,15 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     NSPoint _lastDragPoint;
     int _openMenu;
     int _hoverMenuIndex;
+    clap_id _gestureParams[3];
+    int _gestureParamCount;
     NSTimer* _timer;
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)beginGesture:(clap_id)param;
+- (void)endGestures;
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
 - (void)drawMenuRow:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
@@ -808,6 +1104,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         _lastDragPoint = NSZeroPoint;
         _openMenu = -1;
         _hoverMenuIndex = -1;
+        _gestureParamCount = 0;
         _timer = nil;
     }
     return self;
@@ -823,11 +1120,50 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
 }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
-- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
+- (void)beginGesture:(clap_id)param
+{
+    for (int index = 0; index < _gestureParamCount; ++index) {
+        if (_gestureParams[index] == param) return;
+    }
+    if (_gestureParamCount >= 3) return;
+    _gestureParams[_gestureParamCount++] = param;
+    queueGuiParamGestureBegin(*static_cast<Plugin*>(_plugin), param);
+}
+- (void)endGestures
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    for (int index = 0; index < _gestureParamCount; ++index) {
+        queueGuiParamGestureEnd(*p, _gestureParams[index]);
+    }
+    _gestureParamCount = 0;
+}
+- (void)refreshTimerFired:(NSTimer*)timer
+{
+    (void)timer;
+    if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) {
+        syncGuiParams(*static_cast<Plugin*>(_plugin));
+        [self setNeedsDisplay:YES];
+    }
+}
 - (void)setParam:(clap_id)param value:(double)value
 {
-    applyParam(*static_cast<Plugin*>(_plugin), param, value);
-    _selectedNode = std::min<int>(_selectedNode, static_cast<int>(static_cast<Plugin*>(_plugin)->params.nodeCount) - 1);
+    auto* p = static_cast<Plugin*>(_plugin);
+    bool gestureActive = false;
+    for (int index = 0; index < _gestureParamCount; ++index) {
+        gestureActive = gestureActive || _gestureParams[index] == param;
+    }
+    if (!gestureActive) queueGuiParamGestureBegin(*p, param);
+    syncGuiParams(*p);
+    if (!applyParam(p->params, param, value)) {
+        if (!gestureActive) queueGuiParamGestureEnd(*p, param);
+        return;
+    }
+    p->params = sanitizeParams(p->params);
+    const double publishedValue = getParam(p->params, param);
+    queueGuiParamValue(*p, param, publishedValue);
+    if (!gestureActive) queueGuiParamGestureEnd(*p, param);
+    _selectedNode = std::min<int>(_selectedNode,
+        static_cast<int>(p->params.nodeCount) - 1);
     [self setNeedsDisplay:YES];
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
@@ -954,6 +1290,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
+    syncGuiParams(*p);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
@@ -1002,7 +1339,11 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     [NSBezierPath strokeLineFromPoint:NSMakePoint(cx, field.origin.y + 22) toPoint:NSMakePoint(cx, NSMaxY(field) - 22)];
 
     const NSPoint cursorPt = [self projectX:p->params.cursorX y:p->params.cursorY z:p->params.cursorZ rect:field];
-    const auto weights = p->processor.nodeWeights();
+    std::array<float, s3g::kNodeTrackMixerMaxNodes> weights {};
+    for (uint32_t node = 0; node < weights.size(); ++node) {
+        weights[node] = p->publishedNodeWeights[node].load(
+            std::memory_order_relaxed);
+    }
 
     [NSGraphicsContext saveGraphicsState];
     [[NSBezierPath bezierPathWithRect:field] addClip];
@@ -1467,6 +1808,9 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         const NSPoint cursorPt = [self projectX:p->params.cursorX y:p->params.cursorY z:p->params.cursorZ rect:field];
         if (std::hypot(cursorPt.x - pt.x, cursorPt.y - pt.y) <= 15.0) {
             _dragCursor = YES;
+            [self beginGesture:kParamCursorX];
+            [self beginGesture:kParamCursorY];
+            [self beginGesture:kParamCursorZ];
             [self updateSpatialAtPoint:pt cursor:YES];
             return;
         }
@@ -1475,6 +1819,11 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
             if (std::hypot(nodePt.x - pt.x, nodePt.y - pt.y) <= 14.0) {
                 _selectedNode = static_cast<int>(node);
                 _dragNode = YES;
+                const clap_id base = kParamNodeBase
+                    + node * kParamNodeStride;
+                [self beginGesture:base + (kAmbi ? 2u : 5u)];
+                [self beginGesture:base + (kAmbi ? 3u : 6u)];
+                [self beginGesture:base + (kAmbi ? 4u : 7u)];
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -1503,6 +1852,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
             _dragSlider = -1;
         } else {
             _dragSlider = slider;
+            [self beginGesture:param];
             [self updateSliderAtPoint:pt];
         }
         return true;
@@ -1614,7 +1964,15 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     }
     if (_dragSlider >= 0) [self updateSliderAtPoint:pt];
 }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragNode = NO; _dragCursor = NO; _dragView = NO; }
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    [self endGestures];
+    _dragSlider = -1;
+    _dragNode = NO;
+    _dragCursor = NO;
+    _dragView = NO;
+}
 @end
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
@@ -1670,7 +2028,12 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (!p) return nullptr;
     p->host = host;
     initializeDefaultParams(*p);
-    sanitizeAndSet(*p);
+    p->params = sanitizeParams(p->params);
+    p->audioParams = p->params;
+    const uint64_t initialStamp = nextPublicationStamp(*p);
+    writeParamsToBank(p->controlParamBank, p->params, initialStamp);
+    setAudioParams(*p, p->audioParams);
+    p->audioConsumedControlStamp = initialStamp;
     p->processor.prepare(48000.0);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;

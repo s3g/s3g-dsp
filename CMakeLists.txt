@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 
 # Collection and default bundle version. Individual targets and CLAP
 # descriptors may keep component-scoped versions and advance independently.
-project(s3g_dsp VERSION 0.5.0 LANGUAGES CXX)
+project(s3g_dsp VERSION 0.6.0 LANGUAGES CXX)
+
+include(CTest)
 
 if(APPLE)
   enable_language(OBJCXX)
@@ -16,9 +18,12 @@ add_library(s3g_dsp INTERFACE)
 target_include_directories(s3g_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
 
 include(FetchContent)
+include(cmake/S3GRealtimeAllocProbe.cmake)
 
 add_executable(s3g_dsp_smoke tests/dsp_smoke.cpp)
 target_link_libraries(s3g_dsp_smoke PRIVATE s3g_dsp)
+target_compile_definitions(s3g_dsp_smoke PRIVATE
+  $<$<CONFIG:Release>:S3G_ENABLE_TEST_TIMING_ASSERTIONS=1>)
 if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
 endif()
@@ -64,6 +69,8 @@ target_link_libraries(s3g_no_input_mixer_smoke PRIVATE s3g_dsp)
 
 add_executable(s3g_ambi_insect_encoder_smoke tests/ambi_insect_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_insect_encoder_smoke PRIVATE s3g_dsp)
+target_compile_definitions(s3g_ambi_insect_encoder_smoke PRIVATE
+  $<$<CONFIG:Release>:S3G_ENABLE_TEST_TIMING_ASSERTIONS=1>)
 
 add_executable(s3g_accelerometer_field_encoder_smoke tests/accelerometer_field_encoder_smoke.cpp)
 target_link_libraries(s3g_accelerometer_field_encoder_smoke PRIVATE s3g_dsp)
@@ -118,6 +125,14 @@ target_link_libraries(s3g_psd_raw_field_parameter_audit PRIVATE s3g_dsp)
 
 add_executable(s3g_gui_layout_contract_smoke tests/gui_layout_contract_smoke.cpp)
 
+add_executable(s3g_ambi_group_rotate_equivalence_smoke
+  tests/ambi_group_rotate_equivalence_smoke.cpp)
+target_link_libraries(s3g_ambi_group_rotate_equivalence_smoke PRIVATE s3g_dsp)
+
+add_executable(s3g_environmental_svf_regression_smoke
+  tests/environmental_svf_regression_smoke.cpp)
+target_link_libraries(s3g_environmental_svf_regression_smoke PRIVATE s3g_dsp)
+
 add_custom_target(audit_gui_style
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -156,6 +171,84 @@ add_custom_target(audit_clap_bundle_installer
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Testing canonical CLAP install and legacy migration"
   VERBATIM)
+
+if(BUILD_TESTING)
+  set(S3G_NON_NIM_CORE_SMOKE_TARGETS
+    s3g_dsp_smoke
+    s3g_crcltr_smoke
+    s3g_crcltr_external_memory_smoke
+    s3g_ambi_effect_displacement_smoke
+    s3g_ambi_imprint_safety_smoke
+    s3g_ambi_ray_encoder_smoke
+    s3g_fractional_waveguide_network_smoke
+    s3g_ambi_ray_bilocation_encoder_smoke
+    s3g_ambi_pulsar_encoder_smoke
+    s3g_ambi_neural_ecology_smoke
+    s3g_ambi_insect_encoder_smoke
+    s3g_accelerometer_field_encoder_smoke
+    s3g_ambi_field_listener_generators_smoke
+    s3g_ambi_wrangler_listener_smoke
+    s3g_parameter_surface_smoke
+    s3g_ambi_effect_dj_filter_smoke
+    s3g_ambi_effect_delay_smoke
+    s3g_ambi_effect_pitch_gain_smoke
+    s3g_ambi_effect_resonance_print_smoke
+    s3g_ambi_effect_trace_smoke
+    s3g_environmental_encoder_smoke
+    s3g_vox_builder_smoke
+    s3g_psd_raw_field_smoke
+    s3g_psd_raw_field_parameter_audit
+    s3g_gui_layout_contract_smoke
+    s3g_ambi_group_rotate_equivalence_smoke
+    s3g_environmental_svf_regression_smoke)
+  foreach(S3G_SMOKE_TARGET IN LISTS S3G_NON_NIM_CORE_SMOKE_TARGETS)
+    add_test(NAME ${S3G_SMOKE_TARGET} COMMAND $<TARGET_FILE:${S3G_SMOKE_TARGET}>)
+    set_tests_properties(${S3G_SMOKE_TARGET} PROPERTIES
+      LABELS "non_nim;smoke"
+      TIMEOUT 300)
+  endforeach()
+
+  add_test(NAME s3g_no_input_mixer_smoke
+    COMMAND $<TARGET_FILE:s3g_no_input_mixer_smoke>)
+  set_tests_properties(s3g_no_input_mixer_smoke PROPERTIES
+    LABELS "nim;smoke" TIMEOUT 300)
+
+  add_test(NAME clap_bundle_installer_smoke
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/clap_bundle_installer_smoke.sh)
+  set_tests_properties(clap_bundle_installer_smoke PROPERTIES
+    LABELS "non_nim;packaging" TIMEOUT 120)
+
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME clap_bundle_manifest_source_audit
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-bundle-manifest.py)
+    add_test(NAME docs_static_audit
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-docs.py)
+    add_test(NAME realtime_audit_runner_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_run_clap_realtime_audit.py)
+    add_test(NAME realtime_release_gates_runner_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_run_clap_realtime_release_gates.py)
+    add_test(NAME validator_manifest_runner_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_run_clap_validator_manifest.py)
+    add_test(NAME non_nim_release_checks_runner_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_run_non_nim_release_checks.py)
+    set_tests_properties(
+      clap_bundle_manifest_source_audit
+      docs_static_audit
+      realtime_audit_runner_unit
+      realtime_release_gates_runner_unit
+      validator_manifest_runner_unit
+      non_nim_release_checks_runner_unit
+      PROPERTIES
+        LABELS "non_nim;structural"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        TIMEOUT 120)
+  endif()
+endif()
 
 option(S3G_BUILD_CLAP_PLUGIN "Build experimental CLAP plugin targets" OFF)
 option(S3G_BUILD_STANDALONE_APPS "Build experimental standalone app targets" OFF)
@@ -226,11 +319,60 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_delay_processor_block_coalescing_clap_smoke
+    tests/delay_processor_block_coalescing_clap_smoke.cpp)
+  target_include_directories(s3g_delay_processor_block_coalescing_clap_smoke
+    PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_delay_processor_block_coalescing_clap_smoke
+    PRIVATE ${CMAKE_DL_LIBS})
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_delay_processor_block_coalescing_clap_smoke
+      PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+
+  add_executable(s3g_clap_realtime_audit
+    tests/clap_realtime_audit.cpp)
+  find_package(Threads REQUIRED)
+  target_include_directories(s3g_clap_realtime_audit PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_clap_realtime_audit PRIVATE
+    ${CMAKE_DL_LIBS}
+    Threads::Threads)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_clap_realtime_audit PRIVATE
+      -Wall -Wextra -Wpedantic)
+  endif()
+
+  add_executable(s3g_clap_state_fixture_smoke
+    tests/clap_state_fixture_smoke.cpp)
+  target_include_directories(s3g_clap_state_fixture_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_clap_state_fixture_smoke PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_panner_state_publication_clap_smoke
+    tests/panner_state_publication_clap_smoke.cpp)
+  target_include_directories(s3g_panner_state_publication_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_panner_state_publication_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS}
+    Threads::Threads)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_panner_state_publication_clap_smoke PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+
   add_executable(s3g_preset_output_preservation_clap_smoke
     tests/preset_output_preservation_clap_smoke.cpp)
   target_include_directories(s3g_preset_output_preservation_clap_smoke PRIVATE
     ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_preset_output_preservation_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_node_bus_clap_state_smoke
+    tests/node_bus_clap_state_smoke.cpp)
+  target_include_directories(s3g_node_bus_clap_state_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_node_bus_clap_state_smoke PRIVATE
     ${CMAKE_DL_LIBS})
 
   add_executable(s3g_spectral_spray_clap_routing_smoke
@@ -387,6 +529,212 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_cascade_taps)
   add_subdirectory(plugins/clap_crcltr)
 
+  if(BUILD_TESTING)
+    set(S3G_V050_STATE_FIXTURE_ROOT
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/clap-state/v0.5.0-pre)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+      ${S3G_V050_STATE_FIXTURE_ROOT}/manifest.tsv)
+    file(STRINGS ${S3G_V050_STATE_FIXTURE_ROOT}/manifest.tsv
+      S3G_V050_STATE_FIXTURE_ROWS)
+    foreach(S3G_STATE_FIXTURE_ROW IN LISTS S3G_V050_STATE_FIXTURE_ROWS)
+      if(S3G_STATE_FIXTURE_ROW MATCHES "^[ \t]*#" OR S3G_STATE_FIXTURE_ROW STREQUAL "")
+        continue()
+      endif()
+      string(REPLACE "\t" ";" S3G_STATE_FIXTURE_FIELDS
+        "${S3G_STATE_FIXTURE_ROW}")
+      list(LENGTH S3G_STATE_FIXTURE_FIELDS S3G_STATE_FIXTURE_FIELD_COUNT)
+      if(NOT S3G_STATE_FIXTURE_FIELD_COUNT EQUAL 4)
+        message(FATAL_ERROR
+          "Malformed v0.5.0-pre state fixture row: ${S3G_STATE_FIXTURE_ROW}")
+      endif()
+      list(GET S3G_STATE_FIXTURE_FIELDS 0 S3G_STATE_FIXTURE_BUILD_PATH)
+      list(GET S3G_STATE_FIXTURE_FIELDS 1 S3G_STATE_FIXTURE_PLUGIN_ID)
+      list(GET S3G_STATE_FIXTURE_FIELDS 2 S3G_STATE_FIXTURE_FILE)
+      list(GET S3G_STATE_FIXTURE_FIELDS 3 S3G_STATE_FIXTURE_PARAMS_FILE)
+      string(MAKE_C_IDENTIFIER "${S3G_STATE_FIXTURE_PLUGIN_ID}"
+        S3G_STATE_FIXTURE_TEST_SUFFIX)
+      set(S3G_STATE_FIXTURE_TEST
+        state_compat_v050_${S3G_STATE_FIXTURE_TEST_SUFFIX})
+      add_test(NAME ${S3G_STATE_FIXTURE_TEST}
+        COMMAND $<TARGET_FILE:s3g_clap_state_fixture_smoke>
+          --verify
+          ${CMAKE_BINARY_DIR}/plugins/${S3G_STATE_FIXTURE_BUILD_PATH}
+          ${S3G_STATE_FIXTURE_PLUGIN_ID}
+          ${S3G_V050_STATE_FIXTURE_ROOT}/${S3G_STATE_FIXTURE_FILE}
+          ${S3G_V050_STATE_FIXTURE_ROOT}/${S3G_STATE_FIXTURE_PARAMS_FILE})
+      set_tests_properties(${S3G_STATE_FIXTURE_TEST} PROPERTIES
+        LABELS "non_nim;clap;state_compat" TIMEOUT 120)
+    endforeach()
+
+    add_test(NAME panner_state_publication_layout
+      COMMAND $<TARGET_FILE:s3g_panner_state_publication_clap_smoke>
+        $<TARGET_FILE:s3g_layout_panner_clap>
+        org.s3g.s3g-dsp.layout-panner)
+    add_test(NAME panner_state_publication_dbap
+      COMMAND $<TARGET_FILE:s3g_panner_state_publication_clap_smoke>
+        $<TARGET_FILE:s3g_dbap_panner_clap>
+        org.s3g.s3g-dsp.dbap-panner)
+    add_test(NAME panner_state_publication_lbap
+      COMMAND $<TARGET_FILE:s3g_panner_state_publication_clap_smoke>
+        $<TARGET_FILE:s3g_lbap_panner_clap>
+        org.s3g.s3g-dsp.lbap-panner)
+    add_test(NAME panner_state_publication_vbap
+      COMMAND $<TARGET_FILE:s3g_panner_state_publication_clap_smoke>
+        $<TARGET_FILE:s3g_vbap_panner_clap>
+        org.s3g.s3g-dsp.vbap-panner)
+    set_tests_properties(
+      panner_state_publication_layout
+      panner_state_publication_dbap
+      panner_state_publication_lbap
+      panner_state_publication_vbap
+      PROPERTIES LABELS "non_nim;clap;ownership" TIMEOUT 120)
+  endif()
+
+  add_custom_target(audit_node_bus_param_state
+    COMMAND $<TARGET_FILE:s3g_node_bus_clap_state_smoke>
+      $<TARGET_FILE:s3g_node_track_mixer_clap>
+      org.s3g.s3g-dsp.node-bus-mixer
+    DEPENDS
+      s3g_node_bus_clap_state_smoke
+      s3g_node_track_mixer_clap
+    COMMENT "Validating Node Bus derived parameter publication and state"
+    VERBATIM)
+
+  add_custom_target(audit_delay_processor_block_coalescing
+    COMMAND $<TARGET_FILE:s3g_delay_processor_block_coalescing_clap_smoke>
+      $<TARGET_FILE:s3g_24ch_delay_processor_clap>
+      org.s3g.s3g-dsp.delay-processor-24ch
+    DEPENDS
+      s3g_delay_processor_block_coalescing_clap_smoke
+      s3g_24ch_delay_processor_clap
+    COMMENT "Validating Delay Processor block-coalesced parameter automation"
+    VERBATIM)
+
+  # Manual, deliberately focused timing audit. Keep this representative set
+  # small so it remains useful during DSP development; it is not a substitute
+  # for a full inventory pass or live Core Audio xrun testing. Do not expose a
+  # plausibly named timing target from an unoptimized single-config build.
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_target(audit_clap_realtime_representative
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_24ch_passthrough_clap>
+      org.s3g.s3g-dsp.24ch-passthrough-test
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_no_input_mixer_clap>
+      org.s3g.s3g-dsp.no-input-mixer-8ch
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_psd_raw_field_clap>
+      org.s3g.s3g-dsp.fault
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_nim_gesture_clap>
+      org.s3g.s3g-dsp.nim-gesture
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_ambi_insect_encoder_clap>
+      org.s3g.s3g-dsp.ambi-insect-encoder-64
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_ambi_speaker_decoder_clap>
+      org.s3g.s3g-dsp.ambi-speaker-decoder-64
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap>
+      org.s3g.s3g-dsp.spectral-topology-processor-24ch
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256 --event-burst 1
+      $<TARGET_FILE:s3g_ambi_group_rotate_128_clap>
+      org.s3g.s3g-dsp.ambi-group-rotate-128
+    COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+      --sample-rates 48000 --blocks 64,256
+      $<TARGET_FILE:s3g_ambi_group_matrix_128_clap>
+      org.s3g.s3g-dsp.ambi-group-matrix-128
+    DEPENDS
+      s3g_clap_realtime_audit
+      s3g_24ch_passthrough_clap
+      s3g_no_input_mixer_clap
+      s3g_psd_raw_field_clap
+      s3g_nim_gesture_clap
+      s3g_ambi_insect_encoder_clap
+      s3g_ambi_speaker_decoder_clap
+      s3g_24ch_spectral_topology_processor_clap
+      s3g_ambi_group_rotate_128_clap
+      s3g_ambi_group_matrix_128_clap
+      COMMENT "Timing a representative Release CLAP set without opening an audio device"
+      VERBATIM)
+
+    if(Python3_Interpreter_FOUND)
+      set(S3G_REALTIME_WEAK_POINT_TARGETS
+        s3g_24ch_delay_processor_clap
+        s3g_ambisonic_rotate_clap
+        s3g_ambi_group_rotate_64_clap
+        s3g_ambi_group_rotate_128_clap
+        s3g_node_track_mixer_clap
+        s3g_spectral_topology_processor_clap
+        s3g_24ch_spectral_topology_processor_clap
+        s3g_spectral_spray_clap
+        s3g_8ch_spectral_spray_clap
+        s3g_ambi_water_encoder_clap
+        s3g_ambi_insect_encoder_clap)
+
+      add_custom_target(audit_clap_realtime_weak_points
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-clap-realtime-audit.py
+          --audit-executable $<TARGET_FILE:s3g_clap_realtime_audit>
+          --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+          --build-root ${CMAKE_BINARY_DIR}/plugins
+          --affected-only --full-sweep --automation-ladder
+          --timeout-seconds 1800
+          --output ${CMAKE_BINARY_DIR}/clap-realtime-weak-points.json
+        DEPENDS
+          s3g_clap_realtime_audit
+          ${S3G_REALTIME_WEAK_POINT_TARGETS}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Auditing weak-point CLAPs at 48/96 kHz and 32/64/128/256 frames"
+        VERBATIM)
+
+      if(TARGET s3g_realtime_alloc_probe)
+        add_custom_target(audit_clap_realtime_release_gate
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-clap-realtime-release-gates.py
+            --audit-executable $<TARGET_FILE:s3g_clap_realtime_audit>
+            --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+            --build-root ${CMAKE_BINARY_DIR}/plugins
+            --output-dir ${CMAKE_BINARY_DIR}
+            --allocation-probe-library $<TARGET_FILE:s3g_realtime_alloc_probe>
+            --include-advisory
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          COMMENT "Running allocation-probed strict CLAP release gates and the 96 kHz advisory"
+          VERBATIM)
+        add_dependencies(audit_clap_realtime_release_gate
+          s3g_clap_realtime_audit
+          s3g_realtime_alloc_probe
+          ${S3G_REALTIME_WEAK_POINT_TARGETS})
+      endif()
+
+      add_custom_target(audit_no_input_mixer_controller_realtime
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-clap-realtime-audit.py
+          --audit-executable $<TARGET_FILE:s3g_clap_realtime_audit>
+          --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+          --build-root ${CMAKE_BINARY_DIR}/plugins
+          --filter "^org\\.s3g\\.s3g-dsp\\.no-input-mixer-8ch$"
+          --full-sweep --automation-ladder
+          --control-publication-stress --nim-midi-flood
+          --release-gate
+          --output ${CMAKE_BINARY_DIR}/no-input-mixer-controller-realtime.json
+        DEPENDS
+          s3g_clap_realtime_audit
+          s3g_no_input_mixer_clap
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running the long NIM E16/BU16 and control-publication gate"
+        VERBATIM)
+    endif()
+  endif()
+
   add_custom_target(audit_ambi_encoder_medium
     COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_smoke>
     COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_clap_smoke>
@@ -403,8 +751,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_ambi_encoder_medium_clap
     COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
 
+  # Discover the module targets contributed by each already-configured CLAP
+  # subdirectory so release checks cannot run against a partial build.
+  get_property(S3G_CONFIGURED_SUBDIRECTORIES DIRECTORY PROPERTY SUBDIRECTORIES)
+  set(S3G_MANIFEST_CLAP_TARGETS)
+  foreach(S3G_CONFIGURED_SUBDIRECTORY IN LISTS S3G_CONFIGURED_SUBDIRECTORIES)
+    if(S3G_CONFIGURED_SUBDIRECTORY MATCHES "/plugins/clap_[^/]+$")
+      get_property(S3G_DIRECTORY_TARGETS
+        DIRECTORY "${S3G_CONFIGURED_SUBDIRECTORY}" PROPERTY BUILDSYSTEM_TARGETS)
+      list(APPEND S3G_MANIFEST_CLAP_TARGETS ${S3G_DIRECTORY_TARGETS})
+    endif()
+  endforeach()
+  list(REMOVE_DUPLICATES S3G_MANIFEST_CLAP_TARGETS)
+
   find_program(S3G_CLAP_VALIDATOR_EXECUTABLE NAMES clap-validator)
   if(S3G_CLAP_VALIDATOR_EXECUTABLE)
+
     if(APPLE)
       set(S3G_SPEAKER_DECODER_VALIDATOR_PATH
         $<TARGET_BUNDLE_DIR:s3g_ambi_speaker_decoder_clap>)
@@ -430,6 +792,35 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_stochastic_encoder_clap
       COMMENT "Validating Speaker Decoder and Stochastic parameter/state contracts"
       VERBATIM)
+
+    if(Python3_Interpreter_FOUND)
+      add_custom_target(audit_clap_validator_manifest
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-clap-validator-manifest.py
+          --validator ${S3G_CLAP_VALIDATOR_EXECUTABLE}
+          --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+          --build-root ${CMAKE_BINARY_DIR}/plugins
+          --output ${CMAKE_BINARY_DIR}/clap-validator-manifest.json
+          --timeout-seconds 180 --jobs 4
+        DEPENDS ${S3G_MANIFEST_CLAP_TARGETS}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running isolated clap-validator coverage for every manifest bundle"
+        VERBATIM)
+
+      add_custom_target(audit_clap_validator_non_nim
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-clap-validator-manifest.py
+          --validator ${S3G_CLAP_VALIDATOR_EXECUTABLE}
+          --manifest ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+          --build-root ${CMAKE_BINARY_DIR}/plugins
+          --exclude-filter "(no-input-mixer-8ch|nim-gesture)$"
+          --output ${CMAKE_BINARY_DIR}/clap-validator-non-nim.json
+          --timeout-seconds 180 --jobs 4
+        DEPENDS ${S3G_MANIFEST_CLAP_TARGETS}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running isolated clap-validator coverage for every non-NIM bundle"
+        VERBATIM)
+    endif()
   endif()
 
   add_custom_target(audit_spectral_spray_routing
@@ -545,6 +936,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_ray_bilocation_encoder_clap> org.s3g.s3g-dsp.ambi-ray-bilocation-encoder 1240 908
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_insect_encoder_clap> org.s3g.s3g-dsp.ambi-insect-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_accelerometer_field_encoder_clap> org.s3g.s3g-dsp.accelerometer-field-encoder-16 1160 760 "s3g Ambi Encoder Modal" responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_encoder_medium_clap> org.s3g.s3g-dsp.ambi-encoder-medium-16 920 680 "s3g Ambi Encoder Medium" responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_neural_ecology_clap> org.s3g.s3g-dsp.ambi-neural-ecology-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap> org.s3g.s3g-dsp.ambi-pulsar-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860
@@ -567,6 +959,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_ray_bilocation_encoder_clap
         s3g_ambi_insect_encoder_clap
         s3g_accelerometer_field_encoder_clap
+        s3g_ambi_encoder_medium_clap
         s3g_ambi_neural_ecology_clap
         s3g_ambi_pulsar_encoder_clap
         s3g_ambi_stochastic_encoder_clap
@@ -859,6 +1252,49 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_nim_gesture_clap
       COMMENT "Rendering and validating the NIM Gesture E16 overview GUI")
   endif()
+
+  if(APPLE AND BUILD_TESTING AND Python3_Interpreter_FOUND
+      AND S3G_CLAP_VALIDATOR_EXECUTABLE
+      AND TARGET s3g_realtime_alloc_probe
+      AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_target(release_checks_non_nim
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-non-nim-release-checks.py
+        --source-root ${CMAKE_CURRENT_SOURCE_DIR}
+        --build-root ${CMAKE_BINARY_DIR}
+        --ctest ${CMAKE_CTEST_COMMAND}
+        --validator ${S3G_CLAP_VALIDATOR_EXECUTABLE}
+        --realtime-audit $<TARGET_FILE:s3g_clap_realtime_audit>
+        --allocation-probe-library $<TARGET_FILE:s3g_realtime_alloc_probe>
+        --output ${CMAKE_BINARY_DIR}/non-nim-release-checks.json
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Running the complete sequential non-NIM release checklist"
+      USES_TERMINAL
+      VERBATIM)
+    add_dependencies(release_checks_non_nim
+      ${S3G_NON_NIM_CORE_SMOKE_TARGETS}
+      ${S3G_MANIFEST_CLAP_TARGETS}
+      s3g_clap_realtime_audit
+      s3g_realtime_alloc_probe
+      s3g_clap_state_fixture_smoke
+      s3g_panner_state_publication_clap_smoke)
+  endif()
+endif()
+
+if(TARGET s3g_realtime_alloc_probe)
+  function(s3g_attach_realtime_probe_release_dependencies)
+    if(TARGET run_realtime_alloc_probe_tests)
+      if(TARGET audit_clap_realtime_release_gate)
+        add_dependencies(audit_clap_realtime_release_gate
+          run_realtime_alloc_probe_tests)
+      endif()
+      if(TARGET release_checks_non_nim)
+        add_dependencies(release_checks_non_nim
+          run_realtime_alloc_probe_tests)
+      endif()
+    endif()
+  endfunction()
+  cmake_language(DEFER CALL s3g_attach_realtime_probe_release_dependencies)
 endif()
 
 if(S3G_BUILD_STANDALONE_APPS)

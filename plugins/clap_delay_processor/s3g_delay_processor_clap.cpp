@@ -637,11 +637,62 @@ std::array<int, 3> nearestTopologyNeighbors(const Settings& p, uint32_t channel,
     return s3g::nearestTopologyNeighbors(topologyStateForPlugin(p), channel, count);
 }
 
-template <typename Settings>
-double resolvedChannelDelayMs(const Settings& p, uint32_t channel, uint32_t count)
+std::array<int, 3> nearestTopologyNeighborsFromPoints(
+    const s3g::TopologyState& state,
+    const std::array<TopologyPoint, kChannelCount>& points,
+    uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    if (count < 2u || channel >= count) {
+        const int lane = static_cast<int>(channel);
+        return { lane, lane, lane };
+    }
+    const auto& here = points[channel];
+    std::array<double, 3> best {
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max()
+    };
+    std::array<int, 3> neighbors {
+        static_cast<int>((channel + count - 1u) % count),
+        static_cast<int>((channel + 1u) % count),
+        static_cast<int>((channel + count / 2u) % count)
+    };
+    for (uint32_t other = 0u; other < count; ++other) {
+        if (other == channel) continue;
+        const auto& there = points[other];
+        const double dx = here.x - there.x;
+        const double dy = here.y - there.y;
+        const double dz = here.z - there.z;
+        const double distance = dx * dx + dy * dy + dz * dz;
+        for (uint32_t slot = 0u; slot < best.size(); ++slot) {
+            if (distance >= best[slot]) continue;
+            for (uint32_t move = 2u; move > slot; --move) {
+                best[move] = best[move - 1u];
+                neighbors[move] = neighbors[move - 1u];
+            }
+            best[slot] = distance;
+            neighbors[slot] = static_cast<int>(other);
+            break;
+        }
+    }
+    const double radius = 0.18
+        + std::clamp(state.neighborRadius, 0.0, 1.0) * 3.20;
+    const double radiusSquared = radius * radius;
+    const uint32_t requested = std::clamp<uint32_t>(
+        state.neighborCount, 1u, 3u);
+    for (uint32_t slot = 0u; slot < neighbors.size(); ++slot) {
+        if (slot >= requested || (slot > 0u && best[slot] > radiusSquared)) {
+            neighbors[slot] = neighbors[0];
+        }
+    }
+    return neighbors;
+}
+
+template <typename Settings>
+double resolvedChannelDelayMsFromPoint(const Settings& p, uint32_t channel,
+                                       const TopologyPoint& topo,
+                                       double amount)
+{
     const double delayField = std::clamp(
         topo.x * 0.86 +
             topo.z * 0.70 +
@@ -659,10 +710,17 @@ double resolvedChannelDelayMs(const Settings& p, uint32_t channel, uint32_t coun
 }
 
 template <typename Settings>
-double resolvedChannelFeedback(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelDelayMs(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelDelayMsFromPoint(
+        p, channel, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelFeedbackFromPoint(const Settings& p, uint32_t channel,
+                                        const TopologyPoint& topo,
+                                        double amount)
+{
     const double feedbackField = std::clamp(
         topo.y * 0.78 -
             topo.z * 0.42 +
@@ -680,10 +738,18 @@ double resolvedChannelFeedback(const Settings& p, uint32_t channel, uint32_t cou
 }
 
 template <typename Settings>
-double resolvedChannelTone(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelFeedback(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelFeedbackFromPoint(
+        p, channel, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelToneFromPoint(const Settings& p,
+                                    uint32_t channel,
+                                    const TopologyPoint& topo,
+                                    double amount)
+{
     const double toneField = std::clamp(
         -topo.y * 0.70 +
             topo.x * 0.36 +
@@ -695,10 +761,17 @@ double resolvedChannelTone(const Settings& p, uint32_t channel, uint32_t count)
 }
 
 template <typename Settings>
-double resolvedChannelNetwork(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelTone(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelToneFromPoint(
+        p, channel, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelNetworkFromPoint(const Settings& p,
+                                       const TopologyPoint& topo,
+                                       double amount)
+{
     const double shapeBias = p.topologyShape == 3 ? 0.28
         : p.topologyShape == 5 ? 0.24
         : p.topologyShape == 7 ? 0.18
@@ -716,10 +789,17 @@ double resolvedChannelNetwork(const Settings& p, uint32_t channel, uint32_t coun
 }
 
 template <typename Settings>
-double resolvedChannelCharacter(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelNetwork(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelNetworkFromPoint(
+        p, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelCharacterFromPoint(const Settings& p,
+                                         const TopologyPoint& topo,
+                                         double amount)
+{
     const double field = std::clamp(
         topo.radius * 0.44 +
             std::fabs(topo.x - topo.z) * 0.28 +
@@ -731,10 +811,17 @@ double resolvedChannelCharacter(const Settings& p, uint32_t channel, uint32_t co
 }
 
 template <typename Settings>
-double resolvedChannelSmearAmount(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelCharacter(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelCharacterFromPoint(
+        p, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelSmearAmountFromPoint(const Settings& p,
+                                           const TopologyPoint& topo,
+                                           double amount)
+{
     const double field = std::clamp(
         std::fabs(topo.lane) * 0.34 +
             std::max(0.0, topo.radius - 0.82) * 0.42 +
@@ -746,10 +833,18 @@ double resolvedChannelSmearAmount(const Settings& p, uint32_t channel, uint32_t 
 }
 
 template <typename Settings>
-double resolvedChannelPitchSemitones(const Settings& p, uint32_t channel, uint32_t count)
+double resolvedChannelSmearAmount(const Settings& p, uint32_t channel, uint32_t count)
 {
-    const auto topo = topologyPointForLane(p, channel, count);
-    const double amount = topologyAmount(p);
+    return resolvedChannelSmearAmountFromPoint(
+        p, topologyPointForLane(p, channel, count), topologyAmount(p));
+}
+
+template <typename Settings>
+double resolvedChannelPitchSemitonesFromPoint(const Settings& p,
+                                              uint32_t channel,
+                                              const TopologyPoint& topo,
+                                              double amount)
+{
     const double shapeBias = p.topologyShape == 6 ? laneNoise(channel + 89u) * 0.55
         : p.topologyShape == 5 ? (static_cast<double>(static_cast<int>(channel % 3u)) - 1.0) * 0.42
         : p.topologyShape == 8 ? std::sin(std::atan2(topo.x, topo.z) * 2.0) * 0.45
@@ -766,6 +861,13 @@ double resolvedChannelPitchSemitones(const Settings& p, uint32_t channel, uint32
         p.pitchSemitones + pitchField * amount * kTopologyPitchSpreadSemitones,
         kPitchMinSemitones,
         kPitchMaxSemitones);
+}
+
+template <typename Settings>
+double resolvedChannelPitchSemitones(const Settings& p, uint32_t channel, uint32_t count)
+{
+    return resolvedChannelPitchSemitonesFromPoint(
+        p, channel, topologyPointForLane(p, channel, count), topologyAmount(p));
 }
 
 constexpr std::array<clap_id, 29> kStoredParamIds {
@@ -944,23 +1046,48 @@ void syncAudioPatch(Plugin& p, bool force = false)
 
 void applyParamsToDsp(Plugin& p, const DelaySettings& settings)
 {
+    auto parameterUpdate = p.delay.scopedParameterUpdate();
+    (void)parameterUpdate;
     const uint32_t topologyCount = std::max<uint32_t>(
         1u, std::min<uint32_t>(kChannelCount, p.audioActiveLaneCount));
-    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
-        uint32_t logicalLane = 0u;
-        bool laneIsActive = false;
-        for (uint32_t ordinal = 0; ordinal < topologyCount; ++ordinal) {
-            if (p.audioActiveLanes[ordinal] == ch) {
-                logicalLane = ordinal;
-                laneIsActive = true;
-                break;
-            }
+    const s3g::TopologyState topology = topologyStateForPlugin(settings);
+    const s3g::TopologyControls controls =
+        s3g::topologyControlsFromState(topology);
+    const double amount = topologyAmount(settings);
+    std::array<TopologyPoint, kChannelCount> topologyPoints {};
+    std::array<std::array<int, 3>, kChannelCount> topologyNeighbors {};
+    for (uint32_t logicalLane = 0u; logicalLane < topologyCount; ++logicalLane) {
+        topologyPoints[logicalLane] = s3g::topologyPointForLane(
+            logicalLane, topologyCount, controls);
+    }
+    for (uint32_t logicalLane = 0u; logicalLane < topologyCount; ++logicalLane) {
+        topologyNeighbors[logicalLane] = nearestTopologyNeighborsFromPoints(
+            topology, topologyPoints, logicalLane, topologyCount);
+    }
+
+    std::array<uint32_t, kChannelCount> logicalLaneForChannel {};
+    std::array<bool, kChannelCount> channelIsActive {};
+    for (uint32_t ordinal = 0u; ordinal < topologyCount; ++ordinal) {
+        const uint32_t channel = p.audioActiveLanes[ordinal];
+        if (channel < kChannelCount) {
+            logicalLaneForChannel[channel] = ordinal;
+            channelIsActive[channel] = true;
         }
-        p.delay.setChannelDelayMs(static_cast<int>(ch), static_cast<float>(resolvedChannelDelayMs(settings, logicalLane, topologyCount)));
-        p.delay.setChannelFeedback(static_cast<int>(ch), static_cast<float>(resolvedChannelFeedback(settings, logicalLane, topologyCount)));
-        p.delay.setChannelTone(static_cast<int>(ch), static_cast<float>(resolvedChannelTone(settings, logicalLane, topologyCount)));
-        p.delay.setChannelNetwork(static_cast<int>(ch), static_cast<float>(resolvedChannelNetwork(settings, logicalLane, topologyCount)));
-        const auto logicalNeighbors = nearestTopologyNeighbors(settings, logicalLane, topologyCount);
+    }
+
+    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+        const uint32_t logicalLane = logicalLaneForChannel[ch];
+        const bool laneIsActive = channelIsActive[ch];
+        const auto& point = topologyPoints[logicalLane];
+        p.delay.setChannelDelayMs(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelDelayMsFromPoint(settings, logicalLane, point, amount)));
+        p.delay.setChannelFeedback(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelFeedbackFromPoint(settings, logicalLane, point, amount)));
+        p.delay.setChannelTone(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelToneFromPoint(settings, logicalLane, point, amount)));
+        p.delay.setChannelNetwork(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelNetworkFromPoint(settings, point, amount)));
+        const auto& logicalNeighbors = topologyNeighbors[logicalLane];
         std::array<int, 3> physicalNeighbors {
             static_cast<int>(ch), static_cast<int>(ch), static_cast<int>(ch)
         };
@@ -981,9 +1108,12 @@ void applyParamsToDsp(Plugin& p, const DelaySettings& settings)
                 ? static_cast<int>(std::clamp<uint32_t>(settings.topologyNeighborCount, 1u, 3u))
                 : 0,
             static_cast<float>(settings.topologyCentroid));
-        p.delay.setChannelCharacter(static_cast<int>(ch), static_cast<float>(resolvedChannelCharacter(settings, logicalLane, topologyCount)));
-        p.delay.setChannelSmearAmount(static_cast<int>(ch), static_cast<float>(resolvedChannelSmearAmount(settings, logicalLane, topologyCount)));
-        p.delay.setChannelPitchSemitones(static_cast<int>(ch), static_cast<float>(resolvedChannelPitchSemitones(settings, logicalLane, topologyCount)));
+        p.delay.setChannelCharacter(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelCharacterFromPoint(settings, point, amount)));
+        p.delay.setChannelSmearAmount(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelSmearAmountFromPoint(settings, point, amount)));
+        p.delay.setChannelPitchSemitones(static_cast<int>(ch), static_cast<float>(
+            resolvedChannelPitchSemitonesFromPoint(settings, logicalLane, point, amount)));
     }
 
     s3g::DelayRouteParams route {};
@@ -993,8 +1123,56 @@ void applyParamsToDsp(Plugin& p, const DelaySettings& settings)
     route.loss = static_cast<float>(settings.routeLoss);
     p.delay.setRouteParams(route);
     p.delay.setTopology(
-        topologyStateForPlugin(settings),
+        topology,
         p.audioActiveLanes.data(), p.audioActiveLaneCount);
+}
+
+bool routeSettingsDiffer(const DelaySettings& a, const DelaySettings& b)
+{
+    return a.routeAmount != b.routeAmount
+        || a.routeTurn != b.routeTurn
+        || a.routeBranch != b.routeBranch
+        || a.routeLoss != b.routeLoss;
+}
+
+bool laneOrTopologySettingsDiffer(const DelaySettings& a,
+                                  const DelaySettings& b)
+{
+    return a.delayMs != b.delayMs
+        || a.feedback != b.feedback
+        || a.tone != b.tone
+        || a.character != b.character
+        || a.tapAmount != b.tapAmount
+        || a.pitchSemitones != b.pitchSemitones
+        || a.topologySpread != b.topologySpread
+        || a.topologyJitter != b.topologyJitter
+        || a.displaceCollapse != b.displaceCollapse
+        || a.displaceDirX != b.displaceDirX
+        || a.displaceDirY != b.displaceDirY
+        || a.displaceDirZ != b.displaceDirZ
+        || a.displaceTwist != b.displaceTwist
+        || a.displaceFlare != b.displaceFlare
+        || a.topologyMotionMode != b.topologyMotionMode
+        || a.topologyMotionVariant != b.topologyMotionVariant
+        || a.topologyMotionRateHz != b.topologyMotionRateHz
+        || a.topologyMotionDepth != b.topologyMotionDepth
+        || a.topologyMotionPhase != b.topologyMotionPhase
+        || a.topologyNeighborCount != b.topologyNeighborCount
+        || a.topologyRadius != b.topologyRadius
+        || a.topologyCentroid != b.topologyCentroid
+        || a.topologyShape != b.topologyShape;
+}
+
+void applyRouteParamsToDsp(Plugin& p, const DelaySettings& settings)
+{
+    s3g::DelayRouteParams route {};
+    route.route = static_cast<float>(settings.routeAmount);
+    route.turn = static_cast<float>(settings.routeTurn);
+    route.branch = static_cast<float>(settings.routeBranch);
+    route.loss = static_cast<float>(settings.routeLoss);
+    auto parameterUpdate = p.delay.scopedParameterUpdate();
+    (void)parameterUpdate;
+    p.delay.setRouteParams(route);
 }
 
 void syncAudioSettings(Plugin& p, bool force = false)
@@ -1008,6 +1186,7 @@ void syncAudioSettings(Plugin& p, bool force = false)
     const bool patchChanged = force || patchRevision != p.audioPatchRevision;
     if (!parametersChanged && !patchChanged) return;
 
+    const DelaySettings previousSettings = p.audioSettings;
     if (patchChanged) syncAudioPatch(p, true);
     if (parametersChanged) {
         loadSettingsFromParameterBank(p, p.audioSettings);
@@ -1023,7 +1202,13 @@ void syncAudioSettings(Plugin& p, bool force = false)
         p.audioParameterRevision = parameterRevision;
     }
     p.audioClearUnused = p.clearUnusedPublished.load(std::memory_order_acquire);
-    applyParamsToDsp(p, p.audioSettings);
+    const bool fullDspUpdate = force || patchChanged
+        || laneOrTopologySettingsDiffer(previousSettings, p.audioSettings);
+    if (fullDspUpdate) {
+        applyParamsToDsp(p, p.audioSettings);
+    } else if (routeSettingsDiffer(previousSettings, p.audioSettings)) {
+        applyRouteParamsToDsp(p, p.audioSettings);
+    }
 }
 
 void advanceTopologyMotion(Plugin& p, uint32_t frames)
@@ -1299,6 +1484,20 @@ void publishOutputMeter(Plugin& p, float blockPeak, bool blockClip, uint32_t fra
 
 void publishRouteTelemetry(Plugin& p)
 {
+    bool publishGuiTelemetry = false;
+#if defined(__APPLE__)
+    publishGuiTelemetry = p.guiVisible.load(std::memory_order_relaxed);
+#endif
+    // Edge/node telemetry is consumed only by the open Cocoa view. Avoid the
+    // 24x24 atomic copy in headless realtime processing, but always publish
+    // the route-tail value because CLAP_EXT_TAIL consumes it independently.
+    if (!publishGuiTelemetry) {
+        p.publishedRouteTailFrames.store(
+            std::max(p.delay.routeTailFrames(),
+                p.delay.routeTailRemainingFrames()),
+            std::memory_order_relaxed);
+        return;
+    }
     for (uint32_t source = 0; source < kChannelCount; ++source) {
         p.routeNodeEnergy[source].store(
             p.delay.nodeEnergy(source), std::memory_order_relaxed);
@@ -1424,38 +1623,16 @@ void processDoubleSegment(Plugin& p, const clap_audio_buffer_t& input, const cla
     publishOutputMeter(p, blockPeak, blockClip, frames);
 }
 
-template <typename ProcessSegmentFn>
-void processWithSampleAccurateEvents(Plugin& p,
-    const clap_audio_buffer_t& input,
-    const clap_audio_buffer_t& output,
-    uint32_t frames,
-    const clap_input_events_t* inEvents,
-    ProcessSegmentFn processSegment)
+void applyBlockCoalescedParamEvents(Plugin& p,
+    const clap_input_events_t* inEvents)
 {
-    uint32_t frameCursor = 0;
-    const uint32_t eventCount = inEvents ? inEvents->size(inEvents) : 0;
-    uint32_t eventIndex = 0;
-
-    while (eventIndex < eventCount) {
-        const clap_event_header_t* ev = inEvents->get(inEvents, eventIndex);
-        if (!ev) {
-            ++eventIndex;
-            continue;
-        }
-
-        const uint32_t eventTime = std::min<uint32_t>(ev->time, frames);
-        if (eventTime > frameCursor) {
-            processSegment(frameCursor, eventTime - frameCursor);
-            frameCursor = eventTime;
-        }
-
-        applyParamEvent(p, ev);
-        ++eventIndex;
-    }
-
-    if (frameCursor < frames) {
-        processSegment(frameCursor, frames - frameCursor);
-    }
+    // Delay topology changes are intentionally block-rate. Applying every
+    // timestamp as a separate render segment can rebuild a 24-lane topology
+    // many times in one callback, making small buffers nondeterministic. Keep
+    // CLAP list ordering, publish every event's final value, then synchronize
+    // the resulting snapshot to the DSP once under ParameterUpdateGuard.
+    readParamEvents(p, inEvents);
+    syncAudioSettings(p);
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
@@ -1466,8 +1643,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     deliverTailChangedOnAudioThread(*p);
 
     if (process->audio_inputs_count == 0 || process->audio_outputs_count == 0) {
-        readParamEvents(*p, process->in_events);
-        syncAudioSettings(*p);
+        applyBlockCoalescedParamEvents(*p, process->in_events);
         publishRouteTelemetry(*p);
         publishLegacyTail(*p, frames, false);
         deliverTailChangedOnAudioThread(*p);
@@ -1478,28 +1654,26 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const auto& output = process->audio_outputs[0];
     const uint32_t channels = std::min({ input.channel_count, output.channel_count, kChannelCount });
 
+    // The final value for each parameter in this callback takes effect at the
+    // start of the block. Same-offset and distributed event lists therefore
+    // have identical DSP cost and converge to the same following-block state.
+    applyBlockCoalescedParamEvents(*p, process->in_events);
+
     if (channels == kChannelCount && input.data32 && output.data32) {
         if (p->audioClearUnused && !kLockUnusedChannelsToPassThrough) {
             clearOutputs(output, kChannelCount, frames);
         } else {
             copyAvailableChannels(input, output, kChannelCount, frames);
         }
-        processWithSampleAccurateEvents(*p, input, output, frames, process->in_events,
-            [&](uint32_t start, uint32_t count) {
-                processFloatSegment(*p, input, output, start, count);
-            });
+        processFloatSegment(*p, input, output, 0u, frames);
     } else if (channels == kChannelCount && input.data64 && output.data64) {
         if (p->audioClearUnused && !kLockUnusedChannelsToPassThrough) {
             clearOutputs(output, kChannelCount, frames);
         } else {
             copyAvailableChannels(input, output, kChannelCount, frames);
         }
-        processWithSampleAccurateEvents(*p, input, output, frames, process->in_events,
-            [&](uint32_t start, uint32_t count) {
-                processDoubleSegment(*p, input, output, start, count);
-            });
+        processDoubleSegment(*p, input, output, 0u, frames);
     } else {
-        readParamEvents(*p, process->in_events);
         copyAvailableChannels(input, output, channels, frames);
     }
 

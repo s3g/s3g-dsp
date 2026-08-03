@@ -1,5 +1,6 @@
 #include "s3g_ambi_terrain_navigator.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -28,6 +29,7 @@ namespace {
 constexpr uint32_t kOutputChannels = s3g::kAmbiTerrainMaxChannels;
 constexpr uint32_t kInputChannels = s3g::kAmbiTerrainMaxPoints;
 constexpr uint32_t kStateVersion = 5;
+constexpr clap_id kReplaceStateActionId = CLAP_INVALID_ID - 1u;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kPointsParamId = 20;
@@ -75,6 +77,7 @@ constexpr clap_id kTerrainRoughnessParamId = 43;
 constexpr clap_id kTerrainReliefParamId = 44;
 constexpr clap_id kTerrainReadParamId = 45;
 constexpr clap_id kTerrainReadMixParamId = 46;
+constexpr uint32_t kParamCount = 46u;
 
 struct AmbiTerrainNavigatorParamsV1 {
     uint32_t order;
@@ -147,13 +150,30 @@ struct SavedStateV2 {
     AmbiTerrainNavigatorParamsV2 params {};
 };
 
+struct ControlSnapshot {
+    s3g::AmbiTerrainNavigatorParams params {};
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     s3g::AmbiTerrainNavigator encoder {};
     s3g::AmbiTerrainNavigatorParams params {};
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::SpscEventQueue<
+        s3g::AmbiTerrainNavigatorParams, 8u> guiStateCommands {};
+    std::atomic_flag controlSnapshotLock = ATOMIC_FLAG_INIT;
+    ControlSnapshot publishedControl {};
+    std::atomic<bool> publishedControlDirty { true };
+    std::atomic<bool> pendingParamValuesRescan { false };
+    std::atomic<bool> active { false };
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiAzimuth {};
+    std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiElevation {};
+    std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiDistance {};
+    std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiTerrain {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -225,64 +245,304 @@ const char* syncName(uint32_t index)
     return kNames[std::min<uint32_t>(index, 1u)];
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool assignParam(s3g::AmbiTerrainNavigatorParams& params,
+    clap_id id, double value)
 {
     switch (id) {
-    case kOrderParamId: p.params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxOrder); break;
-    case kPointsParamId: p.params.points = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxPoints); break;
-    case kAzimuthParamId: p.params.azimuthDeg = static_cast<float>(value); break;
-    case kElevationParamId: p.params.elevationDeg = static_cast<float>(value); break;
-    case kDistanceParamId: p.params.distance = static_cast<float>(value); break;
-    case kRateParamId: p.params.rateHz = static_cast<float>(value); break;
-    case kTraversalParamId: p.params.traversal = static_cast<float>(value); break;
-    case kTerrainDepthParamId: p.params.terrainDepth = static_cast<float>(value); break;
-    case kLayerSpreadParamId: p.params.layerSpread = static_cast<float>(value); break;
-    case kInnerRadiusParamId: p.params.innerRadius = static_cast<float>(value); break;
-    case kOuterRadiusParamId: p.params.outerRadius = static_cast<float>(value); break;
-    case kAzimuthWarpParamId: p.params.azimuthWarpDeg = static_cast<float>(value); break;
-    case kElevationWarpParamId: p.params.elevationWarpDeg = static_cast<float>(value); break;
-    case kDistanceWarpParamId: p.params.distanceWarp = static_cast<float>(value); break;
-    case kFoldParamId: p.params.fold = static_cast<float>(value); break;
-    case kSmoothingParamId: p.params.smoothing = static_cast<float>(value); break;
-    case kInputParamId: p.params.inputGainDb = static_cast<float>(value); break;
-    case kOutputParamId: p.params.outputGainDb = static_cast<float>(value); break;
-    case kOrbitParamId: p.params.orbit = static_cast<s3g::AmbiTerrainOrbit>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u)); break;
-    case kPaletteParamId: p.params.palette = static_cast<s3g::AmbiTerrainPalette>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 7u)); break;
-    case kPlaybackParamId: p.params.playback = static_cast<s3g::AmbiTerrainPlaybackMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u)); break;
-    case kSyncParamId: p.params.syncMode = static_cast<s3g::AmbiTerrainSyncMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u)); break;
-    case kDivisionParamId: p.params.syncDivisionBeats = static_cast<float>(value); break;
-    case kPhaseParamId: p.params.phase = static_cast<float>(value); break;
-    case kPhaseSpreadParamId: p.params.phaseSpread = static_cast<float>(value); break;
-    case kEaseParamId: p.params.ease = static_cast<float>(value); break;
-    case kDistanceScaleParamId: p.params.distanceScale = static_cast<float>(value); break;
-    case kDopplerParamId: p.params.doppler = static_cast<float>(value); break;
-    case kAirParamId: p.params.air = static_cast<float>(value); break;
-    case kSelectedSourceParamId: p.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxPoints) - 1u; break;
-    case kRateSpreadParamId: p.params.rateSpread = static_cast<float>(value); break;
-    case kRateDeviationParamId: p.params.rateDeviation = static_cast<float>(value); break;
-    case kTerrainFormParamId: p.params.terrainForm = static_cast<s3g::AmbiTerrainForm>(
+    case kOrderParamId: params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxOrder); break;
+    case kPointsParamId: params.points = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxPoints); break;
+    case kAzimuthParamId: params.azimuthDeg = static_cast<float>(value); break;
+    case kElevationParamId: params.elevationDeg = static_cast<float>(value); break;
+    case kDistanceParamId: params.distance = static_cast<float>(value); break;
+    case kRateParamId: params.rateHz = static_cast<float>(value); break;
+    case kTraversalParamId: params.traversal = static_cast<float>(value); break;
+    case kTerrainDepthParamId: params.terrainDepth = static_cast<float>(value); break;
+    case kLayerSpreadParamId: params.layerSpread = static_cast<float>(value); break;
+    case kInnerRadiusParamId: params.innerRadius = static_cast<float>(value); break;
+    case kOuterRadiusParamId: params.outerRadius = static_cast<float>(value); break;
+    case kAzimuthWarpParamId: params.azimuthWarpDeg = static_cast<float>(value); break;
+    case kElevationWarpParamId: params.elevationWarpDeg = static_cast<float>(value); break;
+    case kDistanceWarpParamId: params.distanceWarp = static_cast<float>(value); break;
+    case kFoldParamId: params.fold = static_cast<float>(value); break;
+    case kSmoothingParamId: params.smoothing = static_cast<float>(value); break;
+    case kInputParamId: params.inputGainDb = static_cast<float>(value); break;
+    case kOutputParamId: params.outputGainDb = static_cast<float>(value); break;
+    case kOrbitParamId: params.orbit = static_cast<s3g::AmbiTerrainOrbit>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u)); break;
+    case kPaletteParamId: params.palette = static_cast<s3g::AmbiTerrainPalette>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 7u)); break;
+    case kPlaybackParamId: params.playback = static_cast<s3g::AmbiTerrainPlaybackMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u)); break;
+    case kSyncParamId: params.syncMode = static_cast<s3g::AmbiTerrainSyncMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u)); break;
+    case kDivisionParamId: params.syncDivisionBeats = static_cast<float>(value); break;
+    case kPhaseParamId: params.phase = static_cast<float>(value); break;
+    case kPhaseSpreadParamId: params.phaseSpread = static_cast<float>(value); break;
+    case kEaseParamId: params.ease = static_cast<float>(value); break;
+    case kDistanceScaleParamId: params.distanceScale = static_cast<float>(value); break;
+    case kDopplerParamId: params.doppler = static_cast<float>(value); break;
+    case kAirParamId: params.air = static_cast<float>(value); break;
+    case kSelectedSourceParamId: params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxPoints) - 1u; break;
+    case kRateSpreadParamId: params.rateSpread = static_cast<float>(value); break;
+    case kRateDeviationParamId: params.rateDeviation = static_cast<float>(value); break;
+    case kTerrainFormParamId: params.terrainForm = static_cast<s3g::AmbiTerrainForm>(
         std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 5u)); break;
-    case kTerrainFacetParamId: p.params.terrainFacet = static_cast<float>(value); break;
-    case kTerrainBevelParamId: p.params.terrainBevel = static_cast<float>(value); break;
-    case kTerrainOrientationParamId: p.params.terrainOrientation = static_cast<float>(value); break;
-    case kTerrainTerraceParamId: p.params.terrainTerrace = static_cast<float>(value); break;
-    case kTerrainTerraceStepsParamId: p.params.terrainTerraceSteps = static_cast<uint32_t>(std::lround(value)); break;
-    case kTerrainRidgeParamId: p.params.terrainRidge = static_cast<float>(value); break;
-    case kTerrainErosionParamId: p.params.terrainErosion = static_cast<float>(value); break;
-    case kTerrainDomainWarpParamId: p.params.terrainDomainWarp = static_cast<float>(value); break;
-    case kTerrainTwistParamId: p.params.terrainTwist = static_cast<float>(value); break;
-    case kTerrainRoughnessParamId: p.params.terrainRoughness = static_cast<float>(value); break;
-    case kTerrainReliefParamId: p.params.terrainRelief = static_cast<float>(value); break;
-    case kTerrainReadParamId: p.params.terrainRead = static_cast<s3g::AmbiTerrainRead>(
+    case kTerrainFacetParamId: params.terrainFacet = static_cast<float>(value); break;
+    case kTerrainBevelParamId: params.terrainBevel = static_cast<float>(value); break;
+    case kTerrainOrientationParamId: params.terrainOrientation = static_cast<float>(value); break;
+    case kTerrainTerraceParamId: params.terrainTerrace = static_cast<float>(value); break;
+    case kTerrainTerraceStepsParamId: params.terrainTerraceSteps = static_cast<uint32_t>(std::lround(value)); break;
+    case kTerrainRidgeParamId: params.terrainRidge = static_cast<float>(value); break;
+    case kTerrainErosionParamId: params.terrainErosion = static_cast<float>(value); break;
+    case kTerrainDomainWarpParamId: params.terrainDomainWarp = static_cast<float>(value); break;
+    case kTerrainTwistParamId: params.terrainTwist = static_cast<float>(value); break;
+    case kTerrainRoughnessParamId: params.terrainRoughness = static_cast<float>(value); break;
+    case kTerrainReliefParamId: params.terrainRelief = static_cast<float>(value); break;
+    case kTerrainReadParamId: params.terrainRead = static_cast<s3g::AmbiTerrainRead>(
         std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 9u)); break;
-    case kTerrainReadMixParamId: p.params.terrainReadMix = static_cast<float>(value); break;
-    default: break;
+    case kTerrainReadMixParamId: params.terrainReadMix = static_cast<float>(value); break;
+    default: return false;
     }
-    p.encoder.setParams(p.params);
-    p.params = p.encoder.params();
+    return true;
 }
 
-bool init(const clap_plugin_t*) { return true; }
+void publishControlSnapshot(Plugin& p);
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    if (!assignParam(p.params, id, value)) return;
+    p.encoder.setParams(p.params);
+    p.params = p.encoder.params();
+    publishControlSnapshot(p);
+}
+
+bool paramValueFromParams(const s3g::AmbiTerrainNavigatorParams& p,
+    clap_id id, double& value)
+{
+    switch (id) {
+    case kOrderParamId: value = p.order; break;
+    case kPointsParamId: value = p.points; break;
+    case kAzimuthParamId: value = p.azimuthDeg; break;
+    case kElevationParamId: value = p.elevationDeg; break;
+    case kDistanceParamId: value = p.distance; break;
+    case kRateParamId: value = p.rateHz; break;
+    case kTraversalParamId: value = p.traversal; break;
+    case kTerrainDepthParamId: value = p.terrainDepth; break;
+    case kLayerSpreadParamId: value = p.layerSpread; break;
+    case kInnerRadiusParamId: value = p.innerRadius; break;
+    case kOuterRadiusParamId: value = p.outerRadius; break;
+    case kAzimuthWarpParamId: value = p.azimuthWarpDeg; break;
+    case kElevationWarpParamId: value = p.elevationWarpDeg; break;
+    case kDistanceWarpParamId: value = p.distanceWarp; break;
+    case kFoldParamId: value = p.fold; break;
+    case kSmoothingParamId: value = p.smoothing; break;
+    case kInputParamId: value = p.inputGainDb; break;
+    case kOutputParamId: value = p.outputGainDb; break;
+    case kOrbitParamId: value = static_cast<uint32_t>(p.orbit); break;
+    case kPaletteParamId: value = static_cast<uint32_t>(p.palette); break;
+    case kPlaybackParamId: value = static_cast<uint32_t>(p.playback); break;
+    case kSyncParamId: value = static_cast<uint32_t>(p.syncMode); break;
+    case kDivisionParamId: value = p.syncDivisionBeats; break;
+    case kPhaseParamId: value = p.phase; break;
+    case kPhaseSpreadParamId: value = p.phaseSpread; break;
+    case kEaseParamId: value = p.ease; break;
+    case kDistanceScaleParamId: value = p.distanceScale; break;
+    case kDopplerParamId: value = p.doppler; break;
+    case kAirParamId: value = p.air; break;
+    case kSelectedSourceParamId: value = p.selectedSource + 1u; break;
+    case kRateSpreadParamId: value = p.rateSpread; break;
+    case kRateDeviationParamId: value = p.rateDeviation; break;
+    case kTerrainFormParamId: value = static_cast<uint32_t>(p.terrainForm); break;
+    case kTerrainFacetParamId: value = p.terrainFacet; break;
+    case kTerrainBevelParamId: value = p.terrainBevel; break;
+    case kTerrainOrientationParamId: value = p.terrainOrientation; break;
+    case kTerrainTerraceParamId: value = p.terrainTerrace; break;
+    case kTerrainTerraceStepsParamId: value = p.terrainTerraceSteps; break;
+    case kTerrainRidgeParamId: value = p.terrainRidge; break;
+    case kTerrainErosionParamId: value = p.terrainErosion; break;
+    case kTerrainDomainWarpParamId: value = p.terrainDomainWarp; break;
+    case kTerrainTwistParamId: value = p.terrainTwist; break;
+    case kTerrainRoughnessParamId: value = p.terrainRoughness; break;
+    case kTerrainReliefParamId: value = p.terrainRelief; break;
+    case kTerrainReadParamId: value = static_cast<uint32_t>(p.terrainRead); break;
+    case kTerrainReadMixParamId: value = p.terrainReadMix; break;
+    default: return false;
+    }
+    return true;
+}
+
+void lockNonAudio(std::atomic_flag& lock)
+{
+    while (lock.test_and_set(std::memory_order_acquire)) {
+        // Fixed-size snapshots are only waited on by non-audio threads.
+    }
+}
+
+void publishControlSnapshot(Plugin& p)
+{
+    p.publishedControlDirty.store(true, std::memory_order_release);
+    if (p.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    p.publishedControl.params = p.params;
+    p.publishedControlDirty.store(false, std::memory_order_release);
+    p.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void retryControlSnapshotPublication(Plugin& p)
+{
+    if (p.publishedControlDirty.load(std::memory_order_acquire)) {
+        publishControlSnapshot(p);
+    }
+}
+
+ControlSnapshot controlSnapshot(Plugin& p)
+{
+    lockNonAudio(p.controlSnapshotLock);
+    const auto result = p.publishedControl;
+    p.controlSnapshotLock.clear(std::memory_order_release);
+    return result;
+}
+
+double publishedParamValue(Plugin& p, clap_id id)
+{
+    double value = 0.0;
+    (void)paramValueFromParams(controlSnapshot(p).params, id, value);
+    return value;
+}
+
+s3g::AmbiTerrainNavigatorParams publishedParamsSnapshot(Plugin& p)
+{
+    return controlSnapshot(p).params;
+}
+
+void publishPoints(Plugin& p)
+{
+    const auto& points = p.encoder.points();
+    for (uint32_t index = 0u; index < s3g::kAmbiTerrainMaxPoints; ++index) {
+        p.guiAzimuth[index].store(points[index].azimuthDeg,
+            std::memory_order_relaxed);
+        p.guiElevation[index].store(points[index].elevationDeg,
+            std::memory_order_relaxed);
+        p.guiDistance[index].store(points[index].distance,
+            std::memory_order_relaxed);
+        p.guiTerrain[index].store(points[index].terrain,
+            std::memory_order_relaxed);
+    }
+}
+
+void requestGuiParamService(Plugin& p)
+{
+    if (p.hostParams && p.hostParams->request_flush) {
+        p.hostParams->request_flush(p.host);
+    } else if (p.host && p.host->request_process) {
+        p.host->request_process(p.host);
+    }
+}
+
+void requestParamValuesRescan(Plugin& p)
+{
+    p.pendingParamValuesRescan.store(true, std::memory_order_release);
+    if (p.host && p.host->request_callback) {
+        p.host->request_callback(p.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& p, s3g::clap_gui::ParamEventKind kind,
+    clap_id id, double value = 0.0)
+{
+    if (!p.guiParamEvents.push({ kind, id, value })) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool queueGuiParamValue(Plugin& p, clap_id id, double value)
+{
+    const std::array<s3g::clap_gui::ParamEvent, 3u> events {{
+        { s3g::clap_gui::ParamEventKind::GestureBegin, id, 0.0 },
+        { s3g::clap_gui::ParamEventKind::Value, id, value },
+        { s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 },
+    }};
+    if (!p.guiParamEvents.pushBatch(events.data(), events.size())) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool queueGuiState(Plugin& p,
+    const s3g::AmbiTerrainNavigatorParams& params)
+{
+    if (p.guiStateCommands.available() == 0u
+        || p.guiParamEvents.available() == 0u) return false;
+    if (!p.guiStateCommands.push(params)) return false;
+    const s3g::clap_gui::ParamEvent action {
+        s3g::clap_gui::ParamEventKind::Value,
+        kReplaceStateActionId, 0.0
+    };
+    if (!p.guiParamEvents.push(action)) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind
+            == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
+{
+    s3g::clap_gui::ParamEvent pending {};
+    while (p.guiParamEvents.peek(pending)) {
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value
+            && pending.paramId == kReplaceStateActionId) {
+            s3g::AmbiTerrainNavigatorParams params {};
+            if (!p.guiStateCommands.peek(params)) break;
+            p.params = params;
+            p.encoder.setParams(p.params);
+            p.params = p.encoder.params();
+            publishControlSnapshot(p);
+            requestParamValuesRescan(p);
+            p.guiStateCommands.pop();
+            p.guiParamEvents.pop();
+            continue;
+        }
+        if (!pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            applyParam(p, pending.paramId, pending.value);
+        }
+        p.guiParamEvents.pop();
+    }
+}
+
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
@@ -301,29 +561,42 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->encoder.prepare(sampleRate);
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
+    publishControlSnapshot(*p);
+    publishPoints(*p);
+    p->active.store(true, std::memory_order_release);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    self(plugin)->active.store(false, std::memory_order_release);
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     p->encoder.reset();
+    publishPoints(*p);
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    bool changed = false;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            changed |= assignParam(p.params, param->param_id, param->value);
         }
+    }
+    if (changed) {
+        p.encoder.setParams(p.params);
+        p.params = p.encoder.params();
+        publishControlSnapshot(p);
     }
 }
 
@@ -348,6 +621,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     auto* p = self(plugin);
     readParamEvents(*p, proc ? proc->in_events : nullptr);
     if (!proc) return CLAP_PROCESS_CONTINUE;
+    serviceGuiParamEvents(*p, proc->out_events);
+    retryControlSnapshotPublication(*p);
     updateTransportPhase(*p, proc->transport);
     if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto* input = proc->audio_inputs_count > 0 ? &proc->audio_inputs[0] : nullptr;
@@ -365,6 +640,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->encoder.setParams(p->params);
     p->encoder.processBlock(inputPtrs.data(), outputPtrs.data(), inChannels, outChannels, frames);
     p->params = p->encoder.params();
+    publishControlSnapshot(*p);
+    publishPoints(*p);
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
     float peak = 0.0f;
@@ -376,7 +653,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->pendingParamValuesRescan.exchange(false,
+            std::memory_order_acq_rel)
+        && p->hostParams && p->hostParams->rescan) {
+        p->hostParams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES);
+    }
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool) { return 1; }
 
@@ -462,57 +747,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
-    const auto p = self(plugin)->params;
-    switch (id) {
-    case kOrderParamId: *value = p.order; return true;
-    case kPointsParamId: *value = p.points; return true;
-    case kAzimuthParamId: *value = p.azimuthDeg; return true;
-    case kElevationParamId: *value = p.elevationDeg; return true;
-    case kDistanceParamId: *value = p.distance; return true;
-    case kRateParamId: *value = p.rateHz; return true;
-    case kTraversalParamId: *value = p.traversal; return true;
-    case kTerrainDepthParamId: *value = p.terrainDepth; return true;
-    case kLayerSpreadParamId: *value = p.layerSpread; return true;
-    case kInnerRadiusParamId: *value = p.innerRadius; return true;
-    case kOuterRadiusParamId: *value = p.outerRadius; return true;
-    case kAzimuthWarpParamId: *value = p.azimuthWarpDeg; return true;
-    case kElevationWarpParamId: *value = p.elevationWarpDeg; return true;
-    case kDistanceWarpParamId: *value = p.distanceWarp; return true;
-    case kFoldParamId: *value = p.fold; return true;
-    case kSmoothingParamId: *value = p.smoothing; return true;
-    case kInputParamId: *value = p.inputGainDb; return true;
-    case kOutputParamId: *value = p.outputGainDb; return true;
-    case kOrbitParamId: *value = static_cast<uint32_t>(p.orbit); return true;
-    case kPaletteParamId: *value = static_cast<uint32_t>(p.palette); return true;
-    case kPlaybackParamId: *value = static_cast<uint32_t>(p.playback); return true;
-    case kSyncParamId: *value = static_cast<uint32_t>(p.syncMode); return true;
-    case kDivisionParamId: *value = p.syncDivisionBeats; return true;
-    case kPhaseParamId: *value = p.phase; return true;
-    case kPhaseSpreadParamId: *value = p.phaseSpread; return true;
-    case kEaseParamId: *value = p.ease; return true;
-    case kDistanceScaleParamId: *value = p.distanceScale; return true;
-    case kDopplerParamId: *value = p.doppler; return true;
-    case kAirParamId: *value = p.air; return true;
-    case kSelectedSourceParamId: *value = p.selectedSource + 1u; return true;
-    case kRateSpreadParamId: *value = p.rateSpread; return true;
-    case kRateDeviationParamId: *value = p.rateDeviation; return true;
-    case kTerrainFormParamId: *value = static_cast<uint32_t>(p.terrainForm); return true;
-    case kTerrainFacetParamId: *value = p.terrainFacet; return true;
-    case kTerrainBevelParamId: *value = p.terrainBevel; return true;
-    case kTerrainOrientationParamId: *value = p.terrainOrientation; return true;
-    case kTerrainTerraceParamId: *value = p.terrainTerrace; return true;
-    case kTerrainTerraceStepsParamId: *value = p.terrainTerraceSteps; return true;
-    case kTerrainRidgeParamId: *value = p.terrainRidge; return true;
-    case kTerrainErosionParamId: *value = p.terrainErosion; return true;
-    case kTerrainDomainWarpParamId: *value = p.terrainDomainWarp; return true;
-    case kTerrainTwistParamId: *value = p.terrainTwist; return true;
-    case kTerrainRoughnessParamId: *value = p.terrainRoughness; return true;
-    case kTerrainReliefParamId: *value = p.terrainRelief; return true;
-    case kTerrainReadParamId: *value = static_cast<uint32_t>(p.terrainRead); return true;
-    case kTerrainReadMixParamId: *value = p.terrainReadMix; return true;
-    default: return false;
-    }
+    if (!value || id < 1u || id > kParamCount) return false;
+    *value = publishedParamValue(*self(plugin), id);
+    return true;
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -594,14 +831,21 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+    serviceGuiParamEvents(*p, out);
+    readParamEvents(*p, in);
+    retryControlSnapshotPublication(*p);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
-    SavedState state { kStateVersion, p->params };
+    SavedState state { kStateVersion, publishedParamsSnapshot(*p) };
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -609,27 +853,28 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     auto* p = self(plugin);
+    s3g::AmbiTerrainNavigatorParams loaded {};
     auto copyV1Params = [&](const auto& old) {
-        p->params.order = old.order;
-        p->params.points = old.points;
-        p->params.azimuthDeg = old.azimuthDeg;
-        p->params.elevationDeg = old.elevationDeg;
-        p->params.distance = old.distance;
-        p->params.rateHz = old.rateHz;
-        p->params.traversal = old.traversal;
-        p->params.terrainDepth = old.terrainDepth;
-        p->params.layerSpread = old.layerSpread;
-        p->params.innerRadius = old.innerRadius;
-        p->params.outerRadius = old.outerRadius;
-        p->params.azimuthWarpDeg = old.azimuthWarpDeg;
-        p->params.elevationWarpDeg = old.elevationWarpDeg;
-        p->params.distanceWarp = old.distanceWarp;
-        p->params.fold = old.fold;
-        p->params.smoothing = old.smoothing;
-        p->params.inputGainDb = old.inputGainDb;
-        p->params.outputGainDb = old.outputGainDb;
-        p->params.orbit = old.orbit;
-        p->params.palette = old.palette;
+        loaded.order = old.order;
+        loaded.points = old.points;
+        loaded.azimuthDeg = old.azimuthDeg;
+        loaded.elevationDeg = old.elevationDeg;
+        loaded.distance = old.distance;
+        loaded.rateHz = old.rateHz;
+        loaded.traversal = old.traversal;
+        loaded.terrainDepth = old.terrainDepth;
+        loaded.layerSpread = old.layerSpread;
+        loaded.innerRadius = old.innerRadius;
+        loaded.outerRadius = old.outerRadius;
+        loaded.azimuthWarpDeg = old.azimuthWarpDeg;
+        loaded.elevationWarpDeg = old.elevationWarpDeg;
+        loaded.distanceWarp = old.distanceWarp;
+        loaded.fold = old.fold;
+        loaded.smoothing = old.smoothing;
+        loaded.inputGainDb = old.inputGainDb;
+        loaded.outputGainDb = old.outputGainDb;
+        loaded.orbit = old.orbit;
+        loaded.palette = old.palette;
     };
     uint32_t version = 0;
     if (!readExact(stream, &version, sizeof(version))) return false;
@@ -637,43 +882,45 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         SavedState state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
-        p->params = state.params;
+        loaded = state.params;
     } else if (version == 4u) {
-        p->params = {};
         constexpr size_t kV4ParamsSize = offsetof(s3g::AmbiTerrainNavigatorParams, terrainRoughness);
-        if (!readExact(stream, &p->params, kV4ParamsSize)) return false;
+        if (!readExact(stream, &loaded, kV4ParamsSize)) return false;
     } else if (version == 3u) {
-        p->params = {};
         constexpr size_t kV3ParamsSize = offsetof(s3g::AmbiTerrainNavigatorParams, terrainForm);
-        if (!readExact(stream, &p->params, kV3ParamsSize)) return false;
+        if (!readExact(stream, &loaded, kV3ParamsSize)) return false;
     } else if (version == 2u) {
         SavedStateV2 state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
-        p->params = {};
         const auto& old = state.params;
         copyV1Params(old);
-        p->params.playback = old.playback;
-        p->params.syncMode = old.syncMode;
-        p->params.syncDivisionBeats = old.syncDivisionBeats;
-        p->params.phase = old.phase;
-        p->params.phaseSpread = old.phaseSpread;
-        p->params.ease = old.ease;
-        p->params.distanceScale = old.distanceScale;
-        p->params.doppler = old.doppler;
-        p->params.air = old.air;
-        p->params.selectedSource = old.selectedSource;
+        loaded.playback = old.playback;
+        loaded.syncMode = old.syncMode;
+        loaded.syncDivisionBeats = old.syncDivisionBeats;
+        loaded.phase = old.phase;
+        loaded.phaseSpread = old.phaseSpread;
+        loaded.ease = old.ease;
+        loaded.distanceScale = old.distanceScale;
+        loaded.doppler = old.doppler;
+        loaded.air = old.air;
+        loaded.selectedSource = old.selectedSource;
     } else if (version == 1u) {
         SavedStateV1 state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
-        p->params = {};
         copyV1Params(state.params);
     } else {
         return false;
     }
-    p->encoder.setParams(p->params);
-    p->params = p->encoder.params();
+    if (p->active.load(std::memory_order_acquire)) {
+        if (!queueGuiState(*p, loaded)) return false;
+    } else {
+        p->params = loaded;
+        p->encoder.setParams(p->params);
+        p->params = p->encoder.params();
+        publishControlSnapshot(*p);
+    }
     return true;
 }
 
@@ -708,8 +955,11 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     char _titlePresetName[64];
+    s3g::AmbiTerrainNavigatorParams _paramsSnapshot;
+    s3g::AmbiTerrainNavigator _displayEncoder;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
+- (void)refreshControlSnapshot;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 @end
@@ -732,6 +982,9 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
+        _paramsSnapshot = publishedParamsSnapshot(*plugin);
+        _displayEncoder.prepare(plugin ? plugin->sampleRate : 48000.0);
+        _displayEncoder.setParams(_paramsSnapshot);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
@@ -743,6 +996,12 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)startRefreshTimer { if (!_timer) _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 30.0 target:self selector:@selector(timerTick:) userInfo:nil repeats:YES]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)timerTick:(NSTimer*)timer { (void)timer; [self setNeedsDisplay:YES]; }
+- (void)refreshControlSnapshot
+{
+    if (!_plugin) return;
+    _paramsSnapshot = publishedParamsSnapshot(*_plugin);
+    _displayEncoder.setParams(_paramsSnapshot);
+}
 
 - (NSString*)valueText:(clap_id)param value:(double)value
 {
@@ -881,10 +1140,10 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
             const float u0 = static_cast<float>(lon) / static_cast<float>(kLongitudeBands);
             const float u1 = static_cast<float>(lon + 1u) / static_cast<float>(kLongitudeBands);
             const std::array<s3g::AmbiTerrainPoint, 4> shellPoints {
-                _plugin->encoder.surfacePointForDisplay(u0, v0),
-                _plugin->encoder.surfacePointForDisplay(u1, v0),
-                _plugin->encoder.surfacePointForDisplay(u1, v1),
-                _plugin->encoder.surfacePointForDisplay(u0, v1),
+                _displayEncoder.surfacePointForDisplay(u0, v0),
+                _displayEncoder.surfacePointForDisplay(u1, v0),
+                _displayEncoder.surfacePointForDisplay(u1, v1),
+                _displayEncoder.surfacePointForDisplay(u0, v1),
             };
             Facet facet {};
             for (uint32_t corner = 0; corner < 4u; ++corner) {
@@ -914,7 +1173,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         [line setLineWidth:0.45];
         for (uint32_t lon = 0; lon <= kLongitudeBands * 2u; ++lon) {
             const float u = static_cast<float>(lon) / static_cast<float>(kLongitudeBands * 2u);
-            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_plugin->encoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
+            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_displayEncoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
             if (lon == 0u) [line moveToPoint:pt];
             else [line lineToPoint:pt];
         }
@@ -926,7 +1185,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         [line setLineWidth:0.45];
         for (uint32_t lat = 0; lat <= kLatitudeBands * 2u; ++lat) {
             const float v = static_cast<float>(lat) / static_cast<float>(kLatitudeBands * 2u);
-            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_plugin->encoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
+            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_displayEncoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
             if (lat == 0u) [line moveToPoint:pt];
             else [line lineToPoint:pt];
         }
@@ -943,7 +1202,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     [NSGraphicsContext saveGraphicsState];
     [[NSBezierPath bezierPathWithRect:NSInsetRect(rect, 1, 1)] addClip];
 
-    const auto params = _plugin->params;
+    const auto params = _paramsSnapshot;
     [self drawTerrainShellInRect:rect];
     const uint32_t visiblePaths = std::min<uint32_t>(params.points, 16u);
     for (uint32_t lane = 0; lane < visiblePaths; ++lane) {
@@ -956,22 +1215,25 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         const uint32_t count = 128u;
         for (uint32_t i = 0; i < count; ++i) {
             const float phase = static_cast<float>(i) / static_cast<float>(count);
-            const s3g::Vec3 v = [self worldPoint:_plugin->encoder.pathPointForDisplay(pi, phase)];
+            const s3g::Vec3 v = [self worldPoint:_displayEncoder.pathPointForDisplay(pi, phase)];
             NSPoint pt = [self projectWorldPoint:v rect:rect depth:nullptr];
             if (i == 0) [bez moveToPoint:pt];
             else [bez lineToPoint:pt];
         }
-        const s3g::Vec3 first = [self worldPoint:_plugin->encoder.pathPointForDisplay(pi, 0.0f)];
+        const s3g::Vec3 first = [self worldPoint:_displayEncoder.pathPointForDisplay(pi, 0.0f)];
         [bez lineToPoint:[self projectWorldPoint:first rect:rect depth:nullptr]];
         [[NSColor colorWithCalibratedWhite:(pathSelected ? 0.78 : 0.42) alpha:(pathSelected ? 0.90 : 0.45)] setStroke];
         [bez stroke];
     }
 
-    const auto& points = _plugin->encoder.points();
     const uint32_t active = std::min<uint32_t>(params.points, s3g::kAmbiTerrainMaxPoints);
     for (uint32_t src = 0; src < active; ++src) {
-        auto p = points[src];
-        if (p.distance <= 0.0f) p = _plugin->encoder.pathPointForDisplay(src, params.phase);
+        s3g::AmbiTerrainPoint p {};
+        p.azimuthDeg = _plugin->guiAzimuth[src].load(std::memory_order_relaxed);
+        p.elevationDeg = _plugin->guiElevation[src].load(std::memory_order_relaxed);
+        p.distance = _plugin->guiDistance[src].load(std::memory_order_relaxed);
+        p.terrain = _plugin->guiTerrain[src].load(std::memory_order_relaxed);
+        if (p.distance <= 0.0f) p = _displayEncoder.pathPointForDisplay(src, params.phase);
         const s3g::Vec3 pos = [self worldPoint:p];
         NSPoint pt = [self projectWorldPoint:pos rect:rect depth:nullptr];
         const BOOL selected = src == params.selectedSource;
@@ -1053,31 +1315,31 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     int selected = 0;
     if (_openMenu == 1) {
         items = orderItems;
-        selected = static_cast<int>(_plugin->params.order) - 1;
+        selected = static_cast<int>(_paramsSnapshot.order) - 1;
         _menuItemCount = 7u;
     } else if (_openMenu == 2) {
         items = orbitItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.orbit));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.orbit));
         _menuItemCount = 4u;
     } else if (_openMenu == 3) {
         items = paletteItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.palette));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.palette));
         _menuItemCount = 8u;
     } else if (_openMenu == 4) {
         items = playbackItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.playback));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.playback));
         _menuItemCount = 3u;
     } else if (_openMenu == 5) {
         items = syncItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.syncMode));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.syncMode));
         _menuItemCount = 2u;
     } else if (_openMenu == 6) {
         items = formItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.terrainForm));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.terrainForm));
         _menuItemCount = 6u;
     } else if (_openMenu == 7) {
         items = readItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.terrainRead));
+        selected = static_cast<int>(static_cast<uint32_t>(_paramsSnapshot.terrainRead));
         _menuItemCount = 10u;
     }
     const CGFloat itemH = 18.0;
@@ -1088,6 +1350,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
+    [self refreshControlSnapshot];
     const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -1227,23 +1490,22 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         static_cast<float>(norm));
     else if (param == kRateParamId || param == kDivisionParamId) value = def->min * std::pow(def->max / def->min, norm);
     if (def->stepped) value = std::round(value);
-    applyParam(*_plugin, param, value);
+    queueGuiParamValue(*_plugin, param, value);
     [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDown:(NSEvent*)event
 {
+    [self refreshControlSnapshot];
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 792.0);
     if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
-        const uint32_t order = _plugin->params.order;
-        const float output = _plugin->params.outputGainDb;
+        const uint32_t order = _paramsSnapshot.order;
+        const float output = _paramsSnapshot.outputGainDb;
         auto initial = s3g::AmbiTerrainNavigatorParams {};
         initial.order = order;
         initial.outputGainDb = output;
-        _plugin->params = initial;
-        _plugin->encoder.setParams(initial);
-        _plugin->params = _plugin->encoder.params();
+        if (!queueGuiState(*_plugin, initial)) NSBeep();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setNeedsDisplay:YES];
         return;
@@ -1276,20 +1538,22 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         const auto randomUnit = [] {
             return static_cast<double>(arc4random()) / 4294967295.0;
         };
-        applyParam(*_plugin, kOrbitParamId, arc4random_uniform(4u));
-        applyParam(*_plugin, kPaletteParamId, arc4random_uniform(8u));
-        applyParam(*_plugin, kTerrainFormParamId, arc4random_uniform(6u));
-        applyParam(*_plugin, kTerrainReadParamId, arc4random_uniform(10u));
-        applyParam(*_plugin, kTraversalParamId, randomUnit());
-        applyParam(*_plugin, kTerrainDepthParamId, randomUnit());
-        applyParam(*_plugin, kTerrainRoughnessParamId, randomUnit());
-        applyParam(*_plugin, kFoldParamId, randomUnit());
-        applyParam(*_plugin, kTerrainReliefParamId, 0.35 + randomUnit() * 0.65);
-        applyParam(*_plugin, kRateParamId, 0.002 * std::pow(250.0, randomUnit()));
-        applyParam(*_plugin, kPhaseSpreadParamId, randomUnit());
-        applyParam(*_plugin, kEaseParamId, randomUnit());
-        applyParam(*_plugin, kDopplerParamId, randomUnit());
-        applyParam(*_plugin, kAirParamId, randomUnit());
+        auto randomized = _paramsSnapshot;
+        (void)assignParam(randomized, kOrbitParamId, arc4random_uniform(4u));
+        (void)assignParam(randomized, kPaletteParamId, arc4random_uniform(8u));
+        (void)assignParam(randomized, kTerrainFormParamId, arc4random_uniform(6u));
+        (void)assignParam(randomized, kTerrainReadParamId, arc4random_uniform(10u));
+        (void)assignParam(randomized, kTraversalParamId, randomUnit());
+        (void)assignParam(randomized, kTerrainDepthParamId, randomUnit());
+        (void)assignParam(randomized, kTerrainRoughnessParamId, randomUnit());
+        (void)assignParam(randomized, kFoldParamId, randomUnit());
+        (void)assignParam(randomized, kTerrainReliefParamId, 0.35 + randomUnit() * 0.65);
+        (void)assignParam(randomized, kRateParamId, 0.002 * std::pow(250.0, randomUnit()));
+        (void)assignParam(randomized, kPhaseSpreadParamId, randomUnit());
+        (void)assignParam(randomized, kEaseParamId, randomUnit());
+        (void)assignParam(randomized, kDopplerParamId, randomUnit());
+        (void)assignParam(randomized, kAirParamId, randomUnit());
+        if (!queueGuiState(*_plugin, randomized)) NSBeep();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
         [self setNeedsDisplay:YES];
         return;
@@ -1307,13 +1571,13 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         const CGFloat itemH = 18.0;
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738.0, [self menuY], 126.0, itemH * _menuItemCount), itemH, _menuItemCount);
         if (hit >= 0) {
-            if (_openMenu == 1) applyParam(*_plugin, kOrderParamId, hit + 1);
-            else if (_openMenu == 2) applyParam(*_plugin, kOrbitParamId, hit);
-            else if (_openMenu == 3) applyParam(*_plugin, kPaletteParamId, hit);
-            else if (_openMenu == 4) applyParam(*_plugin, kPlaybackParamId, hit);
-            else if (_openMenu == 5) applyParam(*_plugin, kSyncParamId, hit);
-            else if (_openMenu == 6) applyParam(*_plugin, kTerrainFormParamId, hit);
-            else if (_openMenu == 7) applyParam(*_plugin, kTerrainReadParamId, hit);
+            if (_openMenu == 1) queueGuiParamValue(*_plugin, kOrderParamId, hit + 1);
+            else if (_openMenu == 2) queueGuiParamValue(*_plugin, kOrbitParamId, hit);
+            else if (_openMenu == 3) queueGuiParamValue(*_plugin, kPaletteParamId, hit);
+            else if (_openMenu == 4) queueGuiParamValue(*_plugin, kPlaybackParamId, hit);
+            else if (_openMenu == 5) queueGuiParamValue(*_plugin, kSyncParamId, hit);
+            else if (_openMenu == 6) queueGuiParamValue(*_plugin, kTerrainFormParamId, hit);
+            else if (_openMenu == 7) queueGuiParamValue(*_plugin, kTerrainReadParamId, hit);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -1363,7 +1627,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         if (s3g::clap_gui::sliderDoubleClickDefault(
                 event, &_plugin->plugin,
                 static_cast<clap_id>(_dragParam), &defaultValue)) {
-            applyParam(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
+            queueGuiParamValue(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
             _dragParam = 0;
             [self setNeedsDisplay:YES];
             return;
@@ -1486,6 +1750,8 @@ const clap_plugin_t* create(const clap_host_t* host)
     p->encoder.prepare(p->sampleRate);
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
+    publishControlSnapshot(*p);
+    publishPoints(*p);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

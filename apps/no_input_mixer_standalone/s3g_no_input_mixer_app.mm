@@ -70,6 +70,7 @@ struct AppState {
     uint32_t selectedGridMidiDestination =
         std::numeric_limits<uint32_t>::max();
     uint32_t connectedMidiSourceCount = 0u;
+    bool showRealtimeDiagnostics = false;
     std::atomic<bool> deviceOpen { false };
     std::string audioError;
 };
@@ -189,15 +190,26 @@ OSStatus renderAudio(void* context, AudioBufferList* output, uint32_t frames,
     uint64_t blockHostTime)
 {
     auto* state = static_cast<AppState*>(context);
-    if (!state || !output || !state->deviceOpen.load(
-            std::memory_order_acquire)
-        || frames > state->engine.maximumFrames()) {
+    if (!state || !output) return kAudio_ParamError;
+    if (!state->deviceOpen.load(std::memory_order_acquire)) {
         clearAudioBufferList(output);
         return noErr;
     }
+    if (frames > state->engine.maximumFrames()) {
+        clearAudioBufferList(output);
+        return kAudioUnitErr_TooManyFramesToProcess;
+    }
     const uint32_t renderChannels = state->audio.config().renderChannels;
-    state->engine.render(state->hardwarePointers.data(), renderChannels,
-        frames, blockHostTime);
+    const bool rendered = state->engine.render(
+        state->hardwarePointers.data(), renderChannels, frames,
+        blockHostTime);
+    if (!rendered) {
+        clearAudioBufferList(output);
+        // The engine has already counted the failed CLAP stage. Preserve the
+        // AUHAL stream: a single embedded processor failure must produce one
+        // silent block, not provoke a device stop or error cascade.
+        return noErr;
+    }
 
     uint32_t channelBase = 0u;
     for (UInt32 buffer = 0u; buffer < output->mNumberBuffers; ++buffer) {
@@ -267,6 +279,115 @@ bool openSelectedAudioDevice(AppState& state)
     clampOutputChannelOffset(state, NoInputOutputMode::DirectEight);
     state.deviceOpen.store(true, std::memory_order_release);
     return true;
+}
+
+NSString* realtimeDiagnosticsReport(const AppState& state)
+{
+    const auto& config = state.audio.config();
+    const auto telemetry = state.audio.telemetry();
+    const auto engineTelemetry = state.engine.telemetry();
+    NSString* deviceName = state.selectedDevice < state.devices.size()
+        ? [NSString stringWithUTF8String:
+            state.devices[state.selectedDevice].name.c_str()]
+        : @"Unavailable";
+    if (!deviceName) deviceName = @"Unavailable";
+    const double observedSeconds = config.sampleRate > 0.0
+        ? static_cast<double>(telemetry.renderedFrameCount)
+            / config.sampleRate : 0.0;
+    return [NSString stringWithFormat:
+        @"s3g No Input Mixer realtime diagnostics\n"
+         "telemetry_enabled: %s\n"
+         "device: %@\n"
+         "sample_rate_hz: %.3f\n"
+         "render_channels: %u\n"
+         "maximum_frames_per_slice: %u\n"
+         "device_buffer_frames: %u\n"
+         "variable_buffer_frames: %s\n"
+         "maximum_variable_buffer_frames: %u\n"
+         "device_latency_frames: %u\n"
+         "device_safety_offset_frames: %u\n"
+         "hal_overload_signal_available: %s\n"
+         "abnormal_stop_signal_available: %s\n"
+         "render_error_signal_available: %s\n"
+         "device_alive_signal_available: %s\n"
+         "device_configuration_signal_available: %s\n"
+         "callbacks: %llu\n"
+         "rendered_frames: %llu\n"
+         "observed_audio_seconds: %.3f\n"
+         "last_load_percent: %.3f\n"
+         "recent_load_percent: %.3f\n"
+         "maximum_load_percent: %.3f\n"
+         "last_callback_ms: %.6f\n"
+         "maximum_callback_ms: %.6f\n"
+         "duration_overruns: %llu\n"
+         "late_callback_starts: %llu\n"
+         "maximum_lateness_ms: %.6f\n"
+         "timestamp_discontinuities: %llu\n"
+         "timestamp_unavailable: %llu\n"
+         "maximum_timestamp_error_ms: %.6f\n"
+         "sample_time_discontinuities: %llu\n"
+         "sample_time_unavailable: %llu\n"
+         "maximum_sample_time_error_frames: %.6f\n"
+         "hal_processor_overloads: %llu\n"
+         "hal_abnormal_stops: %llu\n"
+         "device_alive_changes: %llu\n"
+         "device_configuration_changes: %llu\n"
+         "oversized_callbacks: %llu\n"
+         "callback_errors: %llu\n"
+         "render_action_errors: %llu\n"
+         "gesture_process_errors: %llu\n"
+         "no_input_process_errors: %llu\n"
+         "stereo_fold_process_errors: %llu\n"
+         "quad_fold_process_errors: %llu\n"
+         "nonfinite_output_samples: %llu\n"
+         "midi_input_drops: %llu\n",
+        state.audio.telemetryEnabled() ? "yes" : "no",
+        deviceName, config.sampleRate, config.renderChannels,
+        config.maximumFrames, config.deviceBufferFrames,
+        config.usesVariableBufferFrames ? "yes" : "no",
+        config.maximumVariableBufferFrames, config.deviceLatencyFrames,
+        config.deviceSafetyOffsetFrames,
+        config.processorOverloadSignalAvailable ? "yes" : "no",
+        config.abnormalStopSignalAvailable ? "yes" : "no",
+        config.renderErrorSignalAvailable ? "yes" : "no",
+        config.deviceAliveSignalAvailable ? "yes" : "no",
+        config.deviceConfigurationSignalAvailable ? "yes" : "no",
+        static_cast<unsigned long long>(telemetry.callbackCount),
+        static_cast<unsigned long long>(telemetry.renderedFrameCount),
+        observedSeconds, telemetry.lastLoad * 100.0,
+        telemetry.smoothedLoad * 100.0, telemetry.peakLoad * 100.0,
+        telemetry.lastCallbackMilliseconds,
+        telemetry.maximumCallbackMilliseconds,
+        static_cast<unsigned long long>(telemetry.deadlineMissCount),
+        static_cast<unsigned long long>(telemetry.lateCallbackCount),
+        telemetry.maximumLatenessMilliseconds,
+        static_cast<unsigned long long>(
+            telemetry.timestampDiscontinuityCount),
+        static_cast<unsigned long long>(telemetry.timestampUnavailableCount),
+        telemetry.maximumTimestampErrorMilliseconds,
+        static_cast<unsigned long long>(
+            telemetry.sampleTimeDiscontinuityCount),
+        static_cast<unsigned long long>(telemetry.sampleTimeUnavailableCount),
+        telemetry.maximumSampleTimeErrorFrames,
+        static_cast<unsigned long long>(telemetry.processorOverloadCount),
+        static_cast<unsigned long long>(telemetry.abnormalStopCount),
+        static_cast<unsigned long long>(telemetry.deviceAliveChangeCount),
+        static_cast<unsigned long long>(
+            telemetry.deviceConfigurationChangeCount),
+        static_cast<unsigned long long>(telemetry.oversizedCallbackCount),
+        static_cast<unsigned long long>(telemetry.callbackErrorCount),
+        static_cast<unsigned long long>(telemetry.renderActionErrorCount),
+        static_cast<unsigned long long>(
+            engineTelemetry.gestureProcessErrorCount),
+        static_cast<unsigned long long>(
+            engineTelemetry.noInputProcessErrorCount),
+        static_cast<unsigned long long>(
+            engineTelemetry.stereoFoldProcessErrorCount),
+        static_cast<unsigned long long>(
+            engineTelemetry.quadFoldProcessErrorCount),
+        static_cast<unsigned long long>(
+            engineTelemetry.nonFiniteOutputSampleCount),
+        static_cast<unsigned long long>(state.engine.midiInputDropCount())];
 }
 
 void midiReadProc(const MIDIPacketList* packetList, void* context,
@@ -1071,26 +1192,70 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
             ? @"QUAD AUTOGAIN" : @"DIRECT 8";
     if (_state->deviceOpen.load(std::memory_order_acquire)) {
         const auto telemetry = _state->audio.telemetry();
+        const auto engineTelemetry = _state->engine.telemetry();
         const uint64_t midiDrops = _state->engine.midiInputDropCount();
         const bool realtimeFault = telemetry.deadlineMissCount != 0u
+            || telemetry.timestampDiscontinuityCount != 0u
+            || telemetry.timestampUnavailableCount != 0u
+            || telemetry.sampleTimeDiscontinuityCount != 0u
+            || telemetry.sampleTimeUnavailableCount != 0u
             || telemetry.processorOverloadCount != 0u
+            || telemetry.abnormalStopCount != 0u
             || telemetry.oversizedCallbackCount != 0u
-            || telemetry.callbackErrorCount != 0u || midiDrops != 0u;
+            || telemetry.callbackErrorCount != 0u
+            || telemetry.renderActionErrorCount != 0u
+            || engineTelemetry.totalProcessErrorCount() != 0u
+            || engineTelemetry.nonFiniteOutputSampleCount != 0u
+            || midiDrops != 0u;
         [_statusLabel setTextColor:s3g::clap_gui::color(realtimeFault
             ? 0xd49a69 : 0x8f8f8f)];
-        [_statusLabel setStringValue:[NSString stringWithFormat:
-            @"%@  •  OUT %u–%u  •  %.0f Hz / %u ch  •  signal %.3f  •  RT %.0f%% / max %.2f ms (%.0f%%)  •  misses %llu / HAL %llu / size %llu / err %llu / MIDI %llu  •  %@",
-            modeName, outputOffset + 1u, outputOffset + routedChannels,
-            config.sampleRate, config.renderChannels, peak,
-            telemetry.smoothedLoad * 100.0,
-            telemetry.maximumCallbackMilliseconds,
-            telemetry.peakLoad * 100.0,
-            static_cast<unsigned long long>(telemetry.deadlineMissCount),
-            static_cast<unsigned long long>(telemetry.processorOverloadCount),
-            static_cast<unsigned long long>(telemetry.oversizedCallbackCount),
-            static_cast<unsigned long long>(telemetry.callbackErrorCount),
-            static_cast<unsigned long long>(midiDrops),
-            _state->engine.audioEnabled() ? @"LIVE" : @"SAFE MUTED"]];
+        if (_state->showRealtimeDiagnostics) {
+            NSString* variableBuffer = config.usesVariableBufferFrames
+                ? [NSString stringWithFormat:@"%u–%u f",
+                    config.deviceBufferFrames,
+                    config.maximumVariableBufferFrames]
+                : [NSString stringWithFormat:@"%u f",
+                    config.deviceBufferFrames];
+            [_statusLabel setStringValue:[NSString stringWithFormat:
+                @"%@ • OUT %u–%u • %.0f Hz/%u ch • HW %@ +%u/%u lat • RT %.0f%% max %.2f ms/%.0f%% • over %llu late %llu clock H%llu/S%llu HAL %llu stop %llu err %llu/%llu CLAP %llu nan %llu MIDI %llu • %@",
+                modeName, outputOffset + 1u,
+                outputOffset + routedChannels, config.sampleRate,
+                config.renderChannels, variableBuffer,
+                config.deviceLatencyFrames, config.deviceSafetyOffsetFrames,
+                telemetry.smoothedLoad * 100.0,
+                telemetry.maximumCallbackMilliseconds,
+                telemetry.peakLoad * 100.0,
+                static_cast<unsigned long long>(
+                    telemetry.deadlineMissCount),
+                static_cast<unsigned long long>(
+                    telemetry.lateCallbackCount),
+                static_cast<unsigned long long>(
+                    telemetry.timestampDiscontinuityCount),
+                static_cast<unsigned long long>(
+                    telemetry.sampleTimeDiscontinuityCount),
+                static_cast<unsigned long long>(
+                    telemetry.processorOverloadCount),
+                static_cast<unsigned long long>(telemetry.abnormalStopCount),
+                static_cast<unsigned long long>(telemetry.callbackErrorCount),
+                static_cast<unsigned long long>(
+                    telemetry.renderActionErrorCount),
+                static_cast<unsigned long long>(
+                    engineTelemetry.totalProcessErrorCount()),
+                static_cast<unsigned long long>(
+                    engineTelemetry.nonFiniteOutputSampleCount),
+                static_cast<unsigned long long>(midiDrops),
+                _state->engine.audioEnabled() ? @"LIVE" : @"SAFE MUTED"]];
+        } else {
+            NSString* diagnosticState = realtimeFault
+                ? @"RT FAULT — ENABLE REALTIME DIAGNOSTICS"
+                : @"REALTIME DIAGNOSTICS OFF";
+            [_statusLabel setStringValue:[NSString stringWithFormat:
+                @"%@  •  OUT %u–%u  •  %.0f Hz / %u ch  •  signal %.3f  •  %@  •  %@",
+                modeName, outputOffset + 1u,
+                outputOffset + routedChannels, config.sampleRate,
+                config.renderChannels, peak, diagnosticState,
+                _state->engine.audioEnabled() ? @"LIVE" : @"SAFE MUTED"]];
+        }
     } else {
         [_statusLabel setTextColor:s3g::clap_gui::color(0xd49a69)];
         [_statusLabel setStringValue:[NSString stringWithFormat:
@@ -1579,6 +1744,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     AppState* _state;
     NSWindow* _window;
     S3GNoInputStandaloneView* _rootView;
+    NSMenuItem* _realtimeDiagnosticsItem;
     bool _mainGuiAttached;
 }
 @end
@@ -1646,9 +1812,69 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_window setContentView:_rootView];
     _mainGuiAttached = attachPluginGui(_state->engine.noInputPlugin(),
         [_rootView pluginContainer]);
+
+    NSMenu* appMenu = [[[NSApp mainMenu] itemAtIndex:0] submenu];
+    if (appMenu) {
+        [appMenu insertItem:[NSMenuItem separatorItem] atIndex:0];
+        NSMenuItem* copyReport = [[[NSMenuItem alloc]
+            initWithTitle:@"Copy Realtime Diagnostics Report"
+            action:@selector(copyRealtimeDiagnosticsReport:)
+            keyEquivalent:@""] autorelease];
+        [copyReport setTarget:self];
+        [appMenu insertItem:copyReport atIndex:0];
+        NSMenuItem* resetReport = [[[NSMenuItem alloc]
+            initWithTitle:@"Reset Realtime Diagnostics"
+            action:@selector(resetRealtimeDiagnostics:)
+            keyEquivalent:@""] autorelease];
+        [resetReport setTarget:self];
+        [appMenu insertItem:resetReport atIndex:0];
+        _realtimeDiagnosticsItem = [[[NSMenuItem alloc]
+            initWithTitle:@"Show Realtime Diagnostics"
+            action:@selector(toggleRealtimeDiagnostics:)
+            keyEquivalent:@""] autorelease];
+        [_realtimeDiagnosticsItem setTarget:self];
+        [_realtimeDiagnosticsItem setState:NSControlStateValueOff];
+        [appMenu insertItem:_realtimeDiagnosticsItem atIndex:0];
+    }
     [_window center];
     [_window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)toggleRealtimeDiagnostics:(id)sender
+{
+    (void)sender;
+    if (!_state) return;
+    _state->showRealtimeDiagnostics = !_state->showRealtimeDiagnostics;
+    _state->audio.setTelemetryEnabled(_state->showRealtimeDiagnostics);
+    [_realtimeDiagnosticsItem setState:_state->showRealtimeDiagnostics
+        ? NSControlStateValueOn : NSControlStateValueOff];
+    if (_state->showRealtimeDiagnostics) {
+        _state->engine.resetTelemetry();
+        _state->engine.resetMidiInputDropCount();
+    }
+    [_rootView refreshControls];
+}
+
+- (void)resetRealtimeDiagnostics:(id)sender
+{
+    (void)sender;
+    if (!_state) return;
+    if (_state->audio.telemetryEnabled())
+        _state->audio.resetTelemetry();
+    _state->engine.resetTelemetry();
+    _state->engine.resetMidiInputDropCount();
+    [_rootView refreshControls];
+}
+
+- (void)copyRealtimeDiagnosticsReport:(id)sender
+{
+    (void)sender;
+    if (!_state) return;
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard clearContents];
+    [pasteboard setString:realtimeDiagnosticsReport(*_state)
+        forType:NSPasteboardTypeString];
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender

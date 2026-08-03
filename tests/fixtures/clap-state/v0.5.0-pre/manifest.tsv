@@ -1,0 +1,13 @@
+# current build path	CLAP ID	fixture filename	expected parameter filename
+clap_layout_panner/s3g_layout_panner.clap	org.s3g.s3g-dsp.layout-panner	layout-panner.state	layout-panner.params.tsv
+clap_dbap_panner/s3g_dbap_panner.clap	org.s3g.s3g-dsp.dbap-panner	dbap-panner.state	dbap-panner.params.tsv
+clap_lbap_panner/s3g_lbap_panner.clap	org.s3g.s3g-dsp.lbap-panner	lbap-panner.state	lbap-panner.params.tsv
+clap_vbap_panner/s3g_vbap_panner.clap	org.s3g.s3g-dsp.vbap-panner	vbap-panner.state	vbap-panner.params.tsv
+clap_ambi_water_encoder/s3g_ambi_water_encoder.clap	org.s3g.s3g-dsp.ambi-water-encoder-64	ambi-water.state	ambi-water.params.tsv
+clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap	org.s3g.s3g-dsp.ambi-insect-encoder-64	ambi-insect.state	ambi-insect.params.tsv
+clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap	org.s3g.s3g-dsp.ambi-pulsar-encoder-64	ambi-pulsar.state	ambi-pulsar.params.tsv
+clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap	org.s3g.s3g-dsp.ambi-neural-ecology-64	ambi-neural-ecology.state	ambi-neural-ecology.params.tsv
+clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap	org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64	ambi-wave-terrain.state	ambi-wave-terrain.params.tsv
+clap_spectral_topology_processor/s3g_spectral_topology_processor.clap	org.s3g.s3g-dsp.spectral-topology-processor	spectral-topology-8ch.state	spectral-topology-8ch.params.tsv
+clap_spectral_topology_processor/s3g_24ch_spectral_topology_processor.clap	org.s3g.s3g-dsp.spectral-topology-processor-24ch	spectral-topology-24ch.state	spectral-topology-24ch.params.tsv
+clap_psd_raw_field/s3g_fault.clap	org.s3g.s3g-dsp.fault	fault.state	fault.params.tsv

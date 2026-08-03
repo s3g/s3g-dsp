@@ -17,6 +17,32 @@
       }
     },
     {
+      "name": "clap-release",
+      "displayName": "CLAP Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-clap-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_ENABLE_REALTIME_ALLOC_PROBE": "ON"
+      }
+    },
+    {
+      "name": "clap-sanitize",
+      "displayName": "CLAP ASan + UBSan",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-clap-sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_OBJCXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "S3G_BUILD_CLAP_PLUGIN": "ON"
+      }
+    },
+    {
       "name": "apps",
       "displayName": "Standalone Apps",
       "generator": "Unix Makefiles",
@@ -35,6 +61,14 @@
     {
       "name": "clap",
       "configurePreset": "clap"
+    },
+    {
+      "name": "clap-release",
+      "configurePreset": "clap-release"
+    },
+    {
+      "name": "clap-sanitize",
+      "configurePreset": "clap-sanitize"
     },
     {
       "name": "apps",

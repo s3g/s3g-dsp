@@ -4,11 +4,20 @@ add_library(s3g_psd_raw_field_clap MODULE
 
 set(S3G_FAULT_VERSION "0.19.0")
 
-add_executable(s3g_fault_clap_wave_source_smoke EXCLUDE_FROM_ALL
+add_executable(s3g_fault_clap_wave_source_smoke
   ../../tests/fault_clap_wave_source_smoke.cpp
 )
 target_link_libraries(s3g_fault_clap_wave_source_smoke PRIVATE s3g_dsp ${CMAKE_DL_LIBS})
 target_include_directories(s3g_fault_clap_wave_source_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+add_dependencies(s3g_fault_clap_wave_source_smoke s3g_psd_raw_field_clap)
+
+if(BUILD_TESTING)
+  add_test(NAME s3g_fault_clap_wave_source_smoke
+    COMMAND $<TARGET_FILE:s3g_fault_clap_wave_source_smoke>
+      $<TARGET_FILE:s3g_psd_raw_field_clap>)
+  set_tests_properties(s3g_fault_clap_wave_source_smoke PROPERTIES
+    LABELS "non_nim;clap;smoke" TIMEOUT 180)
+endif()
 
 target_link_libraries(s3g_psd_raw_field_clap PRIVATE s3g_dsp)
 target_include_directories(s3g_psd_raw_field_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})

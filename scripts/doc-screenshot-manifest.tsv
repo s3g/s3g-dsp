@@ -15,6 +15,7 @@ vbap-panner	panner-vbap
 
 # Ambisonic encoder detail pages.
 accelerometer-field-encoder-16	accelerometer-field-encoder
+ambi-encoder-medium-16	ambi-encoder-medium
 ambi-point-encoder-64	ambi-point-encoder
 ambi-cloud-encoder-64	ambi-cloud-encoder
 ambi-terrain-navigator-64	ambi-terrain-navigator

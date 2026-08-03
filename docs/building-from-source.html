@@ -74,6 +74,80 @@ cmake --build build-clap</code></pre>
   -DS3G_BUILD_CLAP_PLUGIN=ON \
   -DS3G_ENABLE_WORLD=OFF</code></pre>
 
+        <h2 id="clap-realtime-audit">Audit CLAP Realtime Cost</h2>
+
+        <p>Timing measurements must use optimized plugins and an optimized audit executable. The dedicated <code>clap-release</code> preset creates a separate Release build without changing the ordinary development or CLAP build directories:</p>
+
+        <pre><code>cmake --preset clap-release
+cmake --build --preset clap-release --target audit_clap_realtime_representative</code></pre>
+
+        <p>The representative target is a focused, report-only manual check spanning a simple 24-channel baseline, zero-input generators, the zero-audio-port NIM Gesture utility, the 64-voice/64-channel Ambi Insect encoder, a wide Ambi decoder, 24-channel Spectral Topology, and 128-channel transform and matrix processors. It intentionally applies no portable pass/fail timing threshold. To audit one product or retain machine-readable results, invoke the executable directly:</p>
+
+        <pre><code>./build-clap-release/s3g_clap_realtime_audit \
+  --json /tmp/nim-realtime.json \
+  --sample-rates 48000,96000 \
+  --blocks 64,128,256 \
+  build-clap-release/plugins/clap_no_input_mixer/s3g_no_input_mixer.clap \
+  org.s3g.s3g-dsp.no-input-mixer-8ch</code></pre>
+
+        <p>Each configuration measures a baseline and, where the plugin exposes suitable continuous automatable parameters, a same-block automation-burst stress case. Use <code>--event-burst 0</code> to measure only steady processing or choose a different burst size. The console's <code>DATA</code> label means that processing completed with valid finite output; inspect the deadline percentage and miss count to judge realtime risk.</p>
+
+        <p>After building the full Release tree, the manifest runner can audit every canonical bundle in manifest order and combine the individual reports. <code>--filter</code> accepts a regular expression for narrower families, and every child audit has a timeout so one faulty plugin cannot stall the run indefinitely:</p>
+
+        <pre><code>cmake --build --preset clap-release
+python3 scripts/run-clap-realtime-audit.py \
+  --audit-executable build-clap-release/s3g_clap_realtime_audit \
+  --build-root build-clap-release/plugins \
+  --full-sweep \
+  --output /tmp/s3g-clap-realtime-audit.json</code></pre>
+
+        <p><code>--full-sweep</code> covers 48 and 96 kHz at 32, 64, 128, and 256 frames. During optimization, <code>--affected-only --automation-ladder</code> narrows the run to the processors previously observed missing a deadline and compares 1, 4, 8, 16, and 64 simultaneous events with the same events distributed through a block. The equivalent Release target is:</p>
+
+        <pre><code>cmake --build --preset clap-release \
+  --target audit_clap_realtime_weak_points</code></pre>
+
+        <p>The manual release gate runs at least 10,000 measured blocks per scenario and requires p99 processing time no greater than 75 percent of the buffer deadline on the audit machine. This means at least 99 percent of measured callbacks retain 25 percent timing headroom. Wall-clock deadline misses in the excluded one-percent tail remain in the JSON and console diagnostics, and the gate additionally rejects any scenario whose miss rate exceeds one percent. The criteria are identical in every profile; only the documented supported buffer configurations differ:</p>
+
+        <ul>
+          <li>Group Rotate 64 and Node Bus Mixer 128: 48 and 96 kHz at 32, 64, 128, and 256 frames.</li>
+          <li>Delay 24-channel, Ambisonic Rotate 64, and Group Rotate 128: 48 kHz at 32, 64, 128, and 256 frames; 96 kHz at 64, 128, and 256 frames.</li>
+          <li>Spectral Topology 8-channel: 48 kHz at 64, 128, and 256 frames; 96 kHz at 128, 256, and 512 frames.</li>
+          <li>Spectral Topology 24-channel: 48 kHz at 256 frames and 96 kHz at 512 frames.</li>
+          <li>Spectral Spray 2-channel and 8-channel: 48 and 96 kHz at 32, 64, 128, and 256 frames.</li>
+          <li>Ambi Water and Ambi Insect at maximum density: 48 kHz at 32, 64, 128, and 256 frames.</li>
+        </ul>
+
+        <p>The spectral floors include the dense automation case, whose FFT-hop work is concentrated into particular callbacks. Smaller buffers remain available for manual, report-only investigation, but are not claimed as realtime-safe release configurations. The release target completes all nine strict profiles before returning failure, then measures maximum-density Water and Insect at 96 kHz as a report-only advisory. It writes a separate <code>clap-realtime-release-gate-*.json</code> file for every profile plus <code>clap-realtime-release-gates-summary.json</code>, so an early scheduling miss cannot hide later results. Full-density 96 kHz Water/Insect operation is deliberately not a release claim.</p>
+
+        <pre><code>cmake --build --preset clap-release \
+  --target audit_clap_realtime_release_gate
+
+cmake --build --preset clap-release \
+  --target audit_no_input_mixer_controller_realtime</code></pre>
+
+        <p>The NIM controller gate covers 104 scenarios: 48 and 96 kHz at 32, 64, 128, and 256 frames, with baseline processing; 1, 4, 8, 16, and 64 simultaneous and sample-distributed parameter events; independent lock-free control publication; and synthetic MIDI 1 traffic matching BU16 Note On, poly pressure, and Note Off gestures plus E16 NRPN CC, command-note, and program-change messages. This verifies the CLAP-facing control paths; it does not measure CoreMIDI, USB hardware, or Cocoa event latency.</p>
+
+        <p>This is an offline processor-cost audit: it compares measured CLAP processing time with each sample-rate and block-size deadline. Results are machine-dependent and vary with CPU model, power mode, thermal state, background load, and compiler. The p99 boundary is deliberately robust to the rare operating-system preemptions that an ordinary userspace wall-clock timer cannot distinguish from plug-in execution; every extreme sample and deadline-miss count is still reported rather than discarded. Run the gate on a quiet reference machine without concurrent builds or audits and retain the JSON. Repeat a focused profile when p99 rises or misses cluster: repeatable elevated p99 is a DSP failure and must not be waived, while a miss that moves between unrelated scenarios is scheduler evidence. The one-percent tail allowance is not an audio-xrun allowance. A missed offline deadline identifies risk, but passing does not prove that a host will never underrun, and the guarded live Core Audio audit remains the check for actual callback delivery and HAL overloads.</p>
+
+        <h3 id="clap-allocation-probe">Probe Realtime Allocations</h3>
+
+        <p>On macOS, an injected probe can count <code>malloc</code>, <code>calloc</code>, <code>realloc</code>, aligned allocations, and <code>free</code> while each measured CLAP <code>process()</code> call is running. It remains opt-in for ordinary builds, while the <code>clap-release</code> preset enables it so the complete release target cannot silently make a non-allocation claim without evidence:</p>
+
+        <pre><code>cmake --preset clap-release
+cmake --build build-clap-release \
+  --target run_realtime_alloc_probe_tests
+
+python3 scripts/run-clap-realtime-audit.py \
+  --audit-executable build-clap-release/s3g_clap_realtime_audit \
+  --build-root build-clap-release/plugins \
+  --allocation-probe-library build-clap-release/libs3g_realtime_alloc_probe.dylib \
+  --allocation-gate \
+  --output build-clap-release/clap-allocation-all.json</code></pre>
+
+        <p>The probe test target checks the allocator hooks directly and runs a test-only CLAP that deliberately allocates and frees memory inside every measured <code>process()</code> block, confirming that a broken or no-op hook cannot create a false all-zero pass. <code>--allocation-probe-library</code> injects the dylib only into each audit child and implies measurement; <code>--allocation-gate</code> requires a complete probe report for every scenario and zero allocation, deallocation, failure, or invalid-alignment operations without imposing the separate 10,000-block timing threshold. The report separates blocks containing allocations, deallocations, total requested bytes, failures, and the maximum operations in one block. The probe measures only the thread that calls <code>process()</code>; plugin worker-thread activity and direct <code>malloc_zone_*</code> calls are outside its scope. Use it with a local non-hardened diagnostic executable, not a shipped or signed host.</p>
+
+        <p>The offline timing and allocation audits do not open or reconfigure an audio device. Use the guarded live audit below to observe actual Core Audio callback delivery and HAL signals.</p>
+
         <h2 id="standalone-apps">Build Standalone Apps</h2>
 
         <p>macOS standalone app targets are built separately from the CLAP plugin bundle targets:</p>
@@ -91,6 +165,29 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <p>Vox Builder uses the same pinned WORLD dependency as Ambi Encoder Vox. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
 
+        <h2 id="nim-coreaudio-audit">Audit NIM Core Audio</h2>
+
+        <p>The NIM standalone includes default-off realtime diagnostics. Choose <strong>Show Realtime Diagnostics</strong> from the application menu to begin a fresh observation window; <strong>Reset</strong> clears it and <strong>Copy Realtime Diagnostics Report</strong> copies the device configuration and counters. The report distinguishes callback-duration overruns, late callback starts, independent host-clock and audio-sample-position discontinuities, HAL overload and abnormal-stop notifications, render errors, embedded CLAP-stage errors, non-finite output, and MIDI drops. A late-start count is advisory scheduler information rather than an xrun by itself; HAL overloads, abnormal stops, sample-position faults, and callbacks that exceed their own period are stronger failure signals.</p>
+
+        <p>For repeatable headless testing, build the guarded diagnostic and enumerate devices first. Listing reads device properties only: it does not construct the DSP engine or open AUHAL.</p>
+
+        <pre><code>cmake --build build-apps \
+  --target s3g_no_input_mixer_coreaudio_diagnostic
+./build-apps/apps/no_input_mixer_standalone/s3g_no_input_mixer_coreaudio_diagnostic \
+  --list-devices --json /tmp/s3g-coreaudio-devices.json</code></pre>
+
+        <p>A live run requires an exact UID, a duration, and the explicit acknowledgement flag. It leaves the selected device's sample rate, buffer size, and default-device status unchanged. The complete Gesture → NIM → selected output-mode chain runs, but monitoring remains muted and the diagnostic verifies that no nonzero sample reaches Core Audio:</p>
+
+        <pre><code>./build-apps/apps/no_input_mixer_standalone/s3g_no_input_mixer_coreaudio_diagnostic \
+  --device-uid 'DEVICE_UID_FROM_LIST' \
+  --mode stereo \
+  --warmup-seconds 5 \
+  --duration-seconds 60 \
+  --confirm-live-audio \
+  --json /tmp/s3g-nim-coreaudio.json</code></pre>
+
+        <p>Use <code>--mode quad</code> or <code>--mode direct8</code> only with a device exposing enough outputs. The diagnostic opens the device's full output layout to reproduce the standalone wrapper's channel cost. Starting AUHAL can awaken or contend for hardware even while muted, so stop other critical audio work first. Realtime findings remain report-only unless <code>--strict</code> is supplied.</p>
+
         <h2 id="install-local">Install Local Build</h2>
 
         <p>Preview and then install the CLAP products:</p>
@@ -105,7 +202,7 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code></pre>
 
-        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies exactly 94 products from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
+        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies every manifest-listed product from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
 
         <p>A normal run validates the complete source and destination set before changing the destination, then stages and copies the manifest-listed bundles. On the first upgrade from the former flat layout, it identity-checks recognized s3g-dsp bundles in the parent CLAP folder and moves those old copies to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/Previous CLAP Root/</code> after installing the current set. <code>--canonicalize-only</code> instead moves verified current installations into the nested folder without replacing their binaries. The installer uses <code>scripts/clap-legacy-bundles.tsv</code> to recognize earlier filenames; unrelated plugins are not pruned. The <code>--dry-run</code> form reports the planned installs, migrations, and alias backups without writing anything.</p>
 
@@ -113,14 +210,35 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <h2 id="validate">Validate</h2>
 
-        <p>Check the canonical CLAP inventory, installer migration behavior, static documentation, and advisory GUI conventions:</p>
+        <p>CTest now registers the DSP smokes, numerical regressions, structural audits, installer migration test, focused CLAP ownership probes, and tagged state-compatibility fixtures exported by the released <code>v0.5.0-pre</code> binaries. Those fixtures contain deterministic non-default states plus old-release parameter ID/value sidecars. They cover representative panners, environmental and generative encoders, spectral processors, and larger state schemas; each current plugin must reproduce the released values, keep every parameter finite and in range, migrate and reload without value loss, and produce deterministic re-saved bytes. Build first, then run all tests or select the non-NIM release label:</p>
 
-        <pre><code>python3 scripts/check-clap-bundle-manifest.py --build-root build-clap/plugins
+        <pre><code>cmake --build --preset clap-release
+ctest --test-dir build-clap-release --output-on-failure
+ctest --test-dir build-clap-release --output-on-failure -L non_nim</code></pre>
+
+        <p>The sanitizer preset provides a separate RelWithDebInfo tree with AddressSanitizer and UndefinedBehaviorSanitizer enabled. Functional audio, finiteness, clipping, and discontinuity assertions remain active there; wall-clock realtime budgets are enabled only in the uninstrumented Release configuration so sanitizer overhead cannot create a false performance failure:</p>
+
+        <pre><code>cmake --preset clap-sanitize
+cmake --build --preset clap-sanitize
+ctest --test-dir build-clap-sanitize --output-on-failure -L non_nim</code></pre>
+
+        <p>Check the canonical CLAP inventory, installer migration behavior, static documentation, and advisory GUI conventions directly when investigating one layer:</p>
+
+        <pre><code>python3 scripts/check-clap-bundle-manifest.py \
+  --build-root build-clap-release/plugins \
+  --defer-descriptor-version
 ./tests/clap_bundle_installer_smoke.sh
 python3 scripts/check-docs.py
 ./scripts/audit-gui-style.sh</code></pre>
 
-        <p>If <code>clap-validator</code> is installed, validate one or more built or installed bundles. For example:</p>
+        <p>If <code>clap-validator</code> is installed, the manifest runner validates each bundle in an isolated subprocess with a per-bundle timeout, retains an individual log, and reports every failure instead of allowing one crash or hang to hide the rest:</p>
+
+        <pre><code>python3 scripts/run-clap-validator-manifest.py \
+  --validator "$(command -v clap-validator)" \
+  --build-root build-clap-release/plugins \
+  --output build-clap-release/clap-validator-manifest.json</code></pre>
+
+        <p>For a single bundle, invoke the validator directly. For example:</p>
 
         <pre><code>clap-validator validate --only-failed \
   build-clap/plugins/clap_macro_shred/s3g_macro_shred_mono.clap \
@@ -128,13 +246,20 @@ python3 scripts/check-docs.py
   build-clap/plugins/clap_macro_shred/s3g_24ch_macro_shred.clap \
   build-clap/plugins/clap_psd_raw_field/s3g_fault.clap</code></pre>
 
+        <p>On a quiet macOS release machine, the following target first runs the allocation-hook self-test and known-bad positive-control CLAP, then builds the complete manifest and runs the non-NIM CTest label, manifest and Objective-C audits, an isolated exact-inventory validator sweep, an exact 96-plugin non-NIM allocation gate, all strict realtime profiles with allocation evidence, and the 96 kHz environmental advisory sequentially. It refuses empty CTest selections and stale, malformed, partial, or mismatched JSON evidence. Each phase keeps its own log and the summary is written to <code>build-clap-release/non-nim-release-checks.json</code>:</p>
+
+        <pre><code>cmake --build --preset clap-release \
+  --target release_checks_non_nim</code></pre>
+
         <h2 id="package">Package a Pre-release</h2>
 
         <p>After a complete CLAP build, create the macOS zip used for GitHub pre-releases:</p>
 
         <pre><code>./scripts/package-macos-clap-prerelease.sh</code></pre>
 
-        <p>The archive is written to <code>dist/</code> and includes 94 CLAP products, <code>Install s3g-dsp CLAPs.command</code>, the active and legacy manifests, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. Packaging and local installation consume the same manifest, so the archive inventory, installed filenames, and generated product list cannot drift independently. The packaging script rejects any release executable that is not arm64-only, ad-hoc signs and strictly verifies every bundle by default, and accepts a Developer ID Application identity through <code>S3G_CODESIGN_IDENTITY</code>. A non-ad-hoc identity automatically enables hardened runtime and a secure timestamp. Set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
+        <p>The archive is written to <code>dist/</code> and includes every manifest-listed CLAP product, <code>Install s3g-dsp CLAPs.command</code>, the active and legacy manifests, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. Packaging rebuilds and consumes <code>build-clap-release/plugins/</code> by default, verifies that its CMake cache names this source tree and a Release configuration, and refuses a dirty source tree. Use <code>S3G_CLAP_BUILD_DIR</code> to select another verified Release build of this source tree; <code>S3G_PACKAGE_ALLOW_DIRTY=1</code> is reserved for explicitly non-final test packages. Packaging and local installation consume the same manifest, so the archive inventory, installed filenames, and generated product list cannot drift independently.</p>
+
+        <p>Before signing, the packager synchronizes each staged bundle's version metadata from its runtime CLAP descriptor; component versions remain independent of the suite archive version. It then requires exactly 98 manifest IDs, arm64-only executables, matching descriptor, plist, ID, and host-name metadata, valid bundle signatures, and a successful isolated installer dry-run. The same checks run again after extracting the finished zip, and a <code>.zip.sha256</code> checksum is written beside it. Bundles are ad-hoc signed by default for integrity verification. Set <code>S3G_CODESIGN_IDENTITY</code> to a Developer ID Application identity to enable hardened runtime and a secure timestamp, and set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 
@@ -165,7 +290,10 @@ python3 scripts/check-docs.py
           <a href="#requirements">Requirements</a>
           <a href="#smoke-test">Smoke Test</a>
           <a href="#clap-build">Build CLAP Plugins</a>
+          <a href="#clap-realtime-audit">Audit CLAP Realtime Cost</a>
+          <a href="#clap-allocation-probe">Probe Realtime Allocations</a>
           <a href="#standalone-apps">Build Standalone Apps</a>
+          <a href="#nim-coreaudio-audit">Audit NIM Core Audio</a>
           <a href="#install-local">Install Local Build</a>
           <a href="#validate">Validate</a>
           <a href="#package">Package a Pre-release</a>

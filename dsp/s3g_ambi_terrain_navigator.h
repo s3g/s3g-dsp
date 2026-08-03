@@ -210,22 +210,55 @@ public:
                 to[pointIndex] = currentPoint(pointIndex);
             }
 
+            // Spatial motion is evaluated at the same control endpoints as
+            // the terrain path. Interpolating the resulting HOA
+            // coefficients keeps the 16-frame motion continuous without
+            // regenerating a seventh-order basis for every point and sample.
+            std::array<std::array<float, kAmbiTerrainMaxChannels>,
+                kAmbiTerrainMaxPoints> basisFrom;
+            std::array<std::array<float, kAmbiTerrainMaxChannels>,
+                kAmbiTerrainMaxPoints> basisDelta;
+            for (uint32_t pointIndex = 0; pointIndex < activePoints;
+                 ++pointIndex) {
+                if (!inputs[pointIndex]) continue;
+                const auto fromBasis = acnSn3dBasis7(directionFromAed(
+                    from[pointIndex].azimuthDeg,
+                    from[pointIndex].elevationDeg));
+                const auto toBasis = acnSn3dBasis7(directionFromAed(
+                    to[pointIndex].azimuthDeg,
+                    to[pointIndex].elevationDeg));
+                for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
+                    basisFrom[pointIndex][ch] = fromBasis[ch];
+                    basisDelta[pointIndex][ch] =
+                        toBasis[ch] - fromBasis[ch];
+                }
+            }
+
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 const float t = static_cast<float>(frame - chunkStart + 1u) / static_cast<float>(chunkFrames);
                 for (uint32_t pointIndex = 0; pointIndex < activePoints; ++pointIndex) {
                     const float* input = inputs[pointIndex];
                     if (!input) continue;
-                    AmbiTerrainPoint p {};
-                    p.azimuthDeg = lerpAngleDeg(from[pointIndex].azimuthDeg, to[pointIndex].azimuthDeg, t);
-                    p.elevationDeg = lerp(from[pointIndex].elevationDeg, to[pointIndex].elevationDeg, t);
-                    p.distance = lerp(from[pointIndex].distance, to[pointIndex].distance, t);
-                    p.terrain = lerp(from[pointIndex].terrain, to[pointIndex].terrain, t);
-                    const auto basis = acnSn3dBasis7(directionFromAed(p.azimuthDeg, p.elevationDeg));
-                    const float distanceGain = 1.0f / std::max(0.25f, p.distance);
-                    const float shaped = softSat(input[frame] * inputGain * (1.0f + 0.12f * p.terrain));
-                    const float sample = depth_.process(pointIndex, shaped * outputGain * distanceGain * normGain, p.distance);
+                    const float distance = lerp(
+                        from[pointIndex].distance,
+                        to[pointIndex].distance, t);
+                    const float terrain = lerp(
+                        from[pointIndex].terrain,
+                        to[pointIndex].terrain, t);
+                    const float distanceGain =
+                        1.0f / std::max(0.25f, distance);
+                    const float shaped = softSat(input[frame] * inputGain
+                        * (1.0f + 0.12f * terrain));
+                    const float sample = depth_.process(pointIndex,
+                        shaped * outputGain * distanceGain * normGain,
+                        distance);
                     for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
-                        if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + sample * basis[ch]);
+                        if (outputs[ch]) {
+                            const float basis = basisFrom[pointIndex][ch]
+                                + basisDelta[pointIndex][ch] * t;
+                            outputs[ch][frame] = flushDenormal(
+                                outputs[ch][frame] + sample * basis);
+                        }
                     }
                 }
                 depth_.advance();

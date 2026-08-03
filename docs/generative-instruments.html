@@ -49,6 +49,7 @@
 
         <ul>
           <li><a href="ambi-encoder-modal.html">Ambi Encoder Modal</a>: shares 96 modes among four to eight independent fictional resonant bodies, sustains them through a visible Tetra 4 or Cube 8 Listener/Actuator environment, and places editable AED body points through <code>ACN/SN3D</code> space without a separate transient layer.</li>
+          <li><a href="ambi-encoder-medium.html">Ambi Encoder Medium</a>: drives an eight-node fractional-waveguide cube from MIDI, clicks, optional mono audio, or per-node Euclidean patterns, with percussive and sustained exciters, ratchets, pitch dispersion, and event-following spatial masks.</li>
           <li><a href="ambi-encoder-vot.html">Ambi Encoder VOT</a>: interpolates among sixteen waveforms while voices follow editable paths through the resulting timbre field.</li>
           <li><a href="ambi-encoder-wave-terrain.html">Ambi Encoder Wave Terrain</a>: turns closed contour scans across a procedural surface into oscillator waveforms and spatial positions.</li>
           <li><a href="ambi-encoder-wind.html">Ambi Encoder Wind</a>: shapes broadband noise into gusts, turbulent air, and resonant material responses.</li>
@@ -64,7 +65,7 @@
 
         <h2 id="outputs">Output Formats</h2>
 
-        <p>Processor No Input Mixer and Processor Fault use eight ordinary output lanes. The Ambi instruments use a fixed 64-channel bus with the active order occupying the first <code>(order + 1)^2</code> channels.</p>
+        <p>Processor No Input Mixer and Processor Fault use eight ordinary output lanes. Ambi Encoder Modal and Medium use 16-channel host buses; Modal can instead publish eight body stems. The other Ambi instruments use fixed 64-channel buses. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="instruments.html">

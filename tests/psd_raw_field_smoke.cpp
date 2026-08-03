@@ -95,6 +95,35 @@ int main()
             }
         }
     }
+    std::cout << "Fault fixed-seed field fingerprints:";
+    for (const uint64_t fingerprint : profileHashes) {
+        std::cout << " 0x" << std::hex << fingerprint;
+    }
+    std::cout << std::dec << "\n";
+    constexpr std::array<uint64_t, s3g::kPsdRawFieldCodecModeCount>
+        expectedProfileHashes {
+            0x72d69f6c399b42f1ull, 0xea38da46ff3ed2ecull,
+            0x6ad00aca1e65bd44ull, 0xa2f72e80bb53d2e2ull,
+            0xc91ae8533ff95da1ull, 0x778d9a97c436ed4full,
+            0x780bdde1e80a8bd3ull, 0xe1355ff603edeae5ull,
+            0x31906d79b9b48374ull, 0x431964cece2d2255ull,
+            0xaaddeb696812c088ull, 0xdffccffb1eb6a261ull,
+            0x993304b6a38e5ba3ull, 0xea3b7db78bcf8283ull,
+            0x91453c2fc26c5116ull, 0x3b5e25c79f205d48ull,
+            0x28bd26560ef7d65bull, 0x2f06385984aad7f1ull,
+            0x6255b2f9525bf30bull, 0xe584e6d2f03a358bull,
+            0x127415931ce46e4dull, 0xc964445de3595383ull,
+            0x6353232f8336eb8aull,
+        };
+    for (uint32_t mode = 0u; mode < profileHashes.size(); ++mode) {
+        if (profileHashes[mode] != expectedProfileHashes[mode]) {
+            std::cerr << "Fault fixed-seed field fingerprint changed for profile "
+                      << mode << ": 0x" << std::hex << profileHashes[mode]
+                      << " != 0x" << expectedProfileHashes[mode]
+                      << std::dec << "\n";
+            return 1;
+        }
+    }
     const double pcmStep = profileStepSizes[static_cast<uint32_t>(s3g::PsdRawFieldCodecMode::RawPcm)];
     constexpr s3g::PsdRawFieldCodecMode smoothProfiles[] {
         s3g::PsdRawFieldCodecMode::DeltaPcm,

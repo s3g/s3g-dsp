@@ -8394,6 +8394,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     uint32_t _trailCount;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
+- (void)detachFromPlugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)phraseTextChanged:(id)sender;
@@ -8619,6 +8620,21 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     _plugin->guiViewZoom = static_cast<float>(_viewZoom);
 }
 
+- (void)detachFromPlugin
+{
+    // The viewport and AppKit controls may keep this view alive until an
+    // autorelease pool drains. Persist while the non-owning Plugin pointer is
+    // known to be valid, then sever every callback path before the Plugin can
+    // be destroyed.
+    [self storeViewState];
+    [self stopRefreshTimer];
+    if ([_phraseField delegate] == self) [_phraseField setDelegate:nil];
+    [_phraseField setTarget:nil];
+    [_phraseField setAction:NULL];
+    if ([_lyricsEditor delegate] == self) [_lyricsEditor setDelegate:nil];
+    _plugin = nullptr;
+}
+
 - (s3g::AmbiVotMotionPoint)snapshotPoint:(uint32_t)index
 {
     s3g::AmbiVotMotionPoint point {};
@@ -8675,8 +8691,14 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 
 - (void)dealloc
 {
-    [self storeViewState];
+    // _plugin is non-owning. Never dereference it from dealloc: AppKit may
+    // defer this release until after the CLAP instance has been deleted.
+    _plugin = nullptr;
     [self stopRefreshTimer];
+    if ([_phraseField delegate] == self) [_phraseField setDelegate:nil];
+    [_phraseField setTarget:nil];
+    [_phraseField setAction:NULL];
+    if ([_lyricsEditor delegate] == self) [_lyricsEditor setDelegate:nil];
     [_lyricsScroll release];
     [_lyricsEditor release];
     [_phraseField release];
@@ -10592,6 +10614,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 
 - (void)mouseDown:(NSEvent*)event
 {
+    if (!_plugin) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_openMenu > 0) {
         [self closeMenuAtPoint:point];
@@ -10858,6 +10881,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 
 - (void)mouseDragged:(NSEvent*)event
 {
+    if (!_plugin) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_generatorDrag > 0) {
         [self updateGeneratorDragAtPoint:point];
@@ -10926,7 +10950,11 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (!state->guiView) return false;
     if (!s3g::clap_gui::createResponsiveViewport(state->guiViewport,
             static_cast<NSView*>(state->guiView), kGuiW, kGuiH)) {
-        [static_cast<NSView*>(state->guiView) release]; state->guiView = nullptr; return false;
+        auto* view = static_cast<S3GAmbiVoxEncoderView*>(state->guiView);
+        [view detachFromPlugin];
+        [view release];
+        state->guiView = nullptr;
+        return false;
     }
     return true;
 }
@@ -10937,7 +10965,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     if (!state || !state->guiView) return;
     state->guiVisible.store(false, std::memory_order_relaxed);
     auto* view = static_cast<S3GAmbiVoxEncoderView*>(state->guiView);
-    [view stopRefreshTimer];
+    [view detachFromPlugin];
     s3g::clap_gui::destroyResponsiveViewport(state->guiViewport, state->guiView);
 }
 
@@ -11145,6 +11173,7 @@ extern "C" const CLAP_EXPORT clap_plugin_entry_t clap_entry {
 
 @interface S3GAmbiVoxEncoderView (PlaybackProbe)
 - (std::shared_ptr<const VoxVoicebank>)loadVoicebankFolder:(NSURL*)folderURL;
+- (void)detachFromPlugin;
 @end
 
 namespace {
@@ -11579,6 +11608,7 @@ int main(int argc, char** argv)
         NSURL* folderURL = [NSURL fileURLWithPath:
             [NSString stringWithUTF8String:argv[1]] isDirectory:YES];
         auto bank = [loader loadVoicebankFolder:folderURL];
+        [loader detachFromPlugin];
         [loader release];
         if (!bank || bank->entries.empty()) {
             std::cerr << "could not load voicebank\n";
@@ -11674,11 +11704,21 @@ int main(int argc, char** argv)
             && std::isfinite(speakHard.maximumStep) && std::isfinite(speakSoft.maximumStep)
             && std::isfinite(singHard.maximumStep) && std::isfinite(singSoft.maximumStep)
             && std::isfinite(textureHard.maximumStep) && std::isfinite(textureSoft.maximumStep);
+        // A single largest step can land on the end-of-cue boundary and move
+        // when transient handling changes the phrase timing. Compare the
+        // representative p99 step instead, while retaining an absolute bound
+        // for every soft render and requiring a real reduction in peak level.
         const bool worldSoftening = speakSoft.peak > 0.01f
             && singSoft.peak > 0.01f && textureSoft.peak > 0.01f
-            && speakSoft.maximumStep < speakHard.maximumStep * 0.75f
-            && singSoft.maximumStep < singHard.maximumStep * 0.75f
-            && textureSoft.maximumStep < textureHard.maximumStep * 0.75f;
+            && speakSoft.peak < speakHard.peak
+            && singSoft.peak < singHard.peak
+            && textureSoft.peak < textureHard.peak
+            && speakSoft.step99 < speakHard.step99
+            && singSoft.step99 < singHard.step99
+            && textureSoft.step99 < textureHard.step99
+            && speakSoft.maximumStep <= 0.08f
+            && singSoft.maximumStep <= 0.08f
+            && textureSoft.maximumStep <= 0.08f;
         const bool bounded = speak.peak <= 0.98f && sing.peak <= 0.98f
             && speak16.peak <= 0.98f && sing16.peak <= 0.98f
             && speak16Pop.peak <= 0.98f

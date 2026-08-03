@@ -1,5 +1,6 @@
 #include "s3g_ambi_wave_terrain_encoder.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -29,6 +30,7 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaveTerrainMaxChannels;
 constexpr uint32_t kStateVersion = 5u;
+constexpr clap_id kReplaceStateActionId = CLAP_INVALID_ID - 1u;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
@@ -91,6 +93,7 @@ constexpr clap_id kPolygonRoundParamId = 58;
 constexpr clap_id kPolygonStarParamId = 59;
 constexpr clap_id kPolygonSkewParamId = 60;
 constexpr clap_id kFieldListenModeParamId = 61;
+constexpr uint32_t kParamCount = 61u;
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
@@ -159,13 +162,28 @@ constexpr ParamDef kParams[] {
     { kFieldListenModeParamId, "Field Listener", 0.0, 3.0, 0.0, true },
 };
 
+struct ControlSnapshot {
+    s3g::AmbiWaveTerrainParams params {};
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     s3g::AmbiWaveTerrainEncoder engine {};
     s3g::AmbiWaveTerrainParams params {};
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::SpscEventQueue<
+        s3g::AmbiWaveTerrainParams, 8u> guiStateCommands {};
+    std::atomic_flag controlSnapshotLock = ATOMIC_FLAG_INIT;
+    ControlSnapshot publishedControl {};
+    std::atomic<bool> publishedControlDirty { true };
+    std::atomic<bool> pendingParamValuesRescan { false };
+    std::atomic<bool> active { false };
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<bool> guiVisible { false };
+    uint32_t guiSnapshotCountdown = 0u;
     std::atomic<uint32_t> lastMidiNote { 0u };
     std::atomic<uint32_t> guiSelectedVoice { 0u };
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiEnergy {};
@@ -229,9 +247,9 @@ const ParamDef* paramDef(clap_id id)
     return nullptr;
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool stageParam(s3g::AmbiWaveTerrainParams& v, clap_id id, double value)
 {
-    auto& v = p.params;
+    if (!paramDef(id)) return false;
     switch (id) {
     case kOrderParamId: v.order = static_cast<uint32_t>(std::lround(value)); break;
     case kVoicesParamId: v.voices = static_cast<uint32_t>(std::lround(value)); break;
@@ -295,10 +313,244 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kPolygonSkewParamId: v.polygonSkew = static_cast<float>(value); break;
     case kFieldListenModeParamId: v.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
         static_cast<uint32_t>(std::lround(value))); break;
-    default: break;
+    default: return false;
     }
+    return true;
+}
+
+bool paramValueFromParams(const s3g::AmbiWaveTerrainParams& p,
+    clap_id id, double& value)
+{
+    switch (id) {
+    case kOrderParamId: value = p.order; break;
+    case kVoicesParamId: value = p.voices; break;
+    case kModeParamId: value = static_cast<uint32_t>(p.mode); break;
+    case kBaseNoteParamId: value = p.baseNote; break;
+    case kPitchSpreadParamId: value = p.pitchSpreadSemitones; break;
+    case kTuneParamId: value = p.tuneCents; break;
+    case kDetuneParamId: value = p.detuneCents; break;
+    case kSkinParamId: value = static_cast<uint32_t>(p.skin); break;
+    case kTerrainDepthParamId: value = p.terrainDepth; break;
+    case kTerrainRoughnessParamId: value = p.terrainRoughness; break;
+    case kTerrainFoldParamId: value = p.terrainFold; break;
+    case kTerrainReliefParamId: value = p.terrainRelief; break;
+    case kTraceParamId: value = static_cast<uint32_t>(p.trace); break;
+    case kInterpretationParamId: value = static_cast<uint32_t>(p.interpretation); break;
+    case kInterpretationMixParamId: value = p.interpretationMix; break;
+    case kScanRadiusParamId: value = p.scanRadius; break;
+    case kScanAspectParamId: value = p.scanAspect; break;
+    case kScanRotationParamId: value = p.scanRotation; break;
+    case kScanWarpParamId: value = p.scanWarp; break;
+    case kSelectionParamId: value = static_cast<uint32_t>(p.selection); break;
+    case kTransitionParamId: value = static_cast<uint32_t>(p.transition); break;
+    case kFieldDensityParamId: value = p.fieldDensity; break;
+    case kFieldDurationParamId: value = p.fieldDurationSeconds; break;
+    case kFieldRestParamId: value = p.fieldRestSeconds; break;
+    case kFieldContrastParamId: value = p.fieldContrast; break;
+    case kSelectionMemoryParamId: value = p.selectionMemory; break;
+    case kRegionDeviationParamId: value = p.regionDeviation; break;
+    case kNeighborTransferParamId: value = p.neighborTransfer; break;
+    case kMacroDurationParamId: value = p.macroDurationSeconds; break;
+    case kTableXfadeParamId: value = p.tableXfadeMs; break;
+    case kAttackParamId: value = p.attackMs; break;
+    case kDecayParamId: value = p.decayMs; break;
+    case kSustainParamId: value = p.sustain; break;
+    case kReleaseParamId: value = p.releaseMs; break;
+    case kAzimuthParamId: value = p.centerAzimuthDeg; break;
+    case kElevationParamId: value = p.centerElevationDeg; break;
+    case kDistanceParamId: value = p.centerDistance; break;
+    case kSpatialSpreadParamId: value = p.spatialSpread; break;
+    case kSpatialFollowParamId: value = p.spatialFollow; break;
+    case kOutputParamId: value = p.outputGainDb; break;
+    case kPitchModeParamId: value = static_cast<uint32_t>(p.pitchMode); break;
+    case kMotionModeParamId: value = static_cast<uint32_t>(p.motionMode); break;
+    case kAzimuthRateParamId: value = p.azimuthRateRpm; break;
+    case kElevationRateParamId: value = p.elevationRateRpm; break;
+    case kRotationDeviationParamId: value = p.rotationRateDeviation; break;
+    case kPitchScaleParamId: value = static_cast<uint32_t>(p.pitchScale); break;
+    case kTerrainFormParamId: value = static_cast<uint32_t>(p.terrainForm); break;
+    case kTerrainFacetParamId: value = p.terrainFacet; break;
+    case kTerrainBevelParamId: value = p.terrainBevel; break;
+    case kTerrainOrientationParamId: value = p.terrainOrientation; break;
+    case kTerrainTerraceParamId: value = p.terrainTerrace; break;
+    case kTerrainTerraceStepsParamId: value = p.terrainTerraceSteps; break;
+    case kTerrainRidgeParamId: value = p.terrainRidge; break;
+    case kTerrainErosionParamId: value = p.terrainErosion; break;
+    case kTerrainDomainWarpParamId: value = p.terrainDomainWarp; break;
+    case kTerrainTwistParamId: value = p.terrainTwist; break;
+    case kPolygonSidesParamId: value = p.polygonSides; break;
+    case kPolygonRoundParamId: value = p.polygonRound; break;
+    case kPolygonStarParamId: value = p.polygonStar; break;
+    case kPolygonSkewParamId: value = p.polygonSkew; break;
+    case kFieldListenModeParamId: value = static_cast<uint32_t>(p.fieldListenMode); break;
+    default: return false;
+    }
+    return true;
+}
+
+void lockNonAudio(std::atomic_flag& lock)
+{
+    while (lock.test_and_set(std::memory_order_acquire)) {
+        // Fixed-size snapshots are only waited on by non-audio threads.
+    }
+}
+
+void publishControlSnapshot(Plugin& p)
+{
+    p.publishedControlDirty.store(true, std::memory_order_release);
+    if (p.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    p.publishedControl.params = p.params;
+    p.publishedControlDirty.store(false, std::memory_order_release);
+    p.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void retryControlSnapshotPublication(Plugin& p)
+{
+    if (p.publishedControlDirty.load(std::memory_order_acquire)) {
+        publishControlSnapshot(p);
+    }
+}
+
+ControlSnapshot controlSnapshot(Plugin& p)
+{
+    lockNonAudio(p.controlSnapshotLock);
+    const auto result = p.publishedControl;
+    p.controlSnapshotLock.clear(std::memory_order_release);
+    return result;
+}
+
+double publishedParamValue(Plugin& p, clap_id id)
+{
+    double value = 0.0;
+    (void)paramValueFromParams(controlSnapshot(p).params, id, value);
+    return value;
+}
+
+s3g::AmbiWaveTerrainParams publishedParamsSnapshot(Plugin& p)
+{
+    return controlSnapshot(p).params;
+}
+
+void commitParams(Plugin& p)
+{
+    auto& v = p.params;
     p.engine.setParams(v);
     p.params = p.engine.params();
+    publishControlSnapshot(p);
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    if (stageParam(p.params, id, value)) commitParams(p);
+}
+
+void requestGuiParamService(Plugin& p)
+{
+    if (p.hostParams && p.hostParams->request_flush) {
+        p.hostParams->request_flush(p.host);
+    } else if (p.host && p.host->request_process) {
+        p.host->request_process(p.host);
+    }
+}
+
+void requestParamValuesRescan(Plugin& p)
+{
+    p.pendingParamValuesRescan.store(true, std::memory_order_release);
+    if (p.host && p.host->request_callback) {
+        p.host->request_callback(p.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& p, s3g::clap_gui::ParamEventKind kind,
+    clap_id id, double value = 0.0)
+{
+    if (!p.guiParamEvents.push({ kind, id, value })) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool queueGuiParamValue(Plugin& p, clap_id id, double value)
+{
+    const std::array<s3g::clap_gui::ParamEvent, 3u> events {{
+        { s3g::clap_gui::ParamEventKind::GestureBegin, id, 0.0 },
+        { s3g::clap_gui::ParamEventKind::Value, id, value },
+        { s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 },
+    }};
+    if (!p.guiParamEvents.pushBatch(events.data(), events.size())) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool queueGuiState(Plugin& p,
+    const s3g::AmbiWaveTerrainParams& params)
+{
+    if (p.guiStateCommands.available() == 0u
+        || p.guiParamEvents.available() == 0u) return false;
+    if (!p.guiStateCommands.push(params)) return false;
+    const s3g::clap_gui::ParamEvent action {
+        s3g::clap_gui::ParamEventKind::Value,
+        kReplaceStateActionId, 0.0
+    };
+    // The GUI/state thread is the only producer, so capacity cannot shrink
+    // between the availability check and this publication.
+    if (!p.guiParamEvents.push(action)) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind
+            == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
+{
+    s3g::clap_gui::ParamEvent pending {};
+    while (p.guiParamEvents.peek(pending)) {
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value
+            && pending.paramId == kReplaceStateActionId) {
+            s3g::AmbiWaveTerrainParams params {};
+            if (!p.guiStateCommands.peek(params)) break;
+            p.params = params;
+            commitParams(p);
+            requestParamValuesRescan(p);
+            p.guiStateCommands.pop();
+            p.guiParamEvents.pop();
+            continue;
+        }
+        if (!pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            applyParam(p, pending.paramId, pending.value);
+        }
+        p.guiParamEvents.pop();
+    }
 }
 
 void snapshotGui(Plugin& p)
@@ -340,13 +592,19 @@ void snapshotGui(Plugin& p)
 void readEvents(Plugin& p, const clap_input_events_t* events)
 {
     if (!events) return;
+    bool paramsChanged = false;
     for (uint32_t index = 0; index < events->size(events); ++index) {
         const clap_event_header_t* event = events->get(events, index);
         if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
         if (event->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(event);
-            applyParam(p, param->param_id, param->value);
+            paramsChanged |= stageParam(
+                p.params, param->param_id, param->value);
         } else if (event->type == CLAP_EVENT_NOTE_ON || event->type == CLAP_EVENT_NOTE_OFF || event->type == CLAP_EVENT_NOTE_CHOKE) {
+            if (paramsChanged) {
+                commitParams(p);
+                paramsChanged = false;
+            }
             const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
             if (event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0) {
                 p.engine.noteOn(note->key, static_cast<float>(note->velocity));
@@ -354,9 +612,18 @@ void readEvents(Plugin& p, const clap_input_events_t* events)
             } else p.engine.noteOff(note->key);
         }
     }
+    if (paramsChanged) commitParams(p);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
@@ -374,10 +641,15 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->engine.prepare(sampleRate);
     p->engine.setParams(p->params);
     p->params = p->engine.params();
+    publishControlSnapshot(*p);
     snapshotGui(*p);
+    p->active.store(true, std::memory_order_release);
     return true;
 }
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    self(plugin)->active.store(false, std::memory_order_release);
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin) { auto* p = self(plugin); p->engine.reset(); p->outputPeak.store(0.0f); snapshotGui(*p); }
@@ -387,6 +659,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* d
     auto* p = self(plugin);
     if (!data) return CLAP_PROCESS_CONTINUE;
     readEvents(*p, data->in_events);
+    serviceGuiParamEvents(*p, data->out_events);
+    retryControlSnapshotPublication(*p);
     if (!data->audio_outputs || data->audio_outputs_count == 0u) return CLAP_PROCESS_CONTINUE;
     auto& output = data->audio_outputs[0];
     if (!output.data32) return CLAP_PROCESS_CONTINUE;
@@ -395,16 +669,36 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* d
     for (uint32_t channel = 0; channel < channels; ++channel) outputs[channel] = output.data32[channel];
     p->engine.process(outputs.data(), channels, data->frames_count);
     s3g::clearAudioBufferFromChannel(output, channels, data->frames_count);
-    float peak = 0.0f;
-    for (uint32_t channel = 0; channel < channels; ++channel) {
-        if (!output.data32[channel]) continue;
-        for (uint32_t frame = 0; frame < data->frames_count; ++frame) peak = std::max(peak, std::fabs(output.data32[channel][frame]));
+    if (p->guiVisible.load(std::memory_order_acquire)) {
+        float peak = 0.0f;
+        for (uint32_t channel = 0; channel < channels; ++channel) {
+            if (!output.data32[channel]) continue;
+            for (uint32_t frame = 0; frame < data->frames_count; ++frame) {
+                peak = std::max(peak, std::fabs(output.data32[channel][frame]));
+            }
+        }
+        p->outputPeak.store(std::max(
+            peak, p->outputPeak.load(std::memory_order_relaxed) * 0.92f),
+            std::memory_order_relaxed);
+        if (p->guiSnapshotCountdown <= data->frames_count) {
+            snapshotGui(*p);
+            p->guiSnapshotCountdown = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(p->sampleRate / 30.0));
+        } else {
+            p->guiSnapshotCountdown -= data->frames_count;
+        }
     }
-    p->outputPeak.store(std::max(peak, p->outputPeak.load(std::memory_order_relaxed) * 0.92f), std::memory_order_relaxed);
-    snapshotGui(*p);
     return CLAP_PROCESS_CONTINUE;
 }
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->pendingParamValuesRescan.exchange(false,
+            std::memory_order_acq_rel)
+        && p->hostParams && p->hostParams->rescan) {
+        p->hostParams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES);
+    }
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_port_info_t* info)
@@ -446,72 +740,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 }
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
-    const auto p = self(plugin)->params;
-    switch (id) {
-    case kOrderParamId: *value = p.order; break;
-    case kVoicesParamId: *value = p.voices; break;
-    case kModeParamId: *value = static_cast<uint32_t>(p.mode); break;
-    case kBaseNoteParamId: *value = p.baseNote; break;
-    case kPitchSpreadParamId: *value = p.pitchSpreadSemitones; break;
-    case kTuneParamId: *value = p.tuneCents; break;
-    case kDetuneParamId: *value = p.detuneCents; break;
-    case kSkinParamId: *value = static_cast<uint32_t>(p.skin); break;
-    case kTerrainDepthParamId: *value = p.terrainDepth; break;
-    case kTerrainRoughnessParamId: *value = p.terrainRoughness; break;
-    case kTerrainFoldParamId: *value = p.terrainFold; break;
-    case kTerrainReliefParamId: *value = p.terrainRelief; break;
-    case kTraceParamId: *value = static_cast<uint32_t>(p.trace); break;
-    case kInterpretationParamId: *value = static_cast<uint32_t>(p.interpretation); break;
-    case kInterpretationMixParamId: *value = p.interpretationMix; break;
-    case kScanRadiusParamId: *value = p.scanRadius; break;
-    case kScanAspectParamId: *value = p.scanAspect; break;
-    case kScanRotationParamId: *value = p.scanRotation; break;
-    case kScanWarpParamId: *value = p.scanWarp; break;
-    case kSelectionParamId: *value = static_cast<uint32_t>(p.selection); break;
-    case kTransitionParamId: *value = static_cast<uint32_t>(p.transition); break;
-    case kFieldDensityParamId: *value = p.fieldDensity; break;
-    case kFieldDurationParamId: *value = p.fieldDurationSeconds; break;
-    case kFieldRestParamId: *value = p.fieldRestSeconds; break;
-    case kFieldContrastParamId: *value = p.fieldContrast; break;
-    case kSelectionMemoryParamId: *value = p.selectionMemory; break;
-    case kRegionDeviationParamId: *value = p.regionDeviation; break;
-    case kNeighborTransferParamId: *value = p.neighborTransfer; break;
-    case kMacroDurationParamId: *value = p.macroDurationSeconds; break;
-    case kTableXfadeParamId: *value = p.tableXfadeMs; break;
-    case kAttackParamId: *value = p.attackMs; break;
-    case kDecayParamId: *value = p.decayMs; break;
-    case kSustainParamId: *value = p.sustain; break;
-    case kReleaseParamId: *value = p.releaseMs; break;
-    case kAzimuthParamId: *value = p.centerAzimuthDeg; break;
-    case kElevationParamId: *value = p.centerElevationDeg; break;
-    case kDistanceParamId: *value = p.centerDistance; break;
-    case kSpatialSpreadParamId: *value = p.spatialSpread; break;
-    case kSpatialFollowParamId: *value = p.spatialFollow; break;
-    case kOutputParamId: *value = p.outputGainDb; break;
-    case kPitchModeParamId: *value = static_cast<uint32_t>(p.pitchMode); break;
-    case kMotionModeParamId: *value = static_cast<uint32_t>(p.motionMode); break;
-    case kAzimuthRateParamId: *value = p.azimuthRateRpm; break;
-    case kElevationRateParamId: *value = p.elevationRateRpm; break;
-    case kRotationDeviationParamId: *value = p.rotationRateDeviation; break;
-    case kPitchScaleParamId: *value = static_cast<uint32_t>(p.pitchScale); break;
-    case kTerrainFormParamId: *value = static_cast<uint32_t>(p.terrainForm); break;
-    case kTerrainFacetParamId: *value = p.terrainFacet; break;
-    case kTerrainBevelParamId: *value = p.terrainBevel; break;
-    case kTerrainOrientationParamId: *value = p.terrainOrientation; break;
-    case kTerrainTerraceParamId: *value = p.terrainTerrace; break;
-    case kTerrainTerraceStepsParamId: *value = p.terrainTerraceSteps; break;
-    case kTerrainRidgeParamId: *value = p.terrainRidge; break;
-    case kTerrainErosionParamId: *value = p.terrainErosion; break;
-    case kTerrainDomainWarpParamId: *value = p.terrainDomainWarp; break;
-    case kTerrainTwistParamId: *value = p.terrainTwist; break;
-    case kPolygonSidesParamId: *value = p.polygonSides; break;
-    case kPolygonRoundParamId: *value = p.polygonRound; break;
-    case kPolygonStarParamId: *value = p.polygonStar; break;
-    case kPolygonSkewParamId: *value = p.polygonSkew; break;
-    case kFieldListenModeParamId: *value = static_cast<uint32_t>(p.fieldListenMode); break;
-    default: return false;
-    }
+    if (!value || id < 1u || id > kParamCount) return false;
+    *value = publishedParamValue(*self(plugin), id);
     return true;
 }
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -617,14 +847,21 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) *value /= 180.0;
     return true;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+    serviceGuiParamEvents(*p, out);
+    readEvents(*p, in);
+    retryControlSnapshotPublication(*p);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const uint32_t version = kStateVersion;
-    const auto params = self(plugin)->params;
+    const auto params = publishedParamsSnapshot(*self(plugin));
     return writeExact(stream, &version, sizeof(version)) && writeExact(stream, &params, sizeof(params));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -651,9 +888,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &loaded, sizeof(loaded))) return false;
     } else return false;
     auto* p = self(plugin);
-    p->params = loaded;
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    if (p->active.load(std::memory_order_acquire)) {
+        if (!queueGuiState(*p, loaded)) return false;
+    } else {
+        p->params = loaded;
+        commitParams(*p);
+    }
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -888,8 +1128,11 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     double _viewElDeg;
     double _viewZoom;
     char _titlePresetName[64];
+    s3g::AmbiWaveTerrainParams _paramsSnapshot;
+    s3g::AmbiWaveTerrainEncoder _displayEngine;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
+- (void)refreshControlSnapshot;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 @end
@@ -903,6 +1146,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0;
         _dragView = NO; _viewDidDrag = NO; _pendingVoice = -1;
         _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0;
+        _paramsSnapshot = publishedParamsSnapshot(*plugin);
+        _displayEngine.prepare(plugin ? plugin->sampleRate : 48000.0);
+        _displayEngine.setParams(_paramsSnapshot);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
@@ -913,6 +1159,12 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 - (void)startRefreshTimer { if (!_timer) _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 30.0 target:self selector:@selector(timerTick:) userInfo:nil repeats:YES]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)timerTick:(NSTimer*)timer { (void)timer; [self setNeedsDisplay:YES]; }
+- (void)refreshControlSnapshot
+{
+    if (!_plugin) return;
+    _paramsSnapshot = publishedParamsSnapshot(*_plugin);
+    _displayEngine.setParams(_paramsSnapshot);
+}
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 500); }
 - (NSRect)fieldRect { return NSMakeRect(34, 78, 564, 442); }
@@ -964,7 +1216,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     // The rendered terrain is the complete spherical parameter domain.
     // SPACE and CENTER project that domain into the outgoing Ambisonic field;
     // applying them to the mesh itself leaves an open, apparently flat seam.
-    return _plugin->engine.terrainDomainPoint(u, v);
+    return _displayEngine.terrainDomainPoint(u, v);
 }
 - (s3g::AmbiWaveTerrainRegion)snapshotRegion:(uint32_t)voice next:(BOOL)next
 {
@@ -1008,7 +1260,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 
 - (std::array<float, 2>)contourUv:(s3g::AmbiWaveTerrainRegion)region phase:(float)phase
 {
-    return _plugin->engine.contourPoint(region, phase);
+    return _displayEngine.contourPoint(region, phase);
 }
 
 - (void)drawVoiceField:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1029,8 +1281,8 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         for (uint32_t lon = 0; lon < 32u; ++lon) {
             const float u0 = static_cast<float>(lon) / 32.0f, u1 = static_cast<float>(lon + 1u) / 32.0f;
             const float uc = (u0 + u1) * 0.5f, vc = (v0 + v1) * 0.5f;
-            const float h = _plugin->engine.terrainHeight(uc, vc);
-            const float visibleHeight = h * _plugin->params.terrainDepth * _plugin->params.terrainRelief;
+            const float h = _displayEngine.terrainHeight(uc, vc);
+            const float visibleHeight = h * _paramsSnapshot.terrainDepth * _paramsSnapshot.terrainRelief;
             const std::array<s3g::AmbiWaveTerrainPoint, 4> shell {
                 [self displaySurfacePointU:u0 v:v0],
                 [self displaySurfacePointU:u1 v:v0],
@@ -1056,7 +1308,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         [path setLineWidth:0.28];
         [path stroke];
     }
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWaveTerrainMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_paramsSnapshot.voices, 1u, s3g::kAmbiWaveTerrainMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u); _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
     for (int pass = 0; pass < 2; ++pass) {
         for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -1103,13 +1355,13 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     }
     [NSGraphicsContext restoreGraphicsState];
     NSString* voiceStatus = nil;
-    if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate) {
+    if (_paramsSnapshot.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate) {
         voiceStatus = [NSString stringWithFormat:@"VOICE %u  AZ %+.2f / EL %+.2f RPM", _selectedVoice + 1u,
-            static_cast<double>(_plugin->params.azimuthRateRpm), static_cast<double>(_plugin->params.elevationRateRpm)];
+            static_cast<double>(_paramsSnapshot.azimuthRateRpm), static_cast<double>(_paramsSnapshot.elevationRateRpm)];
     } else {
         voiceStatus = [NSString stringWithFormat:@"VOICE %u  %@ / %@", _selectedVoice + 1u,
-            [NSString stringWithUTF8String:s3g::ambiWaveTerrainSelectionName(_plugin->params.selection)],
-            [NSString stringWithUTF8String:s3g::ambiWaveTerrainTransitionName(_plugin->params.transition)]];
+            [NSString stringWithUTF8String:s3g::ambiWaveTerrainSelectionName(_paramsSnapshot.selection)],
+            [NSString stringWithUTF8String:s3g::ambiWaveTerrainTransitionName(_paramsSnapshot.transition)]];
     }
     [voiceStatus drawAtPoint:NSMakePoint(field.origin.x + 10, NSMaxY(field) - 20) withAttributes:attrs];
 }
@@ -1142,7 +1394,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     drawProfile(waveRect, false);
     [@"TOPOGRAPHY" drawAtPoint:NSMakePoint(terrainRect.origin.x + 8, terrainRect.origin.y + 5) withAttributes:attrs];
     [[NSString stringWithFormat:@"OSCILLATOR / %@   %.1f HZ   A -> B %.0f%%",
-        [NSString stringWithUTF8String:s3g::ambiWaveTerrainInterpretationName(_plugin->params.interpretation)],
+        [NSString stringWithUTF8String:s3g::ambiWaveTerrainInterpretationName(_paramsSnapshot.interpretation)],
         static_cast<double>(_plugin->guiFrequency[_selectedVoice].load(std::memory_order_relaxed)),
         static_cast<double>(transition * 100.0f)] drawAtPoint:NSMakePoint(waveRect.origin.x + 8, waveRect.origin.y + 5) withAttributes:attrs];
 }
@@ -1155,7 +1407,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 - (void)drawControls:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto layout = waveGuiLayout(
-        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+        _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
     const auto drawToolbox = [&](NSString* title, const s3g::gui_layout::Rect& rect) {
         s3g::clap_gui::drawPanelFrame(
             rect.x, rect.y, rect.width, rect.height, style);
@@ -1174,18 +1426,18 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     drawToolbox(@"ENVELOPE", layout.envelope);
     drawToolbox(@"PITCH / FIELD LISTEN", layout.pitchListen);
     drawToolbox(@"SCAN", layout.scan);
-    if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
+    if (_paramsSnapshot.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
         drawToolbox(@"SELECTION", layout.selection);
     }
     drawToolbox(
-        _plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate
+        _paramsSnapshot.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate
             ? @"ROTATION" : @"TIME FIELDS",
         layout.motion);
     drawToolbox(@"PROJECTION", layout.projection);
     for (const auto& row : kGuiRows) {
-        if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
+        if (!guiRowVisible(row, _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace)) continue;
         const CGFloat y = effectiveGuiRowY(
-            row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+            row, layout, _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
         NSString* label = [NSString stringWithUTF8String:row.label];
         if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
         else {
@@ -1251,9 +1503,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 {
     const GuiRow* row = guiRow(_openMenuParam); if (!row) return NSZeroRect;
     const auto layout = waveGuiLayout(
-        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+        _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
     const CGFloat rowY = effectiveGuiRowY(
-        *row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+        *row, layout, _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
     const uint32_t columns =
         _openMenuParam == kPitchScaleParamId ? 4u : 1u;
     const uint32_t rows = (_menuItemCount + columns - 1u) / columns;
@@ -1295,7 +1547,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 
 - (void)drawRect:(NSRect)dirty
 {
-    (void)dirty; const auto style = s3g::clap_gui::softTextStyle(); [style.bg setFill]; NSRectFill([self bounds]);
+    (void)dirty; [self refreshControlSnapshot]; const auto style = s3g::clap_gui::softTextStyle(); [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs(), *values = s3g::clap_gui::softValueAttrs(), *title = s3g::clap_gui::softTitleAttrs();
     s3g::clap_gui::drawEncoderTitleBand(
         @"s3g AMBI ENCODER WAVE TERRAIN",
@@ -1313,7 +1565,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     int best = -1;
     CGFloat distance = 12.0;
     const NSRect field = [self fieldRect];
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWaveTerrainMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_paramsSnapshot.voices, 1u, s3g::kAmbiWaveTerrainMaxVoices);
     for (uint32_t voice = 0; voice < voices; ++voice) {
         const auto region = [self activeRegion:voice];
         auto uv = [self contourUv:region phase:0.0f];
@@ -1345,22 +1597,22 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         ? s3g::aedAzimuthFromSliderNorm(static_cast<float>(norm))
         : def->min + norm * (def->max - def->min);
     if (def->stepped) value = std::round(value);
-    applyParam(*_plugin, param, value); [self setNeedsDisplay:YES];
+    queueGuiParamValue(*_plugin, param, value); [self setNeedsDisplay:YES];
 }
 - (void)mouseDown:(NSEvent*)event
 {
+    [self refreshControlSnapshot];
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(1158.0, 828.0);
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
-        const uint32_t order = _plugin->params.order;
-        const float output = _plugin->params.outputGainDb;
-        const auto listenMode = _plugin->params.fieldListenMode;
+        const uint32_t order = _paramsSnapshot.order;
+        const float output = _paramsSnapshot.outputGainDb;
+        const auto listenMode = _paramsSnapshot.fieldListenMode;
         auto initial = s3g::AmbiWaveTerrainParams {};
         initial.order = order;
         initial.outputGainDb = output;
         initial.fieldListenMode = listenMode;
-        _plugin->engine.setParams(initial);
-        _plugin->params = _plugin->engine.params();
+        if (!queueGuiState(*_plugin, initial)) NSBeep();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setNeedsDisplay:YES];
         return;
@@ -1393,22 +1645,24 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         auto randomUnit = [] {
             return static_cast<double>(arc4random()) / 4294967295.0;
         };
-        applyParam(*_plugin, kModeParamId, arc4random_uniform(3u));
-        applyParam(*_plugin, kBaseNoteParamId, 28.0 + randomUnit() * 36.0);
-        applyParam(*_plugin, kPitchSpreadParamId, 5.0 + randomUnit() * 34.0);
-        applyParam(*_plugin, kDetuneParamId, 2.0 + randomUnit() * 32.0);
-        applyParam(*_plugin, kSkinParamId, arc4random_uniform(8u));
-        applyParam(*_plugin, kTerrainDepthParamId, 0.24 + randomUnit() * 0.72);
-        applyParam(*_plugin, kTerrainRoughnessParamId, 0.08 + randomUnit() * 0.80);
-        applyParam(*_plugin, kTerrainFoldParamId, randomUnit() * 0.72);
-        applyParam(*_plugin, kTerrainReliefParamId, 0.18 + randomUnit() * 0.78);
-        applyParam(*_plugin, kTraceParamId, arc4random_uniform(5u));
-        applyParam(*_plugin, kInterpretationParamId, arc4random_uniform(9u));
-        applyParam(*_plugin, kPitchScaleParamId,
+        auto randomized = _paramsSnapshot;
+        (void)stageParam(randomized, kModeParamId, arc4random_uniform(3u));
+        (void)stageParam(randomized, kBaseNoteParamId, 28.0 + randomUnit() * 36.0);
+        (void)stageParam(randomized, kPitchSpreadParamId, 5.0 + randomUnit() * 34.0);
+        (void)stageParam(randomized, kDetuneParamId, 2.0 + randomUnit() * 32.0);
+        (void)stageParam(randomized, kSkinParamId, arc4random_uniform(8u));
+        (void)stageParam(randomized, kTerrainDepthParamId, 0.24 + randomUnit() * 0.72);
+        (void)stageParam(randomized, kTerrainRoughnessParamId, 0.08 + randomUnit() * 0.80);
+        (void)stageParam(randomized, kTerrainFoldParamId, randomUnit() * 0.72);
+        (void)stageParam(randomized, kTerrainReliefParamId, 0.18 + randomUnit() * 0.78);
+        (void)stageParam(randomized, kTraceParamId, arc4random_uniform(5u));
+        (void)stageParam(randomized, kInterpretationParamId, arc4random_uniform(9u));
+        (void)stageParam(randomized, kPitchScaleParamId,
             arc4random_uniform(s3g::kAmbiWaveTerrainPitchScaleCount));
-        applyParam(*_plugin, kSelectionParamId, arc4random_uniform(6u));
-        applyParam(*_plugin, kTransitionParamId, arc4random_uniform(3u));
-        applyParam(*_plugin, kMotionModeParamId, arc4random_uniform(2u));
+        (void)stageParam(randomized, kSelectionParamId, arc4random_uniform(6u));
+        (void)stageParam(randomized, kTransitionParamId, arc4random_uniform(3u));
+        (void)stageParam(randomized, kMotionModeParamId, arc4random_uniform(2u));
+        if (!queueGuiState(*_plugin, randomized)) NSBeep();
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
         [self setNeedsDisplay:YES];
         return;
@@ -1425,7 +1679,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
                         s3g::musicalScaleValueForMenuIndex(
                             static_cast<uint32_t>(hit - 1)) + 1u);
             }
-            applyParam(*_plugin, _openMenuParam, value);
+            queueGuiParamValue(*_plugin, _openMenuParam, value);
         }
         _openMenuParam = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
@@ -1440,18 +1694,18 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         return;
     }
     const auto layout = waveGuiLayout(
-        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+        _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
     for (const auto& row : kGuiRows) {
-        if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
+        if (!guiRowVisible(row, _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace)) continue;
         const CGFloat rowY = effectiveGuiRowY(
-            row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+            row, layout, _paramsSnapshot.motionMode, _terrainPage, _paramsSnapshot.trace);
         if (!NSPointInRect(point, NSMakeRect(row.panelX + 8, rowY - 8, 232, 24))) continue;
         if (row.menu) { _openMenuParam = row.param; int selected = 0; [self menuItems:row.param count:&_menuItemCount selected:&selected]; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; }
         else {
             double defaultValue = 0.0;
             if (s3g::clap_gui::sliderDoubleClickDefault(
                     event, &_plugin->plugin, row.param, &defaultValue)) {
-                applyParam(*_plugin, row.param, defaultValue);
+                queueGuiParamValue(*_plugin, row.param, defaultValue);
                 _dragParam = 0;
                 [self setNeedsDisplay:YES];
                 return;
@@ -1520,6 +1774,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
 void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin); if (!p || !p->guiView) return; [static_cast<S3GAmbiWaveTerrainEncoderView*>(p->guiView) stopRefreshTimer];
+    p->guiVisible.store(false, std::memory_order_release);
     s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
 }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
@@ -1536,8 +1791,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; [static_cast<S3GAmbiWaveTerrainEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<S3GAmbiWaveTerrainEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_release); [static_cast<S3GAmbiWaveTerrainEncoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_release); [static_cast<S3GAmbiWaveTerrainEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 } // namespace
@@ -1572,7 +1827,7 @@ const clap_plugin_descriptor_t descriptor {
 const clap_plugin_t* create(const clap_host_t* host)
 {
     auto* p = new (std::nothrow) Plugin(); if (!p) return nullptr; p->host = host;
-    p->engine.prepare(p->sampleRate); p->engine.setParams(p->params); p->params = p->engine.params(); snapshotGui(*p);
+    p->engine.prepare(p->sampleRate); p->engine.setParams(p->params); p->params = p->engine.params(); publishControlSnapshot(*p); snapshotGui(*p);
     p->plugin.desc = &descriptor; p->plugin.plugin_data = p; p->plugin.init = init; p->plugin.destroy = destroy;
     p->plugin.activate = activate; p->plugin.deactivate = deactivate; p->plugin.start_processing = startProcessing;
     p->plugin.stop_processing = stopProcessing; p->plugin.reset = reset; p->plugin.process = process;

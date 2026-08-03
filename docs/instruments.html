@@ -42,7 +42,7 @@
 
         <h2 id="routing">Routing</h2>
 
-        <p>Check the instrument's output format before inserting it. Processor No Input Mixer, Processor Fault, and the loop instruments use ordinary multichannel lanes; route them to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. Ambisonic instruments use a fixed 64-channel bus with the active order occupying the first <code>(order + 1)^2</code> channels; follow them with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</p>
+        <p>Check the instrument's output format before inserting it. Processor No Input Mixer, Processor Fault, and the loop instruments use ordinary multichannel lanes; route them to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. Ambisonic instruments use either a 16- or 64-channel host bus; the product page gives the required width. Ambi Encoder Modal can instead publish eight body stems. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels and should be followed by an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="s3gray-format.html">

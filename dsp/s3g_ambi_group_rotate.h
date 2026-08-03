@@ -49,6 +49,18 @@ inline AmbiGroupRotateParams sanitizeAmbiGroupRotateParams(AmbiGroupRotateParams
     return params;
 }
 
+inline bool ambiGroupRotateParamsEqual(const AmbiGroupRotateParams& a, const AmbiGroupRotateParams& b)
+{
+    return a.yawDeg == b.yawDeg
+        && a.pitchDeg == b.pitchDeg
+        && a.rollDeg == b.rollDeg
+        && a.spread == b.spread
+        && a.tilt == b.tilt
+        && a.twist == b.twist
+        && a.width == b.width
+        && a.outputGainDb == b.outputGainDb;
+}
+
 inline AmbiRotateParams ambiGroupRotateParamsForGroup(const AmbiGroupRotateParams& params, uint32_t group, uint32_t groups)
 {
     groups = std::max<uint32_t>(1u, groups);
@@ -83,7 +95,9 @@ public:
 
     void setParams(AmbiGroupRotateParams params)
     {
-        params_ = sanitizeAmbiGroupRotateParams(params);
+        const AmbiGroupRotateParams next = sanitizeAmbiGroupRotateParams(params);
+        if (ambiGroupRotateParamsEqual(params_, next)) return;
+        params_ = next;
         for (uint32_t group = 0; group < Groups; ++group) {
             processors_[group].setParams(ambiGroupRotateParamsForGroup(params_, group, Groups));
         }
@@ -132,7 +146,7 @@ public:
 
 private:
     AmbiGroupRotateParams params_ {};
-    std::array<AmbiRotateProcessor, Groups> processors_ {};
+    std::array<AmbiRotate3Processor, Groups> processors_ {};
 };
 
 } // namespace s3g

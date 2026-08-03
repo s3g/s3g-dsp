@@ -498,7 +498,14 @@ public:
     NodeTrackMixer() { setParams(params_); }
     void prepare(double sampleRate) { sampleRate_ = std::max(1000.0, sampleRate); (void)sampleRate_; }
     void reset() {}
-    void setParams(NodeTrackMixerParams params) { params_ = sanitizeNodeTrackMixerParams(params); rebuildWeights(); }
+    void setParams(NodeTrackMixerParams params)
+    {
+        const NodeTrackMixerParams next = sanitizeNodeTrackMixerParams(params);
+        const bool geometryChanged = !geometryReady_ || geometryAffectsRouting(params_, next);
+        params_ = next;
+        if (geometryChanged) rebuildGeometryWeights();
+        rebuildNodeWeights();
+    }
     const NodeTrackMixerParams& params() const { return params_; }
     const std::array<float, kNodeTrackMixerMaxNodes>& nodeWeights() const { return nodeWeights_; }
 
@@ -523,7 +530,7 @@ public:
                     const float sig = static_cast<float>(inputs[inCh][i]);
                     if (sig == 0.0f) continue;
                     for (uint32_t ch = 0; ch < outCh; ++ch) {
-                        const float w = weights_[node][sc][ch];
+                        const float w = geometryWeights_[node][sc][ch] * nodeWeights_[node];
                         if (w > 0.000001f && outputs[ch]) {
                             outputs[ch][i] += static_cast<Sample>(sig * w);
                         }
@@ -537,9 +544,36 @@ public:
     }
 
 private:
-    void rebuildWeights()
+    static bool nodeGeometryMatches(const NodeTrackNode& a, const NodeTrackNode& b)
     {
-        for (auto& node : weights_) for (auto& src : node) src.fill(0.0f);
+        return a.sourceLayout == b.sourceLayout
+            && a.sourceChannels == b.sourceChannels
+            && a.x == b.x
+            && a.y == b.y
+            && a.z == b.z
+            && a.scale == b.scale
+            && a.focus == b.focus
+            && a.rotateAzDeg == b.rotateAzDeg
+            && a.rotateElDeg == b.rotateElDeg;
+    }
+
+    static bool geometryAffectsRouting(const NodeTrackMixerParams& a,
+                                       const NodeTrackMixerParams& b)
+    {
+        if (a.outputLayout != b.outputLayout
+            || a.outputChannels != b.outputChannels
+            || a.nodeCount != b.nodeCount
+            || a.mixMode != b.mixMode) {
+            return true;
+        }
+        for (uint32_t node = 0; node < b.nodeCount; ++node) {
+            if (!nodeGeometryMatches(a.nodes[node], b.nodes[node])) return true;
+        }
+        return false;
+    }
+
+    void rebuildNodeWeights()
+    {
         nodeWeights_.fill(0.0f);
         const float out = nodeTrackDbToGain(params_.outputGainDb);
         std::array<float, kNodeTrackMixerMaxNodes> fieldWeights {};
@@ -569,39 +603,59 @@ private:
             const float level = nodeTrackDbToGain(n.levelDb);
             nodeWeights_[node] = ((1.0f - params_.cursorInfluence) * level
                 + params_.cursorInfluence * fieldWeights[node] * fieldScale) * out;
+        }
+    }
+
+    void rebuildGeometryWeights()
+    {
+        for (auto& node : geometryWeights_) {
+            for (auto& source : node) source.fill(0.0f);
+        }
+
+        const uint32_t outCh = std::min<uint32_t>(
+            params_.outputChannels, kNodeTrackMixerMaxChannels);
+        std::array<NodeTrackPoint, kNodeTrackMixerMaxChannels> destinations {};
+        for (uint32_t ch = 0; ch < outCh; ++ch) {
+            destinations[ch] = nodeTrackLayoutPoint(
+                ch, outCh, params_.outputLayout);
+        }
+
+        for (uint32_t node = 0; node < params_.nodeCount; ++node) {
+            const auto& n = params_.nodes[node];
             const uint32_t srcCh = std::min<uint32_t>(n.sourceChannels, kNodeTrackMixerMaxChannels);
-            const uint32_t outCh = std::min<uint32_t>(params_.outputChannels, kNodeTrackMixerMaxChannels);
             for (uint32_t sc = 0; sc < srcCh; ++sc) {
+                auto src = nodeTrackLayoutPoint(sc, srcCh, n.sourceLayout);
+                src = nodeTrackRotatePoint(src, n.rotateAzDeg, n.rotateElDeg);
+                if (params_.mixMode == NodeTrackMixMode::SpatialObjects) {
+                    src.x = n.x + src.x * n.scale;
+                    src.y = n.y + src.y * n.scale;
+                    src.z = n.z + src.z * n.scale;
+                }
                 float norm = 0.0f;
                 for (uint32_t ch = 0; ch < outCh; ++ch) {
-                    auto src = nodeTrackLayoutPoint(sc, srcCh, n.sourceLayout);
-                    src = nodeTrackRotatePoint(src, n.rotateAzDeg, n.rotateElDeg);
-                    if (params_.mixMode == NodeTrackMixMode::SpatialObjects) {
-                        src.x = n.x + src.x * n.scale;
-                        src.y = n.y + src.y * n.scale;
-                        src.z = n.z + src.z * n.scale;
-                    }
-                    const auto dst = nodeTrackLayoutPoint(ch, outCh, params_.outputLayout);
+                    const auto& dst = destinations[ch];
                     const float dx = dst.x - src.x;
                     const float dy = dst.y - src.y;
                     const float dz = dst.z - src.z;
                     const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
                     const float w = 1.0f / std::pow(std::max(0.0001f, dist), std::max(0.2f, n.focus));
-                    weights_[node][sc][ch] = w;
+                    geometryWeights_[node][sc][ch] = w;
                     norm += w * w;
                 }
                 norm = std::sqrt(std::max(0.0000000001f, norm));
                 for (uint32_t ch = 0; ch < outCh; ++ch) {
-                    weights_[node][sc][ch] = weights_[node][sc][ch] / norm * nodeWeights_[node];
+                    geometryWeights_[node][sc][ch] /= norm;
                 }
             }
         }
+        geometryReady_ = true;
     }
 
     double sampleRate_ = 48000.0;
     NodeTrackMixerParams params_ {};
     std::array<float, kNodeTrackMixerMaxNodes> nodeWeights_ {};
-    std::array<std::array<std::array<float, kNodeTrackMixerMaxChannels>, kNodeTrackMixerMaxChannels>, kNodeTrackMixerMaxNodes> weights_ {};
+    std::array<std::array<std::array<float, kNodeTrackMixerMaxChannels>, kNodeTrackMixerMaxChannels>, kNodeTrackMixerMaxNodes> geometryWeights_ {};
+    bool geometryReady_ = false;
 };
 
 } // namespace s3g

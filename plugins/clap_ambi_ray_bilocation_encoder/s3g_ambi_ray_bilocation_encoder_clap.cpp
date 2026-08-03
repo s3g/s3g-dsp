@@ -456,8 +456,11 @@ clap_process_status processTyped(Plugin& plugin,
     const uint32_t channels = std::min<uint32_t>(output.channel_count, kOutputChannels);
     for (uint32_t channel = 0u; channel < channels; ++channel) {
         if (!outputData[channel]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame)
-            peak = std::max(peak, static_cast<float>(std::abs(outputData[channel][frame])));
+        for (uint32_t frame = 0u; frame < frames; ++frame) {
+            const Sample value = s3g::flushDenormal(outputData[channel][frame]);
+            outputData[channel][frame] = value;
+            peak = std::max(peak, static_cast<float>(std::abs(value)));
+        }
     }
     const float previous = plugin.outputPeak.load(std::memory_order_relaxed);
     plugin.outputPeak.store(std::max(previous * 0.90f, peak), std::memory_order_relaxed);

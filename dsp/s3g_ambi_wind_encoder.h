@@ -102,16 +102,30 @@ struct AmbiWindVoiceOutput {
 struct AmbiWindSvf {
     float ic1eq = 0.0f;
     float ic2eq = 0.0f;
+    float a1 = 1.0f;
+    float a2 = 0.0f;
+    float a3 = 0.0f;
+    float lastCutoffHz = 0.0f;
+    float lastResonance = 0.0f;
+    uint32_t coefficientPhase = 0u;
 
     void reset()
     {
         ic1eq = 0.0f;
         ic2eq = 0.0f;
+        a1 = 1.0f;
+        a2 = 0.0f;
+        a3 = 0.0f;
+        lastCutoffHz = 0.0f;
+        lastResonance = 0.0f;
+        coefficientPhase = 0u;
     }
 
     bool healthy() const
     {
         return std::isfinite(ic1eq) && std::isfinite(ic2eq)
+            && std::isfinite(a1) && std::isfinite(a2) && std::isfinite(a3)
+            && std::isfinite(lastCutoffHz) && std::isfinite(lastResonance)
             && std::fabs(ic1eq) < 64.0f && std::fabs(ic2eq) < 64.0f;
     }
 
@@ -125,11 +139,21 @@ struct AmbiWindSvf {
 
         const float sr = std::max(1.0f, sampleRate);
         const float hz = clamp(cutoffHz, 6.0f, sr * 0.45f);
-        const float g = std::tan(kPi * hz / sr);
-        const float k = 2.0f - clamp(resonance, 0.0f, 1.0f) * 1.88f;
-        const float a1 = 1.0f / (1.0f + g * (g + k));
-        const float a2 = g * a1;
-        const float a3 = g * a2;
+        const float boundedResonance = clamp(resonance, 0.0f, 1.0f);
+        const float cutoffThreshold = std::max(12.0f, lastCutoffHz * 0.02f);
+        const bool refresh = coefficientPhase == 0u || lastCutoffHz <= 0.0f
+            || std::fabs(hz - lastCutoffHz) > cutoffThreshold
+            || std::fabs(boundedResonance - lastResonance) > 0.02f;
+        coefficientPhase = (coefficientPhase + 1u) & 15u;
+        if (refresh) {
+            const float g = std::tan(kPi * hz / sr);
+            const float k = 2.0f - boundedResonance * 1.88f;
+            a1 = 1.0f / (1.0f + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+            lastCutoffHz = hz;
+            lastResonance = boundedResonance;
+        }
         const float v3 = input - ic2eq;
         const float band = a1 * ic1eq + a2 * v3;
         const float low = ic2eq + a2 * ic1eq + a3 * v3;

@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <mutex>
 #include <new>
 
 namespace {
@@ -129,6 +130,49 @@ struct SavedStateV5 {
     std::array<s3g::LayoutPannerSpeaker, s3g::kLayoutPannerMaxSpeakers> speakers {};
 };
 
+struct PannerState {
+    s3g::LayoutPannerParams params {};
+    std::array<s3g::LayoutPannerSource, s3g::kLayoutPannerSources> sources {};
+    std::array<s3g::LayoutPannerSpeaker, s3g::kLayoutPannerMaxSpeakers> speakers {};
+    bool customSpeakersExplicit = true;
+    uint64_t revision = 0;
+};
+
+template <typename State>
+class SnapshotMailbox {
+public:
+    void initialize(const State& state) { for (auto& slot : slots_) slot.value = state; published_.store(0u, std::memory_order_release); }
+    bool publish(const State& state)
+    {
+        const uint32_t current = published_.load(std::memory_order_acquire);
+        for (uint32_t offset = 1u; offset < slots_.size(); ++offset) {
+            const uint32_t index = (current + offset) % static_cast<uint32_t>(slots_.size());
+            if (slots_[index].readers.load(std::memory_order_acquire) != 0u) continue;
+            slots_[index].value = state;
+            published_.store(index, std::memory_order_release);
+            return true;
+        }
+        return false;
+    }
+    void readLatest(State& state) const
+    {
+        for (;;) {
+            const uint32_t index = published_.load(std::memory_order_acquire);
+            slots_[index].readers.fetch_add(1u, std::memory_order_acq_rel);
+            if (index == published_.load(std::memory_order_acquire)) {
+                state = slots_[index].value;
+                slots_[index].readers.fetch_sub(1u, std::memory_order_release);
+                return;
+            }
+            slots_[index].readers.fetch_sub(1u, std::memory_order_release);
+        }
+    }
+private:
+    struct Slot { mutable std::atomic<uint32_t> readers { 0u }; State value {}; };
+    mutable std::array<Slot, 3> slots_ {};
+    std::atomic<uint32_t> published_ { 0u };
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -136,6 +180,13 @@ struct Plugin {
     uint32_t maxFrames = 0;
     s3g::LayoutPannerParams params {};
     s3g::LayoutPanner panner;
+    std::mutex controlMutex;
+    PannerState controlState {};
+    SnapshotMailbox<PannerState> controlToAudio;
+    SnapshotMailbox<PannerState> audioToControl;
+    std::atomic<uint64_t> controlPublishedRevision { 0u };
+    uint64_t audioRevision = 0;
+    std::atomic<bool> active { false };
     std::array<float, kInputChannels> frameIn {};
     std::array<float, kOutputChannels> frameOut {};
     std::atomic<float> outputPeak { 0.0f };
@@ -152,19 +203,30 @@ struct Plugin {
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
-void forceFixedMethod(Plugin& p)
+void forceFixedMethod(s3g::LayoutPannerParams& params)
 {
-    p.params.method = kFixedMethod;
-    if (menuIndexForLayoutPreset(static_cast<uint32_t>(p.params.layout)) == 0u
-        && p.params.layout != static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(0u))) {
-        p.params.layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
+    params.method = kFixedMethod;
+    if (menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)) == 0u
+        && params.layout != static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(0u))) {
+        params.layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
     }
 }
 
-void setSelectedSourceValue(Plugin& p, clap_id id, double value)
+PannerState stateFromPanner(const Plugin& p)
 {
-    const uint32_t index = p.params.selectedSource;
-    auto source = p.panner.source(index);
+    PannerState state;
+    state.params = p.panner.params();
+    state.sources = p.panner.sources();
+    state.speakers = p.panner.speakers();
+    state.customSpeakersExplicit = true;
+    state.revision = p.audioRevision;
+    return state;
+}
+
+void setSelectedSourceValue(PannerState& state, clap_id id, double value)
+{
+    const uint32_t index = std::min<uint32_t>(state.params.selectedSource, s3g::kLayoutPannerSources - 1u);
+    auto& source = state.sources[index];
     switch (id) {
     case kSelectedAzimuthParamId: source.azimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); break;
     case kSelectedElevationParamId: source.elevationDeg = static_cast<float>(std::clamp(value, -90.0, 90.0)); break;
@@ -172,15 +234,14 @@ void setSelectedSourceValue(Plugin& p, clap_id id, double value)
     case kSelectedGainParamId: source.gainDb = static_cast<float>(std::clamp(value, -60.0, 24.0)); break;
     default: break;
     }
-    p.panner.setSource(index, source);
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+void applyParamToState(PannerState& state, clap_id id, double value)
 {
     if (id >= kSourceParamBase && id < kSourceParamBase + s3g::kLayoutPannerSources * kSourceParamStride) {
         const uint32_t sourceIndex = static_cast<uint32_t>((id - kSourceParamBase) / kSourceParamStride);
         const uint32_t offset = static_cast<uint32_t>((id - kSourceParamBase) % kSourceParamStride);
-        auto source = p.panner.source(sourceIndex);
+        auto& source = state.sources[sourceIndex];
         switch (offset) {
         case kSourceAzOffset: source.azimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); break;
         case kSourceElOffset: source.elevationDeg = static_cast<float>(std::clamp(value, -90.0, 90.0)); break;
@@ -190,42 +251,85 @@ void applyParam(Plugin& p, clap_id id, double value)
         case kSourceSoloOffset: source.solo = value >= 0.5; break;
         default: break;
         }
-        p.panner.setSource(sourceIndex, source);
-        p.params.selectedSource = sourceIndex;
-        forceFixedMethod(p);
-        p.panner.setParams(p.params);
-        p.params = p.panner.params();
+        // Per-source automation may address inactive slots. Keep the public
+        // selection within the active range just as LayoutPanner::setParams()
+        // does on the audio path, so flush() and process() publish the same
+        // parameter state.
+        state.params.selectedSource = std::min<uint32_t>(
+            sourceIndex, std::max<uint32_t>(1u, state.params.activeSources) - 1u);
+        forceFixedMethod(state.params);
         return;
     }
 
     switch (id) {
-    case kLayoutParamId: p.params.layout = static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kLayoutCount - 1u))); break;
-    case kMethodParamId: p.params.method = kFixedMethod; break;
-    case kFocusParamId: p.params.focus = static_cast<float>(std::clamp(value, 0.25, 4.0)); break;
-    case kRolloffParamId: p.params.distanceRolloffDb = static_cast<float>(std::clamp(value, 0.0, 48.0)); break;
-    case kSmoothingParamId: p.params.smoothingMs = static_cast<float>(std::clamp(value, 1.0, 250.0)); break;
-    case kGlobalAzimuthParamId: p.params.globalAzimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); break;
-    case kGlobalElevationParamId: p.params.globalElevationDeg = static_cast<float>(std::clamp(value, -90.0, 90.0)); break;
-    case kGlobalDistanceParamId: p.params.globalDistanceOffset = static_cast<float>(std::clamp(value, -3.0, 3.0)); break;
-    case kDiffusionParamId: p.params.distanceDiffusion = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kInsideModeParamId: p.params.insideMode = static_cast<s3g::LayoutPannerInsideMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u)); break;
-    case kOutputParamId: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
-    case kSelectedSourceParamId: p.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, std::max<uint32_t>(1u, p.params.activeSources)) - 1u; break;
+    case kLayoutParamId: state.params.layout = static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kLayoutCount - 1u))); break;
+    case kMethodParamId: state.params.method = kFixedMethod; break;
+    case kFocusParamId: state.params.focus = static_cast<float>(std::clamp(value, 0.25, 4.0)); break;
+    case kRolloffParamId: state.params.distanceRolloffDb = static_cast<float>(std::clamp(value, 0.0, 48.0)); break;
+    case kSmoothingParamId: state.params.smoothingMs = static_cast<float>(std::clamp(value, 1.0, 250.0)); break;
+    case kGlobalAzimuthParamId: state.params.globalAzimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); break;
+    case kGlobalElevationParamId: state.params.globalElevationDeg = static_cast<float>(std::clamp(value, -90.0, 90.0)); break;
+    case kGlobalDistanceParamId: state.params.globalDistanceOffset = static_cast<float>(std::clamp(value, -3.0, 3.0)); break;
+    case kDiffusionParamId: state.params.distanceDiffusion = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kInsideModeParamId: state.params.insideMode = static_cast<s3g::LayoutPannerInsideMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u)); break;
+    case kOutputParamId: state.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
+    case kSelectedSourceParamId: state.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, std::max<uint32_t>(1u, state.params.activeSources)) - 1u; break;
     case kActiveSourcesParamId:
-        p.params.activeSources = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kLayoutPannerSources);
-        p.params.selectedSource = std::min<uint32_t>(p.params.selectedSource, p.params.activeSources - 1u);
+        state.params.activeSources = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kLayoutPannerSources);
+        state.params.selectedSource = std::min<uint32_t>(state.params.selectedSource, state.params.activeSources - 1u);
         break;
     case kSelectedAzimuthParamId:
     case kSelectedElevationParamId:
     case kSelectedDistanceParamId:
     case kSelectedGainParamId:
-        setSelectedSourceValue(p, id, value);
+        setSelectedSourceValue(state, id, value);
         break;
     default: break;
     }
-    forceFixedMethod(p);
-    p.panner.setParams(p.params);
-    p.params = p.panner.params();
+    forceFixedMethod(state.params);
+}
+
+void syncControlFromAudioLocked(Plugin& p)
+{
+    PannerState latest; p.audioToControl.readLatest(latest);
+    if (latest.revision >= p.controlState.revision) p.controlState = latest;
+}
+PannerState controlSnapshot(Plugin& p)
+{
+    std::lock_guard<std::mutex> lock(p.controlMutex); syncControlFromAudioLocked(p); return p.controlState;
+}
+void publishControlLocked(Plugin& p)
+{
+    ++p.controlState.revision;
+    if (p.controlToAudio.publish(p.controlState)) p.controlPublishedRevision.store(p.controlState.revision, std::memory_order_release);
+}
+void requestHostProcess(Plugin& p) { if (p.host && p.host->request_process) p.host->request_process(p.host); }
+void queueControlState(Plugin& p, PannerState state)
+{
+    {
+        std::lock_guard<std::mutex> lock(p.controlMutex); syncControlFromAudioLocked(p);
+        state.revision = p.controlState.revision; forceFixedMethod(state.params); p.controlState = state; publishControlLocked(p);
+    }
+    requestHostProcess(p);
+}
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    {
+        std::lock_guard<std::mutex> lock(p.controlMutex); syncControlFromAudioLocked(p);
+        applyParamToState(p.controlState, id, value); publishControlLocked(p);
+    }
+    requestHostProcess(p);
+}
+void applyStateToAudio(Plugin& p, const PannerState& state)
+{
+    p.params = state.params; forceFixedMethod(p.params); p.panner.setParams(p.params);
+    for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) p.panner.setSource(i, state.sources[i]);
+    if (state.params.layout == s3g::LayoutPannerPreset::Custom && state.customSpeakersExplicit) p.panner.setSpeakers(state.speakers, state.params.activeSpeakers);
+    p.panner.setParams(p.params); p.params = p.panner.params(); p.audioRevision = state.revision;
+}
+void publishAudioState(Plugin& p)
+{
+    p.audioToControl.publish(stateFromPanner(p));
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -248,28 +352,59 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
     p->panner.prepare(sampleRate);
-    forceFixedMethod(*p);
-    p->panner.setParams(p->params);
-    p->params = p->panner.params();
+    applyStateToAudio(*p, controlSnapshot(*p));
+    publishAudioState(*p);
+    p->active.store(true, std::memory_order_release);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin) { self(plugin)->active.store(false, std::memory_order_release); }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin) { self(plugin)->outputPeak.store(0.0f, std::memory_order_relaxed); }
 
-void readParamEvents(Plugin& p, const clap_input_events_t* in)
+bool readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
-    if (!in) return;
+    if (!in) return false;
+    PannerState state = stateFromPanner(p);
+    bool changed = false;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            applyParamToState(state, param->param_id, param->value);
+            changed = true;
         }
     }
+    if (changed) applyStateToAudio(p, state);
+    return changed;
+}
+void readControlParamEvents(Plugin& p, const clap_input_events_t* in)
+{
+    if (!in) return;
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(p.controlMutex); syncControlFromAudioLocked(p);
+        const uint32_t n = in->size(in);
+        for (uint32_t i = 0; i < n; ++i) {
+            const clap_event_header_t* ev = in->get(in, i);
+            if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
+                const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
+                applyParamToState(p.controlState, param->param_id, param->value); changed = true;
+            }
+        }
+        if (changed) {
+            // flush() runs here only while the plugin is inactive, so it is
+            // safe to canonicalize through the same panner path used by
+            // process(). This keeps derived source coordinates, generated
+            // speakers, and selection clamping identical in both paths.
+            applyStateToAudio(p, p.controlState);
+            p.controlState = stateFromPanner(p);
+            publishControlLocked(p);
+        }
+    }
+    if (changed) requestHostProcess(p);
 }
 
 float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
@@ -289,7 +424,13 @@ float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
-    readParamEvents(*p, proc->in_events);
+    bool stateChanged = false;
+    if (p->controlPublishedRevision.load(std::memory_order_acquire) > p->audioRevision) {
+        PannerState pending; p->controlToAudio.readLatest(pending);
+        if (pending.revision > p->audioRevision) { applyStateToAudio(*p, pending); stateChanged = true; }
+    }
+    stateChanged = readParamEvents(*p, proc->in_events) || stateChanged;
+    if (stateChanged) publishAudioState(*p);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) {
         return CLAP_PROCESS_CONTINUE;
     }
@@ -300,10 +441,6 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
         return CLAP_PROCESS_CONTINUE;
     }
-
-    forceFixedMethod(*p);
-    p->panner.setParams(p->params);
-    p->params = p->panner.params();
 
     const uint32_t inChannels = std::min<uint32_t>(input.channel_count, kInputChannels);
     const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
@@ -439,8 +576,9 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
     auto* p = self(plugin);
-    const auto params = p->panner.params();
-    const auto sources = p->panner.sources();
+    const auto state = controlSnapshot(*p);
+    const auto& params = state.params;
+    const auto& sources = state.sources;
     if (id >= kSourceParamBase && id < kSourceParamBase + s3g::kLayoutPannerSources * kSourceParamStride) {
         const uint32_t source = static_cast<uint32_t>((id - kSourceParamBase) / kSourceParamStride);
         const uint32_t offset = static_cast<uint32_t>((id - kSourceParamBase) % kSourceParamStride);
@@ -530,7 +668,20 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+{
+    auto* p = self(plugin);
+    if (p->active.load(std::memory_order_acquire)) {
+        if (p->controlPublishedRevision.load(std::memory_order_acquire) > p->audioRevision) {
+            PannerState pending;
+            p->controlToAudio.readLatest(pending);
+            if (pending.revision > p->audioRevision) applyStateToAudio(*p, pending);
+        }
+        if (readParamEvents(*p, in)) publishAudioState(*p);
+        return;
+    }
+    readControlParamEvents(*p, in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool writeStateBytes(const clap_ostream_t* stream, const void* source, size_t size)
@@ -564,9 +715,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     SavedState s;
     std::memset(&s, 0, sizeof(s));
     s.version = kStateVersion;
-    s.params = p->panner.params();
-    s.sources = p->panner.sources();
-    s.speakers = p->panner.speakers();
+    const auto state = controlSnapshot(*p);
+    s.params = state.params;
+    s.sources = state.sources;
+    s.speakers = state.speakers;
 #if defined(__APPLE__)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
@@ -623,15 +775,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     auto* p = self(plugin);
-    p->params = s.params;
-    forceFixedMethod(*p);
-    p->panner.setParams(p->params);
-    for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) p->panner.setSource(i, s.sources[i]);
-    if (s.params.layout == s3g::LayoutPannerPreset::Custom) {
-        p->panner.setSpeakers(s.speakers, s.params.activeSpeakers);
-    }
-    p->panner.setParams(p->params);
-    p->params = p->panner.params();
+    PannerState state;
+    state.params = s.params;
+    state.sources = s.sources;
+    state.speakers = s.speakers;
+    queueControlState(*p, state);
 #if defined(__APPLE__)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
     p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
@@ -861,7 +1009,7 @@ static clap_id lpSliderParamId(int slider)
     int selected = 0;
     if (_plugin) {
         auto* p = static_cast<Plugin*>(_plugin);
-        const auto params = p->panner.params();
+        const auto params = controlSnapshot(*p).params;
         if (_openMenu == 1) selected = static_cast<int>(menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)));
         else if (_openMenu == 3) selected = static_cast<int>(static_cast<uint32_t>(params.customShape));
         else if (_openMenu == 4) selected = static_cast<int>(static_cast<uint32_t>(params.insideMode));
@@ -929,7 +1077,7 @@ static clap_id lpSliderParamId(int slider)
     CGFloat layoutScale = 1.0;
     if (_plugin && _viewMode != 0 && _viewMode != 1) {
         auto* p = static_cast<Plugin*>(_plugin);
-        const auto layout = p->panner.params().layout;
+        const auto layout = controlSnapshot(*p).params.layout;
         if (layout == s3g::LayoutPannerPreset::Cube8 || layout == s3g::LayoutPannerPreset::Cube17) {
             layoutScale = 0.82;
         }
@@ -980,10 +1128,11 @@ static clap_id lpSliderParamId(int slider)
 - (void)drawField:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto params = p->panner.params();
-    const auto speakers = p->panner.speakers();
-    const auto sources = p->panner.sources();
-    const uint32_t n = p->panner.activeSpeakers();
+    const auto state = controlSnapshot(*p);
+    const auto& params = state.params;
+    const auto& speakers = state.speakers;
+    const auto& sources = state.sources;
+    const uint32_t n = params.activeSpeakers;
     [lpColor(0x111111) setFill];
     NSRectFill(rect);
     [style.grid setStroke];
@@ -1498,10 +1647,15 @@ static clap_id lpSliderParamId(int slider)
     [links setLineWidth:1.0];
     [links stroke];
 
+    s3g::LayoutPanner topologyPanner;
+    topologyPanner.prepare(48000.0);
+    topologyPanner.setParams(params);
+    if (params.layout == s3g::LayoutPannerPreset::Custom) topologyPanner.setSpeakers(speakers, params.activeSpeakers);
+    topologyPanner.setParams(params);
     auto drawVbapTriangulation = [&]() {
         std::array<s3g::LayoutPannerSolverSpeaker, s3g::kLayoutPannerMaxSolverSpeakers> solver {};
-        const uint32_t solverCount = p->panner.vbapSolverSpeakers(solver);
-        const auto topology = p->panner.vbapTopology(solver, solverCount);
+        const uint32_t solverCount = topologyPanner.vbapSolverSpeakers(solver);
+        const auto topology = topologyPanner.vbapTopology(solver, solverCount);
         std::array<NSPoint, s3g::kLayoutPannerMaxSolverSpeakers> solverPts {};
         for (uint32_t i = 0; i < solverCount; ++i) {
             if (solver[i].real && solver[i].realIndex < n) {
@@ -1617,8 +1771,9 @@ static clap_id lpSliderParamId(int slider)
 - (void)drawMixer:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto params = p->panner.params();
-    const auto sources = p->panner.sources();
+    const auto state = controlSnapshot(*p);
+    const auto& params = state.params;
+    const auto& sources = state.sources;
     constexpr uint32_t kMixerSourcesPerPage = 16;
     const uint32_t pageCount = std::max<uint32_t>(1u, (params.activeSources + kMixerSourcesPerPage - 1u) / kMixerSourcesPerPage);
     if (_mixerPage >= pageCount) _mixerPage = pageCount - 1u;
@@ -1708,16 +1863,18 @@ static clap_id lpSliderParamId(int slider)
 - (void)copyCurrentLayoutToCustom
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    p->panner.copyCurrentLayoutToCustom();
-    p->params = p->panner.params();
+    auto state = controlSnapshot(*p);
+    state.params.layout = s3g::LayoutPannerPreset::Custom;
+    queueControlState(*p, state);
     [self storeViewState];
     [self setNeedsDisplay:YES];
 }
 - (NSDictionary*)layoutJsonDictionary
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto params = p->panner.params();
-    const auto speakers = p->panner.speakers();
+    const auto state = controlSnapshot(*p);
+    const auto& params = state.params;
+    const auto& speakers = state.speakers;
     NSMutableArray* list = [NSMutableArray arrayWithCapacity:params.activeSpeakers];
     for (uint32_t i = 0; i < params.activeSpeakers; ++i) {
         const auto& sp = speakers[i];
@@ -1769,12 +1926,15 @@ static clap_id lpSliderParamId(int slider)
         speakers[i].distance = [[sp objectForKey:@"distance"] respondsToSelector:@selector(floatValue)] ? [[sp objectForKey:@"distance"] floatValue] : 1.0f;
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    p->panner.setSpeakers(speakers, count);
+    auto state = controlSnapshot(*p);
+    state.speakers = speakers;
+    state.params.layout = s3g::LayoutPannerPreset::Custom;
+    state.params.activeSpeakers = count;
     id shapeValue = [dict objectForKey:@"shape"];
     if ([shapeValue isKindOfClass:[NSString class]]) {
-        p->panner.setCustomShapeMetadata(lpShapeFromString(static_cast<NSString*>(shapeValue)));
+        state.params.customShape = lpShapeFromString(static_cast<NSString*>(shapeValue));
     }
-    p->params = p->panner.params();
+    queueControlState(*p, state);
     _page = 2;
     [self storeViewState];
     [self setNeedsDisplay:YES];
@@ -1836,8 +1996,9 @@ static clap_id lpSliderParamId(int slider)
         [self drawMixer:fieldRect attrs:small style:style];
     }
 
-    const auto params = p->panner.params();
-    const auto source = p->panner.source(params.selectedSource);
+    const auto state = controlSnapshot(*p);
+    const auto& params = state.params;
+    const auto& source = state.sources[params.selectedSource];
     const auto& outputPanel = family.output.frame;
     s3g::clap_gui::drawPanelFrame(outputPanel.x, outputPanel.y,
         outputPanel.width, outputPanel.height, style);
@@ -1864,7 +2025,7 @@ static clap_id lpSliderParamId(int slider)
         [self drawDesignButton:@"COPY" index:0 attrs:small];
         [self drawDesignButton:@"LOAD" index:1 attrs:small];
         [self drawDesignButton:@"SAVE" index:2 attrs:small];
-        const auto speaker = p->panner.speaker(params.selectedSpeaker);
+        const auto& speaker = state.speakers[params.selectedSpeaker];
         const CGFloat speakerNorm = params.activeSpeakers > 1u
             ? static_cast<CGFloat>(params.selectedSpeaker) / static_cast<CGFloat>(params.activeSpeakers - 1u)
             : 0.0;
@@ -1918,40 +2079,40 @@ static clap_id lpSliderParamId(int slider)
         return;
     }
     if (_page == 2) {
-        auto params = p->panner.params();
+        auto state = controlSnapshot(*p);
+        auto& params = state.params;
         switch (_dragSlider) {
         case 21:
             params.layout = s3g::LayoutPannerPreset::Custom;
             params.activeSpeakers = static_cast<uint32_t>(std::lround(2.0 + n * 62.0));
-            p->panner.setParams(params);
+            state.customSpeakersExplicit = false;
             break;
         case 24:
             params.selectedSpeaker = static_cast<uint32_t>(std::lround(1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSpeakers) - 1u))) - 1u;
-            p->panner.setParams(params);
             break;
         case 25: {
-            auto sp = p->panner.speaker(params.selectedSpeaker);
+            auto& sp = state.speakers[params.selectedSpeaker];
             sp.azimuthDeg = s3g::aedAzimuthFromSliderNorm(
                 static_cast<float>(n));
-            p->panner.setSpeaker(params.selectedSpeaker, sp);
+            params.layout = s3g::LayoutPannerPreset::Custom;
             break;
         }
         case 26: {
-            auto sp = p->panner.speaker(params.selectedSpeaker);
+            auto& sp = state.speakers[params.selectedSpeaker];
             sp.elevationDeg = static_cast<float>(-90.0 + n * 180.0);
-            p->panner.setSpeaker(params.selectedSpeaker, sp);
+            params.layout = s3g::LayoutPannerPreset::Custom;
             break;
         }
         case 27: {
-            auto sp = p->panner.speaker(params.selectedSpeaker);
+            auto& sp = state.speakers[params.selectedSpeaker];
             sp.distance = static_cast<float>(0.1 + n * 2.9);
-            p->panner.setSpeaker(params.selectedSpeaker, sp);
+            params.layout = s3g::LayoutPannerPreset::Custom;
             break;
         }
         default:
             break;
         }
-        p->params = p->panner.params();
+        queueControlState(*p, state);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1966,7 +2127,7 @@ static clap_id lpSliderParamId(int slider)
     case 9: applyParam(*p, kDiffusionParamId, n); break;
     case 10: applyParam(*p, kActiveSourcesParamId, 1.0 + n * static_cast<double>(s3g::kLayoutPannerSources - 1u)); break;
     case 11: {
-        const auto params = p->panner.params();
+        const auto params = controlSnapshot(*p).params;
         applyParam(*p, kSelectedSourceParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSources) - 1u));
         break;
     }
@@ -2003,11 +2164,11 @@ static clap_id lpSliderParamId(int slider)
             if (_openMenu == 1) {
                 applyParam(*p, kLayoutParamId, index);
             } else if (_openMenu == 3) {
-                auto params = p->panner.params();
-                params.layout = s3g::LayoutPannerPreset::Custom;
-                params.customShape = lpDesignShapeForMenuIndex(index);
-                p->panner.setParams(params);
-                p->params = p->panner.params();
+                auto state = controlSnapshot(*p);
+                state.params.layout = s3g::LayoutPannerPreset::Custom;
+                state.params.customShape = lpDesignShapeForMenuIndex(index);
+                state.customSpeakersExplicit = false;
+                queueControlState(*p, state);
             } else if (_openMenu == 4) {
                 applyParam(*p, kInsideModeParamId, index);
             }
@@ -2062,8 +2223,9 @@ static clap_id lpSliderParamId(int slider)
             }
         }
         if (_page == 2 && NSPointInRect(pt, fieldRect)) {
-            const auto params = p->panner.params();
-            const auto speakers = p->panner.speakers();
+            auto state = controlSnapshot(*p);
+            const auto& params = state.params;
+            const auto& speakers = state.speakers;
             CGFloat bestD = 999999.0;
             uint32_t best = params.selectedSpeaker;
             for (uint32_t i = 0; i < params.activeSpeakers; ++i) {
@@ -2074,10 +2236,8 @@ static clap_id lpSliderParamId(int slider)
                 if (d < bestD) { bestD = d; best = i; }
             }
             if (bestD < 18.0) {
-                auto next = params;
-                next.selectedSpeaker = best;
-                p->panner.setParams(next);
-                p->params = p->panner.params();
+                state.params.selectedSpeaker = best;
+                queueControlState(*p, state);
                 _dragSpeaker = YES;
                 [self setNeedsDisplay:YES];
                 return;
@@ -2088,8 +2248,9 @@ static clap_id lpSliderParamId(int slider)
             return;
         }
         if (_page == 0 && NSPointInRect(pt, fieldRect)) {
-            const auto params = p->panner.params();
-            const auto sources = p->panner.sources();
+            const auto state = controlSnapshot(*p);
+            const auto& params = state.params;
+            const auto& sources = state.sources;
             CGFloat bestD = 999999.0;
             uint32_t best = params.selectedSource;
             for (uint32_t i = 0; i < params.activeSources; ++i) {
@@ -2111,7 +2272,8 @@ static clap_id lpSliderParamId(int slider)
         }
     }
     if (_page == 1 && NSPointInRect(pt, fieldRect)) {
-        const auto params = p->panner.params();
+        const auto state = controlSnapshot(*p);
+        const auto& params = state.params;
         constexpr uint32_t kMixerSourcesPerPage = 16;
         const uint32_t pageCount = std::max<uint32_t>(1u, (params.activeSources + kMixerSourcesPerPage - 1u) / kMixerSourcesPerPage);
         if (_mixerPage >= pageCount) _mixerPage = pageCount - 1u;
@@ -2147,13 +2309,13 @@ static clap_id lpSliderParamId(int slider)
         for (uint32_t lane = 0; lane < visibleCount; ++lane) {
             const uint32_t i = pageStart + lane;
             if (NSPointInRect(pt, NSInsetRect([self mixerMuteRect:lane inRect:fieldRect], -4.0, -4.0))) {
-                const auto source = p->panner.source(i);
+                const auto& source = state.sources[i];
                 applyParam(*p, sourceParamId(i, kSourceMuteOffset), source.muted ? 0.0 : 1.0);
                 [self setNeedsDisplay:YES];
                 return;
             }
             if (NSPointInRect(pt, NSInsetRect([self mixerSoloRect:lane inRect:fieldRect], -4.0, -4.0))) {
-                const auto source = p->panner.source(i);
+                const auto& source = state.sources[i];
                 applyParam(*p, sourceParamId(i, kSourceSoloOffset), source.solo ? 0.0 : 1.0);
                 [self setNeedsDisplay:YES];
                 return;
@@ -2207,19 +2369,20 @@ static clap_id lpSliderParamId(int slider)
         for (int i = 0; i < 5; ++i) {
             if (NSPointInRect(pt, hitRects[i])) {
                 if ([event clickCount] >= 2) {
-                    auto next = p->panner.params();
-                    next.layout = s3g::LayoutPannerPreset::Custom;
-                    if (ids[i] == 21) next.activeSpeakers = s3g::LayoutPannerParams {}.activeSpeakers;
-                    else if (ids[i] == 24) next.selectedSpeaker = 0u;
-                    p->panner.setParams(next);
+                    auto state = controlSnapshot(*p);
+                    state.params.layout = s3g::LayoutPannerPreset::Custom;
+                    if (ids[i] == 21) {
+                        state.params.activeSpeakers = s3g::LayoutPannerParams {}.activeSpeakers;
+                        state.customSpeakersExplicit = false;
+                    }
+                    else if (ids[i] == 24) state.params.selectedSpeaker = 0u;
                     if (ids[i] >= 25 && ids[i] <= 27) {
-                        auto speaker = p->panner.speaker(next.selectedSpeaker);
+                        auto& speaker = state.speakers[state.params.selectedSpeaker];
                         if (ids[i] == 25) speaker.azimuthDeg = 0.0f;
                         else if (ids[i] == 26) speaker.elevationDeg = 0.0f;
                         else speaker.distance = 1.0f;
-                        p->panner.setSpeaker(next.selectedSpeaker, speaker);
                     }
-                    p->params = p->panner.params();
+                    queueControlState(*p, state);
                     _dragSlider = -1;
                     [self storeViewState];
                     [self setNeedsDisplay:YES];
@@ -2287,23 +2450,32 @@ static clap_id lpSliderParamId(int slider)
     }
     if (_dragSource) {
         const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
-        const auto prm = p->panner.params();
-        auto source = p->panner.source(prm.selectedSource);
+        auto state = controlSnapshot(*p);
+        const auto& prm = state.params;
+        auto& source = state.sources[prm.selectedSource];
         s3g::Vec3 v = [self worldFromPoint:pt rect:fieldRect previous:s3g::layoutPannerEffectiveSourcePosition(source, prm)];
-        p->panner.setSourcePosition(prm.selectedSource, s3g::layoutPannerRawSourcePositionFromEffectivePosition(v, prm));
-        p->params = p->panner.params();
+        const auto raw = s3g::layoutPannerRawSourcePositionFromEffectivePosition(v, prm);
+        source.x = raw.x; source.y = raw.y; source.z = raw.z;
+        s3g::layoutPannerSyncSourceAedFromPosition(source);
+        queueControlState(*p, state);
         [self setNeedsDisplay:YES];
         return;
     }
     if (_dragSpeaker) {
         const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
-        const auto prm = p->panner.params();
-        const auto sp = p->panner.speaker(prm.selectedSpeaker);
+        auto state = controlSnapshot(*p);
+        auto& prm = state.params;
+        auto& sp = state.speakers[prm.selectedSpeaker];
         const auto dir = s3g::directionFromAed(sp.azimuthDeg, sp.elevationDeg);
         const s3g::Vec3 previous { dir.x * sp.distance, dir.y * sp.distance, dir.z * sp.distance };
         s3g::Vec3 v = [self worldFromPoint:pt rect:fieldRect previous:previous];
-        p->panner.setSpeakerPosition(prm.selectedSpeaker, v);
-        p->params = p->panner.params();
+        const float distance = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        const float inv = 1.0f / std::max(0.000001f, distance);
+        sp.azimuthDeg = s3g::layoutPannerWrapDeg(std::atan2(v.y, v.x) * 180.0f / s3g::kPi);
+        sp.elevationDeg = s3g::clamp(std::asin(s3g::clamp(v.z * inv, -1.0f, 1.0f)) * 180.0f / s3g::kPi, -90.0f, 90.0f);
+        sp.distance = s3g::clamp(distance, 0.1f, 3.0f);
+        prm.layout = s3g::LayoutPannerPreset::Custom;
+        queueControlState(*p, state);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2386,9 +2558,13 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (!p) return nullptr;
     p->host = host;
     p->panner.prepare(48000.0);
-    forceFixedMethod(*p);
+    forceFixedMethod(p->params);
     p->panner.setParams(p->params);
     p->params = p->panner.params();
+    const auto initialState = stateFromPanner(*p);
+    p->controlState = initialState;
+    p->controlToAudio.initialize(initialState);
+    p->audioToControl.initialize(initialState);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

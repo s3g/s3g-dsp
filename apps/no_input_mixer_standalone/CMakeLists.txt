@@ -78,3 +78,36 @@ add_custom_target(audit_no_input_mixer_standalone
   DEPENDS s3g_no_input_mixer_standalone_smoke
   COMMENT "Checking embedded No Input Mixer standalone routing and state"
 )
+
+add_executable(s3g_no_input_mixer_coreaudio_diagnostic
+  s3g_no_input_mixer_coreaudio_diagnostic.cpp
+  s3g_no_input_mixer_standalone_engine.cpp
+  embed_no_input_mixer.mm
+  embed_nim_gesture.mm
+  embed_mc_to_stereo_autogain.mm
+  embed_mc_to_quad_autogain.mm
+)
+
+target_include_directories(s3g_no_input_mixer_coreaudio_diagnostic PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../standalone/host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../standalone/audio
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../plugins/common
+  ${S3G_CLAP_INCLUDE_DIR}
+)
+
+target_link_libraries(s3g_no_input_mixer_coreaudio_diagnostic PRIVATE
+  s3g_dsp
+  s3g_standalone_host
+  "-framework Cocoa"
+)
+
+# This audit path is intentionally device-enumeration only. A live AUHAL run
+# cannot be placed in an automatic build target because the diagnostic requires
+# an explicit device UID, duration, and --confirm-live-audio acknowledgement.
+add_custom_target(audit_no_input_mixer_coreaudio_devices
+  COMMAND $<TARGET_FILE:s3g_no_input_mixer_coreaudio_diagnostic>
+    --list-devices
+  DEPENDS s3g_no_input_mixer_coreaudio_diagnostic
+  COMMENT "Listing Core Audio outputs without opening a device"
+)

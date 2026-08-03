@@ -2,6 +2,7 @@
 #include "s3g_ambi_water_presets.h"
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_gui_param_queue.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -78,6 +79,12 @@ constexpr clap_id kSurfaceXParamId = 43;
 constexpr clap_id kSurfaceYParamId = 44;
 constexpr clap_id kFoamParamId = 45;
 constexpr clap_id kShoreParamId = 46;
+constexpr uint32_t kParamCount = 46u;
+constexpr clap_id kRandomizeActionId = CLAP_INVALID_ID - 1u;
+constexpr clap_id kApplySurfaceActionId = CLAP_INVALID_ID - 2u;
+constexpr clap_id kSetMetadataActionId = CLAP_INVALID_ID - 3u;
+constexpr clap_id kReplaceCustomStateActionId = CLAP_INVALID_ID - 4u;
+constexpr clap_id kReplaceSavedStateActionId = CLAP_INVALID_ID - 5u;
 
 using WaterSurface = s3g::ParameterSurfaceState<s3g::AmbiWaterParams>;
 
@@ -96,9 +103,23 @@ struct CustomPresetFile {
     s3g::AmbiWaterParams params {};
 };
 
+struct MetadataCommand {
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+
+struct ControlSnapshot {
+    s3g::AmbiWaterParams params {};
+    s3g::AmbiWaterParams effectiveParams {};
+    WaterSurface surface {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     s3g::AmbiWaterEncoder engine {};
     s3g::AmbiWaterParams params {};
@@ -111,10 +132,23 @@ struct Plugin {
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
     std::atomic<float> outputPeak { 0.0f };
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::SpscEventQueue<WaterSurface, 64u>
+        guiSurfaceCommands {};
+    s3g::clap_gui::SpscEventQueue<SavedState, 8u>
+        guiStateCommands {};
+    s3g::clap_gui::SpscEventQueue<MetadataCommand, 16u>
+        guiMetadataCommands {};
+    std::atomic_flag controlSnapshotLock = ATOMIC_FLAG_INIT;
+    ControlSnapshot publishedControl {};
+    std::atomic<bool> publishedParamsDirty { true };
+    std::atomic<bool> publishedSurfaceDirty { true };
+    std::atomic<bool> paramsRescanRequested { false };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
+    uint32_t guiTelemetryCountdown = 0u;
     int guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
@@ -155,12 +189,13 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
-bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* name)
+bool saveCustomPresetFile(const char* path,
+    const s3g::AmbiWaterParams& params, const char* name)
 {
     if (!path || !*path) return false;
     CustomPresetFile file {};
     std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
-    file.params = plugin.params;
+    file.params = params;
     FILE* handle = std::fopen(path, "wb");
     if (!handle) return false;
     const bool ok = std::fwrite(&file, 1, sizeof(file), handle) == sizeof(file);
@@ -242,7 +277,14 @@ constexpr const char* kFieldListenResponseNames[] = {
     "LEGACY", "ACCRETE", "SETTLE", "IMPRINT"
 };
 
-void applyEffectiveParams(Plugin& plugin);
+void applyEffectiveParams(Plugin& plugin, bool publish = true);
+void copyName(char* destination, size_t capacity, const char* source);
+void publishControlSnapshot(Plugin& plugin);
+void publishAllParams(Plugin& plugin);
+void publishSurfaceSnapshot(Plugin& plugin);
+void publishPresetMetadata(Plugin& plugin);
+void requestGuiParamService(Plugin& plugin);
+void requestParamsRescan(Plugin& plugin);
 
 void randomizeSafe(Plugin& plugin)
 {
@@ -385,10 +427,12 @@ void randomizeSafe(Plugin& plugin)
     plugin.randomSeed = seed;
     plugin.params = p;
     plugin.presetIndex = 0u;
-    std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
+    copyName(plugin.customPresetName,
+        sizeof(plugin.customPresetName), "Random");
     s3g::bypassParameterSurfaceForSceneChange(plugin.surface);
-    applyEffectiveParams(plugin);
+    applyEffectiveParams(plugin, false);
     plugin.engine.beginTransition();
+    publishControlSnapshot(plugin);
 }
 
 bool assignParam(s3g::AmbiWaterParams& params, clap_id id, double value)
@@ -450,6 +494,171 @@ bool assignParam(s3g::AmbiWaterParams& params, clap_id id, double value)
     case kShoreParamId: params.shore = static_cast<float>(value); return true;
     default: return false;
     }
+}
+
+bool paramValueFromParams(const s3g::AmbiWaterParams& params,
+    clap_id id, double& value)
+{
+    switch (id) {
+    case kOrderParamId: value = params.order; break;
+    case kVoicesParamId: value = params.voices; break;
+    case kWaterParamId: value = params.water; break;
+    case kFlowParamId: value = params.flow; break;
+    case kScaleParamId: value = params.scale; break;
+    case kTurbulenceParamId: value = params.turbulence; break;
+    case kAerationParamId: value = params.aeration; break;
+    case kSpreadParamId: value = params.spread; break;
+    case kDeviationParamId: value = params.deviation; break;
+    case kRegimeParamId: value = params.regime; break;
+    case kEnvironmentParamId: value = params.environment; break;
+    case kDropsParamId: value = params.drops; break;
+    case kSplashParamId: value = params.splash; break;
+    case kBubblesParamId: value = params.bubbles; break;
+    case kDensityParamId: value = params.density; break;
+    case kEventSizeParamId: value = params.eventSize; break;
+    case kEventDecayParamId: value = params.eventDecay; break;
+    case kDepthParamId: value = params.depth; break;
+    case kBrightnessParamId: value = params.brightness; break;
+    case kResonanceParamId: value = params.resonance; break;
+    case kDampingParamId: value = params.damping; break;
+    case kContactParamId: value = params.contact; break;
+    case kMotionRateParamId: value = params.motionRateHz; break;
+    case kCurrentParamId: value = params.current; break;
+    case kSlopeParamId: value = params.slope; break;
+    case kEddyParamId: value = params.eddy; break;
+    case kConvergenceParamId: value = params.convergence; break;
+    case kWidthParamId: value = params.width; break;
+    case kAzimuthParamId: value = params.centerAzimuthDeg; break;
+    case kElevationParamId: value = params.centerElevationDeg; break;
+    case kDistanceParamId: value = params.centerDistance; break;
+    case kSpatialFollowParamId: value = params.spatialFollow; break;
+    case kOutputParamId: value = params.outputGainDb; break;
+    case kPlaceParamId: value = params.place; break;
+    case kSpaceParamId: value = params.space; break;
+    case kEnvironmentSizeParamId: value = params.environmentSize; break;
+    case kEnvironmentDecayParamId: value = params.environmentDecay; break;
+    case kEnvironmentDampingParamId: value = params.environmentDamping; break;
+    case kFieldListenModeParamId: value = static_cast<uint32_t>(params.fieldListenMode); break;
+    case kFieldListenAmountParamId: value = params.fieldListenAmount; break;
+    case kFieldListenResponseParamId: value = static_cast<uint32_t>(params.fieldListenResponse); break;
+    case kSurfaceXParamId: value = params.surfaceX; break;
+    case kSurfaceYParamId: value = params.surfaceY; break;
+    case kFoamParamId: value = params.foam; break;
+    case kShoreParamId: value = params.shore; break;
+    default: return false;
+    }
+    return true;
+}
+
+void copyName(char* destination, size_t capacity, const char* source)
+{
+    if (!destination || capacity == 0u) return;
+    const char* safe = source ? source : "";
+    size_t index = 0u;
+    for (; index + 1u < capacity && safe[index] != '\0'; ++index) {
+        destination[index] = safe[index];
+    }
+    destination[index] = '\0';
+}
+
+void lockNonAudio(std::atomic_flag& lock)
+{
+    while (lock.test_and_set(std::memory_order_acquire)) {
+        // Fixed-size snapshots are only waited on by non-audio threads.
+    }
+}
+
+void publishControlSnapshot(Plugin& plugin)
+{
+    plugin.publishedParamsDirty.store(true, std::memory_order_release);
+    plugin.publishedSurfaceDirty.store(true, std::memory_order_release);
+    if (plugin.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    plugin.publishedControl.params = plugin.params;
+    plugin.publishedControl.effectiveParams = plugin.effectiveParams;
+    plugin.publishedControl.surface = plugin.surface;
+    plugin.publishedControl.presetIndex = plugin.presetIndex;
+    copyName(plugin.publishedControl.customPresetName,
+        sizeof(plugin.publishedControl.customPresetName),
+        plugin.customPresetName);
+    plugin.publishedParamsDirty.store(false, std::memory_order_release);
+    plugin.publishedSurfaceDirty.store(false, std::memory_order_release);
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void publishParamSnapshot(Plugin& plugin)
+{
+    plugin.publishedParamsDirty.store(true, std::memory_order_release);
+    if (plugin.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    plugin.publishedControl.params = plugin.params;
+    plugin.publishedControl.effectiveParams = plugin.effectiveParams;
+    plugin.publishedControl.presetIndex = plugin.presetIndex;
+    copyName(plugin.publishedControl.customPresetName,
+        sizeof(plugin.publishedControl.customPresetName),
+        plugin.customPresetName);
+    plugin.publishedParamsDirty.store(false, std::memory_order_release);
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void retryControlSnapshotPublication(Plugin& plugin)
+{
+    if (plugin.publishedSurfaceDirty.load(std::memory_order_acquire)) {
+        publishControlSnapshot(plugin);
+    } else if (plugin.publishedParamsDirty.load(std::memory_order_acquire)) {
+        publishParamSnapshot(plugin);
+    }
+}
+
+ControlSnapshot controlSnapshot(Plugin& plugin)
+{
+    lockNonAudio(plugin.controlSnapshotLock);
+    const auto result = plugin.publishedControl;
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+    return result;
+}
+
+void publishPresetMetadata(Plugin& plugin) { publishParamSnapshot(plugin); }
+void publishAllParams(Plugin& plugin) { publishParamSnapshot(plugin); }
+void publishEffectiveParams(Plugin& plugin) { publishParamSnapshot(plugin); }
+void publishSurfaceSnapshot(Plugin& plugin) { publishControlSnapshot(plugin); }
+
+double publishedParamValue(Plugin& plugin, clap_id id, bool effective)
+{
+    if (id < 1u || id > kParamCount) return 0.0;
+    const auto snapshot = controlSnapshot(plugin);
+    if (id == kPresetParamId) return snapshot.presetIndex;
+    double value = 0.0;
+    (void)paramValueFromParams(
+        effective ? snapshot.effectiveParams : snapshot.params,
+        id, value);
+    return value;
+}
+
+s3g::AmbiWaterParams publishedParamsSnapshot(
+    Plugin& plugin, bool effective = false)
+{
+    const auto snapshot = controlSnapshot(plugin);
+    return effective ? snapshot.effectiveParams : snapshot.params;
+}
+
+WaterSurface publishedSurfaceSnapshot(Plugin& plugin)
+{
+    return controlSnapshot(plugin).surface;
+}
+
+bool queueGuiSurface(Plugin& plugin, const WaterSurface& surface)
+{
+    if (plugin.guiSurfaceCommands.available() == 0u
+        || plugin.guiParamEvents.available() == 0u) return false;
+    if (!plugin.guiSurfaceCommands.push(surface)) return false;
+    const s3g::clap_gui::ParamEvent action {
+        s3g::clap_gui::ParamEventKind::Value,
+        kApplySurfaceActionId, 0.0
+    };
+    if (!plugin.guiParamEvents.push(action)) return false;
+    requestGuiParamService(plugin);
+    return true;
 }
 
 s3g::AmbiWaterParams waterSurfaceParams(
@@ -553,7 +762,7 @@ bool advanceSurfaceCursor(Plugin& plugin, float deltaSeconds)
         || std::fabs(nextY - currentY) > 1.0e-7f;
 }
 
-void applyEffectiveParams(Plugin& plugin)
+void applyEffectiveParams(Plugin& plugin, bool publish)
 {
     plugin.engine.setParameterSurfaceGlideMs(
         plugin.surface.enabled && plugin.surface.cellCount >= 2u
@@ -579,6 +788,7 @@ void applyEffectiveParams(Plugin& plugin)
         plugin.engine.clearParameterSurfaceVoiceMembership();
     }
     plugin.effectiveParams = plugin.engine.params();
+    if (publish) publishEffectiveParams(plugin);
 }
 
 void sanitizeWaterState(Plugin& plugin)
@@ -590,7 +800,8 @@ void sanitizeWaterState(Plugin& plugin)
         plugin.engine.setParams(plugin.surface.cells[index].params);
         plugin.surface.cells[index].params = plugin.engine.params();
     }
-    applyEffectiveParams(plugin);
+    applyEffectiveParams(plugin, false);
+    publishControlSnapshot(plugin);
 }
 
 void requestSurfaceProcess(Plugin& plugin)
@@ -608,15 +819,199 @@ void applyParam(Plugin& p, clap_id id, double value)
         const float outputGainDb = p.params.outputGainDb;
         p.params = s3g::ambiWaterFactoryPreset(p.presetIndex);
         p.params.outputGainDb = outputGainDb;
-        applyEffectiveParams(p);
+        applyEffectiveParams(p, false);
         p.engine.beginTransition();
+        publishControlSnapshot(p);
+        requestParamsRescan(p);
         return;
     }
     if (!assignParam(p.params, id, value)) return;
     applyEffectiveParams(p);
+    publishAllParams(p);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+void requestGuiParamService(Plugin& plugin)
+{
+    if (plugin.hostParams && plugin.hostParams->request_flush) {
+        plugin.hostParams->request_flush(plugin.host);
+    } else if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& plugin,
+    s3g::clap_gui::ParamEventKind kind, clap_id id, double value = 0.0)
+{
+    if (!plugin.guiParamEvents.push({ kind, id, value })) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+bool queueGuiParamValue(Plugin& plugin, clap_id id, double value)
+{
+    const std::array<s3g::clap_gui::ParamEvent, 3u> events {{
+        { s3g::clap_gui::ParamEventKind::GestureBegin, id, 0.0 },
+        { s3g::clap_gui::ParamEventKind::Value, id, value },
+        { s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 },
+    }};
+    if (!plugin.guiParamEvents.pushBatch(
+            events.data(), events.size())) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+bool queueGuiMetadata(Plugin& plugin, uint32_t presetIndex,
+    const char* customName)
+{
+    if (plugin.guiMetadataCommands.available() == 0u
+        || plugin.guiParamEvents.available() == 0u) return false;
+    MetadataCommand command {};
+    command.presetIndex = presetIndex;
+    copyName(command.customPresetName,
+        sizeof(command.customPresetName), customName);
+    if (!plugin.guiMetadataCommands.push(command)) return false;
+    const s3g::clap_gui::ParamEvent action {
+        s3g::clap_gui::ParamEventKind::Value,
+        kSetMetadataActionId, 0.0
+    };
+    if (!plugin.guiParamEvents.push(action)) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+bool queueGuiState(Plugin& plugin, const SavedState& state,
+    clap_id actionId)
+{
+    if (plugin.guiStateCommands.available() == 0u
+        || plugin.guiParamEvents.available() == 0u) return false;
+    if (!plugin.guiStateCommands.push(state)) return false;
+    const s3g::clap_gui::ParamEvent action {
+        s3g::clap_gui::ParamEventKind::Value, actionId, 0.0
+    };
+    if (!plugin.guiParamEvents.push(action)) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+void requestParamsRescan(Plugin& plugin)
+{
+    plugin.paramsRescanRequested.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_callback) {
+        plugin.host->request_callback(plugin.host);
+    }
+}
+
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (pending.paramId > kParamCount) return true;
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind
+            == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+bool applyPendingMetadata(Plugin& plugin)
+{
+    MetadataCommand command {};
+    if (!plugin.guiMetadataCommands.peek(command)) return false;
+    plugin.presetIndex = std::min<uint32_t>(command.presetIndex,
+        s3g::kAmbiWaterFactoryPresetCount - 1u);
+    copyName(plugin.customPresetName,
+        sizeof(plugin.customPresetName), command.customPresetName);
+    publishParamSnapshot(plugin);
+    plugin.guiMetadataCommands.pop();
+    return true;
+}
+
+bool applyPendingSurface(Plugin& plugin)
+{
+    WaterSurface surface {};
+    if (!plugin.guiSurfaceCommands.peek(surface)) return false;
+    s3g::sanitizeParameterSurface(surface);
+    plugin.surface = surface;
+    applyEffectiveParams(plugin, false);
+    publishControlSnapshot(plugin);
+    plugin.guiSurfaceCommands.pop();
+    return true;
+}
+
+bool applyPendingState(Plugin& plugin, bool notifyHost)
+{
+    SavedState state {};
+    if (!plugin.guiStateCommands.peek(state)) return false;
+    plugin.params = state.params;
+    plugin.surface = state.surface;
+    plugin.presetIndex = std::min<uint32_t>(state.presetIndex,
+        s3g::kAmbiWaterFactoryPresetCount - 1u);
+    copyName(plugin.customPresetName,
+        sizeof(plugin.customPresetName), state.customPresetName);
+    sanitizeWaterState(plugin);
+    plugin.engine.beginTransition();
+    plugin.guiStateCommands.pop();
+    if (notifyHost) requestParamsRescan(plugin);
+    return true;
+}
+
+void serviceGuiParamEvents(Plugin& plugin,
+    const clap_output_events_t* out)
+{
+    s3g::clap_gui::ParamEvent pending {};
+    while (plugin.guiParamEvents.peek(pending)) {
+        if (!pushGuiParamEvent(out, pending)) break;
+        bool consumed = true;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            if (pending.paramId == kRandomizeActionId) {
+                randomizeSafe(plugin);
+                requestParamsRescan(plugin);
+            } else if (pending.paramId == kApplySurfaceActionId) {
+                consumed = applyPendingSurface(plugin);
+            } else if (pending.paramId == kSetMetadataActionId) {
+                consumed = applyPendingMetadata(plugin);
+            } else if (pending.paramId == kReplaceCustomStateActionId) {
+                consumed = applyPendingState(plugin, true);
+            } else if (pending.paramId == kReplaceSavedStateActionId) {
+                consumed = applyPendingState(plugin, true);
+            } else {
+                applyParam(plugin, pending.paramId, pending.value);
+            }
+        }
+        if (!consumed) break;
+        plugin.guiParamEvents.pop();
+    }
+}
+
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 void destroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
@@ -658,13 +1053,34 @@ void reset(const clap_plugin_t* plugin)
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    bool paramsChanged = false;
+    bool presetChanged = false;
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            if (param->param_id == kPresetParamId) {
+                p.presetIndex = std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(param->value)), 0u,
+                    s3g::kAmbiWaterFactoryPresetCount - 1u);
+                p.customPresetName[0] = '\0';
+                const float outputGainDb = p.params.outputGainDb;
+                p.params = s3g::ambiWaterFactoryPreset(p.presetIndex);
+                p.params.outputGainDb = outputGainDb;
+                paramsChanged = true;
+                presetChanged = true;
+            } else {
+                paramsChanged |= assignParam(
+                    p.params, param->param_id, param->value);
+            }
         }
+    }
+    if (paramsChanged) {
+        applyEffectiveParams(p, false);
+        if (presetChanged) p.engine.beginTransition();
+        if (presetChanged) publishControlSnapshot(p);
+        else publishParamSnapshot(p);
     }
 }
 
@@ -672,11 +1088,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+    serviceGuiParamEvents(*p, proc->out_events);
+    retryControlSnapshotPublication(*p);
     if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
     const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
-    if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
     if (!output.data32 || outChannels == 0u) return CLAP_PROCESS_CONTINUE;
 
     constexpr uint32_t kSurfaceControlFrames = 64u;
@@ -711,32 +1128,53 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->effectiveParams = p->engine.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
-    float peak = 0.0f;
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) {
-        if (!output.data32[ch]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) peak = std::max(peak, std::fabs(output.data32[ch][frame]));
-    }
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
-    const uint32_t voices = std::min<uint32_t>(
-        p->engine.processingVoiceCount(), s3g::kAmbiWaterMaxVoices);
-    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
-    for (uint32_t voice = 0u; voice < voices; ++voice) {
-        const auto point = p->engine.voicePoint(voice);
-        p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
-        p->guiElevation[voice].store(point.elevationDeg, std::memory_order_relaxed);
-        p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
-        p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
-        p->guiEvent[voice].store(p->engine.voiceEventLevel(voice), std::memory_order_relaxed);
-        p->guiRenderGain[voice].store(
-            p->engine.voiceRenderGain(voice),
+    const bool guiIsVisible = p->guiVisible.load(std::memory_order_acquire);
+    if (guiIsVisible && p->guiTelemetryCountdown <= frames) {
+        float peak = 0.0f;
+        for (uint32_t ch = 0u; ch < outChannels; ++ch) {
+            if (!output.data32[ch]) continue;
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                peak = std::max(peak, std::fabs(output.data32[ch][frame]));
+            }
+        }
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
             std::memory_order_relaxed);
+        const uint32_t voices = std::min<uint32_t>(
+            p->engine.processingVoiceCount(), s3g::kAmbiWaterMaxVoices);
+        p->guiVoiceCount.store(voices, std::memory_order_relaxed);
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
+            const auto point = p->engine.voicePoint(voice);
+            p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
+            p->guiElevation[voice].store(point.elevationDeg, std::memory_order_relaxed);
+            p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
+            p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
+            p->guiEvent[voice].store(p->engine.voiceEventLevel(voice), std::memory_order_relaxed);
+            p->guiRenderGain[voice].store(
+                p->engine.voiceRenderGain(voice),
+                std::memory_order_relaxed);
+        }
+        p->guiTelemetryCountdown = std::max<uint32_t>(
+            1u, static_cast<uint32_t>(p->sampleRate / 30.0));
+    } else if (guiIsVisible) {
+        p->guiTelemetryCountdown -= frames;
+    } else {
+        p->guiTelemetryCountdown = 0u;
     }
 #endif
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (!p->paramsRescanRequested.exchange(
+            false, std::memory_order_acq_rel)) return;
+    if (p->hostParams && p->hostParams->rescan) {
+        p->hostParams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES);
+    }
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 
@@ -875,60 +1313,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
-    auto* p = self(plugin);
-    const auto params = p->params;
-    switch (id) {
-    case kPresetParamId: *value = p->presetIndex; return true;
-    case kOrderParamId: *value = params.order; return true;
-    case kVoicesParamId: *value = params.voices; return true;
-    case kWaterParamId: *value = params.water; return true;
-    case kFlowParamId: *value = params.flow; return true;
-    case kScaleParamId: *value = params.scale; return true;
-    case kTurbulenceParamId: *value = params.turbulence; return true;
-    case kAerationParamId: *value = params.aeration; return true;
-    case kSpreadParamId: *value = params.spread; return true;
-    case kDeviationParamId: *value = params.deviation; return true;
-    case kRegimeParamId: *value = params.regime; return true;
-    case kEnvironmentParamId: *value = params.environment; return true;
-    case kDropsParamId: *value = params.drops; return true;
-    case kSplashParamId: *value = params.splash; return true;
-    case kBubblesParamId: *value = params.bubbles; return true;
-    case kDensityParamId: *value = params.density; return true;
-    case kEventSizeParamId: *value = params.eventSize; return true;
-    case kEventDecayParamId: *value = params.eventDecay; return true;
-    case kDepthParamId: *value = params.depth; return true;
-    case kBrightnessParamId: *value = params.brightness; return true;
-    case kResonanceParamId: *value = params.resonance; return true;
-    case kDampingParamId: *value = params.damping; return true;
-    case kContactParamId: *value = params.contact; return true;
-    case kMotionRateParamId: *value = params.motionRateHz; return true;
-    case kCurrentParamId: *value = params.current; return true;
-    case kSlopeParamId: *value = params.slope; return true;
-    case kEddyParamId: *value = params.eddy; return true;
-    case kConvergenceParamId: *value = params.convergence; return true;
-    case kWidthParamId: *value = params.width; return true;
-    case kAzimuthParamId: *value = params.centerAzimuthDeg; return true;
-    case kElevationParamId: *value = params.centerElevationDeg; return true;
-    case kDistanceParamId: *value = params.centerDistance; return true;
-    case kSpatialFollowParamId: *value = params.spatialFollow; return true;
-    case kOutputParamId: *value = params.outputGainDb; return true;
-    case kPlaceParamId: *value = params.place; return true;
-    case kSpaceParamId: *value = params.space; return true;
-    case kEnvironmentSizeParamId: *value = params.environmentSize; return true;
-    case kEnvironmentDecayParamId: *value = params.environmentDecay; return true;
-    case kEnvironmentDampingParamId: *value = params.environmentDamping; return true;
-    case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
-    case kFieldListenAmountParamId: *value = params.fieldListenAmount; return true;
-    case kFieldListenResponseParamId:
-        *value = static_cast<uint32_t>(params.fieldListenResponse);
-        return true;
-    case kSurfaceXParamId: *value = params.surfaceX; return true;
-    case kSurfaceYParamId: *value = params.surfaceY; return true;
-    case kFoamParamId: *value = params.foam; return true;
-    case kShoreParamId: *value = params.shore; return true;
-    default: return false;
-    }
+    if (!value || id < 1u || id > kParamCount) return false;
+    *value = publishedParamValue(*self(plugin), id, false);
+    return true;
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -1048,19 +1435,28 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+    serviceGuiParamEvents(*p, out);
+    readParamEvents(*p, in);
+    retryControlSnapshotPublication(*p);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
+    const auto snapshot = controlSnapshot(*p);
     SavedState state {};
     state.version = kStateVersion;
-    state.params = p->params;
-    state.presetIndex = p->presetIndex;
-    std::snprintf(state.customPresetName, sizeof(state.customPresetName), "%s", p->customPresetName);
-    state.surface = p->surface;
+    state.params = snapshot.params;
+    state.presetIndex = snapshot.presetIndex;
+    copyName(state.customPresetName,
+        sizeof(state.customPresetName), snapshot.customPresetName);
+    state.surface = snapshot.surface;
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -1070,14 +1466,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0u;
     if (!readExact(stream, &version, sizeof(version))) return false;
     auto* p = self(plugin);
+    SavedState loaded {};
+    loaded.version = kStateVersion;
     if (version == kStateVersion) {
         SavedState state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(state.version), sizeof(state) - sizeof(state.version))) return false;
-        p->params = state.params;
-        p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", state.customPresetName);
-        p->surface = state.surface;
+        loaded = state;
     } else if (version == 5u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1086,9 +1481,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &params, legacyParamsSize)
             || !readExact(stream, &presetIndex, sizeof(presetIndex))
             || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
-        p->params = params;
-        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", customPresetName);
+        loaded.params = params;
+        loaded.presetIndex = presetIndex;
+        copyName(loaded.customPresetName,
+            sizeof(loaded.customPresetName), customPresetName);
     } else if (version == 4u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1098,11 +1494,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &params, legacyParamsSize)
             || !readExact(stream, &presetIndex, sizeof(presetIndex))
             || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
-        p->params = params;
-        p->presetIndex = std::min<uint32_t>(
-            presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName,
-            sizeof(p->customPresetName), "%s", customPresetName);
+        loaded.params = params;
+        loaded.presetIndex = presetIndex;
+        copyName(loaded.customPresetName,
+            sizeof(loaded.customPresetName), customPresetName);
     } else if (version == 3u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1111,9 +1506,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &params, legacyParamsSize)
             || !readExact(stream, &presetIndex, sizeof(presetIndex))
             || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
-        p->params = params;
-        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", customPresetName);
+        loaded.params = params;
+        loaded.presetIndex = presetIndex;
+        copyName(loaded.customPresetName,
+            sizeof(loaded.customPresetName), customPresetName);
     } else if (version == 2u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1122,9 +1518,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &params, legacyParamsSize)
             || !readExact(stream, &presetIndex, sizeof(presetIndex))
             || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
-        p->params = params;
-        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", customPresetName);
+        loaded.params = params;
+        loaded.presetIndex = presetIndex;
+        copyName(loaded.customPresetName,
+            sizeof(loaded.customPresetName), customPresetName);
     } else if (version == 1u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1133,14 +1530,28 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, &params, legacyParamsSize)
             || !readExact(stream, &presetIndex, sizeof(presetIndex))
             || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
-        p->params = params;
-        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
-        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", customPresetName);
+        loaded.params = params;
+        loaded.presetIndex = presetIndex;
+        copyName(loaded.customPresetName,
+            sizeof(loaded.customPresetName), customPresetName);
     } else {
         return false;
     }
-    sanitizeWaterState(*p);
-    p->engine.beginTransition();
+    loaded.presetIndex = std::min<uint32_t>(loaded.presetIndex,
+        s3g::kAmbiWaterFactoryPresetCount - 1u);
+    s3g::sanitizeParameterSurface(loaded.surface);
+    if (p->active.load(std::memory_order_acquire)) {
+        if (!queueGuiState(*p, loaded,
+                kReplaceSavedStateActionId)) return false;
+    } else {
+        p->params = loaded.params;
+        p->presetIndex = loaded.presetIndex;
+        copyName(p->customPresetName,
+            sizeof(p->customPresetName), loaded.customPresetName);
+        p->surface = loaded.surface;
+        sanitizeWaterState(*p);
+        p->engine.beginTransition();
+    }
     return true;
 }
 
@@ -1272,8 +1683,14 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     NSPanel* _surfacePanel;
     S3GAmbiWaterEncoderView* _surfacePopupView;
     NSClipView* _surfacePopupClip;
+    s3g::AmbiWaterParams _paramsSnapshot;
+    s3g::AmbiWaterParams _displayParamsSnapshot;
+    WaterSurface _surfaceSnapshot;
+    uint32_t _presetIndexSnapshot;
+    char _customPresetNameSnapshot[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
+- (void)refreshControlSnapshot;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)openSurfacePopup;
@@ -1310,6 +1727,14 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         _surfacePanel = nil;
         _surfacePopupView = nil;
         _surfacePopupClip = nil;
+        const auto snapshot = controlSnapshot(*plugin);
+        _paramsSnapshot = snapshot.params;
+        _displayParamsSnapshot = snapshot.effectiveParams;
+        _surfaceSnapshot = snapshot.surface;
+        _presetIndexSnapshot = snapshot.presetIndex;
+        copyName(_customPresetNameSnapshot,
+            sizeof(_customPresetNameSnapshot),
+            snapshot.customPresetName);
         [self setWantsLayer:YES];
     }
     return self;
@@ -1350,6 +1775,19 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     (void)timer;
     [self setNeedsDisplay:YES];
+}
+
+- (void)refreshControlSnapshot
+{
+    if (!_plugin) return;
+    const auto snapshot = controlSnapshot(*_plugin);
+    _paramsSnapshot = snapshot.params;
+    _displayParamsSnapshot = snapshot.effectiveParams;
+    _surfaceSnapshot = snapshot.surface;
+    _presetIndexSnapshot = snapshot.presetIndex;
+    copyName(_customPresetNameSnapshot,
+        sizeof(_customPresetNameSnapshot),
+        snapshot.customPresetName);
 }
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 608); }
@@ -1588,8 +2026,12 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [panel setNameFieldStringValue:[NSString stringWithFormat:@"%@.s3gwater", [self presetDisplayName]]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString* name = [[[[panel URL] lastPathComponent] stringByDeletingPathExtension] copy];
-    if (saveCustomPresetFile([[[panel URL] path] UTF8String], *_plugin, [name UTF8String])) {
-        std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s", [name UTF8String]);
+    if (saveCustomPresetFile([[[panel URL] path] UTF8String],
+            _paramsSnapshot, [name UTF8String])) {
+        (void)queueGuiMetadata(*_plugin, _presetIndexSnapshot,
+            [name UTF8String]);
+        std::snprintf(_customPresetNameSnapshot,
+            sizeof(_customPresetNameSnapshot), "%s", [name UTF8String]);
     }
     [name release];
     [self setNeedsDisplay:YES];
@@ -1609,11 +2051,26 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if ([panel runModal] != NSModalResponseOK) return;
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return;
-    file.params.outputGainDb = _plugin->params.outputGainDb;
-    _plugin->params = file.params;
-    applyEffectiveParams(*_plugin);
-    _plugin->engine.beginTransition();
-    std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s", file.name[0] ? file.name : "Custom");
+    file.params.outputGainDb = _paramsSnapshot.outputGainDb;
+    SavedState state {};
+    state.params = file.params;
+    state.surface = _surfaceSnapshot;
+    s3g::bypassParameterSurfaceForSceneChange(state.surface);
+    state.presetIndex = 0u;
+    copyName(state.customPresetName,
+        sizeof(state.customPresetName),
+        file.name[0] ? file.name : "Custom");
+    if (!queueGuiState(*_plugin, state,
+            kReplaceCustomStateActionId)) {
+        NSBeep();
+        return;
+    }
+    _surfaceSnapshot = state.surface;
+    _paramsSnapshot = file.params;
+    _presetIndexSnapshot = 0u;
+    std::snprintf(_customPresetNameSnapshot,
+        sizeof(_customPresetNameSnapshot), "%s",
+        file.name[0] ? file.name : "Custom");
     [self setNeedsDisplay:YES];
 }
 
@@ -1639,10 +2096,10 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         field.size.width, 28.0);
     static NSString* labels[] = { @"PLAY", @"ON", @"ADD", @"DEL", @"CAP", @"POP" };
     labels[0] = _surfaceEdit ? @"EDIT" : @"PLAY";
-    labels[1] = _plugin->surface.enabled ? @"ON" : @"OFF";
+    labels[1] = _surfaceSnapshot.enabled ? @"ON" : @"OFF";
     for (int index = 0; index < 6; ++index) {
         const BOOL active = (index == 0 && _surfaceEdit)
-            || (index == 1 && _plugin->surface.enabled)
+            || (index == 1 && _surfaceSnapshot.enabled)
             || (index == 5 && (_surfacePopupChild || [_surfacePanel isVisible]));
         s3g::clap_gui::drawHeaderButton([self surfaceButtonRect:index],
             header, labels[index], active, attrs, style);
@@ -1651,7 +2108,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [style.strip setFill]; NSRectFill(curve);
     [style.grid setStroke]; NSFrameRect(curve);
     [[NSString stringWithFormat:@"CURVE  %s",
-        s3g::parameterSurfaceCurveName(_plugin->surface.curve)]
+        s3g::parameterSurfaceCurveName(_surfaceSnapshot.curve)]
         drawAtPoint:NSMakePoint(curve.origin.x + 5.0, curve.origin.y + 2.0)
         withAttributes:valueAttrs];
     [@"FOCUS" drawAtPoint:NSMakePoint(field.origin.x + 122.0,
@@ -1660,7 +2117,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         @"-", false, attrs, style);
     s3g::clap_gui::drawHeaderButton([self surfaceFocusRect:1], header,
         @"+", false, attrs, style);
-    [[NSString stringWithFormat:@"%.2f", _plugin->surface.focus]
+    [[NSString stringWithFormat:@"%.2f", _surfaceSnapshot.focus]
         drawAtPoint:NSMakePoint(field.origin.x + 222.0, field.origin.y + 40.0)
         withAttributes:valueAttrs];
     [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 280.0,
@@ -1669,8 +2126,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         @"-", false, attrs, style);
     s3g::clap_gui::drawHeaderButton([self surfaceGlideRect:1], header,
         @"+", false, attrs, style);
-    NSString* glide = _plugin->surface.glideMs < 0.5f ? @"OFF"
-        : [NSString stringWithFormat:@"%.0f MS", _plugin->surface.glideMs];
+    NSString* glide = _surfaceSnapshot.glideMs < 0.5f ? @"OFF"
+        : [NSString stringWithFormat:@"%.0f MS", _surfaceSnapshot.glideMs];
     [glide drawAtPoint:NSMakePoint(field.origin.x + 388.0,
         field.origin.y + 40.0) withAttributes:valueAttrs];
     const NSRect plot = [self surfacePlotRect];
@@ -1678,20 +2135,20 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         std::memory_order_acquire);
     const float effectiveX = audioActive
         ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
-        : _plugin->params.surfaceX;
+        : _paramsSnapshot.surfaceX;
     const float effectiveY = audioActive
         ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
-        : _plugin->params.surfaceY;
-    s3g::clap_gui::drawParameterSurfaceVoronoi(_plugin->surface, plot,
+        : _paramsSnapshot.surfaceY;
+    s3g::clap_gui::drawParameterSurfaceVoronoi(_surfaceSnapshot, plot,
         effectiveX, effectiveY,
         _selectedSurfaceCell, valueAttrs,
-        _plugin->params.surfaceX, _plugin->params.surfaceY);
+        _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY);
     [[NSString stringWithFormat:@"T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
-        _plugin->params.surfaceX, _plugin->params.surfaceY,
+        _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY,
         effectiveX, effectiveY,
-        _plugin->surface.cellCount,
-        _plugin->surface.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
-            (_plugin->surface.enabled ? @"INTERPOLATING" : @"BYPASSED")]
+        _surfaceSnapshot.cellCount,
+        _surfaceSnapshot.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
+            (_surfaceSnapshot.enabled ? @"INTERPOLATING" : @"BYPASSED")]
         drawAtPoint:NSMakePoint(plot.origin.x + 8.0, NSMaxY(plot) - 18.0)
         withAttributes:valueAttrs];
 }
@@ -1731,7 +2188,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
     const uint32_t voices = std::clamp<uint32_t>(
-        _surfaceEdit ? _plugin->params.voices
+        _surfaceEdit ? _paramsSnapshot.voices
             : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
         1u, s3g::kAmbiWaterMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
@@ -1812,14 +2269,14 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (NSString*)presetDisplayName
 {
-    if (_plugin->customPresetName[0]) return [NSString stringWithFormat:@"CUSTOM: %s", _plugin->customPresetName];
-    return [NSString stringWithUTF8String:s3g::ambiWaterFactoryPresetInfo(_plugin->presetIndex).name];
+    if (_customPresetNameSnapshot[0]) return [NSString stringWithFormat:@"CUSTOM: %s", _customPresetNameSnapshot];
+    return [NSString stringWithUTF8String:s3g::ambiWaterFactoryPresetInfo(_presetIndexSnapshot).name];
 }
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _surfaceEdit
-        ? _plugin->params : _plugin->effectiveParams;
+        ? _paramsSnapshot : _displayParamsSnapshot;
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1961,25 +2418,25 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         for (uint32_t i = 0; i < s3g::kAmbiWaterFactoryPresetCount; ++i) presetItems[i] = [[NSString stringWithUTF8String:s3g::ambiWaterFactoryPresetInfo(i).name] retain];
     });
     NSString** items = presetItems;
-    int selected = static_cast<int>(_plugin->presetIndex);
+    int selected = static_cast<int>(_presetIndexSnapshot);
     if (_openMenu == 2) {
         items = regimeItems;
-        selected = static_cast<int>(_plugin->params.regime);
+        selected = static_cast<int>(_paramsSnapshot.regime);
     } else if (_openMenu == 3) {
         items = environmentItems;
-        selected = static_cast<int>(_plugin->params.environment);
+        selected = static_cast<int>(_paramsSnapshot.environment);
     } else if (_openMenu == 4) {
         items = placeItems;
-        selected = static_cast<int>(_plugin->params.place);
+        selected = static_cast<int>(_paramsSnapshot.place);
     } else if (_openMenu == 5) {
         items = listenItems;
-        selected = static_cast<int>(_plugin->params.fieldListenMode);
+        selected = static_cast<int>(_paramsSnapshot.fieldListenMode);
     } else if (_openMenu == 6) {
         items = responseItems;
-        selected = static_cast<int>(_plugin->params.fieldListenResponse);
+        selected = static_cast<int>(_paramsSnapshot.fieldListenResponse);
     } else if (_openMenu == 10) {
         items = orderItems;
-        selected = static_cast<int>(_plugin->params.order) - 1;
+        selected = static_cast<int>(_paramsSnapshot.order) - 1;
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -1988,6 +2445,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     (void)dirtyRect;
     if (!_plugin) return;
+    [self refreshControlSnapshot];
     const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -2012,7 +2470,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
     const uint32_t voices = std::clamp<uint32_t>(
-        _surfaceEdit ? _plugin->params.voices
+        _surfaceEdit ? _paramsSnapshot.voices
             : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
         1u, s3g::kAmbiWaterMaxVoices);
     int best = -1;
@@ -2033,8 +2491,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     const NSRect plot = [self surfacePlotRect];
     int best = -1;
     CGFloat bestDistance = 15.0;
-    for (uint32_t index = 0u; index < _plugin->surface.cellCount; ++index) {
-        const auto& cell = _plugin->surface.cells[index];
+    for (uint32_t index = 0u; index < _surfaceSnapshot.cellCount; ++index) {
+        const auto& cell = _surfaceSnapshot.cells[index];
         const NSPoint site = NSMakePoint(plot.origin.x + cell.x * plot.size.width,
             NSMaxY(plot) - cell.y * plot.size.height);
         const CGFloat distance = std::hypot(point.x - site.x, point.y - site.y);
@@ -2054,14 +2512,16 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     const float y = std::clamp(static_cast<float>(
         (NSMaxY(plot) - point.y) / plot.size.height), 0.0f, 1.0f);
     if (cursor) {
-        applyParam(*_plugin, kSurfaceXParamId, x);
-        applyParam(*_plugin, kSurfaceYParamId, y);
+        queueGuiParamValue(*_plugin, kSurfaceXParamId, x);
+        queueGuiParamValue(*_plugin, kSurfaceYParamId, y);
+        _paramsSnapshot.surfaceX = x;
+        _paramsSnapshot.surfaceY = y;
     } else if (_dragSurfaceCell >= 0
-        && static_cast<uint32_t>(_dragSurfaceCell) < _plugin->surface.cellCount) {
-        auto& cell = _plugin->surface.cells[static_cast<uint32_t>(_dragSurfaceCell)];
+        && static_cast<uint32_t>(_dragSurfaceCell) < _surfaceSnapshot.cellCount) {
+        auto& cell = _surfaceSnapshot.cells[static_cast<uint32_t>(_dragSurfaceCell)];
         cell.x = x;
         cell.y = y;
-        applyEffectiveParams(*_plugin);
+        queueGuiSurface(*_plugin, _surfaceSnapshot);
     }
     requestSurfaceProcess(*_plugin);
 }
@@ -2070,23 +2530,24 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     const auto* spec = guiSliderSpec(param);
     if (!spec) return;
-    applyParam(*_plugin, param, sliderValue(*spec, point));
+    queueGuiParamValue(*_plugin, param, sliderValue(*spec, point));
     [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDown:(NSEvent*)event
 {
+    [self refreshControlSnapshot];
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_openMenu > 0) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, _openMenuRect, 21.0, _menuItemCount);
         if (hit >= 0) {
-            if (_openMenu == 1) applyParam(*_plugin, kPresetParamId, hit);
-            else if (_openMenu == 2) applyParam(*_plugin, kRegimeParamId, hit);
-            else if (_openMenu == 3) applyParam(*_plugin, kEnvironmentParamId, hit);
-            else if (_openMenu == 4) applyParam(*_plugin, kPlaceParamId, hit);
-            else if (_openMenu == 5) applyParam(*_plugin, kFieldListenModeParamId, hit);
-            else if (_openMenu == 6) applyParam(*_plugin, kFieldListenResponseParamId, hit);
-            else if (_openMenu == 10) applyParam(*_plugin, kOrderParamId, hit + 1);
+            if (_openMenu == 1) queueGuiParamValue(*_plugin, kPresetParamId, hit);
+            else if (_openMenu == 2) queueGuiParamValue(*_plugin, kRegimeParamId, hit);
+            else if (_openMenu == 3) queueGuiParamValue(*_plugin, kEnvironmentParamId, hit);
+            else if (_openMenu == 4) queueGuiParamValue(*_plugin, kPlaceParamId, hit);
+            else if (_openMenu == 5) queueGuiParamValue(*_plugin, kFieldListenModeParamId, hit);
+            else if (_openMenu == 6) queueGuiParamValue(*_plugin, kFieldListenResponseParamId, hit);
+            else if (_openMenu == 10) queueGuiParamValue(*_plugin, kOrderParamId, hit + 1);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -2097,7 +2558,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if (NSPointInRect(point, [self savePresetButtonRect])) { [self saveCustomPreset]; return; }
     if (NSPointInRect(point, [self loadPresetButtonRect])) { [self loadCustomPreset]; return; }
     if (NSPointInRect(point, [self randomizeButtonRect])) {
-        randomizeSafe(*_plugin);
+        (void)queueGuiParamEvent(*_plugin,
+            s3g::clap_gui::ParamEventKind::Value,
+            kRandomizeActionId);
         requestSurfaceProcess(*_plugin);
         _selectedVoice = 0;
         [self setNeedsDisplay:YES];
@@ -2129,65 +2592,66 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
             if (NSPointInRect(point, [self surfaceButtonRect:0])) {
                 [self syncSurfaceEditMode:!_surfaceEdit];
             } else if (NSPointInRect(point, [self surfaceButtonRect:1])) {
-                if (_plugin->surface.cellCount < 2u) NSBeep();
+                if (_surfaceSnapshot.cellCount < 2u) NSBeep();
                 else {
-                    _plugin->surface.enabled = !_plugin->surface.enabled;
-                    applyEffectiveParams(*_plugin);
+                    _surfaceSnapshot.enabled = !_surfaceSnapshot.enabled;
+                    queueGuiSurface(*_plugin, _surfaceSnapshot);
                     requestSurfaceProcess(*_plugin);
                 }
             } else if (NSPointInRect(point, [self surfaceButtonRect:2])) {
                 NSString* name = [self presetDisplayName];
-                if (s3g::addParameterSurfaceCell(_plugin->surface,
-                        _plugin->params, static_cast<int32_t>(_plugin->presetIndex),
+                if (s3g::addParameterSurfaceCell(_surfaceSnapshot,
+                        _paramsSnapshot, static_cast<int32_t>(_presetIndexSnapshot),
                         [name UTF8String])) {
                     _selectedSurfaceCell = static_cast<int>(
-                        _plugin->surface.cellCount) - 1;
+                        _surfaceSnapshot.cellCount) - 1;
+                    queueGuiSurface(*_plugin, _surfaceSnapshot);
                 } else NSBeep();
             } else if (NSPointInRect(point, [self surfaceButtonRect:3])) {
                 if (_selectedSurfaceCell < 0
-                    || !s3g::removeParameterSurfaceCell(_plugin->surface,
+                    || !s3g::removeParameterSurfaceCell(_surfaceSnapshot,
                         static_cast<uint32_t>(_selectedSurfaceCell))) NSBeep();
-                _selectedSurfaceCell = _plugin->surface.cellCount == 0u ? -1
+                _selectedSurfaceCell = _surfaceSnapshot.cellCount == 0u ? -1
                     : std::min(_selectedSurfaceCell,
-                        static_cast<int>(_plugin->surface.cellCount) - 1);
-                applyEffectiveParams(*_plugin);
+                        static_cast<int>(_surfaceSnapshot.cellCount) - 1);
+                queueGuiSurface(*_plugin, _surfaceSnapshot);
                 requestSurfaceProcess(*_plugin);
             } else if (NSPointInRect(point, [self surfaceButtonRect:4])) {
                 if (_selectedSurfaceCell < 0
                     || static_cast<uint32_t>(_selectedSurfaceCell)
-                        >= _plugin->surface.cellCount) NSBeep();
+                        >= _surfaceSnapshot.cellCount) NSBeep();
                 else {
-                    auto& cell = _plugin->surface.cells[
+                    auto& cell = _surfaceSnapshot.cells[
                         static_cast<uint32_t>(_selectedSurfaceCell)];
-                    cell.params = _plugin->params;
-                    cell.presetIndex = static_cast<int32_t>(_plugin->presetIndex);
+                    cell.params = _paramsSnapshot;
+                    cell.presetIndex = static_cast<int32_t>(_presetIndexSnapshot);
                     std::snprintf(cell.name, sizeof(cell.name), "%s",
                         [[self presetDisplayName] UTF8String]);
-                    applyEffectiveParams(*_plugin);
+                    queueGuiSurface(*_plugin, _surfaceSnapshot);
                     requestSurfaceProcess(*_plugin);
                 }
             } else if (NSPointInRect(point, [self surfaceCurveRect])) {
                 const uint32_t next = (static_cast<uint32_t>(
-                    _plugin->surface.curve) + 1u)
+                    _surfaceSnapshot.curve) + 1u)
                     % s3g::kParameterSurfaceCurveCount;
-                _plugin->surface.curve = static_cast<s3g::ParameterSurfaceCurve>(next);
-                applyEffectiveParams(*_plugin);
+                _surfaceSnapshot.curve = static_cast<s3g::ParameterSurfaceCurve>(next);
+                queueGuiSurface(*_plugin, _surfaceSnapshot);
                 requestSurfaceProcess(*_plugin);
             } else if (NSPointInRect(point, [self surfaceFocusRect:0])
                 || NSPointInRect(point, [self surfaceFocusRect:1])) {
                 const float scale = NSPointInRect(point,
                     [self surfaceFocusRect:0]) ? 0.8f : 1.25f;
-                _plugin->surface.focus = std::clamp(
-                    _plugin->surface.focus * scale, 0.25f, 8.0f);
-                applyEffectiveParams(*_plugin);
+                _surfaceSnapshot.focus = std::clamp(
+                    _surfaceSnapshot.focus * scale, 0.25f, 8.0f);
+                queueGuiSurface(*_plugin, _surfaceSnapshot);
                 requestSurfaceProcess(*_plugin);
             } else if (NSPointInRect(point, [self surfaceGlideRect:0])
                 || NSPointInRect(point, [self surfaceGlideRect:1])) {
                 const int direction = NSPointInRect(point,
                     [self surfaceGlideRect:0]) ? -1 : 1;
-                _plugin->surface.glideMs = s3g::parameterSurfaceSteppedGlide(
-                    _plugin->surface.glideMs, direction);
-                applyEffectiveParams(*_plugin);
+                _surfaceSnapshot.glideMs = s3g::parameterSurfaceSteppedGlide(
+                    _surfaceSnapshot.glideMs, direction);
+                queueGuiSurface(*_plugin, _surfaceSnapshot);
                 requestSurfaceProcess(*_plugin);
             } else if (NSPointInRect(point, [self surfacePlotRect])) {
                 if (_surfaceEdit) {
@@ -2238,7 +2702,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
             double defaultValue = 0.0;
             if (s3g::clap_gui::sliderDoubleClickDefault(
                     event, &_plugin->plugin, spec.id, &defaultValue)) {
-                applyParam(*_plugin, spec.id, defaultValue);
+                queueGuiParamValue(*_plugin, spec.id, defaultValue);
                 _dragParam = 0;
                 [self setNeedsDisplay:YES];
                 return;
@@ -2332,7 +2796,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) destroySurfacePopup];
     [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) stopRefreshTimer];
     s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
-    p->guiVisible = false;
+    p->guiVisible.store(false, std::memory_order_release);
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
@@ -2352,8 +2816,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) hideSurfacePopup]; [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_release); [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_release); [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) hideSurfacePopup]; [static_cast<S3GAmbiWaterEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif

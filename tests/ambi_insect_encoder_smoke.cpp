@@ -146,6 +146,163 @@ bool testOrderRouting()
             }
         }
     }
+
+    Buffer activeOnlyBuffer {};
+    for (auto& channel : activeOnlyBuffer) channel.fill(0.25f);
+    std::array<float*, s3g::kAmbiInsectMaxChannels> activeOnlyOutputs {};
+    for (uint32_t channel = 0u;
+         channel < s3g::kAmbiInsectMaxChannels; ++channel) {
+        activeOnlyOutputs[channel] = activeOnlyBuffer[channel].data();
+    }
+    const uint32_t renderedChannels = engine.processActiveChannels(
+        activeOnlyOutputs.data(), s3g::kAmbiInsectMaxChannels, kFrames);
+    if (renderedChannels != 9u) {
+        std::cerr << "Insect active-channel path reported "
+                  << renderedChannels << " channels for 2OA\n";
+        return false;
+    }
+    for (uint32_t channel = renderedChannels;
+         channel < s3g::kAmbiInsectMaxChannels; ++channel) {
+        for (float value : activeOnlyBuffer[channel]) {
+            if (value != 0.25f) {
+                std::cerr << "Insect active-channel path touched inactive channel "
+                          << channel << "\n";
+                return false;
+            }
+        }
+    }
+
+    s3g::AmbiInsectEncoder transitionEngine;
+    auto transitionParams = s3g::ambiInsectFactoryPreset(0u);
+    transitionParams.order = 3u;
+    transitionParams.activity = 1.0f;
+    transitionParams.callLength = 1.0f;
+    transitionParams.rest = 0.0f;
+    transitionEngine.prepare(48000.0);
+    transitionEngine.setParams(transitionParams);
+    transitionEngine.reset();
+    Buffer transitionBuffer {};
+    std::array<float*, s3g::kAmbiInsectMaxChannels> transitionOutputs {};
+    for (uint32_t channel = 0u;
+         channel < s3g::kAmbiInsectMaxChannels; ++channel) {
+        transitionOutputs[channel] = transitionBuffer[channel].data();
+    }
+    bool highOrderTailReady = false;
+    for (uint32_t block = 0u; block < 256u && !highOrderTailReady; ++block) {
+        processBlock(transitionEngine, transitionBuffer, 16u);
+        for (uint32_t channel = 4u; channel < 16u; ++channel) {
+            highOrderTailReady = highOrderTailReady
+                || std::fabs(transitionBuffer[channel][kFrames - 1u])
+                    > 1.0e-8f;
+        }
+    }
+    if (!highOrderTailReady) {
+        std::cerr << "Insect order transition did not establish a high-order tail\n";
+        return false;
+    }
+
+    transitionParams.order = 1u;
+    transitionEngine.setParams(transitionParams);
+    transitionEngine.beginTransition();
+    for (auto& channel : transitionBuffer) channel.fill(0.25f);
+    uint32_t transitionChannels = transitionEngine.processActiveChannels(
+        transitionOutputs.data(), s3g::kAmbiInsectMaxChannels, kFrames);
+    if (transitionChannels != 16u) {
+        std::cerr << "Insect order reduction truncated its fading channels: "
+                  << transitionChannels << "\n";
+        return false;
+    }
+    float tailPeak = 0.0f;
+    for (uint32_t channel = 4u; channel < 16u; ++channel) {
+        for (float value : transitionBuffer[channel]) {
+            tailPeak = std::max(tailPeak, std::fabs(value));
+        }
+    }
+    if (!(tailPeak > 1.0e-8f)) {
+        std::cerr << "Insect order reduction erased its transition tail\n";
+        return false;
+    }
+
+    for (uint32_t block = 0u; block < 16u; ++block) {
+        transitionChannels = transitionEngine.processActiveChannels(
+            transitionOutputs.data(), s3g::kAmbiInsectMaxChannels,
+            kFrames);
+    }
+    if (transitionChannels != 4u) {
+        std::cerr << "Insect order transition retained stale fading channels: "
+                  << transitionChannels << "\n";
+        return false;
+    }
+    for (auto& channel : transitionBuffer) channel.fill(0.25f);
+    transitionEngine.process(
+        transitionOutputs.data(), s3g::kAmbiInsectMaxChannels, kFrames);
+    for (uint32_t channel = 4u;
+         channel < s3g::kAmbiInsectMaxChannels; ++channel) {
+        for (float value : transitionBuffer[channel]) {
+            if (value != 0.0f) {
+                std::cerr << "Insect full-clear path retained channel "
+                          << channel << " after its transition\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool testListenerTelemetryBypass()
+{
+    auto params = s3g::ambiInsectFactoryPreset(0u);
+    params.order = 2u;
+    params.voices = 12u;
+    params.activity = 1.0f;
+    params.callLength = 1.0f;
+    params.rest = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+
+    s3g::AmbiInsectEncoder observed;
+    s3g::AmbiInsectEncoder bypassed;
+    observed.prepare(48000.0);
+    bypassed.prepare(48000.0);
+    observed.setParams(params);
+    bypassed.setParams(params);
+    observed.reset();
+    bypassed.reset();
+    bypassed.setListenerTelemetryEnabled(false);
+
+    Buffer observedBuffer {};
+    Buffer bypassedBuffer {};
+    float maximumDifference = 0.0f;
+    for (uint32_t block = 0u; block < 96u; ++block) {
+        processBlock(observed, observedBuffer, 9u);
+        processBlock(bypassed, bypassedBuffer, 9u);
+        for (uint32_t channel = 0u; channel < 9u; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                maximumDifference = std::max(maximumDifference,
+                    std::fabs(observedBuffer[channel][frame]
+                        - bypassedBuffer[channel][frame]));
+            }
+        }
+    }
+
+    float observedEnvelope = 0.0f;
+    float bypassedEnvelope = 0.0f;
+    for (uint32_t lobe = 0u;
+         lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
+        observedEnvelope = std::max(
+            observedEnvelope, observed.fieldListenEnvelope(lobe));
+        bypassedEnvelope = std::max(
+            bypassedEnvelope, bypassed.fieldListenEnvelope(lobe));
+    }
+    if (maximumDifference > 1.0e-7f
+        || !(observedEnvelope > 1.0e-8f)
+        || bypassedEnvelope != 0.0f) {
+        std::cerr << "Insect listener telemetry bypass changed audio or "
+                     "continued analysis: "
+                  << maximumDifference << " / "
+                  << observedEnvelope << " / "
+                  << bypassedEnvelope << "\n";
+        return false;
+    }
     return true;
 }
 
@@ -809,7 +966,7 @@ bool testDensePopulation()
         std::cerr << "Dense Flyer render clipped, jumped, or became non-finite\n";
         return false;
     }
-#if defined(NDEBUG)
+#if defined(S3G_ENABLE_TEST_TIMING_ASSERTIONS)
     if (realtimeLoad >= 0.85 || wideRealtimeLoad >= 0.95) {
         std::cerr << "Dense Flyer render exceeded its release realtime budget: "
                   << realtimeLoad << " / " << wideRealtimeLoad << "\n";
@@ -892,6 +1049,7 @@ int main()
 {
     if (!testFactoryPresets()) return 1;
     if (!testOrderRouting()) return 1;
+    if (!testListenerTelemetryBypass()) return 1;
     if (!testAudibleControls()) return 1;
     if (!testFieldListenerModes()) return 1;
     if (!testCallTypesAndTremulation()) return 1;

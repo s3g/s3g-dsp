@@ -27,6 +27,20 @@ inline uint32_t outputChannelsForMode(NoInputOutputMode mode)
     }
 }
 
+struct NoInputMixerStandaloneTelemetrySnapshot {
+    uint64_t gestureProcessErrorCount = 0u;
+    uint64_t noInputProcessErrorCount = 0u;
+    uint64_t stereoFoldProcessErrorCount = 0u;
+    uint64_t quadFoldProcessErrorCount = 0u;
+    uint64_t nonFiniteOutputSampleCount = 0u;
+
+    uint64_t totalProcessErrorCount() const
+    {
+        return gestureProcessErrorCount + noInputProcessErrorCount
+            + stereoFoldProcessErrorCount + quadFoldProcessErrorCount;
+    }
+};
+
 class NoInputMixerStandaloneEngine {
 public:
     bool create(const clap_plugin_entry_t* noInputEntry,
@@ -64,8 +78,10 @@ public:
         double sampleRate, uint32_t frames);
 
     // Output is planar. Extra hardware channels are always zeroed.
-    void render(float* const* output, uint32_t outputChannels,
+    bool render(float* const* output, uint32_t outputChannels,
         uint32_t frames, uint64_t blockHostTime = 0u);
+    NoInputMixerStandaloneTelemetrySnapshot telemetry() const;
+    void resetTelemetry();
 
     EmbeddedClapPlugin& noInputPlugin() { return noInput_; }
     EmbeddedClapPlugin& gesturePlugin() { return gesture_; }
@@ -82,6 +98,10 @@ public:
     uint64_t midiInputDropCount() const
     {
         return midiInputDropCount_.load(std::memory_order_relaxed);
+    }
+    void resetMidiInputDropCount()
+    {
+        midiInputDropCount_.store(0u, std::memory_order_relaxed);
     }
 
 private:
@@ -141,6 +161,11 @@ private:
     uint32_t pendingMidiCount_ = 0u;
     std::atomic<uint64_t> midiSequence_ { 1u };
     std::atomic<uint64_t> midiInputDropCount_ { 0u };
+    std::atomic<uint64_t> gestureProcessErrorCount_ { 0u };
+    std::atomic<uint64_t> noInputProcessErrorCount_ { 0u };
+    std::atomic<uint64_t> stereoFoldProcessErrorCount_ { 0u };
+    std::atomic<uint64_t> quadFoldProcessErrorCount_ { 0u };
+    std::atomic<uint64_t> nonFiniteOutputSampleCount_ { 0u };
     std::array<MidiMessage, kMidiOutputQueueCapacity> midiOutputQueue_ {};
     std::atomic<uint32_t> midiOutputWrite_ { 0u };
     std::atomic<uint32_t> midiOutputRead_ { 0u };

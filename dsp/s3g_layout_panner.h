@@ -333,8 +333,14 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        gainTargetUpdateCount_ = 0u;
+        lastTargetActiveInputs_ = 0u;
+        lastTargetActiveSourceCount_ = 0u;
+        lastTargetSampleStep_ = 0u;
+        lastTargetAnySolo_ = false;
         resetSources();
         applyLayout(params_.layout);
+        rebuildGeometryCache();
         updateCachedCoefficients();
         clearGains();
     }
@@ -373,33 +379,56 @@ public:
         params.insideMode = static_cast<LayoutPannerInsideMode>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.insideMode), 0u, 3u));
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+        const LayoutPannerParams previous = params_;
         const bool layoutChanged = params.layout != params_.layout;
         const bool activeChanged = params.activeSpeakers != params_.activeSpeakers;
         const bool customShapeChanged = params.customShape != params_.customShape;
+        const bool targetParamsChanged =
+            params.method != previous.method
+            || params.activeSources != previous.activeSources
+            || params.focus != previous.focus
+            || params.distanceRolloffDb != previous.distanceRolloffDb
+            || params.globalAzimuthDeg != previous.globalAzimuthDeg
+            || params.globalElevationDeg != previous.globalElevationDeg
+            || params.globalDistanceOffset != previous.globalDistanceOffset
+            || params.distanceDiffusion != previous.distanceDiffusion
+            || params.insideMode != previous.insideMode;
+        const bool smoothingChanged =
+            params.smoothingMs != previous.smoothingMs;
+        const bool coefficientParamsChanged = smoothingChanged
+            || params.outputGainDb != previous.outputGainDb;
+        bool geometryChanged = false;
         params_ = params;
         if (params_.layout == LayoutPannerPreset::Custom && (layoutChanged || activeChanged || customShapeChanged)) {
             generateCustomLayout(params_.customShape, params_.activeSpeakers);
             clearGains();
+            geometryChanged = true;
         } else if (params_.layout != LayoutPannerPreset::Custom && layoutChanged) {
             applyLayout(params_.layout);
             clearGains();
+            geometryChanged = true;
         }
+        if (geometryChanged) rebuildGeometryCache();
         params_.activeSpeakers = activeSpeakers_;
         params_.activeSources = std::clamp<uint32_t>(params_.activeSources, 1u, kLayoutPannerSources);
         params_.selectedSource = std::min<uint32_t>(params_.selectedSource, params_.activeSources - 1u);
         params_.selectedSpeaker = std::min<uint32_t>(params_.selectedSpeaker, std::max<uint32_t>(1u, activeSpeakers_) - 1u);
-        updateCachedCoefficients();
-        markTargetsDirty();
+        if (coefficientParamsChanged) updateCachedCoefficients();
+        if (targetParamsChanged || geometryChanged || smoothingChanged) {
+            markTargetsDirty();
+        }
     }
 
     LayoutPannerParams params() const { return params_; }
     uint32_t activeSpeakers() const { return activeSpeakers_; }
+    uint64_t gainTargetUpdateCount() const { return gainTargetUpdateCount_; }
     const std::array<LayoutPannerSpeaker, kLayoutPannerMaxSpeakers>& speakers() const { return speakers_; }
     const std::array<LayoutPannerSource, kLayoutPannerSources>& sources() const { return sources_; }
 
     uint32_t vbapSolverSpeakers(std::array<LayoutPannerSolverSpeaker, kLayoutPannerMaxSolverSpeakers>& solver) const
     {
-        return buildSolverSpeakers(solver);
+        solver = cachedSolverSpeakers_;
+        return cachedSolverCount_;
     }
 
     LayoutPannerVbapTopology vbapTopology(const std::array<LayoutPannerSolverSpeaker, kLayoutPannerMaxSolverSpeakers>& solver,
@@ -428,6 +457,7 @@ public:
         params_.layout = LayoutPannerPreset::Custom;
         params_.selectedSpeaker = std::min<uint32_t>(index, std::max<uint32_t>(1u, activeSpeakers_) - 1u);
         params_.activeSpeakers = activeSpeakers_;
+        rebuildGeometryCache();
         clearGains();
     }
 
@@ -450,6 +480,7 @@ public:
     void setActiveSpeakers(uint32_t count, LayoutPannerCustomShape shape)
     {
         generateCustomLayout(shape, count);
+        rebuildGeometryCache();
         clearGains();
     }
 
@@ -466,6 +497,7 @@ public:
         params_.layout = LayoutPannerPreset::Custom;
         params_.activeSpeakers = activeSpeakers_;
         params_.selectedSpeaker = std::min<uint32_t>(params_.selectedSpeaker, activeSpeakers_ - 1u);
+        rebuildGeometryCache();
         clearGains();
     }
 
@@ -491,9 +523,19 @@ public:
         source.distance = clamp(source.distance, 0.1f, 3.0f);
         layoutPannerSyncSourcePositionFromAed(source);
         source.gainDb = clamp(source.gainDb, -60.0f, 24.0f);
-        sources_[index] = source;
+        const auto& previous = sources_[index];
+        const bool changed = source.azimuthDeg != previous.azimuthDeg
+            || source.elevationDeg != previous.elevationDeg
+            || source.distance != previous.distance
+            || source.x != previous.x
+            || source.y != previous.y
+            || source.z != previous.z
+            || source.gainDb != previous.gainDb
+            || source.muted != previous.muted
+            || source.solo != previous.solo;
+        if (changed) sources_[index] = source;
         params_.selectedSource = index;
-        markTargetsDirty();
+        if (changed) markTargetsDirty();
     }
 
     void setSourcePosition(uint32_t index, Vec3 position)
@@ -511,36 +553,48 @@ public:
             position.y = distance < 0.000001f ? 0.0f : position.y * scale;
             position.z = distance < 0.000001f ? 0.0f : position.z * scale;
         }
-        sources_[index].x = position.x;
-        sources_[index].y = position.y;
-        sources_[index].z = position.z;
-        layoutPannerSyncSourceAedFromPosition(sources_[index]);
+        auto source = sources_[index];
+        source.x = position.x;
+        source.y = position.y;
+        source.z = position.z;
+        layoutPannerSyncSourceAedFromPosition(source);
+        const bool changed = source.azimuthDeg != sources_[index].azimuthDeg
+            || source.elevationDeg != sources_[index].elevationDeg
+            || source.distance != sources_[index].distance
+            || source.x != sources_[index].x
+            || source.y != sources_[index].y
+            || source.z != sources_[index].z;
+        if (changed) sources_[index] = source;
         params_.selectedSource = index;
-        markTargetsDirty();
+        if (changed) markTargetsDirty();
     }
 
     void setSourceGain(uint32_t index, float gainDb)
     {
         if (index >= kLayoutPannerSources) return;
-        sources_[index].gainDb = clamp(gainDb, -60.0f, 24.0f);
+        gainDb = clamp(gainDb, -60.0f, 24.0f);
+        const bool changed = gainDb != sources_[index].gainDb;
+        if (changed) sources_[index].gainDb = gainDb;
         params_.selectedSource = index;
-        markTargetsDirty();
+        if (changed) markTargetsDirty();
     }
 
     void setSourceMute(uint32_t index, bool muted)
     {
         if (index >= kLayoutPannerSources) return;
-        sources_[index].muted = muted;
+        const bool changed = muted != sources_[index].muted;
+        if (changed) sources_[index].muted = muted;
         params_.selectedSource = index;
-        markTargetsDirty();
+        if (changed) markTargetsDirty();
     }
 
     void setSourceSolo(uint32_t index, bool solo)
     {
         if (index >= kLayoutPannerSources) return;
-        sources_[index].solo = solo;
+        const bool changed = solo != sources_[index].solo;
+        if (changed) sources_[index].solo = solo;
         params_.selectedSource = index;
-        markTargetsDirty();
+        if (changed) markTargetsDirty();
     }
 
     void processFrame(const float* in, float* out, uint32_t inputChannels, uint32_t outputChannels = kLayoutPannerMaxSpeakers)
@@ -837,6 +891,81 @@ public:
     }
 
 private:
+    void rebuildGeometryCache()
+    {
+        for (uint32_t spk = 0u; spk < kLayoutPannerMaxSpeakers; ++spk) {
+            const auto& speaker = speakers_[spk];
+            const Vec3 direction = directionFromAed(
+                speaker.azimuthDeg, speaker.elevationDeg);
+            cachedSpeakerDirections_[spk] = direction;
+            cachedSpeakerPositions_[spk] = {
+                direction.x * speaker.distance,
+                direction.y * speaker.distance,
+                direction.z * speaker.distance
+            };
+            cachedLbapAzStep_[spk] = 180.0f;
+            cachedLbapElStep_[spk] = 90.0f;
+        }
+
+        cachedLayoutIsPlanar2d_ = false;
+        if (activeSpeakers_ >= 2u) {
+            const float referenceElevation = speakers_[0].elevationDeg;
+            cachedLayoutIsPlanar2d_ = std::fabs(referenceElevation) < 5.0f;
+            for (uint32_t spk = 1u;
+                 spk < activeSpeakers_ && cachedLayoutIsPlanar2d_; ++spk) {
+                if (std::fabs(speakers_[spk].elevationDeg
+                        - referenceElevation) > 1.0f) {
+                    cachedLayoutIsPlanar2d_ = false;
+                }
+            }
+        }
+
+        float minElevation = 90.0f;
+        float maxElevation = -90.0f;
+        for (uint32_t spk = 0u; spk < activeSpeakers_; ++spk) {
+            minElevation = std::min(
+                minElevation, speakers_[spk].elevationDeg);
+            maxElevation = std::max(
+                maxElevation, speakers_[spk].elevationDeg);
+        }
+        cachedMissingLowerHemisphereSupport_ = !cachedLayoutIsPlanar2d_
+            && maxElevation >= 5.0f && minElevation >= -10.0f;
+
+        cachedSolverCount_ = buildSolverSpeakers(cachedSolverSpeakers_);
+        cachedVbapTopology_ = buildVbapTopology(
+            cachedSolverSpeakers_, cachedSolverCount_);
+        for (uint32_t spk = 0u; spk < activeSpeakers_; ++spk) {
+            float azimuthStep = 180.0f;
+            float elevationStep = 90.0f;
+            const auto& speaker = speakers_[spk];
+            for (uint32_t i = 0u; i < cachedSolverCount_; ++i) {
+                const auto& other = cachedSolverSpeakers_[i];
+                if (other.real && other.realIndex == spk) continue;
+                const float elevationDifference = std::fabs(
+                    other.elevationDeg - speaker.elevationDeg);
+                if (elevationDifference < 1.0f) {
+                    const float azimuthDifference = std::fabs(
+                        layoutPannerWrapDeg(
+                            other.azimuthDeg - speaker.azimuthDeg));
+                    if (azimuthDifference > 0.1f) {
+                        azimuthStep = std::min(
+                            azimuthStep, azimuthDifference);
+                    }
+                } else {
+                    elevationStep = std::min(
+                        elevationStep, elevationDifference);
+                }
+            }
+            if (std::fabs(speaker.elevationDeg) > 88.0f) {
+                azimuthStep = 180.0f;
+            }
+            cachedLbapAzStep_[spk] = std::clamp(
+                azimuthStep, 15.0f, 180.0f);
+            cachedLbapElStep_[spk] = std::clamp(
+                elevationStep, 15.0f, 90.0f);
+        }
+    }
+
     void setSpeaker(uint32_t index, float azimuthDeg, float elevationDeg, float distance = 1.0f)
     {
         if (index >= kLayoutPannerMaxSpeakers) return;
@@ -1405,7 +1534,7 @@ private:
         for (uint32_t i = 0; i < activeSpeakers_ && count < solver.size(); ++i) {
             const auto& speaker = speakers_[i];
             solver[count++] = {
-                directionFromAed(speaker.azimuthDeg, speaker.elevationDeg),
+                cachedSpeakerDirections_[i],
                 speaker.azimuthDeg,
                 speaker.elevationDeg,
                 i,
@@ -1458,15 +1587,17 @@ private:
         return count;
     }
 
-    float computeGain(uint32_t speakerIndex, Vec3 sourcePosition, float sourceDistance,
-        const LayoutPannerSolverSpeaker* solver = nullptr, uint32_t solverCount = 0u) const
+    float computeGain(uint32_t speakerIndex, Vec3 sourcePosition,
+        Vec3 sourceDirection, float sourceDistance, float sourceAzimuthDeg,
+        float sourceElevationDeg) const
     {
         const auto& speaker = speakers_[speakerIndex];
-        const Vec3 dir = directionFromAed(speaker.azimuthDeg, speaker.elevationDeg);
-        const Vec3 sp { dir.x * speaker.distance, dir.y * speaker.distance, dir.z * speaker.distance };
+        const Vec3 dir = cachedSpeakerDirections_[speakerIndex];
+        const Vec3 sp = cachedSpeakerPositions_[speakerIndex];
         if (params_.method == LayoutPannerMethod::Cosine) {
-            const Vec3 srcDir = normalize(sourcePosition);
-            const float dot = srcDir.x * dir.x + srcDir.y * dir.y + srcDir.z * dir.z;
+            const float dot = sourceDirection.x * dir.x
+                + sourceDirection.y * dir.y
+                + sourceDirection.z * dir.z;
             return std::pow(std::max(0.0f, dot), std::max(0.25f, params_.focus));
         }
         const float dx = sourcePosition.x - sp.x;
@@ -1480,44 +1611,20 @@ private:
             return 1.0f / std::pow(std::max(0.001f, dist), rolloffExponent * focus);
         }
         if (params_.method == LayoutPannerMethod::Lbap) {
-            const float sourceAz = vecAzimuthDeg(sourcePosition);
-            float sourceEl = vecElevationDeg(sourcePosition);
-            if (missingLowerHemisphereSupport() && sourceEl < 0.0f) sourceEl = 0.0f;
-            float azStep = 180.0f;
-            float elStep = 90.0f;
-            if (solver && solverCount > 0u) {
-                for (uint32_t i = 0; i < solverCount; ++i) {
-                    const auto& other = solver[i];
-                    if (other.real && other.realIndex == speakerIndex) continue;
-                    const float elDiff = std::fabs(other.elevationDeg - speaker.elevationDeg);
-                    if (elDiff < 1.0f) {
-                        const float azDiff = std::fabs(layoutPannerWrapDeg(other.azimuthDeg - speaker.azimuthDeg));
-                        if (azDiff > 0.1f) azStep = std::min(azStep, azDiff);
-                    } else {
-                        elStep = std::min(elStep, elDiff);
-                    }
-                }
-            } else {
-                for (uint32_t i = 0; i < activeSpeakers_; ++i) {
-                    if (i == speakerIndex) continue;
-                    const auto& other = speakers_[i];
-                    const float elDiff = std::fabs(other.elevationDeg - speaker.elevationDeg);
-                    if (elDiff < 1.0f) {
-                        const float azDiff = std::fabs(layoutPannerWrapDeg(other.azimuthDeg - speaker.azimuthDeg));
-                        if (azDiff > 0.1f) azStep = std::min(azStep, azDiff);
-                    } else {
-                        elStep = std::min(elStep, elDiff);
-                    }
-                }
+            if (missingLowerHemisphereSupport()
+                && sourceElevationDeg < 0.0f) {
+                sourceElevationDeg = 0.0f;
             }
-            if (std::fabs(speaker.elevationDeg) > 88.0f) azStep = 180.0f;
-            azStep = std::clamp(azStep, 15.0f, 180.0f);
-            elStep = std::clamp(elStep, 15.0f, 90.0f);
-
-            const float azDiff = std::fabs(layoutPannerWrapDeg(sourceAz - speaker.azimuthDeg));
-            const float elDiff = std::fabs(sourceEl - speaker.elevationDeg);
-            const float azWeight = azDiff >= azStep ? 0.0f : std::cos((azDiff / azStep) * (kPi * 0.5f));
-            const float elWeight = elDiff >= elStep ? 0.0f : std::cos((elDiff / elStep) * (kPi * 0.5f));
+            const float azimuthStep = cachedLbapAzStep_[speakerIndex];
+            const float elevationStep = cachedLbapElStep_[speakerIndex];
+            const float azDiff = std::fabs(layoutPannerWrapDeg(
+                sourceAzimuthDeg - speaker.azimuthDeg));
+            const float elDiff = std::fabs(
+                sourceElevationDeg - speaker.elevationDeg);
+            const float azWeight = azDiff >= azimuthStep ? 0.0f
+                : std::cos((azDiff / azimuthStep) * (kPi * 0.5f));
+            const float elWeight = elDiff >= elevationStep ? 0.0f
+                : std::cos((elDiff / elevationStep) * (kPi * 0.5f));
             const float focus = std::max(0.25f, params_.focus);
             const float local = std::pow(std::max(0.0f, azWeight * elWeight), focus);
             const float insideBlend = std::clamp(1.0f - sourceDistance, 0.0f, 1.0f);
@@ -1530,8 +1637,7 @@ private:
 
     Vec3 speakerUnit(uint32_t index) const
     {
-        const auto& speaker = speakers_[index];
-        return directionFromAed(speaker.azimuthDeg, speaker.elevationDeg);
+        return cachedSpeakerDirections_[index];
     }
 
     static Vec3 solverUnit(const std::array<LayoutPannerSolverSpeaker, kLayoutPannerMaxSolverSpeakers>& solver, uint32_t index)
@@ -1541,24 +1647,12 @@ private:
 
     bool layoutIsPlanar2d() const
     {
-        if (activeSpeakers_ < 2u) return false;
-        const float ref = speakers_[0].elevationDeg;
-        for (uint32_t i = 1; i < activeSpeakers_; ++i) {
-            if (std::fabs(speakers_[i].elevationDeg - ref) > 1.0f) return false;
-        }
-        return std::fabs(ref) < 5.0f;
+        return cachedLayoutIsPlanar2d_;
     }
 
     bool missingLowerHemisphereSupport() const
     {
-        if (layoutIsPlanar2d()) return false;
-        float minElev = 90.0f;
-        float maxElev = -90.0f;
-        for (uint32_t spk = 0; spk < activeSpeakers_; ++spk) {
-            minElev = std::min(minElev, speakers_[spk].elevationDeg);
-            maxElev = std::max(maxElev, speakers_[spk].elevationDeg);
-        }
-        return maxElev >= 5.0f && minElev >= -10.0f;
+        return cachedMissingLowerHemisphereSupport_;
     }
 
     static float positiveAzimuth(float azimuthDeg)
@@ -2051,14 +2145,23 @@ private:
 
     void updateGainTargets(uint32_t activeInputs, uint32_t activeSourceCount, bool anySolo, uint32_t sampleStep)
     {
+        sampleStep = std::max<uint32_t>(1u, sampleStep);
+        const bool routingChanged = activeInputs != lastTargetActiveInputs_
+            || activeSourceCount != lastTargetActiveSourceCount_
+            || anySolo != lastTargetAnySolo_
+            || sampleStep != lastTargetSampleStep_;
+        if (!targetsDirty_ && !distanceTransitionActive_
+            && !routingChanged) {
+            return;
+        }
+        lastTargetActiveInputs_ = activeInputs;
+        lastTargetActiveSourceCount_ = activeSourceCount;
+        lastTargetAnySolo_ = anySolo;
+        lastTargetSampleStep_ = sampleStep;
+        ++gainTargetUpdateCount_;
+
         const float distCoef = std::pow(cachedGainCoef_, static_cast<float>(std::max<uint32_t>(1u, sampleStep)));
-        std::array<LayoutPannerSolverSpeaker, kLayoutPannerMaxSolverSpeakers> solver {};
-        const uint32_t solverCount = (params_.method == LayoutPannerMethod::Lbap || params_.method == LayoutPannerMethod::Vbap)
-            ? buildSolverSpeakers(solver)
-            : 0u;
-        const LayoutPannerVbapTopology vbapTopology = params_.method == LayoutPannerMethod::Vbap
-            ? buildVbapTopology(solver, solverCount)
-            : LayoutPannerVbapTopology {};
+        bool distanceStillMoving = false;
         for (uint32_t src = 0; src < activeSourceCount; ++src) {
             const auto& source = sources_[src];
             const bool active = src < activeInputs && !source.muted && (!anySolo || source.solo);
@@ -2070,19 +2173,33 @@ private:
             }
 
             const float targetDistance = std::max(0.1f, source.distance + params_.globalDistanceOffset);
-            smoothedDistance_[src] = targetDistance + (smoothedDistance_[src] - targetDistance) * distCoef;
+            const float previousDistance = smoothedDistance_[src];
+            smoothedDistance_[src] = targetDistance
+                + (previousDistance - targetDistance) * distCoef;
+            if (smoothedDistance_[src] != targetDistance
+                && smoothedDistance_[src] != previousDistance) {
+                distanceStillMoving = true;
+            }
             const float sourceDistance = smoothedDistance_[src];
             const float sourceAz = layoutPannerWrapDeg(source.azimuthDeg + params_.globalAzimuthDeg);
             const float sourceEl = clamp(source.elevationDeg + params_.globalElevationDeg, -90.0f, 90.0f);
             const Vec3 dir = directionFromAed(sourceAz, sourceEl);
             const Vec3 pos { dir.x * sourceDistance, dir.y * sourceDistance, dir.z * sourceDistance };
+            const Vec3 gainDirection = params_.method == LayoutPannerMethod::Cosine
+                ? normalize(pos) : dir;
+            const float gainAzimuth = params_.method == LayoutPannerMethod::Lbap
+                ? vecAzimuthDeg(pos) : sourceAz;
+            const float gainElevation = params_.method == LayoutPannerMethod::Lbap
+                ? vecElevationDeg(pos) : sourceEl;
 
             if (params_.method == LayoutPannerMethod::Vbap) {
-                writeVbapGains(src, pos, solver, solverCount, vbapTopology);
+                writeVbapGains(src, pos, cachedSolverSpeakers_,
+                    cachedSolverCount_, cachedVbapTopology_);
             } else {
                 float sumSquares = 0.0f;
                 for (uint32_t spk = 0; spk < activeSpeakers_; ++spk) {
-                    const float gain = computeGain(spk, pos, sourceDistance, solver.data(), solverCount);
+                    const float gain = computeGain(spk, pos, gainDirection,
+                        sourceDistance, gainAzimuth, gainElevation);
                     targetGains_[src * kLayoutPannerMaxSpeakers + spk] = gain;
                     sumSquares += gain * gain;
                 }
@@ -2093,7 +2210,8 @@ private:
                 }
                 float* sourceGains = targetGains_.data() + src * kLayoutPannerMaxSpeakers;
                 if (params_.method == LayoutPannerMethod::Lbap) {
-                    applyPoleCapBlend(sourceGains, dir, solver, solverCount);
+                    applyPoleCapBlend(sourceGains, dir,
+                        cachedSolverSpeakers_, cachedSolverCount_);
                 }
                 const float lowerAmp = missingLowerHemisphereAttenuation(dir);
                 if (lowerAmp < 0.999999f) {
@@ -2110,10 +2228,13 @@ private:
             }
             sourceAmps_[src] = dbToGain(source.gainDb) * distanceAmp(sourceDistance);
         }
+        distanceTransitionActive_ = distanceStillMoving;
+        targetsDirty_ = false;
     }
 
     void markTargetsDirty()
     {
+        targetsDirty_ = true;
         targetUpdateCountdown_ = 0;
     }
 
@@ -2131,6 +2252,7 @@ private:
         targetGains_.fill(0.0f);
         sourceAmps_.fill(0.0f);
         targetActive_.fill(false);
+        distanceTransitionActive_ = false;
         markTargetsDirty();
     }
 
@@ -2139,11 +2261,28 @@ private:
     LayoutPannerParams params_ {};
     std::array<LayoutPannerSpeaker, kLayoutPannerMaxSpeakers> speakers_ {};
     std::array<LayoutPannerSource, kLayoutPannerSources> sources_ {};
+    std::array<Vec3, kLayoutPannerMaxSpeakers> cachedSpeakerDirections_ {};
+    std::array<Vec3, kLayoutPannerMaxSpeakers> cachedSpeakerPositions_ {};
+    std::array<float, kLayoutPannerMaxSpeakers> cachedLbapAzStep_ {};
+    std::array<float, kLayoutPannerMaxSpeakers> cachedLbapElStep_ {};
+    std::array<LayoutPannerSolverSpeaker,
+        kLayoutPannerMaxSolverSpeakers> cachedSolverSpeakers_ {};
+    LayoutPannerVbapTopology cachedVbapTopology_ {};
+    uint32_t cachedSolverCount_ = 0u;
+    bool cachedLayoutIsPlanar2d_ = false;
+    bool cachedMissingLowerHemisphereSupport_ = false;
     std::array<float, kLayoutPannerSources> smoothedDistance_ {};
     std::array<float, kLayoutPannerSources * kLayoutPannerMaxSpeakers> smoothedGains_ {};
     std::array<float, kLayoutPannerSources * kLayoutPannerMaxSpeakers> targetGains_ {};
     std::array<float, kLayoutPannerSources> sourceAmps_ {};
     std::array<bool, kLayoutPannerSources> targetActive_ {};
+    bool targetsDirty_ = true;
+    bool distanceTransitionActive_ = false;
+    bool lastTargetAnySolo_ = false;
+    uint32_t lastTargetActiveInputs_ = 0u;
+    uint32_t lastTargetActiveSourceCount_ = 0u;
+    uint32_t lastTargetSampleStep_ = 0u;
+    uint64_t gainTargetUpdateCount_ = 0u;
     uint32_t targetUpdateCountdown_ = 0;
     float cachedGainCoef_ = 0.0f;
     float cachedOutputGain_ = 1.0f;

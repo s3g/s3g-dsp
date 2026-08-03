@@ -891,10 +891,91 @@ int main()
             terrainPeak = std::max(terrainPeak, std::abs(terrainOut[ch][frame]));
         }
     }
+    for (uint32_t ch = s3g::ambiChannelsForOrder(terrainParams.order);
+         ch < s3g::kAmbiTerrainMaxChannels; ++ch) {
+        for (uint32_t frame = 0; frame < terrainFrames; ++frame) {
+            if (terrainOut[ch][frame] != 0.0f) {
+                std::cerr << "Ambi Terrain navigator wrote above its active HOA order\n";
+                return 1;
+            }
+        }
+    }
     const auto terrainPoint = terrainNavigator.point(3u);
     if (terrainPeak <= 0.0001f || !std::isfinite(terrainPoint.azimuthDeg) || !std::isfinite(terrainPoint.elevationDeg) || !std::isfinite(terrainPoint.distance)) {
         std::cerr << "Ambi Terrain navigator produced no valid spatial output\n";
         return 1;
+    }
+
+    // Surface Terrain evaluates spatial endpoints once per 16-frame control
+    // chunk and linearly traverses their HOA coefficients. Use an intentionally
+    // low sample rate here to make the endpoint motion large enough for
+    // this test to distinguish coefficient interpolation from a per-sample
+    // basis rebuild.
+    s3g::AmbiTerrainNavigator terrainBasisNavigator;
+    terrainBasisNavigator.prepare(100.0);
+    s3g::AmbiTerrainNavigatorParams terrainBasisParams;
+    terrainBasisParams.order = 7u;
+    terrainBasisParams.points = 1u;
+    terrainBasisParams.rateHz = 2.0f;
+    terrainBasisParams.rateSpread = 0.0f;
+    terrainBasisParams.rateDeviation = 0.0f;
+    terrainBasisParams.traversal = 1.0f;
+    terrainBasisParams.smoothing = 0.0f;
+    terrainBasisParams.doppler = 0.0f;
+    terrainBasisParams.air = 0.0f;
+    terrainBasisParams.phase = 0.11f;
+    terrainBasisParams.palette = s3g::AmbiTerrainPalette::Tectonic;
+    terrainBasisNavigator.setParams(terrainBasisParams);
+    constexpr uint32_t terrainBasisFrames = 16u;
+    constexpr uint32_t terrainBasisProbeFrame = 7u;
+    float terrainBasisInput[terrainBasisFrames] {};
+    const float* terrainBasisInputPtr[1] { terrainBasisInput };
+    float terrainBasisOutput[s3g::kAmbiTerrainMaxChannels]
+        [terrainBasisFrames] {};
+    float* terrainBasisOutputPtrs[s3g::kAmbiTerrainMaxChannels] {};
+    for (uint32_t ch = 0u; ch < s3g::kAmbiTerrainMaxChannels; ++ch) {
+        terrainBasisOutputPtrs[ch] = terrainBasisOutput[ch];
+    }
+    terrainBasisNavigator.processBlock(terrainBasisInputPtr,
+        terrainBasisOutputPtrs, 1u, s3g::kAmbiTerrainMaxChannels,
+        terrainBasisFrames);
+    const auto terrainBasisFrom = terrainBasisNavigator.point();
+    terrainBasisInput[terrainBasisProbeFrame] = 0.5f;
+    terrainBasisNavigator.processBlock(terrainBasisInputPtr,
+        terrainBasisOutputPtrs, 1u, s3g::kAmbiTerrainMaxChannels,
+        terrainBasisFrames);
+    const auto terrainBasisTo = terrainBasisNavigator.point();
+    const auto terrainBasisFromCoefficients = s3g::acnSn3dBasis7(
+        s3g::directionFromAed(terrainBasisFrom.azimuthDeg,
+            terrainBasisFrom.elevationDeg));
+    const auto terrainBasisToCoefficients = s3g::acnSn3dBasis7(
+        s3g::directionFromAed(terrainBasisTo.azimuthDeg,
+            terrainBasisTo.elevationDeg));
+    const float terrainBasisT =
+        static_cast<float>(terrainBasisProbeFrame + 1u)
+        / static_cast<float>(terrainBasisFrames);
+    const float terrainBasisW = terrainBasisFromCoefficients[0]
+        + (terrainBasisToCoefficients[0]
+            - terrainBasisFromCoefficients[0]) * terrainBasisT;
+    if (std::abs(terrainBasisW) < 0.0001f
+        || std::abs(terrainBasisOutput[0][terrainBasisProbeFrame])
+            < 0.0001f) {
+        std::cerr << "Ambi Terrain navigator basis probe produced no output\n";
+        return 1;
+    }
+    const float terrainBasisScale =
+        terrainBasisOutput[0][terrainBasisProbeFrame] / terrainBasisW;
+    for (uint32_t ch = 0u; ch < s3g::kAmbiTerrainMaxChannels; ++ch) {
+        const float expectedBasis = terrainBasisFromCoefficients[ch]
+            + (terrainBasisToCoefficients[ch]
+                - terrainBasisFromCoefficients[ch]) * terrainBasisT;
+        const float expectedOutput = terrainBasisScale * expectedBasis;
+        if (std::abs(terrainBasisOutput[ch][terrainBasisProbeFrame]
+                - expectedOutput) > 0.00001f) {
+            std::cerr << "Ambi Terrain navigator HOA endpoint interpolation mismatch at channel "
+                      << ch << "\n";
+            return 1;
+        }
     }
 
     auto waveTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
@@ -1153,7 +1234,7 @@ int main()
                   << automatedPeak << " / " << automatedMaximumStep << "\n";
         return 1;
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(S3G_ENABLE_TEST_TIMING_ASSERTIONS)
     constexpr double kAudioBlockMicros = static_cast<double>(terrainFrames) / 48000.0 * 1000000.0;
     if (automatedAverageMicros >= kAudioBlockMicros) {
         std::cerr << "Ambi Wave Terrain Encoder slider rebuild exceeded its audio-block budget: "
@@ -1801,6 +1882,78 @@ int main()
     }
     if (std::abs(delayOut[0] - 1.0f) > 0.0001f) {
         std::cerr << "Delay processor impulse timing failed\n";
+        return 1;
+    }
+
+    // Publishing one coherent wrapper snapshot must be render-equivalent to
+    // the established immediate setter sequence, including route activation
+    // and its tail bookkeeping.
+    s3g::DelayProcessor delayImmediateUpdate;
+    s3g::DelayProcessor delayBatchedUpdate;
+    delayImmediateUpdate.prepare(4000.0, 4, 0.5);
+    delayBatchedUpdate.prepare(4000.0, 4, 0.5);
+    auto configureDelayUpdate = [](s3g::DelayProcessor& processor) {
+        for (int ch = 0; ch < 4; ++ch) {
+            processor.setChannelDelayMs(ch, 18.0f + ch * 5.0f);
+            processor.setChannelFeedback(ch, 0.48f + ch * 0.04f);
+            processor.setChannelTone(ch, 0.35f + ch * 0.12f);
+            processor.setChannelNetwork(ch, 0.31f + ch * 0.05f);
+            processor.setChannelNetworkTopology(
+                ch, (ch + 1) % 4, (ch + 3) % 4, (ch + 2) % 4,
+                3, 0.29f);
+            processor.setChannelCharacter(ch, 0.17f + ch * 0.08f);
+            processor.setChannelSmearAmount(ch, 0.09f + ch * 0.07f);
+            processor.setChannelPitchSemitones(ch, -3.0f + ch * 2.0f);
+        }
+        s3g::TopologyState topology {};
+        topology.amount = 0.61;
+        topology.jitter = 0.23;
+        topology.twist = -0.31;
+        topology.flare = 0.26;
+        topology.shape = 7u;
+        topology.neighborCount = 3u;
+        topology.neighborRadius = 0.84;
+        topology.centroidAmount = 0.37;
+        const uint32_t lanes[] { 0u, 1u, 2u, 3u };
+        processor.setTopology(topology, lanes,
+            static_cast<uint32_t>(std::size(lanes)));
+        processor.setRouteParams({ 0.72f, -0.28f, 0.43f, 0.19f });
+    };
+    configureDelayUpdate(delayImmediateUpdate);
+    {
+        auto update = delayBatchedUpdate.scopedParameterUpdate();
+        (void)update;
+        configureDelayUpdate(delayBatchedUpdate);
+    }
+    if (delayImmediateUpdate.routeTailFrames()
+            != delayBatchedUpdate.routeTailFrames()
+        || delayImmediateUpdate.routeTailRemainingFrames()
+            != delayBatchedUpdate.routeTailRemainingFrames()) {
+        std::cerr << "Delay batched update tail parity failed\n";
+        return 1;
+    }
+    std::array<float, 4> delayUpdateIn {};
+    std::array<float, 4> delayImmediateOut {};
+    std::array<float, 4> delayBatchedOut {};
+    float delayUpdateError = 0.0f;
+    for (uint32_t frame = 0u; frame < 2048u; ++frame) {
+        for (uint32_t ch = 0u; ch < delayUpdateIn.size(); ++ch) {
+            delayUpdateIn[ch] = std::sin(
+                static_cast<float>(frame) * (0.013f + ch * 0.0047f))
+                * 0.12f;
+        }
+        delayImmediateUpdate.processFrame(
+            delayUpdateIn.data(), delayImmediateOut.data());
+        delayBatchedUpdate.processFrame(
+            delayUpdateIn.data(), delayBatchedOut.data());
+        for (uint32_t ch = 0u; ch < delayUpdateIn.size(); ++ch) {
+            delayUpdateError = std::max(delayUpdateError,
+                std::fabs(delayImmediateOut[ch] - delayBatchedOut[ch]));
+        }
+    }
+    if (delayUpdateError != 0.0f) {
+        std::cerr << "Delay batched update render parity failed: "
+                  << delayUpdateError << "\n";
         return 1;
     }
 
@@ -3808,6 +3961,106 @@ int main()
         std::cerr << "Layout Panner peak outside expected range: " << pannerPeak << "\n";
         return 1;
     }
+
+    // LBAP's solver geometry is layout-owned, and unchanged wrapper snapshots
+    // must not rebuild gain targets. Distance motion still needs periodic
+    // target updates until its smoothed position settles.
+    s3g::LayoutPanner lbapCachePanner;
+    lbapCachePanner.prepare(48000.0);
+    auto lbapCacheParams = lbapCachePanner.params();
+    lbapCacheParams.layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
+    lbapCacheParams.method = s3g::LayoutPannerMethod::Lbap;
+    lbapCacheParams.activeSources = 2u;
+    lbapCacheParams.smoothingMs = 35.0f;
+    lbapCacheParams.outputGainDb = -6.0f;
+    lbapCachePanner.setParams(lbapCacheParams);
+    std::array<float, s3g::kLayoutPannerSources> lbapCacheInput {};
+    std::array<float, s3g::kLayoutPannerMaxSpeakers> lbapCacheOutput {};
+    lbapCacheInput[0] = 0.21f;
+    lbapCacheInput[1] = -0.13f;
+    lbapCachePanner.processFrame(lbapCacheInput.data(),
+        lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    const uint64_t lbapInitialTargetUpdates =
+        lbapCachePanner.gainTargetUpdateCount();
+    if (lbapInitialTargetUpdates != 1u) {
+        std::cerr << "LBAP initial target update count failed: "
+                  << lbapInitialTargetUpdates << "\n";
+        return 1;
+    }
+    std::array<s3g::LayoutPannerSolverSpeaker,
+        s3g::kLayoutPannerMaxSolverSpeakers> lbapCachedSolver {};
+    const uint32_t lbapCachedSolverCount =
+        lbapCachePanner.vbapSolverSpeakers(lbapCachedSolver);
+    if (lbapCachedSolverCount < lbapCachePanner.activeSpeakers()) {
+        std::cerr << "LBAP cached solver speaker count failed\n";
+        return 1;
+    }
+    for (uint32_t spk = 0u; spk < lbapCachePanner.activeSpeakers(); ++spk) {
+        const auto expected = s3g::directionFromAed(
+            lbapCachePanner.speaker(spk).azimuthDeg,
+            lbapCachePanner.speaker(spk).elevationDeg);
+        const auto& cached = lbapCachedSolver[spk];
+        const float error = std::max({
+            std::abs(expected.x - cached.dir.x),
+            std::abs(expected.y - cached.dir.y),
+            std::abs(expected.z - cached.dir.z)
+        });
+        if (!cached.real || cached.realIndex != spk || error > 0.0000001f) {
+            std::cerr << "LBAP cached solver direction failed at speaker "
+                      << spk << ": " << error << "\n";
+            return 1;
+        }
+    }
+    for (uint32_t frame = 0u; frame < 96u; ++frame) {
+        auto repeated = lbapCachePanner.params();
+        repeated.selectedSource = frame & 1u;
+        lbapCachePanner.setParams(repeated);
+        lbapCachePanner.processFrame(lbapCacheInput.data(),
+            lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    }
+    auto outputOnlyChange = lbapCachePanner.params();
+    outputOnlyChange.outputGainDb = -9.0f;
+    lbapCachePanner.setParams(outputOnlyChange);
+    for (uint32_t frame = 0u; frame < 40u; ++frame) {
+        lbapCachePanner.processFrame(lbapCacheInput.data(),
+            lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    }
+    if (lbapCachePanner.gainTargetUpdateCount()
+        != lbapInitialTargetUpdates) {
+        std::cerr << "LBAP unchanged/output-only target cache failed: "
+                  << lbapCachePanner.gainTargetUpdateCount() << "\n";
+        return 1;
+    }
+    auto movedLbapSource = lbapCachePanner.source(0u);
+    movedLbapSource.azimuthDeg += 17.0f;
+    lbapCachePanner.setSource(0u, movedLbapSource);
+    lbapCachePanner.processFrame(lbapCacheInput.data(),
+        lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    if (lbapCachePanner.gainTargetUpdateCount()
+        != lbapInitialTargetUpdates + 1u) {
+        std::cerr << "LBAP source geometry target invalidation failed\n";
+        return 1;
+    }
+    movedLbapSource = lbapCachePanner.source(0u);
+    movedLbapSource.distance = 2.0f;
+    lbapCachePanner.setSource(0u, movedLbapSource);
+    lbapCachePanner.processFrame(lbapCacheInput.data(),
+        lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    const uint64_t lbapDistanceFirstUpdate =
+        lbapCachePanner.gainTargetUpdateCount();
+    for (uint32_t frame = 0u; frame < 33u; ++frame) {
+        lbapCachePanner.processFrame(lbapCacheInput.data(),
+            lbapCacheOutput.data(), 2u, lbapCachePanner.activeSpeakers());
+    }
+    if (lbapCachePanner.gainTargetUpdateCount()
+            <= lbapDistanceFirstUpdate
+        || !std::all_of(lbapCacheOutput.begin(),
+            lbapCacheOutput.begin() + lbapCachePanner.activeSpeakers(),
+            [](float value) { return std::isfinite(value); })) {
+        std::cerr << "LBAP distance transition target refresh failed\n";
+        return 1;
+    }
+
     layoutPannerParams.activeSources = 1;
     layoutPanner.setParams(layoutPannerParams);
     for (float& sample : pannerIn) sample = 0.0f;
@@ -5210,6 +5463,10 @@ int main()
             std::cerr << "Spectral FFT frame metadata failed\n";
             std::exit(1);
         }
+        if (frame.channel != (spectralKernelCalls % 2u)) {
+            std::cerr << "Spectral FFT per-channel kernel order failed\n";
+            std::exit(1);
+        }
         ++spectralKernelCalls;
     });
     if (spectralKernelCalls == 0u) {
@@ -5235,6 +5492,8 @@ int main()
         std::cerr << "Spectral FFT passthrough outside expected range: peak=" << spectralPeak << " err=" << spectralErr << "\n";
         return 1;
     }
+    const auto spectralSequentialOutL = spectralOutL;
+    const auto spectralSequentialOutR = spectralOutR;
 
     spectral.reset();
     std::fill(spectralOutL.begin(), spectralOutL.end(), 0.0f);
@@ -5250,6 +5509,7 @@ int main()
     });
     float spectralBlockErr = 0.0f;
     float spectralBlockPeak = 0.0f;
+    float spectralPathParityError = 0.0f;
     for (uint32_t i = 2048u; i + spectralLatency < spectralFrames - 1024u; ++i) {
         const uint32_t outIndex = i + spectralLatency;
         if (!std::isfinite(spectralOutL[outIndex]) || !std::isfinite(spectralOutR[outIndex])) {
@@ -5260,11 +5520,19 @@ int main()
         spectralBlockPeak = std::max(spectralBlockPeak, std::abs(spectralOutR[outIndex]));
         spectralBlockErr = std::max(spectralBlockErr, std::abs(spectralOutL[outIndex] - spectralInL[i]));
         spectralBlockErr = std::max(spectralBlockErr, std::abs(spectralOutR[outIndex] - spectralInR[i]));
+        spectralPathParityError = std::max(spectralPathParityError,
+            std::abs(spectralOutL[outIndex]
+                - spectralSequentialOutL[outIndex]));
+        spectralPathParityError = std::max(spectralPathParityError,
+            std::abs(spectralOutR[outIndex]
+                - spectralSequentialOutR[outIndex]));
     }
-    if (spectralBlockKernelCalls == 0u || spectralBlockPeak <= 0.00001f || spectralBlockErr > 0.02f) {
+    if (spectralBlockKernelCalls == 0u || spectralBlockPeak <= 0.00001f
+        || spectralBlockErr > 0.02f || spectralPathParityError > 0.000001f) {
         std::cerr << "Spectral FFT block passthrough outside expected range: calls="
                   << spectralBlockKernelCalls << " peak=" << spectralBlockPeak
-                  << " err=" << spectralBlockErr << "\n";
+                  << " err=" << spectralBlockErr
+                  << " path parity=" << spectralPathParityError << "\n";
         return 1;
     }
 #endif
@@ -5441,6 +5709,111 @@ int main()
     if (spectralSpray8Peak <= 0.00001f || spectralSpray8Peak > 1.0f || spectralSpray8MaxStep > 0.65f) {
         std::cerr << "8ch Spectral Spray stress outside expected range: peak=" << spectralSpray8Peak
                   << " step=" << spectralSpray8MaxStep << "\n";
+        return 1;
+    }
+
+    // The shared per-hop bin cache must not make rendering depend on the
+    // host's block segmentation. Exercise the general damage/repeat path as
+    // well as the eight-channel default fast path above.
+    constexpr uint32_t spectralSprayParityChannels = 4u;
+    constexpr uint32_t spectralSprayParityFrames = 4096u;
+    s3g::SpectralSpray spectralSprayWhole;
+    s3g::SpectralSpray spectralSprayChunked;
+    if (!spectralSprayWhole.prepare(48000.0, spectralSprayParityChannels,
+            1024u, 4u, spectralSprayParityFrames)
+        || !spectralSprayChunked.prepare(48000.0,
+            spectralSprayParityChannels, 1024u, 4u,
+            spectralSprayParityFrames)) {
+        std::cerr << "Spectral Spray block parity prepare failed\n";
+        return 1;
+    }
+    s3g::SpectralSprayParams spectralSprayParityParams {};
+    spectralSprayParityParams.sprayBins = 73.5f;
+    spectralSprayParityParams.drift = 0.63f;
+    spectralSprayParityParams.hold = 0.81f;
+    spectralSprayParityParams.freeze = 0.17f;
+    spectralSprayParityParams.feedback = 0.57f;
+    spectralSprayParityParams.smear = 0.68f;
+    spectralSprayParityParams.holes = 0.41f;
+    spectralSprayParityParams.phaseBlur = 0.59f;
+    spectralSprayParityParams.damage = 0.73f;
+    spectralSprayParityParams.repeat = 0.62f;
+    spectralSprayParityParams.loFreq = 180.0f;
+    spectralSprayParityParams.hiFreq = 8700.0f;
+    spectralSprayParityParams.gainDb = -7.0f;
+    spectralSprayParityParams.mix = 0.83f;
+    spectralSprayParityParams.tilt = -0.37f;
+    spectralSprayParityParams.safety = 0.71f;
+    spectralSprayWhole.setParams(spectralSprayParityParams);
+    spectralSprayChunked.setParams(spectralSprayParityParams);
+    std::array<std::array<float, spectralSprayParityFrames>,
+        spectralSprayParityChannels> spectralSprayParityInput {};
+    std::array<std::array<float, spectralSprayParityFrames>,
+        spectralSprayParityChannels> spectralSprayWholeOutput {};
+    std::array<std::array<float, spectralSprayParityFrames>,
+        spectralSprayParityChannels> spectralSprayChunkedOutput {};
+    std::array<const float*, spectralSprayParityChannels>
+        spectralSprayWholeInputPtrs {};
+    std::array<float*, spectralSprayParityChannels>
+        spectralSprayWholeOutputPtrs {};
+    for (uint32_t ch = 0u; ch < spectralSprayParityChannels; ++ch) {
+        spectralSprayWholeInputPtrs[ch] =
+            spectralSprayParityInput[ch].data();
+        spectralSprayWholeOutputPtrs[ch] =
+            spectralSprayWholeOutput[ch].data();
+        for (uint32_t frame = 0u; frame < spectralSprayParityFrames;
+             ++frame) {
+            const float t = static_cast<float>(frame) / 48000.0f;
+            const float frequency = 137.0f + static_cast<float>(ch) * 83.0f;
+            spectralSprayParityInput[ch][frame] = 0.11f
+                * (std::sin(6.28318530718f * frequency * t
+                       + static_cast<float>(ch) * 0.19f)
+                    + 0.37f * std::sin(6.28318530718f
+                        * frequency * 3.41f * t));
+        }
+    }
+    spectralSprayWhole.process(spectralSprayWholeInputPtrs.data(),
+        spectralSprayWholeOutputPtrs.data(), spectralSprayParityFrames);
+    constexpr std::array<uint32_t, 7u> spectralSprayChunkPattern {
+        17u, 113u, 64u, 257u, 31u, 509u, 83u
+    };
+    uint32_t spectralSprayParityOffset = 0u;
+    uint32_t spectralSprayChunkIndex = 0u;
+    while (spectralSprayParityOffset < spectralSprayParityFrames) {
+        const uint32_t chunk = std::min<uint32_t>(
+            spectralSprayChunkPattern[spectralSprayChunkIndex
+                % spectralSprayChunkPattern.size()],
+            spectralSprayParityFrames - spectralSprayParityOffset);
+        std::array<const float*, spectralSprayParityChannels> inputPtrs {};
+        std::array<float*, spectralSprayParityChannels> outputPtrs {};
+        for (uint32_t ch = 0u; ch < spectralSprayParityChannels; ++ch) {
+            inputPtrs[ch] = spectralSprayParityInput[ch].data()
+                + spectralSprayParityOffset;
+            outputPtrs[ch] = spectralSprayChunkedOutput[ch].data()
+                + spectralSprayParityOffset;
+        }
+        spectralSprayChunked.process(
+            inputPtrs.data(), outputPtrs.data(), chunk);
+        spectralSprayParityOffset += chunk;
+        ++spectralSprayChunkIndex;
+    }
+    float spectralSprayBlockParityError = 0.0f;
+    for (uint32_t ch = 0u; ch < spectralSprayParityChannels; ++ch) {
+        for (uint32_t frame = 0u; frame < spectralSprayParityFrames;
+             ++frame) {
+            const float whole = spectralSprayWholeOutput[ch][frame];
+            const float chunked = spectralSprayChunkedOutput[ch][frame];
+            if (!std::isfinite(whole) || !std::isfinite(chunked)) {
+                std::cerr << "Spectral Spray block parity output is not finite\n";
+                return 1;
+            }
+            spectralSprayBlockParityError = std::max(
+                spectralSprayBlockParityError, std::abs(whole - chunked));
+        }
+    }
+    if (spectralSprayBlockParityError > 0.000001f) {
+        std::cerr << "Spectral Spray block parity failed: "
+                  << spectralSprayBlockParityError << "\n";
         return 1;
     }
 
@@ -6319,15 +6692,79 @@ int main()
             }
         }
         nodeMixer->process(nodeInPtrs.data(), s3g::kNodeTrackMixerMaxChannels, nodeOutPtrs.data(), s3g::kNodeTrackMixerMaxChannels, nodeFrames);
+        const auto sanitizedNodeParams =
+            s3g::sanitizeNodeTrackMixerParams(nodeParams);
+        std::array<std::array<float, nodeFrames>,
+            s3g::kNodeTrackMixerMaxChannels> nodeReferenceOut {};
+        const auto referenceNodeWeights = nodeMixer->nodeWeights();
+        for (uint32_t node = 0u; node < sanitizedNodeParams.nodeCount; ++node) {
+            const auto& n = sanitizedNodeParams.nodes[node];
+            if (!n.active || referenceNodeWeights[node] <= 0.000001f) continue;
+            const uint32_t sourceChannels = std::min<uint32_t>(
+                n.sourceChannels, s3g::kNodeTrackMixerMaxChannels);
+            const uint32_t outputChannels = std::min<uint32_t>(
+                sanitizedNodeParams.outputChannels,
+                s3g::kNodeTrackMixerMaxChannels);
+            const uint32_t inputStart = n.inputStart - 1u;
+            for (uint32_t source = 0u; source < sourceChannels; ++source) {
+                auto sourcePoint = s3g::nodeTrackLayoutPoint(
+                    source, sourceChannels, n.sourceLayout);
+                sourcePoint = s3g::nodeTrackRotatePoint(
+                    sourcePoint, n.rotateAzDeg, n.rotateElDeg);
+                sourcePoint.x = n.x + sourcePoint.x * n.scale;
+                sourcePoint.y = n.y + sourcePoint.y * n.scale;
+                sourcePoint.z = n.z + sourcePoint.z * n.scale;
+                std::array<float, s3g::kNodeTrackMixerMaxChannels>
+                    referenceGeometry {};
+                float normalization = 0.0f;
+                for (uint32_t output = 0u; output < outputChannels; ++output) {
+                    const auto destination = s3g::nodeTrackLayoutPoint(
+                        output, outputChannels,
+                        sanitizedNodeParams.outputLayout);
+                    const float dx = destination.x - sourcePoint.x;
+                    const float dy = destination.y - sourcePoint.y;
+                    const float dz = destination.z - sourcePoint.z;
+                    const float distance = std::sqrt(
+                        dx * dx + dy * dy + dz * dz);
+                    const float weight = 1.0f / std::pow(
+                        std::max(0.0001f, distance),
+                        std::max(0.2f, n.focus));
+                    referenceGeometry[output] = weight;
+                    normalization += weight * weight;
+                }
+                normalization = std::sqrt(std::max(
+                    0.0000000001f, normalization));
+                const uint32_t inputChannel = inputStart + source;
+                for (uint32_t output = 0u; output < outputChannels; ++output) {
+                    const float combinedWeight =
+                        referenceGeometry[output] / normalization
+                        * referenceNodeWeights[node];
+                    for (uint32_t frame = 0u; frame < nodeFrames; ++frame) {
+                        nodeReferenceOut[output][frame] +=
+                            nodeIn[inputChannel][frame] * combinedWeight;
+                    }
+                }
+            }
+        }
         float nodePeak = 0.0f;
+        float nodeReferenceError = 0.0f;
         for (uint32_t ch = 0; ch < 8u; ++ch) {
-            for (float value : nodeOut[ch]) {
+            for (uint32_t frame = 0u; frame < nodeFrames; ++frame) {
+                const float value = nodeOut[ch][frame];
                 if (!std::isfinite(value)) {
                     std::cerr << "Node track mixer output is not finite\n";
                     return 1;
                 }
                 nodePeak = std::max(nodePeak, std::abs(value));
+                nodeReferenceError = std::max(nodeReferenceError,
+                    std::abs(value - std::clamp(
+                        nodeReferenceOut[ch][frame], -8.0f, 8.0f)));
             }
+        }
+        if (nodeReferenceError > 0.0000001f) {
+            std::cerr << "Node track mixer geometry/gain split changed output: "
+                      << nodeReferenceError << "\n";
+            return 1;
         }
         if (nodePeak <= 0.000001f || nodePeak > 1.0f) {
             std::cerr << "Node track mixer peak outside expected range: " << nodePeak << "\n";

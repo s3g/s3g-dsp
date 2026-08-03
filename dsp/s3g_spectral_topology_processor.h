@@ -171,6 +171,10 @@ public:
     {
         return mesh_.edgePulsePosition(source, destination);
     }
+    void setTelemetryEnabled(bool enabled)
+    {
+        mesh_.setTelemetryEnabled(enabled);
+    }
 
     void process(const float* const* input,
                  uint32_t inputChannels,

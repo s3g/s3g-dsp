@@ -755,6 +755,10 @@ bool testContinuityRepairs()
             [](auto& p) { p.listening.enabled = 0u; })) return false;
     if (!transitionIsSmooth("neural population", listening,
             [](auto& p) { p.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes16; })) return false;
+    auto compactPopulation = listening;
+    compactPopulation.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes16;
+    if (!transitionIsSmooth("neural population expand", compactPopulation,
+            [](auto& p) { p.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes64; })) return false;
 
     s3g::AmbiPulsarEncoder startup;
     startup.prepare(48000.0);
@@ -764,6 +768,85 @@ bool testContinuityRepairs()
     processBlock(startup, startupBuffer);
     if (std::fabs(startupBuffer[0][0]) > 0.002f) {
         std::cerr << "Pulsar startup safety ramp exposed a discontinuity\n";
+        return false;
+    }
+    return true;
+}
+
+bool testSettledWorkBounds()
+{
+    s3g::AmbiPulsarEncoder encoder;
+    encoder.prepare(48000.0);
+    auto params = s3g::ambiPulsarFactoryPreset(8u);
+    params.order = 7u;
+    params.points = s3g::kAmbiPulsarMaxPoints;
+    params.probability = 0.0f;
+    for (auto& lane : params.lanes) lane.level = 0.0f;
+    params.neuralLevel = 0.0f;
+    params.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes64;
+    params.listening.enabled = 1u;
+    params.listening.bypass = 1u;
+    encoder.setParams(params);
+    encoder.reset();
+
+    Buffer buffer {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> outputs {};
+    for (uint32_t channel = 0u; channel < outputs.size(); ++channel) {
+        outputs[channel] = buffer[channel].data();
+    }
+    constexpr uint32_t bypassBlocks = 24u;
+    for (uint32_t block = 0u; block < bypassBlocks; ++block) {
+        encoder.process(outputs.data(), static_cast<uint32_t>(outputs.size()), kFrames);
+    }
+    const uint64_t bypassUpdates = encoder.listeningAnalysisUpdateCount();
+    const uint64_t bypassFrames = static_cast<uint64_t>(bypassBlocks) * kFrames;
+    if (encoder.pointRenderLimit() != s3g::kAmbiPulsarMaxPoints
+        || encoder.channelRenderLimit() != s3g::kAmbiPulsarMaxChannels
+        || encoder.processingNeuralLobeCount() != s3g::kAmbiPulsarNeuralLobes
+        || bypassUpdates == 0u || bypassUpdates >= bypassFrames / 8u) {
+        std::cerr << "Pulsar bypass work did not settle to its bounded cadence: points="
+                  << encoder.pointRenderLimit() << " channels="
+                  << encoder.channelRenderLimit() << " lobes="
+                  << encoder.processingNeuralLobeCount() << " listening="
+                  << bypassUpdates << " / " << bypassFrames << "\n";
+        return false;
+    }
+
+    params.order = 1u;
+    params.points = s3g::kAmbiPulsarMinPoints;
+    params.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes16;
+    params.listening.enabled = 0u;
+    params.listening.bypass = 0u;
+    encoder.setParams(params);
+    for (uint32_t block = 0u; block < 48u; ++block) {
+        encoder.process(outputs.data(), static_cast<uint32_t>(outputs.size()), kFrames);
+    }
+    const uint64_t disabledUpdates = encoder.listeningAnalysisUpdateCount();
+    encoder.process(outputs.data(), static_cast<uint32_t>(outputs.size()), kFrames);
+    if (encoder.pointRenderLimit() != s3g::kAmbiPulsarMinPoints
+        || encoder.channelRenderLimit() != 4u
+        || encoder.processingNeuralLobeCount() != 1u
+        || encoder.listeningAnalysisUpdateCount() != disabledUpdates) {
+        std::cerr << "Pulsar disabled work did not become dormant: points="
+                  << encoder.pointRenderLimit() << " channels="
+                  << encoder.channelRenderLimit() << " lobes="
+                  << encoder.processingNeuralLobeCount() << " listening="
+                  << disabledUpdates << " -> "
+                  << encoder.listeningAnalysisUpdateCount() << "\n";
+        return false;
+    }
+
+    params.order = 3u;
+    params.points = 12u;
+    params.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes64;
+    params.listening.enabled = 1u;
+    encoder.setParams(params);
+    encoder.process(outputs.data(), static_cast<uint32_t>(outputs.size()), kFrames);
+    if (encoder.pointRenderLimit() != params.points
+        || encoder.channelRenderLimit() != 16u
+        || encoder.processingNeuralLobeCount() != s3g::kAmbiPulsarNeuralLobes
+        || encoder.listeningAnalysisUpdateCount() <= disabledUpdates) {
+        std::cerr << "Pulsar dormant state did not restart on enable\n";
         return false;
     }
     return true;
@@ -1235,6 +1318,7 @@ int main()
     if (!testPointField()) return 1;
     if (!testMotionModesAndOrigin()) return 1;
     if (!testContinuityRepairs()) return 1;
+    if (!testSettledWorkBounds()) return 1;
     if (!testNeuralCircuit()) return 1;
     if (!testNeuralEncoderIntegration()) return 1;
     if (!testAmbisonicSelfListening()) return 1;

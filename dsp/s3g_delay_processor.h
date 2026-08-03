@@ -35,8 +35,29 @@ inline DelayRouteParams sanitizeDelayRouteParams(DelayRouteParams params)
 
 class DelayProcessor {
 public:
+    class ParameterUpdateGuard {
+    public:
+        explicit ParameterUpdateGuard(DelayProcessor& processor) noexcept
+            : processor_(processor)
+        {
+            processor_.beginParameterUpdate();
+        }
+
+        ~ParameterUpdateGuard() { processor_.endParameterUpdate(); }
+        ParameterUpdateGuard(const ParameterUpdateGuard&) = delete;
+        ParameterUpdateGuard& operator=(const ParameterUpdateGuard&) = delete;
+
+    private:
+        DelayProcessor& processor_;
+    };
+
     void prepare(double sampleRate, int channels, double maxDelaySeconds = 2.0)
     {
+        parameterUpdateDepth_ = 0u;
+        routeTargetsDirty_ = false;
+        routeTargetsSnap_ = false;
+        routeTailEstimateDirty_ = false;
+        routeActivationPending_ = false;
         sampleRate_ = std::max(1.0, sampleRate);
         channels_ = std::clamp(channels, 0, kDelayProcessorMaxChannels);
         maxDelaySamples_ = std::max(2, static_cast<int>(std::ceil(sampleRate_ * maxDelaySeconds)) + 2);
@@ -92,6 +113,10 @@ public:
         edgeEnergyState_.assign(routeCapacity, 0.0f);
         edgePhaseState_.assign(routeCapacity, 0.0f);
         edgePreviousLaunch_.assign(routeCapacity, 0.0f);
+        routePairDistanceCache_.assign(routeCapacity, 0.0);
+        routeTurnBiasCache_.assign(routeCapacity, 1.0f);
+        routeCentroidDistanceCache_.assign(
+            static_cast<size_t>(channels_), 0.0);
         activeRouteEdges_.assign(routeCapacity, 0u);
         edgeEnergyPublished_ = std::make_unique<std::atomic<float>[]>(
             kRouteTelemetryCapacity);
@@ -131,6 +156,11 @@ public:
 
     void reset()
     {
+        parameterUpdateDepth_ = 0u;
+        routeTargetsDirty_ = false;
+        routeTargetsSnap_ = false;
+        routeTailEstimateDirty_ = false;
+        routeActivationPending_ = false;
         std::fill(buffer_.begin(), buffer_.end(), 0.0f);
         std::fill(feedbackFilter_.begin(), feedbackFilter_.end(), 0.0f);
         writeIndex_ = 0;
@@ -152,6 +182,43 @@ public:
         resetRouteTelemetry();
         routeTelemetryActive_ = false;
         hasProcessed_ = false;
+    }
+
+    // A wrapper may update many lane parameters from one coherent control
+    // snapshot. Deferring route/tail maintenance keeps that publication O(1)
+    // per snapshot instead of repeating it for every lane setter.
+    void beginParameterUpdate() noexcept
+    {
+        ++parameterUpdateDepth_;
+    }
+
+    void endParameterUpdate()
+    {
+        if (parameterUpdateDepth_ == 0u) return;
+        --parameterUpdateDepth_;
+        if (parameterUpdateDepth_ != 0u) return;
+        if (routeTargetsDirty_) {
+            const bool snap = routeTargetsSnap_;
+            routeTargetsDirty_ = false;
+            routeTargetsSnap_ = false;
+            rebuildRouteTargets(snap);
+        }
+        if (routeTailEstimateDirty_) {
+            routeTailEstimateDirty_ = false;
+            updateRouteTailEstimate();
+        }
+        if (routeActivationPending_) {
+            routeActivationPending_ = false;
+            routeTailRemaining_ = routeTailFramesPublished_.load(
+                std::memory_order_relaxed);
+            routeTailRemainingPublished_.store(
+                routeTailRemaining_, std::memory_order_relaxed);
+        }
+    }
+
+    ParameterUpdateGuard scopedParameterUpdate() noexcept
+    {
+        return ParameterUpdateGuard(*this);
     }
 
     void setChannelDelayMs(int channel, float delayMs)
@@ -181,7 +248,7 @@ public:
                 delayPending_[index] = 1u;
                 delaySettleSamples_[index] = 0;
             }
-            updateRouteTailEstimate();
+            requestRouteTailEstimate();
         }
     }
 
@@ -189,11 +256,16 @@ public:
     {
         if (validChannel(channel)) {
             const size_t index = static_cast<size_t>(channel);
-            feedbackTarget_[index] = clamp(feedback, 0.0f, 0.82f);
+            const float target = clamp(feedback, 0.0f, 0.82f);
+            if (std::fabs(target - feedbackTarget_[index]) < 0.000001f) {
+                if (!hasProcessed_) feedback_[index] = target;
+                return;
+            }
+            feedbackTarget_[index] = target;
             if (!hasProcessed_) {
                 feedback_[index] = feedbackTarget_[index];
             }
-            updateRouteTailEstimate();
+            requestRouteTailEstimate();
         }
     }
 
@@ -292,11 +364,17 @@ public:
         if (!hasProcessed_) {
             routeCurrent_ = routeParams_;
         }
-        rebuildRouteTargets(!hasProcessed_);
-        updateRouteTailEstimate();
+        requestRouteTargets(!hasProcessed_);
+        requestRouteTailEstimate();
         if (activating) {
-            routeTailRemaining_ = routeTailFramesPublished_.load(std::memory_order_relaxed);
-            routeTailRemainingPublished_.store(routeTailRemaining_, std::memory_order_relaxed);
+            if (parameterUpdateDepth_ > 0u) {
+                routeActivationPending_ = true;
+            } else {
+                routeTailRemaining_ = routeTailFramesPublished_.load(
+                    std::memory_order_relaxed);
+                routeTailRemainingPublished_.store(
+                    routeTailRemaining_, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -306,21 +384,22 @@ public:
                      const uint32_t* activeLanes,
                      uint32_t activeLaneCount)
     {
-        routeTopology_ = topology;
-        routeTopology_.amount = std::clamp(routeTopology_.amount, 0.0, 1.0);
-        routeTopology_.jitter = std::clamp(routeTopology_.jitter, 0.0, 1.0);
-        routeTopology_.collapse = std::clamp(routeTopology_.collapse, 0.0, 1.0);
-        routeTopology_.dirX = std::clamp(routeTopology_.dirX, -1.0, 1.0);
-        routeTopology_.dirY = std::clamp(routeTopology_.dirY, -1.0, 1.0);
-        routeTopology_.dirZ = std::clamp(routeTopology_.dirZ, -1.0, 1.0);
-        routeTopology_.twist = std::clamp(routeTopology_.twist, -1.0, 1.0);
-        routeTopology_.flare = std::clamp(routeTopology_.flare, -1.0, 1.0);
-        routeTopology_.shape = std::min<uint32_t>(routeTopology_.shape, kTopologyShapeCount - 1u);
-        routeTopology_.neighborCount = std::clamp<uint32_t>(routeTopology_.neighborCount, 1u, 3u);
-        routeTopology_.neighborRadius = std::clamp(routeTopology_.neighborRadius, 0.0, 1.0);
-        routeTopology_.centroidAmount = std::clamp(routeTopology_.centroidAmount, 0.0, 1.0);
+        TopologyState next = topology;
+        next.amount = std::clamp(next.amount, 0.0, 1.0);
+        next.jitter = std::clamp(next.jitter, 0.0, 1.0);
+        next.collapse = std::clamp(next.collapse, 0.0, 1.0);
+        next.dirX = std::clamp(next.dirX, -1.0, 1.0);
+        next.dirY = std::clamp(next.dirY, -1.0, 1.0);
+        next.dirZ = std::clamp(next.dirZ, -1.0, 1.0);
+        next.twist = std::clamp(next.twist, -1.0, 1.0);
+        next.flare = std::clamp(next.flare, -1.0, 1.0);
+        next.shape = std::min<uint32_t>(next.shape, kTopologyShapeCount - 1u);
+        next.neighborCount = std::clamp<uint32_t>(next.neighborCount, 1u, 3u);
+        next.neighborRadius = std::clamp(next.neighborRadius, 0.0, 1.0);
+        next.centroidAmount = std::clamp(next.centroidAmount, 0.0, 1.0);
 
-        requestedActiveLaneCount_ = 0u;
+        std::array<uint32_t, kDelayProcessorMaxChannels> nextActiveLanes {};
+        uint32_t nextActiveLaneCount = 0u;
         std::array<bool, kDelayProcessorMaxChannels> seen {};
         if (activeLanes) {
             const uint32_t limit = std::min<uint32_t>(
@@ -334,17 +413,34 @@ public:
                     continue;
                 }
                 seen[lane] = true;
-                requestedActiveLanes_[requestedActiveLaneCount_++] = lane;
+                nextActiveLanes[nextActiveLaneCount++] = lane;
             }
         }
-        if (requestedActiveLaneCount_ == 0u && channels_ > 0) {
-            requestedActiveLaneCount_ = static_cast<uint32_t>(std::max(0, channels_));
-            for (uint32_t lane = 0u; lane < requestedActiveLaneCount_; ++lane) {
-                requestedActiveLanes_[lane] = lane;
+        if (nextActiveLaneCount == 0u && channels_ > 0) {
+            nextActiveLaneCount = static_cast<uint32_t>(std::max(0, channels_));
+            for (uint32_t lane = 0u; lane < nextActiveLaneCount; ++lane) {
+                nextActiveLanes[lane] = lane;
             }
         }
-        rebuildRouteTargets(!hasProcessed_);
-        updateRouteTailEstimate();
+
+        bool changed = !topologyStateMatches(routeTopology_, next)
+            || requestedActiveLaneCount_ != nextActiveLaneCount;
+        if (!changed) {
+            for (uint32_t lane = 0u; lane < nextActiveLaneCount; ++lane) {
+                if (requestedActiveLanes_[lane] != nextActiveLanes[lane]) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (!changed) return;
+
+        routeTopology_ = next;
+        requestedActiveLaneCount_ = nextActiveLaneCount;
+        std::copy_n(nextActiveLanes.begin(), nextActiveLaneCount,
+            requestedActiveLanes_.begin());
+        requestRouteTargets(!hasProcessed_);
+        requestRouteTailEstimate();
     }
 
     float edgeEnergy(uint32_t source, uint32_t destination) const
@@ -548,6 +644,47 @@ private:
         centroidPhasePublished_.store(0.0f, std::memory_order_relaxed);
     }
 
+    static bool topologyStateMatches(const TopologyState& a,
+                                     const TopologyState& b)
+    {
+        return a.amount == b.amount
+            && a.jitter == b.jitter
+            && a.collapse == b.collapse
+            && a.dirX == b.dirX
+            && a.dirY == b.dirY
+            && a.dirZ == b.dirZ
+            && a.twist == b.twist
+            && a.flare == b.flare
+            && a.shape == b.shape
+            && a.motionMode == b.motionMode
+            && a.motionVariant == b.motionVariant
+            && a.motionRateHz == b.motionRateHz
+            && a.motionDepth == b.motionDepth
+            && a.motionPhase == b.motionPhase
+            && a.neighborCount == b.neighborCount
+            && a.neighborRadius == b.neighborRadius
+            && a.centroidAmount == b.centroidAmount;
+    }
+
+    void requestRouteTargets(bool snap)
+    {
+        if (parameterUpdateDepth_ > 0u) {
+            routeTargetsDirty_ = true;
+            routeTargetsSnap_ = routeTargetsSnap_ || snap;
+            return;
+        }
+        rebuildRouteTargets(snap);
+    }
+
+    void requestRouteTailEstimate()
+    {
+        if (parameterUpdateDepth_ > 0u) {
+            routeTailEstimateDirty_ = true;
+            return;
+        }
+        updateRouteTailEstimate();
+    }
+
     void updateRouteTailEstimate()
     {
         if (channels_ <= 0 || maxDelaySamples_ <= 0) {
@@ -620,16 +757,35 @@ private:
         centroidPoint.y *= inverseCount;
         centroidPoint.z *= inverseCount;
 
+        // Distance and turn bias are invariant for the rest of this rebuild.
+        // Cache them once: the route candidate, hub, and weighting passes all
+        // revisit the same source/destination pairs, and repeated sqrt/exp
+        // calls dominated block-rate topology automation at small buffers.
+        for (uint32_t ordinal = 0u; ordinal < activeLaneCount_; ++ordinal) {
+            const uint32_t lane = activeLanes_[ordinal];
+            const auto& point = routePoints_[lane];
+            const double dx = point.x - centroidPoint.x;
+            const double dy = point.y - centroidPoint.y;
+            const double dz = point.z - centroidPoint.z;
+            routeCentroidDistanceCache_[lane] =
+                std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
         double maximumPairDistance = 0.001;
         for (uint32_t a = 0u; a < activeLaneCount_; ++a) {
-            const auto& first = routePoints_[activeLanes_[a]];
+            const uint32_t firstLane = activeLanes_[a];
+            const auto& first = routePoints_[firstLane];
+            routePairDistanceCache_[routeIndex(firstLane, firstLane)] = 0.0;
             for (uint32_t b = a + 1u; b < activeLaneCount_; ++b) {
-                const auto& second = routePoints_[activeLanes_[b]];
+                const uint32_t secondLane = activeLanes_[b];
+                const auto& second = routePoints_[secondLane];
                 const double dx = first.x - second.x;
                 const double dy = first.y - second.y;
                 const double dz = first.z - second.z;
-                maximumPairDistance = std::max(maximumPairDistance,
-                    std::sqrt(dx * dx + dy * dy + dz * dz));
+                const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                routePairDistanceCache_[routeIndex(firstLane, secondLane)] = distance;
+                routePairDistanceCache_[routeIndex(secondLane, firstLane)] = distance;
+                maximumPairDistance = std::max(maximumPairDistance, distance);
             }
         }
 
@@ -637,50 +793,57 @@ private:
         double axisY = routeTopology_.dirY;
         double axisZ = routeTopology_.dirZ;
         normalize3(axisX, axisY, axisZ);
-        auto directDistance = [&](uint32_t firstLane, uint32_t secondLane) {
-            const auto& first = routePoints_[firstLane];
-            const auto& second = routePoints_[secondLane];
-            const double dx = first.x - second.x;
-            const double dy = first.y - second.y;
-            const double dz = first.z - second.z;
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
-        };
-        auto centroidDistance = [&](uint32_t lane) {
-            const auto& point = routePoints_[lane];
-            const double dx = point.x - centroidPoint.x;
-            const double dy = point.y - centroidPoint.y;
-            const double dz = point.z - centroidPoint.z;
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
-        };
-        auto turnBias = [&](uint32_t sourceOrdinal, uint32_t destinationOrdinal) {
+        for (uint32_t sourceOrdinal = 0u;
+             sourceOrdinal < activeLaneCount_; ++sourceOrdinal) {
             const uint32_t source = activeLanes_[sourceOrdinal];
-            const uint32_t destination = activeLanes_[destinationOrdinal];
             const auto& first = routePoints_[source];
-            const auto& second = routePoints_[destination];
             const double sx = first.x - centroidPoint.x;
             const double sy = first.y - centroidPoint.y;
             const double sz = first.z - centroidPoint.z;
-            const double dx = second.x - centroidPoint.x;
-            const double dy = second.y - centroidPoint.y;
-            const double dz = second.z - centroidPoint.z;
-            const double sourceLength = std::sqrt(sx * sx + sy * sy + sz * sz);
-            const double destinationLength = std::sqrt(dx * dx + dy * dy + dz * dz);
-            double circulation = 0.0;
-            if (sourceLength > 0.00001 && destinationLength > 0.00001) {
-                const double crossX = sy * dz - sz * dy;
-                const double crossY = sz * dx - sx * dz;
-                const double crossZ = sx * dy - sy * dx;
-                circulation = (crossX * axisX + crossY * axisY + crossZ * axisZ)
-                    / (sourceLength * destinationLength);
+            const double sourceLength = routeCentroidDistanceCache_[source];
+            for (uint32_t destinationOrdinal = 0u;
+                 destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                const auto& second = routePoints_[destination];
+                const double dx = second.x - centroidPoint.x;
+                const double dy = second.y - centroidPoint.y;
+                const double dz = second.z - centroidPoint.z;
+                const double destinationLength =
+                    routeCentroidDistanceCache_[destination];
+                double circulation = 0.0;
+                if (sourceLength > 0.00001 && destinationLength > 0.00001) {
+                    const double crossX = sy * dz - sz * dy;
+                    const double crossY = sz * dx - sx * dz;
+                    const double crossZ = sx * dy - sy * dx;
+                    circulation =
+                        (crossX * axisX + crossY * axisY + crossZ * axisZ)
+                        / (sourceLength * destinationLength);
+                }
+                if (std::fabs(circulation) < 0.0001
+                    && activeLaneCount_ > 2u) {
+                    const uint32_t forward =
+                        (destinationOrdinal + activeLaneCount_ - sourceOrdinal)
+                        % activeLaneCount_;
+                    circulation =
+                        forward > 0u && forward <= activeLaneCount_ / 2u
+                        ? 0.5 : -0.5;
+                }
+                routeTurnBiasCache_[routeIndex(source, destination)] =
+                    static_cast<float>(std::exp(
+                        static_cast<double>(routeParams_.turn)
+                        * circulation * 2.4));
             }
-            if (std::fabs(circulation) < 0.0001 && activeLaneCount_ > 2u) {
-                const uint32_t forward = (destinationOrdinal + activeLaneCount_ - sourceOrdinal)
-                    % activeLaneCount_;
-                circulation = forward > 0u && forward <= activeLaneCount_ / 2u
-                    ? 0.5 : -0.5;
-            }
-            return static_cast<float>(std::exp(
-                static_cast<double>(routeParams_.turn) * circulation * 2.4));
+        }
+
+        auto directDistance = [&](uint32_t firstLane, uint32_t secondLane) {
+            return routePairDistanceCache_[routeIndex(firstLane, secondLane)];
+        };
+        auto centroidDistance = [&](uint32_t lane) {
+            return routeCentroidDistanceCache_[lane];
+        };
+        auto turnBias = [&](uint32_t sourceOrdinal, uint32_t destinationOrdinal) {
+            return routeTurnBiasCache_[routeIndex(
+                activeLanes_[sourceOrdinal], activeLanes_[destinationOrdinal])];
         };
 
         const uint32_t requestedNeighbors = std::clamp<uint32_t>(
@@ -1329,6 +1492,9 @@ private:
     std::vector<float> edgeEnergyState_;
     std::vector<float> edgePhaseState_;
     std::vector<float> edgePreviousLaunch_;
+    std::vector<double> routePairDistanceCache_;
+    std::vector<float> routeTurnBiasCache_;
+    std::vector<double> routeCentroidDistanceCache_;
     std::vector<uint32_t> activeRouteEdges_;
     uint32_t activeRouteEdgeCount_ = 0u;
     float routeParamSmoothing_ = 1.0f;
@@ -1346,6 +1512,11 @@ private:
     uint32_t routeTelemetryPublishCounter_ = 0u;
     uint32_t routeTailEstimateFrames_ = 0u;
     uint32_t routeTailRemaining_ = 0u;
+    uint32_t parameterUpdateDepth_ = 0u;
+    bool routeTargetsDirty_ = false;
+    bool routeTargetsSnap_ = false;
+    bool routeTailEstimateDirty_ = false;
+    bool routeActivationPending_ = false;
     std::unique_ptr<std::atomic<float>[]> edgeEnergyPublished_;
     std::unique_ptr<std::atomic<float>[]> edgePhasePublished_;
     std::array<std::atomic<float>, kDelayProcessorMaxChannels> nodeEnergyPublished_ {};

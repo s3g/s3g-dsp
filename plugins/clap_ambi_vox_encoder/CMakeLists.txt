@@ -32,7 +32,7 @@ if(APPLE)
 endif()
 
 if(APPLE AND TARGET world::core)
-  add_executable(s3g_ambi_vox_playback_probe EXCLUDE_FROM_ALL
+  add_executable(s3g_ambi_vox_playback_probe
     s3g_ambi_vox_encoder_clap.cpp
   )
   target_link_libraries(s3g_ambi_vox_playback_probe PRIVATE
@@ -46,4 +46,17 @@ if(APPLE AND TARGET world::core)
     S3G_HAS_WORLD=1
     S3G_AMBI_VOX_PLAYBACK_PROBE=1
   )
+  if(BUILD_TESTING)
+    set(S3G_AMBI_VOX_TEST_VOICEBANK
+      "${PROJECT_SOURCE_DIR}/examples/voicebanks/s3g-demo-synthetic")
+    if(NOT EXISTS "${S3G_AMBI_VOX_TEST_VOICEBANK}/voicebank.json")
+      message(FATAL_ERROR
+        "Ambi Vox playback test voicebank is missing: ${S3G_AMBI_VOX_TEST_VOICEBANK}")
+    endif()
+    add_test(NAME s3g_ambi_vox_playback_probe
+      COMMAND $<TARGET_FILE:s3g_ambi_vox_playback_probe>
+        ${S3G_AMBI_VOX_TEST_VOICEBANK})
+    set_tests_properties(s3g_ambi_vox_playback_probe PROPERTIES
+      LABELS "non_nim;clap;slow" TIMEOUT 300)
+  endif()
 endif()

@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 
 namespace {
@@ -128,7 +129,9 @@ constexpr ParamDef kParams[] {
     { kAirParamId, "Air", 0.0, 1.0, 0.10, false },
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0, false },
     { kOutputParamId, "Output Gain", -60.0, 6.0, -18.0, false },
-    { kSeedParamId, "Circuit Seed", 1.0, 65535.0, 17735.0, true },
+    { kSeedParamId, "Circuit Seed", 1.0,
+        static_cast<double>(std::numeric_limits<uint32_t>::max()),
+        3681826549.0, true },
     { kListeningModeParamId, "Listening Topology", 0.0, 3.0, 0.0, true },
     { kAuditoryPlasticityParamId, "Auditory Plasticity", 0.0, 1.0, 0.10, false },
     { kMetabolismParamId, "Metabolism Target", 0.0, 1.0, 0.32, false },
@@ -1007,7 +1010,14 @@ bool assignParam(s3g::AmbiNeuralEcologyParams& p, clap_id id, double value)
     case kAirParamId: p.air = static_cast<float>(value); return true;
     case kDopplerParamId: p.doppler = static_cast<float>(value); return true;
     case kOutputParamId: p.outputGainDb = static_cast<float>(value); return true;
-    case kSeedParamId: p.seed = static_cast<uint32_t>(std::lround(value)); return true;
+    case kSeedParamId: {
+        const double finite = std::isfinite(value) ? value : 1.0;
+        const double maximum = static_cast<double>(
+            std::numeric_limits<uint32_t>::max());
+        p.seed = static_cast<uint32_t>(static_cast<uint64_t>(
+            std::llround(std::clamp(finite, 1.0, maximum))));
+        return true;
+    }
     default: return false;
     }
 }

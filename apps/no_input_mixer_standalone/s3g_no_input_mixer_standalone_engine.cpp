@@ -8,6 +8,14 @@
 #include <cstring>
 
 namespace s3g::standalone {
+namespace {
+
+bool validProcessStatus(clap_process_status status) noexcept
+{
+    return status >= CLAP_PROCESS_CONTINUE && status <= CLAP_PROCESS_SLEEP;
+}
+
+} // namespace
 
 bool NoInputMixerStandaloneEngine::create(
     const clap_plugin_entry_t* noInputEntry,
@@ -137,6 +145,8 @@ bool NoInputMixerStandaloneEngine::prepare(double sampleRate,
     }
     steadyTime_ = 0;
     monitorGain_ = 0.0f;
+    resetTelemetry();
+    resetMidiInputDropCount();
     for (auto& peak : outputPeaks_) peak.store(0.0f,
         std::memory_order_relaxed);
     prepared_ = true;
@@ -382,13 +392,23 @@ void NoInputMixerStandaloneEngine::clearOutput(float* const* output,
     }
 }
 
-void NoInputMixerStandaloneEngine::render(float* const* output,
+bool NoInputMixerStandaloneEngine::render(float* const* output,
     uint32_t outputChannels, uint32_t frames, uint64_t blockHostTime)
 {
     if (!prepared_ || !output || frames == 0u || frames > maximumFrames_) {
         clearOutput(output, outputChannels, frames);
-        return;
+        return false;
     }
+    const auto failBlock = [&](std::atomic<uint64_t>& stageErrors) {
+        stageErrors.fetch_add(1u, std::memory_order_relaxed);
+        clearOutput(output, outputChannels, frames);
+        for (auto& peak : outputPeaks_) {
+            peak.store(peak.load(std::memory_order_relaxed) * 0.90f,
+                std::memory_order_relaxed);
+        }
+        steadyTime_ += frames;
+        return false;
+    };
     prepareMidiEvents(frames, blockHostTime);
 
     clap_event_transport_t transport {};
@@ -405,7 +425,10 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
     gestureProcess.transport = &transport;
     gestureProcess.in_events = &inputEvents_;
     gestureProcess.out_events = &gestureOutputEvents_;
-    gesture_.process(gestureProcess);
+    if (!validProcessStatus(gesture_.process(gestureProcess))) {
+        gestureMidiEventCount_ = 0u;
+        return failBlock(gestureProcessErrorCount_);
+    }
 
     clap_audio_buffer_t sourceOutput {};
     sourceOutput.data32 = sourcePointers_.data();
@@ -418,7 +441,8 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
     sourceProcess.audio_outputs_count = 1u;
     sourceProcess.in_events = &gestureInputEvents_;
     sourceProcess.out_events = &noInputOutputEvents_;
-    noInput_.process(sourceProcess);
+    if (!validProcessStatus(noInput_.process(sourceProcess)))
+        return failBlock(noInputProcessErrorCount_);
 
     const NoInputOutputMode mode = outputMode();
     float* const* routed = sourcePointers_.data();
@@ -446,10 +470,12 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
         foldProcess.audio_inputs_count = 1u;
         foldProcess.audio_outputs = &foldOutput;
         foldProcess.audio_outputs_count = 1u;
-        if (mode == NoInputOutputMode::QuadAutogain)
-            quad_.process(foldProcess);
-        else
-            stereo_.process(foldProcess);
+        if (mode == NoInputOutputMode::QuadAutogain) {
+            if (!validProcessStatus(quad_.process(foldProcess)))
+                return failBlock(quadFoldProcessErrorCount_);
+        } else if (!validProcessStatus(stereo_.process(foldProcess))) {
+            return failBlock(stereoFoldProcessErrorCount_);
+        }
     }
 
     clearOutput(output, outputChannels, frames);
@@ -459,6 +485,7 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
     const float fadeStep = 1.0f / std::max(1.0,
         sampleRate_ * 0.025);
     std::array<float, kSourceChannels> peaks {};
+    uint64_t nonFiniteOutputSamples = 0u;
     for (uint32_t frame = 0u; frame < frames; ++frame) {
         if (monitorGain_ < target)
             monitorGain_ = std::min(target, monitorGain_ + fadeStep);
@@ -470,8 +497,9 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
             routedChannels);
         for (uint32_t channel = 0u; channel < channels; ++channel) {
             const float value = routed[channel][frame] * monitorGain_;
-            output[outputOffset + channel][frame] = std::isfinite(value)
-                ? value : 0.0f;
+            const bool finite = std::isfinite(value);
+            output[outputOffset + channel][frame] = finite ? value : 0.0f;
+            if (!finite) ++nonFiniteOutputSamples;
             peaks[channel] = std::max(peaks[channel],
                 std::abs(output[outputOffset + channel][frame]));
         }
@@ -481,7 +509,38 @@ void NoInputMixerStandaloneEngine::render(float* const* output,
             outputPeaks_[channel].load(std::memory_order_relaxed) * 0.90f,
             peaks[channel]), std::memory_order_relaxed);
     }
+    if (nonFiniteOutputSamples != 0u) {
+        nonFiniteOutputSampleCount_.fetch_add(nonFiniteOutputSamples,
+            std::memory_order_relaxed);
+    }
     steadyTime_ += frames;
+    return true;
+}
+
+NoInputMixerStandaloneTelemetrySnapshot
+NoInputMixerStandaloneEngine::telemetry() const
+{
+    NoInputMixerStandaloneTelemetrySnapshot result;
+    result.gestureProcessErrorCount = gestureProcessErrorCount_.load(
+        std::memory_order_relaxed);
+    result.noInputProcessErrorCount = noInputProcessErrorCount_.load(
+        std::memory_order_relaxed);
+    result.stereoFoldProcessErrorCount = stereoFoldProcessErrorCount_.load(
+        std::memory_order_relaxed);
+    result.quadFoldProcessErrorCount = quadFoldProcessErrorCount_.load(
+        std::memory_order_relaxed);
+    result.nonFiniteOutputSampleCount = nonFiniteOutputSampleCount_.load(
+        std::memory_order_relaxed);
+    return result;
+}
+
+void NoInputMixerStandaloneEngine::resetTelemetry()
+{
+    gestureProcessErrorCount_.store(0u, std::memory_order_relaxed);
+    noInputProcessErrorCount_.store(0u, std::memory_order_relaxed);
+    stereoFoldProcessErrorCount_.store(0u, std::memory_order_relaxed);
+    quadFoldProcessErrorCount_.store(0u, std::memory_order_relaxed);
+    nonFiniteOutputSampleCount_.store(0u, std::memory_order_relaxed);
 }
 
 float NoInputMixerStandaloneEngine::outputPeak(uint32_t channel) const

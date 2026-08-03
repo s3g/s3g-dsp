@@ -374,6 +374,8 @@ public:
         transitionRequested_.store(false, std::memory_order_relaxed);
         lastOutput_.fill(0.0f);
         transitionTail_.fill(0.0f);
+        lastRenderedChannels_ = ambiChannelsForOrder(params_.order);
+        transitionChannels_ = lastRenderedChannels_;
         environmentField_.setProfile(ambiInsectEnvironmentProfile(params_.place));
         environmentField_.setAmount(ambiEnvironmentSpaceAmount(params_.space));
         environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
@@ -534,18 +536,42 @@ public:
             ? lerp(1.0f, currentListenWeights_[lobe], currentListenMix_)
             : 1.0f;
     }
+    void setListenerTelemetryEnabled(bool enabled)
+    {
+        listenerTelemetryEnabled_ = enabled;
+    }
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
-        if (!outputs || frames == 0u) return;
+        (void)processInternal(outputs, outputChannels, frames, true);
+    }
+
+    uint32_t processActiveChannels(
+        float* const* outputs, uint32_t outputChannels, uint32_t frames)
+    {
+        return processInternal(outputs, outputChannels, frames, false);
+    }
+
+private:
+    uint32_t processInternal(float* const* outputs, uint32_t outputChannels,
+        uint32_t frames, bool clearInactiveOutputs)
+    {
+        if (!outputs || frames == 0u) return 0u;
         if (transitionRequested_.exchange(false, std::memory_order_acq_rel)) startTransition();
         outputChannels = std::min<uint32_t>(outputChannels, kAmbiInsectMaxChannels);
-        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+        const uint32_t ambiChannels = std::min<uint32_t>(
+            ambiChannelsForOrder(params_.order), outputChannels);
+        const uint32_t fadingChannels = transitionFade_ < 1.0f
+            ? std::min<uint32_t>(transitionChannels_, outputChannels)
+            : 0u;
+        const uint32_t renderChannels = std::max(ambiChannels, fadingChannels);
+        const uint32_t clearChannels = clearInactiveOutputs
+            ? outputChannels : renderChannels;
+        for (uint32_t channel = 0u; channel < clearChannels; ++channel) {
             if (outputs[channel]) std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
         }
 
         const uint32_t voices = processingVoiceCount();
-        const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         constexpr uint32_t kControlFrames = 16u;
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
             const uint32_t chunkFrames = std::min<uint32_t>(kControlFrames, frames - chunkStart);
@@ -625,7 +651,8 @@ public:
                     if (outputs[channel]) outputs[channel][frame] = flushDenormal(outputs[channel][frame] + environment[channel]);
                 }
                 const bool analyzeListener = listenerActive
-                    || ((listenerAnalysisPhase_++ & 3u) == 0u);
+                    || (listenerTelemetryEnabled_
+                        && ((listenerAnalysisPhase_++ & 3u) == 0u));
                 if (analyzeListener) {
                     for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
                         listenerFrame_[channel] = outputs[channel]
@@ -641,7 +668,7 @@ public:
         const float transitionStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate_) * 0.030f);
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             const float mix = transitionFade_;
-            for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            for (uint32_t channel = 0u; channel < renderChannels; ++channel) {
                 const float summed = channel < ambiChannels && outputs[channel] ? outputs[channel][frame] : 0.0f;
                 float fresh = std::tanh(clamp(summed * 1.06f, -4.0f, 4.0f));
                 if (!std::isfinite(fresh)) fresh = 0.0f;
@@ -651,9 +678,19 @@ public:
             }
             transitionFade_ = std::min(1.0f, transitionFade_ + transitionStep);
         }
+        if (transitionFade_ >= 1.0f) {
+            for (uint32_t channel = ambiChannels;
+                 channel < lastRenderedChannels_; ++channel) {
+                lastOutput_[channel] = 0.0f;
+            }
+            lastRenderedChannels_ = ambiChannels;
+            transitionChannels_ = ambiChannels;
+        } else {
+            lastRenderedChannels_ = renderChannels;
+        }
+        return renderChannels;
     }
 
-private:
     void initializeFieldListener()
     {
         constexpr std::array<Vec3, kAmbiFieldListenerMaxLobes> corners {{
@@ -1270,6 +1307,9 @@ private:
     void startTransition()
     {
         transitionTail_ = lastOutput_;
+        transitionChannels_ = std::max({
+            lastRenderedChannels_, transitionChannels_,
+            ambiChannelsForOrder(params_.order) });
         transitionFade_ = 0.0f;
         smoothParams_ = params_;
         callProfile_ = ambiInsectCallProfile(params_.callType);
@@ -2092,6 +2132,8 @@ private:
         surfaceVoiceMembership_ {};
     std::array<float, kAmbiInsectMaxChannels> lastOutput_ {};
     std::array<float, kAmbiInsectMaxChannels> transitionTail_ {};
+    uint32_t lastRenderedChannels_ = 1u;
+    uint32_t transitionChannels_ = 1u;
     std::array<float, kAmbiInsectMaxChannels> listenerFrame_ {};
     std::array<Vec3, kAmbiFieldListenerMaxLobes> listenDirections_ {};
     std::array<float, kAmbiFieldListenerMaxLobes> currentListenWeights_ {};
@@ -2099,6 +2141,7 @@ private:
     AmbiFieldListener fieldListener_ {};
     float currentListenMix_ = 0.0f;
     uint32_t listenerAnalysisPhase_ = 0u;
+    bool listenerTelemetryEnabled_ = true;
     AmbiEnvironmentField environmentField_ {};
     std::atomic<bool> transitionRequested_ { false };
 };

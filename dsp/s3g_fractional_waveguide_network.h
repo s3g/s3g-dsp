@@ -18,13 +18,24 @@ constexpr uint32_t kFractionalWaveguideMaxEdges =
     kFractionalWaveguideMaxNodes * (kFractionalWaveguideMaxNodes - 1u) / 2u;
 constexpr uint32_t kFractionalWaveguideMaxChannels = k3OaChannels;
 
+enum class WaveguideExciter : uint32_t {
+    Off = 0u,
+    Bow = 1u,
+    Reed = 2u,
+    AirJet = 3u,
+};
+
 struct FractionalWaveguideParams {
     float propagationSpeed = 343.0f;
     float decaySeconds = 2.5f;
     float absorption = 0.22f;
     float junctionNonlinearity = 0.0f;
     float radiation = 0.20f;
+    float dispersion = 0.0f;
+    float sustainedExcitation = 0.0f;
+    float exciterCharacter = 0.5f;
     float outputGainDb = -12.0f;
+    WaveguideExciter exciter = WaveguideExciter::Off;
     uint32_t order = 3u;
 };
 
@@ -47,10 +58,23 @@ inline FractionalWaveguideParams sanitizeFractionalWaveguideParams(
     params.radiation = clamp(
         std::isfinite(params.radiation) ? params.radiation : 0.20f,
         0.0f, 1.0f);
+    params.dispersion = clamp(
+        std::isfinite(params.dispersion) ? params.dispersion : 0.0f,
+        0.0f, 1.0f);
+    params.sustainedExcitation = clamp(
+        std::isfinite(params.sustainedExcitation)
+            ? params.sustainedExcitation : 0.0f,
+        0.0f, 1.0f);
+    params.exciterCharacter = clamp(
+        std::isfinite(params.exciterCharacter)
+            ? params.exciterCharacter : 0.5f,
+        0.0f, 1.0f);
     params.outputGainDb = clamp(
         std::isfinite(params.outputGainDb) ? params.outputGainDb : -12.0f,
         -60.0f, 12.0f);
     params.order = std::clamp<uint32_t>(params.order, 1u, 3u);
+    params.exciter = static_cast<WaveguideExciter>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.exciter), 3u));
     return params;
 }
 
@@ -69,7 +93,9 @@ public:
         const uint32_t frames = std::max<uint32_t>(8u,
             static_cast<uint32_t>(std::ceil(sampleRate * maximumSeconds)) + 4u);
         data_.assign(frames, 0.0f);
-        setDelaySamples(2.0f);
+        morphIncrement_ = 1.0f / std::max(
+            1.0f, static_cast<float>(sampleRate) * 0.018f);
+        setDelaySamples(2.0f, false);
         reset();
     }
 
@@ -79,45 +105,63 @@ public:
         writeIndex_ = 0u;
         previousInput_ = 0.0f;
         previousOutput_ = 0.0f;
+        morphPreviousInput_ = 0.0f;
+        morphPreviousOutput_ = 0.0f;
+        morphAmount_ = 0.0f;
+        morphing_ = false;
+        currentDelaySamples_ = delaySamples_;
+        configureCurrentTap(currentDelaySamples_);
     }
 
-    void setDelaySamples(float delaySamples)
+    void setDelaySamples(float delaySamples, bool smooth = false)
     {
         if (data_.size() < 8u) return;
         const float maximum = static_cast<float>(data_.size() - 3u);
         delaySamples_ = clamp(
             std::isfinite(delaySamples) ? delaySamples : 2.0f,
             2.0f, maximum);
-        integerDelay_ = static_cast<uint32_t>(std::floor(delaySamples_));
-        fractionalDelay_ = delaySamples_ - static_cast<float>(integerDelay_);
-        if (fractionalDelay_ < 0.000001f) {
-            fractionalDelay_ = 0.0f;
-            allpassCoefficient_ = 0.0f;
-        } else {
-            allpassCoefficient_ =
-                (1.0f - fractionalDelay_) / (1.0f + fractionalDelay_);
+        if (!smooth) {
+            currentDelaySamples_ = delaySamples_;
+            configureCurrentTap(currentDelaySamples_);
+            previousInput_ = 0.0f;
+            previousOutput_ = 0.0f;
+            morphing_ = false;
+            morphAmount_ = 0.0f;
+        } else if (!morphing_
+            && std::abs(delaySamples_ - currentDelaySamples_) > 0.0001f) {
+            beginMorph(delaySamples_);
         }
     }
 
     float read()
     {
         if (data_.empty()) return 0.0f;
-        const uint32_t size = static_cast<uint32_t>(data_.size());
-        const uint32_t readIndex =
-            (writeIndex_ + size - integerDelay_) % size;
-        const float delayed = data_[readIndex];
-        if (fractionalDelay_ == 0.0f) {
-            previousInput_ = delayed;
-            previousOutput_ = delayed;
-            return delayed;
+        const float current = readTap(
+            integerDelay_, fractionalDelay_, allpassCoefficient_,
+            previousInput_, previousOutput_);
+        if (!morphing_) return current;
+        const float target = readTap(
+            morphIntegerDelay_, morphFractionalDelay_,
+            morphAllpassCoefficient_, morphPreviousInput_,
+            morphPreviousOutput_);
+        const float mix = morphAmount_ * morphAmount_
+            * (3.0f - 2.0f * morphAmount_);
+        const float output = lerp(current, target, mix);
+        morphAmount_ = std::min(1.0f, morphAmount_ + morphIncrement_);
+        if (morphAmount_ >= 1.0f) {
+            currentDelaySamples_ = morphDelaySamples_;
+            integerDelay_ = morphIntegerDelay_;
+            fractionalDelay_ = morphFractionalDelay_;
+            allpassCoefficient_ = morphAllpassCoefficient_;
+            previousInput_ = morphPreviousInput_;
+            previousOutput_ = morphPreviousOutput_;
+            morphing_ = false;
+            morphAmount_ = 0.0f;
+            if (std::abs(delaySamples_ - currentDelaySamples_) > 0.0001f) {
+                beginMorph(delaySamples_);
+            }
         }
-        const float output = allpassCoefficient_ * delayed
-            + previousInput_
-            - allpassCoefficient_ * previousOutput_;
-        previousInput_ = delayed;
-        previousOutput_ = flushDenormal(
-            std::isfinite(output) ? output : 0.0f);
-        return previousOutput_;
+        return flushDenormal(std::isfinite(output) ? output : 0.0f);
     }
 
     void writeAndAdvance(float value)
@@ -134,14 +178,81 @@ public:
     float allpassCoefficient() const { return allpassCoefficient_; }
 
 private:
+    static void tapParameters(float delaySamples,
+        uint32_t& integerDelay, float& fractionalDelay,
+        float& allpassCoefficient)
+    {
+        integerDelay = static_cast<uint32_t>(std::floor(delaySamples));
+        fractionalDelay = delaySamples - static_cast<float>(integerDelay);
+        if (fractionalDelay < 0.000001f) {
+            fractionalDelay = 0.0f;
+            allpassCoefficient = 0.0f;
+        } else {
+            allpassCoefficient =
+                (1.0f - fractionalDelay) / (1.0f + fractionalDelay);
+        }
+    }
+
+    void configureCurrentTap(float delaySamples)
+    {
+        tapParameters(delaySamples, integerDelay_, fractionalDelay_,
+            allpassCoefficient_);
+    }
+
+    void beginMorph(float targetDelaySamples)
+    {
+        morphDelaySamples_ = targetDelaySamples;
+        tapParameters(morphDelaySamples_, morphIntegerDelay_,
+            morphFractionalDelay_, morphAllpassCoefficient_);
+        const uint32_t size = static_cast<uint32_t>(data_.size());
+        const uint32_t readIndex =
+            (writeIndex_ + size - morphIntegerDelay_) % size;
+        const float delayed = data_[readIndex];
+        morphPreviousInput_ = delayed;
+        morphPreviousOutput_ = delayed;
+        morphAmount_ = 0.0f;
+        morphing_ = true;
+    }
+
+    float readTap(uint32_t integerDelay, float fractionalDelay,
+        float allpassCoefficient, float& previousInput,
+        float& previousOutput)
+    {
+        const uint32_t size = static_cast<uint32_t>(data_.size());
+        const uint32_t readIndex =
+            (writeIndex_ + size - integerDelay) % size;
+        const float delayed = data_[readIndex];
+        if (fractionalDelay == 0.0f) {
+            previousInput = delayed;
+            previousOutput = delayed;
+            return delayed;
+        }
+        const float output = allpassCoefficient * delayed
+            + previousInput - allpassCoefficient * previousOutput;
+        previousInput = delayed;
+        previousOutput = flushDenormal(
+            std::isfinite(output) ? output : 0.0f);
+        return previousOutput;
+    }
+
     std::vector<float> data_;
     uint32_t writeIndex_ = 0u;
     uint32_t integerDelay_ = 2u;
     float delaySamples_ = 2.0f;
+    float currentDelaySamples_ = 2.0f;
     float fractionalDelay_ = 0.0f;
     float allpassCoefficient_ = 0.0f;
     float previousInput_ = 0.0f;
     float previousOutput_ = 0.0f;
+    uint32_t morphIntegerDelay_ = 2u;
+    float morphDelaySamples_ = 2.0f;
+    float morphFractionalDelay_ = 0.0f;
+    float morphAllpassCoefficient_ = 0.0f;
+    float morphPreviousInput_ = 0.0f;
+    float morphPreviousOutput_ = 0.0f;
+    float morphAmount_ = 0.0f;
+    float morphIncrement_ = 1.0f;
+    bool morphing_ = false;
 };
 
 class FractionalWaveguideNetwork {
@@ -168,6 +279,13 @@ public:
             -1.0f / static_cast<float>(sampleRate_ * 0.280));
         guardRelease_ = 1.0f - std::exp(
             -1.0f / static_cast<float>(sampleRate_ * 0.300));
+        distanceGainSmoothing_ = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.018));
+        directivityActivityRelease_ = std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.220));
+        exciterDcCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * 9.0f / static_cast<float>(sampleRate_));
+        updateTriggeredExciterDecay();
         prepared_ = true;
         commitGeometry();
     }
@@ -180,9 +298,19 @@ public:
             edge.energy = 0.0f;
         }
         pendingExcitation_.fill(0.0f);
+        pendingDirectivityFocusMask_ = 0u;
         pressure_.fill(0.0f);
         nodeEnergy_.fill(0.0f);
         radiationLowpass_.fill(0.0f);
+        exciterDc_.fill(0.0f);
+        exciterNoise_.fill(0.0f);
+        triggeredExciterLevel_.fill(0.0f);
+        for (auto& node : nodes_) {
+            node.directivityMaskActivity = 0.0f;
+            node.directivityMaskGain = 1.0f;
+            node.targetDirectivityMaskGain = 1.0f;
+        }
+        exciterRandomState_ = 0x7f4a7c15u;
         incomingAtA_.fill(0.0f);
         incomingAtB_.fill(0.0f);
         guardGain_ = 1.0f;
@@ -197,9 +325,10 @@ public:
         const bool structuralRetune = std::abs(
             sanitized.propagationSpeed - params_.propagationSpeed) > 0.0001f;
         params_ = sanitized;
+        updateTriggeredExciterDecay();
         if (!prepared_) return;
         if (structuralRetune) {
-            commitGeometry();
+            updatePathMaterial(true);
         } else {
             updatePathMaterial();
         }
@@ -229,8 +358,33 @@ public:
                 }
             }
         }
+        updateDirectivityMaskTargets(!prepared_);
         geometryDirty_ = true;
         if (prepared_) commitGeometry();
+    }
+
+    // Cube size is a performance control. Preserve the travelling waves and
+    // crossfade each delay path to its new length instead of clearing the
+    // resonator on every slider event.
+    void morphCube(float halfExtentMetres)
+    {
+        halfExtentMetres = clamp(
+            std::isfinite(halfExtentMetres) ? halfExtentMetres : 0.5f,
+            0.02f, 4.0f);
+        if (nodeCount_ != 8u || edgeCount_ != 12u) {
+            configureCube(halfExtentMetres);
+            return;
+        }
+        for (uint32_t node = 0u; node < nodeCount_; ++node) {
+            nodes_[node].position = {
+                (node & 1u) != 0u ? halfExtentMetres : -halfExtentMetres,
+                (node & 2u) != 0u ? halfExtentMetres : -halfExtentMetres,
+                (node & 4u) != 0u ? halfExtentMetres : -halfExtentMetres,
+            };
+        }
+        rebuildSpatialState(true);
+        if (prepared_) updatePathMaterial(true);
+        geometryDirty_ = false;
     }
 
     void setNodeCount(uint32_t count)
@@ -249,6 +403,7 @@ public:
             ++retained;
         }
         edgeCount_ = retained;
+        updateDirectivityMaskTargets(!prepared_);
         geometryDirty_ = true;
     }
 
@@ -272,6 +427,28 @@ public:
     Vec3 nodePosition(uint32_t node) const
     {
         return node < nodeCount_ ? nodes_[node].position : Vec3 {};
+    }
+
+    void setNodeDirectivity(
+        uint32_t node, float amount, bool immediate = false)
+    {
+        if (node >= nodeCount_) return;
+        amount = clamp(
+            std::isfinite(amount) ? amount : 0.0f, 0.0f, 1.0f);
+        nodes_[node].targetDirectivity = amount;
+        updateDirectivityMaskTargets(immediate || !prepared_);
+    }
+
+    float nodeDirectivity(uint32_t node) const
+    {
+        return node < nodeCount_
+            ? nodes_[node].targetDirectivity : 0.0f;
+    }
+
+    float nodeDirectivityMaskTarget(uint32_t node) const
+    {
+        return node < nodeCount_
+            ? nodes_[node].targetDirectivityMaskGain : 1.0f;
     }
 
     void clearEdges()
@@ -304,9 +481,8 @@ public:
         return true;
     }
 
-    // Geometry changes are deliberately committed outside process(). The
-    // first milestone treats node movement as a structural edit and clears
-    // travelling waves; a later dual-head mode can morph active lengths.
+    // Arbitrary topology edits remain structural and clear travelling waves.
+    // The fixed cube's performance-size control uses morphCube() instead.
     void commitGeometry()
     {
         rebuildSpatialState();
@@ -322,13 +498,55 @@ public:
         if (node >= nodeCount_ || !std::isfinite(amplitude)) return;
         pendingExcitation_[node] = clamp(
             pendingExcitation_[node] + amplitude, -4.0f, 4.0f);
+        if (std::abs(amplitude) > 0.000001f) {
+            pendingDirectivityFocusMask_ |= 1u << node;
+        }
     }
+
+    // Start a finite physical-exciter gesture at one node. This is separate
+    // from sustainedExcitation so sequencers and node clicks can articulate
+    // Bow, Reed, and Air Jet even when the continuous Sustain control is zero.
+    void triggerExciter(uint32_t node, float amplitude)
+    {
+        if (node >= nodeCount_ || !std::isfinite(amplitude)) return;
+        const float level = clamp(std::abs(amplitude), 0.0f, 1.0f);
+        triggeredExciterLevel_[node] = clamp(
+            triggeredExciterLevel_[node]
+                + level * (1.0f - triggeredExciterLevel_[node]),
+            0.0f, 1.0f);
+        if (level > 0.000001f) {
+            pendingDirectivityFocusMask_ |= 1u << node;
+        }
+    }
+
+    void setTuningFrequency(float frequencyHz)
+    {
+        frequencyHz = std::isfinite(frequencyHz) ? frequencyHz : 0.0f;
+        if (frequencyHz > 0.0f) {
+            const float highest = std::max(18.0f, std::min(
+                4000.0f, static_cast<float>(sampleRate_) / 12.0f));
+            while (frequencyHz < 18.0f) frequencyHz *= 2.0f;
+            while (frequencyHz > highest) frequencyHz *= 0.5f;
+            frequencyHz = clamp(frequencyHz, 18.0f, highest);
+        } else {
+            frequencyHz = 0.0f;
+        }
+        if (std::abs(frequencyHz - tuningFrequencyHz_) <= 0.0001f) return;
+        tuningFrequencyHz_ = frequencyHz;
+        if (prepared_) updatePathMaterial(true);
+    }
+
+    void clearTuningFrequency() { setTuningFrequency(0.0f); }
+    float tuningFrequency() const { return tuningFrequencyHz_; }
 
     void process(const float* actuator,
                  float** output,
                  uint32_t outputChannels,
                  uint32_t frames,
-                 uint32_t actuatorNode = 0u)
+                 uint32_t actuatorNode = 0u,
+                 const float* sustainedGate = nullptr,
+                 const float* const* nodeActuators = nullptr,
+                 const float* const* nodeSustainedGates = nullptr)
     {
         if (!output || frames == 0u) return;
         for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
@@ -347,20 +565,35 @@ public:
             const float actuatorSample = actuator
                 ? (std::isfinite(actuator[frame]) ? actuator[frame] : 0.0f)
                 : 0.0f;
-            renderNetworkSample(actuatorSample, actuatorNode);
+            const float gate = sustainedGate
+                ? clamp(std::isfinite(sustainedGate[frame])
+                    ? sustainedGate[frame] : 0.0f, 0.0f, 1.0f)
+                : 1.0f;
+            renderNetworkSample(actuatorSample, actuatorNode, gate,
+                nodeActuators, nodeSustainedGates, frame);
 
             std::array<float, kFractionalWaveguideMaxChannels> encoded {};
             const float normalization =
                 1.0f / std::sqrt(static_cast<float>(nodeCount_));
             for (uint32_t node = 0u; node < nodeCount_; ++node) {
+                nodes_[node].distanceGain +=
+                    (nodes_[node].targetDistanceGain
+                        - nodes_[node].distanceGain)
+                    * distanceGainSmoothing_;
                 radiationLowpass_[node] +=
                     (pressure_[node] - radiationLowpass_[node])
                     * radiationCoefficient_;
                 const float velocityRadiation =
                     pressure_[node] - radiationLowpass_[node];
+                nodes_[node].directivityMaskGain +=
+                    (nodes_[node].targetDirectivityMaskGain
+                        - nodes_[node].directivityMaskGain)
+                    * distanceGainSmoothing_;
                 const float radiated = lerp(
                     pressure_[node], velocityRadiation, params_.radiation)
-                    * nodes_[node].distanceGain * normalization * outputGain;
+                    * nodes_[node].distanceGain
+                    * nodes_[node].directivityMaskGain
+                    * normalization * outputGain;
                 for (uint32_t channel = 0u;
                      channel < activeChannels; ++channel) {
                     encoded[channel] +=
@@ -420,6 +653,8 @@ private:
         {
             sampleRate_ = std::max(1.0, sampleRate);
             delay.prepare(sampleRate_, maximumSeconds);
+            materialSmoothing_ = 1.0f - std::exp(
+                -1.0f / static_cast<float>(sampleRate_ * 0.018));
             reset();
         }
 
@@ -427,16 +662,21 @@ private:
         {
             delay.reset();
             absorptionState = 0.0f;
+            dispersionPreviousInput = 0.0f;
+            dispersionPreviousOutput = 0.0f;
         }
 
         void configure(float delaySamples,
                        float lengthMetres,
-                       const FractionalWaveguideParams& params)
+                       const FractionalWaveguideParams& params,
+                       bool smoothDelay = false)
         {
-            delay.setDelaySamples(delaySamples);
+            if (std::abs(delay.delaySamples() - delaySamples) > 0.0001f) {
+                delay.setDelaySamples(delaySamples, smoothDelay);
+            }
             const float travelSeconds =
                 delay.delaySamples() / static_cast<float>(sampleRate_);
-            traversalGain = std::pow(
+            const float requestedTraversalGain = std::pow(
                 0.001f, travelSeconds / params.decaySeconds);
             const float distanceAmount = clamp(
                 lengthMetres * 0.25f, 0.0f, 1.0f);
@@ -445,16 +685,44 @@ private:
                     0.04f, params.absorption * distanceAmount),
                 350.0f,
                 static_cast<float>(sampleRate_ * 0.45));
-            absorptionCoefficient = 1.0f - std::exp(
+            const float requestedAbsorptionCoefficient = 1.0f - std::exp(
                 -2.0f * kPi * cutoff / static_cast<float>(sampleRate_));
+            const float requestedDispersionCoefficient =
+                -0.72f * params.dispersion;
+            targetTraversalGain = requestedTraversalGain;
+            targetAbsorptionCoefficient = requestedAbsorptionCoefficient;
+            targetDispersionCoefficient = requestedDispersionCoefficient;
+            if (!smoothDelay) {
+                traversalGain = targetTraversalGain;
+                absorptionCoefficient = targetAbsorptionCoefficient;
+                dispersionCoefficient = targetDispersionCoefficient;
+            }
         }
 
         float read()
         {
+            traversalGain +=
+                (targetTraversalGain - traversalGain) * materialSmoothing_;
+            absorptionCoefficient +=
+                (targetAbsorptionCoefficient - absorptionCoefficient)
+                * materialSmoothing_;
+            dispersionCoefficient +=
+                (targetDispersionCoefficient - dispersionCoefficient)
+                * materialSmoothing_;
             const float value = delay.read();
             absorptionState +=
                 (value - absorptionState) * absorptionCoefficient;
-            return flushDenormal(absorptionState * traversalGain);
+            float dispersed = absorptionState;
+            if (std::abs(dispersionCoefficient) > 0.000001f) {
+                dispersed = dispersionCoefficient * absorptionState
+                    + dispersionPreviousInput
+                    - dispersionCoefficient * dispersionPreviousOutput;
+            }
+            dispersionPreviousInput = absorptionState;
+            dispersionPreviousOutput = flushDenormal(
+                std::isfinite(dispersed) ? dispersed : 0.0f);
+            return flushDenormal(
+                dispersionPreviousOutput * traversalGain);
         }
 
         void write(float value)
@@ -465,14 +733,26 @@ private:
         WaveguideFractionalDelay delay;
         double sampleRate_ = 48000.0;
         float traversalGain = 0.99f;
+        float targetTraversalGain = 0.99f;
         float absorptionCoefficient = 1.0f;
+        float targetAbsorptionCoefficient = 1.0f;
         float absorptionState = 0.0f;
+        float dispersionCoefficient = 0.0f;
+        float targetDispersionCoefficient = 0.0f;
+        float materialSmoothing_ = 0.001f;
+        float dispersionPreviousInput = 0.0f;
+        float dispersionPreviousOutput = 0.0f;
     };
 
     struct Node {
         Vec3 position {};
         std::array<float, kFractionalWaveguideMaxChannels> basis {};
         float distanceGain = 1.0f;
+        float targetDistanceGain = 1.0f;
+        float targetDirectivity = 0.0f;
+        float directivityMaskActivity = 0.0f;
+        float directivityMaskGain = 1.0f;
+        float targetDirectivityMaskGain = 1.0f;
     };
 
     struct Edge {
@@ -491,15 +771,74 @@ private:
             value.x * value.x + value.y * value.y + value.z * value.z);
     }
 
-    void rebuildSpatialState()
+    void updateDirectivityMaskTargets(bool immediate = false)
+    {
+        if (nodeCount_ == 0u) return;
+
+        // Each strike supplies the center of an ambi-style directional mask;
+        // the parameter stored on that node is its depth. Multiple nodes struck
+        // at the same sample protect multiple centers, while the activity
+        // envelope returns the field smoothly to an unmasked state.
+        for (uint32_t radiationNode = 0u;
+             radiationNode < nodeCount_; ++radiationNode) {
+            float protection = 0.0f;
+            float attenuation = 0.0f;
+            for (uint32_t focusNode = 0u;
+                 focusNode < nodeCount_; ++focusNode) {
+                const float activity =
+                    nodes_[focusNode].directivityMaskActivity;
+                const float kernel =
+                    directivityMaskKernel_[focusNode][radiationNode];
+                protection = std::max(
+                    protection, activity * kernel);
+                attenuation = std::max(attenuation,
+                    activity * nodes_[focusNode].targetDirectivity
+                        * (1.0f - kernel));
+            }
+            nodes_[radiationNode].targetDirectivityMaskGain = clamp(
+                std::max(protection, 1.0f - attenuation),
+                0.0f, 1.0f);
+            if (immediate) {
+                nodes_[radiationNode].directivityMaskGain =
+                    nodes_[radiationNode].targetDirectivityMaskGain;
+            }
+        }
+    }
+
+    void rebuildSpatialState(bool smoothDistance = false)
     {
         degree_.fill(0u);
         admittanceSum_.fill(0.0f);
         for (uint32_t node = 0u; node < nodeCount_; ++node) {
             const float distance = vectorLength(nodes_[node].position);
             nodes_[node].basis = acnSn3dBasis(nodes_[node].position);
-            nodes_[node].distanceGain =
+            const float desiredDistanceGain =
                 1.0f / std::max(0.5f, distance);
+            nodes_[node].targetDistanceGain = desiredDistanceGain;
+            if (!smoothDistance || !prepared_) {
+                nodes_[node].distanceGain = desiredDistanceGain;
+            }
+        }
+        constexpr float kDirectivityMaskExponent = 8.0f;
+        for (uint32_t focusNode = 0u;
+             focusNode < nodeCount_; ++focusNode) {
+            const Vec3 focus = nodes_[focusNode].position;
+            const float focusLength = vectorLength(focus);
+            for (uint32_t radiationNode = 0u;
+                 radiationNode < nodeCount_; ++radiationNode) {
+                const Vec3 radiation = nodes_[radiationNode].position;
+                const float denominator = focusLength
+                    * vectorLength(radiation);
+                const float dot = denominator > 0.000001f
+                    ? (focus.x * radiation.x
+                        + focus.y * radiation.y
+                        + focus.z * radiation.z) / denominator
+                    : (focusNode == radiationNode ? 1.0f : -1.0f);
+                const float normalized = clamp(
+                    (dot + 1.0f) * 0.5f, 0.0f, 1.0f);
+                directivityMaskKernel_[focusNode][radiationNode] =
+                    std::pow(normalized, kDirectivityMaskExponent);
+            }
         }
         for (uint32_t edgeIndex = 0u;
              edgeIndex < edgeCount_; ++edgeIndex) {
@@ -519,18 +858,36 @@ private:
         }
     }
 
-    void updatePathMaterial()
+    void updatePathMaterial(bool smoothDelay = false)
     {
         for (uint32_t edgeIndex = 0u;
              edgeIndex < edgeCount_; ++edgeIndex) {
             Edge& edge = edges_[edgeIndex];
-            const float delaySamples = edge.lengthMetres
+            const float physicalDelaySamples = edge.lengthMetres
                 / params_.propagationSpeed
                 * static_cast<float>(sampleRate_);
+            float delaySamples = physicalDelaySamples;
+            const float shortestMusicalDelay = 3.0f;
+            const float longestMusicalDelay =
+                static_cast<float>(sampleRate_) / (4.0f * 18.0f);
+            while (delaySamples < shortestMusicalDelay) {
+                delaySamples *= 2.0f;
+            }
+            while (delaySamples > longestMusicalDelay) {
+                delaySamples *= 0.5f;
+            }
+            delaySamples = clamp(
+                delaySamples, shortestMusicalDelay, longestMusicalDelay);
+            if (tuningFrequencyHz_ > 0.0f) {
+                delaySamples = static_cast<float>(sampleRate_)
+                    / (4.0f * tuningFrequencyHz_);
+                delaySamples = clamp(
+                    delaySamples, shortestMusicalDelay, longestMusicalDelay);
+            }
             edge.aToB.configure(
-                delaySamples, edge.lengthMetres, params_);
+                delaySamples, edge.lengthMetres, params_, smoothDelay);
             edge.bToA.configure(
-                delaySamples, edge.lengthMetres, params_);
+                delaySamples, edge.lengthMetres, params_, smoothDelay);
         }
     }
 
@@ -544,8 +901,113 @@ private:
             value, bounded, params_.junctionNonlinearity);
     }
 
-    void renderNetworkSample(float actuator, uint32_t actuatorNode)
+    float nextExciterNoise()
     {
+        exciterRandomState_ ^= exciterRandomState_ << 13u;
+        exciterRandomState_ ^= exciterRandomState_ >> 17u;
+        exciterRandomState_ ^= exciterRandomState_ << 5u;
+        return static_cast<float>(
+            (exciterRandomState_ >> 8u) & 0x00ffffffu)
+            / 8388607.5f - 1.0f;
+    }
+
+    void updateTriggeredExciterDecay()
+    {
+        float durationSeconds = 0.08f;
+        if (params_.exciter == WaveguideExciter::Bow) {
+            durationSeconds = lerp(
+                0.16f, 1.20f, params_.exciterCharacter);
+        } else if (params_.exciter == WaveguideExciter::Reed) {
+            durationSeconds = lerp(
+                0.07f, 0.42f, params_.exciterCharacter);
+        } else if (params_.exciter == WaveguideExciter::AirJet) {
+            durationSeconds = lerp(
+                0.10f, 0.72f, params_.exciterCharacter);
+        }
+        // durationSeconds is the approximate -60 dB gesture length.
+        triggeredExciterDecay_ = std::exp(
+            -6.90775527898f
+            / std::max(1.0f,
+                static_cast<float>(sampleRate_) * durationSeconds));
+    }
+
+    float renderSustainedExciter(
+        uint32_t node, float localWave, float sustainedGate)
+    {
+        const float triggeredLevel = triggeredExciterLevel_[node];
+        triggeredExciterLevel_[node] = flushDenormal(
+            triggeredLevel * triggeredExciterDecay_);
+        const float level = clamp(
+            params_.sustainedExcitation * sustainedGate + triggeredLevel,
+            0.0f, 1.25f);
+        if (params_.exciter == WaveguideExciter::Off
+            || level <= 0.000001f) {
+            exciterDc_[node] *= 0.9995f;
+            exciterNoise_[node] *= 0.9995f;
+            return 0.0f;
+        }
+
+        const float character = params_.exciterCharacter;
+        float raw = 0.0f;
+        if (params_.exciter == WaveguideExciter::Bow) {
+            const float bowVelocity = 0.035f + 0.22f * character;
+            const float relativeVelocity = bowVelocity - localWave;
+            const float frictionArgument = 0.75f
+                + std::abs(relativeVelocity) * (2.0f + 14.0f * character);
+            const float inverseSquare =
+                1.0f / (frictionArgument * frictionArgument);
+            const float friction = std::min(
+                1.0f, inverseSquare * inverseSquare);
+            raw = relativeVelocity * friction * level * 0.85f;
+        } else if (params_.exciter == WaveguideExciter::Reed) {
+            const float mouthPressure = 0.18f + level * 0.58f;
+            const float pressureDifference = mouthPressure
+                - localWave * (0.72f + 0.46f * character);
+            const float reedOpening = clamp(
+                1.0f - std::max(0.0f, pressureDifference)
+                    * (1.15f + 1.70f * character),
+                0.0f, 1.0f);
+            const float flow = std::copysign(
+                std::sqrt(std::abs(pressureDifference)),
+                pressureDifference) * reedOpening;
+            const float breathNoise = nextExciterNoise();
+            exciterNoise_[node] +=
+                (breathNoise - exciterNoise_[node])
+                * (0.06f + 0.20f * character);
+            raw = flow * level * 0.16f
+                + exciterNoise_[node] * level
+                    * (0.008f + 0.014f * character);
+        } else {
+            const float noise = nextExciterNoise();
+            const float noiseCoefficient = 0.018f + 0.38f * character;
+            exciterNoise_[node] +=
+                (noise - exciterNoise_[node]) * noiseCoefficient;
+            const float jet = 0.16f
+                + exciterNoise_[node] * (0.08f + 0.28f * character)
+                - localWave * (1.10f + 1.30f * character);
+            raw = softSat(jet * (2.5f + 3.0f * character))
+                * level * 0.18f;
+        }
+
+        exciterDc_[node] +=
+            (raw - exciterDc_[node]) * exciterDcCoefficient_;
+        return clamp(raw - exciterDc_[node], -0.75f, 0.75f);
+    }
+
+    void renderNetworkSample(
+        float actuator, uint32_t actuatorNode, float sustainedGate,
+        const float* const* nodeActuators,
+        const float* const* nodeSustainedGates,
+        uint32_t frame)
+    {
+        if (pendingDirectivityFocusMask_ != 0u) {
+            for (uint32_t node = 0u; node < nodeCount_; ++node) {
+                nodes_[node].directivityMaskActivity =
+                    (pendingDirectivityFocusMask_ & (1u << node)) != 0u
+                    ? 1.0f : 0.0f;
+            }
+            pendingDirectivityFocusMask_ = 0u;
+        }
         std::array<float, kFractionalWaveguideMaxNodes> weightedIncoming {};
         travelingEnergy_ = 0.0f;
         for (uint32_t edgeIndex = 0u;
@@ -571,6 +1033,21 @@ private:
         pendingExcitation_[actuatorNode] = clamp(
             pendingExcitation_[actuatorNode] + actuator,
             -4.0f, 4.0f);
+        nodes_[actuatorNode].directivityMaskActivity = std::max(
+            nodes_[actuatorNode].directivityMaskActivity,
+            clamp(std::abs(actuator) * 8.0f, 0.0f, 1.0f));
+        if (nodeActuators) {
+            for (uint32_t node = 0u; node < nodeCount_; ++node) {
+                const float sample = nodeActuators[node]
+                    && std::isfinite(nodeActuators[node][frame])
+                    ? nodeActuators[node][frame] : 0.0f;
+                pendingExcitation_[node] = clamp(
+                    pendingExcitation_[node] + sample, -4.0f, 4.0f);
+                nodes_[node].directivityMaskActivity = std::max(
+                    nodes_[node].directivityMaskActivity,
+                    clamp(std::abs(sample) * 8.0f, 0.0f, 1.0f));
+            }
+        }
         for (uint32_t node = 0u; node < nodeCount_; ++node) {
             float junction = admittanceSum_[node] > 0.000001f
                 ? 2.0f * weightedIncoming[node] / admittanceSum_[node]
@@ -578,6 +1055,28 @@ private:
             const float driveNormalization = degree_[node] > 0u
                 ? 1.0f / std::sqrt(static_cast<float>(degree_[node]))
                 : 1.0f;
+            float nodeGate = 0.0f;
+            if (nodeSustainedGates) {
+                nodeGate = nodeSustainedGates[node]
+                    && std::isfinite(nodeSustainedGates[node][frame])
+                    ? clamp(nodeSustainedGates[node][frame], 0.0f, 1.0f)
+                    : 0.0f;
+            } else if (node == actuatorNode) {
+                nodeGate = sustainedGate;
+            }
+            if (params_.exciter != WaveguideExciter::Off) {
+                const float exciterActivity = clamp(
+                    params_.sustainedExcitation * nodeGate
+                        + triggeredExciterLevel_[node],
+                    0.0f, 1.0f);
+                nodes_[node].directivityMaskActivity = std::max(
+                    nodes_[node].directivityMaskActivity,
+                    exciterActivity);
+            }
+            // Render every node so finite sequenced exciter gestures can live
+            // at their own spatial positions without opening a global gate.
+            junction += renderSustainedExciter(
+                node, junction, nodeGate) * driveNormalization;
             junction += pendingExcitation_[node] * driveNormalization;
             pendingExcitation_[node] = 0.0f;
             pressure_[node] = flushDenormal(
@@ -598,6 +1097,12 @@ private:
             edge.bToA.write(
                 pressure_[edge.second] - incomingAtB_[edgeIndex]);
         }
+        updateDirectivityMaskTargets();
+        for (uint32_t node = 0u; node < nodeCount_; ++node) {
+            nodes_[node].directivityMaskActivity = flushDenormal(
+                nodes_[node].directivityMaskActivity
+                    * directivityActivityRelease_);
+        }
     }
 
     FractionalWaveguideParams params_ {};
@@ -606,22 +1111,35 @@ private:
     std::array<uint32_t, kFractionalWaveguideMaxNodes> degree_ {};
     std::array<float, kFractionalWaveguideMaxNodes> admittanceSum_ {};
     std::array<float, kFractionalWaveguideMaxNodes> pendingExcitation_ {};
+    std::array<std::array<float, kFractionalWaveguideMaxNodes>,
+        kFractionalWaveguideMaxNodes> directivityMaskKernel_ {};
     std::array<float, kFractionalWaveguideMaxNodes> pressure_ {};
     std::array<float, kFractionalWaveguideMaxNodes> nodeEnergy_ {};
     std::array<float, kFractionalWaveguideMaxNodes> radiationLowpass_ {};
+    std::array<float, kFractionalWaveguideMaxNodes> exciterDc_ {};
+    std::array<float, kFractionalWaveguideMaxNodes> exciterNoise_ {};
+    std::array<float, kFractionalWaveguideMaxNodes>
+        triggeredExciterLevel_ {};
     std::array<float, kFractionalWaveguideMaxEdges> incomingAtA_ {};
     std::array<float, kFractionalWaveguideMaxEdges> incomingAtB_ {};
     uint32_t nodeCount_ = 0u;
     uint32_t edgeCount_ = 0u;
     double sampleRate_ = 48000.0;
     float maximumDelaySeconds_ = 1.0f;
+    float tuningFrequencyHz_ = 0.0f;
     float radiationCoefficient_ = 0.1f;
     float meterAttack_ = 0.01f;
     float meterRelease_ = 0.001f;
     float guardRelease_ = 0.0001f;
+    float distanceGainSmoothing_ = 0.001f;
+    float directivityActivityRelease_ = 0.9999f;
+    float exciterDcCoefficient_ = 0.001f;
+    float triggeredExciterDecay_ = 0.999f;
+    uint32_t exciterRandomState_ = 0x7f4a7c15u;
     float guardGain_ = 1.0f;
     float outputPeak_ = 0.0f;
     float travelingEnergy_ = 0.0f;
+    uint32_t pendingDirectivityFocusMask_ = 0u;
     bool prepared_ = false;
     bool geometryDirty_ = true;
 };

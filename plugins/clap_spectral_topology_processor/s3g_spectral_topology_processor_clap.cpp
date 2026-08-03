@@ -26,6 +26,7 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -123,6 +124,10 @@ constexpr clap_id kTopologyDepthParamId = 42;
 constexpr clap_id kTopologyNeighborsParamId = 43;
 constexpr clap_id kTopologyRadiusParamId = 44;
 constexpr clap_id kTopologyCentroidParamId = 45;
+constexpr size_t kPublishedParamSlots =
+    static_cast<size_t>(kTopologyCentroidParamId) + 1u;
+static_assert(std::atomic<double>::is_always_lock_free,
+    "Spectral parameter publication must remain lock-free on the audio thread");
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -227,13 +232,27 @@ struct Plugin {
     const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
+    // Only the audio thread reads or writes this mutable DSP control state.
+    // Host/main-thread changes are published through the lock-free scalar bank
+    // below and committed once at the beginning of the next process block.
     s3g::SpectralTopologySettings settings {};
     float transientProtect = 0.35f;
     float propagationVelocity = 1.0f;
     float propagationDispersion = 0.0f;
     float propagationDamping = 0.0f;
+    std::array<std::atomic<double>, kPublishedParamSlots> publishedParams {};
+    std::atomic<uint64_t> publishedRevision { 0u };
+    // Motion phase is runtime transport owned by the audio thread rather than
+    // a saved/automatable parameter. Publish only its current display value so
+    // the GUI can follow moving topology without reading audio-owned settings.
+    std::atomic<double> publishedMotionPhase { 0.0 };
+    uint64_t audioRevision = std::numeric_limits<uint64_t>::max();
+    std::atomic<bool> resetMotionPhasePending { false };
     s3g::SpectralTopologyProcessor processor;
     s3g::LanePatch patch;
+    std::array<std::atomic<uint64_t>, kChannelCount> publishedPatchRows {};
+    std::atomic<bool> capturePending { false };
+    std::atomic<bool> clearCapturePending { false };
     std::vector<std::vector<float>> input32;
     std::vector<std::vector<float>> output32;
     std::vector<const float*> inputPtrs;
@@ -246,7 +265,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     void* macRealtimeActivity = nullptr;
 #endif
 };
@@ -283,14 +302,177 @@ double clampMotionRate(double value)
     return std::clamp(value, kMotionRateMinHz, kMotionRateMaxHz);
 }
 
-s3g::TopologyState topologyStateForPlugin(const Plugin& p)
-{
-    return p.settings.topology;
-}
-
 double engineRowY(double panelY, uint32_t index)
 {
     return panelY + kEngineFirstRow + static_cast<double>(index) * kEngineRowPitch;
+}
+
+double publishedValue(const Plugin& p, clap_id id)
+{
+    return id < kPublishedParamSlots
+        ? p.publishedParams[id].load(std::memory_order_relaxed)
+        : 0.0;
+}
+
+void loadPublishedControls(const Plugin& p,
+                           s3g::SpectralTopologySettings& settings,
+                           float& transientProtect,
+                           float& propagationVelocity,
+                           float& propagationDispersion,
+                           float& propagationDamping)
+{
+    auto& prm = settings.base;
+    auto& t = settings.topology;
+    prm.sprayBins = static_cast<float>(publishedValue(p, kSprayBinsParamId));
+    prm.drift = static_cast<float>(publishedValue(p, kDriftParamId));
+    prm.hold = static_cast<float>(publishedValue(p, kHoldParamId));
+    prm.freeze = static_cast<float>(publishedValue(p, kFreezeParamId));
+    prm.feedback = static_cast<float>(publishedValue(p, kFeedbackParamId));
+    prm.smear = static_cast<float>(publishedValue(p, kSmearParamId));
+    prm.holes = static_cast<float>(publishedValue(p, kHolesParamId));
+    prm.phaseBlur = static_cast<float>(publishedValue(p, kPhaseBlurParamId));
+    prm.tilt = static_cast<float>(publishedValue(p, kTiltParamId));
+    prm.mix = static_cast<float>(publishedValue(p, kMixParamId));
+    prm.gainDb = static_cast<float>(publishedValue(p, kGainParamId));
+    prm.safety = static_cast<float>(publishedValue(p, kSafetyParamId));
+    prm.damage = static_cast<float>(publishedValue(p, kDamageParamId));
+    prm.repeat = static_cast<float>(publishedValue(p, kRepeatParamId));
+    prm.loFreq = static_cast<float>(publishedValue(p, kLoFreqParamId));
+    prm.hiFreq = static_cast<float>(publishedValue(p, kHiFreqParamId));
+    transientProtect = static_cast<float>(publishedValue(p, kTransientProtectParamId));
+    propagationVelocity = static_cast<float>(publishedValue(p, kPropagationVelocityParamId));
+    propagationDispersion = static_cast<float>(publishedValue(p, kPropagationDispersionParamId));
+    propagationDamping = static_cast<float>(publishedValue(p, kPropagationDampingParamId));
+    t.shape = static_cast<uint32_t>(publishedValue(p, kTopologyShapeParamId));
+    t.amount = publishedValue(p, kTopologyAmountParamId);
+    t.jitter = publishedValue(p, kTopologySeedParamId);
+    t.collapse = publishedValue(p, kTopologyPullParamId);
+    t.dirX = publishedValue(p, kTopologyXParamId);
+    t.dirY = publishedValue(p, kTopologyYParamId);
+    t.dirZ = publishedValue(p, kTopologyZParamId);
+    t.twist = publishedValue(p, kTopologyTwistParamId);
+    t.flare = publishedValue(p, kTopologyFlareParamId);
+    t.motionMode = static_cast<uint32_t>(publishedValue(p, kTopologyMotionParamId));
+    t.motionVariant = static_cast<uint32_t>(publishedValue(p, kTopologyVariantParamId));
+    t.motionRateHz = publishedValue(p, kTopologyRateParamId);
+    t.motionDepth = publishedValue(p, kTopologyDepthParamId);
+    t.neighborCount = static_cast<uint32_t>(publishedValue(p, kTopologyNeighborsParamId));
+    t.neighborRadius = publishedValue(p, kTopologyRadiusParamId);
+    t.centroidAmount = publishedValue(p, kTopologyCentroidParamId);
+}
+
+void storePublishedControls(Plugin& p,
+                            const s3g::SpectralTopologySettings& settings,
+                            float transientProtect,
+                            float propagationVelocity,
+                            float propagationDispersion,
+                            float propagationDamping)
+{
+    const auto& prm = settings.base;
+    const auto& t = settings.topology;
+    auto store = [&](clap_id id, double value) {
+        p.publishedParams[id].store(value, std::memory_order_relaxed);
+    };
+    store(kSprayBinsParamId, prm.sprayBins);
+    store(kDriftParamId, prm.drift);
+    store(kHoldParamId, prm.hold);
+    store(kFreezeParamId, prm.freeze);
+    store(kFeedbackParamId, prm.feedback);
+    store(kSmearParamId, prm.smear);
+    store(kHolesParamId, prm.holes);
+    store(kPhaseBlurParamId, prm.phaseBlur);
+    store(kTiltParamId, prm.tilt);
+    store(kMixParamId, prm.mix);
+    store(kGainParamId, prm.gainDb);
+    store(kSafetyParamId, prm.safety);
+    store(kDamageParamId, prm.damage);
+    store(kRepeatParamId, prm.repeat);
+    store(kLoFreqParamId, prm.loFreq);
+    store(kHiFreqParamId, prm.hiFreq);
+    store(kTransientProtectParamId, transientProtect);
+    store(kPropagationVelocityParamId, propagationVelocity);
+    store(kPropagationDispersionParamId, propagationDispersion);
+    store(kPropagationDampingParamId, propagationDamping);
+    store(kTopologyShapeParamId, t.shape);
+    store(kTopologyAmountParamId, t.amount);
+    store(kTopologySeedParamId, t.jitter);
+    store(kTopologyPullParamId, t.collapse);
+    store(kTopologyXParamId, t.dirX);
+    store(kTopologyYParamId, t.dirY);
+    store(kTopologyZParamId, t.dirZ);
+    store(kTopologyTwistParamId, t.twist);
+    store(kTopologyFlareParamId, t.flare);
+    store(kTopologyMotionParamId, t.motionMode);
+    store(kTopologyVariantParamId, t.motionVariant);
+    store(kTopologyRateParamId, t.motionRateHz);
+    store(kTopologyDepthParamId, t.motionDepth);
+    store(kTopologyNeighborsParamId, t.neighborCount);
+    store(kTopologyRadiusParamId, t.neighborRadius);
+    store(kTopologyCentroidParamId, t.centroidAmount);
+    p.publishedRevision.fetch_add(1u, std::memory_order_release);
+}
+
+double controlValue(const s3g::SpectralTopologySettings& settings,
+                    float transientProtect,
+                    float propagationVelocity,
+                    float propagationDispersion,
+                    float propagationDamping,
+                    clap_id id)
+{
+    const auto& prm = settings.base;
+    const auto& t = settings.topology;
+    switch (id) {
+    case kSprayBinsParamId: return prm.sprayBins;
+    case kDriftParamId: return prm.drift;
+    case kHoldParamId: return prm.hold;
+    case kFreezeParamId: return prm.freeze;
+    case kFeedbackParamId: return prm.feedback;
+    case kSmearParamId: return prm.smear;
+    case kHolesParamId: return prm.holes;
+    case kPhaseBlurParamId: return prm.phaseBlur;
+    case kTiltParamId: return prm.tilt;
+    case kMixParamId: return prm.mix;
+    case kGainParamId: return prm.gainDb;
+    case kSafetyParamId: return prm.safety;
+    case kDamageParamId: return prm.damage;
+    case kRepeatParamId: return prm.repeat;
+    case kLoFreqParamId: return prm.loFreq;
+    case kHiFreqParamId: return prm.hiFreq;
+    case kTransientProtectParamId: return transientProtect;
+    case kPropagationVelocityParamId: return propagationVelocity;
+    case kPropagationDispersionParamId: return propagationDispersion;
+    case kPropagationDampingParamId: return propagationDamping;
+    case kTopologyShapeParamId: return t.shape;
+    case kTopologyAmountParamId: return t.amount;
+    case kTopologySeedParamId: return t.jitter;
+    case kTopologyPullParamId: return t.collapse;
+    case kTopologyXParamId: return t.dirX;
+    case kTopologyYParamId: return t.dirY;
+    case kTopologyZParamId: return t.dirZ;
+    case kTopologyTwistParamId: return t.twist;
+    case kTopologyFlareParamId: return t.flare;
+    case kTopologyMotionParamId: return t.motionMode;
+    case kTopologyVariantParamId: return t.motionVariant;
+    case kTopologyRateParamId: return t.motionRateHz;
+    case kTopologyDepthParamId: return t.motionDepth;
+    case kTopologyNeighborsParamId: return t.neighborCount;
+    case kTopologyRadiusParamId: return t.neighborRadius;
+    case kTopologyCentroidParamId: return t.centroidAmount;
+    default: return 0.0;
+    }
+}
+
+s3g::SpectralTopologySettings publishedSettings(const Plugin& p)
+{
+    s3g::SpectralTopologySettings settings {};
+    float transient = 0.0f;
+    float velocity = 0.0f;
+    float dispersion = 0.0f;
+    float damping = 0.0f;
+    loadPublishedControls(p, settings, transient, velocity, dispersion, damping);
+    settings.topology.motionPhase = p.publishedMotionPhase.load(
+        std::memory_order_relaxed);
+    return settings;
 }
 
 void applyLaneParams(Plugin& p)
@@ -312,25 +494,27 @@ void applyLaneParams(Plugin& p)
         p.propagationDamping);
 }
 
-bool topologyMotionActive(const Plugin& p)
+bool advanceTopologyMotion(Plugin& p, uint32_t frames)
 {
-    return s3g::topologyMotionActive(p.settings.topology);
-}
-
-void advanceTopologyMotion(Plugin& p, uint32_t frames)
-{
-    if (!topologyMotionActive(p) || p.sampleRate <= 0.0 || frames == 0u) return;
+    if (!s3g::topologyMotionActive(p.settings.topology)
+        || p.sampleRate <= 0.0 || frames == 0u) return false;
     auto& t = p.settings.topology;
     t.motionPhase += (static_cast<double>(frames) / p.sampleRate) * t.motionRateHz;
     t.motionPhase -= std::floor(t.motionPhase);
-    applyLaneParams(p);
+    p.publishedMotionPhase.store(t.motionPhase, std::memory_order_relaxed);
+    return true;
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool applyParamToControls(s3g::SpectralTopologySettings& settings,
+                          float& transientProtect,
+                          float& propagationVelocity,
+                          float& propagationDispersion,
+                          float& propagationDamping,
+                          clap_id id,
+                          double value)
 {
-    const bool tailWasAffected = paramAffectsTail(id);
-    auto& prm = p.settings.base;
-    auto& t = p.settings.topology;
+    auto& prm = settings.base;
+    auto& t = settings.topology;
     switch (id) {
     case kSprayBinsParamId: prm.sprayBins = static_cast<float>(std::clamp(value, 0.0, 192.0)); break;
     case kDriftParamId: prm.drift = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -344,10 +528,10 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kRepeatParamId: prm.repeat = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kLoFreqParamId: prm.loFreq = static_cast<float>(std::clamp(value, 0.0, std::max(0.0, static_cast<double>(prm.hiFreq) - 20.0))); break;
     case kHiFreqParamId: prm.hiFreq = static_cast<float>(std::clamp(value, std::min(24000.0, static_cast<double>(prm.loFreq) + 20.0), 24000.0)); break;
-    case kTransientProtectParamId: p.transientProtect = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kPropagationVelocityParamId: p.propagationVelocity = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kPropagationDispersionParamId: p.propagationDispersion = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
-    case kPropagationDampingParamId: p.propagationDamping = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kTransientProtectParamId: transientProtect = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kPropagationVelocityParamId: propagationVelocity = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kPropagationDispersionParamId: propagationDispersion = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
+    case kPropagationDampingParamId: propagationDamping = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kTiltParamId: prm.tilt = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
     case kMixParamId: prm.mix = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kGainParamId: prm.gainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
@@ -368,21 +552,67 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kTopologyNeighborsParamId: t.neighborCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::floor(value + 0.5)), 1u, 3u); break;
     case kTopologyRadiusParamId: t.neighborRadius = std::clamp(value, 0.0, 1.0); break;
     case kTopologyCentroidParamId: t.centroidAmount = std::clamp(value, 0.0, 1.0); break;
-    default: break;
+    default: return false;
     }
-    applyLaneParams(p);
-    if (tailWasAffected) markTailChanged(p);
+    return true;
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.0f;
+    float propagationVelocity = 0.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    loadPublishedControls(
+        p, settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping);
+    if (!applyParamToControls(
+            settings, transientProtect, propagationVelocity,
+            propagationDispersion, propagationDamping, id, value)) return;
+    // A published transaction may contain many host events, but it never
+    // touches the processor. The audio thread commits their final snapshot
+    // exactly once at process entry.
+    p.publishedParams[id].store(controlValue(
+        settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping, id), std::memory_order_relaxed);
+    p.publishedRevision.fetch_add(1u, std::memory_order_release);
+    if (paramAffectsTail(id)) markTailChanged(p);
+}
+
+bool syncAudioControls(Plugin& p, bool force = false)
+{
+    const uint64_t revision = p.publishedRevision.load(std::memory_order_acquire);
+    if (!force && revision == p.audioRevision
+        && !p.resetMotionPhasePending.load(std::memory_order_relaxed)) return false;
+    const double motionPhase = p.resetMotionPhasePending.exchange(
+        false, std::memory_order_acq_rel) ? 0.0 : p.settings.topology.motionPhase;
+    loadPublishedControls(
+        p, p.settings, p.transientProtect, p.propagationVelocity,
+        p.propagationDispersion, p.propagationDamping);
+    p.settings.topology.motionPhase = motionPhase;
+    p.publishedMotionPhase.store(motionPhase, std::memory_order_relaxed);
+    // Keep the revision sampled before the loads. If a publisher overlaps the
+    // snapshot, its later revision remains pending and forces a clean reload
+    // on the next block instead of being accidentally acknowledged.
+    p.audioRevision = revision;
+    return true;
 }
 
 void preparePatch(Plugin& p)
 {
     p.patch.setWidth(kChannelCount);
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p.patch.setRowMask(
+            row, p.publishedPatchRows[row].load(std::memory_order_acquire));
+    }
 }
 
 void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
 {
-    p.patch.setWidth(kChannelCount);
-    p.patch.toggle(input, output);
+    if (input >= kChannelCount || output >= kChannelCount) return;
+    const uint64_t bit = uint64_t { 1 } << output;
+    p.publishedPatchRows[input].fetch_xor(bit, std::memory_order_acq_rel);
 }
 
 bool patchOutputInjected(const Plugin& p, uint32_t output)
@@ -390,7 +620,7 @@ bool patchOutputInjected(const Plugin& p, uint32_t output)
     if (output >= kChannelCount) return false;
     const uint64_t bit = uint64_t { 1 } << output;
     for (uint32_t input = 0; input < kChannelCount; ++input) {
-        if ((p.patch.rowMask(input) & bit) != 0) return true;
+        if ((p.publishedPatchRows[input].load(std::memory_order_relaxed) & bit) != 0) return true;
     }
     return false;
 }
@@ -423,8 +653,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
         p->inputPtrs[ch] = p->input32[ch].data();
         p->outputPtrs[ch] = p->output32[ch].data();
     }
-    preparePatch(*p);
     if (!p->processor.prepare(sampleRate, kChannelCount, kFftSize, kFftOverlap, p->maxFrames)) return false;
+    syncAudioControls(*p, true);
+    preparePatch(*p);
     applyLaneParams(*p);
     p->tailCaptureState = p->processor.hasCapture();
     return true;
@@ -461,20 +692,51 @@ void reset(const clap_plugin_t* plugin)
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.0f;
+    float propagationVelocity = 0.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    loadPublishedControls(
+        p, settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping);
+    bool changed = false;
+    bool tailChanged = false;
+    std::array<bool, kPublishedParamSlots> changedIds {};
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            const bool eventChanged = applyParamToControls(
+                settings, transientProtect, propagationVelocity,
+                propagationDispersion, propagationDamping,
+                param->param_id, param->value);
+            changed |= eventChanged;
+            if (eventChanged && param->param_id < kPublishedParamSlots) {
+                changedIds[param->param_id] = true;
+                tailChanged |= paramAffectsTail(param->param_id);
+            }
         }
     }
+    if (changed) {
+        for (clap_id id = 0; id < kPublishedParamSlots; ++id) {
+            if (!changedIds[id]) continue;
+            p.publishedParams[id].store(controlValue(
+                settings, transientProtect, propagationVelocity,
+                propagationDispersion, propagationDamping, id),
+                std::memory_order_relaxed);
+        }
+        p.publishedRevision.fetch_add(1u, std::memory_order_release);
+    }
+    if (tailChanged) markTailChanged(p);
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+    const bool controlsChanged = syncAudioControls(*p);
     deliverTailChangedOnAudioThread(*p);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
@@ -482,7 +744,21 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const uint32_t frames = std::min(proc->frames_count, p->maxFrames);
     if (frames == 0u || output.channel_count < kChannelCount) return CLAP_PROCESS_CONTINUE;
 
-    advanceTopologyMotion(*p, frames);
+    const bool motionChanged = advanceTopologyMotion(*p, frames);
+    if (controlsChanged || motionChanged) applyLaneParams(*p);
+
+    if (p->capturePending.exchange(false, std::memory_order_acq_rel)) {
+        p->processor.requestCapture();
+    }
+    if (p->clearCapturePending.exchange(false, std::memory_order_acq_rel)) {
+        p->processor.requestClearCapture();
+    }
+#if defined(__APPLE__)
+    const bool telemetryEnabled = p->guiVisible.load(std::memory_order_relaxed);
+#else
+    constexpr bool telemetryEnabled = false;
+#endif
+    p->processor.setTelemetryEnabled(telemetryEnabled);
 
     preparePatch(*p);
     for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
@@ -505,22 +781,30 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     deliverTailChangedOnAudioThread(*p);
 
     float blockPeak = 0.0f;
-    const uint32_t scopeBase = p->scopeWrite.load(std::memory_order_relaxed);
+    const uint32_t scopeBase = telemetryEnabled
+        ? p->scopeWrite.load(std::memory_order_relaxed) : 0u;
     for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
         for (uint32_t i = 0; i < frames; ++i) {
             const float v = p->output32[ch][i];
-            p->scope[ch][(scopeBase + i) % kScopeFrames].store(v, std::memory_order_relaxed);
+            if (telemetryEnabled) {
+                p->scope[ch][(scopeBase + i) % kScopeFrames].store(
+                    v, std::memory_order_relaxed);
+            }
             if (output.data32 && output.data32[ch]) output.data32[ch][i] = v;
             if (output.data64 && output.data64[ch]) output.data64[ch][i] = static_cast<double>(v);
-            blockPeak = std::max(blockPeak, std::abs(v));
+            if (telemetryEnabled) blockPeak = std::max(blockPeak, std::abs(v));
         }
     }
     for (uint32_t ch = kChannelCount; ch < output.channel_count; ++ch) {
         if (output.data32 && output.data32[ch]) std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
         if (output.data64 && output.data64[ch]) std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
     }
-    p->scopeWrite.store((scopeBase + frames) % kScopeFrames, std::memory_order_relaxed);
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
+    if (telemetryEnabled) {
+        p->scopeWrite.store((scopeBase + frames) % kScopeFrames, std::memory_order_relaxed);
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak),
+            std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -603,45 +887,25 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
     const auto& p = *self(plugin);
-    const auto& prm = p.settings.base;
-    const auto& t = p.settings.topology;
     switch (id) {
-    case kSprayBinsParamId: *value = prm.sprayBins; return true;
-    case kDriftParamId: *value = prm.drift; return true;
-    case kHoldParamId: *value = prm.hold; return true;
-    case kFreezeParamId: *value = prm.freeze; return true;
-    case kFeedbackParamId: *value = prm.feedback; return true;
-    case kSmearParamId: *value = prm.smear; return true;
-    case kHolesParamId: *value = prm.holes; return true;
-    case kPhaseBlurParamId: *value = prm.phaseBlur; return true;
-    case kDamageParamId: *value = prm.damage; return true;
-    case kRepeatParamId: *value = prm.repeat; return true;
-    case kLoFreqParamId: *value = prm.loFreq; return true;
-    case kHiFreqParamId: *value = prm.hiFreq; return true;
-    case kTransientProtectParamId: *value = p.transientProtect; return true;
-    case kPropagationVelocityParamId: *value = p.propagationVelocity; return true;
-    case kPropagationDispersionParamId: *value = p.propagationDispersion; return true;
-    case kPropagationDampingParamId: *value = p.propagationDamping; return true;
-    case kTiltParamId: *value = prm.tilt; return true;
-    case kMixParamId: *value = prm.mix; return true;
-    case kGainParamId: *value = prm.gainDb; return true;
-    case kSafetyParamId: *value = prm.safety; return true;
-    case kTopologyShapeParamId: *value = t.shape; return true;
-    case kTopologyAmountParamId: *value = t.amount; return true;
-    case kTopologySeedParamId: *value = t.jitter; return true;
-    case kTopologyPullParamId: *value = t.collapse; return true;
-    case kTopologyXParamId: *value = t.dirX; return true;
-    case kTopologyYParamId: *value = t.dirY; return true;
-    case kTopologyZParamId: *value = t.dirZ; return true;
-    case kTopologyTwistParamId: *value = t.twist; return true;
-    case kTopologyFlareParamId: *value = t.flare; return true;
-    case kTopologyMotionParamId: *value = t.motionMode; return true;
-    case kTopologyVariantParamId: *value = t.motionVariant; return true;
-    case kTopologyRateParamId: *value = t.motionRateHz; return true;
-    case kTopologyDepthParamId: *value = t.motionDepth; return true;
-    case kTopologyNeighborsParamId: *value = t.neighborCount; return true;
-    case kTopologyRadiusParamId: *value = t.neighborRadius; return true;
-    case kTopologyCentroidParamId: *value = t.centroidAmount; return true;
+    case kSprayBinsParamId: case kDriftParamId: case kHoldParamId:
+    case kFreezeParamId: case kFeedbackParamId: case kSmearParamId:
+    case kHolesParamId: case kPhaseBlurParamId: case kTiltParamId:
+    case kMixParamId: case kGainParamId: case kSafetyParamId:
+    case kDamageParamId: case kRepeatParamId: case kLoFreqParamId:
+    case kHiFreqParamId: case kTransientProtectParamId:
+    case kPropagationVelocityParamId: case kPropagationDispersionParamId:
+    case kPropagationDampingParamId: case kTopologyShapeParamId:
+    case kTopologyAmountParamId: case kTopologySeedParamId:
+    case kTopologyPullParamId: case kTopologyXParamId:
+    case kTopologyYParamId: case kTopologyZParamId:
+    case kTopologyTwistParamId: case kTopologyFlareParamId:
+    case kTopologyMotionParamId: case kTopologyVariantParamId:
+    case kTopologyRateParamId: case kTopologyDepthParamId:
+    case kTopologyNeighborsParamId: case kTopologyRadiusParamId:
+    case kTopologyCentroidParamId:
+        *value = publishedValue(p, id);
+        return true;
     default: return false;
     }
 }
@@ -784,19 +1048,27 @@ bool readStateBytes(const clap_istream_t* stream, void* data, uint64_t size)
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    SavedState s {};
+    // This version's on-disk ABI is the native SavedState layout. Value
+    // initialization does not guarantee deterministic bytes in its padding,
+    // so clear the complete object before filling members. Otherwise two
+    // logically identical saves can differ in TopologyState's alignment
+    // padding (and fail buffered or flush-based host state round trips).
+    SavedState s;
+    static_assert(std::is_trivially_copyable_v<SavedState>);
+    std::memset(&s, 0, sizeof(s));
+    s.version = kStateVersion;
     auto* p = self(plugin);
-    s.transientProtect = p->transientProtect;
-    s.propagationVelocity = p->propagationVelocity;
-    s.propagationDispersion = p->propagationDispersion;
-    s.propagationDamping = p->propagationDamping;
-    s.settings = p->settings;
+    loadPublishedControls(
+        *p, s.settings, s.transientProtect, s.propagationVelocity,
+        s.propagationDispersion, s.propagationDamping);
     // Motion phase is runtime transport, not a user parameter. Excluding it
     // keeps state deterministic whether a host reaches the preset through
     // process() or params.flush().
     s.settings.topology.motionPhase = 0.0;
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
-        s.patchRows[row] = p->patch.rowMask(row);
+        s.patchRows[row] = row < kChannelCount
+            ? p->publishedPatchRows[row].load(std::memory_order_relaxed)
+            : 0u;
     }
     return writeStateBytes(stream, &s, sizeof(s));
 }
@@ -806,59 +1078,59 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0;
     if (!readStateBytes(stream, &version, sizeof(version))) return false;
     auto* p = self(plugin);
+    s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.35f;
+    float propagationVelocity = 1.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    std::array<uint64_t, kChannelCount> patchRows {};
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        patchRows[row] = uint64_t { 1 } << row;
+    }
     if (version == kStateVersion) {
         SavedState s {};
         if (!readStateRemainder(stream, version, s)) return false;
-        p->settings = s.settings;
-        p->transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
-        p->propagationVelocity = std::clamp(s.propagationVelocity, 0.0f, 1.0f);
-        p->propagationDispersion = std::clamp(s.propagationDispersion, -1.0f, 1.0f);
-        p->propagationDamping = std::clamp(s.propagationDamping, 0.0f, 1.0f);
-        p->patch.setWidth(kChannelCount);
+        settings = s.settings;
+        transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
+        propagationVelocity = std::clamp(s.propagationVelocity, 0.0f, 1.0f);
+        propagationDispersion = std::clamp(s.propagationDispersion, -1.0f, 1.0f);
+        propagationDamping = std::clamp(s.propagationDamping, 0.0f, 1.0f);
         for (uint32_t row = 0; row < kChannelCount; ++row) {
-            p->patch.setRowMask(row, s.patchRows[row]);
+            patchRows[row] = s.patchRows[row];
         }
-        preparePatch(*p);
     } else if (version == 3u) {
         SavedStateV3 s {};
         if (!readStateRemainder(stream, version, s)) return false;
-        p->settings = migrateLegacySettings(s.settings);
-        p->transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
-        p->propagationVelocity = 1.0f;
-        p->propagationDispersion = 0.0f;
-        p->propagationDamping = 0.0f;
-        p->patch.setWidth(kChannelCount);
+        settings = migrateLegacySettings(s.settings);
+        transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
         for (uint32_t row = 0; row < kChannelCount; ++row) {
-            p->patch.setRowMask(row, s.patchRows[row]);
+            patchRows[row] = s.patchRows[row];
         }
-        preparePatch(*p);
     } else if (version == 2u) {
         SavedStateV2 s {};
         if (!readStateRemainder(stream, version, s)) return false;
-        p->settings = migrateLegacySettings(s.settings);
-        p->transientProtect = 0.35f;
-        p->propagationVelocity = 1.0f;
-        p->propagationDispersion = 0.0f;
-        p->propagationDamping = 0.0f;
-        p->patch.setWidth(kChannelCount);
+        settings = migrateLegacySettings(s.settings);
         for (uint32_t row = 0; row < kChannelCount; ++row) {
-            p->patch.setRowMask(row, s.patchRows[row]);
+            patchRows[row] = s.patchRows[row];
         }
-        preparePatch(*p);
     } else if (version == 1u) {
         SavedStateV1 s {};
         if (!readStateRemainder(stream, version, s)) return false;
-        p->settings = migrateLegacySettings(s.settings);
-        p->transientProtect = 0.35f;
-        p->propagationVelocity = 1.0f;
-        p->propagationDispersion = 0.0f;
-        p->propagationDamping = 0.0f;
-        p->patch.setIdentity(kChannelCount);
+        settings = migrateLegacySettings(s.settings);
     } else {
         return false;
     }
-    p->settings.topology.motionPhase = 0.0;
-    applyLaneParams(*p);
+    settings.topology.motionPhase = 0.0;
+    storePublishedControls(
+        *p, settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping);
+    const uint64_t validMask = kChannelCount >= 64u
+        ? ~uint64_t { 0 } : ((uint64_t { 1 } << kChannelCount) - 1u);
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p->publishedPatchRows[row].store(
+            patchRows[row] & validMask, std::memory_order_release);
+    }
+    p->resetMotionPhasePending.store(true, std::memory_order_release);
     markTailChanged(*p);
     return true;
 }
@@ -875,18 +1147,26 @@ uint32_t tailGet(const clap_plugin_t* plugin)
     double freeze = 0.0;
     double feedback = 0.0;
     double repeat = 0.0;
-    if (topologyMotionActive(*p)) {
+    s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.0f;
+    float propagationVelocity = 1.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    loadPublishedControls(
+        *p, settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping);
+    if (s3g::topologyMotionActive(settings.topology)) {
         // Motion continuously changes the derived lane controls. Advertise a
         // stable worst case instead of changing the host tail every block as
         // motionPhase advances.
         hold = 1.0;
-        freeze = std::clamp(static_cast<double>(p->settings.base.freeze), 0.0, 1.0);
+        freeze = std::clamp(static_cast<double>(settings.base.freeze), 0.0, 1.0);
         feedback = 0.72;
         repeat = 0.82;
     } else {
         for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
             const auto params = s3g::spectralTopologyLaneParams(
-                p->settings, ch, kChannelCount);
+                settings, ch, kChannelCount);
             hold = std::max(hold, static_cast<double>(params.hold));
             freeze = std::max(freeze, static_cast<double>(params.freeze));
             feedback = std::max(feedback, static_cast<double>(params.feedback));
@@ -926,8 +1206,8 @@ uint32_t tailGet(const clap_plugin_t* plugin)
     // after the direct and locally processed paths have become silent. Each
     // feedback or repeat recurrence can launch another trip through that
     // history, so a single added span would under-report slow recirculation.
-    const bool delayedPropagation = p->settings.topology.amount > 0.0001
-        && p->propagationVelocity < 0.999999f;
+    const bool delayedPropagation = settings.topology.amount > 0.0001
+        && propagationVelocity < 0.999999f;
     const double propagationTraversals = delayedPropagation
         ? 1.0 + feedbackHops + repeatCycles
         : 0.0;
@@ -1114,7 +1394,8 @@ NSString* spectralFrequencyText(float frequencyHz)
         return;
     }
 
-    const auto state = topologyStateForPlugin(*p);
+    const auto settings = publishedSettings(*p);
+    const auto state = settings.topology;
     const auto controls = s3g::topologyControlsFromState(state);
     // Every physical output is a mesh node. The patch matrix only determines
     // which nodes receive direct input; unpatched nodes can still receive
@@ -1230,7 +1511,7 @@ NSString* spectralFrequencyText(float frequencyHz)
         [@"X" drawAtPoint:NSMakePoint(readoutButton.origin.x + 12.0, readoutButton.origin.y + 1.0) withAttributes:small];
         [@"BIN FRZ DMG RPT" drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 55.0) withAttributes:small];
         for (uint32_t lane = 0; lane < visualLanes; ++lane) {
-            const auto laneParams = s3g::spectralTopologyLaneParams(p->settings, lane, visualLanes);
+            const auto laneParams = s3g::spectralTopologyLaneParams(settings, lane, visualLanes);
             NSString* line = [NSString stringWithFormat:@"L%u %3.0f %.2f %.2f %.2f",
                                         lane + 1u,
                                         laneParams.sprayBins,
@@ -1331,6 +1612,14 @@ NSString* spectralFrequencyText(float frequencyHz)
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
+    s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.0f;
+    float propagationVelocity = 1.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    loadPublishedControls(
+        *p, settings, transientProtect, propagationVelocity,
+        propagationDispersion, propagationDamping);
     NSString* titleText = [NSString stringWithFormat:
         @"s3g PROCESSOR SPECTRAL %uCH", kChannelCount];
     s3g::clap_gui::drawProcessorTitleBand(
@@ -1371,7 +1660,7 @@ NSString* spectralFrequencyText(float frequencyHz)
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, outputH, style);
     s3g::clap_gui::drawPanelHeader(
         @"OUTPUT", true, panelX, panelY, panelW, headerH, lab, style);
-    const auto& prm = p->settings.base;
+    const auto& prm = settings.base;
     [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.gainDb]
         norm:(prm.gainDb + 60.0f) / 72.0f y:engineRowY(panelY, 0) attrs:small small:small];
     [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f]
@@ -1404,7 +1693,7 @@ NSString* spectralFrequencyText(float frequencyHz)
     [self drawEngineRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:engineRowY(panelY, 10) attrs:small small:small];
     [self drawEngineRow:@"LO" value:spectralFrequencyText(prm.loFreq) norm:prm.loFreq / 24000.0f y:engineRowY(panelY, 11) attrs:small small:small];
     [self drawEngineRow:@"HI" value:spectralFrequencyText(prm.hiFreq) norm:(prm.hiFreq - 20.0f) / 23980.0f y:engineRowY(panelY, 12) attrs:small small:small];
-    [self drawEngineRow:@"TRANS" value:[NSString stringWithFormat:@"%.0f%%", p->transientProtect * 100.0f] norm:p->transientProtect y:engineRowY(panelY, 13) attrs:small small:small];
+    [self drawEngineRow:@"TRANS" value:[NSString stringWithFormat:@"%.0f%%", transientProtect * 100.0f] norm:transientProtect y:engineRowY(panelY, 13) attrs:small small:small];
     panelY += engineH + gap;
 
     const CGFloat topologyY = static_cast<CGFloat>(kTopologyPanelY);
@@ -1412,7 +1701,7 @@ NSString* spectralFrequencyText(float frequencyHz)
     s3g::clap_gui::drawPanelFrame(
         topologyX, topologyY, panelW, topologyH, style);
     drawHeader(@"TOPOLOGY", topologyX, topologyY);
-    const auto& t = p->settings.topology;
+    const auto& t = settings.topology;
     s3g::clap_gui::TopologyUiValues values;
     values.shape = s3g::topologyShapeName(t.shape);
     values.amount = t.amount;
@@ -1445,20 +1734,20 @@ NSString* spectralFrequencyText(float frequencyHz)
     drawHeader(@"PROPAGATION", topologyX, propagationY);
     s3g::clap_gui::drawProcessorSlider(
         @"VEL",
-        [NSString stringWithFormat:@"%.0f%%", p->propagationVelocity * 100.0f],
-        p->propagationVelocity,
+        [NSString stringWithFormat:@"%.0f%%", propagationVelocity * 100.0f],
+        propagationVelocity,
         engineRowY(propagationY, 0u), topologyX, panelW,
         small, small, style);
     s3g::clap_gui::drawProcessorSlider(
         @"DISP",
-        [NSString stringWithFormat:@"%+.2f", p->propagationDispersion],
-        (p->propagationDispersion + 1.0f) * 0.5f,
+        [NSString stringWithFormat:@"%+.2f", propagationDispersion],
+        (propagationDispersion + 1.0f) * 0.5f,
         engineRowY(propagationY, 1u), topologyX, panelW,
         small, small, style);
     s3g::clap_gui::drawProcessorSlider(
         @"DAMP",
-        [NSString stringWithFormat:@"%.0f%%", p->propagationDamping * 100.0f],
-        p->propagationDamping,
+        [NSString stringWithFormat:@"%.0f%%", propagationDamping * 100.0f],
+        propagationDamping,
         engineRowY(propagationY, 2u), topologyX, panelW,
         small, small, style);
 
@@ -1484,7 +1773,9 @@ NSString* spectralFrequencyText(float frequencyHz)
         }
         for (uint32_t in = 0; in < kChannelCount; ++in) {
             for (uint32_t out = 0; out < kChannelCount; ++out) {
-                const bool connected = p->patch.connected(in, out);
+                const bool connected = (
+                    p->publishedPatchRows[in].load(std::memory_order_relaxed)
+                    & (uint64_t { 1 } << out)) != 0u;
                 NSRect r = NSMakeRect(left + out * cell, top + in * cell, cell - gapCell, cell - gapCell);
                 [style.strip setFill];
                 NSRectFill(r);
@@ -1702,14 +1993,14 @@ NSString* spectralFrequencyText(float frequencyHz)
     const NSRect captureButton = spectralEngineCaptureButtonRect(panelY);
     const NSRect clearButton = spectralEngineClearButtonRect(panelY);
     if (NSPointInRect(pt, captureButton)) {
-        p->processor.requestCapture();
+        p->capturePending.store(true, std::memory_order_release);
         markTailChanged(*p);
         if (p->host && p->host->request_process) p->host->request_process(p->host);
         [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(pt, clearButton)) {
-        p->processor.requestClearCapture();
+        p->clearCapturePending.store(true, std::memory_order_release);
         markTailChanged(*p);
         if (p->host && p->host->request_process) p->host->request_process(p->host);
         [self setNeedsDisplay:YES];
@@ -1978,6 +2269,13 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->settings.topology.centroidAmount = 0.18;
     p->patch.setWidth(kChannelCount);
     p->patch.setIdentity(kChannelCount);
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p->publishedPatchRows[row].store(
+            p->patch.rowMask(row), std::memory_order_relaxed);
+    }
+    storePublishedControls(
+        *p, p->settings, p->transientProtect, p->propagationVelocity,
+        p->propagationDispersion, p->propagationDamping);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

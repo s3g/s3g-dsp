@@ -119,6 +119,10 @@
 
         <p>The patch matrix injects REAPER inputs into the mesh; it does not determine its node count. All 8 or 24 nodes remain available as transport destinations, so a node with no direct input can still receive and output wet spectral material from its neighbors or the centroid pool. Use the matrix when the track is wider than the source material or when one input should seed several nodes. The 24-channel build uses a compact matrix so all nodes remain visible.</p>
 
+        <h2 id="realtime-limits">Realtime Buffer Floors</h2>
+
+        <p>Spectral processing concentrates FFT-hop work into particular audio callbacks, so the smallest stable buffer depends on channel count and sample rate. The strict release profiles cover the 8-channel build at 48 kHz with 64 frames or more and at 96 kHz with 128 frames or more. The 24-channel build is covered at 48 kHz with 256 frames and at 96 kHz with 512 frames. These are tested release floors, not guarantees for every computer or project; dense routing, other effects, power mode, and host scheduling still matter. Smaller buffers remain available for deliberate testing but are not claimed as realtime-safe configurations.</p>
+
         <h2 id="performance">Performance Example</h2>
 
         <p>Patch a chord into one node, raise <code>AMT</code> and <code>NN</code>, then engage <code>FRZ</code> while the chord is sounding. Mute the source and the captured spectrum can continue through the mesh. Lower <code>VEL</code> until each connection becomes a distinct spectral arrival, add positive <code>DISP</code> for a low-to-high unfurling, and use <code>DAMP</code> to keep distant echoes behind the source. <code>CAP</code> replaces the frozen material, <code>RPT</code> recalls earlier frames, <code>FDBK</code> extends circulation, and <code>CLR</code> empties the capture.</p>
@@ -160,6 +164,7 @@
           <a href="#topology">Topology</a>
           <a href="#propagation">Propagation</a>
           <a href="#patching">Patch Matrix</a>
+          <a href="#realtime-limits">Realtime Buffer Floors</a>
           <a href="#performance">Performance Example</a>
         </div>
       </aside>

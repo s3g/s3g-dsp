@@ -182,7 +182,13 @@ Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->
 void publishParams(Plugin& plugin, s3g::AmbiPulsarParams params, uint32_t presetIndex, bool requestProcess);
 void syncGuiParams(Plugin& plugin);
 void syncAudioParams(Plugin& plugin);
-void applyAudioParam(Plugin& plugin, clap_id id, double value);
+struct AudioParamBatch {
+    bool changed = false;
+    bool storeFullBank = false;
+    uint32_t presetIndex = 0u;
+};
+void stageAudioParam(Plugin& plugin, clap_id id, double value, AudioParamBatch& batch);
+void commitAudioParams(Plugin& plugin, const AudioParamBatch& batch);
 
 bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
 {
@@ -601,13 +607,15 @@ void reset(const clap_plugin_t* plugin)
 void readParamEvents(Plugin& plugin, const clap_input_events_t* input)
 {
     if (!input) return;
+    AudioParamBatch batch;
     const uint32_t count = input->size(input);
     for (uint32_t index = 0u; index < count; ++index) {
         const clap_event_header_t* event = input->get(input, index);
         if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID || event->type != CLAP_EVENT_PARAM_VALUE) continue;
         const auto* value = reinterpret_cast<const clap_event_param_value_t*>(event);
-        applyAudioParam(plugin, value->param_id, value->value);
+        stageAudioParam(plugin, value->param_id, value->value, batch);
     }
+    commitAudioParams(plugin, batch);
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
@@ -654,17 +662,27 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     uint32_t renderedFrames = 0u;
     if (process->in_events) {
+        AudioParamBatch batch;
+        bool haveParamFrame = false;
+        uint32_t paramFrame = 0u;
         const uint32_t eventCount = process->in_events->size(process->in_events);
         for (uint32_t index = 0u; index < eventCount; ++index) {
             const clap_event_header_t* event = process->in_events->get(process->in_events, index);
             if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
                 || event->type != CLAP_EVENT_PARAM_VALUE) continue;
             const uint32_t eventFrame = std::clamp<uint32_t>(event->time, renderedFrames, frames);
-            renderRange(renderedFrames, eventFrame - renderedFrames);
-            renderedFrames = eventFrame;
+            if (!haveParamFrame || eventFrame != paramFrame) {
+                if (haveParamFrame) commitAudioParams(*p, batch);
+                renderRange(renderedFrames, eventFrame - renderedFrames);
+                renderedFrames = eventFrame;
+                paramFrame = eventFrame;
+                haveParamFrame = true;
+                batch = {};
+            }
             const auto* value = reinterpret_cast<const clap_event_param_value_t*>(event);
-            applyAudioParam(*p, value->param_id, value->value);
+            stageAudioParam(*p, value->param_id, value->value, batch);
         }
+        if (haveParamFrame) commitAudioParams(*p, batch);
     }
     renderRange(renderedFrames, frames - renderedFrames);
     s3g::clearAudioBufferFromChannel(output, channels, frames);
@@ -890,7 +908,7 @@ void syncAudioParams(Plugin& plugin)
     plugin.engine.setParams(plugin.audioParams);
 }
 
-void applyAudioParam(Plugin& plugin, clap_id id, double value)
+void stageAudioParam(Plugin& plugin, clap_id id, double value, AudioParamBatch& batch)
 {
     if (!findParam(id)) return;
     if (id == kPresetParamId) {
@@ -899,12 +917,22 @@ void applyAudioParam(Plugin& plugin, clap_id id, double value)
         const float outputGainDb = plugin.audioParams.outputGainDb;
         plugin.audioParams = s3g::ambiPulsarFactoryPreset(preset);
         plugin.audioParams.outputGainDb = outputGainDb;
-        storeParamBank(plugin, plugin.audioParams, preset);
+        batch.storeFullBank = true;
+        batch.presetIndex = preset;
         plugin.customPresetActive.store(false, std::memory_order_relaxed);
     } else {
         if (!assignParam(plugin.audioParams, id, value)) return;
         plugin.audioParams = s3g::sanitizeAmbiPulsarParams(plugin.audioParams);
         plugin.parameterValues[id].store(paramValue(plugin.audioParams, id), std::memory_order_relaxed);
+    }
+    batch.changed = true;
+}
+
+void commitAudioParams(Plugin& plugin, const AudioParamBatch& batch)
+{
+    if (!batch.changed) return;
+    if (batch.storeFullBank) {
+        storeParamBank(plugin, plugin.audioParams, batch.presetIndex);
     }
     plugin.engine.setParams(plugin.audioParams);
 }

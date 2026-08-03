@@ -71,7 +71,10 @@ bool renderMode(s3g::standalone::NoInputMixerStandaloneEngine& engine,
     const uint32_t active = s3g::standalone::outputChannelsForMode(mode);
     std::array<double, kChannels> energy {};
     for (uint32_t block = 0u; block < 240u; ++block) {
-        engine.render(pointers.data(), kChannels, kFrames);
+        if (!engine.render(pointers.data(), kChannels, kFrames)) {
+            std::cerr << "Standalone processor returned an error\n";
+            return false;
+        }
         for (uint32_t channel = 0u; channel < kChannels; ++channel) {
             for (const float value : storage[channel]) {
                 if (!std::isfinite(value)) {
@@ -112,11 +115,18 @@ int main()
     callbackTelemetry.recordCallbackNanoseconds(1000000u, 512u, 48000.0,
         256u, true);
     callbackTelemetry.recordProcessorOverload();
+    callbackTelemetry.recordAbnormalStop();
+    callbackTelemetry.recordDeviceAliveChange();
+    callbackTelemetry.recordDeviceConfigurationChange();
     auto callbackSnapshot = callbackTelemetry.snapshot();
     bool ok = callbackSnapshot.callbackCount == 3u
+        && callbackSnapshot.renderedFrameCount == 1024u
         && callbackSnapshot.deadlineMissCount == 1u
         && callbackSnapshot.oversizedCallbackCount == 1u
         && callbackSnapshot.processorOverloadCount == 1u
+        && callbackSnapshot.abnormalStopCount == 1u
+        && callbackSnapshot.deviceAliveChangeCount == 1u
+        && callbackSnapshot.deviceConfigurationChangeCount == 1u
         && callbackSnapshot.callbackErrorCount == 1u
         && callbackSnapshot.smoothedLoad > 0.0
         && std::abs(callbackSnapshot.peakLoad - 1.125) < 1.0e-6
@@ -124,11 +134,67 @@ int main()
             < 1.0e-6
         && std::abs(callbackSnapshot.maximumCallbackMilliseconds - 6.0)
             < 1.0e-6;
+    s3g::standalone::CoreAudioOutput unopenedAudio;
+    ok = ok && !unopenedAudio.telemetryEnabled();
+    unopenedAudio.setTelemetryEnabled(true);
+    ok = ok && unopenedAudio.telemetryEnabled();
+    unopenedAudio.setTelemetryEnabled(false);
+    ok = ok && !unopenedAudio.telemetryEnabled();
     callbackTelemetry.reset();
     callbackSnapshot = callbackTelemetry.snapshot();
     ok = ok && callbackSnapshot.callbackCount == 0u
+        && callbackSnapshot.renderedFrameCount == 0u
         && callbackSnapshot.deadlineMissCount == 0u
+        && callbackSnapshot.sampleTimeDiscontinuityCount == 0u
+        && callbackSnapshot.sampleTimeUnavailableCount == 0u
+        && callbackSnapshot.maximumSampleTimeErrorFrames == 0.0
         && callbackSnapshot.maximumCallbackMilliseconds == 0.0;
+
+    s3g::standalone::RealtimeCallbackTelemetry cadenceTelemetry;
+    constexpr uint64_t firstCallbackStart = 1000000000u;
+    constexpr uint64_t firstAudioHostTime = 2000000000u;
+    constexpr uint64_t normalPeriod = 5333333u;
+    cadenceTelemetry.recordCallbackTiming(1000000u, 256u, 48000.0,
+        256u, firstCallbackStart, firstAudioHostTime, 1000.0, 1.0e9,
+        true, true);
+    cadenceTelemetry.recordCallbackTiming(1000000u, 256u, 48000.0,
+        256u, firstCallbackStart + normalPeriod,
+        firstAudioHostTime + normalPeriod, 1258.0, 1.0e9, true, true);
+    cadenceTelemetry.recordCallbackTiming(1000000u, 256u, 48000.0,
+        256u, firstCallbackStart + normalPeriod + 8000000u,
+        firstAudioHostTime + normalPeriod + 10000000u, 1544.0, 1.0e9,
+        true, true, false, true);
+    cadenceTelemetry.recordCallbackTiming(1000000u, 256u, 48000.0,
+        256u, firstCallbackStart + normalPeriod + 8000000u + normalPeriod,
+        0u, 0.0, 1.0e9, false, false);
+    const auto cadenceSnapshot = cadenceTelemetry.snapshot();
+    ok = ok && cadenceSnapshot.callbackCount == 4u
+        && cadenceSnapshot.renderedFrameCount == 1024u
+        && cadenceSnapshot.lateCallbackCount == 1u
+        && cadenceSnapshot.timestampDiscontinuityCount == 1u
+        && cadenceSnapshot.timestampUnavailableCount == 1u
+        && cadenceSnapshot.sampleTimeDiscontinuityCount == 1u
+        && cadenceSnapshot.sampleTimeUnavailableCount == 1u
+        && cadenceSnapshot.renderActionErrorCount == 1u
+        && cadenceSnapshot.maximumLatenessMilliseconds > 2.0
+        && cadenceSnapshot.maximumTimestampErrorMilliseconds > 4.0
+        && std::abs(cadenceSnapshot.maximumSampleTimeErrorFrames - 30.0)
+            < 1.0e-6
+        && std::abs(cadenceSnapshot.lastLoad - 0.1875) < 1.0e-6;
+
+    // Sample-time continuity follows the preceding callback size, not the
+    // current size. This is required for devices with variable buffer frames.
+    s3g::standalone::RealtimeCallbackTelemetry variableFrameTelemetry;
+    variableFrameTelemetry.recordCallbackTiming(100000u, 128u, 48000.0,
+        256u, 1000000u, 0u, 500.0, 1.0e9, false, true);
+    variableFrameTelemetry.recordCallbackTiming(100000u, 256u, 48000.0,
+        256u, 3666667u, 0u, 628.0, 1.0e9, false, true);
+    variableFrameTelemetry.recordCallbackTiming(100000u, 64u, 48000.0,
+        256u, 9000000u, 0u, 884.0, 1.0e9, false, true);
+    const auto variableFrameSnapshot = variableFrameTelemetry.snapshot();
+    ok = ok && variableFrameSnapshot.sampleTimeDiscontinuityCount == 0u
+        && variableFrameSnapshot.sampleTimeUnavailableCount == 0u
+        && variableFrameSnapshot.maximumSampleTimeErrorFrames == 0.0;
 
     constexpr uint64_t blockHostTime = 1000000000u;
     ok = ok && s3g::standalone::NoInputMixerStandaloneEngine::
@@ -179,10 +245,10 @@ int main()
     engine.enqueueMidi(0xbfu, 98u, 5u);
     engine.enqueueMidi(0xbfu, 6u, 64u);
     engine.enqueueMidi(0xbfu, 38u, 0u);
-    engine.render(midiPointers.data(), kChannels, kFrames);
-    engine.render(midiPointers.data(), kChannels, kFrames);
+    ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
+    ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
     engine.enqueueMidi(0x9fu, 112u, 127u);
-    engine.render(midiPointers.data(), kChannels, kFrames);
+    ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
     uint32_t e16FeedbackCount = 0u;
     uint32_t gridFeedbackCount = 0u;
     std::array<bool, 64u> gridFeedbackSeen {};
@@ -264,7 +330,7 @@ int main()
     for (uint32_t channel = 0u; channel < kChannels; ++channel)
         mutedPointers[channel] = mutedStorage[channel].data();
     for (uint32_t block = 0u; block < 8u; ++block)
-        engine.render(mutedPointers.data(), kChannels, kFrames);
+        ok = ok && engine.render(mutedPointers.data(), kChannels, kFrames);
     for (const auto& channel : mutedStorage) {
         if (std::any_of(channel.begin(), channel.end(), [](float value) {
                 return std::abs(value) > 1.0e-6f;
@@ -275,7 +341,16 @@ int main()
         }
     }
 
+    const auto engineTelemetry = engine.telemetry();
+    ok = ok && engineTelemetry.totalProcessErrorCount() == 0u
+        && engineTelemetry.nonFiniteOutputSampleCount == 0u;
     engine.release();
+    for (auto& channel : mutedStorage) channel.fill(1.0f);
+    ok = ok && !engine.render(mutedPointers.data(), kChannels, kFrames);
+    for (const auto& channel : mutedStorage) {
+        ok = ok && std::all_of(channel.begin(), channel.end(),
+            [](float value) { return value == 0.0f; });
+    }
     std::vector<uint8_t> noInputState;
     std::vector<uint8_t> stereoState;
     std::vector<uint8_t> quadState;
@@ -287,6 +362,13 @@ int main()
     ok = ok && engine.noInputPlugin().loadState(noInputState)
         && engine.stereoPlugin().loadState(stereoState)
         && engine.quadPlugin().loadState(quadState);
+    // A diagnostics reset must clear a prior MIDI overflow indication so the
+    // GUI fault state does not remain latched until relaunch.
+    for (uint32_t message = 0u; message < 4096u; ++message)
+        engine.enqueueMidi(0x90u, 60u, 100u);
+    ok = ok && engine.midiInputDropCount() > 0u;
+    engine.resetMidiInputDropCount();
+    ok = ok && engine.midiInputDropCount() == 0u;
     engine.destroy();
     if (!ok) return 1;
     std::cout << "No Input Mixer standalone chain passed\n";

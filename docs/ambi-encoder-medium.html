@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Medium - s3g-dsp</title>
+    <meta name="description" content="User guide for the s3g eight-node fractional-waveguide cube instrument and ACN/SN3D encoder.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Medium</h1>
+
+        <p>Ambi Encoder Medium turns clicks, MIDI notes, internal patterns, or mono track audio into sound inside an eight-corner resonating cube. Energy travels between the corners, making each strike part of one shared body rather than an isolated voice. The corners become spatial directions in selectable first-, second-, or third-order <code>ACN/SN3D</code>.</p>
+
+        <p>Use it without input as a self-playing spatial instrument, or let track audio and MIDI animate the same resonator. <code>PERCUSSIVE</code>, <code>BOW</code>, <code>REED</code>, and <code>AIR JET</code> move the sound from short impacts toward sustained, breathy, and friction-like tones. These are musical starting points rather than replicas of specific acoustic instruments.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-encoder-medium.png" aria-label="Open Ambi Encoder Medium GUI screenshot">
+              <img src="assets/plugin-guis/ambi-encoder-medium.png" alt="Ambi Encoder Medium GUI showing the active eight-node waveguide cube, camera controls, medium controls, and Source excitation page" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Ambi Encoder Medium with the eight-node cube, live activity, camera controls, tone and structure controls, and the Source page.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the track to 16 channels, insert <code>s3g Ambi Encoder Medium 16</code>, and choose <code>1OA</code>, <code>2OA</code>, or <code>3OA</code> from <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>For an input-free patch, open <code>SEQ</code>, raise <code>SELF</code>, and set <code>RATE</code>. To play it directly, click a cube node or send MIDI notes. Mono track audio is optional.</li>
+          <li>Choose the exciter. Begin with <code>PERCUSSIVE</code> for impacts, then try <code>BOW</code>, <code>REED</code>, or <code>AIR JET</code> with <code>SUSTAIN</code> or MIDI envelopes for continuous tone.</li>
+          <li>Balance <code>SPEED</code> and <code>SIZE</code> for the desired register, then shape decay, absorption, nonlinearity, radiation, and dispersion.</li>
+          <li>Select a node before editing its Euclidean lane or <code>MASK</code>. The rings and halos in the cube show which node is selected, struck, held by MIDI, or still ringing.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Mono input, a node click, a MIDI note, or a sequencer hit excites one of the eight cube corners. <code>INPUT</code>, <code>STRIKE</code>, <code>SELF</code>, velocity, and the chosen exciter set the strength and character of that gesture.</li>
+          <li>Energy travels in both directions along the cube's twelve edges. <code>SPEED</code> and <code>SIZE</code> set the travel time together, so they also establish the basic register and scale of the body.</li>
+          <li><code>DECAY</code>, <code>ABSORB</code>, <code>NONLINEAR</code>, and <code>DISPERSE</code> shape how the sound fades, darkens, roughens, and spreads as it moves.</li>
+          <li>Each corner radiates from its own direction. Its <code>MASK</code> can make the corner that received the event stand out more clearly in the field.</li>
+          <li>The eight radiators are encoded at their cube directions. The selected order occupies the first <code>4</code>, <code>9</code>, or <code>16</code> output channels; unused channels are silent.</li>
+          <li><code>OUT</code> sets the final level, and one linked guard protects all active channels together without independently changing the field balance.</li>
+        </ol>
+
+        <h2 id="field">Waveguide Field and Camera</h2>
+
+        <p>Click a node to select and strike it. The selected node has a white ring; a held MIDI voice has a cyan ring and note label; triggered or circulating energy expands as a halo. Edge width and brightness show live energy moving through the waveguides.</p>
+
+        <p><code>TOP</code> and <code>SIDE</code> provide fixed views. <code>3/4</code> restores the perspective view. Drag empty field space to orbit, and use <code>−</code> or <code>+</code> to zoom. Camera actions affect only the display, not ambisonic coordinates or sound.</p>
+
+        <h2 id="excitation">Source and Exciters</h2>
+
+        <p>On the <code>SOURCE</code> page, choose the node you want to play and the kind of gesture that will excite it. <code>SUSTAIN</code> adds continuous drive, <code>CHARACTER</code> changes the exciter's color, <code>INPUT</code> sets how strongly mono track audio enters the cube, and <code>STRIKE</code> sets the level of clicks and MIDI attacks. <code>MASK</code> sharpens the selected node's spatial focus.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Exciter</th><th>Gesture</th><th>Useful controls</th></tr></thead>
+          <tbody>
+            <tr><td>Percussive</td><td>A short impact with pitched and noisy energy. MIDI note pitch still tunes the gesture.</td><td><code>STRIKE</code>, <code>CHARACTER</code>, decay, and absorption.</td></tr>
+            <tr><td>Bow</td><td>A friction-like drive that can sustain a smooth or bright harmonic tone.</td><td><code>SUSTAIN</code>, <code>CHARACTER</code>, attack, and release.</td></tr>
+            <tr><td>Reed</td><td>A nonlinear pressure-driven source with stronger harmonic growth.</td><td><code>SUSTAIN</code>, <code>CHARACTER</code>, nonlinearity, and radiation.</td></tr>
+            <tr><td>Air Jet</td><td>A pitched jet mixed with filtered breath noise.</td><td><code>SUSTAIN</code>, <code>CHARACTER</code>, absorption, and dispersion.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The <code>SEQ</code> page has the same exciter menu. Each pattern hit borrows that exciter's character, so a lane can play short bow, reed, or air-jet gestures as well as percussion even when <code>SUSTAIN</code> is down.</p>
+
+        <h2 id="sequencer">Euclidean Sequencer and Ratchets</h2>
+
+        <p><code>SELF</code> enables input-free excitation and sets its level. <code>RATE</code> is the free-running step rate, and <code>STEPS</code> sets a shared cycle of 4–32 steps. Each node stores its own <code>PULSES</code> and <code>ROTATE</code> values; select a node in the cube or <code>NODE</code> menu before editing its lane.</p>
+
+        <p>At densities up to one pulse per step, hits are distributed as evenly as possible around the cycle. When <code>PULSES</code> exceeds <code>STEPS</code>, every step receives an equal base number of hits and the remainder is distributed as extra in-step ratchets. A 5-step lane with 12 pulses therefore produces two hits on every step plus two additional ratchets spread across the cycle.</p>
+
+        <p>The MIDI <code>MODE</code> also changes how pattern hits move around the cube. <code>STRIKE</code> and <code>MONO NOTE</code> keep each Euclidean lane on its own node. <code>POLY SEQ</code> sends successive hits through nodes 1–8. <code>POLY RANDOM</code> shuffles all eight nodes, uses each one before starting a new set, and avoids repeating the same node at the join.</p>
+
+        <h2 id="pitch">Scale-Locked Note Dispersion</h2>
+
+        <p>The last MIDI note you play becomes the center of the self-running pattern. <code>SCALE</code> selects Major, Natural Minor, Dorian, Mixolydian, Major Pentatonic, Minor Pentatonic, Harmonic Minor, or Chromatic. <code>NOTES</code> chooses one to eight variations: one keeps every hit on the center note, while larger values spread the nodes above and below it within the scale.</p>
+
+        <p>For example, with C4 as the last note, Major, and eight variations, nodes map to C4, D4, B3, E4, A3, F4, G3, and G4. <code>TRANSPOSE</code> shifts the complete set. When several nodes fire together, each keeps its assigned pitch while the cube blends their resonance.</p>
+
+        <h2 id="midi">MIDI Note Layer</h2>
+
+        <p>Send notes to <code>Waveguide MIDI / Strike In</code>. MIDI works with all four exciters, including <code>PERCUSSIVE</code>. <code>TRANSPOSE</code> shifts pitch by ±24 semitones; <code>ATTACK</code> and <code>RELEASE</code> shape the note envelope, while <code>VELOCITY</code> sets how strongly playing dynamics affect the result.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Where it plays</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Strike</td><td>Note numbers cycle across nodes 1–8</td><td>Each note triggers a tuned impact and rings without waiting for note-off.</td></tr>
+            <tr><td>Mono Note</td><td>Selected actuator node</td><td>The newest held note tunes one enveloped voice; releasing it returns to the newest remaining held note.</td></tr>
+            <tr><td>Poly Seq</td><td>Nodes 1–8 in order</td><td>Up to eight node voices can sound together. If more notes overlap, allocation continues from the next node.</td></tr>
+            <tr><td>Poly Random</td><td>A shuffled set of nodes 1–8</td><td>Available nodes are used across the complete set before the order is shuffled again.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="directivity">Strike-Following Directivity</h2>
+
+        <p>Each node has its own <code>MASK</code> setting. When a click, MIDI note, pattern hit, or continuous exciter plays that node, the mask follows the event to the matching corner. Higher settings make that location stand out more sharply; lower settings let the sound spread more evenly through the cube. Several active nodes can remain distinct at the same time.</p>
+
+        <p>The mask changes spatial emphasis rather than moving a node or replacing the natural dispersion of energy through the cube. For a clear eight-position sequence, raise each node's <code>MASK</code> and reduce <code>DISPERSE</code> or decay; for a more diffuse body, lower the masks and allow the shared network to ring.</p>
+
+        <h2 id="controls">Primary Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Output</td><td>Order / Out</td><td>Selects 1OA, 2OA, or 3OA and sets the linked final output level.</td></tr>
+            <tr><td>Medium / Structure</td><td>Speed / Size / Decay / Absorb / Nonlinear / Radiate / Disperse</td><td>Changes the body's register, scale, sustain, brightness, roughness, edge, and internal spread.</td></tr>
+            <tr><td>Source</td><td>Node / Exciter / Sustain / Character / Input / Strike / Mask</td><td>Shapes track audio, clicks, sustained drive, short gestures, and spatial focus at the selected node.</td></tr>
+            <tr><td>Seq</td><td>Exciter / Self / Rate / Steps / Pulses / Rotate / Scale / Notes</td><td>Creates per-node Euclidean patterns, ratchets, routed node order, and scale-locked note variation.</td></tr>
+            <tr><td>MIDI</td><td>Mode / Transpose / Attack / Release / Velocity</td><td>Chooses note-to-node allocation and shapes the MIDI layer.</td></tr>
+            <tr><td>Field View</td><td>Top / Side / 3/4 / − / +</td><td>Controls the display camera; node clicks select and strike, while empty-field drags orbit.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="size">Speed, Size, and Auditioning</h2>
+
+        <p><code>SPEED</code> and <code>SIZE</code> work together to set the body's register. Different combinations can produce low drones, a resonant sweet range, or very bright and unstable colors. Begin from a preset, move one control at a time, and adjust <code>DECAY</code> and <code>ABSORB</code> when the body moves into a new register.</p>
+
+        <p>You can move <code>SIZE</code> while the cube is ringing. Changes are smoothed so the resonator glides instead of cracking or abruptly restarting. Small, slow moves are best when auditioning a tone; fast or extreme moves create a more obvious pitch sweep. <code>SPEED</code> also retunes the body and responds in the same musical way.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th><th>Track width</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td>16 recommended; channels 5–16 are silent.</td></tr>
+            <tr><td>2OA</td><td>9</td><td>16 recommended; channels 10–16 are silent.</td></tr>
+            <tr><td>3OA</td><td>16</td><td>16.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The output is <code>ACN/SN3D</code>. Place compatible <a href="ambisonic-effects.html">Ambisonic effects</a> between Medium and the decoder only when their supported order and channel count match the field.</p>
+
+        <h2 id="presets">Presets</h2>
+
+        <p>The preset menu provides <code>INIT</code>, <code>RESONANT CUBE</code>, <code>BOWED GLASS</code>, <code>REED CHAMBER</code>, <code>AIR JET LATTICE</code>, <code>GLASS LATTICE</code>, and <code>DARK DRONE</code>. Each is a complete playing condition with its own medium, exciter, rhythm, scale, note spread, and spatial focus. <code>LOAD</code> and <code>SAVE</code> exchange plugin presets; <code>RANDOM</code> creates a playable variation within bounded ranges.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>Medium is designed as a flexible musical resonator rather than a calibrated model of one room, string, bore, or instrument. The bow, reed, and air-jet names describe broad playing gestures, and the useful range depends on the relationship between <code>SPEED</code>, <code>SIZE</code>, decay, and absorption.</p>
+
+        <p>The sequencer's <code>RATE</code> runs in hertz rather than following host tempo. All eight nodes belong to one resonating cube, so overlapping notes and simultaneous hits influence the same body instead of behaving like eight unrelated synthesizers. See <a href="references.html#modal-physical-modeling">Modal Synthesis and Physical Modeling</a> for the digital-waveguide background.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-modal.html">
+            <span>Previous</span>
+            Ambi Encoder Modal
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-vot.html">
+            <span>Next</span>
+            Ambi Encoder VOT
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-medium.html">Encoder Medium</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#field">Waveguide Field and Camera</a>
+          <a href="#excitation">Source and Exciters</a>
+          <a href="#sequencer">Euclidean Sequencer and Ratchets</a>
+          <a href="#pitch">Scale-Locked Note Dispersion</a>
+          <a href="#midi">MIDI Note Layer</a>
+          <a href="#directivity">Strike-Following Directivity</a>
+          <a href="#controls">Primary Controls</a>
+          <a href="#size">Speed, Size, and Auditioning</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#presets">Presets</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

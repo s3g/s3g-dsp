@@ -171,7 +171,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     float blockPeak = 0.0f;
     for (uint32_t ch = 0; ch < kOutputChannels; ++ch) {
         for (uint32_t i = 0; i < frames; ++i) {
-            const float v = p->output32[ch][i];
+            const float v = s3g::flushDenormal(p->output32[ch][i]);
+            p->output32[ch][i] = v;
             if (output.data32 && output.data32[ch]) output.data32[ch][i] = v;
             if (output.data64 && output.data64[ch]) output.data64[ch][i] = static_cast<double>(v);
             blockPeak = std::max(blockPeak, std::abs(v));

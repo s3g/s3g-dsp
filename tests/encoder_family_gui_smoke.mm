@@ -3,6 +3,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
@@ -40,8 +41,96 @@
 
 namespace {
 
-const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
+struct HostContext {
+    const clap_plugin_t* plugin = nullptr;
+    const clap_plugin_params_t* params = nullptr;
+    bool servicingParamFlush = false;
+    bool deferParamFlush = false;
+    bool paramFlushRequested = false;
+    bool callbackRequested = false;
+    uint32_t paramRescanCount = 0u;
+};
+
+void hostParamsRescan(const clap_host_t* host, clap_param_rescan_flags flags)
+{
+    auto* context = host
+        ? static_cast<HostContext*>(host->host_data) : nullptr;
+    if (context && (flags & CLAP_PARAM_RESCAN_VALUES) != 0u) {
+        ++context->paramRescanCount;
+    }
+}
+void hostParamsClear(const clap_host_t*, clap_id,
+    clap_param_clear_flags) {}
+
+void hostParamsRequestFlush(const clap_host_t* host)
+{
+    auto* context = host
+        ? static_cast<HostContext*>(host->host_data) : nullptr;
+    if (!context || !context->plugin || !context->params
+        || !context->params->flush) return;
+    context->paramFlushRequested = true;
+    if (context->deferParamFlush || context->servicingParamFlush) return;
+    context->servicingParamFlush = true;
+    context->paramFlushRequested = false;
+    context->params->flush(context->plugin, nullptr, nullptr);
+    context->servicingParamFlush = false;
+}
+
+const clap_host_params_t hostParams {
+    hostParamsRescan,
+    hostParamsClear,
+    hostParamsRequestFlush,
+};
+
+const void* hostGetExtension(const clap_host_t*, const char* id)
+{
+    return id && std::strcmp(id, CLAP_EXT_PARAMS) == 0
+        ? &hostParams : nullptr;
+}
 void hostRequest(const clap_host_t*) {}
+
+void hostRequestCallback(const clap_host_t* host)
+{
+    auto* context = host
+        ? static_cast<HostContext*>(host->host_data) : nullptr;
+    if (context) context->callbackRequested = true;
+}
+
+struct CapturedParamEvent {
+    uint16_t type = 0u;
+    clap_id paramId = CLAP_INVALID_ID;
+    double value = 0.0;
+};
+
+struct CapturedOutputEvents {
+    clap_output_events_t events {};
+    std::vector<CapturedParamEvent> values;
+};
+
+bool captureOutputEvent(const clap_output_events_t* events,
+    const clap_event_header_t* header)
+{
+    if (!events || !header
+        || header->space_id != CLAP_CORE_EVENT_SPACE_ID) return false;
+    auto* capture = static_cast<CapturedOutputEvents*>(events->ctx);
+    if (!capture) return false;
+    CapturedParamEvent result {};
+    result.type = header->type;
+    if (header->type == CLAP_EVENT_PARAM_VALUE) {
+        const auto* value = reinterpret_cast<
+            const clap_event_param_value_t*>(header);
+        result.paramId = value->param_id;
+        result.value = value->value;
+    } else if (header->type == CLAP_EVENT_PARAM_GESTURE_BEGIN
+        || header->type == CLAP_EVENT_PARAM_GESTURE_END) {
+        result.paramId = reinterpret_cast<
+            const clap_event_param_gesture_t*>(header)->param_id;
+    } else {
+        return true;
+    }
+    capture->values.push_back(result);
+    return true;
+}
 
 bool closeEnough(CGFloat a, CGFloat b)
 {
@@ -405,8 +494,10 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        HostContext hostContext {};
         clap_host_t host {};
         host.clap_version = CLAP_VERSION_INIT;
+        host.host_data = &hostContext;
         host.name = "s3g family GUI smoke";
         host.vendor = "s3g";
         host.url = "https://github.com/s3g/s3g-dsp";
@@ -414,7 +505,7 @@ int main(int argc, char** argv)
         host.get_extension = hostGetExtension;
         host.request_restart = hostRequest;
         host.request_process = hostRequest;
-        host.request_callback = hostRequest;
+        host.request_callback = hostRequestCallback;
 
         const auto* factory = static_cast<const clap_plugin_factory_t*>(
             entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
@@ -451,6 +542,8 @@ int main(int argc, char** argv)
         failureStage = "parameter defaults";
         const auto* params = static_cast<const clap_plugin_params_t*>(
             plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+        hostContext.plugin = plugin;
+        hostContext.params = params;
         clap_param_info_t firstParam {};
         NSEvent* doubleClick = [NSEvent
             mouseEventWithType:NSEventTypeLeftMouseDown
@@ -608,6 +701,150 @@ int main(int argc, char** argv)
                 break;
             }
             ok = ok && foundBody;
+        }
+
+        const bool queuedOwnershipEncoder =
+            std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0;
+        if (ok && queuedOwnershipEncoder && !documentationCapture) {
+            failureStage = "active state queue publication";
+            const auto* pluginState =
+                static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE));
+            const auto* audioPorts =
+                static_cast<const clap_plugin_audio_ports_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+            clap_param_info_t outputInfo {};
+            bool foundOutput = false;
+            for (uint32_t index = 0u;
+                 params && index < params->count(plugin); ++index) {
+                clap_param_info_t candidate {};
+                if (!params->get_info(plugin, index, &candidate)) break;
+                if (std::strcmp(candidate.name, "Output") == 0) {
+                    outputInfo = candidate;
+                    foundOutput = true;
+                    break;
+                }
+            }
+
+            MemoryPluginState saved;
+            clap_ostream_t outputState { &saved, stateWrite };
+            double original = 0.0;
+            clap_audio_port_info_t outputPort {};
+            ok = pluginState && pluginState->save && pluginState->load
+                && params && params->flush && foundOutput
+                && params->get_value(plugin, outputInfo.id, &original)
+                && pluginState->save(plugin, &outputState)
+                && !saved.bytes.empty()
+                && audioPorts && audioPorts->count && audioPorts->get
+                && audioPorts->count(plugin, false) > 0u
+                && audioPorts->get(plugin, 0u, false, &outputPort)
+                && outputPort.channel_count > 0u;
+
+            constexpr uint32_t kQueueTestFrames = 64u;
+            const double low = outputInfo.min_value
+                + 0.2 * (outputInfo.max_value - outputInfo.min_value);
+            const double high = outputInfo.min_value
+                + 0.8 * (outputInfo.max_value - outputInfo.min_value);
+            const double mutation = std::fabs(original - low)
+                    > std::fabs(original - high)
+                ? low : high;
+            SingleParamEventInput mutationEvent {};
+            if (ok) {
+                setSingleParamEvent(
+                    mutationEvent, outputInfo.id, mutation);
+                params->flush(plugin, &mutationEvent.events, nullptr);
+                double reported = 0.0;
+                ok = params->get_value(plugin, outputInfo.id, &reported)
+                    && std::fabs(reported - mutation) < 1.0e-5;
+            }
+
+            std::vector<std::vector<float>> outputStorage;
+            std::vector<float*> outputPointers;
+            if (ok) {
+                outputStorage.resize(outputPort.channel_count);
+                outputPointers.resize(outputPort.channel_count);
+                for (uint32_t channel = 0u;
+                     channel < outputPort.channel_count; ++channel) {
+                    outputStorage[channel].assign(kQueueTestFrames, 0.0f);
+                    outputPointers[channel] = outputStorage[channel].data();
+                }
+            }
+            clap_audio_buffer_t outputBuffer {};
+            outputBuffer.data32 = outputPointers.empty()
+                ? nullptr : outputPointers.data();
+            outputBuffer.channel_count = outputPort.channel_count;
+            clap_process_t processBlock {};
+            processBlock.frames_count = kQueueTestFrames;
+            processBlock.audio_outputs = &outputBuffer;
+            processBlock.audio_outputs_count = 1u;
+
+            bool activated = false;
+            bool processing = false;
+            if (ok) {
+                activated = plugin->activate(
+                    plugin, 48000.0, 1u, kQueueTestFrames);
+                processing = activated && plugin->start_processing(plugin);
+                ok = activated && processing;
+            }
+            hostContext.paramFlushRequested = false;
+            hostContext.deferParamFlush = true;
+            hostContext.callbackRequested = false;
+            const uint32_t stateRescansBefore =
+                hostContext.paramRescanCount;
+            bool stateLoaded = false;
+            bool stateConsumed = false;
+            bool flushRequested = false;
+            bool processSucceeded = false;
+            if (ok) {
+                saved.offset = 0u;
+                clap_istream_t inputState { &saved, stateRead };
+                stateLoaded = pluginState->load(plugin, &inputState);
+                stateConsumed = saved.offset == saved.bytes.size();
+                flushRequested = hostContext.paramFlushRequested;
+                processSucceeded = plugin->process(plugin, &processBlock)
+                    != CLAP_PROCESS_ERROR;
+                ok = stateLoaded && stateConsumed && flushRequested
+                    && processSucceeded;
+            }
+            hostContext.deferParamFlush = false;
+            hostContext.paramFlushRequested = false;
+            if (hostContext.callbackRequested
+                && plugin->on_main_thread) {
+                plugin->on_main_thread(plugin);
+            }
+            hostContext.callbackRequested = false;
+            const bool stateRescanned = hostContext.paramRescanCount
+                > stateRescansBefore;
+            ok = ok && stateRescanned;
+            if (ok) {
+                double restored = 0.0;
+                ok = params->get_value(
+                        plugin, outputInfo.id, &restored)
+                    && std::fabs(restored - original) < 1.0e-5;
+            }
+            if (processing) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+            if (!ok) {
+                std::cerr << "Queued active state restore failed for "
+                    << pluginId
+                    << " (loaded=" << stateLoaded
+                    << ", consumed=" << stateConsumed
+                    << ", flush-requested=" << flushRequested
+                    << ", processed=" << processSucceeded
+                    << ", rescanned=" << stateRescanned
+                    << ")\n";
+            }
         }
 
         const bool documentationLoopProcessor = documentationCapture
@@ -913,6 +1150,281 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && queuedOwnershipEncoder && !documentationCapture) {
+            failureStage = "queued GUI gesture publication";
+            clap_param_info_t outputInfo {};
+            bool foundOutput = false;
+            for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+                clap_param_info_t candidate {};
+                if (!params->get_info(plugin, index, &candidate)) break;
+                if (std::strcmp(candidate.name, "Output") == 0) {
+                    outputInfo = candidate;
+                    foundOutput = true;
+                    break;
+                }
+            }
+            const NSPoint outputPoint = NSMakePoint(760.0, 78.0);
+            NSView* hit = document;
+            hostContext.deferParamFlush = true;
+            hostContext.paramFlushRequested = false;
+            if (foundOutput && hit == document) {
+                [hit mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, outputPoint)];
+                [hit mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, outputPoint)];
+            }
+            CapturedOutputEvents captured {};
+            captured.events.ctx = &captured;
+            captured.events.try_push = captureOutputEvent;
+            hostContext.deferParamFlush = false;
+            if (params->flush) {
+                params->flush(plugin, nullptr, &captured.events);
+            }
+            hostContext.paramFlushRequested = false;
+            size_t begin = captured.values.size();
+            size_t value = captured.values.size();
+            size_t end = captured.values.size();
+            for (size_t index = 0u; index < captured.values.size(); ++index) {
+                const auto& event = captured.values[index];
+                if (event.paramId != outputInfo.id) continue;
+                if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                    && begin == captured.values.size()) begin = index;
+                else if (event.type == CLAP_EVENT_PARAM_VALUE
+                    && value == captured.values.size()) value = index;
+                else if (event.type == CLAP_EVENT_PARAM_GESTURE_END
+                    && end == captured.values.size()) end = index;
+            }
+            ok = foundOutput && hit == document
+                && begin < value && value < end;
+            if (!ok) {
+                std::cerr << "Queued GUI gesture publication failed for "
+                    << pluginId << " (events=" << captured.values.size()
+                    << ")\n";
+            }
+        }
+        const bool ambiEncoderMedium = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-encoder-medium-16") == 0;
+        if (ok && ambiEncoderMedium && !documentationCapture) {
+            failureStage = "Ambi Encoder Medium camera and dropdown contract";
+            @try {
+                ok = [document respondsToSelector:@selector(setViewPreset:)];
+                if (ok) {
+                    [document setViewPreset:0];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == 0;
+                }
+
+                // The standard title PRESET field is also a real dropdown,
+                // backed by selectable Medium voicings.
+                if (ok) {
+                    const auto titleBand =
+                        s3g::clap_gui::encoderTitleBand(920.0, 680.0);
+                    const NSRect preset =
+                        s3g::clap_gui::cocoaRect(titleBand.presetMenu);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(preset), NSMidY(preset)))];
+                    ok = [[document valueForKey:@"menuItemCount"]
+                            unsignedIntValue] == 7u;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(NSMidX(preset),
+                                NSMaxY(preset) + 2.0 + 27.0))];
+                        double speed = 0.0;
+                        ok = params->get_value(plugin, 2u, &speed)
+                            && std::fabs(speed - 210.0) < 0.000001;
+                    }
+                }
+
+                // ORDER opens a real overlay and resolves an explicit row.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 92.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                        == 1u;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 135.0))];
+                    ok = [[document valueForKey:@"hoverMenuItem"] intValue]
+                        == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 135.0))];
+                    double order = 0.0;
+                    ok = params->get_value(plugin, 1u, &order)
+                        && std::fabs(order - 2.0) < 0.000001;
+                }
+
+                // NODE uses the same dropdown behavior and supports all eight
+                // explicit choices rather than cycling on every click.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 459.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 592.0))];
+                    double node = 0.0;
+                    ok = params->get_value(plugin, 8u, &node)
+                        && std::fabs(node - 7.0) < 0.000001;
+                }
+
+                // Continuous excitation follows the same explicit dropdown
+                // contract: Percussive, Bow, Reed, or Air Jet.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 478.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                        == 31u;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 521.0))];
+                    double exciter = 0.0;
+                    ok = params->get_value(plugin, 31u, &exciter)
+                        && std::fabs(exciter - 1.0) < 0.000001;
+                }
+
+                // MASK edits the selected node's independent radiation weight
+                // relative to the other seven nodes.
+                if (ok) {
+                    const NSPoint directivityPoint = NSMakePoint(795.0, 616.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, directivityPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, directivityPoint)];
+                    double directivity = 0.0;
+                    ok = params->get_value(plugin, 46u, &directivity)
+                        && std::fabs(directivity - 0.75) < 0.000001;
+                }
+
+                // SEQ exposes the same physical-exciter dropdown so Euclidean
+                // gestures can select Off, Bow, Reed, or Air directly.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(820.0, 434.0))];
+                    ok = [[document valueForKey:@"excitationPage"] intValue]
+                        == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 460.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                        == 31u;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 539.0))];
+                    double exciter = 0.0;
+                    ok = params->get_value(plugin, 31u, &exciter)
+                        && std::fabs(exciter - 3.0) < 0.000001;
+                }
+
+                // PULSES and ROTATE address the independently automatable
+                // Euclidean lane belonging to the currently selected node.
+                if (ok) {
+                    const NSPoint pulsesPoint = NSMakePoint(729.0, 564.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, pulsesPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, pulsesPoint)];
+                    const NSPoint rotationPoint = NSMakePoint(762.0, 590.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, rotationPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, rotationPoint)];
+                    double pulses = 0.0;
+                    double rotation = 0.0;
+                    ok = params->get_value(plugin, 21u, &pulses)
+                        && params->get_value(plugin, 29u, &rotation)
+                        && std::fabs(pulses - 8.0) < 0.000001
+                        && std::fabs(rotation - 16.0) < 0.000001;
+                }
+
+                // The sequencer pitch pool uses a scale dropdown and a
+                // standard stepped slider locking the pool to 1-8 notes.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 616.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 48u
+                        && [[document valueForKey:@"menuItemCount"]
+                            unsignedIntValue] == 8u;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 514.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(840.0, 642.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, NSMakePoint(840.0, 642.0))];
+                    double scale = 0.0;
+                    double notes = 0.0;
+                    ok = params->get_value(plugin, 48u, &scale)
+                        && params->get_value(plugin, 49u, &notes)
+                        && std::fabs(scale - 2.0) < 0.000001
+                        && std::fabs(notes - 8.0) < 0.000001;
+                }
+
+                // MIDI is a third paged section so its full-size controls use
+                // the same 36/26/24 row rhythm as the encoder family.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(872.0, 434.0))];
+                    ok = [[document valueForKey:@"excitationPage"] intValue]
+                        == 2;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 460.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                        == 35u
+                        && [[document valueForKey:@"menuItemCount"]
+                            unsignedIntValue] == 4u;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 539.0))];
+                    double midiMode = 0.0;
+                    ok = params->get_value(plugin, 35u, &midiMode)
+                        && std::fabs(midiMode - 3.0) < 0.000001;
+                }
+
+                // Shared camera buttons select canonical views, while an
+                // empty-field drag transitions into a custom orbit.
+                if (ok) {
+                    const NSRect field = NSMakeRect(16.0, 50.0, 560.0, 614.0);
+                    const NSRect threeQuarter =
+                        s3g::clap_gui::topologyProcessorCameraButtonRect(
+                            field, 2u);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(threeQuarter),
+                            NSMidY(threeQuarter)))];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == 2;
+                }
+                if (ok) {
+                    const double before =
+                        [[document valueForKey:@"viewAzDeg"] doubleValue];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(30.0, 300.0))];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(54.0, 314.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, NSMakePoint(54.0, 314.0))];
+                    const double after =
+                        [[document valueForKey:@"viewAzDeg"] doubleValue];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == -1
+                        && after > before + 8.0;
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Ambi Encoder Medium interaction exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         const bool cryosphere = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0;
@@ -1123,32 +1635,72 @@ int main(int argc, char** argv)
             std::array<double, randomizedIds.size()> thirdRandom {};
             std::array<double, protectedIds.size()> protectedBefore {};
             std::array<double, protectedIds.size()> protectedAfter {};
-            ok = readValues(randomizedIds, initialValues)
-                && readValues(protectedIds, protectedBefore)
-                && clickDocument(randomPoint)
-                && readValues(randomizedIds, firstRandom)
-                && changedValueCount(initialValues, firstRandom) >= 4u
-                && clickDocument(NSMakePoint(NSMidX(surfTab), NSMidY(surfTab)))
-                && clickDocument(NSMakePoint(
-                    NSMidX(surfaceButton(2u)), NSMidY(surfaceButton(2u))))
-                && clickDocument(randomPoint)
-                && readValues(randomizedIds, secondRandom)
-                && changedValueCount(firstRandom, secondRandom) >= 4u
-                && clickDocument(NSMakePoint(
-                    NSMidX(surfaceButton(2u)), NSMidY(surfaceButton(2u))))
-                && clickDocument(NSMakePoint(
-                    NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))));
+            auto environmentalCheck = [&](bool condition,
+                                            const char* detail) {
+                if (!condition) {
+                    std::cerr << "Environmental surface failure: "
+                        << detail << "\n";
+                }
+                return condition;
+            };
+            ok = environmentalCheck(
+                    readValues(randomizedIds, initialValues),
+                    "initial random parameters")
+                && environmentalCheck(
+                    readValues(protectedIds, protectedBefore),
+                    "initial protected parameters")
+                && environmentalCheck(
+                    clickDocument(randomPoint), "first RANDOM click")
+                && environmentalCheck(
+                    readValues(randomizedIds, firstRandom),
+                    "first RANDOM publication")
+                && environmentalCheck(
+                    changedValueCount(initialValues, firstRandom) >= 4u,
+                    "first RANDOM variation")
+                && environmentalCheck(clickDocument(NSMakePoint(
+                        NSMidX(surfTab), NSMidY(surfTab))),
+                    "SURF page selection")
+                && environmentalCheck(clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(2u)),
+                        NSMidY(surfaceButton(2u)))),
+                    "first surface capture")
+                && environmentalCheck(
+                    clickDocument(randomPoint), "second RANDOM click")
+                && environmentalCheck(
+                    readValues(randomizedIds, secondRandom),
+                    "second RANDOM publication")
+                && environmentalCheck(
+                    changedValueCount(firstRandom, secondRandom) >= 4u,
+                    "second RANDOM variation")
+                && environmentalCheck(clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(2u)),
+                        NSMidY(surfaceButton(2u)))),
+                    "second surface capture")
+                && environmentalCheck(clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(1u)),
+                        NSMidY(surfaceButton(1u)))),
+                    "surface enable");
 
             MemoryPluginState beforeRandomState;
             MemoryPluginState afterRandomState;
             MemoryPluginState reenabledState;
-            ok = ok && saveState(beforeRandomState)
-                && clickDocument(randomPoint)
-                && readValues(randomizedIds, thirdRandom)
-                && changedValueCount(secondRandom, thirdRandom) >= 4u
-                && readValues(protectedIds, protectedAfter)
-                && protectedBefore == protectedAfter
-                && saveState(afterRandomState);
+            ok = ok && environmentalCheck(
+                    saveState(beforeRandomState), "enabled surface save")
+                && environmentalCheck(
+                    clickDocument(randomPoint), "third RANDOM click")
+                && environmentalCheck(
+                    readValues(randomizedIds, thirdRandom),
+                    "third RANDOM publication")
+                && environmentalCheck(
+                    changedValueCount(secondRandom, thirdRandom) >= 4u,
+                    "third RANDOM variation")
+                && environmentalCheck(
+                    readValues(protectedIds, protectedAfter),
+                    "protected parameter publication")
+                && environmentalCheck(protectedBefore == protectedAfter,
+                    "protected parameters changed")
+                && environmentalCheck(
+                    saveState(afterRandomState), "bypassed surface save");
 
             auto surfaceContractHolds = [&](const auto& before,
                                             const auto& after) {
@@ -1181,9 +1733,23 @@ int main(int argc, char** argv)
             } else if (ok && wind) {
                 WorldSphereSavedState<s3g::AmbiWindParams> before {};
                 WorldSphereSavedState<s3g::AmbiWindParams> after {};
-                ok = decodeWorldSphereState(beforeRandomState, before)
-                    && decodeWorldSphereState(afterRandomState, after)
+                const bool decodedBefore = decodeWorldSphereState(
+                    beforeRandomState, before);
+                const bool decodedAfter = decodeWorldSphereState(
+                    afterRandomState, after);
+                const bool contract = decodedBefore && decodedAfter
                     && surfaceContractHolds(before, after);
+                if (!contract) {
+                    std::cerr << "Wind surface state before="
+                        << before.surface.enabled << "/"
+                        << before.surface.cellCount << " after="
+                        << after.surface.enabled << "/"
+                        << after.surface.cellCount << " bytes="
+                        << beforeRandomState.bytes.size() << "/"
+                        << afterRandomState.bytes.size() << " expected="
+                        << sizeof(before) << "\n";
+                }
+                ok = contract;
             } else if (ok) {
                 WorldSphereSavedState<s3g::AmbiInsectParams> before {};
                 WorldSphereSavedState<s3g::AmbiInsectParams> after {};
@@ -1216,7 +1782,8 @@ int main(int argc, char** argv)
             } else if (ok && wind) {
                 WorldSphereSavedState<s3g::AmbiWindParams> reenabled {};
                 ok = decodeWorldSphereState(reenabledState, reenabled)
-                    && reenabledContractHolds(reenabled);
+                    && environmentalCheck(reenabledContractHolds(reenabled),
+                        "Wind surface re-enable state");
             } else if (ok) {
                 WorldSphereSavedState<s3g::AmbiInsectParams> reenabled {};
                 ok = decodeWorldSphereState(reenabledState, reenabled)
@@ -1225,6 +1792,88 @@ int main(int argc, char** argv)
             if (ok) {
                 ok = clickDocument(NSMakePoint(
                     NSMidX(surfaceButton(1u)), NSMidY(surfaceButton(1u))));
+            }
+            if (ok && !documentationCapture && queuedOwnershipEncoder) {
+                failureStage = "ordered RANDOM and SURF publication";
+                if (hostContext.callbackRequested && plugin->on_main_thread) {
+                    plugin->on_main_thread(plugin);
+                }
+                hostContext.callbackRequested = false;
+                const uint32_t rescansBefore = hostContext.paramRescanCount;
+                hostContext.deferParamFlush = true;
+                hostContext.paramFlushRequested = false;
+                const bool queuedRandom = clickDocument(randomPoint);
+                const bool queuedSurfaceEnable = queuedRandom
+                    && clickDocument(NSMakePoint(
+                        NSMidX(surfaceButton(1u)),
+                        NSMidY(surfaceButton(1u))));
+                CapturedOutputEvents captured {};
+                captured.events.ctx = &captured;
+                captured.events.try_push = captureOutputEvent;
+                hostContext.deferParamFlush = false;
+                if (queuedSurfaceEnable && params->flush) {
+                    params->flush(plugin, nullptr, &captured.events);
+                }
+                hostContext.paramFlushRequested = false;
+                if (hostContext.callbackRequested
+                    && plugin->on_main_thread) {
+                    plugin->on_main_thread(plugin);
+                }
+                hostContext.callbackRequested = false;
+                MemoryPluginState orderedState;
+                const bool savedOrdered = queuedSurfaceEnable
+                    && saveState(orderedState);
+                bool surfaceEnabled = false;
+                if (savedOrdered && cryosphere) {
+                    WorldSphereSavedState<s3g::AmbiCryosphereParams> state {};
+                    surfaceEnabled = decodeWorldSphereState(
+                            orderedState, state)
+                        && state.surface.enabled == 1u;
+                } else if (savedOrdered && pyrosphere) {
+                    WorldSphereSavedState<s3g::AmbiPyrosphereParams> state {};
+                    surfaceEnabled = decodeWorldSphereState(
+                            orderedState, state)
+                        && state.surface.enabled == 1u;
+                } else if (savedOrdered && water) {
+                    WorldSphereSavedState<s3g::AmbiWaterParams> state {};
+                    surfaceEnabled = decodeWorldSphereState(
+                            orderedState, state)
+                        && state.surface.enabled == 1u;
+                } else if (savedOrdered && wind) {
+                    WorldSphereSavedState<s3g::AmbiWindParams> state {};
+                    surfaceEnabled = decodeWorldSphereState(
+                            orderedState, state)
+                        && state.surface.enabled == 1u;
+                }
+                bool publicValueEvent = false;
+                bool leakedInternalAction = false;
+                for (const auto& event : captured.values) {
+                    if (event.type != CLAP_EVENT_PARAM_VALUE) continue;
+                    bool publicId = false;
+                    for (uint32_t index = 0u;
+                         index < params->count(plugin); ++index) {
+                        clap_param_info_t info {};
+                        if (params->get_info(plugin, index, &info)
+                            && info.id == event.paramId) {
+                            publicId = true;
+                            break;
+                        }
+                    }
+                    publicValueEvent |= publicId;
+                    leakedInternalAction |= !publicId;
+                }
+                const bool hostNotified = publicValueEvent
+                    || hostContext.paramRescanCount > rescansBefore;
+                ok = queuedRandom && queuedSurfaceEnable
+                    && savedOrdered && surfaceEnabled
+                    && hostNotified && !leakedInternalAction;
+                if (!ok) {
+                    std::cerr << "Ordered RANDOM/SURF publication failed for "
+                        << pluginId << " (queued=" << queuedRandom << "/"
+                        << queuedSurfaceEnable << ", surface="
+                        << surfaceEnabled << ", host=" << hostNotified
+                        << ", leaked=" << leakedInternalAction << ")\n";
+                }
             }
             if (ok && documentationCapture) {
                 failureStage = "environmental documentation SURF and FIELD";
