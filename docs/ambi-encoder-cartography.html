@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Cartography - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Cartography documentation for stereo loudspeaker-network mapping, outdoor arrival timing, macro site processing, and Listener Mode.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Cartography</h1>
+
+        <p><code>s3g Ambi Encoder Cartography</code> turns one stereo input into a mapped network of as many as twenty-four virtual loudspeaker sites. The program reaches each site through an authored distribution delay, receives site-specific macro processing, travels from that site to a movable listener, and is encoded as first- through seventh-order <code>ACN/SN3D</code>.</p>
+
+        <p>The network and acoustic landscape are separate models. Moving the listener changes loudspeaker-to-listener distance, direction, propagation time, level, and air loss. It does not rewrite the infrastructure timing that delivered the program to each loudspeaker.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Place the plugin on a stereo source track routed to a 64-channel destination, and choose the ambisonic <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Open the title-bar preset menu and audition a factory scene near the intended scale and behavior.</li>
+          <li>Choose <code>SITES</code>, <code>LAYOUT</code>, and <code>MAP SCALE</code>. The Radial, Ridge, Corridor, Grid, and Waterfront layouts initialize distinct physical and network arrangements.</li>
+          <li>Drag the yellow listener cross and loudspeaker sites in the map, or edit their coordinates with the Listener and Selected Site controls.</li>
+          <li>Set <code>NETWORK DELAY</code>, <code>PROPAGATION TIME</code>, and <code>TIME REFERENCE</code> before adding atmospheric loss.</li>
+          <li>Choose a site <code>PROCESS</code> and <code>MACRO METRIC</code>, then shape its relationships with Macro, Color, Memory, Spread, Deviation, Skew, Center, and Process Mix.</li>
+          <li>Add Field Listen last when the site processing should adapt to what reaches the listener.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The shared stereo program enters the authored distribution-network timing paths.</li>
+          <li>Mid/Side, Mono, or Alternate projection forms one mono feed for each active loudspeaker site.</li>
+          <li>The selected macro engine processes the sites in Network, Arrival, Bearing, or Range order.</li>
+          <li>Independent acoustic paths apply listener-relative travel time, distance loss, air loss, carry, and turbulence.</li>
+          <li>Each arrival is encoded from its current listener-relative direction into the selected <code>ACN/SN3D</code> order.</li>
+          <li>The Cube Field Listener analyzes the completed pre-output field and returns bounded control influence to later site processing.</li>
+        </ol>
+
+        <p><code>OUT</code> is after the listening tap, so changing final audition level does not retune the control ecology. Listener Mode changes bounded site wetness and reach; it does not recirculate output audio.</p>
+
+        <h2 id="two-maps">Distribution and Acoustic Maps</h2>
+
+        <p><code>NETWORK DELAY</code> spreads delivery time across the authored network order. Each site also has a bipolar <code>SITE NETWORK TRIM</code>. These controls represent distribution topology, buffering, relays, clock relationships, or deliberately composed infrastructure timing. Ordinary analog cable propagation is far too fast to create city-scale echoes by itself.</p>
+
+        <p><code>MAP SCALE</code> converts one normalized map unit to meters. At <code>PROPAGATION TIME 100%</code>, the acoustic path uses 343 meters per second. Smaller settings compress travel time while retaining the map's distance and direction relationships.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Time reference</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Relative</td><td>Subtracts the nearest acoustic travel time from every site. Inter-site arrival differences and all network delays remain, but the complete field does not wait for the listener's nearest path.</td></tr>
+            <tr><td>Absolute</td><td>Retains the full loudspeaker-to-listener travel time. This can intentionally place the result seconds behind the source.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The long acoustic taps are finite. Extreme map distances are clamped to the allocated real-time arrival horizon rather than allocating memory during playback.</p>
+
+        <h2 id="stereo">Stereo Cartography</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Stereo map</th><th>Site feed</th></tr></thead>
+          <tbody>
+            <tr><td>Mid/Side</td><td>Every site receives Mid plus a world-fixed amount of Side derived from its horizontal map coordinate. Moving the listener changes perspective without changing what the site broadcasts.</td></tr>
+            <tr><td>Mono</td><td>Every site receives the same mono sum.</td></tr>
+            <tr><td>Alternate</td><td>Even and odd sites receive alternating Left and Right feeds.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="processing">Site Processing</h2>
+
+        <p>The process choices are <code>CLEAN</code>, <code>DELAY</code>, <code>PITCH</code>, <code>SHRED</code>, and <code>FRACTURE</code>. Macro has an engine-specific meaning: delay time, pitch interval, drive, or fracture depth. Color and Memory address the appropriate spectral, feedback, or recurrent behavior. A short dry-to-processed fade protects engine changes.</p>
+
+        <p>The macro lanes are not assigned by arbitrary HOA channel number. <code>MACRO METRIC</code> sorts the sites by one of four cartographic relationships:</p>
+
+        <ul>
+          <li><code>NETWORK</code> follows the authored distribution route.</li>
+          <li><code>ARRIVAL</code> follows combined network and acoustic arrival time.</li>
+          <li><code>BEARING</code> follows angle around the listener.</li>
+          <li><code>RANGE</code> follows loudspeaker-to-listener distance.</li>
+        </ul>
+
+        <p><code>SPREAD</code>, <code>SKEW</code>, and <code>CENTER</code> therefore operate along a meaningful spatial or infrastructural axis. <code>DEVIATION</code> adds stable per-lane differences without random changes on project reload.</p>
+
+        <h2 id="propagation">Propagation and Auditory Distance</h2>
+
+        <ul>
+          <li><code>AIR LOSS</code> darkens distant paths.</li>
+          <li><code>DISTANCE LOSS</code> controls restrained geometric attenuation.</li>
+          <li><code>CARRY</code> reduces that attenuation to represent favorable or musically exaggerated reach.</li>
+          <li><code>TURBULENCE</code> adds slow, independently phased level variation at the sites.</li>
+        </ul>
+
+        <p>These are perceptual composition controls rather than a calibrated weather, terrain-diffraction, or sound-pressure prediction system. See <a href="references.html#outdoor-propagation">Outdoor Sound Propagation and Auditory Distance</a> for the research context.</p>
+
+        <h2 id="listener">Field Listener</h2>
+
+        <p>An eight-direction Cube listener analyzes the completed pre-output field using the shared <a href="listener-mode.html">Listener Mode</a> design. <code>FOLLOW</code> favors recently dominant directions, <code>COUNTER</code> evaluates their antipodes, and <code>BALANCE</code> favors less exposed regions. <code>LISTEN AMOUNT</code> changes site process wetness and a smaller reach term. <code>OFF</code> is an exact open-loop reference regardless of Listen Amount.</p>
+
+        <p>The yellow cross is the geometric listener position. It determines direction, distance, and propagation. Field Listen is the field's directional memory. Both can be active without being the same control.</p>
+
+        <h2 id="editing">Site Editing and Display</h2>
+
+        <p>Click a loudspeaker to select it and drag it across the map. The Selected Site controls expose X, Y, Z, gain, network trim, and enable state. The selected-site readout reports physical distance and combined network-plus-acoustic arrival time. Node size follows recent level, while node color moves from earlier cool arrivals toward later warm arrivals.</p>
+
+        <p>Changing Layout or Sites rebuilds the corresponding authored arrangement. Save a plugin preset or project state after manual site editing; all twenty-four site records are serialized even when fewer sites are active.</p>
+
+        <h2 id="presets">Factory Presets</h2>
+
+        <p>The title-bar preset control opens the factory bank. Factory choices preserve the current ambisonic <code>ORDER</code> and <code>OUT</code> level, rebuild their authored loudspeaker layout, and reset the selected site's gain and network trim. <code>LOAD</code> and <code>SAVE</code> manage complete user states, including manually edited site positions.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Range demonstrated</th></tr></thead>
+          <tbody>
+            <tr><td>Init</td><td>The balanced twelve-site starting field.</td></tr>
+            <tr><td>Physical Plaza</td><td>Short-scale radial placement with physical acoustic timing, no network delay, and clean site feeds.</td></tr>
+            <tr><td>City Relays</td><td>A sixteen-site grid with long infrastructure delays and Network-sorted macro delay.</td></tr>
+            <tr><td>Ridge Afterimage</td><td>Absolute timing over a large ridge, with Arrival-sorted delay and listener following.</td></tr>
+            <tr><td>Waterfront Carry</td><td>A wide mono waterfront whose restrained loss and strong Carry favor distant transmission.</td></tr>
+            <tr><td>Corridor Bends</td><td>Alternating stereo sites, Bearing-sorted pitch, and Counter listening in a compact corridor.</td></tr>
+            <tr><td>Shred Grid</td><td>All twenty-four sites, extreme network spread, turbulence, and highly differentiated Shred lanes.</td></tr>
+            <tr><td>Fracture Horizon</td><td>Long absolute arrivals, atmospheric loss, Fracture processing, and listener counterpoint.</td></tr>
+            <tr><td>Listener Drift</td><td>A balanced listener-driven field with off-center geometry and Bearing-sorted delay relationships.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The input bus is stereo and the output bus is fixed at 64 channels. <code>ORDER</code> activates the corresponding leading <code>ACN/SN3D</code> channels and clears the remainder.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active output channels</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-cloud.html">
+            <span>Previous</span>
+            Ambi Encoder Cloud
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-surface-terrain.html">
+            <span>Next</span>
+            Ambi Encoder Surface Terrain
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-encoder-point.html">Encoder Point</a>
+          <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
+          <a href="ambi-encoder-cartography.html">Encoder Cartography</a>
+          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-path.html">Encoder Path</a>
+          <a href="ambi-encoder-ray.html">Encoder Ray</a>
+          <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
+          <a href="ambi-encoder-modal.html">Encoder Modal</a>
+          <a href="ambi-encoder-medium.html">Encoder Medium</a>
+          <a href="ambi-encoder-vot.html">Encoder VOT</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
+          <a href="ambi-encoder-wind.html">Encoder Wind</a>
+          <a href="ambi-encoder-water.html">Encoder Water</a>
+          <a href="ambi-encoder-pyrosphere.html">Encoder Pyrosphere</a>
+          <a href="ambi-encoder-cryosphere.html">Encoder Cryosphere</a>
+          <a href="ambi-encoder-insect.html">Encoder Insect</a>
+          <a href="ambi-encoder-pulsar.html">Encoder Pulsar</a>
+          <a href="ambi-encoder-neural-ecology.html">Encoder Neural Ecology</a>
+          <a href="ambi-encoder-stochastic.html">Encoder Stochastic</a>
+          <a href="ambi-encoder-wrangler.html">Encoder Wrangler</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#two-maps">Two Maps</a>
+          <a href="#stereo">Stereo Cartography</a>
+          <a href="#processing">Site Processing</a>
+          <a href="#propagation">Propagation</a>
+          <a href="#listener">Field Listener</a>
+          <a href="#editing">Site Editing</a>
+          <a href="#presets">Factory Presets</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

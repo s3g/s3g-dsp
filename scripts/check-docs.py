@@ -54,6 +54,7 @@ EXPECTED_SHARED_TOC_LINKS = {
     "Encoder Pages": [
         "ambi-encoder-point.html",
         "ambi-encoder-cloud.html",
+        "ambi-encoder-cartography.html",
         "ambi-encoder-surface-terrain.html",
         "ambi-encoder-path.html",
         "ambi-encoder-ray.html",
@@ -121,6 +122,7 @@ WORKFLOW_LIST_PATTERN = re.compile(r'<(ol|ul)>(.*?)</\1>', re.DOTALL)
 WORKFLOW_ITEM_PATTERN = re.compile(r'<li>(.*?)</li>', re.DOTALL)
 HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
 EXPECTED_AMBI_WORKFLOW_DECODER_SECOND = {
+    "ambi-encoder-cartography.html",
     "ambi-encoder-cloud.html",
     "ambi-encoder-cryosphere.html",
     "ambi-encoder-insect.html",
@@ -280,6 +282,7 @@ DOC_SEQUENCE = [
     "ambisonic-encoders.html",
     "ambi-encoder-point.html",
     "ambi-encoder-cloud.html",
+    "ambi-encoder-cartography.html",
     "ambi-encoder-surface-terrain.html",
     "ambi-encoder-path.html",
     "ambi-encoder-ray.html",

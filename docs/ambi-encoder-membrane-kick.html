@@ -29,6 +29,8 @@
 
         <p>Ambi Encoder Membrane Kick is a deep, pitch-dropping bass-drum synthesizer whose spatial field comes from the vibrating body itself. Twelve shared modes are sampled at sixteen positions on one membrane; those positions can radiate from different directions in selectable first-, second-, or third-order <code>ACN/SN3D</code>, or appear directly as sixteen ordinary pickup lanes. The result is one coherent strike that can bend across encoded space or be routed from its physical sampling points.</p>
 
+        <p>Its low-end voicing draws broadly from high-output subwoofer, car-audio, and sound-system listening contexts while remaining a general membrane source rather than a model of a particular enclosure, vehicle, or listening position.</p>
+
         <p>This instrument is currently a source-build preview in the Ambi Encoder family. Configure with <code>-DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_FUTURE_COMPONENTS=ON</code> to build <code>s3g Ambi Encoder Membrane Kick 16</code>. It is intentionally excluded from the current packaged pre-release manifest.</p>
 
         <figure>
@@ -138,17 +140,11 @@
 
         <p><code>16 PICKUPS</code> bypasses the ambisonic basis and its <code>SPREAD</code>, <code>DEPTH</code>, and <code>ROTATE</code> controls. It exposes each post-drive membrane sample before ambisonic normalization while retaining <code>OUT</code> and the linked final guard. P1–P4 are the inner cardinal ring, P5–P8 the middle-inner diagonal ring, P9–P12 the middle-outer cardinal ring, and P13–P16 the outer diagonal ring; each pickup number maps to the same-numbered output channel. The display labels these points whenever direct format is active.</p>
 
-        <h2 id="automotive-reference">Automotive Low-Frequency Reference</h2>
-
-        <p>Automotive measurements provide a useful target context without requiring the synthesizer to imitate one particular subwoofer. Rieder reports low-frequency cabin gain over roughly the first three octaves alongside masking from road noise. Benedict and colleagues measured 1–200 Hz response at eight passenger and inter-seat positions, while Nakanishi and Gerges describe the irregular cabin modes and high pressures produced at resonance. These findings support long low fundamentals, controlled pitch-drop energy, and deliberate modal variation, but also show why one baked-in “car EQ” would not transfer reliably between vehicles or seats.</p>
-
-        <p>Lee, Cho, and Ih are especially relevant to this instrument: their automotive low-frequency system uses a thin roof panel with sixteen actuators, an approximately elliptical radiating zone, and inverse vibro-acoustic rendering toward an ear position. Membrane Kick similarly treats shape and distributed radiation as part of the source. The plugin therefore keeps its body model and HOA output general, while a downstream cabin renderer can supply the vehicle- and seat-specific transfer path. See <a href="references.html#automotive-low-frequency">Automotive Low-Frequency Audio and Cabin Response</a>.</p>
-
         <h2 id="listener-direction">Listener-Model Boundary</h2>
 
         <p>Membrane Kick deliberately has no internal Listener Mode. Its modal body, fixed or randomized strike placement, and pre-output HOA field remain open-loop so enabling or disabling an analysis layer cannot alter the source tone, transient, or CPU path. This keeps the instrument predictable for low-frequency work and makes <code>FIXED</code> placement sample-repeatable.</p>
 
-        <p>Vehicle- and seat-dependent listening remains appropriate as a downstream cabin renderer or monitoring model. Frank and colleagues’ seat-dependent magnitude-and-phase measurements and Yang and colleagues’ source/path separation support that boundary: Membrane Kick supplies the distributed source, while another stage supplies the cabin and listener transfer path.</p>
+        <p>Vehicle-, room-, and seat-dependent listening remains appropriate as a downstream renderer or monitoring model: Membrane Kick supplies the distributed source, while another stage supplies the environment and listener transfer path.</p>
 
         <h2 id="limits">Limits</h2>
 
@@ -188,7 +184,6 @@
           <a href="#presets">Factory Presets</a>
           <a href="#controls">Controls</a>
           <a href="#routing">Order and Routing</a>
-          <a href="#automotive-reference">Automotive Reference</a>
           <a href="#listener-direction">Listener Boundary</a>
           <a href="#limits">Limits</a>
         </div>

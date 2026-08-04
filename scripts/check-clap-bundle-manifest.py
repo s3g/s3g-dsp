@@ -33,6 +33,7 @@ VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 # the release audit fail if an ordinary plugin is omitted accidentally, while
 # also making preview status reviewable in the same place as the manifest rule.
 FUTURE_ONLY_CMAKE_DIRECTORIES = {
+    "clap_ambi_acid_encoder",
     "clap_ambi_horizon_encoder",
     "clap_ambi_membrane_kick",
 }

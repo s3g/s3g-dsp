@@ -56,6 +56,10 @@ endif()
 add_executable(s3g_ambi_ray_encoder_smoke tests/ambi_ray_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_ambi_cartography_encoder_smoke
+  tests/ambi_cartography_encoder_smoke.cpp)
+target_link_libraries(s3g_ambi_cartography_encoder_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_fractional_waveguide_network_smoke
   tests/fractional_waveguide_network_smoke.cpp)
 target_link_libraries(s3g_fractional_waveguide_network_smoke PRIVATE s3g_dsp)
@@ -216,6 +220,7 @@ if(BUILD_TESTING)
     s3g_ambi_effect_displacement_smoke
     s3g_ambi_imprint_safety_smoke
     s3g_ambi_ray_encoder_smoke
+    s3g_ambi_cartography_encoder_smoke
     s3g_fractional_waveguide_network_smoke
     s3g_ambi_ray_bilocation_encoder_smoke
     s3g_ambi_pulsar_encoder_smoke
@@ -384,6 +389,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_ambi_cartography_encoder_clap_smoke
+    tests/ambi_cartography_encoder_clap_smoke.cpp)
+  target_include_directories(s3g_ambi_cartography_encoder_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_ambi_cartography_encoder_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
   add_executable(s3g_delay_processor_block_coalescing_clap_smoke
     tests/delay_processor_block_coalescing_clap_smoke.cpp)
   target_include_directories(s3g_delay_processor_block_coalescing_clap_smoke
@@ -550,6 +562,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_effect_displacement)
   add_subdirectory(plugins/clap_ambi_point_encoder)
   add_subdirectory(plugins/clap_ambi_cloud_encoder)
+  add_subdirectory(plugins/clap_ambi_cartography_encoder)
   add_subdirectory(plugins/clap_ambi_terrain_navigator)
   add_subdirectory(plugins/clap_ambi_vot_encoder)
   add_subdirectory(plugins/clap_ambi_vox_encoder)
@@ -565,6 +578,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_encoder_medium)
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_membrane_kick)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_acid_encoder)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
@@ -953,6 +968,18 @@ if(S3G_BUILD_CLAP_PLUGIN)
     endif()
   endif()
 
+  add_custom_target(audit_ambi_cartography_encoder
+    COMMAND $<TARGET_FILE:s3g_ambi_cartography_encoder_smoke>
+    COMMAND $<TARGET_FILE:s3g_ambi_cartography_encoder_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_cartography_encoder_clap>
+      org.s3g.s3g-dsp.ambi-cartography-encoder-64
+    DEPENDS
+      s3g_ambi_cartography_encoder_smoke
+      s3g_ambi_cartography_encoder_clap_smoke
+      s3g_ambi_cartography_encoder_clap
+    COMMENT "Validating Cartography propagation, macro field, CLAP state, and routing"
+    VERBATIM)
+
   # Discover the module targets contributed by each already-configured CLAP
   # subdirectory so release checks cannot run against a partial build.
   get_property(S3G_CONFIGURED_SUBDIRECTORIES DIRECTORY PROPERTY SUBDIRECTORIES)
@@ -1132,6 +1159,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_point_encoder_clap> org.s3g.s3g-dsp.ambi-point-encoder-64 900 716
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cloud_encoder_clap> org.s3g.s3g-dsp.ambi-cloud-encoder-64 900 672
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cartography_encoder_clap> org.s3g.s3g-dsp.ambi-cartography-encoder-64 1356 760 "s3g Ambi Encoder Cartography" responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_path_encoder_clap> org.s3g.s3g-dsp.ambi-path-encoder-64 900 792
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_terrain_navigator_clap> org.s3g.s3g-dsp.ambi-terrain-navigator-64 900 792
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_ray_encoder_clap> org.s3g.s3g-dsp.ambi-ray-encoder 1040 628
@@ -1155,6 +1183,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_encoder_family_gui_smoke
         s3g_ambi_point_encoder_clap
         s3g_ambi_cloud_encoder_clap
+        s3g_ambi_cartography_encoder_clap
         s3g_ambi_path_encoder_clap
         s3g_ambi_terrain_navigator_clap
         s3g_ambi_ray_encoder_clap
