@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Horizon - s3g-dsp</title>
+    <meta name="description" content="User guide for the s3g autonomous acoustic-horizon instrument and 64-channel ACN/SN3D encoder preview.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Horizon</h1>
+
+        <p>Ambi Encoder Horizon is an autonomous, zero-input instrument for the audible edge of an outdoor sound field: a bell carrying across a valley, machinery behind a ridge, traffic beyond fields, aircraft on a distant approach, foghorns past a headland, or surf behind dunes. Up to 32 independent synthetic entities form a selectable first- through seventh-order <code>ACN/SN3D</code> scene.</p>
+
+        <p>Horizon is currently a source-build preview and is not part of the packaged pre-release manifest. Configure with <code>-DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_FUTURE_COMPONENTS=ON</code> to build <code>s3g Ambi Encoder Horizon</code>. The plug-in has no audio input and exposes one fixed 64-channel output bus.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-encoder-horizon.png" aria-label="Open Ambi Encoder Horizon GUI screenshot">
+              <img src="assets/plugin-guis/ambi-encoder-horizon.png" alt="Ambi Encoder Horizon GUI showing an acoustic-horizon field with local, landscape, and distant entities plus ecology, generator, score, propagation, and Field Listener controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Horizon’s field view separates the local floor, landscape body, and distant signals while the controls build their ecology, propagation, and listening response.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the track to 64 channels, insert <code>s3g Ambi Encoder Horizon</code>, and choose <code>1OA</code> through <code>7OA</code> from <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Start from a factory scene and let it run. Horizon is autonomous; it needs no track audio, MIDI, or host tempo.</li>
+          <li>Choose an <code>ECOLOGY</code>, then balance its population with <code>ENTITIES</code>, <code>ACTIVITY</code>, <code>OCCUPANCY</code>, and <code>PACE</code>.</li>
+          <li>Use <code>SIGNALS</code>, <code>LANDSCAPE</code>, and <code>LOCAL FLOOR</code> to separate the three audible layers before changing distance or atmosphere.</li>
+          <li>Set <code>RANGE</code>, <code>ARC</code>, and <code>DETAIL</code>, then adjust air, ground, terrain, carry, and turbulence. Add the Field Listener last if the scene should react to what it has recently produced.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The ecology and deterministic <code>SEED</code> select as many as 32 entities from flow, rolling body, machinery, modal bells, air, traffic, aircraft, foghorn, and surf engines.</li>
+          <li>The environmental score gives each entity finite activity and rest arcs. <code>ACTIVITY</code>, <code>OCCUPANCY</code>, <code>PACE</code>, and <code>MEMORY</code> shape when events emerge and how long the scene remembers them.</li>
+          <li>Every mono entity receives its own distance, air-loss, ground, terrain, carry, and turbulence path before encoding.</li>
+          <li>Non-local sources also feed a sparse four-direction outdoor return representing separated ground, shoreline, ridge, or irregular-topography paths rather than an indoor room.</li>
+          <li>Direct entities and outdoor returns are encoded into the selected 1OA–7OA field. Lower-coherence returns can spread while a bell, horn, vehicle, or aircraft remains locatable.</li>
+          <li>The optional Field Listener analyzes the completed pre-output field and applies a bounded perceptual response. <code>OUT</code> remains outside the listening loop.</li>
+        </ol>
+
+        <h2 id="layers">Three Scene Layers</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Layer</th><th>Field symbol</th><th>Sound</th></tr></thead>
+          <tbody>
+            <tr><td>Local Floor</td><td>Circle</td><td>Correlated low- and mid-frequency ground or environmental body close to the listener.</td></tr>
+            <tr><td>Landscape</td><td>Bar</td><td>A quieter ecology body plus terrain or seascape returns distributed across the broader field.</td></tr>
+            <tr><td>Distant Signal</td><td>Diamond</td><td>Sparse bells, machinery, traffic, aircraft, foghorns, surf events, and other horizon identities.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The local and landscape layers are synthesized environmental bodies, not recorder noise. <code>AIR NOISE</code> is a separate source control and can reach true zero without disabling event motion, ground response, outdoor returns, or ambisonic detail.</p>
+
+        <h2 id="field">Acoustic-Horizon View</h2>
+
+        <p>The field view shows the scene’s current entities, selected ecology and ground, perceptual range, and output format. <code>TOP</code> and <code>SIDE</code> provide fixed projections, while <code>3/4</code> restores perspective. Drag empty field space to orbit and use <code>−</code> or <code>+</code> to zoom. Camera changes affect only the view and are stored with plugin state.</p>
+
+        <p><code>RANGE</code> spans a perceptual 0.03–20 km scale rather than predicting calibrated sound pressure. <code>AZIMUTH</code> and <code>ELEVATION</code> place the scene, <code>ARC</code> sets its angular extent, <code>DETAIL</code> changes spatial coherence, and <code>EDGE</code> sets the horizon-signal balance. Restrained geometric loss and <code>CARRY</code> preserve the faint audibility that a strict inverse-square model would remove.</p>
+
+        <h2 id="ecology">Ecologies and Generators</h2>
+
+        <p>The ecology choices are <code>MIXED</code>, <code>RURAL</code>, <code>TRAFFIC</code>, <code>CITY</code>, <code>INDUSTRIAL</code>, <code>WATER</code>, <code>WEATHER</code>, <code>AIRPORT</code>, and <code>COAST</code>. Ecology selects which source families and model controls are available; each family level independently reaches silence.</p>
+
+        <p>The generator panel changes with the ecology. Airport scenes expose aircraft amount, continuous <code>FLIGHT</code> state, pass speed, engine power and tone, plus related traffic controls. Water and Coast expose foghorn amount, horn pitch, pressure and call length, together with surf, wave rate, and wave break. Other ecologies show the machine, bell, traffic, aircraft, or surf controls relevant to that environment.</p>
+
+        <p><code>FLIGHT</code> moves continuously from landed and taxi behavior through takeoff or approach to an overhead pass, jointly changing path width, elevation, speed, load, closest approach, and restrained Doppler. Foghorn pressure changes drive, upper partials, envelope, and air-column response; surf is built from overlapping asymmetric wave cycles rather than a static noise bed.</p>
+
+        <h2 id="score">Environmental Score</h2>
+
+        <p><code>MEMORY</code> controls continuity between recent events, while <code>CASCADE</code> encourages delayed spatial relationships. <code>SIGNALS</code>, <code>LANDSCAPE</code>, and <code>LOCAL FLOOR</code> set the three-layer balance. Generator events use distinct target and audible envelopes, with slower attack and release at greater perceptual range so a far source emerges instead of arriving as a close click.</p>
+
+        <p><code>SEED</code> defines a repeatable scene identity. The same seed and state reproduce the same deterministic structure, while the score continues to evolve rather than looping a loaded recording.</p>
+
+        <h2 id="atmosphere">Atmosphere and Outdoor Returns</h2>
+
+        <p><code>AIR LOSS</code> removes high-frequency energy with distance. <code>GROUND</code> chooses Water, Hard, Mixed, Grass, or Forest behavior. <code>TERRAIN</code> increases obstruction and return character; <code>CARRY</code> permits stronger favorable propagation; and <code>TURBULENCE</code> adds slow and fast amplitude variation. These parameters shape each source path before the final ambisonic mix.</p>
+
+        <p>The return network uses separated outdoor paths and a dark, low-feedback scattered tail. Water and Coast favor longer, lower-elevation reflections; land ecologies use shorter terrain-dependent paths. It supplies environmental depth without pretending to be a calibrated weather, terrain-diffraction, or room-acoustics solver.</p>
+
+        <h2 id="listener">Field Listener</h2>
+
+        <p>The eight-pickup Cube listener follows the shared <a href="listener-mode.html">Listener Mode</a> design. <code>FOLLOW</code> prefers recently audible directions, <code>COUNTER</code> evaluates their antipodes, and <code>BALANCE</code> prefers less exposed regions. <code>OFF</code> is an exact open-loop reference. <code>AMOUNT</code> scales the response without feeding audio back into a generator.</p>
+
+        <p><code>REACH</code> makes small changes to audibility, outdoor-return balance, and apparent range. <code>GLIMPSE</code> uses novelty and short-term charge to reveal faint events without retriggering them. <code>SETTLE</code> restrains persistently exposed directions and moves some energy toward the landscape. <code>DISTANCE</code> combines direct-to-return balance, spectral tilt, and habituation to adjust loss, coherence, direct level, and return together.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Output</td><td>Out / Order</td><td>Sets final level and selects the active first- through seventh-order field.</td></tr>
+            <tr><td>Ecology</td><td>Ecology / Entities / Activity / Occupancy / Pace</td><td>Chooses source-family weighting, population, density, continuity, and event rate.</td></tr>
+            <tr><td>Generators</td><td>Contextual family and model controls</td><td>Balances the sources available to the ecology and changes their internal behavior.</td></tr>
+            <tr><td>Environmental Score</td><td>Memory / Cascade / Signals / Landscape / Local Floor</td><td>Shapes scene continuity, delayed relationships, and three-layer balance.</td></tr>
+            <tr><td>Horizon</td><td>Range / Azimuth / Elevation / Arc / Detail / Edge</td><td>Sets perceptual distance, placement, angular extent, coherence, and horizon level.</td></tr>
+            <tr><td>Atmosphere</td><td>Air Loss / Air Noise / Ground / Terrain / Carry / Turbulence</td><td>Controls outdoor propagation, optional air synthesis, surface behavior, and variation.</td></tr>
+            <tr><td>Field Listener</td><td>Listen / Amount / Response</td><td>Applies a bounded directional and perceptual response to the generated field.</td></tr>
+            <tr><td>Identity</td><td>Seed</td><td>Sets deterministic scene identity and repeatable state recall.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th><th>Track width</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td>64; channels 5–64 are silent.</td></tr>
+            <tr><td>2OA</td><td>9</td><td>64; channels 10–64 are silent.</td></tr>
+            <tr><td>3OA</td><td>16</td><td>64; channels 17–64 are silent.</td></tr>
+            <tr><td>4OA</td><td>25</td><td>64; channels 26–64 are silent.</td></tr>
+            <tr><td>5OA</td><td>36</td><td>64; channels 37–64 are silent.</td></tr>
+            <tr><td>6OA</td><td>49</td><td>64; channels 50–64 are silent.</td></tr>
+            <tr><td>7OA</td><td>64</td><td>64.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The output is <code>ACN/SN3D</code>. Place compatible <a href="ambisonic-effects.html">Ambisonic effects</a> between Horizon and the decoder only when their supported order and channel count match the active field.</p>
+
+        <h2 id="presets">Factory Scenes and State</h2>
+
+        <p>The sixteen deterministic scenes are <code>BELL ACROSS VALLEY</code>, <code>CLEAR NIGHT INVERSION</code>, <code>HIGHWAY BEYOND FIELDS</code>, <code>CITY BEYOND RIDGE</code>, <code>INDUSTRIAL NIGHT REACH</code>, <code>ACROSS STILL WATER</code>, <code>DAWN LONG HORIZON</code>, <code>STORM BEYOND HILLS</code>, <code>DISTANT RAIL CORRIDOR</code>, <code>QUIET AGRICULTURAL BASIN</code>, <code>SETTLEMENT THROUGH FOREST</code>, <code>VANISHING ACOUSTIC HORIZON</code>, <code>HIGH FIDELITY HORIZON</code>, <code>AIRPORT APPROACH CORRIDOR</code>, <code>FOGHORNS BEYOND HEADLAND</code>, and <code>OPEN OCEAN BEYOND DUNES</code>.</p>
+
+        <p>Factory selection and <code>RANDOM</code> preserve <code>OUT</code>, <code>ORDER</code>, and the current listener mode, amount, and response. <code>LOAD</code> and <code>SAVE</code> exchange complete custom Horizon states. Camera mode, orbit, and zoom are also serialized.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>Horizon is fully synthetic and loads no sound files. Its kilometer display is perceptual, not a measurement of source power, weather, terrain, or listener sound pressure. The propagation and auditory-distance controls are musical approximations; see <a href="references.html#outdoor-propagation">Outdoor Sound Propagation and Auditory Distance</a> for the research context and <a href="ambi-encoder-horizon-future.md">the engineering preview</a> for source-build audit details.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-acid.html">
+            <span>Previous</span>
+            Ambi Encoder Acid
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-vot.html">
+            <span>Next</span>
+            Ambi Encoder VOT
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#layers">Three Scene Layers</a>
+          <a href="#field">Acoustic-Horizon View</a>
+          <a href="#ecology">Ecologies and Generators</a>
+          <a href="#score">Environmental Score</a>
+          <a href="#atmosphere">Atmosphere and Returns</a>
+          <a href="#listener">Field Listener</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#presets">Factory Scenes and State</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

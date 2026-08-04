@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Acid - s3g-dsp</title>
+    <meta name="description" content="User guide for the s3g monophonic acid bassline instrument, spatial wake, and 16-channel ACN/SN3D encoder preview.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Acid</h1>
+
+        <p>Ambi Encoder Acid is a monophonic sixteen-step bassline instrument whose filtered body, resonant edge, and delayed wake occupy related positions in a first-, second-, or third-order <code>ACN/SN3D</code> field. Each step can set pitch, gate, accent, and slide while the complete line traces a configurable path through space.</p>
+
+        <p>This instrument is currently a source-build preview. Configure with <code>-DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_FUTURE_COMPONENTS=ON</code> to build <code>s3g Ambi Encoder Acid 16</code>. It has no audio input and is intentionally excluded from the current packaged pre-release manifest.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-encoder-acid.png" aria-label="Open Ambi Encoder Acid GUI screenshot">
+              <img src="assets/plugin-guis/ambi-encoder-acid.png" alt="Ambi Encoder Acid GUI showing the sixteen-step note line, line and output controls, acid voice, spatial field, wake, and Listener controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Acid’s note line combines per-step pitch, gate, accent, and slide editing with one spatial gesture and a delayed resonant wake.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the track to 16 channels, insert <code>s3g Ambi Encoder Acid 16</code>, and choose <code>1OA</code>, <code>2OA</code>, or <code>3OA</code> from <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Choose a factory pattern, then drag the note bars and switch each step’s <code>G</code>, <code>A</code>, and <code>S</code> buttons for gate, accent, and slide.</li>
+          <li>Use <code>INT</code> for the internal tempo or <code>HOST</code> to align every step to the transport’s absolute beat position.</li>
+          <li>Shape the oscillator and resonant filter, then set the spatial path with <code>AZIM</code>, <code>TURNS</code>, <code>ELEV</code>, and <code>SPREAD</code>.</li>
+          <li>Raise <code>WAKE</code> for trailing spatial taps. Add Listener Mode only after the authored line and field are working on their own.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The internal or host-synchronized clock selects one of the active steps. Its note offset, gate, accent, and slide state become the current performance gesture.</li>
+          <li>A band-limited saw-to-pulse oscillator follows the root note and step offset. A tied slide moves continuously to the next gated step instead of retriggering the complete envelope.</li>
+          <li>The oscillator passes through a driven resonant filter. The main filtered body and a brighter resonant edge remain separate spatial components.</li>
+          <li>The step index maps to a path around the selected azimuth and elevation range. The body follows that point while <code>EDGE</code> advances or trails the resonant component.</li>
+          <li>Four delayed edge taps retain earlier path directions, creating the spatial wake before the selected ambisonic order is encoded.</li>
+          <li>The optional Listener reads the completed pre-output field. Final <code>OUTPUT</code> gain and the linked safety limiter remain outside that auditory loop.</li>
+        </ol>
+
+        <h2 id="note-line">Editing the Note Line</h2>
+
+        <p>Drag vertically in a step’s note area to set a semitone offset from <code>ROOT</code>. The note name and signed interval update together. <code>G</code> enables the gate, <code>A</code> applies the shared accent amount, and <code>S</code> ties pitch into the next gated step. A disabled gate becomes a rest even if its stored pitch, accent, or slide values remain visible.</p>
+
+        <p><code>LENGTH</code> limits playback to the first 1–16 steps without erasing the remaining cells. <code>DIVIDE</code> sets 1–8 steps per beat. With <code>CLOCK</code> on <code>HOST</code>, starts, seeks, loop wraps, and tempo changes follow the absolute host beat instead of maintaining a second free-running clock. <code>TEMPO</code> is used only by the internal clock.</p>
+
+        <h2 id="voice">Acid Voice</h2>
+
+        <p><code>WAVE</code> moves from saw toward pulse, and <code>PULSE</code> changes pulse width. <code>CUTOFF</code> sets the filter’s base frequency; <code>RESO</code> emphasizes its edge; <code>ENV</code> sets the filter sweep in octaves; and <code>DECAY</code> controls how quickly that sweep falls. <code>ACCENT</code> increases level and extends the filter gesture on accented steps, while <code>DRIVE</code> adds saturation before spatial encoding. <code>SLIDE</code> sets the continuous pitch-transition time.</p>
+
+        <h2 id="field">Spatial Path and Wake</h2>
+
+        <p><code>AZIM</code> centers the line’s horizontal path. <code>TURNS</code> sets its direction and number of rotations across the active pattern, while <code>ELEV</code> adds a vertical wave. <code>SPREAD</code> blends from a front-centered source toward that authored path. The body follows the current point and <code>EDGE</code> rotates the filter edge ahead of or behind it.</p>
+
+        <p><code>WAKE</code> adds four progressively quieter delayed copies of the resonant edge. Each copy keeps a previous step direction, so increasing <code>WAKE T</code> stretches the line’s recent movement into a wider audible trail rather than adding a mono echo after encoding.</p>
+
+        <h2 id="listener">Listener Mode</h2>
+
+        <p><code>LISTEN</code> uses the shared eight-pickup Cube listener described on the <a href="listener-mode.html">Listener Mode</a> page. <code>FOLLOW</code> favors recently active directions, <code>COUNTER</code> favors their antipodes, and <code>BALANCE</code> favors quieter regions. <code>OFF</code> is the exact open-loop reference.</p>
+
+        <p>Listener decisions occur only at step boundaries. <code>AMOUNT</code> can bend the next authored direction toward the selected preference and apply a small filter-cutoff bias; it never rewrites pattern pitch, gates, accents, slides, or clock decisions. <code>MEMORY</code> sets how quickly the directional analysis forgets the recent field.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Note Line</td><td>Pitch / G / A / S</td><td>Stores the semitone offset, gate, accent, and slide state for each of sixteen steps.</td></tr>
+            <tr><td>Line / Output</td><td>Tempo / Clock / Divide / Length / Root / Gate / Order / Output</td><td>Sets timing, active pattern length, pitch center, articulation, ambisonic order, and final gain.</td></tr>
+            <tr><td>Acid Voice</td><td>Wave / Pulse / Cutoff / Reso / Env / Decay / Accent / Drive / Slide</td><td>Shapes oscillator color, filter motion, accent behavior, saturation, and tied pitch movement.</td></tr>
+            <tr><td>Ambisonic Field</td><td>Azim / Turns / Elev / Spread / Edge / Wake / Wake T</td><td>Draws the step path and separates the body, filter edge, and delayed directional trail.</td></tr>
+            <tr><td>Listener</td><td>Listen / Amount / Memory</td><td>Chooses a bounded directional response and its strength and analysis time.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th><th>Track width</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td>16 recommended; channels 5–16 are silent.</td></tr>
+            <tr><td>2OA</td><td>9</td><td>16 recommended; channels 10–16 are silent.</td></tr>
+            <tr><td>3OA</td><td>16</td><td>16.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The output is <code>ACN/SN3D</code>. Place compatible <a href="ambisonic-effects.html">Ambisonic effects</a> between Acid and the decoder only when their supported order and channel count match the field.</p>
+
+        <h2 id="presets">Patterns and Presets</h2>
+
+        <p>The title menu supplies twelve patterns: <code>CHROME BURROW</code>, <code>VENOM CIRCUIT</code>, <code>SUBWAY TEETH</code>, <code>NEON CENTIPEDE</code>, <code>RUSTED APSE</code>, <code>MERCURY STAIRS</code>, <code>BLACKLIGHT MOSS</code>, <code>QUARRY SIGNAL</code>, <code>NIGHT FOUNDRY</code>, <code>STATIC ROOT</code>, <code>HOLLOW RELAY</code>, and <code>GLASS WORM</code>. Choosing one replaces the sixteen step cells. <code>LOAD</code> restores a saved plugin state while preserving the current <code>OUTPUT</code> trim, <code>SAVE</code> writes the complete state, and <code>RANDOM</code> creates a bounded pattern variation.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>Acid is one monophonic line rather than a polyphonic MIDI instrument and accepts no audio input. Its wake is a compact four-tap history of the filter edge, not a general-purpose delay. Listener Mode responds to the generated field but stays deliberately bounded; use downstream ambisonic processing when the complete scene needs larger rotation, reverberation, or decoding changes.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-membrane-kick.html">
+            <span>Previous</span>
+            Ambi Encoder Membrane Kick
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-horizon.html">
+            <span>Next</span>
+            Ambi Encoder Horizon
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#note-line">Editing the Note Line</a>
+          <a href="#voice">Acid Voice</a>
+          <a href="#field">Spatial Path and Wake</a>
+          <a href="#listener">Listener Mode</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#presets">Patterns and Presets</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>
