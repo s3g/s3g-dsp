@@ -32,7 +32,10 @@ VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 # promoted into the active package. Keeping the exception explicit here makes
 # the release audit fail if an ordinary plugin is omitted accidentally, while
 # also making preview status reviewable in the same place as the manifest rule.
-FUTURE_ONLY_CMAKE_DIRECTORIES = {"clap_ambi_horizon_encoder"}
+FUTURE_ONLY_CMAKE_DIRECTORIES = {
+    "clap_ambi_horizon_encoder",
+    "clap_ambi_membrane_kick",
+}
 
 
 @dataclass(frozen=True)

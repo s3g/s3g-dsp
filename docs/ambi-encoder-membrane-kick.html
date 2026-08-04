@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Encoder Membrane Kick - s3g-dsp</title>
+    <meta name="description" content="User guide for the s3g shaped modal-membrane kick instrument and 16-channel ACN/SN3D encoder preview.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Encoder Membrane Kick</h1>
+
+        <p>Ambi Encoder Membrane Kick is a deep, pitch-dropping bass-drum synthesizer whose spatial field comes from the vibrating body itself. Twelve shared modes are sampled at sixteen positions on one membrane; those positions radiate from different directions in selectable first-, second-, or third-order <code>ACN/SN3D</code>. The result is one coherent strike that bends and decays across space rather than a mono kick sent through a panner.</p>
+
+        <p>This instrument is currently a source-build preview in the Ambi Encoder family. Configure with <code>-DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_FUTURE_COMPONENTS=ON</code> to build <code>s3g Ambi Encoder Membrane Kick 16</code>. It is intentionally excluded from the current packaged pre-release manifest.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the track to 16 channels, insert <code>s3g Ambi Encoder Membrane Kick 16</code>, and choose <code>1OA</code>, <code>2OA</code>, or <code>3OA</code> from <code>ORDER</code>.</li>
+          <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Send MIDI notes, press <code>STRIKE</code>, or click the membrane display. Open the membrane <code>STRIKE</code> page to automate <code>X</code> and <code>Y</code>, or choose a randomized placement mode.</li>
+          <li>Set <code>TUNE</code> for the settled low frequency, then balance <code>DROP</code>, <code>TIME</code>, and <code>PUNCH</code> for the attack trajectory.</li>
+          <li>Choose a membrane <code>SHAPE</code> and raise <code>AMOUNT</code>. Shape changes the modal tuning and the distributed surface coordinates together.</li>
+          <li>Use <code>SPREAD</code>, <code>DEPTH</code>, and <code>ROTATE</code> to place the complete membrane in the ambisonic field.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>A MIDI note or editor strike applies one force at the selected <code>X/Y</code> point. Velocity changes the accepted force according to <code>VELOCITY</code>.</li>
+          <li>The force excites twelve modal identities. <code>DROP</code> and <code>TIME</code> move their shared frequency scale rapidly toward <code>TUNE</code>; <code>DECAY</code> and <code>DAMP</code> remove energy from the complete body.</li>
+          <li>Each mode is sampled at sixteen surface patches. Off-center strikes produce asymmetric mode weights, while a central strike emphasizes the fundamental.</li>
+          <li>Each patch is saturated before encoding. <code>DRIVE</code> therefore changes the local membrane radiation without independently clipping ambisonic channels.</li>
+          <li>The patches are encoded from their shaped coordinates. A linked final guard applies one gain to the complete frame so the spatial ratios remain intact.</li>
+        </ol>
+
+        <h2 id="shape">Shape and Strike Position</h2>
+
+        <p><code>CIRCLE</code> begins with the familiar split modal pairs of a symmetric membrane. <code>ELLIPSE</code> separates the horizontal and vertical pairs, <code>SQUARE</code> moves toward rectangular mode relationships, <code>TRIANGLE</code> creates threefold geometry, and <code>IRREGULAR</code> removes the remaining degeneracies. <code>AMOUNT</code> interpolates from the circular body toward the selected shape.</p>
+
+        <p>The editor draws the active outline, the sixteen radiation patches, and the current strike crosshair. Moving the crosshair changes which modes accept the impact: central positions favor the long fundamental, while edge positions bring more asymmetric overtones and stronger directional change.</p>
+
+        <p>The membrane panel has <code>BODY</code> and <code>STRIKE</code> pages. On <code>STRIKE</code>, <code>X</code> and <code>Y</code> are ordinary automatable CLAP parameters. <code>MODE: FIXED</code> follows those coordinates, <code>RANDOM AREA</code> chooses a new position across the usable surface for every hit, and <code>RANDOM RIM</code> chooses a new position in an outer annulus to emphasize asymmetric upper modes. The placement mode is also automatable. The crosshair shows the position actually used by the most recent hit, including randomized hits.</p>
+
+        <p>Clicking the membrane is a direct performance gesture: it switches placement to <code>FIXED</code>, writes the chosen <code>X/Y</code> position, and triggers the body.</p>
+
+        <h2 id="bass">Deep Bass Controls</h2>
+
+        <p><code>TUNE</code> is the frequency reached after the pitch drop. The default 43 Hz body sits in the low-bass range; <code>DROP</code> starts the modes above it and <code>TIME</code> controls how quickly they fall. <code>PUNCH</code> adds force to the fundamental, while <code>CLICK</code> adds a short high-passed impact localized near the strike point. Higher <code>DAMP</code> values shorten upper modes more strongly than the fundamental.</p>
+
+        <h2 id="midi">MIDI Behavior</h2>
+
+        <p>Every note-on strikes the shared membrane; note-off is ignored because the body rings naturally. <code>TRACK</code> defaults to <code>100%</code>, so MIDI note 36 plays the frequency set by <code>TUNE</code> and every semitone transposes the complete membrane chromatically. Lower <code>TRACK</code> for partial tracking, or set it to <code>0%</code> when every key should play the same kick pitch.</p>
+
+        <p><code>VELOCITY</code> also defaults to <code>100%</code>. Note-on velocity scales the modal force, fundamental punch, and localized click together, so soft notes produce genuinely softer membrane motion rather than only turning down the output afterward. Lower <code>VELOCITY</code> to compress the performance dynamics. The instrument is one shared physical body rather than a polyphonic bank, so a new hit adds energy and restarts the global pitch trajectory.</p>
+
+        <h2 id="presets">Factory Presets</h2>
+
+        <p>Click the title-band <code>PRESET</code> field to open the fourteen-voice factory bank. A factory choice changes the membrane voice and spatial radiation while preserving the current ambisonic <code>ORDER</code> and <code>OUT</code> trim. <code>RANDOM</code> chooses another factory voice; <code>LOAD</code> and <code>SAVE</code> continue to use complete user-state preset files.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Character</th></tr></thead>
+          <tbody>
+            <tr><td>Deep City</td><td>Balanced default with a broad spatial body.</td></tr>
+            <tr><td>Quad Bass 43</td><td>Fast classic drop into a focused 43 Hz fundamental.</td></tr>
+            <tr><td>Trunk Pressure 38</td><td>Driven 38 Hz weight with a heavier lingering push.</td></tr>
+            <tr><td>Miami Long Tail</td><td>Cleaner sustained sub with a slower downward glide.</td></tr>
+            <tr><td>Hard Floor</td><td>Short aggressive impact, extra beater, and stronger drive.</td></tr>
+            <tr><td>Wide Ellipse</td><td>Off-centre elliptical body stretched across the ambisonic field.</td></tr>
+            <tr><td>Four Corners</td><td>Square boundary with a new distributed area strike on every hit.</td></tr>
+            <tr><td>Triangle Rumble</td><td>Very low triangular body with a long dark decay.</td></tr>
+            <tr><td>Broken Boom</td><td>Irregular driven membrane with randomized rim strikes and audible upper-mode rattle.</td></tr>
+            <tr><td>Foundation 40</td><td>Dark stable 40 Hz foundation with restrained upper modes and partial note tracking.</td></tr>
+            <tr><td>Scoop Warmth 44</td><td>Rounded, driven low end inspired by the warmth and projection associated with scoop systems.</td></tr>
+            <tr><td>Version Space 37</td><td>Long clean 37 Hz body that leaves room for downstream dub delay, filtering, and version treatment.</td></tr>
+            <tr><td>Clash Cut 50</td><td>Short hard 50 Hz impact intended to remain legible in a dense system.</td></tr>
+            <tr><td>Three-Stack 42</td><td>Threefold membrane geometry with broad direct spatial diffusion.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The final five presets are sound-system-informed translations made entirely with the existing membrane controls. They do not model a particular cabinet, crew, crossover, horn, delay line, or listening environment.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Output / Strike</td><td>Order / Out / Strike</td><td>Selects the active ambisonic channels, sets linked output gain, and manually excites the body.</td></tr>
+            <tr><td>Membrane: Body</td><td>Shape / Amount / Velocity</td><td>Changes boundary geometry, modal ratios, surface placement, and MIDI dynamics.</td></tr>
+            <tr><td>Membrane: Strike</td><td>Mode / X / Y</td><td>Selects fixed, randomized-area, or randomized-rim placement and exposes the fixed coordinates to host automation.</td></tr>
+            <tr><td>Low Body</td><td>Tune / Decay / Damp / Drive / Track</td><td>Sets the settled bass pitch, ringing time, overtone loss, local saturation, and note tracking.</td></tr>
+            <tr><td>Impact</td><td>Drop / Time / Punch / Click</td><td>Shapes the downward attack trajectory, fundamental force, and localized beater transient.</td></tr>
+            <tr><td>Ambisonic Space</td><td>Spread / Depth / Rotate</td><td>Opens, curves, and rotates the sixteen-patch membrane field.</td></tr>
+            <tr><td>Membrane Display</td><td>Strike crosshair</td><td>Places and triggers a fixed strike in one gesture, then shows the actual position used by every hit.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th><th>Track width</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td>16 recommended; channels 5–16 are silent.</td></tr>
+            <tr><td>2OA</td><td>9</td><td>16 recommended; channels 10–16 are silent.</td></tr>
+            <tr><td>3OA</td><td>16</td><td>16.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The output is <code>ACN/SN3D</code>. Place compatible <a href="ambisonic-effects.html">Ambisonic effects</a> between the instrument and decoder only when their supported order and channel count match the field.</p>
+
+        <h2 id="automotive-reference">Automotive Low-Frequency Reference</h2>
+
+        <p>Automotive measurements provide a useful target context without requiring the synthesizer to imitate one particular subwoofer. Rieder reports low-frequency cabin gain over roughly the first three octaves alongside masking from road noise. Benedict and colleagues measured 1–200 Hz response at eight passenger and inter-seat positions, while Nakanishi and Gerges describe the irregular cabin modes and high pressures produced at resonance. These findings support long low fundamentals, controlled pitch-drop energy, and deliberate modal variation, but also show why one baked-in “car EQ” would not transfer reliably between vehicles or seats.</p>
+
+        <p>Lee, Cho, and Ih are especially relevant to this instrument: their automotive low-frequency system uses a thin roof panel with sixteen actuators, an approximately elliptical radiating zone, and inverse vibro-acoustic rendering toward an ear position. Membrane Kick similarly treats shape and distributed radiation as part of the source. The plugin therefore keeps its body model and HOA output general, while a downstream cabin renderer can supply the vehicle- and seat-specific transfer path. See <a href="references.html#automotive-low-frequency">Automotive Low-Frequency Audio and Cabin Response</a>.</p>
+
+        <h2 id="listener-direction">Listener-Model Boundary</h2>
+
+        <p>Membrane Kick deliberately has no internal Listener Mode. Its modal body, fixed or randomized strike placement, and pre-output HOA field remain open-loop so enabling or disabling an analysis layer cannot alter the source tone, transient, or CPU path. This keeps the instrument predictable for low-frequency work and makes <code>FIXED</code> placement sample-repeatable.</p>
+
+        <p>Vehicle- and seat-dependent listening remains appropriate as a downstream cabin renderer or monitoring model. Frank and colleagues’ seat-dependent magnitude-and-phase measurements and Yang and colleagues’ source/path separation support that boundary: Membrane Kick supplies the distributed source, while another stage supplies the cabin and listener transfer path.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>The shape families are musical modal approximations, not finite-element reconstructions of calibrated drum shells or heads. The instrument does not accept audio input and does not follow host tempo. Its shared-body retriggering is designed for kick and tom gestures rather than independent overlapping pitched voices. See <a href="references.html#modal-physical-modeling">Modal Synthesis and Physical Modeling</a> for related membrane and resonator references.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-encoder-medium.html">
+            <span>Previous</span>
+            Ambi Encoder Medium
+          </a>
+          <a class="page-nav-link next" href="ambi-encoder-vot.html">
+            <span>Next</span>
+            Ambi Encoder VOT
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#shape">Shape and Strike</a>
+          <a href="#bass">Deep Bass</a>
+          <a href="#midi">MIDI</a>
+          <a href="#presets">Factory Presets</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#automotive-reference">Automotive Reference</a>
+          <a href="#listener-direction">Listener Boundary</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

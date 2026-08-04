@@ -35,6 +35,7 @@
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
 - (void)setViewPreset:(int)mode;
+- (NSPoint)projectGroundPointX:(double)x y:(double)y;
 - (void)setDocumentationViewAzimuth:(double)azimuth elevation:(double)elevation;
 - (void)textDidChange:(NSNotification*)notification;
 @end
@@ -1218,6 +1219,109 @@ int main(int argc, char** argv)
                         && std::fabs(reported - (-180.0)) < 0.001;
                 }
                 if (ok) clickAzimuth(1045.0); // Restore 0 degrees.
+
+                // Listener menus and Amount occupy a separately stacked
+                // panel. Guard their exact drawn hit targets so additions to
+                // the Horizon surface cannot revive the earlier row-offset
+                // mismatch.
+                failureStage = "Horizon listener control hit targets";
+                const auto clickListenerAmount = [&](CGFloat x) {
+                    const NSPoint point = NSMakePoint(x, 496.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                };
+                if (ok) {
+                    clickListenerAmount(1004.0);
+                    ok = params->get_value(plugin, 48u, &reported)
+                        && std::fabs(reported) < 0.001;
+                }
+                if (ok) {
+                    clickListenerAmount(1086.0);
+                    ok = params->get_value(plugin, 48u, &reported)
+                        && std::fabs(reported - 1.0) < 0.001;
+                }
+                if (ok) clickListenerAmount(1057.3); // Restore about 65%.
+                if (ok) {
+                    const NSPoint listenMenu = NSMakePoint(1066.0, 470.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, listenMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(1066.0, 518.5))];
+                    ok = params->get_value(plugin, 47u, &reported)
+                        && std::fabs(reported - 1.0) < 0.001;
+                }
+                if (ok) {
+                    const NSPoint responseMenu = NSMakePoint(1066.0, 522.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, responseMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(1066.0, 612.5))];
+                    ok = params->get_value(plugin, 49u, &reported)
+                        && std::fabs(reported - 3.0) < 0.001;
+                }
+
+                // Horizon follows the shared TOP / SIDE / 3/4 camera order.
+                // TOP is the XY azimuth plane; SIDE is the XZ elevation
+                // plane. Guard the preset transforms as well as the labels.
+                failureStage = "Horizon TOP/SIDE AED camera convention";
+                if (ok) [document setViewPreset:0];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 0
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue]) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue]) < 0.001;
+                NSPoint topGridPoint = NSZeroPoint;
+                NSPoint sideGridPoint = NSZeroPoint;
+                NSPoint threeQuarterGridPoint = NSZeroPoint;
+                if (ok) {
+                    ok = [document respondsToSelector:
+                        @selector(projectGroundPointX:y:)];
+                    if (ok) topGridPoint = [document
+                        projectGroundPointX:0.0 y:0.75];
+                }
+                if (ok) [document setViewPreset:1];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 1
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue]) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue] + 90.0) < 0.001;
+                if (ok) {
+                    sideGridPoint = [document
+                        projectGroundPointX:0.0 y:0.75];
+                    // The XY ground plane is face-on in TOP and edge-on in
+                    // SIDE. Its projected guide must therefore move onto the
+                    // field horizon rather than remaining screen-fixed.
+                    ok = std::fabs(topGridPoint.y - sideGridPoint.y) > 20.0;
+                }
+                if (ok) {
+                    [document setViewPreset:2];
+                    threeQuarterGridPoint = [document
+                        projectGroundPointX:0.0 y:0.75];
+                    ok = std::fabs(threeQuarterGridPoint.y
+                        - sideGridPoint.y) > 20.0;
+                }
+                if (ok) {
+                    const NSPoint dragStart = NSMakePoint(300.0, 390.0);
+                    const NSPoint dragEnd = NSMakePoint(332.0, 408.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, dragStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragEnd)];
+                    const NSPoint draggedGridPoint = [document
+                        projectGroundPointX:0.0 y:0.75];
+                    ok = std::hypot(
+                        draggedGridPoint.x - threeQuarterGridPoint.x,
+                        draggedGridPoint.y - threeQuarterGridPoint.y) > 8.0;
+                    [document setViewPreset:2];
+                }
             } @catch (NSException* exception) {
                 std::cerr << "Horizon preset lifetime exception: "
                           << [[exception reason] UTF8String] << "\n";
@@ -1274,6 +1378,131 @@ int main(int argc, char** argv)
                 std::cerr << "Queued GUI gesture publication failed for "
                     << pluginId << " (events=" << captured.values.size()
                     << ")\n";
+            }
+        }
+        const bool ambiEncoderAcid = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-encoder-acid-16") == 0;
+        if (ok && ambiEncoderAcid && !documentationCapture) {
+            failureStage = "Ambi Encoder Acid compact note interaction";
+            constexpr clap_id noteId = 112u;
+            constexpr clap_id gateId = 113u;
+            double originalNote = 0.0;
+            double originalGate = 0.0;
+            ok = params && params->flush
+                && params->get_value(plugin, noteId, &originalNote)
+                && params->get_value(plugin, gateId, &originalGate);
+            CapturedOutputEvents captured {};
+            captured.events.ctx = &captured;
+            captured.events.try_push = captureOutputEvent;
+            if (ok) {
+                hostContext.deferParamFlush = true;
+                const NSPoint notePoint = NSMakePoint(213.0, 100.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, notePoint)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, notePoint)];
+                const NSPoint gatePoint = NSMakePoint(198.0, 234.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, gatePoint)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, gatePoint)];
+                hostContext.deferParamFlush = false;
+                params->flush(plugin, nullptr, &captured.events);
+                hostContext.paramFlushRequested = false;
+            }
+            double editedNote = 0.0;
+            double editedGate = 0.0;
+            size_t begin = captured.values.size();
+            size_t value = captured.values.size();
+            size_t end = captured.values.size();
+            for (size_t index = 0u; index < captured.values.size(); ++index) {
+                const auto& event = captured.values[index];
+                if (event.paramId != noteId) continue;
+                if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                    && begin == captured.values.size()) begin = index;
+                else if (event.type == CLAP_EVENT_PARAM_VALUE
+                    && value == captured.values.size()) value = index;
+                else if (event.type == CLAP_EVENT_PARAM_GESTURE_END
+                    && end == captured.values.size()) end = index;
+            }
+            ok = ok
+                && [[document valueForKey:@"selectedStep"] intValue] == 3
+                && params->get_value(plugin, noteId, &editedNote)
+                && params->get_value(plugin, gateId, &editedGate)
+                && std::fabs(editedNote - 33.0) < 0.000001
+                && std::fabs(editedGate - (originalGate >= 0.5 ? 0.0 : 1.0))
+                    < 0.000001
+                && begin < value && value < end;
+            if (!ok) {
+                std::cerr << "Acid note strip interaction failed (note="
+                    << editedNote << ", gate=" << editedGate
+                    << ", events=" << captured.values.size() << ")\n";
+            }
+            if (params && params->flush) {
+                SingleParamEventInput restore {};
+                setSingleParamEvent(restore, noteId, originalNote);
+                params->flush(plugin, &restore.events, nullptr);
+                setSingleParamEvent(restore, gateId, originalGate);
+                params->flush(plugin, &restore.events, nullptr);
+            }
+            if (ok) {
+                failureStage =
+                    "Ambi Encoder Acid preset, random, and host clock controls";
+                @try {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(374.0, 20.0))];
+                    ok = [[document valueForKey:@"presetMenuOpen"] boolValue];
+                    if (ok) {
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved, NSMakePoint(374.0, 57.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, NSMakePoint(374.0, 57.0))];
+                    }
+                    double secondNote = 0.0;
+                    double firstSlide = 0.0;
+                    ok = ok
+                        && [[document valueForKey:@"presetIndex"] intValue] == 1
+                        && params->get_value(plugin, 104u, &secondNote)
+                        && params->get_value(plugin, 103u, &firstSlide)
+                        && std::fabs(secondNote - 1.0) < 0.000001
+                        && std::fabs(firstSlide - 1.0) < 0.000001;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(585.0, 20.0))];
+                        ok = [[document valueForKey:@"presetIndex"] intValue]
+                            == -1;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(235.0, 331.0))];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp,
+                            NSMakePoint(235.0, 331.0))];
+                        double clock = 0.0;
+                        ok = params->get_value(plugin, 27u, &clock)
+                            && std::fabs(clock - 1.0) < 0.000001;
+                    }
+                    SingleParamEventInput restoreClock {};
+                    setSingleParamEvent(restoreClock, 27u, 0.0);
+                    params->flush(plugin, &restoreClock.events, nullptr);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(374.0, 20.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(374.0, 39.0))];
+                        ok = [[document valueForKey:@"presetIndex"] intValue]
+                            == 0;
+                    }
+                } @catch (NSException* exception) {
+                    std::cerr << "Acid preset/random interaction exception: "
+                        << [[exception reason] UTF8String] << "\n";
+                    ok = false;
+                }
             }
         }
         const bool ambiEncoderMedium = std::strcmp(
@@ -1495,6 +1724,145 @@ int main(int argc, char** argv)
                 }
             } @catch (NSException* exception) {
                 std::cerr << "Ambi Encoder Medium interaction exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
+        const bool ambiEncoderMembraneKick = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16") == 0;
+        if (ok && ambiEncoderMembraneKick && !documentationCapture) {
+            failureStage =
+                "Ambi Encoder Membrane Kick factory preset dropdown";
+            @try {
+                double orderBefore = 0.0;
+                double outputBefore = 0.0;
+                ok = params->get_value(plugin, 1u, &orderBefore)
+                    && params->get_value(plugin, 19u, &outputBefore);
+                const auto titleBand =
+                    s3g::clap_gui::encoderTitleBand(920.0, 680.0);
+                const NSRect preset =
+                    s3g::clap_gui::cocoaRect(titleBand.presetMenu);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(preset), NSMidY(preset)))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                        == 0x7ffffff0u;
+                }
+                if (ok) {
+                    const NSPoint quadItem = NSMakePoint(NSMidX(preset),
+                        NSMaxY(preset) + 2.0 + 27.0);
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, quadItem)];
+                    ok = [[document valueForKey:@"hoverMenuItem"] intValue]
+                        == 1;
+                }
+                if (ok) {
+                    // Select QUAD BASS 43, the second item in the bank.
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(preset),
+                            NSMaxY(preset) + 2.0 + 27.0))];
+                    double orderAfter = 0.0;
+                    double outputAfter = 0.0;
+                    double tune = 0.0;
+                    double drop = 0.0;
+                    ok = params->get_value(plugin, 1u, &orderAfter)
+                        && params->get_value(plugin, 19u, &outputAfter)
+                        && params->get_value(plugin, 3u, &tune)
+                        && params->get_value(plugin, 4u, &drop)
+                        && std::fabs(orderAfter - orderBefore) < 0.000001
+                        && std::fabs(outputAfter - outputBefore) < 0.000001
+                        && std::fabs(tune - 43.0) < 0.000001
+                        && std::fabs(drop - 38.0) < 0.000001;
+                }
+                // ORDER and SHAPE are explicit hoverable dropdowns, not
+                // click-to-cycle controls.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 80.0))];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 123.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 1u
+                        && [[document valueForKey:@"hoverMenuItem"] intValue]
+                            == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 123.0))];
+                    double order = 0.0;
+                    ok = params->get_value(plugin, 1u, &order)
+                        && std::fabs(order - 2.0) < 0.000001;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 184.0))];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 263.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 2u
+                        && [[document valueForKey:@"hoverMenuItem"] intValue]
+                            == 3;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 263.0))];
+                    double shape = 0.0;
+                    ok = params->get_value(plugin, 2u, &shape)
+                        && std::fabs(shape - 3.0) < 0.000001;
+                }
+                // The STRIKE page exposes the automatable placement mode
+                // and independent X/Y automation lanes.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(862.0, 164.0))];
+                    ok = [[document valueForKey:@"membranePage"] intValue]
+                        == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 184.0))];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 227.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 21u
+                        && [[document valueForKey:@"hoverMenuItem"] intValue]
+                            == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 227.0))];
+                    const CGFloat controlX = static_cast<CGFloat>(
+                        s3g::gui_layout::processorControlX(580.0));
+                    const CGFloat trackWidth = static_cast<CGFloat>(
+                        s3g::gui_layout::processorTrackWidth(324.0));
+                    const NSPoint xPoint = NSMakePoint(
+                        controlX + trackWidth * 0.75, 208.0);
+                    const NSPoint yPoint = NSMakePoint(
+                        controlX + trackWidth * 0.25, 232.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, xPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, xPoint)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, yPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, yPoint)];
+                    double mode = 0.0;
+                    double strikeX = 0.0;
+                    double strikeY = 0.0;
+                    ok = params->get_value(plugin, 21u, &mode)
+                        && params->get_value(plugin, 11u, &strikeX)
+                        && params->get_value(plugin, 12u, &strikeY)
+                        && std::fabs(mode - 1.0) < 0.000001
+                        && std::fabs(strikeX - 0.5) < 0.02
+                        && std::fabs(strikeY + 0.5) < 0.02;
+                }
+            } @catch (NSException* exception) {
+                std::cerr
+                    << "Ambi Encoder Membrane Kick preset exception: "
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }

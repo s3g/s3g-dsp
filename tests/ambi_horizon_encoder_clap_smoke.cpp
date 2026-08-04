@@ -1,6 +1,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/params.h>
+#include <clap/ext/state.h>
 
 #include <algorithm>
 #include <array>
@@ -21,7 +22,22 @@ constexpr uint32_t kFrames = 256u;
 constexpr clap_id kPresetParamId = 1u;
 constexpr clap_id kOrderParamId = 2u;
 constexpr clap_id kEntitiesParamId = 3u;
-constexpr uint32_t kPresetCount = 12u;
+constexpr clap_id kOutputGainParamId = 24u;
+constexpr clap_id kAirNoiseParamId = 26u;
+constexpr clap_id kMachinesParamId = 27u;
+constexpr clap_id kBellsParamId = 28u;
+constexpr clap_id kTrafficParamId = 29u;
+constexpr clap_id kAircraftParamId = 30u;
+constexpr clap_id kFoghornsParamId = 31u;
+constexpr clap_id kSurfParamId = 32u;
+constexpr clap_id kAircraftFlightParamId = 35u;
+constexpr clap_id kFoghornPitchParamId = 39u;
+constexpr clap_id kFoghornPressureParamId = 40u;
+constexpr clap_id kFoghornLengthParamId = 41u;
+constexpr clap_id kFieldListenModeParamId = 47u;
+constexpr clap_id kFieldListenAmountParamId = 48u;
+constexpr clap_id kFieldListenResponseParamId = 49u;
+constexpr uint32_t kPresetCount = 16u;
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -70,6 +86,132 @@ struct EventList {
         event.key = -1;
         event.value = value;
         values.push_back(event);
+    }
+};
+
+struct LegacyParams {
+    uint32_t order = 3u;
+    uint32_t entities = 24u;
+    uint32_t ecology = 0u;
+    float activity = 0.48f;
+    float occupancy = 0.36f;
+    float pace = 0.42f;
+    float memory = 0.68f;
+    float cascade = 0.48f;
+    float signals = 0.48f;
+    float horizonBed = 0.62f;
+    float localFloor = 0.22f;
+    float rangeKm = 2.8f;
+    float azimuthDeg = 0.0f;
+    float elevationDeg = 0.0f;
+    float arcDeg = 240.0f;
+    float detail = 0.54f;
+    float air = 0.58f;
+    uint32_t ground = 2u;
+    float terrain = 0.42f;
+    float carry = 0.0f;
+    float turbulence = 0.24f;
+    float edgeDb = 0.0f;
+    float outputGainDb = -6.0f;
+    uint32_t seed = 1979u;
+};
+
+struct LegacyState {
+    uint32_t version = 1u;
+    LegacyParams params {};
+    uint32_t presetIndex = 0u;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 30.0f;
+    float guiViewZoom = 1.0f;
+};
+
+struct LegacyParamsV2 {
+    LegacyParams prefix {};
+    float airNoise = 0.35f;
+};
+
+struct LegacyStateV2 {
+    uint32_t version = 2u;
+    LegacyParamsV2 params {};
+    uint32_t presetIndex = 0u;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 30.0f;
+    float guiViewZoom = 1.0f;
+};
+
+struct LegacyParamsV3 {
+    LegacyParamsV2 prefix {};
+    float machines = 0.45f;
+    float bells = 0.25f;
+    float traffic = 0.45f;
+    float aircraft = 0.0f;
+    float foghorns = 0.0f;
+    float surf = 0.15f;
+};
+
+struct LegacyStateV3 {
+    uint32_t version = 3u;
+    LegacyParamsV3 params {};
+    uint32_t presetIndex = 0u;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 30.0f;
+    float guiViewZoom = 1.0f;
+};
+
+struct LegacyParamsV4 {
+    LegacyParamsV3 prefix {};
+    float trafficSpeed = 0.50f;
+    float engineLoad = 0.55f;
+    float aircraftFlight = 0.80f;
+    float aircraftSpeed = 0.52f;
+    float aircraftPower = 0.62f;
+    float aircraftTone = 0.35f;
+    float foghornPitch = 0.42f;
+    float foghornPressure = 0.75f;
+    float foghornLength = 0.55f;
+    float waveRate = 0.45f;
+    float waveBreak = 0.58f;
+    float machineTone = 0.50f;
+    float bellPitch = 0.52f;
+    float bellDecay = 0.68f;
+};
+
+struct LegacyStateV4 {
+    uint32_t version = 4u;
+    LegacyParamsV4 params {};
+    uint32_t presetIndex = 0u;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 30.0f;
+    float guiViewZoom = 1.0f;
+};
+
+struct MemoryInput {
+    std::vector<uint8_t> bytes;
+    size_t offset = 0u;
+    clap_istream_t interface {
+        this,
+        [](const clap_istream_t* stream, void* buffer, uint64_t size)
+            -> int64_t {
+            auto* self = static_cast<MemoryInput*>(stream->ctx);
+            const size_t available = self->bytes.size() - self->offset;
+            const size_t count = std::min<size_t>(
+                available, static_cast<size_t>(size));
+            if (count == 0u) return 0;
+            std::memcpy(buffer, self->bytes.data() + self->offset, count);
+            self->offset += count;
+            return static_cast<int64_t>(count);
+        },
+    };
+
+    template <typename State>
+    explicit MemoryInput(const State& state)
+        : bytes(sizeof(state))
+    {
+        std::memcpy(bytes.data(), &state, sizeof(state));
     }
 };
 
@@ -238,13 +380,125 @@ int main(int argc, char** argv)
         plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS)) : nullptr;
     const auto* params = ok ? static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS)) : nullptr;
+    const auto* state = ok ? static_cast<const clap_plugin_state_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
     clap_audio_port_info_t outputInfo {};
-    ok = ok && ports && params
+    ok = ok && ports && params && state
         && ports->count(plugin, true) == 0u
         && ports->count(plugin, false) == 1u
         && ports->get(plugin, 0u, false, &outputInfo)
         && outputInfo.channel_count == kChannels
-        && params->count(plugin) == 25u;
+        && params->count(plugin) == 49u;
+    if (ok) {
+        char display[64] {};
+        double parsed = 0.0;
+        ok = params->value_to_text(plugin, kAircraftFlightParamId,
+                0.70, display, sizeof(display))
+            && std::strcmp(display, "APPRCH") == 0
+            && params->text_to_value(plugin, kAircraftFlightParamId,
+                "OVERHEAD", &parsed)
+            && std::abs(parsed - 1.0) < 1.0e-9
+            && params->value_to_text(plugin, kFoghornPitchParamId,
+                0.42, display, sizeof(display))
+            && params->text_to_value(plugin, kFoghornPitchParamId,
+                display, &parsed)
+            && std::abs(parsed - 0.42) < 0.01
+            && params->value_to_text(plugin, kFoghornLengthParamId,
+                0.55, display, sizeof(display))
+            && params->text_to_value(plugin, kFoghornLengthParamId,
+                display, &parsed)
+            && std::abs(parsed - 0.55) < 0.01
+            && params->value_to_text(plugin, kFieldListenModeParamId,
+                2.0, display, sizeof(display))
+            && std::strcmp(display, "COUNTER") == 0
+            && params->text_to_value(plugin, kFieldListenResponseParamId,
+                "DISTANCE", &parsed)
+            && std::abs(parsed - 3.0) < 1.0e-9;
+    }
+    if (ok) {
+        LegacyState legacy {};
+        MemoryInput input(legacy);
+        double migratedAirNoise = 0.0;
+        double migratedMachines = 0.0;
+        double migratedBells = 0.0;
+        double migratedAircraft = 1.0;
+        ok = state->load(plugin, &input.interface)
+            && params->get_value(
+                plugin, kAirNoiseParamId, &migratedAirNoise)
+            && params->get_value(plugin, kMachinesParamId, &migratedMachines)
+            && params->get_value(plugin, kBellsParamId, &migratedBells)
+            && params->get_value(plugin, kAircraftParamId, &migratedAircraft)
+            && std::abs(migratedAirNoise - 1.0) < 1.0e-9
+            && std::abs(migratedMachines - 1.0) < 1.0e-9
+            && std::abs(migratedBells - 1.0) < 1.0e-9
+            && std::abs(migratedAircraft) < 1.0e-9;
+    }
+    if (ok) {
+        LegacyStateV2 legacy {};
+        legacy.params.prefix.ecology = 2u;
+        legacy.params.airNoise = 0.17f;
+        MemoryInput input(legacy);
+        double migratedAirNoise = 0.0;
+        double migratedTraffic = 0.0;
+        double migratedFoghorns = 1.0;
+        double migratedSurf = 1.0;
+        ok = state->load(plugin, &input.interface)
+            && params->get_value(plugin, kAirNoiseParamId, &migratedAirNoise)
+            && params->get_value(plugin, kTrafficParamId, &migratedTraffic)
+            && params->get_value(plugin, kFoghornsParamId, &migratedFoghorns)
+            && params->get_value(plugin, kSurfParamId, &migratedSurf)
+            && std::abs(migratedAirNoise - 0.17) < 1.0e-6
+            && std::abs(migratedTraffic - 1.0) < 1.0e-9
+            && std::abs(migratedFoghorns) < 1.0e-9
+            && std::abs(migratedSurf) < 1.0e-9;
+    }
+    if (ok) {
+        LegacyStateV3 legacy {};
+        legacy.params.prefix.prefix.ecology = 7u;
+        legacy.params.aircraft = 0.73f;
+        legacy.params.traffic = 0.19f;
+        MemoryInput input(legacy);
+        double migratedAircraft = 0.0;
+        double migratedTraffic = 0.0;
+        double migratedFlight = 0.0;
+        double migratedHornPressure = 0.0;
+        ok = state->load(plugin, &input.interface)
+            && params->get_value(plugin, kAircraftParamId, &migratedAircraft)
+            && params->get_value(plugin, kTrafficParamId, &migratedTraffic)
+            && params->get_value(plugin, kAircraftFlightParamId, &migratedFlight)
+            && params->get_value(plugin, kFoghornPressureParamId,
+                &migratedHornPressure)
+            && std::abs(migratedAircraft - 0.73) < 1.0e-6
+            && std::abs(migratedTraffic - 0.19) < 1.0e-6
+            && std::abs(migratedFlight - 0.80) < 1.0e-6
+            && std::abs(migratedHornPressure - 0.75) < 1.0e-6;
+    }
+    if (ok) {
+        LegacyStateV4 legacy {};
+        legacy.params.prefix.prefix.prefix.ecology = 4u;
+        legacy.params.machineTone = 0.23f;
+        legacy.params.bellDecay = 0.81f;
+        MemoryInput input(legacy);
+        double migratedMachineTone = 0.0;
+        double migratedBellDecay = 0.0;
+        double migratedListenMode = 1.0;
+        double migratedListenAmount = 0.0;
+        double migratedListenResponse = 1.0;
+        ok = state->load(plugin, &input.interface)
+            && params->get_value(plugin, 44u, &migratedMachineTone)
+            && params->get_value(plugin, 46u, &migratedBellDecay)
+            && params->get_value(plugin, kFieldListenModeParamId,
+                &migratedListenMode)
+            && params->get_value(plugin, kFieldListenAmountParamId,
+                &migratedListenAmount)
+            && params->get_value(plugin, kFieldListenResponseParamId,
+                &migratedListenResponse)
+            && std::abs(migratedMachineTone - 0.23) < 1.0e-6
+            && std::abs(migratedBellDecay - 0.81) < 1.0e-6
+            && std::abs(migratedListenMode) < 1.0e-9
+            && std::abs(migratedListenAmount - 0.65) < 1.0e-6
+            && std::abs(migratedListenResponse) < 1.0e-9;
+    }
     ok = ok && plugin->activate(plugin, 48000.0, 32u, kFrames)
         && plugin->start_processing(plugin);
 
@@ -254,13 +508,20 @@ int main(int argc, char** argv)
     for (uint32_t preset = 0u; ok && preset < kPresetCount; ++preset) {
         EventList events;
         events.add(kPresetParamId, static_cast<double>(preset));
+        events.add(kOutputGainParamId, 0.0);
         const Measurement measurement = render(plugin, audio, 96u, &events);
         const double rms = std::sqrt(measurement.wEnergy
             / static_cast<double>(96u * kFrames));
         minimumRms = std::min(minimumRms, rms);
         maximumPeak = std::max(maximumPeak, measurement.peak);
+        std::cout << "CLAP preset " << preset << " 0 dB W RMS="
+                  << rms << " peak=" << measurement.peak << '\n';
+        // Preset selection must establish audible W-channel energy within the
+        // first half-second at unity output, not only after a long render or
+        // after applying positive gain in the host.
         ok = measurement.finite && measurement.inactiveChannelsClear
-            && rms > 1.0e-5 && measurement.peak < 0.98f;
+            && rms >= 0.0015 && measurement.peak >= 0.004f
+            && measurement.peak < 0.98f;
         if (!ok) {
             std::cerr << "Preset " << preset << " failed: rms=" << rms
                       << " peak=" << measurement.peak

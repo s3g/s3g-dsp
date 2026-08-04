@@ -60,6 +60,20 @@ add_executable(s3g_fractional_waveguide_network_smoke
   tests/fractional_waveguide_network_smoke.cpp)
 target_link_libraries(s3g_fractional_waveguide_network_smoke PRIVATE s3g_dsp)
 
+if(S3G_BUILD_FUTURE_COMPONENTS)
+  add_executable(s3g_ambi_membrane_kick_smoke
+    tests/ambi_membrane_kick_smoke.cpp)
+  target_link_libraries(s3g_ambi_membrane_kick_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_ambi_acid_encoder_smoke
+    tests/ambi_acid_encoder_smoke.cpp)
+  target_link_libraries(s3g_ambi_acid_encoder_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_ambi_acid_encoder_render
+    tools/render_ambi_acid_encoder.cpp)
+  target_link_libraries(s3g_ambi_acid_encoder_render PRIVATE s3g_dsp)
+endif()
+
 add_executable(s3g_ambi_ray_bilocation_encoder_smoke tests/ambi_ray_bilocation_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_bilocation_encoder_smoke PRIVATE s3g_dsp)
 
@@ -231,6 +245,14 @@ if(BUILD_TESTING)
   endforeach()
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_test(NAME s3g_ambi_membrane_kick_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>)
+    set_tests_properties(s3g_ambi_membrane_kick_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_ambi_acid_encoder_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_acid_encoder_smoke>)
+    set_tests_properties(s3g_ambi_acid_encoder_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
     set_tests_properties(s3g_ambi_horizon_encoder_smoke PROPERTIES
@@ -479,6 +501,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
     PRIVATE ${CMAKE_DL_LIBS})
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_executable(s3g_ambi_membrane_kick_clap_smoke
+      tests/ambi_membrane_kick_clap_smoke.cpp)
+    target_include_directories(s3g_ambi_membrane_kick_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_membrane_kick_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_ambi_acid_encoder_clap_smoke
+      tests/ambi_acid_encoder_clap_smoke.cpp)
+    target_include_directories(s3g_ambi_acid_encoder_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_acid_encoder_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+  endif()
+
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_executable(s3g_ambi_horizon_encoder_clap_smoke
       tests/ambi_horizon_encoder_clap_smoke.cpp)
     target_include_directories(s3g_ambi_horizon_encoder_clap_smoke PRIVATE
@@ -525,6 +563,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
   add_subdirectory(plugins/clap_ambi_encoder_medium)
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_ambi_membrane_kick)
+    add_subdirectory(plugins/clap_ambi_acid_encoder)
+  endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
   endif()
@@ -805,6 +847,56 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_encoder_family_gui_smoke
       s3g_ambi_encoder_medium_clap
     COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
+
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_custom_target(audit_ambi_membrane_kick
+      COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>
+      COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_clap_smoke>
+        $<TARGET_FILE:s3g_ambi_membrane_kick_clap>
+        org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16
+      DEPENDS
+        s3g_ambi_membrane_kick_smoke
+        s3g_ambi_membrane_kick_clap_smoke
+        s3g_ambi_membrane_kick_clap
+      COMMENT "Validating shaped membrane bass synthesis, ambisonic radiation, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_ambi_membrane_kick_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_ambi_membrane_kick_clap>
+          org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16
+          920 680 "s3g Ambi Encoder Membrane Kick" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_ambi_membrane_kick_clap
+        COMMENT "Validating the responsive Ambi Encoder Membrane Kick editor")
+      add_dependencies(audit_ambi_membrane_kick
+        audit_ambi_membrane_kick_gui)
+    endif()
+
+    add_custom_target(audit_ambi_acid_encoder
+      COMMAND $<TARGET_FILE:s3g_ambi_acid_encoder_smoke>
+      COMMAND $<TARGET_FILE:s3g_ambi_acid_encoder_clap_smoke>
+        $<TARGET_FILE:s3g_ambi_acid_encoder_clap>
+        org.s3g.s3g-dsp.ambi-encoder-acid-16
+      DEPENDS
+        s3g_ambi_acid_encoder_smoke
+        s3g_ambi_acid_encoder_clap_smoke
+        s3g_ambi_acid_encoder_clap
+      COMMENT "Validating acid synthesis, spatial wake, Listener Mode, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_ambi_acid_encoder_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_ambi_acid_encoder_clap>
+          org.s3g.s3g-dsp.ambi-encoder-acid-16
+          920 560 "s3g Ambi Encoder Acid" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_ambi_acid_encoder_clap
+        COMMENT "Validating the responsive Ambi Encoder Acid note-line editor")
+      add_dependencies(audit_ambi_acid_encoder
+        audit_ambi_acid_encoder_gui)
+    endif()
+  endif()
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
     set(S3G_HORIZON_REALTIME_REPORT
