@@ -1283,7 +1283,7 @@ bool testPublicProfilesRemainDistinct()
     return true;
 }
 
-bool testLegacyTransientFieldsAreDormant()
+bool testSkinControlsDoNotSelfExcite()
 {
     constexpr uint32_t frames = 24000u;
     auto params = s3g::accelerometerFieldFactoryPreset(0u);
@@ -1309,7 +1309,8 @@ bool testLegacyTransientFieldsAreDormant()
     for (uint32_t body = 0u; body < params.bodyCount; ++body) {
         if (!std::all_of(audio[body].begin(), audio[body].end(),
                 [](float sample) { return sample == 0.0f; })) {
-            std::cerr << "A dormant legacy transient field generated audio on "
+            std::cerr << "A skin control or dormant transient field self-excited "
+                      << "audio on "
                       << "body " << body << "\n";
             return false;
         }
@@ -1320,6 +1321,19 @@ bool testLegacyTransientFieldsAreDormant()
 bool testExternalActuatorIsModalOnly()
 {
     constexpr uint32_t frames = kSampleRate * 4u;
+    const auto factorySkin = s3g::accelerometerFieldFactoryPreset(0u);
+    bool factoryHasPerBodyContact = false;
+    for (uint32_t body = 1u; body < factorySkin.bodyCount; ++body) {
+        factoryHasPerBodyContact = factoryHasPerBodyContact
+            || std::fabs(factorySkin.bodySkinX[body]
+                - factorySkin.bodySkinX[0u]) > 1.0e-6f
+            || std::fabs(factorySkin.bodySkinY[body]
+                - factorySkin.bodySkinY[0u]) > 1.0e-6f;
+    }
+    if (!factoryHasPerBodyContact) {
+        std::cerr << "Factory Modal voice did not expose per-body skins\n";
+        return false;
+    }
     std::array<float, frames> input {};
     input[0] = 1.0f;
     const auto renderImpulse = [&](float contactDetail,
@@ -1331,7 +1345,7 @@ bool testExternalActuatorIsModalOnly()
         params.ambientDrive = 0.0f;
         params.sensorNoise = 0.0f;
         params.externalDrive = 1.0f;
-        params.contactDetail = contactDetail;
+        params.bodySkinY.fill(contactDetail);
         params.propagationLoss = propagationLoss;
         s3g::AccelerometerFieldEncoder engine;
         engine.prepare(kSampleRate);
@@ -1341,10 +1355,75 @@ bool testExternalActuatorIsModalOnly()
     };
 
     const StemBuffers neutral = renderImpulse(0.0f, 0.0f);
-    const StemBuffers extreme = renderImpulse(1.0f, 1.0f);
-    if (neutral != extreme) {
-        std::cerr << "Dormant contact-detail or propagation-loss fields changed "
-                  << "external modal actuation\n";
+    const StemBuffers yOnly = renderImpulse(1.0f, 0.0f);
+    const StemBuffers distributed = renderImpulse(1.0f, 1.0f);
+    if (neutral != yOnly) {
+        std::cerr << "Skin Y changed the exact point-skin compatibility path\n";
+        return false;
+    }
+    if (!(difference(neutral[0], distributed[0]) > 1.0e-7)
+        || !metrics(distributed[0]).finite) {
+        std::cerr << "Distributed Skin X/Y/Extent did not reshape the modal "
+                  << "actuator response\n";
+        return false;
+    }
+
+    s3g::AccelerometerFieldEncoder geometry;
+    geometry.prepare(kSampleRate);
+    auto geometryParams = s3g::accelerometerFieldFactoryPreset(20u);
+    geometryParams.propagationLoss = 0.0f;
+    geometry.setParams(geometryParams);
+    const s3g::Vec3 center = geometry.bodyDirection(0u);
+    for (uint32_t patch = 0u;
+        patch < s3g::kAccelerometerFieldSkinPatchCount; ++patch) {
+        if (directionDistance(center,
+                geometry.skinPatchDirection(0u, patch)) > 1.0e-6f) {
+            std::cerr << "Zero-extent modal skin did not collapse to its body\n";
+            return false;
+        }
+    }
+    geometryParams.propagationLoss = 1.0f;
+    geometry.setParams(geometryParams);
+    float maximumPatchDistance = 0.0f;
+    for (uint32_t patch = 0u;
+        patch < s3g::kAccelerometerFieldSkinPatchCount; ++patch) {
+        maximumPatchDistance = std::max(maximumPatchDistance,
+            directionDistance(geometry.bodyDirection(0u),
+                geometry.skinPatchDirection(0u, patch)));
+    }
+    if (!(maximumPatchDistance > 0.10f)) {
+        std::cerr << "Modal skin extent did not distribute its HOA patches\n";
+        return false;
+    }
+
+    // One body's skin edit must retarget only that body's modal drive. This
+    // catches accidental regressions back to a shared contact surface.
+    geometryParams.bodySkinX[0u] = 0.14f;
+    geometryParams.bodySkinY[0u] = 0.24f;
+    geometryParams.bodySkinX[1u] = 0.82f;
+    geometryParams.bodySkinY[1u] = 0.76f;
+    geometry.setParams(geometryParams);
+    std::array<float, 8u> body0Before {};
+    std::array<float, 8u> body1Before {};
+    for (uint32_t mode = 0u; mode < body0Before.size(); ++mode) {
+        body0Before[mode] = geometry.modeDriveWeight(mode, 0u);
+        body1Before[mode] = geometry.modeDriveWeight(mode, 1u);
+    }
+    geometryParams.bodySkinX[1u] = 0.31f;
+    geometryParams.bodySkinY[1u] = 0.18f;
+    geometry.setParams(geometryParams);
+    double unchangedBodyDifference = 0.0;
+    double editedBodyDifference = 0.0;
+    for (uint32_t mode = 0u; mode < body0Before.size(); ++mode) {
+        unchangedBodyDifference += std::fabs(
+            geometry.modeDriveWeight(mode, 0u) - body0Before[mode]);
+        editedBodyDifference += std::fabs(
+            geometry.modeDriveWeight(mode, 1u) - body1Before[mode]);
+    }
+    if (unchangedBodyDifference > 1.0e-8
+        || !(editedBodyDifference > 1.0e-5)) {
+        std::cerr << "Per-body modal skin edit leaked or failed to retarget "
+                  << "its body's modes\n";
         return false;
     }
 
@@ -2016,13 +2095,16 @@ bool testVisibleContinuousControlsAreClickFree()
         float Params::*member;
         float initial;
         float target;
+        uint32_t bodySkinCoordinate = 0u; // 1 = X, 2 = Y
     };
-    constexpr std::array<Control, 17u> controls {{
+    constexpr std::array<Control, 19u> controls {{
         { "Actuator input", &Params::externalDrive, 0.12f, 0.78f },
         { "Size", &Params::size, 0.68f, 0.30f },
         { "Damping", &Params::damping, 0.32f, 0.78f },
         { "Irregularity", &Params::irregularity, 0.08f, 0.70f },
-        { "Actuator position", &Params::sourcePosition, 0.15f, 0.85f },
+        { "Skin X", nullptr, 0.15f, 0.85f, 1u },
+        { "Skin Y", nullptr, 0.20f, 0.80f, 2u },
+        { "Skin extent", &Params::propagationLoss, 0.10f, 0.90f },
         { "Tone center", &Params::pickupPosition, 0.20f, 0.80f },
         { "Modal angle", &Params::pickupAxis, 0.15f, 0.85f },
         { "Air radiation", &Params::airRadiation, 0.10f, 0.90f },
@@ -2047,6 +2129,17 @@ bool testVisibleContinuousControlsAreClickFree()
     bool passed = true;
 
     for (const Control& control : controls) {
+        const auto setControl = [&control](Params& target, float value) {
+            if (control.bodySkinCoordinate == 1u) {
+                target.bodySkinX[0u] = value;
+                target.sourcePosition = value;
+            } else if (control.bodySkinCoordinate == 2u) {
+                target.bodySkinY[0u] = value;
+                target.contactDetail = value;
+            } else {
+                target.*(control.member) = value;
+            }
+        };
         auto params = s3g::accelerometerFieldFactoryPreset(10u);
         params.bodyCount = 6u;
         params.ambisonicOrder = 1u;
@@ -2059,7 +2152,10 @@ bool testVisibleContinuousControlsAreClickFree()
         params.outputGainDb = -18.0f;
         params.modalLift = 0.10f;
         params.externalDrive = 0.12f;
-        params.*(control.member) = control.initial;
+        if (control.bodySkinCoordinate == 2u) {
+            params.propagationLoss = 0.65f;
+        }
+        setControl(params, control.initial);
 
         s3g::AccelerometerFieldEncoder reference;
         s3g::AccelerometerFieldEncoder changed;
@@ -2123,7 +2219,7 @@ bool testVisibleContinuousControlsAreClickFree()
             }
         }
 
-        params.*(control.member) = control.target;
+        setControl(params, control.target);
         changed.setParams(params);
         const float targetModeFrequency = changed.modeFrequencyHz(0u);
         const float targetModeDecay = changed.modeDecaySeconds(0u);
@@ -2250,7 +2346,7 @@ int main()
         || !testRawBodyStems()
         || !testBalancedDroneAcrossBodyCounts()
         || !testPublicProfilesRemainDistinct()
-        || !testLegacyTransientFieldsAreDormant()
+        || !testSkinControlsDoNotSelfExcite()
         || !testPerBodyMidiStrike()
         || !testRepeatedHighVelocityMidiRemainsBounded()
         || !testOrdinaryMidiResponseSurvivesStressAndReset()

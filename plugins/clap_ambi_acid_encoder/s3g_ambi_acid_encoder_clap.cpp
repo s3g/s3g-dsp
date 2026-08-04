@@ -5,6 +5,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
@@ -22,14 +23,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <limits>
 #include <new>
 
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiAcidChannels;
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 5u;
 constexpr uint32_t kGuiWidth = 920u;
-constexpr uint32_t kGuiHeight = 560u;
+constexpr uint32_t kGuiHeight = 620u;
 
 constexpr clap_id kOrderParamId = 1u;
 constexpr clap_id kTempoParamId = 2u;
@@ -53,24 +55,44 @@ constexpr clap_id kSpatialSpreadParamId = 19u;
 constexpr clap_id kEdgeLeadParamId = 20u;
 constexpr clap_id kWakeAmountParamId = 21u;
 constexpr clap_id kWakeTimeParamId = 22u;
+// Hidden and inert so legacy host automation and state can migrate without
+// reusing stable parameter identities.
 constexpr clap_id kListenModeParamId = 23u;
 constexpr clap_id kListenAmountParamId = 24u;
 constexpr clap_id kListenMemoryParamId = 25u;
 constexpr clap_id kOutputParamId = 26u;
 constexpr clap_id kTransportSyncParamId = 27u;
-constexpr uint32_t kBaseParamCount = 27u;
+constexpr clap_id kScaleParamId = 28u;
+constexpr clap_id kSubOctaveParamId = 29u;
+constexpr clap_id kSubLevelParamId = 30u;
+constexpr clap_id kDriveCircuitParamId = 31u;
+constexpr clap_id kDriveMixParamId = 32u;
+constexpr clap_id kOutputModeParamId = 33u;
+constexpr uint32_t kBaseParamCount = 33u;
 
 constexpr clap_id kStepParamBase = 100u;
 constexpr uint32_t kStepParamStride = 4u;
 constexpr uint32_t kStepParamCount =
     s3g::kAmbiAcidStepCount * kStepParamStride;
-constexpr uint32_t kParamCount = kBaseParamCount + kStepParamCount;
+
+constexpr clap_id kSpatialParamBase = 200u;
+constexpr uint32_t kSpatialParamStride = 3u;
+constexpr uint32_t kSpatialParamCount =
+    s3g::kAmbiAcidStepCount * kSpatialParamStride;
+constexpr uint32_t kParamCount = kBaseParamCount + kStepParamCount
+    + kSpatialParamCount;
 
 enum class StepParamKind : uint32_t {
     Note = 0u,
     Gate = 1u,
     Accent = 2u,
     Slide = 3u,
+};
+
+enum class SpatialParamKind : uint32_t {
+    X = 0u,
+    Y = 1u,
+    Z = 2u,
 };
 
 struct ParamSpec {
@@ -102,7 +124,7 @@ constexpr std::array<ParamSpec, kBaseParamCount> kParamSpecs {{
     { kCenterAzimuthParamId, "Center Azimuth", "Gesture", -180.0, 180.0, 0.0, false },
     { kPathTurnsParamId, "Path Turns", "Gesture", -4.0, 4.0, 1.0, false },
     { kElevationSpreadParamId, "Elevation Spread", "Gesture", 0.0, 70.0, 22.0, false },
-    { kSpatialSpreadParamId, "Spatial Spread", "Gesture", 0.0, 1.0, 0.78, false },
+    { kSpatialSpreadParamId, "Spatial Spread", "Gesture", 0.0, 1.0, 1.0, false },
     { kEdgeLeadParamId, "Edge Lead", "Gesture", -90.0, 90.0, 24.0, false },
     { kWakeAmountParamId, "Wake", "Gesture", 0.0, 1.0, 0.52, false },
     { kWakeTimeParamId, "Wake Time", "Gesture", 5.0, 240.0, 92.0, false },
@@ -111,6 +133,15 @@ constexpr std::array<ParamSpec, kBaseParamCount> kParamSpecs {{
     { kListenMemoryParamId, "Listener Memory", "Listener", 0.05, 4.0, 0.56, false },
     { kOutputParamId, "Output", "Output", -36.0, 6.0, -10.0, false },
     { kTransportSyncParamId, "Clock Source", "Line", 0.0, 1.0, 0.0, true },
+    { kScaleParamId, "Scale", "Line", 0.0,
+        static_cast<double>(s3g::kMusicalScaleCount - 1u), 0.0, true },
+    { kSubOctaveParamId, "Sub Octave", "Voice", -2.0, 0.0, -1.0, true },
+    { kSubLevelParamId, "Sub Level", "Voice", 0.0, 1.0, 0.0, false },
+    { kDriveCircuitParamId, "Drive Circuit", "Drive", 0.0,
+        static_cast<double>(s3g::kAmbiAcidDriveCircuitCount - 1u),
+        0.0, true },
+    { kDriveMixParamId, "Drive Mix", "Drive", 0.0, 1.0, 0.0, false },
+    { kOutputModeParamId, "Output Mode", "Output", 0.0, 1.0, 0.0, true },
 }};
 
 struct LegacySavedState {
@@ -120,12 +151,49 @@ struct LegacySavedState {
         s3g::kAmbiAcidChromeBurrowPattern;
 };
 
+struct SavedStateV2 {
+    uint32_t version = 2u;
+    s3g::AmbiAcidParams params {};
+    std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern =
+        s3g::kAmbiAcidChromeBurrowPattern;
+    uint32_t transportSync = 0u;
+};
+
+struct SavedStateV3 {
+    uint32_t version = 3u;
+    s3g::AmbiAcidParams params {};
+    std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern =
+        s3g::kAmbiAcidChromeBurrowPattern;
+    uint32_t transportSync = 0u;
+    std::array<s3g::AmbiAcidSpatialPoint, s3g::kAmbiAcidStepCount>
+        spatialPath = s3g::kAmbiAcidDefaultSpatialPath;
+};
+
+struct SavedStateV4 {
+    uint32_t version = 4u;
+    s3g::AmbiAcidParams params {};
+    std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern =
+        s3g::kAmbiAcidChromeBurrowPattern;
+    uint32_t transportSync = 0u;
+    std::array<s3g::AmbiAcidSpatialPoint, s3g::kAmbiAcidStepCount>
+        spatialPath = s3g::kAmbiAcidDefaultSpatialPath;
+    uint32_t scale = 0u;
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiAcidParams params {};
     std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern =
         s3g::kAmbiAcidChromeBurrowPattern;
     uint32_t transportSync = 0u;
+    std::array<s3g::AmbiAcidSpatialPoint, s3g::kAmbiAcidStepCount>
+        spatialPath = s3g::kAmbiAcidDefaultSpatialPath;
+    uint32_t scale = 0u;
+    int32_t subOctave = -1;
+    float subLevel = 0.0f;
+    uint32_t driveCircuit = 0u;
+    float driveMix = 0.0f;
+    uint32_t outputMode = 0u;
 };
 
 struct Plugin {
@@ -136,11 +204,23 @@ struct Plugin {
     s3g::AmbiAcidEncoder engine {};
     s3g::AmbiAcidParams params {};
     bool transportSync = false;
+    uint32_t scale = 0u;
+    int32_t subOctave = -1;
+    float subLevel = 0.0f;
+    s3g::AmbiAcidDriveCircuit driveCircuit =
+        s3g::AmbiAcidDriveCircuit::Classic;
+    float driveMix = 0.0f;
+    s3g::AmbiAcidOutputMode outputMode =
+        s3g::AmbiAcidOutputMode::Ambisonic;
+    std::array<uint16_t, 128u> heldMidiNotes {};
+    std::array<uint64_t, 128u> midiNoteOrder {};
+    uint64_t midiNoteCounter = 0u;
+    int32_t activeMidiNote = -1;
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<uint32_t> visualCurrentStep { 0u };
     std::atomic<float> visualActivity { 0.0f };
-    std::atomic<float> visualListenerActivity { 0.0f };
+    std::atomic<int32_t> visualMidiNote { -1 };
     std::atomic<float> visualDirectionX { 1.0f };
     std::atomic<float> visualDirectionY { 0.0f };
     std::atomic<float> visualDirectionZ { 0.0f };
@@ -171,16 +251,38 @@ bool decodeStepParam(clap_id id, uint32_t& step, StepParamKind& kind)
     return true;
 }
 
+bool decodeSpatialParam(clap_id id, uint32_t& step, SpatialParamKind& kind)
+{
+    if (id < kSpatialParamBase) return false;
+    const uint32_t relative = id - kSpatialParamBase;
+    step = relative / kSpatialParamStride;
+    const uint32_t kindValue = relative % kSpatialParamStride;
+    if (step >= s3g::kAmbiAcidStepCount
+        || kindValue > static_cast<uint32_t>(SpatialParamKind::Z)) {
+        return false;
+    }
+    kind = static_cast<SpatialParamKind>(kindValue);
+    return true;
+}
+
 uint32_t paramIndex(clap_id id)
 {
-    if (id >= kOrderParamId && id <= kTransportSyncParamId) {
+    if (id >= kOrderParamId && id <= kOutputModeParamId) {
         return id - kOrderParamId;
     }
     uint32_t step = 0u;
     StepParamKind kind = StepParamKind::Note;
-    if (!decodeStepParam(id, step, kind)) return kParamCount;
-    return kBaseParamCount + step * kStepParamStride
-        + static_cast<uint32_t>(kind);
+    if (decodeStepParam(id, step, kind)) {
+        return kBaseParamCount + step * kStepParamStride
+            + static_cast<uint32_t>(kind);
+    }
+    SpatialParamKind spatialKind = SpatialParamKind::X;
+    if (decodeSpatialParam(id, step, spatialKind)) {
+        return kBaseParamCount + kStepParamCount
+            + step * kSpatialParamStride
+            + static_cast<uint32_t>(spatialKind);
+    }
+    return kParamCount;
 }
 
 double clampParamValue(clap_id id, double value)
@@ -197,7 +299,7 @@ double clampParamValue(clap_id id, double value)
         maximum = spec.maximum;
         fallback = spec.defaultValue;
         stepped = spec.stepped;
-    } else {
+    } else if (index < kBaseParamCount + kStepParamCount) {
         const uint32_t relative = index - kBaseParamCount;
         const uint32_t step = relative / kStepParamStride;
         const auto kind = static_cast<StepParamKind>(
@@ -217,6 +319,17 @@ double clampParamValue(clap_id id, double value)
                     : (s3g::kAmbiAcidChromeBurrowPattern[step].slide
                         ? 1.0 : 0.0);
         }
+    } else {
+        const uint32_t relative = index - kBaseParamCount - kStepParamCount;
+        const uint32_t step = relative / kSpatialParamStride;
+        const auto kind = static_cast<SpatialParamKind>(
+            relative % kSpatialParamStride);
+        minimum = -1.0;
+        maximum = 1.0;
+        stepped = false;
+        const auto& point = s3g::kAmbiAcidDefaultSpatialPath[step];
+        fallback = kind == SpatialParamKind::X ? point.x
+            : kind == SpatialParamKind::Y ? point.y : point.z;
     }
     value = std::isfinite(value) ? value : fallback;
     value = std::clamp(value, minimum, maximum);
@@ -291,6 +404,19 @@ bool applyParam(Plugin& plugin, clap_id id, double value)
         publishParam(plugin, id, value);
         return false;
     }
+    uint32_t spatialStep = 0u;
+    SpatialParamKind spatialKind = SpatialParamKind::X;
+    if (decodeSpatialParam(id, spatialStep, spatialKind)) {
+        auto point = plugin.engine.spatialPoint(spatialStep);
+        switch (spatialKind) {
+        case SpatialParamKind::X: point.x = static_cast<float>(value); break;
+        case SpatialParamKind::Y: point.y = static_cast<float>(value); break;
+        case SpatialParamKind::Z: point.z = static_cast<float>(value); break;
+        }
+        plugin.engine.setSpatialPoint(spatialStep, point);
+        publishParam(plugin, id, rawParamValue(plugin, id));
+        return false;
+    }
 
     switch (id) {
     case kOrderParamId: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
@@ -323,6 +449,38 @@ bool applyParam(Plugin& plugin, clap_id id, double value)
     case kListenMemoryParamId: plugin.params.listenerMemorySeconds = static_cast<float>(value); break;
     case kOutputParamId: plugin.params.outputGainDb = static_cast<float>(value); break;
     case kTransportSyncParamId: plugin.transportSync = value >= 0.5; break;
+    case kScaleParamId:
+        plugin.scale = static_cast<uint32_t>(std::lround(value));
+        plugin.engine.setScale(plugin.scale);
+        plugin.scale = plugin.engine.scale();
+        break;
+    case kSubOctaveParamId:
+        plugin.subOctave = static_cast<int32_t>(std::lround(value));
+        plugin.engine.setSubOctave(plugin.subOctave);
+        plugin.subOctave = plugin.engine.subOctave();
+        break;
+    case kSubLevelParamId:
+        plugin.subLevel = static_cast<float>(value);
+        plugin.engine.setSubLevel(plugin.subLevel);
+        plugin.subLevel = plugin.engine.subLevel();
+        break;
+    case kDriveCircuitParamId:
+        plugin.driveCircuit = static_cast<s3g::AmbiAcidDriveCircuit>(
+            static_cast<uint32_t>(std::lround(value)));
+        plugin.engine.setDriveCircuit(plugin.driveCircuit);
+        plugin.driveCircuit = plugin.engine.driveCircuit();
+        break;
+    case kDriveMixParamId:
+        plugin.driveMix = static_cast<float>(value);
+        plugin.engine.setDriveMix(plugin.driveMix);
+        plugin.driveMix = plugin.engine.driveMix();
+        break;
+    case kOutputModeParamId:
+        plugin.outputMode = static_cast<s3g::AmbiAcidOutputMode>(
+            static_cast<uint32_t>(std::lround(value)));
+        plugin.engine.setOutputMode(plugin.outputMode);
+        plugin.outputMode = plugin.engine.outputMode();
+        break;
     default: return false;
     }
     publishParam(plugin, id, rawParamValue(plugin, id));
@@ -340,6 +498,16 @@ double rawParamValue(const Plugin& plugin, clap_id id)
         case StepParamKind::Gate: return step.gate ? 1.0 : 0.0;
         case StepParamKind::Accent: return step.accent ? 1.0 : 0.0;
         case StepParamKind::Slide: return step.slide ? 1.0 : 0.0;
+        }
+    }
+    uint32_t spatialStep = 0u;
+    SpatialParamKind spatialKind = SpatialParamKind::X;
+    if (decodeSpatialParam(id, spatialStep, spatialKind)) {
+        const auto point = plugin.engine.spatialPoint(spatialStep);
+        switch (spatialKind) {
+        case SpatialParamKind::X: return point.x;
+        case SpatialParamKind::Y: return point.y;
+        case SpatialParamKind::Z: return point.z;
         }
     }
     const auto& params = plugin.params;
@@ -371,6 +539,14 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kListenMemoryParamId: return params.listenerMemorySeconds;
     case kOutputParamId: return params.outputGainDb;
     case kTransportSyncParamId: return plugin.transportSync ? 1.0 : 0.0;
+    case kScaleParamId: return plugin.scale;
+    case kSubOctaveParamId: return plugin.subOctave;
+    case kSubLevelParamId: return plugin.subLevel;
+    case kDriveCircuitParamId:
+        return static_cast<uint32_t>(plugin.driveCircuit);
+    case kDriveMixParamId: return plugin.driveMix;
+    case kOutputModeParamId:
+        return static_cast<uint32_t>(plugin.outputMode);
     default: return 0.0;
     }
 }
@@ -383,6 +559,11 @@ void publishAllParams(Plugin& plugin)
     for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
         for (uint32_t kind = 0u; kind < kStepParamStride; ++kind) {
             const clap_id id = kStepParamBase + step * kStepParamStride + kind;
+            publishParam(plugin, id, rawParamValue(plugin, id));
+        }
+        for (uint32_t kind = 0u; kind < kSpatialParamStride; ++kind) {
+            const clap_id id = kSpatialParamBase
+                + step * kSpatialParamStride + kind;
             publishParam(plugin, id, rawParamValue(plugin, id));
         }
     }
@@ -475,6 +656,41 @@ bool queueGuiPattern(Plugin& plugin,
     return true;
 }
 
+bool queueGuiSpatialPath(Plugin& plugin,
+    const std::array<s3g::AmbiAcidSpatialPoint,
+        s3g::kAmbiAcidStepCount>& path)
+{
+    constexpr uint32_t eventsPerParam = 3u;
+    constexpr uint32_t pathParamCount =
+        s3g::kAmbiAcidStepCount * kSpatialParamStride;
+    std::array<s3g::clap_gui::ParamEvent,
+        pathParamCount * eventsPerParam> events {};
+    uint32_t eventIndex = 0u;
+    const auto append = [&](clap_id id, double value) {
+        value = clampParamValue(id, value);
+        events[eventIndex++] = {
+            s3g::clap_gui::ParamEventKind::GestureBegin, id, 0.0 };
+        events[eventIndex++] = {
+            s3g::clap_gui::ParamEventKind::Value, id, value };
+        events[eventIndex++] = {
+            s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 };
+        publishParam(plugin, id, value);
+    };
+    for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
+        const clap_id base = kSpatialParamBase
+            + step * kSpatialParamStride;
+        append(base, path[step].x);
+        append(base + 1u, path[step].y);
+        append(base + 2u, path[step].z);
+    }
+    if (!plugin.guiParamEvents.pushBatch(events.data(), eventIndex)) {
+        publishAllParams(plugin);
+        return false;
+    }
+    requestGuiParamService(plugin);
+    return true;
+}
+
 bool pushGuiParamEvent(const clap_output_events_t* output,
     const s3g::clap_gui::ParamEvent& pending)
 {
@@ -543,6 +759,12 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     auto* p = self(plugin);
     p->sampleRate = sampleRate;
     p->engine.prepare(sampleRate);
+    p->engine.setScale(p->scale);
+    p->engine.setSubOctave(p->subOctave);
+    p->engine.setSubLevel(p->subLevel);
+    p->engine.setDriveCircuit(p->driveCircuit);
+    p->engine.setDriveMix(p->driveMix);
+    p->engine.setOutputMode(p->outputMode);
     p->engine.setParams(p->params);
     p->params = p->engine.params();
     publishAllParams(*p);
@@ -556,10 +778,110 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
+    p->heldMidiNotes.fill(0u);
+    p->midiNoteOrder.fill(0u);
+    p->midiNoteCounter = 0u;
+    p->activeMidiNote = -1;
+    p->engine.clearPerformanceRoot();
     p->engine.reset();
     p->visualCurrentStep.store(0u, std::memory_order_relaxed);
     p->visualActivity.store(0.0f, std::memory_order_relaxed);
-    p->visualListenerActivity.store(0.0f, std::memory_order_relaxed);
+    p->visualMidiNote.store(-1, std::memory_order_relaxed);
+}
+
+int32_t newestHeldMidiNote(const Plugin& plugin)
+{
+    int32_t selected = -1;
+    uint64_t newest = 0u;
+    for (uint32_t key = 0u; key < plugin.heldMidiNotes.size(); ++key) {
+        if (plugin.heldMidiNotes[key] > 0u
+            && plugin.midiNoteOrder[key] >= newest) {
+            selected = static_cast<int32_t>(key);
+            newest = plugin.midiNoteOrder[key];
+        }
+    }
+    return selected;
+}
+
+void midiNoteOn(Plugin& plugin, int32_t key)
+{
+    if (key < 0 || key > 127) return;
+    const bool hadHeldNote = plugin.activeMidiNote >= 0;
+    const uint32_t index = static_cast<uint32_t>(key);
+    if (plugin.heldMidiNotes[index]
+        < std::numeric_limits<uint16_t>::max()) {
+        ++plugin.heldMidiNotes[index];
+    }
+    plugin.midiNoteOrder[index] = ++plugin.midiNoteCounter;
+    plugin.activeMidiNote = key;
+    plugin.engine.setPerformanceRoot(key);
+    if (!hadHeldNote && !plugin.transportSync) {
+        plugin.engine.restartSequence();
+    }
+    plugin.visualMidiNote.store(key, std::memory_order_relaxed);
+}
+
+void midiNoteOff(Plugin& plugin, int32_t key)
+{
+    if (key < 0 || key > 127) return;
+    const uint32_t index = static_cast<uint32_t>(key);
+    if (plugin.heldMidiNotes[index] > 0u) {
+        --plugin.heldMidiNotes[index];
+    }
+    if (plugin.heldMidiNotes[index] == 0u) {
+        plugin.midiNoteOrder[index] = 0u;
+    }
+    if (plugin.activeMidiNote != key
+        || plugin.heldMidiNotes[index] > 0u) return;
+    plugin.activeMidiNote = newestHeldMidiNote(plugin);
+    if (plugin.activeMidiNote >= 0) {
+        plugin.engine.setPerformanceRoot(plugin.activeMidiNote);
+    } else {
+        plugin.engine.clearPerformanceRoot();
+    }
+    plugin.visualMidiNote.store(
+        plugin.activeMidiNote, std::memory_order_relaxed);
+}
+
+void midiAllNotesOff(Plugin& plugin)
+{
+    plugin.heldMidiNotes.fill(0u);
+    plugin.midiNoteOrder.fill(0u);
+    plugin.activeMidiNote = -1;
+    plugin.engine.clearPerformanceRoot();
+    plugin.visualMidiNote.store(-1, std::memory_order_relaxed);
+}
+
+bool handleMidiEvent(Plugin& plugin, const clap_event_header_t* event)
+{
+    if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) return false;
+    if ((event->type == CLAP_EVENT_NOTE_ON
+            || event->type == CLAP_EVENT_NOTE_OFF
+            || event->type == CLAP_EVENT_NOTE_CHOKE
+            || event->type == CLAP_EVENT_NOTE_END)
+        && event->size >= sizeof(clap_event_note_t)) {
+        const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0) {
+            midiNoteOn(plugin, note->key);
+        } else {
+            midiNoteOff(plugin, note->key);
+        }
+        return true;
+    }
+    if (event->type != CLAP_EVENT_MIDI
+        || event->size < sizeof(clap_event_midi_t)) return false;
+    const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
+    const uint8_t status = midi->data[0] & 0xf0u;
+    const int32_t key = midi->data[1] & 0x7fu;
+    const uint8_t velocity = midi->data[2] & 0x7fu;
+    if (status == 0x90u && velocity > 0u) midiNoteOn(plugin, key);
+    else if (status == 0x80u || (status == 0x90u && velocity == 0u)) {
+        midiNoteOff(plugin, key);
+    } else if (status == 0xb0u
+        && (midi->data[1] == 120u || midi->data[1] == 123u)) {
+        midiAllNotesOff(plugin);
+    }
+    return true;
 }
 
 struct TransportClock {
@@ -653,6 +975,8 @@ clap_process_status process(const clap_plugin_t* plugin,
                 updateTransportClock(transportClock,
                     reinterpret_cast<const clap_event_transport_t*>(event),
                     p->params.tempoBpm);
+            } else {
+                (void)handleMidiEvent(*p, event);
             }
             ++eventIndex;
         }
@@ -682,8 +1006,6 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->engine.currentStep(), std::memory_order_relaxed);
     p->visualActivity.store(
         p->engine.activity(), std::memory_order_relaxed);
-    p->visualListenerActivity.store(
-        p->engine.fieldListenActivity(), std::memory_order_relaxed);
     p->visualDirectionX.store(direction.x, std::memory_order_relaxed);
     p->visualDirectionY.store(direction.y, std::memory_order_relaxed);
     p->visualDirectionZ.store(direction.z, std::memory_order_relaxed);
@@ -706,7 +1028,8 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     if (!info || isInput || index != 0u) return false;
     *info = {};
     info->id = 20u;
-    std::strncpy(info->name, "3OA ACN/SN3D Out", sizeof(info->name) - 1u);
+    std::strncpy(info->name, "3OA / Dual Mono 1+2 Out",
+        sizeof(info->name) - 1u);
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kOutputChannels;
     info->port_type = CLAP_PORT_AMBISONIC;
@@ -717,6 +1040,30 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
 const clap_plugin_audio_ports_t audioPorts {
     audioPortsCount,
     audioPortsGet,
+};
+
+uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
+{
+    return isInput ? 1u : 0u;
+}
+
+bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
+    clap_note_port_info_t* info)
+{
+    if (!info || !isInput || index != 0u) return false;
+    *info = {};
+    info->id = 30u;
+    info->supported_dialects =
+        CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+    std::strncpy(info->name, "Sequence Transpose In",
+        sizeof(info->name) - 1u);
+    return true;
+}
+
+const clap_plugin_note_ports_t notePorts {
+    notePortsCount,
+    notePortsGet,
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return kParamCount; }
@@ -731,6 +1078,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         info->id = spec.id;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE
             | (spec.stepped ? CLAP_PARAM_IS_STEPPED : 0u);
+        if (spec.id == kListenModeParamId
+            || spec.id == kListenAmountParamId
+            || spec.id == kListenMemoryParamId) {
+            info->flags |= CLAP_PARAM_IS_HIDDEN;
+        }
         std::strncpy(info->name, spec.name, sizeof(info->name) - 1u);
         std::strncpy(info->module, spec.module, sizeof(info->module) - 1u);
         info->min_value = spec.minimum;
@@ -739,44 +1091,67 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         return true;
     }
 
-    const uint32_t relative = index - kBaseParamCount;
-    const uint32_t step = relative / kStepParamStride;
-    const auto kind = static_cast<StepParamKind>(relative % kStepParamStride);
-    info->id = kStepParamBase + step * kStepParamStride
-        + static_cast<uint32_t>(kind);
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
-    std::snprintf(info->module, sizeof(info->module),
-        "Pattern/Step %02u", step + 1u);
-    switch (kind) {
-    case StepParamKind::Note:
-        std::strncpy(info->name, "Note Offset", sizeof(info->name) - 1u);
-        info->min_value = -36.0;
-        info->max_value = 36.0;
-        info->default_value =
-            s3g::kAmbiAcidChromeBurrowPattern[step].semitoneOffset;
-        break;
-    case StepParamKind::Gate:
-        std::strncpy(info->name, "Gate", sizeof(info->name) - 1u);
-        info->min_value = 0.0;
-        info->max_value = 1.0;
-        info->default_value =
-            s3g::kAmbiAcidChromeBurrowPattern[step].gate ? 1.0 : 0.0;
-        break;
-    case StepParamKind::Accent:
-        std::strncpy(info->name, "Accent", sizeof(info->name) - 1u);
-        info->min_value = 0.0;
-        info->max_value = 1.0;
-        info->default_value =
-            s3g::kAmbiAcidChromeBurrowPattern[step].accent ? 1.0 : 0.0;
-        break;
-    case StepParamKind::Slide:
-        std::strncpy(info->name, "Slide", sizeof(info->name) - 1u);
-        info->min_value = 0.0;
-        info->max_value = 1.0;
-        info->default_value =
-            s3g::kAmbiAcidChromeBurrowPattern[step].slide ? 1.0 : 0.0;
-        break;
+    if (index < kBaseParamCount + kStepParamCount) {
+        const uint32_t relative = index - kBaseParamCount;
+        const uint32_t step = relative / kStepParamStride;
+        const auto kind = static_cast<StepParamKind>(
+            relative % kStepParamStride);
+        info->id = kStepParamBase + step * kStepParamStride
+            + static_cast<uint32_t>(kind);
+        info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
+        std::snprintf(info->module, sizeof(info->module),
+            "Pattern/Step %02u", step + 1u);
+        switch (kind) {
+        case StepParamKind::Note:
+            std::strncpy(info->name, "Note Offset", sizeof(info->name) - 1u);
+            info->min_value = -36.0;
+            info->max_value = 36.0;
+            info->default_value =
+                s3g::kAmbiAcidChromeBurrowPattern[step].semitoneOffset;
+            break;
+        case StepParamKind::Gate:
+            std::strncpy(info->name, "Gate", sizeof(info->name) - 1u);
+            info->min_value = 0.0;
+            info->max_value = 1.0;
+            info->default_value =
+                s3g::kAmbiAcidChromeBurrowPattern[step].gate ? 1.0 : 0.0;
+            break;
+        case StepParamKind::Accent:
+            std::strncpy(info->name, "Accent", sizeof(info->name) - 1u);
+            info->min_value = 0.0;
+            info->max_value = 1.0;
+            info->default_value =
+                s3g::kAmbiAcidChromeBurrowPattern[step].accent ? 1.0 : 0.0;
+            break;
+        case StepParamKind::Slide:
+            std::strncpy(info->name, "Slide", sizeof(info->name) - 1u);
+            info->min_value = 0.0;
+            info->max_value = 1.0;
+            info->default_value =
+                s3g::kAmbiAcidChromeBurrowPattern[step].slide ? 1.0 : 0.0;
+            break;
+        }
+        return true;
     }
+
+    const uint32_t relative = index - kBaseParamCount - kStepParamCount;
+    const uint32_t step = relative / kSpatialParamStride;
+    const auto kind = static_cast<SpatialParamKind>(
+        relative % kSpatialParamStride);
+    info->id = kSpatialParamBase + step * kSpatialParamStride
+        + static_cast<uint32_t>(kind);
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+    std::snprintf(info->module, sizeof(info->module),
+        "Spatial Path/Step %02u", step + 1u);
+    std::strncpy(info->name,
+        kind == SpatialParamKind::X ? "Path X"
+            : kind == SpatialParamKind::Y ? "Path Y" : "Path Height",
+        sizeof(info->name) - 1u);
+    info->min_value = -1.0;
+    info->max_value = 1.0;
+    const auto& point = s3g::kAmbiAcidDefaultSpatialPath[step];
+    info->default_value = kind == SpatialParamKind::X ? point.x
+        : kind == SpatialParamKind::Y ? point.y : point.z;
     return true;
 }
 
@@ -787,6 +1162,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     uint32_t step = 0u;
     StepParamKind kind = StepParamKind::Note;
     known = known || decodeStepParam(id, step, kind);
+    SpatialParamKind spatialKind = SpatialParamKind::X;
+    known = known || decodeSpatialParam(id, step, spatialKind);
     if (!known) return false;
     *value = paramValue(*self(plugin), id);
     return true;
@@ -804,6 +1181,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         } else {
             std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off");
         }
+        return true;
+    }
+    SpatialParamKind spatialKind = SpatialParamKind::X;
+    if (decodeSpatialParam(id, step, spatialKind)) {
+        std::snprintf(display, size, "%+.3f", value);
         return true;
     }
     if (id == kOrderParamId) {
@@ -827,6 +1209,25 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (id == kTransportSyncParamId) {
         std::snprintf(display, size, "%s",
             value >= 0.5 ? "Host" : "Internal");
+    } else if (id == kScaleParamId) {
+        const uint32_t scale = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u,
+            s3g::kMusicalScaleCount - 1u);
+        std::snprintf(display, size, "%s",
+            s3g::musicalScaleDefinition(scale).name);
+    } else if (id == kSubOctaveParamId) {
+        std::snprintf(display, size, "%+.0f OCT", value);
+    } else if (id == kSubLevelParamId || id == kDriveMixParamId) {
+        std::snprintf(display, size, "%.0f%%", value * 100.0);
+    } else if (id == kDriveCircuitParamId) {
+        const uint32_t circuit = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u,
+            s3g::kAmbiAcidDriveCircuitCount - 1u);
+        std::snprintf(display, size, "%s", s3g::ambiAcidDriveCircuitName(
+            static_cast<s3g::AmbiAcidDriveCircuit>(circuit)));
+    } else if (id == kOutputModeParamId) {
+        std::snprintf(display, size, "%s",
+            value >= 0.5 ? "DUAL MONO 1+2" : "AMBISONIC");
     } else if (id == kCutoffParamId) {
         std::snprintf(display, size, "%.0f Hz", value);
     } else if (id == kFilterDecayParamId || id == kSlideParamId
@@ -894,6 +1295,37 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         else *value = std::atof(display);
         return true;
     }
+    if (id == kScaleParamId) {
+        uint32_t scale = 0u;
+        if (s3g::musicalScaleValueFromText(display, scale)) {
+            *value = scale;
+            return true;
+        }
+        *value = std::atof(display);
+        return true;
+    }
+    if (id == kDriveCircuitParamId) {
+        for (uint32_t circuit = 0u;
+             circuit < s3g::kAmbiAcidDriveCircuitCount; ++circuit) {
+            if (std::strcmp(display, s3g::ambiAcidDriveCircuitName(
+                    static_cast<s3g::AmbiAcidDriveCircuit>(circuit))) == 0) {
+                *value = circuit;
+                return true;
+            }
+        }
+        *value = std::atof(display);
+        return true;
+    }
+    if (id == kOutputModeParamId) {
+        if (std::strcmp(display, "AMBISONIC") == 0) *value = 0.0;
+        else if (std::strcmp(display, "DUAL MONO 1+2") == 0) *value = 1.0;
+        else *value = std::atof(display);
+        return true;
+    }
+    if (id == kSubLevelParamId || id == kDriveMixParamId) {
+        *value = std::atof(display) * 0.01;
+        return true;
+    }
     uint32_t step = 0u;
     StepParamKind kind = StepParamKind::Note;
     if (decodeStepParam(id, step, kind) && kind != StepParamKind::Note) {
@@ -902,8 +1334,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         else *value = std::atof(display);
         return true;
     }
+    SpatialParamKind spatialKind = SpatialParamKind::X;
     if (!(id >= 1u && id <= kBaseParamCount)
-        && !decodeStepParam(id, step, kind)) {
+        && !decodeStepParam(id, step, kind)
+        && !decodeSpatialParam(id, step, spatialKind)) {
         return false;
     }
     *value = std::atof(display);
@@ -952,6 +1386,13 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         p->params,
         p->engine.pattern(),
         p->transportSync ? 1u : 0u,
+        p->engine.spatialPath(),
+        p->scale,
+        p->subOctave,
+        p->subLevel,
+        static_cast<uint32_t>(p->driveCircuit),
+        p->driveMix,
+        static_cast<uint32_t>(p->outputMode),
     };
     return writeExact(stream, &state, sizeof(state));
 }
@@ -963,7 +1404,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!readExact(stream, &version, sizeof(version))) return false;
     s3g::AmbiAcidParams savedParams {};
     std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> savedPattern {};
+    std::array<s3g::AmbiAcidSpatialPoint, s3g::kAmbiAcidStepCount>
+        savedSpatialPath = s3g::kAmbiAcidDefaultSpatialPath;
     bool savedTransportSync = false;
+    uint32_t savedScale = 0u;
+    int32_t savedSubOctave = -1;
+    float savedSubLevel = 0.0f;
+    uint32_t savedDriveCircuit = 0u;
+    float savedDriveMix = 0.0f;
+    uint32_t savedOutputMode = 0u;
     if (version == 1u) {
         LegacySavedState saved {};
         saved.version = version;
@@ -972,6 +1421,36 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(saved) - sizeof(version))) return false;
         savedParams = saved.params;
         savedPattern = saved.pattern;
+    } else if (version == 2u) {
+        SavedStateV2 saved {};
+        saved.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        savedParams = saved.params;
+        savedPattern = saved.pattern;
+        savedTransportSync = saved.transportSync != 0u;
+    } else if (version == 3u) {
+        SavedStateV3 saved {};
+        saved.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        savedParams = saved.params;
+        savedPattern = saved.pattern;
+        savedTransportSync = saved.transportSync != 0u;
+        savedSpatialPath = saved.spatialPath;
+    } else if (version == 4u) {
+        SavedStateV4 saved {};
+        saved.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        savedParams = saved.params;
+        savedPattern = saved.pattern;
+        savedTransportSync = saved.transportSync != 0u;
+        savedSpatialPath = saved.spatialPath;
+        savedScale = saved.scale;
     } else if (version == kStateVersion) {
         SavedState saved {};
         saved.version = version;
@@ -981,14 +1460,37 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         savedParams = saved.params;
         savedPattern = saved.pattern;
         savedTransportSync = saved.transportSync != 0u;
+        savedSpatialPath = saved.spatialPath;
+        savedScale = saved.scale;
+        savedSubOctave = saved.subOctave;
+        savedSubLevel = saved.subLevel;
+        savedDriveCircuit = saved.driveCircuit;
+        savedDriveMix = saved.driveMix;
+        savedOutputMode = saved.outputMode;
     } else {
         return false;
     }
     auto* p = self(plugin);
     p->engine.setPattern(savedPattern);
+    p->engine.setSpatialPath(savedSpatialPath);
+    p->engine.setScale(savedScale);
+    p->engine.setSubOctave(savedSubOctave);
+    p->engine.setSubLevel(savedSubLevel);
+    p->engine.setDriveCircuit(static_cast<s3g::AmbiAcidDriveCircuit>(
+        savedDriveCircuit));
+    p->engine.setDriveMix(savedDriveMix);
+    p->engine.setOutputMode(static_cast<s3g::AmbiAcidOutputMode>(
+        savedOutputMode));
     p->engine.setParams(savedParams);
     p->params = p->engine.params();
     p->transportSync = savedTransportSync;
+    p->scale = p->engine.scale();
+    p->subOctave = p->engine.subOctave();
+    p->subLevel = p->engine.subLevel();
+    p->driveCircuit = p->engine.driveCircuit();
+    p->driveMix = p->engine.driveMix();
+    p->outputMode = p->engine.outputMode();
+    midiAllNotesOff(*p);
     publishAllParams(*p);
     return true;
 }
@@ -1000,11 +1502,14 @@ const clap_plugin_state_t state {
 
 #if defined(__APPLE__)
 
+// GUI-only aggregate that maps the stable Order and Output Mode parameters to
+// the same FORMAT menu used by the Membrane Kick family member.
+constexpr clap_id kFormatMenuId = 0x7ffffff0u;
+
 struct AcidUiRow {
     clap_id id;
     const char* label;
-    CGFloat panelX;
-    CGFloat panelWidth;
+    uint32_t page;
     CGFloat y;
 };
 
@@ -1016,37 +1521,49 @@ constexpr CGFloat kStepStartX = 24.0;
 constexpr CGFloat kStepPitch = 54.5;
 constexpr CGFloat kStepWidth = 51.5;
 
-constexpr std::array<AcidUiRow, kBaseParamCount> kUiRows {{
-    { kTempoParamId, "TEMPO", 16.0, 286.0, 300.0 },
-    { kTransportSyncParamId, "CLOCK", 16.0, 286.0, 331.0 },
-    { kDivisionParamId, "DIVIDE", 16.0, 286.0, 362.0 },
-    { kLengthParamId, "LENGTH", 16.0, 286.0, 393.0 },
-    { kRootParamId, "ROOT", 16.0, 286.0, 424.0 },
-    { kGateLengthParamId, "GATE", 16.0, 286.0, 455.0 },
-    { kOrderParamId, "ORDER", 16.0, 286.0, 486.0 },
-    { kOutputParamId, "OUTPUT", 16.0, 286.0, 517.0 },
+// The three retired listener parameters stay hidden. Order and output mode are
+// represented by one persistent FORMAT menu, and output level is persistent.
+constexpr uint32_t kVisibleParamCount = kBaseParamCount - 6u;
+constexpr std::array<AcidUiRow, kVisibleParamCount> kUiRows {{
+    { kTempoParamId, "TEMPO", 0u, 304.0 },
+    { kTransportSyncParamId, "CLOCK", 0u, 337.0 },
+    { kDivisionParamId, "DIVIDE", 0u, 370.0 },
+    { kLengthParamId, "LENGTH", 0u, 403.0 },
+    { kRootParamId, "ROOT", 0u, 436.0 },
+    { kScaleParamId, "SCALE", 0u, 469.0 },
+    { kGateLengthParamId, "GATE", 0u, 502.0 },
 
-    { kWaveParamId, "WAVE", 309.0, 286.0, 302.0 },
-    { kPulseWidthParamId, "PULSE", 309.0, 286.0, 329.0 },
-    { kCutoffParamId, "CUTOFF", 309.0, 286.0, 356.0 },
-    { kResonanceParamId, "RESO", 309.0, 286.0, 383.0 },
-    { kFilterEnvelopeParamId, "ENV", 309.0, 286.0, 410.0 },
-    { kFilterDecayParamId, "DECAY", 309.0, 286.0, 437.0 },
-    { kAccentParamId, "ACCENT", 309.0, 286.0, 464.0 },
-    { kDriveParamId, "DRIVE", 309.0, 286.0, 491.0 },
-    { kSlideParamId, "SLIDE", 309.0, 286.0, 518.0 },
+    { kWaveParamId, "WAVE", 1u, 304.0 },
+    { kPulseWidthParamId, "PULSE", 1u, 337.0 },
+    { kSubOctaveParamId, "SUB OCT", 1u, 370.0 },
+    { kSubLevelParamId, "SUB LEVEL", 1u, 403.0 },
+    { kSlideParamId, "SLIDE", 1u, 436.0 },
 
-    { kCenterAzimuthParamId, "AZIM", 602.0, 302.0, 300.0 },
-    { kPathTurnsParamId, "TURNS", 602.0, 302.0, 324.0 },
-    { kElevationSpreadParamId, "ELEV", 602.0, 302.0, 348.0 },
-    { kSpatialSpreadParamId, "SPREAD", 602.0, 302.0, 372.0 },
-    { kEdgeLeadParamId, "EDGE", 602.0, 302.0, 396.0 },
-    { kWakeAmountParamId, "WAKE", 602.0, 302.0, 420.0 },
-    { kWakeTimeParamId, "WAKE T", 602.0, 302.0, 444.0 },
-    { kListenModeParamId, "LISTEN", 602.0, 302.0, 468.0 },
-    { kListenAmountParamId, "AMOUNT", 602.0, 302.0, 492.0 },
-    { kListenMemoryParamId, "MEMORY", 602.0, 302.0, 516.0 },
+    { kCutoffParamId, "CUTOFF", 2u, 304.0 },
+    { kResonanceParamId, "RESO", 2u, 332.0 },
+    { kFilterEnvelopeParamId, "ENV", 2u, 360.0 },
+    { kFilterDecayParamId, "DECAY", 2u, 388.0 },
+    { kAccentParamId, "ACCENT", 2u, 416.0 },
+    { kDriveParamId, "DRIVE", 2u, 444.0 },
+    { kDriveCircuitParamId, "CIRCUIT", 2u, 472.0 },
+    { kDriveMixParamId, "DRY/WET", 2u, 500.0 },
+
+    { kCenterAzimuthParamId, "AZIM", 3u, 304.0 },
+    { kPathTurnsParamId, "TURNS", 3u, 337.0 },
+    { kElevationSpreadParamId, "ELEV", 3u, 370.0 },
+    { kSpatialSpreadParamId, "SPREAD", 3u, 403.0 },
+    { kEdgeLeadParamId, "EDGE", 3u, 436.0 },
+    { kWakeAmountParamId, "WAKE", 3u, 469.0 },
+    { kWakeTimeParamId, "WAKE T", 3u, 502.0 },
 }};
+
+constexpr AcidUiRow kFormatRow {
+    kFormatMenuId, "FORMAT", 4u, 535.0
+};
+
+constexpr AcidUiRow kOutputLevelRow {
+    kOutputParamId, "OUT LEVEL", 4u, 568.0
+};
 
 NSRect stepCellRect(uint32_t step)
 {
@@ -1070,9 +1587,48 @@ NSRect stepToggleRect(uint32_t step, StepParamKind kind)
         226.0, width - 1.0, 16.0);
 }
 
+NSRect controlPageButtonRect(uint32_t page)
+{
+    return NSMakeRect(106.0 + page * 48.0, 272.0, 44.0, 14.0);
+}
+
+NSRect spatialPathFieldRect(uint32_t view)
+{
+    return NSMakeRect(view == 0u ? 319.0 : 613.0,
+        302.0, 282.0, 282.0);
+}
+
+NSRect spatialPathButtonRect(uint32_t button)
+{
+    return NSMakeRect(730.0 + button * 82.0, 272.0, 76.0, 14.0);
+}
+
+NSPoint spatialPointScreenPosition(const Plugin& plugin,
+    uint32_t step, NSRect rect, uint32_t view)
+{
+    const clap_id base = kSpatialParamBase + step * kSpatialParamStride;
+    const CGFloat scale = std::min(rect.size.width, rect.size.height) * 0.42;
+    const CGFloat x = static_cast<CGFloat>(paramValue(plugin, base));
+    const CGFloat y = static_cast<CGFloat>(paramValue(plugin, base + 1u));
+    const CGFloat z = static_cast<CGFloat>(paramValue(plugin, base + 2u));
+    if (view == 0u) {
+        // Top view: +X/front is up, +Y/listener-left is screen-left.
+        return NSMakePoint(NSMidX(rect) - y * scale,
+            NSMidY(rect) - x * scale);
+    }
+    // Side view: front travels right and height travels up.
+    return NSMakePoint(NSMidX(rect) + x * scale,
+        NSMidY(rect) - z * scale);
+}
+
+uint32_t controlPageForRow(const AcidUiRow& row)
+{
+    return row.page;
+}
+
 const ParamSpec* paramSpec(clap_id id)
 {
-    if (id < kOrderParamId || id > kTransportSyncParamId) return nullptr;
+    if (id < kOrderParamId || id > kOutputModeParamId) return nullptr;
     return &kParamSpecs[id - kOrderParamId];
 }
 
@@ -1142,6 +1698,116 @@ NSRect patternPresetMenuRect()
         18.0 * s3g::kAmbiAcidPatternPresets.size());
 }
 
+constexpr CGFloat kScaleMenuItemHeight = 18.0;
+constexpr uint32_t kScaleMenuColumns = 4u;
+
+NSRect musicalScaleMenuRect()
+{
+    const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+        s3g::kMusicalScaleCount, kScaleMenuColumns);
+    return NSMakeRect(124.0, 1.0, 720.0,
+        kScaleMenuItemHeight * static_cast<CGFloat>(rows));
+}
+
+NSString* const* musicalScaleMenuItems()
+{
+    static const std::array<NSString*, s3g::kMusicalScaleCount> items = [] {
+        std::array<NSString*, s3g::kMusicalScaleCount> result {};
+        for (uint32_t index = 0u; index < result.size(); ++index) {
+            const uint32_t scale =
+                s3g::musicalScaleValueForMenuIndex(index);
+            result[index] = [[NSString alloc] initWithUTF8String:
+                s3g::musicalScaleDefinition(scale).name];
+        }
+        return result;
+    }();
+    return items.data();
+}
+
+bool discreteUiMenuParam(clap_id id)
+{
+    return id == kTransportSyncParamId || id == kDivisionParamId
+        || id == kSubOctaveParamId || id == kDriveCircuitParamId;
+}
+
+uint32_t discreteUiMenuItemCount(clap_id id)
+{
+    if (id == kFormatMenuId) return 4u;
+    if (id == kTransportSyncParamId) return 2u;
+    if (id == kSubOctaveParamId) return 3u;
+    if (id == kDivisionParamId) return 8u;
+    if (id == kDriveCircuitParamId)
+        return s3g::kAmbiAcidDriveCircuitCount;
+    return 0u;
+}
+
+double discreteUiMenuValue(clap_id id, uint32_t index)
+{
+    if (id == kDivisionParamId) return index + 1u;
+    if (id == kSubOctaveParamId) return static_cast<int32_t>(index) - 2;
+    return index;
+}
+
+int discreteUiMenuSelectedIndex(clap_id id, double value)
+{
+    const int rounded = static_cast<int>(std::lround(value));
+    if (id == kDivisionParamId) return rounded - 1;
+    if (id == kSubOctaveParamId) return rounded + 2;
+    return rounded;
+}
+
+NSString* discreteUiMenuItem(clap_id id, uint32_t index)
+{
+    if (id == kFormatMenuId) {
+        static NSString* const items[] {
+            @"1OA / 4CH", @"2OA / 9CH", @"3OA / 16CH", @"MONO 1+2"
+        };
+        return items[std::min<uint32_t>(index, 3u)];
+    }
+    if (id == kTransportSyncParamId) return index == 0u ? @"INT" : @"HOST";
+    if (id == kDivisionParamId)
+        return [NSString stringWithFormat:@"%u", index + 1u];
+    if (id == kSubOctaveParamId)
+        return [NSString stringWithFormat:@"%+d OCT",
+            static_cast<int>(index) - 2];
+    if (id == kDriveCircuitParamId) {
+        return [NSString stringWithUTF8String:s3g::ambiAcidDriveCircuitName(
+            static_cast<s3g::AmbiAcidDriveCircuit>(index))];
+    }
+    return @"";
+}
+
+int formatMenuSelectedIndex(const Plugin& plugin)
+{
+    if (paramValue(plugin, kOutputModeParamId) >= 0.5) return 3;
+    return std::clamp(static_cast<int>(std::lround(
+        paramValue(plugin, kOrderParamId))) - 1, 0, 2);
+}
+
+NSString* formatMenuSelectedText(const Plugin& plugin)
+{
+    const int index = formatMenuSelectedIndex(plugin);
+    return index == 3
+        ? @"MONO 1+2"
+        : [NSString stringWithFormat:@"%dOA", index + 1];
+}
+
+CGFloat discreteUiMenuRowY(clap_id id)
+{
+    if (id == kFormatMenuId) return kFormatRow.y;
+    for (const auto& row : kUiRows) {
+        if (row.id == id) return row.y;
+    }
+    return 0.0;
+}
+
+NSRect discreteUiMenuRect(clap_id id)
+{
+    const CGFloat height = 18.0 * discreteUiMenuItemCount(id);
+    return NSMakeRect(124.0, discreteUiMenuRowY(id) - height,
+        156.0, height);
+}
+
 int publishedPatternPresetIndex(const Plugin& plugin)
 {
     for (uint32_t preset = 0u;
@@ -1169,10 +1835,16 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     void* _plugin;
     int _dragParam;
     int _dragStep;
+    NSInteger _dragSpatialView;
+    NSInteger _controlPage;
     NSInteger _selectedStep;
     int _presetIndex;
     BOOL _presetMenuOpen;
     int _presetHover;
+    BOOL _scaleMenuOpen;
+    int _scaleMenuHover;
+    clap_id _parameterMenuId;
+    int _parameterMenuHover;
     char _patternName[64];
     char _titlePresetName[64];
     NSTimer* _timer;
@@ -1181,14 +1853,22 @@ int publishedPatternPresetIndex(const Plugin& plugin)
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (NSInteger)selectedStep;
+- (NSInteger)controlPage;
 - (int)presetIndex;
 - (BOOL)presetMenuOpen;
+- (BOOL)scaleMenuOpen;
+- (BOOL)circuitMenuOpen;
+- (BOOL)parameterMenuOpen;
+- (clap_id)parameterMenuId;
 - (void)applyPatternPreset:(int)index;
 - (void)randomizePattern;
+- (void)randomizeSpatialPath;
+- (void)resetSpatialPath;
 - (void)markCustomPattern;
 - (void)markCustomState;
 - (void)updateDraggedParam:(NSPoint)point;
 - (void)updateDraggedNote:(NSPoint)point;
+- (void)updateDraggedSpatialPoint:(NSPoint)point;
 @end
 
 @implementation S3GAmbiAcidEncoderView
@@ -1201,11 +1881,17 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         _plugin = plugin;
         _dragParam = -1;
         _dragStep = -1;
+        _dragSpatialView = -1;
+        _controlPage = 0;
         _selectedStep = 0;
         _presetIndex = publishedPatternPresetIndex(
             *static_cast<Plugin*>(plugin));
         _presetMenuOpen = NO;
         _presetHover = -1;
+        _scaleMenuOpen = NO;
+        _scaleMenuHover = -1;
+        _parameterMenuId = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
         std::snprintf(_patternName, sizeof(_patternName), "%s",
             _presetIndex >= 0
                 ? s3g::kAmbiAcidPatternPresets[
@@ -1224,8 +1910,15 @@ int publishedPatternPresetIndex(const Plugin& plugin)
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (NSInteger)selectedStep { return _selectedStep; }
+- (NSInteger)controlPage { return _controlPage; }
 - (int)presetIndex { return _presetIndex; }
 - (BOOL)presetMenuOpen { return _presetMenuOpen; }
+- (BOOL)scaleMenuOpen { return _scaleMenuOpen; }
+- (BOOL)circuitMenuOpen {
+    return _parameterMenuId == kDriveCircuitParamId;
+}
+- (BOOL)parameterMenuOpen { return _parameterMenuId != CLAP_INVALID_ID; }
+- (clap_id)parameterMenuId { return _parameterMenuId; }
 
 - (void)markCustomPattern
 {
@@ -1251,6 +1944,11 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         NSBeep();
         return;
     }
+    if (!queueGuiSpatialPath(*p, s3g::kAmbiAcidDefaultSpatialPath)) {
+        NSBeep();
+        return;
+    }
+    queueGuiParamGesture(*p, kScaleParamId, 0.0);
     _presetIndex = index;
     std::snprintf(_patternName, sizeof(_patternName), "%s",
         s3g::kAmbiAcidPatternPresets[static_cast<uint32_t>(index)].name);
@@ -1263,12 +1961,13 @@ int publishedPatternPresetIndex(const Plugin& plugin)
 {
     auto* p = static_cast<Plugin*>(_plugin);
     if (!p) return;
-    static constexpr int scale[] { 0, 2, 3, 5, 7, 10, 12, 15 };
     static constexpr int octaves[] { -12, 0, 0, 0, 0, 12 };
+    const uint32_t scaleValue = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kScaleParamId)));
+    const auto& scale = s3g::musicalScaleDefinition(scaleValue);
     std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern {};
     for (uint32_t step = 0u; step < pattern.size(); ++step) {
-        const int degree = scale[arc4random_uniform(
-            static_cast<uint32_t>(std::size(scale)))];
+        const int degree = scale.semitones[arc4random_uniform(scale.size)];
         const int octave = octaves[arc4random_uniform(
             static_cast<uint32_t>(std::size(octaves)))];
         pattern[step].semitoneOffset = std::clamp(degree + octave, -24, 24);
@@ -1288,10 +1987,60 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         NSBeep();
         return;
     }
+    [self randomizeSpatialPath];
     _presetIndex = -1;
     std::snprintf(_patternName, sizeof(_patternName), "%s", "RANDOM");
     std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
         "RANDOM");
+    [self setNeedsDisplay:YES];
+}
+
+- (void)resetSpatialPath
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p || !queueGuiSpatialPath(*p, s3g::kAmbiAcidDefaultSpatialPath)) {
+        NSBeep();
+        return;
+    }
+    [self markCustomState];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)randomizeSpatialPath
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    std::array<s3g::AmbiAcidSpatialPoint,
+        s3g::kAmbiAcidStepCount> path {};
+    const float direction = arc4random_uniform(2u) == 0u ? -1.0f : 1.0f;
+    const float start = static_cast<float>(arc4random())
+        / 4294967295.0f * 2.0f * s3g::kPi;
+    float angle = start;
+    float height = static_cast<float>(arc4random())
+        / 4294967295.0f * 1.4f - 0.7f;
+    for (uint32_t step = 0u; step < path.size(); ++step) {
+        if (step > 0u) {
+            const float jitter = 0.62f + static_cast<float>(arc4random())
+                / 4294967295.0f * 0.76f;
+            angle += direction * 2.0f * s3g::kPi / 16.0f * jitter;
+        }
+        const float radius = 0.72f + static_cast<float>(arc4random())
+            / 4294967295.0f * 0.28f;
+        const float targetHeight = static_cast<float>(arc4random())
+            / 4294967295.0f * 2.0f - 1.0f;
+        height = std::clamp(height * 0.62f + targetHeight * 0.38f,
+            -1.0f, 1.0f);
+        path[step] = {
+            std::cos(angle) * radius,
+            std::sin(angle) * radius,
+            height,
+        };
+    }
+    if (!queueGuiSpatialPath(*p, path)) {
+        NSBeep();
+        return;
+    }
+    [self markCustomState];
     [self setNeedsDisplay:YES];
 }
 
@@ -1320,7 +2069,8 @@ int publishedPatternPresetIndex(const Plugin& plugin)
 {
     (void)timer;
     auto* p = static_cast<Plugin*>(_plugin);
-    if (p && !_presetMenuOpen && _dragStep < 0) {
+    if (p && !_presetMenuOpen && !_scaleMenuOpen
+        && _parameterMenuId == CLAP_INVALID_ID && _dragStep < 0) {
         const int detected = publishedPatternPresetIndex(*p);
         if (detected >= 0 && detected != _presetIndex) {
             _presetIndex = detected;
@@ -1354,20 +2104,25 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     [style.grid setFill];
     NSRectFill(NSMakeRect(0.0, 39.0, kGuiWidth, 1.0));
     const float activity = p->visualActivity.load(std::memory_order_relaxed);
-    const float listener = p->visualListenerActivity.load(
+    const int32_t midiRoot = p->visualMidiNote.load(
         std::memory_order_relaxed);
     const bool transportSync = paramValue(*p, kTransportSyncParamId) >= 0.5;
     const bool transportPlaying = p->visualTransportPlaying.load(
         std::memory_order_relaxed);
+    const bool dualMono = paramValue(*p, kOutputModeParamId) >= 0.5;
+    NSString* performanceRoot = midiRoot >= 0
+        ? [NSString stringWithFormat:@"MIDI %@", midiNoteName(midiRoot)]
+        : @"ROOT";
     const auto titleBand = s3g::clap_gui::encoderTitleBand(
         kGuiWidth, kGuiHeight);
     s3g::clap_gui::drawEncoderTitleBand(
         @"s3g AMBI ENCODER ACID 16",
         [NSString stringWithUTF8String:_titlePresetName],
-        [NSString stringWithFormat:@"%@%@  BODY %3.0f%%  LISTEN %3.0f%%",
+        [NSString stringWithFormat:@"%@%@  %@  BODY %3.0f%%  %@",
             transportSync ? @"HOST" : @"INT",
             transportSync && transportPlaying ? @" >" : @"",
-            activity * 100.0f, listener * 100.0f],
+            dualMono ? @"MONO 1+2" : @"3OA",
+            activity * 100.0f, performanceRoot],
         titleBand, titleAttrs, labelAttrs, valueAttrs, style);
 
     s3g::clap_gui::drawPanelFrame(kPatternX, kPatternY,
@@ -1380,8 +2135,10 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         std::memory_order_relaxed);
     const uint32_t patternLength = static_cast<uint32_t>(
         std::lround(paramValue(*p, kLengthParamId)));
-    const int root = static_cast<int>(
+    const int root = midiRoot >= 0 ? midiRoot : static_cast<int>(
         std::lround(paramValue(*p, kRootParamId)));
+    const uint32_t scaleValue = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kScaleParamId)));
     for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
         const NSRect cell = stepCellRect(step);
         const NSRect noteRect = stepNoteRect(step);
@@ -1389,8 +2146,10 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         const bool playing = step == currentStep && activity > 0.002f;
         const bool inLength = step < patternLength;
         const clap_id noteId = kStepParamBase + step * kStepParamStride;
-        const int offset = static_cast<int>(
+        const int rawOffset = static_cast<int>(
             std::lround(paramValue(*p, noteId)));
+        const int offset = s3g::ambiAcidQuantizeSemitoneOffset(
+            rawOffset, scaleValue);
         const bool gate = paramValue(*p, noteId + 1u) >= 0.5;
         const bool accent = paramValue(*p, noteId + 2u) >= 0.5;
         const bool slide = paramValue(*p, noteId + 3u) >= 0.5;
@@ -1449,9 +2208,8 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         }
     }
 
-    const NSRect linePanel = NSMakeRect(16.0, 268.0, 286.0, 276.0);
-    const NSRect voicePanel = NSMakeRect(309.0, 268.0, 286.0, 276.0);
-    const NSRect fieldPanel = NSMakeRect(602.0, 268.0, 302.0, 276.0);
+    const NSRect controlPanel = NSMakeRect(16.0, 268.0, 286.0, 336.0);
+    const NSRect spatialPanel = NSMakeRect(309.0, 268.0, 595.0, 336.0);
     const auto drawPanel = [&](NSString* title, NSRect rect) {
         s3g::clap_gui::drawPanelFrame(rect.origin.x, rect.origin.y,
             rect.size.width, rect.size.height, style);
@@ -1459,10 +2217,26 @@ int publishedPatternPresetIndex(const Plugin& plugin)
             rect.origin.x, rect.origin.y, rect.size.width, 22.0,
             labelAttrs, style);
     };
-    drawPanel(@"LINE / OUTPUT", linePanel);
-    drawPanel(@"ACID VOICE", voicePanel);
-    drawPanel(@"AMBISONIC FIELD / LISTENER", fieldPanel);
+    drawPanel(@"CONTROL BANK", controlPanel);
+    drawPanel([NSString stringWithFormat:
+        dualMono
+            ? @"SPATIAL STEP PATH · BYPASSED · STEP %02ld"
+            : @"SPATIAL STEP PATH · STEP %02ld",
+        static_cast<long>(_selectedStep + 1)], spatialPanel);
+    static NSString* controlLabels[] {
+        @"LINE", @"OSC", @"DRIVE", @"FIELD" };
+    for (uint32_t page = 0u; page < 4u; ++page) {
+        s3g::clap_gui::drawHeaderButton(controlPageButtonRect(page),
+            controlPanel, controlLabels[page],
+            _controlPage == static_cast<NSInteger>(page), tinyAttrs, style);
+    }
+    s3g::clap_gui::drawHeaderActionButton(spatialPathButtonRect(0u),
+        spatialPanel, @"RESET", tinyAttrs, style);
+    s3g::clap_gui::drawHeaderActionButton(spatialPathButtonRect(1u),
+        spatialPanel, @"RANDOM", tinyAttrs, style);
     for (const auto& row : kUiRows) {
+        if (controlPageForRow(row)
+            != static_cast<uint32_t>(_controlPage)) continue;
         const double value = paramValue(*p, row.id);
         char text[64] {};
         paramsValueToText(&p->plugin, row.id, value, text, sizeof(text));
@@ -1472,33 +2246,141 @@ int publishedPatternPresetIndex(const Plugin& plugin)
             std::snprintf(text, sizeof(text), "%s",
                 value >= 0.5 ? "HOST" : "INT");
         }
-        s3g::clap_gui::drawProcessorSlider(
-            [NSString stringWithUTF8String:row.label],
-            [NSString stringWithUTF8String:text],
-            uiNormalizedValue(row.id, value), row.y,
-            row.panelX, row.panelWidth,
+        if (row.id == kScaleParamId || discreteUiMenuParam(row.id)) {
+            s3g::clap_gui::drawProcessorMenu(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text], row.y,
+                controlPanel.origin.x, controlPanel.size.width,
+                labelAttrs, valueAttrs, style);
+        } else {
+            s3g::clap_gui::drawProcessorSlider(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text],
+                uiNormalizedValue(row.id, value), row.y,
+                controlPanel.origin.x, controlPanel.size.width,
             labelAttrs, valueAttrs, style);
+        }
+    }
+    [style.grid setFill];
+    NSRectFill(NSMakeRect(controlPanel.origin.x + 16.0, 518.0,
+        controlPanel.size.width - 32.0, 1.0));
+    s3g::clap_gui::drawProcessorMenu(
+        [NSString stringWithUTF8String:kFormatRow.label],
+        formatMenuSelectedText(*p), kFormatRow.y,
+        controlPanel.origin.x, controlPanel.size.width,
+        labelAttrs, valueAttrs, style);
+    {
+        const double value = paramValue(*p, kOutputLevelRow.id);
+        char text[64] {};
+        paramsValueToText(&p->plugin, kOutputLevelRow.id,
+            value, text, sizeof(text));
+        s3g::clap_gui::drawProcessorSlider(
+            [NSString stringWithUTF8String:kOutputLevelRow.label],
+            [NSString stringWithUTF8String:text],
+            uiNormalizedValue(kOutputLevelRow.id, value),
+            kOutputLevelRow.y, controlPanel.origin.x,
+            controlPanel.size.width, labelAttrs, valueAttrs, style);
     }
 
-    const float directionX = p->visualDirectionX.load(
-        std::memory_order_relaxed);
-    const float directionY = p->visualDirectionY.load(
-        std::memory_order_relaxed);
-    const NSPoint compass = NSMakePoint(875.0, 281.0);
-    [s3g::clap_gui::color(0x555555) setStroke];
-    NSFrameRect(NSMakeRect(compass.x - 10.0, compass.y - 10.0, 20.0, 20.0));
-    [s3g::clap_gui::color(0x303030) setStroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(compass.x, compass.y - 8.0)
-        toPoint:NSMakePoint(compass.x, compass.y + 8.0)];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(compass.x - 8.0, compass.y)
-        toPoint:NSMakePoint(compass.x + 8.0, compass.y)];
-    // Top view: +X/front is up, +Y/listener-left is screen-left.
-    [s3g::clap_gui::color(0x858585) setFill];
-    NSRectFill(NSMakeRect(compass.x - 1.0, compass.y - 9.0, 2.0, 2.0));
-    [s3g::clap_gui::color(0xc2c2c2) setFill];
-    NSRectFill(NSMakeRect(compass.x - directionY * 7.0 - 1.5,
-        compass.y - directionX * 7.0 - 1.5,
-        3.0, 3.0));
+    for (uint32_t view = 0u; view < 2u; ++view) {
+        const NSRect field = spatialPathFieldRect(view);
+        [s3g::clap_gui::color(0x111111) setFill];
+        NSRectFill(field);
+        [style.grid setStroke];
+        NSFrameRect(field);
+        const CGFloat scale = std::min(field.size.width,
+            field.size.height) * 0.42;
+        const NSPoint center = NSMakePoint(NSMidX(field), NSMidY(field));
+        [s3g::clap_gui::color(0x292929) setStroke];
+        [NSBezierPath strokeLineFromPoint:
+            NSMakePoint(center.x, center.y - scale)
+            toPoint:NSMakePoint(center.x, center.y + scale)];
+        [NSBezierPath strokeLineFromPoint:
+            NSMakePoint(center.x - scale, center.y)
+            toPoint:NSMakePoint(center.x + scale, center.y)];
+        NSBezierPath* boundary = [NSBezierPath bezierPathWithOvalInRect:
+            NSMakeRect(center.x - scale, center.y - scale,
+                scale * 2.0, scale * 2.0)];
+        [boundary setLineWidth:0.7];
+        [boundary stroke];
+        [(view == 0u ? @"TOP · X/Y" : @"SIDE · X/Z")
+            drawAtPoint:NSMakePoint(field.origin.x + 7.0,
+                field.origin.y + 5.0) withAttributes:tinyAttrs];
+        if (view == 0u) {
+            [@"F" drawAtPoint:NSMakePoint(center.x - 3.0,
+                field.origin.y + 5.0) withAttributes:tinyAttrs];
+            [@"B" drawAtPoint:NSMakePoint(center.x - 3.0,
+                NSMaxY(field) - 15.0) withAttributes:tinyAttrs];
+            [@"L" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
+                center.y - 5.0) withAttributes:tinyAttrs];
+            [@"R" drawAtPoint:NSMakePoint(NSMaxX(field) - 12.0,
+                center.y - 5.0) withAttributes:tinyAttrs];
+        } else {
+            [@"UP" drawAtPoint:NSMakePoint(center.x - 7.0,
+                field.origin.y + 5.0) withAttributes:tinyAttrs];
+            [@"DOWN" drawAtPoint:NSMakePoint(center.x - 12.0,
+                NSMaxY(field) - 15.0) withAttributes:tinyAttrs];
+            [@"B" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
+                center.y - 5.0) withAttributes:tinyAttrs];
+            [@"F" drawAtPoint:NSMakePoint(NSMaxX(field) - 12.0,
+                center.y - 5.0) withAttributes:tinyAttrs];
+        }
+
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        [path setLineWidth:1.1];
+        for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
+            const NSPoint point = spatialPointScreenPosition(
+                *p, step, field, view);
+            if (step == 0u) [path moveToPoint:point];
+            else [path lineToPoint:point];
+        }
+        [path lineToPoint:spatialPointScreenPosition(*p, 0u, field, view)];
+        [s3g::clap_gui::color(0x777777, 0.75) setStroke];
+        [path stroke];
+
+        for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
+            const NSPoint point = spatialPointScreenPosition(
+                *p, step, field, view);
+            const clap_id base = kSpatialParamBase
+                + step * kSpatialParamStride;
+            const float height = static_cast<float>(paramValue(
+                *p, base + static_cast<uint32_t>(SpatialParamKind::Z)));
+            const bool selected = step == static_cast<uint32_t>(_selectedStep);
+            const bool playing = step == currentStep && activity > 0.002f;
+            const CGFloat radius = selected ? 5.0 : playing ? 4.5 : 3.2;
+            const int shade = static_cast<int>(std::lround(
+                112.0 + (height + 1.0f) * 48.0));
+            [s3g::clap_gui::color((shade << 16) | (shade << 8) | shade)
+                setFill];
+            const NSRect marker = NSMakeRect(std::round(point.x - radius),
+                std::round(point.y - radius), radius * 2.0, radius * 2.0);
+            NSRectFill(marker);
+            [s3g::clap_gui::color(selected || playing ? 0xe0e0e0 : 0x303030)
+                setStroke];
+            NSFrameRect(marker);
+            if (selected) {
+                [s3g::clap_gui::color(0xbcbcbc) setStroke];
+                NSFrameRect(NSInsetRect(marker, -2.0, -2.0));
+            }
+            NSString* number = [NSString stringWithFormat:@"%u", step + 1u];
+            [number drawAtPoint:NSMakePoint(point.x + 5.0, point.y - 10.0)
+                withAttributes:tinyAttrs];
+        }
+
+        const float directionX = p->visualDirectionX.load(
+            std::memory_order_relaxed);
+        const float directionY = p->visualDirectionY.load(
+            std::memory_order_relaxed);
+        const float directionZ = p->visualDirectionZ.load(
+            std::memory_order_relaxed);
+        const NSPoint heard = view == 0u
+            ? NSMakePoint(center.x - directionY * scale,
+                center.y - directionX * scale)
+            : NSMakePoint(center.x + directionX * scale,
+                center.y - directionZ * scale);
+        [s3g::clap_gui::color(0xe8e8e8) setStroke];
+        NSFrameRect(NSMakeRect(heard.x - 3.0, heard.y - 3.0, 6.0, 6.0));
+    }
     if (_presetMenuOpen) {
         NSString* items[s3g::kAmbiAcidPatternPresets.size()] {};
         for (uint32_t index = 0u;
@@ -1510,23 +2392,83 @@ int publishedPatternPresetIndex(const Plugin& plugin)
             items, static_cast<uint32_t>(std::size(items)),
             _presetIndex, _presetHover, valueAttrs, style);
     }
+    if (_scaleMenuOpen) {
+        const uint32_t scale = static_cast<uint32_t>(std::lround(
+            paramValue(*p, kScaleParamId)));
+        s3g::clap_gui::drawMultiColumnDropdownMenu(
+            musicalScaleMenuRect(), kScaleMenuItemHeight,
+            musicalScaleMenuItems(), s3g::kMusicalScaleCount,
+            kScaleMenuColumns,
+            static_cast<int>(s3g::musicalScaleMenuIndexForValue(scale)),
+            _scaleMenuHover, valueAttrs, style);
+    }
+    if (_parameterMenuId != CLAP_INVALID_ID) {
+        constexpr uint32_t kMaximumMenuItems =
+            s3g::kAmbiAcidDriveCircuitCount;
+        NSString* items[kMaximumMenuItems] {};
+        const uint32_t count = discreteUiMenuItemCount(_parameterMenuId);
+        for (uint32_t index = 0u; index < count; ++index) {
+            items[index] = discreteUiMenuItem(_parameterMenuId, index);
+        }
+        s3g::clap_gui::drawDropdownMenu(
+            discreteUiMenuRect(_parameterMenuId), 18.0, items, count,
+            _parameterMenuId == kFormatMenuId
+                ? formatMenuSelectedIndex(*p)
+                : discreteUiMenuSelectedIndex(_parameterMenuId,
+                    paramValue(*p, _parameterMenuId)),
+            _parameterMenuHover, valueAttrs, style);
+    }
 }
 
 - (void)updateDraggedParam:(NSPoint)point
 {
     if (_dragParam <= 0) return;
-    for (const auto& row : kUiRows) {
-        if (row.id != static_cast<clap_id>(_dragParam)) continue;
-        const double controlX = s3g::gui_layout::processorControlX(row.panelX);
-        const double trackWidth =
-            s3g::gui_layout::processorTrackWidth(row.panelWidth);
-        const double normalized = std::clamp(
-            (point.x - controlX) / trackWidth, 0.0, 1.0);
-        queueGuiParamValue(*static_cast<Plugin*>(_plugin), row.id,
-            uiValueFromNormalized(row.id, normalized));
-        [self setNeedsDisplay:YES];
-        return;
+    const clap_id id = static_cast<clap_id>(_dragParam);
+    bool visible = id == kOutputLevelRow.id;
+    for (const auto& row : kUiRows) visible = visible || row.id == id;
+    if (!visible) return;
+    const double controlX = s3g::gui_layout::processorControlX(16.0);
+    const double trackWidth =
+        s3g::gui_layout::processorTrackWidth(286.0);
+    const double normalized = std::clamp(
+        (point.x - controlX) / trackWidth, 0.0, 1.0);
+    queueGuiParamValue(*static_cast<Plugin*>(_plugin), id,
+        uiValueFromNormalized(id, normalized));
+    [self setNeedsDisplay:YES];
+}
+
+- (void)updateDraggedSpatialPoint:(NSPoint)point
+{
+    if (_dragSpatialView < 0) return;
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    const uint32_t view = static_cast<uint32_t>(_dragSpatialView);
+    const NSRect field = spatialPathFieldRect(view);
+    const CGFloat scale = std::min(field.size.width,
+        field.size.height) * 0.42;
+    const clap_id base = kSpatialParamBase
+        + static_cast<clap_id>(_selectedStep) * kSpatialParamStride;
+    if (view == 0u) {
+        const double x = std::clamp(
+            (NSMidY(field) - point.y) / std::max<CGFloat>(1.0, scale),
+            -1.0, 1.0);
+        const double y = std::clamp(
+            (NSMidX(field) - point.x) / std::max<CGFloat>(1.0, scale),
+            -1.0, 1.0);
+        queueGuiParamValue(*p, base, x);
+        queueGuiParamValue(*p, base + 1u, y);
+    } else {
+        const double x = std::clamp(
+            (point.x - NSMidX(field)) / std::max<CGFloat>(1.0, scale),
+            -1.0, 1.0);
+        const double z = std::clamp(
+            (NSMidY(field) - point.y) / std::max<CGFloat>(1.0, scale),
+            -1.0, 1.0);
+        queueGuiParamValue(*p, base, x);
+        queueGuiParamValue(*p, base + 2u, z);
     }
+    [self markCustomState];
+    [self setNeedsDisplay:YES];
 }
 
 - (void)updateDraggedNote:(NSPoint)point
@@ -1535,10 +2477,15 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     const NSRect rect = stepNoteRect(static_cast<uint32_t>(_dragStep));
     const double normalized = std::clamp(
         (point.y - rect.origin.y) / rect.size.height, 0.0, 1.0);
-    const double note = std::round(36.0 - normalized * 72.0);
+    const int32_t rawNote = static_cast<int32_t>(std::lround(
+        36.0 - normalized * 72.0));
+    auto* p = static_cast<Plugin*>(_plugin);
+    const uint32_t scale = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kScaleParamId)));
+    const double note = s3g::ambiAcidQuantizeSemitoneOffset(rawNote, scale);
     const clap_id id = kStepParamBase
         + static_cast<clap_id>(_dragStep) * kStepParamStride;
-    queueGuiParamValue(*static_cast<Plugin*>(_plugin), id, note);
+    queueGuiParamValue(*p, id, note);
     [self markCustomPattern];
     [self setNeedsDisplay:YES];
 }
@@ -1550,6 +2497,47 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     [[self window] makeFirstResponder:self];
     const NSPoint point = [self convertPoint:
         [event locationInWindow] fromView:nil];
+    if (_parameterMenuId != CLAP_INVALID_ID) {
+        const clap_id menuId = _parameterMenuId;
+        const int hit = s3g::clap_gui::dropdownHitIndex(point,
+            discreteUiMenuRect(menuId), 18.0,
+            discreteUiMenuItemCount(menuId));
+        _parameterMenuId = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
+        if (hit >= 0) {
+            if (menuId == kFormatMenuId) {
+                if (hit < 3) {
+                    queueGuiParamGesture(*p, kOutputModeParamId, 0.0);
+                    queueGuiParamGesture(*p, kOrderParamId, hit + 1.0);
+                } else {
+                    queueGuiParamGesture(*p, kOutputModeParamId, 1.0);
+                }
+                [self markCustomState];
+            } else {
+                queueGuiParamGesture(*p, menuId,
+                    discreteUiMenuValue(menuId,
+                        static_cast<uint32_t>(hit)));
+                if (menuId != kOutputParamId) [self markCustomState];
+            }
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (_scaleMenuOpen) {
+        const int hit = s3g::clap_gui::multiColumnDropdownHitIndex(
+            point, musicalScaleMenuRect(), kScaleMenuItemHeight,
+            s3g::kMusicalScaleCount, kScaleMenuColumns);
+        _scaleMenuOpen = NO;
+        _scaleMenuHover = -1;
+        if (hit >= 0) {
+            const uint32_t scale = s3g::musicalScaleValueForMenuIndex(
+                static_cast<uint32_t>(hit));
+            queueGuiParamGesture(*p, kScaleParamId, scale);
+            [self markCustomState];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_presetMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(
             point, patternPresetMenuRect(), 18.0,
@@ -1566,6 +2554,10 @@ int publishedPatternPresetIndex(const Plugin& plugin)
             s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
         _presetMenuOpen = YES;
         _presetHover = -1;
+        _scaleMenuOpen = NO;
+        _scaleMenuHover = -1;
+        _parameterMenuId = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1609,6 +2601,60 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         [self randomizePattern];
         return;
     }
+    for (uint32_t page = 0u; page < 4u; ++page) {
+        if (NSPointInRect(point, controlPageButtonRect(page))) {
+            _controlPage = static_cast<NSInteger>(page);
+            _dragParam = -1;
+            _dragSpatialView = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    if (NSPointInRect(point, spatialPathButtonRect(0u))) {
+        [self resetSpatialPath];
+        return;
+    }
+    if (NSPointInRect(point, spatialPathButtonRect(1u))) {
+        [self randomizeSpatialPath];
+        return;
+    }
+    for (uint32_t view = 0u; view < 2u; ++view) {
+        const NSRect field = spatialPathFieldRect(view);
+        if (NSPointInRect(point, field)) {
+            NSInteger hitStep = -1;
+            CGFloat best = 9.0;
+            for (uint32_t step = 0u;
+                 step < s3g::kAmbiAcidStepCount; ++step) {
+                const NSPoint marker = spatialPointScreenPosition(
+                    *p, step, field, view);
+                const CGFloat distance = std::hypot(
+                    marker.x - point.x, marker.y - point.y);
+                if (distance < best) {
+                    best = distance;
+                    hitStep = static_cast<NSInteger>(step);
+                }
+            }
+            if (hitStep >= 0) _selectedStep = hitStep;
+            const clap_id base = kSpatialParamBase
+                + static_cast<clap_id>(_selectedStep) * kSpatialParamStride;
+            if ([event clickCount] >= 2) {
+                const auto& defaultPoint = s3g::kAmbiAcidDefaultSpatialPath[
+                    static_cast<uint32_t>(_selectedStep)];
+                queueGuiParamGesture(*p, base, defaultPoint.x);
+                queueGuiParamGesture(*p, base + 1u, defaultPoint.y);
+                queueGuiParamGesture(*p, base + 2u, defaultPoint.z);
+                [self markCustomState];
+            } else {
+                _dragSpatialView = static_cast<NSInteger>(view);
+                queueGuiParamGestureBegin(*p, base);
+                queueGuiParamGestureBegin(*p,
+                    base + (view == 0u ? 1u : 2u));
+                [self updateDraggedSpatialPoint:point];
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
     for (uint32_t step = 0u; step < s3g::kAmbiAcidStepCount; ++step) {
         if (NSPointInRect(point, stepNoteRect(step))) {
             _selectedStep = step;
@@ -1640,13 +2686,35 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         }
     }
     for (const auto& row : kUiRows) {
+        if (controlPageForRow(row)
+            != static_cast<uint32_t>(_controlPage)) continue;
         const NSRect hit = NSMakeRect(
-            row.panelX + s3g::gui_layout::kStandardMetrics.hitInset,
+            16.0 + s3g::gui_layout::kStandardMetrics.hitInset,
             row.y - 9.0,
-            row.panelWidth
+            286.0
                 - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
             s3g::gui_layout::kStandardMetrics.hitHeight);
         if (!NSPointInRect(point, hit)) continue;
+        if (row.id == kScaleParamId) {
+            _scaleMenuOpen = YES;
+            _scaleMenuHover = -1;
+            _parameterMenuId = CLAP_INVALID_ID;
+            _parameterMenuHover = -1;
+            _presetMenuOpen = NO;
+            _presetHover = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (discreteUiMenuParam(row.id)) {
+            _parameterMenuId = row.id;
+            _parameterMenuHover = -1;
+            _scaleMenuOpen = NO;
+            _scaleMenuHover = -1;
+            _presetMenuOpen = NO;
+            _presetHover = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
                 event, &p->plugin, row.id, &defaultValue)) {
@@ -1659,13 +2727,50 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         if (row.id != kOutputParamId) [self markCustomState];
         return;
     }
+    {
+        const NSRect hit = NSMakeRect(
+            16.0 + s3g::gui_layout::kStandardMetrics.hitInset,
+            kFormatRow.y - 9.0,
+            286.0 - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
+            s3g::gui_layout::kStandardMetrics.hitHeight);
+        if (NSPointInRect(point, hit)) {
+            _parameterMenuId = kFormatMenuId;
+            _parameterMenuHover = -1;
+            _scaleMenuOpen = NO;
+            _scaleMenuHover = -1;
+            _presetMenuOpen = NO;
+            _presetHover = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    {
+        const NSRect hit = NSMakeRect(
+            16.0 + s3g::gui_layout::kStandardMetrics.hitInset,
+            kOutputLevelRow.y - 9.0,
+            286.0 - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
+            s3g::gui_layout::kStandardMetrics.hitHeight);
+        if (NSPointInRect(point, hit)) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, kOutputLevelRow.id, &defaultValue)) {
+                queueGuiParamGesture(*p, kOutputLevelRow.id, defaultValue);
+            } else {
+                _dragParam = static_cast<int>(kOutputLevelRow.id);
+                queueGuiParamGestureBegin(*p, kOutputLevelRow.id);
+                [self updateDraggedParam:point];
+            }
+            return;
+        }
+    }
 }
 
 - (void)mouseDragged:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:
         [event locationInWindow] fromView:nil];
-    if (_dragStep >= 0) [self updateDraggedNote:point];
+    if (_dragSpatialView >= 0) [self updateDraggedSpatialPoint:point];
+    else if (_dragStep >= 0) [self updateDraggedNote:point];
     else if (_dragParam > 0) [self updateDraggedParam:point];
 }
 
@@ -1680,8 +2785,16 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     if (p && _dragParam > 0) {
         queueGuiParamGestureEnd(*p, static_cast<clap_id>(_dragParam));
     }
+    if (p && _dragSpatialView >= 0) {
+        const clap_id base = kSpatialParamBase
+            + static_cast<clap_id>(_selectedStep) * kSpatialParamStride;
+        queueGuiParamGestureEnd(*p, base);
+        queueGuiParamGestureEnd(*p,
+            base + (_dragSpatialView == 0 ? 1u : 2u));
+    }
     _dragStep = -1;
     _dragParam = -1;
+    _dragSpatialView = -1;
 }
 
 - (void)scrollWheel:(NSEvent*)event
@@ -1690,8 +2803,18 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     if (!p || [event deltaY] == 0.0) return;
     const clap_id id = kStepParamBase
         + static_cast<clap_id>(_selectedStep) * kStepParamStride;
-    const double increment = [event deltaY] > 0.0 ? 1.0 : -1.0;
-    queueGuiParamGesture(*p, id, paramValue(*p, id) + increment);
+    const int32_t current = static_cast<int32_t>(std::lround(
+        paramValue(*p, id)));
+    const int32_t direction = [event deltaY] > 0.0 ? 1 : -1;
+    const uint32_t scale = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kScaleParamId)));
+    const bool octave = ([event modifierFlags]
+        & NSEventModifierFlagShift) != 0u;
+    const int32_t next = octave
+        ? s3g::ambiAcidQuantizeSemitoneOffset(
+            current + direction * 12, scale)
+        : s3g::ambiAcidMoveScaleDegree(current, scale, direction);
+    queueGuiParamGesture(*p, id, next);
     [self markCustomPattern];
     [self setNeedsDisplay:YES];
 }
@@ -1709,10 +2832,18 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     if (code == 125 || code == 126) {
         const clap_id id = kStepParamBase
             + static_cast<clap_id>(_selectedStep) * kStepParamStride;
-        const double amount = ([event modifierFlags]
-            & NSEventModifierFlagShift) ? 12.0 : 1.0;
-        queueGuiParamGesture(*p, id,
-            paramValue(*p, id) + (code == 126 ? amount : -amount));
+        const int32_t direction = code == 126 ? 1 : -1;
+        const int32_t current = static_cast<int32_t>(std::lround(
+            paramValue(*p, id)));
+        const uint32_t scale = static_cast<uint32_t>(std::lround(
+            paramValue(*p, kScaleParamId)));
+        const bool octave = ([event modifierFlags]
+            & NSEventModifierFlagShift) != 0u;
+        const int32_t next = octave
+            ? s3g::ambiAcidQuantizeSemitoneOffset(
+                current + direction * 12, scale)
+            : s3g::ambiAcidMoveScaleDegree(current, scale, direction);
+        queueGuiParamGesture(*p, id, next);
         [self markCustomPattern];
         [self setNeedsDisplay:YES];
         return;
@@ -1745,11 +2876,32 @@ int publishedPatternPresetIndex(const Plugin& plugin)
 
 - (void)mouseMoved:(NSEvent*)event
 {
-    if (!_presetMenuOpen) return;
+    if (!_presetMenuOpen && !_scaleMenuOpen
+        && _parameterMenuId == CLAP_INVALID_ID) return;
     const NSPoint point = [self convertPoint:
         [event locationInWindow] fromView:nil];
-    const int hover = s3g::clap_gui::dropdownHitIndex(
-        point, patternPresetMenuRect(), 18.0,
+    if (_scaleMenuOpen) {
+        const int hover = s3g::clap_gui::multiColumnDropdownHitIndex(
+            point, musicalScaleMenuRect(), kScaleMenuItemHeight,
+            s3g::kMusicalScaleCount, kScaleMenuColumns);
+        if (hover != _scaleMenuHover) {
+            _scaleMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
+    if (_parameterMenuId != CLAP_INVALID_ID) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            discreteUiMenuRect(_parameterMenuId), 18.0,
+            discreteUiMenuItemCount(_parameterMenuId));
+        if (hover != _parameterMenuHover) {
+            _parameterMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
+    const int hover = s3g::clap_gui::dropdownHitIndex(point,
+        patternPresetMenuRect(), 18.0,
         static_cast<uint32_t>(s3g::kAmbiAcidPatternPresets.size()));
     if (hover != _presetHover) {
         _presetHover = hover;
@@ -1873,6 +3025,7 @@ const clap_plugin_gui_t gui {
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
+    if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
 #if defined(__APPLE__)
@@ -1898,7 +3051,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "A monophonic spatial bassline instrument with resonant wake and bounded Listener Mode.",
+    "A MIDI-transposable monophonic bassline instrument with selectable drive circuits, sub oscillator, spatial wake, and dual-mono bypass.",
     features,
 };
 

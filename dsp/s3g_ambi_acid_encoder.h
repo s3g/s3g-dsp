@@ -1,8 +1,10 @@
 #pragma once
 
+#include "s3g_analog_drive_circuits.h"
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_geometry.h"
 #include "s3g_math.h"
+#include "s3g_musical_scales.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -24,6 +26,114 @@ struct AmbiAcidStep {
     bool accent = false;
     bool slide = false;
 };
+
+// Step offsets remain chromatic automation values. The selected scale is
+// applied relative to ROOT at playback and while editing notes, which makes
+// scale changes non-destructive and keeps legacy patterns compatible.
+inline int32_t ambiAcidQuantizeSemitoneOffset(
+    int32_t offset, uint32_t scale)
+{
+    offset = std::clamp(offset, -36, 36);
+    const auto& definition = musicalScaleDefinition(scale);
+    int32_t best = 0;
+    int32_t bestDistance = std::numeric_limits<int32_t>::max();
+    for (int32_t octave = -3; octave <= 3; ++octave) {
+        for (uint32_t degree = 0u; degree < definition.size; ++degree) {
+            const int32_t candidate = octave * 12
+                + definition.semitones[degree];
+            if (candidate < -36 || candidate > 36) continue;
+            const int32_t distance = std::abs(candidate - offset);
+            if (distance < bestDistance
+                || (distance == bestDistance && candidate < best)) {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+    }
+    return best;
+}
+
+inline int32_t ambiAcidMoveScaleDegree(
+    int32_t offset, uint32_t scale, int32_t direction)
+{
+    const int32_t current = ambiAcidQuantizeSemitoneOffset(offset, scale);
+    if (direction == 0) return current;
+    const int32_t increment = direction > 0 ? 1 : -1;
+    for (int32_t candidate = current + increment;
+         candidate >= -36 && candidate <= 36; candidate += increment) {
+        if (ambiAcidQuantizeSemitoneOffset(candidate, scale) == candidate) {
+            return candidate;
+        }
+    }
+    return current;
+}
+
+enum class AmbiAcidDriveCircuit : uint32_t {
+    Classic = 0u,
+    Shred,
+    Wool,
+    Rat,
+    ZoneA,
+    ZoneB,
+    FuzzI,
+    FuzzII,
+    Diode,
+    Count,
+};
+
+inline constexpr uint32_t kAmbiAcidDriveCircuitCount =
+    static_cast<uint32_t>(AmbiAcidDriveCircuit::Count);
+
+inline const char* ambiAcidDriveCircuitName(AmbiAcidDriveCircuit circuit)
+{
+    switch (circuit) {
+    case AmbiAcidDriveCircuit::Classic: return "CLASSIC";
+    case AmbiAcidDriveCircuit::Shred: return "SHRED";
+    case AmbiAcidDriveCircuit::Wool: return "WOOL";
+    case AmbiAcidDriveCircuit::Rat: return "RAT";
+    case AmbiAcidDriveCircuit::ZoneA: return "ZONE A";
+    case AmbiAcidDriveCircuit::ZoneB: return "ZONE B";
+    case AmbiAcidDriveCircuit::FuzzI: return "FUZZ I";
+    case AmbiAcidDriveCircuit::FuzzII: return "FUZZ II";
+    case AmbiAcidDriveCircuit::Diode: return "DIODE";
+    case AmbiAcidDriveCircuit::Count: break;
+    }
+    return "CLASSIC";
+}
+
+enum class AmbiAcidOutputMode : uint32_t {
+    Ambisonic = 0u,
+    DualMono,
+};
+
+// One authored point belongs to each sequencer step. X is front/back, Y is
+// listener-left/right, and Z is a normalized height which is scaled by the
+// global elevation control before encoding.
+struct AmbiAcidSpatialPoint {
+    float x = 1.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+inline constexpr std::array<AmbiAcidSpatialPoint, kAmbiAcidStepCount>
+    kAmbiAcidDefaultSpatialPath {{
+        {  1.000000f,  0.000000f,  0.00f },
+        {  0.923880f,  0.382683f,  0.35f },
+        {  0.707107f,  0.707107f,  0.65f },
+        {  0.382683f,  0.923880f,  0.90f },
+        {  0.000000f,  1.000000f,  1.00f },
+        { -0.382683f,  0.923880f,  0.70f },
+        { -0.707107f,  0.707107f,  0.35f },
+        { -0.923880f,  0.382683f,  0.00f },
+        { -1.000000f,  0.000000f, -0.35f },
+        { -0.923880f, -0.382683f, -0.70f },
+        { -0.707107f, -0.707107f, -1.00f },
+        { -0.382683f, -0.923880f, -0.90f },
+        {  0.000000f, -1.000000f, -0.65f },
+        {  0.382683f, -0.923880f, -0.35f },
+        {  0.707107f, -0.707107f,  0.00f },
+        {  0.923880f, -0.382683f,  0.20f },
+    }};
 
 struct AmbiAcidPatternPreset {
     const char* name;
@@ -176,10 +286,12 @@ struct AmbiAcidParams {
     float centerAzimuthDeg = 0.0f;
     float pathTurns = 1.0f;
     float elevationSpreadDeg = 22.0f;
-    float spatialSpread = 0.78f;
+    float spatialSpread = 1.0f;
     float edgeLeadDeg = 24.0f;
     float wakeAmount = 0.52f;
     float wakeMs = 92.0f;
+    // Retained only so version 1-4 plugin states keep their binary layout.
+    // Listener behavior is no longer part of Ambi Acid's signal path.
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
     float fieldListenAmount = 0.62f;
     float listenerMemorySeconds = 0.56f;
@@ -188,31 +300,27 @@ struct AmbiAcidParams {
 
 // A compact monophonic bassline instrument whose filtered body, resonant
 // edge, and delayed edge wake occupy related positions in an ACN/SN3D field.
-// Listener Mode reads the completed pre-output field. At step boundaries it
-// can bend the next position and gently bias its filter, but it never changes
-// programmed pitch, gate, accent, slide, or clock decisions.
 class AmbiAcidEncoder {
 public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::isfinite(sampleRate)
             ? std::clamp(sampleRate, 8000.0, 768000.0) : 48000.0;
-        fieldListener_.prepare(sampleRate_);
-        fieldListener_.setExtendedAnalysisEnabled(true);
-        fieldListener_.setMemorySeconds(params_.listenerMemorySeconds);
-        const auto& directions = ambiFieldListenerCubeDirections();
-        fieldListener_.setDirections(directions.data(),
-            static_cast<uint32_t>(directions.size()));
+        driveCircuitFadeCoefficient_ = 1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_ * 0.020));
         reset();
     }
 
     void reset()
     {
+        performanceRootActive_ = false;
         started_ = false;
         currentStep_ = 0u;
         completedSteps_ = 0u;
         stepPhase_ = 0.0;
         oscillatorPhase_ = 0.0;
+        subOscillatorPhase_ = 0.0;
+        subLevelSmoothed_ = subLevel_;
         pitchLog2_ = std::log2(midiNoteHz(params_.rootMidiNote));
         targetPitchLog2_ = pitchLog2_;
         slideActive_ = false;
@@ -224,33 +332,106 @@ public:
         bodyDc_ = 0.0f;
         edgeDc_ = 0.0f;
         filterStages_.fill(0.0f);
+        bodyDriveStates_.fill({});
+        edgeDriveStates_.fill({});
+        activeDriveCircuit_ = driveCircuit_;
+        previousDriveCircuit_ = driveCircuit_;
+        driveCircuitFade_ = 1.0f;
+        driveMixSmoothed_ = driveMix_;
         wakeBuffer_.fill(0.0f);
         wakeWritePosition_ = 0u;
         targetDirection_ = { 1.0f, 0.0f, 0.0f };
         bodyDirection_ = targetDirection_;
         edgeDirection_ = targetDirection_;
         wakeDirections_.fill(targetDirection_);
-        listenerCutoffBiasOctaves_ = 0.0f;
         effectiveCutoffHz_ = params_.cutoffHz;
+        filterCutoffLog2_ = std::log2(effectiveCutoffHz_);
         limiterGain_ = 1.0f;
         activity_ = 0.0f;
         lastWakeEnergy_ = 0.0f;
         lastSyncedAbsoluteStep_ = std::numeric_limits<int64_t>::min();
-        fieldListener_.reset();
     }
 
     void setParams(AmbiAcidParams params)
     {
         sanitize(params);
-        const bool listenerMemoryChanged =
-            params.listenerMemorySeconds != params_.listenerMemorySeconds;
         params_ = params;
-        if (listenerMemoryChanged) {
-            fieldListener_.setMemorySeconds(params_.listenerMemorySeconds);
-        }
     }
 
     AmbiAcidParams params() const { return params_; }
+
+    void setScale(uint32_t scale)
+    {
+        scale_ = std::min<uint32_t>(scale, kMusicalScaleCount - 1u);
+    }
+
+    uint32_t scale() const { return scale_; }
+
+    void setSubOctave(int32_t octave)
+    {
+        subOctave_ = std::clamp(octave, -2, 0);
+    }
+
+    int32_t subOctave() const { return subOctave_; }
+
+    void setSubLevel(float level)
+    {
+        subLevel_ = clamp(finiteOr(level, 0.0f), 0.0f, 1.0f);
+    }
+
+    float subLevel() const { return subLevel_; }
+
+    void setDriveCircuit(AmbiAcidDriveCircuit circuit)
+    {
+        driveCircuit_ = static_cast<AmbiAcidDriveCircuit>(
+            std::min<uint32_t>(static_cast<uint32_t>(circuit),
+                kAmbiAcidDriveCircuitCount - 1u));
+    }
+
+    AmbiAcidDriveCircuit driveCircuit() const { return driveCircuit_; }
+
+    void setDriveMix(float mix)
+    {
+        driveMix_ = clamp(finiteOr(mix, 0.0f), 0.0f, 1.0f);
+    }
+
+    float driveMix() const { return driveMix_; }
+
+    void setOutputMode(AmbiAcidOutputMode mode)
+    {
+        outputMode_ = static_cast<AmbiAcidOutputMode>(
+            std::min<uint32_t>(static_cast<uint32_t>(mode), 1u));
+    }
+
+    AmbiAcidOutputMode outputMode() const { return outputMode_; }
+
+    void setPerformanceRoot(int32_t midiNote)
+    {
+        performanceRootMidiNote_ = std::clamp(midiNote, 0, 127);
+        performanceRootActive_ = true;
+        retargetCurrentPitch();
+    }
+
+    void clearPerformanceRoot()
+    {
+        performanceRootActive_ = false;
+        retargetCurrentPitch();
+    }
+
+    bool performanceRootActive() const { return performanceRootActive_; }
+    int32_t effectiveRootMidiNote() const
+    {
+        return performanceRootActive_
+            ? performanceRootMidiNote_ : params_.rootMidiNote;
+    }
+
+    void restartSequence()
+    {
+        started_ = false;
+        currentStep_ = 0u;
+        stepPhase_ = 0.0;
+        lastSyncedAbsoluteStep_ = std::numeric_limits<int64_t>::min();
+    }
 
     void setStep(uint32_t index, AmbiAcidStep step)
     {
@@ -276,6 +457,36 @@ public:
     const std::array<AmbiAcidStep, kAmbiAcidStepCount>& pattern() const
     {
         return pattern_;
+    }
+
+    void setSpatialPoint(uint32_t index, AmbiAcidSpatialPoint point)
+    {
+        if (index >= kAmbiAcidStepCount) return;
+        const auto& fallback = kAmbiAcidDefaultSpatialPath[index];
+        point.x = clamp(finiteOr(point.x, fallback.x), -1.0f, 1.0f);
+        point.y = clamp(finiteOr(point.y, fallback.y), -1.0f, 1.0f);
+        point.z = clamp(finiteOr(point.z, fallback.z), -1.0f, 1.0f);
+        spatialPath_[index] = point;
+    }
+
+    AmbiAcidSpatialPoint spatialPoint(uint32_t index) const
+    {
+        return spatialPath_[std::min<uint32_t>(
+            index, kAmbiAcidStepCount - 1u)];
+    }
+
+    void setSpatialPath(const std::array<AmbiAcidSpatialPoint,
+        kAmbiAcidStepCount>& path)
+    {
+        for (uint32_t index = 0u; index < kAmbiAcidStepCount; ++index) {
+            setSpatialPoint(index, path[index]);
+        }
+    }
+
+    const std::array<AmbiAcidSpatialPoint, kAmbiAcidStepCount>&
+        spatialPath() const
+    {
+        return spatialPath_;
     }
 
     void processFrame(float* output, uint32_t outputChannels)
@@ -373,11 +584,6 @@ public:
     Vec3 targetDirection() const { return targetDirection_; }
     Vec3 bodyDirection() const { return bodyDirection_; }
     Vec3 edgeDirection() const { return edgeDirection_; }
-    float fieldListenActivity() const { return fieldListener_.activity(); }
-    float fieldListenEnvelope(uint32_t pickup) const
-    {
-        return fieldListener_.envelope(pickup);
-    }
 
 private:
     void renderCurrentFrame(float* output, uint32_t outputChannels)
@@ -395,26 +601,41 @@ private:
         updatePitch();
         updateEnvelopes();
         updateDirections();
-        const float oscillator = renderOscillator();
+        const auto oscillator = renderOscillator();
         float body = 0.0f;
         float edge = 0.0f;
-        renderFilter(oscillator, body, edge);
-        body *= amplitudeEnvelope_;
+        renderFilter(oscillator.main, body, edge);
+        processDrive(body, edge);
+        // The sine sub is a parallel foundation: it bypasses both the
+        // nonlinear ladder drive and the selected post-filter circuit, then
+        // rejoins only the body signal. This keeps its fundamental clean and
+        // prevents distortion products from entering the spatial edge/wake.
+        body = (body + oscillator.cleanSub) * amplitudeEnvelope_;
         edge *= amplitudeEnvelope_;
 
         wakeBuffer_[wakeWritePosition_] = flushDenormal(edge);
         wakeWritePosition_ =
             (wakeWritePosition_ + 1u) % kAmbiAcidWakeBufferSamples;
 
-        const uint32_t activeChannels = std::min<uint32_t>(
-            outputChannels, (params_.order + 1u) * (params_.order + 1u));
-        const auto bodyBasis = acnSn3dBasis(bodyDirection_);
-        const auto edgeBasis = acnSn3dBasis(edgeDirection_);
         const float bodyGain = 0.72f;
         const float edgeGain = 0.10f + params_.spatialSpread * 0.12f;
-        for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
-            output[channel] = body * bodyBasis[channel] * bodyGain
-                + edge * edgeBasis[channel] * edgeGain;
+        const bool ambisonic = outputMode_ == AmbiAcidOutputMode::Ambisonic;
+        const uint32_t activeChannels = ambisonic
+            ? std::min<uint32_t>(outputChannels,
+                (params_.order + 1u) * (params_.order + 1u))
+            : std::min<uint32_t>(outputChannels, 2u);
+        if (ambisonic) {
+            const auto bodyBasis = acnSn3dBasis(bodyDirection_);
+            const auto edgeBasis = acnSn3dBasis(edgeDirection_);
+            for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+                output[channel] = body * bodyBasis[channel] * bodyGain
+                    + edge * edgeBasis[channel] * edgeGain;
+            }
+        } else {
+            const float mono = body * bodyGain + edge * edgeGain;
+            for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+                output[channel] = mono;
+            }
         }
 
         lastWakeEnergy_ = 0.0f;
@@ -430,17 +651,19 @@ private:
                 / wakeWeightSum;
             const float wakeSample = delayed * wakeGain * weight;
             lastWakeEnergy_ += std::fabs(wakeSample);
-            const auto basis = acnSn3dBasis(wakeDirections_[tap]);
-            for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
-                output[channel] += wakeSample * basis[channel];
+            if (ambisonic) {
+                const auto basis = acnSn3dBasis(wakeDirections_[tap]);
+                for (uint32_t channel = 0u;
+                     channel < activeChannels; ++channel) {
+                    output[channel] += wakeSample * basis[channel];
+                }
+            } else {
+                for (uint32_t channel = 0u;
+                     channel < activeChannels; ++channel) {
+                    output[channel] += wakeSample;
+                }
             }
         }
-
-        // OUT trim and the shared limiter remain outside the auditory loop.
-        // The first-order component is sufficient for the broad Cube-8 score,
-        // while the complete selected order remains present at the output.
-        fieldListener_.processFrame(
-            output, std::min<uint32_t>(activeChannels, 4u));
         applyOutputGainAndLimiter(output, activeChannels);
     }
 
@@ -453,14 +676,6 @@ private:
     {
         return 440.0f * std::pow(2.0f,
             static_cast<float>(midiNote - 69) / 12.0f);
-    }
-
-    static float quantizeListenerControl(float value)
-    {
-        // Listener decisions occur only at step boundaries. A small control-
-        // rate quantizer prevents insignificant floating-point differences in
-        // the envelope followers from accumulating through the feedback path.
-        return std::round(value * 4096.0f) / 4096.0f;
     }
 
     static Vec3 blendDirection(Vec3 a, Vec3 b, float amount)
@@ -535,7 +750,7 @@ private:
         params.elevationSpreadDeg = clamp(
             finiteOr(params.elevationSpreadDeg, 22.0f), 0.0f, 70.0f);
         params.spatialSpread = clamp(
-            finiteOr(params.spatialSpread, 0.78f), 0.0f, 1.0f);
+            finiteOr(params.spatialSpread, 1.0f), 0.0f, 1.0f);
         params.edgeLeadDeg = clamp(
             finiteOr(params.edgeLeadDeg, 24.0f), -90.0f, 90.0f);
         params.wakeAmount = clamp(
@@ -554,12 +769,15 @@ private:
 
     Vec3 authoredDirection(uint32_t stepIndex) const
     {
+        const auto& point = spatialPath_[std::min<uint32_t>(
+            stepIndex, kAmbiAcidStepCount - 1u)];
         const float phase = static_cast<float>(stepIndex)
             / static_cast<float>(std::max<uint32_t>(1u, params_.patternLength));
-        const float azimuth = params_.centerAzimuthDeg - 180.0f
-            + phase * params_.pathTurns * 360.0f;
-        const float elevation = params_.elevationSpreadDeg * std::sin(
-            (phase * 2.0f + 0.125f) * 2.0f * kPi);
+        const float authoredAzimuth = std::atan2(point.y, point.x)
+            * 180.0f / kPi;
+        const float azimuth = authoredAzimuth + params_.centerAzimuthDeg
+            + phase * (params_.pathTurns - 1.0f) * 360.0f;
+        const float elevation = point.z * params_.elevationSpreadDeg;
         const Vec3 path = directionFromAed(azimuth, elevation);
         return blendDirection(
             { 1.0f, 0.0f, 0.0f }, path, params_.spatialSpread);
@@ -578,7 +796,8 @@ private:
 
         const auto& current = pattern_[currentStep_];
         const int32_t note = std::clamp(
-            params_.rootMidiNote + current.semitoneOffset, 0, 127);
+            effectiveRootMidiNote() + ambiAcidQuantizeSemitoneOffset(
+                current.semitoneOffset, scale_), 0, 127);
         targetPitchLog2_ = std::log2(midiNoteHz(note));
         slideActive_ = tied;
         if (!tied) pitchLog2_ = targetPitchLog2_;
@@ -606,24 +825,17 @@ private:
 
         const Vec3 authored = authoredDirection(currentStep_);
         targetDirection_ = authored;
-        listenerCutoffBiasOctaves_ = 0.0f;
-        if (params_.fieldListenMode != AmbiFieldListenMode::Off
-            && params_.fieldListenAmount > 0.0f) {
-            const float activity = quantizeListenerControl(
-                fieldListener_.activity());
-            if (activity > 0.001f) {
-                const Vec3 heard = fieldListener_.preferredDirection(
-                    params_.fieldListenMode);
-                const float steering = params_.fieldListenAmount * activity
-                    * 0.68f;
-                targetDirection_ = blendDirection(authored, heard, steering);
-                const float preference = quantizeListenerControl(
-                    fieldListener_.preference(
-                        authored, params_.fieldListenMode));
-                listenerCutoffBiasOctaves_ = (preference - 0.5f) * 2.0f
-                    * params_.fieldListenAmount * activity * 0.32f;
-            }
-        }
+    }
+
+    void retargetCurrentPitch()
+    {
+        if (!started_) return;
+        const int32_t note = std::clamp(effectiveRootMidiNote()
+            + ambiAcidQuantizeSemitoneOffset(
+                pattern_[currentStep_].semitoneOffset, scale_), 0, 127);
+        targetPitchLog2_ = std::log2(midiNoteHz(note));
+        pitchLog2_ = targetPitchLog2_;
+        slideActive_ = false;
     }
 
     void updatePitch()
@@ -692,7 +904,12 @@ private:
         });
     }
 
-    float renderOscillator()
+    struct OscillatorFrame {
+        float main = 0.0f;
+        float cleanSub = 0.0f;
+    };
+
+    OscillatorFrame renderOscillator()
     {
         const float frequency = std::clamp(
             std::exp2(pitchLog2_), 8.0f,
@@ -711,10 +928,24 @@ private:
         oscillatorPhase_ -= std::floor(oscillatorPhase_);
 
         const float raw = lerp(saw, pulse, params_.waveShape);
+        const float subFrequency = frequency * std::exp2(
+            static_cast<float>(subOctave_));
+        const float subIncrement = std::min(
+            0.42f, subFrequency / static_cast<float>(sampleRate_));
+        const float sub = std::sin(
+            2.0f * kPi * static_cast<float>(subOscillatorPhase_));
+        subOscillatorPhase_ += subIncrement;
+        subOscillatorPhase_ -= std::floor(subOscillatorPhase_);
+        const float subSmoothing = 1.0f - std::exp(-1.0f
+            / std::max(1.0, sampleRate_ * 0.004));
+        subLevelSmoothed_ += (subLevel_ - subLevelSmoothed_) * subSmoothing;
         const float dcCoefficient = 1.0f - std::exp(-2.0f * kPi * 9.0f
             / static_cast<float>(sampleRate_));
         oscillatorDc_ += (raw - oscillatorDc_) * dcCoefficient;
-        return raw - oscillatorDc_;
+        return {
+            raw - oscillatorDc_,
+            sub * subLevelSmoothed_ * 0.72f,
+        };
     }
 
     void renderFilter(float oscillator, float& body, float& edge)
@@ -723,9 +954,24 @@ private:
             * accentEnvelope_ * 1.15f;
         const float cutoff = params_.cutoffHz * std::pow(2.0f,
             params_.filterEnvelopeOctaves * filterEnvelope_
-                + accentOctaves + listenerCutoffBiasOctaves_);
-        effectiveCutoffHz_ = std::clamp(cutoff, 25.0f,
+                + accentOctaves);
+        const float targetCutoffHz = std::clamp(cutoff, 25.0f,
             std::min(19000.0f, static_cast<float>(sampleRate_ * 0.41)));
+        const float targetCutoffLog2 = std::log2(targetCutoffHz);
+        // The pattern envelope and host automation can change the requested
+        // cutoff at a step boundary. Ramp in log
+        // frequency so the ladder coefficient never takes a one-sample leap,
+        // which is especially audible as a click against a dark low-cutoff
+        // signal. The fast upward time keeps the acid attack intact; the
+        // slightly slower downward time avoids a zippery closing tail.
+        const float cutoffSmoothingSeconds =
+            targetCutoffLog2 > filterCutoffLog2_ ? 0.0020f : 0.0060f;
+        const float cutoffSmoothing = 1.0f - std::exp(-1.0f
+            / std::max(1.0, sampleRate_
+                * static_cast<double>(cutoffSmoothingSeconds)));
+        filterCutoffLog2_ +=
+            (targetCutoffLog2 - filterCutoffLog2_) * cutoffSmoothing;
+        effectiveCutoffHz_ = std::exp2(filterCutoffLog2_);
         const float substepRate = static_cast<float>(sampleRate_ * 2.0);
         const float coefficient = 1.0f - std::exp(
             -2.0f * kPi * effectiveCutoffHz_ / substepRate);
@@ -751,6 +997,79 @@ private:
         edgeDc_ += (edge - edgeDc_) * dcCoefficient;
         body -= bodyDc_;
         edge -= edgeDc_;
+    }
+
+    struct DriveCircuitState {
+        float memory = 0.0f;
+        float low = 0.0f;
+        float high = 0.0f;
+        float envelope = 0.0f;
+    };
+
+    static float foldDrive(float value)
+    {
+        const float shifted = value + 1.0f;
+        const float wrapped = shifted
+            - 4.0f * std::floor(shifted * 0.25f);
+        return wrapped <= 2.0f ? wrapped - 1.0f : 3.0f - wrapped;
+    }
+
+    float processDriveCircuit(AmbiAcidDriveCircuit circuit,
+        std::array<DriveCircuitState, kAmbiAcidDriveCircuitCount>& states,
+        float input)
+    {
+        const float amount = params_.drive;
+        if (circuit == AmbiAcidDriveCircuit::Classic) {
+            if (amount <= 0.0001f) return input;
+            const float gain = 1.0f + amount * 10.0f;
+            return std::tanh(input * gain) / std::tanh(gain);
+        }
+        if (circuit == AmbiAcidDriveCircuit::Shred) {
+            const float gain = 1.0f + amount * 10.0f;
+            const float saturated = std::tanh(input * gain);
+            const float folded = foldDrive(input * (1.0f + amount * 6.0f));
+            return lerp(saturated, folded, amount * amount * 0.72f);
+        }
+        const uint32_t index = std::min<uint32_t>(
+            static_cast<uint32_t>(circuit),
+            kAmbiAcidDriveCircuitCount - 1u);
+        const float tone = clamp(std::log(
+            std::max(30.0f, effectiveCutoffHz_) / 30.0f)
+            / std::log(12000.0f / 30.0f), 0.0f, 1.0f);
+        const float bias = accentEnvelope_ * params_.accentAmount * 0.04f;
+        return processAnalogDriveCircuit(
+            static_cast<AnalogDriveCircuit>(index - 2u), states[index],
+            input, amount, tone, bias, static_cast<float>(sampleRate_));
+    }
+
+    void processDrive(float& body, float& edge)
+    {
+        if (driveCircuit_ != activeDriveCircuit_) {
+            previousDriveCircuit_ = activeDriveCircuit_;
+            activeDriveCircuit_ = driveCircuit_;
+            driveCircuitFade_ = 0.0f;
+        }
+        const float activeBody = processDriveCircuit(
+            activeDriveCircuit_, bodyDriveStates_, body);
+        const float activeEdge = processDriveCircuit(
+            activeDriveCircuit_, edgeDriveStates_, edge);
+        float wetBody = activeBody;
+        float wetEdge = activeEdge;
+        if (driveCircuitFade_ < 1.0f) {
+            const float previousBody = processDriveCircuit(
+                previousDriveCircuit_, bodyDriveStates_, body);
+            const float previousEdge = processDriveCircuit(
+                previousDriveCircuit_, edgeDriveStates_, edge);
+            wetBody = lerp(previousBody, activeBody, driveCircuitFade_);
+            wetEdge = lerp(previousEdge, activeEdge, driveCircuitFade_);
+            driveCircuitFade_ = std::min(1.0f,
+                driveCircuitFade_ + driveCircuitFadeCoefficient_);
+        }
+        const float mixSmoothing = 1.0f - std::exp(-1.0f
+            / std::max(1.0, sampleRate_ * 0.006));
+        driveMixSmoothed_ += (driveMix_ - driveMixSmoothed_) * mixSmoothing;
+        body = lerp(body, wetBody, driveMixSmoothed_);
+        edge = lerp(edge, wetEdge, driveMixSmoothed_);
     }
 
     uint32_t wakeDelaySamples(uint32_t tap) const
@@ -792,13 +1111,25 @@ private:
 
     double sampleRate_ = 48000.0;
     AmbiAcidParams params_ {};
+    uint32_t scale_ = 0u;
+    int32_t subOctave_ = -1;
+    float subLevel_ = 0.0f;
+    float subLevelSmoothed_ = 0.0f;
+    AmbiAcidDriveCircuit driveCircuit_ = AmbiAcidDriveCircuit::Classic;
+    float driveMix_ = 0.0f;
+    AmbiAcidOutputMode outputMode_ = AmbiAcidOutputMode::Ambisonic;
+    bool performanceRootActive_ = false;
+    int32_t performanceRootMidiNote_ = 36;
     std::array<AmbiAcidStep, kAmbiAcidStepCount> pattern_ =
         kAmbiAcidChromeBurrowPattern;
+    std::array<AmbiAcidSpatialPoint, kAmbiAcidStepCount> spatialPath_ =
+        kAmbiAcidDefaultSpatialPath;
     bool started_ = false;
     uint32_t currentStep_ = 0u;
     uint64_t completedSteps_ = 0u;
     double stepPhase_ = 0.0;
     double oscillatorPhase_ = 0.0;
+    double subOscillatorPhase_ = 0.0;
     float pitchLog2_ = 5.0f;
     float targetPitchLog2_ = 5.0f;
     bool slideActive_ = false;
@@ -810,19 +1141,29 @@ private:
     float bodyDc_ = 0.0f;
     float edgeDc_ = 0.0f;
     std::array<float, 4u> filterStages_ {};
+    std::array<DriveCircuitState, kAmbiAcidDriveCircuitCount>
+        bodyDriveStates_ {};
+    std::array<DriveCircuitState, kAmbiAcidDriveCircuitCount>
+        edgeDriveStates_ {};
+    AmbiAcidDriveCircuit activeDriveCircuit_ =
+        AmbiAcidDriveCircuit::Classic;
+    AmbiAcidDriveCircuit previousDriveCircuit_ =
+        AmbiAcidDriveCircuit::Classic;
+    float driveCircuitFade_ = 1.0f;
+    float driveCircuitFadeCoefficient_ = 0.001f;
+    float driveMixSmoothed_ = 0.0f;
     std::array<float, kAmbiAcidWakeBufferSamples> wakeBuffer_ {};
     uint32_t wakeWritePosition_ = 0u;
     Vec3 targetDirection_ { 1.0f, 0.0f, 0.0f };
     Vec3 bodyDirection_ { 1.0f, 0.0f, 0.0f };
     Vec3 edgeDirection_ { 1.0f, 0.0f, 0.0f };
     std::array<Vec3, kAmbiAcidWakePointCount> wakeDirections_ {};
-    float listenerCutoffBiasOctaves_ = 0.0f;
     float effectiveCutoffHz_ = 310.0f;
+    float filterCutoffLog2_ = std::log2(310.0f);
     float limiterGain_ = 1.0f;
     float activity_ = 0.0f;
     float lastWakeEnergy_ = 0.0f;
     int64_t lastSyncedAbsoluteStep_ = std::numeric_limits<int64_t>::min();
-    AmbiFieldListener fieldListener_ {};
 };
 
 } // namespace s3g

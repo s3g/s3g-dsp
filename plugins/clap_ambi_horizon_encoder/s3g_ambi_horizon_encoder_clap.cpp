@@ -80,6 +80,8 @@ constexpr clap_id kFieldListenModeParamId = 47u;
 constexpr clap_id kFieldListenAmountParamId = 48u;
 constexpr clap_id kFieldListenResponseParamId = 49u;
 constexpr clap_id kParamCount = kFieldListenResponseParamId;
+constexpr uint32_t kRandomPresetIndex =
+    s3g::kAmbiHorizonFactoryPresetCount;
 
 struct ParamDef {
     clap_id id;
@@ -633,9 +635,12 @@ void publishParams(Plugin& plugin)
         plugin.visible[id].store(valueFromParams(plugin.params, id),
             std::memory_order_release);
     }
-    plugin.visible[kPresetParamId].store(
-        static_cast<double>(plugin.presetIndex.load(std::memory_order_relaxed)),
-        std::memory_order_release);
+    const uint32_t presetIndex = plugin.presetIndex.load(
+        std::memory_order_relaxed);
+    if (presetIndex < s3g::kAmbiHorizonFactoryPresetCount) {
+        plugin.visible[kPresetParamId].store(
+            static_cast<double>(presetIndex), std::memory_order_release);
+    }
 }
 
 void requestRescan(Plugin& plugin)
@@ -704,8 +709,11 @@ void queueParams(Plugin& plugin, const s3g::AmbiHorizonEncoderParams& params,
                  uint32_t presetIndex)
 {
     plugin.presetIndex.store(std::min<uint32_t>(presetIndex,
-        s3g::kAmbiHorizonFactoryPresetCount - 1u), std::memory_order_release);
-    plugin.visible[kPresetParamId].store(presetIndex, std::memory_order_release);
+        kRandomPresetIndex), std::memory_order_release);
+    if (presetIndex < s3g::kAmbiHorizonFactoryPresetCount) {
+        plugin.visible[kPresetParamId].store(
+            presetIndex, std::memory_order_release);
+    }
     for (clap_id id = kOrderParamId; id <= kParamCount; ++id) {
         (void)queueGuiValue(plugin, id, valueFromParams(params, id));
     }
@@ -1145,7 +1153,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     p->presetIndex.store(std::min<uint32_t>(state.presetIndex,
-        s3g::kAmbiHorizonFactoryPresetCount - 1u), std::memory_order_release);
+        kRandomPresetIndex), std::memory_order_release);
     p->guiViewMode.store(state.guiViewMode, std::memory_order_release);
     p->guiViewAzDeg.store(state.guiViewAzDeg, std::memory_order_release);
     p->guiViewElDeg.store(state.guiViewElDeg, std::memory_order_release);
@@ -1186,10 +1194,8 @@ inline constexpr auto kGeneratorsPanel = layout::fittedStackPanel(
     layout::PanelRole::Source, kEcologyPanel, 8u, 24.0, 34.0);
 inline constexpr auto kScorePanel = layout::fittedStackPanel(
     layout::PanelRole::Modulation, kGeneratorsPanel, 5u);
-inline constexpr auto kIdentityPanel = layout::fittedStackPanel(
-    layout::PanelRole::Utility, kScorePanel, 1u);
-inline constexpr std::array<layout::Panel, 5u> kFirstColumnPanels {{
-    kOutputPanel, kEcologyPanel, kGeneratorsPanel, kScorePanel, kIdentityPanel
+inline constexpr std::array<layout::Panel, 4u> kFirstColumnPanels {{
+    kOutputPanel, kEcologyPanel, kGeneratorsPanel, kScorePanel
 }};
 inline constexpr auto kHorizonPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Topology,
@@ -1198,8 +1204,10 @@ inline constexpr auto kAtmospherePanel = layout::fittedStackPanel(
     layout::PanelRole::Listener, kHorizonPanel, 6u);
 inline constexpr auto kListenerPanel = layout::fittedStackPanel(
     layout::PanelRole::Listener, kAtmospherePanel, 3u);
-inline constexpr std::array<layout::Panel, 3u> kSecondColumnPanels {{
-    kHorizonPanel, kAtmospherePanel, kListenerPanel
+inline constexpr auto kIdentityPanel = layout::fittedStackPanel(
+    layout::PanelRole::Utility, kListenerPanel, 1u);
+inline constexpr std::array<layout::Panel, 4u> kSecondColumnPanels {{
+    kHorizonPanel, kAtmospherePanel, kListenerPanel, kIdentityPanel
 }};
 static_assert(layout::validateColumn(kFirstColumnPanels, kCanvas));
 static_assert(layout::validateColumn(kSecondColumnPanels, kCanvas, false));
@@ -1790,6 +1798,7 @@ bool loadPresetFile(const char* path, PresetFile& preset)
 
 - (NSString*)presetName
 {
+    if (_presetSnapshot == kRandomPresetIndex) return @"RANDOM";
     return [NSString stringWithUTF8String:s3g::kAmbiHorizonPresetInfo[
         std::min<uint32_t>(_presetSnapshot,
             s3g::kAmbiHorizonFactoryPresetCount - 1u)].name];
@@ -1897,26 +1906,10 @@ bool loadPresetFile(const char* path, PresetFile& preset)
 - (void)randomize
 {
     uint32_t rng = _snapshot.seed ^ 0x68bc21ebu;
-    auto next = [&rng]() {
-        rng ^= rng << 13u; rng ^= rng >> 17u; rng ^= rng << 5u;
-        return static_cast<float>(rng & 0x00ffffffu) / 16777216.0f;
-    };
-    const uint32_t preset = static_cast<uint32_t>(next()
-        * s3g::kAmbiHorizonFactoryPresetCount)
-        % s3g::kAmbiHorizonFactoryPresetCount;
-    auto params = s3g::ambiHorizonFactoryPreset(preset);
-    params.order = _snapshot.order;
-    params.outputGainDb = _snapshot.outputGainDb;
-    params.fieldListenMode = _snapshot.fieldListenMode;
-    params.fieldListenAmount = _snapshot.fieldListenAmount;
-    params.fieldListenResponse = _snapshot.fieldListenResponse;
-    params.azimuthDeg = next() * 360.0f - 180.0f;
-    params.arcDeg = std::clamp(params.arcDeg * (0.72f + next() * 0.56f), 0.0f, 360.0f);
-    params.rangeKm = std::clamp(params.rangeKm * (0.68f + next() * 0.72f), 0.03f, 20.0f);
-    params.seed = 1u + static_cast<uint32_t>(next() * 65534.0f);
-    queueParams(*_plugin, params, preset);
+    auto params = s3g::ambiHorizonSafeRandomParams(_snapshot, rng);
+    queueParams(*_plugin, params, kRandomPresetIndex);
     _snapshot = params;
-    _presetSnapshot = preset;
+    _presetSnapshot = kRandomPresetIndex;
 }
 
 - (void)drawRect:(NSRect)dirtyRect

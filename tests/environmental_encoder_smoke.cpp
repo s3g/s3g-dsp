@@ -483,10 +483,78 @@ PlanetaryModalProbe runPlanetaryModalProbe()
     return result;
 }
 
+bool testCryosphereDistributedSkin()
+{
+    constexpr uint32_t frames = 8192u;
+    constexpr uint32_t channels = 4u;
+    std::array<std::array<float, frames>, channels> storage {};
+    std::array<float*, channels> outputs {};
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        outputs[channel] = storage[channel].data();
+    }
+    s3g::AmbiCryosphereEncoder engine;
+    engine.prepare(48000.0);
+    auto params = s3g::ambiCryosphereFactoryPreset(0u);
+    params.voices = 20u;
+    params.surfaceLoad = 0.0f;
+    params.surfaceX = 0.12f;
+    params.surfaceY = 0.58f;
+    engine.setParams(params);
+    engine.reset();
+    engine.process(outputs.data(), channels, frames);
+    for (uint32_t voice = 0u; voice < params.voices; ++voice) {
+        if (std::fabs(engine.voiceSkinContactWeight(voice) - 1.0f)
+            > 1.0e-6f) {
+            std::cerr << "Zero Cryosphere surface load localized the skin\n";
+            return false;
+        }
+    }
+
+    params.surfaceLoad = 1.0f;
+    engine.setParams(params);
+    engine.process(outputs.data(), channels, frames);
+    std::array<float, s3g::kAmbiCryosphereMaxVoices> first {};
+    float firstSum = 0.0f;
+    float firstMinimum = 4.0f;
+    float firstMaximum = 0.0f;
+    for (uint32_t voice = 0u; voice < params.voices; ++voice) {
+        first[voice] = engine.voiceSkinContactWeight(voice);
+        firstSum += first[voice];
+        firstMinimum = std::min(firstMinimum, first[voice]);
+        firstMaximum = std::max(firstMaximum, first[voice]);
+    }
+    params.surfaceX = 0.82f;
+    params.surfaceY = 0.34f;
+    engine.setParams(params);
+    engine.process(outputs.data(), channels, frames);
+    float secondSum = 0.0f;
+    float relocation = 0.0f;
+    for (uint32_t voice = 0u; voice < params.voices; ++voice) {
+        const float weight = engine.voiceSkinContactWeight(voice);
+        secondSum += weight;
+        relocation += std::fabs(weight - first[voice]);
+    }
+    const float firstMean = firstSum / static_cast<float>(params.voices);
+    const float secondMean = secondSum / static_cast<float>(params.voices);
+    if (std::fabs(firstMean - 1.0f) > 0.025f
+        || std::fabs(secondMean - 1.0f) > 0.025f
+        || !(firstMaximum - firstMinimum > 0.30f)
+        || !(relocation > 1.0f)) {
+        std::cerr << "Cryosphere skin did not preserve energy while moving "
+                  << "localized pressure: means " << firstMean << ", "
+                  << secondMean << ", range "
+                  << firstMaximum - firstMinimum << ", relocation "
+                  << relocation << "\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
+    const bool cryosphereSkinValid = testCryosphereDistributedSkin();
     static_assert(!std::is_same_v<s3g::AmbiPyrosphereParams,
         s3g::AmbiWindParams>);
     static_assert(!std::is_same_v<s3g::AmbiCryosphereParams,
@@ -1173,7 +1241,8 @@ int main()
               << structuralCryosphere.scoreArcCount() << " / "
               << structuralCryosphere.scoreCascadeCount() << " / "
               << structuralCryosphere.scoreConsequenceCount() << "\n";
-    return presetMappingsValid && alienPresetNamesValid
+    return cryosphereSkinValid
+            && presetMappingsValid && alienPresetNamesValid
             && pyrospherePeak > 0.0f && cryospherePeak > 0.0f
             && windPeak > 0.0f && waterPeak > 0.0f
             && windExtensionDifference > 1.0e-5f

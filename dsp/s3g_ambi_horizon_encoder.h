@@ -565,12 +565,16 @@ private:
         float modalRadiusSquared = 0.0f;
         float targetModalRadiusSquared = 0.0f;
         float modalFrequency = 440.0f;
+        float modalUpperFrequency = 1040.0f;
         float modalRatio = 2.41f;
+        float modalUpperGain = 0.18f;
         float modalExcitationGain = 0.028f;
         float motionOffset = 0.0f;
         float motionPosition = 0.0f;
         float slowAttackCoefficient = 0.0002f;
         float slowReleaseCoefficient = 0.00008f;
+        float scoreAttackCoefficient = 0.00004f;
+        float scoreReleaseCoefficient = 0.00001f;
         float eventAttackCoefficient = 0.0004f;
         float eventReleaseCoefficient = 0.00008f;
         float bellAttackCoefficient = 0.0004f;
@@ -738,9 +742,17 @@ private:
 
         const uint32_t localCount = std::min<uint32_t>(4u, params_.entities);
         const uint32_t remaining = params_.entities - localCount;
-        const uint32_t signalCount = std::min<uint32_t>(remaining,
+        uint32_t signalEligibleCount = 0u;
+        for (uint32_t index = localCount; index < params_.entities; ++index) {
+            if (canBeHorizonSignal(voices_[index].kind)) {
+                ++signalEligibleCount;
+            }
+        }
+        const uint32_t desiredSignalCount = std::min<uint32_t>(remaining,
             std::max<uint32_t>(1u, static_cast<uint32_t>(
                 std::lround((0.08f + 0.34f * params_.signals) * remaining))));
+        const uint32_t signalCount = std::min(
+            signalEligibleCount, desiredSignalCount);
         const float logRange = std::log(params_.rangeKm / 0.03f)
             / std::log(20.0f / 0.03f);
         const float elapsed = static_cast<float>(frameCounter_ / sampleRate_);
@@ -750,11 +762,15 @@ private:
             (listenerReturnEnergy_ + 1.0e-10f)
                 / (listenerDirectEnergy_ + 1.0e-10f));
 
+        uint32_t signalRank = 0u;
         for (uint32_t index = 0u; index < params_.entities; ++index) {
             auto& voice = voices_[index];
             const bool local = index < localCount;
             const uint32_t horizonIndex = index - std::min(index, localCount);
-            const bool signal = !local && horizonIndex < signalCount;
+            const bool signalEligible = !local
+                && canBeHorizonSignal(voice.kind);
+            const bool signal = signalEligible && signalRank < signalCount;
+            if (signalEligible) ++signalRank;
             voice.layer = local ? AmbiHorizonLayer::LocalFloor
                 : (signal ? AmbiHorizonLayer::HorizonSignal
                           : AmbiHorizonLayer::HorizonBed);
@@ -765,10 +781,10 @@ private:
                     && params_.seed == 311u;
                 voice.bellTargetEnvelope = std::max(
                     voice.bellTargetEnvelope,
-                    bellScene ? 1.0f : 0.38f + 0.32f * params_.activity);
+                    bellScene ? 0.68f : 0.34f + 0.26f * params_.activity);
                 voice.eventTargetEnvelope = std::max(
                     voice.eventTargetEnvelope,
-                    bellScene ? 1.0f : 0.55f);
+                    bellScene ? 0.58f : 0.48f);
                 const double intervalSeconds = bellScene
                     ? 3.2 + 3.8 * static_cast<double>(voice.identity)
                     : 5.0 + 13.0 * static_cast<double>(voice.identity)
@@ -949,9 +965,23 @@ private:
             } else if (signal) {
                 voice.targetEnvelope = 0.03f + directive.activity
                     * (0.25f + 0.75f * params_.activity);
+                if (voice.kind == SourceKind::Modal) {
+                    // Bell audibility comes from the strike envelope, not from
+                    // allowing the shared score to lift a modal voice toward
+                    // foreground level. This absolute ceiling also bounds
+                    // dense Rural scenes and RANDOM seeds.
+                    voice.targetEnvelope = std::min(
+                        voice.targetEnvelope,
+                        0.18f + 0.10f * params_.activity);
+                }
             } else {
+                // The bed is continuous environmental body. Score aftermath
+                // used to add a succession of level plateaus here; several
+                // overlapping Flow, Roll, and Motor voices could then resemble
+                // an escalating pressure or steam release even though the old
+                // release generator itself had already been removed.
                 voice.targetEnvelope = 0.16f + 0.34f * params_.occupancy
-                    + directive.aftermath * 0.16f;
+                    + 0.08f * params_.activity;
             }
 
             const float terrainLoss = params_.terrain * (local ? 0.1f : perceptualRange);
@@ -1004,15 +1034,31 @@ private:
             voice.targetPropagationGain = geometric * carryGain * groundCarry;
             const bool bellScene = params_.ecology == AmbiHorizonEcology::Rural
                 && params_.seed == 311u;
-            voice.modalFrequency = bellScene
+            const float unpitchedModalFrequency = bellScene
                 ? 420.0f + 760.0f * voice.identity
-                : std::min(4800.0f,
-                    voice.baseFrequency * (3.0f + voice.brightness * 13.0f));
-            voice.modalFrequency *= std::pow(2.0f,
+                : voice.baseFrequency
+                    * (3.0f + voice.brightness * 13.0f);
+            const float pitchScale = std::pow(2.0f,
                 (smoothedBellPitch_ - 0.5f) * 2.0f);
+            // Bound after transposition. The previous pre-pitch cap allowed a
+            // full BELL PITCH setting to double the fundamental, after which
+            // the inharmonic upper mode could escape into a piercing sonar or
+            // whistle range. Distance and detail now lower the acoustic
+            // ceiling before the source enters outdoor propagation.
+            const float modalCeiling = 1600.0f
+                + 1600.0f * (1.0f - perceptualRange)
+                + 500.0f * params_.detail;
+            voice.modalFrequency = std::clamp(
+                unpitchedModalFrequency * pitchScale,
+                90.0f, modalCeiling);
             voice.modalRatio = bellScene
                 ? 2.36f + 0.24f * voice.brightness
                 : 2.08f + 0.42f * voice.brightness;
+            voice.modalUpperFrequency = std::min(
+                voice.modalFrequency * voice.modalRatio,
+                modalCeiling * 1.32f);
+            voice.modalUpperGain = (0.07f + 0.15f * params_.detail)
+                * (0.34f + 0.66f * (1.0f - perceptualRange));
             const float modalRadius = 0.996f + params_.memory * 0.0032f;
             voice.targetModalCoefficient = 2.0f * modalRadius * std::cos(
                 2.0f * kPi * voice.modalFrequency
@@ -1034,6 +1080,18 @@ private:
                 + 0.030f * (1.0f - params_.detail);
             const float eventReleaseSeconds = 0.24f
                 + 0.65f * distanceSoftness + 0.45f * params_.memory;
+            // Sparse horizon events should emerge on an outdoor-distance time
+            // scale. The previous fixed signal envelope reached a new score
+            // level in roughly 10 ms and released in roughly 120 ms, exposing
+            // control-stage changes as audible steps.
+            const float scoreAttackSeconds = 0.42f
+                + 1.20f * distanceSoftness + 0.35f * params_.memory;
+            const float scoreReleaseSeconds = 1.20f
+                + 2.30f * distanceSoftness + 0.90f * params_.memory;
+            voice.scoreAttackCoefficient = 1.0f - std::exp(-1.0f
+                / (scoreAttackSeconds * static_cast<float>(sampleRate_)));
+            voice.scoreReleaseCoefficient = 1.0f - std::exp(-1.0f
+                / (scoreReleaseSeconds * static_cast<float>(sampleRate_)));
             voice.eventAttackCoefficient = 1.0f - std::exp(-1.0f
                 / (eventAttackSeconds * static_cast<float>(sampleRate_)));
             voice.eventReleaseCoefficient = 1.0f - std::exp(-1.0f
@@ -1076,10 +1134,22 @@ private:
     float renderVoice(Voice& voice)
     {
         const float noise = randomUnit(voice.rng) * 2.0f - 1.0f;
+        // Foghorns already have a dedicated pressure-shaped call envelope;
+        // applying the additional multi-second score ramp to their opening
+        // call makes the factory scene inaudible before the call has passed.
+        const bool pressureShapedSignal =
+            voice.layer == AmbiHorizonLayer::HorizonSignal
+            && voice.kind == SourceKind::Foghorn;
         const float attack = voice.layer == AmbiHorizonLayer::HorizonSignal
-            ? 0.0022f : 0.00035f;
+            ? (pressureShapedSignal
+                ? voice.slowAttackCoefficient
+                : voice.scoreAttackCoefficient)
+            : 0.00035f;
         const float release = voice.layer == AmbiHorizonLayer::HorizonSignal
-            ? 0.00018f : 0.00008f;
+            ? (pressureShapedSignal
+                ? voice.slowReleaseCoefficient
+                : voice.scoreReleaseCoefficient)
+            : 0.00008f;
         voice.envelope += (voice.targetEnvelope - voice.envelope)
             * (voice.targetEnvelope > voice.envelope ? attack : release);
         voice.eventTargetEnvelope *= voice.eventDecay;
@@ -1140,11 +1210,18 @@ private:
             voice.phase = wrapPhase(voice.phase + voice.modalFrequency
                 / static_cast<float>(sampleRate_));
             voice.phase2 = wrapPhase(voice.phase2
-                + voice.modalFrequency * voice.modalRatio
+                + voice.modalUpperFrequency
                     / static_cast<float>(sampleRate_));
-            const float bell = (0.72f * std::sin(2.0f * kPi * voice.phase)
-                + 0.28f * std::sin(2.0f * kPi * voice.phase2))
+            const float bellFundamental = 0.86f
+                * std::sin(2.0f * kPi * voice.phase)
                 * voice.bellEnvelope;
+            // The upper metal mode loses energy faster than the body. Using
+            // the squared envelope keeps the strike identity but prevents a
+            // thin inharmonic partial from lingering as a sonar tone.
+            const float bellUpper = voice.modalUpperGain
+                * std::sin(2.0f * kPi * voice.phase2)
+                * voice.bellEnvelope * voice.bellEnvelope;
+            const float bell = bellFundamental + bellUpper;
             const float excitation = noise * voice.eventEnvelope
                 * voice.modalExcitationGain;
             const float modal = excitation
@@ -1152,7 +1229,11 @@ private:
                 - voice.modalRadiusSquared * voice.modal2;
             voice.modal2 = voice.modal1;
             voice.modal1 = flushDenormal(modal);
-            sample = modal * 0.28f + bell * 0.74f + voice.low * 0.08f;
+            // Keep modal peak management linear. A previous modal-only soft
+            // saturator bounded peaks but gave strong bells an audible driven
+            // edge; strike, score, spectrum, and overlap are now bounded before
+            // this clean sum instead.
+            sample = modal * 0.22f + bell * 0.74f + voice.low * 0.08f;
             break;
         }
         case SourceKind::Air:
@@ -1337,7 +1418,8 @@ private:
             || voice.kind == SourceKind::Surf;
         const float eventLift = voice.layer == AmbiHorizonLayer::HorizonSignal
             ? (voice.kind == SourceKind::Foghorn ? 1.0f
-                : (sustained ? 0.78f : 0.38f + voice.eventEnvelope))
+                : (voice.kind == SourceKind::Modal ? 0.56f
+                    : (sustained ? 0.78f : 0.38f + voice.eventEnvelope)))
             : 0.75f;
         return softSat(sample * voice.envelope * eventLift * turbulenceGain * 1.8f);
     }
@@ -1478,7 +1560,7 @@ private:
     float sourceLevel(SourceKind kind) const
     {
         switch (kind) {
-        case SourceKind::Motor: return smoothedMachines_;
+        case SourceKind::Motor: return smoothedMachines_ * 0.55f;
         case SourceKind::Modal: return smoothedBells_;
         case SourceKind::Air: return smoothedAirNoise_;
         case SourceKind::Traffic: return smoothedTraffic_;
@@ -1487,6 +1569,21 @@ private:
         case SourceKind::Surf: return smoothedSurf_;
         default: return 1.0f;
         }
+    }
+
+    static bool canBeHorizonSignal(SourceKind kind)
+    {
+        // Flow, Roll, and Air are continuous environmental textures. Routing
+        // them through the score's sparse SIGNALS layer turns an otherwise
+        // slow field into foreground noise swells resembling steam exhaust.
+        // Only recognizable discrete or passing generators may occupy the
+        // signal layer. Motors are continuous machinery body: scoring their
+        // level turns an otherwise steady plant hum into a foreground
+        // pressure-release swell with no evident independent user control.
+        return kind == SourceKind::Modal
+            || kind == SourceKind::Traffic
+            || kind == SourceKind::Aircraft
+            || kind == SourceKind::Foghorn;
     }
 
     float propagate(Voice& voice, float sample)

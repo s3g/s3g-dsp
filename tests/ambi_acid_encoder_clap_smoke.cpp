@@ -1,5 +1,6 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
@@ -21,10 +22,20 @@ constexpr clap_id kOrderParamId = 1u;
 constexpr clap_id kTempoParamId = 2u;
 constexpr clap_id kRootParamId = 5u;
 constexpr clap_id kListenModeParamId = 23u;
+constexpr clap_id kOutputParamId = 26u;
 constexpr clap_id kTransportSyncParamId = 27u;
+constexpr clap_id kScaleParamId = 28u;
+constexpr clap_id kSubOctaveParamId = 29u;
+constexpr clap_id kSubLevelParamId = 30u;
+constexpr clap_id kDriveCircuitParamId = 31u;
+constexpr clap_id kDriveMixParamId = 32u;
+constexpr clap_id kOutputModeParamId = 33u;
 constexpr clap_id kStepOneNoteParamId = 100u;
 constexpr clap_id kStepOneAccentParamId = 102u;
 constexpr clap_id kStepTwoSlideParamId = 107u;
+constexpr clap_id kStepOnePathXParamId = 200u;
+constexpr clap_id kStepOnePathYParamId = 201u;
+constexpr clap_id kStepOnePathHeightParamId = 202u;
 
 struct HostContext {
     clap_host_t host {};
@@ -52,6 +63,10 @@ struct EventList {
     };
     std::array<clap_event_param_value_t, 16u> params {};
     uint32_t paramCount = 0u;
+    std::array<clap_event_note_t, 8u> notes {};
+    uint32_t noteCount = 0u;
+    std::array<clap_event_midi_t, 8u> midi {};
+    uint32_t midiCount = 0u;
 
     void add(clap_id id, double value, uint32_t time = 0u)
     {
@@ -67,6 +82,23 @@ struct EventList {
         event.channel = -1;
         event.key = -1;
         event.value = value;
+        events.push_back(&event.header);
+    }
+
+    void addNote(bool on, int16_t key, double velocity = 1.0,
+        uint32_t time = 0u)
+    {
+        auto& event = notes[noteCount++];
+        event.header.size = sizeof(event);
+        event.header.time = time;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.note_id = -1;
+        event.port_index = 0;
+        event.channel = 0;
+        event.key = key;
+        event.velocity = velocity;
         events.push_back(&event.header);
     }
 };
@@ -169,8 +201,18 @@ bool stateRoundTrip(const clap_plugin_t* plugin,
     authored.add(kTempoParamId, 174.0);
     authored.add(kRootParamId, 29.0);
     authored.add(kListenModeParamId, 3.0);
+    authored.add(kOutputParamId, -4.0);
     authored.add(kTransportSyncParamId, 1.0);
+    authored.add(kScaleParamId, 31.0);
+    authored.add(kSubOctaveParamId, -2.0);
+    authored.add(kSubLevelParamId, 0.72);
+    authored.add(kDriveCircuitParamId, 8.0);
+    authored.add(kDriveMixParamId, 0.64);
+    authored.add(kOutputModeParamId, 1.0);
     authored.add(kStepOneNoteParamId, -12.0);
+    authored.add(kStepOnePathXParamId, 0.25);
+    authored.add(kStepOnePathYParamId, -0.75);
+    authored.add(kStepOnePathHeightParamId, 0.5);
     params->flush(plugin, &authored.input, nullptr);
 
     MemoryState memory;
@@ -181,8 +223,18 @@ bool stateRoundTrip(const clap_plugin_t* plugin,
     mutation.add(kTempoParamId, 90.0);
     mutation.add(kRootParamId, 48.0);
     mutation.add(kListenModeParamId, 0.0);
+    mutation.add(kOutputParamId, -30.0);
     mutation.add(kTransportSyncParamId, 0.0);
+    mutation.add(kScaleParamId, 0.0);
+    mutation.add(kSubOctaveParamId, 0.0);
+    mutation.add(kSubLevelParamId, 0.0);
+    mutation.add(kDriveCircuitParamId, 0.0);
+    mutation.add(kDriveMixParamId, 0.0);
+    mutation.add(kOutputModeParamId, 0.0);
     mutation.add(kStepOneNoteParamId, 7.0);
+    mutation.add(kStepOnePathXParamId, -1.0);
+    mutation.add(kStepOnePathYParamId, 1.0);
+    mutation.add(kStepOnePathHeightParamId, -0.5);
     params->flush(plugin, &mutation.input, nullptr);
     if (!getParam(plugin, params, kTempoParamId, 90.0)
         || !getParam(plugin, params, kStepOneNoteParamId, 7.0)) {
@@ -194,8 +246,18 @@ bool stateRoundTrip(const clap_plugin_t* plugin,
         && getParam(plugin, params, kTempoParamId, 174.0)
         && getParam(plugin, params, kRootParamId, 29.0)
         && getParam(plugin, params, kListenModeParamId, 3.0)
+        && getParam(plugin, params, kOutputParamId, -4.0)
         && getParam(plugin, params, kTransportSyncParamId, 1.0)
-        && getParam(plugin, params, kStepOneNoteParamId, -12.0);
+        && getParam(plugin, params, kScaleParamId, 31.0)
+        && getParam(plugin, params, kSubOctaveParamId, -2.0)
+        && getParam(plugin, params, kSubLevelParamId, 0.72)
+        && getParam(plugin, params, kDriveCircuitParamId, 8.0)
+        && getParam(plugin, params, kDriveMixParamId, 0.64)
+        && getParam(plugin, params, kOutputModeParamId, 1.0)
+        && getParam(plugin, params, kStepOneNoteParamId, -12.0)
+        && getParam(plugin, params, kStepOnePathXParamId, 0.25)
+        && getParam(plugin, params, kStepOnePathYParamId, -0.75)
+        && getParam(plugin, params, kStepOnePathHeightParamId, 0.5);
 }
 
 } // namespace
@@ -254,28 +316,50 @@ int main(int argc, char** argv)
     }
     const auto* audioPorts = static_cast<const clap_plugin_audio_ports_t*>(
         plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+    const auto* notePorts = static_cast<const clap_plugin_note_ports_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
     const auto* params = static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
     clap_audio_port_info_t outputInfo {};
-    ok = ok && audioPorts && params && state
+    clap_note_port_info_t noteInputInfo {};
+    ok = ok && audioPorts && notePorts && params && state
         && audioPorts->count(plugin, true) == 0u
         && audioPorts->count(plugin, false) == 1u
         && audioPorts->get(plugin, 0u, false, &outputInfo)
         && outputInfo.channel_count == kChannels
         && std::strcmp(outputInfo.port_type, CLAP_PORT_AMBISONIC) == 0
-        && params->count(plugin) == 91u
+        && notePorts->count(plugin, true) == 1u
+        && notePorts->count(plugin, false) == 0u
+        && notePorts->get(plugin, 0u, true, &noteInputInfo)
+        && (noteInputInfo.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0u
+        && (noteInputInfo.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
+        && params->count(plugin) == 145u
         && getParam(plugin, params, kOrderParamId, 3.0)
         && getParam(plugin, params, kTempoParamId, 126.0)
         && getParam(plugin, params, kRootParamId, 36.0)
         && getParam(plugin, params, kListenModeParamId, 0.0)
+        && getParam(plugin, params, kOutputParamId, -10.0)
         && getParam(plugin, params, kTransportSyncParamId, 0.0)
+        && getParam(plugin, params, kScaleParamId, 0.0)
+        && getParam(plugin, params, kSubOctaveParamId, -1.0)
+        && getParam(plugin, params, kSubLevelParamId, 0.0)
+        && getParam(plugin, params, kDriveCircuitParamId, 0.0)
+        && getParam(plugin, params, kDriveMixParamId, 0.0)
+        && getParam(plugin, params, kOutputModeParamId, 0.0)
         && getParam(plugin, params, kStepOneAccentParamId, 1.0)
-        && getParam(plugin, params, kStepTwoSlideParamId, 1.0);
+        && getParam(plugin, params, kStepTwoSlideParamId, 1.0)
+        && getParam(plugin, params, kStepOnePathXParamId, 1.0)
+        && getParam(plugin, params, kStepOnePathYParamId, 0.0)
+        && getParam(plugin, params, kStepOnePathHeightParamId, 0.0);
     char rootText[32] {};
     char listenerText[32] {};
     char clockText[32] {};
+    char scaleText[64] {};
+    char circuitText[32] {};
+    char outputModeText[32] {};
+    double parsedScale = -1.0;
     ok = ok && params->value_to_text(plugin, kRootParamId,
             36.0, rootText, sizeof(rootText))
         && std::strcmp(rootText, "C2") == 0
@@ -285,7 +369,33 @@ int main(int argc, char** argv)
         && params->value_to_text(plugin, kTransportSyncParamId,
             1.0, clockText, sizeof(clockText))
         && std::strcmp(clockText, "Host") == 0
+        && params->value_to_text(plugin, kScaleParamId,
+            31.0, scaleText, sizeof(scaleText))
+        && std::strcmp(scaleText, "PENTATONIC MINOR") == 0
+        && params->text_to_value(plugin, kScaleParamId,
+            "PENTATONIC MINOR", &parsedScale)
+        && std::fabs(parsedScale - 31.0) < 0.000001
+        && params->value_to_text(plugin, kDriveCircuitParamId,
+            8.0, circuitText, sizeof(circuitText))
+        && std::strcmp(circuitText, "DIODE") == 0
+        && params->value_to_text(plugin, kOutputModeParamId,
+            1.0, outputModeText, sizeof(outputModeText))
+        && std::strcmp(outputModeText, "DUAL MONO 1+2") == 0
         && stateRoundTrip(plugin, params, state);
+
+    bool listenerParamsHidden = true;
+    for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+        clap_param_info_t info {};
+        if (!params->get_info(plugin, index, &info)) {
+            listenerParamsHidden = false;
+            break;
+        }
+        if (info.id >= kListenModeParamId && info.id <= 25u) {
+            listenerParamsHidden = listenerParamsHidden
+                && (info.flags & CLAP_PARAM_IS_HIDDEN) != 0u;
+        }
+    }
+    ok = ok && listenerParamsHidden;
 
     if (!ok || !plugin->activate(plugin, 48000.0, 1u, kFrames)
         || !plugin->start_processing(plugin)) {
@@ -300,6 +410,8 @@ int main(int argc, char** argv)
     AudioBlock audio;
     EventList hostClockMode;
     hostClockMode.add(kTransportSyncParamId, 1.0);
+    hostClockMode.add(kOutputModeParamId, 0.0);
+    hostClockMode.add(kDriveMixParamId, 0.0);
     params->flush(plugin, &hostClockMode.input, nullptr);
     clap_event_transport_t stoppedTransport {};
     stoppedTransport.header.size = sizeof(stoppedTransport);
@@ -339,6 +451,78 @@ int main(int argc, char** argv)
     EventList internalClockMode;
     internalClockMode.add(kTransportSyncParamId, 0.0);
     params->flush(plugin, &internalClockMode.input, nullptr);
+
+    EventList outputLevel;
+    outputLevel.add(kOutputParamId, -6.0);
+    params->flush(plugin, &outputLevel.input, nullptr);
+    plugin->reset(plugin);
+    audio.clear();
+    runBlock(plugin, audio);
+    double highOutputEnergy = 0.0;
+    for (const auto& channel : audio.storage) {
+        for (const float value : channel) highOutputEnergy += value * value;
+    }
+    EventList quietOutputLevel;
+    quietOutputLevel.add(kOutputParamId, -30.0);
+    params->flush(plugin, &quietOutputLevel.input, nullptr);
+    plugin->reset(plugin);
+    audio.clear();
+    runBlock(plugin, audio);
+    double lowOutputEnergy = 0.0;
+    for (const auto& channel : audio.storage) {
+        for (const float value : channel) lowOutputEnergy += value * value;
+    }
+    ok = ok && highOutputEnergy > 1.0e-8
+        && lowOutputEnergy > 0.0
+        && highOutputEnergy > lowOutputEnergy * 40.0;
+    EventList restoreOutputLevel;
+    restoreOutputLevel.add(kOutputParamId, -10.0);
+    params->flush(plugin, &restoreOutputLevel.input, nullptr);
+
+    plugin->reset(plugin);
+    audio.clear();
+    runBlock(plugin, audio);
+    AudioBlock midiAudio;
+    plugin->reset(plugin);
+    EventList midiTranspose;
+    midiTranspose.addNote(true, 48, 0.8, 0u);
+    midiTranspose.addNote(true, 60, 0.9, 64u);
+    midiTranspose.addNote(false, 60, 0.0, 128u);
+    midiTranspose.addNote(false, 48, 0.0, 192u);
+    midiAudio.clear();
+    runBlock(plugin, midiAudio, &midiTranspose.input);
+    double midiDifference = 0.0;
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (uint32_t sample = 0u; sample < kFrames; ++sample) {
+            midiDifference += std::fabs(
+                midiAudio.storage[channel][sample]
+                - audio.storage[channel][sample]);
+        }
+    }
+    ok = ok && midiDifference > 0.001;
+
+    plugin->reset(plugin);
+    EventList dualMonoMode;
+    dualMonoMode.add(kOutputModeParamId, 1.0);
+    audio.clear();
+    runBlock(plugin, audio, &dualMonoMode.input);
+    double dualMonoEnergy = 0.0;
+    bool dualMonoClean = true;
+    for (uint32_t sample = 0u; sample < kFrames; ++sample) {
+        dualMonoClean = dualMonoClean
+            && std::fabs(audio.storage[0u][sample]
+                - audio.storage[1u][sample]) < 1.0e-7f;
+        dualMonoEnergy += static_cast<double>(audio.storage[0u][sample])
+            * audio.storage[0u][sample];
+        for (uint32_t channel = 2u; channel < kChannels; ++channel) {
+            dualMonoClean = dualMonoClean
+                && audio.storage[channel][sample] == 0.0f;
+        }
+    }
+    ok = ok && dualMonoClean && dualMonoEnergy > 1.0e-8;
+    EventList restoreHoaMode;
+    restoreHoaMode.add(kOutputModeParamId, 0.0);
+    params->flush(plugin, &restoreHoaMode.input, nullptr);
 
     plugin->reset(plugin);
     EventList orderChange;
@@ -392,6 +576,10 @@ int main(int argc, char** argv)
                   << highOrderBefore << "/" << highOrderAfter
                   << " transport=" << stoppedEnergy << "/"
                   << playingEnergy << "/" << restEnergy
+                  << " midi-delta=" << midiDifference
+                  << " output-level=" << highOutputEnergy << "/"
+                  << lowOutputEnergy
+                  << " dual-mono=" << dualMonoEnergy
                   << " energy=" << totalEnergy
                   << " directional=" << directionalEnergy
                   << " peak=" << peak << "\n";

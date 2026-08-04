@@ -882,17 +882,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_acid_encoder_smoke
         s3g_ambi_acid_encoder_clap_smoke
         s3g_ambi_acid_encoder_clap
-      COMMENT "Validating acid synthesis, spatial wake, Listener Mode, state, and CLAP contract")
+      COMMENT "Validating acid synthesis, sub/drive voice, MIDI transpose, spatial/dual-mono output, state, and CLAP contract")
     if(APPLE)
       add_custom_target(audit_ambi_acid_encoder_gui
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_ambi_acid_encoder_clap>
           org.s3g.s3g-dsp.ambi-encoder-acid-16
-          920 560 "s3g Ambi Encoder Acid" responsive
+          920 620 "s3g Ambi Encoder Acid" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_ambi_acid_encoder_clap
-        COMMENT "Validating the responsive Ambi Encoder Acid note-line editor")
+        COMMENT "Validating the responsive Ambi Encoder Acid dual-view path editor")
       add_dependencies(audit_ambi_acid_encoder
         audit_ambi_acid_encoder_gui)
     endif()

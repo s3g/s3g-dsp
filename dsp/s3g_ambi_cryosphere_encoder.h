@@ -244,6 +244,10 @@ struct AmbiCryosphereVoice {
     float scorePropagation = 0.0f;
     float scoreConsequence = 0.0f;
     float scoreAftermath = 0.0f;
+    // Normalized to a mean of one across active entities. surfaceLoad blends
+    // this from uniform pressure to a localized physical contact while the
+    // existing field directions remain the distributed sheet pickups.
+    float skinContactWeight = 1.0f;
     StructuralFailureModel structure {};
     QuasicrystalIceModel quasicrystalIce {};
     PlanetaryCryosphereModel planetaryCryosphere {};
@@ -370,6 +374,12 @@ public:
         return field_.voiceRenderGain(voice);
     }
 
+    float voiceSkinContactWeight(uint32_t voice) const
+    {
+        return voices_[std::min<uint32_t>(
+            voice, kAmbiCryosphereMaxVoices - 1u)].skinContactWeight;
+    }
+
     void beginTransition()
     {
         transitionRequested_.store(true, std::memory_order_release);
@@ -483,6 +493,7 @@ public:
                 activity[voice] = voices_[voice].eventLevel;
             }
             field_.update(dt, activity.data());
+            updateSkinContactWeights(voiceCount, dt);
             for (uint32_t voice = 0u; voice < voiceCount; ++voice) {
                 const auto direction = field_.direction(voice);
                 score_.setEntityPosition(voice,
@@ -797,6 +808,7 @@ private:
         voice.plateIntegrity = 0.68f + randomUnit(voice.rng) * 0.32f;
         voice.crackExtent = 0.0f;
         voice.brineCharge = randomUnit(voice.rng) * 0.18f;
+        voice.skinContactWeight = 1.0f;
         voice.structure.prepare(sampleRate_,
             0x1ceba11u + index * 0x85ebca6bu);
         voice.quasicrystalIce.prepare(sampleRate_,
@@ -807,6 +819,57 @@ private:
             0xc8a4f31du + index * 0x94d049bbu);
         voice.planetaryModalBody.setParams(
             cryosphereModalParams(params_));
+    }
+
+    void updateSkinContactWeights(uint32_t voiceCount, float dt)
+    {
+        if (voiceCount == 0u) return;
+        std::array<float, kAmbiCryosphereMaxVoices> local {};
+        float sum = 0.0f;
+        const float radius = 0.07f + params_.width * 0.24f
+            + params_.spread * 0.08f;
+        const float inverseRadiusSquared = 1.0f
+            / std::max(1.0e-6f, radius * radius);
+        for (uint32_t index = 0u; index < voiceCount; ++index) {
+            const Vec3 direction = normalize(field_.direction(index));
+            const float azimuthUnit = std::atan2(direction.y, direction.x)
+                    / (2.0f * kPi)
+                + 0.5f;
+            const float elevationUnit = std::asin(clamp(
+                    direction.z, -1.0f, 1.0f))
+                    / kPi
+                + 0.5f;
+            float dx = std::fabs(azimuthUnit - params_.surfaceX);
+            dx = std::min(dx, 1.0f - dx);
+            const float dy = elevationUnit - params_.surfaceY;
+            const float distanceSquared = dx * dx + dy * dy;
+            local[index] = 0.025f + std::exp(
+                -0.5f * distanceSquared * inverseRadiusSquared);
+            sum += local[index];
+        }
+        const float mean = sum / static_cast<float>(voiceCount);
+        const float localization = std::sqrt(params_.surfaceLoad);
+        std::array<float, kAmbiCryosphereMaxVoices> target {};
+        float targetSum = 0.0f;
+        for (uint32_t index = 0u; index < voiceCount; ++index) {
+            target[index] = clamp(lerp(1.0f, local[index]
+                    / std::max(1.0e-6f, mean), localization),
+                0.18f, 4.0f);
+            targetSum += target[index];
+        }
+        const float targetMean = targetSum / static_cast<float>(voiceCount);
+        const float smoothing = 1.0f - std::exp(
+            -dt / 0.055f);
+        for (uint32_t index = 0u; index < voiceCount; ++index) {
+            const float normalizedTarget = target[index]
+                / std::max(1.0e-6f, targetMean);
+            voices_[index].skinContactWeight += smoothing
+                * (normalizedTarget - voices_[index].skinContactWeight);
+        }
+        for (uint32_t index = voiceCount;
+            index < kAmbiCryosphereMaxVoices; ++index) {
+            voices_[index].skinContactWeight = 1.0f;
+        }
     }
 
     void applyScoreDirectives(uint32_t voiceCount)
@@ -838,7 +901,8 @@ private:
                         ? 0.68f : 1.0f;
                     const float force = transfer * std::clamp(0.24f
                             + params_.eventSize * 0.24f
-                            + params_.surfaceLoad * 0.20f
+                            + params_.surfaceLoad
+                                * voice.skinContactWeight * 0.20f
                             + params_.density * 0.16f
                             + params_.bubbles * 0.16f,
                         0.0f, 1.0f);
@@ -868,7 +932,8 @@ private:
                 const float transfer = directive.cascadeArrival
                     ? 0.68f : 1.0f;
                 const float force = transfer
-                    * (0.38f + params_.surfaceLoad * 0.38f
+                    * (0.38f + params_.surfaceLoad
+                            * voice.skinContactWeight * 0.38f
                         + params_.contact * 0.26f);
                 voice.forcePulse += randomSigned(voice.rng) * force;
                 voice.strain = std::max(voice.strain,
@@ -891,7 +956,8 @@ private:
                     0.0f, 1.0f);
                 if (std::max({ params_.surfaceLoad, params_.snap,
                         params_.plateFailure }) > 0.001f) {
-                    voice.structure.excite(force, true);
+                    voice.structure.excite(force * std::sqrt(
+                        voice.skinContactWeight), true);
                 }
                 voice.plateIntegrity *= 0.28f;
                 voice.crackExtent = 1.0f;
@@ -1300,6 +1366,7 @@ private:
             * eventRate;
         StructuralFailureParams structureParams {};
         structureParams.drive = clamp(params_.surfaceLoad
+            * voice.skinContactWeight
             * (0.54f
                 + params_.convergence * 0.30f
                 + regime.fracture * 0.28f)
@@ -1674,7 +1741,8 @@ private:
             + structural.crack * 0.62f + structural.snap * 0.76f
             + structural.rupture * 0.54f + structural.fall * 0.48f
             + structural.impact * 0.72f)
-            * (0.24f + params_.surfaceLoad * 0.62f);
+            * (0.24f + params_.surfaceLoad
+                * clamp(voice.skinContactWeight, 0.25f, 2.25f) * 0.62f);
         const float massConsequence = (singingLake ? 0.0f : plateBody)
             * (0.09f + params_.eventSize * 0.135f
                 + params_.scale * 0.09f + params_.depth * 0.06f);

@@ -34,10 +34,10 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/accelerometer-field-encoder.png" aria-label="Open Ambi Encoder Modal GUI screenshot">
-              <img src="assets/plugin-guis/accelerometer-field-encoder.png" alt="Ambi Encoder Modal GUI showing modal bodies, Listener and Actuator controls, projection, body AED, signal path, and camera controls" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/accelerometer-field-encoder.png" alt="Ambi Encoder Modal GUI showing modal bodies, Listener and Actuator controls, projection, body AED, and an independent draggable Distributed Skin contact for the selected body" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Encoder Modal with modal-body, Listener / Actuator, projection, body AED, signal-path, and camera controls.</figcaption>
+          <figcaption>Ambi Encoder Modal with its modal-body field, Listener / Actuator, editable body AED, and a per-body draggable Distributed Skin contact.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -45,7 +45,7 @@
         <ol>
           <li>Choose <code>1OA</code>, <code>2OA</code>, <code>3OA</code>, or <code>8 BODY STEMS</code>, set the track to the corresponding <code>4</code>, <code>9</code>, <code>16</code>, or <code>8</code> channels, and insert Ambi Encoder Modal.</li>
           <li>With <code>ACN/SN3D</code> selected, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. With <code>8 BODY STEMS</code>, route the eight ordinary lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
-          <li>Choose a Body and begin with four Bodies. Increase the count when a broader ensemble matters more than detail within each resonator.</li>
+          <li>Choose a Body and begin with four Bodies. Increase the count when a broader ensemble matters more than detail within each resonator. Raise <code>SKIN EXTENT</code> when one body should radiate as a surface instead of a point.</li>
           <li>Play MIDI notes or send a mono signal to <code>Modal Actuator In</code>. The input excites the resonators but is not mixed dry into the output.</li>
           <li>Use Listener / Actuator Routing and Behavior to move sustained energy through the ensemble. <code>DIFFUSE</code> with <code>DRONE</code> is a useful starting point for continuous fields.</li>
           <li>Set Azimuth, Elevation, and Body Spread, then drag individual bodies in the field when the generated constellation needs adjustment.</li>
@@ -57,7 +57,7 @@
           <li>MIDI, <code>Modal Actuator In</code>, and the Listener / Actuator energize the resonant bodies. No separate click, noise burst, or dry input is added.</li>
           <li>The shared mode pool is divided among the active bodies. Body choice and character controls determine their pitch regions, decay, beating, and variation.</li>
           <li>The Listener hears the internal field and directs continuous drive according to the selected Routing and Behavior.</li>
-          <li>Each body combines contact and radiated tone, then receives its generated or manually edited spatial position.</li>
+          <li>Each body combines contact and radiated tone. At zero Skin Extent it uses its body point; above zero, four samples of the same modal surface radiate around that point. This distribution reuses the 96 modes rather than creating another resonator bank.</li>
           <li>The normal output is HOA. <code>8 BODY STEMS</code> instead provides one post-body signal per lane.</li>
           <li><code>LIFT</code> supports quiet sustained material, <code>OUT</code> sets the final level, and a linked guard protects all output channels together.</li>
         </ol>
@@ -82,6 +82,12 @@
 
         <p>MIDI and <code>Modal Actuator In</code> are additive. The mono input can carry envelopes, contact sounds, or audio, but it only excites the resonators and is never heard as a dry signal. The Listener / Actuator can sustain and redistribute that energy after the initial excitation.</p>
 
+        <h2 id="distributed-skin">Distributed Skin</h2>
+
+        <p>Each modal body owns its own <code>SKIN X</code> and <code>SKIN Y</code> actuator contact. Select a body in the field, then drag its crosshair in the Distributed Skin panel; the displayed contact and its two host parameters follow that body. <code>SKIN EXTENT</code> remains global: it changes every contact from the original one-dimensional point model into a two-dimensional drive and spreads four radiation samples through each body’s local ambisonic tangent plane.</p>
+
+        <p>Extent does not add modes: it changes where the existing modes are driven and observed. This makes off-center contact emphasize different modal families while the surface patches describe one body, not four extra bodies. <code>8 BODY STEMS</code> intentionally remains one post-body lane per active body. At zero extent, the earlier point-radiation path is retained exactly; the five membrane presets opt into broader skin settings.</p>
+
         <h2 id="spatial-editor">Spatial Body Editor</h2>
 
         <p><code>TOP</code> and <code>SIDE</code> are editing views; <code>3/4</code> provides an overview. Drag bodies in Top or Side, click to select them in 3/4, and drag empty space to orbit the camera. The minus and plus buttons change scale. <code>RESET</code> removes manual offsets and returns body distances to 1.0.</p>
@@ -96,11 +102,12 @@
           <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
           <tbody>
             <tr><td>Output</td><td>Lift / Out / Order / Format</td><td>Supports quiet sustained fields, sets output level, and selects HOA or eight body stems.</td></tr>
-            <tr><td>Modal Body</td><td>Body / Bodies / Size / Damp / Irregularity / Coupling / Drive Position</td><td>Chooses and shapes four to eight resonators within the shared mode pool.</td></tr>
+            <tr><td>Modal Body</td><td>Body / Bodies / Size / Damp / Irregularity / Coupling / Skin Extent</td><td>Chooses and shapes four to eight resonators within the shared mode pool, then sets point-to-surface radiation.</td></tr>
             <tr><td>Listener / Actuator</td><td>Ears / Routing / Drive / Behavior / Input</td><td>Chooses the Listener, directs continuous excitation, and sets the mono actuator contribution.</td></tr>
             <tr><td>Projection</td><td>Azimuth / Elevation / Body Spread</td><td>Places and distributes the body centers in the ambisonic field.</td></tr>
             <tr><td>Body Character</td><td>Tone Center / Variation / Mode Angle / Contact–Radiation / Air Level</td><td>Changes spectral color and the balance between contact and radiated sound.</td></tr>
             <tr><td>Body AED</td><td>Az Offset / El Offset / Distance</td><td>Edits the selected body relative to the generated constellation.</td></tr>
+            <tr><td>Distributed Skin</td><td>Selected-body Skin X / Skin Y drag surface</td><td>Places that body’s independently automatable actuator contact and previews its four local HOA radiation samples.</td></tr>
             <tr><td>Field View</td><td>Top / Side / 3/4 / − / + / Reset</td><td>Controls the camera, direct body editing, and layout reset.</td></tr>
           </tbody>
         </table>
@@ -183,6 +190,7 @@
           <a href="#signal-flow">Signal Flow</a>
           <a href="#bodies">Choosing a Body</a>
           <a href="#midi">MIDI and Actuator Input</a>
+          <a href="#distributed-skin">Distributed Skin</a>
           <a href="#spatial-editor">Spatial Body Editor</a>
           <a href="#controls">Primary Controls</a>
           <a href="#behavior">How It Behaves</a>

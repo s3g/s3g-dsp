@@ -2,7 +2,9 @@
 
 #include "s3g_ambi_horizon_encoder.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 namespace s3g {
@@ -34,6 +36,192 @@ inline constexpr std::array<AmbiHorizonPresetInfo, 16u> kAmbiHorizonPresetInfo {
 inline constexpr uint32_t kAmbiHorizonFactoryPresetCount =
     static_cast<uint32_t>(kAmbiHorizonPresetInfo.size());
 
+inline uint32_t ambiHorizonRandomWord(uint32_t& state)
+{
+    if (state == 0u) state = 0x6d2b79f5u;
+    state ^= state << 13u;
+    state ^= state >> 17u;
+    state ^= state << 5u;
+    return state;
+}
+
+inline float ambiHorizonRandomUnit(uint32_t& state)
+{
+    return static_cast<float>(ambiHorizonRandomWord(state) & 0x00ffffffu)
+        / static_cast<float>(0x01000000u);
+}
+
+inline float ambiHorizonRandomRange(
+    uint32_t& state, float minimum, float maximum)
+{
+    return minimum + (maximum - minimum) * ambiHorizonRandomUnit(state);
+}
+
+inline uint32_t ambiHorizonRandomChoice(uint32_t& state, uint32_t count)
+{
+    return std::min<uint32_t>(count - 1u,
+        static_cast<uint32_t>(ambiHorizonRandomUnit(state)
+            * static_cast<float>(count)));
+}
+
+inline float ambiHorizonRandomLogRange(
+    uint32_t& state, float minimum, float maximum)
+{
+    return std::exp(ambiHorizonRandomRange(
+        state, std::log(minimum), std::log(maximum)));
+}
+
+// Generate a complete scene inside musically conservative limits. Unlike a
+// perturbed factory preset, every ecology gets a compatible source population,
+// ground, propagation range, and model controls. Monitoring and listener
+// choices remain user-owned.
+inline AmbiHorizonEncoderParams ambiHorizonSafeRandomParams(
+    const AmbiHorizonEncoderParams& current, uint32_t& state)
+{
+    AmbiHorizonEncoderParams p {};
+    p.order = current.order;
+    p.outputGainDb = current.outputGainDb;
+    p.fieldListenMode = current.fieldListenMode;
+    p.fieldListenAmount = current.fieldListenAmount;
+    p.fieldListenResponse = current.fieldListenResponse;
+
+    p.ecology = static_cast<AmbiHorizonEcology>(
+        ambiHorizonRandomChoice(state, 9u));
+    p.entities = 16u + ambiHorizonRandomChoice(state, 17u);
+    p.activity = ambiHorizonRandomRange(state, 0.34f, 0.68f);
+    p.occupancy = ambiHorizonRandomRange(state, 0.32f, 0.70f);
+    p.pace = ambiHorizonRandomRange(state, 0.10f, 0.58f);
+    p.memory = ambiHorizonRandomRange(state, 0.64f, 0.96f);
+    p.cascade = ambiHorizonRandomRange(state, 0.16f, 0.72f);
+    p.signals = ambiHorizonRandomRange(state, 0.42f, 0.82f);
+    p.horizonBed = ambiHorizonRandomRange(state, 0.38f, 0.62f);
+    p.localFloor = ambiHorizonRandomRange(state, 0.11f, 0.21f);
+    p.azimuthDeg = ambiHorizonRandomRange(state, -180.0f, 180.0f);
+    p.arcDeg = ambiHorizonRandomRange(state, 90.0f, 330.0f);
+    p.detail = ambiHorizonRandomRange(state, 0.30f, 0.72f);
+    p.air = ambiHorizonRandomRange(state, 0.28f, 0.72f);
+    p.terrain = ambiHorizonRandomRange(state, 0.14f, 0.68f);
+    p.carry = ambiHorizonRandomRange(state, 0.02f, 0.56f);
+    p.turbulence = ambiHorizonRandomRange(state, 0.04f, 0.28f);
+    p.edgeDb = ambiHorizonRandomRange(state, 2.5f, 5.5f);
+    p.airNoise = ambiHorizonRandomUnit(state) < 0.22f
+        ? 0.0f : ambiHorizonRandomRange(state, 0.01f, 0.14f);
+
+    p.machines = 0.0f;
+    p.bells = 0.0f;
+    p.traffic = 0.0f;
+    p.aircraft = 0.0f;
+    p.foghorns = 0.0f;
+    p.surf = 0.0f;
+
+    p.trafficSpeed = ambiHorizonRandomRange(state, 0.20f, 0.72f);
+    p.engineLoad = ambiHorizonRandomRange(state, 0.28f, 0.78f);
+    p.aircraftFlight = ambiHorizonRandomRange(state, 0.52f, 0.96f);
+    p.aircraftSpeed = ambiHorizonRandomRange(state, 0.28f, 0.74f);
+    p.aircraftPower = ambiHorizonRandomRange(state, 0.42f, 0.84f);
+    p.aircraftTone = ambiHorizonRandomRange(state, 0.20f, 0.58f);
+    p.foghornPitch = ambiHorizonRandomRange(state, 0.24f, 0.56f);
+    p.foghornPressure = ambiHorizonRandomRange(state, 0.54f, 0.84f);
+    p.foghornLength = ambiHorizonRandomRange(state, 0.38f, 0.72f);
+    p.waveRate = ambiHorizonRandomRange(state, 0.24f, 0.68f);
+    p.waveBreak = ambiHorizonRandomRange(state, 0.30f, 0.76f);
+    p.machineTone = ambiHorizonRandomRange(state, 0.24f, 0.68f);
+    p.bellPitch = ambiHorizonRandomRange(state, 0.32f, 0.72f);
+    p.bellDecay = ambiHorizonRandomRange(state, 0.56f, 0.92f);
+
+    switch (p.ecology) {
+    case AmbiHorizonEcology::Rural:
+        p.ground = ambiHorizonRandomUnit(state) < 0.78f
+            ? AmbiHorizonGround::Grass : AmbiHorizonGround::Forest;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 1.2f, 11.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -4.0f, 7.0f);
+        p.machines = ambiHorizonRandomRange(state, 0.0f, 0.16f);
+        p.bells = ambiHorizonRandomRange(state, 0.38f, 0.86f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.0f, 0.16f);
+        break;
+    case AmbiHorizonEcology::Traffic:
+        p.ground = ambiHorizonRandomUnit(state) < 0.62f
+            ? AmbiHorizonGround::Grass : AmbiHorizonGround::Hard;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 0.8f, 8.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -5.0f, 5.0f);
+        p.machines = ambiHorizonRandomRange(state, 0.04f, 0.28f);
+        p.traffic = ambiHorizonRandomRange(state, 0.58f, 0.96f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.0f, 0.14f);
+        break;
+    case AmbiHorizonEcology::City:
+        p.ground = ambiHorizonRandomUnit(state) < 0.72f
+            ? AmbiHorizonGround::Hard : AmbiHorizonGround::Forest;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 1.0f, 9.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -4.0f, 7.0f);
+        p.machines = ambiHorizonRandomRange(state, 0.12f, 0.42f);
+        p.traffic = ambiHorizonRandomRange(state, 0.46f, 0.88f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.02f, 0.18f);
+        break;
+    case AmbiHorizonEcology::Industrial:
+        p.ground = AmbiHorizonGround::Hard;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 1.4f, 9.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -5.0f, 5.0f);
+        p.machines = ambiHorizonRandomRange(state, 0.46f, 0.88f);
+        p.bells = ambiHorizonRandomRange(state, 0.0f, 0.12f);
+        p.traffic = ambiHorizonRandomRange(state, 0.18f, 0.52f);
+        p.airNoise = std::min(p.airNoise, 0.08f);
+        break;
+    case AmbiHorizonEcology::Water:
+        p.ground = AmbiHorizonGround::Water;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 2.0f, 13.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -4.0f, 1.0f);
+        p.carry = ambiHorizonRandomRange(state, 0.34f, 0.76f);
+        p.foghorns = ambiHorizonRandomRange(state, 0.32f, 0.78f);
+        p.surf = ambiHorizonRandomRange(state, 0.32f, 0.82f);
+        break;
+    case AmbiHorizonEcology::Weather:
+        p.ground = static_cast<AmbiHorizonGround>(
+            2u + ambiHorizonRandomChoice(state, 3u));
+        p.rangeKm = ambiHorizonRandomLogRange(state, 1.0f, 11.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -2.0f, 10.0f);
+        p.carry = ambiHorizonRandomRange(state, -0.18f, 0.34f);
+        p.turbulence = ambiHorizonRandomRange(state, 0.22f, 0.62f);
+        p.horizonBed = std::max(p.horizonBed, 0.48f);
+        p.localFloor = ambiHorizonRandomRange(state, 0.14f, 0.24f);
+        p.edgeDb = std::max(p.edgeDb, 3.5f);
+        p.airNoise = ambiHorizonRandomRange(state, 0.10f, 0.22f);
+        p.machines = ambiHorizonRandomRange(state, 0.0f, 0.12f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.04f, 0.24f);
+        p.surf = ambiHorizonRandomRange(state, 0.58f, 0.92f);
+        break;
+    case AmbiHorizonEcology::Airport:
+        p.ground = ambiHorizonRandomUnit(state) < 0.56f
+            ? AmbiHorizonGround::Hard : AmbiHorizonGround::Grass;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 1.4f, 10.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, 3.0f, 13.0f);
+        p.traffic = ambiHorizonRandomRange(state, 0.16f, 0.54f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.68f, 1.0f);
+        break;
+    case AmbiHorizonEcology::Coast:
+        p.ground = AmbiHorizonGround::Water;
+        p.rangeKm = ambiHorizonRandomLogRange(state, 2.5f, 14.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -5.0f, 0.0f);
+        p.carry = ambiHorizonRandomRange(state, 0.34f, 0.74f);
+        p.foghorns = ambiHorizonRandomRange(state, 0.46f, 0.94f);
+        p.surf = ambiHorizonRandomRange(state, 0.38f, 0.86f);
+        break;
+    default:
+        p.ground = static_cast<AmbiHorizonGround>(
+            ambiHorizonRandomChoice(state, 5u));
+        p.rangeKm = ambiHorizonRandomLogRange(state, 0.9f, 11.0f);
+        p.elevationDeg = ambiHorizonRandomRange(state, -5.0f, 8.0f);
+        p.machines = ambiHorizonRandomRange(state, 0.12f, 0.44f);
+        p.bells = ambiHorizonRandomRange(state, 0.12f, 0.48f);
+        p.traffic = ambiHorizonRandomRange(state, 0.26f, 0.68f);
+        p.aircraft = ambiHorizonRandomRange(state, 0.04f, 0.22f);
+        break;
+    }
+
+    p.seed = 1u + ambiHorizonRandomChoice(state, 65535u);
+    if (p.seed == current.seed) p.seed = p.seed == 65535u ? 1u : p.seed + 1u;
+    return p;
+}
+
 inline AmbiHorizonEncoderParams ambiHorizonFactoryPreset(uint32_t index)
 {
     AmbiHorizonEncoderParams p {};
@@ -42,12 +230,12 @@ inline AmbiHorizonEncoderParams ambiHorizonFactoryPreset(uint32_t index)
         p.ecology = AmbiHorizonEcology::Rural;
         p.entities = 18u; p.activity = 0.34f; p.occupancy = 0.18f;
         p.pace = 0.24f; p.memory = 0.86f; p.cascade = 0.28f;
-        p.signals = 0.74f; p.horizonBed = 0.18f; p.localFloor = 0.12f;
+        p.signals = 0.68f; p.horizonBed = 0.68f; p.localFloor = 0.12f;
         p.rangeKm = 4.8f; p.arcDeg = 105.0f; p.detail = 0.64f;
         p.air = 0.48f; p.ground = AmbiHorizonGround::Grass;
         p.terrain = 0.54f; p.carry = 0.34f; p.turbulence = 0.10f;
-        p.edgeDb = 1.5f; p.seed = 311u; p.airNoise = 0.12f;
-        p.machines = 0.0f; p.bells = 1.0f; p.traffic = 0.0f;
+        p.edgeDb = 3.25f; p.seed = 311u; p.airNoise = 0.12f;
+        p.machines = 0.0f; p.bells = 0.82f; p.traffic = 0.0f;
         p.aircraft = 0.0f; p.foghorns = 0.0f; p.surf = 0.0f;
         p.bellPitch = 0.58f; p.bellDecay = 0.90f;
         break;
@@ -182,7 +370,7 @@ inline AmbiHorizonEncoderParams ambiHorizonFactoryPreset(uint32_t index)
         p.rangeKm = 3.2f; p.azimuthDeg = -28.0f; p.arcDeg = 170.0f;
         p.detail = 0.24f; p.air = 0.74f; p.ground = AmbiHorizonGround::Forest;
         p.terrain = 0.78f; p.carry = -0.18f; p.turbulence = 0.18f;
-        p.edgeDb = 1.0f; p.seed = 6311u; p.airNoise = 0.06f;
+        p.edgeDb = 5.0f; p.seed = 6311u; p.airNoise = 0.06f;
         p.machines = 0.14f; p.bells = 0.0f; p.traffic = 0.42f;
         p.aircraft = 0.03f; p.foghorns = 0.0f; p.surf = 0.0f;
         p.trafficSpeed = 0.34f; p.engineLoad = 0.46f;

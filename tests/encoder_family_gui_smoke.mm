@@ -1264,6 +1264,28 @@ int main(int argc, char** argv)
                         && std::fabs(reported - 3.0) < 0.001;
                 }
 
+                // Identity now occupies the open space below the right-hand
+                // listener column instead of touching the bottom canvas edge.
+                failureStage = "Horizon right-column Identity hit target";
+                const auto clickSeed = [&](CGFloat x) {
+                    const NSPoint point = NSMakePoint(x, 588.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                };
+                if (ok) {
+                    clickSeed(1004.0);
+                    ok = params->get_value(plugin, 25u, &reported)
+                        && std::fabs(reported - 1.0) < 0.001;
+                }
+                if (ok) {
+                    clickSeed(1086.0);
+                    ok = params->get_value(plugin, 25u, &reported)
+                        && std::fabs(reported - 65535.0) < 0.001;
+                }
+                if (ok) clickSeed(1006.5); // Restore near the default seed.
+
                 // Horizon follows the shared TOP / SIDE / 3/4 camera order.
                 // TOP is the XY azimuth plane; SIDE is the XZ elevation
                 // plane. Guard the preset transforms as well as the labels.
@@ -1321,6 +1343,100 @@ int main(int argc, char** argv)
                         draggedGridPoint.x - threeQuarterGridPoint.x,
                         draggedGridPoint.y - threeQuarterGridPoint.y) > 8.0;
                     [document setViewPreset:2];
+                }
+
+                // RANDOM is a non-factory scene with a new identity. It keeps
+                // monitoring and listener choices and advertises that state in
+                // the title instead of retaining a borrowed factory name.
+                failureStage = "Horizon safe RANDOM scene and title";
+                double seedBeforeRandom = 0.0;
+                double outputBeforeRandom = 0.0;
+                double orderBeforeRandom = 0.0;
+                double listenModeBeforeRandom = 0.0;
+                double listenAmountBeforeRandom = 0.0;
+                double responseBeforeRandom = 0.0;
+                if (ok) {
+                    ok = params->get_value(plugin, 25u, &seedBeforeRandom)
+                        && params->get_value(plugin, 24u, &outputBeforeRandom)
+                        && params->get_value(plugin, 2u, &orderBeforeRandom)
+                        && params->get_value(plugin, 47u, &listenModeBeforeRandom)
+                        && params->get_value(plugin, 48u, &listenAmountBeforeRandom)
+                        && params->get_value(plugin, 49u, &responseBeforeRandom);
+                }
+                if (ok) {
+                    const NSRect randomButton =
+                        s3g::clap_gui::encoderTitleActionRect(
+                            nativeWidth, nativeHeight,
+                            s3g::gui_layout::EncoderTitleAction::Random);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(randomButton),
+                            NSMidY(randomButton)))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(NSMidX(randomButton),
+                            NSMidY(randomButton)))];
+                }
+                double randomizedSeed = 0.0;
+                double randomizedActivity = 0.0;
+                double preserved = 0.0;
+                if (ok) {
+                    ok = [[document valueForKey:@"presetName"]
+                            isEqualToString:@"RANDOM"]
+                        && params->get_value(plugin, 25u, &randomizedSeed)
+                        && randomizedSeed != seedBeforeRandom
+                        && params->get_value(plugin, 5u, &randomizedActivity)
+                        && randomizedActivity >= 0.30
+                        && randomizedActivity <= 0.68;
+                }
+                if (ok) {
+                    ok = params->get_value(plugin, 24u, &preserved)
+                        && std::fabs(preserved - outputBeforeRandom) < 0.001
+                        && params->get_value(plugin, 2u, &preserved)
+                        && std::fabs(preserved - orderBeforeRandom) < 0.001
+                        && params->get_value(plugin, 47u, &preserved)
+                        && std::fabs(preserved - listenModeBeforeRandom) < 0.001
+                        && params->get_value(plugin, 48u, &preserved)
+                        && std::fabs(preserved - listenAmountBeforeRandom) < 0.001
+                        && params->get_value(plugin, 49u, &preserved)
+                        && std::fabs(preserved - responseBeforeRandom) < 0.001;
+                }
+                if (ok) {
+                    double hostPresetValue = 0.0;
+                    ok = params->get_value(plugin, 1u, &hostPresetValue)
+                        && hostPresetValue >= 0.0
+                        && hostPresetValue < 16.0;
+                }
+
+                // The internal RANDOM marker is serialized separately from
+                // the host's bounded factory-preset parameter.
+                if (ok) {
+                    const auto* horizonState =
+                        static_cast<const clap_plugin_state_t*>(
+                            plugin->get_extension(plugin, CLAP_EXT_STATE));
+                    MemoryPluginState randomState;
+                    clap_ostream_t stateOutput { &randomState, stateWrite };
+                    ok = horizonState && horizonState->save
+                        && horizonState->load
+                        && horizonState->save(plugin, &stateOutput)
+                        && !randomState.bytes.empty();
+                    SingleParamEventInput factoryMutation {};
+                    if (ok) {
+                        setSingleParamEvent(factoryMutation, 1u, 0.0);
+                        params->flush(plugin, &factoryMutation.events, nullptr);
+                        randomState.offset = 0u;
+                        clap_istream_t stateInput { &randomState, stateRead };
+                        ok = horizonState->load(plugin, &stateInput)
+                            && randomState.offset == randomState.bytes.size();
+                    }
+                    if (ok) {
+                        [document performSelector:@selector(refreshSnapshot)];
+                        double recalledSeed = 0.0;
+                        ok = [[document valueForKey:@"presetName"]
+                                isEqualToString:@"RANDOM"]
+                            && params->get_value(plugin, 25u, &recalledSeed)
+                            && std::fabs(recalledSeed - randomizedSeed) < 0.001;
+                    }
                 }
             } @catch (NSException* exception) {
                 std::cerr << "Horizon preset lifetime exception: "
@@ -1448,6 +1564,268 @@ int main(int argc, char** argv)
             }
             if (ok) {
                 failureStage =
+                    "Ambi Encoder Acid linked spatial step path";
+                constexpr clap_id pathXId = 209u;
+                constexpr clap_id pathYId = 210u;
+                constexpr clap_id pathZId = 211u;
+                double originalX = 0.0;
+                double originalY = 0.0;
+                double originalZ = 0.0;
+                ok = params->get_value(plugin, pathXId, &originalX)
+                    && params->get_value(plugin, pathYId, &originalY)
+                    && params->get_value(plugin, pathZId, &originalZ);
+                CapturedOutputEvents pathEvents {};
+                pathEvents.events.ctx = &pathEvents;
+                pathEvents.events.try_push = captureOutputEvent;
+                if (ok) {
+                    hostContext.deferParamFlush = true;
+                    const NSPoint topPoint = NSMakePoint(500.0, 470.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, topPoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, topPoint)];
+                    const NSPoint sidePoint = NSMakePoint(790.0, 410.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, sidePoint)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, sidePoint)];
+                    hostContext.deferParamFlush = false;
+                    params->flush(plugin, nullptr, &pathEvents.events);
+                    hostContext.paramFlushRequested = false;
+                }
+                double editedX = 0.0;
+                double editedY = 0.0;
+                double editedZ = 0.0;
+                bool xBegin = false, xValue = false, xEnd = false;
+                bool yBegin = false, yValue = false, yEnd = false;
+                bool zBegin = false, zValue = false, zEnd = false;
+                for (const auto& emitted : pathEvents.values) {
+                    bool* begin = emitted.paramId == pathXId
+                        ? &xBegin : emitted.paramId == pathYId ? &yBegin
+                            : emitted.paramId == pathZId ? &zBegin : nullptr;
+                    bool* value = emitted.paramId == pathXId
+                        ? &xValue : emitted.paramId == pathYId ? &yValue
+                            : emitted.paramId == pathZId ? &zValue : nullptr;
+                    bool* end = emitted.paramId == pathXId
+                        ? &xEnd : emitted.paramId == pathYId ? &yEnd
+                            : emitted.paramId == pathZId ? &zEnd : nullptr;
+                    if (!begin) continue;
+                    if (emitted.type == CLAP_EVENT_PARAM_GESTURE_BEGIN) *begin = true;
+                    else if (emitted.type == CLAP_EVENT_PARAM_VALUE) *value = true;
+                    else if (emitted.type == CLAP_EVENT_PARAM_GESTURE_END) *end = true;
+                }
+                ok = ok
+                    && [[document valueForKey:@"selectedStep"] intValue] == 3
+                    && params->get_value(plugin, pathXId, &editedX)
+                    && params->get_value(plugin, pathYId, &editedY)
+                    && params->get_value(plugin, pathZId, &editedZ)
+                    && std::fabs(editedX - 0.304) < 0.015
+                    && std::fabs(editedY + 0.338) < 0.015
+                    && std::fabs(editedZ - 0.279) < 0.015
+                    && xBegin && xValue && xEnd
+                    && yBegin && yValue && yEnd
+                    && zBegin && zValue && zEnd;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(272.0, 279.0))];
+                    ok = [[document valueForKey:@"controlPage"] intValue] == 3;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(224.0, 279.0))];
+                    ok = ok
+                        && [[document valueForKey:@"controlPage"] intValue] == 2;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(176.0, 279.0))];
+                    ok = ok
+                        && [[document valueForKey:@"controlPage"] intValue] == 1;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(128.0, 279.0))];
+                    ok = ok
+                        && [[document valueForKey:@"controlPage"] intValue] == 0;
+                }
+                if (!ok) {
+                    std::cerr << "Acid spatial path interaction failed (x="
+                              << editedX << ", y=" << editedY
+                              << ", z=" << editedZ
+                              << ", events=" << pathEvents.values.size()
+                              << ")\n";
+                }
+                SingleParamEventInput restorePath {};
+                setSingleParamEvent(restorePath, pathXId, originalX);
+                params->flush(plugin, &restorePath.events, nullptr);
+                setSingleParamEvent(restorePath, pathYId, originalY);
+                params->flush(plugin, &restorePath.events, nullptr);
+                setSingleParamEvent(restorePath, pathZId, originalZ);
+                params->flush(plugin, &restorePath.events, nullptr);
+            }
+            if (ok) {
+                failureStage = "Ambi Encoder Acid musical scale menu";
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 469.0))];
+                ok = [[document valueForKey:@"scaleMenuOpen"] boolValue];
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 136.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 136.0))];
+                }
+                double selectedScale = 0.0;
+                ok = ok
+                    && ![[document valueForKey:@"scaleMenuOpen"] boolValue]
+                    && params->get_value(plugin, 28u, &selectedScale)
+                    && std::fabs(selectedScale - 31.0) < 0.000001;
+                if (!ok) {
+                    std::cerr << "Acid scale menu interaction failed (scale="
+                              << selectedScale << ")\n";
+                }
+                SingleParamEventInput restoreScale {};
+                setSingleParamEvent(restoreScale, 28u, 0.0);
+                params->flush(plugin, &restoreScale.events, nullptr);
+            }
+            if (ok) {
+                failureStage = "Ambi Encoder Acid stepped parameter menus";
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 370.0))];
+                ok = [[document valueForKey:@"parameterMenuOpen"] boolValue]
+                    && [[document valueForKey:@"parameterMenuId"]
+                        unsignedIntValue] == 3u;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 325.0))];
+                }
+                double division = 0.0;
+                ok = ok && params->get_value(plugin, 3u, &division)
+                    && std::fabs(division - 6.0) < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 535.0))];
+                    ok = [[document valueForKey:@"parameterMenuOpen"] boolValue]
+                        && [[document valueForKey:@"parameterMenuId"]
+                            unsignedIntValue] == 0x7ffffff0u;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 472.0))];
+                }
+                double order = 0.0;
+                double formatMode = 1.0;
+                ok = ok && params->get_value(plugin, 1u, &order)
+                    && std::fabs(order - 1.0) < 0.000001
+                    && params->get_value(plugin, 33u, &formatMode)
+                    && std::fabs(formatMode) < 0.000001;
+                if (!ok) {
+                    std::cerr << "Acid stepped menu interaction failed (divide="
+                              << division << ", order=" << order
+                              << ", mode=" << formatMode << ")\n";
+                }
+                SingleParamEventInput restoreDiscrete {};
+                setSingleParamEvent(restoreDiscrete, 3u, 4.0);
+                params->flush(plugin, &restoreDiscrete.events, nullptr);
+                setSingleParamEvent(restoreDiscrete, 1u, 3.0);
+                params->flush(plugin, &restoreDiscrete.events, nullptr);
+            }
+            if (ok) {
+                failureStage =
+                    "Ambi Encoder Acid sub, drive, and output controls";
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(176.0, 279.0))];
+                ok = [[document valueForKey:@"controlPage"] intValue] == 1;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(275.0, 403.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, NSMakePoint(275.0, 403.0))];
+                }
+                double subLevel = 0.0;
+                ok = ok && params->get_value(plugin, 30u, &subLevel)
+                    && subLevel > 0.85;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 370.0))];
+                    ok = [[document valueForKey:@"parameterMenuOpen"]
+                        boolValue]
+                        && [[document valueForKey:@"parameterMenuId"]
+                            unsignedIntValue] == 29u;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 361.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 361.0))];
+                }
+                double subOctave = -1.0;
+                ok = ok
+                    && ![[document valueForKey:@"parameterMenuOpen"] boolValue]
+                    && params->get_value(plugin, 29u, &subOctave)
+                    && std::fabs(subOctave) < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(224.0, 279.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 472.0))];
+                    ok = [[document valueForKey:@"circuitMenuOpen"] boolValue];
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 463.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 463.0))];
+                }
+                double circuit = 0.0;
+                ok = ok
+                    && ![[document valueForKey:@"circuitMenuOpen"] boolValue]
+                    && params->get_value(plugin, 31u, &circuit)
+                    && std::fabs(circuit - 8.0) < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(272.0, 279.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 535.0))];
+                    ok = [[document valueForKey:@"parameterMenuOpen"]
+                        boolValue]
+                        && [[document valueForKey:@"parameterMenuId"]
+                            unsignedIntValue] == 0x7ffffff0u;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 526.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 526.0))];
+                }
+                double outputMode = 0.0;
+                ok = ok && params->get_value(plugin, 33u, &outputMode)
+                    && std::fabs(outputMode - 1.0) < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(275.0, 568.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, NSMakePoint(275.0, 568.0))];
+                }
+                double outputLevel = -10.0;
+                ok = ok && params->get_value(plugin, 26u, &outputLevel)
+                    && outputLevel > 5.0;
+                if (!ok) {
+                    std::cerr << "Acid voice/output interaction failed (sub="
+                              << subLevel << ", octave=" << subOctave
+                              << ", circuit=" << circuit
+                              << ", mode=" << outputMode
+                              << ", level=" << outputLevel << ")\n";
+                }
+                SingleParamEventInput restoreVoice {};
+                setSingleParamEvent(restoreVoice, 29u, -1.0);
+                params->flush(plugin, &restoreVoice.events, nullptr);
+                setSingleParamEvent(restoreVoice, 30u, 0.0);
+                params->flush(plugin, &restoreVoice.events, nullptr);
+                setSingleParamEvent(restoreVoice, 31u, 0.0);
+                params->flush(plugin, &restoreVoice.events, nullptr);
+                setSingleParamEvent(restoreVoice, 33u, 0.0);
+                params->flush(plugin, &restoreVoice.events, nullptr);
+                setSingleParamEvent(restoreVoice, 26u, -10.0);
+                params->flush(plugin, &restoreVoice.events, nullptr);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(128.0, 279.0))];
+            }
+            if (ok) {
+                failureStage =
                     "Ambi Encoder Acid preset, random, and host clock controls";
                 @try {
                     [document mouseDown:mouseEvent(
@@ -1477,10 +1855,19 @@ int main(int argc, char** argv)
                     if (ok) {
                         [document mouseDown:mouseEvent(
                             NSEventTypeLeftMouseDown,
-                            NSMakePoint(235.0, 331.0))];
-                        [document mouseUp:mouseEvent(
-                            NSEventTypeLeftMouseUp,
-                            NSMakePoint(235.0, 331.0))];
+                            NSMakePoint(235.0, 342.0))];
+                        ok = [[document valueForKey:@"parameterMenuOpen"]
+                            boolValue]
+                            && [[document valueForKey:@"parameterMenuId"]
+                                unsignedIntValue] == 27u;
+                    }
+                    if (ok) {
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved,
+                            NSMakePoint(130.0, 328.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(130.0, 328.0))];
                         double clock = 0.0;
                         ok = params->get_value(plugin, 27u, &clock)
                             && std::fabs(clock - 1.0) < 0.000001;
@@ -1777,7 +2164,7 @@ int main(int argc, char** argv)
                         && std::fabs(tune - 43.0) < 0.000001
                         && std::fabs(drop - 38.0) < 0.000001;
                 }
-                // ORDER and SHAPE are explicit hoverable dropdowns, not
+                // FORMAT and SHAPE are explicit hoverable dropdowns, not
                 // click-to-cycle controls.
                 if (ok) {
                     [document mouseDown:mouseEvent(
@@ -1795,6 +2182,25 @@ int main(int argc, char** argv)
                     double order = 0.0;
                     ok = params->get_value(plugin, 1u, &order)
                         && std::fabs(order - 2.0) < 0.000001;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 80.0))];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 159.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 1u
+                        && [[document valueForKey:@"menuItemCount"]
+                            unsignedIntValue] == 4u
+                        && [[document valueForKey:@"hoverMenuItem"] intValue]
+                            == 3;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 159.0))];
+                    double format = 0.0;
+                    ok = params->get_value(plugin, 1u, &format)
+                        && std::fabs(format - 4.0) < 0.000001;
                 }
                 if (ok) {
                     [document mouseDown:mouseEvent(

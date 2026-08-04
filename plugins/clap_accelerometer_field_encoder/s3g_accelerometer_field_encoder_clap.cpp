@@ -30,7 +30,7 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
-constexpr uint32_t kStateVersion = 12u;
+constexpr uint32_t kStateVersion = 13u;
 constexpr uint32_t kFactoryPresetCount = s3g::kAccelerometerFieldPresetCount;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
 // Released v10 had thirteen factory presets and v11 had twenty. Their Custom
@@ -109,6 +109,20 @@ enum ParamId : clap_id {
     kParamBody8Distance,
     kParamListenerPickupSet,
     kParamModalLift,
+    kParamBody2SkinX,
+    kParamBody2SkinY,
+    kParamBody3SkinX,
+    kParamBody3SkinY,
+    kParamBody4SkinX,
+    kParamBody4SkinY,
+    kParamBody5SkinX,
+    kParamBody5SkinY,
+    kParamBody6SkinX,
+    kParamBody6SkinY,
+    kParamBody7SkinX,
+    kParamBody7SkinY,
+    kParamBody8SkinX,
+    kParamBody8SkinY,
 };
 
 constexpr clap_id kBodyAedParamBase = kParamBody1AzimuthOffset;
@@ -116,6 +130,39 @@ constexpr uint32_t kBodyAedParamStride = 3u;
 static_assert(kParamBody8Distance == 61u);
 static_assert(kParamListenerPickupSet == 62u);
 static_assert(kParamModalLift == 63u);
+static_assert(kParamBody2SkinX == 64u);
+static_assert(kParamBody8SkinY == 77u);
+constexpr clap_id kMaximumParamId = kParamBody8SkinY;
+constexpr size_t kParamDirtyWordCount =
+    static_cast<size_t>(kMaximumParamId / 64u) + 1u;
+using ParamDirtyMask = std::array<uint64_t, kParamDirtyWordCount>;
+
+bool hasDirtyParam(const ParamDirtyMask& mask, clap_id id)
+{
+    return id <= kMaximumParamId
+        && (mask[id / 64u] & (uint64_t { 1u } << (id % 64u))) != 0u;
+}
+
+void setDirtyParam(ParamDirtyMask& mask, clap_id id)
+{
+    if (id <= kMaximumParamId) {
+        mask[id / 64u] |= uint64_t { 1u } << (id % 64u);
+    }
+}
+
+bool hasDirtyParams(const ParamDirtyMask& mask)
+{
+    return std::any_of(mask.begin(), mask.end(),
+        [](uint64_t word) { return word != 0u; });
+}
+
+void mergeDirtyParams(ParamDirtyMask& destination,
+    const ParamDirtyMask& source)
+{
+    for (size_t word = 0u; word < destination.size(); ++word) {
+        destination[word] |= source[word];
+    }
+}
 
 enum class DisplayKind : uint8_t {
     Menu,
@@ -140,7 +187,7 @@ struct ParamSpec {
     bool hidden = false;
 };
 
-constexpr std::array<ParamSpec, 63u> kParamSpecs {{
+constexpr std::array<ParamSpec, 77u> kParamSpecs {{
     { kParamPreset, "Preset", "Preset", 0.0, static_cast<double>(kFactoryPresetCount), 0.0, DisplayKind::Menu, false, false },
     { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 24.0, 10.0, DisplayKind::Menu },
     { kParamExcitation, "Legacy transient exciter", "Legacy", 0.0, 5.0, 0.0, DisplayKind::Menu, false, true, true },
@@ -154,9 +201,9 @@ constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamSize, "Size", "Modal Body", 0.0, 1.0, 0.50, DisplayKind::Percent },
     { kParamDamping, "Damping", "Modal Body", 0.0, 1.0, 0.08, DisplayKind::Percent },
     { kParamIrregularity, "Irregularity", "Modal Body", 0.0, 1.0, 0.025, DisplayKind::Percent },
-    { kParamPropagationLoss, "Legacy propagation loss", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
-    { kParamContactDetail, "Legacy contact detail", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
-    { kParamSourcePosition, "Actuator position", "Modal Body", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamPropagationLoss, "Skin extent", "Distributed Skin", 0.0, 1.0, 0.0, DisplayKind::Percent },
+    { kParamContactDetail, "Body 1 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamSourcePosition, "Body 1 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
     { kParamPickupPosition, "Tone center", "Body Character", 0.0, 1.0, 0.50, DisplayKind::Position },
     { kParamPickupAxis, "Modal angle", "Body Character", 0.0, 1.0, 0.34, DisplayKind::Percent },
     { kParamSensorMass, "Legacy sensor mass", "Advanced", 0.0, 1.0, 0.01, DisplayKind::Percent, false, true, true },
@@ -204,6 +251,20 @@ constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamBody8Distance, "Body 8 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
     { kParamListenerPickupSet, "Listener pickups", "Listener / Actuator", 0.0, 1.0, 1.0, DisplayKind::Menu },
     { kParamModalLift, "Modal lift", "Output", 0.0, 1.0, 0.65, DisplayKind::Percent },
+    { kParamBody2SkinX, "Body 2 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody2SkinY, "Body 2 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody3SkinX, "Body 3 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody3SkinY, "Body 3 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody4SkinX, "Body 4 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody4SkinY, "Body 4 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody5SkinX, "Body 5 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody5SkinY, "Body 5 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody6SkinX, "Body 6 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody6SkinY, "Body 6 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody7SkinX, "Body 7 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody7SkinY, "Body 7 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamBody8SkinX, "Body 8 skin X", "Distributed Skin", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamBody8SkinY, "Body 8 skin Y", "Distributed Skin", 0.0, 1.0, 0.50, DisplayKind::Position },
 }};
 
 constexpr std::array<s3g::AccelerometerSubstrate, 16u> kPublicSubstrates {{
@@ -300,6 +361,32 @@ clap_id bodyAedParamId(uint32_t body, BodyAedParamKind kind)
         body, s3g::kAccelerometerFieldMaxBodyCount - 1u);
     return kBodyAedParamBase + body * kBodyAedParamStride
         + static_cast<uint32_t>(kind);
+}
+
+bool decodeBodySkinParam(
+    clap_id id, uint32_t& body, bool& xCoordinate)
+{
+    if (id == kParamSourcePosition || id == kParamContactDetail) {
+        body = 0u;
+        xCoordinate = id == kParamSourcePosition;
+        return true;
+    }
+    if (id < kParamBody2SkinX || id > kParamBody8SkinY) return false;
+    const uint32_t offset = id - kParamBody2SkinX;
+    body = 1u + offset / 2u;
+    xCoordinate = (offset % 2u) == 0u;
+    return true;
+}
+
+clap_id bodySkinParamId(uint32_t body, bool xCoordinate)
+{
+    body = std::min<uint32_t>(
+        body, s3g::kAccelerometerFieldMaxBodyCount - 1u);
+    if (body == 0u) {
+        return xCoordinate ? kParamSourcePosition : kParamContactDetail;
+    }
+    return kParamBody2SkinX + (body - 1u) * 2u
+        + (xCoordinate ? 0u : 1u);
 }
 
 const char* menuName(clap_id id, uint32_t index)
@@ -575,12 +662,13 @@ struct Plugin {
     s3g::AccelerometerFieldParams paramsMailbox =
         s3g::accelerometerFieldFactoryPreset(0u);
     uint32_t paramsMailboxPresetIndex = 0u;
-    uint64_t paramsMailboxDirtyMask = 0u;
+    ParamDirtyMask paramsMailboxDirtyMask {};
     bool paramsMailboxFullReplace = false;
     bool paramsMailboxResetEngine = false;
     std::atomic<uint64_t> paramsMailboxRevision { 0u };
     uint64_t audioMailboxRevision = 0u;
-    std::array<uint64_t, 64u> controlParamEditRevision {};
+    std::array<uint64_t, static_cast<size_t>(kMaximumParamId) + 1u>
+        controlParamEditRevision {};
     uint64_t controlPresetEditRevision = 0u;
 
     // Host automation is mirrored back without letting the audio thread touch
@@ -590,13 +678,13 @@ struct Plugin {
     s3g::AccelerometerFieldParams audioReportParams =
         s3g::accelerometerFieldFactoryPreset(0u);
     uint32_t audioReportPresetIndex = 0u;
-    uint64_t audioReportDirtyMask = 0u;
+    ParamDirtyMask audioReportDirtyMask {};
     bool audioReportFullReplace = false;
     bool audioReportPresetChanged = false;
     uint64_t audioReportMailboxRevision = 0u;
     std::atomic<uint64_t> audioReportRevision { 0u };
     uint64_t controlAudioReportRevision = 0u;
-    uint64_t pendingAudioReportDirtyMask = 0u;
+    ParamDirtyMask pendingAudioReportDirtyMask {};
     bool pendingAudioReportFullReplace = false;
     bool pendingAudioReportPresetChanged = false;
 
@@ -689,6 +777,10 @@ double paramValueFromState(
     uint32_t presetIndex, clap_id id)
 {
     uint32_t body = 0u;
+    bool xCoordinate = false;
+    if (decodeBodySkinParam(id, body, xCoordinate)) {
+        return xCoordinate ? p.bodySkinX[body] : p.bodySkinY[body];
+    }
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) {
         if (kind == BodyAedParamKind::AzimuthOffset) {
@@ -714,8 +806,6 @@ double paramValueFromState(
     case kParamDamping: return p.damping;
     case kParamIrregularity: return p.irregularity;
     case kParamPropagationLoss: return p.propagationLoss;
-    case kParamContactDetail: return p.contactDetail;
-    case kParamSourcePosition: return p.sourcePosition;
     case kParamPickupPosition: return p.pickupPosition;
     case kParamArraySpread: return p.arraySpread;
     case kParamPickupAxis: return p.pickupAxis;
@@ -751,6 +841,18 @@ bool assignParam(
     s3g::AccelerometerFieldParams& p, clap_id id, double value)
 {
     uint32_t body = 0u;
+    bool xCoordinate = false;
+    if (decodeBodySkinParam(id, body, xCoordinate)) {
+        if (xCoordinate) {
+            p.bodySkinX[body] = static_cast<float>(value);
+            if (body == 0u) p.sourcePosition = static_cast<float>(value);
+        } else {
+            p.bodySkinY[body] = static_cast<float>(value);
+            if (body == 0u) p.contactDetail = static_cast<float>(value);
+        }
+        p = s3g::sanitizeAccelerometerFieldParams(p);
+        return true;
+    }
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) {
         if (kind == BodyAedParamKind::AzimuthOffset) {
@@ -781,8 +883,6 @@ bool assignParam(
     case kParamDamping: p.damping = static_cast<float>(value); break;
     case kParamIrregularity: p.irregularity = static_cast<float>(value); break;
     case kParamPropagationLoss: p.propagationLoss = static_cast<float>(value); break;
-    case kParamContactDetail: p.contactDetail = static_cast<float>(value); break;
-    case kParamSourcePosition: p.sourcePosition = static_cast<float>(value); break;
     case kParamPickupPosition: p.pickupPosition = static_cast<float>(value); break;
     case kParamArraySpread: p.arraySpread = static_cast<float>(value); break;
     case kParamPickupAxis: p.pickupAxis = static_cast<float>(value); break;
@@ -885,7 +985,7 @@ void publishControlParamsLocked(Plugin& plugin, bool resetEngine)
     AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
     plugin.paramsMailbox = plugin.params;
     plugin.paramsMailboxPresetIndex = plugin.presetIndex;
-    plugin.paramsMailboxDirtyMask = 0u;
+    plugin.paramsMailboxDirtyMask.fill(0u);
     plugin.paramsMailboxFullReplace = true;
     plugin.paramsMailboxResetEngine =
         plugin.paramsMailboxResetEngine || resetEngine;
@@ -897,11 +997,11 @@ void publishControlParamsLocked(Plugin& plugin, bool resetEngine)
 
 void publishControlParamLocked(Plugin& plugin, clap_id id)
 {
-    if (id >= 64u) return;
+    if (id > kMaximumParamId) return;
     AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
     plugin.paramsMailbox = plugin.params;
     plugin.paramsMailboxPresetIndex = plugin.presetIndex;
-    plugin.paramsMailboxDirtyMask |= uint64_t { 1u } << id;
+    setDirtyParam(plugin.paramsMailboxDirtyMask, id);
     const uint64_t revision = plugin.paramsMailboxRevision.fetch_add(
         1u, std::memory_order_release) + 1u;
     plugin.controlParamEditRevision[id] = revision;
@@ -952,9 +1052,8 @@ bool tryConsumeControlParams(Plugin& plugin)
         if (plugin.paramsMailboxFullReplace) {
             plugin.audioParams = plugin.paramsMailbox;
         } else {
-            for (clap_id id = 2u; id <= kParamModalLift; ++id) {
-                if ((plugin.paramsMailboxDirtyMask
-                        & (uint64_t { 1u } << id)) == 0u) {
+            for (clap_id id = 2u; id <= kMaximumParamId; ++id) {
+                if (!hasDirtyParam(plugin.paramsMailboxDirtyMask, id)) {
                     continue;
                 }
                 assignParam(plugin.audioParams, id,
@@ -965,7 +1064,7 @@ bool tryConsumeControlParams(Plugin& plugin)
         plugin.audioPresetIndex = plugin.paramsMailboxPresetIndex;
         resetEngine = plugin.paramsMailboxResetEngine;
         plugin.audioMailboxRevision = revision;
-        plugin.paramsMailboxDirtyMask = 0u;
+        plugin.paramsMailboxDirtyMask.fill(0u);
         plugin.paramsMailboxFullReplace = false;
         plugin.paramsMailboxResetEngine = false;
     }
@@ -990,7 +1089,7 @@ bool applyAudioParamToState(
         plugin.pendingAudioReportFullReplace = true;
         resetEngine = true;
     } else {
-        plugin.pendingAudioReportDirtyMask |= uint64_t { 1u } << id;
+        setDirtyParam(plugin.pendingAudioReportDirtyMask, id);
     }
     plugin.pendingAudioReportPresetChanged = true;
     return true;
@@ -1012,7 +1111,7 @@ void applyAudioParam(Plugin& plugin, clap_id id, double value)
 
 bool publishAudioReportTry(Plugin& plugin)
 {
-    if (plugin.pendingAudioReportDirtyMask == 0u
+    if (!hasDirtyParams(plugin.pendingAudioReportDirtyMask)
         && !plugin.pendingAudioReportFullReplace
         && !plugin.pendingAudioReportPresetChanged) {
         return true;
@@ -1023,13 +1122,14 @@ bool publishAudioReportTry(Plugin& plugin)
     }
     plugin.audioReportParams = plugin.audioParams;
     plugin.audioReportPresetIndex = plugin.audioPresetIndex;
-    plugin.audioReportDirtyMask |= plugin.pendingAudioReportDirtyMask;
+    mergeDirtyParams(plugin.audioReportDirtyMask,
+        plugin.pendingAudioReportDirtyMask);
     plugin.audioReportFullReplace = plugin.audioReportFullReplace
         || plugin.pendingAudioReportFullReplace;
     plugin.audioReportPresetChanged = plugin.audioReportPresetChanged
         || plugin.pendingAudioReportPresetChanged;
     plugin.audioReportMailboxRevision = plugin.audioMailboxRevision;
-    plugin.pendingAudioReportDirtyMask = 0u;
+    plugin.pendingAudioReportDirtyMask.fill(0u);
     plugin.pendingAudioReportFullReplace = false;
     plugin.pendingAudioReportPresetChanged = false;
     plugin.audioReportRevision.fetch_add(
@@ -1049,11 +1149,9 @@ void mergeAudioReportLocked(Plugin& plugin)
         std::memory_order_relaxed);
     if (revision == plugin.controlAudioReportRevision) return;
 
-    const uint64_t dirtyMask = plugin.audioReportFullReplace
-        ? std::numeric_limits<uint64_t>::max()
-        : plugin.audioReportDirtyMask;
-    for (clap_id id = 2u; id <= kParamModalLift; ++id) {
-        if ((dirtyMask & (uint64_t { 1u } << id)) == 0u
+    for (clap_id id = 2u; id <= kMaximumParamId; ++id) {
+        if ((!plugin.audioReportFullReplace
+                && !hasDirtyParam(plugin.audioReportDirtyMask, id))
             || plugin.controlParamEditRevision[id]
                 > plugin.audioReportMailboxRevision) {
             continue;
@@ -1071,7 +1169,7 @@ void mergeAudioReportLocked(Plugin& plugin)
         plugin.guiState.selectedBody, plugin.params.bodyCount - 1u);
     updatePresetName(plugin);
     plugin.controlAudioReportRevision = revision;
-    plugin.audioReportDirtyMask = 0u;
+    plugin.audioReportDirtyMask.fill(0u);
     plugin.audioReportFullReplace = false;
     plugin.audioReportPresetChanged = false;
 }
@@ -1177,7 +1275,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
             std::memory_order_relaxed);
         p->audioMailboxRevision = snapshot.mailboxRevision;
         if (currentRevision == snapshot.mailboxRevision) {
-            p->paramsMailboxDirtyMask = 0u;
+            p->paramsMailboxDirtyMask.fill(0u);
             p->paramsMailboxFullReplace = false;
             p->paramsMailboxResetEngine = false;
         }
@@ -1209,7 +1307,7 @@ void deactivate(const clap_plugin_t* plugin)
         resetEngine = p->paramsMailboxResetEngine;
         p->audioMailboxRevision = p->paramsMailboxRevision.load(
             std::memory_order_relaxed);
-        p->paramsMailboxDirtyMask = 0u;
+        p->paramsMailboxDirtyMask.fill(0u);
         p->paramsMailboxFullReplace = false;
         p->paramsMailboxResetEngine = false;
     }
@@ -1694,7 +1792,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     auto* p = self(plugin);
     AtomicFlagGuard controlGuard(p->controlLock);
     mergeAudioReportLocked(*p);
-    if (header.version == kStateVersion || header.version == 11u) {
+    if (header.version == kStateVersion) {
         s3g::AccelerometerFieldParams loadedParams {};
         SavedGuiState loadedGui {};
         if (!readExact(stream, &loadedParams, sizeof(loadedParams))
@@ -1704,12 +1802,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->params = s3g::sanitizeAccelerometerFieldParams(loadedParams);
         p->guiState = sanitizeSavedGuiState(
             loadedGui, p->params.bodyCount);
-    } else if (header.version == 10u) {
-        // Neither profile expansion changed the parameter or GUI aggregate.
-        // Read released v10 exactly; its Custom identity is migrated below.
+    } else if (header.version >= 10u && header.version <= 12u) {
+        // Per-body skin coordinates were appended in v13. Versions 10–12
+        // share the complete legacy parameter prefix and GUI aggregate.
         s3g::AccelerometerFieldParams loadedParams {};
         SavedGuiState loadedGui {};
-        if (!readExact(stream, &loadedParams, sizeof(loadedParams))
+        constexpr size_t legacyParamsSize = offsetof(
+            s3g::AccelerometerFieldParams, bodySkinX);
+        if (!readExact(stream, &loadedParams, legacyParamsSize)
             || !readExact(stream, &loadedGui, sizeof(loadedGui))) {
             return false;
         }
@@ -1783,6 +1883,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    if (header.version < 13u) {
+        // The old shared contact is copied to all bodies, preserving both the
+        // sound and the visible position of every released session.
+        s3g::initializeAccelerometerFieldBodySkinsFromLegacy(p->params);
+        p->params = s3g::sanitizeAccelerometerFieldParams(p->params);
+    }
     if (header.version < 10u) {
         p->params.modalLift = 0.0f;
     }
@@ -1826,7 +1932,7 @@ constexpr std::array<clap_id, 4u> kOutputControls {{
 }};
 constexpr std::array<clap_id, 7u> kStructureControls {{
     kParamSubstrate, kParamBodyCount, kParamSize, kParamDamping, kParamIrregularity,
-    kParamCoupling, kParamSourcePosition,
+    kParamCoupling, kParamPropagationLoss,
 }};
 constexpr std::array<clap_id, 3u> kProjectionControls {{
     kParamFieldAzimuth, kParamFieldElevation, kParamSpatialExtent,
@@ -1960,6 +2066,13 @@ NSRect signalPanelRect()
 {
     return s3g::clap_gui::cocoaRect(kSignalPanelLayout.frame);
 }
+NSRect skinPadRect()
+{
+    const NSRect panel = signalPanelRect();
+    const CGFloat size = std::min<CGFloat>(112.0, panel.size.height - 48.0);
+    return NSMakeRect(NSMaxX(panel) - size - 16.0,
+        panel.origin.y + 33.0, size, size);
+}
 NSRect modalZoomButtonRect(uint32_t index)
 {
     const NSRect panel = fieldPanelRect();
@@ -1982,6 +2095,8 @@ NSRect modalResetLayoutButtonRect()
 NSRect panelForParam(clap_id id)
 {
     uint32_t body = 0u;
+    bool xCoordinate = false;
+    if (decodeBodySkinParam(id, body, xCoordinate)) return signalPanelRect();
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) return bodyPointPanelRect();
     switch (id) {
@@ -2006,7 +2121,7 @@ NSRect panelForParam(clap_id id)
     case kParamDamping:
     case kParamIrregularity:
     case kParamCoupling:
-    case kParamSourcePosition:
+    case kParamPropagationLoss:
         return structurePanelRect();
     case kParamPickupPosition:
     case kParamArraySpread:
@@ -2028,6 +2143,10 @@ CGFloat controlRowY(NSRect panel, uint32_t row)
 const char* shortParamName(clap_id id)
 {
     uint32_t body = 0u;
+    bool xCoordinate = false;
+    if (decodeBodySkinParam(id, body, xCoordinate)) {
+        return xCoordinate ? "SKIN X" : "SKIN Y";
+    }
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
     if (decodeBodyAedParam(id, body, kind)) {
         if (kind == BodyAedParamKind::AzimuthOffset) return "AZ OFFSET";
@@ -2049,9 +2168,7 @@ const char* shortParamName(clap_id id)
     case kParamIrregularity: return "IRREG";
     case kParamCoupling: return "COUPLING";
     case kParamEnergy: return "ENERGY";
-    case kParamPropagationLoss: return "LOSS";
-    case kParamContactDetail: return "DETAIL";
-    case kParamSourcePosition: return "DRIVE POS";
+    case kParamPropagationLoss: return "SKIN EXTENT";
     case kParamReadout: return "READOUT";
     case kParamPickupPosition: return "TONE CENTER";
     case kParamArraySpread: return "VARIATION";
@@ -2172,7 +2289,14 @@ void randomizeSafe(Plugin& plugin)
     params.damping = vary(params.damping, 0.08f);
     params.irregularity = vary(params.irregularity, 0.07f);
     params.coupling = vary(params.coupling, 0.12f);
-    params.sourcePosition = vary(params.sourcePosition, 0.10f);
+    for (uint32_t body = 0u;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        params.bodySkinX[body] = vary(params.bodySkinX[body], 0.14f);
+        params.bodySkinY[body] = vary(params.bodySkinY[body], 0.14f);
+    }
+    params.sourcePosition = params.bodySkinX[0u];
+    params.contactDetail = params.bodySkinY[0u];
+    params.propagationLoss = vary(params.propagationLoss, 0.10f);
     params.pickupPosition = vary(params.pickupPosition, 0.10f);
     params.arraySpread = s3g::clamp(
         vary(params.arraySpread, 0.10f), 0.42f, 1.0f);
@@ -2277,6 +2401,7 @@ NSColor* modalBodyColorFromAed(
     CGFloat _viewZoom;
     BOOL _dragView;
     int _dragBody;
+    BOOL _dragSkin;
     NSPoint _lastDragPoint;
     uint32_t _selectedBody;
     CGFloat _actuatorFlowPhase;
@@ -2300,6 +2425,7 @@ NSColor* modalBodyColorFromAed(
     depth:(CGFloat*)depth;
 - (int)hitBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
 - (void)updateDraggedBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
+- (void)updateSkinContactAtPoint:(NSPoint)point;
 @end
 
 @implementation S3GAccelerometerFieldEncoderView
@@ -2321,6 +2447,7 @@ NSColor* modalBodyColorFromAed(
         _selectedBody = p ? p->guiState.selectedBody : 0u;
         _dragView = NO;
         _dragBody = -1;
+        _dragSkin = NO;
         _lastDragPoint = NSZeroPoint;
         _actuatorFlowPhase = 0.0;
     }
@@ -3014,7 +3141,7 @@ NSColor* modalBodyColorFromAed(
     drawPanel(@"PROJECTION", kProjectionPanelLayout);
     drawPanel(@"BODY CHARACTER", kRadiationPanelLayout);
     drawPanel(@"BODY AED", kBodyPointPanelLayout);
-    drawPanel(@"SIGNAL PATH", kSignalPanelLayout);
+    drawPanel(@"DISTRIBUTED SKIN", kSignalPanelLayout);
 
     for (uint32_t row = 0u; row < kOutputControls.size(); ++row) {
         [self drawControl:kOutputControls[row]
@@ -3057,29 +3184,89 @@ NSColor* modalBodyColorFromAed(
         withAttributes:values];
     const NSRect signal = signalPanelRect();
     const CGFloat signalX = signal.origin.x + 16.0;
-    const char* bodyName = menuName(kParamSubstrate,
-        menuIndexForValue(kParamSubstrate, getParam(*p, kParamSubstrate)));
-    [[NSString stringWithFormat:@"%@ PROFILE",
-        [NSString stringWithUTF8String:bodyName]]
+    const float skinX = static_cast<float>(getParam(*p,
+        bodySkinParamId(_selectedBody, true)));
+    const float skinY = static_cast<float>(getParam(*p,
+        bodySkinParamId(_selectedBody, false)));
+    const float skinExtent = static_cast<float>(getParam(*p,
+        kParamPropagationLoss));
+    [[NSString stringWithFormat:@"B%u SKIN", _selectedBody + 1u]
         drawAtPoint:NSMakePoint(signalX, signal.origin.y + 38.0)
         withAttributes:values];
-    [@"LISTENER / ACTUATOR" drawAtPoint:NSMakePoint(
-        signalX, signal.origin.y + 64.0)
+    [[NSString stringWithFormat:@"X  %3.0f%%", skinX * 100.0f]
+        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 61.0)
+        withAttributes:values];
+    [[NSString stringWithFormat:@"Y  %3.0f%%", skinY * 100.0f]
+        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 81.0)
+        withAttributes:values];
+    [[NSString stringWithFormat:@"EXT %3.0f%%", skinExtent * 100.0f]
+        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 101.0)
+        withAttributes:values];
+    [@"DRAG CONTACT" drawAtPoint:NSMakePoint(
+        signalX, signal.origin.y + 126.0)
         withAttributes:labels];
-    [@"↓" drawAtPoint:NSMakePoint(
-        signalX + 3.0, signal.origin.y + 80.0)
-        withAttributes:values];
-    [@"CONTINUOUS MODAL DRIVE" drawAtPoint:NSMakePoint(
-        signalX, signal.origin.y + 96.0)
-        withAttributes:values];
-    [[NSString stringWithFormat:@"↓  %u BODIES / 96 MODES",
-        static_cast<uint32_t>(getParam(*p, kParamBodyCount))]
-        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 116.0)
-        withAttributes:values];
-    [@"LIFT → OUT → LINKED GUARD" drawAtPoint:NSMakePoint(
-        signalX, signal.origin.y + 136.0)
-        withAttributes:values];
+    [@"4 PATCH HOA" drawAtPoint:NSMakePoint(
+        signalX, signal.origin.y + 143.0)
+        withAttributes:labels];
+
+    const NSRect skin = skinPadRect();
+    [s3g::clap_gui::color(0x0a0a0a) setFill];
+    NSRectFill(skin);
+    [style.grid setStroke];
+    NSFrameRect(skin);
+    [s3g::clap_gui::color(0x343f44, 0.82) setStroke];
+    for (uint32_t line = 1u; line < 4u; ++line) {
+        const CGFloat unit = static_cast<CGFloat>(line) / 4.0;
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(
+            skin.origin.x + skin.size.width * unit, skin.origin.y)
+            toPoint:NSMakePoint(skin.origin.x + skin.size.width * unit,
+                NSMaxY(skin))];
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(
+            skin.origin.x, skin.origin.y + skin.size.height * unit)
+            toPoint:NSMakePoint(NSMaxX(skin),
+                skin.origin.y + skin.size.height * unit)];
+    }
+    constexpr std::array<std::array<float, 2u>, 4u> patchOffset {{
+        {{ -1.0f, -1.0f }}, {{ 1.0f, -1.0f }},
+        {{ -1.0f, 1.0f }}, {{ 1.0f, 1.0f }},
+    }};
+    const float patchRadius = skinExtent * 0.44f;
+    [s3g::clap_gui::color(0x55a6b6, 0.78) setFill];
+    for (const auto& offset : patchOffset) {
+        const float px = s3g::clamp(skinX + offset[0] * patchRadius,
+            0.0f, 1.0f);
+        const float py = s3g::clamp(skinY + offset[1] * patchRadius,
+            0.0f, 1.0f);
+        const NSPoint point = NSMakePoint(
+            skin.origin.x + px * skin.size.width,
+            NSMaxY(skin) - py * skin.size.height);
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            point.x - 3.5, point.y - 3.5, 7.0, 7.0)] fill];
+    }
+    const NSPoint contact = NSMakePoint(
+        skin.origin.x + skinX * skin.size.width,
+        NSMaxY(skin) - skinY * skin.size.height);
+    [[NSColor colorWithCalibratedWhite:0.96 alpha:0.94] setStroke];
+    NSBezierPath* crosshair = [NSBezierPath bezierPath];
+    [crosshair appendBezierPathWithOvalInRect:NSMakeRect(
+        contact.x - 7.0, contact.y - 7.0, 14.0, 14.0)];
+    [crosshair moveToPoint:NSMakePoint(contact.x - 10.0, contact.y)];
+    [crosshair lineToPoint:NSMakePoint(contact.x + 10.0, contact.y)];
+    [crosshair moveToPoint:NSMakePoint(contact.x, contact.y - 10.0)];
+    [crosshair lineToPoint:NSMakePoint(contact.x, contact.y + 10.0)];
+    [crosshair stroke];
     [self drawOpenMenuWithStyle:style attrs:values];
+}
+
+- (void)updateSkinContactAtPoint:(NSPoint)point
+{
+    const NSRect skin = skinPadRect();
+    const double x = std::clamp(
+        (point.x - skin.origin.x) / skin.size.width, 0.0, 1.0);
+    const double y = std::clamp(
+        (NSMaxY(skin) - point.y) / skin.size.height, 0.0, 1.0);
+    [self setParam:bodySkinParamId(_selectedBody, true) value:x];
+    [self setParam:bodySkinParamId(_selectedBody, false) value:y];
 }
 
 - (void)updateDraggedParamAtPoint:(NSPoint)point
@@ -3215,6 +3402,18 @@ NSColor* modalBodyColorFromAed(
         return;
     }
 
+    if (NSPointInRect(point, skinPadRect())) {
+        if ([event clickCount] > 1) {
+            [self setParam:bodySkinParamId(_selectedBody, true) value:0.43];
+            [self setParam:bodySkinParamId(_selectedBody, false) value:0.50];
+        } else {
+            _dragSkin = YES;
+            [self updateSkinContactAtPoint:point];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
     GuiControlLocation location {};
     if (!findInGroup(point, kOutputPanelLayout, kOutputControls, location)
         && !findInGroup(point, kActuatorPanelLayout, kActuatorControls, location)
@@ -3251,6 +3450,10 @@ NSColor* modalBodyColorFromAed(
         [self updateDraggedBodyAtPoint:point inRect:fieldPlotRect()];
         return;
     }
+    if (_dragSkin) {
+        [self updateSkinContactAtPoint:point];
+        return;
+    }
     if (_dragView) {
         _viewAzimuthDeg += (point.x - _lastDragPoint.x) * 0.35;
         _viewElevationDeg = std::clamp<CGFloat>(
@@ -3273,6 +3476,7 @@ NSColor* modalBodyColorFromAed(
     _dragParam = CLAP_INVALID_ID;
     _dragView = NO;
     _dragBody = -1;
+    _dragSkin = NO;
 }
 
 @end

@@ -151,14 +151,15 @@ TextureMetrics textureMetrics(const std::vector<float>& channel)
 TransientMetrics generatorTransientMetrics(
     const s3g::AmbiHorizonEncoderParams& sourceScene,
     float s3g::AmbiHorizonEncoderParams::*level,
-    uint32_t blocks = 28u)
+    uint32_t blocks = 28u,
+    bool landscapeFamily = false)
 {
     auto scene = sourceScene;
     scene.entities = 8u;
     scene.activity = 1.0f;
     scene.occupancy = 1.0f;
     scene.signals = 1.0f;
-    scene.horizonBed = 0.0f;
+    scene.horizonBed = landscapeFamily ? 1.0f : 0.0f;
     scene.localFloor = 0.0f;
     scene.airNoise = 0.0f;
     scene.machines = 0.0f;
@@ -359,7 +360,7 @@ int main()
         generatorTransients {{
             { "machines", generatorTransientMetrics(
                 s3g::ambiHorizonFactoryPreset(4u),
-                &s3g::AmbiHorizonEncoderParams::machines) },
+                &s3g::AmbiHorizonEncoderParams::machines, 28u, true) },
             { "bells", generatorTransientMetrics(
                 s3g::ambiHorizonFactoryPreset(0u),
                 &s3g::AmbiHorizonEncoderParams::bells) },
@@ -374,7 +375,7 @@ int main()
                 &s3g::AmbiHorizonEncoderParams::foghorns) },
             { "surf", generatorTransientMetrics(
                 s3g::ambiHorizonFactoryPreset(15u),
-                &s3g::AmbiHorizonEncoderParams::surf) },
+                &s3g::AmbiHorizonEncoderParams::surf, 28u, true) },
         }};
     constexpr std::array<float, 6u> kMaximumStepRatios {
         0.03f, 0.18f, 0.08f, 0.12f, 0.08f, 0.14f
@@ -395,10 +396,80 @@ int main()
                   << " curvature/peak=" << curvatureRatio
                   << " peak=" << metrics.peak << '\n';
     }
+
+    // Extreme pitch/decay settings previously escaped the pre-transposition
+    // modal cap and could sustain an aliased, sonar-like upper partial. Keep a
+    // deliberately bright 20 km bell scene finite, audible, peak-bounded, and
+    // spectrally below the old whistle range across several strikes.
+    auto boundedBells = s3g::ambiHorizonFactoryPreset(0u);
+    boundedBells.order = 1u;
+    boundedBells.entities = 32u;
+    boundedBells.activity = 1.0f;
+    boundedBells.occupancy = 1.0f;
+    boundedBells.signals = 1.0f;
+    boundedBells.horizonBed = 0.0f;
+    boundedBells.localFloor = 0.0f;
+    boundedBells.rangeKm = 20.0f;
+    boundedBells.detail = 1.0f;
+    boundedBells.air = 0.0f;
+    boundedBells.terrain = 0.0f;
+    boundedBells.edgeDb = 9.0f;
+    boundedBells.outputGainDb = 0.0f;
+    boundedBells.seed = 65001u;
+    boundedBells.airNoise = 0.0f;
+    boundedBells.machines = 0.0f;
+    boundedBells.bells = 1.0f;
+    boundedBells.traffic = 0.0f;
+    boundedBells.aircraft = 0.0f;
+    boundedBells.foghorns = 0.0f;
+    boundedBells.surf = 0.0f;
+    boundedBells.bellPitch = 1.0f;
+    boundedBells.bellDecay = 1.0f;
+    s3g::AmbiHorizonEncoder boundedBellSource;
+    boundedBellSource.prepare(48000.0);
+    boundedBellSource.setParams(boundedBells);
+    boundedBellSource.reset();
+    double boundedBellEnergy = 0.0;
+    double boundedBellDifferenceEnergy = 0.0;
+    uint64_t boundedBellSamples = 0u;
+    float boundedBellPeak = 0.0f;
+    float boundedBellPrevious = 0.0f;
+    bool boundedBellHasPrevious = false;
+    for (uint32_t block = 0u; block < 120u; ++block) {
+        const auto window = render(
+            boundedBellSource, boundedBellSource.activeChannels());
+        for (float sample : window[0]) {
+            assert(std::isfinite(sample));
+            boundedBellPeak = std::max(boundedBellPeak, std::abs(sample));
+            boundedBellEnergy += static_cast<double>(sample) * sample;
+            if (boundedBellHasPrevious) {
+                const float difference = sample - boundedBellPrevious;
+                boundedBellDifferenceEnergy +=
+                    static_cast<double>(difference) * difference;
+            }
+            boundedBellPrevious = sample;
+            boundedBellHasPrevious = true;
+            ++boundedBellSamples;
+        }
+    }
+    const float boundedBellRms = static_cast<float>(std::sqrt(
+        boundedBellEnergy / static_cast<double>(boundedBellSamples)));
+    const float boundedBellDifferenceRms = static_cast<float>(std::sqrt(
+        boundedBellDifferenceEnergy
+            / static_cast<double>(boundedBellSamples - 1u)));
+    const float boundedBellRoughness = boundedBellDifferenceRms
+        / std::max(boundedBellRms, 1.0e-12f);
+    assert(boundedBellRms > 1.0e-4f);
+    assert(boundedBellPeak < 0.12f);
+    assert(boundedBellRoughness < 0.30f);
+    std::cout << "Bounded extreme bell RMS=" << boundedBellRms
+              << " peak=" << boundedBellPeak
+              << " difference/RMS=" << boundedBellRoughness << '\n';
+
     // Machines contain continuous motor/harmonic bodies only. Their absolute
     // ceiling prevents the family from becoming a foreground event; normal
     // oscillator slope is covered by the family limits above.
-    assert(generatorTransients[0].second.peak < 0.020f);
+    assert(generatorTransients[0].second.peak < 0.12f);
     assert(generatorTransients[0].second.maximumStep
         < generatorTransients[0].second.peak * 0.12f);
 
@@ -669,10 +740,15 @@ int main()
     distantMachines.activity = 1.0f;
     distantMachines.occupancy = 1.0f;
     distantMachines.pace = 1.0f;
-    distantMachines.signals = 1.0f;
-    distantMachines.horizonBed = 0.0f;
+    distantMachines.signals = 0.0f;
+    distantMachines.horizonBed = 1.0f;
     distantMachines.localFloor = 0.0f;
     distantMachines.airNoise = 0.0f;
+    distantMachines.bells = 0.0f;
+    distantMachines.traffic = 0.0f;
+    distantMachines.aircraft = 0.0f;
+    distantMachines.foghorns = 0.0f;
+    distantMachines.surf = 0.0f;
     distantMachines.outputGainDb = 0.0f;
     auto noMachines = distantMachines;
     noMachines.machines = 0.0f;
@@ -710,15 +786,104 @@ int main()
     const float machineMedianRms = machineBlockRms[machineBlockRms.size() / 2u];
     const float machineMaximumRms = machineBlockRms.back();
     assert(machinePeak > 1.0e-5f);
-    assert(machinePeak < 0.25f);
+    assert(machinePeak < 0.28f);
     assert(machineMaximumDifference < machinePeak * 0.02f);
-    assert(machineMaximumRms < machineMedianRms * 2.2f);
+    assert(machineMaximumRms < machineMedianRms * 1.35f);
     std::cout << "Local-floor roughness=" << localRoughness
               << "; long-run machine max slope="
               << machineMaximumDifference / machinePeak
               << " peak=" << machinePeak
               << " max/median block RMS="
               << machineMaximumRms / machineMedianRms << '\n';
+
+    // Machinery is continuous distant body, never a score-gated foreground
+    // signal. MACHINES remains its single, evident level control; with BED and
+    // FLOOR at zero it must not leak through SIGNALS or recreate the former
+    // escalating pressure-release gesture.
+    auto foregroundMachines = distantMachines;
+    foregroundMachines.signals = 1.0f;
+    foregroundMachines.horizonBed = 0.0f;
+    encoder.setParams(foregroundMachines);
+    encoder.reset();
+    float machineSignalLeakage = 0.0f;
+    for (uint32_t block = 0u; block < 64u; ++block) {
+        machineSignalLeakage += absoluteEnergy(
+            render(encoder, encoder.activeChannels()),
+            encoder.activeChannels());
+    }
+    assert(machineSignalLeakage < 1.0e-7f);
+    std::cout << "Machinery leakage into SIGNALS="
+              << machineSignalLeakage << '\n';
+
+    // Flow and Roll are landscape textures, not discrete score signals. With
+    // every named generator and both non-signal layers at true zero, the
+    // Industrial ecology must have no route through SIGNALS at all.
+    auto environmentalSignals = s3g::ambiHorizonFactoryPreset(4u);
+    environmentalSignals.signals = 1.0f;
+    environmentalSignals.horizonBed = 0.0f;
+    environmentalSignals.localFloor = 0.0f;
+    environmentalSignals.airNoise = 0.0f;
+    environmentalSignals.machines = 0.0f;
+    environmentalSignals.bells = 0.0f;
+    environmentalSignals.traffic = 0.0f;
+    environmentalSignals.aircraft = 0.0f;
+    environmentalSignals.foghorns = 0.0f;
+    environmentalSignals.surf = 0.0f;
+    environmentalSignals.outputGainDb = 0.0f;
+    encoder.setParams(environmentalSignals);
+    encoder.reset();
+    float environmentalSignalLeakage = 0.0f;
+    for (uint32_t block = 0u; block < 32u; ++block) {
+        environmentalSignalLeakage += absoluteEnergy(
+            render(encoder, encoder.activeChannels()),
+            encoder.activeChannels());
+    }
+    assert(environmentalSignalLeakage < 1.0e-7f);
+    std::cout << "Environmental texture leakage into SIGNALS="
+              << environmentalSignalLeakage << '\n';
+
+    // RANDOM builds a complete bounded scene rather than perturbing a factory
+    // preset. Exercise repeated-click seeding, ecology coverage, preserved
+    // monitoring/listener choices, and early audibility.
+    auto randomBase = s3g::ambiHorizonFactoryPreset(0u);
+    randomBase.order = 5u;
+    randomBase.outputGainDb = -3.0f;
+    randomBase.fieldListenMode = s3g::AmbiFieldListenMode::Counter;
+    randomBase.fieldListenAmount = 0.37f;
+    randomBase.fieldListenResponse =
+        s3g::AmbiFieldListenerResponse::Settle;
+    std::array<bool, 9u> randomEcologyCoverage {};
+    float minimumRandomRms = 1.0f;
+    float maximumRandomPeak = 0.0f;
+    uint32_t minimumRandomEcology = 0u;
+    for (uint32_t iteration = 0u; iteration < 72u; ++iteration) {
+        uint32_t randomState = randomBase.seed ^ 0x68bc21ebu;
+        const auto randomized = s3g::ambiHorizonSafeRandomParams(
+            randomBase, randomState);
+        assert(randomized.seed != randomBase.seed);
+        assert(randomized.order == randomBase.order);
+        assert(randomized.outputGainDb == randomBase.outputGainDb);
+        assert(randomized.fieldListenMode == randomBase.fieldListenMode);
+        assert(randomized.fieldListenAmount == randomBase.fieldListenAmount);
+        assert(randomized.fieldListenResponse
+            == randomBase.fieldListenResponse);
+        assert(randomized.entities >= 16u && randomized.entities <= 32u);
+        assert(randomized.airNoise >= 0.0f && randomized.airNoise <= 0.22f);
+        randomEcologyCoverage[static_cast<uint32_t>(randomized.ecology)] = true;
+        const auto metrics = presetAudibility(randomized, 8u);
+        if (metrics.rms < minimumRandomRms) {
+            minimumRandomRms = metrics.rms;
+            minimumRandomEcology = static_cast<uint32_t>(randomized.ecology);
+        }
+        maximumRandomPeak = std::max(maximumRandomPeak, metrics.peak);
+        assert(metrics.rms >= 1.5e-3f);
+        assert(metrics.peak >= 0.0025f && metrics.peak < 0.50f);
+        randomBase = randomized;
+    }
+    for (bool covered : randomEcologyCoverage) assert(covered);
+    std::cout << "Safe RANDOM minimum RMS=" << minimumRandomRms
+              << " ecology=" << minimumRandomEcology
+              << " maximum peak=" << maximumRandomPeak << '\n';
 
     for (uint32_t preset = 0u;
          preset < s3g::kAmbiHorizonFactoryPresetCount; ++preset) {

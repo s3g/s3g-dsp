@@ -69,7 +69,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
-    { kOrderParamId, "Ambisonic Order", "Output", 1.0, 3.0, 3.0, true },
+    { kOrderParamId, "Output Format", "Output", 1.0, 4.0, 3.0, true },
     { kShapeParamId, "Membrane Shape", "Membrane", 0.0, 4.0, 0.0, true },
     { kTuneParamId, "Fundamental", "Body", 25.0, 90.0, 43.0, false },
     { kPitchSweepParamId, "Pitch Drop", "Impact", 0.0, 48.0, 31.0, false },
@@ -522,11 +522,13 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     if (!info || isInput || index != 0u) return false;
     *info = {};
     info->id = 20u;
-    std::strncpy(info->name, "3OA ACN/SN3D Membrane Field",
+    std::strncpy(info->name, "3OA ACN/SN3D / 16 Pickup Direct",
         sizeof(info->name) - 1u);
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kOutputChannels;
-    info->port_type = CLAP_PORT_AMBISONIC;
+    // One fixed-width port carries either HOA or ordinary pickup lanes. This
+    // follows Ambi Encoder Modal's variable-format port contract.
+    info->port_type = CLAP_PORT_SURROUND;
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
 }
@@ -590,8 +592,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
 {
     if (!display || size == 0u || !paramDef(id)) return false;
     if (id == kOrderParamId) {
-        std::snprintf(display, size, "%uOA",
-            static_cast<uint32_t>(std::round(value)));
+        const uint32_t format = static_cast<uint32_t>(std::round(value));
+        if (format == s3g::kAmbiMembraneKickDirectPickups) {
+            std::snprintf(display, size, "%s", "16 Pickups");
+        } else {
+            std::snprintf(display, size, "%uOA", format);
+        }
     } else if (id == kShapeParamId) {
         constexpr const char* names[] {
             "Circle", "Ellipse", "Square", "Triangle", "Irregular"
@@ -633,7 +639,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 {
     const auto* def = paramDef(id);
     if (!display || !value || !def) return false;
-    if (id == kShapeParamId) {
+    if (id == kOrderParamId
+        && (std::strstr(display, "pickup")
+            || std::strstr(display, "Pickup")
+            || std::strstr(display, "PICKUP")
+            || std::strstr(display, "direct")
+            || std::strstr(display, "Direct")
+            || std::strstr(display, "DIRECT"))) {
+        *value = s3g::kAmbiMembraneKickDirectPickups;
+        return true;
+    } else if (id == kShapeParamId) {
         constexpr const char* names[] {
             "circle", "ellipse", "square", "triangle", "irregular"
         };
@@ -761,7 +776,7 @@ struct MembraneUiRow {
 constexpr CGFloat kUiPanelX = 580.0;
 constexpr CGFloat kUiPanelWidth = 324.0;
 constexpr std::array<MembraneUiRow, 20u> kUiRows {{
-    { kOrderParamId, "ORDER", 80.0, -1 },
+    { kOrderParamId, "FORMAT", 80.0, -1 },
     { kOutputParamId, "OUT", 104.0, -1 },
     { kShapeParamId, "SHAPE", 184.0, 0 },
     { kShapeAmountParamId, "AMOUNT", 208.0, 0 },
@@ -1063,6 +1078,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         items[0u] = @"1OA / 4CH";
         items[1u] = @"2OA / 9CH";
         items[2u] = @"3OA / 16CH";
+        items[3u] = @"16 PICKUPS";
     } else if (_openMenu == kShapeParamId) {
         items[0u] = @"CIRCLE";
         items[1u] = @"ELLIPSE";
@@ -1135,7 +1151,11 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
     drawPanel(@"MEMBRANE", membranePanel);
     drawPanel(@"LOW BODY", bodyPanel);
     drawPanel(@"IMPACT", impactPanel);
-    drawPanel(@"AMBISONIC SPACE", spacePanel);
+    const bool directPickups = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kOrderParamId)))
+        == s3g::kAmbiMembraneKickDirectPickups;
+    drawPanel(directPickups ? @"DIRECT PICKUPS / SPACE OFF"
+                            : @"AMBISONIC SPACE", spacePanel);
     s3g::clap_gui::drawHeaderButton(membranePageButtonRect(0u),
         membranePanel, @"BODY", _membranePage == 0, valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(membranePageButtonRect(1u),
@@ -1187,6 +1207,11 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
             [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
                 node.x - nodeRadius, node.y - nodeRadius,
                 nodeRadius * 2.0, nodeRadius * 2.0)] fill];
+            if (directPickups) {
+                [[NSString stringWithFormat:@"P%u", ring * 4u + spoke + 1u]
+                    drawAtPoint:NSMakePoint(node.x + 6.0, node.y - 7.0)
+                    withAttributes:labelAttrs];
+            }
         }
     }
     const NSPoint strike = NSMakePoint(
@@ -1369,7 +1394,8 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         if (isUiMenuParam(row.id)) {
             _openMenu = row.id;
             _hoverMenuItem = -1;
-            _menuItemCount = row.id == kShapeParamId ? 5u : 3u;
+            _menuItemCount = row.id == kShapeParamId ? 5u
+                : (row.id == kOrderParamId ? 4u : 3u);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1570,7 +1596,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "Deep pitch-dropping kick synthesized by a shaped twelve-mode membrane whose sixteen radiating surface patches are distributed through first- to third-order ACN/SN3D ambisonic space.",
+    "Deep pitch-dropping kick synthesized by a shaped twelve-mode membrane whose sixteen surface pickups can feed first- to third-order ACN/SN3D or sixteen direct lanes.",
     features
 };
 

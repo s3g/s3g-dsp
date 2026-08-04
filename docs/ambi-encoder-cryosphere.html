@@ -25,10 +25,10 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-cryosphere-encoder.png" aria-label="Open Ambi Encoder Cryosphere GUI screenshot">
-              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere Avalanche Release preset showing a large active 64-entity frozen field" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/ambi-cryosphere-encoder.png" alt="Ambi Encoder Cryosphere Avalanche Release preset showing a large active 64-entity frozen field and the projected ice-skin load marker" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Ambi Encoder Cryosphere using the large, highly occupied <code>Avalanche Release</code> scene.</figcaption>
+          <figcaption>Ambi Encoder Cryosphere using the highly occupied <code>Avalanche Release</code> scene; the crosshair places the normalized ice-skin load.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -36,12 +36,13 @@
           <li>Insert <code>s3g Ambi Encoder Cryosphere</code> on a correctly routed 64-channel Ambisonic track, load a factory scene, and select the output <code>ORDER</code>.</li>
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Start the REAPER transport and listen to the scene's initial material and activity.</li>
-          <li>Choose an ice process and substrate, then shape its activity with the event, material, and score controls or move among stored states on the <code>SURF</code> page.</li>
+          <li>Choose an ice process and substrate, then shape its activity with the event, material, and score controls. Move the <code>SURF</code> cursor to place the physical ice-skin load as well as to move among stored parameter states.</li>
         </ol>
 
         <h2 id="design">Cryogeology Model</h2>
         <p>The source is aperiodic. Each field voice accumulates frost, fracture, and basal-slip stress. Surface ice divides this behavior across slab flex, fault lines, and fine cracks; granular transport scrapes the selected substrate. Calving separates detachment from its later water impact and cavitation tail. Short body responses provide scale without a persistent resonator bed.</p>
         <p>The ice and fracture controls shape event rate, branching, mass, brightness, and decay. <code>EVENT RATE</code> is the master clock from <code>HOLD</code> to <code>1×</code>. Scale, depth, substrate, and fracture mass move the response from crisp surface cracks to broad plate and sub-ice pressure. Separate controls add footsteps, plate failure, granules, frozen impacts, calving, and brine activity.</p>
+        <p><code>SURFACE LOAD</code> now makes the field act as a sampled flexural sheet. The automatable <code>Surface X</code> and <code>Surface Y</code> cursor concentrates pressure near field voices at that location; nearby plate flex, failure, and short low-body responses receive more drive, while the weights are normalized so moving the contact does not become a global level control. At zero Surface Load every field voice has uniform contact weight.</p>
         <p><code>SINGING LAKE</code> briefly applies each crack’s stochastic force to a scattered inharmonic modal pair. Scale and depth place the response; brightness, snap, scatter, and damping shape it. The modes sound only during events rather than forming a continuous ringing bed.</p>
         <p>The four planetary regimes use distinct processes: <code>APERIODIC LATTICE</code> propagates defect fronts through non-repeating frozen matter; <code>TIDAL SHELL</code> releases stress between an ocean and frozen crust; <code>HYDROCARBON DUNE</code> combines frost shear, avalanches, and microfracture; and <code>REACTIVE BRINE</code> cycles pore pressure through sealing and blow-through. Their events briefly excite distributed mineral modes.</p>
         <p>The fracture, ice-segregation, basal-slip, and iceberg-impact paths are informed by geophysics, but this is a realtime procedural interpretation—not a predictive glacier model. See <a href="references.html#modal-physical-modeling">References</a>.</p>
@@ -52,7 +53,7 @@
 
         <h2 id="presets">Presets and SURF</h2>
         <p>Eighteen factory scenes establish distinct process regions: Alpine Frost Crack, Ice Segregation Gneiss, Permafrost Heave, Basal Glacier Stick-Slip, Pressure Ridge, Calving Front, Iceberg Water Impact, Avalanche Release, Snowpack Creep, Hail on Metal, Sleet on Glass, Meltwater Under Ice, Ice Under Foot, Singing Lake Ice, Tidal Ocean-Moon Rift, Methane-Ice Dune Creep, Subsurface Brine Upwelling, and Quasicrystal Plate Bloom. The final four select four dedicated planetary engines with sparse event-excited modal matter: tidal shell rupture, cohesive hydrocarbon-frost transport, reactive brine seal cycles, and aperiodic-lattice propagation. They are unfamiliar material ecologies and planetary timescales—not conventional science-fiction weapon effects.</p>
-        <p>The <code>SURF</code> page stores complete presets as editable cells. Automatable <code>Surface X</code>/<code>Surface Y</code> coordinates blend continuous event, body, motion, environment, and score parameters; discrete regimes and materials select the nearest cell. <code>VOICES</code> stays an integer readout while surplus frozen-water parcels fade continuously in both synthesis and the field drawing. Curve, focus, and up-to-two-second glide settings are saved with project state; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
+        <p>The <code>SURF</code> page stores complete presets as editable cells. Automatable <code>Surface X</code>/<code>Surface Y</code> coordinates both place the ice contact and blend continuous event, body, motion, environment, and score parameters; discrete regimes and materials select the nearest cell. <code>VOICES</code> stays an integer readout while surplus frozen-water parcels fade continuously in both synthesis and the field drawing. Curve, focus, and up-to-two-second glide settings are saved with project state; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
 
         <h2 id="routing">Order and Routing</h2>
         <p>The output bus remains 64 channels wide. <code>ORDER</code> activates the corresponding ACN channels and clears the rest.</p>

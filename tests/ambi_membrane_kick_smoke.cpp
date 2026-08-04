@@ -37,7 +37,7 @@ bool silenceAndFiniteProbe()
     kick.setParams(params);
     params = kick.params();
     if (params.tuneHz != 43.0f || params.decaySeconds != 1.45f
-        || params.order != 3u
+        || params.order != s3g::kAmbiMembraneKickDirectPickups
         || std::sqrt(params.strikeX * params.strikeX
             + params.strikeY * params.strikeY) > 0.981f) {
         std::cerr << "membrane parameter sanitization failed\n";
@@ -230,6 +230,91 @@ bool orderAndShapeProbe()
     kick.setParams(params);
     if (std::fabs(irregularRatio - kick.modeRatio(1u)) < 0.05f) {
         std::cerr << "shape selection did not alter modal tuning\n";
+        return false;
+    }
+    return true;
+}
+
+bool directPickupProbe()
+{
+    s3g::AmbiMembraneKick kick;
+    kick.prepare(kSampleRate);
+    auto params = kick.params();
+    params.order = s3g::kAmbiMembraneKickDirectPickups;
+    params.click = 0.02f;
+    params.strikeX = 0.31f;
+    params.strikeY = -0.17f;
+    params.outputGainDb = -8.0f;
+    kick.setParams(params);
+    kick.trigger(0.9f, 36);
+
+    std::array<double, s3g::kAmbiMembraneKickChannels> energy {};
+    std::array<float, s3g::kAmbiMembraneKickChannels> frame {};
+    double outerDifference = 0.0;
+    float peak = 0.0f;
+    for (uint32_t sample = 0u; sample < 8192u; ++sample) {
+        kick.processFrame(frame.data(), static_cast<uint32_t>(frame.size()));
+        for (uint32_t channel = 0u; channel < frame.size(); ++channel) {
+            if (!std::isfinite(frame[channel])) {
+                std::cerr << "direct membrane pickup was non-finite\n";
+                return false;
+            }
+            energy[channel] += static_cast<double>(frame[channel])
+                * frame[channel];
+            peak = std::max(peak, std::fabs(frame[channel]));
+        }
+        outerDifference += std::fabs(frame[0u] - frame[15u]);
+    }
+    if (peak < 0.005f || peak > 0.98f || outerDifference < 0.01) {
+        std::cerr << "direct membrane pickups lacked level or variation: "
+                  << peak << " / " << outerDifference << "\n";
+        return false;
+    }
+    for (uint32_t channel = 0u; channel < energy.size(); ++channel) {
+        if (energy[channel] <= 1.0e-7) {
+            std::cerr << "direct membrane pickup " << channel + 1u
+                      << " was silent\n";
+            return false;
+        }
+    }
+
+    auto spatialEdit = kick;
+    auto unchanged = kick;
+    auto editedParams = spatialEdit.params();
+    editedParams.spatialSpread = 0.0f;
+    editedParams.membraneDepth = 1.0f;
+    editedParams.rotationDeg = 177.0f;
+    spatialEdit.setParams(editedParams);
+    std::array<float, s3g::kAmbiMembraneKickChannels> editedFrame {};
+    std::array<float, s3g::kAmbiMembraneKickChannels> unchangedFrame {};
+    for (uint32_t sample = 0u; sample < 512u; ++sample) {
+        spatialEdit.processFrame(
+            editedFrame.data(), static_cast<uint32_t>(editedFrame.size()));
+        unchanged.processFrame(unchangedFrame.data(),
+            static_cast<uint32_t>(unchangedFrame.size()));
+        if (editedFrame != unchangedFrame) {
+            std::cerr << "ambisonic space controls altered direct pickups\n";
+            return false;
+        }
+    }
+
+    auto hoaTransition = kick;
+    auto directReference = kick;
+    auto hoaParams = hoaTransition.params();
+    hoaParams.order = 3u;
+    hoaTransition.setParams(hoaParams);
+    hoaTransition.processFrame(
+        editedFrame.data(), static_cast<uint32_t>(editedFrame.size()));
+    directReference.processFrame(unchangedFrame.data(),
+        static_cast<uint32_t>(unchangedFrame.size()));
+    float firstFormatDifference = 0.0f;
+    for (uint32_t channel = 0u; channel < editedFrame.size(); ++channel) {
+        firstFormatDifference = std::max(firstFormatDifference,
+            std::fabs(editedFrame[channel] - unchangedFrame[channel]));
+    }
+    if (firstFormatDifference > 0.002f) {
+        std::cerr << "direct/ambisonic format switch clicked: "
+                  << firstFormatDifference << "\n";
         return false;
     }
     return true;
@@ -463,6 +548,7 @@ int main()
         || !deepBassAndSpatialProbe()
         || !spatialAutomationContinuityProbe()
         || !orderAndShapeProbe()
+        || !directPickupProbe()
         || !noteTrackingProbe()
         || !velocityResponseProbe()
         || !strikePlacementProbe()

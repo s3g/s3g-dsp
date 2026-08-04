@@ -23,6 +23,11 @@ constexpr clap_id kListenerPickupSetParamId = 62u;
 constexpr clap_id kModalLiftParamId = 63u;
 constexpr clap_id kPresetParamId = 1u;
 constexpr clap_id kSubstrateParamId = 2u;
+constexpr clap_id kSkinExtentParamId = 14u;
+constexpr clap_id kSkinYParamId = 15u;
+constexpr clap_id kSkinXParamId = 16u;
+constexpr clap_id kBody8SkinXParamId = 76u;
+constexpr clap_id kBody8SkinYParamId = 77u;
 static_assert(static_cast<uint32_t>(
     s3g::AccelerometerSubstrate::TensionedSkin) == 20u);
 static_assert(static_cast<uint32_t>(
@@ -80,6 +85,13 @@ void append(MemoryState& state, const Value& value)
 {
     const auto* first = reinterpret_cast<const uint8_t*>(&value);
     state.bytes.insert(state.bytes.end(), first, first + sizeof(value));
+}
+
+template <typename Value>
+void appendPrefix(MemoryState& state, const Value& value, size_t size)
+{
+    const auto* first = reinterpret_cast<const uint8_t*>(&value);
+    state.bytes.insert(state.bytes.end(), first, first + size);
 }
 
 struct StateHeader {
@@ -183,16 +195,26 @@ int main(int argc, char** argv)
         plugin->get_extension(plugin, CLAP_EXT_PARAMS)) : nullptr;
     const auto* state = ok ? static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
-    ok = ok && params && state && params->count(plugin) == 63u;
+    ok = ok && params && state && params->count(plugin) == 77u;
 
     clap_param_info_t listenerInfo {};
     clap_param_info_t liftInfo {};
     clap_param_info_t presetInfo {};
     clap_param_info_t substrateInfo {};
+    clap_param_info_t skinExtentInfo {};
+    clap_param_info_t skinYInfo {};
+    clap_param_info_t skinXInfo {};
+    clap_param_info_t body8SkinXInfo {};
+    clap_param_info_t body8SkinYInfo {};
     bool foundListener = false;
     bool foundLift = false;
     bool foundPreset = false;
     bool foundSubstrate = false;
+    bool foundSkinExtent = false;
+    bool foundSkinY = false;
+    bool foundSkinX = false;
+    bool foundBody8SkinX = false;
+    bool foundBody8SkinY = false;
     if (ok) {
         for (uint32_t index = 0u; index < params->count(plugin); ++index) {
             clap_param_info_t info {};
@@ -209,6 +231,21 @@ int main(int argc, char** argv)
             } else if (info.id == kSubstrateParamId) {
                 substrateInfo = info;
                 foundSubstrate = true;
+            } else if (info.id == kSkinExtentParamId) {
+                skinExtentInfo = info;
+                foundSkinExtent = true;
+            } else if (info.id == kSkinYParamId) {
+                skinYInfo = info;
+                foundSkinY = true;
+            } else if (info.id == kSkinXParamId) {
+                skinXInfo = info;
+                foundSkinX = true;
+            } else if (info.id == kBody8SkinXParamId) {
+                body8SkinXInfo = info;
+                foundBody8SkinX = true;
+            } else if (info.id == kBody8SkinYParamId) {
+                body8SkinYInfo = info;
+                foundBody8SkinY = true;
             }
         }
         char cubeText[32] {};
@@ -218,6 +255,8 @@ int main(int argc, char** argv)
         double initialLift = -1.0;
         char customText[32] {};
         ok = foundListener && foundLift && foundPreset && foundSubstrate
+            && foundSkinExtent && foundSkinY && foundSkinX
+            && foundBody8SkinX && foundBody8SkinY
             && std::strcmp(presetInfo.name, "Preset") == 0
             && presetInfo.min_value == 0.0
             && presetInfo.max_value == 25.0
@@ -233,6 +272,24 @@ int main(int argc, char** argv)
             && substrateInfo.default_value == 10.0
             && (substrateInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
             && (substrateInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && std::strcmp(skinExtentInfo.name, "Skin extent") == 0
+            && std::strcmp(skinExtentInfo.module, "Distributed Skin") == 0
+            && approximately(skinExtentInfo.default_value, 0.0)
+            && std::strcmp(skinYInfo.name, "Body 1 skin Y") == 0
+            && std::strcmp(skinYInfo.module, "Distributed Skin") == 0
+            && approximately(skinYInfo.default_value, 0.50)
+            && std::strcmp(skinXInfo.name, "Body 1 skin X") == 0
+            && std::strcmp(skinXInfo.module, "Distributed Skin") == 0
+            && approximately(skinXInfo.default_value, 0.43)
+            && (skinExtentInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && (skinYInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && (skinXInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && std::strcmp(body8SkinXInfo.name, "Body 8 skin X") == 0
+            && std::strcmp(body8SkinYInfo.name, "Body 8 skin Y") == 0
+            && std::strcmp(body8SkinXInfo.module, "Distributed Skin") == 0
+            && std::strcmp(body8SkinYInfo.module, "Distributed Skin") == 0
+            && (body8SkinXInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && (body8SkinYInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
             && std::strcmp(listenerInfo.name, "Listener pickups") == 0
             && std::strcmp(listenerInfo.module, "Listener / Actuator") == 0
             && listenerInfo.min_value == 0.0
@@ -310,7 +367,7 @@ int main(int argc, char** argv)
     }
 
     // New raw profile IDs leave the parameter aggregate layout unchanged.
-    // Verify the final membrane value survives a complete v12 round trip.
+    // Verify the final membrane value survives a complete current round trip.
     MemoryState materialState;
     double substrateValue = 0.0;
     if (ok) {
@@ -395,7 +452,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedGui,
             migrated.bytes.data() + sizeof(header) + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 12u
+        ok = header.version == 13u
             && header.presetIndex == 2u
             && savedParams.listenerPickupSet
                 == s3g::AccelerometerFieldListenerPickupSet::Cube8
@@ -411,7 +468,7 @@ int main(int argc, char** argv)
     }
 
     // Released v10 used preset index 13 as Custom. The material expansion now
-    // uses 13 for Carbon Veil, so v12 must translate the historical sentinel
+    // uses 13 for Carbon Veil, so v13 must translate the historical sentinel
     // without disturbing the v10 Modal Lift value or parameter aggregate.
     auto releasedV10Params = s3g::accelerometerFieldFactoryPreset(10u);
     releasedV10Params.modalLift = 0.47f;
@@ -421,7 +478,9 @@ int main(int argc, char** argv)
     };
     MemoryState releasedV10;
     append(releasedV10, StateHeader { 10u, 13u });
-    append(releasedV10, releasedV10Params);
+    constexpr size_t v12ParamsSize = offsetof(
+        s3g::AccelerometerFieldParams, bodySkinX);
+    appendPrefix(releasedV10, releasedV10Params, v12ParamsSize);
     append(releasedV10, releasedV10Gui);
     if (ok) {
         clap_istream_t input { &releasedV10, stateRead };
@@ -453,7 +512,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedParams,
             migratedV10State.bytes.data() + sizeof(header),
             sizeof(savedParams));
-        ok = header.version == 12u
+        ok = header.version == 13u
             && header.presetIndex == 25u
             && approximately(savedParams.modalLift, 0.47)
             && savedParams.substrate
@@ -461,7 +520,7 @@ int main(int argc, char** argv)
     }
 
     // Released v11 used preset index 20 as Custom. Membrane presets now begin
-    // at that index, so v12 must move only the old sentinel to current Custom
+    // at that index, so v13 must move only the old sentinel to current Custom
     // while retaining its full parameter aggregate, including Modal Lift.
     auto releasedV11Params = s3g::accelerometerFieldFactoryPreset(19u);
     releasedV11Params.modalLift = 0.73f;
@@ -471,7 +530,7 @@ int main(int argc, char** argv)
     };
     MemoryState releasedV11;
     append(releasedV11, StateHeader { 11u, 20u });
-    append(releasedV11, releasedV11Params);
+    appendPrefix(releasedV11, releasedV11Params, v12ParamsSize);
     append(releasedV11, releasedV11Gui);
     if (ok) {
         clap_istream_t input { &releasedV11, stateRead };
@@ -480,15 +539,25 @@ int main(int argc, char** argv)
     double migratedV11Preset = -1.0;
     double migratedV11Lift = -1.0;
     double migratedV11Substrate = -1.0;
+    double migratedV11Body8SkinX = -1.0;
+    double migratedV11Body8SkinY = -1.0;
     if (ok) {
         ok = params->get_value(plugin, kPresetParamId, &migratedV11Preset)
             && params->get_value(
                 plugin, kModalLiftParamId, &migratedV11Lift)
             && params->get_value(
                 plugin, kSubstrateParamId, &migratedV11Substrate)
+            && params->get_value(
+                plugin, kBody8SkinXParamId, &migratedV11Body8SkinX)
+            && params->get_value(
+                plugin, kBody8SkinYParamId, &migratedV11Body8SkinY)
             && migratedV11Preset == 25.0
             && approximately(migratedV11Lift, 0.73)
-            && migratedV11Substrate == 19.0;
+            && migratedV11Substrate == 19.0
+            && approximately(migratedV11Body8SkinX,
+                releasedV11Params.sourcePosition)
+            && approximately(migratedV11Body8SkinY,
+                releasedV11Params.contactDetail);
     }
     MemoryState migratedV11State;
     if (ok) {
@@ -508,7 +577,7 @@ int main(int argc, char** argv)
             migratedV11State.bytes.data() + sizeof(header)
                 + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 12u
+        ok = header.version == 13u
             && header.presetIndex == 25u
             && approximately(savedParams.modalLift, 0.73)
             && savedParams.substrate
@@ -522,6 +591,39 @@ int main(int argc, char** argv)
             && savedGui.selectedBody == releasedV11Gui.selectedBody;
     }
 
+    // Released v12 stored one shared X/Y contact. Version 13 must replicate
+    // that exact contact across all eight body skins.
+    auto releasedV12Params = s3g::accelerometerFieldFactoryPreset(0u);
+    releasedV12Params.sourcePosition = 0.27f;
+    releasedV12Params.contactDetail = 0.64f;
+    const SavedGuiStateV8 releasedV12Gui {
+        2, -35.0f, 34.0f, 1.0f, 7u,
+    };
+    MemoryState releasedV12;
+    append(releasedV12, StateHeader { 12u, 25u });
+    appendPrefix(releasedV12, releasedV12Params, v12ParamsSize);
+    append(releasedV12, releasedV12Gui);
+    double migratedV12Body1SkinX = -1.0;
+    double migratedV12Body1SkinY = -1.0;
+    double migratedV12Body8SkinX = -1.0;
+    double migratedV12Body8SkinY = -1.0;
+    if (ok) {
+        clap_istream_t input { &releasedV12, stateRead };
+        ok = state->load(plugin, &input)
+            && params->get_value(
+                plugin, kSkinXParamId, &migratedV12Body1SkinX)
+            && params->get_value(
+                plugin, kSkinYParamId, &migratedV12Body1SkinY)
+            && params->get_value(
+                plugin, kBody8SkinXParamId, &migratedV12Body8SkinX)
+            && params->get_value(
+                plugin, kBody8SkinYParamId, &migratedV12Body8SkinY)
+            && approximately(migratedV12Body1SkinX, 0.27)
+            && approximately(migratedV12Body1SkinY, 0.64)
+            && approximately(migratedV12Body8SkinX, 0.27)
+            && approximately(migratedV12Body8SkinY, 0.64);
+    }
+
     if (ok) {
         OneParamEvent tetra(kListenerPickupSetParamId, 0.0);
         params->flush(plugin, &tetra.events, nullptr);
@@ -530,14 +632,17 @@ int main(int argc, char** argv)
             && listenerSet == 0.0;
     }
 
-    // Version 12 persists Modal Lift and membrane profile IDs with the current
-    // aggregate. Exercise a non-default value, then disturb and reload it so
-    // this checks both the wire bytes and the public parameter surface.
+    // Version 13 persists Modal Lift, membrane profile IDs, and independent
+    // per-body skin contacts. Exercise the final IDs as well as the aggregate.
     if (ok) {
         OneParamEvent lift(kModalLiftParamId, 0.82);
         params->flush(plugin, &lift.events, nullptr);
         OneParamEvent membrane(kSubstrateParamId, 24.0);
         params->flush(plugin, &membrane.events, nullptr);
+        OneParamEvent body8SkinX(kBody8SkinXParamId, 0.91);
+        params->flush(plugin, &body8SkinX.events, nullptr);
+        OneParamEvent body8SkinY(kBody8SkinYParamId, 0.17);
+        params->flush(plugin, &body8SkinY.events, nullptr);
     }
     MemoryState current;
     if (ok) {
@@ -551,25 +656,32 @@ int main(int argc, char** argv)
         std::memcpy(&header, current.bytes.data(), sizeof(header));
         std::memcpy(&savedParams,
             current.bytes.data() + sizeof(header), sizeof(savedParams));
-        ok = header.version == 12u
+        ok = header.version == 13u
             && header.presetIndex == 25u
             && approximately(savedParams.modalLift, 0.82)
             && savedParams.substrate
                 == s3g::AccelerometerSubstrate::LooseMembrane
             && savedParams.listenerPickupSet
-                == s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+                == s3g::AccelerometerFieldListenerPickupSet::Tetra4
+            && approximately(savedParams.bodySkinX[7u], 0.91)
+            && approximately(savedParams.bodySkinY[7u], 0.17);
     }
     if (ok) {
         OneParamEvent disturb(kModalLiftParamId, 0.13);
         params->flush(plugin, &disturb.events, nullptr);
+        OneParamEvent disturbSkin(kBody8SkinXParamId, 0.22);
+        params->flush(plugin, &disturbSkin.events, nullptr);
         current.offset = 0u;
         clap_istream_t input { &current, stateRead };
         ok = state->load(plugin, &input)
             && params->get_value(plugin, kModalLiftParamId, &modalLift)
             && params->get_value(
                 plugin, kSubstrateParamId, &substrateValue)
+            && params->get_value(
+                plugin, kBody8SkinXParamId, &migratedV11Body8SkinX)
             && approximately(modalLift, 0.82)
-            && substrateValue == 24.0;
+            && substrateValue == 24.0
+            && approximately(migratedV11Body8SkinX, 0.91);
     }
 
     // Construct the exact v9 wire layout: its parameter aggregate ended
@@ -622,7 +734,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedGui,
             migratedV9.bytes.data() + sizeof(header) + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 12u
+        ok = header.version == 13u
             && header.presetIndex == 4u
             && approximately(savedParams.modalLift, 0.0)
             && savedParams.bodyCount == 5u
@@ -637,6 +749,29 @@ int main(int argc, char** argv)
             && approximately(savedGui.viewZoom, legacyV9Gui.viewZoom)
             && savedGui.selectedBody == legacyV9Gui.selectedBody;
     }
+
+    // IDs 64–77 occupy the second mailbox word. Exercise the active-plugin
+    // automation/report path so those edits cannot silently disappear.
+    bool activated = false;
+    if (ok) {
+        activated = plugin->activate(plugin, 48000.0, 1u, 64u);
+        ok = activated;
+    }
+    double activeBody8SkinX = -1.0;
+    double activeBody8SkinY = -1.0;
+    if (ok) {
+        OneParamEvent x(kBody8SkinXParamId, 0.38);
+        params->flush(plugin, &x.events, nullptr);
+        OneParamEvent y(kBody8SkinYParamId, 0.79);
+        params->flush(plugin, &y.events, nullptr);
+        ok = params->get_value(
+                plugin, kBody8SkinXParamId, &activeBody8SkinX)
+            && params->get_value(
+                plugin, kBody8SkinYParamId, &activeBody8SkinY)
+            && approximately(activeBody8SkinX, 0.38)
+            && approximately(activeBody8SkinY, 0.79);
+    }
+    if (activated) plugin->deactivate(plugin);
 
     if (plugin) plugin->destroy(plugin);
     if (entry) entry->deinit();

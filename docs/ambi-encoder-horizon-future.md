@@ -75,6 +75,12 @@ entity before the final HOA encoding stage. This ordering is important: air
 loss, terrain, ground carry, turbulence, and distance-dependent spatial
 coherence belong to each source path, not to an already encoded mix.
 
+`SIGNALS` can assign only recognizable discrete or passing generators—modal
+resonators, traffic, aircraft, and foghorns—to the sparse score layer. Motors,
+Flow, Roll, and Air remain continuous Local Floor or Landscape body, where
+score onsets cannot turn them into foreground noise swells or steam-like
+exhaust events.
+
 After direct propagation, non-local sources feed a four-direction outdoor
 return. This is not an indoor room reverb: its sparse delays represent
 separated ground, shoreline, ridge, and irregular-topography paths, while a
@@ -127,15 +133,27 @@ sets the piston/horn identity, while `CALL LENGTH` changes the active portion
 of the repeating maritime call.
 
 `MACHINES` controls only continuous motor and machinery-harmonic voices. The
-former synthetic pressure-release voice has been removed from every ecology;
-machine activity can evolve with the environmental score, but motor voices no
-longer receive its discrete onset lift and cannot produce the previous
-steam-like burst. `BELLS` controls struck modal voices. The four
+former synthetic pressure-release voice has been removed from every ecology,
+and motor voices are excluded from the score-gated `SIGNALS` layer. Machinery
+now remains continuous distant `BED` body instead of rising through successive
+foreground score stages; setting `MACHINES` to zero removes it completely. The
+family output is calibrated below the generic source
+ceiling so a fully raised Machines control remains part of the horizon rather
+than becoming a foreground layer. `BELLS` controls struck modal voices. Their
+fundamental and inharmonic upper mode are bounded after pitch transposition;
+distance lowers the modal ceiling, and the upper mode decays faster than the
+bell body so high settings cannot settle into a persistent whistle or sonar
+tone. Modal score gain and strike strength have fixed distant-field ceilings,
+and their peak path remains linear rather than using audible saturation, so
+overlapping rural bells cannot drive themselves into the foreground. The four
 newer families have dedicated engines. An ecology
 determines which entities are available, while a family slider determines
 whether that family is audible. A zero value therefore removes a family without
 requiring a different preset or changing the overall horizon layer balance.
 Every family and model control is dezippered for live automation.
+
+The `IDENTITY`/`SEED` panel is placed beneath Field Listener in the right-hand
+column, leaving clear bottom margin instead of touching the plugin edge.
 
 `AIR LOSS` is propagation: increasing it removes high-frequency energy with
 distance. `AIR NOISE` is source synthesis: it controls only the broadband-air
@@ -208,6 +226,12 @@ listener surface. The fourteen model controls and three listener controls are
 append-only, so existing parameter IDs do not move. Factory selection and
 randomization preserve the current listener mode, amount, and response as well
 as `OUT` and `ORDER`.
+
+`RANDOM` does not select or lightly perturb a factory scene. It creates a new
+bounded ecology-aware parameter set, selects compatible source families,
+ground, propagation, and model ranges, assigns a new `SEED`, and displays
+`RANDOM` as the preset name. The non-factory name survives project state recall;
+the host-facing factory-preset parameter remains inside its declared range.
 
 ## Research directions for later versions
 

@@ -19,6 +19,7 @@ constexpr uint32_t kAccelerometerFieldModeCount = 24u;
 constexpr uint32_t kAccelerometerFieldModeBudget = 96u;
 constexpr uint32_t kAccelerometerFieldPresetCount = 25u;
 constexpr uint32_t kAccelerometerFieldSensorCount = 8u;
+constexpr uint32_t kAccelerometerFieldSkinPatchCount = 4u;
 constexpr uint32_t kAccelerometerFieldMinBodyCount = 4u;
 constexpr uint32_t kAccelerometerFieldMaxBodyCount = 8u;
 constexpr uint32_t kAccelerometerFieldMaxOrder = 3u;
@@ -100,6 +101,10 @@ struct AccelerometerFieldParams {
     float size = 0.55f;
     float damping = 0.52f;
     float irregularity = 0.18f;
+    // These serialized slots predate the current continuous modal player.
+    // They are retained in place for state compatibility. propagationLoss is
+    // the global Skin Extent; contactDetail/sourcePosition are the legacy
+    // shared Skin Y/X values used when migrating pre-v13 sessions.
     float propagationLoss = 0.38f;
     float contactDetail = 0.18f;
 
@@ -158,7 +163,24 @@ struct AccelerometerFieldParams {
     // Appended in state version 10. Modal lift is a post-resonator, HOA-linked
     // leveler. It never changes a body's drive, modal state, or listener score.
     float modalLift = 0.65f;
+
+    // Appended in state version 13. Every modal body owns an independent
+    // two-dimensional actuator contact. Keeping these arrays at the end
+    // preserves the complete byte prefix used by released states.
+    std::array<float, kAccelerometerFieldMaxBodyCount> bodySkinX {{
+        0.72f, 0.72f, 0.72f, 0.72f, 0.72f, 0.72f, 0.72f, 0.72f,
+    }};
+    std::array<float, kAccelerometerFieldMaxBodyCount> bodySkinY {{
+        0.18f, 0.18f, 0.18f, 0.18f, 0.18f, 0.18f, 0.18f, 0.18f,
+    }};
 };
+
+inline void initializeAccelerometerFieldBodySkinsFromLegacy(
+    AccelerometerFieldParams& params)
+{
+    params.bodySkinX.fill(params.sourcePosition);
+    params.bodySkinY.fill(params.contactDetail);
+}
 
 struct AccelerometerFieldPresetInfo {
     const char* name = "";
@@ -233,6 +255,10 @@ inline AccelerometerFieldParams sanitizeAccelerometerFieldParams(
             params.bodyElevationOffsetDeg[body], 0.0f, -180.0f, 180.0f);
         params.bodyDistance[body] = finite(
             params.bodyDistance[body], 1.0f, 0.15f, 2.0f);
+        params.bodySkinX[body] = finite(
+            params.bodySkinX[body], params.sourcePosition, 0.0f, 1.0f);
+        params.bodySkinY[body] = finite(
+            params.bodySkinY[body], params.contactDetail, 0.0f, 1.0f);
     }
     params.listenerPickupSet =
         static_cast<AccelerometerFieldListenerPickupSet>(
@@ -336,7 +362,7 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
     params.damping = 0.08f;
     params.irregularity = 0.025f;
     params.propagationLoss = 0.0f;
-    params.contactDetail = 0.0f;
+    params.contactDetail = 0.50f;
     params.sourcePosition = 0.43f;
     params.pickupPosition = 0.50f;
     params.arraySpread = 0.94f;
@@ -661,6 +687,8 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.damping = 0.40f;
         params.irregularity = 0.025f;
         params.sourcePosition = 0.22f;
+        params.contactDetail = 0.36f;
+        params.propagationLoss = 0.62f;
         params.pickupPosition = 0.68f;
         params.pickupAxis = 0.36f;
         params.airRadiation = 0.42f;
@@ -678,6 +706,8 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.damping = 0.48f;
         params.irregularity = 0.10f;
         params.sourcePosition = 0.12f;
+        params.contactDetail = 0.68f;
+        params.propagationLoss = 0.42f;
         params.pickupPosition = 0.58f;
         params.pickupAxis = 0.30f;
         params.airRadiation = 0.18f;
@@ -695,6 +725,8 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.damping = 0.42f;
         params.irregularity = 0.045f;
         params.sourcePosition = 0.33f;
+        params.contactDetail = 0.46f;
+        params.propagationLoss = 0.76f;
         params.pickupPosition = 0.62f;
         params.pickupAxis = 0.58f;
         params.airRadiation = 0.38f;
@@ -712,6 +744,8 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.damping = 0.36f;
         params.irregularity = 0.030f;
         params.sourcePosition = 0.42f;
+        params.contactDetail = 0.58f;
+        params.propagationLoss = 0.68f;
         params.pickupPosition = 0.52f;
         params.pickupAxis = 0.26f;
         params.airRadiation = 0.72f;
@@ -729,6 +763,8 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.damping = 0.52f;
         params.irregularity = 0.18f;
         params.sourcePosition = 0.74f;
+        params.contactDetail = 0.28f;
+        params.propagationLoss = 0.84f;
         params.pickupPosition = 0.36f;
         params.pickupAxis = 0.68f;
         params.airRadiation = 0.12f;
@@ -741,6 +777,24 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         break;
     default:
         break;
+    }
+    initializeAccelerometerFieldBodySkinsFromLegacy(params);
+    // Factory voices expose the per-body skin immediately. Body 1 stays at
+    // the historical preset contact while the other bodies receive a stable
+    // spatial pattern; membrane profiles use the full offset range.
+    constexpr std::array<float, kAccelerometerFieldMaxBodyCount>
+        skinXOffset {{ 0.0f, 0.14f, -0.08f, 0.20f,
+            0.04f, -0.15f, 0.10f, -0.02f }};
+    constexpr std::array<float, kAccelerometerFieldMaxBodyCount>
+        skinYOffset {{ 0.0f, -0.16f, 0.20f, -0.05f,
+            -0.19f, 0.05f, 0.16f, -0.11f }};
+    const float skinVariation = preset >= 20u ? 1.0f : 0.55f;
+    for (uint32_t body = 1u;
+        body < kAccelerometerFieldMaxBodyCount; ++body) {
+        params.bodySkinX[body] = clamp(params.sourcePosition
+            + skinXOffset[body] * skinVariation, 0.0f, 1.0f);
+        params.bodySkinY[body] = clamp(params.contactDetail
+            + skinYOffset[body] * skinVariation, 0.0f, 1.0f);
     }
     return sanitizeAccelerometerFieldParams(params);
 }
@@ -841,6 +895,7 @@ public:
         outputGuardGain_ = 1.0f;
         airRadiationSmoothed_ = params_.airRadiation;
         contactRadiationSmoothed_ = params_.contactRadiation;
+        skinExtentSmoothed_ = params_.propagationLoss;
         couplingSmoothed_ = params_.coupling;
         fieldListenAmountSmoothed_ = params_.fieldListenMode
                 == AmbiFieldListenMode::Off
@@ -883,7 +938,9 @@ public:
             || params_.size != sanitized.size
             || params_.damping != sanitized.damping
             || params_.irregularity != sanitized.irregularity
-            || params_.sourcePosition != sanitized.sourcePosition
+            || params_.propagationLoss != sanitized.propagationLoss
+            || params_.bodySkinX != sanitized.bodySkinX
+            || params_.bodySkinY != sanitized.bodySkinY
             || params_.pickupPosition != sanitized.pickupPosition
             || params_.arraySpread != sanitized.arraySpread
             || params_.pickupAxis != sanitized.pickupAxis
@@ -1089,6 +1146,9 @@ public:
                 contactRadiationSmoothed_ + modalWeightSmoothingCoefficient_
                     * (params_.contactRadiation
                         - contactRadiationSmoothed_));
+            skinExtentSmoothed_ = flushDenormal(skinExtentSmoothed_
+                + modalWeightSmoothingCoefficient_
+                    * (params_.propagationLoss - skinExtentSmoothed_));
             couplingSmoothed_ = flushDenormal(couplingSmoothed_
                 + modalWeightSmoothingCoefficient_
                     * (params_.coupling - couplingSmoothed_));
@@ -1188,6 +1248,9 @@ public:
             std::array<float, kAccelerometerFieldMaxBodyCount> velocity {};
             std::array<float, kAccelerometerFieldMaxBodyCount> acceleration {};
             std::array<float, kAccelerometerFieldMaxBodyCount> radiation {};
+            std::array<std::array<float,
+                    kAccelerometerFieldSkinPatchCount>,
+                kAccelerometerFieldMaxBodyCount> skinRadiation {};
             for (auto& mode : modes_) {
                 if (!mode.active || mode.body >= activeBodyCount_) continue;
                 mode.smoothMorph(modalFrequencySmoothingCoefficient_,
@@ -1210,6 +1273,11 @@ public:
                     * mode.pickupWeight * amplitudeScale;
                 radiation[mode.body] += response.acceleration
                     * mode.radiationWeight * amplitudeScale;
+                for (uint32_t patch = 0u;
+                    patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                    skinRadiation[mode.body][patch] += response.acceleration
+                        * mode.skinRadiationWeight[patch] * amplitudeScale;
+                }
             }
 
             std::array<float, kAccelerometerFieldMaxChannels> listenerHoa {};
@@ -1244,6 +1312,19 @@ public:
                     * airRadiationSmoothed_ * 0.46f);
                 const float bodySample = lerp(
                     contact, radiated, contactRadiationSmoothed_) * body.gain;
+                std::array<float, kAccelerometerFieldSkinPatchCount>
+                    skinSample {};
+                for (uint32_t patch = 0u;
+                    patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                    body.skinRadiationLowpass[patch] += airCoefficient
+                        * (skinRadiation[bodyIndex][patch]
+                            - body.skinRadiationLowpass[patch]);
+                    const float patchRadiated = std::tanh(
+                        body.skinRadiationLowpass[patch]
+                            * airRadiationSmoothed_ * 0.46f);
+                    skinSample[patch] = lerp(contact, patchRadiated,
+                        contactRadiationSmoothed_) * body.gain;
+                }
                 bodyPower += bodySample * bodySample;
                 const float envelopeInput = std::fabs(bodySample);
                 const float envelopeCoefficient = envelopeInput
@@ -1253,10 +1334,24 @@ public:
                     * (envelopeInput - body.energyEnvelope);
 
                 const float encoded = bodySample * ensembleScale;
+                std::array<float, kAccelerometerFieldMaxChannels>
+                    skinEncoded {};
                 for (uint32_t channel = 0u;
                     channel < listenerChannels; ++channel) {
+                    float distributed = 0.0f;
+                    for (uint32_t patch = 0u;
+                        patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                        distributed += skinSample[patch]
+                            * body.skinBasis[patch][channel];
+                    }
+                    distributed *= ensembleScale
+                        / static_cast<float>(
+                            kAccelerometerFieldSkinPatchCount);
+                    skinEncoded[channel] = lerp(
+                        encoded * body.basis[channel], distributed,
+                        skinExtentSmoothed_);
                     listenerHoa[channel] = flushDenormal(listenerHoa[channel]
-                        + encoded * body.basis[channel]);
+                        + skinEncoded[channel]);
                 }
                 if (stems) {
                     if (bodyIndex < activeChannels && outputs[bodyIndex]) {
@@ -1268,7 +1363,7 @@ public:
                         if (outputs[channel]) {
                             outputs[channel][frame] = flushDenormal(
                                 outputs[channel][frame]
-                                + encoded * body.basis[channel]);
+                                + skinEncoded[channel]);
                         }
                     }
                 }
@@ -1407,6 +1502,15 @@ public:
         return modes_[target.modeStart + index].pickupWeightTarget;
     }
 
+    float modeDriveWeight(uint32_t index, uint32_t body = 0u) const
+    {
+        body = std::min<uint32_t>(body, activeBodyCount_ - 1u);
+        const Body& target = bodies_[body];
+        if (target.modeCount == 0u) return 0.0f;
+        index = std::min<uint32_t>(index, target.modeCount - 1u);
+        return modes_[target.modeStart + index].driveTarget;
+    }
+
     float sensorPosition(uint32_t body) const { return bodyPosition(body); }
     float bodyPosition(uint32_t body) const
     {
@@ -1419,6 +1523,14 @@ public:
     {
         return bodies_[std::min<uint32_t>(
             body, kAccelerometerFieldMaxBodyCount - 1u)].targetDirection;
+    }
+    Vec3 skinPatchDirection(uint32_t body, uint32_t patch) const
+    {
+        body = std::min<uint32_t>(
+            body, kAccelerometerFieldMaxBodyCount - 1u);
+        patch = std::min<uint32_t>(
+            patch, kAccelerometerFieldSkinPatchCount - 1u);
+        return bodies_[body].targetSkinDirection[patch];
     }
     float bodyDistance(uint32_t body) const
     {
@@ -1523,6 +1635,10 @@ private:
         float pickupWeightTarget = 0.0f;
         float radiationWeight = 0.0f;
         float radiationWeightTarget = 0.0f;
+        std::array<float, kAccelerometerFieldSkinPatchCount>
+            skinRadiationWeight {};
+        std::array<float, kAccelerometerFieldSkinPatchCount>
+            skinRadiationWeightTarget {};
         float transpositionGain = 1.0f;
         float transpositionGainTarget = 1.0f;
         float velocityNormalization = 1.0f;
@@ -1546,6 +1662,7 @@ private:
             drive = driveTarget;
             pickupWeight = pickupWeightTarget;
             radiationWeight = radiationWeightTarget;
+            skinRadiationWeight = skinRadiationWeightTarget;
             transpositionGain = transpositionGainTarget;
         }
 
@@ -1565,6 +1682,13 @@ private:
                 * (pickupWeightTarget - pickupWeight));
             radiationWeight = flushDenormal(radiationWeight + weightAmount
                 * (radiationWeightTarget - radiationWeight));
+            for (uint32_t patch = 0u;
+                patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                skinRadiationWeight[patch] = flushDenormal(
+                    skinRadiationWeight[patch] + weightAmount
+                        * (skinRadiationWeightTarget[patch]
+                            - skinRadiationWeight[patch]));
+            }
             transpositionGain = flushDenormal(transpositionGain + weightAmount
                 * (transpositionGainTarget - transpositionGain));
         }
@@ -1626,6 +1750,13 @@ private:
         float targetDistance = 1.0f;
         std::array<float, kAccelerometerFieldMaxChannels> basis {};
         std::array<float, kAccelerometerFieldMaxChannels> targetBasis {};
+        std::array<Vec3, kAccelerometerFieldSkinPatchCount> skinDirection {};
+        std::array<Vec3, kAccelerometerFieldSkinPatchCount>
+            targetSkinDirection {};
+        std::array<std::array<float, kAccelerometerFieldMaxChannels>,
+            kAccelerometerFieldSkinPatchCount> skinBasis {};
+        std::array<std::array<float, kAccelerometerFieldMaxChannels>,
+            kAccelerometerFieldSkinPatchCount> targetSkinBasis {};
         float gain = 0.0f;
         float targetGain = 0.0f;
         float pitchRatio = 1.0f;
@@ -1651,6 +1782,8 @@ private:
         float conditionerInput = 0.0f;
         float conditionerOutput = 0.0f;
         float radiationLowpass = 0.0f;
+        std::array<float, kAccelerometerFieldSkinPatchCount>
+            skinRadiationLowpass {};
         float energyEnvelope = 0.0f;
         float droneSlow = 0.0f;
         float droneFast = 0.0f;
@@ -1679,6 +1812,7 @@ private:
             conditionerInput = 0.0f;
             conditionerOutput = 0.0f;
             radiationLowpass = 0.0f;
+            skinRadiationLowpass.fill(0.0f);
             energyEnvelope = 0.0f;
             droneSlow = 0.0f;
             droneFast = 0.0f;
@@ -1697,6 +1831,8 @@ private:
             direction = targetDirection;
             distance = targetDistance;
             basis = targetBasis;
+            skinDirection = targetSkinDirection;
+            skinBasis = targetSkinBasis;
             gain = active ? targetGain : 0.0f;
         }
 
@@ -1714,6 +1850,26 @@ private:
                 channel < kAccelerometerFieldMaxChannels; ++channel) {
                 basis[channel] +=
                     (targetBasis[channel] - basis[channel]) * coefficient;
+                for (uint32_t patch = 0u;
+                    patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                    skinBasis[patch][channel] +=
+                        (targetSkinBasis[patch][channel]
+                            - skinBasis[patch][channel]) * coefficient;
+                }
+            }
+            for (uint32_t patch = 0u;
+                patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                skinDirection[patch] = normalize(Vec3 {
+                    skinDirection[patch].x
+                        + (targetSkinDirection[patch].x
+                            - skinDirection[patch].x) * coefficient,
+                    skinDirection[patch].y
+                        + (targetSkinDirection[patch].y
+                            - skinDirection[patch].y) * coefficient,
+                    skinDirection[patch].z
+                        + (targetSkinDirection[patch].z
+                            - skinDirection[patch].z) * coefficient,
+                });
             }
         }
     };
@@ -2273,6 +2429,36 @@ private:
                 channel < kAccelerometerFieldMaxChannels; ++channel) {
                 body.targetBasis[channel] = basis[channel];
             }
+            // Four bounded samples describe one radiating skin. Their angular
+            // footprint grows inside the body's local tangent plane; no new
+            // resonators are allocated, so the fixed 96-mode budget remains
+            // the complete structural model.
+            constexpr std::array<std::array<float, 2u>,
+                kAccelerometerFieldSkinPatchCount> offsets {{
+                {{ -1.0f, -1.0f }}, {{ 1.0f, -1.0f }},
+                {{ -1.0f, 1.0f }}, {{ 1.0f, 1.0f }},
+            }};
+            const float skinAngle = params_.propagationLoss
+                * (0.10f + params_.spatialExtent * 0.34f);
+            for (uint32_t patch = 0u;
+                patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                const float tangent = std::sin(skinAngle)
+                    * 0.7071067811865475f;
+                const Vec3 patchLocal = normalize(Vec3 {
+                    std::cos(skinAngle),
+                    offsets[patch][0] * tangent,
+                    offsets[patch][1] * tangent,
+                });
+                body.targetSkinDirection[patch] = rotateFromForward(
+                    patchLocal, direction);
+                const auto patchBasis = acnSn3dBasis7(
+                    body.targetSkinDirection[patch]);
+                for (uint32_t channel = 0u;
+                    channel < kAccelerometerFieldMaxChannels; ++channel) {
+                    body.targetSkinBasis[patch][channel] =
+                        patchBasis[channel];
+                }
+            }
             const float distanceGain = 1.0f
                 / std::max(0.15f, body.targetDistance);
             body.targetGain = active
@@ -2368,6 +2554,7 @@ private:
                     mode.driveTarget = 0.0f;
                     mode.pickupWeightTarget = 0.0f;
                     mode.radiationWeightTarget = 0.0f;
+                    mode.skinRadiationWeightTarget.fill(0.0f);
                     mode.transpositionGainTarget = 0.0f;
                     continue;
                 }
@@ -2381,12 +2568,18 @@ private:
                     params_.substrate, local));
                 mode.radiusTarget = std::exp(-1.0
                     / (static_cast<double>(decay) * sampleRate_));
-                const float strikePosition = clamp(params_.sourcePosition
+                const float strikePosition = clamp(params_.bodySkinX[bodyIndex]
                         + (bodyUnitPosition(bodyIndex) - 0.5f)
                             * params_.arraySpread * 0.10f,
                     0.0f, 1.0f);
-                const float sourceShape = modeShape(
+                const float sourceShapeX = modeShape(
                     local, strikePosition, false);
+                const float sourceShapeY = modeShape(
+                    local, params_.bodySkinY[bodyIndex], true);
+                const float distributedSource = (sourceShapeX + sourceShapeY)
+                    * 0.7071067811865475f;
+                const float sourceShape = lerp(sourceShapeX,
+                    distributedSource, params_.propagationLoss);
                 float modalGain = 1.0f
                     / std::pow(1.0f + static_cast<float>(local),
                         modalProfile.modeFalloff);
@@ -2409,6 +2602,28 @@ private:
                     local, body.targetPosition, false)
                     * modalGain * radiationEfficiency
                     * (0.58f + 0.42f * std::fabs(sourceShape));
+                constexpr std::array<std::array<float, 2u>,
+                    kAccelerometerFieldSkinPatchCount> offsets {{
+                    {{ -1.0f, -1.0f }}, {{ 1.0f, -1.0f }},
+                    {{ -1.0f, 1.0f }}, {{ 1.0f, 1.0f }},
+                }};
+                const float patchRadius = params_.propagationLoss * 0.44f;
+                for (uint32_t patch = 0u;
+                    patch < kAccelerometerFieldSkinPatchCount; ++patch) {
+                    const float patchX = clamp(params_.bodySkinX[bodyIndex]
+                            + offsets[patch][0] * patchRadius,
+                        0.0f, 1.0f);
+                    const float patchY = clamp(params_.bodySkinY[bodyIndex]
+                            + offsets[patch][1] * patchRadius,
+                        0.0f, 1.0f);
+                    const float patchShape = std::cos(axisRadians)
+                            * modeShape(local, patchX, false)
+                        + std::sin(axisRadians)
+                            * modeShape(local, patchY, true);
+                    mode.skinRadiationWeightTarget[patch] = patchShape
+                        * modalGain * radiationEfficiency
+                        * (0.58f + 0.42f * std::fabs(sourceShape));
+                }
                 mode.velocityNormalization = velocityNormalization;
                 mode.accelerationNormalization = accelerationNormalization;
             }
@@ -2825,6 +3040,7 @@ private:
     float midiActuationEnergyReleaseCoefficient_ = 0.00001f;
     float airRadiationSmoothed_ = 0.38f;
     float contactRadiationSmoothed_ = 0.58f;
+    float skinExtentSmoothed_ = 0.0f;
     float couplingSmoothed_ = 0.35f;
     float fieldListenAmountSmoothed_ = 0.62f;
     float externalDriveSmoothed_ = 0.70f;

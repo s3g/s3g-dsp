@@ -49,17 +49,17 @@
         <h2 id="spatial">Ambisonic Synthesis</h2>
 
         <ul>
-          <li><a href="ambi-encoder-modal.html">Ambi Encoder Modal</a>: shares 96 modes among four to eight independent fictional resonant bodies, sustains them through a visible Tetra 4 or Cube 8 Listener/Actuator environment, and places editable AED body points through <code>ACN/SN3D</code> space without a separate transient layer.</li>
+          <li><a href="ambi-encoder-modal.html">Ambi Encoder Modal</a>: shares 96 modes among four to eight independent fictional resonant bodies, adds an automatable two-dimensional contact and four-sample skin radiation without expanding that budget, and sustains the field through a visible Tetra 4 or Cube 8 Listener/Actuator environment.</li>
           <li><a href="ambi-encoder-medium.html">Ambi Encoder Medium</a>: drives an eight-node fractional-waveguide cube from MIDI, clicks, optional mono audio, or per-node Euclidean patterns, with percussive and sustained exciters, ratchets, pitch dispersion, and event-following spatial masks.</li>
-          <li><a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a> <em>(source preview)</em>: makes a deep pitch-dropping drum from one shaped modal membrane whose sixteen surface patches radiate directly into ambisonic space.</li>
-          <li><a href="ambi-encoder-acid.html">Ambi Encoder Acid</a> <em>(source preview)</em>: runs a monophonic sixteen-step bassline whose body, resonant edge, and delayed wake trace one editable ambisonic path.</li>
+          <li><a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a> <em>(source preview)</em>: makes a deep pitch-dropping drum from one shaped modal membrane whose sixteen surface patches radiate into ambisonic space or appear as direct pickup lanes.</li>
+          <li><a href="ambi-encoder-acid.html">Ambi Encoder Acid</a> <em>(source preview)</em>: runs a scale-locked, MIDI-transposable sixteen-step bassline with a sub oscillator and selectable drive circuits whose body, resonant edge, and delayed wake trace one editable path.</li>
           <li><a href="ambi-encoder-horizon.html">Ambi Encoder Horizon</a> <em>(source preview)</em>: creates autonomous outdoor-edge scenes from synthetic bells, machinery, traffic, aircraft, foghorns, surf, environmental bodies, and per-source propagation.</li>
           <li><a href="ambi-encoder-vot.html">Ambi Encoder VOT</a>: interpolates among sixteen waveforms while voices follow editable paths through the resulting timbre field.</li>
           <li><a href="ambi-encoder-wave-terrain.html">Ambi Encoder Wave Terrain</a>: turns closed contour scans across a procedural surface into oscillator waveforms and spatial positions.</li>
           <li><a href="ambi-encoder-wind.html">Ambi Encoder Wind</a>: shapes broadband noise into gusts, turbulent air, and resonant material responses.</li>
           <li><a href="ambi-encoder-water.html">Ambi Encoder Water</a>: combines continuous flow noise with modeled droplets, splashes, and resonant bubbles.</li>
           <li><a href="ambi-encoder-pyrosphere.html">Ambi Encoder Pyrosphere</a>: gives finite fuel, structure, and ember entities an aleatoric ignition–propagation–consequence score alongside thermal fracture, debris, plume motion, and pressurized flame jets.</li>
-          <li><a href="ambi-encoder-cryosphere.html">Ambi Encoder Cryosphere</a>: gives finite plates, loads, crack tips, brine pockets, and detached ice masses an aleatoric stress–rupture–aftermath score.</li>
+          <li><a href="ambi-encoder-cryosphere.html">Ambi Encoder Cryosphere</a>: gives finite plates, loads, crack tips, brine pockets, and detached ice masses an aleatoric stress–rupture–aftermath score, with the SURF cursor also placing a normalized localized load on the distributed ice skin.</li>
           <li><a href="ambi-encoder-insect.html">Ambi Encoder Insect</a>: combines call-function templates with stridulation, tymbalisation, wing vibration, percussion, tremulation, and swarm motion.</li>
           <li><a href="ambi-encoder-pulsar.html">Ambi Encoder Pulsar</a>: repeats short windowed waveforms from rhythmic rates into pitch, with recurrent-network waveform capture.</li>
           <li><a href="ambi-encoder-neural-ecology.html">Ambi Encoder Neural Ecology</a>: grows recurrent node populations inside a field whose adaptive ears learn where to listen and vote on movement through a behavioral lattice score.</li>
@@ -69,7 +69,7 @@
 
         <h2 id="outputs">Output Formats</h2>
 
-        <p>Processor No Input Mixer and Processor Fault use eight ordinary output lanes. Ambi Encoder Modal, Medium, Membrane Kick, and Acid use 16-channel host buses; Modal can instead publish eight body stems. Horizon and the other Ambi instruments use fixed 64-channel buses. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels.</p>
+        <p>Processor No Input Mixer and Processor Fault use eight ordinary output lanes. Ambi Encoder Modal, Medium, Membrane Kick, and Acid use 16-channel host buses; Modal can publish eight body stems and Membrane Kick can publish sixteen direct pickups. Horizon and the other Ambi instruments use fixed 64-channel buses. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="instruments.html">

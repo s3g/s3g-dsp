@@ -14,6 +14,9 @@ namespace s3g {
 constexpr uint32_t kAmbiMembraneKickChannels = 16u;
 constexpr uint32_t kAmbiMembraneKickPatches = 16u;
 constexpr uint32_t kAmbiMembraneKickModes = 12u;
+// FORMAT values 1-3 retain their historical ambisonic-order meaning. Four is
+// the state-compatible direct format: one post-membrane pickup per lane.
+constexpr uint32_t kAmbiMembraneKickDirectPickups = 4u;
 
 enum class AmbiMembraneShape : uint32_t {
     Circle = 0u,
@@ -79,6 +82,9 @@ public:
         clickLow_ = 0.0f;
         limiterGain_ = 1.0f;
         smoothedOutputGain_ = dbToLinear(params_.outputGainDb);
+        smoothedDirectMix_ = params_.order
+                == kAmbiMembraneKickDirectPickups
+            ? 1.0f : 0.0f;
         if (radiationInitialized_) {
             patchBasis_ = targetPatchBasis_;
             smoothedSpatialNormalization_ = targetSpatialNormalization_;
@@ -98,6 +104,11 @@ public:
             || params.membraneDepth != params_.membraneDepth
             || params.rotationDeg != params_.rotationDeg;
         params_ = params;
+        if (!active()) {
+            smoothedDirectMix_ = params_.order
+                    == kAmbiMembraneKickDirectPickups
+                ? 1.0f : 0.0f;
+        }
         if (params_.strikeMode == AmbiMembraneStrikeMode::Fixed
             || ageSamples_ == inactiveAge()) {
             actualStrikeX_ = params_.strikeX;
@@ -155,8 +166,9 @@ public:
         outputChannels = std::min(outputChannels, kAmbiMembraneKickChannels);
         std::fill(output, output + outputChannels, 0.0f);
 
-        const uint32_t activeChannels = std::min(outputChannels,
-            (params_.order + 1u) * (params_.order + 1u));
+        const uint32_t ambisonicOrder = std::min(params_.order, 3u);
+        const uint32_t ambisonicChannels = std::min(outputChannels,
+            (ambisonicOrder + 1u) * (ambisonicOrder + 1u));
         const float ageSeconds = ageSamples_ < inactiveAge()
             ? static_cast<float>(ageSamples_ / sampleRate_) : 1000.0f;
         const float sweepSeconds = params_.pitchSweepMs * 0.001f;
@@ -212,6 +224,8 @@ public:
 
         const float driveGain = 1.0f + params_.drive * 8.0f;
         const float normalization = smoothedSpatialNormalization_;
+        constexpr float directPickupNormalization = 0.22f;
+        std::array<float, kAmbiMembraneKickPatches> pickupSamples {};
         for (uint32_t patch = 0u; patch < kAmbiMembraneKickPatches; ++patch) {
             float sample = 0.0f;
             for (uint32_t mode = 0u; mode < kAmbiMembraneKickModes; ++mode) {
@@ -223,10 +237,22 @@ public:
             const float localClick = click * std::exp(-strikeDistance * 3.8f);
             sample = softSat((sample + localClick * 0.82f) * driveGain)
                 / softSat(driveGain);
+            pickupSamples[patch] = sample * directPickupNormalization;
             sample *= normalization;
-            for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+            for (uint32_t channel = 0u;
+                 channel < ambisonicChannels; ++channel) {
                 output[channel] += sample * patchBasis_[patch][channel];
             }
+        }
+
+        const float directTarget = params_.order
+                == kAmbiMembraneKickDirectPickups
+            ? 1.0f : 0.0f;
+        smoothedDirectMix_ += (directTarget - smoothedDirectMix_)
+            * spatialSmoothing;
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            output[channel] = output[channel] * (1.0f - smoothedDirectMix_)
+                + pickupSamples[channel] * smoothedDirectMix_;
         }
 
         const float outputTarget = dbToLinear(params_.outputGainDb);
@@ -235,7 +261,7 @@ public:
         smoothedOutputGain_ += (outputTarget - smoothedOutputGain_)
             * outputSmoothing;
         float peak = 0.0f;
-        for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
             peak = std::max(peak, std::fabs(output[channel]
                 * smoothedOutputGain_));
         }
@@ -249,7 +275,7 @@ public:
         }
         const float finalGain = smoothedOutputGain_ * limiterGain_;
         peak = 0.0f;
-        for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
             output[channel] = flushDenormal(output[channel] * finalGain);
             peak = std::max(peak, std::fabs(output[channel]));
         }
@@ -344,7 +370,8 @@ private:
 
     static void sanitize(AmbiMembraneKickParams& params)
     {
-        params.order = std::clamp<uint32_t>(params.order, 1u, 3u);
+        params.order = std::clamp<uint32_t>(
+            params.order, 1u, kAmbiMembraneKickDirectPickups);
         params.shape = static_cast<AmbiMembraneShape>(std::min<uint32_t>(
             static_cast<uint32_t>(params.shape), 4u));
         params.tuneHz = finiteClamp(params.tuneHz, 43.0f, 25.0f, 90.0f);
@@ -565,6 +592,7 @@ private:
     float smoothedOutputGain_ = 1.0f;
     float smoothedSpatialNormalization_ = 0.052f;
     float targetSpatialNormalization_ = 0.052f;
+    float smoothedDirectMix_ = 0.0f;
     float activity_ = 0.0f;
     bool radiationInitialized_ = false;
     uint32_t rng_ = 0x6d2b79f5u;

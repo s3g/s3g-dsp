@@ -344,7 +344,7 @@ int main(int argc, char** argv)
         && audioPorts->count(plugin, false) == 1u
         && audioPorts->get(plugin, 0u, false, &audioInfo)
         && audioInfo.channel_count == kChannels
-        && std::strcmp(audioInfo.port_type, CLAP_PORT_AMBISONIC) == 0
+        && std::strcmp(audioInfo.port_type, CLAP_PORT_SURROUND) == 0
         && notePorts->count(plugin, true) == 1u
         && notePorts->get(plugin, 0u, true, &noteInfo)
         && params->count(plugin) == 21u
@@ -364,6 +364,10 @@ int main(int argc, char** argv)
     ok = ok && params->value_to_text(plugin, kStrikeModeParamId, 2.0,
         strikeModeText, sizeof(strikeModeText))
         && std::strcmp(strikeModeText, "Random Rim") == 0;
+    char directText[32] {};
+    ok = ok && params->value_to_text(plugin, kOrderParamId, 4.0,
+        directText, sizeof(directText))
+        && std::strcmp(directText, "16 Pickups") == 0;
     if (!ok || !plugin->activate(plugin, 48000.0, 1u, kFrames)
         || !plugin->start_processing(plugin)) {
         std::cerr << "membrane kick CLAP contract failed\n";
@@ -393,6 +397,38 @@ int main(int argc, char** argv)
         }
     }
     ok = ok && silence == 0.0 && before == 0.0 && after > 0.01;
+
+    plugin->reset(plugin);
+    EventList directSelect;
+    directSelect.addParam(kOrderParamId, 4.0);
+    params->flush(plugin, &directSelect.input, nullptr);
+    EventList directStrike;
+    directStrike.addNote(36, 0.9, 0u);
+    audio.clear();
+    runBlock(plugin, audio, &directStrike.input);
+    std::array<double, kChannels> directEnergy {};
+    double directVariation = 0.0;
+    for (uint32_t sample = 0u; sample < kFrames; ++sample) {
+        directVariation += std::fabs(audio.storage[0u][sample]
+            - audio.storage[15u][sample]);
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            directEnergy[channel] += static_cast<double>(
+                audio.storage[channel][sample]) * audio.storage[channel][sample];
+        }
+    }
+    bool directContract = getParam(plugin, params, kOrderParamId, 4.0)
+        && directVariation > 0.0001;
+    for (const double energy : directEnergy) {
+        directContract = directContract && energy > 1.0e-10;
+    }
+    if (!directContract) {
+        std::cerr << "sixteen-pickup direct output contract failed\n";
+    }
+    ok = ok && directContract;
+    plugin->reset(plugin);
+    EventList restoreHoa;
+    restoreHoa.addParam(kOrderParamId, 3.0);
+    params->flush(plugin, &restoreHoa.input, nullptr);
 
     const auto lowNote = renderMidiStrike(plugin, audio, 36, 1.0);
     const auto highNote = renderMidiStrike(plugin, audio, 48, 1.0);

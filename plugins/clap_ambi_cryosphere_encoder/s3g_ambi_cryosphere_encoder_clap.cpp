@@ -238,6 +238,7 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiCryosphereMaxVoices> guiEnergy {};
     std::array<std::atomic<float>, s3g::kAmbiCryosphereMaxVoices> guiEvent {};
     std::array<std::atomic<float>, s3g::kAmbiCryosphereMaxVoices> guiRenderGain {};
+    std::array<std::atomic<float>, s3g::kAmbiCryosphereMaxVoices> guiSkinWeight {};
     std::atomic<uint32_t> guiVoiceCount { 1u };
 #endif
 };
@@ -1427,6 +1428,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             p->guiRenderGain[voice].store(
                 p->engine.voiceRenderGain(voice),
                 std::memory_order_relaxed);
+            p->guiSkinWeight[voice].store(
+                p->engine.voiceSkinContactWeight(voice),
+                std::memory_order_relaxed);
         }
         p->guiTelemetryCountdown = std::max<uint32_t>(
             1u, static_cast<uint32_t>(p->sampleRate / 30.0));
@@ -2512,7 +2516,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         effectiveX, effectiveY,
         _selectedSurfaceCell, valueAttrs,
         _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY);
-    [[NSString stringWithFormat:@"T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
+    [[NSString stringWithFormat:@"SKIN T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
         _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY,
         effectiveX, effectiveY,
         _surfaceSnapshot.cellCount,
@@ -2556,6 +2560,24 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18, NSMidY(field)) toPoint:NSMakePoint(NSMaxX(field) - 18, NSMidY(field))];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
+    const bool audioActive = _plugin->active.load(std::memory_order_acquire);
+    const float skinX = audioActive
+        ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceX;
+    const float skinY = audioActive
+        ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceY;
+    const float skinLoad = audioActive
+        ? _displayParamsSnapshot.surfaceLoad : _paramsSnapshot.surfaceLoad;
+    const s3g::Vec3 skinDirection = s3g::directionFromAed(
+        (skinX - 0.5f) * 360.0f, (skinY - 0.5f) * 180.0f);
+    const NSPoint skinPoint = [self projectWorld:skinDirection depth:nullptr];
+    const CGFloat skinHalo = 22.0 + skinLoad * 54.0;
+    [s3g::clap_gui::color(0x61aabd, 0.055 + skinLoad * 0.10) setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        skinPoint.x - skinHalo * 0.5, skinPoint.y - skinHalo * 0.5,
+        skinHalo, skinHalo)] fill];
+
     const uint32_t voices = std::clamp<uint32_t>(
         _surfaceEdit ? _paramsSnapshot.voices
             : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
@@ -2587,10 +2609,14 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         const float membership = _surfaceEdit ? 1.0f
             : std::clamp(_plugin->guiRenderGain[voice].load(
                 std::memory_order_relaxed), 0.0f, 1.0f);
+        const float skinWeight = _surfaceEdit ? 1.0f
+            : std::clamp(_plugin->guiSkinWeight[voice].load(
+                std::memory_order_relaxed), 0.18f, 4.0f);
         const float activity = std::clamp(std::sqrt(std::max(0.0f, energy)) * 18.0f, 0.0f, 1.0f);
         const CGFloat base = voices > 32u ? 7.0 : 9.0;
         const CGFloat size = ((selected ? base + 5.0 : base)
-            + activity * 5.0f + event * 7.0f)
+            + activity * 5.0f + event * 7.0f
+            + std::max(0.0f, std::sqrt(skinWeight) - 1.0f) * 4.0f)
             * (0.45f + membership * 0.55f);
         const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
         if (event > 0.04f || activity > 0.04f) {
@@ -2598,6 +2624,17 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
             NSRect haloRect = NSMakeRect(projected[voice].x - halo * 0.5, projected[voice].y - halo * 0.5, halo, halo);
             [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(0.05 + event * 0.18 + activity * 0.08) * membership] setFill];
             [[NSBezierPath bezierPathWithOvalInRect:haloRect] fill];
+        }
+        if (skinWeight > 1.08f && skinLoad > 0.02f) {
+            const CGFloat loadHalo = size
+                * (1.25 + std::min(1.8f, skinWeight - 1.0f));
+            [s3g::clap_gui::color(0x61aabd,
+                (0.04 + std::min(0.18f,
+                    (skinWeight - 1.0f) * 0.08f)) * membership) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                projected[voice].x - loadHalo * 0.5,
+                projected[voice].y - loadHalo * 0.5,
+                loadHalo, loadHalo)] fill];
         }
         [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(selected ? 0.98 : 0.22 + event * 0.54 + activity * 0.20) * membership] setFill];
         NSRectFill(marker);
@@ -2609,6 +2646,15 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
             [label drawAtPoint:NSMakePoint(NSMidX(marker) - labelSize.width * 0.5, NSMidY(marker) - labelSize.height * 0.5 - 0.5) withAttributes:idAttrs];
         }
     }
+    [[NSColor colorWithCalibratedWhite:0.96 alpha:0.92] setStroke];
+    NSBezierPath* skinMark = [NSBezierPath bezierPath];
+    [skinMark appendBezierPathWithOvalInRect:NSMakeRect(
+        skinPoint.x - 7.0, skinPoint.y - 7.0, 14.0, 14.0)];
+    [skinMark moveToPoint:NSMakePoint(skinPoint.x - 11.0, skinPoint.y)];
+    [skinMark lineToPoint:NSMakePoint(skinPoint.x + 11.0, skinPoint.y)];
+    [skinMark moveToPoint:NSMakePoint(skinPoint.x, skinPoint.y - 11.0)];
+    [skinMark lineToPoint:NSMakePoint(skinPoint.x, skinPoint.y + 11.0)];
+    [skinMark stroke];
     [NSGraphicsContext restoreGraphicsState];
 
     const float az = _plugin->guiAzimuth[_selectedVoice].load(std::memory_order_relaxed);
@@ -2616,9 +2662,11 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     const float dist = _plugin->guiDistance[_selectedVoice].load(std::memory_order_relaxed);
     const float energy = _plugin->guiEnergy[_selectedVoice].load(std::memory_order_relaxed);
     const float event = _plugin->guiEvent[_selectedVoice].load(std::memory_order_relaxed);
-    NSString* readout = [NSString stringWithFormat:@"P%02u  AZ%+.1f  EL%+.1f  D%.2f  EVT%.2f  E%.3f", _selectedVoice + 1u, az, el, dist, event, energy];
+    const float selectedSkin = _plugin->guiSkinWeight[_selectedVoice].load(
+        std::memory_order_relaxed);
+    NSString* readout = [NSString stringWithFormat:@"P%02u  AZ%+.1f  EL%+.1f  D%.2f  EVT%.2f  E%.3f  SKIN×%.2f", _selectedVoice + 1u, az, el, dist, event, energy, selectedSkin];
     s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-    [@"FROST / FRACTURE FIELD     STRESS + SLIP + IMPACT     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
+    [@"SURF CURSOR = ICE-SKIN LOAD     STRESS + SLIP + IMPACT     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
 }
 
 - (void)drawSlider:(NSString*)name param:(clap_id)param value:(double)value attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style

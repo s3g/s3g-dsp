@@ -134,7 +134,6 @@ EXPECTED_AMBI_WORKFLOW_DECODER_SECOND = {
     "ambi-encoder-stochastic.html",
     "ambi-encoder-surface-terrain.html",
     "ambi-encoder-medium.html",
-    "ambi-encoder-membrane-kick.html",
     "ambi-encoder-acid.html",
     "ambi-encoder-horizon.html",
     "ambi-encoder-vot.html",
@@ -198,6 +197,10 @@ EXPECTED_MODAL_WORKFLOW_OUTPUT_STEP = (
     "route the eight ordinary lanes to the intended main speaker outputs, a downstream "
     "direct panner, or Output Autogain Stereo/Quad for fold-down monitoring."
 )
+EXPECTED_MEMBRANE_KICK_WORKFLOW_OUTPUT_STEP = (
+    "Follow an ACN/SN3D format with an ambisonic decoder. Route 16 PICKUPS as "
+    "ordinary lanes instead."
+)
 EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_PAGES = {
     "ambisonic-bus-processors.html",
     "ambisonic-effects.html",
@@ -210,9 +213,9 @@ EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_STEP = (
     "field before its compatible effect chain and decoder."
 )
 EXPECTED_AMBI_ENCODER_FAMILY_WORKFLOW_OUTPUT_STEP = (
-    "Follow an ACN/SN3D output with an ambisonic decoder. For Ambi Encoder Modal in "
-    "8 BODY STEMS mode, route the eight ordinary lanes to the main speakers, a "
-    "downstream direct panner, or Output Autogain Stereo/Quad for fold-down monitoring."
+    "Follow an ACN/SN3D output with an ambisonic decoder. Route Ambi Encoder Modal's "
+    "8 BODY STEMS or Membrane Kick's 16 PICKUPS as ordinary lanes to main outputs, a "
+    "downstream direct panner, or an appropriate fold-down utility."
 )
 AUDIBLE_WORKFLOW_STEP_TERMS = (
     "decoder",
@@ -661,6 +664,11 @@ def parse_document(path: Path) -> Document:
         if len(document.workflow_steps) < 2:
             document.errors.append("Workflow is missing its output setup step")
         elif document.workflow_steps[1] != EXPECTED_MODAL_WORKFLOW_OUTPUT_STEP:
+            document.errors.append("Workflow must establish its selected output path in step 2")
+    if path.name == "ambi-encoder-membrane-kick.html":
+        if len(document.workflow_steps) < 2:
+            document.errors.append("Workflow is missing its output setup step")
+        elif document.workflow_steps[1] != EXPECTED_MEMBRANE_KICK_WORKFLOW_OUTPUT_STEP:
             document.errors.append("Workflow must establish its selected output path in step 2")
     if path.name == "ambisonic-encoders.html":
         if len(document.workflow_steps) < 2:
