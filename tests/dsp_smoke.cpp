@@ -1885,6 +1885,38 @@ int main()
         return 1;
     }
 
+    // A pitch head can extend a near-maximum base delay beyond the physical
+    // ring. This exact configuration used to retain a negative read index
+    // after one wrap and is intended to run under ASan/UBSan as well as the
+    // normal smoke build.
+    auto delayPitchBoundary = std::make_unique<s3g::DelayProcessor>();
+    delayPitchBoundary->prepare(48000.0, 1, 0.25);
+    delayPitchBoundary->setChannelDelayMs(0, 249.0f);
+    delayPitchBoundary->setChannelFeedback(0, 0.0f);
+    delayPitchBoundary->setChannelTone(0, 1.0f);
+    delayPitchBoundary->setChannelPitchSemitones(0, 12.0f);
+    float delayPitchBoundaryIn[1] {};
+    float delayPitchBoundaryOut[1] {};
+    float delayPitchBoundaryPeak = 0.0f;
+    for (int frame = 0; frame < 16000; ++frame) {
+        delayPitchBoundaryIn[0] = std::sin(
+            static_cast<float>(frame) * 0.019f) * 0.10f;
+        delayPitchBoundary->processFrame(
+            delayPitchBoundaryIn, delayPitchBoundaryOut);
+        if (!std::isfinite(delayPitchBoundaryOut[0])) {
+            std::cerr << "Delay pitch-boundary output is not finite\n";
+            return 1;
+        }
+        delayPitchBoundaryPeak = std::max(
+            delayPitchBoundaryPeak, std::abs(delayPitchBoundaryOut[0]));
+    }
+    if (delayPitchBoundaryPeak <= 0.00001f
+        || delayPitchBoundaryPeak > 1.0f) {
+        std::cerr << "Delay pitch-boundary peak outside expected range: "
+                  << delayPitchBoundaryPeak << "\n";
+        return 1;
+    }
+
     // Publishing one coherent wrapper snapshot must be render-equivalent to
     // the established immediate setter sequence, including route activation
     // and its tail bookkeeping.

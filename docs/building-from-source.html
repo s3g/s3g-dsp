@@ -75,6 +75,19 @@ cmake --build build-clap</code></pre>
   -DS3G_BUILD_CLAP_PLUGIN=ON \
   -DS3G_ENABLE_WORLD=OFF</code></pre>
 
+        <h2 id="source-build-previews">Source-Build Previews</h2>
+
+        <p>Preview documentation can describe work that is newer than the packaged pre-release. <a href="ambi-encoder-cartography.html">Ambi Encoder Cartography</a> is built by the normal CLAP source configuration above; use a fresh source build when matching its current landscape-effects and expanded site-process guide.</p>
+
+        <p><a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a>, <a href="ambi-encoder-acid.html">Ambi Encoder Acid</a>, and <a href="ambi-encoder-horizon.html">Ambi Encoder Horizon</a> are opt-in future-component previews. Configure a separate build directory with both options enabled:</p>
+
+        <pre><code>cmake -S . -B build-clap-future \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+cmake --build build-clap-future</code></pre>
+
+        <p>Future-component previews are intentionally absent from the packaged pre-release manifest. Their plugin names, parameters, state formats, routing, and CPU cost can still change.</p>
+
         <h2 id="clap-realtime-audit">Audit CLAP Realtime Cost</h2>
 
         <p>Timing measurements must use optimized plugins and an optimized audit executable. The dedicated <code>clap-release</code> preset creates a separate Release build without changing the ordinary development or CLAP build directories:</p>
@@ -299,6 +312,7 @@ python3 scripts/check-docs.py
           <a href="#requirements">Requirements</a>
           <a href="#smoke-test">Smoke Test</a>
           <a href="#clap-build">Build CLAP Plugins</a>
+          <a href="#source-build-previews">Source-Build Previews</a>
           <a href="#clap-realtime-audit">Audit CLAP Realtime Cost</a>
           <a href="#clap-allocation-probe">Probe Realtime Allocations</a>
           <a href="#standalone-apps">Build Standalone Apps</a>

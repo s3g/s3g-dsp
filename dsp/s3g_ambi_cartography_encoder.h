@@ -2,6 +2,7 @@
 
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_cartography_site_processes.h"
 #include "s3g_macro_delay.h"
 #include "s3g_macro_fracture.h"
 #include "s3g_macro_pitch.h"
@@ -46,6 +47,9 @@ enum class AmbiCartographyMacroEngine : uint32_t {
     Pitch = 2u,
     Shred = 3u,
     Fracture = 4u,
+    SpeakerBody = 5u,
+    SpectralRelay = 6u,
+    RelayBuffer = 7u,
 };
 
 enum class AmbiCartographyMacroMetric : uint32_t {
@@ -129,7 +133,7 @@ inline AmbiCartographyEncoderParams sanitizeAmbiCartographyEncoderParams(
     params.timeReference = static_cast<AmbiCartographyTimeReference>(
         std::min<uint32_t>(static_cast<uint32_t>(params.timeReference), 1u));
     params.macroEngine = static_cast<AmbiCartographyMacroEngine>(
-        std::min<uint32_t>(static_cast<uint32_t>(params.macroEngine), 4u));
+        std::min<uint32_t>(static_cast<uint32_t>(params.macroEngine), 7u));
     params.macroMetric = static_cast<AmbiCartographyMacroMetric>(
         std::min<uint32_t>(static_cast<uint32_t>(params.macroMetric), 3u));
     params.listenMode = sanitizeAmbiFieldListenMode(params.listenMode);
@@ -165,6 +169,50 @@ inline AmbiCartographyEncoderParams sanitizeAmbiCartographyEncoderParams(
     return params;
 }
 
+struct AmbiCartographyLandscapeParams {
+    // Every amount is an exact bypass at zero. The established cartography
+    // controls voice secondary behavior: COLOR shapes reflected/occluded
+    // spectra, MEMORY shapes network drift and feedback time, SPREAD changes
+    // reflection/feedback topology, and AIR/CARRY/TURBULENCE voice weather.
+    float multipath = 0.0f;
+    float occlusion = 0.0f;
+    float networkWeather = 0.0f;
+    float refraction = 0.0f;
+    float motion = 0.0f;
+    float ecology = 0.0f;
+    float horizon = 0.0f;
+};
+
+struct AmbiCartographySiteProcessOptions {
+    MacroShredCircuit shredCircuit = MacroShredCircuit::Shred;
+    FractureProcessor fractureProcessor = FractureProcessor::Relay;
+};
+
+inline AmbiCartographySiteProcessOptions sanitizeAmbiCartographySiteProcessOptions(
+    AmbiCartographySiteProcessOptions options)
+{
+    options.shredCircuit = static_cast<MacroShredCircuit>(
+        std::min<uint32_t>(static_cast<uint32_t>(options.shredCircuit),
+            kMacroShredCircuitCount - 1u));
+    options.fractureProcessor = static_cast<FractureProcessor>(
+        std::min<uint32_t>(static_cast<uint32_t>(options.fractureProcessor),
+            kFractureProcessorCount - 1u));
+    return options;
+}
+
+inline AmbiCartographyLandscapeParams sanitizeAmbiCartographyLandscapeParams(
+    AmbiCartographyLandscapeParams params)
+{
+    params.multipath = clamp(params.multipath, 0.0f, 1.0f);
+    params.occlusion = clamp(params.occlusion, 0.0f, 1.0f);
+    params.networkWeather = clamp(params.networkWeather, 0.0f, 1.0f);
+    params.refraction = clamp(params.refraction, -1.0f, 1.0f);
+    params.motion = clamp(params.motion, 0.0f, 1.0f);
+    params.ecology = clamp(params.ecology, 0.0f, 1.0f);
+    params.horizon = clamp(params.horizon, 0.0f, 1.0f);
+    return params;
+}
+
 class AmbiCartographyEncoder {
 public:
     void prepare(double sampleRate)
@@ -188,6 +236,9 @@ public:
         macroPitch_.prepare(sampleRate_, kAmbiCartographyMaxSites);
         macroShred_.prepare(sampleRate_, kAmbiCartographyMaxSites);
         macroFracture_.prepare(sampleRate_, kAmbiCartographyMaxSites);
+        speakerBody_.prepare(sampleRate_, kAmbiCartographyMaxSites);
+        spectralRelay_.prepare(sampleRate_, kAmbiCartographyMaxSites);
+        relayBuffer_.prepare(sampleRate_, kAmbiCartographyMaxSites);
 
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setExtendedAnalysisEnabled(true);
@@ -207,38 +258,73 @@ public:
 
     void reset()
     {
-        std::fill(networkLeft_.begin(), networkLeft_.end(), 0.0f);
-        std::fill(networkRight_.begin(), networkRight_.end(), 0.0f);
-        for (auto& line : airDelay_) std::fill(line.begin(), line.end(), 0.0f);
         networkWrite_ = 0u;
         airWrite_ = 0u;
+        networkHistorySamples_ = 0u;
+        airHistorySamples_ = 0u;
         smoothedNetworkDelay_.fill(0.0f);
         smoothedAirDelay_.fill(0.0f);
         airState_.fill(0.0f);
+        groundState_.fill(0.0f);
+        facadeState_.fill(0.0f);
+        occlusionState_.fill(0.0f);
+        horizonState_.fill(0.0f);
+        smoothedOcclusion_.fill(0.0f);
+        smoothedHorizonGain_.fill(1.0f);
+        ecologyState_.fill(0.0f);
         siteLevel_.fill(0.0f);
         turbulencePhase_.fill(0.0f);
+        weatherPhase_.fill(0.0f);
+        weatherDriftPhase_.fill(0.0f);
+        weatherPulsePhase_.fill(0.0f);
         for (uint32_t site = 0u; site < kAmbiCartographyMaxSites; ++site) {
             turbulencePhase_[site] = hashSigned(site, 41u) * 0.5f + 0.5f;
+            weatherPhase_[site] = hashSigned(site, 173u) * 0.5f + 0.5f;
+            weatherDriftPhase_[site] =
+                hashSigned(site, 211u) * 0.5f + 0.5f;
+            weatherPulsePhase_[site] =
+                hashSigned(site, 293u) * 0.5f + 0.5f;
         }
+        motionPhase_ = 0.0f;
+        motionControlCountdown_ = 32u;
+        geometryDirty_ = true;
         delayPrimed_ = false;
-        engineFade_ = 1.0f;
+        activeEngine_ = params_.macroEngine;
+        previousEngine_ = activeEngine_;
+        engineCrossfade_ = 1.0f;
         macroDelay_.reset();
         macroPitch_.reset();
         macroShred_.reset();
         macroFracture_.reset();
+        speakerBody_.reset();
+        spectralRelay_.reset();
+        relayBuffer_.reset();
         fieldListener_.reset();
     }
 
     void setParams(AmbiCartographyEncoderParams params)
     {
+        const auto previousParams = params_;
         const auto previousLayout = params_.layout;
         const uint32_t previousSites = params_.activeSites;
         const uint32_t previousSelected = params_.selectedSite;
-        const auto previousEngine = params_.macroEngine;
         params = sanitizeAmbiCartographyEncoderParams(params);
 
         const bool layoutChanged = params.layout != previousLayout
             || params.activeSites != previousSites;
+        const bool routingChanged = layoutChanged
+            || params.timeReference != previousParams.timeReference
+            || params.mapScaleMeters != previousParams.mapScaleMeters
+            || params.listenerX != previousParams.listenerX
+            || params.listenerY != previousParams.listenerY
+            || params.listenerZ != previousParams.listenerZ
+            || params.networkSpreadMs != previousParams.networkSpreadMs
+            || params.propagationScale != previousParams.propagationScale
+            || params.air != previousParams.air
+            || params.carry != previousParams.carry
+            || params.skew != previousParams.skew
+            || params.macroMetric != previousParams.macroMetric;
+        bool authoredSiteChanged = false;
         params_ = params;
         if (layoutChanged) {
             resetLayout(params_.layout);
@@ -247,6 +333,11 @@ public:
             syncSelectedFromSite();
         } else {
             auto& site = sites_[params_.selectedSite];
+            authoredSiteChanged = site.x != params_.selectedX
+                || site.y != params_.selectedY
+                || site.z != params_.selectedZ
+                || site.networkTrimMs != params_.selectedNetworkTrimMs
+                || site.enabled != params_.selectedEnabled;
             site.x = params_.selectedX;
             site.y = params_.selectedY;
             site.z = params_.selectedZ;
@@ -254,18 +345,89 @@ public:
             site.networkTrimMs = params_.selectedNetworkTrimMs;
             site.enabled = params_.selectedEnabled;
         }
-        if (params_.macroEngine != previousEngine) engineFade_ = 0.0f;
+        if (!prepared_) {
+            activeEngine_ = params_.macroEngine;
+            previousEngine_ = activeEngine_;
+            engineCrossfade_ = 1.0f;
+        } else if (previousEngine_ != activeEngine_
+            && engineCrossfade_ <= 0.0f
+            && params_.macroEngine != activeEngine_) {
+            // Hosts may publish several parameter events before rendering the
+            // block. No active-endpoint signal is audible at blend zero, so
+            // replace that unseen choice with the newest request. Selecting
+            // the previous endpoint cancels the untouched transition.
+            activeEngine_ = params_.macroEngine;
+            if (activeEngine_ == previousEngine_) {
+                engineCrossfade_ = 1.0f;
+            }
+        } else if ((previousEngine_ == activeEngine_
+                       || engineCrossfade_ >= 1.0f)
+            && params_.macroEngine != activeEngine_) {
+            // Keep a live transition's two endpoints stable. Automation may
+            // continue to update params_.macroEngine; the newest request is
+            // started after this pair reaches its active endpoint.
+            previousEngine_ = activeEngine_;
+            activeEngine_ = params_.macroEngine;
+            engineCrossfade_ = 0.0f;
+        }
         configureMacroEngines();
+        geometryDirty_ = geometryDirty_
+            || routingChanged || authoredSiteChanged;
     }
 
     void regenerateLayout()
     {
         resetLayout(params_.layout);
         syncSelectedFromSite();
+        geometryDirty_ = true;
         delayPrimed_ = false;
     }
 
     AmbiCartographyEncoderParams params() const { return params_; }
+
+    void setLandscapeParams(AmbiCartographyLandscapeParams params)
+    {
+        params = sanitizeAmbiCartographyLandscapeParams(params);
+        if (landscape_.multipath > 0.0f && params.multipath == 0.0f) {
+            groundState_.fill(0.0f);
+            facadeState_.fill(0.0f);
+        }
+        if (landscape_.occlusion > 0.0f && params.occlusion == 0.0f) {
+            occlusionState_.fill(0.0f);
+            smoothedOcclusion_.fill(0.0f);
+        }
+        if (landscape_.ecology > 0.0f && params.ecology == 0.0f) {
+            ecologyState_.fill(0.0f);
+        }
+        if (landscape_.horizon > 0.0f && params.horizon == 0.0f) {
+            horizonState_.fill(0.0f);
+            smoothedHorizonGain_.fill(1.0f);
+        }
+        const bool geometryChanged = params.multipath != landscape_.multipath
+            || params.occlusion != landscape_.occlusion
+            || params.refraction != landscape_.refraction
+            || params.motion != landscape_.motion
+            || params.horizon != landscape_.horizon;
+        landscape_ = params;
+        geometryDirty_ = geometryDirty_ || geometryChanged;
+    }
+
+    AmbiCartographyLandscapeParams landscapeParams() const
+    {
+        return landscape_;
+    }
+
+    void setSiteProcessOptions(AmbiCartographySiteProcessOptions options)
+    {
+        siteProcessOptions_ =
+            sanitizeAmbiCartographySiteProcessOptions(options);
+        configureMacroEngines();
+    }
+
+    AmbiCartographySiteProcessOptions siteProcessOptions() const
+    {
+        return siteProcessOptions_;
+    }
 
     const std::array<AmbiCartographySite, kAmbiCartographyMaxSites>& sites() const
     {
@@ -287,6 +449,7 @@ public:
         }
         sites_ = sites;
         syncSelectedFromSite();
+        geometryDirty_ = true;
         delayPrimed_ = false;
     }
 
@@ -308,6 +471,7 @@ public:
         site.enabled = site.enabled && index < params_.activeSites;
         sites_[index] = site;
         if (index == params_.selectedSite) syncSelectedFromSite();
+        geometryDirty_ = true;
         delayPrimed_ = false;
     }
 
@@ -334,6 +498,20 @@ public:
             ? directions_[site] : Vec3 {};
     }
 
+    float siteOcclusion(uint32_t site) const
+    {
+        return site < kAmbiCartographyMaxSites
+            ? renderedOcclusion_[site] : 0.0f;
+    }
+
+    Vec3 renderedSitePosition(uint32_t site) const
+    {
+        return site < kAmbiCartographyMaxSites
+            ? renderedSitePosition_[site] : Vec3 {};
+    }
+
+    Vec3 renderedListenerPosition() const { return renderedListenerPosition_; }
+
     const AmbiFieldListener& fieldListener() const { return fieldListener_; }
 
     template <typename Sample>
@@ -351,7 +529,10 @@ public:
         }
         if (airCapacity_ < 8u || networkCapacity_ < 8u) return;
 
-        updateGeometryAndRouting();
+        if (geometryDirty_) {
+            updateGeometryAndRouting();
+            geometryDirty_ = false;
+        }
         const uint32_t ambiChannels = std::min<uint32_t>(
             ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t active = params_.activeSites;
@@ -361,12 +542,26 @@ public:
             / static_cast<float>(sampleRate_ * 0.030));
         const float levelCoefficient = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.060));
-        const float engineFadeStep = 1.0f
+        const float engineCrossfadeStep = 1.0f
             / static_cast<float>(sampleRate_ * 0.030);
+        const float landscapeCoefficient = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.050));
+        const float ecologyCutoff = lerp(12000.0f, 650.0f,
+            params_.memory * 0.78f + (1.0f - params_.color) * 0.22f);
+        const float ecologyPole = std::exp(-2.0f * kPi * ecologyCutoff
+            / static_cast<float>(sampleRate_));
+        const float groundPole = std::exp(-2.0f * kPi
+            * lerp(900.0f, 14500.0f, params_.color)
+            / static_cast<float>(sampleRate_));
+        const float facadePole = std::exp(-2.0f * kPi
+            * lerp(1700.0f, 18500.0f, params_.color)
+            / static_cast<float>(sampleRate_));
 
         std::array<float, kAmbiCartographyMaxSites> siteInput {};
         std::array<float, kAmbiCartographyMaxSites> macroInput {};
+        std::array<float, kAmbiCartographyMaxSites> siteProcessInput {};
         std::array<float, kAmbiCartographyMaxSites> macroOutput {};
+        std::array<float, kAmbiCartographyMaxSites> previousMacroOutput {};
         std::array<float, kAmbiCartographyMaxChannels> field {};
 
         for (uint32_t frameIndex = 0u; frameIndex < frames; ++frameIndex) {
@@ -376,6 +571,10 @@ public:
                 ? finiteSample(inputs[1][frameIndex]) : left;
             networkLeft_[networkWrite_] = left;
             networkRight_[networkWrite_] = right;
+            networkHistorySamples_ = std::min(
+                networkCapacity_, networkHistorySamples_ + 1u);
+            const uint32_t airAvailableSamples = std::min(
+                airCapacity_, airHistorySamples_ + 1u);
 
             if (!delayPrimed_) {
                 smoothedNetworkDelay_ = targetNetworkDelay_;
@@ -384,34 +583,122 @@ public:
             }
 
             macroInput.fill(0.0f);
+            siteProcessInput.fill(0.0f);
             for (uint32_t siteIndex = 0u; siteIndex < active; ++siteIndex) {
                 smoothedNetworkDelay_[siteIndex] +=
                     (targetNetworkDelay_[siteIndex]
                         - smoothedNetworkDelay_[siteIndex])
                     * delayCoefficient;
+                const float weatherRate =
+                    0.013f + (1.0f - params_.memory) * 0.041f
+                    + static_cast<float>(siteIndex % 5u) * 0.0037f;
+                weatherPhase_[siteIndex] += weatherRate
+                    / static_cast<float>(sampleRate_);
+                weatherPhase_[siteIndex] -=
+                    std::floor(weatherPhase_[siteIndex]);
+                weatherDriftPhase_[siteIndex] += weatherRate * 3.17f
+                    / static_cast<float>(sampleRate_);
+                weatherDriftPhase_[siteIndex] -=
+                    std::floor(weatherDriftPhase_[siteIndex]);
+                weatherPulsePhase_[siteIndex] += weatherRate * 2.31f
+                    / static_cast<float>(sampleRate_);
+                weatherPulsePhase_[siteIndex] -=
+                    std::floor(weatherPulsePhase_[siteIndex]);
+                float networkDelay = smoothedNetworkDelay_[siteIndex];
+                float relayGain = 1.0f;
+                if (landscape_.networkWeather > 0.0f) {
+                    const float phase = weatherPhase_[siteIndex]
+                        * 2.0f * kPi;
+                    const float drift = std::sin(phase)
+                        + 0.32f * std::sin(
+                            weatherDriftPhase_[siteIndex] * 2.0f * kPi);
+                    const float weatherMs = landscape_.networkWeather
+                        * (0.6f + params_.memory * 42.0f
+                            + params_.turbulence * 38.0f) * drift;
+                    networkDelay += weatherMs * 0.001f
+                        * static_cast<float>(sampleRate_);
+                    const float relayPulse = std::pow(std::max(0.0f,
+                        std::sin(weatherPulsePhase_[siteIndex]
+                            * 2.0f * kPi)), 18.0f);
+                    relayGain = 1.0f - landscape_.networkWeather
+                        * (0.12f + params_.turbulence * 0.76f)
+                        * relayPulse;
+                }
                 const float siteLeft = readDelay(
                     networkLeft_, networkWrite_,
-                    smoothedNetworkDelay_[siteIndex]);
+                    networkDelay, networkHistorySamples_, true) * relayGain;
                 const float siteRight = readDelay(
                     networkRight_, networkWrite_,
-                    smoothedNetworkDelay_[siteIndex]);
-                siteInput[siteIndex] = stereoSiteInput(
+                    networkDelay, networkHistorySamples_, true) * relayGain;
+                float input = stereoSiteInput(
                     siteLeft, siteRight, siteIndex);
+                if (landscape_.ecology > 0.0f && active > 1u) {
+                    const uint32_t offset = 1u
+                        + static_cast<uint32_t>(std::lround(params_.spread
+                            * static_cast<float>(active - 2u)));
+                    const uint32_t source = (siteIndex + active - offset)
+                        % active;
+                    const float feedbackMs = 18.0f
+                        + params_.memory * 520.0f
+                        + sites_[source].networkPosition
+                            * params_.spread * 180.0f;
+                    const float returned = readDelay(airDelay_[source],
+                        airWrite_, feedbackMs * 0.001f
+                            * static_cast<float>(sampleRate_),
+                        airHistorySamples_, false);
+                    ecologyState_[siteIndex] = flushDenormal(
+                        returned * (1.0f - ecologyPole)
+                            + ecologyState_[siteIndex] * ecologyPole);
+                    input += std::tanh(ecologyState_[siteIndex])
+                        * landscape_.ecology * 0.42f;
+                }
+                siteInput[siteIndex] = flushDenormal(input);
                 macroInput[siteToLane_[siteIndex]] = siteInput[siteIndex];
+                if (sites_[siteIndex].enabled && processLaneCount_ > 0u) {
+                    siteProcessInput[siteToProcessLane_[siteIndex]] =
+                        siteInput[siteIndex];
+                }
             }
             for (uint32_t siteIndex = active;
                 siteIndex < kAmbiCartographyMaxSites; ++siteIndex) {
                 siteInput[siteIndex] = 0.0f;
             }
 
-            processMacroFrame(macroInput, macroOutput);
-            engineFade_ = std::min(1.0f, engineFade_ + engineFadeStep);
+            macroOutput.fill(0.0f);
+            const auto& activeInput = usesCompactSiteLanes(activeEngine_)
+                ? siteProcessInput : macroInput;
+            processMacroFrame(activeEngine_, activeInput, macroOutput);
+            const bool engineTransition = previousEngine_ != activeEngine_
+                && engineCrossfade_ < 1.0f;
+            if (engineTransition) {
+                previousMacroOutput.fill(0.0f);
+                const auto& previousInput =
+                    usesCompactSiteLanes(previousEngine_)
+                    ? siteProcessInput : macroInput;
+                processMacroFrame(previousEngine_, previousInput,
+                    previousMacroOutput);
+            }
+            const float engineBlend = engineTransition
+                ? smoothStep(0.0f, 1.0f, engineCrossfade_) : 1.0f;
+            engineCrossfade_ = std::min(
+                1.0f, engineCrossfade_ + engineCrossfadeStep);
             field.fill(0.0f);
             const float listenerActivity = fieldListener_.activity();
 
             for (uint32_t siteIndex = 0u; siteIndex < active; ++siteIndex) {
                 const auto& site = sites_[siteIndex];
-                const float wet = macroOutput[siteToLane_[siteIndex]];
+                const uint32_t activeLane = usesCompactSiteLanes(activeEngine_)
+                    ? siteToProcessLane_[siteIndex]
+                    : siteToLane_[siteIndex];
+                float wet = macroOutput[activeLane];
+                if (engineTransition) {
+                    const uint32_t previousLane =
+                        usesCompactSiteLanes(previousEngine_)
+                        ? siteToProcessLane_[siteIndex]
+                        : siteToLane_[siteIndex];
+                    wet = lerp(previousMacroOutput[previousLane],
+                        wet, engineBlend);
+                }
                 const float preference = fieldListener_.preference(
                     directions_[siteIndex], params_.listenMode);
                 const float centeredPreference = (preference - 0.5f) * 2.0f;
@@ -421,11 +708,9 @@ public:
                     params_.processMix
                         * (1.0f + centeredPreference
                             * listenerDepth * 0.80f),
-                    0.0f, 1.0f) * engineFade_;
-                const float processed = params_.macroEngine
-                        == AmbiCartographyMacroEngine::Clean
-                    ? siteInput[siteIndex]
-                    : lerp(siteInput[siteIndex], wet, adaptiveWet);
+                    0.0f, 1.0f);
+                const float processed = lerp(
+                    siteInput[siteIndex], wet, adaptiveWet);
 
                 airDelay_[siteIndex][airWrite_] = site.enabled
                     ? flushDenormal(processed) : 0.0f;
@@ -434,7 +719,28 @@ public:
                         - smoothedAirDelay_[siteIndex])
                     * delayCoefficient;
                 float arrived = readDelay(airDelay_[siteIndex], airWrite_,
-                    smoothedAirDelay_[siteIndex]);
+                    smoothedAirDelay_[siteIndex], airAvailableSamples, true);
+
+                float groundArrival = 0.0f;
+                float facadeArrival = 0.0f;
+                if (landscape_.multipath > 0.0f) {
+                    groundArrival = readDelay(airDelay_[siteIndex], airWrite_,
+                        smoothedAirDelay_[siteIndex]
+                            + groundExtraDelay_[siteIndex],
+                        airAvailableSamples, true);
+                    facadeArrival = readDelay(airDelay_[siteIndex], airWrite_,
+                        smoothedAirDelay_[siteIndex]
+                            + facadeExtraDelay_[siteIndex],
+                        airAvailableSamples, true);
+                    groundState_[siteIndex] = flushDenormal(
+                        groundArrival * (1.0f - groundPole)
+                            + groundState_[siteIndex] * groundPole);
+                    facadeState_[siteIndex] = flushDenormal(
+                        facadeArrival * (1.0f - facadePole)
+                            + facadeState_[siteIndex] * facadePole);
+                    groundArrival = groundState_[siteIndex];
+                    facadeArrival = facadeState_[siteIndex];
+                }
 
                 const float range = clamp(distanceMeters_[siteIndex]
                     / std::max(10.0f, params_.mapScaleMeters * 2.0f),
@@ -448,17 +754,62 @@ public:
                         + airState_[siteIndex] * pole);
                 arrived = lerp(arrived, airState_[siteIndex], params_.air);
 
+                if (landscape_.occlusion > 0.0f) {
+                    smoothedOcclusion_[siteIndex] +=
+                        (renderedOcclusion_[siteIndex]
+                            - smoothedOcclusion_[siteIndex])
+                        * landscapeCoefficient;
+                    const float amount = smoothedOcclusion_[siteIndex];
+                    const float occlusionCutoff = lerp(15000.0f, 520.0f,
+                        amount * (0.72f + (1.0f - params_.color) * 0.28f));
+                    const float occlusionPole = std::exp(-2.0f * kPi
+                        * occlusionCutoff / static_cast<float>(sampleRate_));
+                    occlusionState_[siteIndex] = flushDenormal(
+                        arrived * (1.0f - occlusionPole)
+                            + occlusionState_[siteIndex] * occlusionPole);
+                    arrived = lerp(arrived, occlusionState_[siteIndex], amount)
+                        * lerp(1.0f, 0.24f, amount);
+                }
+
+                if (landscape_.horizon > 0.0f) {
+                    smoothedHorizonGain_[siteIndex] +=
+                        (horizonGain_[siteIndex]
+                            - smoothedHorizonGain_[siteIndex])
+                        * landscapeCoefficient;
+                    const float loss = 1.0f
+                        - smoothedHorizonGain_[siteIndex];
+                    const float horizonCutoff = lerp(
+                        17000.0f, 720.0f, loss);
+                    const float horizonPole = std::exp(-2.0f * kPi
+                        * horizonCutoff / static_cast<float>(sampleRate_));
+                    horizonState_[siteIndex] = flushDenormal(
+                        arrived * (1.0f - horizonPole)
+                            + horizonState_[siteIndex] * horizonPole);
+                    arrived = lerp(arrived, horizonState_[siteIndex], loss)
+                        * smoothedHorizonGain_[siteIndex];
+                    groundArrival *= smoothedHorizonGain_[siteIndex];
+                    facadeArrival *= smoothedHorizonGain_[siteIndex];
+                }
+
                 turbulencePhase_[siteIndex] +=
                     (0.017f + static_cast<float>(siteIndex % 7u) * 0.004f)
                     / static_cast<float>(sampleRate_);
                 turbulencePhase_[siteIndex] -=
                     std::floor(turbulencePhase_[siteIndex]);
+                const float noisePosition =
+                    turbulencePhase_[siteIndex] * 97.0f;
+                const uint32_t noiseBucket = static_cast<uint32_t>(
+                    std::floor(noisePosition)) % 97u;
+                const uint32_t nextNoiseBucket = (noiseBucket + 1u) % 97u;
+                const float noiseFraction = smoothStep(
+                    0.0f, 1.0f, noisePosition - std::floor(noisePosition));
+                const float turbulenceNoise = lerp(
+                    hashSigned(siteIndex, noiseBucket),
+                    hashSigned(siteIndex, nextNoiseBucket), noiseFraction);
                 const float turbulence = 1.0f + params_.turbulence
                     * (0.075f * std::sin(
                            turbulencePhase_[siteIndex] * 2.0f * kPi)
-                        + 0.025f * hashSigned(siteIndex,
-                            static_cast<uint32_t>(
-                                turbulencePhase_[siteIndex] * 97.0f)));
+                        + 0.025f * turbulenceNoise);
                 const float lossExponent = params_.distanceLoss
                     * (1.0f - params_.carry * 0.78f) * 0.68f;
                 const float distanceGain = std::pow(
@@ -467,16 +818,35 @@ public:
                 const float reach = clamp(
                     1.0f + centeredPreference * listenerDepth * 0.18f,
                     0.72f, 1.28f);
-                arrived *= site.gain * distanceGain * turbulence
-                    * reach * siteNorm;
+                const float commonGain = site.gain * distanceGain
+                    * turbulence * reach * siteNorm
+                    * refractionGain_[siteIndex];
+                arrived *= commonGain;
+                const float groundGain = landscape_.multipath
+                    * lerp(0.38f, 0.18f, params_.spread);
+                const float facadeGain = landscape_.multipath
+                    * lerp(0.16f, 0.42f, params_.spread);
+                const float pathNorm = 1.0f / std::sqrt(
+                    1.0f + groundGain * groundGain
+                        + facadeGain * facadeGain);
+                arrived *= pathNorm;
+                groundArrival *= commonGain * groundGain * pathNorm;
+                facadeArrival *= commonGain * facadeGain * pathNorm;
                 arrived = flushDenormal(arrived);
+                groundArrival = flushDenormal(groundArrival);
+                facadeArrival = flushDenormal(facadeArrival);
 
                 siteLevel_[siteIndex] +=
-                    (std::fabs(arrived) - siteLevel_[siteIndex])
+                    (std::fabs(arrived) + std::fabs(groundArrival)
+                        + std::fabs(facadeArrival) - siteLevel_[siteIndex])
                     * levelCoefficient;
                 for (uint32_t channel = 0u;
                     channel < ambiChannels; ++channel) {
-                    field[channel] += arrived * basis_[siteIndex][channel];
+                    field[channel] += arrived * basis_[siteIndex][channel]
+                        + groundArrival
+                            * groundBasis_[siteIndex][channel]
+                        + facadeArrival
+                            * facadeBasis_[siteIndex][channel];
                 }
             }
             for (uint32_t siteIndex = active;
@@ -496,6 +866,31 @@ public:
 
             networkWrite_ = (networkWrite_ + 1u) % networkCapacity_;
             airWrite_ = (airWrite_ + 1u) % airCapacity_;
+            airHistorySamples_ = airAvailableSamples;
+            if (landscape_.motion > 0.0f) {
+                const float motionRateHz = lerp(
+                    0.065f, 0.006f, params_.memory);
+                motionPhase_ += motionRateHz
+                    / static_cast<float>(sampleRate_);
+                motionPhase_ -= std::floor(motionPhase_);
+                if (motionControlCountdown_ > 0u) {
+                    --motionControlCountdown_;
+                }
+                if (motionControlCountdown_ == 0u) {
+                    updateGeometryAndRouting();
+                    geometryDirty_ = false;
+                    motionControlCountdown_ = 32u;
+                }
+            }
+            if (engineCrossfade_ >= 1.0f
+                && params_.macroEngine != activeEngine_) {
+                // A retarget received during the preceding transition begins
+                // on the next frame, whose first sample is exactly the current
+                // active endpoint.
+                previousEngine_ = activeEngine_;
+                activeEngine_ = params_.macroEngine;
+                engineCrossfade_ = 0.0f;
+            }
         }
     }
 
@@ -516,7 +911,8 @@ private:
     }
 
     static float readDelay(const std::vector<float>& line,
-        uint32_t write, float delaySamples)
+        uint32_t write, float delaySamples, uint32_t validSamples,
+        bool writeContainsCurrent)
     {
         if (line.size() < 4u) return 0.0f;
         delaySamples = clamp(delaySamples, 0.0f,
@@ -528,7 +924,15 @@ private:
         const uint32_t second = (first + 1u)
             % static_cast<uint32_t>(line.size());
         const float fraction = read - std::floor(read);
-        return lerp(line[first], line[second], fraction);
+        const auto sample = [&](uint32_t position) {
+            const uint32_t capacity = static_cast<uint32_t>(line.size());
+            uint32_t age = (write + capacity - position) % capacity;
+            if (!writeContainsCurrent && age == 0u) age = capacity;
+            const bool valid = writeContainsCurrent
+                ? age < validSamples : age <= validSamples;
+            return valid ? line[position] : 0.0f;
+        };
+        return lerp(sample(first), sample(second), fraction);
     }
 
     void resetLayout(AmbiCartographyLayout layout)
@@ -579,6 +983,7 @@ private:
             }
             sites_[index] = site;
         }
+        geometryDirty_ = true;
         delayPrimed_ = false;
     }
 
@@ -650,10 +1055,11 @@ private:
         shred.center = params_.center;
         shred.mix = 1.0f;
         shred.outputGainDb = 0.0f;
+        shred.circuit = siteProcessOptions_.shredCircuit;
         macroShred_.setParams(shred);
 
         MacroFractureParams fracture {};
-        fracture.processor = FractureProcessor::Relay;
+        fracture.processor = siteProcessOptions_.fractureProcessor;
         fracture.amount = params_.macro;
         fracture.color = params_.color;
         fracture.react = 0.15f + params_.memory * 0.60f;
@@ -665,13 +1071,32 @@ private:
         fracture.mix = 1.0f;
         fracture.outputGainDb = 0.0f;
         macroFracture_.setParams(fracture);
+
+        CartographySiteProcessParams siteProcess {};
+        siteProcess.macro = params_.macro;
+        siteProcess.color = params_.color;
+        siteProcess.memory = params_.memory;
+        siteProcess.spread = params_.spread;
+        siteProcess.deviation = params_.deviation;
+        siteProcess.skew = params_.skew;
+        siteProcess.center = params_.center;
+        speakerBody_.setParams(siteProcess);
+        spectralRelay_.setParams(siteProcess);
+        relayBuffer_.setParams(siteProcess);
     }
 
-    void processMacroFrame(
+    static bool usesCompactSiteLanes(AmbiCartographyMacroEngine engine)
+    {
+        return engine == AmbiCartographyMacroEngine::SpeakerBody
+            || engine == AmbiCartographyMacroEngine::SpectralRelay
+            || engine == AmbiCartographyMacroEngine::RelayBuffer;
+    }
+
+    void processMacroFrame(AmbiCartographyMacroEngine engine,
         const std::array<float, kAmbiCartographyMaxSites>& input,
         std::array<float, kAmbiCartographyMaxSites>& output)
     {
-        switch (params_.macroEngine) {
+        switch (engine) {
         case AmbiCartographyMacroEngine::Delay:
             macroDelay_.processFrame(input.data(), output.data());
             break;
@@ -684,15 +1109,105 @@ private:
         case AmbiCartographyMacroEngine::Fracture:
             macroFracture_.processFrame(input.data(), output.data());
             break;
+        case AmbiCartographyMacroEngine::SpeakerBody:
+            speakerBody_.processFrame(input.data(), output.data());
+            break;
+        case AmbiCartographyMacroEngine::SpectralRelay:
+            spectralRelay_.processFrame(input.data(), output.data());
+            break;
+        case AmbiCartographyMacroEngine::RelayBuffer:
+            relayBuffer_.processFrame(input.data(), output.data());
+            break;
         default:
             output = input;
             break;
         }
     }
 
+    static float smoothStep(float edge0, float edge1, float value)
+    {
+        const float t = clamp((value - edge0)
+            / std::max(1.0e-6f, edge1 - edge0), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    static float layoutObstruction(AmbiCartographyLayout layout,
+        const Vec3& site, const Vec3& listener)
+    {
+        const float x = (site.x + listener.x) * 0.5f;
+        const float y = (site.y + listener.y) * 0.5f;
+        const float z = (site.z + listener.z) * 0.5f;
+        const float dx = site.x - listener.x;
+        const float dy = site.y - listener.y;
+        const float path = std::sqrt(dx * dx + dy * dy);
+        float obstacle = 0.0f;
+        if (layout == AmbiCartographyLayout::Ridge) {
+            const float ridge = std::exp(-std::pow((y - 0.34f) / 0.30f, 2.0f));
+            obstacle = ridge * (0.52f + 0.14f * std::cos(x * 4.2f));
+        } else if (layout == AmbiCartographyLayout::Corridor) {
+            obstacle = 0.26f + 0.34f
+                * (1.0f - clamp(std::fabs(x) / 0.42f, 0.0f, 1.0f));
+        } else if (layout == AmbiCartographyLayout::Grid) {
+            obstacle = 0.30f + 0.22f
+                * std::fabs(std::sin(x * 5.3f) * std::cos(y * 4.7f));
+        } else if (layout == AmbiCartographyLayout::Waterfront) {
+            obstacle = 0.12f + 0.20f
+                * std::exp(-std::pow((y - 0.18f) / 0.42f, 2.0f));
+        } else {
+            obstacle = 0.10f + 0.30f
+                * std::exp(-(x * x + y * y) / 0.20f);
+        }
+        return clamp((obstacle - z - 0.06f) * 2.2f
+            + path * 0.08f, 0.0f, 1.0f);
+    }
+
     void updateGeometryAndRouting()
     {
         const uint32_t active = params_.activeSites;
+        renderedListenerPosition_ = {
+            params_.listenerX, params_.listenerY, params_.listenerZ };
+        for (uint32_t site = 0u; site < active; ++site) {
+            renderedSitePosition_[site] = {
+                sites_[site].x, sites_[site].y, sites_[site].z };
+        }
+        if (landscape_.motion > 0.0f) {
+            const float phase = motionPhase_ * 2.0f * kPi;
+            const float amount = landscape_.motion;
+            if (params_.layout == AmbiCartographyLayout::Radial) {
+                renderedListenerPosition_.x += std::cos(phase) * amount * 0.52f;
+                renderedListenerPosition_.y += std::sin(phase) * amount * 0.52f;
+            } else if (params_.layout == AmbiCartographyLayout::Ridge) {
+                for (uint32_t site = 0u; site < active; ++site) {
+                    const float offset = phase
+                        + sites_[site].networkPosition * 2.0f * kPi;
+                    renderedSitePosition_[site].y +=
+                        std::sin(offset) * amount * 0.18f;
+                    renderedSitePosition_[site].z +=
+                        std::cos(offset) * amount * 0.12f;
+                }
+            } else if (params_.layout == AmbiCartographyLayout::Corridor) {
+                for (uint32_t site = 0u; site < active; ++site) {
+                    const float polarity = (site & 1u) ? 1.0f : -1.0f;
+                    renderedSitePosition_[site].y += polarity
+                        * std::sin(phase) * amount * 0.34f;
+                }
+            } else if (params_.layout == AmbiCartographyLayout::Grid) {
+                for (uint32_t site = 0u; site < active; ++site) {
+                    const float offset = phase
+                        + sites_[site].networkPosition * 2.0f * kPi;
+                    renderedSitePosition_[site].x +=
+                        std::sin(offset) * amount * 0.22f;
+                    renderedSitePosition_[site].y +=
+                        std::cos(offset) * amount * 0.16f;
+                }
+            } else {
+                renderedListenerPosition_.x +=
+                    std::sin(phase) * amount * 0.92f;
+                renderedListenerPosition_.y +=
+                    std::cos(phase) * amount * 0.24f;
+            }
+        }
+
         float minAirSeconds = 1.0e9f;
         float minNetworkPosition = 1.0f;
         float maxNetworkPosition = 0.0f;
@@ -706,22 +1221,109 @@ private:
             1.0e-6f, maxNetworkPosition - minNetworkPosition);
 
         for (uint32_t site = 0u; site < active; ++site) {
-            const float dx = sites_[site].x - params_.listenerX;
-            const float dy = sites_[site].y - params_.listenerY;
-            const float dz = sites_[site].z - params_.listenerZ;
+            const auto& renderedSite = renderedSitePosition_[site];
+            const float dx = renderedSite.x - renderedListenerPosition_.x;
+            const float dy = renderedSite.y - renderedListenerPosition_.y;
+            const float dz = renderedSite.z - renderedListenerPosition_.z;
             Vec3 vector { dx, dy, dz };
             const float normalizedDistance = std::sqrt(
                 dx * dx + dy * dy + dz * dz);
             distanceMeters_[site] = normalizedDistance
                 * params_.mapScaleMeters;
+            float soundSpeedScale = 1.0f;
+            refractionGain_[site] = 1.0f;
+            if (std::fabs(landscape_.refraction) > 1.0e-8f) {
+                const float horizontal = std::sqrt(dx * dx + dy * dy);
+                const float bearing = params_.skew * kPi;
+                const float windX = std::sin(bearing);
+                const float windY = std::cos(bearing);
+                const float alignment = horizontal > 1.0e-6f
+                    ? (dx * windX + dy * windY) / horizontal : 0.0f;
+                soundSpeedScale = clamp(1.0f
+                    + landscape_.refraction * alignment
+                        * (0.025f + params_.carry * 0.055f),
+                    0.90f, 1.10f);
+                const float range = clamp(normalizedDistance / 2.0f,
+                    0.0f, 1.0f);
+                vector.z += landscape_.refraction
+                    * (0.04f + 0.18f * range)
+                    * (0.35f + params_.air * 0.65f);
+                refractionGain_[site] = clamp(1.0f
+                    + landscape_.refraction * alignment
+                        * (0.06f + params_.carry * 0.22f),
+                    0.70f, 1.30f);
+            }
             directions_[site] = normalizedDistance > 1.0e-6f
                 ? normalize(vector) : Vec3 { 0.0f, 1.0f, 0.0f };
             basis_[site] = acnSn3dBasis7(directions_[site]);
             const float airSeconds = distanceMeters_[site]
-                / 343.0f * params_.propagationScale;
+                / (343.0f * soundSpeedScale) * params_.propagationScale;
             if (sites_[site].enabled) {
                 minAirSeconds = std::min(minAirSeconds, airSeconds);
             }
+
+            if (landscape_.multipath > 0.0f) {
+                const float groundOffset = clamp(
+                    2.0f / std::max(10.0f, params_.mapScaleMeters),
+                    0.001f, 0.20f);
+                const float groundZ = std::min(renderedSite.z,
+                    renderedListenerPosition_.z) - groundOffset;
+                Vec3 groundVector {
+                    dx, dy,
+                    2.0f * groundZ - renderedSite.z
+                        - renderedListenerPosition_.z };
+                const float groundDistance = std::sqrt(
+                    groundVector.x * groundVector.x
+                        + groundVector.y * groundVector.y
+                        + groundVector.z * groundVector.z)
+                    * params_.mapScaleMeters;
+                groundBasis_[site] = acnSn3dBasis7(
+                    normalize(groundVector));
+                groundExtraDelay_[site] = clamp(
+                    std::max(0.0f,
+                        groundDistance - distanceMeters_[site])
+                        / 343.0f * lerp(0.18f, 1.0f,
+                            params_.propagationScale)
+                        * static_cast<float>(sampleRate_),
+                    0.0f, static_cast<float>(airCapacity_ - 3u));
+
+                const float wallX = (renderedSite.x
+                        + renderedListenerPosition_.x) >= 0.0f
+                    ? 1.45f : -1.45f;
+                Vec3 facadeVector {
+                    2.0f * wallX - renderedSite.x
+                        - renderedListenerPosition_.x,
+                    dy, dz };
+                const float facadeDistance = std::sqrt(
+                    facadeVector.x * facadeVector.x
+                        + facadeVector.y * facadeVector.y
+                        + facadeVector.z * facadeVector.z)
+                    * params_.mapScaleMeters;
+                facadeBasis_[site] = acnSn3dBasis7(
+                    normalize(facadeVector));
+                facadeExtraDelay_[site] = clamp(
+                    std::max(0.0f,
+                        facadeDistance - distanceMeters_[site])
+                        / 343.0f * lerp(0.18f, 1.0f,
+                            params_.propagationScale)
+                        * static_cast<float>(sampleRate_),
+                    0.0f, static_cast<float>(airCapacity_ - 3u));
+            } else {
+                groundBasis_[site].fill(0.0f);
+                facadeBasis_[site].fill(0.0f);
+                groundExtraDelay_[site] = 0.0f;
+                facadeExtraDelay_[site] = 0.0f;
+            }
+
+            renderedOcclusion_[site] = landscape_.occlusion
+                * layoutObstruction(params_.layout,
+                    renderedSite, renderedListenerPosition_);
+            const float horizonDistance = params_.mapScaleMeters
+                * (0.70f + params_.carry * 2.30f);
+            const float beyond = smoothStep(horizonDistance * 0.70f,
+                horizonDistance * 1.25f, distanceMeters_[site]);
+            horizonGain_[site] = 1.0f
+                - landscape_.horizon * beyond;
 
             const float networkNorm = (sites_[site].networkPosition
                 - minNetworkPosition) / networkSpan;
@@ -737,8 +1339,24 @@ private:
         if (!std::isfinite(minAirSeconds)) minAirSeconds = 0.0f;
 
         for (uint32_t site = 0u; site < active; ++site) {
+            const float dx = renderedSitePosition_[site].x
+                - renderedListenerPosition_.x;
+            const float dy = renderedSitePosition_[site].y
+                - renderedListenerPosition_.y;
+            const float horizontal = std::sqrt(dx * dx + dy * dy);
+            float soundSpeedScale = 1.0f;
+            if (std::fabs(landscape_.refraction) > 1.0e-8f) {
+                const float bearing = params_.skew * kPi;
+                const float alignment = horizontal > 1.0e-6f
+                    ? (dx * std::sin(bearing) + dy * std::cos(bearing))
+                        / horizontal : 0.0f;
+                soundSpeedScale = clamp(1.0f
+                    + landscape_.refraction * alignment
+                        * (0.025f + params_.carry * 0.055f),
+                    0.90f, 1.10f);
+            }
             const float airSeconds = distanceMeters_[site]
-                / 343.0f * params_.propagationScale;
+                / (343.0f * soundSpeedScale) * params_.propagationScale;
             const float renderedSeconds = params_.timeReference
                     == AmbiCartographyTimeReference::Relative
                 ? std::max(0.0f, airSeconds - minAirSeconds)
@@ -753,8 +1371,16 @@ private:
             arrivalSeconds_[site] = 0.0f;
             directions_[site] = {};
             basis_[site].fill(0.0f);
+            groundBasis_[site].fill(0.0f);
+            facadeBasis_[site].fill(0.0f);
             targetNetworkDelay_[site] = 0.0f;
             targetAirDelay_[site] = 0.0f;
+            groundExtraDelay_[site] = 0.0f;
+            facadeExtraDelay_[site] = 0.0f;
+            renderedOcclusion_[site] = 0.0f;
+            horizonGain_[site] = 1.0f;
+            refractionGain_[site] = 1.0f;
+            renderedSitePosition_[site] = {};
         }
 
         std::array<float, kAmbiCartographyMaxSites> metric {};
@@ -796,6 +1422,22 @@ private:
                 : kAmbiCartographyMaxSites / 2u;
             siteToLane_[laneToSite_[rank]] = macroLane;
         }
+        // The cartography-native cross-lane engines instead operate on a
+        // compact list of actual enabled sites. Feeding their modulo routing
+        // through the sparse 24-lane map would turn the unused ordinal gaps
+        // into silent phantom sites. Persistent process memory belongs to the
+        // relationship rank: moving or reordering sites traverses that field;
+        // changing the enabled-site count resets its topology.
+        siteToProcessLane_.fill(0u);
+        processLaneCount_ = 0u;
+        for (uint32_t rank = 0u; rank < active; ++rank) {
+            const uint32_t site = laneToSite_[rank];
+            if (!sites_[site].enabled) continue;
+            siteToProcessLane_[site] = processLaneCount_++;
+        }
+        speakerBody_.setActiveChannels(processLaneCount_);
+        spectralRelay_.setActiveChannels(processLaneCount_);
+        relayBuffer_.setActiveChannels(processLaneCount_);
         for (uint32_t site = active;
             site < kAmbiCartographyMaxSites; ++site) {
             siteToLane_[site] = site;
@@ -808,10 +1450,25 @@ private:
     uint32_t airCapacity_ = 128u;
     uint32_t networkWrite_ = 0u;
     uint32_t airWrite_ = 0u;
+    uint32_t networkHistorySamples_ = 0u;
+    uint32_t airHistorySamples_ = 0u;
     bool prepared_ = false;
     bool delayPrimed_ = false;
-    float engineFade_ = 1.0f;
+    bool geometryDirty_ = true;
+    // Engine memories remain parked while inactive: clearing multi-megabyte
+    // delay and capture stores from a parameter event would violate realtime
+    // bounds. Re-entry always runs through the live old/new crossfade above,
+    // so a parked tail can never return as a hard switch.
+    AmbiCartographyMacroEngine activeEngine_ =
+        AmbiCartographyMacroEngine::Delay;
+    AmbiCartographyMacroEngine previousEngine_ =
+        AmbiCartographyMacroEngine::Delay;
+    float engineCrossfade_ = 1.0f;
+    float motionPhase_ = 0.0f;
+    uint32_t motionControlCountdown_ = 32u;
     AmbiCartographyEncoderParams params_ {};
+    AmbiCartographyLandscapeParams landscape_ {};
+    AmbiCartographySiteProcessOptions siteProcessOptions_ {};
     std::array<AmbiCartographySite, kAmbiCartographyMaxSites> sites_ {};
     std::vector<float> networkLeft_ {};
     std::vector<float> networkRight_ {};
@@ -821,19 +1478,45 @@ private:
     std::array<float, kAmbiCartographyMaxSites> smoothedNetworkDelay_ {};
     std::array<float, kAmbiCartographyMaxSites> smoothedAirDelay_ {};
     std::array<float, kAmbiCartographyMaxSites> airState_ {};
+    std::array<float, kAmbiCartographyMaxSites> groundState_ {};
+    std::array<float, kAmbiCartographyMaxSites> facadeState_ {};
+    std::array<float, kAmbiCartographyMaxSites> occlusionState_ {};
+    std::array<float, kAmbiCartographyMaxSites> horizonState_ {};
+    std::array<float, kAmbiCartographyMaxSites> smoothedOcclusion_ {};
+    std::array<float, kAmbiCartographyMaxSites> smoothedHorizonGain_ {};
+    std::array<float, kAmbiCartographyMaxSites> ecologyState_ {};
     std::array<float, kAmbiCartographyMaxSites> turbulencePhase_ {};
+    std::array<float, kAmbiCartographyMaxSites> weatherPhase_ {};
+    std::array<float, kAmbiCartographyMaxSites> weatherDriftPhase_ {};
+    std::array<float, kAmbiCartographyMaxSites> weatherPulsePhase_ {};
     std::array<float, kAmbiCartographyMaxSites> distanceMeters_ {};
     std::array<float, kAmbiCartographyMaxSites> arrivalSeconds_ {};
     std::array<float, kAmbiCartographyMaxSites> siteLevel_ {};
+    std::array<float, kAmbiCartographyMaxSites> groundExtraDelay_ {};
+    std::array<float, kAmbiCartographyMaxSites> facadeExtraDelay_ {};
+    std::array<float, kAmbiCartographyMaxSites> renderedOcclusion_ {};
+    std::array<float, kAmbiCartographyMaxSites> horizonGain_ {};
+    std::array<float, kAmbiCartographyMaxSites> refractionGain_ {};
+    Vec3 renderedListenerPosition_ {};
+    std::array<Vec3, kAmbiCartographyMaxSites> renderedSitePosition_ {};
     std::array<Vec3, kAmbiCartographyMaxSites> directions_ {};
     std::array<std::array<float, kAmbiCartographyMaxChannels>,
         kAmbiCartographyMaxSites> basis_ {};
+    std::array<std::array<float, kAmbiCartographyMaxChannels>,
+        kAmbiCartographyMaxSites> groundBasis_ {};
+    std::array<std::array<float, kAmbiCartographyMaxChannels>,
+        kAmbiCartographyMaxSites> facadeBasis_ {};
     std::array<uint32_t, kAmbiCartographyMaxSites> siteToLane_ {};
+    std::array<uint32_t, kAmbiCartographyMaxSites> siteToProcessLane_ {};
     std::array<uint32_t, kAmbiCartographyMaxSites> laneToSite_ {};
+    uint32_t processLaneCount_ = 0u;
     MacroDelay macroDelay_ {};
     MacroPitch macroPitch_ {};
     MacroShred macroShred_ {};
     MacroFracture macroFracture_ {};
+    CartographySpeakerBody speakerBody_ {};
+    CartographySpectralRelay spectralRelay_ {};
+    CartographyRelayBuffer relayBuffer_ {};
     AmbiFieldListener fieldListener_ {};
 };
 

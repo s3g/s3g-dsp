@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ambi Encoder Cartography - s3g-dsp</title>
-    <meta name="description" content="Ambi Encoder Cartography documentation for stereo loudspeaker-network mapping, outdoor arrival timing, macro site processing, and Listener Mode.">
+    <meta name="description" content="Source-build preview documentation for Ambi Encoder Cartography stereo loudspeaker-network mapping, landscape effects, macro site processing, and Listener Mode.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,9 +27,11 @@
       <main class="content" id="content">
         <h1>Ambi Encoder Cartography</h1>
 
-        <p><code>s3g Ambi Encoder Cartography</code> turns one stereo input into a mapped network of as many as twenty-four virtual loudspeaker sites. The program reaches each site through an authored distribution delay, receives site-specific macro processing, travels from that site to a movable listener, and is encoded as first- through seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Encoder Cartography</code> turns one stereo input into a mapped network of as many as twenty-four virtual loudspeaker sites. The program reaches each site through an authored distribution delay, receives site-specific macro processing, travels through a configurable acoustic landscape to a movable listener, and is encoded as first- through seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>The network and acoustic landscape are separate models. Moving the listener changes loudspeaker-to-listener distance, direction, propagation time, level, and air loss. It does not rewrite the infrastructure timing that delivered the program to each loudspeaker.</p>
+
+        <p>This guide follows the current <a href="building-from-source.html#source-build-previews">source-build preview</a> of Cartography. Build the repository version with <code>-DS3G_BUILD_CLAP_PLUGIN=ON</code> to use the landscape-effects and expanded site-process controls described here. A packaged pre-release can contain an earlier Cartography build, so use a fresh source build when matching this page.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -40,18 +42,21 @@
           <li>Choose <code>SITES</code>, <code>LAYOUT</code>, and <code>MAP SCALE</code>. The Radial, Ridge, Corridor, Grid, and Waterfront layouts initialize distinct physical and network arrangements.</li>
           <li>Drag the yellow listener cross and loudspeaker sites in the map, or edit their coordinates with the Listener and Selected Site controls.</li>
           <li>Set <code>NETWORK DELAY</code>, <code>PROPAGATION TIME</code>, and <code>TIME REFERENCE</code> before adding atmospheric loss.</li>
-          <li>Choose a site <code>PROCESS</code> and <code>MACRO METRIC</code>, then shape its relationships with Macro, Color, Memory, Spread, Deviation, Skew, Center, and Process Mix.</li>
+          <li>On the Site Process <code>CORE</code> page, choose a process engine and shape Macro, Color, Memory, and Process Mix. <code>SHRED</code> additionally exposes Circuit, while <code>FRACTURE</code> exposes Processor.</li>
+          <li>Open the Site Process <code>REL</code> page to choose <code>MACRO METRIC</code> and shape its Spread, Deviation, Skew, and Center relationships.</li>
+          <li>Open the Landscape FX <code>PATH</code> and <code>FIELD</code> pages to add multipath, obstruction, infrastructure instability, refraction, movement, cross-site returns, or a distance-dependent audibility horizon. Return any landscape amount to zero for its exact bypass.</li>
           <li>Add Field Listen last when the site processing should adapt to what reaches the listener.</li>
         </ol>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
-          <li>The shared stereo program enters the authored distribution-network timing paths.</li>
+          <li>The shared stereo program enters the authored distribution-network timing paths. <code>NET WEATHER</code> can add deterministic clock wander and brief relay-level interruptions before the site feeds are formed.</li>
           <li>Mid/Side, Mono, or Alternate projection forms one mono feed for each active loudspeaker site.</li>
-          <li>The selected macro engine processes the sites in Network, Arrival, Bearing, or Range order.</li>
-          <li>Independent acoustic paths apply listener-relative travel time, distance loss, air loss, carry, and turbulence.</li>
-          <li>Each arrival is encoded from its current listener-relative direction into the selected <code>ACN/SN3D</code> order.</li>
+          <li><code>ECOLOGY</code> can add bounded, filtered returns from other sites to those feeds, after which the selected macro engine processes them in Network, Arrival, Bearing, or Range order.</li>
+          <li>Independent direct acoustic paths apply listener-relative travel time. <code>MULTIPATH</code> adds separately delayed and directed ground and facade image paths.</li>
+          <li>Air and distance loss, carry, turbulence, layout-derived <code>OCCLUSION</code>, signed <code>REFRACTION</code>, and the distance-dependent <code>HORIZON</code> condition the arrivals. <code>MOTION</code> updates the effective site or listener geometry before those path relationships are calculated.</li>
+          <li>The direct and reflected arrivals are encoded from their current listener-relative directions into the selected <code>ACN/SN3D</code> order.</li>
           <li>The Cube Field Listener analyzes the completed pre-output field and returns bounded control influence to later site processing.</li>
         </ol>
 
@@ -86,7 +91,35 @@
 
         <h2 id="processing">Site Processing</h2>
 
-        <p>The process choices are <code>CLEAN</code>, <code>DELAY</code>, <code>PITCH</code>, <code>SHRED</code>, and <code>FRACTURE</code>. Macro has an engine-specific meaning: delay time, pitch interval, drive, or fracture depth. Color and Memory address the appropriate spectral, feedback, or recurrent behavior. A short dry-to-processed fade protects engine changes.</p>
+        <p>The Process menu retains the original automation values for <code>CLEAN</code>, <code>DELAY</code>, <code>PITCH</code>, <code>SHRED</code>, and <code>FRACTURE</code>, then adds <code>BODY</code>, <code>SPECTRAL RELAY</code>, and <code>RELAY BUFFER</code>. A 30 ms live old/new crossfade protects every engine change, including transitions to and from Clean.</p>
+
+        <p>Host play, stop, seek, loop, and sample-offset transport boundaries receive a 6 ms input correction before the stereo feed is copied into the site network, preventing one source edge from returning later as many distributed clicks. Processing restarts and resets use a separate 10 ms output bridge from silence or the preceding rendered sample; a restart also ramps any newly silent input into parked feedback memory instead of injecting a delayed edge. Transport stop does not mute or discard the landscape: the CLAP reports a conservative 90-second tail, and delay memories are invalidated without bulk-clearing large buffers on the audio thread.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Process</th><th>Site behavior</th><th>Shared-control semantics</th></tr></thead>
+          <tbody>
+            <tr><td>Clean</td><td>Passes the mapped site feed without a site-process engine.</td><td>The shared process values remain stored for the next engine; Process Mix has no effect on this direct reference.</td></tr>
+            <tr><td>Delay</td><td>Runs one differentiated delay lane per site.</td><td><code>MACRO</code> is Time, <code>COLOR</code> is Tone and character, and <code>MEMORY</code> is Feedback and smear.</td></tr>
+            <tr><td>Pitch</td><td>Applies a lane-related pitch interval spanning down to up across a two-octave range.</td><td><code>MACRO</code> is Pitch and <code>COLOR</code> is Window length. The relationship controls distribute the interval across sites.</td></tr>
+            <tr><td>Shred</td><td>Applies the selected feedback-and-drive Circuit independently across the macro lanes.</td><td><code>MACRO</code> is Drive and pressure, <code>COLOR</code> voices tone, tune, and body, and <code>MEMORY</code> raises feedback and reaction.</td></tr>
+            <tr><td>Fracture</td><td>Applies the selected nonlinear, time-domain, logic, vocal, robotic, or octave Processor.</td><td><code>MACRO</code> and <code>COLOR</code> adopt processor-specific amount and color meanings, while <code>MEMORY</code> controls reaction and recurrence.</td></tr>
+            <tr><td>Body</td><td>Models the horn, cabinet, driver resonance, saturation, and slow thermal compression of each loudspeaker body.</td><td><code>MACRO</code> is Body Drive, <code>COLOR</code> is Cabinet brightness, and <code>MEMORY</code> is Resonance and thermal persistence.</td></tr>
+            <tr><td>Spectral Relay</td><td>Transfers each site through a spectral relay mesh whose topology follows the macro-lane ordering.</td><td><code>MACRO</code> is Transfer and spray, <code>COLOR</code> is Tilt, and <code>MEMORY</code> is Hold and feedback. Spread becomes topology Radius, Deviation becomes Jitter and holes, Skew becomes Dispersion, and Center becomes Centroid pull.</td></tr>
+            <tr><td>Relay Buffer</td><td>Alternates per-site capture and recurrent playback, with de-clicked loop boundaries and relationship-selected source lanes.</td><td><code>MACRO</code> is buffer Depth, <code>COLOR</code> is buffer Length, <code>MEMORY</code> is Recurrence, and <code>SKEW</code> sets Direction across the lanes.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The shared Macro, Color, Memory, Spread, Deviation, Skew, and Center parameters keep stable automation identities when their visible labels and audible meanings change with the engine. Selecting another engine does not overwrite their values; the selected engine reinterprets the same current point on the shared parameter surface.</p>
+
+        <p>Body, Spectral Relay, and Relay Buffer operate on a compact relationship list containing only enabled sites. Disabled points and the empty gaps in the legacy 24-lane ordinal map cannot become phantom relay sources. Persistent processor memory follows relationship rank rather than physical site identity, so moving or reordering points traverses the process field; changing the enabled-site count resets that topology. Each engine keeps its own parked memory while inactive and returns only through the protected old/new crossfade.</p>
+
+        <p>Network Weather uses independently wrapped continuous oscillators for drift and relay loss, while Turbulence uses periodic smooth value noise instead of stepped random gain. Fracture Splice returns briefly to the live signal at both ends of each segment. These protections retain the irregular character of the processes without adding hard internal waveform edges.</p>
+
+        <p><code>SHRED</code> conditionally displays a <code>CIRCUIT</code> menu with Shred, Wool, Rat, Zone A, Zone B, Fuzz I, Fuzz II, and Diode. <code>FRACTURE</code> instead displays a <code>PROCESSOR</code> menu with Relay, Crush, Splice, Logic, Void, Throat, Robot, Oct Down, Oct Up, and Oct Stack. These selectors retain independent values while hidden. Body, Spectral Relay, and Relay Buffer are independent process designs, so changing a hidden Circuit or Processor does not alter them.</p>
+
+        <p>Fracture's shared labels follow the selected Processor. For example, Macro becomes Threshold for Relay, Bits for Crush, Depth for Splice, Logic, Void, and Robot, and Mix for Throat and the octave processors. Color becomes Chatter, Rate, Length, Threshold, Recover, Vowel, Carrier, Filter, or Tone as appropriate. The host-facing parameters remain Macro and Color, so changing Processor does not break their automation.</p>
+
+        <p>The Site Process toolbox has two GUI pages without changing the editor size. <code>CORE</code> contains Engine, the conditional Circuit or Processor selector, Macro, Color, Memory, and Mix. <code>REL</code> contains Metric, Spread, Deviation, Skew, and Center. Switching CORE or REL changes only which controls are visible; it does not change audio, automation, or saved parameter values.</p>
 
         <p>The macro lanes are not assigned by arbitrary HOA channel number. <code>MACRO METRIC</code> sorts the sites by one of four cartographic relationships:</p>
 
@@ -110,6 +143,25 @@
 
         <p>These are perceptual composition controls rather than a calibrated weather, terrain-diffraction, or sound-pressure prediction system. See <a href="references.html#outdoor-propagation">Outdoor Sound Propagation and Auditory Distance</a> for the research context.</p>
 
+        <h2 id="landscape-effects">Landscape Effects</h2>
+
+        <p>The seven Landscape FX controls are macro descriptions of a loudspeaker landscape rather than separate engineering simulators. Every control has an exact bypass at zero. With all seven at zero, the signal follows the original direct and stable Cartography path; latent landscape-effect filter or timing state does not color that reference. This is also the Landscape FX state used by <code>INIT</code>.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Landscape behavior</th><th>Secondary voicing</th></tr></thead>
+          <tbody>
+            <tr><td>Multipath</td><td>Adds ground-image and facade-image arrivals with geometry-derived extra travel time and their own ambisonic directions.</td><td><code>COLOR</code> sets reflection brightness, <code>SPREAD</code> shifts emphasis between ground and facade paths, and Propagation Time scales their delay.</td></tr>
+            <tr><td>Occlusion</td><td>Uses the selected layout and the relative site, listener, and height geometry to darken and attenuate obstructed direct paths.</td><td><code>COLOR</code> shapes the surviving spectrum; moving sites or the listener changes which paths are shadowed.</td></tr>
+            <tr><td>Net Weather</td><td>Adds slow deterministic distribution-delay wander and short relay-level interruptions independently at the sites.</td><td><code>MEMORY</code> changes the wander timescale and extent, while <code>TURBULENCE</code> strengthens drift and relay disturbance.</td></tr>
+            <tr><td>Refraction</td><td>A bipolar control that bends direction, travel time, and reach along or against an atmospheric axis. Positive and negative settings reverse that orientation.</td><td><code>SKEW</code> sets the horizontal axis, <code>CARRY</code> strengthens reach and sound-speed differences, and <code>AIR</code> increases vertical bending.</td></tr>
+            <tr><td>Motion</td><td>Animates effective geometry without overwriting the authored map: Radial and Waterfront move the listener, while Ridge, Corridor, and Grid move sites in layout-specific paths.</td><td><code>MEMORY</code> slows the motion rate; the selected <code>LAYOUT</code> determines its path family.</td></tr>
+            <tr><td>Feedback Ecology</td><td>Builds a bounded microphone-to-loudspeaker ecology by feeding delayed, filtered returns from other sites into each site before macro processing.</td><td><code>SPREAD</code> chooses return relationships, while <code>MEMORY</code> and <code>COLOR</code> set return delay and damping.</td></tr>
+            <tr><td>Audibility Horizon</td><td>Progressively darkens and removes sites beyond an audibility boundary instead of reducing every distant source by the same amount.</td><td><code>MAP SCALE</code> establishes the distance frame and <code>CARRY</code> pushes the boundary farther outward.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The Landscape FX toolbox has three GUI pages. <code>MAP</code> retains the drag, level, and arrival-color legend. <code>PATH</code> exposes Multipath, Occlusion, Net Weather, and signed Refraction. <code>FIELD</code> exposes Motion, Ecology, and Horizon and reminds you which established controls voice Weather and Ecology. Changing pages is only an editor view action; it does not alter audio, automation, or the saved parameter values.</p>
+
         <h2 id="listener">Field Listener</h2>
 
         <p>An eight-direction Cube listener analyzes the completed pre-output field using the shared <a href="listener-mode.html">Listener Mode</a> design. <code>FOLLOW</code> favors recently dominant directions, <code>COUNTER</code> evaluates their antipodes, and <code>BALANCE</code> favors less exposed regions. <code>LISTEN AMOUNT</code> changes site process wetness and a smaller reach term. <code>OFF</code> is an exact open-loop reference regardless of Listen Amount.</p>
@@ -118,7 +170,7 @@
 
         <h2 id="editing">Site Editing and Display</h2>
 
-        <p>Click a loudspeaker to select it and drag it across the map. The Selected Site controls expose X, Y, Z, gain, network trim, and enable state. The selected-site readout reports physical distance and combined network-plus-acoustic arrival time. Node size follows recent level, while node color moves from earlier cool arrivals toward later warm arrivals.</p>
+        <p>Click a loudspeaker to select it and drag it across the map. The Selected Site controls expose X, Y, Z, gain, network trim, and enable state. The selected-site readout reports physical distance and combined network-plus-acoustic arrival time. Node size follows recent level, node color moves from earlier cool arrivals toward later warm arrivals, and a surrounding earth-colored ring indicates layout-derived occlusion. When Motion is active, the map follows the effective animated site or listener positions while preserving the authored coordinates underneath.</p>
 
         <p>Changing Layout or Sites rebuilds the corresponding authored arrangement. Save a plugin preset or project state after manual site editing; all twenty-four site records are serialized even when fewer sites are active.</p>
 
@@ -129,15 +181,15 @@
         <table class="readout-table">
           <thead><tr><th>Preset</th><th>Range demonstrated</th></tr></thead>
           <tbody>
-            <tr><td>Init</td><td>The balanced twelve-site starting field.</td></tr>
-            <tr><td>Physical Plaza</td><td>Short-scale radial placement with physical acoustic timing, no network delay, and clean site feeds.</td></tr>
-            <tr><td>City Relays</td><td>A sixteen-site grid with long infrastructure delays and Network-sorted macro delay.</td></tr>
-            <tr><td>Ridge Afterimage</td><td>Absolute timing over a large ridge, with Arrival-sorted delay and listener following.</td></tr>
-            <tr><td>Waterfront Carry</td><td>A wide mono waterfront whose restrained loss and strong Carry favor distant transmission.</td></tr>
-            <tr><td>Corridor Bends</td><td>Alternating stereo sites, Bearing-sorted pitch, and Counter listening in a compact corridor.</td></tr>
-            <tr><td>Shred Grid</td><td>All twenty-four sites, extreme network spread, turbulence, and highly differentiated Shred lanes.</td></tr>
-            <tr><td>Fracture Horizon</td><td>Long absolute arrivals, atmospheric loss, Fracture processing, and listener counterpoint.</td></tr>
-            <tr><td>Listener Drift</td><td>A balanced listener-driven field with off-center geometry and Bearing-sorted delay relationships.</td></tr>
+            <tr><td>Init</td><td>The balanced twelve-site starting field with every Landscape FX amount at its exact-zero reference.</td></tr>
+            <tr><td>Physical Plaza</td><td>Short-scale radial placement with physical acoustic timing, clean site feeds, 18% Multipath, and only 5% Occlusion.</td></tr>
+            <tr><td>City Relays</td><td>A sixteen-site grid with long infrastructure delays, Network-sorted Spectral Relay, 70% Net Weather, and a restrained 22% Ecology.</td></tr>
+            <tr><td>Ridge Afterimage</td><td>Absolute timing over a large ridge with an Arrival-sorted Relay Buffer, 65% Occlusion, -25% Refraction, and a 25% Horizon.</td></tr>
+            <tr><td>Waterfront Carry</td><td>A wide mono waterfront whose resonant Body process, strong Carry, 42% Multipath, +55% Refraction, and 35% Horizon favor distant transmission.</td></tr>
+            <tr><td>Corridor Bends</td><td>Alternating stereo sites and Bearing-sorted pitch inside the bank's strongest Multipath field, with 38% Occlusion and 28% Ecology.</td></tr>
+            <tr><td>Shred Grid</td><td>All twenty-four sites, a Diode Shred Circuit, extreme network spread, 78% Net Weather, 45% Motion, and highly differentiated lanes.</td></tr>
+            <tr><td>Fracture Horizon</td><td>Long absolute arrivals and the Void Fracture Processor with -70% Refraction, 38% Ecology, and the bank's strongest Horizon at 85%.</td></tr>
+            <tr><td>Listener Drift</td><td>A listener-driven field with 72% Motion, mild positive Refraction, 25% Ecology, and Bearing-sorted delay relationships.</td></tr>
           </tbody>
         </table>
 
@@ -186,13 +238,16 @@
           <h2>Encoder Pages</h2>
           <a href="ambi-encoder-point.html">Encoder Point</a>
           <a href="ambi-encoder-cloud.html">Encoder Cloud</a>
-          <a href="ambi-encoder-cartography.html">Encoder Cartography</a>
-          <a href="ambi-encoder-surface-terrain.html">Surface Terrain</a>
+          <a href="ambi-encoder-cartography.html">Encoder Cartography (Preview)</a>
+          <a href="ambi-encoder-surface-terrain.html">Encoder Surface Terrain</a>
           <a href="ambi-encoder-path.html">Encoder Path</a>
           <a href="ambi-encoder-ray.html">Encoder Ray</a>
           <a href="ambi-encoder-ray-bilocation.html">Encoder Ray Bilocation</a>
           <a href="ambi-encoder-modal.html">Encoder Modal</a>
           <a href="ambi-encoder-medium.html">Encoder Medium</a>
+          <a href="ambi-encoder-membrane-kick.html">Encoder Membrane Kick (Preview)</a>
+          <a href="ambi-encoder-acid.html">Encoder Acid (Preview)</a>
+          <a href="ambi-encoder-horizon.html">Encoder Horizon (Preview)</a>
           <a href="ambi-encoder-vot.html">Encoder VOT</a>
           <a href="ambi-encoder-vox.html">Encoder Vox</a>
           <a href="ambi-encoder-wave-terrain.html">Encoder Wave Terrain</a>
@@ -214,6 +269,7 @@
           <a href="#stereo">Stereo Cartography</a>
           <a href="#processing">Site Processing</a>
           <a href="#propagation">Propagation</a>
+          <a href="#landscape-effects">Landscape Effects</a>
           <a href="#listener">Field Listener</a>
           <a href="#editing">Site Editing</a>
           <a href="#presets">Factory Presets</a>

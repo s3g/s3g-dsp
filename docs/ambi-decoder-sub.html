@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Decoder Sub - s3g-dsp</title>
+    <meta name="description" content="Ambi Decoder Sub documentation for deriving one to eight low-frequency feeds from ACN/SN3D W, X, and Y components.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Decoder Sub</h1>
+
+        <p><code>s3g Ambi Decoder Sub</code> derives one to eight low-frequency feeds from an <code>ACN/SN3D</code> field. A single-sub setup low-passes the omnidirectional <code>W</code> component. Multi-sub setups can add horizontal first-order <code>X/Y</code> direction so low-frequency energy is distributed around an evenly spaced ring instead of being copied identically to every output.</p>
+
+        <p>Sub is a parallel low-frequency extractor, not a complete speaker decoder or crossover manager. It does not high-pass the main speaker feeds, align loudspeaker and subwoofer delay, apply room correction, or prevent overlap with another bass-management stage.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambisonic-sub-decoder.png" aria-label="Open Ambi Decoder Sub GUI screenshot">
+              <img src="assets/plugin-guis/ambisonic-sub-decoder.png" alt="Ambi Decoder Sub interface showing the single-sub field, 3OA input setting, output gain, one active sub, 90 Hz cutoff, direction width, and bypass control" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The default one-sub state extracts low-passed W; increasing Subs exposes the evenly spaced horizontal directional feeds described below.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Decoder Sub</code> on a track carrying the encoded field, match <code>ORDER</code> to the source, and choose the active <code>SUBS</code> count from one to eight.</li>
+          <li>Route output lanes 1 through the selected sub count to the corresponding subwoofer feeds, keeping them separate from the full-range speaker decode.</li>
+          <li>Set <code>CUTOFF</code> for the intended low-frequency band and adjust <code>WIDTH</code> while listening at the system crossover region.</li>
+          <li>Trim <code>OUT</code>, verify polarity, delay, and combined level with the main speakers, and use <code>BYPASS</code> for a silent sub-path comparison.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The decoder reads <code>W</code> and, for directional multi-sub operation, the horizontal first-order <code>Y</code> and <code>X</code> components.</li>
+          <li>One sub, <code>0OA</code>, or <code>WIDTH 0</code> produces an omnidirectional distribution. With multiple subs and nonzero width, each feed adds the <code>X/Y</code> projection for its ring azimuth.</li>
+          <li>The omnidirectional and directional terms are normalized as width increases.</li>
+          <li>Each active feed passes through an independent one-pole low-pass at <code>CUTOFF</code> and then through <code>OUT</code>.</li>
+          <li>Outputs above the active sub count are silent. <code>BYPASS</code> also silences the complete output bus.</li>
+        </ol>
+
+        <h2 id="directional-feeds">Directional Sub Feeds</h2>
+
+        <p>Sub 1 begins at <code>-45°</code>. Additional outputs proceed clockwise at equal angular intervals. For four subs, the nominal directions are <code>-45°</code>, <code>-135°</code>, <code>+135°</code>, and <code>+45°</code>. These are decoding directions used to weight <code>X/Y</code>; they are not editable measured subwoofer coordinates.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Width</th><th>Distribution</th></tr></thead>
+          <tbody>
+            <tr><td>0</td><td>Every active output receives the same low-passed <code>W</code> signal.</td></tr>
+            <tr><td>1</td><td>Balances <code>W</code> with one unit of the horizontal directional projection, then normalizes by two.</td></tr>
+            <tr><td>2</td><td>Weights the horizontal projection more strongly and normalizes the combined term by three.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Vertical <code>Z</code> and all second- through seventh-order components are not used by the sub extractor. Higher <code>ORDER</code> settings preserve host compatibility with wider fields; they do not add higher-order directivity to the sub feeds.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>ORDER</td><td>Selects <code>0OA</code> through <code>7OA</code>. <code>0OA</code> forces an omnidirectional <code>W</code>-only result.</td></tr>
+            <tr><td>SUBS</td><td>Activates one to eight leading output lanes.</td></tr>
+            <tr><td>CUTOFF</td><td>Sets the one-pole low-pass frequency from 20 to 240 Hz.</td></tr>
+            <tr><td>WIDTH</td><td>Scales horizontal <code>X/Y</code> direction from 0 to 2 for multi-sub output.</td></tr>
+            <tr><td>OUT</td><td>Sets final sub-path gain from -60 to +18 dB.</td></tr>
+            <tr><td>BYPASS</td><td>Silences all eight plugin outputs; it does not pass the ambisonic input through.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>INIT</code> restores <code>3OA</code>, one sub, a 90 Hz cutoff, Width 1, and Bypass off while preserving the current <code>OUT</code> trim.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Nominal field width</th><th>Components used</th></tr></thead>
+          <tbody>
+            <tr><td>0OA</td><td>1 channel</td><td><code>W</code></td></tr>
+            <tr><td>1OA</td><td>4 channels</td><td rowspan="7"><code>W/Y/X</code>; <code>Z</code> and higher-order components are ignored.</td></tr>
+            <tr><td>2OA</td><td>9 channels</td></tr>
+            <tr><td>3OA</td><td>16 channels</td></tr>
+            <tr><td>4OA</td><td>25 channels</td></tr>
+            <tr><td>5OA</td><td>36 channels</td></tr>
+            <tr><td>6OA</td><td>49 channels</td></tr>
+            <tr><td>7OA</td><td>64 channels</td></tr>
+          </tbody>
+        </table>
+
+        <p>The CLAP plugin exposes one fixed 64-channel input bus and one fixed eight-channel output bus. Only the first <code>SUBS</code> output lanes are active. Because this is not an in-place decoder, place it on a parallel route or dedicated sub bus rather than expecting it to preserve the full-range ambisonic field.</p>
+
+        <h2 id="bass-management">Bass-Management Boundary</h2>
+
+        <p>The low-pass is a compact one-pole filter, so <code>CUTOFF</code> is a musical extraction control rather than a complete calibrated crossover. Combine it with the main-system high-pass, polarity, delay, protection limiting, and room alignment required by the loudspeaker system. If another decoder or monitor controller already redirects bass, avoid running both paths without measuring the combined response.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-decoder-adaptive.html">
+            <span>Previous</span>
+            Ambi Decoder Adaptive
+          </a>
+          <a class="page-nav-link next" href="ambi-decoder-stereo.html">
+            <span>Next</span>
+            Ambi Decoder Stereo
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Decoder Pages</h2>
+          <a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a>
+          <a href="ambi-decoder-object.html">Ambi Decoder Object</a>
+          <a href="ambi-decoder-adaptive.html">Ambi Decoder Adaptive</a>
+          <a href="ambi-decoder-sub.html">Ambi Decoder Sub</a>
+          <a href="ambi-decoder-stereo.html">Ambi Decoder Stereo</a>
+          <a href="ambi-decoder-head.html">Ambi Decoder Head</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#directional-feeds">Directional Sub Feeds</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#bass-management">Bass-Management Boundary</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

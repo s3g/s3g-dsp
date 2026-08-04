@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Decoder Adaptive - s3g-dsp</title>
+    <meta name="description" content="Ambi Decoder Adaptive documentation for confidence- and transient-driven focus between diffuse and sharp ACN/SN3D speaker decodes.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Decoder Adaptive</h1>
+
+        <p><code>s3g Ambi Decoder Adaptive 64</code> renders first- through seventh-order <code>ACN/SN3D</code> to a curated speaker layout while changing high-frequency focus from the field's current directional confidence and transient activity. Low frequencies retain a restrained diffuse decode, so the rendering can sharpen clear events without making the whole spectrum chase momentary direction estimates.</p>
+
+        <p>The adaptation is signal analysis inside the decoder. It does not identify sources, classify content, or use object metadata.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-adaptive-decoder.png" aria-label="Open Ambi Decoder Adaptive GUI screenshot">
+              <img src="assets/plugin-guis/ambi-adaptive-decoder.png" alt="Ambi Decoder Adaptive interface showing its Icosahedron 20 speaker field, EPAD and MaxRE sharp decoder settings, focus, diffuse, confidence, transient, crossover, and smoothing controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Adaptive keeps the layout and sharp decoder explicit while Focus, Diffuse, Confidence, Transient, Crossover, and Smooth define its content-reactive balance.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Decoder Adaptive 64</code> after the encoded source and any Ambisonic processing on a 64-channel track. Match <code>ORDER</code> to the source, then choose <code>LAYOUT</code>, sharp-path <code>MODE</code>, and <code>WGT</code>.</li>
+          <li>Route each active output lane to the corresponding physical speaker in the selected layout.</li>
+          <li>Set <code>XOVR</code> to separate the stable low foundation from the adaptive high band, then raise <code>FOCUS</code> while audio is playing.</li>
+          <li>Balance directional <code>CONF</code> and onset-sensitive <code>TRAN</code>, retain low diffuse energy with <code>DIFF</code>, and set <code>SMTH</code> for the desired response time.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Every active ambisonic input channel is divided into low and high components at <code>XOVR</code>.</li>
+          <li>The low band is decoded through a restrained <code>BASIC</code>, <code>INPHASE</code> diffuse matrix.</li>
+          <li>The high band is decoded twice: once through that diffuse matrix and once through the selected sharp <code>MODE</code> and <code>WGT</code>.</li>
+          <li>First-order directional confidence and positive <code>W</code>-envelope change produce the two adaptation cues.</li>
+          <li>A smoothed focus value crossfades the two high-band decodes; the low diffuse branch is added, <code>OUT</code> is applied, and unused output lanes are silenced.</li>
+        </ol>
+
+        <h2 id="two-paths">Diffuse and Sharp Paths</h2>
+
+        <p>The sharp path uses the selected <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code> matrix and the selected <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code> weighting. The diffuse path is deliberately fixed to <code>BASIC</code> plus <code>INPHASE</code>, with decoder width limited to a narrower internal range. This keeps the comparison defined: the adaptive value changes the high-band balance between a stable diffuse reference and the user-selected focused decode.</p>
+
+        <p><code>DIFF</code> controls retention of the low diffuse foundation. Its range trims that branch from 75% to 100% rather than muting it completely. It does not set the high-band crossfade; the analyzed focus value does.</p>
+
+        <h2 id="adaptation">Confidence, Transients, and Focus</h2>
+
+        <p>Directional confidence compares the magnitude of first-order <code>X/Y/Z</code> energy with the omnidirectional <code>W</code> component above <code>XOVR</code>. A coherent directional event produces a stronger confidence cue than a diffuse or cancelling field. The transient cue follows positive changes in a short <code>W</code> amplitude envelope.</p>
+
+        <p><code>CONF</code> and <code>TRAN</code> are cue weights, not thresholds. Internally, the focus target follows <code>FOCUS × (CONF × directional confidence + TRAN × transient cue)</code>, limited to the valid blend range. <code>SMTH</code> then controls how quickly the high-band decode moves toward that target. With both cue weights at zero, the high band stays on the diffuse path regardless of <code>FOCUS</code>.</p>
+
+        <h2 id="layouts">Layouts and Field View</h2>
+
+        <p>The layout menu shares the curated Speaker decoder geometries: Quad, Cube 8, Cube 17, Cube 41, Dodeca 12, Icosahedron 20, Octo Ring, Dome 24, Dome 25, LPAC 41, SRST 25, Quad+OH, and Sphere 24. The selected layout sets the active leading output lanes.</p>
+
+        <p><code>CUSTOM</code> generates a full-sphere field using the active count inherited from the previously selected layout. The Adaptive editor does not provide the Speaker decoder's count control, custom-position editor, or per-speaker mixer. Choose a curated layout first when a particular count is required, and use <a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a> for a measured custom array. Top, Side, and three-quarter field views, view rotation, and zoom affect only the display and are saved with plugin state.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>LAYOUT</td><td>Selects a curated speaker geometry and its active output count, or generates <code>CUSTOM</code> at the current count.</td></tr>
+            <tr><td>MODE</td><td>Selects <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code> for the sharp high-frequency path.</td></tr>
+            <tr><td>ORDER</td><td>Matches first- through seventh-order input and activates the corresponding leading ACN channels.</td></tr>
+            <tr><td>WGT</td><td>Selects <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code> weighting for the sharp path.</td></tr>
+            <tr><td>FOCUS</td><td>Sets the maximum analyzed contribution of the sharp high-band decode.</td></tr>
+            <tr><td>DIFF</td><td>Retains between 75% and 100% of the low diffuse branch.</td></tr>
+            <tr><td>CONF</td><td>Weights the high-band directional-confidence cue.</td></tr>
+            <tr><td>TRAN</td><td>Weights the positive-onset transient cue.</td></tr>
+            <tr><td>XOVR</td><td>Sets the low/high analysis and decode split from 20 Hz to 5 kHz.</td></tr>
+            <tr><td>SMTH</td><td>Sets focus smoothing from 0 to 500 ms.</td></tr>
+            <tr><td>OUT</td><td>Sets final output gain from -60 to +12 dB.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>INIT</code> restores Sphere 24, <code>EPAD</code>, <code>3OA</code>, <code>MAXRE</code>, 75% Focus, 35% Diffuse, 70% Confidence weighting, 35% Transient weighting, a 650 Hz crossover, and 45 ms smoothing while preserving the current <code>OUT</code> trim.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active input channels</th><th>Output bus</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td rowspan="7">64 fixed; the selected layout uses its leading speaker lanes and the remainder are silent.</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+        <p>Both decode paths use the complete active order. Only the confidence analysis is first-order. Match output lanes to the selected layout before connecting physical outputs.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>The split uses a compact one-pole low/high decomposition rather than a linear-phase mastering crossover. Strong adaptation can make localization and brightness move with the program, especially at a low <code>XOVR</code> or short <code>SMTH</code>. Begin with moderate focus and compare against <code>FOCUS 0%</code> as the stable diffuse reference.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-decoder-object.html">
+            <span>Previous</span>
+            Ambi Decoder Object
+          </a>
+          <a class="page-nav-link next" href="ambi-decoder-sub.html">
+            <span>Next</span>
+            Ambi Decoder Sub
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Decoder Pages</h2>
+          <a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a>
+          <a href="ambi-decoder-object.html">Ambi Decoder Object</a>
+          <a href="ambi-decoder-adaptive.html">Ambi Decoder Adaptive</a>
+          <a href="ambi-decoder-sub.html">Ambi Decoder Sub</a>
+          <a href="ambi-decoder-stereo.html">Ambi Decoder Stereo</a>
+          <a href="ambi-decoder-head.html">Ambi Decoder Head</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#two-paths">Diffuse and Sharp Paths</a>
+          <a href="#adaptation">Confidence and Focus</a>
+          <a href="#layouts">Layouts and Field View</a>
+          <a href="#controls">Controls</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -1105,6 +1105,12 @@ int main(int argc, char** argv)
         const bool documentationSpeakerDecoder = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambi-speaker-decoder-64") == 0;
+        const bool documentationObjectDecoder = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-object-decoder-64") == 0;
+        const bool documentationAdaptiveDecoder = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-adaptive-decoder-64") == 0;
         const bool documentationStereoDecoder = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambisonic-stereo-decoder") == 0;
@@ -1660,7 +1666,7 @@ int main(int argc, char** argv)
             if (ok) {
                 failureStage = "Ambi Encoder Acid musical scale menu";
                 [document mouseDown:mouseEvent(
-                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 469.0))];
+                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 434.0))];
                 ok = [[document valueForKey:@"scaleMenuOpen"] boolValue];
                 if (ok) {
                     [document mouseMoved:mouseEvent(
@@ -1684,13 +1690,13 @@ int main(int argc, char** argv)
             if (ok) {
                 failureStage = "Ambi Encoder Acid stepped parameter menus";
                 [document mouseDown:mouseEvent(
-                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 370.0))];
+                    NSEventTypeLeftMouseDown, NSMakePoint(235.0, 356.0))];
                 ok = [[document valueForKey:@"parameterMenuOpen"] boolValue]
                     && [[document valueForKey:@"parameterMenuId"]
                         unsignedIntValue] == 3u;
                 if (ok) {
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 325.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 311.0))];
                 }
                 double division = 0.0;
                 ok = ok && params->get_value(plugin, 3u, &division)
@@ -1731,16 +1737,16 @@ int main(int argc, char** argv)
                 ok = [[document valueForKey:@"controlPage"] intValue] == 1;
                 if (ok) {
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(275.0, 403.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(275.0, 382.0))];
                     [document mouseUp:mouseEvent(
-                        NSEventTypeLeftMouseUp, NSMakePoint(275.0, 403.0))];
+                        NSEventTypeLeftMouseUp, NSMakePoint(275.0, 382.0))];
                 }
                 double subLevel = 0.0;
                 ok = ok && params->get_value(plugin, 30u, &subLevel)
                     && subLevel > 0.85;
                 if (ok) {
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 370.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 356.0))];
                     ok = [[document valueForKey:@"parameterMenuOpen"]
                         boolValue]
                         && [[document valueForKey:@"parameterMenuId"]
@@ -1748,9 +1754,9 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     [document mouseMoved:mouseEvent(
-                        NSEventTypeMouseMoved, NSMakePoint(130.0, 361.0))];
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 347.0))];
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 361.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 347.0))];
                 }
                 double subOctave = -1.0;
                 ok = ok
@@ -1761,14 +1767,14 @@ int main(int argc, char** argv)
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, NSMakePoint(224.0, 279.0))];
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 472.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(235.0, 460.0))];
                     ok = [[document valueForKey:@"circuitMenuOpen"] boolValue];
                 }
                 if (ok) {
                     [document mouseMoved:mouseEvent(
-                        NSEventTypeMouseMoved, NSMakePoint(130.0, 463.0))];
+                        NSEventTypeMouseMoved, NSMakePoint(130.0, 451.0))];
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 463.0))];
+                        NSEventTypeLeftMouseDown, NSMakePoint(130.0, 451.0))];
                 }
                 double circuit = 0.0;
                 ok = ok
@@ -1855,7 +1861,7 @@ int main(int argc, char** argv)
                     if (ok) {
                         [document mouseDown:mouseEvent(
                             NSEventTypeLeftMouseDown,
-                            NSMakePoint(235.0, 342.0))];
+                            NSMakePoint(235.0, 330.0))];
                         ok = [[document valueForKey:@"parameterMenuOpen"]
                             boolValue]
                             && [[document valueForKey:@"parameterMenuId"]
@@ -1864,10 +1870,10 @@ int main(int argc, char** argv)
                     if (ok) {
                         [document mouseMoved:mouseEvent(
                             NSEventTypeMouseMoved,
-                            NSMakePoint(130.0, 328.0))];
+                            NSMakePoint(130.0, 321.0))];
                         [document mouseDown:mouseEvent(
                             NSEventTypeLeftMouseDown,
-                            NSMakePoint(130.0, 328.0))];
+                            NSMakePoint(130.0, 321.0))];
                         double clock = 0.0;
                         ok = params->get_value(plugin, 27u, &clock)
                             && std::fabs(clock - 1.0) < 0.000001;
@@ -5913,6 +5919,13 @@ int main(int argc, char** argv)
                         ok = false;
                     }
                 }
+            } else if (documentationObjectDecoder) {
+                failureStage = "documentation Object Decoder Dome 25 scene";
+                ok = setDocumentationSceneParam("Layout", 6.0);
+            } else if (documentationAdaptiveDecoder) {
+                failureStage =
+                    "documentation Adaptive Decoder Icosahedron 20 scene";
+                ok = setDocumentationSceneParam("Layout", 7.0);
             } else if (documentationEffectDelay) {
                 failureStage = "documentation Ambi Effect Delay scene";
                 ok = setDocumentationSceneParam("Ambisonic order", 3.0)
@@ -6213,7 +6226,9 @@ int main(int argc, char** argv)
             if (ok) [document setNeedsDisplay:YES];
         }
         const bool documentationLiveSignal = documentationCapture
-            && (documentationStereoDecoder
+            && (documentationObjectDecoder
+                || documentationAdaptiveDecoder
+                || documentationStereoDecoder
                 || documentationHeadDecoder
                 || documentationEffectDelay
                 || documentationEffectPitch

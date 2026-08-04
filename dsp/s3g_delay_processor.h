@@ -63,6 +63,7 @@ public:
         maxDelaySamples_ = std::max(2, static_cast<int>(std::ceil(sampleRate_ * maxDelaySeconds)) + 2);
         buffer_.assign(static_cast<size_t>(channels_) * static_cast<size_t>(maxDelaySamples_), 0.0f);
         writeIndex_ = 0;
+        historyValidSamples_ = 0;
         feedbackFilter_.assign(static_cast<size_t>(channels_), 0.0f);
         delayMs_.assign(static_cast<size_t>(channels_), 250.0f);
         delayTargetMs_.assign(static_cast<size_t>(channels_), 250.0f);
@@ -161,9 +162,11 @@ public:
         routeTargetsSnap_ = false;
         routeTailEstimateDirty_ = false;
         routeActivationPending_ = false;
-        std::fill(buffer_.begin(), buffer_.end(), 0.0f);
         std::fill(feedbackFilter_.begin(), feedbackFilter_.end(), 0.0f);
         writeIndex_ = 0;
+        // Logical invalidation is equivalent to clearing the ring and keeps
+        // CLAP reset bounded when it is called on the audio thread.
+        historyValidSamples_ = 0;
         delayTargetMs_ = delayMs_;
         delayFromMs_ = delayMs_;
         delayToMs_ = delayMs_;
@@ -562,6 +565,8 @@ public:
         }
 
         writeIndex_ = (writeIndex_ + 1) % maxDelaySamples_;
+        historyValidSamples_ = std::min(
+            maxDelaySamples_, historyValidSamples_ + 1);
         hasProcessed_ = true;
     }
 
@@ -1242,19 +1247,32 @@ private:
 
     float readDelay(int channel, float delaySamples) const
     {
-        const float read = static_cast<float>(writeIndex_) - delaySamples;
+        // Pitch heads add a window offset to the published base delay. Near
+        // the maximum delay that effective value can exceed the ring, leaving
+        // a negative index even after the single wrap below. Pin the read to
+        // the same representable limit exposed by maxDelayMs().
+        const float maximumDelay = static_cast<float>(
+            std::max(1, maxDelaySamples_ - 2));
+        const float boundedDelay = std::isfinite(delaySamples)
+            ? std::clamp(delaySamples, 1.0f, maximumDelay)
+            : 1.0f;
+        const float read = static_cast<float>(writeIndex_) - boundedDelay;
         const float wrapped = read < 0.0f ? read + static_cast<float>(maxDelaySamples_) : read;
         const int i0 = static_cast<int>(std::floor(wrapped)) % maxDelaySamples_;
         const int i1 = (i0 + 1) % maxDelaySamples_;
         const int im1 = (i0 - 1 + maxDelaySamples_) % maxDelaySamples_;
         const int i2 = (i0 + 2) % maxDelaySamples_;
         const float frac = wrapped - std::floor(wrapped);
-        return cubicInterpolate(
-            buffer_[indexFor(channel, im1)],
-            buffer_[indexFor(channel, i0)],
-            buffer_[indexFor(channel, i1)],
-            buffer_[indexFor(channel, i2)],
-            frac);
+        const auto sample = [&](int position) {
+            if (historyValidSamples_ < maxDelaySamples_) {
+                int age = writeIndex_ - position;
+                if (age <= 0) age += maxDelaySamples_;
+                if (age > historyValidSamples_) return 0.0f;
+            }
+            return buffer_[indexFor(channel, position)];
+        };
+        return cubicInterpolate(sample(im1), sample(i0), sample(i1),
+            sample(i2), frac);
     }
 
     float readPitchShiftedDelay(int channel, size_t index, float baseDelaySamples, bool advancePhase)
@@ -1433,6 +1451,7 @@ private:
     int channels_ = 0;
     int maxDelaySamples_ = 0;
     int writeIndex_ = 0;
+    int historyValidSamples_ = 0;
     bool hasProcessed_ = false;
     std::vector<float> buffer_;
     std::vector<float> feedbackFilter_;

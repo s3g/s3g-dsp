@@ -170,6 +170,8 @@ float processFractureProcessor(FractureProcessor processor,
         runtime.timeBuffer[runtime.timeWrite] = input;
         runtime.timeWrite =
             (runtime.timeWrite + 1u) % kFractureTimeBufferSize;
+        runtime.timeValid = std::min<uint32_t>(
+            kFractureTimeBufferSize, runtime.timeValid + 1u);
         const float maximumMs = std::min(80.0f,
             static_cast<float>(kFractureTimeBufferSize - 2u)
                 * 1000.0f / sr);
@@ -193,10 +195,23 @@ float processFractureProcessor(FractureProcessor processor,
             - std::min<uint32_t>(offset + 1u,
                 kFractureTimeBufferSize - 1u))
             % kFractureTimeBufferSize;
-        const float repeat = runtime.timeBuffer[read];
+        const uint32_t age = std::min<uint32_t>(offset + 1u,
+            kFractureTimeBufferSize - 1u);
+        const float repeat = age <= runtime.timeValid
+            ? runtime.timeBuffer[read] : 0.0f;
+        const uint32_t edgeSamples = std::min<uint32_t>(
+            std::max<uint32_t>(1u,
+                static_cast<uint32_t>(sr * 0.006f)),
+            std::max<uint32_t>(1u, length / 4u));
+        const float edgeIn = static_cast<float>(position)
+            / static_cast<float>(edgeSamples);
+        const float edgeOut = static_cast<float>(length - 1u - position)
+            / static_cast<float>(edgeSamples);
+        const float edge = clamp(std::min(edgeIn, edgeOut), 0.0f, 1.0f);
+        const float window = edge * edge * (3.0f - 2.0f * edge);
         return lerp(input,
             std::tanh(repeat * (1.0f + amount * 4.0f)),
-            0.25f + amount * 0.75f);
+            (0.25f + amount * 0.75f) * window);
     }
     case FractureProcessor::Logic: {
         const float threshold = lerp(0.42f, 0.015f, color);

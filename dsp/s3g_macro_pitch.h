@@ -43,8 +43,8 @@ public:
     {
         for (uint32_t ch = 0; ch < kMacroPitchChannels; ++ch) {
             auto& lane = lanes_[ch];
-            std::fill(lane.buffer.begin(), lane.buffer.end(), 0.0f);
             lane.write = 0u;
+            lane.validSamples = 0u;
             lane.phaseA = 0.0f;
             lane.phaseB = 0.5f;
             lane.lfo = laneHash(ch) * 0.5f + 0.5f;
@@ -85,6 +85,8 @@ public:
             auto& lane = lanes_[ch];
             const float dry = input[ch];
             lane.buffer[lane.write] = dry;
+            lane.validSamples = std::min(
+                bufferFrames_, lane.validSamples + 1u);
 
             const float u = channels_ > 1u
                 ? static_cast<float>(ch) / static_cast<float>(channels_ - 1u)
@@ -123,6 +125,7 @@ private:
         float lfo = 0.0f;
         float ratio = 1.0f;
         float windowSamples = 3840.0f;
+        uint32_t validSamples = 0u;
     };
 
     static MacroPitchParams sanitize(MacroPitchParams params)
@@ -211,7 +214,16 @@ private:
         const uint32_t i0 = static_cast<uint32_t>(read) % bufferFrames_;
         const uint32_t i1 = (i0 + 1u) % bufferFrames_;
         const float frac = read - std::floor(read);
-        return lane.buffer[i0] + (lane.buffer[i1] - lane.buffer[i0]) * frac;
+        const auto sample = [&](uint32_t position) {
+            if (lane.validSamples < bufferFrames_) {
+                const uint32_t age =
+                    (lane.write + bufferFrames_ - position) % bufferFrames_;
+                if (age >= lane.validSamples) return 0.0f;
+            }
+            return lane.buffer[position];
+        };
+        const float first = sample(i0);
+        return first + (sample(i1) - first) * frac;
     }
 
     double sampleRate_ = 48000.0;

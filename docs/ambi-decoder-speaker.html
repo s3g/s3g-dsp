@@ -43,9 +43,9 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert the appropriate Speaker, Object, Adaptive, or Sub decoder after the encoded source and any Ambisonic processing on a track wide enough for its input and output buses. Match <code>ORDER</code> to the source, then choose the speaker layout and active <code>COUNT</code>, entering measured positions in <code>CUSTOM</code> when needed, or set <code>SUBS</code> for Ambi Decoder Sub.</li>
-          <li>Route each active output lane to its matching physical speaker or subwoofer feed.</li>
-          <li>Set the decode mode and weighting or the sub cutoff and width, verify the output map, and trim individual outputs while audio is playing.</li>
+          <li>Insert <code>s3g Ambi Decoder Speaker 64</code> after the encoded source and any Ambisonic processing on a 64-channel track. Match <code>ORDER</code> to the source, then choose the speaker <code>LAYOUT</code> and active <code>COUNT</code>, entering measured positions in <code>CUSTOM</code> when needed.</li>
+          <li>Route each active output lane to its matching physical speaker feed.</li>
+          <li>Set the decode <code>MODE</code> and <code>WGT</code>, verify the output map, and trim individual outputs while audio is playing.</li>
         </ol>
 
         <h2 id="signal-flow">Signal Flow</h2>
@@ -60,13 +60,12 @@
           <img src="ambi_speaker_decoder_map.svg" alt="Diagram of ACN/SN3D input, decoder matrix, speaker layout, and 64-channel output">
         </figure>
 
-        <h2 id="decoder-variants">Decoder Variants</h2>
+        <h2 id="related-decoders">Related Decoders</h2>
 
         <ul>
-          <li><code>s3g Ambi Decoder Speaker 64</code>: the main curated/custom speaker decoder.</li>
-          <li><code>s3g Ambi Decoder Object 64</code>: blends the decoded field with a directional object-panning path using <code>VBAP</code>, <code>LBAP</code>, or <code>DBAP</code>.</li>
-          <li><code>s3g Ambi Decoder Adaptive 64</code>: blends diffuse and focused decode paths using confidence and transient cues.</li>
-          <li><code>s3g Ambi Decoder Sub</code>: derives up to eight low-frequency sub feeds from <code>ACN/SN3D</code> input, with cutoff, directional width, sub count, and output trim controls.</li>
+          <li><a href="ambi-decoder-object.html">Ambi Decoder Object</a> adds a derived directional object path to the complete speaker decode.</li>
+          <li><a href="ambi-decoder-adaptive.html">Ambi Decoder Adaptive</a> changes high-frequency focus from confidence and transient cues.</li>
+          <li><a href="ambi-decoder-sub.html">Ambi Decoder Sub</a> creates one to eight low-frequency feeds for a separate bass-management path.</li>
         </ul>
 
         <h2 id="layouts">Layouts</h2>
@@ -76,7 +75,7 @@
         <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> uses the fixed 24-direction ordering expected by the Ambi Effect workflows.</p>
 
         <div class="table-wrap">
-          <table>
+          <table class="readout-table">
             <thead>
               <tr>
                 <th>Layout</th>
@@ -167,9 +166,9 @@
             <span>Previous</span>
             Ambisonic Decoders
           </a>
-          <a class="page-nav-link next" href="ambi-decoder-stereo.html">
+          <a class="page-nav-link next" href="ambi-decoder-object.html">
             <span>Next</span>
-            Ambi Decoder Stereo
+            Ambi Decoder Object
           </a>
         </nav>
       </main>
@@ -189,6 +188,9 @@
         <div class="toc-section">
           <h2>Decoder Pages</h2>
           <a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a>
+          <a href="ambi-decoder-object.html">Ambi Decoder Object</a>
+          <a href="ambi-decoder-adaptive.html">Ambi Decoder Adaptive</a>
+          <a href="ambi-decoder-sub.html">Ambi Decoder Sub</a>
           <a href="ambi-decoder-stereo.html">Ambi Decoder Stereo</a>
           <a href="ambi-decoder-head.html">Ambi Decoder Head</a>
         </div>
@@ -196,7 +198,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#signal-flow">Signal Flow</a>
-          <a href="#decoder-variants">Decoder Variants</a>
+          <a href="#related-decoders">Related Decoders</a>
           <a href="#layouts">Layouts</a>
           <a href="#controls">Controls</a>
           <a href="#field-view">Field View</a>

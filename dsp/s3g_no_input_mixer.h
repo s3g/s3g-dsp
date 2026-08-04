@@ -3488,6 +3488,7 @@ private:
         std::array<DistortionState, kNoInputDistortionTypeCount> states {};
         std::array<float, 8192u> timeBuffer {};
         uint32_t timeWrite = 0u;
+        uint32_t timeValid = 0u;
         NoInputDistortionType currentType = NoInputDistortionType::Bypass;
         NoInputDistortionType previousType = NoInputDistortionType::Bypass;
         float crossfade = 1.0f;

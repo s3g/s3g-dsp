@@ -1520,41 +1520,54 @@ constexpr CGFloat kPatternHeight = 214.0;
 constexpr CGFloat kStepStartX = 24.0;
 constexpr CGFloat kStepPitch = 54.5;
 constexpr CGFloat kStepWidth = 51.5;
+constexpr CGFloat kControlFirstRowY = 304.0;
+constexpr CGFloat kControlRowPitch = 26.0;
+constexpr CGFloat kOutputSectionDividerY = 518.0;
+
+constexpr CGFloat controlRowY(uint32_t row)
+{
+    return kControlFirstRowY + kControlRowPitch * row;
+}
+
+static_assert(kControlRowPitch >= 22.0 && kControlRowPitch <= 26.0,
+    "Acid toolbox rows must follow the standard GUI pitch");
+static_assert(controlRowY(7u) + 10.0 < kOutputSectionDividerY,
+    "The densest Acid page must clear the output section divider");
 
 // The three retired listener parameters stay hidden. Order and output mode are
 // represented by one persistent FORMAT menu, and output level is persistent.
 constexpr uint32_t kVisibleParamCount = kBaseParamCount - 6u;
 constexpr std::array<AcidUiRow, kVisibleParamCount> kUiRows {{
-    { kTempoParamId, "TEMPO", 0u, 304.0 },
-    { kTransportSyncParamId, "CLOCK", 0u, 337.0 },
-    { kDivisionParamId, "DIVIDE", 0u, 370.0 },
-    { kLengthParamId, "LENGTH", 0u, 403.0 },
-    { kRootParamId, "ROOT", 0u, 436.0 },
-    { kScaleParamId, "SCALE", 0u, 469.0 },
-    { kGateLengthParamId, "GATE", 0u, 502.0 },
+    { kTempoParamId, "TEMPO", 0u, controlRowY(0u) },
+    { kTransportSyncParamId, "CLOCK", 0u, controlRowY(1u) },
+    { kDivisionParamId, "DIVIDE", 0u, controlRowY(2u) },
+    { kLengthParamId, "LENGTH", 0u, controlRowY(3u) },
+    { kRootParamId, "ROOT", 0u, controlRowY(4u) },
+    { kScaleParamId, "SCALE", 0u, controlRowY(5u) },
+    { kGateLengthParamId, "GATE", 0u, controlRowY(6u) },
 
-    { kWaveParamId, "WAVE", 1u, 304.0 },
-    { kPulseWidthParamId, "PULSE", 1u, 337.0 },
-    { kSubOctaveParamId, "SUB OCT", 1u, 370.0 },
-    { kSubLevelParamId, "SUB LEVEL", 1u, 403.0 },
-    { kSlideParamId, "SLIDE", 1u, 436.0 },
+    { kWaveParamId, "WAVE", 1u, controlRowY(0u) },
+    { kPulseWidthParamId, "PULSE", 1u, controlRowY(1u) },
+    { kSubOctaveParamId, "SUB OCT", 1u, controlRowY(2u) },
+    { kSubLevelParamId, "SUB LEVEL", 1u, controlRowY(3u) },
+    { kSlideParamId, "SLIDE", 1u, controlRowY(4u) },
 
-    { kCutoffParamId, "CUTOFF", 2u, 304.0 },
-    { kResonanceParamId, "RESO", 2u, 332.0 },
-    { kFilterEnvelopeParamId, "ENV", 2u, 360.0 },
-    { kFilterDecayParamId, "DECAY", 2u, 388.0 },
-    { kAccentParamId, "ACCENT", 2u, 416.0 },
-    { kDriveParamId, "DRIVE", 2u, 444.0 },
-    { kDriveCircuitParamId, "CIRCUIT", 2u, 472.0 },
-    { kDriveMixParamId, "DRY/WET", 2u, 500.0 },
+    { kCutoffParamId, "CUTOFF", 2u, controlRowY(0u) },
+    { kResonanceParamId, "RESO", 2u, controlRowY(1u) },
+    { kFilterEnvelopeParamId, "ENV", 2u, controlRowY(2u) },
+    { kFilterDecayParamId, "DECAY", 2u, controlRowY(3u) },
+    { kAccentParamId, "ACCENT", 2u, controlRowY(4u) },
+    { kDriveParamId, "DRIVE", 2u, controlRowY(5u) },
+    { kDriveCircuitParamId, "CIRCUIT", 2u, controlRowY(6u) },
+    { kDriveMixParamId, "DRY/WET", 2u, controlRowY(7u) },
 
-    { kCenterAzimuthParamId, "AZIM", 3u, 304.0 },
-    { kPathTurnsParamId, "TURNS", 3u, 337.0 },
-    { kElevationSpreadParamId, "ELEV", 3u, 370.0 },
-    { kSpatialSpreadParamId, "SPREAD", 3u, 403.0 },
-    { kEdgeLeadParamId, "EDGE", 3u, 436.0 },
-    { kWakeAmountParamId, "WAKE", 3u, 469.0 },
-    { kWakeTimeParamId, "WAKE T", 3u, 502.0 },
+    { kCenterAzimuthParamId, "AZIM", 3u, controlRowY(0u) },
+    { kPathTurnsParamId, "TURNS", 3u, controlRowY(1u) },
+    { kElevationSpreadParamId, "ELEV", 3u, controlRowY(2u) },
+    { kSpatialSpreadParamId, "SPREAD", 3u, controlRowY(3u) },
+    { kEdgeLeadParamId, "EDGE", 3u, controlRowY(4u) },
+    { kWakeAmountParamId, "WAKE", 3u, controlRowY(5u) },
+    { kWakeTimeParamId, "WAKE T", 3u, controlRowY(6u) },
 }};
 
 constexpr AcidUiRow kFormatRow {
@@ -2262,7 +2275,8 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         }
     }
     [style.grid setFill];
-    NSRectFill(NSMakeRect(controlPanel.origin.x + 16.0, 518.0,
+    NSRectFill(NSMakeRect(controlPanel.origin.x + 16.0,
+        kOutputSectionDividerY,
         controlPanel.size.width - 32.0, 1.0));
     s3g::clap_gui::drawProcessorMenu(
         [NSString stringWithUTF8String:kFormatRow.label],

@@ -7,6 +7,7 @@
 #include <clap/ext/gui.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -18,16 +19,20 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <vector>
 
 namespace {
 
 constexpr uint32_t kInputChannels = 2u;
 constexpr uint32_t kOutputChannels = s3g::kAmbiCartographyMaxChannels;
 constexpr uint32_t kStateVersion = 1u;
+constexpr float kInputBoundarySeconds = 0.006f;
+constexpr float kOutputBridgeSeconds = 0.010f;
 
 enum ParamId : clap_id {
     kSitesParamId = 1u,
@@ -65,6 +70,15 @@ enum ParamId : clap_id {
     kSiteGainParamId,
     kSiteNetworkTrimParamId,
     kSiteEnabledParamId,
+    kMultipathParamId,
+    kOcclusionParamId,
+    kNetworkWeatherParamId,
+    kRefractionParamId,
+    kMotionParamId,
+    kEcologyParamId,
+    kHorizonParamId,
+    kShredCircuitParamId,
+    kFractureProcessorParamId,
 };
 
 struct ParamDef {
@@ -96,7 +110,7 @@ constexpr ParamDef kParams[] {
     { kTurbulenceParamId, "Turbulence", "Propagation", 0.0, 1.0, 0.08, false },
     { kListenModeParamId, "Field Listen", "Listener", 0.0, 3.0, 0.0, true },
     { kListenerAmountParamId, "Listen Amount", "Listener", 0.0, 1.0, 0.0, false },
-    { kMacroEngineParamId, "Process", "Site Process", 0.0, 4.0, 1.0, true },
+    { kMacroEngineParamId, "Process", "Site Process", 0.0, 7.0, 1.0, true },
     { kMacroMetricParamId, "Macro Metric", "Site Process", 0.0, 3.0, 0.0, true },
     { kMacroParamId, "Macro", "Site Process", 0.0, 1.0, 0.50, false },
     { kColorParamId, "Color", "Site Process", 0.0, 1.0, 0.55, false },
@@ -113,6 +127,17 @@ constexpr ParamDef kParams[] {
     { kSiteGainParamId, "Site Gain", "Selected Site", 0.0, 2.0, 1.0, false },
     { kSiteNetworkTrimParamId, "Site Network Trim", "Selected Site", -500.0, 500.0, 0.0, false },
     { kSiteEnabledParamId, "Site Enabled", "Selected Site", 0.0, 1.0, 1.0, true },
+    { kMultipathParamId, "Multipath", "Landscape Path", 0.0, 1.0, 0.0, false },
+    { kOcclusionParamId, "Occlusion", "Landscape Path", 0.0, 1.0, 0.0, false },
+    { kNetworkWeatherParamId, "Network Weather", "Landscape Path", 0.0, 1.0, 0.0, false },
+    { kRefractionParamId, "Refraction", "Landscape Path", -1.0, 1.0, 0.0, false },
+    { kMotionParamId, "Motion", "Landscape Field", 0.0, 1.0, 0.0, false },
+    { kEcologyParamId, "Feedback Ecology", "Landscape Field", 0.0, 1.0, 0.0, false },
+    { kHorizonParamId, "Audibility Horizon", "Landscape Field", 0.0, 1.0, 0.0, false },
+    { kShredCircuitParamId, "Shred Circuit", "Site Process", 0.0,
+        static_cast<double>(s3g::kMacroShredCircuitCount - 1u), 0.0, true },
+    { kFractureProcessorParamId, "Fracture Processor", "Site Process", 0.0,
+        static_cast<double>(s3g::kFractureProcessorCount - 1u), 0.0, true },
 };
 
 constexpr uint32_t kParamCount = static_cast<uint32_t>(std::size(kParams));
@@ -124,27 +149,132 @@ struct SavedState {
         s3g::kAmbiCartographyMaxSites> sites {};
 };
 
+static_assert(sizeof(s3g::AmbiCartographyEncoderParams) == 140u);
+static_assert(sizeof(s3g::AmbiCartographySite) == 28u);
+static_assert(offsetof(SavedState, params) == 4u);
+static_assert(offsetof(SavedState, sites) == 144u);
+static_assert(sizeof(SavedState) == 816u);
+
+constexpr uint32_t kLandscapeStateMagic = 0x4c534350u; // LSCP
+constexpr uint32_t kLandscapeStateVersion = 1u;
+
+struct LandscapeSavedState {
+    uint32_t magic = kLandscapeStateMagic;
+    uint32_t version = kLandscapeStateVersion;
+    s3g::AmbiCartographyLandscapeParams params {};
+};
+
+static_assert(sizeof(LandscapeSavedState) == 36u);
+
+constexpr uint32_t kSiteProcessStateMagic = 0x53505243u; // SPRC
+constexpr uint32_t kSiteProcessStateVersion = 1u;
+
+struct SiteProcessSavedState {
+    uint32_t magic = kSiteProcessStateMagic;
+    uint32_t version = kSiteProcessStateVersion;
+    uint32_t shredCircuit = 0u;
+    uint32_t fractureProcessor = 0u;
+};
+
+static_assert(sizeof(SiteProcessSavedState) == 16u);
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
+    uint32_t maxFrames = 1u;
     s3g::AmbiCartographyEncoder encoder {};
     s3g::AmbiCartographyEncoderParams params {};
+    s3g::AmbiCartographyLandscapeParams landscape {};
+    s3g::AmbiCartographySiteProcessOptions siteProcess {};
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<bool> layoutResetPending { false };
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::vector<float>, kInputChannels> inputScratch {};
+    std::array<float, kInputChannels> lastInput {};
+    std::array<float, kInputChannels> inputCorrection {};
+    float inputBoundaryPhase = 1.0f;
+    float inputBoundaryStep = 1.0f;
+    bool inputBoundaryPending = true;
+    std::array<float, kOutputChannels> lastOutput {};
+    std::array<float, kOutputChannels> outputBridgeStart {};
+    float outputBridgePhase = 1.0f;
+    float outputBridgeStep = 1.0f;
+    bool processing = false;
+    bool transportKnown = false;
+    bool transportPlaying = false;
+    bool transportSecondsValid = false;
+    bool transportBeatsValid = false;
+    bool transportTempoValid = false;
+    double predictedTransportSeconds = 0.0;
+    double predictedTransportBeats = 0.0;
+    double transportTempo = 120.0;
+    double transportTempoIncrement = 0.0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+    int guiLandscapePage = 0;
+    int guiProcessPage = 0;
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+float smoothUnit(float value)
+{
+    const float bounded = std::clamp(value, 0.0f, 1.0f);
+    return bounded * bounded * (3.0f - 2.0f * bounded);
+}
+
+void armInputBoundary(Plugin& plugin, bool fromSilence)
+{
+    if (fromSilence) plugin.lastInput.fill(0.0f);
+    plugin.inputBoundaryPending = true;
+}
+
+void beginOutputBridge(Plugin& plugin, bool fromSilence)
+{
+    for (uint32_t channel = 0u; channel < kOutputChannels; ++channel) {
+        plugin.outputBridgeStart[channel] = fromSilence
+            ? 0.0f : plugin.lastOutput[channel];
+    }
+    plugin.outputBridgePhase = 0.0f;
+}
+
+void prepareDeclickState(Plugin& plugin, uint32_t maxFrames)
+{
+    plugin.maxFrames = std::max<uint32_t>(1u, maxFrames);
+    for (auto& channel : plugin.inputScratch) {
+        channel.assign(plugin.maxFrames, 0.0f);
+    }
+    const float rate = static_cast<float>(std::max(1000.0,
+        plugin.sampleRate));
+    plugin.inputBoundaryStep = 1.0f
+        / std::max(1.0f, rate * kInputBoundarySeconds);
+    plugin.outputBridgeStep = 1.0f
+        / std::max(1.0f, rate * kOutputBridgeSeconds);
+    plugin.lastInput.fill(0.0f);
+    plugin.inputCorrection.fill(0.0f);
+    plugin.lastOutput.fill(0.0f);
+    plugin.outputBridgeStart.fill(0.0f);
+    plugin.inputBoundaryPhase = 1.0f;
+    plugin.outputBridgePhase = 1.0f;
+    plugin.inputBoundaryPending = true;
+    plugin.transportKnown = false;
+    plugin.transportPlaying = false;
+    plugin.transportSecondsValid = false;
+    plugin.transportBeatsValid = false;
+    plugin.transportTempoValid = false;
+    plugin.predictedTransportSeconds = 0.0;
+    plugin.predictedTransportBeats = 0.0;
+    plugin.transportTempo = 120.0;
+    plugin.transportTempoIncrement = 0.0;
 }
 
 const char* layoutName(uint32_t index)
@@ -169,9 +299,22 @@ const char* timeReferenceName(uint32_t index)
 const char* macroEngineName(uint32_t index)
 {
     static constexpr const char* names[] {
-        "CLEAN", "DELAY", "PITCH", "SHRED", "FRACTURE"
+        "CLEAN", "DELAY", "PITCH", "SHRED", "FRACTURE", "BODY",
+        "SPECTRAL RELAY", "RELAY BUFFER"
     };
-    return names[std::min<uint32_t>(index, 4u)];
+    return names[std::min<uint32_t>(index, 7u)];
+}
+
+const char* shredCircuitName(uint32_t index)
+{
+    return s3g::macroShredCircuitName(static_cast<s3g::MacroShredCircuit>(
+        std::min<uint32_t>(index, s3g::kMacroShredCircuitCount - 1u)));
+}
+
+const char* fractureProcessorName(uint32_t index)
+{
+    return s3g::fractureProcessorName(static_cast<s3g::FractureProcessor>(
+        std::min<uint32_t>(index, s3g::kFractureProcessorCount - 1u)));
 }
 
 const char* macroMetricName(uint32_t index)
@@ -241,6 +384,17 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kSiteGainParamId: return params.selectedGain;
     case kSiteNetworkTrimParamId: return params.selectedNetworkTrimMs;
     case kSiteEnabledParamId: return params.selectedEnabled ? 1.0 : 0.0;
+    case kMultipathParamId: return plugin.landscape.multipath;
+    case kOcclusionParamId: return plugin.landscape.occlusion;
+    case kNetworkWeatherParamId: return plugin.landscape.networkWeather;
+    case kRefractionParamId: return plugin.landscape.refraction;
+    case kMotionParamId: return plugin.landscape.motion;
+    case kEcologyParamId: return plugin.landscape.ecology;
+    case kHorizonParamId: return plugin.landscape.horizon;
+    case kShredCircuitParamId:
+        return static_cast<uint32_t>(plugin.siteProcess.shredCircuit);
+    case kFractureProcessorParamId:
+        return static_cast<uint32_t>(plugin.siteProcess.fractureProcessor);
     default: return 0.0;
     }
 }
@@ -293,6 +447,34 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
         offset += static_cast<size_t>(read);
     }
     return true;
+}
+
+enum class OptionalReadResult : uint8_t {
+    Absent,
+    Complete,
+    Invalid
+};
+
+OptionalReadResult readOptionalExact(
+    const clap_istream_t* stream, void* data, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(data);
+    size_t offset = 0u;
+    while (offset < size) {
+        const int64_t count = stream->read(
+            stream, bytes + offset, size - offset);
+        if (count == 0) {
+            return offset == 0u
+                ? OptionalReadResult::Absent
+                : OptionalReadResult::Invalid;
+        }
+        if (count < 0
+            || static_cast<uint64_t>(count) > size - offset) {
+            return OptionalReadResult::Invalid;
+        }
+        offset += static_cast<size_t>(count);
+    }
+    return OptionalReadResult::Complete;
 }
 
 void applyParam(Plugin& plugin, clap_id id, double value)
@@ -361,10 +543,37 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         params.selectedNetworkTrimMs = static_cast<float>(value);
         break;
     case kSiteEnabledParamId: params.selectedEnabled = value >= 0.5; break;
+    case kMultipathParamId:
+        plugin.landscape.multipath = static_cast<float>(value); break;
+    case kOcclusionParamId:
+        plugin.landscape.occlusion = static_cast<float>(value); break;
+    case kNetworkWeatherParamId:
+        plugin.landscape.networkWeather = static_cast<float>(value); break;
+    case kRefractionParamId:
+        plugin.landscape.refraction = static_cast<float>(value); break;
+    case kMotionParamId:
+        plugin.landscape.motion = static_cast<float>(value); break;
+    case kEcologyParamId:
+        plugin.landscape.ecology = static_cast<float>(value); break;
+    case kHorizonParamId:
+        plugin.landscape.horizon = static_cast<float>(value); break;
+    case kShredCircuitParamId:
+        plugin.siteProcess.shredCircuit = static_cast<s3g::MacroShredCircuit>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kFractureProcessorParamId:
+        plugin.siteProcess.fractureProcessor =
+            static_cast<s3g::FractureProcessor>(
+                static_cast<uint32_t>(std::lround(value)));
+        break;
     default: return;
     }
     plugin.encoder.setParams(params);
     plugin.params = plugin.encoder.params();
+    plugin.encoder.setLandscapeParams(plugin.landscape);
+    plugin.landscape = plugin.encoder.landscapeParams();
+    plugin.encoder.setSiteProcessOptions(plugin.siteProcess);
+    plugin.siteProcess = plugin.encoder.siteProcessOptions();
     publishAllParams(plugin);
 }
 
@@ -490,25 +699,63 @@ void destroy(const clap_plugin_t* plugin)
 }
 
 bool activate(const clap_plugin_t* plugin, double sampleRate,
-    uint32_t, uint32_t)
+    uint32_t, uint32_t maxFrames)
 {
     auto* instance = self(plugin);
     instance->sampleRate = sampleRate;
+    prepareDeclickState(*instance, maxFrames);
     instance->encoder.prepare(sampleRate);
     instance->encoder.setParams(instance->params);
+    instance->encoder.setLandscapeParams(instance->landscape);
+    instance->encoder.setSiteProcessOptions(instance->siteProcess);
     instance->params = instance->encoder.params();
+    instance->landscape = instance->encoder.landscapeParams();
+    instance->siteProcess = instance->encoder.siteProcessOptions();
     publishAllParams(*instance);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
-bool startProcessing(const clap_plugin_t*) { return true; }
-void stopProcessing(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    self(plugin)->processing = false;
+}
+
+bool startProcessing(const clap_plugin_t* plugin)
+{
+    auto* instance = self(plugin);
+    instance->processing = true;
+    instance->transportKnown = false;
+    instance->transportSecondsValid = false;
+    instance->transportBeatsValid = false;
+    instance->transportTempoValid = false;
+    // Preserve the last corrected input across a host sleep so a newly
+    // silent source enters parked feedback/network histories as a ramp. A
+    // fresh activation already initializes lastInput to silence.
+    armInputBoundary(*instance, false);
+    beginOutputBridge(*instance, true);
+    return true;
+}
+
+void stopProcessing(const clap_plugin_t* plugin)
+{
+    auto* instance = self(plugin);
+    instance->processing = false;
+    instance->transportKnown = false;
+    instance->transportSecondsValid = false;
+    instance->transportBeatsValid = false;
+    instance->transportTempoValid = false;
+}
 
 void reset(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
+    beginOutputBridge(*instance, !instance->processing);
+    armInputBoundary(*instance, true);
     instance->encoder.reset();
+    instance->transportKnown = false;
+    instance->transportSecondsValid = false;
+    instance->transportBeatsValid = false;
+    instance->transportTempoValid = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
@@ -525,6 +772,76 @@ void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
         const auto* parameter =
             reinterpret_cast<const clap_event_param_value_t*>(event);
         applyParam(plugin, parameter->param_id, parameter->value);
+    }
+}
+
+void observeTransport(Plugin& plugin,
+    const clap_event_transport_t& transport)
+{
+    const bool playing =
+        (transport.flags & CLAP_TRANSPORT_IS_PLAYING) != 0u;
+    const bool secondsValid =
+        (transport.flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) != 0u;
+    const bool beatsValid =
+        (transport.flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) != 0u;
+    const bool tempoValid =
+        (transport.flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+        && std::isfinite(transport.tempo) && transport.tempo > 0.0;
+    const double seconds = static_cast<double>(transport.song_pos_seconds)
+        / static_cast<double>(CLAP_SECTIME_FACTOR);
+    const double beats = static_cast<double>(transport.song_pos_beats)
+        / static_cast<double>(CLAP_BEATTIME_FACTOR);
+
+    bool discontinuity = plugin.transportKnown
+        && playing != plugin.transportPlaying;
+    if (!discontinuity && plugin.transportKnown
+        && plugin.transportPlaying && playing) {
+        if (plugin.transportSecondsValid && secondsValid) {
+            const double tolerance = 2.0 / plugin.sampleRate
+                + 2.0 / static_cast<double>(CLAP_SECTIME_FACTOR);
+            discontinuity = std::fabs(
+                seconds - plugin.predictedTransportSeconds) > tolerance;
+        } else if (plugin.transportBeatsValid && beatsValid
+            && plugin.transportTempoValid) {
+            const double comparisonTempo = tempoValid
+                ? std::max(plugin.transportTempo, transport.tempo)
+                : plugin.transportTempo;
+            const double tolerance = 2.0 / plugin.sampleRate
+                    * comparisonTempo / 60.0
+                + 2.0 / static_cast<double>(CLAP_BEATTIME_FACTOR);
+            discontinuity = std::fabs(
+                beats - plugin.predictedTransportBeats) > tolerance;
+        }
+    }
+    if (discontinuity) {
+        armInputBoundary(plugin, false);
+    }
+    plugin.transportKnown = true;
+    plugin.transportPlaying = playing;
+    plugin.transportSecondsValid = secondsValid;
+    plugin.transportBeatsValid = beatsValid;
+    plugin.transportTempoValid = tempoValid;
+    if (secondsValid) plugin.predictedTransportSeconds = seconds;
+    if (beatsValid) plugin.predictedTransportBeats = beats;
+    if (tempoValid) {
+        plugin.transportTempo = transport.tempo;
+        plugin.transportTempoIncrement =
+            std::isfinite(transport.tempo_inc)
+            ? transport.tempo_inc : 0.0;
+    }
+}
+
+void advanceTransport(Plugin& plugin)
+{
+    if (!plugin.transportKnown || !plugin.transportPlaying) return;
+    if (plugin.transportSecondsValid) {
+        plugin.predictedTransportSeconds += 1.0 / plugin.sampleRate;
+    }
+    if (plugin.transportBeatsValid && plugin.transportTempoValid) {
+        plugin.predictedTransportBeats += plugin.transportTempo
+            / (60.0 * plugin.sampleRate);
+        plugin.transportTempo = std::max(1.0,
+            plugin.transportTempo + plugin.transportTempoIncrement);
     }
 }
 
@@ -545,30 +862,112 @@ clap_process_status process(const clap_plugin_t* plugin,
         output.channel_count, kOutputChannels);
     if (output.data32) s3g::clearAudioBufferFromChannel(output, 0u, frames);
     if (!output.data32 || outputCount == 0u) return CLAP_PROCESS_CONTINUE;
+    output.constant_mask = 0u;
+
+    if (processData->transport) {
+        observeTransport(*instance, *processData->transport);
+    }
+    const clap_input_events_t* events = processData->in_events;
+    const uint32_t eventCount = events ? events->size(events) : 0u;
+    uint32_t eventCursor = 0u;
+    const auto serviceTransportEvents = [&](uint32_t frame) {
+        while (eventCursor < eventCount) {
+            const clap_event_header_t* event = events->get(
+                events, eventCursor);
+            if (!event) {
+                ++eventCursor;
+                continue;
+            }
+            if (event->time > frame) break;
+            ++eventCursor;
+            if (event->space_id != CLAP_CORE_EVENT_SPACE_ID
+                || event->type != CLAP_EVENT_TRANSPORT
+                || event->size < sizeof(clap_event_transport_t)) {
+                continue;
+            }
+            const auto* transport = reinterpret_cast<
+                const clap_event_transport_t*>(event);
+            observeTransport(*instance, *transport);
+        }
+    };
 
     std::array<const float*, kInputChannels> inputPointers {};
     std::array<float*, kOutputChannels> outputPointers {};
-    for (uint32_t channel = 0u; channel < inputCount; ++channel) {
-        inputPointers[channel] = input && input->data32
-            ? input->data32[channel] : nullptr;
-    }
-    for (uint32_t channel = 0u; channel < outputCount; ++channel) {
-        outputPointers[channel] = output.data32[channel];
-    }
+    float peak = 0.0f;
+    uint32_t frameOffset = 0u;
+    while (frameOffset < frames) {
+        const uint32_t chunkFrames = std::min(
+            instance->maxFrames, frames - frameOffset);
+        for (uint32_t frame = 0u; frame < chunkFrames; ++frame) {
+            const uint32_t absoluteFrame = frameOffset + frame;
+            serviceTransportEvents(absoluteFrame);
+            const float left = inputCount > 0u && input && input->data32
+                && input->data32[0]
+                ? input->data32[0][absoluteFrame] : 0.0f;
+            const float right = inputCount > 1u && input && input->data32
+                && input->data32[1]
+                ? input->data32[1][absoluteFrame] : left;
+            const std::array<float, kInputChannels> raw {
+                std::isfinite(left) ? left : 0.0f,
+                std::isfinite(right) ? right : 0.0f
+            };
+            if (instance->inputBoundaryPending) {
+                for (uint32_t channel = 0u;
+                    channel < kInputChannels; ++channel) {
+                    instance->inputCorrection[channel] =
+                        instance->lastInput[channel] - raw[channel];
+                }
+                instance->inputBoundaryPhase = 0.0f;
+                instance->inputBoundaryPending = false;
+            }
+            const float correctionWindow = 1.0f - smoothUnit(
+                instance->inputBoundaryPhase);
+            for (uint32_t channel = 0u;
+                channel < kInputChannels; ++channel) {
+                const float corrected = raw[channel]
+                    + instance->inputCorrection[channel] * correctionWindow;
+                instance->inputScratch[channel][frame] = corrected;
+                instance->lastInput[channel] = corrected;
+            }
+            instance->inputBoundaryPhase = std::min(1.0f,
+                instance->inputBoundaryPhase
+                    + instance->inputBoundaryStep);
+            advanceTransport(*instance);
+        }
 
-    instance->encoder.setParams(instance->params);
-    instance->encoder.processBlock(inputPointers.data(), outputPointers.data(),
-        inputCount, outputCount, frames);
+        for (uint32_t channel = 0u; channel < kInputChannels; ++channel) {
+            inputPointers[channel] = instance->inputScratch[channel].data();
+        }
+        for (uint32_t channel = 0u; channel < outputCount; ++channel) {
+            outputPointers[channel] = output.data32[channel]
+                ? output.data32[channel] + frameOffset : nullptr;
+        }
+        instance->encoder.processBlock(inputPointers.data(),
+            outputPointers.data(), kInputChannels, outputCount, chunkFrames);
+
+        for (uint32_t frame = 0u; frame < chunkFrames; ++frame) {
+            const float bridge = smoothUnit(instance->outputBridgePhase);
+            for (uint32_t channel = 0u;
+                channel < outputCount; ++channel) {
+                if (!outputPointers[channel]) continue;
+                float sample = outputPointers[channel][frame];
+                if (instance->outputBridgePhase < 1.0f) {
+                    sample = instance->outputBridgeStart[channel]
+                        + (sample - instance->outputBridgeStart[channel])
+                            * bridge;
+                    outputPointers[channel][frame] = sample;
+                }
+                instance->lastOutput[channel] = sample;
+                peak = std::max(peak, std::fabs(sample));
+            }
+            instance->outputBridgePhase = std::min(1.0f,
+                instance->outputBridgePhase
+                    + instance->outputBridgeStep);
+        }
+        frameOffset += chunkFrames;
+    }
     instance->params = instance->encoder.params();
     s3g::clearAudioBufferFromChannel(output, outputCount, frames);
-
-    float peak = 0.0f;
-    for (uint32_t channel = 0u; channel < outputCount; ++channel) {
-        if (!output.data32[channel]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) {
-            peak = std::max(peak, std::fabs(output.data32[channel][frame]));
-        }
-    }
     instance->outputPeak.store(std::max(
         instance->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
         std::memory_order_relaxed);
@@ -644,6 +1043,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", macroMetricName(stepped));
     } else if (id == kListenModeParamId) {
         std::snprintf(display, size, "%s", listenModeName(stepped));
+    } else if (id == kShredCircuitParamId) {
+        std::snprintf(display, size, "%s", shredCircuitName(stepped));
+    } else if (id == kFractureProcessorParamId) {
+        std::snprintf(display, size, "%s", fractureProcessorName(stepped));
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%uOA", stepped);
     } else if (id == kSitesParamId || id == kSiteParamId) {
@@ -662,6 +1065,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         || id == kSiteYParamId || id == kSiteZParamId
         || id == kSiteGainParamId) {
         std::snprintf(display, size, "%+.2f", value);
+    } else if (id == kRefractionParamId) {
+        std::snprintf(display, size, "%+.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     }
@@ -684,9 +1089,25 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     if (id == kLayoutParamId) return parseName(layoutName, 5u);
     if (id == kStereoMapParamId) return parseName(stereoMapName, 3u);
     if (id == kTimeReferenceParamId) return parseName(timeReferenceName, 2u);
-    if (id == kMacroEngineParamId) return parseName(macroEngineName, 5u);
+    if (id == kMacroEngineParamId) return parseName(macroEngineName, 8u);
     if (id == kMacroMetricParamId) return parseName(macroMetricName, 4u);
     if (id == kListenModeParamId) return parseName(listenModeName, 4u);
+    if (id == kShredCircuitParamId) {
+        return parseName(shredCircuitName, s3g::kMacroShredCircuitCount);
+    }
+    if (id == kFractureProcessorParamId) {
+        return parseName(fractureProcessorName, s3g::kFractureProcessorCount);
+    }
+    if (id == kSiteEnabledParamId) {
+        if (std::strcmp(display, "ON") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "OFF") == 0) {
+            *value = 0.0;
+            return true;
+        }
+    }
     *value = std::atof(display);
     if (id == kPropagationParamId || id == kAirParamId
         || id == kDistanceLossParamId || id == kCarryParamId
@@ -694,7 +1115,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         || id == kColorParamId || id == kMemoryParamId
         || id == kSpreadParamId || id == kDeviationParamId
         || id == kSkewParamId || id == kCenterParamId
-        || id == kProcessMixParamId || id == kListenerAmountParamId) {
+        || id == kProcessMixParamId || id == kListenerAmountParamId
+        || id == kMultipathParamId || id == kOcclusionParamId
+        || id == kNetworkWeatherParamId || id == kRefractionParamId
+        || id == kMotionParamId || id == kEcologyParamId
+        || id == kHorizonParamId) {
         *value *= 0.01;
     }
     return true;
@@ -720,7 +1145,18 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     SavedState state {
         kStateVersion, instance->params, instance->encoder.sites()
     };
-    return writeExact(stream, &state, sizeof(state));
+    const LandscapeSavedState landscape {
+        kLandscapeStateMagic, kLandscapeStateVersion, instance->landscape
+    };
+    const SiteProcessSavedState siteProcess {
+        kSiteProcessStateMagic,
+        kSiteProcessStateVersion,
+        static_cast<uint32_t>(instance->siteProcess.shredCircuit),
+        static_cast<uint32_t>(instance->siteProcess.fractureProcessor)
+    };
+    return writeExact(stream, &state, sizeof(state))
+        && writeExact(stream, &landscape, sizeof(landscape))
+        && writeExact(stream, &siteProcess, sizeof(siteProcess));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -731,15 +1167,59 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || state.version != kStateVersion) {
         return false;
     }
+    LandscapeSavedState landscape {};
+    const auto landscapeRead = readOptionalExact(
+        stream, &landscape, sizeof(landscape));
+    if (landscapeRead == OptionalReadResult::Invalid) return false;
+    if (landscapeRead == OptionalReadResult::Absent) {
+        landscape.params = {};
+    } else if (landscape.magic != kLandscapeStateMagic
+        || landscape.version != kLandscapeStateVersion) {
+        return false;
+    }
+    SiteProcessSavedState siteProcess {};
+    const auto siteProcessRead = readOptionalExact(
+        stream, &siteProcess, sizeof(siteProcess));
+    if (siteProcessRead == OptionalReadResult::Invalid) return false;
+    if (siteProcessRead == OptionalReadResult::Absent) {
+        siteProcess = {};
+    } else if (siteProcess.magic != kSiteProcessStateMagic
+        || siteProcess.version != kSiteProcessStateVersion) {
+        return false;
+    }
+    s3g::AmbiCartographySiteProcessOptions options {};
+    options.shredCircuit = static_cast<s3g::MacroShredCircuit>(
+        siteProcess.shredCircuit);
+    options.fractureProcessor = static_cast<s3g::FractureProcessor>(
+        siteProcess.fractureProcessor);
+
     auto* instance = self(plugin);
     instance->encoder.setParams(state.params);
     instance->encoder.setSites(state.sites);
+    instance->encoder.setLandscapeParams(landscape.params);
+    instance->encoder.setSiteProcessOptions(options);
     instance->params = instance->encoder.params();
+    instance->landscape = instance->encoder.landscapeParams();
+    instance->siteProcess = instance->encoder.siteProcessOptions();
     publishAllParams(*instance);
     return true;
 }
 
 const clap_plugin_state_t stateExtension { stateSave, stateLoad };
+
+uint32_t tailGet(const clap_plugin_t* plugin)
+{
+    const auto* instance = self(plugin);
+    if (!instance) return 0u;
+    // The physical arrival field, parked macro delay, feedback ecology, and
+    // relay captures can outlive the direct input by many seconds. A fixed
+    // conservative tail keeps hosts rendering those paths across transport
+    // stops without claiming an infinite generator.
+    return static_cast<uint32_t>(std::ceil(
+        std::max(1000.0, instance->sampleRate) * 90.0));
+}
+
+const clap_plugin_tail_t tailExtension { tailGet };
 
 } // namespace
 
@@ -818,7 +1298,9 @@ constexpr std::array<CartographyControl, kParamCount> kGuiControls {{
 
     { kMacroEngineParamId, "ENGINE", CartographyPanel::Process, 0u,
         CartographyControlKind::Menu },
-    { kMacroMetricParamId, "METRIC", CartographyPanel::Process, 1u,
+    { kShredCircuitParamId, "CIRCUIT", CartographyPanel::Process, 1u,
+        CartographyControlKind::Menu },
+    { kFractureProcessorParamId, "PROCESSOR", CartographyPanel::Process, 1u,
         CartographyControlKind::Menu },
     { kMacroParamId, "MACRO", CartographyPanel::Process, 2u,
         CartographyControlKind::Slider },
@@ -826,15 +1308,17 @@ constexpr std::array<CartographyControl, kParamCount> kGuiControls {{
         CartographyControlKind::Slider },
     { kMemoryParamId, "MEMORY", CartographyPanel::Process, 4u,
         CartographyControlKind::Slider },
-    { kSpreadParamId, "SPREAD", CartographyPanel::Process, 5u,
+    { kProcessMixParamId, "MIX", CartographyPanel::Process, 5u,
         CartographyControlKind::Slider },
-    { kDeviationParamId, "DEVIATE", CartographyPanel::Process, 6u,
+    { kMacroMetricParamId, "METRIC", CartographyPanel::Process, 0u,
+        CartographyControlKind::Menu },
+    { kSpreadParamId, "SPREAD", CartographyPanel::Process, 1u,
         CartographyControlKind::Slider },
-    { kSkewParamId, "SKEW", CartographyPanel::Process, 7u,
+    { kDeviationParamId, "DEVIATE", CartographyPanel::Process, 2u,
         CartographyControlKind::Slider },
-    { kCenterParamId, "CENTER", CartographyPanel::Process, 8u,
+    { kSkewParamId, "SKEW", CartographyPanel::Process, 3u,
         CartographyControlKind::Slider },
-    { kProcessMixParamId, "MIX", CartographyPanel::Process, 9u,
+    { kCenterParamId, "CENTER", CartographyPanel::Process, 4u,
         CartographyControlKind::Slider },
 
     { kSiteParamId, "SITE", CartographyPanel::SelectedSite, 0u,
@@ -850,6 +1334,21 @@ constexpr std::array<CartographyControl, kParamCount> kGuiControls {{
     { kSiteGainParamId, "GAIN", CartographyPanel::SelectedSite, 5u,
         CartographyControlKind::Slider },
     { kSiteNetworkTrimParamId, "NET TRIM", CartographyPanel::SelectedSite, 6u,
+        CartographyControlKind::Slider },
+
+    { kMultipathParamId, "MULTIPATH", CartographyPanel::Guide, 0u,
+        CartographyControlKind::Slider },
+    { kOcclusionParamId, "OCCLUSION", CartographyPanel::Guide, 1u,
+        CartographyControlKind::Slider },
+    { kNetworkWeatherParamId, "NET WEATHER", CartographyPanel::Guide, 2u,
+        CartographyControlKind::Slider },
+    { kRefractionParamId, "REFRACT", CartographyPanel::Guide, 3u,
+        CartographyControlKind::Slider },
+    { kMotionParamId, "MOTION", CartographyPanel::Guide, 0u,
+        CartographyControlKind::Slider },
+    { kEcologyParamId, "ECOLOGY", CartographyPanel::Guide, 1u,
+        CartographyControlKind::Slider },
+    { kHorizonParamId, "HORIZON", CartographyPanel::Guide, 2u,
         CartographyControlKind::Slider },
 }};
 
@@ -883,46 +1382,72 @@ struct FactoryPreset {
     float listenerX;
     float listenerY;
     float listenerZ;
+    float multipath;
+    float occlusion;
+    float networkWeather;
+    float refraction;
+    float motion;
+    float ecology;
+    float horizon;
+    uint32_t shredCircuit;
+    uint32_t fractureProcessor;
 };
 
 constexpr std::array<FactoryPreset, kFactoryPresetCount> kFactoryPresets {{
     { "INIT", 12u, 0u, 0u, 0u, 240.0f, 420.0f,
         0.35f, 0.28f, 0.55f, 0.20f, 0.08f,
         1u, 0u, 0.50f, 0.55f, 0.28f, 0.35f, 0.12f, 0.0f, 0.50f, 0.42f,
-        0u, 0.0f, 0.0f, 0.0f, 0.0f },
+        0u, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0u, 0u },
     { "PHYSICAL PLAZA", 8u, 0u, 0u, 0u, 55.0f, 0.0f,
         1.0f, 0.08f, 0.36f, 0.08f, 0.02f,
         0u, 3u, 0.18f, 0.40f, 0.10f, 0.18f, 0.02f, 0.0f, 0.50f, 0.0f,
-        0u, 0.0f, 0.0f, 0.0f, 0.0f },
+        0u, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.18f, 0.05f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0u, 0u },
     { "CITY RELAYS", 16u, 3u, 2u, 0u, 480.0f, 1450.0f,
         0.70f, 0.30f, 0.42f, 0.40f, 0.10f,
-        1u, 0u, 0.62f, 0.58f, 0.62f, 0.74f, 0.18f, 0.20f, 0.45f, 0.62f,
-        0u, 0.0f, 0.0f, 0.0f, 0.0f },
+        6u, 0u, 0.62f, 0.58f, 0.62f, 0.74f, 0.18f, 0.20f, 0.45f, 0.62f,
+        0u, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.10f, 0.10f, 0.70f, 0.10f, 0.08f, 0.22f, 0.15f, 1u, 0u },
     { "RIDGE AFTERIMAGE", 12u, 1u, 0u, 1u, 1200.0f, 620.0f,
         1.0f, 0.46f, 0.52f, 0.60f, 0.12f,
-        1u, 1u, 0.72f, 0.42f, 0.76f, 0.58f, 0.16f, -0.18f, 0.56f, 0.68f,
-        1u, 0.28f, -0.20f, -0.25f, 0.0f },
+        7u, 1u, 0.72f, 0.42f, 0.76f, 0.58f, 0.16f, -0.18f, 0.56f, 0.68f,
+        1u, 0.28f, -0.20f, -0.25f, 0.0f,
+        0.20f, 0.65f, 0.12f, -0.25f, 0.12f, 0.15f, 0.25f, 0u, 2u },
     { "WATERFRONT CARRY", 18u, 4u, 1u, 0u, 1800.0f, 880.0f,
         0.85f, 0.18f, 0.32f, 0.85f, 0.16f,
-        2u, 3u, 0.42f, 0.68f, 0.48f, 0.66f, 0.10f, 0.16f, 0.62f, 0.54f,
-        1u, 0.32f, 0.0f, -0.45f, 0.0f },
+        5u, 3u, 0.42f, 0.68f, 0.48f, 0.66f, 0.10f, 0.16f, 0.62f, 0.54f,
+        1u, 0.32f, 0.0f, -0.45f, 0.0f,
+        0.42f, 0.10f, 0.20f, 0.55f, 0.18f, 0.12f, 0.35f, 1u, 0u },
     { "CORRIDOR BENDS", 10u, 2u, 2u, 1u, 240.0f, 280.0f,
         0.45f, 0.15f, 0.60f, 0.25f, 0.05f,
         2u, 2u, 0.66f, 0.48f, 0.38f, 0.58f, 0.22f, -0.34f, 0.46f, 0.58f,
-        2u, 0.40f, 0.18f, 0.0f, 0.0f },
+        2u, 0.40f, 0.18f, 0.0f, 0.0f,
+        0.58f, 0.38f, 0.15f, 0.10f, 0.20f, 0.28f, 0.12f, 2u, 0u },
     { "SHRED GRID", 24u, 3u, 2u, 0u, 700.0f, 1800.0f,
         0.50f, 0.38f, 0.65f, 0.30f, 0.24f,
         3u, 0u, 0.78f, 0.74f, 0.34f, 0.92f, 0.48f, 0.28f, 0.36f, 0.70f,
-        0u, 0.0f, 0.0f, 0.0f, 0.0f },
+        0u, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.18f, 0.18f, 0.78f, -0.15f, 0.45f, 0.18f, 0.32f, 7u, 0u },
     { "FRACTURE HORIZON", 20u, 4u, 0u, 1u, 1500.0f, 1550.0f,
         1.0f, 0.62f, 0.48f, 0.65f, 0.32f,
         4u, 1u, 0.86f, 0.82f, 0.72f, 0.88f, 0.54f, -0.22f, 0.68f, 0.72f,
-        2u, 0.55f, 0.38f, 0.18f, 0.0f },
+        2u, 0.55f, 0.38f, 0.18f, 0.0f,
+        0.35f, 0.30f, 0.55f, -0.70f, 0.20f, 0.38f, 0.85f, 0u, 4u },
     { "LISTENER DRIFT", 14u, 0u, 0u, 0u, 520.0f, 780.0f,
         0.72f, 0.26f, 0.48f, 0.44f, 0.14f,
         1u, 2u, 0.56f, 0.52f, 0.58f, 0.62f, 0.20f, 0.12f, 0.52f, 0.56f,
-        3u, 0.78f, -0.55f, 0.35f, 0.0f },
+        3u, 0.78f, -0.55f, 0.35f, 0.0f,
+        0.22f, 0.12f, 0.28f, 0.15f, 0.72f, 0.25f, 0.28f, 0u, 0u },
 }};
+
+static_assert(kFactoryPresets[2].engine == 6u);
+static_assert(kFactoryPresets[3].engine == 7u);
+static_assert(kFactoryPresets[4].engine == 5u);
+static_assert(kFactoryPresets[6].engine == 3u
+    && kFactoryPresets[6].shredCircuit == 7u);
+static_assert(kFactoryPresets[7].engine == 4u
+    && kFactoryPresets[7].fractureProcessor == 4u);
 
 NSRect panelRect(CartographyPanel panel)
 {
@@ -987,9 +1512,11 @@ uint32_t menuItemCount(clap_id id)
     case kLayoutParamId: return 5u;
     case kStereoMapParamId: return 3u;
     case kTimeReferenceParamId: return 2u;
-    case kMacroEngineParamId: return 5u;
+    case kMacroEngineParamId: return 8u;
     case kMacroMetricParamId: return 4u;
     case kListenModeParamId: return 4u;
+    case kShredCircuitParamId: return s3g::kMacroShredCircuitCount;
+    case kFractureProcessorParamId: return s3g::kFractureProcessorCount;
     default: return 0u;
     }
 }
@@ -998,6 +1525,137 @@ double menuValue(clap_id id, uint32_t item)
 {
     return id == kOrderParamId
         ? static_cast<double>(item + 1u) : static_cast<double>(item);
+}
+
+int landscapePageForParam(clap_id id)
+{
+    if (id == kMultipathParamId || id == kOcclusionParamId
+        || id == kNetworkWeatherParamId || id == kRefractionParamId) {
+        return 1;
+    }
+    if (id == kMotionParamId || id == kEcologyParamId
+        || id == kHorizonParamId) {
+        return 2;
+    }
+    return -1;
+}
+
+int processPageForParam(clap_id id)
+{
+    switch (id) {
+    case kMacroEngineParamId:
+    case kShredCircuitParamId:
+    case kFractureProcessorParamId:
+    case kMacroParamId:
+    case kColorParamId:
+    case kMemoryParamId:
+    case kProcessMixParamId:
+        return 0;
+    case kMacroMetricParamId:
+    case kSpreadParamId:
+    case kDeviationParamId:
+    case kSkewParamId:
+    case kCenterParamId:
+        return 1;
+    default:
+        return -1;
+    }
+}
+
+bool controlVisible(const CartographyControl& control, int landscapePage,
+    int processPage, uint32_t engine)
+{
+    const int landscape = landscapePageForParam(control.id);
+    if (landscape >= 0 && landscape != landscapePage) return false;
+    const int process = processPageForParam(control.id);
+    if (process >= 0 && process != processPage) return false;
+    if (control.id == kShredCircuitParamId) return engine == 3u;
+    if (control.id == kFractureProcessorParamId) return engine == 4u;
+    return true;
+}
+
+const char* processControlLabel(clap_id id, uint32_t engine,
+    uint32_t fractureProcessor)
+{
+    if (id == kSpreadParamId && engine == 6u) return "RADIUS";
+    if (id == kDeviationParamId && engine == 6u) return "JITTER";
+    if (id == kSkewParamId && engine == 6u) return "DISPERSION";
+    if (id == kCenterParamId && engine == 6u) return "CENTROID";
+    if (id == kSkewParamId && engine == 7u) return "DIRECTION";
+
+    if (id == kMacroParamId) {
+        switch (engine) {
+        case 1u: return "TIME";
+        case 2u: return "PITCH";
+        case 3u: return "DRIVE";
+        case 4u:
+            return s3g::fractureAmountLabel(
+                static_cast<s3g::FractureProcessor>(fractureProcessor));
+        case 5u: return "BODY DRIVE";
+        case 6u: return "TRANSFER";
+        case 7u: return "DEPTH";
+        default: return "MACRO";
+        }
+    }
+    if (id == kColorParamId) {
+        switch (engine) {
+        case 1u: return "TONE";
+        case 2u: return "WINDOW";
+        case 3u: return "COLOR";
+        case 4u:
+            return s3g::fractureColorLabel(
+                static_cast<s3g::FractureProcessor>(fractureProcessor));
+        case 5u: return "CABINET";
+        case 6u: return "TILT";
+        case 7u: return "LENGTH";
+        default: return "COLOR";
+        }
+    }
+    if (id == kMemoryParamId) {
+        switch (engine) {
+        case 1u:
+        case 3u: return "FEEDBACK";
+        case 5u: return "RESONANCE";
+        case 6u: return "HOLD";
+        case 7u: return "RECURRENCE";
+        default: return "MEMORY";
+        }
+    }
+    const auto* control = guiControl(id);
+    return control ? control->label : "";
+}
+
+const char* processDescription(uint32_t engine)
+{
+    switch (engine) {
+    case 0u: return "DIRECT SITE FEED";
+    case 1u: return "DISTRIBUTED ECHO LINES";
+    case 2u: return "ORDINAL TRANSPOSE";
+    case 5u: return "HORN / CABINET / DRIVER";
+    case 6u: return "DISTRIBUTED FILTERBANK";
+    case 7u: return "LOCAL CAPTURE / REPEAT";
+    default: return "";
+    }
+}
+
+NSRect processPageButtonRect(uint32_t index)
+{
+    const NSRect panel = panelRect(CartographyPanel::Process);
+    constexpr CGFloat width = 50.0;
+    constexpr CGFloat gap = 4.0;
+    return NSMakeRect(panel.origin.x + 212.0
+            + static_cast<CGFloat>(index) * (width + gap),
+        panel.origin.y + 3.0, width, 15.0);
+}
+
+NSRect landscapePageButtonRect(uint32_t index)
+{
+    const NSRect panel = panelRect(CartographyPanel::Guide);
+    constexpr CGFloat width = 50.0;
+    constexpr CGFloat gap = 4.0;
+    return NSMakeRect(panel.origin.x + 152.0
+            + static_cast<CGFloat>(index) * (width + gap),
+        panel.origin.y + 3.0, width, 15.0);
 }
 
 } // namespace
@@ -1011,6 +1669,8 @@ double menuValue(clap_id id, uint32_t item)
     uint32_t _menuItemCount;
     NSInteger _dragSite;
     BOOL _dragListener;
+    int _landscapePage;
+    int _processPage;
     int _factoryPresetIndex;
     char _presetName[64];
 }
@@ -1039,6 +1699,8 @@ double menuValue(clap_id id, uint32_t item)
         _menuItemCount = 0u;
         _dragSite = -1;
         _dragListener = NO;
+        _landscapePage = plugin ? plugin->guiLandscapePage : 0;
+        _processPage = plugin ? plugin->guiProcessPage : 0;
         _factoryPresetIndex = 0;
         std::snprintf(_presetName, sizeof(_presetName), "%s", "INIT");
         [self setWantsLayer:YES];
@@ -1075,6 +1737,14 @@ double menuValue(clap_id id, uint32_t item)
     (void)timer;
     if (![self isHidden] && _plugin && _plugin->guiVisible
         && s3g::clap_support::hostAppIsActive()) {
+        const uint32_t engine = static_cast<uint32_t>(std::lround(
+            publishedParamValue(*_plugin, kMacroEngineParamId)));
+        if ((_openMenu == kShredCircuitParamId && engine != 3u)
+            || (_openMenu == kFractureProcessorParamId && engine != 4u)) {
+            _openMenu = CLAP_INVALID_ID;
+            _hoverMenuItem = -1;
+            _menuItemCount = 0u;
+        }
         [self setNeedsDisplay:YES];
     }
 }
@@ -1114,6 +1784,15 @@ double menuValue(clap_id id, uint32_t item)
     set(kListenerXParamId, preset.listenerX);
     set(kListenerYParamId, preset.listenerY);
     set(kListenerZParamId, preset.listenerZ);
+    set(kMultipathParamId, preset.multipath);
+    set(kOcclusionParamId, preset.occlusion);
+    set(kNetworkWeatherParamId, preset.networkWeather);
+    set(kRefractionParamId, preset.refraction);
+    set(kMotionParamId, preset.motion);
+    set(kEcologyParamId, preset.ecology);
+    set(kHorizonParamId, preset.horizon);
+    set(kShredCircuitParamId, preset.shredCircuit);
+    set(kFractureProcessorParamId, preset.fractureProcessor);
     set(kSiteParamId, 1.0);
     set(kSiteGainParamId, 1.0);
     set(kSiteNetworkTrimParamId, 0.0);
@@ -1161,8 +1840,17 @@ double menuValue(clap_id id, uint32_t item)
     };
     NSString* stereoItems[3] = { @"MID/SIDE", @"MONO", @"ALTERNATE" };
     NSString* timeItems[2] = { @"RELATIVE", @"ABSOLUTE" };
-    NSString* engineItems[5] = {
-        @"CLEAN", @"DELAY", @"PITCH", @"SHRED", @"FRACTURE"
+    NSString* engineItems[8] = {
+        @"CLEAN", @"DELAY", @"PITCH", @"SHRED", @"FRACTURE",
+        @"BODY", @"SPECTRAL RELAY", @"RELAY BUFFER"
+    };
+    NSString* shredItems[8] = {
+        @"SHRED", @"WOOL", @"RAT", @"ZONE A",
+        @"ZONE B", @"FUZZ I", @"FUZZ II", @"DIODE"
+    };
+    NSString* fractureItems[10] = {
+        @"RELAY", @"CRUSH", @"SPLICE", @"LOGIC", @"VOID",
+        @"THROAT", @"ROBOT", @"OCT DOWN", @"OCT UP", @"OCT STACK"
     };
     NSString* metricItems[4] = {
         @"NETWORK", @"ARRIVAL", @"BEARING", @"RANGE"
@@ -1178,6 +1866,8 @@ double menuValue(clap_id id, uint32_t item)
     else if (_openMenu == kMacroEngineParamId) items = engineItems;
     else if (_openMenu == kMacroMetricParamId) items = metricItems;
     else if (_openMenu == kListenModeParamId) items = listenerItems;
+    else if (_openMenu == kShredCircuitParamId) items = shredItems;
+    else if (_openMenu == kFractureProcessorParamId) items = fractureItems;
     const int selected = _openMenu == kFactoryPresetMenuId
         ? _factoryPresetIndex
         : static_cast<int>(std::lround(
@@ -1230,6 +1920,13 @@ double menuValue(clap_id id, uint32_t item)
 
     const auto params = _plugin->params;
     const auto& sites = _plugin->encoder.sites();
+    const bool moving = publishedParamValue(
+        *_plugin, kMotionParamId) > 0.000001;
+    const auto positionForSite = [&](uint32_t site) {
+        if (!moving) return s3g::Vec3 {
+            sites[site].x, sites[site].y, sites[site].z };
+        return _plugin->encoder.renderedSitePosition(site);
+    };
     float maximumArrival = 0.0001f;
     for (uint32_t site = 0u; site < params.activeSites; ++site) {
         maximumArrival = std::max(maximumArrival,
@@ -1239,9 +1936,12 @@ double menuValue(clap_id id, uint32_t item)
     [s3g::clap_gui::color(0x4b4b4b, 0.75) setStroke];
     NSBezierPath* network = [NSBezierPath bezierPath];
     for (uint32_t site = 1u; site < params.activeSites; ++site) {
-        const NSPoint previous = [self mapPointX:sites[site - 1u].x
-            y:sites[site - 1u].y];
-        const NSPoint current = [self mapPointX:sites[site].x y:sites[site].y];
+        const auto previousPosition = positionForSite(site - 1u);
+        const auto currentPosition = positionForSite(site);
+        const NSPoint previous = [self mapPointX:previousPosition.x
+            y:previousPosition.y];
+        const NSPoint current = [self mapPointX:currentPosition.x
+            y:currentPosition.y];
         [network moveToPoint:previous];
         [network lineToPoint:current];
     }
@@ -1250,7 +1950,9 @@ double menuValue(clap_id id, uint32_t item)
 
     for (uint32_t site = 0u; site < params.activeSites; ++site) {
         const auto& cartographySite = sites[site];
-        const NSPoint point = [self mapPointX:cartographySite.x y:cartographySite.y];
+        const auto renderedPosition = positionForSite(site);
+        const NSPoint point = [self mapPointX:renderedPosition.x
+            y:renderedPosition.y];
         const float arrival = _plugin->encoder.siteArrivalSeconds(site);
         const float arrivalNorm = s3g::clamp(
             arrival / maximumArrival, 0.0f, 1.0f);
@@ -1267,6 +1969,16 @@ double menuValue(clap_id id, uint32_t item)
         NSRect node = NSMakeRect(point.x - radius, point.y - radius,
             radius * 2.0, radius * 2.0);
         [[NSBezierPath bezierPathWithOvalInRect:node] fill];
+        const float occlusion = _plugin->encoder.siteOcclusion(site);
+        if (occlusion > 0.01f) {
+            [s3g::clap_gui::color(0x6f6558,
+                0.25 + occlusion * 0.65) setStroke];
+            NSBezierPath* shadow = [NSBezierPath bezierPathWithOvalInRect:
+                NSInsetRect(node, -2.0 - occlusion * 4.0,
+                    -2.0 - occlusion * 4.0)];
+            [shadow setLineWidth:1.0 + occlusion * 1.5];
+            [shadow stroke];
+        }
         if (site == params.selectedSite) {
             [style.text setStroke];
             NSBezierPath* selection = [NSBezierPath bezierPathWithOvalInRect:
@@ -1279,7 +1991,11 @@ double menuValue(clap_id id, uint32_t item)
             point.y - 6.0) withAttributes:values];
     }
 
-    const NSPoint listener = [self mapPointX:params.listenerX y:params.listenerY];
+    const auto renderedListener = moving
+        ? _plugin->encoder.renderedListenerPosition()
+        : s3g::Vec3 { params.listenerX, params.listenerY, params.listenerZ };
+    const NSPoint listener = [self mapPointX:renderedListener.x
+        y:renderedListener.y];
     [s3g::clap_gui::color(0xf0d35d) setStroke];
     NSBezierPath* listenerMark = [NSBezierPath bezierPath];
     [listenerMark moveToPoint:NSMakePoint(listener.x - 10.0, listener.y)];
@@ -1311,7 +2027,13 @@ double menuValue(clap_id id, uint32_t item)
 - (void)drawControls:(const s3g::clap_gui::Style&)style
     labels:(NSDictionary*)labels values:(NSDictionary*)values
 {
+    const uint32_t engine = static_cast<uint32_t>(std::lround(
+        publishedParamValue(*_plugin, kMacroEngineParamId)));
+    const uint32_t fractureProcessor = static_cast<uint32_t>(std::lround(
+        publishedParamValue(*_plugin, kFractureProcessorParamId)));
     for (const auto& control : kGuiControls) {
+        if (!controlVisible(
+                control, _landscapePage, _processPage, engine)) continue;
         const uint32_t index = paramIndex(control.id);
         if (index >= kParamCount) continue;
         const auto& definition = kParams[index];
@@ -1321,7 +2043,10 @@ double menuValue(clap_id id, uint32_t item)
             display, sizeof(display));
         const NSRect panel = panelRect(control.panel);
         const CGFloat y = controlY(control);
-        NSString* label = [NSString stringWithUTF8String:control.label];
+        const char* labelText = control.panel == CartographyPanel::Process
+            ? processControlLabel(control.id, engine, fractureProcessor)
+            : control.label;
+        NSString* label = [NSString stringWithUTF8String:labelText];
         NSString* text = [NSString stringWithUTF8String:display];
         if (control.kind == CartographyControlKind::Menu) {
             s3g::clap_gui::drawProcessorMenu(
@@ -1380,25 +2105,63 @@ double menuValue(clap_id id, uint32_t item)
     drawPanel(@"LISTENER", CartographyPanel::Listener);
     drawPanel(@"SITE PROCESS", CartographyPanel::Process);
     drawPanel(@"SELECTED SITE", CartographyPanel::SelectedSite);
-    drawPanel(@"MAP GUIDE", CartographyPanel::Guide);
+    drawPanel(@"LANDSCAPE FX", CartographyPanel::Guide);
+    NSString* processPages[2] = { @"CORE", @"REL" };
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        s3g::clap_gui::drawHeaderButton(
+            processPageButtonRect(index),
+            panelRect(CartographyPanel::Process), processPages[index],
+            _processPage == static_cast<int>(index), values, style);
+    }
+    NSString* landscapePages[3] = { @"MAP", @"PATH", @"FIELD" };
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        s3g::clap_gui::drawHeaderButton(
+            landscapePageButtonRect(index),
+            panelRect(CartographyPanel::Guide), landscapePages[index],
+            _landscapePage == static_cast<int>(index), values, style);
+    }
     [self drawMap:style labels:labels values:values];
     [self drawControls:style labels:labels values:values];
+    const uint32_t engine = static_cast<uint32_t>(std::lround(
+        publishedParamValue(*_plugin, kMacroEngineParamId)));
+    if (_processPage == 0 && engine != 3u && engine != 4u) {
+        const NSRect process = panelRect(CartographyPanel::Process);
+        const CGFloat y = process.origin.y
+            + s3g::gui_layout::kStandardMetrics.firstRowOffset
+            + s3g::gui_layout::kStandardMetrics.rowPitch - 6.0;
+        [[NSString stringWithUTF8String:processDescription(engine)]
+            drawAtPoint:NSMakePoint(process.origin.x + 16.0, y)
+            withAttributes:values];
+    }
     const NSRect guide = panelRect(CartographyPanel::Guide);
-    [@"DRAG +  LISTENER   DRAG NODE  SITE"
-        drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 38.0)
-        withAttributes:values];
-    [@"NODE SIZE  LIVE LEVEL"
-        drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 62.0)
-        withAttributes:values];
-    [@"COOL -> WARM  LATE ARRIVAL"
-        drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 86.0)
-        withAttributes:values];
-    [@"DOUBLE-CLICK SLIDER  DEFAULT"
-        drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 110.0)
-        withAttributes:values];
-    [@"FACTORY PRESETS PRESERVE ORDER + OUT"
-        drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 134.0)
-        withAttributes:labels];
+    if (_landscapePage == 0) {
+        [@"DRAG +  LISTENER   DRAG NODE  SITE"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 38.0)
+            withAttributes:values];
+        [@"NODE SIZE  LIVE LEVEL"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 62.0)
+            withAttributes:values];
+        [@"COOL -> WARM  LATE ARRIVAL"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 86.0)
+            withAttributes:values];
+        [@"DOUBLE-CLICK SLIDER  DEFAULT"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 110.0)
+            withAttributes:values];
+        [@"FACTORY PRESETS PRESERVE ORDER + OUT"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 134.0)
+            withAttributes:labels];
+    } else if (_landscapePage == 1) {
+        [@"ZERO = DIRECT / STABLE PATHS"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 134.0)
+            withAttributes:labels];
+    } else {
+        [@"AIR / CARRY / TURB VOICE WEATHER"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 110.0)
+            withAttributes:values];
+        [@"COLOR / MEMORY / SPREAD VOICE ECOLOGY"
+            drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 134.0)
+            withAttributes:labels];
+    }
     [self drawOpenMenu:values style:style];
 }
 
@@ -1516,7 +2279,11 @@ double menuValue(clap_id id, uint32_t item)
         set(kCarryParamId, randomUnit() * 0.82);
         set(kTurbulenceParamId, randomUnit() * 0.38);
         set(kMacroEngineParamId,
-            1.0 + std::floor(randomUnit() * 4.0));
+            1.0 + std::floor(randomUnit() * 7.0));
+        set(kShredCircuitParamId,
+            std::floor(randomUnit() * s3g::kMacroShredCircuitCount));
+        set(kFractureProcessorParamId,
+            std::floor(randomUnit() * s3g::kFractureProcessorCount));
         set(kMacroMetricParamId,
             std::floor(randomUnit() * 4.0));
         set(kMacroParamId, randomUnit());
@@ -1531,6 +2298,20 @@ double menuValue(clap_id id, uint32_t item)
         set(kListenerAmountParamId, randomUnit() * 0.72);
         set(kListenerXParamId, randomUnit() * 1.4 - 0.7);
         set(kListenerYParamId, randomUnit() * 1.4 - 0.7);
+        set(kMultipathParamId,
+            randomUnit() < 0.18 ? 0.0 : randomUnit() * 0.68);
+        set(kOcclusionParamId,
+            randomUnit() < 0.22 ? 0.0 : randomUnit() * 0.72);
+        set(kNetworkWeatherParamId,
+            randomUnit() < 0.24 ? 0.0 : randomUnit() * 0.75);
+        set(kRefractionParamId,
+            randomUnit() < 0.20 ? 0.0 : randomUnit() * 1.4 - 0.7);
+        set(kMotionParamId,
+            randomUnit() < 0.30 ? 0.0 : randomUnit() * 0.60);
+        set(kEcologyParamId,
+            randomUnit() < 0.32 ? 0.0 : randomUnit() * 0.40);
+        set(kHorizonParamId,
+            randomUnit() < 0.25 ? 0.0 : randomUnit() * 0.75);
         _plugin->layoutResetPending.store(true, std::memory_order_release);
         requestGuiParamService(*_plugin);
         _factoryPresetIndex = -1;
@@ -1539,14 +2320,40 @@ double menuValue(clap_id id, uint32_t item)
         return;
     }
 
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (NSPointInRect(point, landscapePageButtonRect(index))) {
+            _landscapePage = static_cast<int>(index);
+            _plugin->guiLandscapePage = _landscapePage;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        if (NSPointInRect(point, processPageButtonRect(index))) {
+            _processPage = static_cast<int>(index);
+            _plugin->guiProcessPage = _processPage;
+            _openMenu = CLAP_INVALID_ID;
+            _hoverMenuItem = -1;
+            _menuItemCount = 0u;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
     if (NSPointInRect(point, cartographyMapRect())) {
         const auto params = _plugin->params;
         const auto& sites = _plugin->encoder.sites();
+        const bool moving = publishedParamValue(
+            *_plugin, kMotionParamId) > 0.000001;
         CGFloat bestDistance = 14.0;
         NSInteger bestSite = -1;
         for (uint32_t site = 0u; site < params.activeSites; ++site) {
-            const NSPoint sitePoint = [self mapPointX:sites[site].x
-                y:sites[site].y];
+            const auto rendered = moving
+                ? _plugin->encoder.renderedSitePosition(site)
+                : s3g::Vec3 { sites[site].x, sites[site].y, sites[site].z };
+            const NSPoint sitePoint = [self mapPointX:rendered.x
+                y:rendered.y];
             const CGFloat dx = point.x - sitePoint.x;
             const CGFloat dy = point.y - sitePoint.y;
             const CGFloat distance = std::sqrt(dx * dx + dy * dy);
@@ -1555,8 +2362,12 @@ double menuValue(clap_id id, uint32_t item)
                 bestSite = static_cast<NSInteger>(site);
             }
         }
-        const NSPoint listener = [self mapPointX:params.listenerX
-            y:params.listenerY];
+        const auto renderedListener = moving
+            ? _plugin->encoder.renderedListenerPosition()
+            : s3g::Vec3 {
+                params.listenerX, params.listenerY, params.listenerZ };
+        const NSPoint listener = [self mapPointX:renderedListener.x
+            y:renderedListener.y];
         const CGFloat ldx = point.x - listener.x;
         const CGFloat ldy = point.y - listener.y;
         if (std::sqrt(ldx * ldx + ldy * ldy) < 15.0) {
@@ -1581,7 +2392,11 @@ double menuValue(clap_id id, uint32_t item)
         }
     }
 
+    const uint32_t engine = static_cast<uint32_t>(std::lround(
+        publishedParamValue(*_plugin, kMacroEngineParamId)));
     for (const auto& control : kGuiControls) {
+        if (!controlVisible(
+                control, _landscapePage, _processPage, engine)) continue;
         if (!NSPointInRect(point, controlHitRect(control))) continue;
         const uint32_t index = paramIndex(control.id);
         if (index >= kParamCount) continue;
@@ -1792,6 +2607,7 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
+    if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExtension;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
@@ -1814,7 +2630,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.6.0-pre",
-    "Stereo-to-HOA loudspeaker cartography with network timing, outdoor propagation, macro site processing, and Listener Mode.",
+    "Stereo-to-HOA loudspeaker cartography with network timing, landscape effects, macro site processing, and Listener Mode.",
     features
 };
 
@@ -1825,7 +2641,11 @@ const clap_plugin_t* create(const clap_host_t* host)
     instance->host = host;
     instance->encoder.prepare(instance->sampleRate);
     instance->encoder.setParams(instance->params);
+    instance->encoder.setLandscapeParams(instance->landscape);
+    instance->encoder.setSiteProcessOptions(instance->siteProcess);
     instance->params = instance->encoder.params();
+    instance->landscape = instance->encoder.landscapeParams();
+    instance->siteProcess = instance->encoder.siteProcessOptions();
     publishAllParams(*instance);
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;

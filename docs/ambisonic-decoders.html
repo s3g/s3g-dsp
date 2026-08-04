@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ambisonic Decoders - s3g-dsp</title>
-    <meta name="description" content="Ambisonic speaker, stereo, and headphone decoder documentation for s3g-dsp.">
+    <meta name="description" content="Ambisonic speaker, object, adaptive, subwoofer, stereo, and headphone decoder documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambisonic Decoders</h1>
 
-        <p>Decoders turn an <code>ACN/SN3D</code> field into speaker, object, subwoofer, stereo, or headphone feeds. Match the decoder order to the encoded material and make its output bus the final spatial rendering stage.</p>
+        <p>Decoders turn an <code>ACN/SN3D</code> field into loudspeaker, subwoofer, stereo, or headphone feeds. Object and Adaptive are alternate loudspeaker renderers: they add content-derived focus while retaining ordinary speaker outputs. Match the decoder order to the encoded material and make its output bus the final spatial rendering stage.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -37,11 +37,13 @@
           <li>Refine orientation, weighting, and output level while the source is playing.</li>
         </ol>
 
-        <h2 id="speaker">Speaker and Object Rendering</h2>
+        <h2 id="speaker">Loudspeaker and Subwoofer Rendering</h2>
 
         <ul>
           <li><a href="ambi-decoder-speaker.html">Ambi Decoder Speaker</a>: decodes first-through-seventh-order material to built-in or custom speaker layouts.</li>
-          <li><a href="ambi-decoder-speaker.html#decoder-variants">Object, Adaptive, and Sub variants</a>: focus the decode on object directions, adapt the rendering behavior, or derive low-frequency feeds while retaining the shared layout model.</li>
+          <li><a href="ambi-decoder-object.html">Ambi Decoder Object</a>: blends the complete speaker decode with a confidence-gated directional object path using VBAP, LBAP, or DBAP.</li>
+          <li><a href="ambi-decoder-adaptive.html">Ambi Decoder Adaptive</a>: varies high-frequency focus from directional-confidence and transient cues while keeping a diffuse low-frequency foundation.</li>
+          <li><a href="ambi-decoder-sub.html">Ambi Decoder Sub</a>: derives one to eight low-frequency feeds from the omnidirectional and horizontal first-order components.</li>
         </ul>
 
         <h2 id="monitoring">Stereo and Headphone Monitoring</h2>
@@ -53,7 +55,7 @@
 
         <h2 id="host-routing">Host Routing</h2>
 
-        <p>In REAPER, set the track wide enough for the incoming order before inserting the decoder. Stereo and headphone variants expose a true two-channel output; enable <code>Zero out unmapped output channels</code> in the pin connector if REAPER passes higher track channels around the plugin.</p>
+        <p>In REAPER, set the track wide enough for the incoming order before inserting the decoder. Speaker, Object, and Adaptive expose fixed 64-channel outputs and silence lanes above the selected layout; Sub exposes eight outputs and silences lanes above the active sub count. Stereo and Head expose true two-channel outputs; enable <code>Zero out unmapped output channels</code> in the pin connector if REAPER passes higher track channels around either plugin.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-encoder-wrangler.html">
@@ -82,7 +84,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#speaker">Speaker and Object Rendering</a>
+          <a href="#speaker">Loudspeaker and Subwoofer Rendering</a>
           <a href="#monitoring">Stereo and Headphone Monitoring</a>
           <a href="#host-routing">Host Routing</a>
         </div>

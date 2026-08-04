@@ -40,6 +40,9 @@ ambi-wrangler-encoder-64	ambi-wrangler-encoder
 
 # Decoder, effect, processor, and utility detail pages.
 ambi-speaker-decoder-64	ambi-speaker-decoder
+ambi-object-decoder-64	ambi-object-decoder
+ambi-adaptive-decoder-64	ambi-adaptive-decoder
+ambisonic-sub-decoder	ambisonic-sub-decoder
 ambisonic-stereo-decoder	ambisonic-stereo-decoder
 ambisonic-head-decoder	ambisonic-head-decoder
 ambi-effect-dj-filter-64	ambi-effect-dj-filter

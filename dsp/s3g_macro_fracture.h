@@ -48,8 +48,8 @@ public:
 
     void reset()
     {
-        runtime_.timeBuffer.fill(0.0f);
         runtime_.timeWrite = 0u;
+        runtime_.timeValid = 0u;
         processorStates_.fill({});
         recurrence_.fill(0.0f);
         envelope_ = 0.0f;
@@ -184,6 +184,7 @@ private:
     struct ProcessorRuntime {
         std::array<float, kFractureTimeBufferSize> timeBuffer {};
         uint32_t timeWrite = 0u;
+        uint32_t timeValid = 0u;
     };
 
     static MacroFractureCoreParams sanitize(
