@@ -40,6 +40,17 @@ struct CoreAudioOutputConfig {
     bool deviceConfigurationSignalAvailable = false;
 };
 
+// Raw AUHAL timing delivered with a render callback. Clients that fan one
+// musical clock out to other timestamped systems must validate these flags
+// before rendering or publishing the host timestamp; telemetry is recorded
+// after the callback and is therefore intentionally not a preflight signal.
+struct CoreAudioRenderTiming {
+    uint64_t hostTime = 0u;
+    double sampleTime = 0.0;
+    bool hostTimeValid = false;
+    bool sampleTimeValid = false;
+};
+
 struct RealtimeCallbackTelemetrySnapshot {
     uint64_t callbackCount = 0u;
     uint64_t renderedFrameCount = 0u;
@@ -133,6 +144,9 @@ class CoreAudioOutput {
 public:
     using RenderCallback = OSStatus (*)(void* context,
         AudioBufferList* output, uint32_t frames, uint64_t hostTime);
+    using TimedRenderCallback = OSStatus (*)(void* context,
+        AudioBufferList* output, uint32_t frames,
+        const CoreAudioRenderTiming& timing);
 
     CoreAudioOutput() = default;
     ~CoreAudioOutput();
@@ -143,8 +157,11 @@ public:
     static AudioDeviceID defaultOutputDevice();
 
     // Opens and initializes an AUHAL output without starting the render thread.
+    // When timedRender is supplied it receives raw AUHAL validity metadata and
+    // takes precedence over render; render may then be null.
     bool open(AudioDeviceID device, uint32_t renderChannels,
-        RenderCallback render, void* context, std::string* error = nullptr);
+        RenderCallback render, void* context, std::string* error = nullptr,
+        TimedRenderCallback timedRender = nullptr);
     bool start(std::string* error = nullptr);
     void stop();
     void close();
@@ -177,6 +194,7 @@ private:
 
     AudioUnit unit_ = nullptr;
     RenderCallback render_ = nullptr;
+    TimedRenderCallback timedRender_ = nullptr;
     void* renderContext_ = nullptr;
     CoreAudioOutputConfig config_ {};
     // Reset swaps to a clean inactive bank. A callback already in flight may

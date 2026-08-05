@@ -452,11 +452,13 @@ AudioDeviceID CoreAudioOutput::defaultOutputDevice()
 }
 
 bool CoreAudioOutput::open(AudioDeviceID device, uint32_t renderChannels,
-    RenderCallback render, void* context, std::string* error)
+    RenderCallback render, void* context, std::string* error,
+    TimedRenderCallback timedRender)
 {
     close();
     resetTelemetry();
-    if (device == kAudioObjectUnknown || !render || renderChannels == 0u) {
+    if (device == kAudioObjectUnknown || (!render && !timedRender)
+        || renderChannels == 0u) {
         if (error) *error = "Invalid Core Audio output configuration";
         return false;
     }
@@ -516,6 +518,7 @@ bool CoreAudioOutput::open(AudioDeviceID device, uint32_t renderChannels,
     }
 
     render_ = render;
+    timedRender_ = timedRender;
     renderContext_ = context;
     AURenderCallbackStruct callback { renderThunk, this };
     if (status == noErr) {
@@ -710,6 +713,7 @@ void CoreAudioOutput::close()
     }
     unit_ = nullptr;
     render_ = nullptr;
+    timedRender_ = nullptr;
     renderContext_ = nullptr;
     config_ = {};
 }
@@ -720,7 +724,7 @@ OSStatus CoreAudioOutput::renderThunk(void* context,
     UInt32 frames, AudioBufferList* output)
 {
     auto* self = static_cast<CoreAudioOutput*>(context);
-    if (!self || !self->render_) return noErr;
+    if (!self || (!self->render_ && !self->timedRender_)) return noErr;
     const bool hostTimeValid = timestamp
         && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0u;
     const bool sampleTimeValid = timestamp
@@ -732,8 +736,14 @@ OSStatus CoreAudioOutput::renderThunk(void* context,
         ? mach_absolute_time() : 0u;
     const uint64_t blockHostTime = hostTimeValid
         ? timestamp->mHostTime : start;
-    const OSStatus status = self->render_(self->renderContext_, output,
-        frames, blockHostTime);
+    const CoreAudioRenderTiming renderTiming {
+        blockHostTime, sampleTime, hostTimeValid, sampleTimeValid,
+    };
+    const OSStatus status = self->timedRender_
+        ? self->timedRender_(self->renderContext_, output, frames,
+              renderTiming)
+        : self->render_(self->renderContext_, output, frames,
+              blockHostTime);
     if (!telemetryEnabled) return status;
     const uint64_t elapsedTicks = mach_absolute_time() - start;
     const long double elapsedNanoseconds = static_cast<long double>(
