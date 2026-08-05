@@ -656,6 +656,66 @@ int main(int argc, char** argv)
         ok = resetReturned.load(std::memory_order_acquire);
     }
 
+    // Direction is published as a stepped -1/0/+1 parameter. In particular,
+    // the legal zero value must survive state reload even though the DSP treats
+    // zero and +1 as the same non-inverted response direction.
+    const bool zeroDirectionSetupOk = ok;
+    EventList zeroDirectionChange;
+    zeroDirectionChange.add(kReactDirectionParam, 0.0);
+    if (zeroDirectionSetupOk)
+        params->flush(plugin, &zeroDirectionChange.input, nullptr);
+    double zeroDirectionValue = -999.0;
+    const bool zeroDirectionLiveOk = zeroDirectionSetupOk
+        && params->get_value(plugin, kReactDirectionParam,
+            &zeroDirectionValue)
+        && zeroDirectionValue == 0.0;
+
+    MemoryState zeroDirectionState;
+    clap_ostream_t zeroDirectionOutput {
+        &zeroDirectionState, stateWrite
+    };
+    const bool zeroDirectionSaveOk = zeroDirectionSetupOk
+        && state->save(plugin, &zeroDirectionOutput)
+        && !zeroDirectionState.bytes.empty();
+
+    EventList invertedDirectionChange;
+    invertedDirectionChange.add(kReactDirectionParam, -1.0);
+    if (zeroDirectionSaveOk)
+        params->flush(plugin, &invertedDirectionChange.input, nullptr);
+    zeroDirectionState.offset = 0u;
+    clap_istream_t zeroDirectionInput { &zeroDirectionState, stateRead };
+    const bool zeroDirectionLoadOk = zeroDirectionSaveOk
+        && state->load(plugin, &zeroDirectionInput)
+        && zeroDirectionState.offset == zeroDirectionState.bytes.size();
+    const bool zeroDirectionRestoredValueOk = zeroDirectionLoadOk
+        && params->get_value(plugin, kReactDirectionParam,
+            &zeroDirectionValue);
+
+    MemoryState zeroDirectionResaved;
+    clap_ostream_t zeroDirectionResavedOutput {
+        &zeroDirectionResaved, stateWrite
+    };
+    const bool zeroDirectionResaveOk = zeroDirectionLoadOk
+        && state->save(plugin, &zeroDirectionResavedOutput)
+        && !zeroDirectionResaved.bytes.empty();
+    const bool zeroDirectionBytesStable = zeroDirectionResaveOk
+        && zeroDirectionResaved.bytes == zeroDirectionState.bytes;
+    const bool zeroDirectionStateOk = zeroDirectionLiveOk
+        && zeroDirectionRestoredValueOk && zeroDirectionValue == 0.0
+        && zeroDirectionBytesStable;
+    if (!zeroDirectionStateOk) {
+        std::cerr << "failed: zero response-direction state reproducibility"
+                  << " (restored " << zeroDirectionValue
+                  << ", bytes stable " << zeroDirectionBytesStable << ")\n";
+    }
+    ok = ok && zeroDirectionStateOk;
+
+    // Leave the established default in place for the remaining state and DSP
+    // coverage below.
+    EventList normalDirectionChange;
+    normalDirectionChange.add(kReactDirectionParam, 1.0);
+    if (params) params->flush(plugin, &normalDirectionChange.input, nullptr);
+
     MemoryState saved;
     clap_ostream_t outputStream { &saved, stateWrite };
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();

@@ -65,6 +65,12 @@ public:
     void setHostTicksPerSecond(double ticksPerSecond);
     double hostTicksPerSecond() const { return hostTicksPerSecond_; }
     void requestPanic();
+    void setGestureFeedbackEnabled(bool enabled);
+    bool gestureFeedbackEnabled() const
+    {
+        return gestureFeedbackEnabled_.load(std::memory_order_acquire);
+    }
+    void requestGestureFeedback();
     bool enqueueMidi(uint8_t status, uint8_t dataOne, uint8_t dataTwo,
         uint64_t hostTime = 0u);
     bool dequeueMidiOutput(uint8_t& status, uint8_t& dataOne,
@@ -118,6 +124,21 @@ private:
         uint64_t sequence = 0u;
     };
 
+    struct GestureFeedbackState {
+        bool recording = false;
+        bool playing = false;
+        bool hasLastLoop = false;
+        bool hasAnyLoop = false;
+
+        bool operator==(const GestureFeedbackState& other) const
+        {
+            return recording == other.recording
+                && playing == other.playing
+                && hasLastLoop == other.hasLastLoop
+                && hasAnyLoop == other.hasAnyLoop;
+        }
+    };
+
     static constexpr uint32_t kSourceChannels = 8u;
     static constexpr uint32_t kMidiQueueCapacity = 2048u;
     static constexpr uint32_t kMidiOutputQueueCapacity = 4096u;
@@ -131,6 +152,7 @@ private:
     void prepareMidiEvents(uint32_t frames, uint64_t blockHostTime);
     bool enqueueMidiOutput(uint8_t status, uint8_t dataOne,
         uint8_t dataTwo);
+    void serviceGestureFeedback();
     void clearOutput(float* const* output, uint32_t channels,
         uint32_t frames) const;
 
@@ -172,6 +194,11 @@ private:
 
     std::atomic<uint32_t> outputMode_ {
         static_cast<uint32_t>(NoInputOutputMode::StereoAutogain) };
+    std::atomic<bool> gestureFeedbackEnabled_ { false };
+    std::atomic<bool> gestureFeedbackRequested_ { false };
+    GestureFeedbackState gestureFeedbackState_ {};
+    bool gestureFeedbackStateValid_ = false;
+    uint64_t gestureFeedbackNextFrame_ = 0u;
     std::array<std::atomic<uint32_t>, 3u> outputChannelOffsets_ {};
     std::atomic<bool> audioEnabled_ { false };
     std::atomic<bool> panicRequested_ { false };

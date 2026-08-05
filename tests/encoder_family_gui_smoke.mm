@@ -35,6 +35,7 @@
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
 - (void)setViewPreset:(int)mode;
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 - (NSPoint)projectGroundPointX:(double)x y:(double)y;
 - (void)setDocumentationViewAzimuth:(double)azimuth elevation:(double)elevation;
 - (void)textDidChange:(NSNotification*)notification;
@@ -1089,6 +1090,9 @@ int main(int argc, char** argv)
         const bool horizonEncoder = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-horizon-encoder-64") == 0;
+        const bool cartographyEncoder = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-cartography-encoder-64") == 0;
         const bool analyzer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.multichannel-meter-64") == 0
@@ -1160,6 +1164,301 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && cartographyEncoder && !documentationCapture) {
+            failureStage = "Cartography camera contract";
+            @try {
+                const NSRect fieldPanel = NSMakeRect(
+                    18.0, 42.0, 650.0, 696.0);
+                const auto cameraButton = [&](uint32_t index) {
+                    return s3g::clap_gui::topologyProcessorCameraButtonRect(
+                        fieldPanel, index);
+                };
+                const auto clickDocument = [&](NSPoint point) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, point)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, point)];
+                };
+                const auto clickRect = [&](NSRect rect) {
+                    clickDocument(NSMakePoint(NSMidX(rect), NSMidY(rect)));
+                };
+                const auto setParamValue = [&](clap_id id, double value) {
+                    SingleParamEventInput input {};
+                    setSingleParamEvent(input, id, value);
+                    params->flush(plugin, &input.events, nullptr);
+                    double actual = 0.0;
+                    return params->get_value(plugin, id, &actual)
+                        && std::fabs(actual - value) < 0.0001;
+                };
+                const auto getParamValue = [&](clap_id id) {
+                    double value = std::numeric_limits<double>::quiet_NaN();
+                    (void)params->get_value(plugin, id, &value);
+                    return value;
+                };
+
+                clickRect(cameraButton(0u));
+                ok = [[document valueForKey:@"viewMode"] intValue] == 0
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue]) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue]) < 0.001;
+                NSPoint topGround = NSZeroPoint;
+                NSPoint sideGround = NSZeroPoint;
+                NSPoint threeQuarterGround = NSZeroPoint;
+                if (ok) {
+                    ok = [document respondsToSelector:
+                        @selector(projectGroundPointX:y:)]
+                        && [document respondsToSelector:
+                            @selector(projectWorldPointX:y:z:)];
+                    if (ok) {
+                        topGround = [document
+                            projectGroundPointX:0.0 y:0.75];
+                        const NSPoint topRaised = [document
+                            projectWorldPointX:0.0 y:0.75 z:0.5];
+                        ok = std::fabs(topRaised.y - topGround.y) < 0.001;
+                    }
+                }
+
+                if (ok) clickRect(cameraButton(1u));
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 1
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue]) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue] - 90.0) < 0.001;
+                if (ok) {
+                    sideGround = [document
+                        projectGroundPointX:0.0 y:0.75];
+                    const NSPoint sideRaised = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.5];
+                    ok = std::fabs(topGround.y - sideGround.y) > 20.0
+                        && sideRaised.y < sideGround.y - 20.0;
+                }
+
+                if (ok) clickRect(cameraButton(2u));
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 2
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue] - 38.0) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue] - 32.0) < 0.001;
+                if (ok) {
+                    threeQuarterGround = [document
+                        projectGroundPointX:0.0 y:0.75];
+                    const NSPoint threeQuarterRaised = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.5];
+                    ok = std::fabs(threeQuarterGround.y
+                        - sideGround.y) > 20.0
+                        && threeQuarterRaised.y
+                            < threeQuarterGround.y - 20.0;
+                }
+
+                const NSRect firstCamera = cameraButton(0u);
+                const NSRect zoomPlus = NSMakeRect(
+                    firstCamera.origin.x - 30.0,
+                    fieldPanel.origin.y + 3.0, 18.0, 15.0);
+                const double zoomBefore = [[document
+                    valueForKey:@"viewZoom"] doubleValue];
+                if (ok) clickRect(zoomPlus);
+                const double zoomAfter = [[document
+                    valueForKey:@"viewZoom"] doubleValue];
+                ok = ok && zoomAfter > zoomBefore
+                    && zoomAfter <= 2.20;
+
+                const double listenerXBefore = getParamValue(8u);
+                const double listenerYBefore = getParamValue(9u);
+                const double listenerZBefore = getParamValue(10u);
+                const double siteXBefore = getParamValue(30u);
+                const double azimuthBefore = [[document
+                    valueForKey:@"viewAzDeg"] doubleValue];
+                const double elevationBefore = [[document
+                    valueForKey:@"viewElDeg"] doubleValue];
+                const NSPoint orbitStart = NSMakePoint(48.0, 690.0);
+                const NSPoint orbitEnd = NSMakePoint(80.0, 704.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, orbitStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, orbitEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, orbitEnd)];
+                }
+                const double customAzimuth = [[document
+                    valueForKey:@"viewAzDeg"] doubleValue];
+                const double customElevation = [[document
+                    valueForKey:@"viewElDeg"] doubleValue];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == -1
+                    && std::fabs(customAzimuth - azimuthBefore) > 5.0
+                    && std::fabs(customElevation - elevationBefore) > 2.0
+                    && std::fabs(getParamValue(8u) - listenerXBefore) < 0.0001
+                    && std::fabs(getParamValue(9u) - listenerYBefore) < 0.0001
+                    && std::fabs(getParamValue(10u) - listenerZBefore) < 0.0001
+                    && std::fabs(getParamValue(30u) - siteXBefore) < 0.0001;
+
+                struct CameraSuffix {
+                    uint32_t magic;
+                    uint32_t version;
+                    int32_t mode;
+                    float azimuth;
+                    float elevation;
+                    float zoom;
+                };
+                static_assert(sizeof(CameraSuffix) == 24u);
+                const auto* cartographyState = static_cast<
+                    const clap_plugin_state_t*>(plugin->get_extension(
+                        plugin, CLAP_EXT_STATE));
+                MemoryPluginState cameraState;
+                clap_ostream_t cameraOutput { &cameraState, stateWrite };
+                CameraSuffix cameraSuffix {};
+                ok = ok && cartographyState && cartographyState->save
+                    && cartographyState->save(plugin, &cameraOutput)
+                    && cameraState.bytes.size() >= sizeof(cameraSuffix);
+                if (ok) {
+                    std::memcpy(&cameraSuffix,
+                        cameraState.bytes.data() + cameraState.bytes.size()
+                            - sizeof(cameraSuffix),
+                        sizeof(cameraSuffix));
+                    ok = cameraSuffix.magic == 0x43414d52u
+                        && cameraSuffix.version == 2u
+                        && cameraSuffix.mode == -1
+                        && std::fabs(cameraSuffix.azimuth
+                            - customAzimuth) < 0.001
+                        && std::fabs(cameraSuffix.elevation
+                            - customElevation) < 0.001
+                        && std::fabs(cameraSuffix.zoom
+                            - zoomAfter) < 0.001;
+                }
+
+                const auto resetListener = [&] {
+                    return setParamValue(8u, 0.0)
+                        && setParamValue(9u, 0.0)
+                        && setParamValue(10u, 0.0);
+                };
+                const NSPoint mapCenter = NSMakePoint(344.0, 397.0);
+                const NSPoint positionEnd = NSMakePoint(404.0, 352.0);
+                if (ok) {
+                    ok = resetListener();
+                    clickRect(cameraButton(0u));
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, mapCenter)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, positionEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, positionEnd)];
+                    ok = ok && std::fabs(getParamValue(8u)) > 0.10
+                        && std::fabs(getParamValue(9u)) > 0.10
+                        && std::fabs(getParamValue(10u)) < 0.0001;
+                }
+                if (ok) {
+                    ok = resetListener();
+                    clickRect(cameraButton(1u));
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, mapCenter)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, positionEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, positionEnd)];
+                    ok = ok && std::fabs(getParamValue(8u)) > 0.10
+                        && std::fabs(getParamValue(9u)) < 0.0001
+                        && std::fabs(getParamValue(10u)) > 0.10;
+                }
+                if (ok) {
+                    ok = resetListener();
+                    clickRect(cameraButton(2u));
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, mapCenter)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, positionEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, positionEnd)];
+                    ok = ok
+                        && [[document valueForKey:@"viewMode"] intValue] == 2
+                        && std::fabs(getParamValue(8u)) < 0.0001
+                        && std::fabs(getParamValue(9u)) < 0.0001
+                        && std::fabs(getParamValue(10u)) < 0.0001;
+                }
+
+                const auto resetFirstSite = [&] {
+                    return setParamValue(2u, 1.0)
+                        && setParamValue(30u, 0.0)
+                        && setParamValue(31u, 1.0)
+                        && setParamValue(32u, 0.0);
+                };
+                const auto parkListener = [&] {
+                    return setParamValue(8u, -1.0)
+                        && setParamValue(9u, -1.0)
+                        && setParamValue(10u, -1.0);
+                };
+                if (ok) {
+                    ok = resetFirstSite() && parkListener();
+                    clickRect(cameraButton(0u));
+                    const NSPoint sitePoint = [document
+                        projectGroundPointX:0.0 y:1.0];
+                    const NSPoint siteEnd = NSMakePoint(
+                        sitePoint.x + 54.0, sitePoint.y - 42.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, sitePoint)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, siteEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, siteEnd)];
+                    ok = ok && std::fabs(getParamValue(30u)) > 0.10
+                        && std::fabs(getParamValue(31u) - 1.0) > 0.10
+                        && std::fabs(getParamValue(32u)) < 0.0001;
+                }
+                if (ok) {
+                    ok = resetFirstSite();
+                    clickRect(cameraButton(1u));
+                    const NSPoint sitePoint = [document
+                        projectGroundPointX:0.0 y:1.0];
+                    const NSPoint siteEnd = NSMakePoint(
+                        sitePoint.x + 54.0, sitePoint.y - 42.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, sitePoint)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, siteEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, siteEnd)];
+                    ok = ok && std::fabs(getParamValue(30u)) > 0.10
+                        && std::fabs(getParamValue(31u) - 1.0) < 0.0001
+                        && std::fabs(getParamValue(32u)) > 0.10;
+                }
+                if (ok) {
+                    ok = resetFirstSite();
+                    clickRect(cameraButton(2u));
+                    const NSPoint sitePoint = [document
+                        projectGroundPointX:0.0 y:1.0];
+                    const NSPoint siteEnd = NSMakePoint(
+                        sitePoint.x + 54.0, sitePoint.y - 42.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, sitePoint)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, siteEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, siteEnd)];
+                    ok = ok
+                        && [[document valueForKey:@"viewMode"] intValue] == 2
+                        && std::fabs(getParamValue(30u)) < 0.0001
+                        && std::fabs(getParamValue(31u) - 1.0) < 0.0001
+                        && std::fabs(getParamValue(32u)) < 0.0001;
+                }
+
+                // Restore the documented default view for the render check.
+                if (ok) {
+                    const NSRect zoomMinus = NSMakeRect(
+                        firstCamera.origin.x - 52.0,
+                        fieldPanel.origin.y + 3.0, 18.0, 15.0);
+                    clickRect(zoomMinus);
+                    clickRect(cameraButton(2u));
+                    ok = resetListener() && resetFirstSite();
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Cartography camera exception: "
+                          << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         if (ok && horizonEncoder) {
             // Reproduce a host such as REAPER that drains the Cocoa
             // autorelease pool between opening a menu and redrawing it.
@@ -5926,6 +6225,26 @@ int main(int argc, char** argv)
                 failureStage =
                     "documentation Adaptive Decoder Icosahedron 20 scene";
                 ok = setDocumentationSceneParam("Layout", 7.0);
+            } else if (cartographyEncoder) {
+                failureStage =
+                    "documentation Cartography Ridge 3/4 scene";
+                ok = setDocumentationSceneParam("Layout", 1.0)
+                    && setDocumentationSceneParam("Selected Site", 6.0);
+                if (ok) {
+                    @try {
+                        ok = [document respondsToSelector:
+                            @selector(setViewPreset:)];
+                        if (!ok) {
+                            std::cerr << "Cartography view does not expose "
+                                      << "setViewPreset:\n";
+                        }
+                        if (ok) [document setViewPreset:2];
+                    } @catch (NSException* exception) {
+                        std::cerr << "Cartography Ridge 3/4 exception: "
+                                  << [[exception reason] UTF8String] << "\n";
+                        ok = false;
+                    }
+                }
             } else if (documentationEffectDelay) {
                 failureStage = "documentation Ambi Effect Delay scene";
                 ok = setDocumentationSceneParam("Ambisonic order", 3.0)

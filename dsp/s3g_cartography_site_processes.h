@@ -60,6 +60,18 @@ inline float boundedOutput(float sample)
     return std::isfinite(sample) ? clamp(sample, -8.0f, 8.0f) : 0.0f;
 }
 
+// Close bounded approximation of tanh for the speaker nonlinearity. The
+// maximum error over [-3, 3] is small, while avoiding dozens of libm calls per
+// sample when all 24 sites are active.
+inline float speakerSaturate(float sample)
+{
+    const float x = clamp(std::isfinite(sample) ? sample : 0.0f,
+        -3.0f, 3.0f);
+    const float square = x * x;
+    if (square >= 9.0f) return std::copysign(1.0f, x);
+    return x * (27.0f + square) / (27.0f + 9.0f * square);
+}
+
 inline float onePoleFrequency(float frequencyHz, float sampleRate)
 {
     const float frequency = clamp(frequencyHz, 1.0f, sampleRate * 0.45f);
@@ -238,6 +250,9 @@ public:
             sampleRate);
         channels_ = std::min<uint32_t>(
             channels, kCartographySiteProcessLanes);
+        lanePositionCoefficient_ =
+            cartography_site_process_detail::onePoleTime(
+                0.030f, static_cast<float>(sampleRate_));
         smoother_.prepare(sampleRate_);
         reset();
     }
@@ -246,6 +261,7 @@ public:
     {
         smoother_.reset();
         lanes_ = {};
+        controlPhase_ = 0u;
     }
 
     void setParams(CartographySiteProcessParams params)
@@ -258,89 +274,122 @@ public:
         const uint32_t active = std::min<uint32_t>(
             channels, kCartographySiteProcessLanes);
         if (active == channels_) return;
+        if (active > channels_) {
+            for (uint32_t lane = channels_; lane < active; ++lane) {
+                lanes_[lane] = {};
+            }
+        } else {
+            for (uint32_t lane = active; lane < channels_; ++lane) {
+                lanes_[lane] = {};
+            }
+        }
         channels_ = active;
-        lanes_ = {};
+        controlPhase_ = 0u;
     }
 
     CartographySiteProcessParams params() const { return smoother_.target(); }
 
-    void processFrame(const float* input, float* output)
+    void processFrame(const float* input, float* output,
+        const float* laneUnits = nullptr)
     {
         if (!output || channels_ == 0u) return;
         using namespace cartography_site_process_detail;
         const auto& params = smoother_.advance();
         const float sampleRate = static_cast<float>(sampleRate_);
-        const float envelopeAttack = onePoleTime(
-            0.003f + (1.0f - params.color) * 0.010f, sampleRate);
-        const float envelopeRelease = onePoleTime(
-            0.080f + params.memory * 0.420f, sampleRate);
-        const float heatAttack = onePoleTime(
-            0.030f + (1.0f - params.macro) * 0.120f, sampleRate);
-        const float heatRelease = onePoleTime(
-            0.180f + params.memory * 1.820f, sampleRate);
+        const bool refreshDerived = controlPhase_ == 0u;
+        controlPhase_ = (controlPhase_ + 1u) & 7u;
+        if (refreshDerived) {
+            envelopeAttack_ = onePoleTime(
+                0.003f + (1.0f - params.color) * 0.010f, sampleRate);
+            envelopeRelease_ = onePoleTime(
+                0.080f + params.memory * 0.420f, sampleRate);
+            heatAttack_ = onePoleTime(
+                0.030f + (1.0f - params.macro) * 0.120f, sampleRate);
+            heatRelease_ = onePoleTime(
+                0.180f + params.memory * 1.820f, sampleRate);
+        }
 
         for (uint32_t lane = 0u; lane < channels_; ++lane) {
             auto& state = lanes_[lane];
             const float source = finiteInput(input ? input[lane] : 0.0f);
-            const float unit = laneUnit(lane, channels_);
-            const float centered = laneCentered(
-                unit, params.center, channels_);
-            const float random = laneRandom(lane, 0x424f4459u);
-            const float octaveShift = centered * params.spread * 1.20f
-                + random * params.deviation * 0.72f
-                + params.skew * (unit - 0.5f) * 0.90f;
-
-            const float lowCutoff = clamp(
-                52.0f * std::pow(2.0f,
-                    params.color * 1.55f + octaveShift * 0.12f),
-                32.0f, sampleRate * 0.18f);
-            const float highCutoffLimit = sampleRate * 0.43f;
-            const float highCutoff = clamp(
-                2800.0f * std::pow(2.0f,
-                    params.color * 1.95f + octaveShift * 0.34f),
-                std::min(900.0f, highCutoffLimit), highCutoffLimit);
-            updateBandLimit(state, lowCutoff, highCutoff, sampleRate);
+            const float targetUnit = laneUnits
+                ? clamp(laneUnits[lane], 0.0f, 1.0f)
+                : laneUnit(lane, channels_);
+            if (!state.laneUnitPrimed) {
+                state.smoothedLaneUnit = targetUnit;
+                state.laneUnitPrimed = true;
+            } else {
+                state.smoothedLaneUnit = flushDenormal(
+                    state.smoothedLaneUnit
+                        + (targetUnit - state.smoothedLaneUnit)
+                            * lanePositionCoefficient_);
+            }
+            if (refreshDerived) {
+                const float unit = state.smoothedLaneUnit;
+                const float centered = laneCentered(
+                    unit, params.center, channels_);
+                const float random = laneRandom(lane, 0x424f4459u);
+                const float octaveShift = centered * params.spread * 1.20f
+                    + random * params.deviation * 0.72f
+                    + params.skew * (unit - 0.5f) * 0.90f;
+                state.lowCutoff = clamp(
+                    52.0f * std::pow(2.0f,
+                        params.color * 1.55f + octaveShift * 0.12f),
+                    32.0f, sampleRate * 0.18f);
+                const float highCutoffLimit = sampleRate * 0.43f;
+                state.highCutoff = clamp(
+                    2800.0f * std::pow(2.0f,
+                        params.color * 1.95f + octaveShift * 0.34f),
+                    std::min(900.0f, highCutoffLimit), highCutoffLimit);
+                state.bodyCutoff = clamp(
+                    145.0f * std::pow(2.0f,
+                        params.color * 2.65f + octaveShift),
+                    70.0f, sampleRate * 0.32f);
+                state.bodyResonance = clamp(0.18f
+                    + params.memory * 0.56f + params.macro * 0.10f,
+                    0.0f, 0.88f);
+            }
+            updateBandLimit(state, state.lowCutoff,
+                state.highCutoff, sampleRate);
 
             const float drive = 1.0f + params.macro
                 * (2.2f + params.color * 2.8f);
-            const float driven = std::tanh(clamp(source * drive, -8.0f, 8.0f));
-            state.highpassLow += (driven - state.highpassLow)
-                * state.highpassCoefficient;
+            const float driven = speakerSaturate(source * drive);
+            state.highpassLow = flushDenormal(state.highpassLow
+                + (driven - state.highpassLow)
+                    * state.highpassCoefficient);
             const float highpassed = driven - state.highpassLow;
-            state.lowpass1 += (highpassed - state.lowpass1)
-                * state.lowpassCoefficient;
-            state.lowpass2 += (state.lowpass1 - state.lowpass2)
-                * state.lowpassCoefficient;
+            state.lowpass1 = flushDenormal(state.lowpass1
+                + (highpassed - state.lowpass1)
+                    * state.lowpassCoefficient);
+            state.lowpass2 = flushDenormal(state.lowpass2
+                + (state.lowpass1 - state.lowpass2)
+                    * state.lowpassCoefficient);
             const float cabinet = flushDenormal(state.lowpass2);
 
-            const float bodyCutoff = clamp(
-                145.0f * std::pow(2.0f,
-                    params.color * 2.65f + octaveShift),
-                70.0f, sampleRate * 0.32f);
-            const float bodyResonance = clamp(0.18f
-                + params.memory * 0.56f + params.macro * 0.10f,
-                0.0f, 0.88f);
             const auto body = state.body.process(
-                cabinet, bodyCutoff, bodyResonance, sampleRate);
+                cabinet, state.bodyCutoff,
+                state.bodyResonance, sampleRate);
             const float voiced = cabinet
                 + body.band * (0.22f + params.macro * 1.08f);
 
             const float magnitude = std::fabs(voiced);
-            state.envelope += (magnitude - state.envelope)
+            state.envelope = flushDenormal(state.envelope
+                + (magnitude - state.envelope)
                 * (magnitude > state.envelope
-                    ? envelopeAttack : envelopeRelease);
+                    ? envelopeAttack_ : envelopeRelease_));
             const float heatThreshold = 0.26f
                 - params.macro * 0.13f + params.color * 0.025f;
             const float heatTarget = std::max(
                 0.0f, state.envelope - heatThreshold);
             state.heat += (heatTarget - state.heat)
-                * (heatTarget > state.heat ? heatAttack : heatRelease);
+                * (heatTarget > state.heat ? heatAttack_ : heatRelease_);
             state.heat = flushDenormal(clamp(state.heat, 0.0f, 4.0f));
             const float thermalGain = 1.0f / (1.0f + state.heat
                 * (2.0f + params.macro * 8.0f + params.memory * 2.0f));
             const float postDrive = 1.0f + params.macro * 1.65f;
-            const float modeled = std::tanh(clamp(
-                voiced * thermalGain * postDrive, -8.0f, 8.0f))
+            const float modeled = speakerSaturate(
+                voiced * thermalGain * postDrive)
                 * (1.0f - params.macro * 0.12f);
             output[lane] = boundedOutput(
                 source + params.macro * (modeled - source));
@@ -359,6 +408,12 @@ private:
         float lowpassCoefficient = 0.5f;
         float lastLowCutoff = 0.0f;
         float lastHighCutoff = 0.0f;
+        float lowCutoff = 52.0f;
+        float highCutoff = 2800.0f;
+        float bodyCutoff = 145.0f;
+        float bodyResonance = 0.18f;
+        float smoothedLaneUnit = 0.5f;
+        bool laneUnitPrimed = false;
         uint32_t coefficientPhase = 0u;
     };
 
@@ -382,6 +437,12 @@ private:
 
     double sampleRate_ = 48000.0;
     uint32_t channels_ = 0u;
+    uint32_t controlPhase_ = 0u;
+    float lanePositionCoefficient_ = 1.0f;
+    float envelopeAttack_ = 1.0f;
+    float envelopeRelease_ = 1.0f;
+    float heatAttack_ = 1.0f;
+    float heatRelease_ = 1.0f;
     cartography_site_process_detail::ParameterSmoother smoother_ {};
     std::array<LaneState, kCartographySiteProcessLanes> lanes_ {};
 };
@@ -419,9 +480,18 @@ public:
         const uint32_t active = std::min<uint32_t>(
             channels, kCartographySiteProcessLanes);
         if (active == channels_) return;
+        if (active > channels_) {
+            for (uint32_t lane = channels_; lane < active; ++lane) {
+                filters_[lane] = {};
+                memory_[lane] = 0.0f;
+            }
+        } else {
+            for (uint32_t lane = active; lane < channels_; ++lane) {
+                filters_[lane] = {};
+                memory_[lane] = 0.0f;
+            }
+        }
         channels_ = active;
-        filters_ = {};
-        memory_.fill(0.0f);
     }
 
     CartographySiteProcessParams params() const { return smoother_.target(); }
@@ -535,6 +605,7 @@ public:
     {
         smoother_.reset();
         states_ = {};
+        hasProcessed_ = false;
         if (!prepared_ || laneStride_ < 8u) return;
         const auto params = smoother_.target();
         for (uint32_t lane = 0u; lane < channels_; ++lane) {
@@ -552,12 +623,24 @@ public:
         const uint32_t active = std::min<uint32_t>(
             channels, kCartographySiteProcessLanes);
         if (active == channels_) return;
+        const uint32_t previous = channels_;
         channels_ = active;
-        states_ = {};
         if (!prepared_ || laneStride_ < 8u) return;
         const auto params = smoother_.target();
-        for (uint32_t lane = 0u; lane < channels_; ++lane) {
-            configureCapture(lane, states_[lane], params);
+        if (!hasProcessed_) {
+            states_ = {};
+            for (uint32_t lane = 0u; lane < channels_; ++lane) {
+                configureCapture(lane, states_[lane], params);
+            }
+        } else if (active > previous) {
+            for (uint32_t lane = previous; lane < active; ++lane) {
+                states_[lane] = {};
+                configureCapture(lane, states_[lane], params);
+            }
+        } else {
+            for (uint32_t lane = active; lane < previous; ++lane) {
+                states_[lane] = {};
+            }
         }
     }
 
@@ -630,6 +713,7 @@ public:
             }
             output[lane] = boundedOutput(value);
         }
+        hasProcessed_ = true;
     }
 
 private:
@@ -714,6 +798,7 @@ private:
     uint32_t channels_ = 0u;
     uint32_t laneStride_ = 0u;
     bool prepared_ = false;
+    bool hasProcessed_ = false;
     cartography_site_process_detail::ParameterSmoother smoother_ {};
     std::array<LaneState, kCartographySiteProcessLanes> states_ {};
     std::vector<float> buffer_ {};

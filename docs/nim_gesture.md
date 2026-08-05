@@ -28,10 +28,10 @@ can be sent back into REAPER and form a MIDI loop.
 
 The No Input Mixer standalone embeds this same CLAP before the embedded No
 Input Mixer processor. Open **MIDI** in the application's output strip to pick
-separate CoreMIDI destinations for E16 and Grid feedback, or leave either one
-off. The window also lists every available CoreMIDI input source with an
-independent checkmark; Enable All and Disable All are provided, and the
-selection is remembered by device ID. Checked sources feed the Gesture
+separate CoreMIDI destinations for E16, Grid, and Gesture Keys feedback, or
+leave any of them off. The window also lists every available CoreMIDI input
+source with an independent checkmark; Enable All and Disable All are provided,
+and the selection is remembered by device ID. Checked sources feed the Gesture
 processor; non-channel-16 events pass through to No Input Mixer. The Gesture
 GUI and its free-running loops are available from **EDIT NIM GESTURES**.
 
@@ -181,6 +181,41 @@ positions are press-only; the remaining controls provide matrix mode/sign,
 Seed, Forget, Random, Clear Matrix, BU16 Ramp, and Output/Panic. The same
 gesture controls are also available in the native GUI and REAPER's generic
 parameter view.
+
+## Keychron Q0 Max gesture controller
+
+The dedicated Q0 Max firmware in `controllers/keychron_q0_max` maps the first
+complete five-key row below the knob, left to right, to Record, Play, Clear
+Last, Clear All, and Cancel. It sends the channel-16 commands above over wired
+USB MIDI.
+
+For state indication, the standalone app sends a five-note snapshot to the
+selected **GESTURE KEYS** MIDI destination on MIDI channel 15. Note On at
+velocity 127 means active and Note Off means inactive; notes 112–116 retain the
+same meanings as the command table. The separate feedback channel prevents a
+returned state message from retriggering a command. A snapshot is sent when
+state changes, when a destination is selected, and once per second as a
+heartbeat.
+
+| Key state | LED indication |
+| --- | --- |
+| Record | Red; bright while recording |
+| Play | Green; bright while playing |
+| Clear Last | Amber; bright when a last-touched loop exists |
+| Clear All | Orange-red; bright when any loop exists |
+| Cancel | Magenta; bright while a take can be cancelled |
+
+Inactive states retain a dim version of their color. If the Q0 receives no
+heartbeat for 2.5 seconds, all five state LEDs become very dim to indicate that
+feedback is disconnected or the app is not running. All LEDs outside this
+five-key state row remain dark. Enable **Keychron Q0 Max** as a MIDI input
+source and select it as the **GESTURE KEYS** output destination in the
+standalone MIDI window.
+
+This controller integration is cable-only. The custom image disables
+Keychron Launcher/VIA while installed because the Q0 Max's STM32F401 USB
+endpoint budget is needed for native MIDI. The factory firmware restores the
+stock Launcher/VIA behavior.
 
 ## Feedback scope
 

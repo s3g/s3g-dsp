@@ -704,9 +704,9 @@ inline NoInputMixerParams sanitizeNoInputMixerParams(
         ? params.reactAttack : 0.18f, 0.0f, 1.0f);
     params.reactRelease = clamp(std::isfinite(params.reactRelease)
         ? params.reactRelease : 0.42f, 0.0f, 1.0f);
-    params.reactPolarity = std::isfinite(params.reactPolarity)
-            && params.reactPolarity < 0.0f
-        ? -1.0f : 1.0f;
+    params.reactPolarity = !std::isfinite(params.reactPolarity)
+        ? 1.0f : params.reactPolarity < 0.0f
+            ? -1.0f : params.reactPolarity > 0.0f ? 1.0f : 0.0f;
     params.controllerHold = params.controllerHold != 0u ? 1u : 0u;
     params.slowTime = params.slowTime != 0u ? 1u : 0u;
     params.clockSync = params.clockSync != 0u ? 1u : 0u;
@@ -2727,14 +2727,9 @@ public:
                 const NoInputDistortionType effective = insert.bypass != 0u
                     ? NoInputDistortionType::Bypass : insert.type;
                 if (!runtime.initialized) {
-                    runtime.currentType = effective;
-                    runtime.previousType = effective;
-                    runtime.crossfade = 1.0f;
-                    runtime.initialized = true;
+                    initializeInsertSelector(runtime, effective);
                 } else if (runtime.currentType != effective) {
-                    runtime.previousType = runtime.currentType;
-                    runtime.currentType = effective;
-                    runtime.crossfade = 0.0f;
+                    retargetInsertSelector(runtime, effective);
                 }
             }
         }
@@ -2742,14 +2737,9 @@ public:
             auto& runtime = auxState_[bus].insert;
             const auto type = params_.aux[bus].effect.type;
             if (!runtime.initialized) {
-                runtime.currentType = type;
-                runtime.previousType = type;
-                runtime.crossfade = 1.0f;
-                runtime.initialized = true;
+                initializeInsertSelector(runtime, type);
             } else if (runtime.currentType != type) {
-                runtime.previousType = runtime.currentType;
-                runtime.currentType = type;
-                runtime.crossfade = 0.0f;
+                retargetInsertSelector(runtime, type);
             }
         }
         if (controlCounter_ == 0u) {
@@ -3119,17 +3109,25 @@ public:
             value = laneState_[lane].highShelf.process(value);
             tapPostEq_[lane] = value;
 
-            for (uint32_t slot = 0u;
-                 slot < kNoInputMixerInsertSlots; ++slot) {
-                const uint32_t ringSource =
-                    (lane + slot + 1u) % kNoInputMixerChannels;
-                value = processInsert(lane, slot, value,
-                    previousReturns_[ringSource]);
-            }
-
             if (!std::isfinite(value)) {
                 killLane(lane);
                 value = 0.0f;
+            } else {
+                for (uint32_t slot = 0u;
+                     slot < kNoInputMixerInsertSlots; ++slot) {
+                    const uint32_t ringSource =
+                        (lane + slot + 1u) % kNoInputMixerChannels;
+                    value = processInsert(lane, slot, value,
+                        previousReturns_[ringSource]);
+                    // Do not let a later processor canonicalize a poisoned
+                    // earlier slot back to finite audio before containment
+                    // gets a chance to clear that slot's persistent history.
+                    if (!std::isfinite(value)) {
+                        killLane(lane);
+                        value = 0.0f;
+                        break;
+                    }
+                }
             }
             // Response listens to the completed processor lane before CHOKE.
             // Keep this detector separate from the post-choke governor so a
@@ -3245,6 +3243,17 @@ public:
     float auxActivity(uint32_t bus) const
     {
         return bus < 2u ? auxActivity_[bus] : 0.0f;
+    }
+    float insertTransitionProgress(uint32_t lane, uint32_t slot) const
+    {
+        return lane < kNoInputMixerChannels
+                && slot < kNoInputMixerInsertSlots
+            ? laneState_[lane].inserts[slot].crossfade : 1.0f;
+    }
+    float auxInsertTransitionProgress(uint32_t bus) const
+    {
+        return bus < auxState_.size()
+            ? auxState_[bus].insert.crossfade : 1.0f;
     }
     float motionPhase() const { return motionPhase_; }
     float behaviorRouteGate(uint32_t route) const
@@ -3492,6 +3501,11 @@ private:
         NoInputDistortionType currentType = NoInputDistortionType::Bypass;
         NoInputDistortionType previousType = NoInputDistortionType::Bypass;
         float crossfade = 1.0f;
+        float selectorCorrection = 0.0f;
+        float selectorCorrectionPhase = 1.0f;
+        float lastWet = 0.0f;
+        bool selectorCorrectionPending = false;
+        bool wetValid = false;
         bool initialized = false;
     };
 
@@ -3532,6 +3546,75 @@ private:
     static void clearAuxSignalState(AuxState& state)
     {
         std::memset(&state, 0, sizeof(state));
+    }
+
+    static void initializeInsertSelector(InsertRuntime& runtime,
+        NoInputDistortionType type)
+    {
+        runtime.currentType = type;
+        runtime.previousType = type;
+        runtime.crossfade = 1.0f;
+        runtime.selectorCorrection = 0.0f;
+        runtime.selectorCorrectionPhase = 1.0f;
+        runtime.lastWet = 0.0f;
+        runtime.selectorCorrectionPending = false;
+        runtime.wetValid = false;
+        runtime.initialized = true;
+    }
+
+    static void retargetInsertSelector(InsertRuntime& runtime,
+        NoInputDistortionType type)
+    {
+        runtime.previousType = runtime.currentType;
+        runtime.currentType = type;
+        runtime.crossfade = 0.0f;
+        // If another selector event arrives before the old blend completes,
+        // the newly chosen pair no longer represents the sample that was
+        // actually heard. Anchor its first wet sample in processInsert() and
+        // release that correction over the same interval as the type fade.
+        runtime.selectorCorrectionPending = true;
+    }
+
+    static float applyInsertSelectorContinuity(InsertRuntime& runtime,
+        float wet, float transitionStep)
+    {
+        constexpr float kWetLimit = 8.0f;
+        constexpr float kCorrectionLimit = kWetLimit * 2.0f;
+        transitionStep = std::isfinite(transitionStep)
+            ? clamp(transitionStep, 0.0f, 1.0f) : 1.0f;
+        runtime.selectorCorrection =
+            std::isfinite(runtime.selectorCorrection)
+                ? clamp(runtime.selectorCorrection,
+                    -kCorrectionLimit, kCorrectionLimit)
+                : 0.0f;
+        runtime.selectorCorrectionPhase =
+            std::isfinite(runtime.selectorCorrectionPhase)
+                ? clamp(runtime.selectorCorrectionPhase, 0.0f, 1.0f)
+                : 1.0f;
+        wet = std::isfinite(wet) ? clamp(wet, -kWetLimit, kWetLimit) : 0.0f;
+        if (runtime.selectorCorrectionPending) {
+            const bool anchorValid = runtime.wetValid
+                && std::isfinite(runtime.lastWet);
+            runtime.selectorCorrection = anchorValid
+                ? clamp(runtime.lastWet - wet,
+                    -kCorrectionLimit, kCorrectionLimit)
+                : 0.0f;
+            runtime.selectorCorrectionPhase = anchorValid ? 0.0f : 1.0f;
+            runtime.selectorCorrectionPending = false;
+        }
+        if (runtime.selectorCorrectionPhase < 1.0f) {
+            const float phase = clamp(runtime.selectorCorrectionPhase,
+                0.0f, 1.0f);
+            const float smooth = phase * phase * (3.0f - 2.0f * phase);
+            wet += runtime.selectorCorrection * (1.0f - smooth);
+            runtime.selectorCorrectionPhase = std::min(1.0f,
+                runtime.selectorCorrectionPhase + transitionStep);
+        }
+        wet = std::isfinite(wet) ? clamp(wet, -kWetLimit, kWetLimit) : 0.0f;
+        wet = flushDenormal(wet);
+        runtime.lastWet = wet;
+        runtime.wetValid = true;
+        return wet;
     }
 
     static void setBiquad(Biquad& biquad,
@@ -3653,10 +3736,7 @@ private:
             const auto& insert = params_.lanes[lane].inserts[slot];
             const auto type = insert.bypass != 0u
                 ? NoInputDistortionType::Bypass : insert.type;
-            runtime.currentType = type;
-            runtime.previousType = type;
-            runtime.crossfade = 1.0f;
-            runtime.initialized = true;
+            initializeInsertSelector(runtime, type);
         }
     }
 
@@ -3717,10 +3797,18 @@ private:
         }
         runtime.states[static_cast<uint32_t>(runtime.currentType)].previous = input;
         output *= step;
+        // Preserve the existing lane containment contract: a poisoned effect
+        // sample must reach processFrame(), whose non-finite guard clears the
+        // complete lane. The continuity helper only repairs its own bounded
+        // selector state; it must not hide a broken processor history.
+        if (!std::isfinite(output)) return output;
+        const float transitionStep = 1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_) * 0.020f);
+        output = applyInsertSelectorContinuity(runtime, output,
+            transitionStep);
         if (runtime.crossfade < 1.0f) {
             runtime.crossfade = std::min(1.0f,
-                runtime.crossfade + static_cast<float>(substeps)
-                    / static_cast<float>(sampleRate_ * 0.020));
+                runtime.crossfade + transitionStep);
         }
         return flushDenormal(output * dbToGain(params.levelDb));
     }
@@ -3750,10 +3838,21 @@ private:
         runtime.states[static_cast<uint32_t>(runtime.currentType)].previous
             = input;
         output *= step;
+        if (!std::isfinite(output)) {
+            // Aux returns have no lane-level kill guard. Reset this bounded,
+            // fixed-size processor runtime immediately so a poisoned history
+            // cannot persist as a stuck silent or full-scale return.
+            std::memset(&runtime, 0, sizeof(runtime));
+            initializeInsertSelector(runtime, params.type);
+            return 0.0f;
+        }
+        const float transitionStep = 1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_) * 0.020f);
+        output = applyInsertSelectorContinuity(runtime, output,
+            transitionStep);
         if (runtime.crossfade < 1.0f) {
             runtime.crossfade = std::min(1.0f,
-                runtime.crossfade + static_cast<float>(substeps)
-                    / static_cast<float>(sampleRate_ * 0.020));
+                runtime.crossfade + transitionStep);
         }
         return flushDenormal(output);
     }
@@ -4782,10 +4881,7 @@ private:
         for (uint32_t bus = 0u; bus < 2u; ++bus) {
             auto& runtime = auxState_[bus].insert;
             const auto type = params_.aux[bus].effect.type;
-            runtime.currentType = type;
-            runtime.previousType = type;
-            runtime.crossfade = 1.0f;
-            runtime.initialized = true;
+            initializeInsertSelector(runtime, type);
         }
         rebuildMotionTargets();
         motionCurrent_ = motionTarget_;

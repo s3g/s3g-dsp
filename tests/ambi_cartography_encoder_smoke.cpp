@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 namespace {
@@ -442,6 +443,118 @@ int main()
         }
     }
 
+    // Body history belongs to a physical site, while RANGE only voices that
+    // site's controls. Crossing two range ranks must not exchange their
+    // resonator states at the geometry update boundary.
+    {
+        s3g::AmbiCartographyEncoder movedEncoder;
+        s3g::AmbiCartographyEncoder controlEncoder;
+        movedEncoder.prepare(kSampleRate);
+        controlEncoder.prepare(kSampleRate);
+        const auto configureBodyRange = [](auto& target) {
+            auto params = target.params();
+            params.activeSites = 2u;
+            params.order = 1u;
+            params.layout = s3g::AmbiCartographyLayout::Radial;
+            params.stereoMap = s3g::AmbiCartographyStereoMap::Alternate;
+            params.timeReference =
+                s3g::AmbiCartographyTimeReference::Relative;
+            params.listenerX = -0.02f;
+            params.listenerY = 0.0f;
+            params.listenerZ = 0.0f;
+            params.networkSpreadMs = 0.0f;
+            params.propagationScale = 0.0f;
+            params.air = 0.0f;
+            params.distanceLoss = 0.0f;
+            params.turbulence = 0.0f;
+            params.macroEngine =
+                s3g::AmbiCartographyMacroEngine::SpeakerBody;
+            params.macroMetric =
+                s3g::AmbiCartographyMacroMetric::Range;
+            params.macro = 0.78f;
+            params.color = 0.68f;
+            params.memory = 0.48f;
+            params.spread = 1.0f;
+            params.deviation = 0.10f;
+            params.skew = 0.16f;
+            params.center = 0.62f;
+            params.processMix = 1.0f;
+            params.listenMode = s3g::AmbiFieldListenMode::Off;
+            params.listenerAmount = 0.0f;
+            params.outputGainDb = 0.0f;
+            target.setParams(params);
+            auto leftSite = target.site(0u);
+            leftSite.x = -0.50f;
+            leftSite.y = 0.0f;
+            leftSite.z = 0.0f;
+            leftSite.gain = 1.0f;
+            leftSite.networkPosition = 0.0f;
+            leftSite.networkTrimMs = 0.0f;
+            leftSite.enabled = true;
+            target.setSite(0u, leftSite);
+            auto rightSite = target.site(1u);
+            rightSite.x = 0.50f;
+            rightSite.y = 0.0f;
+            rightSite.z = 0.0f;
+            rightSite.gain = 1.0f;
+            rightSite.networkPosition = 1.0f;
+            rightSite.networkTrimMs = 0.0f;
+            rightSite.enabled = true;
+            target.setSite(1u, rightSite);
+            target.setLandscapeParams({});
+            target.reset();
+        };
+        configureBodyRange(movedEncoder);
+        configureBodyRange(controlEncoder);
+
+        constexpr uint32_t warmFrames = 96000u;
+        constexpr uint32_t inspectFrames = 2048u;
+        std::vector<float> warmLeft(warmFrames);
+        std::vector<float> warmRight(warmFrames);
+        std::vector<float> inspectLeft(inspectFrames);
+        std::vector<float> inspectRight(inspectFrames);
+        const auto fillSignal = [](auto& left, auto& right,
+                                   uint32_t startFrame) {
+            for (uint32_t frame = 0u; frame < left.size(); ++frame) {
+                const float absolute = static_cast<float>(startFrame + frame);
+                left[frame] = 0.23f * std::sin(2.0f * s3g::kPi
+                    * 997.0f * absolute / static_cast<float>(kSampleRate));
+                right[frame] = 0.19f * std::sin(2.0f * s3g::kPi
+                    * 233.0f * absolute / static_cast<float>(kSampleRate)
+                    + 0.37f);
+            }
+        };
+        fillSignal(warmLeft, warmRight, 0u);
+        fillSignal(inspectLeft, inspectRight, warmFrames);
+        renderStereo<kChannels>(
+            movedEncoder, warmLeft, warmRight, true);
+        renderStereo<kChannels>(
+            controlEncoder, warmLeft, warmRight, true);
+        auto movedParams = movedEncoder.params();
+        movedParams.listenerX = 0.02f;
+        movedEncoder.setParams(movedParams);
+        const auto moved = renderStereo<kChannels>(
+            movedEncoder, inspectLeft, inspectRight, true);
+        const auto control = renderStereo<kChannels>(
+            controlEncoder, inspectLeft, inspectRight, true);
+        const double boundaryDifference = std::fabs(
+            moved[0].front() - control[0].front());
+        double wDifference = 0.0;
+        for (uint32_t frame = 0u; frame < inspectFrames; ++frame) {
+            wDifference = std::max(wDifference,
+                static_cast<double>(std::fabs(
+                    moved[0][frame] - control[0][frame])));
+        }
+        if (!finiteAndBounded(moved) || !finiteAndBounded(control)
+            || boundaryDifference > 0.0005
+            || wDifference < 0.00001) {
+            std::cerr << "Body site-identity continuity failed: boundary="
+                      << boundaryDifference << " effect="
+                      << wDifference << "\n";
+            return 1;
+        }
+    }
+
     // Cross-lane processors must compact the enabled sites rather than route
     // through the empty gaps in the legacy 24-lane ordinal map. Site zero is
     // the only driven source but has zero output gain; all rendered energy
@@ -507,6 +620,160 @@ int main()
                 std::cerr << "Sparse cross-lane transfer failed for engine "
                           << static_cast<uint32_t>(engine) << ": energy="
                           << energy(transferred, 1024u) << "\n";
+                return 1;
+            }
+        }
+    }
+
+    // Removing a zero-gain member still changes the compact relationship
+    // topology. Stateful mapped processors must hold their own last audible
+    // sample at that boundary, then release toward the new topology without
+    // creating a second edge when the 30 ms correction completes.
+    {
+        constexpr uint32_t warmFrames = 96000u;
+        constexpr uint32_t inspectFrames = 2048u;
+        constexpr uint32_t releaseInspectFirst = 1360u;
+        constexpr uint32_t releaseInspectLast = 1520u;
+        constexpr double boundaryLimit = 0.00001;
+        constexpr double stepTolerance = 0.0005;
+
+        std::vector<float> warmLeft(warmFrames);
+        std::vector<float> warmRight(warmFrames);
+        std::vector<float> inspectLeft(inspectFrames);
+        std::vector<float> inspectRight(inspectFrames);
+        const auto fillSignal = [](auto& left, auto& right,
+                                   uint32_t startFrame) {
+            for (uint32_t frame = 0u; frame < left.size(); ++frame) {
+                const float absolute = static_cast<float>(startFrame + frame);
+                left[frame] = 0.23f * std::sin(2.0f * s3g::kPi
+                    * 997.0f * absolute / static_cast<float>(kSampleRate));
+                right[frame] = 0.19f * std::sin(2.0f * s3g::kPi
+                    * 233.0f * absolute / static_cast<float>(kSampleRate)
+                    + 0.37f);
+            }
+        };
+        fillSignal(warmLeft, warmRight, 0u);
+        fillSignal(inspectLeft, inspectRight, warmFrames);
+
+        for (const auto engine : {
+                s3g::AmbiCartographyMacroEngine::SpectralRelay,
+                s3g::AmbiCartographyMacroEngine::RelayBuffer }) {
+            s3g::AmbiCartographyEncoder changedEncoder;
+            s3g::AmbiCartographyEncoder controlEncoder;
+            changedEncoder.prepare(kSampleRate);
+            controlEncoder.prepare(kSampleRate);
+            const auto configure = [engine](auto& target) {
+                auto params = target.params();
+                params.activeSites = 3u;
+                params.order = 1u;
+                params.layout = s3g::AmbiCartographyLayout::Radial;
+                params.stereoMap =
+                    s3g::AmbiCartographyStereoMap::Alternate;
+                params.timeReference =
+                    s3g::AmbiCartographyTimeReference::Relative;
+                params.mapScaleMeters = 1.0f;
+                params.networkSpreadMs = 0.0f;
+                params.propagationScale = 0.0f;
+                params.air = 0.0f;
+                params.distanceLoss = 0.0f;
+                params.carry = 0.0f;
+                params.turbulence = 0.0f;
+                params.macroEngine = engine;
+                params.macroMetric =
+                    s3g::AmbiCartographyMacroMetric::Network;
+                params.macro = 0.78f;
+                params.color = 0.68f;
+                params.memory = 0.48f;
+                params.spread = 0.66f;
+                params.deviation = 0.10f;
+                params.skew = 0.16f;
+                params.center = 0.62f;
+                params.processMix = 1.0f;
+                params.listenMode = s3g::AmbiFieldListenMode::Off;
+                params.listenerAmount = 0.0f;
+                params.outputGainDb = 0.0f;
+                target.setParams(params);
+                target.setLandscapeParams({});
+                for (uint32_t siteIndex = 0u;
+                    siteIndex < 3u; ++siteIndex) {
+                    auto site = target.site(siteIndex);
+                    site.x = -0.50f
+                        + static_cast<float>(siteIndex) * 0.50f;
+                    site.y = 0.0f;
+                    site.z = 0.0f;
+                    site.gain = siteIndex == 2u ? 0.0f : 1.0f;
+                    site.networkPosition =
+                        static_cast<float>(siteIndex) * 0.50f;
+                    site.networkTrimMs = 0.0f;
+                    site.enabled = true;
+                    target.setSite(siteIndex, site);
+                }
+                target.reset();
+            };
+            configure(changedEncoder);
+            configure(controlEncoder);
+
+            const auto changedWarm = renderStereo<kChannels>(
+                changedEncoder, warmLeft, warmRight, true);
+            const auto controlWarm = renderStereo<kChannels>(
+                controlEncoder, warmLeft, warmRight, true);
+            auto silentSite = changedEncoder.site(2u);
+            silentSite.enabled = false;
+            changedEncoder.setSite(2u, silentSite);
+            const auto changed = renderStereo<kChannels>(
+                changedEncoder, inspectLeft, inspectRight, true);
+            const auto control = renderStereo<kChannels>(
+                controlEncoder, inspectLeft, inspectRight, true);
+
+            double boundaryStep = 0.0;
+            double maximumStep = 0.0;
+            double controlMaximumStep = 0.0;
+            double releaseMaximumStep = 0.0;
+            double releaseControlMaximumStep = 0.0;
+            for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+                float previousChanged = changedWarm[channel].back();
+                float previousControl = controlWarm[channel].back();
+                for (uint32_t frame = 0u;
+                    frame < inspectFrames; ++frame) {
+                    const double changedStep = std::fabs(
+                        changed[channel][frame] - previousChanged);
+                    const double controlStep = std::fabs(
+                        control[channel][frame] - previousControl);
+                    if (frame == 0u) {
+                        boundaryStep = std::max(
+                            boundaryStep, changedStep);
+                    }
+                    maximumStep = std::max(maximumStep, changedStep);
+                    controlMaximumStep = std::max(
+                        controlMaximumStep, controlStep);
+                    if (frame >= releaseInspectFirst
+                        && frame <= releaseInspectLast) {
+                        releaseMaximumStep = std::max(
+                            releaseMaximumStep, changedStep);
+                        releaseControlMaximumStep = std::max(
+                            releaseControlMaximumStep, controlStep);
+                    }
+                    previousChanged = changed[channel][frame];
+                    previousControl = control[channel][frame];
+                }
+            }
+            const double topologyDifference = maximumDifference(
+                changed, control);
+            if (!finiteAndBounded(changed) || !finiteAndBounded(control)
+                || maximumDifference(changedWarm, controlWarm) > 0.000001
+                || boundaryStep > boundaryLimit
+                || maximumStep > controlMaximumStep + stepTolerance
+                || releaseMaximumStep
+                    > releaseControlMaximumStep + stepTolerance
+                || topologyDifference < 0.0001) {
+                std::cerr << "Mapped topology continuity failed for engine "
+                          << static_cast<uint32_t>(engine)
+                          << ": boundary=" << boundaryStep
+                          << " step=" << maximumStep << "/"
+                          << controlMaximumStep << " release="
+                          << releaseMaximumStep << "/"
+                          << releaseControlMaximumStep << " effect="
+                          << topologyDifference << "\n";
                 return 1;
             }
         }
@@ -774,6 +1041,153 @@ int main()
                           << processor << "\n";
                 return 1;
             }
+        }
+    }
+
+    // Fracture Logic receives its second operand from the next enabled site
+    // in relationship order. Cartography deliberately spreads a small site
+    // population across the complete 24-lane macro range, so looking at the
+    // numerically adjacent lane would read an empty phantom lane instead.
+    // Make only site zero audible, then remove its next ranked operand. With
+    // correct routing its operand changes from the inverted right input to
+    // the correlated left input; phantom-lane routing would render both
+    // configurations identically.
+    {
+        constexpr uint32_t frames = 24000u;
+        constexpr uint32_t inspectFirst = 4096u;
+        std::vector<float> left(frames);
+        std::vector<float> right(frames);
+        for (uint32_t frame = 0u; frame < frames; ++frame) {
+            const float phase = 2.0f * s3g::kPi * 181.0f
+                * static_cast<float>(frame)
+                / static_cast<float>(kSampleRate);
+            left[frame] = 0.24f * std::sin(phase);
+            right[frame] = -left[frame];
+        }
+
+        const auto configureLogic = [](auto& encoder,
+                                        bool middleEnabled,
+                                        bool monoInput) {
+            encoder.prepare(kSampleRate);
+            configureLandscapeFixture(
+                encoder, 3u, s3g::AmbiCartographyLayout::Radial);
+            auto params = encoder.params();
+            params.stereoMap = monoInput
+                ? s3g::AmbiCartographyStereoMap::Mono
+                : s3g::AmbiCartographyStereoMap::Alternate;
+            params.macroEngine =
+                s3g::AmbiCartographyMacroEngine::Fracture;
+            params.macroMetric =
+                s3g::AmbiCartographyMacroMetric::Network;
+            params.macro = 1.0f;
+            params.color = 0.58f;
+            params.memory = 0.0f;
+            params.spread = 0.0f;
+            params.deviation = 0.0f;
+            params.skew = 0.0f;
+            params.center = 0.5f;
+            params.processMix = 1.0f;
+            params.listenMode = s3g::AmbiFieldListenMode::Off;
+            params.listenerAmount = 0.0f;
+            params.outputGainDb = 0.0f;
+            encoder.setParams(params);
+            auto options = encoder.siteProcessOptions();
+            options.fractureProcessor = s3g::FractureProcessor::Logic;
+            encoder.setSiteProcessOptions(options);
+            for (uint32_t siteIndex = 0u; siteIndex < 3u; ++siteIndex) {
+                auto site = encoder.site(siteIndex);
+                site.x = -0.6f + static_cast<float>(siteIndex) * 0.6f;
+                site.y = 0.8f;
+                site.z = 0.0f;
+                site.gain = siteIndex == 0u ? 1.0f : 0.0f;
+                site.networkPosition =
+                    static_cast<float>(siteIndex) * 0.5f;
+                site.networkTrimMs = 0.0f;
+                site.enabled = siteIndex != 1u || middleEnabled;
+                encoder.setSite(siteIndex, site);
+            }
+            encoder.setLandscapeParams({});
+            encoder.reset();
+        };
+
+        auto nextRightEncoder =
+            std::make_unique<s3g::AmbiCartographyEncoder>();
+        auto nextLeftEncoder =
+            std::make_unique<s3g::AmbiCartographyEncoder>();
+        configureLogic(*nextRightEncoder, true, false);
+        configureLogic(*nextLeftEncoder, false, false);
+        const auto nextRight = renderStereo<kChannels>(
+            *nextRightEncoder, left, right, true);
+        const auto nextLeft = renderStereo<kChannels>(
+            *nextLeftEncoder, left, right, true);
+        double routingDifference = 0.0;
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            for (uint32_t frame = inspectFirst; frame < frames; ++frame) {
+                routingDifference = std::max(routingDifference,
+                    static_cast<double>(std::fabs(
+                        nextRight[channel][frame]
+                        - nextLeft[channel][frame])));
+            }
+        }
+        if (!finiteAndBounded(nextRight) || !finiteAndBounded(nextLeft)
+            || energy(nextRight, inspectFirst) < 0.0001
+            || energy(nextLeft, inspectFirst) < 0.0001
+            || routingDifference < 0.005) {
+            std::cerr << "Cartography Fracture Logic relationship routing "
+                      << "failed: difference=" << routingDifference
+                      << " energy=" << energy(nextRight, inspectFirst)
+                      << "/" << energy(nextLeft, inspectFirst) << "\n";
+            return 1;
+        }
+
+        // Copied mono feeds used to leave every XOR pair in the same state,
+        // reducing a full-wet Logic path to DC-blocked silence. At Memory zero
+        // and Amount/Mix one there is no dry or recurrent path that can hide
+        // that failure. Carrier-assisted bipolar bursts must remain active,
+        // audibly distinct from Clean, finite, and free of hard edges.
+        auto monoLogicEncoder =
+            std::make_unique<s3g::AmbiCartographyEncoder>();
+        auto monoCleanEncoder =
+            std::make_unique<s3g::AmbiCartographyEncoder>();
+        configureLogic(*monoLogicEncoder, true, true);
+        configureLogic(*monoCleanEncoder, true, true);
+        auto cleanParams = monoCleanEncoder->params();
+        cleanParams.macroEngine =
+            s3g::AmbiCartographyMacroEngine::Clean;
+        monoCleanEncoder->setParams(cleanParams);
+        monoCleanEncoder->reset();
+        const auto mono = stereoTone(frames, 181.0f);
+        const auto monoLogic = renderStereo<kChannels>(
+            *monoLogicEncoder, mono[0], mono[1], true);
+        const auto monoClean = renderStereo<kChannels>(
+            *monoCleanEncoder, mono[0], mono[1], true);
+        double maximumStep = 0.0;
+        double monoDifference = 0.0;
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            float previous = monoLogic[channel][inspectFirst];
+            for (uint32_t frame = inspectFirst + 1u;
+                frame < frames; ++frame) {
+                maximumStep = std::max(maximumStep,
+                    static_cast<double>(std::fabs(
+                        monoLogic[channel][frame] - previous)));
+                monoDifference = std::max(monoDifference,
+                    static_cast<double>(std::fabs(
+                        monoLogic[channel][frame]
+                        - monoClean[channel][frame])));
+                previous = monoLogic[channel][frame];
+            }
+        }
+        const double monoLogicEnergy = energy(
+            monoLogic, inspectFirst);
+        if (!finiteAndBounded(monoLogic)
+            || monoLogicEnergy < 0.0001
+            || monoDifference < 0.005
+            || maximumStep > 0.05) {
+            std::cerr << "Cartography Fracture Logic mono activity failed: "
+                      << "energy=" << monoLogicEnergy
+                      << " difference=" << monoDifference
+                      << " step=" << maximumStep << "\n";
+            return 1;
         }
     }
 

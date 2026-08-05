@@ -1,5 +1,6 @@
 #include "s3g_no_input_mixer_standalone_engine.h"
 #include "s3g_no_input_mixer.h"
+#include "s3g_nim_gesture_midi.h"
 
 #include <clap/ext/params.h>
 
@@ -149,6 +150,9 @@ bool NoInputMixerStandaloneEngine::prepare(double sampleRate,
     resetMidiInputDropCount();
     for (auto& peak : outputPeaks_) peak.store(0.0f,
         std::memory_order_relaxed);
+    gestureFeedbackStateValid_ = false;
+    gestureFeedbackNextFrame_ = 0u;
+    if (gestureFeedbackEnabled()) requestGestureFeedback();
     prepared_ = true;
     return true;
 }
@@ -170,6 +174,8 @@ void NoInputMixerStandaloneEngine::release()
     midiEventCount_ = 0u;
     gestureMidiEventCount_ = 0u;
     pendingMidiCount_ = 0u;
+    gestureFeedbackStateValid_ = false;
+    gestureFeedbackNextFrame_ = 0u;
 }
 
 void NoInputMixerStandaloneEngine::setOutputMode(NoInputOutputMode mode)
@@ -239,6 +245,18 @@ void NoInputMixerStandaloneEngine::setHostTicksPerSecond(
 void NoInputMixerStandaloneEngine::requestPanic()
 {
     panicRequested_.store(true, std::memory_order_release);
+}
+
+void NoInputMixerStandaloneEngine::setGestureFeedbackEnabled(bool enabled)
+{
+    const bool wasEnabled = gestureFeedbackEnabled_.exchange(
+        enabled, std::memory_order_acq_rel);
+    if (enabled && !wasEnabled) requestGestureFeedback();
+}
+
+void NoInputMixerStandaloneEngine::requestGestureFeedback()
+{
+    gestureFeedbackRequested_.store(true, std::memory_order_release);
 }
 
 bool NoInputMixerStandaloneEngine::enqueueMidi(uint8_t status,
@@ -383,6 +401,70 @@ bool NoInputMixerStandaloneEngine::dequeueMidiOutput(uint8_t& status,
     return true;
 }
 
+void NoInputMixerStandaloneEngine::serviceGestureFeedback()
+{
+    if (!gestureFeedbackEnabled()) return;
+    const bool requested = gestureFeedbackRequested_.exchange(
+        false, std::memory_order_acq_rel);
+
+    const auto* params = gesture_.extension<clap_plugin_params_t>(
+        CLAP_EXT_PARAMS);
+    if (!params || !params->get_value) {
+        gestureFeedbackRequested_.store(true, std::memory_order_release);
+        return;
+    }
+
+    double recording = 0.0;
+    double playing = 0.0;
+    double loopCount = 0.0;
+    double lastLoopLength = 0.0;
+    if (!params->get_value(gesture_.plugin(), 1u, &recording)
+        || !params->get_value(gesture_.plugin(), 2u, &playing)
+        || !params->get_value(gesture_.plugin(), 6u, &loopCount)
+        || !params->get_value(gesture_.plugin(), 7u, &lastLoopLength)) {
+        gestureFeedbackRequested_.store(true, std::memory_order_release);
+        return;
+    }
+
+    const GestureFeedbackState current {
+        recording >= 0.5,
+        playing >= 0.5,
+        lastLoopLength > 0.0,
+        loopCount >= 0.5,
+    };
+    const bool heartbeatDue = !gestureFeedbackStateValid_
+        || steadyTime_ >= gestureFeedbackNextFrame_;
+    if (!requested && !heartbeatDue
+        && current == gestureFeedbackState_) return;
+
+    const auto sendState = [this](uint8_t note, bool active) {
+        const uint8_t status = static_cast<uint8_t>(
+            (active ? 0x90u : 0x80u)
+            | s3g::nim_gesture_midi::kFeedbackChannel);
+        return enqueueMidiOutput(status, note, active ? 127u : 0u);
+    };
+    bool sent = true;
+    sent = sendState(s3g::nim_gesture_midi::kRecordNote,
+        current.recording) && sent;
+    sent = sendState(s3g::nim_gesture_midi::kPlayNote,
+        current.playing) && sent;
+    sent = sendState(s3g::nim_gesture_midi::kClearLastNote,
+        current.hasLastLoop) && sent;
+    sent = sendState(s3g::nim_gesture_midi::kClearAllNote,
+        current.hasAnyLoop) && sent;
+    sent = sendState(s3g::nim_gesture_midi::kCancelRecordNote,
+        current.recording) && sent;
+
+    if (!sent) {
+        gestureFeedbackRequested_.store(true, std::memory_order_release);
+        return;
+    }
+    gestureFeedbackState_ = current;
+    gestureFeedbackStateValid_ = true;
+    gestureFeedbackNextFrame_ = steadyTime_ + static_cast<uint64_t>(
+        std::max(1.0, sampleRate_));
+}
+
 void NoInputMixerStandaloneEngine::clearOutput(float* const* output,
     uint32_t channels, uint32_t frames) const
 {
@@ -429,6 +511,7 @@ bool NoInputMixerStandaloneEngine::render(float* const* output,
         gestureMidiEventCount_ = 0u;
         return failBlock(gestureProcessErrorCount_);
     }
+    serviceGestureFeedback();
 
     clap_audio_buffer_t sourceOutput {};
     sourceOutput.data32 = sourcePointers_.data();

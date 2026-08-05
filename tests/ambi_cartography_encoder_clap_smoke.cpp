@@ -12,6 +12,7 @@
 #include <dlfcn.h>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -48,7 +49,22 @@ constexpr clap_id kFractureProcessorParamId = 44u;
 constexpr uint32_t kFrames = 256u;
 constexpr size_t kLegacyStateBytes = 816u;
 constexpr size_t kLandscapeV1StateBytes = 852u;
-constexpr size_t kCurrentStateBytes = 868u;
+constexpr size_t kSiteProcessV1StateBytes = 868u;
+constexpr size_t kCurrentStateBytes = 892u;
+constexpr uint32_t kCameraStateMagic = 0x43414d52u;
+constexpr uint32_t kLegacyCameraStateVersion = 1u;
+constexpr uint32_t kCameraStateVersion = 2u;
+
+struct CameraStateFixture {
+    uint32_t magic = kCameraStateMagic;
+    uint32_t version = kCameraStateVersion;
+    int32_t viewMode = 2;
+    float azimuthDeg = 38.0f;
+    float elevationDeg = 32.0f;
+    float zoom = 1.0f;
+};
+
+static_assert(sizeof(CameraStateFixture) == 24u);
 
 struct MemoryState {
     std::vector<uint8_t> bytes;
@@ -384,6 +400,18 @@ int main(int argc, char** argv)
     if (ok) ok = state->save(plugin, &outputState)
         && saved.bytes.size() == kCurrentStateBytes;
     if (ok) {
+        CameraStateFixture camera {};
+        std::memcpy(&camera,
+            saved.bytes.data() + kSiteProcessV1StateBytes,
+            sizeof(camera));
+        ok = camera.magic == kCameraStateMagic
+            && camera.version == kCameraStateVersion
+            && camera.viewMode == 2
+            && std::fabs(camera.azimuthDeg - 38.0f) < 0.0001f
+            && std::fabs(camera.elevationDeg - 32.0f) < 0.0001f
+            && std::fabs(camera.zoom - 1.0f) < 0.0001f;
+    }
+    if (ok) {
         ok = setParam(plugin, params, kLayoutParamId, 0.0)
             && setParam(plugin, params, kSiteXParamId, -0.75)
             && setParam(plugin, params, kShredCircuitParamId, 1.0)
@@ -412,6 +440,158 @@ int main(int argc, char** argv)
             && std::fabs(refraction + 0.35) < 0.0001
             && std::fabs(horizon - 0.72) < 0.0001
             && shredCircuit == 6.0 && fractureProcessor == 9.0;
+    }
+
+    const auto roundTripCamera = [&](const CameraStateFixture& authored,
+                                     CameraStateFixture& restored) {
+        MemoryState edited;
+        edited.bytes = saved.bytes;
+        std::memcpy(edited.bytes.data() + kSiteProcessV1StateBytes,
+            &authored, sizeof(authored));
+        clap_istream_t editedInput { &edited, stateRead };
+        if (!state->load(plugin, &editedInput)) return false;
+        MemoryState reSaved;
+        clap_ostream_t reSavedOutput { &reSaved, stateWrite };
+        if (!state->save(plugin, &reSavedOutput)
+            || reSaved.bytes.size() != kCurrentStateBytes) {
+            return false;
+        }
+        std::memcpy(&restored,
+            reSaved.bytes.data() + kSiteProcessV1StateBytes,
+            sizeof(restored));
+        return true;
+    };
+
+    if (ok) {
+        CameraStateFixture authored {};
+        authored.viewMode = -1;
+        authored.azimuthDeg = -73.25f;
+        authored.elevationDeg = 22.5f;
+        authored.zoom = 1.65f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(authored, restored)
+            && restored.magic == authored.magic
+            && restored.version == authored.version
+            && restored.viewMode == authored.viewMode
+            && std::fabs(restored.azimuthDeg - authored.azimuthDeg) < 0.0001f
+            && std::fabs(restored.elevationDeg
+                - authored.elevationDeg) < 0.0001f
+            && std::fabs(restored.zoom - authored.zoom) < 0.0001f;
+    }
+
+    // SIDE is exactly edge-on at +90 degrees. It must not be narrowed to the
+    // free-orbit +/-85 degree limit when a session is restored.
+    if (ok) {
+        CameraStateFixture side {};
+        side.viewMode = 1;
+        side.azimuthDeg = 0.0f;
+        side.elevationDeg = 90.0f;
+        side.zoom = 1.15f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(side, restored)
+            && restored.viewMode == 1
+            && std::fabs(restored.azimuthDeg) < 0.0001f
+            && std::fabs(restored.elevationDeg - 90.0f) < 0.0001f
+            && std::fabs(restored.zoom - 1.15f) < 0.0001f;
+    }
+
+    // Camera-v1 shipped briefly with the inverse pitch convention. Fixed
+    // presets migrate to their upright v2 definitions, while a free camera
+    // preserves its prior screen orientation by reversing elevation.
+    if (ok) {
+        CameraStateFixture legacyThreeQuarter {};
+        legacyThreeQuarter.version = kLegacyCameraStateVersion;
+        legacyThreeQuarter.viewMode = 2;
+        legacyThreeQuarter.azimuthDeg = 38.0f;
+        legacyThreeQuarter.elevationDeg = 32.0f;
+        legacyThreeQuarter.zoom = 1.30f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(legacyThreeQuarter, restored)
+            && restored.version == kCameraStateVersion
+            && restored.viewMode == 2
+            && std::fabs(restored.azimuthDeg - 38.0f) < 0.0001f
+            && std::fabs(restored.elevationDeg - 32.0f) < 0.0001f
+            && std::fabs(restored.zoom - 1.30f) < 0.0001f;
+    }
+    if (ok) {
+        CameraStateFixture legacySide {};
+        legacySide.version = kLegacyCameraStateVersion;
+        legacySide.viewMode = 1;
+        legacySide.elevationDeg = -90.0f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(legacySide, restored)
+            && restored.version == kCameraStateVersion
+            && restored.viewMode == 1
+            && std::fabs(restored.azimuthDeg) < 0.0001f
+            && std::fabs(restored.elevationDeg - 90.0f) < 0.0001f;
+    }
+    if (ok) {
+        CameraStateFixture legacyFree {};
+        legacyFree.version = kLegacyCameraStateVersion;
+        legacyFree.viewMode = -1;
+        legacyFree.azimuthDeg = -73.25f;
+        legacyFree.elevationDeg = 22.5f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(legacyFree, restored)
+            && restored.version == kCameraStateVersion
+            && restored.viewMode == -1
+            && std::fabs(restored.azimuthDeg + 73.25f) < 0.0001f
+            && std::fabs(restored.elevationDeg + 22.5f) < 0.0001f;
+    }
+
+    if (ok) {
+        CameraStateFixture outsideRange {};
+        outsideRange.viewMode = 99;
+        outsideRange.azimuthDeg = 250.0f;
+        outsideRange.elevationDeg = -120.0f;
+        outsideRange.zoom = 8.0f;
+        CameraStateFixture restored {};
+        ok = roundTripCamera(outsideRange, restored)
+            && restored.viewMode == 2
+            && std::fabs(restored.azimuthDeg - 180.0f) < 0.0001f
+            && std::fabs(restored.elevationDeg + 90.0f) < 0.0001f
+            && std::fabs(restored.zoom - 2.20f) < 0.0001f;
+    }
+
+    if (ok) {
+        CameraStateFixture nonFinite {};
+        nonFinite.viewMode = -1;
+        nonFinite.azimuthDeg = std::numeric_limits<float>::quiet_NaN();
+        nonFinite.elevationDeg = std::numeric_limits<float>::infinity();
+        nonFinite.zoom = std::numeric_limits<float>::quiet_NaN();
+        CameraStateFixture restored {};
+        ok = roundTripCamera(nonFinite, restored)
+            && restored.viewMode == -1
+            && std::isfinite(restored.azimuthDeg)
+            && std::fabs(restored.azimuthDeg - 38.0f) < 0.0001f
+            && std::isfinite(restored.elevationDeg)
+            && std::fabs(restored.elevationDeg - 32.0f) < 0.0001f
+            && std::isfinite(restored.zoom)
+            && std::fabs(restored.zoom - 1.0f) < 0.0001f;
+    }
+
+    // The immediately previous state generation ended after the process
+    // selector suffix. Its fixed 2-D map migrates to TOP at unity zoom.
+    if (ok) {
+        MemoryState siteProcessV1;
+        siteProcessV1.bytes.assign(saved.bytes.begin(),
+            saved.bytes.begin() + kSiteProcessV1StateBytes);
+        clap_istream_t oldInput { &siteProcessV1, stateRead };
+        ok = state->load(plugin, &oldInput);
+        MemoryState migrated;
+        clap_ostream_t migratedOutput { &migrated, stateWrite };
+        ok = ok && state->save(plugin, &migratedOutput)
+            && migrated.bytes.size() == kCurrentStateBytes;
+        CameraStateFixture camera {};
+        if (ok) {
+            std::memcpy(&camera,
+                migrated.bytes.data() + kSiteProcessV1StateBytes,
+                sizeof(camera));
+            ok = camera.viewMode == 0
+                && std::fabs(camera.azimuthDeg) < 0.0001f
+                && std::fabs(camera.elevationDeg) < 0.0001f
+                && std::fabs(camera.zoom - 1.0f) < 0.0001f;
+        }
     }
 
     // Landscape-v1 states contain the 816-byte base and 36-byte landscape
@@ -511,6 +691,64 @@ int main(int argc, char** argv)
                 kFractureProcessorParamId, &fractureProcessor)
             && std::fabs(multipath - 0.37) < 0.0001
             && shredCircuit == 4.0 && fractureProcessor == 6.0;
+    }
+
+    if (ok) {
+        CameraStateFixture preserved {};
+        preserved.viewMode = -1;
+        preserved.azimuthDeg = 61.0f;
+        preserved.elevationDeg = -24.0f;
+        preserved.zoom = 1.45f;
+        CameraStateFixture roundTripped {};
+        ok = roundTripCamera(preserved, roundTripped)
+            && setParam(plugin, params, kMultipathParamId, 0.53);
+
+        MemoryState truncatedCamera;
+        truncatedCamera.bytes.assign(saved.bytes.begin(),
+            saved.bytes.begin() + kSiteProcessV1StateBytes + 5u);
+        clap_istream_t truncatedInput { &truncatedCamera, stateRead };
+        const bool rejected = !state->load(plugin, &truncatedInput);
+        double multipath = 0.0;
+        MemoryState afterReject;
+        clap_ostream_t afterRejectOutput { &afterReject, stateWrite };
+        ok = ok && rejected
+            && params->get_value(plugin, kMultipathParamId, &multipath)
+            && std::fabs(multipath - 0.53) < 0.0001
+            && state->save(plugin, &afterRejectOutput)
+            && afterReject.bytes.size() == kCurrentStateBytes;
+        CameraStateFixture camera {};
+        if (ok) {
+            std::memcpy(&camera,
+                afterReject.bytes.data() + kSiteProcessV1StateBytes,
+                sizeof(camera));
+            ok = camera.viewMode == preserved.viewMode
+                && std::fabs(camera.azimuthDeg
+                    - preserved.azimuthDeg) < 0.0001f
+                && std::fabs(camera.elevationDeg
+                    - preserved.elevationDeg) < 0.0001f
+                && std::fabs(camera.zoom - preserved.zoom) < 0.0001f;
+        }
+    }
+
+    if (ok) {
+        MemoryState invalidCamera;
+        invalidCamera.bytes = saved.bytes;
+        CameraStateFixture invalid {};
+        invalid.magic = 0u;
+        std::memcpy(invalidCamera.bytes.data() + kSiteProcessV1StateBytes,
+            &invalid, sizeof(invalid));
+        clap_istream_t invalidInput { &invalidCamera, stateRead };
+        ok = !state->load(plugin, &invalidInput);
+    }
+    if (ok) {
+        MemoryState invalidCamera;
+        invalidCamera.bytes = saved.bytes;
+        CameraStateFixture invalid {};
+        invalid.version = 99u;
+        std::memcpy(invalidCamera.bytes.data() + kSiteProcessV1StateBytes,
+            &invalid, sizeof(invalid));
+        clap_istream_t invalidInput { &invalidCamera, stateRead };
+        ok = !state->load(plugin, &invalidInput);
     }
 
     if (ok) {
@@ -636,6 +874,7 @@ int main(int argc, char** argv)
         struct BoundaryMetrics {
             bool finite = true;
             double firstPeak = 0.0;
+            double peak = 0.0;
             double maximumStep = 0.0;
             double postBridgeRms = 0.0;
             double lateRms = 0.0;
@@ -674,6 +913,8 @@ int main(int argc, char** argv)
                                 metrics.firstPeak,
                                 static_cast<double>(std::fabs(sample)));
                         }
+                        metrics.peak = std::max(metrics.peak,
+                            static_cast<double>(std::fabs(sample)));
                         metrics.maximumStep = std::max(
                             metrics.maximumStep,
                             static_cast<double>(std::fabs(
@@ -919,6 +1160,50 @@ int main(int argc, char** argv)
                       << " reactivate=" << reactivateRestartOk << "\n";
         }
         ok = ok && stopStartOk && resetRestartOk && reactivateRestartOk;
+
+        // A short input ramp is continuous but Body's horn high-pass can
+        // differentiate it into a large pulse. Its transport correction is
+        // therefore process-aware and long enough to keep that pulse quiet
+        // before it can enter propagation and feedback memories.
+        if (ok) {
+            ok = setParam(plugin, params, kMacroEngineParamId, 5.0)
+                && setParam(plugin, params, kMacroParamId, 1.0)
+                && setParam(plugin, params, kMemoryParamId, 0.70)
+                && setParam(plugin, params, kProcessMixParamId, 1.0);
+            plugin->reset(plugin);
+            for (uint32_t block = 0u; ok && block < 400u; ++block) {
+                ok = runBlock(kFrames, 0.25f, &playingTransport);
+            }
+            std::array<float, 4u> bodyLast {};
+            double bodySettledPeak = 0.0;
+            for (uint32_t channel = 0u; channel < 4u; ++channel) {
+                bodyLast[channel] = outputStorage[channel][kFrames - 1u];
+                for (float sample : outputStorage[channel]) {
+                    bodySettledPeak = std::max(bodySettledPeak,
+                        static_cast<double>(std::fabs(sample)));
+                }
+            }
+            const auto bodyStop = renderBoundary(
+                0.0f, &stoppedTransport, bodyLast, 9600u);
+            const auto bodyStart = renderBoundary(
+                0.25f, &playingTransport, bodyStop.last, 9600u);
+            const bool bodyTransportOk = bodyStop.finite
+                && bodyStart.finite && bodySettledPeak < 0.01
+                && bodyStop.peak <= 0.0625
+                && bodyStart.peak <= 0.0625
+                && bodyStop.maximumStep <= 0.0075
+                && bodyStart.maximumStep <= 0.0075;
+            if (!bodyTransportOk) {
+                std::cerr << "Body transport transient failed: settled="
+                          << bodySettledPeak << " peak="
+                          << bodyStop.peak << "/" << bodyStart.peak
+                          << " step=" << bodyStop.maximumStep << "/"
+                          << bodyStart.maximumStep << "\n";
+            }
+            std::cout << "Cartography Body transport peak stop/start: "
+                      << bodyStop.peak << "/" << bodyStart.peak << "\n";
+            ok = ok && bodyTransportOk;
+        }
 
         // A real feedback delay remains parked across a host sleep. Restart
         // onto silent input: the lifecycle bridge should make the first edge

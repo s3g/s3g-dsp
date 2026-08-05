@@ -1,4 +1,5 @@
 #include "s3g_no_input_mixer_standalone_engine.h"
+#include "s3g_nim_gesture_midi.h"
 #include "s3g_nim_gesture_session.h"
 #include "s3g_coreaudio_output.h"
 
@@ -216,6 +217,7 @@ int main()
         &s3g_mc_to_stereo_autogain_embedded_entry,
         &s3g_mc_to_quad_autogain_embedded_entry);
     ok = ok && engine.prepare(48000.0, kFrames);
+    engine.setGestureFeedbackEnabled(true);
 
     const auto* gestureSession = engine.gesturePlugin()
         .extension<s3g_nim_gesture_session_t>(
@@ -251,12 +253,37 @@ int main()
     ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
     uint32_t e16FeedbackCount = 0u;
     uint32_t gridFeedbackCount = 0u;
+    uint32_t gestureFeedbackCount = 0u;
+    bool recordFeedbackOn = false;
+    bool recordFeedbackOff = false;
+    bool clearLastFeedbackOn = false;
+    bool clearAllFeedbackOn = false;
+    bool cancelFeedbackOn = false;
+    bool cancelFeedbackOff = false;
     std::array<bool, 64u> gridFeedbackSeen {};
     uint8_t status = 0u;
     uint8_t dataOne = 0u;
     uint8_t dataTwo = 0u;
     while (engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
-        if (status == 0xbfu) {
+        if (s3g::nim_gesture_midi::isFeedbackMessage(status, dataOne)) {
+            const bool active = (status & 0xf0u) == 0x90u
+                && dataTwo > 0u;
+            if (dataOne == s3g::nim_gesture_midi::kRecordNote) {
+                recordFeedbackOn |= active;
+                recordFeedbackOff |= !active;
+            } else if (dataOne
+                == s3g::nim_gesture_midi::kClearLastNote) {
+                clearLastFeedbackOn |= active;
+            } else if (dataOne
+                == s3g::nim_gesture_midi::kClearAllNote) {
+                clearAllFeedbackOn |= active;
+            } else if (dataOne
+                == s3g::nim_gesture_midi::kCancelRecordNote) {
+                cancelFeedbackOn |= active;
+                cancelFeedbackOff |= !active;
+            }
+            ++gestureFeedbackCount;
+        } else if (status == 0xbfu) {
             ok = ok && dataOne < 128u && dataTwo < 128u;
             ++e16FeedbackCount;
         } else if ((status & 0xf0u) == 0xa0u
@@ -270,8 +297,25 @@ int main()
         }
     }
     ok = ok && e16FeedbackCount >= 4u && gridFeedbackCount == 64u
+        && gestureFeedbackCount >= 10u
+        && recordFeedbackOn && recordFeedbackOff
+        && clearLastFeedbackOn && clearAllFeedbackOn
+        && cancelFeedbackOn && cancelFeedbackOff
         && std::all_of(gridFeedbackSeen.begin(), gridFeedbackSeen.end(),
             [](bool seen) { return seen; });
+
+    engine.enqueueMidi(0x9fu, s3g::nim_gesture_midi::kPlayNote, 127u);
+    ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
+    bool playFeedbackOn = false;
+    while (engine.dequeueMidiOutput(status, dataOne, dataTwo)) {
+        if (s3g::nim_gesture_midi::isFeedbackMessage(status, dataOne)
+            && dataOne == s3g::nim_gesture_midi::kPlayNote) {
+            playFeedbackOn |= (status & 0xf0u) == 0x90u && dataTwo > 0u;
+        }
+    }
+    ok = ok && playFeedbackOn;
+    engine.enqueueMidi(0x9fu, s3g::nim_gesture_midi::kPlayNote, 127u);
+    ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
 
     ok = ok && renderMode(engine,
         s3g::standalone::NoInputOutputMode::StereoAutogain, 2u);

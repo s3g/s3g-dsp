@@ -92,7 +92,7 @@
             <tr><td>16</td><td>Flow</td><td>0…1</td><td>46</td><td>Response Threshold</td><td>0…1</td></tr>
             <tr><td>17</td><td>Spread</td><td>0…1</td><td>47</td><td>Response Attack</td><td>Normalized 0…1</td></tr>
             <tr><td>18</td><td>Vortex</td><td>−1…+1</td><td>48</td><td>Response Release</td><td>Normalized 0…1</td></tr>
-            <tr><td>19</td><td>Field Depth</td><td>0…1</td><td>49</td><td>Response Direction</td><td>−1 Invert, +1 Normal</td></tr>
+            <tr><td>19</td><td>Field Depth</td><td>0…1</td><td>49</td><td>Response Direction</td><td>−1 Invert, 0 or +1 Normal</td></tr>
             <tr><td>20</td><td>Field Shape</td><td>0 Flow, 1 Pulse, 2 Chase, 3 Swirl, 4 Scat, 5 Hold, 6 Bloom, 7 Braid, 8 Attract</td><td>50</td><td>Hold Ecology</td><td>0 Off, 1 On</td></tr>
             <tr><td>21</td><td>Field Rate</td><td>Normalized 0…1</td><td>51</td><td>Slow Time</td><td>0 Off, 1 On</td></tr>
             <tr><td>22</td><td>Field Phase</td><td>0…1</td><td>52</td><td>Tempo Sync</td><td>0 Off, 1 On</td></tr>
@@ -108,6 +108,10 @@
         </table>
 
         <p>Effect indices 0–22 are Bypass, Wool, Rat, Zone A, Zone B, Fuzz I, Fuzz II, Diode, Ring, Relay, Crush, Splice, Logic, Shred, Void, Rotor, Phase, Chorus, Throat, Robot, Oct Down, Oct Up, and Oct Stack. Division indices 0–9 are 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1 Bar, 2 Bars, 4 Bars, and 8 Bars.</p>
+
+        <p>Relay, Crush, Splice, Logic, Void, Throat, Robot, Oct Down, Oct Up, and Oct Stack use the same processor kernels as Macro Fracture. Their level-relative thresholds, exact-silence behavior, interpolated and segment-latched Splice reads, continuous Robot carrier, and adaptive octave tracking therefore remain consistent between the two plugins. NIM retains its own matrix or aux-return source for Logic rather than adding Cartography's enabled-site comparison ring.</p>
+
+        <p>Changing a lane or auxiliary effect Type uses a true 20 ms old/new crossfade at every Quality setting. The first sample of a new selection is also anchored to the last rendered wet sample and the correction releases smoothly, so rapid selector changes cannot abandon an in-progress blend as a hard edge. Individual effect histories remain parked until reset, reseed, kill, or panic clears the corresponding signal state.</p>
 
         <h3>Matrix, lane, and insert addresses</h3>
 

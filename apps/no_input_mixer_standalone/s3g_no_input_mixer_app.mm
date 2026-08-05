@@ -1,5 +1,6 @@
 #include "s3g_coreaudio_output.h"
 #include "s3g_cocoa_gui.h"
+#include "s3g_nim_gesture_midi.h"
 #include "s3g_nim_midi_feedback.h"
 #include "s3g_nim_gesture_session.h"
 #include "s3g_no_input_mixer.h"
@@ -68,6 +69,8 @@ struct AppState {
     uint32_t selectedE16MidiDestination =
         std::numeric_limits<uint32_t>::max();
     uint32_t selectedGridMidiDestination =
+        std::numeric_limits<uint32_t>::max();
+    uint32_t selectedGestureMidiDestination =
         std::numeric_limits<uint32_t>::max();
     uint32_t connectedMidiSourceCount = 0u;
     bool showRealtimeDiagnostics = false;
@@ -426,10 +429,18 @@ void updateMidiFeedbackProducers(AppState& state)
     const auto* feedback = state.engine.noInputPlugin()
         .extension<s3g_nim_midi_feedback_t>(
             S3G_NIM_MIDI_FEEDBACK_EXTENSION_ID);
-    if (!feedback || !feedback->set_enabled) return;
-    feedback->set_enabled(state.engine.noInputPlugin().plugin(),
-        state.selectedE16MidiDestination < state.midiDestinations.size(),
-        state.selectedGridMidiDestination < state.midiDestinations.size());
+    if (feedback && feedback->set_enabled) {
+        feedback->set_enabled(state.engine.noInputPlugin().plugin(),
+            state.selectedE16MidiDestination
+                < state.midiDestinations.size(),
+            state.selectedGridMidiDestination
+                < state.midiDestinations.size());
+    }
+    const bool gestureFeedbackEnabled =
+        state.selectedGestureMidiDestination
+            < state.midiDestinations.size();
+    state.engine.setGestureFeedbackEnabled(gestureFeedbackEnabled);
+    if (gestureFeedbackEnabled) state.engine.requestGestureFeedback();
 }
 
 void connectMidiInputs(AppState& state)
@@ -478,6 +489,8 @@ void connectMidiInputs(AppState& state)
         state.selectedE16MidiDestination);
     restoreDestination(@"GridFeedbackDestinationUniqueID",
         state.selectedGridMidiDestination);
+    restoreDestination(@"GestureFeedbackDestinationUniqueID",
+        state.selectedGestureMidiDestination);
     updateMidiFeedbackProducers(state);
 }
 
@@ -490,7 +503,9 @@ void drainMidiOutput(AppState& state)
         const uint8_t command = status & 0xf0u;
         const uint8_t channel = status & 0x0fu;
         uint32_t destinationIndex = std::numeric_limits<uint32_t>::max();
-        if (command == 0xb0u && channel == 15u) {
+        if (s3g::nim_gesture_midi::isFeedbackMessage(status, dataOne)) {
+            destinationIndex = state.selectedGestureMidiDestination;
+        } else if (command == 0xb0u && channel == 15u) {
             destinationIndex = state.selectedE16MidiDestination;
         } else if (command == s3g::kNoInputMatrixFeedbackCommand
             && channel < s3g::kNoInputMatrixGridChannels) {
@@ -665,6 +680,14 @@ void saveProcessorState(AppState& state)
             forKey:@"GridFeedbackDestinationUniqueID"];
     } else {
         [defaults removeObjectForKey:@"GridFeedbackDestinationUniqueID"];
+    }
+    if (state.selectedGestureMidiDestination
+        < state.midiDestinations.size()) {
+        [defaults setInteger:state.midiDestinations[
+            state.selectedGestureMidiDestination].uniqueId
+            forKey:@"GestureFeedbackDestinationUniqueID"];
+    } else {
+        [defaults removeObjectForKey:@"GestureFeedbackDestinationUniqueID"];
     }
     if (state.selectedDevice < state.devices.size()) {
         [defaults setObject:[NSString stringWithUTF8String:
@@ -936,6 +959,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     NSPopUpButton* _midiInputMenu;
     NSPopUpButton* _e16MidiOutputMenu;
     NSPopUpButton* _gridMidiOutputMenu;
+    NSPopUpButton* _gestureMidiOutputMenu;
     NSTextField* _gestureSessionLabel;
     NSPanel* _gesturePanel;
     NSView* _gesturePluginContainer;
@@ -1378,6 +1402,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     };
     populate(_e16MidiOutputMenu, _state->selectedE16MidiDestination);
     populate(_gridMidiOutputMenu, _state->selectedGridMidiDestination);
+    populate(_gestureMidiOutputMenu,
+        _state->selectedGestureMidiDestination);
 }
 
 - (void)refreshMidiInputMenu
@@ -1422,7 +1448,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         return;
     }
     refreshMidiInputs(*_state);
-    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 390.0);
+    const NSRect frame = NSMakeRect(0.0, 0.0, 620.0, 444.0);
     _midiPanel = [[NSPanel alloc] initWithContentRect:frame
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
         backing:NSBackingStoreBuffered defer:NO];
@@ -1438,12 +1464,12 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         [label setFrame:rect];
         [_midiPanelContent addSubview:label];
     };
-    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 347.0, 200.0, 18.0),
+    addLabel(@"MIDI ROUTING", NSMakeRect(28.0, 401.0, 200.0, 18.0),
         0xc8c8c8, 11.0);
-    addLabel(@"INPUT SOURCES", NSMakeRect(28.0, 310.0, 130.0, 18.0),
+    addLabel(@"INPUT SOURCES", NSMakeRect(28.0, 364.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     _midiInputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 302.0, 400.0, 34.0)
+        initWithFrame:NSMakeRect(180.0, 356.0, 400.0, 34.0)
         pullsDown:NO];
     [_midiInputMenu setBordered:NO];
     [_midiInputMenu setTarget:self];
@@ -1451,31 +1477,42 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_midiPanelContent addSubview:_midiInputMenu];
     [self refreshMidiInputMenu];
     addLabel(@"CHECKED SOURCES FEED THE EMBEDDED CHAIN  ·  CLAP INPUT IS HOST-ROUTED",
-        NSMakeRect(180.0, 280.0, 410.0, 16.0), 0x777777, 8.8);
-    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 250.0, 130.0, 18.0),
+        NSMakeRect(180.0, 334.0, 410.0, 16.0), 0x777777, 8.8);
+    addLabel(@"BU16 MATRIX", NSMakeRect(28.0, 304.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     addLabel(@"CH 1–4  •  NOTES 0–15  •  FLIP / LATCH  •  SHARED RAMP",
-        NSMakeRect(180.0, 250.0, 410.0, 18.0), 0x929292, 9.5);
-    addLabel(@"GRID FEEDBACK", NSMakeRect(28.0, 210.0, 130.0, 18.0),
+        NSMakeRect(180.0, 304.0, 410.0, 18.0), 0x929292, 9.5);
+    addLabel(@"GRID FEEDBACK", NSMakeRect(28.0, 266.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
 
     _gridMidiOutputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 202.0, 400.0, 34.0)
+        initWithFrame:NSMakeRect(180.0, 258.0, 400.0, 34.0)
         pullsDown:NO];
     [_gridMidiOutputMenu setBordered:NO];
     [_gridMidiOutputMenu setTarget:self];
     [_gridMidiOutputMenu setAction:@selector(changeGridMidiOutput:)];
     [_midiPanelContent addSubview:_gridMidiOutputMenu];
 
-    addLabel(@"NRPN FEEDBACK", NSMakeRect(28.0, 156.0, 130.0, 18.0),
+    addLabel(@"NRPN FEEDBACK", NSMakeRect(28.0, 212.0, 130.0, 18.0),
         0xa8a8a8, 10.0);
     _e16MidiOutputMenu = [[S3GStandalonePopupButton alloc]
-        initWithFrame:NSMakeRect(180.0, 148.0, 400.0, 34.0)
+        initWithFrame:NSMakeRect(180.0, 204.0, 400.0, 34.0)
         pullsDown:NO];
     [_e16MidiOutputMenu setBordered:NO];
     [_e16MidiOutputMenu setTarget:self];
     [_e16MidiOutputMenu setAction:@selector(changeE16MidiOutput:)];
     [_midiPanelContent addSubview:_e16MidiOutputMenu];
+
+    addLabel(@"GESTURE KEYS", NSMakeRect(28.0, 158.0, 130.0, 18.0),
+        0xa8a8a8, 10.0);
+    _gestureMidiOutputMenu = [[S3GStandalonePopupButton alloc]
+        initWithFrame:NSMakeRect(180.0, 150.0, 400.0, 34.0)
+        pullsDown:NO];
+    [_gestureMidiOutputMenu setBordered:NO];
+    [_gestureMidiOutputMenu setTarget:self];
+    [_gestureMidiOutputMenu setAction:
+        @selector(changeGestureMidiOutput:)];
+    [_midiPanelContent addSubview:_gestureMidiOutputMenu];
     [self refreshMidiOutputMenus];
 
     _gestureSessionLabel = [[NSTextField labelWithString:
@@ -1641,6 +1678,15 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     updateMidiFeedbackProducers(*_state);
 }
 
+- (void)changeGestureMidiOutput:(NSPopUpButton*)sender
+{
+    const NSInteger tag = [[sender selectedItem] tag];
+    _state->selectedGestureMidiDestination = tag <= 0
+        ? std::numeric_limits<uint32_t>::max()
+        : static_cast<uint32_t>(tag - 1);
+    updateMidiFeedbackProducers(*_state);
+}
+
 - (void)editGestures:(id)sender
 {
     (void)sender;
@@ -1692,6 +1738,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _e16MidiOutputMenu = nil;
     [_gridMidiOutputMenu release];
     _gridMidiOutputMenu = nil;
+    [_gestureMidiOutputMenu release];
+    _gestureMidiOutputMenu = nil;
     [_gestureSessionLabel release];
     _gestureSessionLabel = nil;
     [_midiPanelContent release];

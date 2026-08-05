@@ -62,6 +62,11 @@ public:
         activeProcessor_ = target_.processor;
         previousProcessor_ = activeProcessor_;
         processorFade_ = 1.0f;
+        processorCorrection_ = 0.0f;
+        processorCorrectionPhase_ = 1.0f;
+        processorCorrectionPending_ = false;
+        lastWet_ = 0.0f;
+        wetValid_ = false;
         smoothed_ = target_;
         inputGainTarget_ = dbToGain(target_.inputGainDb);
         outputGainTarget_ = dbToGain(target_.outputGainDb);
@@ -117,6 +122,7 @@ public:
             previousProcessor_ = activeProcessor_;
             activeProcessor_ = target_.processor;
             processorFade_ = 0.0f;
+            processorCorrectionPending_ = true;
         }
 
         const float midpoint =
@@ -153,10 +159,28 @@ public:
             processorFade_ =
                 std::min(1.0f, processorFade_ + processorFadeCoeff_);
         }
+        // A malformed processor state must not poison the continuity anchor.
+        // Sanitize both before measuring a switch correction and again after
+        // applying it, because the correction itself is persistent state.
+        wet = std::isfinite(wet) ? clamp(wet, -8.0f, 8.0f) : 0.0f;
+        if (processorCorrectionPending_) {
+            processorCorrection_ = wetValid_ ? lastWet_ - wet : 0.0f;
+            processorCorrectionPhase_ = wetValid_ ? 0.0f : 1.0f;
+            processorCorrectionPending_ = false;
+        }
+        if (processorCorrectionPhase_ < 1.0f) {
+            const float phase = clamp(processorCorrectionPhase_, 0.0f, 1.0f);
+            const float smooth = phase * phase * (3.0f - 2.0f * phase);
+            wet += processorCorrection_ * (1.0f - smooth);
+            processorCorrectionPhase_ = std::min(1.0f,
+                processorCorrectionPhase_ + processorFadeCoeff_);
+        }
+        wet = std::isfinite(wet) ? clamp(wet, -8.0f, 8.0f) : 0.0f;
+        lastWet_ = wet;
+        wetValid_ = true;
         previousInput_ = drivenInput;
         previousModulation_ = drivenModulation;
 
-        wet = std::isfinite(wet) ? clamp(wet, -8.0f, 8.0f) : 0.0f;
         const float dc = wet - dcInput_ + dcPole_ * dcOutput_;
         dcInput_ = wet;
         dcOutput_ = flushDenormal(dc);
@@ -230,6 +254,11 @@ private:
     FractureProcessor previousProcessor_ = FractureProcessor::Relay;
     float processorFade_ = 1.0f;
     float processorFadeCoeff_ = 0.001f;
+    float processorCorrection_ = 0.0f;
+    float processorCorrectionPhase_ = 1.0f;
+    float lastWet_ = 0.0f;
+    bool processorCorrectionPending_ = false;
+    bool wetValid_ = false;
     float envelope_ = 0.0f;
     float slowEnvelope_ = 0.0f;
     float activity_ = 0.0f;
@@ -276,6 +305,11 @@ public:
         for (uint32_t ch = 0u; ch < channels_; ++ch) {
             cores_[ch].prepare(sampleRate_);
         }
+        const float sr = static_cast<float>(sampleRate_);
+        logicLevelAttackCoeff_ = 1.0f - std::exp(
+            -2.0f * kPi * 2000.0f / sr);
+        logicLevelReleaseCoeff_ = 1.0f - std::exp(
+            -2.0f * kPi * 12.0f / sr);
         setParams(params_);
         reset();
     }
@@ -287,6 +321,7 @@ public:
         smoothedSkew_ = params_.skew;
         smoothedCenter_ = params_.center;
         logicPhase_ = 0.0f;
+        logicLevel_.fill(0.0f);
         for (uint32_t ch = 0u; ch < channels_; ++ch) {
             cores_[ch].setParams(laneParams(ch));
             cores_[ch].reset();
@@ -305,23 +340,33 @@ public:
 
     MacroFractureParams params() const { return params_; }
 
-    void processFrame(const float* input, float* output)
+    void processFrame(const float* input, float* output,
+        const float* modulationOverride = nullptr)
     {
         if (!input || !output || channels_ == 0u) return;
 
         updateRelationshipSmoothing();
-        const float logicHz =
-            35.0f * std::pow(32.0f, params_.color);
         logicPhase_ = fractureWrapPhase(logicPhase_
-            + logicHz / static_cast<float>(sampleRate_));
-        const float monoLogic =
-            std::sin(logicPhase_ * 2.0f * kPi);
+            + 137.0f / static_cast<float>(sampleRate_));
 
         for (uint32_t ch = 0u; ch < channels_; ++ch) {
             MacroFractureCoreParams lane = laneParams(ch);
             cores_[ch].setParams(lane);
-            const float modulator = channels_ > 1u
-                ? input[(ch + 1u) % channels_] : monoLogic;
+            const float relationship = modulationOverride
+                ? modulationOverride[ch]
+                : channels_ > 1u ? input[(ch + 1u) % channels_] : 0.0f;
+            const float levelTarget = std::max(
+                std::abs(input[ch]), std::abs(relationship));
+            logicLevel_[ch] += (levelTarget - logicLevel_[ch])
+                * (levelTarget > logicLevel_[ch]
+                    ? logicLevelAttackCoeff_ : logicLevelReleaseCoeff_);
+            logicLevel_[ch] = flushDenormal(
+                std::max(0.0f, logicLevel_[ch]));
+            const float lanePhase = fractureWrapPhase(logicPhase_
+                + laneHash(ch) * 0.5f + 0.5f);
+            const float carrier = std::sin(lanePhase * 2.0f * kPi)
+                * logicLevel_[ch] * 0.18f;
+            const float modulator = relationship + carrier;
             output[ch] = cores_[ch].processSample(input[ch], modulator);
         }
     }
@@ -427,6 +472,9 @@ private:
     float smoothedCenter_ = 0.5f;
     float relationshipSmoothingCoeff_ = 0.0001f;
     float logicPhase_ = 0.0f;
+    float logicLevelAttackCoeff_ = 0.2f;
+    float logicLevelReleaseCoeff_ = 0.001f;
+    std::array<float, kMacroFractureChannels> logicLevel_ {};
 };
 
 } // namespace s3g

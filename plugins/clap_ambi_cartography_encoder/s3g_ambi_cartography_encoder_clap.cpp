@@ -32,6 +32,7 @@ constexpr uint32_t kInputChannels = 2u;
 constexpr uint32_t kOutputChannels = s3g::kAmbiCartographyMaxChannels;
 constexpr uint32_t kStateVersion = 1u;
 constexpr float kInputBoundarySeconds = 0.006f;
+constexpr float kBodyInputBoundarySeconds = 0.120f;
 constexpr float kOutputBridgeSeconds = 0.010f;
 
 enum ParamId : clap_id {
@@ -178,6 +179,21 @@ struct SiteProcessSavedState {
 
 static_assert(sizeof(SiteProcessSavedState) == 16u);
 
+constexpr uint32_t kCameraStateMagic = 0x43414d52u; // CAMR
+constexpr uint32_t kLegacyCameraStateVersion = 1u;
+constexpr uint32_t kCameraStateVersion = 2u;
+
+struct CameraSavedState {
+    uint32_t magic = kCameraStateMagic;
+    uint32_t version = kCameraStateVersion;
+    int32_t viewMode = 2;
+    float azimuthDeg = 38.0f;
+    float elevationDeg = 32.0f;
+    float zoom = 1.0f;
+};
+
+static_assert(sizeof(CameraSavedState) == 24u);
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -212,6 +228,11 @@ struct Plugin {
     double predictedTransportBeats = 0.0;
     double transportTempo = 120.0;
     double transportTempoIncrement = 0.0;
+    std::atomic<int32_t> guiViewMode { 2 };
+    std::atomic<float> guiViewAzDeg { 38.0f };
+    std::atomic<float> guiViewElDeg { 32.0f };
+    std::atomic<float> guiViewZoom { 1.0f };
+    std::atomic<uint32_t> guiViewRevision { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -235,6 +256,13 @@ float smoothUnit(float value)
 void armInputBoundary(Plugin& plugin, bool fromSilence)
 {
     if (fromSilence) plugin.lastInput.fill(0.0f);
+    const float bodyWet = plugin.encoder.transportBoundaryBodyWet();
+    const float seconds = kInputBoundarySeconds
+        + (kBodyInputBoundarySeconds - kInputBoundarySeconds) * bodyWet;
+    const float rate = static_cast<float>(std::max(1000.0,
+        plugin.sampleRate));
+    plugin.inputBoundaryStep = 1.0f
+        / std::max(1.0f, rate * seconds);
     plugin.inputBoundaryPending = true;
 }
 
@@ -1154,9 +1182,18 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         static_cast<uint32_t>(instance->siteProcess.shredCircuit),
         static_cast<uint32_t>(instance->siteProcess.fractureProcessor)
     };
+    const CameraSavedState camera {
+        kCameraStateMagic,
+        kCameraStateVersion,
+        instance->guiViewMode.load(std::memory_order_acquire),
+        instance->guiViewAzDeg.load(std::memory_order_acquire),
+        instance->guiViewElDeg.load(std::memory_order_acquire),
+        instance->guiViewZoom.load(std::memory_order_acquire)
+    };
     return writeExact(stream, &state, sizeof(state))
         && writeExact(stream, &landscape, sizeof(landscape))
-        && writeExact(stream, &siteProcess, sizeof(siteProcess));
+        && writeExact(stream, &siteProcess, sizeof(siteProcess))
+        && writeExact(stream, &camera, sizeof(camera));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -1187,6 +1224,22 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || siteProcess.version != kSiteProcessStateVersion) {
         return false;
     }
+    CameraSavedState camera {};
+    const auto cameraRead = readOptionalExact(
+        stream, &camera, sizeof(camera));
+    if (cameraRead == OptionalReadResult::Invalid) return false;
+    if (cameraRead == OptionalReadResult::Absent) {
+        // States written before camera controls existed described the fixed
+        // top-down map. Preserve that view when migrating those projects.
+        camera = {
+            kCameraStateMagic, kCameraStateVersion,
+            0, 0.0f, 0.0f, 1.0f
+        };
+    } else if (camera.magic != kCameraStateMagic
+        || (camera.version != kLegacyCameraStateVersion
+            && camera.version != kCameraStateVersion)) {
+        return false;
+    }
     s3g::AmbiCartographySiteProcessOptions options {};
     options.shredCircuit = static_cast<s3g::MacroShredCircuit>(
         siteProcess.shredCircuit);
@@ -1201,6 +1254,50 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance->params = instance->encoder.params();
     instance->landscape = instance->encoder.landscapeParams();
     instance->siteProcess = instance->encoder.siteProcessOptions();
+    const int32_t viewMode = std::clamp<int32_t>(
+        camera.viewMode, -1, 2);
+    float cameraAzimuth = camera.azimuthDeg;
+    float cameraElevation = camera.elevationDeg;
+    if (cameraRead != OptionalReadResult::Absent
+        && camera.version == kLegacyCameraStateVersion) {
+        // Camera-v1 used the inverse world-Z pitch convention. Canonical
+        // presets should reopen upright; a free camera retains its exact
+        // screen orientation by negating only its elevation angle.
+        if (viewMode == 0) {
+            cameraAzimuth = 0.0f;
+            cameraElevation = 0.0f;
+        } else if (viewMode == 1) {
+            cameraAzimuth = 0.0f;
+            cameraElevation = 90.0f;
+        } else if (viewMode == 2) {
+            cameraAzimuth = 38.0f;
+            cameraElevation = 32.0f;
+        } else if (std::isfinite(cameraElevation)) {
+            cameraElevation = -cameraElevation;
+        }
+    }
+    const float fallbackAzimuth = viewMode == 0 || viewMode == 1
+        ? 0.0f : 38.0f;
+    const float fallbackElevation = viewMode == 0
+        ? 0.0f : (viewMode == 1 ? 90.0f : 32.0f);
+    instance->guiViewMode.store(
+        viewMode,
+        std::memory_order_release);
+    instance->guiViewAzDeg.store(
+        std::isfinite(cameraAzimuth)
+            ? std::clamp(cameraAzimuth, -180.0f, 180.0f)
+            : fallbackAzimuth,
+        std::memory_order_release);
+    instance->guiViewElDeg.store(
+        std::isfinite(cameraElevation)
+            ? std::clamp(cameraElevation, -90.0f, 90.0f)
+            : fallbackElevation,
+        std::memory_order_release);
+    instance->guiViewZoom.store(
+        std::isfinite(camera.zoom)
+            ? std::clamp(camera.zoom, 0.55f, 2.20f) : 1.0f,
+        std::memory_order_release);
+    instance->guiViewRevision.fetch_add(1u, std::memory_order_acq_rel);
     publishAllParams(*instance);
     return true;
 }
@@ -1577,6 +1674,10 @@ bool controlVisible(const CartographyControl& control, int landscapePage,
 const char* processControlLabel(clap_id id, uint32_t engine,
     uint32_t fractureProcessor)
 {
+    if (id == kSkewParamId && engine == 4u) {
+        return s3g::fractureBiasLabel(
+            static_cast<s3g::FractureProcessor>(fractureProcessor));
+    }
     if (id == kSpreadParamId && engine == 6u) return "RADIUS";
     if (id == kDeviationParamId && engine == 6u) return "JITTER";
     if (id == kSkewParamId && engine == 6u) return "DISPERSION";
@@ -1669,6 +1770,14 @@ NSRect landscapePageButtonRect(uint32_t index)
     uint32_t _menuItemCount;
     NSInteger _dragSite;
     BOOL _dragListener;
+    BOOL _dragView;
+    BOOL _dragPositionZ;
+    NSPoint _lastDragPoint;
+    int _viewMode;
+    CGFloat _viewAzDeg;
+    CGFloat _viewElDeg;
+    CGFloat _viewZoom;
+    uint32_t _viewRevision;
     int _landscapePage;
     int _processPage;
     int _factoryPresetIndex;
@@ -1681,8 +1790,15 @@ NSRect landscapePageButtonRect(uint32_t index)
 - (NSRect)openMenuRect;
 - (void)drawOpenMenu:(NSDictionary*)attrs
     style:(const s3g::clap_gui::Style&)style;
-- (NSPoint)mapPointX:(float)x y:(float)y;
-- (void)mapCoordinatesFromPoint:(NSPoint)point x:(float*)x y:(float*)y;
+- (NSRect)viewButtonRect:(int)index;
+- (NSRect)zoomButtonRect:(int)index;
+- (void)setViewPreset:(int)mode;
+- (void)loadViewState;
+- (void)storeViewState;
+- (CGFloat)viewScale;
+- (NSPoint)projectWorldPoint:(s3g::Vec3)point depth:(CGFloat*)depth;
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
+- (NSPoint)projectGroundPointX:(double)x y:(double)y;
 @end
 
 @implementation S3GAmbiCartographyEncoderView
@@ -1699,6 +1815,19 @@ NSRect landscapePageButtonRect(uint32_t index)
         _menuItemCount = 0u;
         _dragSite = -1;
         _dragListener = NO;
+        _dragView = NO;
+        _dragPositionZ = NO;
+        _lastDragPoint = NSMakePoint(0.0, 0.0);
+        _viewMode = plugin
+            ? plugin->guiViewMode.load(std::memory_order_acquire) : 2;
+        _viewAzDeg = plugin
+            ? plugin->guiViewAzDeg.load(std::memory_order_acquire) : 38.0;
+        _viewElDeg = plugin
+            ? plugin->guiViewElDeg.load(std::memory_order_acquire) : 32.0;
+        _viewZoom = plugin
+            ? plugin->guiViewZoom.load(std::memory_order_acquire) : 1.0;
+        _viewRevision = plugin
+            ? plugin->guiViewRevision.load(std::memory_order_acquire) : 0u;
         _landscapePage = plugin ? plugin->guiLandscapePage : 0;
         _processPage = plugin ? plugin->guiProcessPage : 0;
         _factoryPresetIndex = 0;
@@ -1715,6 +1844,31 @@ NSRect landscapePageButtonRect(uint32_t index)
 {
     [self stopRefreshTimer];
     [super dealloc];
+}
+
+- (void)storeViewState
+{
+    if (!_plugin) return;
+    _plugin->guiViewMode.store(
+        static_cast<int32_t>(_viewMode), std::memory_order_release);
+    _plugin->guiViewAzDeg.store(
+        static_cast<float>(_viewAzDeg), std::memory_order_release);
+    _plugin->guiViewElDeg.store(
+        static_cast<float>(_viewElDeg), std::memory_order_release);
+    _plugin->guiViewZoom.store(
+        static_cast<float>(_viewZoom), std::memory_order_release);
+}
+
+- (void)loadViewState
+{
+    if (!_plugin) return;
+    const uint32_t revision = _plugin->guiViewRevision.load(
+        std::memory_order_acquire);
+    _viewMode = _plugin->guiViewMode.load(std::memory_order_acquire);
+    _viewAzDeg = _plugin->guiViewAzDeg.load(std::memory_order_acquire);
+    _viewElDeg = _plugin->guiViewElDeg.load(std::memory_order_acquire);
+    _viewZoom = _plugin->guiViewZoom.load(std::memory_order_acquire);
+    _viewRevision = revision;
 }
 
 - (void)startRefreshTimer
@@ -1737,6 +1891,10 @@ NSRect landscapePageButtonRect(uint32_t index)
     (void)timer;
     if (![self isHidden] && _plugin && _plugin->guiVisible
         && s3g::clap_support::hostAppIsActive()) {
+        if (_viewRevision != _plugin->guiViewRevision.load(
+                std::memory_order_acquire)) {
+            [self loadViewState];
+        }
         const uint32_t engine = static_cast<uint32_t>(std::lround(
             publishedParamValue(*_plugin, kMacroEngineParamId)));
         if ((_openMenu == kShredCircuitParamId && engine != 3u)
@@ -1878,22 +2036,78 @@ NSRect landscapePageButtonRect(uint32_t index)
         selected, _hoverMenuItem, attrs, style);
 }
 
-- (NSPoint)mapPointX:(float)x y:(float)y
+- (NSRect)viewButtonRect:(int)index
 {
-    const NSRect rect = cartographyMapRect();
-    return NSMakePoint(NSMidX(rect) + x / 1.6f * rect.size.width * 0.46f,
-        NSMidY(rect) - y / 1.6f * rect.size.height * 0.46f);
+    const NSRect panel = NSMakeRect(18.0, 42.0, 650.0, 696.0);
+    return s3g::clap_gui::topologyProcessorCameraButtonRect(
+        panel, static_cast<uint32_t>(std::clamp(index, 0, 2)));
 }
 
-- (void)mapCoordinatesFromPoint:(NSPoint)point x:(float*)x y:(float*)y
+- (NSRect)zoomButtonRect:(int)index
+{
+    constexpr CGFloat width = 18.0;
+    constexpr CGFloat gap = 4.0;
+    const CGFloat x = [self viewButtonRect:0].origin.x - 12.0
+        - (2.0 - static_cast<CGFloat>(index)) * width
+        - (1.0 - static_cast<CGFloat>(index)) * gap;
+    return NSMakeRect(x, 45.0, width, 15.0);
+}
+
+- (void)setViewPreset:(int)mode
+{
+    _viewMode = std::clamp(mode, 0, 2);
+    if (_viewMode == 0) {
+        _viewAzDeg = 0.0;
+        _viewElDeg = 0.0;
+    } else if (_viewMode == 1) {
+        _viewAzDeg = 0.0;
+        _viewElDeg = 90.0;
+    } else {
+        _viewAzDeg = 38.0;
+        _viewElDeg = 32.0;
+    }
+    [self storeViewState];
+    [self setNeedsDisplay:YES];
+}
+
+- (CGFloat)viewScale
 {
     const NSRect rect = cartographyMapRect();
-    if (x) *x = std::clamp(static_cast<float>(
-        (point.x - NSMidX(rect)) / (rect.size.width * 0.46f) * 1.6f),
-        -1.5f, 1.5f);
-    if (y) *y = std::clamp(static_cast<float>(
-        (NSMidY(rect) - point.y) / (rect.size.height * 0.46f) * 1.6f),
-        -1.5f, 1.5f);
+    return std::min(rect.size.width, rect.size.height) * 0.30
+        * std::clamp(_viewZoom, 0.55, 2.20);
+}
+
+- (NSPoint)projectWorldPoint:(s3g::Vec3)point depth:(CGFloat*)depth
+{
+    const NSRect rect = cartographyMapRect();
+    const CGFloat scale = [self viewScale];
+    const float azimuth = static_cast<float>(
+        _viewAzDeg * M_PI / 180.0);
+    const float elevation = static_cast<float>(
+        _viewElDeg * M_PI / 180.0);
+    const float ca = std::cos(azimuth);
+    const float sa = std::sin(azimuth);
+    const float ce = std::cos(elevation);
+    const float se = std::sin(elevation);
+    const float x1 = ca * point.x - sa * point.y;
+    const float y1 = sa * point.x + ca * point.y;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
+    if (depth) *depth = static_cast<CGFloat>(z2);
+    return NSMakePoint(NSMidX(rect) + static_cast<CGFloat>(x1) * scale,
+        NSMidY(rect) - static_cast<CGFloat>(y2) * scale);
+}
+
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    return [self projectWorldPoint:s3g::Vec3 {
+        static_cast<float>(x), static_cast<float>(y), static_cast<float>(z) }
+        depth:nullptr];
+}
+
+- (NSPoint)projectGroundPointX:(double)x y:(double)y
+{
+    return [self projectWorldPointX:x y:y z:0.0];
 }
 
 - (void)drawMap:(const s3g::clap_gui::Style&)style
@@ -1905,15 +2119,21 @@ NSRect landscapePageButtonRect(uint32_t index)
     [style.grid setStroke];
     NSFrameRect(rect);
 
+    [NSGraphicsContext saveGraphicsState];
+    [[NSBezierPath bezierPathWithRect:NSInsetRect(rect, 1.0, 1.0)] addClip];
+
     [s3g::clap_gui::color(0x292929) setStroke];
     NSBezierPath* grid = [NSBezierPath bezierPath];
     for (int line = -3; line <= 3; ++line) {
-        const CGFloat x = NSMidX(rect) + line * rect.size.width / 8.0;
-        const CGFloat y = NSMidY(rect) + line * rect.size.height / 8.0;
-        [grid moveToPoint:NSMakePoint(x, rect.origin.y)];
-        [grid lineToPoint:NSMakePoint(x, NSMaxY(rect))];
-        [grid moveToPoint:NSMakePoint(rect.origin.x, y)];
-        [grid lineToPoint:NSMakePoint(NSMaxX(rect), y)];
+        const float coordinate = static_cast<float>(line) * 0.5f;
+        [grid moveToPoint:[self projectWorldPoint:
+            s3g::Vec3 { coordinate, -1.5f, 0.0f } depth:nullptr]];
+        [grid lineToPoint:[self projectWorldPoint:
+            s3g::Vec3 { coordinate, 1.5f, 0.0f } depth:nullptr]];
+        [grid moveToPoint:[self projectWorldPoint:
+            s3g::Vec3 { -1.5f, coordinate, 0.0f } depth:nullptr]];
+        [grid lineToPoint:[self projectWorldPoint:
+            s3g::Vec3 { 1.5f, coordinate, 0.0f } depth:nullptr]];
     }
     [grid setLineWidth:0.55];
     [grid stroke];
@@ -1938,10 +2158,10 @@ NSRect landscapePageButtonRect(uint32_t index)
     for (uint32_t site = 1u; site < params.activeSites; ++site) {
         const auto previousPosition = positionForSite(site - 1u);
         const auto currentPosition = positionForSite(site);
-        const NSPoint previous = [self mapPointX:previousPosition.x
-            y:previousPosition.y];
-        const NSPoint current = [self mapPointX:currentPosition.x
-            y:currentPosition.y];
+        const NSPoint previous = [self projectWorldPoint:
+            previousPosition depth:nullptr];
+        const NSPoint current = [self projectWorldPoint:
+            currentPosition depth:nullptr];
         [network moveToPoint:previous];
         [network lineToPoint:current];
     }
@@ -1951,8 +2171,18 @@ NSRect landscapePageButtonRect(uint32_t index)
     for (uint32_t site = 0u; site < params.activeSites; ++site) {
         const auto& cartographySite = sites[site];
         const auto renderedPosition = positionForSite(site);
-        const NSPoint point = [self mapPointX:renderedPosition.x
-            y:renderedPosition.y];
+        const NSPoint point = [self projectWorldPoint:
+            renderedPosition depth:nullptr];
+        if (std::fabs(renderedPosition.z) > 0.005f) {
+            [s3g::clap_gui::color(0x666666, 0.55) setStroke];
+            NSBezierPath* stem = [NSBezierPath bezierPath];
+            [stem moveToPoint:[self projectWorldPoint:s3g::Vec3 {
+                renderedPosition.x, renderedPosition.y, 0.0f }
+                depth:nullptr]];
+            [stem lineToPoint:point];
+            [stem setLineWidth:0.8];
+            [stem stroke];
+        }
         const float arrival = _plugin->encoder.siteArrivalSeconds(site);
         const float arrivalNorm = s3g::clamp(
             arrival / maximumArrival, 0.0f, 1.0f);
@@ -1994,8 +2224,18 @@ NSRect landscapePageButtonRect(uint32_t index)
     const auto renderedListener = moving
         ? _plugin->encoder.renderedListenerPosition()
         : s3g::Vec3 { params.listenerX, params.listenerY, params.listenerZ };
-    const NSPoint listener = [self mapPointX:renderedListener.x
-        y:renderedListener.y];
+    const NSPoint listener = [self projectWorldPoint:
+        renderedListener depth:nullptr];
+    if (std::fabs(renderedListener.z) > 0.005f) {
+        [s3g::clap_gui::color(0x8f7f3c, 0.60) setStroke];
+        NSBezierPath* stem = [NSBezierPath bezierPath];
+        [stem moveToPoint:[self projectWorldPoint:s3g::Vec3 {
+            renderedListener.x, renderedListener.y, 0.0f }
+            depth:nullptr]];
+        [stem lineToPoint:listener];
+        [stem setLineWidth:0.9];
+        [stem stroke];
+    }
     [s3g::clap_gui::color(0xf0d35d) setStroke];
     NSBezierPath* listenerMark = [NSBezierPath bezierPath];
     [listenerMark moveToPoint:NSMakePoint(listener.x - 10.0, listener.y)];
@@ -2022,6 +2262,7 @@ NSRect landscapePageButtonRect(uint32_t index)
         _plugin->encoder.siteArrivalSeconds(selected)];
     [selectedStatus drawAtPoint:NSMakePoint(rect.origin.x + 10.0,
         NSMaxY(rect) - 24.0) withAttributes:values];
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 - (void)drawControls:(const s3g::clap_gui::Style&)style
@@ -2091,6 +2332,13 @@ NSRect landscapePageButtonRect(uint32_t index)
     s3g::clap_gui::drawPanelFrame(18.0, 42.0, 650.0, 696.0, style);
     s3g::clap_gui::drawPanelHeader(@"LOUDSPEAKER CARTOGRAPHY", true,
         18.0, 42.0, 650.0, 21.0, labels, style);
+    const NSRect mapPanel = NSMakeRect(18.0, 42.0, 650.0, 696.0);
+    s3g::clap_gui::drawHeaderButton(
+        [self zoomButtonRect:0], mapPanel, @"-", false, values, style);
+    s3g::clap_gui::drawHeaderButton(
+        [self zoomButtonRect:1], mapPanel, @"+", false, values, style);
+    s3g::clap_gui::drawTopologyProcessorCameraButtons(
+        mapPanel, _viewMode, values, style);
     const auto drawPanel = [&](NSString* name, CartographyPanel panelId) {
         const NSRect panel = panelRect(panelId);
         s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y,
@@ -2135,19 +2383,19 @@ NSRect landscapePageButtonRect(uint32_t index)
     }
     const NSRect guide = panelRect(CartographyPanel::Guide);
     if (_landscapePage == 0) {
-        [@"DRAG +  LISTENER   DRAG NODE  SITE"
+        [@"DRAG EMPTY MAP  CAMERA"
             drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 38.0)
             withAttributes:values];
-        [@"NODE SIZE  LIVE LEVEL"
+        [@"TOP / SIDE  DRAG LISTENER + / SITE"
             drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 62.0)
             withAttributes:values];
-        [@"COOL -> WARM  LATE ARRIVAL"
+        [@"- / +  CAMERA ZOOM"
             drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 86.0)
             withAttributes:values];
-        [@"DOUBLE-CLICK SLIDER  DEFAULT"
+        [@"NODE SIZE / COLOR  LEVEL / ARRIVAL"
             drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 110.0)
             withAttributes:values];
-        [@"FACTORY PRESETS PRESERVE ORDER + OUT"
+        [@"DOUBLE-CLICK SLIDER  DEFAULT"
             drawAtPoint:NSMakePoint(guide.origin.x + 16.0, guide.origin.y + 134.0)
             withAttributes:labels];
     } else if (_landscapePage == 1) {
@@ -2184,15 +2432,26 @@ NSRect landscapePageButtonRect(uint32_t index)
 
 - (void)applyMapDrag:(NSPoint)point
 {
-    float x = 0.0f;
-    float y = 0.0f;
-    [self mapCoordinatesFromPoint:point x:&x y:&y];
+    if (_viewMode != 0 && _viewMode != 1) return;
+    const NSRect rect = cartographyMapRect();
+    const CGFloat scale = [self viewScale];
+    if (scale <= 1.0) return;
+    const float x = std::clamp(static_cast<float>(
+        (point.x - NSMidX(rect)) / scale), -1.5f, 1.5f);
+    const float vertical = std::clamp(static_cast<float>(
+        (NSMidY(rect) - point.y) / scale),
+        _viewMode == 1 ? -1.0f : -1.5f,
+        _viewMode == 1 ? 1.0f : 1.5f);
     if (_dragListener) {
         queueGuiParamValue(*_plugin, kListenerXParamId, x);
-        queueGuiParamValue(*_plugin, kListenerYParamId, y);
+        queueGuiParamValue(*_plugin,
+            _dragPositionZ ? kListenerZParamId : kListenerYParamId,
+            vertical);
     } else if (_dragSite >= 0) {
         queueGuiParamValue(*_plugin, kSiteXParamId, x);
-        queueGuiParamValue(*_plugin, kSiteYParamId, y);
+        queueGuiParamValue(*_plugin,
+            _dragPositionZ ? kSiteZParamId : kSiteYParamId,
+            vertical);
     }
     [self setNeedsDisplay:YES];
 }
@@ -2236,6 +2495,7 @@ NSRect landscapePageButtonRect(uint32_t index)
         if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
                 &_plugin->plugin, @"Ambi Cartography Encoder",
                 kOutputParamId, &name)) {
+            [self loadViewState];
             _factoryPresetIndex = -1;
             std::snprintf(_presetName, sizeof(_presetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
@@ -2341,6 +2601,22 @@ NSRect landscapePageButtonRect(uint32_t index)
         }
     }
 
+    for (int index = 0; index < 2; ++index) {
+        if (NSPointInRect(point, [self zoomButtonRect:index])) {
+            _viewZoom = std::clamp(_viewZoom
+                + (index == 0 ? -0.15 : 0.15), 0.55, 2.20);
+            [self storeViewState];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    for (int index = 0; index < 3; ++index) {
+        if (NSPointInRect(point, [self viewButtonRect:index])) {
+            [self setViewPreset:index];
+            return;
+        }
+    }
+
     if (NSPointInRect(point, cartographyMapRect())) {
         const auto params = _plugin->params;
         const auto& sites = _plugin->encoder.sites();
@@ -2352,8 +2628,8 @@ NSRect landscapePageButtonRect(uint32_t index)
             const auto rendered = moving
                 ? _plugin->encoder.renderedSitePosition(site)
                 : s3g::Vec3 { sites[site].x, sites[site].y, sites[site].z };
-            const NSPoint sitePoint = [self mapPointX:rendered.x
-                y:rendered.y];
+            const NSPoint sitePoint = [self projectWorldPoint:
+                rendered depth:nullptr];
             const CGFloat dx = point.x - sitePoint.x;
             const CGFloat dy = point.y - sitePoint.y;
             const CGFloat distance = std::sqrt(dx * dx + dy * dy);
@@ -2366,30 +2642,45 @@ NSRect landscapePageButtonRect(uint32_t index)
             ? _plugin->encoder.renderedListenerPosition()
             : s3g::Vec3 {
                 params.listenerX, params.listenerY, params.listenerZ };
-        const NSPoint listener = [self mapPointX:renderedListener.x
-            y:renderedListener.y];
+        const NSPoint listener = [self projectWorldPoint:
+            renderedListener depth:nullptr];
         const CGFloat ldx = point.x - listener.x;
         const CGFloat ldy = point.y - listener.y;
         if (std::sqrt(ldx * ldx + ldy * ldy) < 15.0) {
-            _dragListener = YES;
-            queueGuiParamGestureBegin(*_plugin, kListenerXParamId);
-            queueGuiParamGestureBegin(*_plugin, kListenerYParamId);
-            [self applyMapDrag:point];
-            _factoryPresetIndex = -1;
-            std::snprintf(_presetName, sizeof(_presetName), "%s", "CUSTOM");
+            if (_viewMode == 0 || _viewMode == 1) {
+                _dragListener = YES;
+                _dragPositionZ = _viewMode == 1;
+                queueGuiParamGestureBegin(*_plugin, kListenerXParamId);
+                queueGuiParamGestureBegin(*_plugin,
+                    _dragPositionZ
+                        ? kListenerZParamId : kListenerYParamId);
+                [self applyMapDrag:point];
+                _factoryPresetIndex = -1;
+                std::snprintf(_presetName,
+                    sizeof(_presetName), "%s", "CUSTOM");
+            }
+            [self setNeedsDisplay:YES];
             return;
         }
         if (bestSite >= 0) {
             queueGuiParamGesture(*_plugin, kSiteParamId,
                 static_cast<double>(bestSite + 1));
-            _dragSite = bestSite;
-            queueGuiParamGestureBegin(*_plugin, kSiteXParamId);
-            queueGuiParamGestureBegin(*_plugin, kSiteYParamId);
-            [self applyMapDrag:point];
+            if (_viewMode == 0 || _viewMode == 1) {
+                _dragSite = bestSite;
+                _dragPositionZ = _viewMode == 1;
+                queueGuiParamGestureBegin(*_plugin, kSiteXParamId);
+                queueGuiParamGestureBegin(*_plugin,
+                    _dragPositionZ ? kSiteZParamId : kSiteYParamId);
+                [self applyMapDrag:point];
+            }
             _factoryPresetIndex = -1;
             std::snprintf(_presetName, sizeof(_presetName), "%s", "CUSTOM");
+            [self setNeedsDisplay:YES];
             return;
         }
+        _dragView = YES;
+        _lastDragPoint = point;
+        return;
     }
 
     const uint32_t engine = static_cast<uint32_t>(std::lround(
@@ -2435,6 +2726,16 @@ NSRect landscapePageButtonRect(uint32_t index)
         fromView:nil];
     if (_dragListener || _dragSite >= 0) {
         [self applyMapDrag:point];
+    } else if (_dragView) {
+        const CGFloat dx = point.x - _lastDragPoint.x;
+        const CGFloat dy = point.y - _lastDragPoint.y;
+        _viewAzDeg = std::remainder(_viewAzDeg + dx * 0.35, 360.0);
+        _viewElDeg = std::clamp(
+            _viewElDeg + dy * 0.35, -85.0, 85.0);
+        _viewMode = -1;
+        _lastDragPoint = point;
+        [self storeViewState];
+        [self setNeedsDisplay:YES];
     } else if (_dragParam != CLAP_INVALID_ID) {
         [self setContinuousParam:_dragParam point:point];
     }
@@ -2448,15 +2749,19 @@ NSRect landscapePageButtonRect(uint32_t index)
     }
     if (_dragListener) {
         queueGuiParamGestureEnd(*_plugin, kListenerXParamId);
-        queueGuiParamGestureEnd(*_plugin, kListenerYParamId);
+        queueGuiParamGestureEnd(*_plugin,
+            _dragPositionZ ? kListenerZParamId : kListenerYParamId);
     }
     if (_dragSite >= 0) {
         queueGuiParamGestureEnd(*_plugin, kSiteXParamId);
-        queueGuiParamGestureEnd(*_plugin, kSiteYParamId);
+        queueGuiParamGestureEnd(*_plugin,
+            _dragPositionZ ? kSiteZParamId : kSiteYParamId);
     }
     _dragParam = CLAP_INVALID_ID;
     _dragSite = -1;
     _dragListener = NO;
+    _dragView = NO;
+    _dragPositionZ = NO;
 }
 
 - (void)viewDidMoveToWindow

@@ -64,6 +64,12 @@
 #include <string>
 #include <vector>
 
+#if defined(__clang__) || defined(__GNUC__)
+#define S3G_DSP_SMOKE_NOINLINE __attribute__((noinline))
+#else
+#define S3G_DSP_SMOKE_NOINLINE
+#endif
+
 namespace {
 
 std::shared_ptr<s3g::LoopProcessorSample> makeIdSample(uint32_t sourceIndex,
@@ -3304,8 +3310,287 @@ int main()
         }
     }
 
-    s3g::MacroFracture macroFracture;
-    macroFracture.prepare(48000.0, s3g::kMacroFractureChannels);
+    float logicZeroRms = 0.0f;
+    float logicZeroMaxStep = 0.0f;
+    float logicNearDifferenceRms = 0.0f;
+    float quietCrushPeak = 0.0f;
+    std::array<float, 2u> robotMaxStep {};
+    float spliceAutomationEditDelta = 0.0f;
+    float spliceAutomationMaxStep = 0.0f;
+    float retargetSwitchFrameDelta = 0.0f;
+    const auto fractureRepairAudit = [&]() S3G_DSP_SMOKE_NOINLINE -> bool {
+        // Fracture processors must not manufacture DC, dither, carrier, or
+        // recurrence output from digital silence at any contextual bias.
+        for (uint32_t processor = 0u;
+            processor < s3g::kFractureProcessorCount; ++processor) {
+            for (float bias : { -1.0f, 0.0f, 1.0f }) {
+                auto silentCore =
+                    std::make_unique<s3g::MacroFractureCore>();
+                silentCore->prepare(48000.0);
+                s3g::MacroFractureCoreParams silentParams;
+                silentParams.processor =
+                    static_cast<s3g::FractureProcessor>(processor);
+                silentParams.amount = 0.83f;
+                silentParams.color = 0.67f;
+                silentParams.bias = bias;
+                silentParams.react = 1.0f;
+                silentParams.memory = 1.0f;
+                silentParams.mix = 1.0f;
+                silentParams.outputGainDb = 0.0f;
+                silentCore->setParams(silentParams);
+                silentCore->reset();
+                for (uint32_t i = 0u; i < 8192u; ++i) {
+                    const float value =
+                        silentCore->processSample(0.0f, 0.0f);
+                    if (value != 0.0f) {
+                        std::cerr << "Macro Fracture "
+                                  << s3g::fractureProcessorName(
+                                      silentParams.processor)
+                                  << " generated output from digital silence"
+                                  << " at bias " << bias << ": " << value
+                                  << "\n";
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // Correlated lanes are the normal case for copied mono site feeds. Logic
+        // must remain an audible, smoothly varying comparison with recurrence
+        // fully released, and introducing a very small Memory value must be a
+        // continuous change rather than a full-scale comparator burst.
+        auto logicZeroMemory =
+            std::make_unique<s3g::MacroFractureCore>();
+        auto logicNearZeroMemory =
+            std::make_unique<s3g::MacroFractureCore>();
+        logicZeroMemory->prepare(48000.0);
+        logicNearZeroMemory->prepare(48000.0);
+        s3g::MacroFractureCoreParams logicParams;
+        logicParams.processor = s3g::FractureProcessor::Logic;
+        logicParams.amount = 0.79f;
+        logicParams.color = 0.61f;
+        logicParams.bias = 0.0f;
+        logicParams.react = 0.0f;
+        logicParams.memory = 0.0f;
+        logicParams.mix = 1.0f;
+        logicParams.outputGainDb = 0.0f;
+        logicZeroMemory->setParams(logicParams);
+        logicZeroMemory->reset();
+        logicParams.memory = 0.02f;
+        logicNearZeroMemory->setParams(logicParams);
+        logicNearZeroMemory->reset();
+        double logicZeroEnergy = 0.0;
+        double logicNearDifferenceEnergy = 0.0;
+        float logicNearDifferencePeak = 0.0f;
+        float logicZeroPrevious = 0.0f;
+        for (uint32_t i = 0u; i < 48000u; ++i) {
+            const float input = 0.18f * std::sin(6.28318530718f
+                * 173.0f * static_cast<float>(i) / 48000.0f);
+            const float zero = logicZeroMemory->processSample(input, input);
+            const float near =
+                logicNearZeroMemory->processSample(input, input);
+            if (i >= 4096u) {
+                logicZeroEnergy += static_cast<double>(zero) * zero;
+                const float difference = near - zero;
+                logicNearDifferenceEnergy +=
+                    static_cast<double>(difference) * difference;
+                logicNearDifferencePeak = std::max(
+                    logicNearDifferencePeak, std::abs(difference));
+                logicZeroMaxStep = std::max(
+                    logicZeroMaxStep, std::abs(zero - logicZeroPrevious));
+            }
+            logicZeroPrevious = zero;
+        }
+        constexpr double kLogicMeasuredFrames = 48000.0 - 4096.0;
+        logicZeroRms = static_cast<float>(std::sqrt(
+            logicZeroEnergy / kLogicMeasuredFrames));
+        logicNearDifferenceRms = static_cast<float>(std::sqrt(
+            logicNearDifferenceEnergy / kLogicMeasuredFrames));
+        if (logicZeroRms <= 0.01f || logicZeroMaxStep > 0.05f) {
+            std::cerr << "Macro Fracture correlated Logic inactive or clicky"
+                      << " at zero Memory: rms=" << logicZeroRms
+                      << " step=" << logicZeroMaxStep << "\n";
+            return false;
+        }
+        if (logicNearDifferenceRms > 0.02f
+            || logicNearDifferencePeak > 0.08f) {
+            std::cerr << "Macro Fracture Logic discontinuous near zero Memory: "
+                      << logicNearDifferenceRms << " / "
+                      << logicNearDifferencePeak << "\n";
+            return false;
+        }
+
+        // Adaptive quantization must retain a deliberately quiet signal. The
+        // former absolute quantizer rounded this fixture entirely to zero.
+        auto quietCrush = std::make_unique<s3g::MacroFractureCore>();
+        quietCrush->prepare(48000.0);
+        s3g::MacroFractureCoreParams quietCrushParams;
+        quietCrushParams.processor = s3g::FractureProcessor::Crush;
+        quietCrushParams.amount = 0.88f;
+        quietCrushParams.color = 0.72f;
+        quietCrushParams.bias = 1.0f;
+        quietCrushParams.react = 0.0f;
+        quietCrushParams.memory = 0.0f;
+        quietCrushParams.mix = 1.0f;
+        quietCrushParams.outputGainDb = 0.0f;
+        quietCrush->setParams(quietCrushParams);
+        quietCrush->reset();
+        for (uint32_t i = 0u; i < 24000u; ++i) {
+            const float input = 0.000002f * std::sin(6.28318530718f
+                * 173.0f * static_cast<float>(i) / 48000.0f);
+            const float value = quietCrush->processSample(input, input);
+            if (i >= 4096u) {
+                quietCrushPeak = std::max(quietCrushPeak, std::abs(value));
+            }
+        }
+        if (quietCrushPeak <= 0.0000002f) {
+            std::cerr << "Macro Fracture Crush lost quiet input: "
+                      << quietCrushPeak << "\n";
+            return false;
+        }
+
+        // Robot's neutral sine and full soft-square characters must both retain
+        // bounded sample-to-sample motion on a smooth source.
+        std::array<float, 2u> robotPeak {};
+        for (uint32_t character = 0u; character < 2u; ++character) {
+            auto robot = std::make_unique<s3g::MacroFractureCore>();
+            robot->prepare(48000.0);
+            s3g::MacroFractureCoreParams robotParams;
+            robotParams.processor = s3g::FractureProcessor::Robot;
+            robotParams.amount = 0.82f;
+            robotParams.color = 0.61f;
+            robotParams.bias = character == 0u ? 0.0f : 1.0f;
+            robotParams.react = 0.0f;
+            robotParams.memory = 0.0f;
+            robotParams.mix = 1.0f;
+            robotParams.outputGainDb = 0.0f;
+            robot->setParams(robotParams);
+            robot->reset();
+            float previous = 0.0f;
+            for (uint32_t i = 0u; i < 48000u; ++i) {
+                const float input = 0.20f * std::sin(6.28318530718f
+                    * 173.0f * static_cast<float>(i) / 48000.0f);
+                const float value = robot->processSample(input, 0.0f);
+                if (i >= 4096u) {
+                    robotMaxStep[character] = std::max(
+                        robotMaxStep[character], std::abs(value - previous));
+                    robotPeak[character] = std::max(
+                        robotPeak[character], std::abs(value));
+                }
+                previous = value;
+            }
+            if (robotPeak[character] <= 0.01f
+                || robotMaxStep[character] > 0.20f) {
+                std::cerr << "Macro Fracture Robot character " << character
+                          << " inactive or discontinuous: peak="
+                          << robotPeak[character] << " step="
+                          << robotMaxStep[character] << "\n";
+                return false;
+            }
+        }
+
+        // A Splice segment owns both its read direction and Length. A large
+        // Length edit in the middle of a segment must wait for the window's
+        // zero-gain boundary instead of teleporting the active read head.
+        auto spliceAutomation =
+            std::make_unique<s3g::MacroFractureCore>();
+        spliceAutomation->prepare(48000.0);
+        s3g::MacroFractureCoreParams spliceAutomationParams;
+        spliceAutomationParams.processor = s3g::FractureProcessor::Splice;
+        spliceAutomationParams.amount = 0.86f;
+        spliceAutomationParams.color = 0.90f;
+        spliceAutomationParams.bias = -0.35f;
+        spliceAutomationParams.react = 0.0f;
+        spliceAutomationParams.memory = 0.12f;
+        spliceAutomationParams.mix = 1.0f;
+        spliceAutomationParams.outputGainDb = 0.0f;
+        spliceAutomation->setParams(spliceAutomationParams);
+        spliceAutomation->reset();
+        float spliceAutomationPrevious = 0.0f;
+        float spliceHeldInput = 0.0f;
+        float spliceHeldModulator = 0.0f;
+        for (uint32_t i = 0u; i < 24000u; ++i) {
+            spliceHeldInput = 0.14f * std::sin(6.28318530718f
+                    * 173.0f * static_cast<float>(i) / 48000.0f)
+                + 0.05f * std::sin(6.28318530718f
+                    * 619.0f * static_cast<float>(i) / 48000.0f + 0.31f);
+            spliceHeldModulator = 0.16f * std::sin(6.28318530718f
+                * 307.0f * static_cast<float>(i) / 48000.0f);
+            spliceAutomationPrevious = spliceAutomation->processSample(
+                spliceHeldInput, spliceHeldModulator);
+        }
+        spliceAutomationParams.color = 0.05f;
+        spliceAutomation->setParams(spliceAutomationParams);
+        const float spliceAutomationFirst = spliceAutomation->processSample(
+            spliceHeldInput, spliceHeldModulator);
+        spliceAutomationEditDelta =
+            std::abs(spliceAutomationFirst - spliceAutomationPrevious);
+        spliceAutomationMaxStep = spliceAutomationEditDelta;
+        float spliceAutomationLast = spliceAutomationFirst;
+        for (uint32_t i = 24000u; i < 28096u; ++i) {
+            const float input = 0.14f * std::sin(6.28318530718f
+                    * 173.0f * static_cast<float>(i) / 48000.0f)
+                + 0.05f * std::sin(6.28318530718f
+                    * 619.0f * static_cast<float>(i) / 48000.0f + 0.31f);
+            const float modulator = 0.16f * std::sin(6.28318530718f
+                * 307.0f * static_cast<float>(i) / 48000.0f);
+            const float value =
+                spliceAutomation->processSample(input, modulator);
+            spliceAutomationMaxStep = std::max(spliceAutomationMaxStep,
+                std::abs(value - spliceAutomationLast));
+            spliceAutomationLast = value;
+        }
+        if (spliceAutomationEditDelta > 0.02f
+            || spliceAutomationMaxStep > 0.12f) {
+            std::cerr << "Macro Fracture Splice Length automation jump: "
+                      << spliceAutomationEditDelta << " / "
+                      << spliceAutomationMaxStep << "\n";
+            return false;
+        }
+
+        // Retarget at a deliberately held input frame. The continuity correction
+        // must keep the first new-processor frame on the preceding endpoint;
+        // only the core's continuous DC-removal pole may advance it.
+        auto retargetCore = std::make_unique<s3g::MacroFractureCore>();
+        retargetCore->prepare(48000.0);
+        s3g::MacroFractureCoreParams retargetParams;
+        retargetParams.processor = s3g::FractureProcessor::Throat;
+        retargetParams.amount = 0.76f;
+        retargetParams.color = 0.57f;
+        retargetParams.bias = -0.23f;
+        retargetParams.react = 0.0f;
+        retargetParams.memory = 0.20f;
+        retargetParams.mix = 1.0f;
+        retargetParams.outputGainDb = 0.0f;
+        retargetCore->setParams(retargetParams);
+        retargetCore->reset();
+        float retargetPrevious = 0.0f;
+        float heldInput = 0.0f;
+        float heldModulator = 0.0f;
+        for (uint32_t i = 0u; i < 24000u; ++i) {
+            heldInput = 0.17f * std::sin(6.28318530718f
+                * 181.0f * static_cast<float>(i) / 48000.0f);
+            heldModulator = 0.14f * std::sin(6.28318530718f
+                * 307.0f * static_cast<float>(i) / 48000.0f);
+            retargetPrevious = retargetCore->processSample(
+                heldInput, heldModulator);
+        }
+        retargetParams.processor = s3g::FractureProcessor::Robot;
+        retargetCore->setParams(retargetParams);
+        const float retargetFirst = retargetCore->processSample(
+            heldInput, heldModulator);
+        retargetSwitchFrameDelta = std::abs(retargetFirst - retargetPrevious);
+        if (retargetSwitchFrameDelta > 0.02f) {
+            std::cerr << "Macro Fracture retarget switch-frame discontinuity: "
+                      << retargetSwitchFrameDelta << "\n";
+            return false;
+        }
+        return true;
+    };
+    if (!fractureRepairAudit()) return 1;
+
+    auto macroFracture = std::make_unique<s3g::MacroFracture>();
+    macroFracture->prepare(48000.0, s3g::kMacroFractureChannels);
     s3g::MacroFractureParams macroFractureParams;
     macroFractureParams.amount = 0.70f;
     macroFractureParams.color = 0.54f;
@@ -3319,7 +3604,7 @@ int main()
     macroFractureParams.glideMs = 75.0f;
     macroFractureParams.mix = 0.86f;
     macroFractureParams.outputGainDb = -4.0f;
-    macroFracture.setParams(macroFractureParams);
+    macroFracture->setParams(macroFractureParams);
     float macroFractureIn[s3g::kMacroFractureChannels] {};
     float macroFractureOut[s3g::kMacroFractureChannels] {};
     float macroFracturePeak = 0.0f;
@@ -3332,7 +3617,7 @@ int main()
             macroFractureParams.processor =
                 static_cast<s3g::FractureProcessor>(
                     (i / 4096u) % s3g::kFractureProcessorCount);
-            macroFracture.setParams(macroFractureParams);
+            macroFracture->setParams(macroFractureParams);
         }
         for (uint32_t ch = 0u;
              ch < s3g::kMacroFractureChannels; ++ch) {
@@ -3340,7 +3625,7 @@ int main()
                 * (127.0f + static_cast<float>(ch) * 3.0f)
                 * static_cast<float>(i) / 48000.0f) * 0.19f;
         }
-        macroFracture.processFrame(
+        macroFracture->processFrame(
             macroFractureIn, macroFractureOut);
         for (uint32_t ch = 0u;
              ch < s3g::kMacroFractureChannels; ++ch) {
@@ -9300,6 +9585,16 @@ int main()
     std::cout << "macro fracture peak/step/lane difference: "
               << macroFracturePeak << " / " << macroFractureMaxStep
               << " / " << macroFractureLaneDifference << "\n";
+    std::cout << "macro fracture Logic rms/step/near-memory delta: "
+              << logicZeroRms << " / " << logicZeroMaxStep << " / "
+              << logicNearDifferenceRms << "\n";
+    std::cout << "macro fracture quiet Crush / Robot steps / retarget: "
+              << quietCrushPeak << " / " << robotMaxStep[0] << " / "
+              << robotMaxStep[1] << " / " << retargetSwitchFrameDelta
+              << "\n";
+    std::cout << "macro fracture Splice Length edit/window step: "
+              << spliceAutomationEditDelta << " / "
+              << spliceAutomationMaxStep << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
     std::cout << "wave mesh fast/slow onset, tail, partition: "

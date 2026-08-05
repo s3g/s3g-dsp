@@ -271,6 +271,19 @@ public:
         horizonState_.fill(0.0f);
         smoothedOcclusion_.fill(0.0f);
         smoothedHorizonGain_.fill(1.0f);
+        smoothedProcessMix_ = params_.processMix;
+        smoothedOutputGain_ = dbToGain(params_.outputGainDb);
+        for (uint32_t site = 0u;
+            site < kAmbiCartographyMaxSites; ++site) {
+            smoothedSiteGain_[site] = sites_[site].gain;
+            smoothedSiteEnabled_[site] = sites_[site].enabled ? 1.0f : 0.0f;
+        }
+        lastWetBySite_.fill(0.0f);
+        wetRemapCorrection_.fill(0.0f);
+        wetRemapPhase_.fill(1.0f);
+        wetRemapPending_.fill(false);
+        wetRemapValid_.fill(false);
+        routingContinuityPrimed_ = false;
         ecologyState_.fill(0.0f);
         siteLevel_.fill(0.0f);
         turbulencePhase_.fill(0.0f);
@@ -514,6 +527,21 @@ public:
 
     const AmbiFieldListener& fieldListener() const { return fieldListener_; }
 
+    // The CLAP transport bridge must cover a Body engine that is either side
+    // of a live engine crossfade. Use the larger of target and smoothed mix so
+    // a simultaneous Mix/Process automation event cannot shorten protection
+    // while Body is still audible.
+    float transportBoundaryBodyWet() const
+    {
+        const bool bodyAudible =
+            activeEngine_ == AmbiCartographyMacroEngine::SpeakerBody
+            || (previousEngine_ == AmbiCartographyMacroEngine::SpeakerBody
+                && engineCrossfade_ < 1.0f);
+        if (!bodyAudible) return 0.0f;
+        return clamp(std::max(params_.processMix, smoothedProcessMix_)
+            * (1.0f + params_.listenerAmount * 0.80f), 0.0f, 1.0f);
+    }
+
     template <typename Sample>
     void processBlock(const Sample* const* inputs, Sample* const* outputs,
         uint32_t inputChannels, uint32_t outputChannels, uint32_t frames)
@@ -536,13 +564,19 @@ public:
         const uint32_t ambiChannels = std::min<uint32_t>(
             ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t active = params_.activeSites;
-        const float outputGain = dbToGain(params_.outputGainDb);
+        const float targetOutputGain = dbToGain(params_.outputGainDb);
         const float siteNorm = 1.0f / static_cast<float>(active);
         const float delayCoefficient = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.030));
         const float levelCoefficient = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.060));
         const float engineCrossfadeStep = 1.0f
+            / static_cast<float>(sampleRate_ * 0.030);
+        const float processMixCoefficient = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.015));
+        const float siteControlCoefficient = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.012));
+        const float wetRemapStep = 1.0f
             / static_cast<float>(sampleRate_ * 0.030);
         const float landscapeCoefficient = 1.0f - std::exp(-1.0f
             / static_cast<float>(sampleRate_ * 0.050));
@@ -559,12 +593,16 @@ public:
 
         std::array<float, kAmbiCartographyMaxSites> siteInput {};
         std::array<float, kAmbiCartographyMaxSites> macroInput {};
+        std::array<float, kAmbiCartographyMaxSites> bodyInput {};
         std::array<float, kAmbiCartographyMaxSites> siteProcessInput {};
+        std::array<float, kAmbiCartographyMaxSites> fractureModulation {};
         std::array<float, kAmbiCartographyMaxSites> macroOutput {};
         std::array<float, kAmbiCartographyMaxSites> previousMacroOutput {};
         std::array<float, kAmbiCartographyMaxChannels> field {};
 
         for (uint32_t frameIndex = 0u; frameIndex < frames; ++frameIndex) {
+            smoothedOutputGain_ += (targetOutputGain - smoothedOutputGain_)
+                * siteControlCoefficient;
             const float left = inputs && inputChannels > 0u && inputs[0]
                 ? finiteSample(inputs[0][frameIndex]) : 0.0f;
             const float right = inputs && inputChannels > 1u && inputs[1]
@@ -583,8 +621,18 @@ public:
             }
 
             macroInput.fill(0.0f);
+            bodyInput.fill(0.0f);
             siteProcessInput.fill(0.0f);
+            fractureModulation.fill(0.0f);
             for (uint32_t siteIndex = 0u; siteIndex < active; ++siteIndex) {
+                smoothedSiteGain_[siteIndex] +=
+                    (sites_[siteIndex].gain
+                        - smoothedSiteGain_[siteIndex])
+                    * siteControlCoefficient;
+                smoothedSiteEnabled_[siteIndex] +=
+                    ((sites_[siteIndex].enabled ? 1.0f : 0.0f)
+                        - smoothedSiteEnabled_[siteIndex])
+                    * siteControlCoefficient;
                 smoothedNetworkDelay_[siteIndex] +=
                     (targetNetworkDelay_[siteIndex]
                         - smoothedNetworkDelay_[siteIndex])
@@ -654,6 +702,8 @@ public:
                 }
                 siteInput[siteIndex] = flushDenormal(input);
                 macroInput[siteToLane_[siteIndex]] = siteInput[siteIndex];
+                bodyInput[siteIndex] = siteInput[siteIndex]
+                    * smoothedSiteEnabled_[siteIndex];
                 if (sites_[siteIndex].enabled && processLaneCount_ > 0u) {
                     siteProcessInput[siteToProcessLane_[siteIndex]] =
                         siteInput[siteIndex];
@@ -663,20 +713,29 @@ public:
                 siteIndex < kAmbiCartographyMaxSites; ++siteIndex) {
                 siteInput[siteIndex] = 0.0f;
             }
+            for (uint32_t siteIndex = 0u;
+                siteIndex < active; ++siteIndex) {
+                fractureModulation[siteToLane_[siteIndex]] =
+                    siteInput[fractureModulatorSite_[siteIndex]];
+            }
 
             macroOutput.fill(0.0f);
-            const auto& activeInput = usesCompactSiteLanes(activeEngine_)
-                ? siteProcessInput : macroInput;
-            processMacroFrame(activeEngine_, activeInput, macroOutput);
+            const auto& activeInput =
+                activeEngine_ == AmbiCartographyMacroEngine::SpeakerBody
+                ? bodyInput : usesCompactSiteLanes(activeEngine_)
+                    ? siteProcessInput : macroInput;
+            processMacroFrame(activeEngine_, activeInput, macroOutput,
+                &fractureModulation);
             const bool engineTransition = previousEngine_ != activeEngine_
                 && engineCrossfade_ < 1.0f;
             if (engineTransition) {
                 previousMacroOutput.fill(0.0f);
-                const auto& previousInput =
-                    usesCompactSiteLanes(previousEngine_)
-                    ? siteProcessInput : macroInput;
+                const auto& previousInput = previousEngine_
+                        == AmbiCartographyMacroEngine::SpeakerBody
+                    ? bodyInput : usesCompactSiteLanes(previousEngine_)
+                        ? siteProcessInput : macroInput;
                 processMacroFrame(previousEngine_, previousInput,
-                    previousMacroOutput);
+                    previousMacroOutput, &fractureModulation);
             }
             const float engineBlend = engineTransition
                 ? smoothStep(0.0f, 1.0f, engineCrossfade_) : 1.0f;
@@ -684,36 +743,59 @@ public:
                 1.0f, engineCrossfade_ + engineCrossfadeStep);
             field.fill(0.0f);
             const float listenerActivity = fieldListener_.activity();
+            smoothedProcessMix_ += (params_.processMix
+                - smoothedProcessMix_) * processMixCoefficient;
 
             for (uint32_t siteIndex = 0u; siteIndex < active; ++siteIndex) {
                 const auto& site = sites_[siteIndex];
-                const uint32_t activeLane = usesCompactSiteLanes(activeEngine_)
-                    ? siteToProcessLane_[siteIndex]
-                    : siteToLane_[siteIndex];
-                float wet = macroOutput[activeLane];
-                if (engineTransition) {
-                    const uint32_t previousLane =
-                        usesCompactSiteLanes(previousEngine_)
+                const uint32_t activeLane = activeEngine_
+                        == AmbiCartographyMacroEngine::SpeakerBody
+                    ? siteIndex : usesCompactSiteLanes(activeEngine_)
                         ? siteToProcessLane_[siteIndex]
                         : siteToLane_[siteIndex];
+                float wet = macroOutput[activeLane];
+                if (engineTransition) {
+                    const uint32_t previousLane = previousEngine_
+                            == AmbiCartographyMacroEngine::SpeakerBody
+                        ? siteIndex : usesCompactSiteLanes(previousEngine_)
+                            ? siteToProcessLane_[siteIndex]
+                            : siteToLane_[siteIndex];
                     wet = lerp(previousMacroOutput[previousLane],
                         wet, engineBlend);
                 }
+                if (wetRemapPending_[siteIndex]) {
+                    wetRemapCorrection_[siteIndex] =
+                        wetRemapValid_[siteIndex]
+                        ? lastWetBySite_[siteIndex] - wet : 0.0f;
+                    wetRemapPhase_[siteIndex] =
+                        wetRemapValid_[siteIndex] ? 0.0f : 1.0f;
+                    wetRemapPending_[siteIndex] = false;
+                }
+                if (wetRemapPhase_[siteIndex] < 1.0f) {
+                    const float window = 1.0f - smoothStep(
+                        0.0f, 1.0f, wetRemapPhase_[siteIndex]);
+                    wet += wetRemapCorrection_[siteIndex] * window;
+                    wetRemapPhase_[siteIndex] = std::min(1.0f,
+                        wetRemapPhase_[siteIndex] + wetRemapStep);
+                }
+                wet = flushDenormal(wet);
+                lastWetBySite_[siteIndex] = wet;
+                wetRemapValid_[siteIndex] = true;
                 const float preference = fieldListener_.preference(
                     directions_[siteIndex], params_.listenMode);
                 const float centeredPreference = (preference - 0.5f) * 2.0f;
                 const float listenerDepth = params_.listenerAmount
                     * listenerActivity;
                 const float adaptiveWet = clamp(
-                    params_.processMix
+                    smoothedProcessMix_
                         * (1.0f + centeredPreference
                             * listenerDepth * 0.80f),
                     0.0f, 1.0f);
                 const float processed = lerp(
                     siteInput[siteIndex], wet, adaptiveWet);
 
-                airDelay_[siteIndex][airWrite_] = site.enabled
-                    ? flushDenormal(processed) : 0.0f;
+                airDelay_[siteIndex][airWrite_] = flushDenormal(
+                    processed * smoothedSiteEnabled_[siteIndex]);
                 smoothedAirDelay_[siteIndex] +=
                     (targetAirDelay_[siteIndex]
                         - smoothedAirDelay_[siteIndex])
@@ -818,7 +900,8 @@ public:
                 const float reach = clamp(
                     1.0f + centeredPreference * listenerDepth * 0.18f,
                     0.72f, 1.28f);
-                const float commonGain = site.gain * distanceGain
+                const float commonGain = smoothedSiteGain_[siteIndex]
+                    * distanceGain
                     * turbulence * reach * siteNorm
                     * refractionGain_[siteIndex];
                 arrived *= commonGain;
@@ -861,7 +944,7 @@ public:
                 channel < ambiChannels; ++channel) {
                 if (!outputs[channel]) continue;
                 outputs[channel][frameIndex] = static_cast<Sample>(
-                    flushDenormal(field[channel] * outputGain));
+                    flushDenormal(field[channel] * smoothedOutputGain_));
             }
 
             networkWrite_ = (networkWrite_ + 1u) % networkCapacity_;
@@ -1062,11 +1145,16 @@ private:
         fracture.processor = siteProcessOptions_.fractureProcessor;
         fracture.amount = params_.macro;
         fracture.color = params_.color;
+        fracture.bias = params_.skew;
         fracture.react = 0.15f + params_.memory * 0.60f;
         fracture.memory = params_.memory;
         fracture.spread = params_.spread;
         fracture.deviation = params_.deviation;
-        fracture.skew = params_.skew;
+        // In Cartography, the shared SKEW control becomes Fracture's
+        // processor-specific third control (Balance, Direction, Shift, and
+        // so on). Do not also apply it as lane skew; Deviation still gives
+        // each relationship lane a bounded variation around that bias.
+        fracture.skew = 0.0f;
         fracture.center = params_.center;
         fracture.mix = 1.0f;
         fracture.outputGainDb = 0.0f;
@@ -1087,14 +1175,21 @@ private:
 
     static bool usesCompactSiteLanes(AmbiCartographyMacroEngine engine)
     {
-        return engine == AmbiCartographyMacroEngine::SpeakerBody
-            || engine == AmbiCartographyMacroEngine::SpectralRelay
+        return engine == AmbiCartographyMacroEngine::SpectralRelay
             || engine == AmbiCartographyMacroEngine::RelayBuffer;
+    }
+
+    static bool needsRemapContinuity(AmbiCartographyMacroEngine engine)
+    {
+        return engine != AmbiCartographyMacroEngine::Clean
+            && engine != AmbiCartographyMacroEngine::SpeakerBody;
     }
 
     void processMacroFrame(AmbiCartographyMacroEngine engine,
         const std::array<float, kAmbiCartographyMaxSites>& input,
-        std::array<float, kAmbiCartographyMaxSites>& output)
+        std::array<float, kAmbiCartographyMaxSites>& output,
+        const std::array<float, kAmbiCartographyMaxSites>*
+            fractureModulation = nullptr)
     {
         switch (engine) {
         case AmbiCartographyMacroEngine::Delay:
@@ -1107,10 +1202,12 @@ private:
             macroShred_.processFrame(input.data(), output.data());
             break;
         case AmbiCartographyMacroEngine::Fracture:
-            macroFracture_.processFrame(input.data(), output.data());
+            macroFracture_.processFrame(input.data(), output.data(),
+                fractureModulation ? fractureModulation->data() : nullptr);
             break;
         case AmbiCartographyMacroEngine::SpeakerBody:
-            speakerBody_.processFrame(input.data(), output.data());
+            speakerBody_.processFrame(
+                input.data(), output.data(), bodyLaneUnit_.data());
             break;
         case AmbiCartographyMacroEngine::SpectralRelay:
             spectralRelay_.processFrame(input.data(), output.data());
@@ -1163,6 +1260,10 @@ private:
 
     void updateGeometryAndRouting()
     {
+        const auto previousSiteToLane = siteToLane_;
+        const auto previousSiteToProcessLane = siteToProcessLane_;
+        const uint32_t previousProcessLaneCount = processLaneCount_;
+        const uint32_t previousActiveSites = routingActiveSites_;
         const uint32_t active = params_.activeSites;
         renderedListenerPosition_ = {
             params_.listenerX, params_.listenerY, params_.listenerZ };
@@ -1421,23 +1522,59 @@ private:
                     / static_cast<float>(active - 1u)))
                 : kAmbiCartographyMaxSites / 2u;
             siteToLane_[laneToSite_[rank]] = macroLane;
+            bodyLaneUnit_[laneToSite_[rank]] =
+                static_cast<float>(macroLane)
+                / static_cast<float>(kAmbiCartographyMaxSites - 1u);
         }
         // The cartography-native cross-lane engines instead operate on a
         // compact list of actual enabled sites. Feeding their modulo routing
         // through the sparse 24-lane map would turn the unused ordinal gaps
         // into silent phantom sites. Persistent process memory belongs to the
-        // relationship rank: moving or reordering sites traverses that field;
-        // changing the enabled-site count resets its topology.
+        // relationship rank: moving or reordering sites traverses that field.
+        // Topology changes preserve overlapping lane memory and receive a
+        // short output correction below so that the remap is continuous.
         siteToProcessLane_.fill(0u);
+        for (uint32_t site = 0u;
+            site < kAmbiCartographyMaxSites; ++site) {
+            fractureModulatorSite_[site] = site;
+        }
         processLaneCount_ = 0u;
+        std::array<uint32_t, kAmbiCartographyMaxSites> enabledByRank {};
         for (uint32_t rank = 0u; rank < active; ++rank) {
             const uint32_t site = laneToSite_[rank];
             if (!sites_[site].enabled) continue;
+            enabledByRank[processLaneCount_] = site;
             siteToProcessLane_[site] = processLaneCount_++;
         }
-        speakerBody_.setActiveChannels(processLaneCount_);
+        if (processLaneCount_ > 0u) {
+            for (uint32_t rank = 0u; rank < processLaneCount_; ++rank) {
+                fractureModulatorSite_[enabledByRank[rank]] =
+                    enabledByRank[(rank + 1u) % processLaneCount_];
+            }
+        }
+        // Body resonance state belongs to a physical site. Its relationship
+        // rank is a smoothed voicing coordinate, never a state-array index.
+        speakerBody_.setActiveChannels(active);
         spectralRelay_.setActiveChannels(processLaneCount_);
         relayBuffer_.setActiveChannels(processLaneCount_);
+        const bool protectRemap = needsRemapContinuity(activeEngine_)
+            || (previousEngine_ != activeEngine_
+                && engineCrossfade_ < 1.0f
+                && needsRemapContinuity(previousEngine_));
+        if (routingContinuityPrimed_ && protectRemap) {
+            const bool cardinalityChanged = previousActiveSites != active
+                || previousProcessLaneCount != processLaneCount_;
+            for (uint32_t site = 0u; site < active; ++site) {
+                if (cardinalityChanged
+                    || previousSiteToLane[site] != siteToLane_[site]
+                    || previousSiteToProcessLane[site]
+                        != siteToProcessLane_[site]) {
+                    wetRemapPending_[site] = true;
+                }
+            }
+        }
+        routingContinuityPrimed_ = true;
+        routingActiveSites_ = active;
         for (uint32_t site = active;
             site < kAmbiCartographyMaxSites; ++site) {
             siteToLane_[site] = site;
@@ -1484,6 +1621,8 @@ private:
     std::array<float, kAmbiCartographyMaxSites> horizonState_ {};
     std::array<float, kAmbiCartographyMaxSites> smoothedOcclusion_ {};
     std::array<float, kAmbiCartographyMaxSites> smoothedHorizonGain_ {};
+    std::array<float, kAmbiCartographyMaxSites> smoothedSiteGain_ {};
+    std::array<float, kAmbiCartographyMaxSites> smoothedSiteEnabled_ {};
     std::array<float, kAmbiCartographyMaxSites> ecologyState_ {};
     std::array<float, kAmbiCartographyMaxSites> turbulencePhase_ {};
     std::array<float, kAmbiCartographyMaxSites> weatherPhase_ {};
@@ -1508,8 +1647,20 @@ private:
         kAmbiCartographyMaxSites> facadeBasis_ {};
     std::array<uint32_t, kAmbiCartographyMaxSites> siteToLane_ {};
     std::array<uint32_t, kAmbiCartographyMaxSites> siteToProcessLane_ {};
+    std::array<uint32_t, kAmbiCartographyMaxSites>
+        fractureModulatorSite_ {};
+    std::array<float, kAmbiCartographyMaxSites> bodyLaneUnit_ {};
     std::array<uint32_t, kAmbiCartographyMaxSites> laneToSite_ {};
+    std::array<float, kAmbiCartographyMaxSites> lastWetBySite_ {};
+    std::array<float, kAmbiCartographyMaxSites> wetRemapCorrection_ {};
+    std::array<float, kAmbiCartographyMaxSites> wetRemapPhase_ {};
+    std::array<bool, kAmbiCartographyMaxSites> wetRemapPending_ {};
+    std::array<bool, kAmbiCartographyMaxSites> wetRemapValid_ {};
     uint32_t processLaneCount_ = 0u;
+    uint32_t routingActiveSites_ = 0u;
+    bool routingContinuityPrimed_ = false;
+    float smoothedProcessMix_ = 0.42f;
+    float smoothedOutputGain_ = 0.5f;
     MacroDelay macroDelay_ {};
     MacroPitch macroPitch_ {};
     MacroShred macroShred_ {};

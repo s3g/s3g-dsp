@@ -23,6 +23,35 @@ struct RenderStats {
     bool finite = true;
 };
 
+// The No Input Mixer insert and aux paths instantiate the shared Fracture
+// processor template with their own private runtime types.  Keep a small
+// public-template fixture here so listener-facing kernel behavior can be
+// checked without exposing those real-time implementation details.
+struct NoInputFractureTestState {
+    float low = 0.0f;
+    float high = 0.0f;
+    float memory = 0.0f;
+    float envelope = 0.0f;
+    float previous = 0.0f;
+    float phase = 0.0f;
+    float gate = 0.0f;
+};
+
+struct NoInputFractureTestRuntime {
+    std::array<float, s3g::kFractureTimeBufferSize> timeBuffer {};
+    uint32_t timeWrite = 0u;
+    uint32_t timeValid = 0u;
+};
+
+float processNoInputFracture(s3g::FractureProcessor processor,
+    NoInputFractureTestRuntime& runtime,
+    NoInputFractureTestState& state, float input, float ringSource,
+    float gain, float tone, float bias)
+{
+    return s3g::processFractureProcessor(processor, runtime, state,
+        input, ringSource, gain, tone, bias, 48000.0f);
+}
+
 RenderStats render(s3g::NoInputMixer& mixer, uint32_t frames,
     uint32_t skip = 0u)
 {
@@ -162,6 +191,452 @@ bool testDistortionFamilies()
                              static_cast<s3g::NoInputDistortionType>(type))
                       << " failed: peak " << stats.peak << "\n";
             return false;
+        }
+    }
+    return true;
+}
+
+bool testSharedFractureInsertKernels()
+{
+    constexpr std::array<s3g::FractureProcessor,
+        s3g::kFractureProcessorCount> processors {{
+        s3g::FractureProcessor::Relay,
+        s3g::FractureProcessor::Crush,
+        s3g::FractureProcessor::Splice,
+        s3g::FractureProcessor::Logic,
+        s3g::FractureProcessor::Void,
+        s3g::FractureProcessor::Throat,
+        s3g::FractureProcessor::Robot,
+        s3g::FractureProcessor::OctDown,
+        s3g::FractureProcessor::OctUp,
+        s3g::FractureProcessor::OctStack,
+    }};
+    constexpr std::array<s3g::NoInputDistortionType,
+        s3g::kFractureProcessorCount> insertTypes {{
+        s3g::NoInputDistortionType::Relay,
+        s3g::NoInputDistortionType::Crush,
+        s3g::NoInputDistortionType::Splice,
+        s3g::NoInputDistortionType::Logic,
+        s3g::NoInputDistortionType::Void,
+        s3g::NoInputDistortionType::Throat,
+        s3g::NoInputDistortionType::Robot,
+        s3g::NoInputDistortionType::OctDown,
+        s3g::NoInputDistortionType::OctUp,
+        s3g::NoInputDistortionType::OctStack,
+    }};
+
+    // The NIM menu and shared kernel must continue to describe the same ten
+    // processors. Every one must also preserve true digital silence at all
+    // values of its bipolar third control.
+    constexpr std::array<float, 3u> biases {{ -1.0f, 0.0f, 1.0f }};
+    for (uint32_t index = 0u; index < processors.size(); ++index) {
+        if (std::strcmp(s3g::noInputDistortionName(insertTypes[index]),
+                s3g::fractureProcessorName(processors[index])) != 0) {
+            std::cerr << "No Input Mixer Fracture insert mapping regressed at "
+                      << index << "\n";
+            return false;
+        }
+        for (float bias : biases) {
+            NoInputFractureTestRuntime runtime;
+            NoInputFractureTestState state;
+            for (uint32_t sample = 0u; sample < 8192u; ++sample) {
+                const float output = processNoInputFracture(
+                    processors[index], runtime, state, 0.0f, 0.0f,
+                    1.0f, 0.67f, bias);
+                if (!std::isfinite(output) || std::abs(output) > 1.0e-7f) {
+                    std::cerr << "No Input Mixer "
+                              << s3g::noInputDistortionName(
+                                     insertTypes[index])
+                              << " insert emitted from digital silence: "
+                              << output << "\n";
+                    return false;
+                }
+            }
+        }
+    }
+
+    // A symmetric NIM network commonly gives LOGIC highly correlated lane
+    // and ring-source signals. That must be an active, bounded case rather
+    // than the old false/false comparator state that collapsed to silence.
+    {
+        NoInputFractureTestRuntime runtime;
+        NoInputFractureTestState state;
+        double sumSquares = 0.0;
+        float maximumStep = 0.0f;
+        float previous = 0.0f;
+        constexpr uint32_t warmup = 24000u;
+        constexpr uint32_t measured = 48000u;
+        for (uint32_t sample = 0u; sample < warmup + measured; ++sample) {
+            const float input = 0.15f * std::sin(2.0f * s3g::kPi
+                * 173.0f * static_cast<float>(sample) / 48000.0f);
+            const float output = processNoInputFracture(
+                s3g::FractureProcessor::Logic, runtime, state,
+                input, input, 0.80f, 0.60f, 0.0f);
+            if (!std::isfinite(output)) {
+                std::cerr << "No Input Mixer LOGIC insert became non-finite\n";
+                return false;
+            }
+            if (sample >= warmup) {
+                sumSquares += static_cast<double>(output) * output;
+                maximumStep = std::max(maximumStep,
+                    std::abs(output - previous));
+            }
+            previous = output;
+        }
+        const double rms = std::sqrt(sumSquares
+            / static_cast<double>(measured));
+        if (!(rms > 0.05) || maximumStep > 0.10f) {
+            std::cerr << "No Input Mixer correlated LOGIC insert was silent "
+                         "or clicky: RMS "
+                      << rms << " step " << maximumStep << "\n";
+            return false;
+        }
+    }
+
+    // Full-depth CRUSH must quantize a quiet feed rather than interpreting
+    // every sample as zero against a fixed full-scale step size.
+    {
+        NoInputFractureTestRuntime runtime;
+        NoInputFractureTestState state;
+        double sumSquares = 0.0;
+        constexpr uint32_t warmup = 24000u;
+        constexpr uint32_t measured = 48000u;
+        for (uint32_t sample = 0u; sample < warmup + measured; ++sample) {
+            const float input = 0.005f * std::sin(2.0f * s3g::kPi
+                * 197.0f * static_cast<float>(sample) / 48000.0f);
+            const float output = processNoInputFracture(
+                s3g::FractureProcessor::Crush, runtime, state,
+                input, input, 1.0f, 0.55f, 0.0f);
+            if (!std::isfinite(output)) {
+                std::cerr << "No Input Mixer CRUSH insert became non-finite\n";
+                return false;
+            }
+            if (sample >= warmup)
+                sumSquares += static_cast<double>(output) * output;
+        }
+        const double rms = std::sqrt(sumSquares
+            / static_cast<double>(measured));
+        if (!(rms > 0.001)) {
+            std::cerr << "No Input Mixer CRUSH insert erased a quiet feed: "
+                      << rms << " RMS\n";
+            return false;
+        }
+    }
+
+    // LENGTH automation is latched at a splice boundary. The edit itself
+    // must not teleport the read head, and the following splice remains
+    // bounded while the newly requested short segment takes over.
+    {
+        NoInputFractureTestRuntime changedRuntime;
+        NoInputFractureTestRuntime controlRuntime;
+        NoInputFractureTestState changedState;
+        NoInputFractureTestState controlState;
+        float previous = 0.0f;
+        for (uint32_t sample = 0u; sample < 48000u; ++sample) {
+            const float input = 0.18f * std::sin(2.0f * s3g::kPi
+                * 173.0f * static_cast<float>(sample) / 48000.0f);
+            previous = processNoInputFracture(
+                s3g::FractureProcessor::Splice, changedRuntime,
+                changedState, input, input, 0.92f, 0.92f, 0.30f);
+            processNoInputFracture(s3g::FractureProcessor::Splice,
+                controlRuntime, controlState, input, input,
+                0.92f, 0.92f, 0.30f);
+        }
+        float firstSampleDifference = 0.0f;
+        float maximumStep = 0.0f;
+        for (uint32_t offset = 0u; offset < 24000u; ++offset) {
+            const uint32_t sample = 48000u + offset;
+            const float input = 0.18f * std::sin(2.0f * s3g::kPi
+                * 173.0f * static_cast<float>(sample) / 48000.0f);
+            const float changed = processNoInputFracture(
+                s3g::FractureProcessor::Splice, changedRuntime,
+                changedState, input, input, 0.92f, 0.02f, 0.30f);
+            const float control = processNoInputFracture(
+                s3g::FractureProcessor::Splice, controlRuntime,
+                controlState, input, input, 0.92f, 0.92f, 0.30f);
+            if (offset == 0u)
+                firstSampleDifference = std::abs(changed - control);
+            maximumStep = std::max(maximumStep,
+                std::abs(changed - previous));
+            previous = changed;
+        }
+        if (firstSampleDifference > 1.0e-6f || maximumStep > 0.12f) {
+            std::cerr << "No Input Mixer SPLICE LENGTH automation clicked: "
+                      << firstSampleDifference << " immediate, "
+                      << maximumStep << " maximum step\n";
+            return false;
+        }
+    }
+
+    // CHARACTER now morphs through continuous carrier shapes. Check both the
+    // neutral sine and the most square-like endpoint against the former hard
+    // square edge without over-constraining their intended brightness.
+    const auto robotMaximumStep = [](float bias) {
+        NoInputFractureTestRuntime runtime;
+        NoInputFractureTestState state;
+        float previous = 0.0f;
+        float maximumStep = 0.0f;
+        for (uint32_t sample = 0u; sample < 72000u; ++sample) {
+            const float input = 0.20f * std::sin(2.0f * s3g::kPi
+                * 173.0f * static_cast<float>(sample) / 48000.0f);
+            const float output = processNoInputFracture(
+                s3g::FractureProcessor::Robot, runtime, state,
+                input, input, 1.0f, 0.65f, bias);
+            if (!std::isfinite(output))
+                return std::numeric_limits<float>::infinity();
+            if (sample >= 24000u) {
+                maximumStep = std::max(maximumStep,
+                    std::abs(output - previous));
+            }
+            previous = output;
+        }
+        return maximumStep;
+    };
+    const float neutralRobotStep = robotMaximumStep(0.0f);
+    const float brightRobotStep = robotMaximumStep(1.0f);
+    if (neutralRobotStep > 0.12f || brightRobotStep > 0.32f) {
+        std::cerr << "No Input Mixer ROBOT carrier produced a hard edge: "
+                  << neutralRobotStep << " / " << brightRobotStep << "\n";
+        return false;
+    }
+    return true;
+}
+
+s3g::NoInputMixerParams fractureSelectorContinuityFixture()
+{
+    auto params = s3g::defaultNoInputMixerParams();
+    params.outputGainDb = 6.0f;
+    params.ceilingDb = 0.0f;
+    params.limiterEnabled = 0u;
+    params.feedback = 0.96f;
+    params.coupling = 0.0f;
+    params.phase = 0.0f;
+    params.drift = 0.0f;
+    params.formant = 0.0f;
+    params.agency = 0.0f;
+    params.space = 0.0f;
+    params.variance = 0.0f;
+    params.motion = 0.0f;
+    params.reactMode = s3g::NoInputReactMode::Off;
+    params.matrix.fill(0.0f);
+    params.matrix[0] = 1.0f;
+    for (uint32_t lane = 0u; lane < params.lanes.size(); ++lane) {
+        auto& voice = params.lanes[lane];
+        voice.mute = lane == 0u ? 0u : 1u;
+        voice.pitchLock = 1u;
+        voice.tuneNote = 48.0f;
+        voice.tuneCents = 0.0f;
+        voice.loss = 0.08f;
+        voice.body = 0.25f;
+        voice.levelDb = 0.0f;
+        voice.lowDb = 0.0f;
+        voice.midGainDb = 0.0f;
+        voice.highDb = -12.0f;
+        voice.auxSend = {{ 0.0f, 0.0f }};
+        voice.auxReturn = {{ 0.0f, 0.0f }};
+        for (auto& insert : voice.inserts) insert.bypass = 1u;
+    }
+    auto& insert = params.lanes[0].inserts[0];
+    insert.type = s3g::NoInputDistortionType::Relay;
+    insert.gain = 0.72f;
+    insert.tone = 0.55f;
+    insert.bias = 0.0f;
+    insert.levelDb = 0.0f;
+    insert.bypass = 0u;
+    for (auto& aux : params.aux) {
+        aux.feedback = 0.0f;
+        aux.returnGain = 0.0f;
+    }
+    return params;
+}
+
+struct FractureSelectorRetargetStats {
+    float peak = 0.0f;
+    float maximumSwitchStep = 0.0f;
+    float maximumExpectedStep = 0.0f;
+    float maximumExcessStep = 0.0f;
+    bool finite = true;
+};
+
+FractureSelectorRetargetStats measureFractureSelectorRetargeting(
+    bool auxiliary)
+{
+    auto params = fractureSelectorContinuityFixture();
+    if (auxiliary) {
+        params.lanes[0].inserts[0].bypass = 1u;
+        params.lanes[0].auxSend[0] = 1.0f;
+        params.lanes[0].auxTap[0] = s3g::NoInputAuxTap::Return;
+        params.lanes[0].auxReturn[0] = 1.0f;
+        params.aux[0].effect.type = s3g::NoInputDistortionType::Relay;
+        params.aux[0].effect.gain = 0.72f;
+        params.aux[0].effect.tone = 0.55f;
+        params.aux[0].effect.bias = 0.0f;
+        params.aux[0].effect.bypass = 0u;
+        params.aux[0].feedback = 0.18f;
+        params.aux[0].returnGain = 0.72f;
+    }
+
+    s3g::NoInputMixer mixer;
+    mixer.prepare(48000.0);
+    mixer.setParams(params);
+    mixer.reseed(0x4e494d46u, 0.55f);
+    Frame frame {};
+    float previous = 0.0f;
+    for (uint32_t sample = 0u; sample < 48000u; ++sample) {
+        mixer.processFrame(frame.data());
+        previous = frame[0];
+    }
+
+    constexpr std::array<s3g::NoInputDistortionType,
+        s3g::kFractureProcessorCount> types {{
+        s3g::NoInputDistortionType::Logic,
+        s3g::NoInputDistortionType::Robot,
+        s3g::NoInputDistortionType::Crush,
+        s3g::NoInputDistortionType::Splice,
+        s3g::NoInputDistortionType::Void,
+        s3g::NoInputDistortionType::Throat,
+        s3g::NoInputDistortionType::OctDown,
+        s3g::NoInputDistortionType::OctUp,
+        s3g::NoInputDistortionType::OctStack,
+        s3g::NoInputDistortionType::Relay,
+    }};
+    FractureSelectorRetargetStats stats;
+    for (uint32_t sample = 0u; sample < 12000u; ++sample) {
+        const bool switchType = (sample % 64u) == 0u;
+        Frame expected {};
+        if (switchType) {
+            auto control = std::make_unique<s3g::NoInputMixer>(mixer);
+            control->processFrame(expected.data());
+            const auto type = types[(sample / 64u) % types.size()];
+            if (auxiliary) params.aux[0].effect.type = type;
+            else params.lanes[0].inserts[0].type = type;
+            mixer.setParams(params);
+        }
+        mixer.processFrame(frame.data());
+        for (float value : frame) {
+            if (!std::isfinite(value)) stats.finite = false;
+        }
+        stats.peak = std::max(stats.peak, std::abs(frame[0]));
+        if (switchType) {
+            const float actualStep = std::abs(frame[0] - previous);
+            const float expectedStep = std::abs(expected[0] - previous);
+            stats.maximumSwitchStep = std::max(
+                stats.maximumSwitchStep, actualStep);
+            stats.maximumExpectedStep = std::max(
+                stats.maximumExpectedStep, expectedStep);
+            stats.maximumExcessStep = std::max(
+                stats.maximumExcessStep,
+                std::max(0.0f, actualStep - expectedStep));
+        }
+        previous = frame[0];
+    }
+    return stats;
+}
+
+bool testRapidFractureInsertRetargeting()
+{
+    const auto lane = measureFractureSelectorRetargeting(false);
+    const auto aux = measureFractureSelectorRetargeting(true);
+    constexpr float maximumExcessStep = 0.002f;
+    if (!lane.finite || !(lane.peak > 0.01f)
+        || lane.maximumExcessStep > maximumExcessStep) {
+        std::cerr << "No Input Mixer lane insert rapid retarget clicked: peak "
+                  << lane.peak << " switch " << lane.maximumSwitchStep
+                  << " expected " << lane.maximumExpectedStep
+                  << " excess " << lane.maximumExcessStep << "\n";
+        return false;
+    }
+    if (!aux.finite || !(aux.peak > 0.01f)
+        || aux.maximumExcessStep > maximumExcessStep) {
+        std::cerr << "No Input Mixer aux insert rapid retarget clicked: peak "
+                  << aux.peak << " switch " << aux.maximumSwitchStep
+                  << " expected " << aux.maximumExpectedStep
+                  << " excess " << aux.maximumExcessStep << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testFractureSelectorFadeTiming()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr uint32_t expectedSamples = 960u;
+    uint32_t referenceLaneSamples = 0u;
+    uint32_t referenceAuxSamples = 0u;
+    for (uint32_t quality = 0u; quality <= 2u; ++quality) {
+        for (uint32_t path = 0u; path < 2u; ++path) {
+            const bool auxiliary = path != 0u;
+            auto params = fractureSelectorContinuityFixture();
+            params.quality = quality;
+            if (auxiliary) {
+                params.lanes[0].inserts[0].bypass = 1u;
+                params.lanes[0].auxSend[0] = 1.0f;
+                params.lanes[0].auxTap[0] = s3g::NoInputAuxTap::Return;
+                params.lanes[0].auxReturn[0] = 1.0f;
+                params.aux[0].effect.type =
+                    s3g::NoInputDistortionType::Relay;
+                params.aux[0].effect.gain = 0.72f;
+                params.aux[0].effect.tone = 0.55f;
+                params.aux[0].effect.bias = 0.0f;
+                params.aux[0].effect.bypass = 0u;
+                params.aux[0].feedback = 0.18f;
+                params.aux[0].returnGain = 0.72f;
+            }
+
+            auto mixer = std::make_unique<s3g::NoInputMixer>();
+            mixer->prepare(sampleRate);
+            mixer->setParams(params);
+            mixer->reseed(0x51464144u + quality * 17u + path, 0.55f);
+            Frame frame {};
+            for (uint32_t sample = 0u; sample < 4096u; ++sample)
+                mixer->processFrame(frame.data());
+
+            if (auxiliary) {
+                params.aux[0].effect.type =
+                    s3g::NoInputDistortionType::Robot;
+            } else {
+                params.lanes[0].inserts[0].type =
+                    s3g::NoInputDistortionType::Robot;
+            }
+            mixer->setParams(params);
+            const auto progress = [&]() {
+                return auxiliary
+                    ? mixer->auxInsertTransitionProgress(0u)
+                    : mixer->insertTransitionProgress(0u, 0u);
+            };
+            if (progress() != 0.0f) {
+                std::cerr << "No Input Mixer selector fade did not start at "
+                          << "zero for quality " << quality << "\n";
+                return false;
+            }
+
+            uint32_t completionSamples = 0u;
+            while (progress() < 1.0f
+                && completionSamples <= expectedSamples + 1u) {
+                mixer->processFrame(frame.data());
+                ++completionSamples;
+            }
+            if (completionSamples < expectedSamples
+                || completionSamples > expectedSamples + 1u
+                || progress() != 1.0f) {
+                std::cerr << "No Input Mixer "
+                          << (auxiliary ? "aux" : "lane")
+                          << " selector fade duration regressed at quality "
+                          << quality << ": " << completionSamples
+                          << " samples\n";
+                return false;
+            }
+            uint32_t& reference = auxiliary
+                ? referenceAuxSamples : referenceLaneSamples;
+            if (quality == 0u) reference = completionSamples;
+            else if (completionSamples != reference) {
+                std::cerr << "No Input Mixer "
+                          << (auxiliary ? "aux" : "lane")
+                          << " selector fade changed with quality: "
+                          << reference << " vs " << completionSamples
+                          << " samples\n";
+                return false;
+            }
         }
     }
     return true;
@@ -711,7 +1186,7 @@ bool testMovementBehaviors()
             > 1.0e-6f
         || std::abs(s3g::noInputMovementSlewMs(1.0f) - 20.0f)
             > 1.0e-4f
-        || normalDirection.reactPolarity != 1.0f
+        || normalDirection.reactPolarity != 0.0f
         || invertedDirection.reactPolarity != -1.0f
         || std::strcmp(s3g::noInputMovementBehaviorName(
                 s3g::NoInputMovementBehavior::Scramble), "SCRAMBLE") != 0) {
@@ -1423,6 +1898,9 @@ int main()
     if (!testAudioThreadStackReset()) return 1;
     if (!testDefaultEcology()) return 1;
     if (!testDistortionFamilies()) return 1;
+    if (!testSharedFractureInsertKernels()) return 1;
+    if (!testRapidFractureInsertRetargeting()) return 1;
+    if (!testFractureSelectorFadeTiming()) return 1;
     if (!testFactoryPresetsAndRandomization()) return 1;
     if (!testRandomEnergyProfiles()) return 1;
     if (!testSignedMatrixChangesState()) return 1;

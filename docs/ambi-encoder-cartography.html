@@ -33,6 +33,15 @@
 
         <p>This guide follows the current <a href="building-from-source.html#source-build-previews">source-build preview</a> of Cartography. Build the repository version with <code>-DS3G_BUILD_CLAP_PLUGIN=ON</code> to use the landscape-effects and expanded site-process controls described here. A packaged pre-release can contain an earlier Cartography build, so use a fresh source build when matching this page.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/ambi-encoder-cartography.png?v=2" aria-label="Open Ambi Encoder Cartography GUI screenshot">
+              <img src="assets/plugin-guis/ambi-encoder-cartography.png?v=2" alt="Ambi Encoder Cartography interface showing a twelve-site Ridge loudspeaker network rising above ground stems in the three-quarter camera view, selected crest site 6, yellow listener position, camera controls, third-order output, propagation, Delay site processing, and Landscape FX pages" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The twelve-site Ridge layout in <code>3/4</code> makes its elevation profile explicit: positive-Z loudspeaker sites rise from their ground stems, with crest site 6 selected. The map header follows the shared encoder camera grammar: <code>-</code>, <code>+</code>, <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code>.</figcaption>
+        </figure>
+
         <h2 id="workflow">Workflow</h2>
 
         <ol>
@@ -40,7 +49,8 @@
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Open the title-bar preset menu and audition a factory scene near the intended scale and behavior.</li>
           <li>Choose <code>SITES</code>, <code>LAYOUT</code>, and <code>MAP SCALE</code>. The Radial, Ridge, Corridor, Grid, and Waterfront layouts initialize distinct physical and network arrangements.</li>
-          <li>Drag the yellow listener cross and loudspeaker sites in the map, or edit their coordinates with the Listener and Selected Site controls.</li>
+          <li>Choose <code>TOP</code> to edit listener or site X/Y, or <code>SIDE</code> to edit X/Z. <code>3/4</code> is the inspection view. Drag an empty part of the map to orbit the camera and use <code>-</code> / <code>+</code> to change display zoom.</li>
+          <li>Drag the yellow listener cross and loudspeaker sites in an editable view, or enter exact coordinates with the Listener and Selected Site controls.</li>
           <li>Set <code>NETWORK DELAY</code>, <code>PROPAGATION TIME</code>, and <code>TIME REFERENCE</code> before adding atmospheric loss.</li>
           <li>On the Site Process <code>CORE</code> page, choose a process engine and shape Macro, Color, Memory, and Process Mix. <code>SHRED</code> additionally exposes Circuit, while <code>FRACTURE</code> exposes Processor.</li>
           <li>Open the Site Process <code>REL</code> page to choose <code>MACRO METRIC</code> and shape its Spread, Deviation, Skew, and Center relationships.</li>
@@ -93,7 +103,7 @@
 
         <p>The Process menu retains the original automation values for <code>CLEAN</code>, <code>DELAY</code>, <code>PITCH</code>, <code>SHRED</code>, and <code>FRACTURE</code>, then adds <code>BODY</code>, <code>SPECTRAL RELAY</code>, and <code>RELAY BUFFER</code>. A 30 ms live old/new crossfade protects every engine change, including transitions to and from Clean.</p>
 
-        <p>Host play, stop, seek, loop, and sample-offset transport boundaries receive a 6 ms input correction before the stereo feed is copied into the site network, preventing one source edge from returning later as many distributed clicks. Processing restarts and resets use a separate 10 ms output bridge from silence or the preceding rendered sample; a restart also ramps any newly silent input into parked feedback memory instead of injecting a delayed edge. Transport stop does not mute or discard the landscape: the CLAP reports a conservative 90-second tail, and delay memories are invalidated without bulk-clearing large buffers on the audio thread.</p>
+        <p>Host play, stop, seek, loop, and sample-offset transport boundaries receive a smooth pre-network input correction whose base duration is 6 ms, preventing one source edge from returning later as many distributed clicks. <code>BODY</code> extends that window according to its maximum possible wet contribution from Process Mix and Listen Amount, reaching 120 ms at a fully wet setting so the cabinet highpass and resonator do not turn a short transport ramp into a new transient. Processing restarts and resets use a separate 10 ms output bridge from silence or the preceding rendered sample; a restart also ramps any newly silent input into parked feedback memory instead of injecting a delayed edge. Transport stop does not mute or discard the landscape: the CLAP reports a conservative 90-second tail, and delay memories are invalidated without bulk-clearing large buffers on the audio thread.</p>
 
         <table class="readout-table">
           <thead><tr><th>Process</th><th>Site behavior</th><th>Shared-control semantics</th></tr></thead>
@@ -102,8 +112,8 @@
             <tr><td>Delay</td><td>Runs one differentiated delay lane per site.</td><td><code>MACRO</code> is Time, <code>COLOR</code> is Tone and character, and <code>MEMORY</code> is Feedback and smear.</td></tr>
             <tr><td>Pitch</td><td>Applies a lane-related pitch interval spanning down to up across a two-octave range.</td><td><code>MACRO</code> is Pitch and <code>COLOR</code> is Window length. The relationship controls distribute the interval across sites.</td></tr>
             <tr><td>Shred</td><td>Applies the selected feedback-and-drive Circuit independently across the macro lanes.</td><td><code>MACRO</code> is Drive and pressure, <code>COLOR</code> voices tone, tune, and body, and <code>MEMORY</code> raises feedback and reaction.</td></tr>
-            <tr><td>Fracture</td><td>Applies the selected nonlinear, time-domain, logic, vocal, robotic, or octave Processor.</td><td><code>MACRO</code> and <code>COLOR</code> adopt processor-specific amount and color meanings, while <code>MEMORY</code> controls reaction and recurrence.</td></tr>
-            <tr><td>Body</td><td>Models the horn, cabinet, driver resonance, saturation, and slow thermal compression of each loudspeaker body.</td><td><code>MACRO</code> is Body Drive, <code>COLOR</code> is Cabinet brightness, and <code>MEMORY</code> is Resonance and thermal persistence.</td></tr>
+            <tr><td>Fracture</td><td>Applies the selected nonlinear, time-domain, logic, vocal, robotic, or octave Processor. Logic compares each enabled site with the next enabled site in the current relationship order.</td><td><code>MACRO</code>, <code>COLOR</code>, and the REL-page <code>SKEW</code> control adopt the selected processor's contextual labels, while <code>MEMORY</code> controls reaction and recurrence.</td></tr>
+            <tr><td>Body</td><td>Models the horn, cabinet, driver resonance, saturation, and slow thermal compression of each loudspeaker body. Every physical site owns its cabinet, resonator, envelope, and thermal history.</td><td><code>MACRO</code> is Body Drive, <code>COLOR</code> is Cabinet brightness, and <code>MEMORY</code> is Resonance and thermal persistence. Relationship-rank changes retune the site through a 30 ms glide instead of exchanging its processor state with another site.</td></tr>
             <tr><td>Spectral Relay</td><td>Transfers each site through a spectral relay mesh whose topology follows the macro-lane ordering.</td><td><code>MACRO</code> is Transfer and spray, <code>COLOR</code> is Tilt, and <code>MEMORY</code> is Hold and feedback. Spread becomes topology Radius, Deviation becomes Jitter and holes, Skew becomes Dispersion, and Center becomes Centroid pull.</td></tr>
             <tr><td>Relay Buffer</td><td>Alternates per-site capture and recurrent playback, with de-clicked loop boundaries and relationship-selected source lanes.</td><td><code>MACRO</code> is buffer Depth, <code>COLOR</code> is buffer Length, <code>MEMORY</code> is Recurrence, and <code>SKEW</code> sets Direction across the lanes.</td></tr>
           </tbody>
@@ -111,13 +121,23 @@
 
         <p>The shared Macro, Color, Memory, Spread, Deviation, Skew, and Center parameters keep stable automation identities when their visible labels and audible meanings change with the engine. Selecting another engine does not overwrite their values; the selected engine reinterprets the same current point on the shared parameter surface.</p>
 
-        <p>Body, Spectral Relay, and Relay Buffer operate on a compact relationship list containing only enabled sites. Disabled points and the empty gaps in the legacy 24-lane ordinal map cannot become phantom relay sources. Persistent processor memory follows relationship rank rather than physical site identity, so moving or reordering points traverses the process field; changing the enabled-site count resets that topology. Each engine keeps its own parked memory while inactive and returns only through the protected old/new crossfade.</p>
+        <p><code>BODY</code> runs on stable physical-site lanes. A site's Macro Metric rank supplies only a target voicing coordinate, smoothed over 30 ms, so Motion, listener movement, or a metric crossing can retune that body without moving its resonator and thermal history to another loudspeaker. Disabling a site ramps its effective contribution while retaining that site identity.</p>
 
-        <p>Network Weather uses independently wrapped continuous oscillators for drift and relay loss, while Turbulence uses periodic smooth value noise instead of stepped random gain. Fracture Splice returns briefly to the live signal at both ends of each segment. These protections retain the irregular character of the processes without adding hard internal waveform edges.</p>
+        <p><code>FRACTURE</code> retains the sparse 24-lane voicing map used by Spread and Center, but Logic receives a separate modulation ring made only from enabled sites in the current Macro Metric order. Each site compares against the next enabled site and the last wraps to the first, so empty macro-lane positions and disabled sites do not become silent comparison partners. A low-level carrier assist follows the current signal level and uses a stable per-lane phase; it helps identical or strongly correlated site feeds produce a changing comparison, but falls away with the signal rather than becoming an independent source.</p>
+
+        <p><code>SPECTRAL RELAY</code> and <code>RELAY BUFFER</code> use a compact relationship list containing only enabled sites, so disabled points and empty ordinal gaps cannot become phantom relay sources. Their cross-site memory and capture topology follow relationship rank. When Motion, editing, a metric change, or a changed enabled-site count remaps a compact lane, the affected site's last wet sample anchors a 30 ms continuity correction into the new result instead of exposing the remap as a hard edge. Each engine keeps its own parked memory while inactive and returns only through the protected old/new crossfade.</p>
+
+        <p>Live level changes are protected independently of those topology rules. Process Mix follows a 15 ms smoothing time, while Site Gain, the effective audio fade behind Site Enable, and final Output follow 12 ms smoothing. Site Enable remains a discrete host parameter and map state, but its audible contribution enters and leaves continuously.</p>
+
+        <p>Body's derived cabinet, envelope, and resonance controls are calculated at a bounded control cadence while the signal path and relationship glide continue at audio rate. A bounded algebraic speaker-saturation curve replaces repeated general-purpose hyperbolic-tangent calls. These optimizations reduce the per-site real-time load without changing Body's physical-site state ownership or adding host latency.</p>
+
+        <p>Network Weather uses independently wrapped continuous oscillators for drift and relay loss, while Turbulence uses periodic smooth value noise instead of stepped random gain. Fracture's level-dependent thresholds, offsets, dither, and octave tracking follow the signal instead of assuming one fixed operating level. Crush returns exact zero after both its input and held sample are silent, and Logic's carrier assist decays with its level follower. Buffered Splice material, formant resonance, or configured Memory can still produce an intentional tail.</p>
+
+        <p>Fracture Splice uses a normalized segment phase, interpolated buffer reads, and a short return toward the live signal at both segment ends. Its Length and Direction choices are latched at the start of a segment, so automation does not teleport or reverse an in-progress read. Robot moves continuously from triangle through sine to a softly squared carrier rather than switching to a discontinuous square wave. Processor changes retain the 20 ms old/new crossfade and also anchor each new transition to the preceding wet sample with a smooth, decaying correction; this protects ordinary changes and rapid retargeting without erasing the individual processor histories.</p>
 
         <p><code>SHRED</code> conditionally displays a <code>CIRCUIT</code> menu with Shred, Wool, Rat, Zone A, Zone B, Fuzz I, Fuzz II, and Diode. <code>FRACTURE</code> instead displays a <code>PROCESSOR</code> menu with Relay, Crush, Splice, Logic, Void, Throat, Robot, Oct Down, Oct Up, and Oct Stack. These selectors retain independent values while hidden. Body, Spectral Relay, and Relay Buffer are independent process designs, so changing a hidden Circuit or Processor does not alter them.</p>
 
-        <p>Fracture's shared labels follow the selected Processor. For example, Macro becomes Threshold for Relay, Bits for Crush, Depth for Splice, Logic, Void, and Robot, and Mix for Throat and the octave processors. Color becomes Chatter, Rate, Length, Threshold, Recover, Vowel, Carrier, Filter, or Tone as appropriate. The host-facing parameters remain Macro and Color, so changing Processor does not break their automation.</p>
+        <p>Fracture's shared labels follow the selected Processor. For example, Macro becomes Threshold for Relay, Bits for Crush, Depth for Splice, Logic, Void, and Robot, and Mix for Throat and the octave processors. Color becomes Chatter, Rate, Length, Threshold, Recover, Vowel, Carrier, Filter, or Tone as appropriate. On the REL page, the shared <code>SKEW</code> parameter becomes the processor's third contextual control: Asym, Dither, Direction, Balance, Skew, Shift, Character, Track, Shape, or Balance. For Fracture this value is a global processor control rather than a first-to-last-lane skew slope; Deviation still supplies bounded lane differences. The host-facing Macro, Color, and Skew identities remain stable, so changing Processor does not break their automation.</p>
 
         <p>The Site Process toolbox has two GUI pages without changing the editor size. <code>CORE</code> contains Engine, the conditional Circuit or Processor selector, Macro, Color, Memory, and Mix. <code>REL</code> contains Metric, Spread, Deviation, Skew, and Center. Switching CORE or REL changes only which controls are visible; it does not change audio, automation, or saved parameter values.</p>
 
@@ -130,7 +150,7 @@
           <li><code>RANGE</code> follows loudspeaker-to-listener distance.</li>
         </ul>
 
-        <p><code>SPREAD</code>, <code>SKEW</code>, and <code>CENTER</code> therefore operate along a meaningful spatial or infrastructural axis. <code>DEVIATION</code> adds stable per-lane differences without random changes on project reload.</p>
+        <p><code>SPREAD</code>, <code>SKEW</code>, and <code>CENTER</code> therefore normally operate along a meaningful spatial or infrastructural axis. Fracture is the deliberate exception for <code>SKEW</code>: it uses that shared parameter as the selected Processor's contextual third control. <code>DEVIATION</code> adds stable per-lane differences without random changes on project reload.</p>
 
         <h2 id="propagation">Propagation and Auditory Distance</h2>
 
@@ -170,7 +190,9 @@
 
         <h2 id="editing">Site Editing and Display</h2>
 
-        <p>Click a loudspeaker to select it and drag it across the map. The Selected Site controls expose X, Y, Z, gain, network trim, and enable state. The selected-site readout reports physical distance and combined network-plus-acoustic arrival time. Node size follows recent level, node color moves from earlier cool arrivals toward later warm arrivals, and a surrounding earth-colored ring indicates layout-derived occlusion. When Motion is active, the map follows the effective animated site or listener positions while preserving the authored coordinates underneath.</p>
+        <p>Click a loudspeaker to select it. In <code>TOP</code>, dragging a site or the yellow listener cross edits X/Y while retaining Z; in <code>SIDE</code>, it edits X/Z while retaining Y. <code>3/4</code> and a manually orbited view allow selection and inspection without flattening a point back onto an editing plane. Drag empty map space to orbit with the ordinary pointer gesture. The compact <code>-</code> / <code>+</code> buttons change only camera zoom, never site distance. Camera preset, manual angle, and zoom are saved with plugin state.</p>
+
+        <p>The Selected Site controls expose X, Y, Z, gain, network trim, and enable state. The selected-site readout reports physical distance and combined network-plus-acoustic arrival time. Node size follows recent level, node color moves from earlier cool arrivals toward later warm arrivals, and a surrounding earth-colored ring indicates layout-derived occlusion. When Motion is active, the map follows the effective animated site or listener positions while preserving the authored coordinates underneath.</p>
 
         <p>Changing Layout or Sites rebuilds the corresponding authored arrangement. Save a plugin preset or project state after manual site editing; all twenty-four site records are serialized even when fewer sites are active.</p>
 
@@ -277,5 +299,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

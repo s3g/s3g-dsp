@@ -21,6 +21,7 @@ ambi-encoder-acid-16	ambi-encoder-acid
 ambi-horizon-encoder-64	ambi-encoder-horizon
 ambi-point-encoder-64	ambi-point-encoder
 ambi-cloud-encoder-64	ambi-cloud-encoder
+ambi-cartography-encoder-64	ambi-encoder-cartography
 ambi-terrain-navigator-64	ambi-terrain-navigator
 ambi-path-encoder-64	ambi-path-encoder
 ambi-ray-encoder	ambi-ray-encoder

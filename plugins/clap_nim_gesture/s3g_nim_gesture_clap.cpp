@@ -3,6 +3,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#include "../common/s3g_nim_gesture_midi.h"
 #include "../common/s3g_nim_gesture_session.h"
 
 #if defined(__APPLE__)
@@ -25,12 +26,13 @@
 
 namespace {
 
-constexpr uint8_t kControlChannel = 15u;
-constexpr uint8_t kRecordNote = 112u;
-constexpr uint8_t kPlayNote = 113u;
-constexpr uint8_t kClearLastNote = 114u;
-constexpr uint8_t kClearAllNote = 115u;
-constexpr uint8_t kCancelRecordNote = 116u;
+constexpr uint8_t kControlChannel = s3g::nim_gesture_midi::kCommandChannel;
+constexpr uint8_t kRecordNote = s3g::nim_gesture_midi::kRecordNote;
+constexpr uint8_t kPlayNote = s3g::nim_gesture_midi::kPlayNote;
+constexpr uint8_t kClearLastNote = s3g::nim_gesture_midi::kClearLastNote;
+constexpr uint8_t kClearAllNote = s3g::nim_gesture_midi::kClearAllNote;
+constexpr uint8_t kCancelRecordNote =
+    s3g::nim_gesture_midi::kCancelRecordNote;
 
 constexpr clap_id kRecordParamId = 1u;
 constexpr clap_id kPlayParamId = 2u;
