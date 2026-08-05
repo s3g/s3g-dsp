@@ -9,6 +9,34 @@
 
 namespace s3g::standalone {
 
+// Owns one initialized CLAP entry and its factory. Multiple embedded plugin
+// instances may be created from the session. The graph must destroy every
+// such instance before explicitly deinitializing (or destroying) the session;
+// these are all control-thread lifecycle operations.
+class EmbeddedClapEntrySession {
+public:
+    EmbeddedClapEntrySession() = default;
+    ~EmbeddedClapEntrySession();
+
+    EmbeddedClapEntrySession(const EmbeddedClapEntrySession&) = delete;
+    EmbeddedClapEntrySession& operator=(
+        const EmbeddedClapEntrySession&) = delete;
+
+    bool initialize(const clap_plugin_entry_t* entry,
+        const char* pluginPath);
+    void deinitialize();
+
+    bool isInitialized() const { return initialized_; }
+    const clap_plugin_entry_t* entry() const { return entry_; }
+    const clap_plugin_factory_t* factory() const { return factory_; }
+
+private:
+    const clap_plugin_entry_t* entry_ = nullptr;
+    const clap_plugin_factory_t* factory_ = nullptr;
+    std::string pluginPath_;
+    bool initialized_ = false;
+};
+
 // Minimal in-process CLAP host used by s3g standalone products. The processor
 // remains a CLAP implementation; the application does not reach into its
 // private model, parameter, state, or GUI types.
@@ -22,6 +50,8 @@ public:
 
     bool create(const clap_plugin_entry_t* entry, const char* pluginId,
         const char* hostName);
+    bool create(const EmbeddedClapEntrySession& entrySession,
+        const char* pluginId, const char* hostName);
     void destroy();
 
     bool activate(double sampleRate, uint32_t minFrames, uint32_t maxFrames);

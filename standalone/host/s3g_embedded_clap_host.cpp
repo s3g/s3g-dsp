@@ -117,6 +117,45 @@ const clap_host_state_t kHostState { stateMarkDirty };
 
 } // namespace
 
+EmbeddedClapEntrySession::~EmbeddedClapEntrySession()
+{
+    deinitialize();
+}
+
+bool EmbeddedClapEntrySession::initialize(
+    const clap_plugin_entry_t* entry, const char* pluginPath)
+{
+    deinitialize();
+    if (!entry || !pluginPath || pluginPath[0] == '\0'
+        || !clap_version_is_compatible(entry->clap_version)
+        || !entry->init) return false;
+    entry_ = entry;
+    pluginPath_ = pluginPath;
+    if (!entry_->init(pluginPath_.c_str())) {
+        entry_ = nullptr;
+        pluginPath_.clear();
+        return false;
+    }
+    initialized_ = true;
+    factory_ = entry_->get_factory
+        ? static_cast<const clap_plugin_factory_t*>(
+            entry_->get_factory(CLAP_PLUGIN_FACTORY_ID)) : nullptr;
+    if (!factory_ || !factory_->create_plugin) {
+        deinitialize();
+        return false;
+    }
+    return true;
+}
+
+void EmbeddedClapEntrySession::deinitialize()
+{
+    factory_ = nullptr;
+    if (initialized_ && entry_ && entry_->deinit) entry_->deinit();
+    entry_ = nullptr;
+    pluginPath_.clear();
+    initialized_ = false;
+}
+
 EmbeddedClapPlugin::EmbeddedClapPlugin()
 {
     host_.clap_version = CLAP_VERSION_INIT;
@@ -152,6 +191,25 @@ bool EmbeddedClapPlugin::create(const clap_plugin_entry_t* entry,
             entry_->get_factory(CLAP_PLUGIN_FACTORY_ID)) : nullptr;
     plugin_ = factory && factory->create_plugin
         ? factory->create_plugin(factory, &host_, pluginId) : nullptr;
+    if (!plugin_ || !plugin_->init || !plugin_->init(plugin_)) {
+        destroy();
+        return false;
+    }
+    return true;
+}
+
+bool EmbeddedClapPlugin::create(
+    const EmbeddedClapEntrySession& entrySession,
+    const char* pluginId, const char* hostName)
+{
+    destroy();
+    if (!entrySession.isInitialized() || !entrySession.entry()
+        || !entrySession.factory() || !pluginId || !hostName) return false;
+    entry_ = entrySession.entry();
+    hostName_ = hostName;
+    host_.name = hostName_.c_str();
+    plugin_ = entrySession.factory()->create_plugin(
+        entrySession.factory(), &host_, pluginId);
     if (!plugin_ || !plugin_->init || !plugin_->init(plugin_)) {
         destroy();
         return false;
