@@ -97,6 +97,8 @@ synthesis plugins.
 - [`s3g-mc`](https://github.com/s3g/s3g-mc): REAPER scripts, JSFX, and
   multichannel workflow tools
 - [`s3g-max`](https://github.com/s3g/s3g-max): Max/MSP externals and packages
+- [`s3g-clap-max`](https://github.com/s3g/s3g-clap-max): a Max object for using
+  the CLAP plugins in `s3g-dsp` with Max
 - [`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap): CLAP wrappers for
   RNBO-generated DSP
 

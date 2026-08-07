@@ -1,11 +1,8 @@
 #include "s3g_cocoa_gui.h"
 
 #import "s3g_song_window.h"
-#import "s3g_tracker_daisy_drum_window.h"
+#import "s3g_tracker_controls.h"
 #import "s3g_tracker_help_window.h"
-#import "s3g_tracker_instrument_window.h"
-#import "s3g_tracker_midi_window.h"
-#import "s3g_tracker_sampler_window.h"
 #import "s3g_tracker_workspace.h"
 #include "s3g_tracker_workspace_layout.h"
 
@@ -40,10 +37,8 @@ namespace {
 using s3g::tracker::CommandEffect;
 using s3g::tracker::CommandEngine;
 using s3g::tracker::EventDestination;
-using s3g::tracker::InstrumentKind;
 using s3g::tracker::LogicalTickBoundary;
 using s3g::tracker::LogicalTickBoundaryAction;
-using s3g::tracker::MidiInstrumentRoute;
 using s3g::tracker::PatternBankEntry;
 using s3g::tracker::ProjectDocument;
 using s3g::tracker::ScheduledEvent;
@@ -131,6 +126,51 @@ PatternBankEntry newPatternEntry(const PatternBankEntry& source,
     return entry;
 }
 
+void normalizeMidiOnlyDocument(ProjectDocument& document)
+{
+    auto rack = s3g::tracker::makeDefaultInstrumentRack();
+    for (auto& instrument : rack.instruments)
+        instrument = s3g::tracker::RackInstrument {};
+    for (std::size_t slot = 0u;
+         slot < s3g::tracker::kMidiOutRackSlotCount; ++slot) {
+        const auto node = s3g::tracker::midiOutNodeForRackSlot(slot);
+        if (const auto* definition =
+                s3g::tracker::defaultRackInstrument(node)) {
+            rack.instruments[slot] = *definition;
+        }
+        rack.midiRoutes[slot].kind =
+            s3g::tracker::MidiInstrumentRouteKind::VirtualSource;
+        rack.midiRoutes[slot].destinationId = 0;
+        rack.midiRoutes[slot].virtualSource =
+            static_cast<uint8_t>(slot + 1u);
+        rack.midiRoutes[slot].channel = 1u;
+    }
+    rack.selectedNode = s3g::tracker::midiOutNodeForRackSlot(0u);
+    document.instrumentRack = rack;
+
+    for (auto& entry : document.patternBank.entries) {
+        for (std::size_t lane = 0u; lane < entry.pattern.tracks.size();
+             ++lane) {
+            auto& track = entry.pattern.tracks[lane];
+            auto bus = s3g::tracker::midiOutRackSlotIndex(
+                track.initialInstrumentNodeId);
+            if (bus >= s3g::tracker::kMidiOutRackSlotCount)
+                bus = lane % s3g::tracker::kMidiOutRackSlotCount;
+            const auto node = s3g::tracker::midiOutNodeForRackSlot(bus);
+            track.initialInstrumentNodeId = node;
+            track.destination = EventDestination::Midi;
+            track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
+                track.midiChannel, 1, 16));
+            for (auto& cell : track.instruments) {
+                if (cell.state != s3g::tracker::InstrumentCellState::Instrument)
+                    continue;
+                if (!s3g::tracker::isMidiOutInstrumentNode(cell.nodeId))
+                    cell = s3g::tracker::InstrumentCell::withInstrument(node);
+            }
+        }
+    }
+}
+
 ProjectDocument makeInitialDocument()
 {
     TrackerViewState state;
@@ -160,6 +200,7 @@ ProjectDocument makeInitialDocument()
     row.swing = state.session.transport.swing;
     document.song.rows.push_back(row);
     document.song.rows.push_back(row);
+    normalizeMidiOnlyDocument(document);
     return document;
 }
 
@@ -213,7 +254,6 @@ HostTransport readHostTransport(const clap_event_transport_t* source)
 struct Runtime {
     TimingPlaybackScheduler scheduler;
     SongPlaybackPlanner songPlanner;
-    s3g::tracker::InstrumentRackState rack;
     TransportSettings projectTransport;
     std::vector<std::string> patternIds;
     std::vector<std::size_t> songPatternIndices;
@@ -222,8 +262,7 @@ struct Runtime {
     bool valid = false;
 
     Runtime(const ProjectDocument& document, double sampleRate)
-        : rack(document.instrumentRack)
-        , projectTransport(document.transport)
+        : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
     {
         if (document.patternBank.entries.empty()) return;
@@ -332,13 +371,8 @@ struct Runtime {
         bus = 0u;
         channel = static_cast<uint8_t>(std::clamp<int>(
             fallbackChannel, 1, 16) - 1);
-        const MidiInstrumentRoute* route =
-            s3g::tracker::midiInstrumentRoute(rack, nodeId);
-        if (!route) return;
-        bus = static_cast<uint8_t>(std::clamp<int>(
-            route->virtualSource, 1, static_cast<int>(kMidiBusCount)) - 1);
-        channel = static_cast<uint8_t>(std::clamp<int>(
-            route->channel, 1, 16) - 1);
+        const auto slot = s3g::tracker::midiOutRackSlotIndex(nodeId);
+        if (slot < kMidiBusCount) bus = static_cast<uint8_t>(slot);
     }
 };
 
@@ -459,6 +493,7 @@ void drainRetiredRuntimes(Plugin& plugin)
 void publishDocument(Plugin& plugin, ProjectDocument document,
     bool markDirty)
 {
+    normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate);
     if (!runtime || !runtime->valid) {
         delete runtime;
@@ -783,6 +818,120 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
 
 } // namespace
 
+typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
+    S3GTrackerClapPageTracker = 0,
+    S3GTrackerClapPageSong,
+    S3GTrackerClapPageGeometry,
+    S3GTrackerClapPageWarps,
+    S3GTrackerClapPageConsole,
+    S3GTrackerClapPageHelp,
+};
+
+@interface S3GTrackerClapPageView : NSView
+@property(nonatomic, copy) NSArray<NSView*>* pageViews;
+@property(nonatomic, copy) NSArray<S3GTrackerActionButton*>* pageButtons;
+@property(nonatomic) S3GTrackerClapPage selectedPage;
+- (instancetype)initWithPages:(NSArray<NSView*>*)pages;
+- (void)showPage:(S3GTrackerClapPage)page;
+@end
+
+@implementation S3GTrackerClapPageView
+
+- (instancetype)initWithPages:(NSArray<NSView*>*)pages
+{
+    self = [super initWithFrame:NSMakeRect(0.0, 0.0,
+        kNativeWidth, kNativeHeight)];
+    if (!self) return nil;
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = S3GTrackerThemeColor(
+        S3GTrackerThemeRole::Canvas).CGColor;
+    self.accessibilityElement = YES;
+    self.accessibilityRole = NSAccessibilityGroupRole;
+    self.accessibilityLabel = @"s3g Tracker REAPER page workspace";
+    self.pageViews = pages;
+
+    NSArray<NSString*>* titles = @[
+        @"TRACKER", @"SONG", @"GEOMETRY", @"WARPS", @"CONSOLE", @"HELP",
+    ];
+    NSMutableArray<S3GTrackerActionButton*>* buttons =
+        [[NSMutableArray alloc] initWithCapacity:titles.count];
+    for (NSUInteger index = 0u; index < titles.count; ++index) {
+        S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
+            initWithFrame:NSZeroRect];
+        button.title = titles[index];
+        button.font = S3GTrackerFont(10.5, NSFontWeightMedium);
+        button.target = self;
+        button.action = @selector(pagePressed:);
+        button.identifier = [NSString stringWithFormat:@"%lu",
+            static_cast<unsigned long>(index)];
+        button.accessibilityLabel = [titles[index]
+            stringByAppendingString:@" page"];
+        [self addSubview:button];
+        [buttons addObject:button];
+    }
+    self.pageButtons = buttons;
+
+    for (NSView* page in self.pageViews) {
+        [page removeFromSuperview];
+        page.translatesAutoresizingMaskIntoConstraints = YES;
+        page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [self addSubview:page positioned:NSWindowBelow relativeTo:nil];
+    }
+    [self showPage:S3GTrackerClapPageTracker];
+    return self;
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)layout
+{
+    [super layout];
+    constexpr CGFloat navigationHeight = 40.0;
+    CGFloat x = 12.0;
+    const std::array<CGFloat, 6u> widths {{
+        92.0, 68.0, 96.0, 72.0, 88.0, 64.0,
+    }};
+    for (NSUInteger index = 0u; index < self.pageButtons.count; ++index) {
+        const CGFloat width = widths[std::min<std::size_t>(
+            static_cast<std::size_t>(index), widths.size() - 1u)];
+        self.pageButtons[index].frame = NSMakeRect(
+            x, 6.0, width, navigationHeight - 12.0);
+        x += width + 6.0;
+    }
+    const NSRect contentFrame = NSMakeRect(0.0, navigationHeight,
+        NSWidth(self.bounds), std::max<CGFloat>(0.0,
+            NSHeight(self.bounds) - navigationHeight));
+    for (NSView* page in self.pageViews) page.frame = contentFrame;
+}
+
+- (void)pagePressed:(NSButton*)sender
+{
+    [self showPage:static_cast<S3GTrackerClapPage>(
+        sender.identifier.integerValue)];
+}
+
+- (void)showPage:(S3GTrackerClapPage)page
+{
+    const NSInteger index = static_cast<NSInteger>(page);
+    if (index < 0 || index >= static_cast<NSInteger>(self.pageViews.count))
+        return;
+    self.selectedPage = page;
+    for (NSUInteger item = 0u; item < self.pageViews.count; ++item) {
+        const BOOL selected = item == static_cast<NSUInteger>(index);
+        self.pageViews[item].hidden = !selected;
+        self.pageViews[item].accessibilityHidden = !selected;
+        self.pageButtons[item].state = selected
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        self.pageButtons[item].tag = selected ? 1 : 0;
+        [self.pageButtons[item] setNeedsDisplay:YES];
+    }
+    [self setNeedsLayout:YES];
+    NSAccessibilityPostNotification(
+        self, NSAccessibilityLayoutChangedNotification);
+}
+
+@end
+
 @interface S3GTrackerClapCoordinator : NSObject {
 @private
     Plugin* _plugin;
@@ -790,11 +939,9 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     std::unique_ptr<WorkspaceCallbacks> _callbacks;
 }
 @property(nonatomic, strong) S3GTrackerWorkspaceController* workspace;
-@property(nonatomic, strong) S3GTrackerInstrumentWindowController* instrumentWindow;
-@property(nonatomic, strong) S3GTrackerSamplerWindowController* samplerWindow;
-@property(nonatomic, strong) S3GTrackerMidiWindowController* midiWindow;
-@property(nonatomic, strong) S3GTrackerDaisyDrumWindowController* daisyWindow;
 @property(nonatomic, strong) S3GTrackerSongWindowController* songWindow;
+@property(nonatomic, strong) S3GTrackerConsoleHelpWindowController* helpWindow;
+@property(nonatomic, strong) S3GTrackerClapPageView* pageView;
 @property(nonatomic, strong) NSTimer* displayTimer;
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (ProjectDocument)currentDocument;
@@ -857,58 +1004,16 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
             "MIDI panic queued on all eight REAPER MIDI buses" error:NO];
     };
     _callbacks->showSongWindow = [weakSelf] {
-        [weakSelf.songWindow showWindow:weakSelf];
+        [weakSelf.pageView showPage:S3GTrackerClapPageSong];
     };
-    _callbacks->showInstrumentWindow = [weakSelf] {
-        S3GTrackerClapCoordinator* owner = weakSelf;
-        if (!owner) return;
-        const uint32_t node = owner->_state->selectedRackInstrument;
-        if (s3g::tracker::isStereoSamplerInstrumentNode(node))
-            [owner.samplerWindow showWindow:owner];
-        else if (s3g::tracker::isMidiOutInstrumentNode(node))
-            [owner.midiWindow showWindow:owner];
-        else if (s3g::tracker::isDaisyDrumInstrumentNode(node))
-            [owner.daisyWindow showWindow:owner];
-        else
-            [owner.instrumentWindow showWindow:owner];
+    _callbacks->showGeometryPage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageGeometry];
     };
-    _callbacks->editRackInstrument = [weakSelf](uint32_t node) {
-        S3GTrackerClapCoordinator* owner = weakSelf;
-        if (!owner) return;
-        owner->_state->selectedRackInstrument = node;
-        if (s3g::tracker::isStereoSamplerInstrumentNode(node))
-            [owner.samplerWindow showWindow:owner];
-        else if (s3g::tracker::isMidiOutInstrumentNode(node))
-            [owner.midiWindow showWindow:owner];
-        else if (s3g::tracker::isDaisyDrumInstrumentNode(node))
-            [owner.daisyWindow showWindow:owner];
-        else
-            [owner.instrumentWindow showWindow:owner];
+    _callbacks->showWarpPage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageWarps];
     };
     _callbacks->showConsoleHelp = [weakSelf] {
-        [[S3GTrackerConsoleHelpWindowController sharedController]
-            showWindow:weakSelf];
-    };
-    _callbacks->instrumentParameterChanged = [weakSelf](uint32_t,
-        uint32_t, float) {
-        [weakSelf commitProject:YES];
-    };
-    _callbacks->auditionInstrument = [weakSelf](uint32_t node,
-        uint8_t note, float velocity) {
-        S3GTrackerClapCoordinator* owner = weakSelf;
-        if (!owner) return;
-        owner->_plugin->auditionNode.store(node, std::memory_order_relaxed);
-        const uint32_t midiVelocity = static_cast<uint32_t>(std::clamp(
-            std::lround(static_cast<double>(velocity) * 127.0), 1l, 127l));
-        owner->_plugin->auditionData.store(static_cast<uint32_t>(note)
-                | (midiVelocity << 8u), std::memory_order_relaxed);
-        owner->_plugin->auditionRevision.fetch_add(1u,
-            std::memory_order_release);
-        if (owner->_plugin->host && owner->_plugin->host->request_process)
-            owner->_plugin->host->request_process(owner->_plugin->host);
-    };
-    _callbacks->resetInstrumentPatch = [weakSelf](uint32_t) {
-        [weakSelf commitProject:YES];
+        [weakSelf.pageView showPage:S3GTrackerClapPageHelp];
     };
     _callbacks->instrumentRackChanged = [weakSelf] {
         [weakSelf commitProject:YES];
@@ -964,15 +1069,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
 
     self.workspace = [[S3GTrackerWorkspaceController alloc]
         initWithState:_state.get() callbacks:_callbacks.get()];
-    self.instrumentWindow = [[S3GTrackerInstrumentWindowController alloc]
-        initWithState:_state.get() callbacks:_callbacks.get()];
-    self.samplerWindow = [[S3GTrackerSamplerWindowController alloc]
-        initWithState:_state.get() callbacks:_callbacks.get()];
-    self.midiWindow = [[S3GTrackerMidiWindowController alloc]
-        initWithState:_state.get() callbacks:_callbacks.get()];
-    self.daisyWindow = [[S3GTrackerDaisyDrumWindowController alloc]
-        initWithState:_state.get() callbacks:_callbacks.get()];
     self.songWindow = [[S3GTrackerSongWindowController alloc] init];
+    self.helpWindow = [[S3GTrackerConsoleHelpWindowController alloc] init];
 
     ProjectDocument initial;
     {
@@ -980,6 +1078,15 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
         initial = _plugin->document;
     }
     [self applyDocument:initial];
+
+    self.pageView = [[S3GTrackerClapPageView alloc] initWithPages:@[
+        self.workspace.view,
+        self.songWindow.window.contentView,
+        [self.workspace geometryPageView],
+        [self.workspace warpPageView],
+        [self.workspace consolePageView],
+        self.helpWindow.window.contentView,
+    ]];
 
     self.songWindow.changeHandler = ^(NSString* summary) {
         S3GTrackerClapCoordinator* owner = weakSelf;
@@ -1020,10 +1127,7 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
 {
     [self stopTimer];
     [self.songWindow close];
-    [self.instrumentWindow close];
-    [self.samplerWindow close];
-    [self.midiWindow close];
-    [self.daisyWindow close];
+    [self.helpWindow close];
 }
 
 - (void)configureHostDevices
@@ -1038,7 +1142,6 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     target.virtualSource = 1u;
     target.name = "REAPER MIDI BUS 1";
     [self.workspace setMidiDestinations:destinations selectedTarget:target];
-    [self.midiWindow setDestinations:destinations];
     std::vector<s3g::tracker::app::AudioOutputDevice> devices {
         { 1u, "REAPER HOST AUDIO", _plugin->sampleRate, 0u, true },
     };
@@ -1070,42 +1173,42 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     document.session.playbackSeed = _state->session.playbackSeed;
     document.instrumentRack = _state->instrumentRack;
     document.song = [self.songWindow songArrangement];
+    normalizeMidiOnlyDocument(document);
     return document;
 }
 
 - (void)applyDocument:(const ProjectDocument&)document
 {
-    _state->patternBank = document.patternBank;
+    ProjectDocument midiDocument = document;
+    normalizeMidiOnlyDocument(midiDocument);
+    _state->patternBank = midiDocument.patternBank;
     (void)loadActivePatternIntoSession(*_state);
-    _state->session.transport = document.transport;
-    _state->session.gateMilliseconds = document.session.gateMilliseconds;
-    _state->session.commandRngState = document.session.commandRngState;
-    _state->session.playbackSeed = document.session.playbackSeed;
-    _state->instrumentRack = document.instrumentRack;
+    _state->session.transport = midiDocument.transport;
+    _state->session.gateMilliseconds = midiDocument.session.gateMilliseconds;
+    _state->session.commandRngState = midiDocument.session.commandRngState;
+    _state->session.playbackSeed = midiDocument.session.playbackSeed;
+    _state->instrumentRack = midiDocument.instrumentRack;
     _state->selectedRackInstrument = _state->instrumentRack.selectedNode;
-    _state->mainOutputGain = document.session.mainOutputGain;
-    _state->mainOutputMuted = document.session.mainOutputMuted;
-    _state->songPlaybackEnabled = document.session.songPlaybackEnabled;
+    _state->mainOutputGain = midiDocument.session.mainOutputGain;
+    _state->mainOutputMuted = midiDocument.session.mainOutputMuted;
+    _state->songPlaybackEnabled = midiDocument.session.songPlaybackEnabled;
     _state->status = "REAPER host sync • MIDI output ready";
-    [self.songWindow setSongArrangement:document.song];
+    [self.songWindow setSongArrangement:midiDocument.song];
     self.songWindow.playbackEnabled = _state->songPlaybackEnabled;
     [self refreshSongPatterns];
     [self.workspace reloadModel];
-    [self.instrumentWindow reloadModel];
-    [self.samplerWindow reloadModel];
-    [self.midiWindow reloadModel];
-    [self.daisyWindow reloadModel];
 }
 
 - (void)commitProject:(BOOL)dirty
 {
     if (!_state) return;
-    publishDocument(*_plugin, [self currentDocument], dirty);
+    ProjectDocument document = [self currentDocument];
+    _state->patternBank = document.patternBank;
+    _state->instrumentRack = document.instrumentRack;
+    _state->selectedRackInstrument = document.instrumentRack.selectedNode;
+    (void)loadActivePatternIntoSession(*_state);
+    publishDocument(*_plugin, std::move(document), dirty);
     [self.workspace reloadModel];
-    [self.instrumentWindow reloadModel];
-    [self.samplerWindow reloadModel];
-    [self.midiWindow reloadModel];
-    [self.daisyWindow reloadModel];
 }
 
 - (void)selectPattern:(const std::string&)patternId
@@ -1494,7 +1597,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     instance->coordinator = [[S3GTrackerClapCoordinator alloc]
         initWithPlugin:instance];
     if (!instance->coordinator) return false;
-    NSView* view = instance->coordinator.workspace.view;
+    NSView* view = instance->coordinator.pageView;
     view.frame = NSMakeRect(0.0, 0.0, kNativeWidth, kNativeHeight);
     instance->guiView = (__bridge_retained void*)view;
     if (!s3g::clap_gui::createResponsiveViewport(instance->guiViewport,
@@ -1551,7 +1654,7 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
     if (!s3g::clap_gui::setResponsiveViewportSize(
             instance->guiViewport, width, height)) return false;
     if (instance->coordinator)
-        instance->coordinator.workspace.view.frame = NSMakeRect(
+        instance->coordinator.pageView.frame = NSMakeRect(
             0.0, 0.0, width, height);
     return true;
 }
@@ -1576,6 +1679,7 @@ bool guiShow(const clap_plugin_t* plugin)
     if (!instance->guiView || !s3g::clap_gui::setResponsiveViewportHidden(
             instance->guiViewport, false)) return false;
     [instance->coordinator startTimer];
+    [instance->coordinator.pageView showPage:S3GTrackerClapPageTracker];
     [instance->coordinator.workspace focusTracker];
     return true;
 }
@@ -1630,7 +1734,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.0",
+    "0.3.0",
     "Polymetric tracker, song sequencer, and sample-accurate MIDI generator.",
     features,
 };

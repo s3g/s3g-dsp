@@ -1,12 +1,7 @@
 add_library(s3g_tracker_clap MODULE
   s3g_tracker_clap.cpp
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_controls.mm
-  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_daisy_drum_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_help_window.mm
-  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_instrument_window.mm
-  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_midi_window.mm
-  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_mixer_view.mm
-  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_sampler_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_warp_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_workspace.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_song_window.mm
@@ -48,7 +43,7 @@ if(APPLE)
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.tracker"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Tracker"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0"
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.3.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3.0"
   )
 endif()

@@ -1204,7 +1204,7 @@ int main(int argc, char** argv)
         && triggerStatus != CLAP_PROCESS_ERROR && finiteBlock(audio)
         && blockEnergy(audio) > 1.0e-9;
     if (!parameterTriggered) {
-        std::cerr << "Clap Trigger did not request/process a clap strike\n";
+        std::cerr << "Cowbell Trigger did not request/process a strike\n";
     }
     const AudioBlock parameterClapBlock = audio;
     resetOnAudioThread(plugin);
@@ -1219,7 +1219,7 @@ int main(int argc, char** argv)
         && !blocksMatchExactly(parameterClapBlock, audio)
         && getParam(plugin, params, kTrigger, 0.0);
     if (!parameterOpenTriggered) {
-        std::cerr << "Flam Trigger did not produce a distinct clap strike\n";
+        std::cerr << "Muted Trigger did not produce a distinct strike\n";
     }
     resetOnAudioThread(plugin);
     const bool pedalTriggerAdded = flushParamsOnAudioThread(plugin, params, {
@@ -1233,7 +1233,7 @@ int main(int argc, char** argv)
         && !blocksMatchExactly(parameterClapBlock, audio)
         && getParam(plugin, params, kTrigger, 0.0);
     if (!parameterPedalTriggered) {
-        std::cerr << "Tight Trigger did not produce a distinct clap strike\n";
+        std::cerr << "High Trigger did not produce a distinct strike\n";
     }
     ok = ok && parameterTriggered && parameterOpenTriggered
         && parameterPedalTriggered;
@@ -1244,17 +1244,17 @@ int main(int argc, char** argv)
     // must likewise retain a host-safe active bound until reset/completion.
     const bool longVoiceConfigured = flushParamsOnAudioThread(
         plugin, params, {
-            { kDetune, 65.0 }, { kShape, 1.0 },
+            { kDetune, 1.0 }, { kShape, 1.0 },
             { kAttack, 1.0 }, { kDecay, 1.0 }, { kDamping, 1.0 },
-            { kBody, 0.18 }, { kBodyDecay, 2.0 },
-            { kBrightness, 1.0 }, { kNoise, 1.0 }, { kNoiseDecay, 1200.0 },
-            { kBend, 0.60 }, { kBendDecay, 120.0 },
+            { kBody, 1.0 }, { kBodyDecay, 1.5 },
+            { kBrightness, 1.0 }, { kNoise, 1.0 }, { kNoiseDecay, 0.40 },
+            { kBend, 12.0 }, { kBendDecay, 0.50 },
             { kStrikeTone, 1.0 }, { kDrive, 0.0 },
         });
     resetOnAudioThread(plugin);
     const uint32_t configuredLongVoiceTail = tail->get(plugin);
     EventList longVoiceStrike;
-    const bool addedLongVoice = longVoiceStrike.addNote(40, 1.0);
+    const bool addedLongVoice = longVoiceStrike.addNote(56, 1.0);
     audio.clear();
     const auto longVoiceStatus = runBlock(plugin, audio,
         addedLongVoice ? &longVoiceStrike.input : nullptr);
@@ -1262,10 +1262,10 @@ int main(int argc, char** argv)
     const bool shortenedActiveVoice = flushParamsOnAudioThread(
         plugin, params, {
             { kDetune, 0.0 }, { kShape, 0.0 },
-            { kAttack, 0.0 }, { kDecay, 0.0 }, { kDamping, 0.0 },
-            { kBody, 0.006 }, { kBodyDecay, 0.025 },
-            { kBrightness, 0.0 }, { kNoise, 0.0 }, { kNoiseDecay, 280.0 },
-            { kBend, 0.012 }, { kBendDecay, 5.0 },
+            { kAttack, 0.0 }, { kDecay, 0.025 }, { kDamping, 0.0 },
+            { kBody, 0.0 }, { kBodyDecay, 0.02 },
+            { kBrightness, 0.0 }, { kNoise, 0.0 }, { kNoiseDecay, 0.004 },
+            { kBend, 0.0 }, { kBendDecay, 0.003 },
             { kStrikeTone, 0.0 },
             { kDrive, 0.0 },
         });
@@ -1274,7 +1274,7 @@ int main(int argc, char** argv)
         && longVoiceStatus != CLAP_PROCESS_ERROR && finiteBlock(audio)
         && blockEnergy(audio) > 1.0e-9 && shortenedActiveVoice
         && configuredLongVoiceTail
-            >= static_cast<uint32_t>(kSampleRate * 3.5)
+            >= static_cast<uint32_t>(kSampleRate * 3.1)
         && latchedLongVoiceTail >= configuredLongVoiceTail
         && shortenedActiveTail >= latchedLongVoiceTail;
     if (!activeTailLatched) {
@@ -1286,19 +1286,19 @@ int main(int argc, char** argv)
     ok = ok && activeTailLatched;
     resetOnAudioThread(plugin);
 
-    // The flam articulation must be represented in the prospective host tail.
+    // Every articulation must be represented in the prospective host tail.
     const bool longFlamConfigured = flushParamsOnAudioThread(plugin, params, {
         { kShape, 0.7 }, { kDamping, 0.5 }, { kDecay, 1.0 },
         { kBodyDecay, 1.0 }, { kBrightness, 0.7 }, { kNoise, 0.7 },
-        { kNoiseDecay, 820.0 }, { kBend, 0.5 }, { kBendDecay, 80.0 },
+        { kNoiseDecay, 0.08 }, { kBend, 0.5 }, { kBendDecay, 0.080 },
         { kStrikeTone, 0.5 },
     });
     const uint32_t longFlamTail = tail->get(plugin);
     const bool flamTailCovered = longFlamConfigured
-        && longFlamTail >= static_cast<uint32_t>(kSampleRate * 1.8)
-        && longFlamTail <= static_cast<uint32_t>(kSampleRate * 4.0);
+        && longFlamTail >= static_cast<uint32_t>(kSampleRate * 2.0)
+        && longFlamTail <= static_cast<uint32_t>(kSampleRate * 3.5);
     if (!flamTailCovered) {
-        std::cerr << "flam lifetime was absent from CLAP tail: "
+        std::cerr << "cowbell lifetime was absent from CLAP tail: "
                   << longFlamTail << "\n";
     }
     ok = ok && flamTailCovered;
@@ -1307,10 +1307,10 @@ int main(int argc, char** argv)
     // An active flush runs on the audio thread, so tail.changed() may be sent
     // immediately there or coalesced for the following process() call.
     const bool tightDriveBase = flushParamsOnAudioThread(plugin, params, {
-        { kDetune, 0.0 }, { kAttack, 0.0 }, { kDecay, 0.0 },
-        { kDamping, 0.0 }, { kBody, 0.006 }, { kBodyDecay, 0.025 },
-        { kBrightness, 0.0 }, { kNoise, 0.0 }, { kNoiseDecay, 280.0 },
-        { kBend, 0.012 }, { kBendDecay, 5.0 },
+        { kDetune, 0.0 }, { kAttack, 0.0 }, { kDecay, 0.025 },
+        { kDamping, 0.0 }, { kBody, 0.0 }, { kBodyDecay, 0.02 },
+        { kBrightness, 0.0 }, { kNoise, 0.0 }, { kNoiseDecay, 0.004 },
+        { kBend, 0.0 }, { kBendDecay, 0.003 },
         { kStrikeTone, 0.0 }, { kDrive, 0.0 },
     });
     resetOnAudioThread(plugin);
@@ -1342,11 +1342,11 @@ int main(int argc, char** argv)
         { kTrigger, 0.0 },
     });
     const bool shortConfigured = flushParamsOnAudioThread(plugin, params, {
-        { kInterval, 1.0 }, { kShape, 0.0 },
-        { kAttack, 1.0 }, { kDecay, 0.0 }, { kDamping, 0.0 },
-        { kBody, 0.006 }, { kBodyDecay, 0.025 },
-        { kBrightness, 0.0 }, { kNoiseDecay, 280.0 },
-        { kBend, 0.012 }, { kStrikeTone, 0.0 },
+        { kInterval, 1.08 }, { kShape, 0.0 },
+        { kAttack, 1.0 }, { kDecay, 0.025 }, { kDamping, 0.0 },
+        { kBody, 0.0 }, { kBodyDecay, 0.02 },
+        { kBrightness, 0.0 }, { kNoiseDecay, 0.004 },
+        { kBend, 0.0 }, { kStrikeTone, 0.0 },
         { kDrive, 0.0 }, { kCompression, 0.0 },
         { kRateReduction, 0.0 }, { kBitDepth, 0.0 },
         { kReconstruction, 0.0 }, { kStereoWidth, 0.0 },
@@ -1399,12 +1399,12 @@ int main(int argc, char** argv)
     const bool coherenceConfiguredA = flushParamsWhileInactive(
         plugin, params, {
             { kTune, 900.0 }, { kNoteTracking, 0.0 },
-            { kInterval, 2.0 }, { kDetune, 6.0 },
-            { kShape, 0.0 }, { kAttack, 1.0 }, { kDecay, 0.0 },
+            { kInterval, 1.30 }, { kDetune, 0.06 },
+            { kShape, 0.0 }, { kAttack, 1.0 }, { kDecay, 0.025 },
             { kDamping, 0.08 }, { kBody, 0.025 },
             { kBodyDecay, 0.12 }, { kBrightness, 0.05 },
-            { kNoise, 0.0 }, { kNoiseDecay, 520.0 },
-            { kBend, 0.025 }, { kBendDecay, 15.0 },
+            { kNoise, 0.0 }, { kNoiseDecay, 0.025 },
+            { kBend, 0.025 }, { kBendDecay, 0.015 },
             { kStrikeTone, 0.2 },
             { kDrive, 0.0 }, { kBias, 0.0 }, { kCompression, 0.0 },
             { kRateReduction, 0.0 }, { kBitDepth, 0.0 },
@@ -1417,13 +1417,13 @@ int main(int argc, char** argv)
         && state->save(plugin, &coherenceOutputA);
     const bool coherenceConfiguredB = flushParamsWhileInactive(
         plugin, params, {
-            { kTune, 7800.0 }, { kNoteTracking, 1.0 },
-            { kInterval, 8.0 }, { kDetune, 58.0 },
+            { kTune, 1900.0 }, { kNoteTracking, 1.0 },
+            { kInterval, 2.50 }, { kDetune, 0.58 },
             { kShape, 1.0 }, { kAttack, 0.15 }, { kDecay, 1.0 },
             { kDamping, 0.90 }, { kBody, 0.16 },
-            { kBodyDecay, 1.6 }, { kBrightness, 0.9 },
-            { kNoise, 1.0 }, { kNoiseDecay, 1800.0 },
-            { kBend, 0.5 }, { kBendDecay, 105.0 },
+            { kBodyDecay, 1.5 }, { kBrightness, 0.9 },
+            { kNoise, 1.0 }, { kNoiseDecay, 0.20 },
+            { kBend, 12.0 }, { kBendDecay, 0.105 },
             { kStrikeTone, 0.9 },
             { kDrive, 0.0 }, { kBias, 0.0 }, { kCompression, 0.0 },
             { kRateReduction, 0.0 }, { kBitDepth, 0.0 },

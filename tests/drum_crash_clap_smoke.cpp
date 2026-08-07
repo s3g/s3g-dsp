@@ -538,18 +538,18 @@ StrikeMetrics renderTonalStrike(const clap_plugin_t* plugin,
     const bool configured = flushParamsOnAudioThread(plugin, params, {
         { kTune, 900.0 },
         { kNoteTracking, 1.0 },
-        { kSize, 1.0 },
+        { kSize, 0.5 },
         { kAlloy, 0.0 },
         { kSpread, 0.0 },
-        { kDensity, 1.0 },
-        { kBrightness, 1.0 },
+        { kDensity, 4.0 },
+        { kBrightness, 0.5 },
         { kAttack, 1.0 },
-        { kDecay, 0.12 },
+        { kDecay, 1.0 },
         { kDamping, 0.30 },
-        { kWash, 0.10 },
-        { kWashDecay, 0.0 },
-        { kBell, 940.0 },
-        { kBellTune, 0.075 },
+        { kWash, 0.0 },
+        { kWashDecay, 0.08 },
+        { kBell, 1.0 },
+        { kBellTune, 900.0 },
         { kChokeTime, 34.0 },
         { kTexture, 0.5 },
         { kDrive, 0.0 },
@@ -730,7 +730,7 @@ int main(int argc, char** argv)
         && (noteInfo.supported_dialects & noteInfo.preferred_dialect) != 0u
         && parameterContract(plugin, params);
     constexpr std::array<int16_t, 3u> expectedNamedKeys {{
-        39, 40, 41,
+        49, 50, 53,
     }};
     bool noteNameContract = noteNames
         && noteNames->count(plugin) == expectedNamedKeys.size();
@@ -810,7 +810,7 @@ int main(int argc, char** argv)
     resetOnAudioThread(plugin);
     EventList delayedFlam;
     constexpr uint32_t kChokeTimeSample = 151u;
-    const bool addedFlam = delayedFlam.addNote(40, 1.0, kChokeTimeSample);
+    const bool addedFlam = delayedFlam.addNote(50, 1.0, kChokeTimeSample);
     double flamBefore = 0.0;
     double flamAfter = 0.0;
     const bool flamTiming = addedFlam
@@ -824,9 +824,9 @@ int main(int argc, char** argv)
 
     // Width zero is exact dual mono for both shell and attack detail.
     const bool monoConfigured = flushParamsOnAudioThread(plugin, params, {
-        { kDensity, 0.8 }, { kBrightness, 0.7 }, { kDamping, 0.2 },
+        { kDensity, 12.0 }, { kBrightness, 0.7 }, { kDamping, 0.2 },
         { kWash, 0.9 }, { kWashDecay, 0.8 },
-        { kBellTune, 0.5 }, { kStereoWidth, 0.0 },
+        { kBellTune, 1680.0 }, { kStereoWidth, 0.0 },
         { kDrive, 0.0 }, { kRateReduction, 0.0 },
         { kBitDepth, 0.0 }, { kReconstruction, 0.0 },
         { kCharacterTone, 0.0 },
@@ -856,8 +856,8 @@ int main(int argc, char** argv)
     // Full width must expose stochastic side detail without moving the shell.
     const bool wideConfigured = flushParamsOnAudioThread(plugin, params, {
         { kDecay, 0.12 }, { kWash, 1.0 },
-        { kWashDecay, 0.8 }, { kBell, 1200.0 },
-        { kBellTune, 0.4 }, { kChokeTime, 62.0 },
+        { kWashDecay, 0.8 }, { kBell, 0.4 },
+        { kBellTune, 1800.0 }, { kChokeTime, 62.0 },
         { kTexture, 0.8 },
         { kStereoWidth, 1.0 },
     });
@@ -889,16 +889,16 @@ int main(int argc, char** argv)
     }
     ok = ok && stereoResponse;
 
-    // Clap, flam and tight notes are three distinct articulations, and
+    // Crash, choke and bell notes are three distinct articulations, and
     // raw MIDI must use the exact same routing as native CLAP note events.
     const bool articulationConfigured = flushParamsOnAudioThread(
         plugin, params, {
-            { kTune, 3900.0 }, { kNoteTracking, 0.35 },
-            { kSize, 5.0 }, { kAlloy, 32.0 },
-            { kDensity, 0.8 }, { kBrightness, 0.5 }, { kAttack, 0.7 },
-            { kDecay, 0.12 }, { kDamping, 1.4 },
+            { kTune, 720.0 }, { kNoteTracking, 0.35 },
+            { kSize, 0.5 }, { kAlloy, 0.32 },
+            { kDensity, 12.0 }, { kBrightness, 0.5 }, { kAttack, 0.7 },
+            { kDecay, 1.2 }, { kDamping, 0.4 },
             { kWash, 0.28 }, { kWashDecay, 0.65 },
-            { kBell, 940.0 }, { kBellTune, 0.18 },
+            { kBell, 0.5 }, { kBellTune, 1800.0 },
             { kChokeTime, 64.0 }, { kTexture, 0.6 },
             { kDrive, 0.0 }, { kStereoWidth, 0.0 },
         });
@@ -924,44 +924,44 @@ int main(int argc, char** argv)
     AudioBlock flamBlock;
     AudioBlock tightBlock;
     const bool articulationRouting = articulationConfigured
-        && renderFirstBlock(39, clapBlock)
-        && renderFirstBlock(40, flamBlock)
-        && renderFirstBlock(41, tightBlock)
+        && renderFirstBlock(49, clapBlock)
+        && renderFirstBlock(50, flamBlock)
+        && renderFirstBlock(53, tightBlock)
         && !blocksMatchExactly(clapBlock, flamBlock)
         && !blocksMatchExactly(clapBlock, tightBlock)
         && !blocksMatchExactly(flamBlock, tightBlock);
     if (!articulationRouting) {
-        std::cerr << "clap/flam/tight articulation routing failed\n";
+        std::cerr << "crash/choke/bell articulation routing failed\n";
     }
     ok = ok && articulationRouting;
 
     AudioBlock midiClapBlock;
     AudioBlock midiFlamBlock;
     AudioBlock midiTightBlock;
-    const bool rawMidiRouting = renderFirstMidiBlock(39u, midiClapBlock)
-        && renderFirstMidiBlock(40u, midiFlamBlock)
-        && renderFirstMidiBlock(41u, midiTightBlock)
+    const bool rawMidiRouting = renderFirstMidiBlock(49u, midiClapBlock)
+        && renderFirstMidiBlock(50u, midiFlamBlock)
+        && renderFirstMidiBlock(53u, midiTightBlock)
         && blocksMatchExactly(clapBlock, midiClapBlock)
         && blocksMatchExactly(flamBlock, midiFlamBlock)
         && blocksMatchExactly(tightBlock, midiTightBlock);
     if (!rawMidiRouting) {
-        std::cerr << "raw MIDI clap routing diverged from CLAP notes\n";
+        std::cerr << "raw MIDI crash routing diverged from CLAP notes\n";
     }
     ok = ok && rawMidiRouting;
 
-    // Use two chromatic clap notes outside the dedicated 40/41 keys.
+    // Track the dedicated bell articulation across one chromatic octave.
     const auto lowNote = renderTonalStrike(
-        plugin, params, audio, 43, 1.0);
+        plugin, params, audio, 53, 1.0);
     const auto highNote = renderTonalStrike(
-        plugin, params, audio, 55, 1.0);
+        plugin, params, audio, 65, 1.0);
     const auto softNote = renderTonalStrike(
-        plugin, params, audio, 43, 0.2);
+        plugin, params, audio, 53, 0.2);
     const double octaveRatio = lowNote.frequency > 0.0
         ? highNote.frequency / lowNote.frequency : 0.0;
     const bool noteResponse = lowNote.finite && highNote.finite
         && softNote.finite
-        && lowNote.frequency >= 2500.0 && lowNote.frequency <= 7000.0
-        && octaveRatio >= 1.08 && octaveRatio <= 1.60
+        && lowNote.frequency >= 500.0 && lowNote.frequency <= 2500.0
+        && octaveRatio >= 1.70 && octaveRatio <= 2.50
         && lowNote.energy > softNote.energy * 4.0;
     if (!noteResponse) {
         std::cerr << "note tracking/velocity response failed: "
@@ -978,12 +978,12 @@ int main(int argc, char** argv)
     resetOnAudioThread(plugin);
     const bool stateConfigured = flushParamsOnAudioThread(plugin, params, {
         { kTune, 1527.5 }, { kNoteTracking, 0.0 },
-        { kSize, 6.0 }, { kAlloy, 31.0 },
-        { kSpread, 0.0 }, { kDensity, 0.0 }, { kBrightness, 0.0 },
+        { kSize, 0.60 }, { kAlloy, 0.31 },
+        { kSpread, 0.0 }, { kDensity, 8.0 }, { kBrightness, 0.0 },
         { kAttack, 0.85 }, { kDecay, 0.12 },
         { kDamping, 0.82 }, { kWash, 0.44 },
-        { kWashDecay, 0.48 }, { kBell, 1264.0 },
-        { kBellTune, 0.28 }, { kChokeTime, 65.0 },
+        { kWashDecay, 0.48 }, { kBell, 0.64 },
+        { kBellTune, 1264.0 }, { kChokeTime, 65.0 },
         { kTexture, 0.8 }, { kDrive, 0.0 },
         { kBias, -0.41 }, { kCompression, 0.0 },
         { kRateReduction, 0.35 }, { kBitDepth, 0.0 },
@@ -1003,15 +1003,15 @@ int main(int argc, char** argv)
     if (saved) {
         std::memcpy(stateHeader.data(), memory.bytes.data(),
             sizeof(stateHeader));
-        saved = stateHeader[0u] == 0x43473353u
+        saved = stateHeader[0u] == 0x52473353u
             && stateHeader[1u] == 1u
             && stateHeader[2u] == kParamSpecs.size() - 1u
             && stateHeader[3u] == 0u;
     }
     const bool stateMutated = flushParamsWhileInactive(plugin, params, {
         { kTune, 910.0 }, { kAttack, 0.1 }, { kBias, 0.2 },
-        { kWash, 0.08 }, { kBell, 420.0 },
-        { kBellTune, 0.02 }, { kTexture, 0.5 },
+        { kWash, 0.08 }, { kBell, 0.20 },
+        { kBellTune, 420.0 }, { kTexture, 0.5 },
         { kRateReduction, 0.0 }, { kStereoWidth, 0.0 },
     });
 
@@ -1086,7 +1086,7 @@ int main(int argc, char** argv)
         && getParam(plugin, params, kTune, 1527.5)
         && getParam(plugin, params, kAttack, 0.85)
         && getParam(plugin, params, kWash, 0.44)
-        && getParam(plugin, params, kBell, 1264.0)
+        && getParam(plugin, params, kBell, 0.64)
         && getParam(plugin, params, kBias, -0.41)
         && getParam(plugin, params, kRateReduction, 0.35)
         && getParam(plugin, params, kStereoWidth, 0.73)
@@ -1204,7 +1204,7 @@ int main(int argc, char** argv)
         && triggerStatus != CLAP_PROCESS_ERROR && finiteBlock(audio)
         && blockEnergy(audio) > 1.0e-9;
     if (!parameterTriggered) {
-        std::cerr << "Clap Trigger did not request/process a clap strike\n";
+        std::cerr << "Crash Trigger did not request/process a strike\n";
     }
     const AudioBlock parameterClapBlock = audio;
     resetOnAudioThread(plugin);
@@ -1219,7 +1219,7 @@ int main(int argc, char** argv)
         && !blocksMatchExactly(parameterClapBlock, audio)
         && getParam(plugin, params, kTrigger, 0.0);
     if (!parameterOpenTriggered) {
-        std::cerr << "Flam Trigger did not produce a distinct clap strike\n";
+        std::cerr << "Choke Trigger did not produce a distinct strike\n";
     }
     resetOnAudioThread(plugin);
     const bool pedalTriggerAdded = flushParamsOnAudioThread(plugin, params, {
@@ -1233,7 +1233,7 @@ int main(int argc, char** argv)
         && !blocksMatchExactly(parameterClapBlock, audio)
         && getParam(plugin, params, kTrigger, 0.0);
     if (!parameterPedalTriggered) {
-        std::cerr << "Tight Trigger did not produce a distinct clap strike\n";
+        std::cerr << "Bell Trigger did not produce a distinct strike\n";
     }
     ok = ok && parameterTriggered && parameterOpenTriggered
         && parameterPedalTriggered;
@@ -1244,17 +1244,17 @@ int main(int argc, char** argv)
     // must likewise retain a host-safe active bound until reset/completion.
     const bool longVoiceConfigured = flushParamsOnAudioThread(
         plugin, params, {
-            { kAlloy, 65.0 }, { kSpread, 1.0 },
-            { kDensity, 1.0 }, { kBrightness, 1.0 }, { kAttack, 1.0 },
-            { kDecay, 0.18 }, { kDamping, 2.0 },
-            { kWash, 1.0 }, { kWashDecay, 1.0 }, { kBell, 1200.0 },
-            { kBellTune, 0.60 }, { kChokeTime, 120.0 },
+            { kSize, 1.0 }, { kAlloy, 1.0 }, { kSpread, 1.0 },
+            { kDensity, 16.0 }, { kBrightness, 1.0 }, { kAttack, 1.0 },
+            { kDecay, 8.0 }, { kDamping, 0.0 },
+            { kWash, 1.0 }, { kWashDecay, 8.0 }, { kBell, 1.0 },
+            { kBellTune, 3500.0 }, { kChokeTime, 120.0 },
             { kTexture, 1.0 }, { kDrive, 0.0 },
         });
     resetOnAudioThread(plugin);
     const uint32_t configuredLongVoiceTail = tail->get(plugin);
     EventList longVoiceStrike;
-    const bool addedLongVoice = longVoiceStrike.addNote(40, 1.0);
+    const bool addedLongVoice = longVoiceStrike.addNote(49, 1.0);
     audio.clear();
     const auto longVoiceStatus = runBlock(plugin, audio,
         addedLongVoice ? &longVoiceStrike.input : nullptr);
@@ -1262,10 +1262,10 @@ int main(int argc, char** argv)
     const bool shortenedActiveVoice = flushParamsOnAudioThread(
         plugin, params, {
             { kAlloy, 0.0 }, { kSpread, 0.0 },
-            { kDensity, 0.0 }, { kBrightness, 0.0 }, { kAttack, 0.0 },
-            { kDecay, 0.006 }, { kDamping, 0.025 },
-            { kWash, 0.0 }, { kWashDecay, 0.0 }, { kBell, 280.0 },
-            { kBellTune, 0.012 }, { kChokeTime, 5.0 },
+            { kDensity, 4.0 }, { kBrightness, 0.0 }, { kAttack, 0.0 },
+            { kDecay, 0.08 }, { kDamping, 1.0 },
+            { kWash, 0.0 }, { kWashDecay, 0.08 }, { kBell, 0.0 },
+            { kBellTune, 350.0 }, { kChokeTime, 5.0 },
             { kTexture, 0.0 },
             { kDrive, 0.0 },
         });
@@ -1286,11 +1286,12 @@ int main(int argc, char** argv)
     ok = ok && activeTailLatched;
     resetOnAudioThread(plugin);
 
-    // The flam articulation must be represented in the prospective host tail.
+    // Every articulation must be represented in the prospective host tail.
     const bool longFlamConfigured = flushParamsOnAudioThread(plugin, params, {
         { kSpread, 0.7 }, { kAttack, 0.5 }, { kBrightness, 1.0 },
-        { kDamping, 1.0 }, { kWash, 0.7 }, { kWashDecay, 0.7 },
-        { kBell, 820.0 }, { kBellTune, 0.5 }, { kChokeTime, 80.0 },
+        { kDecay, 1.0 }, { kDamping, 0.4 }, { kWash, 0.7 },
+        { kWashDecay, 1.0 }, { kBell, 0.5 },
+        { kBellTune, 1820.0 }, { kChokeTime, 80.0 },
         { kTexture, 0.5 },
     });
     const uint32_t longFlamTail = tail->get(plugin);
@@ -1298,7 +1299,7 @@ int main(int argc, char** argv)
         && longFlamTail >= static_cast<uint32_t>(kSampleRate * 1.8)
         && longFlamTail <= static_cast<uint32_t>(kSampleRate * 4.0);
     if (!flamTailCovered) {
-        std::cerr << "flam lifetime was absent from CLAP tail: "
+        std::cerr << "crash lifetime was absent from CLAP tail: "
                   << longFlamTail << "\n";
     }
     ok = ok && flamTailCovered;
@@ -1307,10 +1308,10 @@ int main(int argc, char** argv)
     // An active flush runs on the audio thread, so tail.changed() may be sent
     // immediately there or coalesced for the following process() call.
     const bool tightDriveBase = flushParamsOnAudioThread(plugin, params, {
-        { kAlloy, 0.0 }, { kDensity, 0.0 }, { kBrightness, 0.0 },
-        { kAttack, 0.0 }, { kDecay, 0.006 }, { kDamping, 0.025 },
-        { kWash, 0.0 }, { kWashDecay, 0.0 }, { kBell, 280.0 },
-        { kBellTune, 0.012 }, { kChokeTime, 5.0 },
+        { kAlloy, 0.0 }, { kDensity, 4.0 }, { kBrightness, 0.0 },
+        { kAttack, 0.0 }, { kDecay, 0.08 }, { kDamping, 1.0 },
+        { kWash, 0.0 }, { kWashDecay, 0.08 }, { kBell, 0.0 },
+        { kBellTune, 350.0 }, { kChokeTime, 5.0 },
         { kTexture, 0.0 }, { kDrive, 0.0 },
     });
     resetOnAudioThread(plugin);
@@ -1342,11 +1343,11 @@ int main(int argc, char** argv)
         { kTrigger, 0.0 },
     });
     const bool shortConfigured = flushParamsOnAudioThread(plugin, params, {
-        { kSize, 1.0 }, { kSpread, 0.0 },
-        { kDensity, 1.0 }, { kBrightness, 0.0 }, { kAttack, 0.0 },
-        { kDecay, 0.006 }, { kDamping, 0.025 },
-        { kWash, 0.0 }, { kBell, 280.0 },
-        { kBellTune, 0.012 }, { kTexture, 0.0 },
+        { kSize, 0.0 }, { kSpread, 0.0 },
+        { kDensity, 4.0 }, { kBrightness, 0.0 }, { kAttack, 0.0 },
+        { kDecay, 0.08 }, { kDamping, 1.0 },
+        { kWash, 0.0 }, { kWashDecay, 0.08 }, { kBell, 0.0 },
+        { kBellTune, 350.0 }, { kTexture, 0.0 },
         { kDrive, 0.0 }, { kCompression, 0.0 },
         { kRateReduction, 0.0 }, { kBitDepth, 0.0 },
         { kReconstruction, 0.0 }, { kStereoWidth, 0.0 },
@@ -1399,12 +1400,12 @@ int main(int argc, char** argv)
     const bool coherenceConfiguredA = flushParamsWhileInactive(
         plugin, params, {
             { kTune, 900.0 }, { kNoteTracking, 0.0 },
-            { kSize, 2.0 }, { kAlloy, 6.0 },
-            { kSpread, 0.0 }, { kDensity, 1.0 }, { kBrightness, 0.0 },
-            { kAttack, 0.08 }, { kDecay, 0.025 },
-            { kDamping, 0.12 }, { kWash, 0.05 },
-            { kWashDecay, 0.0 }, { kBell, 520.0 },
-            { kBellTune, 0.025 }, { kChokeTime, 15.0 },
+            { kSize, 0.20 }, { kAlloy, 0.06 },
+            { kSpread, 0.0 }, { kDensity, 4.0 }, { kBrightness, 0.0 },
+            { kAttack, 0.08 }, { kDecay, 0.12 },
+            { kDamping, 0.80 }, { kWash, 0.05 },
+            { kWashDecay, 0.08 }, { kBell, 0.05 },
+            { kBellTune, 520.0 }, { kChokeTime, 15.0 },
             { kTexture, 0.2 },
             { kDrive, 0.0 }, { kBias, 0.0 }, { kCompression, 0.0 },
             { kRateReduction, 0.0 }, { kBitDepth, 0.0 },
@@ -1417,13 +1418,13 @@ int main(int argc, char** argv)
         && state->save(plugin, &coherenceOutputA);
     const bool coherenceConfiguredB = flushParamsWhileInactive(
         plugin, params, {
-            { kTune, 7800.0 }, { kNoteTracking, 1.0 },
-            { kSize, 8.0 }, { kAlloy, 58.0 },
-            { kSpread, 1.0 }, { kDensity, 0.15 }, { kBrightness, 1.0 },
-            { kAttack, 0.90 }, { kDecay, 0.16 },
-            { kDamping, 1.6 }, { kWash, 0.9 },
-            { kWashDecay, 1.0 }, { kBell, 1800.0 },
-            { kBellTune, 0.5 }, { kChokeTime, 105.0 },
+            { kTune, 2200.0 }, { kNoteTracking, 1.0 },
+            { kSize, 0.90 }, { kAlloy, 0.98 },
+            { kSpread, 1.0 }, { kDensity, 16.0 }, { kBrightness, 1.0 },
+            { kAttack, 0.90 }, { kDecay, 1.6 },
+            { kDamping, 0.10 }, { kWash, 0.9 },
+            { kWashDecay, 2.0 }, { kBell, 0.8 },
+            { kBellTune, 4800.0 }, { kChokeTime, 105.0 },
             { kTexture, 0.9 },
             { kDrive, 0.0 }, { kBias, 0.0 }, { kCompression, 0.0 },
             { kRateReduction, 0.0 }, { kBitDepth, 0.0 },

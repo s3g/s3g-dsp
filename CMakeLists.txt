@@ -692,6 +692,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_drum_clap_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_drum_cowbell_clap_smoke
+      tests/drum_cowbell_clap_smoke.cpp)
+    target_include_directories(s3g_drum_cowbell_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_cowbell_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_crash_clap_smoke
+      tests/drum_crash_clap_smoke.cpp)
+    target_include_directories(s3g_drum_crash_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_crash_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_ambi_membrane_kick_clap_smoke
       tests/ambi_membrane_kick_clap_smoke.cpp)
     target_include_directories(s3g_ambi_membrane_kick_clap_smoke
@@ -1260,6 +1274,62 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMENT "Validating the responsive Drum Clap editor")
       add_dependencies(audit_drum_clap
         audit_drum_clap_gui)
+    endif()
+
+    add_custom_target(audit_drum_cowbell
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_cowbell_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_cowbell_clap_smoke>
+        $<TARGET_FILE:s3g_drum_cowbell_clap>
+        org.s3g.s3g-dsp.drum-cowbell
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_cowbell_smoke
+        s3g_drum_cowbell_clap_smoke
+        s3g_drum_cowbell_clap
+      COMMENT "Validating cowbell synthesis, articulations, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_cowbell_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_cowbell_clap>
+          org.s3g.s3g-dsp.drum-cowbell
+          920 680 "s3g Drum Cowbell" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_cowbell_clap
+        COMMENT "Validating the responsive Drum Cowbell editor")
+      add_dependencies(audit_drum_cowbell
+        audit_drum_cowbell_gui)
+    endif()
+
+    add_custom_target(audit_drum_crash
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_crash_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_crash_clap_smoke>
+        $<TARGET_FILE:s3g_drum_crash_clap>
+        org.s3g.s3g-dsp.drum-crash
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_crash_smoke
+        s3g_drum_crash_clap_smoke
+        s3g_drum_crash_clap
+      COMMENT "Validating crash synthesis, articulations, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_crash_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_crash_clap>
+          org.s3g.s3g-dsp.drum-crash
+          920 680 "s3g Drum Crash" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_crash_clap
+        COMMENT "Validating the responsive Drum Crash editor")
+      add_dependencies(audit_drum_crash
+        audit_drum_crash_gui)
     endif()
 
     add_custom_target(audit_drum_overload

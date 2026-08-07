@@ -1,6 +1,5 @@
 #import "s3g_tracker_workspace.h"
 #import "s3g_tracker_controls.h"
-#import "s3g_tracker_mixer_view.h"
 #import "s3g_tracker_warp_window.h"
 #include "s3g_tracker_grid_input.h"
 #include "s3g_tracker_grid_selection.h"
@@ -170,16 +169,27 @@ NSString* volumeText(const Track& track, std::size_t row)
 NSString* indexedInstrumentText(const s3g::tracker::InstrumentRackState* rack,
     uint32_t nodeId)
 {
-    if (!rack) return @"I??";
+    if (s3g::tracker::isMidiOutInstrumentNode(nodeId)) {
+        const auto slot = s3g::tracker::midiOutRackSlotIndex(nodeId);
+        return slot < s3g::tracker::kMidiOutRackSlotCount
+            ? [NSString stringWithFormat:@"B%02lu",
+                static_cast<unsigned long>(slot + 1u)] : @"B??";
+    }
+    if (!rack) return @"B??";
     const auto index = s3g::tracker::rackIndexForNode(*rack, nodeId);
     return index < rack->instruments.size()
-        ? [NSString stringWithFormat:@"I%02lu",
-            static_cast<unsigned long>(index)] : @"I??";
+        ? [NSString stringWithFormat:@"B%02lu",
+            static_cast<unsigned long>(index + 1u)] : @"B??";
 }
 
 NSString* instrumentName(const s3g::tracker::InstrumentRackState* rack,
     uint32_t nodeId)
 {
+    if (s3g::tracker::isMidiOutInstrumentNode(nodeId)) {
+        const auto slot = s3g::tracker::midiOutRackSlotIndex(nodeId);
+        return [NSString stringWithFormat:@"REAPER MIDI BUS %lu",
+            static_cast<unsigned long>(slot + 1u)];
+    }
     const auto* instrument = rack
         ? s3g::tracker::rackInstrument(*rack, nodeId) : nullptr;
     if (!instrument)
@@ -204,9 +214,10 @@ NSString* instrumentText(const Track& track, std::size_t row,
 
 uint32_t laneInitialInstrument(const Track& track) noexcept
 {
-    return track.initialInstrumentNodeId
-            < s3g::tracker::kInstrumentRackSlotCount
-        ? track.initialInstrumentNodeId : 0u;
+    return s3g::tracker::isMidiOutInstrumentNode(
+        track.initialInstrumentNodeId)
+        ? track.initialInstrumentNodeId
+        : s3g::tracker::midiOutNodeForRackSlot(0u);
 }
 
 NSString* fxActionText(const Track& track, std::size_t pair,
@@ -246,7 +257,7 @@ NSString* gridPageTitle(std::size_t page)
 {
     if (page == 1u) return @"FX1 / V1";
     if (page == 2u) return @"FX2 / V2";
-    return @"NOTE / INS / VOL";
+    return @"NOTE / BUS / VOL";
 }
 
 std::size_t gridFieldCount(std::size_t page) noexcept
@@ -423,21 +434,16 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 @property(nonatomic, strong) NSStackView* moduleControls;
 @property(nonatomic, strong) NSScrollView* gridScroll;
 @property(nonatomic, strong) S3GTrackerGridView* gridView;
-@property(nonatomic, strong) NSScrollView* mixerScroll;
-@property(nonatomic, strong) S3GTrackerMixerView* mixerView;
 @property(nonatomic, strong) S3GTrackerGeometryView* geometryView;
 @property(nonatomic, strong) S3GTrackerGeometryWindowController*
     geometryWindowController;
 @property(nonatomic, strong) S3GTrackerWarpWindowController*
     warpWindowController;
 @property(nonatomic, strong) S3GTrackerEnvelopeView* envelopeView;
-@property(nonatomic, strong) S3GTrackerInstrumentToolboxView*
-    instrumentToolboxView;
 @property(nonatomic, strong) NSView* devicePanel;
 @property(nonatomic, strong) NSTextField* deviceTitle;
 @property(nonatomic, strong) NSTextField* deviceRoute;
 @property(nonatomic, strong) NSTextField* deviceChain;
-@property(nonatomic, strong) NSPopUpButton* devicePresetPopup;
 @property(nonatomic, strong) NSPopUpButton* deviceChannelPopup;
 @property(nonatomic, strong) NSView* consolePanel;
 @property(nonatomic, strong) NSView* consoleOutputPanel;
@@ -451,7 +457,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 @property(nonatomic, strong) NSButton* stopButton;
 @property(nonatomic, strong) NSButton* pauseButton;
 @property(nonatomic, strong) NSButton* pageButton;
-@property(nonatomic, strong) NSButton* mixerButton;
 @property(nonatomic, strong) NSPopUpButton* patternPopup;
 @property(nonatomic, strong) NSButton* createPatternButton;
 @property(nonatomic, strong) NSButton* duplicatePatternButton;
@@ -466,9 +471,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 @property(nonatomic, strong) NSPopUpButton* audioPopup;
 @property(nonatomic, strong) NSTextField* routeStatus;
 @property(nonatomic, strong) NSTextField* eventStatus;
-@property(nonatomic, strong) NSLayoutConstraint* toolboxWidthConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* envelopeHeightConstraint;
-@property(nonatomic, strong) NSLayoutConstraint* consoleOutputHeightConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* devicePanelHeightConstraint;
 - (void)modulePatternChanged;
 - (void)moduleTransportChanged;
@@ -528,7 +531,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Left and right move between fields; up and down move between rows. Shift-left and Shift-right move between lanes. Double-click a column header to edit its independent length. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, INS accepts a zero-based decimal I00 index, and VOL accepts 0.000 through 1.000. Command-C, X, and V copy, cut, and paste tracker cells.";
+        self.accessibilityHelp = @"Left and right move between fields; up and down move between rows. Shift-left and Shift-right move between lanes. Double-click a column header to edit its independent length. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, BUS accepts B01 through B08, and VOL accepts 0.000 through 1.000. Command-C, X, and V copy, cut, and paste tracker cells.";
     }
     return self;
 }
@@ -605,7 +608,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             ? track.notes[row] : NoteCell::rest();
         fieldValue = noteText(cell);
     } else if (page == 0u && field == 1u) {
-        fieldName = @"Instrument";
+        fieldName = @"MIDI bus";
         NSString* authored = instrumentText(track, row,
             &model->instrumentRack);
         NSString* laneDefault = instrumentName(&model->instrumentRack,
@@ -775,9 +778,13 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             authored = cell.nodeId;
         }
     }
-    const auto next = s3g::tracker::cycleActiveInstrument(
-        model->instrumentRack, authored, delta);
-    if (next == s3g::tracker::kInvalidInstrumentNode) return;
+    auto slot = s3g::tracker::midiOutRackSlotIndex(authored);
+    if (slot >= s3g::tracker::kMidiOutRackSlotCount) slot = 0u;
+    const auto count = static_cast<int>(s3g::tracker::kMidiOutRackSlotCount);
+    const auto wrapped = (static_cast<int>(slot) + delta % count + count)
+        % count;
+    const auto next = s3g::tracker::midiOutNodeForRackSlot(
+        static_cast<std::size_t>(wrapped));
     [self writeInstrumentState:InstrumentCellState::Instrument
         nodeId:next advance:NO];
 }
@@ -1010,11 +1017,11 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         if (self.editingRow >= track.instruments.size()) return @"";
         const auto& cell = track.instruments[self.editingRow];
         if (cell.state == InstrumentCellState::Instrument) {
-            const auto index = s3g::tracker::rackIndexForNode(
-                model->instrumentRack, cell.nodeId);
-            if (index < model->instrumentRack.instruments.size())
-                return [NSString stringWithFormat:@"%lu",
-                    static_cast<unsigned long>(index)];
+            const auto slot = s3g::tracker::midiOutRackSlotIndex(
+                cell.nodeId);
+            if (slot < s3g::tracker::kMidiOutRackSlotCount)
+                return [NSString stringWithFormat:@"B%02lu",
+                    static_cast<unsigned long>(slot + 1u)];
             return @"";
         }
         return cell.state == InstrumentCellState::Previous ? @"PRV" : @"";
@@ -1163,22 +1170,26 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     if (page == 0u && field == 1u) {
         if (track.instruments.size() <= row)
             track.instruments.resize(row + 1u, InstrumentCell::empty());
-        std::size_t value = 0u;
         if (lower.length == 0u || [lower isEqualToString:@"---"]
             || [lower isEqualToString:@"clear"])
             track.instruments[row] = InstrumentCell::empty();
         else if ([lower isEqualToString:@"prv"]
             || [lower isEqualToString:@"previous"])
             track.instruments[row] = InstrumentCell::previous();
-        else if (s3g::tracker::app::parseGridInstrumentIndex(
-                std::string_view(lower.UTF8String ? lower.UTF8String : ""),
-                model->instrumentRack.instruments.size(), value)) {
-            const auto* instrument = s3g::tracker::rackInstrumentAt(
-                model->instrumentRack, value);
-            if (!instrument) return NO;
-            track.instruments[row] = InstrumentCell::withInstrument(
-                instrument->nodeId);
-        } else return NO;
+        else {
+            NSString* digits = [lower hasPrefix:@"b"]
+                ? [lower substringFromIndex:1u] : lower;
+            NSInteger bus = 0;
+            if (![self scanInteger:digits result:&bus]
+                || bus < 1
+                || bus > static_cast<NSInteger>(
+                    s3g::tracker::kMidiOutRackSlotCount)) return NO;
+            const auto node = s3g::tracker::midiOutNodeForRackSlot(
+                static_cast<std::size_t>(bus - 1));
+            if (!s3g::tracker::rackInstrument(
+                    model->instrumentRack, node)) return NO;
+            track.instruments[row] = InstrumentCell::withInstrument(node);
+        }
         track.instrumentColumn.length = std::max(
             track.instrumentColumn.length, row + 1u);
         return YES;
@@ -1984,7 +1995,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             NSString* label = nil;
             if (page == 0u) {
                 constexpr std::array<const char*, 3u> labels {
-                    "N", "INS", "VOL",
+                    "N", "BUS", "VOL",
                 };
                 label = [NSString stringWithUTF8String:labels[field]];
             } else {
@@ -3129,51 +3140,20 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.loopEndField.widthAnchor constraintEqualToConstant:37.0].active = YES;
     [controls addArrangedSubview:self.loopEndField];
 
-    self.audioPopup = [[S3GTrackerPopupButton alloc]
-        initWithFrame:NSZeroRect pullsDown:NO];
-    self.audioPopup.target = self;
-    self.audioPopup.action = @selector(audioOutputDeviceChanged:);
-    self.audioPopup.accessibilityLabel = @"Audio output device";
-    [self.audioPopup.widthAnchor constraintGreaterThanOrEqualToConstant:150.0].active = YES;
-    [controls addArrangedSubview:self.audioPopup];
-
-    NSButton* refreshButton = [self button:@"↻"
-        action:@selector(refreshMidiPressed:)];
-    refreshButton.accessibilityLabel = @"Refresh audio and MIDI devices";
-    [controls addArrangedSubview:refreshButton];
-
     self.moduleControls = [[NSStackView alloc] initWithFrame:NSZeroRect];
     NSStackView* moduleButtons = self.moduleControls;
     moduleButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     moduleButtons.alignment = NSLayoutAttributeCenterY;
     moduleButtons.spacing = 6.0;
     moduleButtons.edgeInsets = NSEdgeInsetsMake(0.0, 14.0, 0.0, 14.0);
-    self.pageButton = [self button:@"NOTE / INS / VOL"
+    self.pageButton = [self button:@"NOTE / BUS / VOL"
         action:@selector(cycleGridPage:)];
     self.pageButton.accessibilityLabel = @"Tracker column page";
     [moduleButtons addArrangedSubview:self.pageButton];
-    self.mixerButton = [self button:@"MIXER"
-        action:@selector(mixerPressed:)];
-    self.mixerButton.accessibilityLabel = @"Toggle mixer page";
-    [moduleButtons addArrangedSubview:self.mixerButton];
     [moduleButtons addArrangedSubview:[self button:@"+ TRACK"
         action:@selector(trackAddPressed:)]];
     [moduleButtons addArrangedSubview:[self button:@"− TRACK"
         action:@selector(trackRemovePressed:)]];
-    [moduleButtons addArrangedSubview:[self button:@"GEOMETRY"
-        action:@selector(geometryPressed:)]];
-    [moduleButtons addArrangedSubview:[self button:@"WARPS"
-        action:@selector(warpPressed:)]];
-    NSButton* instrumentButton = [self button:@"INSTRUMENT"
-        action:@selector(instrumentPressed:)];
-    instrumentButton.accessibilityLabel = @"Open selected instrument editor";
-    [moduleButtons addArrangedSubview:instrumentButton];
-    [moduleButtons addArrangedSubview:[self button:@"SONG"
-        action:@selector(songPressed:)]];
-    NSButton* helpButton = [self button:@"HELP"
-        action:@selector(helpPressed:)];
-    helpButton.accessibilityLabel = @"Open console command help";
-    [moduleButtons addArrangedSubview:helpButton];
     self.moduleScroll = [self horizontalStripForStack:moduleButtons];
     self.moduleScroll.accessibilityLabel = @"Tracker module controls";
     [self.toolbar addSubview:self.moduleScroll];
@@ -3215,41 +3195,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.gridScroll.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.gridScroll];
 
-    self.mixerView = [[S3GTrackerMixerView alloc]
-        initWithState:self.trackerState];
-    __weak S3GTrackerWorkspaceController* weakSelf = self;
-    self.mixerView.patternChangeHandler = ^{
-        [weakSelf modulePatternChanged];
-    };
-    self.mixerView.selectionChangeHandler = ^{
-        [weakSelf moduleSelectionChanged];
-    };
-    self.mixerView.playbackHandler = ^{
-        [weakSelf moduleTogglePlayback];
-    };
-    self.mixerView.focusConsoleHandler = ^{
-        [weakSelf moduleFocusConsole];
-    };
-    self.mixerView.masterGainChangeHandler = ^(float normalized) {
-        S3GTrackerWorkspaceController* strongSelf = weakSelf;
-        if (strongSelf && strongSelf.trackerCallbacks
-            && strongSelf.trackerCallbacks->mainOutputGainChanged) {
-            strongSelf.trackerCallbacks->mainOutputGainChanged(normalized);
-        }
-    };
-    self.mixerScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    self.mixerScroll.hasVerticalScroller = YES;
-    self.mixerScroll.hasHorizontalScroller = YES;
-    self.mixerScroll.autohidesScrollers = YES;
-    self.mixerScroll.scrollerStyle = NSScrollerStyleOverlay;
-    self.mixerScroll.scrollerKnobStyle = NSScrollerKnobStyleLight;
-    self.mixerScroll.borderType = NSNoBorder;
-    self.mixerScroll.backgroundColor = S3GTrackerThemeColor(
-        S3GTrackerThemeRole::Canvas);
-    self.mixerScroll.documentView = self.mixerView;
-    self.mixerScroll.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:self.mixerScroll];
-
     self.geometryWindowController = [[S3GTrackerGeometryWindowController alloc]
         initWithState:self.trackerState owner:self];
     self.geometryView = self.geometryWindowController.geometryView;
@@ -3259,23 +3204,19 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         initWithState:self.trackerState owner:self];
     self.envelopeView.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.envelopeView];
-    self.instrumentToolboxView = [[S3GTrackerInstrumentToolboxView alloc]
-        initWithState:self.trackerState owner:self];
-    self.instrumentToolboxView.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:self.instrumentToolboxView];
 
     self.devicePanel = [[S3GTrackerPanelView alloc] initWithFrame:NSZeroRect];
     self.devicePanel.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.devicePanel];
-    self.deviceTitle = [self label:@"DEVICE" size:9.5
+    self.deviceTitle = [self label:@"TRACK MIDI OUTPUT" size:9.5
         color:trackerColor(0xa8a8a8)];
     self.deviceTitle.translatesAutoresizingMaskIntoConstraints = NO;
     [self.devicePanel addSubview:self.deviceTitle];
-    self.deviceRoute = [self label:@"SELECT AN INSTRUMENT" size:7.2
+    self.deviceRoute = [self label:@"SELECT A TRACK" size:7.2
         color:trackerColor(0x737373)];
     self.deviceRoute.translatesAutoresizingMaskIntoConstraints = NO;
     [self.devicePanel addSubview:self.deviceRoute];
-    self.deviceChain = [self label:@"DEVICE  →  FX  →  MAIN OUT" size:8.0
+    self.deviceChain = [self label:@"TRACK  →  MIDI BUS / CHANNEL  →  REAPER" size:8.0
         color:trackerColor(0x8c8c8c)];
     self.deviceChain.alignment = NSTextAlignmentCenter;
     self.deviceChain.wantsLayer = YES;
@@ -3284,19 +3225,11 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.deviceChain.translatesAutoresizingMaskIntoConstraints = NO;
     [self.devicePanel addSubview:self.deviceChain];
 
-    self.devicePresetPopup = [[S3GTrackerPopupButton alloc]
-        initWithFrame:NSZeroRect pullsDown:NO];
-    self.devicePresetPopup.target = self;
-    self.devicePresetPopup.action = @selector(devicePresetChanged:);
-    self.devicePresetPopup.accessibilityLabel = @"Instrument preset";
-    self.devicePresetPopup.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.devicePresetPopup];
-
     self.midiPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.midiPopup.target = self;
     self.midiPopup.action = @selector(midiDestinationChanged:);
-    self.midiPopup.accessibilityLabel = @"Selected MIDI instrument output device";
+    self.midiPopup.accessibilityLabel = @"Selected track REAPER MIDI bus";
     self.midiPopup.translatesAutoresizingMaskIntoConstraints = NO;
     [self.devicePanel addSubview:self.midiPopup];
     self.deviceChannelPopup = [[S3GTrackerPopupButton alloc]
@@ -3306,7 +3239,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             stringWithFormat:@"CH %02ld", static_cast<long>(channel)]];
     self.deviceChannelPopup.target = self;
     self.deviceChannelPopup.action = @selector(midiChannelChanged:);
-    self.deviceChannelPopup.accessibilityLabel = @"Selected MIDI instrument channel";
+    self.deviceChannelPopup.accessibilityLabel = @"Selected track MIDI channel";
     self.deviceChannelPopup.translatesAutoresizingMaskIntoConstraints = NO;
     [self.devicePanel addSubview:self.deviceChannelPopup];
 
@@ -3342,8 +3275,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.consoleOutputPanel.translatesAutoresizingMaskIntoConstraints = NO;
     self.consoleOutputPanel.accessibilityElement = YES;
     self.consoleOutputPanel.accessibilityRole = NSAccessibilityGroupRole;
-    self.consoleOutputPanel.accessibilityLabel = @"Console output toolbox";
-    [root addSubview:self.consoleOutputPanel];
+    self.consoleOutputPanel.accessibilityLabel = @"Console output page";
     NSTextField* outputTitle = [self label:@"CONSOLE OUTPUT"
         size:8.5 color:trackerColor(0xa8a8a8)];
     outputTitle.translatesAutoresizingMaskIntoConstraints = NO;
@@ -3377,13 +3309,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     outputScroll.documentView = self.consoleOutput;
     [self.consoleOutputPanel addSubview:outputScroll];
 
-    self.toolboxWidthConstraint =
-        [self.instrumentToolboxView.widthAnchor constraintEqualToConstant:
-            252.0];
     self.envelopeHeightConstraint =
         [self.envelopeView.heightAnchor constraintEqualToConstant:140.0];
-    self.consoleOutputHeightConstraint =
-        [self.consoleOutputPanel.heightAnchor constraintEqualToConstant:196.0];
     self.devicePanelHeightConstraint =
         [self.devicePanel.heightAnchor constraintEqualToConstant:104.0];
 
@@ -3416,28 +3343,13 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         [self.consolePanel.heightAnchor constraintEqualToConstant:
             s3g::tracker::app::kWorkspaceConsoleInputHeight],
         [self.gridScroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [self.gridScroll.trailingAnchor constraintEqualToAnchor:self.instrumentToolboxView.leadingAnchor constant:-1.0],
+        [self.gridScroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
         [self.gridScroll.topAnchor constraintEqualToAnchor:self.consolePanel.bottomAnchor constant:1.0],
         [self.gridScroll.bottomAnchor constraintEqualToAnchor:self.envelopeView.topAnchor constant:-1.0],
         [self.envelopeView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [self.envelopeView.trailingAnchor constraintEqualToAnchor:self.instrumentToolboxView.leadingAnchor constant:-1.0],
+        [self.envelopeView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
         [self.envelopeView.bottomAnchor constraintEqualToAnchor:self.devicePanel.topAnchor constant:-1.0],
         self.envelopeHeightConstraint,
-
-        [self.instrumentToolboxView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [self.instrumentToolboxView.topAnchor constraintEqualToAnchor:self.consolePanel.bottomAnchor constant:1.0],
-        [self.instrumentToolboxView.bottomAnchor constraintEqualToAnchor:self.consoleOutputPanel.topAnchor constant:-1.0],
-        self.toolboxWidthConstraint,
-
-        [self.consoleOutputPanel.leadingAnchor constraintEqualToAnchor:self.instrumentToolboxView.leadingAnchor],
-        [self.consoleOutputPanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [self.consoleOutputPanel.bottomAnchor constraintEqualToAnchor:self.devicePanel.topAnchor constant:-1.0],
-        self.consoleOutputHeightConstraint,
-
-        [self.mixerScroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [self.mixerScroll.trailingAnchor constraintEqualToAnchor:self.instrumentToolboxView.leadingAnchor constant:-1.0],
-        [self.mixerScroll.topAnchor constraintEqualToAnchor:self.consolePanel.bottomAnchor constant:1.0],
-        [self.mixerScroll.bottomAnchor constraintEqualToAnchor:self.devicePanel.topAnchor constant:-1.0],
 
         [self.devicePanel.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
         [self.devicePanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
@@ -3451,9 +3363,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         [self.deviceChain.centerYAnchor constraintEqualToAnchor:self.devicePanel.centerYAnchor],
         [self.deviceChain.heightAnchor constraintEqualToConstant:52.0],
         [self.deviceChain.trailingAnchor constraintEqualToAnchor:self.devicePanel.trailingAnchor constant:-14.0],
-        [self.devicePresetPopup.leadingAnchor constraintEqualToAnchor:self.devicePanel.leadingAnchor constant:14.0],
-        [self.devicePresetPopup.bottomAnchor constraintEqualToAnchor:self.devicePanel.bottomAnchor constant:-12.0],
-        [self.devicePresetPopup.widthAnchor constraintEqualToConstant:226.0],
         [self.midiPopup.leadingAnchor constraintEqualToAnchor:self.devicePanel.leadingAnchor constant:14.0],
         [self.midiPopup.bottomAnchor constraintEqualToAnchor:self.devicePanel.bottomAnchor constant:-12.0],
         [self.midiPopup.widthAnchor constraintEqualToConstant:154.0],
@@ -3489,12 +3398,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [super viewWillLayout];
     const auto metrics = s3g::tracker::app::workspaceLayoutMetrics(
         NSWidth(self.view.bounds), NSHeight(self.view.bounds));
-    self.toolboxWidthConstraint.constant =
-        static_cast<CGFloat>(metrics.toolboxWidth);
     self.envelopeHeightConstraint.constant =
         static_cast<CGFloat>(metrics.envelopeHeight);
-    self.consoleOutputHeightConstraint.constant =
-        static_cast<CGFloat>(metrics.consoleOutputHeight);
     self.devicePanelHeightConstraint.constant =
         static_cast<CGFloat>(metrics.devicePanelHeight);
 }
@@ -3516,11 +3421,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         + static_cast<CGFloat>(visibleRows(self.trackerState)) * kGridRowHeight;
     self.gridView.frame = NSMakeRect(0.0, 0.0, width,
         std::max(height, NSHeight(self.gridScroll.contentView.bounds)));
-    const CGFloat mixerWidth = std::max(
-        [self.mixerView preferredContentWidth],
-        NSWidth(self.mixerScroll.contentView.bounds));
-    self.mixerView.frame = NSMakeRect(0.0, 0.0, mixerWidth,
-        std::max<CGFloat>(440.0, NSHeight(self.mixerScroll.contentView.bounds)));
 }
 
 - (void)refreshStatusMetadata
@@ -3600,27 +3500,21 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.loopEndField.integerValue = static_cast<NSInteger>(
         state->session.transport.loopEndRow);
     self.routeStatus.stringValue = [NSString stringWithFormat:
-        @"AUDIO: %@ %.1fk %@  •  MIDI: %@  •  WARP %lu/%u  •  %@",
-        state->audioAvailable ? @"ON" : @"OFF",
-        state->audioSampleRate / 1000.0,
-        nsString(state->audioOutputDevice),
+        @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
         nsString(state->midiRoute),
         static_cast<unsigned long>(state->session.transport.timingWarp.size()),
         state->session.transport.warpCycleTicks, nsString(state->status)];
-    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  A-DROP %llu  A-ERR %llu  LATE %llu  CLK %llu",
+    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
         nsString(state->lastEvent), state->sentEventCount,
-        state->droppedEventCount, state->audioDroppedEventCount,
-        state->audioRenderErrorCount, state->audioLateEventCount,
+        state->droppedEventCount, state->audioLateEventCount,
         state->audioClockFaultCount];
     [self refreshStatusMetadata];
     [self.gridView setNeedsDisplay:YES];
     [self.gridView refreshAccessibilityValue];
-    [self.mixerView reloadModel];
     [self applyWorkspaceMode];
     [self.geometryView setNeedsDisplay:YES];
     [self.warpWindowController reloadModel];
     [self.envelopeView setNeedsDisplay:YES];
-    [self.instrumentToolboxView setNeedsDisplay:YES];
     [self reloadDeviceView];
     [self.view setNeedsLayout:YES];
     [self.gridView scrollSelectionToVisible];
@@ -3639,29 +3533,22 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.loopButton setNeedsDisplay:YES];
     [self.pauseButton setNeedsDisplay:YES];
     self.routeStatus.stringValue = [NSString stringWithFormat:
-        @"AUDIO: %@ %.1fk %@  •  MIDI: %@  •  WARP %lu/%u  •  %@",
-        self.trackerState->audioAvailable ? @"ON" : @"OFF",
-        self.trackerState->audioSampleRate / 1000.0,
-        nsString(self.trackerState->audioOutputDevice),
+        @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
         nsString(self.trackerState->midiRoute),
         static_cast<unsigned long>(
             self.trackerState->session.transport.timingWarp.size()),
         self.trackerState->session.transport.warpCycleTicks,
         nsString(self.trackerState->status)];
-    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  A-DROP %llu  A-ERR %llu  LATE %llu  CLK %llu",
+    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
         nsString(self.trackerState->lastEvent),
         self.trackerState->sentEventCount,
         self.trackerState->droppedEventCount,
-        self.trackerState->audioDroppedEventCount,
-        self.trackerState->audioRenderErrorCount,
         self.trackerState->audioLateEventCount,
         self.trackerState->audioClockFaultCount];
     [self refreshStatusMetadata];
     [self.gridView setNeedsDisplay:YES];
-    [self.mixerView reloadModel];
     [self.geometryView setNeedsDisplay:YES];
     [self.envelopeView setNeedsDisplay:YES];
-    [self.instrumentToolboxView setNeedsDisplay:YES];
     [self reloadDeviceView];
 }
 
@@ -3669,131 +3556,39 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 {
     auto* state = self.trackerState;
     if (!state || !self.devicePanel) return;
-    const auto* instrument = s3g::tracker::rackInstrument(
-        state->instrumentRack, state->selectedRackInstrument);
-    if (!instrument) {
-        for (const auto& candidate : state->instrumentRack.instruments) {
-            if (!candidate.active) continue;
-            state->selectedRackInstrument = candidate.nodeId;
-            instrument = &candidate;
-            break;
-        }
-    }
-    if (!instrument) {
-        self.deviceTitle.stringValue = @"DEVICE";
-        self.deviceRoute.stringValue = @"NO INSTRUMENT SELECTED";
+    if (state->session.pattern.tracks.empty()) {
+        self.deviceTitle.stringValue = @"TRACK MIDI OUTPUT";
+        self.deviceRoute.stringValue = @"NO TRACK SELECTED";
         self.deviceChain.stringValue = @"—";
-        self.devicePresetPopup.hidden = YES;
         self.midiPopup.hidden = YES;
         self.deviceChannelPopup.hidden = YES;
         return;
     }
-    const auto rackIndex = s3g::tracker::rackIndexForNode(
-        state->instrumentRack, instrument->nodeId);
+
+    const auto trackIndex = std::min(state->session.selectedTrack,
+        state->session.pattern.tracks.size() - 1u);
+    const auto& track = state->session.pattern.tracks[trackIndex];
+    auto bus = s3g::tracker::midiOutRackSlotIndex(
+        track.initialInstrumentNodeId);
+    if (bus >= s3g::tracker::kMidiOutRackSlotCount) bus = 0u;
+    const auto channel = static_cast<uint8_t>(std::clamp<int>(
+        track.midiChannel, 1, 16));
+    state->selectedRackInstrument = s3g::tracker::midiOutNodeForRackSlot(bus);
     self.deviceTitle.stringValue = [NSString stringWithFormat:
-        @"DEVICE  %02lu  /  %@", static_cast<unsigned long>(rackIndex),
-        nsString(std::string(instrument->name))];
-    const bool midi = instrument->kind
-        == s3g::tracker::InstrumentKind::MidiOut;
-    self.midiPopup.hidden = !midi;
-    self.deviceChannelPopup.hidden = !midi;
-    const bool sampler = instrument->kind
-        == s3g::tracker::InstrumentKind::StereoSliceSampler;
-    self.devicePresetPopup.hidden = midi || sampler;
-    if (midi) {
-        const auto* route = s3g::tracker::midiInstrumentRoute(
-            state->instrumentRack, instrument->nodeId);
-        self.deviceRoute.stringValue = route
-            ? [NSString stringWithFormat:@"EXTERNAL MIDI  /  CHANNEL %u",
-                static_cast<unsigned int>(route->channel)]
-            : @"EXTERNAL MIDI  /  ROUTE UNAVAILABLE";
-        self.deviceChain.stringValue = @"MIDI INSTRUMENT  →  DEVICE + CHANNEL  →  EXTERNAL MIDI";
-        if (route) {
-            [self.deviceChannelPopup selectItemAtIndex:
-                static_cast<NSInteger>(route->channel - 1u)];
-            NSInteger selected = -1;
-            for (NSInteger index = 0; index < self.midiPopup.numberOfItems;
-                 ++index) {
-                NSDictionary* value = [self.midiPopup itemAtIndex:index]
-                    .representedObject;
-                if (![value isKindOfClass:NSDictionary.class]) continue;
-                const bool virtualItem = [value[@"virtual"] boolValue];
-                if ((route->kind
-                        == s3g::tracker::MidiInstrumentRouteKind::VirtualSource
-                        && virtualItem
-                        && [value[@"value"] unsignedIntValue]
-                            == route->virtualSource)
-                    || (route->kind
-                        == s3g::tracker::MidiInstrumentRouteKind::Destination
-                        && !virtualItem
-                        && [value[@"value"] intValue]
-                            == route->destinationId)) {
-                        selected = index;
-                        break;
-                }
-            }
-            if (selected < 0 && route->kind
-                    == s3g::tracker::MidiInstrumentRouteKind::Destination) {
-                [self.midiPopup addItemWithTitle:[NSString stringWithFormat:
-                    @"Disconnected destination [%d]", route->destinationId]];
-                self.midiPopup.lastItem.representedObject = @{
-                    @"virtual": @NO, @"value": @(route->destinationId),
-                };
-                selected = self.midiPopup.numberOfItems - 1;
-            }
-            if (selected >= 0 && selected < self.midiPopup.numberOfItems)
-                [self.midiPopup selectItemAtIndex:selected];
-        }
-        return;
-    }
-
-    if (sampler) {
-        const auto slot = s3g::tracker::stereoSamplerRackSlotIndex(
-            instrument->nodeId);
-        const auto& samplerState = state->instrumentRack.samplerSlots[slot];
-        self.deviceRoute.stringValue = samplerState.asset
-            ? [NSString stringWithFormat:@"INTERNAL STEREO  /  %lu SLICES  /  BASE %u",
-                static_cast<unsigned long>(samplerState.sliceCount),
-                samplerState.baseNote]
-            : @"INTERNAL STEREO  /  NO SAMPLE LOADED";
-        self.deviceChain.stringValue = @"SLICE SAMPLER  →  FX SLOT A [EMPTY]  →  FX SLOT B [EMPTY]  →  MAIN OUT";
-        return;
-    }
-
-    self.deviceRoute.stringValue = @"INTERNAL AUDIO  /  STEREO MASTER";
-    self.deviceChain.stringValue = @"INSTRUMENT  →  FX SLOT A [EMPTY]  →  FX SLOT B [EMPTY]  →  MAIN OUT";
-    [self.devicePresetPopup removeAllItems];
-    std::size_t selectedPreset = 0u;
-    std::size_t presetCount = 0u;
-    if (instrument->kind == s3g::tracker::InstrumentKind::MembraneKick) {
-        presetCount = s3g::tracker::kMembranePresetCount;
-        for (std::size_t index = 0u;
-             index < s3g::tracker::kMembranePresetCount; ++index) {
-            const auto* preset = s3g::tracker::membranePreset(index);
-            if (preset) [self.devicePresetPopup addItemWithTitle:
-                nsString(std::string(preset->name))];
-        }
-        selectedPreset = s3g::tracker::membranePresetIndex(
-            state->instrumentRack, instrument->nodeId);
-    } else if (s3g::tracker::isDaisyDrumKind(instrument->kind)) {
-        presetCount = s3g::tracker::kDaisyDrumPresetCount;
-        for (std::size_t index = 0u;
-             index < s3g::tracker::kDaisyDrumPresetCount; ++index) {
-            const auto* preset = s3g::tracker::daisyDrumPreset(
-                instrument->kind, index);
-            if (preset) [self.devicePresetPopup addItemWithTitle:
-                nsString(std::string(preset->name))];
-        }
-        selectedPreset = s3g::tracker::daisyDrumPresetIndex(
-            state->instrumentRack, instrument->nodeId);
-    }
-    if (selectedPreset >= presetCount) {
-        [self.devicePresetPopup addItemWithTitle:@"CUSTOM"];
-        selectedPreset = presetCount;
-    }
-    if (self.devicePresetPopup.numberOfItems > 0)
-        [self.devicePresetPopup selectItemAtIndex:
-            static_cast<NSInteger>(selectedPreset)];
+        @"TRACK %02lu  /  %@", static_cast<unsigned long>(trackIndex + 1u),
+        nsString(track.name)];
+    self.deviceRoute.stringValue = [NSString stringWithFormat:
+        @"REAPER MIDI BUS %lu  /  CHANNEL %u",
+        static_cast<unsigned long>(bus + 1u),
+        static_cast<unsigned int>(channel)];
+    self.deviceChain.stringValue =
+        @"TRACK  →  MIDI BUS / CHANNEL  →  REAPER DEVICE CHAIN";
+    self.midiPopup.hidden = NO;
+    self.deviceChannelPopup.hidden = NO;
+    if (bus < static_cast<std::size_t>(self.midiPopup.numberOfItems))
+        [self.midiPopup selectItemAtIndex:static_cast<NSInteger>(bus)];
+    [self.deviceChannelPopup selectItemAtIndex:
+        static_cast<NSInteger>(channel - 1u)];
 }
 
 - (void)setMidiDestinations:
@@ -3867,42 +3662,57 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
 - (void)focusTracker
 {
-    [self.view.window makeFirstResponder:self.trackerState
-            && self.trackerState->mixerPageVisible
-        ? self.mixerView : self.gridView];
+    [self.view.window makeFirstResponder:self.gridView];
 }
 
 - (void)showGeometryWindow:(id)sender
 {
+    if (self.trackerCallbacks && self.trackerCallbacks->showGeometryPage) {
+        self.trackerCallbacks->showGeometryPage();
+        return;
+    }
     [self.geometryWindowController showWindow:sender];
     [self.geometryView setNeedsDisplay:YES];
 }
 
 - (void)showWarpWindow:(id)sender
 {
+    if (self.trackerCallbacks && self.trackerCallbacks->showWarpPage) {
+        self.trackerCallbacks->showWarpPage();
+        return;
+    }
     [self.warpWindowController reloadModel];
     [self.warpWindowController showWindow:sender];
 }
 
+- (NSView*)geometryPageView
+{
+    (void)self.view;
+    return self.geometryView;
+}
+
+- (NSView*)warpPageView
+{
+    (void)self.view;
+    [self.warpWindowController reloadModel];
+    return self.warpWindowController.window.contentView;
+}
+
+- (NSView*)consolePageView
+{
+    (void)self.view;
+    return self.consoleOutputPanel;
+}
+
 - (void)applyWorkspaceMode
 {
-    const bool mixer = self.trackerState
-        && self.trackerState->mixerPageVisible;
-    self.gridScroll.hidden = mixer;
-    self.envelopeView.hidden = mixer;
-    self.mixerScroll.hidden = !mixer;
-    self.gridScroll.accessibilityHidden = mixer;
-    self.gridView.accessibilityHidden = mixer;
-    self.gridView.accessibilityElement = !mixer;
-    self.envelopeView.accessibilityHidden = mixer;
-    self.instrumentToolboxView.accessibilityHidden = NO;
-    self.mixerScroll.accessibilityHidden = !mixer;
-    self.mixerView.accessibilityHidden = !mixer;
-    self.mixerView.accessibilityElement = mixer;
-    self.mixerButton.title = mixer ? @"TRACKER" : @"MIXER";
-    self.mixerButton.state = mixer
-        ? NSControlStateValueOn : NSControlStateValueOff;
-    [self.mixerButton setNeedsDisplay:YES];
+    if (self.trackerState) self.trackerState->mixerPageVisible = false;
+    self.gridScroll.hidden = NO;
+    self.envelopeView.hidden = NO;
+    self.gridScroll.accessibilityHidden = NO;
+    self.gridView.accessibilityHidden = NO;
+    self.gridView.accessibilityElement = YES;
+    self.envelopeView.accessibilityHidden = NO;
     NSAccessibilityPostNotification(
         self.view, NSAccessibilityLayoutChangedNotification);
     if (self.view.window) {
@@ -3913,13 +3723,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
 - (void)showMixerPage:(id)sender
 {
-    (void)sender;
-    if (!self.trackerState) return;
-    self.trackerState->mixerPageVisible = true;
-    [self applyWorkspaceMode];
-    [self.mixerView reloadModel];
-    [self.view setNeedsLayout:YES];
-    [self.view.window makeFirstResponder:self.mixerView];
+    [self showTrackerPage:sender];
 }
 
 - (void)showTrackerPage:(id)sender
@@ -3954,10 +3758,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     }
     [self.gridView refreshAccessibilityValue];
     [self.gridView setNeedsDisplay:YES];
-    [self.mixerView reloadModel];
     [self.geometryView setNeedsDisplay:YES];
     [self.envelopeView setNeedsDisplay:YES];
-    [self.instrumentToolboxView setNeedsDisplay:YES];
     [self.gridView scrollSelectionToVisible];
 }
 
@@ -4001,7 +3803,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     state->selectedRackInstrument = nodeId;
     if (nodeId < s3g::tracker::kMembraneRackSlotCount)
         state->instrumentRack.selectedNode = nodeId;
-    [self.instrumentToolboxView setNeedsDisplay:YES];
     [self reloadDeviceView];
     if (self.trackerCallbacks && self.trackerCallbacks->editRackInstrument)
         self.trackerCallbacks->editRackInstrument(nodeId);
@@ -4043,7 +3844,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     const NSRect visible = self.gridScroll.documentVisibleRect;
     [self.gridScroll setMagnification:value centeredAtPoint:
         NSMakePoint(NSMidX(visible), NSMidY(visible))];
-    [self.instrumentToolboxView setNeedsDisplay:YES];
     [self.gridView scrollSelectionToVisible];
 }
 
@@ -4232,28 +4032,21 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 {
     (void)sender;
     auto* state = self.trackerState;
-    if (!state) return;
-    auto route = s3g::tracker::midiInstrumentRoute(state->instrumentRack,
-        state->selectedRackInstrument);
-    if (!route) return;
-    auto updated = *route;
+    if (!state || state->session.pattern.tracks.empty()) return;
     NSDictionary* value = self.midiPopup.selectedItem.representedObject;
-    if (![value isKindOfClass:NSDictionary.class]) return;
-    updated.kind = [value[@"virtual"] boolValue]
-        ? s3g::tracker::MidiInstrumentRouteKind::VirtualSource
-        : s3g::tracker::MidiInstrumentRouteKind::Destination;
-    updated.destinationId = updated.kind
-            == s3g::tracker::MidiInstrumentRouteKind::VirtualSource
-        ? 0 : static_cast<s3g::tracker::MidiEndpointId>(
-            [value[@"value"] intValue]);
-    if (updated.kind == s3g::tracker::MidiInstrumentRouteKind::VirtualSource)
-        updated.virtualSource = static_cast<uint8_t>(
-            [value[@"value"] unsignedIntValue]);
-    if (s3g::tracker::setMidiInstrumentRoute(state->instrumentRack,
-            state->selectedRackInstrument, updated)
-        && self.trackerCallbacks
-        && self.trackerCallbacks->instrumentRackChanged)
-        self.trackerCallbacks->instrumentRackChanged();
+    if (![value isKindOfClass:NSDictionary.class]
+        || ![value[@"virtual"] boolValue]) return;
+    const auto source = [value[@"value"] unsignedIntegerValue];
+    if (source < 1u || source > s3g::tracker::kMidiOutRackSlotCount) return;
+    const auto lane = std::min(state->session.selectedTrack,
+        state->session.pattern.tracks.size() - 1u);
+    auto& track = state->session.pattern.tracks[lane];
+    track.initialInstrumentNodeId = s3g::tracker::midiOutNodeForRackSlot(
+        source - 1u);
+    track.destination = EventDestination::Midi;
+    state->selectedRackInstrument = track.initialInstrumentNodeId;
+    if (self.trackerCallbacks && self.trackerCallbacks->patternChanged)
+        self.trackerCallbacks->patternChanged();
     [self reloadModel];
 }
 
@@ -4261,41 +4054,13 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 {
     (void)sender;
     auto* state = self.trackerState;
-    if (!state) return;
-    const auto* route = s3g::tracker::midiInstrumentRoute(
-        state->instrumentRack, state->selectedRackInstrument);
-    if (!route) return;
-    auto updated = *route;
-    updated.channel = static_cast<uint8_t>(
+    if (!state || state->session.pattern.tracks.empty()) return;
+    const auto lane = std::min(state->session.selectedTrack,
+        state->session.pattern.tracks.size() - 1u);
+    state->session.pattern.tracks[lane].midiChannel = static_cast<uint8_t>(
         self.deviceChannelPopup.indexOfSelectedItem + 1);
-    if (s3g::tracker::setMidiInstrumentRoute(state->instrumentRack,
-            state->selectedRackInstrument, updated)
-        && self.trackerCallbacks
-        && self.trackerCallbacks->instrumentRackChanged)
-        self.trackerCallbacks->instrumentRackChanged();
-    [self reloadModel];
-}
-
-- (void)devicePresetChanged:(id)sender
-{
-    (void)sender;
-    auto* state = self.trackerState;
-    if (!state) return;
-    const auto* instrument = s3g::tracker::rackInstrument(
-        state->instrumentRack, state->selectedRackInstrument);
-    if (!instrument) return;
-    const auto preset = static_cast<std::size_t>(
-        std::max<NSInteger>(0, self.devicePresetPopup.indexOfSelectedItem));
-    bool applied = false;
-    if (instrument->kind == s3g::tracker::InstrumentKind::MembraneKick)
-        applied = s3g::tracker::applyMembranePreset(state->instrumentRack,
-            instrument->nodeId, preset);
-    else if (s3g::tracker::isDaisyDrumKind(instrument->kind))
-        applied = s3g::tracker::applyDaisyDrumPreset(state->instrumentRack,
-            instrument->nodeId, preset);
-    if (applied && self.trackerCallbacks
-        && self.trackerCallbacks->instrumentRackChanged)
-        self.trackerCallbacks->instrumentRackChanged();
+    if (self.trackerCallbacks && self.trackerCallbacks->patternChanged)
+        self.trackerCallbacks->patternChanged();
     [self reloadModel];
 }
 

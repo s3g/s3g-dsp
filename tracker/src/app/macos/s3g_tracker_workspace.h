@@ -73,6 +73,11 @@ struct WorkspaceCallbacks {
     std::function<void()> stopPlayback;
     std::function<void()> panic;
     std::function<void()> showSongWindow;
+    // Standalone builds may still present these modules as windows. Embedded
+    // CLAP hosts provide page callbacks so the same workspace actions stay
+    // inside the plug-in editor.
+    std::function<void()> showGeometryPage;
+    std::function<void()> showWarpPage;
     std::function<void()> showInstrumentWindow;
     std::function<void(uint32_t)> editRackInstrument;
     std::function<void()> showConsoleHelp;
@@ -119,6 +124,9 @@ struct WorkspaceCallbacks {
 - (void)showWarpWindow:(id)sender;
 - (void)showMixerPage:(id)sender;
 - (void)showTrackerPage:(id)sender;
+- (NSView*)geometryPageView;
+- (NSView*)warpPageView;
+- (NSView*)consolePageView;
 - (void)focusConsole;
 - (void)focusTracker;
 - (void)zoomTrackerIn;

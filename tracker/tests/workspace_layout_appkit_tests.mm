@@ -90,7 +90,6 @@ int main()
             "real workspace window should reach its 760-point minimum width");
 
         NSScrollView* grid = [controller valueForKey:@"gridScroll"];
-        NSScrollView* mixer = [controller valueForKey:@"mixerScroll"];
         NSScrollView* transport = [controller valueForKey:@"transportScroll"];
         NSScrollView* modules = [controller valueForKey:@"moduleScroll"];
         NSStackView* moduleControls = [controller valueForKey:@"moduleControls"];
@@ -103,17 +102,20 @@ int main()
             valueForKey:@"renamePatternButton"];
         NSButton* deletePatternButton = [controller
             valueForKey:@"deletePatternButton"];
-        NSView* toolbox = [controller valueForKey:@"instrumentToolboxView"];
         NSView* envelope = [controller valueForKey:@"envelopeView"];
-        NSView* consoleOutput = [controller valueForKey:@"consoleOutputPanel"];
+        NSView* consoleOutput = [controller consolePageView];
+        NSView* geometryPage = [controller geometryPageView];
+        NSView* warpPage = [controller warpPageView];
         NSView* device = [controller valueForKey:@"devicePanel"];
 
-        check(near(NSWidth(toolbox.frame), 190.0),
-            "compact AppKit layout should narrow the toolbox");
+        check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
+            "compact tracker should use the full embedded page width");
         check(near(NSHeight(envelope.frame), 100.8),
             "compact AppKit layout should shrink the envelope");
-        check(near(NSHeight(consoleOutput.frame), 134.4),
-            "compact AppKit layout should shrink console output");
+        check(consoleOutput && geometryPage && warpPage
+                && consoleOutput != geometryPage
+                && geometryPage != warpPage,
+            "console, geometry, and warp modules should expose distinct pages");
         check(near(NSHeight(device.frame), 84.0),
             "compact AppKit layout should shrink the device panel");
         check(NSWidth(grid.documentView.frame) >
@@ -168,12 +170,8 @@ int main()
                         <= NSWidth(modules.contentView.bounds) + 1.0
                     || modules.hasHorizontalScroller),
             "module buttons should fit or remain horizontally scrollable");
-        check(mixer.hasHorizontalScroller && mixer.hasVerticalScroller
-                && NSHeight(mixer.documentView.frame)
-                    > NSHeight(mixer.contentView.bounds),
-            "compact mixer should scroll in both dimensions when needed");
-        check(!grid.hasAmbiguousLayout && !toolbox.hasAmbiguousLayout
-                && !consoleOutput.hasAmbiguousLayout,
+        check(!grid.hasAmbiguousLayout && !envelope.hasAmbiguousLayout
+                && !device.hasAmbiguousLayout,
             "compact workspace constraints should be unambiguous");
 
         state.session.selectedTrack = 11u;
@@ -187,8 +185,8 @@ int main()
         [window setContentSize:NSMakeSize(1320.0, 780.0)];
         [root layoutSubtreeIfNeeded];
         check(near(NSWidth(window.contentView.bounds), 1320.0)
-                && near(NSWidth(toolbox.frame), 252.0),
-            "spacious AppKit layout should restore its toolbox width");
+                && near(NSWidth(grid.frame), 1320.0),
+            "spacious AppKit layout should give the tracker the full page");
         check(NSWidth(grid.documentView.frame) >
                 NSWidth(grid.contentView.bounds),
             "track count should never force the main window wider");
