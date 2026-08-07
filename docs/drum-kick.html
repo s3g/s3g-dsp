@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drum Kick - s3g-dsp</title>
+    <meta name="description" content="User guide for the synthesized s3g Drum Kick CLAP instrument.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a><a href="installing-plugins.html">Install</a><a href="apps.html">Apps</a><a href="multichannel.html">Multichannel</a><a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a><a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Drum Kick</h1>
+        <p>Drum Kick synthesizes a pitch-dropping low oscillator, harmonic body, short punch and click layers, and a filtered texture tail. It ranges from clean sub-heavy hits to compact electronic impacts and degraded drum-machine color without replaying samples.</p>
+
+        <figure><div class="doc-graphic"><button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/drum-kick.png" aria-label="Open Drum Kick GUI screenshot"><img src="assets/plugin-guis/drum-kick.png" alt="Drum Kick GUI showing voice, pitch, attack, texture, character, performance, and output controls" loading="lazy" decoding="async"></button></div><figcaption>Drum Kick separates the low voice from attack, texture, shared character, and output controls.</figcaption></figure>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Drum Kick</code> on a stereo instrument track and send MIDI note 36 as the reference hit.</li>
+          <li>Route the track to the main stereo output or a headphone monitor.</li>
+          <li>Set <code>TUNE</code>, <code>PITCH DROP</code>, and <code>SWEEP TIME</code> for the fundamental gesture.</li>
+          <li>Balance <code>PUNCH</code>, <code>CLICK</code>, and <code>TEXTURE</code>, then set the decay and character.</li>
+          <li>Choose a stereo width and finish the session level with <code>OUTPUT GAIN</code>.</li>
+        </ol>
+
+        <h2 id="sound-model">Sound Model</h2>
+        <p><code>TUNE</code> is the settled pitch. <code>PITCH DROP</code> offsets the attack above or below it, <code>SWEEP TIME</code> controls the fall, and <code>PITCH SETTLE</code> changes how the fast and slow pitch paths meet. <code>BODY</code> and <code>HARMONICS</code> add upper structure around the fundamental; <code>TAIL</code> extends its slow component.</p>
+        <p>The attack has two complementary paths. <code>PUNCH</code> reinforces low-frequency force, while <code>CLICK</code>, <code>CLICK TONE</code>, and <code>CLICK DECAY</code> define a short pitched contact. <code>TEXTURE</code> adds a separately filtered, separately decaying noise layer.</p>
+
+        <h2 id="midi">MIDI</h2>
+        <p>Note 36 is the pitch anchor. Other notes also trigger the kick and transpose it according to <code>NOTE TRACKING</code>; use <code>0%</code> when every key should retain the same kick pitch. Note-off is ignored and overlapping hits use independent synthesized voices.</p>
+        <p><code>MIDI RECEIVE</code> defaults to <code>OMNI</code>; choose <code>CH 1</code> through <code>CH 16</code> to accept only that channel when several drum instruments share one sequencer stream.</p>
+
+        <h2 id="controls">Controls</h2>
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Voice</td><td>Tune / Note Tracking / Body / Harmonics / Decay / Tail</td><td>Sets the final pitch, tonal body, and duration.</td></tr>
+            <tr><td>Pitch</td><td>Pitch Drop / Sweep Time / Pitch Settle</td><td>Shapes the initial frequency trajectory.</td></tr>
+            <tr><td>Attack</td><td>Punch / Click / Click Tone / Click Decay</td><td>Balances low impact and short contact detail.</td></tr>
+            <tr><td>Texture</td><td>Texture / Texture Tone / Texture Decay</td><td>Adds filtered noise around the tonal hit.</td></tr>
+            <tr><td>Character</td><td>Drive / Bias / Compression / Rate Reduction / Bit Depth Reduction / Reconstruction / Character Tone</td><td>Adds nonlinear and conversion color.</td></tr>
+            <tr><td>Output / MIDI</td><td>Stereo Width / Velocity Sensitivity / Output Gain / MIDI Receive / Trigger</td><td>Sets image, dynamics, trim, channel filtering, and manual audition.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="presets">Presets and Safe Random</h2>
+        <p>The twelve factory voices span <code>DEEP ANCHOR</code>, <code>TIGHT CIRCUIT</code>, <code>LONG CURRENT</code>, <code>BROKEN SAMPLER</code>, <code>WIDE TOP</code>, and related variations. <code>RANDOM</code> creates a new bounded kick design rather than selecting one of them. It preserves <code>OUTPUT GAIN</code>, <code>NOTE TRACKING</code>, and <code>VELOCITY SENSITIVITY</code>.</p>
+
+        <h2 id="output">Output</h2>
+        <p>The plugin publishes two channels. At <code>STEREO WIDTH 0%</code>, both carry the same mono signal. Wider settings keep the bass centered while opening upper click, texture, and harmonic detail.</p>
+
+        <nav class="page-nav" aria-label="Page navigation"><a class="page-nav-link" href="drums.html"><span>Previous</span>Drums Overview</a><a class="page-nav-link next" href="drum-snare.html"><span>Next</span>Drum Snare</a></nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section"><h2>Drums</h2><a href="drums.html">Overview</a><a href="drum-kick.html">Kick</a><a href="drum-snare.html">Snare</a><a href="drum-floor-tom.html">Floor Tom</a><a href="drum-toms.html">Low / Mid / High Toms</a><a href="drum-hi-hat.html">Hi-Hat</a><a href="drum-clap.html">Clap</a><a href="drum-cowbell.html">Cowbell</a><a href="drum-crash.html">Crash</a><a href="drum-overload.html">Effect Drum Overload</a><a href="drum-mixer.html">Drum Mixer 16</a></div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#sound-model">Sound Model</a><a href="#midi">MIDI</a><a href="#controls">Controls</a><a href="#presets">Presets and Safe Random</a><a href="#output">Output</a></div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

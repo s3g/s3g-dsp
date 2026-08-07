@@ -16,10 +16,7 @@ inline constexpr double kTrackerLanePreferredWidth = 168.0;
 inline constexpr double kTrackerLaneGutter = 7.0;
 
 struct WorkspaceLayoutMetrics {
-    double toolboxWidth = 252.0;
     double envelopeHeight = 140.0;
-    double consoleOutputHeight = 196.0;
-    double devicePanelHeight = 104.0;
 };
 
 constexpr double workspaceClamp(double value, double minimum,
@@ -32,13 +29,10 @@ constexpr double workspaceClamp(double value, double minimum,
 constexpr WorkspaceLayoutMetrics workspaceLayoutMetrics(
     double contentWidth, double contentHeight) noexcept
 {
-    const double width = contentWidth > 0.0 ? contentWidth : 0.0;
+    (void)contentWidth;
     const double height = contentHeight > 0.0 ? contentHeight : 0.0;
     return {
-        workspaceClamp(width * 0.22, 190.0, 252.0),
         workspaceClamp(height * 0.18, 92.0, 140.0),
-        workspaceClamp(height * 0.24, 128.0, 196.0),
-        workspaceClamp(height * 0.15, 84.0, 104.0),
     };
 }
 

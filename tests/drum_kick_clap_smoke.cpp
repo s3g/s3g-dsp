@@ -52,6 +52,7 @@ enum ParamId : clap_id {
     kVelocitySensitivity,
     kOutputGain,
     kTrigger,
+    kMidiReceive,
 };
 
 struct ParamSpec {
@@ -63,7 +64,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 27u> kParamSpecs {{
+constexpr std::array<ParamSpec, 28u> kParamSpecs {{
     { kTune, "Tune", 20.0, 180.0, 48.0, false },
     { kNoteTracking, "Note Tracking", 0.0, 1.0, 1.0, false },
     { kPitchDrop, "Pitch Drop", -12.0, 60.0, 24.0, false },
@@ -90,6 +91,7 @@ constexpr std::array<ParamSpec, 27u> kParamSpecs {{
     { kStereoWidth, "Stereo Width", 0.0, 1.0, 0.0, false },
     { kVelocitySensitivity, "Velocity Sensitivity", 0.0, 1.0, 0.90, false },
     { kOutputGain, "Output Gain", -36.0, 12.0, -6.0, false },
+    { kMidiReceive, "MIDI Receive", 0.0, 16.0, 0.0, true },
     { kTrigger, "Trigger", 0.0, 1.0, 0.0, true },
 }};
 
@@ -205,7 +207,8 @@ struct EventList {
         return insert(&event.header);
     }
 
-    bool addNote(int16_t key, double velocity, uint32_t time = 0u)
+    bool addNote(int16_t key, double velocity, uint32_t time = 0u,
+        int16_t channel = 0)
     {
         if (noteCount >= notes.size()) return false;
         auto& event = notes[noteCount++];
@@ -217,7 +220,7 @@ struct EventList {
         event.header.flags = CLAP_EVENT_IS_LIVE;
         event.note_id = key;
         event.port_index = 0;
-        event.channel = 0;
+        event.channel = channel;
         event.key = key;
         event.velocity = velocity;
         return insert(&event.header);
@@ -392,6 +395,7 @@ bool parameterContract(const clap_plugin_t* plugin,
     char text[32] {};
     char triggerText[32] {};
     char percentText[32] {};
+    char receiveText[32] {};
     return !params->get_info(plugin,
             static_cast<uint32_t>(kParamSpecs.size()), &extra)
         && !params->get_value(plugin, 9999u, &invalidValue)
@@ -405,6 +409,15 @@ bool parameterContract(const clap_plugin_t* plugin,
         && params->text_to_value(plugin, kNoteTracking,
             percentText, &parsed)
         && std::fabs(parsed - 1.0) < 1.0e-9
+        && params->value_to_text(plugin, kMidiReceive, 0.0,
+            receiveText, sizeof(receiveText))
+        && std::strcmp(receiveText, "OMNI") == 0
+        && params->value_to_text(plugin, kMidiReceive, 12.0,
+            receiveText, sizeof(receiveText))
+        && std::strcmp(receiveText, "CH 12") == 0
+        && params->text_to_value(plugin, kMidiReceive,
+            receiveText, &parsed)
+        && parsed == 12.0
         && params->value_to_text(plugin, kTrigger, 1.0,
             triggerText, sizeof(triggerText))
         && std::strcmp(triggerText, "Hit") == 0
@@ -637,6 +650,34 @@ int main(int argc, char** argv)
         && blockEnergy(audio) == 0.0;
     if (!ok) std::cerr << "untriggered silence contract failed\n";
 
+    // MIDI RECEIVE uses OMNI=0 and user-facing channels 1-16.
+    const bool receiveSet = flushParams(
+        plugin, params, { { kMidiReceive, 2.0 } });
+    plugin->reset(plugin);
+    EventList rejectedNote;
+    const bool rejectedNoteAdded = rejectedNote.addNote(36, 1.0, 0u, 0);
+    audio.clear();
+    const auto rejectedNoteStatus = runBlock(
+        plugin, audio, &rejectedNote.input);
+    const bool rejectedNoteSilent = rejectedNoteStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) == 0.0;
+
+    plugin->reset(plugin);
+    EventList acceptedNote;
+    const bool acceptedNoteAdded = acceptedNote.addNote(36, 1.0, 0u, 1);
+    audio.clear();
+    const auto acceptedNoteStatus = runBlock(
+        plugin, audio, &acceptedNote.input);
+    const bool acceptedNoteAudible = acceptedNoteStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) > 1.0e-8;
+    const bool receiveRestored = flushParams(
+        plugin, params, { { kMidiReceive, 0.0 } });
+    const bool receiveRouting = receiveSet && rejectedNoteAdded
+        && rejectedNoteSilent && acceptedNoteAdded && acceptedNoteAudible
+        && receiveRestored;
+    if (!receiveRouting) std::cerr << "MIDI receive routing failed\n";
+    ok = ok && receiveRouting;
+
     // Note events must begin at their exact sample offset.
     plugin->reset(plugin);
     EventList delayedStrike;
@@ -739,11 +780,12 @@ int main(int argc, char** argv)
     }
     ok = ok && midiResponse;
 
-    // State is checked only through the current public format. There is no
-    // assumption that a new plugin has a legacy state representation.
+    // Current state saves include MIDI RECEIVE; version-1 snapshots migrate
+    // with that newly appended parameter defaulting to OMNI.
     ok = ok && flushParams(plugin, params, {
         { kTune, 73.25 }, { kDecay, 1.25 }, { kBias, -0.41 },
         { kRateReduction, 0.35 }, { kStereoWidth, 0.73 },
+        { kMidiReceive, 5.0 },
     });
     MemoryState memory;
     clap_ostream_t ostream { &memory, stateWrite };
@@ -751,6 +793,7 @@ int main(int argc, char** argv)
     ok = ok && saved && flushParams(plugin, params, {
         { kTune, 31.0 }, { kDecay, 0.1 }, { kBias, 0.2 },
         { kRateReduction, 0.0 }, { kStereoWidth, 0.0 },
+        { kMidiReceive, 2.0 },
     });
     memory.offset = 0u;
     clap_istream_t istream { &memory, stateRead };
@@ -762,6 +805,7 @@ int main(int argc, char** argv)
         && getParam(plugin, params, kBias, -0.41)
         && getParam(plugin, params, kRateReduction, 0.35)
         && getParam(plugin, params, kStereoWidth, 0.73)
+        && getParam(plugin, params, kMidiReceive, 5.0)
         && getParam(plugin, params, kTrigger, 0.0)
         && context.parameterRescans > rescansBeforeLoad;
     if (!restored) std::cerr << "current state round trip failed\n";
@@ -776,6 +820,28 @@ int main(int argc, char** argv)
         std::cerr << "tail change was not deferred to the audio thread\n";
     }
     ok = ok && restored && tailDeferred && tailDeliveredOnAudioThread;
+
+    MemoryState legacyState = memory;
+    std::array<uint32_t, 4u> legacyHeader {};
+    if (legacyState.bytes.size() >= sizeof(legacyHeader)) {
+        std::memcpy(legacyHeader.data(), legacyState.bytes.data(),
+            sizeof(legacyHeader));
+        legacyHeader[1u] = 1u;
+        legacyHeader[2u] = 26u;
+        std::memcpy(legacyState.bytes.data(), legacyHeader.data(),
+            sizeof(legacyHeader));
+        legacyState.bytes.resize(
+            sizeof(legacyHeader) + 26u * sizeof(double));
+    }
+    ok = ok && flushParams(plugin, params, { { kMidiReceive, 9.0 } });
+    legacyState.offset = 0u;
+    clap_istream_t legacyIstream { &legacyState, stateRead };
+    const bool legacyLoaded = state->load(plugin, &legacyIstream)
+        && getParam(plugin, params, kMidiReceive, 0.0);
+    if (!legacyLoaded) {
+        std::cerr << "legacy state did not default MIDI receive to OMNI\n";
+    }
+    ok = ok && legacyLoaded;
 
     // A non-audio-thread trigger requests processing, then fires in process().
     plugin->reset(plugin);

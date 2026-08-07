@@ -2,6 +2,7 @@
 
 #include <clap/ext/state.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -41,6 +42,26 @@ inline bool readAll(
         read += static_cast<size_t>(amount);
     }
     return true;
+}
+
+template <typename Header, typename Value, size_t ValueCount>
+inline bool readVersionedValues(const clap_istream_t* stream,
+    Header& header, std::array<Value, ValueCount>& values,
+    uint32_t expectedMagic, uint32_t currentVersion,
+    uint32_t legacyVersion, uint32_t legacyValueCount)
+{
+    if (!readAll(stream, &header, sizeof(header))) return false;
+    const bool current = header.magic == expectedMagic
+        && header.version == currentVersion
+        && header.valueCount == ValueCount;
+    const bool legacy = header.magic == expectedMagic
+        && header.version == legacyVersion
+        && header.valueCount == legacyValueCount
+        && legacyValueCount <= ValueCount;
+    if (!current && !legacy) return false;
+    values.fill(Value {});
+    return readAll(stream, values.data(),
+        static_cast<size_t>(header.valueCount) * sizeof(Value));
 }
 
 } // namespace s3g::clap_state

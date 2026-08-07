@@ -192,6 +192,26 @@ Before editing a GUI, check the controls being drawn against this section:
 continuous numeric values use sliders; named/discrete values use menus or
 buttons. Do this before build/test so style drift is caught in the edit pass.
 
+### Compact dials
+
+Compact mixer strips may use the shared s3g dial when several continuous tone
+or balance controls must remain visible above a channel fader. Dials retain the
+flat grayscale language: a dark circular face, thin gray outline, square center
+and indicator marks, regular all-caps label, and bounded value below. They do
+not use photorealistic caps, gradients, shadows, or decorative color.
+
+- Reserve dials for compact channel-strip controls such as pan, EQ gain, and
+  EQ frequency. Ordinary toolbox parameters continue to use horizontal
+  sliders.
+- Drag up/right to increase and down/left to decrease. The value is relative
+  to the mouse-down position, so clicking the face does not cause a jump.
+- Double-click resets to the declared CLAP default through the same host-visible
+  parameter path as sliders.
+- Named or discrete choices remain menus or buttons; a dial does not make a
+  binary or stepped state continuous.
+- Use `drawDial()` from `plugins/common/s3g_cocoa_gui.h`, and share its visible
+  rectangle with hit testing.
+
 ## Primary Visuals
 
 - The primary visual gets the largest uninterrupted area in the window.

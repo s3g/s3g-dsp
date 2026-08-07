@@ -7,6 +7,11 @@
 #include <string>
 #include <utility>
 
+@interface NSView (S3GTrackerGridTestAccess)
+- (void)laneMidiChannelSelected:(NSMenuItem*)sender;
+- (void)laneMidiBusSelected:(NSMenuItem*)sender;
+@end
+
 namespace {
 
 int failures = 0;
@@ -21,6 +26,15 @@ void check(bool condition, const char* message)
 bool near(CGFloat actual, CGFloat expected, CGFloat tolerance = 1.0) noexcept
 {
     return std::abs(actual - expected) <= tolerance;
+}
+
+NSEvent* keyEvent(NSWindow* window, NSString* characters,
+    unsigned short keyCode, NSEventModifierFlags modifiers)
+{
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown
+        location:NSZeroPoint modifierFlags:modifiers timestamp:0.0
+        windowNumber:window.windowNumber context:nil characters:characters
+        charactersIgnoringModifiers:characters isARepeat:NO keyCode:keyCode];
 }
 
 void seedTracks(s3g::tracker::app::TrackerViewState& state)
@@ -63,6 +77,7 @@ int main()
         int addPatternRequests = 0;
         int renamePatternRequests = 0;
         int deletePatternRequests = 0;
+        int patternChangeRequests = 0;
         callbacks.selectPattern = [&](const std::string& patternId) {
             selectedPattern = patternId;
             (void)state.patternBank.selectPattern(patternId);
@@ -70,6 +85,7 @@ int main()
         callbacks.addPattern = [&](bool) { ++addPatternRequests; };
         callbacks.renamePattern = [&] { ++renamePatternRequests; };
         callbacks.deletePattern = [&] { ++deletePatternRequests; };
+        callbacks.patternChanged = [&] { ++patternChangeRequests; };
 
         S3GTrackerWorkspaceController* controller =
             [[S3GTrackerWorkspaceController alloc]
@@ -106,7 +122,6 @@ int main()
         NSView* consoleOutput = [controller consolePageView];
         NSView* geometryPage = [controller geometryPageView];
         NSView* warpPage = [controller warpPageView];
-        NSView* device = [controller valueForKey:@"devicePanel"];
 
         check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
             "compact tracker should use the full embedded page width");
@@ -116,8 +131,6 @@ int main()
                 && consoleOutput != geometryPage
                 && geometryPage != warpPage,
             "console, geometry, and warp modules should expose distinct pages");
-        check(near(NSHeight(device.frame), 84.0),
-            "compact AppKit layout should shrink the device panel");
         check(NSWidth(grid.documentView.frame) >
                 NSWidth(grid.contentView.bounds) + 1000.0
                 && grid.hasHorizontalScroller,
@@ -170,9 +183,57 @@ int main()
                         <= NSWidth(modules.contentView.bounds) + 1.0
                     || modules.hasHorizontalScroller),
             "module buttons should fit or remain horizontally scrollable");
-        check(!grid.hasAmbiguousLayout && !envelope.hasAmbiguousLayout
-                && !device.hasAmbiguousLayout,
+        check(!grid.hasAmbiguousLayout && !envelope.hasAmbiguousLayout,
             "compact workspace constraints should be unambiguous");
+
+        NSMenuItem* laneChannel = [[NSMenuItem alloc] initWithTitle:@"CH 07"
+            action:nil keyEquivalent:@""];
+        laneChannel.representedObject = @{ @"track": @3, @"channel": @7 };
+        [grid.documentView laneMidiChannelSelected:laneChannel];
+        check(state.session.pattern.tracks[3u].midiChannel == 7u
+                && state.session.pattern.tracks[2u].midiChannel == 1u,
+            "lane channel menu should change only the targeted track");
+
+        NSMenuItem* laneBus = [[NSMenuItem alloc] initWithTitle:@"BUS 06"
+            action:nil keyEquivalent:@""];
+        laneBus.representedObject = @{ @"track": @5, @"bus": @5 };
+        [grid.documentView laneMidiBusSelected:laneBus];
+        check(state.session.pattern.tracks[5u].initialInstrumentNodeId
+                    == s3g::tracker::midiOutNodeForRackSlot(5u)
+                && state.session.pattern.tracks[4u].initialInstrumentNodeId
+                    != s3g::tracker::midiOutNodeForRackSlot(5u)
+                && patternChangeRequests == 2,
+            "lane bus menu should change only the targeted track and publish");
+
+        NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
+        [pasteboard clearContents];
+        NSEvent* commandCopy = keyEvent(window, @"c", 8u,
+            NSEventModifierFlagCommand);
+        const BOOL commandCopyHandled =
+            [grid.documentView performKeyEquivalent:commandCopy];
+        check(!commandCopyHandled,
+            "Command-C should report unhandled for REAPER");
+        NSEvent* commandPaste = keyEvent(window, @"v", 9u,
+            NSEventModifierFlagCommand);
+        check(![grid.documentView performKeyEquivalent:commandPaste],
+            "Command-V should report unhandled for REAPER");
+
+        const NSInteger clipboardBefore = [[grid.documentView
+            valueForKey:@"copiedPasteboardChangeCount"] integerValue];
+        NSEvent* trackerCopy = keyEvent(window, @"c", 8u,
+            NSEventModifierFlagControl);
+        check([grid.documentView performKeyEquivalent:trackerCopy]
+                && [[grid.documentView
+                    valueForKey:@"copiedPasteboardChangeCount"] integerValue]
+                    != clipboardBefore,
+            "Control-C should invoke tracker-local copy");
+
+        NSEvent* trackerPaste = keyEvent(window, @"v", 9u,
+            NSEventModifierFlagControl);
+        const BOOL trackerPasteHandled =
+            [grid.documentView performKeyEquivalent:trackerPaste];
+        check(trackerPasteHandled,
+            "Control-V should report handled by the tracker");
 
         state.session.selectedTrack = 11u;
         state.session.selectedRow = 63u;

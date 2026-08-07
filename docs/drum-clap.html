@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drum Clap - s3g-dsp</title>
+    <meta name="description" content="User guide for the synthesized s3g Drum Clap CLAP instrument.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header"><a class="brand" href="index.html">s3g-dsp</a><nav class="top-nav" aria-label="Top navigation"><a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a><a href="installing-plugins.html">Install</a><a href="apps.html">Apps</a><a href="multichannel.html">Multichannel</a><a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a><a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a></nav></header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Drum Clap</h1>
+        <p>Drum Clap builds a hit from one to eight band-limited hand contacts, each with controlled timing scatter, plus a diffuse noise tail and a resonant palm cavity. Its standard, flam, and tight articulations change the event structure of that synthesized contact group.</p>
+
+        <figure><div class="doc-graphic"><button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/drum-clap.png" aria-label="Open Drum Clap GUI screenshot"><img src="assets/plugin-guis/drum-clap.png" alt="Drum Clap GUI showing hand contacts, body, tail, articulation, character, performance, and output controls" loading="lazy" decoding="async"></button></div><figcaption>Clap, flam, and tight pads alter the timing structure of the synthesized hand group.</figcaption></figure>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Drum Clap</code> on a stereo instrument track and sequence notes 39, 40, and 41 for clap, flam, and tight articulations.</li>
+          <li>Route the track to the main stereo output or a headphone monitor.</li>
+          <li>Set <code>HANDS</code>, <code>SPREAD</code>, and <code>SCATTER</code> for the contact group.</li>
+          <li>Shape its color with <code>TONE</code>, <code>BANDWIDTH</code>, <code>AIR</code>, and <code>TEXTURE</code>.</li>
+          <li>Balance the short bursts, longer tail, and body before setting width and output trim.</li>
+        </ol>
+
+        <h2 id="sound-model">Sound Model</h2>
+        <p><code>HANDS</code> sets the number of contacts. <code>SPREAD</code> distributes them in time and <code>SCATTER</code> varies their spacing, brightness, and stereo location. <code>BURST DECAY</code> changes each contact's length; <code>ATTACK</code>, <code>BANDWIDTH</code>, <code>AIR</code>, and <code>TEXTURE</code> shape the contact spectrum.</p>
+        <p><code>TAIL</code> and <code>TAIL DECAY</code> add the broader following air. <code>BODY</code>, <code>BODY TUNE</code>, and <code>BODY DECAY</code> supply a lower resonant cavity. The flam articulation adds a second contact group at <code>FLAM TIME</code>; the tight articulation compresses the group spacing and tail.</p>
+
+        <h2 id="midi">MIDI Articulations</h2>
+        <p><code>MIDI RECEIVE</code> defaults to <code>OMNI</code>; choose <code>CH 1</code> through <code>CH 16</code> to accept only that channel when several drum instruments share one sequencer stream.</p>
+        <table class="readout-table"><thead><tr><th>Note</th><th>Articulation</th><th>Behavior</th></tr></thead><tbody>
+          <tr><td>39</td><td>Clap</td><td>Normal multi-contact group.</td></tr>
+          <tr><td>40</td><td>Flam Clap</td><td>Second group delayed by Flam Time.</td></tr>
+          <tr><td>41</td><td>Tight Clap</td><td>Compressed group spacing and shorter tail.</td></tr>
+        </tbody></table>
+        <p>Other notes use the standard clap articulation and transpose its tone according to <code>NOTE TRACKING</code>.</p>
+
+        <h2 id="controls">Controls</h2>
+        <table class="readout-table"><thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead><tbody>
+          <tr><td>Hands</td><td>Tone / Note Tracking / Hands / Spread / Scatter</td><td>Defines the size, timing, and pitch region of the contact group.</td></tr>
+          <tr><td>Contact</td><td>Bandwidth / Air / Attack / Burst Decay / Texture</td><td>Shapes each short band-limited hand burst.</td></tr>
+          <tr><td>Tail / Body</td><td>Tail Decay / Tail / Body / Body Tune / Body Decay</td><td>Balances following air and lower palm resonance.</td></tr>
+          <tr><td>Articulation</td><td>Flam Time</td><td>Sets separation of the two flam groups.</td></tr>
+          <tr><td>Character</td><td>Drive / Bias / Compression / Rate Reduction / Bit Depth Reduction / Reconstruction / Character Tone</td><td>Adds nonlinear and conversion color.</td></tr>
+          <tr><td>Output / MIDI</td><td>Stereo Width / Velocity Sensitivity / Output Gain / MIDI Receive / Trigger</td><td>Sets image, dynamics, trim, channel filtering, and three articulation pads.</td></tr>
+        </tbody></table>
+
+        <h2 id="presets">Presets and Safe Random</h2>
+        <p>The fourteen presets include <code>BALANCED HANDS</code>, <code>TIGHT STACK</code>, <code>DOUBLE FLAM</code>, <code>WIDE CROWD</code>, <code>DARK ROOM</code>, and <code>DIGITAL CRACK</code>. <code>RANDOM</code> generates a coherent contact ensemble while preserving <code>OUTPUT GAIN</code>, <code>NOTE TRACKING</code>, and <code>VELOCITY SENSITIVITY</code>.</p>
+
+        <h2 id="output">Output</h2>
+        <p>Width distributes individual contacts and the diffuse tail around a stable body. At <code>0%</code>, the two output channels are identical.</p>
+
+        <nav class="page-nav" aria-label="Page navigation"><a class="page-nav-link" href="drum-hi-hat.html"><span>Previous</span>Drum Hi-Hat</a><a class="page-nav-link next" href="drum-cowbell.html"><span>Next</span>Drum Cowbell</a></nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section"><h2>Drums</h2><a href="drums.html">Overview</a><a href="drum-kick.html">Kick</a><a href="drum-snare.html">Snare</a><a href="drum-floor-tom.html">Floor Tom</a><a href="drum-toms.html">Low / Mid / High Toms</a><a href="drum-hi-hat.html">Hi-Hat</a><a href="drum-clap.html">Clap</a><a href="drum-cowbell.html">Cowbell</a><a href="drum-crash.html">Crash</a><a href="drum-overload.html">Effect Drum Overload</a><a href="drum-mixer.html">Drum Mixer 16</a></div><div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#sound-model">Sound Model</a><a href="#midi">MIDI Articulations</a><a href="#controls">Controls</a><a href="#presets">Presets and Safe Random</a><a href="#output">Output</a></div></aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

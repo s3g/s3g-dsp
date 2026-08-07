@@ -115,6 +115,19 @@ EXPECTED_SHARED_TOC_LINKS = {
         "ambi-encoder-stochastic.html",
         "ambi-encoder-wrangler.html",
     ],
+    "Drums": [
+        "drums.html",
+        "drum-kick.html",
+        "drum-snare.html",
+        "drum-floor-tom.html",
+        "drum-toms.html",
+        "drum-hi-hat.html",
+        "drum-clap.html",
+        "drum-cowbell.html",
+        "drum-crash.html",
+        "drum-overload.html",
+        "drum-mixer.html",
+    ],
 }
 TOC_SECTION_PATTERN = re.compile(
     r'<div class="toc-section">\s*<h2>([^<]+)</h2>(.*?)</div>', re.DOTALL
@@ -336,6 +349,17 @@ DOC_SEQUENCE = [
     "s3gimprint-format.html",
     "s3gray-format.html",
     "instruments.html",
+    "drums.html",
+    "drum-kick.html",
+    "drum-snare.html",
+    "drum-floor-tom.html",
+    "drum-toms.html",
+    "drum-hi-hat.html",
+    "drum-clap.html",
+    "drum-cowbell.html",
+    "drum-crash.html",
+    "drum-overload.html",
+    "drum-mixer.html",
     "generative-instruments.html",
     "processor-no-input-mixer.html",
     "no-input-mixer-control.html",
@@ -360,6 +384,7 @@ NON_PRODUCT_PAGE_NAMES = {
     "index.html",
     "installing-plugins.html",
     "instruments.html",
+    "drums.html",
     "interpreting-color.html",
     "listener-mode.html",
     "multichannel.html",
@@ -400,6 +425,7 @@ EXPECTED_SHARED_TOC_PAGES = {
     "Decoder Pages": EXPECTED_SHARED_TOC_LINKS["Decoder Pages"],
     "Utility Pages": EXPECTED_SHARED_TOC_LINKS["Utility Pages"],
     "Surface Instruments": ["parameter-surface.html"],
+    "Drums": EXPECTED_SHARED_TOC_LINKS["Drums"],
 }
 
 

@@ -66,6 +66,18 @@ loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
 crcltr	crcltr
 
+# Drum instruments and effect.
+drum-kick	drum-kick
+drum-snare	drum-snare
+drum-floor-tom	drum-floor-tom
+drum-toms	drum-toms
+drum-hi-hat	drum-hi-hat
+drum-clap	drum-clap
+drum-cowbell	drum-cowbell
+drum-crash	drum-crash
+drum-overload	drum-overload
+drum-mixer-16	drum-mixer
+
 # Products documented only on family pages.
 macro-delay-8ch	macro-delay
 macro-pitch-24ch	macro-pitch

@@ -27,32 +27,18 @@ int main()
 
     const auto compact = workspaceLayoutMetrics(
         kWorkspaceMinimumContentWidth, kWorkspaceMinimumContentHeight);
-    check(near(compact.toolboxWidth, 190.0),
-        "compact workspace should narrow the right toolbox");
     check(near(compact.envelopeHeight, 100.8),
         "compact workspace should preserve a useful envelope editor");
-    check(near(compact.consoleOutputHeight, 134.4),
-        "compact workspace should shrink console output without hiding it");
-    check(near(compact.devicePanelHeight, 84.0),
-        "compact workspace should use the short device panel");
 
     const double compactTrackerHeight = kWorkspaceMinimumContentHeight
         - kWorkspaceToolbarHeight - kWorkspaceConsoleInputHeight
-        - compact.envelopeHeight - compact.devicePanelHeight - 3.0;
-    const double compactToolboxHeight = kWorkspaceMinimumContentHeight
-        - kWorkspaceToolbarHeight - kWorkspaceConsoleInputHeight
-        - compact.consoleOutputHeight - compact.devicePanelHeight - 3.0;
-    check(compactTrackerHeight >= 230.0,
-        "minimum window should leave several tracker rows visible");
-    check(compactToolboxHeight >= 200.0,
-        "minimum window should leave the instrument toolbox usable");
+        - compact.envelopeHeight - 2.0;
+    check(compactTrackerHeight >= 320.0,
+        "minimum window should use removed device space for tracker rows");
 
     const auto spacious = workspaceLayoutMetrics(1600.0, 1000.0);
-    check(near(spacious.toolboxWidth, 252.0)
-            && near(spacious.envelopeHeight, 140.0)
-            && near(spacious.consoleOutputHeight, 196.0)
-            && near(spacious.devicePanelHeight, 104.0),
-        "large workspace should cap auxiliary panels at designed sizes");
+    check(near(spacious.envelopeHeight, 140.0),
+        "large workspace should cap the envelope at its designed size");
 
     check(near(trackerDocumentWidth(1u, 500.0), 500.0),
         "one track should expand to fill a wide viewport");

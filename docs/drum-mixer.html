@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drum Mixer 16 - s3g-dsp</title>
+    <meta name="description" content="User guide for the s3g Drum Mixer 16 multichannel CLAP mixer and parallel drum-bus effect.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header"><a class="brand" href="index.html">s3g-dsp</a><nav class="top-nav" aria-label="Top navigation"><a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a><a href="installing-plugins.html">Install</a><a href="apps.html">Apps</a><a href="multichannel.html">Multichannel</a><a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a><a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a></nav></header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Drum Mixer 16</h1>
+        <p>Drum Mixer 16 collects eight stereo drum lanes inside one CLAP effect. Its fixed 16-channel input and output ports are designed for REAPER's plug-in pin connector: each source occupies one input pair, then the mixer either creates a stereo master or returns all eight post-strip pairs as direct outputs.</p>
+
+        <p>This mixer is currently a source-build preview included by <code>-DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_FUTURE_COMPONENTS=ON</code>. Its host-independent DSP boundary is intended for later direct use inside <code>s3g-tracker</code>.</p>
+
+        <figure><div class="doc-graphic"><button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/drum-mixer.png" aria-label="Open Drum Mixer 16 GUI screenshot"><img src="assets/plugin-guis/drum-mixer.png" alt="Drum Mixer 16 GUI showing eight stereo channel strips with pan and EQ dials, compact faders, VU meters, routing, AUX sends, and drum-bus controls" loading="lazy" decoding="async"></button></div><figcaption>Eight fixed stereo strips feed either a two-channel master or eight post-strip direct pairs.</figcaption></figure>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Set the REAPER track to at least 16 track channels and insert <code>s3g Drum Mixer 16</code> after the drum sources.</li>
+          <li>Route outputs 1/2 to the main stereo output or a headphone monitor so the summed mode has an audible path.</li>
+          <li>Use each upstream drum plug-in's pin connector to place its stereo output on a distinct pair: 1/2, 3/4, through 15/16. The mixer consumes those pairs as lanes 1–8.</li>
+          <li>Choose <code>SUM</code> for a stereo mix or <code>DIRECT</code> when downstream plug-ins, receives, or hardware outputs need the individual pairs.</li>
+        </ol>
+
+        <table class="readout-table"><thead><tr><th>Mode</th><th>Outputs</th><th>Master / AUX behavior</th></tr></thead><tbody>
+          <tr><td>Sum</td><td>Stereo master on 1/2; channels 3–16 are cleared.</td><td>Parallel AUX return and Master Level are active.</td></tr>
+          <tr><td>Direct</td><td>Lanes 1–8 on 1/2 through 15/16.</td><td>Post-strip signals bypass the AUX return and Master Level.</td></tr>
+        </tbody></table>
+
+        <h2 id="strips">Channel Strips</h2>
+        <table class="readout-table"><thead><tr><th>Control</th><th>Behavior</th></tr></thead><tbody>
+          <tr><td>Level</td><td>Post-EQ lane gain from silence to +12 dB.</td></tr>
+          <tr><td>Pan</td><td>Stereo balance dial: hard left suppresses the right lane channel and hard right suppresses the left.</td></tr>
+          <tr><td>Low / Mid / High</td><td>Low and high shelving dials provide ±12 dB around approximately 170 Hz and 4.2 kHz. Mid is a ±12 dB bell.</td></tr>
+          <tr><td>Freq</td><td>Tunes the Mid bell from 120 Hz to 8 kHz on a logarithmic dial.</td></tr>
+          <tr><td>Mute / Solo</td><td>Operate on the complete stereo lane with a short 5 ms gain transition to prevent switching clicks. When any Solo is active, every non-solo lane fades down.</td></tr>
+          <tr><td>Aux</td><td>Post-EQ, post-pan, post-fader send to the shared stereo drum bus.</td></tr>
+          <tr><td>Meter</td><td>Shows the lane's post-strip stereo peak with standard green, amber, and red VU zones.</td></tr>
+        </tbody></table>
+
+        <h2 id="bus">Parallel Drum Bus</h2>
+        <p><code>AUX BUS</code> enables an original parallel processor assembled for the s3g drum family. The <code>ROOM</code> direction follows the useful production idea demonstrated in <a href="https://brianfunk.com/blog/2018/4/5/abletons-drum-buss-for-noise-reduction" target="_blank" rel="noopener noreferrer">Brian Funk's Drum Buss room-noise example</a>: negative settings retain attacks while contracting body and tails; positive settings lift body and room energy. The implementation is not an emulation of Ableton's device.</p>
+
+        <table class="readout-table"><thead><tr><th>Control</th><th>Behavior</th></tr></thead><tbody>
+          <tr><td>Drive</td><td>Raises the send level entering the s3g console-style overload core.</td></tr>
+          <tr><td>Glue</td><td>Increases linked stereo density and transient cohesion.</td></tr>
+          <tr><td>Room</td><td>Bipolar body/tail shaping: negative contracts sustain; positive expands it.</td></tr>
+          <tr><td>Weight</td><td>Preserves and restores clean low-frequency weight around the nonlinear stage.</td></tr>
+          <tr><td>Tone</td><td>Bipolar spectral tilt for darker or brighter bus color.</td></tr>
+          <tr><td>Return</td><td>Level of the processed AUX signal added to the dry stereo sum.</td></tr>
+        </tbody></table>
+
+        <h2 id="level">Master and Headroom</h2>
+        <p><code>OUT</code> controls only the summed output. Its −6 dB default leaves headroom when several synthesized drums coincide. The mixer does not place a safety limiter after the master: use the lane faders, AUX return, and output level to control peaks deliberately.</p>
+
+        <h2 id="state">Automation and State</h2>
+        <p>All 81 parameters are automatable. <code>INIT</code> resets the complete mixer, while <code>LOAD</code> and <code>SAVE</code> exchange the routing mode, output and bus controls, and all eight strip states. Version 1 mixer states load with the new Mid Frequency controls at their 900 Hz default. The fixed port count does not change when a preset selects a different output mode, so REAPER pin assignments remain stable.</p>
+
+        <h2 id="limits">Limits</h2>
+        <p>The plug-in requires one 16-channel input and one 16-channel output port. It does not accept MIDI, rename lanes, create additional host ports, or include the AUX return in <code>DIRECT</code> mode. Direct outputs are post-EQ, post-pan, post-fader, and post-mute/solo.</p>
+
+        <nav class="page-nav" aria-label="Page navigation"><a class="page-nav-link" href="drum-overload.html"><span>Previous</span>Effect Drum Overload</a><a class="page-nav-link next" href="generative-instruments.html"><span>Next</span>Generative Instruments</a></nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section"><h2>Drums</h2><a href="drums.html">Overview</a><a href="drum-kick.html">Kick</a><a href="drum-snare.html">Snare</a><a href="drum-floor-tom.html">Floor Tom</a><a href="drum-toms.html">Low / Mid / High Toms</a><a href="drum-hi-hat.html">Hi-Hat</a><a href="drum-clap.html">Clap</a><a href="drum-cowbell.html">Cowbell</a><a href="drum-crash.html">Crash</a><a href="drum-overload.html">Effect Drum Overload</a><a href="drum-mixer.html">Drum Mixer 16</a></div><div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#strips">Channel Strips</a><a href="#bus">Parallel Drum Bus</a><a href="#level">Master and Headroom</a><a href="#state">Automation and State</a><a href="#limits">Limits</a></div></aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

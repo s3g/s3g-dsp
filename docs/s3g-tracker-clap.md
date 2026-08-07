@@ -12,7 +12,7 @@ The CLAP embeds the maintained tracker workspace and its native project model:
   probability, skip, offset, repeat-previous, and Euclidean actions;
 - live-code command entry and categorized help;
 - embedded Tracker, Song, Geometry, Warps, Console, and Help pages;
-- selected-track REAPER MIDI-bus/channel strip and value-envelope editor;
+- per-lane REAPER MIDI-bus/channel controls and value-envelope editor;
 - responsive tracker zoom, scrolling, direct cell entry, and copy/paste;
 - native schema-3 tracker project JSON stored in the REAPER project.
 
@@ -46,6 +46,12 @@ BUS 01–08 map directly to the eight CLAP note-output buses. Each track owns a
 one-based MIDI channel, and tracker BUS cells can change the output bus per
 row. REAPER decides which downstream track or plug-in receives each bus. The
 tracker exposes no audio ports and never opens a global macOS MIDI destination.
+Click the `Bxx` or `CHxx` control in a lane header to edit that lane directly;
+there is no tracker-global channel assignment.
+
+Tracker-local editing uses a Control-key layer: `Control-A/C/X/V` for select
+all/copy/cut/paste, `Control-=/−/0` for zoom, and `Control-1/2/3` for column
+pages. Command-key combinations are deliberately passed through to REAPER.
 
 The editor transport buttons use the CLAP transport-control extension when the
 host supplies it. REAPER tempo and quarter-note position are authoritative;

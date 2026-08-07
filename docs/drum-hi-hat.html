@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drum Hi-Hat - s3g-dsp</title>
+    <meta name="description" content="User guide for the synthesized s3g Drum Hi-Hat CLAP instrument.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header"><a class="brand" href="index.html">s3g-dsp</a><nav class="top-nav" aria-label="Top navigation"><a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a><a href="installing-plugins.html">Install</a><a href="apps.html">Apps</a><a href="multichannel.html">Multichannel</a><a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a><a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a></nav></header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Drum Hi-Hat</h1>
+        <p>Drum Hi-Hat synthesizes an inharmonic metal cluster, a filtered wash, and a short closure chick. Closed, pedal, and open articulations share one metal identity but use independent decay behavior; closed and pedal hits choke an existing open tail.</p>
+
+        <figure><div class="doc-graphic"><button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/drum-hi-hat.png" aria-label="Open Drum Hi-Hat GUI screenshot"><img src="assets/plugin-guis/drum-hi-hat.png" alt="Drum Hi-Hat GUI showing metal, wash, articulation, character, performance, and output controls" loading="lazy" decoding="async"></button></div><figcaption>Closed, open, and pedal pads share one inharmonic metal and wash model.</figcaption></figure>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Drum Hi-Hat</code> on a stereo instrument track and sequence notes 42, 44, and 46 for closed, pedal, and open hats.</li>
+          <li>Route the track to the main stereo output or a headphone monitor.</li>
+          <li>Set the metal color with <code>TUNE</code>, <code>ALLOY</code>, <code>SPREAD</code>, and <code>DENSITY</code>.</li>
+          <li>Balance modal <code>TONE</code> against <code>WASH</code>, <code>AIR</code>, <code>CHICK</code>, and <code>SIZZLE</code>.</li>
+          <li>Adjust the three decay controls and <code>CHOKE TIME</code> while playing an open-to-closed pattern.</li>
+        </ol>
+
+        <h2 id="sound-model">Sound Model</h2>
+        <p><code>ALLOY</code> and <code>SPREAD</code> move the oscillator cluster away from regular harmonic spacing; <code>DENSITY</code> fills the metal field. <code>TONE</code> weights its bands, while <code>AIR</code>, <code>WASH</code>, and <code>SIZZLE</code> build the noisy cymbal layer around it.</p>
+        <p>The three articulations alter excitation and duration, not just gain. Open hits retain the longest metal and wash response. Closed hits use the closed decay and terminate an open voice over <code>CHOKE TIME</code>. Pedal hits emphasize the closure chick and use their own decay.</p>
+
+        <h2 id="midi">MIDI Articulations</h2>
+        <p><code>MIDI RECEIVE</code> defaults to <code>OMNI</code>; choose <code>CH 1</code> through <code>CH 16</code> to accept only that channel when several drum instruments share one sequencer stream.</p>
+        <table class="readout-table"><thead><tr><th>Note</th><th>Articulation</th><th>Behavior</th></tr></thead><tbody>
+          <tr><td>42</td><td>Closed Hi-Hat</td><td>Short metal; chokes open voices.</td></tr>
+          <tr><td>44</td><td>Pedal Hi-Hat</td><td>Foot-closure emphasis; chokes open voices.</td></tr>
+          <tr><td>46</td><td>Open Hi-Hat</td><td>Long metal and wash decay.</td></tr>
+        </tbody></table>
+        <p>Other notes use the closed articulation and transpose the metal according to <code>NOTE TRACKING</code>. The named notes are exposed to hosts through the CLAP note-name extension.</p>
+
+        <h2 id="controls">Controls</h2>
+        <table class="readout-table"><thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead><tbody>
+          <tr><td>Metal</td><td>Tune / Note Tracking / Alloy / Spread / Density</td><td>Defines the inharmonic oscillator cluster.</td></tr>
+          <tr><td>Wash / Contact</td><td>Tone / Air / Attack / Wash / Chick / Chick Tone / Sizzle</td><td>Balances struck metal, noise wash, and closure detail.</td></tr>
+          <tr><td>Articulation</td><td>Closed Decay / Open Decay / Pedal Decay / Choke Time</td><td>Sets the three lifetimes and open-hat closure speed.</td></tr>
+          <tr><td>Character</td><td>Drive / Bias / Compression / Rate Reduction / Bit Depth Reduction / Reconstruction / Character Tone</td><td>Adds nonlinear and conversion color.</td></tr>
+          <tr><td>Output / MIDI</td><td>Stereo Width / Velocity Sensitivity / Output Gain / MIDI Receive / Trigger</td><td>Sets image, dynamics, trim, channel filtering, and three articulation pads.</td></tr>
+        </tbody></table>
+
+        <h2 id="presets">Presets and Safe Random</h2>
+        <p>The fourteen presets include <code>BALANCED ALLOY</code>, <code>TIGHT CIRCUIT</code>, <code>OPEN CURRENT</code>, <code>PEDAL CHICK</code>, <code>DARK TAPE</code>, and <code>WIDE SIZZLE</code>. <code>RANDOM</code> generates a playable metal-and-wash family while preserving <code>OUTPUT GAIN</code>, <code>NOTE TRACKING</code>, and <code>VELOCITY SENSITIVITY</code>.</p>
+
+        <h2 id="output">Output</h2>
+        <p><code>STEREO WIDTH</code> distributes upper metal and wash detail while maintaining a stable center. Set it to <code>0%</code> for exact dual mono.</p>
+
+        <nav class="page-nav" aria-label="Page navigation"><a class="page-nav-link" href="drum-toms.html"><span>Previous</span>Drum Toms</a><a class="page-nav-link next" href="drum-clap.html"><span>Next</span>Drum Clap</a></nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section"><h2>Drums</h2><a href="drums.html">Overview</a><a href="drum-kick.html">Kick</a><a href="drum-snare.html">Snare</a><a href="drum-floor-tom.html">Floor Tom</a><a href="drum-toms.html">Low / Mid / High Toms</a><a href="drum-hi-hat.html">Hi-Hat</a><a href="drum-clap.html">Clap</a><a href="drum-cowbell.html">Cowbell</a><a href="drum-crash.html">Crash</a><a href="drum-overload.html">Effect Drum Overload</a><a href="drum-mixer.html">Drum Mixer 16</a></div><div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#sound-model">Sound Model</a><a href="#midi">MIDI Articulations</a><a href="#controls">Controls</a><a href="#presets">Presets and Safe Random</a><a href="#output">Output</a></div></aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -288,6 +288,18 @@ NSRect gridFieldRect(CGFloat laneX, CGFloat y, CGFloat laneWidth,
         laneWidth * (end - start), height);
 }
 
+NSRect gridLaneBusRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
+{
+    return NSMakeRect(fieldX + std::max<CGFloat>(0.0, fieldWidth - 88.0),
+        4.0, 38.0, 16.0);
+}
+
+NSRect gridLaneChannelRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
+{
+    return NSMakeRect(fieldX + std::max<CGFloat>(40.0, fieldWidth - 48.0),
+        4.0, 48.0, 16.0);
+}
+
 std::size_t gridFieldAtX(CGFloat localX, CGFloat laneWidth,
     std::size_t page) noexcept
 {
@@ -344,18 +356,6 @@ bool gridLaneAtX(CGFloat x, CGFloat viewWidth, std::size_t laneCount,
     localFieldX = std::clamp(withinLane - kGridLaneInnerPadding,
         0.0, gridLaneFieldWidth(laneWidth));
     return true;
-}
-
-NSString* destinationMark(const Track& track)
-{
-    switch (s3g::tracker::destinationForInstrument(
-        track.initialInstrumentNodeId, track.destination)) {
-    case EventDestination::Internal: return @"INT";
-    case EventDestination::Both: return @"BTH";
-    case EventDestination::None: return @"OFF";
-    case EventDestination::Midi:
-    default: return @"MIDI";
-    }
 }
 
 ColumnDefinition* columnForField(Track& track, std::size_t page,
@@ -440,11 +440,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 @property(nonatomic, strong) S3GTrackerWarpWindowController*
     warpWindowController;
 @property(nonatomic, strong) S3GTrackerEnvelopeView* envelopeView;
-@property(nonatomic, strong) NSView* devicePanel;
-@property(nonatomic, strong) NSTextField* deviceTitle;
-@property(nonatomic, strong) NSTextField* deviceRoute;
-@property(nonatomic, strong) NSTextField* deviceChain;
-@property(nonatomic, strong) NSPopUpButton* deviceChannelPopup;
 @property(nonatomic, strong) NSView* consolePanel;
 @property(nonatomic, strong) NSView* consoleOutputPanel;
 @property(nonatomic, strong) NSTextView* consoleOutput;
@@ -467,12 +462,10 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 @property(nonatomic, strong) NSTextField* gateField;
 @property(nonatomic, strong) NSTextField* loopStartField;
 @property(nonatomic, strong) NSTextField* loopEndField;
-@property(nonatomic, strong) NSPopUpButton* midiPopup;
 @property(nonatomic, strong) NSPopUpButton* audioPopup;
 @property(nonatomic, strong) NSTextField* routeStatus;
 @property(nonatomic, strong) NSTextField* eventStatus;
 @property(nonatomic, strong) NSLayoutConstraint* envelopeHeightConstraint;
-@property(nonatomic, strong) NSLayoutConstraint* devicePanelHeightConstraint;
 - (void)modulePatternChanged;
 - (void)moduleTransportChanged;
 - (void)moduleSelectionChanged;
@@ -487,7 +480,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 - (void)zoomTrackerIn;
 - (void)zoomTrackerOut;
 - (void)resetTrackerZoom;
-- (void)reloadDeviceView;
 @end
 
 @interface S3GTrackerGridView : NSView <NSTextFieldDelegate> {
@@ -515,6 +507,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 - (void)beginCellEditingWithInitialText:(NSString*)initialText;
 - (void)beginColumnLengthEditingForTrack:(std::size_t)track
     page:(std::size_t)page field:(std::size_t)field rect:(NSRect)rect;
+- (void)showMidiBusMenuForTrack:(std::size_t)track event:(NSEvent*)event;
+- (void)showMidiChannelMenuForTrack:(std::size_t)track event:(NSEvent*)event;
 @end
 
 @implementation S3GTrackerGridView
@@ -531,7 +525,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Left and right move between fields; up and down move between rows. Shift-left and Shift-right move between lanes. Double-click a column header to edit its independent length. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, BUS accepts B01 through B08, and VOL accepts 0.000 through 1.000. Command-C, X, and V copy, cut, and paste tracker cells.";
+        self.accessibilityHelp = @"Each lane header has its own clickable MIDI bus and channel. Left and right move between fields; up and down move between rows. Shift-left and Shift-right move between lanes. Double-click a column header to edit its independent length. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, BUS accepts B01 through B08, and VOL accepts 0.000 through 1.000. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -875,6 +869,91 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.owner modulePatternChanged];
 }
 
+- (void)showMidiBusMenuForTrack:(std::size_t)trackIndex
+    event:(NSEvent*)event
+{
+    auto* model = self.trackerState;
+    if (!model || trackIndex >= model->session.pattern.tracks.size()) return;
+    const auto& track = model->session.pattern.tracks[trackIndex];
+    auto selected = s3g::tracker::midiOutRackSlotIndex(
+        track.initialInstrumentNodeId);
+    if (selected >= s3g::tracker::kMidiOutRackSlotCount) selected = 0u;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"TRACK MIDI BUS"];
+    menu.autoenablesItems = NO;
+    for (std::size_t bus = 0u;
+         bus < s3g::tracker::kMidiOutRackSlotCount; ++bus) {
+        NSMenuItem* item = [[NSMenuItem alloc]
+            initWithTitle:[NSString stringWithFormat:@"BUS %02lu",
+                static_cast<unsigned long>(bus + 1u)]
+            action:@selector(laneMidiBusSelected:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = @{
+            @"track": @(trackIndex), @"bus": @(bus),
+        };
+        item.state = bus == selected
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+}
+
+- (void)showMidiChannelMenuForTrack:(std::size_t)trackIndex
+    event:(NSEvent*)event
+{
+    auto* model = self.trackerState;
+    if (!model || trackIndex >= model->session.pattern.tracks.size()) return;
+    const auto selected = static_cast<std::size_t>(std::clamp<int>(
+        model->session.pattern.tracks[trackIndex].midiChannel, 1, 16));
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"TRACK MIDI CHANNEL"];
+    menu.autoenablesItems = NO;
+    for (std::size_t channel = 1u; channel <= 16u; ++channel) {
+        NSMenuItem* item = [[NSMenuItem alloc]
+            initWithTitle:[NSString stringWithFormat:@"CHANNEL %02lu",
+                static_cast<unsigned long>(channel)]
+            action:@selector(laneMidiChannelSelected:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = @{
+            @"track": @(trackIndex), @"channel": @(channel),
+        };
+        item.state = channel == selected
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+}
+
+- (void)laneMidiBusSelected:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    NSDictionary* value = sender.representedObject;
+    if (!model || ![value isKindOfClass:NSDictionary.class]) return;
+    const auto trackIndex = [value[@"track"] unsignedIntegerValue];
+    const auto bus = [value[@"bus"] unsignedIntegerValue];
+    if (trackIndex >= model->session.pattern.tracks.size()
+        || bus >= s3g::tracker::kMidiOutRackSlotCount) return;
+    auto& track = model->session.pattern.tracks[trackIndex];
+    track.initialInstrumentNodeId = s3g::tracker::midiOutNodeForRackSlot(bus);
+    track.destination = EventDestination::Midi;
+    model->selectedRackInstrument = track.initialInstrumentNodeId;
+    model->session.selectedTrack = trackIndex;
+    [self.owner modulePatternChanged];
+}
+
+- (void)laneMidiChannelSelected:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    NSDictionary* value = sender.representedObject;
+    if (!model || ![value isKindOfClass:NSDictionary.class]) return;
+    const auto trackIndex = [value[@"track"] unsignedIntegerValue];
+    const auto channel = [value[@"channel"] unsignedIntegerValue];
+    if (trackIndex >= model->session.pattern.tracks.size()
+        || channel < 1u || channel > 16u) return;
+    model->session.pattern.tracks[trackIndex].midiChannel =
+        static_cast<uint8_t>(channel);
+    model->session.selectedTrack = trackIndex;
+    [self.owner modulePatternChanged];
+}
+
 - (void)mouseDown:(NSEvent*)event
 {
     auto* model = self.trackerState;
@@ -910,6 +989,18 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     if (point.y < kGridHeaderHeight) {
         [self clearGridSelection];
         const CGFloat laneLeft = gridLaneFieldX(lane, width);
+        if (NSPointInRect(point,
+                gridLaneBusRect(laneLeft, fieldWidth))) {
+            [self selectTrack:lane row:model->session.selectedRow];
+            [self showMidiBusMenuForTrack:lane event:event];
+            return;
+        }
+        if (NSPointInRect(point,
+                gridLaneChannelRect(laneLeft, fieldWidth))) {
+            [self selectTrack:lane row:model->session.selectedRow];
+            [self showMidiChannelMenuForTrack:lane event:event];
+            return;
+        }
         const auto page = std::min<std::size_t>(
             model->session.selectedPage, 2u);
         model->session.selectedField = gridFieldAtX(
@@ -1393,7 +1484,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     return field == 0u ? @"---" : @"PRV";
 }
 
-- (void)selectAll:(id)sender
+- (void)trackerSelectAll:(id)sender
 {
     (void)sender;
     auto* model = self.trackerState;
@@ -1412,7 +1503,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self, NSAccessibilitySelectedCellsChangedNotification);
 }
 
-- (void)copy:(id)sender
+- (void)trackerCopy:(id)sender
 {
     (void)sender;
     auto* model = self.trackerState;
@@ -1446,9 +1537,9 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.copiedRowCount = range.rowCount();
 }
 
-- (void)cut:(id)sender
+- (void)trackerCut:(id)sender
 {
-    [self copy:sender];
+    [self trackerCopy:sender];
     auto* model = self.trackerState;
     if (!model || model->session.pattern.tracks.empty()) return;
     s3g::tracker::Pattern candidate = model->session.pattern;
@@ -1476,7 +1567,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.owner modulePatternChanged];
 }
 
-- (void)paste:(id)sender
+- (void)trackerPaste:(id)sender
 {
     (void)sender;
     NSString* value = [NSPasteboard.generalPasteboard
@@ -1576,6 +1667,28 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.owner modulePatternChanged];
 }
 
+- (BOOL)performKeyEquivalent:(NSEvent*)event
+{
+    const auto modifiers = event.modifierFlags
+        & (NSEventModifierFlagCommand | NSEventModifierFlagControl
+            | NSEventModifierFlagOption | NSEventModifierFlagShift);
+    if ((modifiers & NSEventModifierFlagCommand) != 0u) return NO;
+    if (modifiers == NSEventModifierFlagControl) {
+        NSString* key = event.charactersIgnoringModifiers.lowercaseString;
+        const bool edit = [key isEqualToString:@"a"]
+            || [key isEqualToString:@"c"] || [key isEqualToString:@"x"]
+            || [key isEqualToString:@"v"];
+        const bool zoom = event.keyCode == 24u || event.keyCode == 27u
+            || event.keyCode == 29u;
+        const bool page = event.keyCode >= 18u && event.keyCode <= 20u;
+        if (edit || zoom || page) {
+            [self keyDown:event];
+            return YES;
+        }
+    }
+    return [super performKeyEquivalent:event];
+}
+
 - (void)keyDown:(NSEvent*)event
 {
     auto* model = self.trackerState;
@@ -1585,20 +1698,49 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     }
     NSString* key = event.charactersIgnoringModifiers.lowercaseString;
     auto& session = model->session;
-    const bool command = (event.modifierFlags
-        & NSEventModifierFlagCommand) != 0u;
-    const bool commandOnly = command && (event.modifierFlags
-        & (NSEventModifierFlagControl | NSEventModifierFlagOption)) == 0u;
-    if (commandOnly && event.keyCode == 24) {
+    const auto shortcutModifiers = event.modifierFlags
+        & (NSEventModifierFlagCommand | NSEventModifierFlagControl
+            | NSEventModifierFlagOption | NSEventModifierFlagShift);
+    if ((shortcutModifiers & NSEventModifierFlagCommand) != 0u) {
+        [super keyDown:event];
+        return;
+    }
+    const bool trackerControl = shortcutModifiers
+        == NSEventModifierFlagControl;
+    if (trackerControl && [key isEqualToString:@"a"]) {
+        [self trackerSelectAll:nil];
+        return;
+    }
+    if (trackerControl && [key isEqualToString:@"c"]) {
+        [self trackerCopy:nil];
+        return;
+    }
+    if (trackerControl && [key isEqualToString:@"x"]) {
+        [self trackerCut:nil];
+        return;
+    }
+    if (trackerControl && [key isEqualToString:@"v"]) {
+        [self trackerPaste:nil];
+        return;
+    }
+    if (trackerControl && event.keyCode == 24) {
         [self.owner zoomTrackerIn];
         return;
     }
-    if (commandOnly && event.keyCode == 27) {
+    if (trackerControl && event.keyCode == 27) {
         [self.owner zoomTrackerOut];
         return;
     }
-    if (commandOnly && event.keyCode == 29) {
+    if (trackerControl && event.keyCode == 29) {
         [self.owner resetTrackerZoom];
+        return;
+    }
+    if (trackerControl && event.keyCode >= 18u && event.keyCode <= 20u) {
+        session.selectedPage = static_cast<std::size_t>(event.keyCode - 18u);
+        session.selectedField = std::min<std::size_t>(
+            session.selectedField,
+            gridFieldCount(session.selectedPage) - 1u);
+        [self.owner moduleSelectionChanged];
         return;
     }
     const auto editingModifiers = event.modifierFlags
@@ -1979,15 +2121,33 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         drawText(nsString(track.name.empty()
                 ? "LANE " + std::to_string(lane + 1u) : track.name),
             NSMakeRect(x + 6.0, 5.0,
-                std::max<CGFloat>(1.0, fieldWidth - 49.0), 16.0),
+                std::max<CGFloat>(1.0, fieldWidth - 100.0), 16.0),
             fxInactive || allMuted ? dim : text,
             9.5, NSFontWeightSemibold);
-        drawText(destinationMark(track),
-            NSMakeRect(x + fieldWidth - 42.0, 6.0, 36.0, 13.0),
-            routesToInternal(laneDestination)
-                ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success) : dim,
-            7.0,
-            NSFontWeightSemibold, NSTextAlignmentRight);
+        auto bus = s3g::tracker::midiOutRackSlotIndex(
+            track.initialInstrumentNodeId);
+        if (bus >= s3g::tracker::kMidiOutRackSlotCount) bus = 0u;
+        const NSRect busRect = gridLaneBusRect(x, fieldWidth);
+        const NSRect channelRect = gridLaneChannelRect(x, fieldWidth);
+        fillRect(busRect, S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Control));
+        fillRect(channelRect, S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Control));
+        strokeRect(busRect, lane == session.selectedTrack
+            ? instrument : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+        strokeRect(channelRect, lane == session.selectedTrack
+            ? note : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+        drawText([NSString stringWithFormat:@"B%02lu",
+                static_cast<unsigned long>(bus + 1u)],
+            NSInsetRect(busRect, 2.0, 1.0),
+            allMuted ? dim : instrument, 8.0, NSFontWeightSemibold,
+            NSTextAlignmentCenter);
+        drawText([NSString stringWithFormat:@"CH%02u",
+                static_cast<unsigned int>(std::clamp<int>(
+                    track.midiChannel, 1, 16))],
+            NSInsetRect(channelRect, 2.0, 1.0),
+            allMuted ? dim : note, 8.0, NSFontWeightSemibold,
+            NSTextAlignmentCenter);
         for (std::size_t field = 0u; field < fieldCount; ++field) {
             const auto* column = columns[field];
             const NSRect headerField = gridFieldRect(x, 22.0, fieldWidth,
@@ -3205,44 +3365,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     self.envelopeView.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.envelopeView];
 
-    self.devicePanel = [[S3GTrackerPanelView alloc] initWithFrame:NSZeroRect];
-    self.devicePanel.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:self.devicePanel];
-    self.deviceTitle = [self label:@"TRACK MIDI OUTPUT" size:9.5
-        color:trackerColor(0xa8a8a8)];
-    self.deviceTitle.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.deviceTitle];
-    self.deviceRoute = [self label:@"SELECT A TRACK" size:7.2
-        color:trackerColor(0x737373)];
-    self.deviceRoute.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.deviceRoute];
-    self.deviceChain = [self label:@"TRACK  →  MIDI BUS / CHANNEL  →  REAPER" size:8.0
-        color:trackerColor(0x8c8c8c)];
-    self.deviceChain.alignment = NSTextAlignmentCenter;
-    self.deviceChain.wantsLayer = YES;
-    self.deviceChain.layer.backgroundColor = S3GTrackerThemeColor(
-        S3GTrackerThemeRole::Panel).CGColor;
-    self.deviceChain.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.deviceChain];
-
-    self.midiPopup = [[S3GTrackerPopupButton alloc]
-        initWithFrame:NSZeroRect pullsDown:NO];
-    self.midiPopup.target = self;
-    self.midiPopup.action = @selector(midiDestinationChanged:);
-    self.midiPopup.accessibilityLabel = @"Selected track REAPER MIDI bus";
-    self.midiPopup.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.midiPopup];
-    self.deviceChannelPopup = [[S3GTrackerPopupButton alloc]
-        initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSInteger channel = 1; channel <= 16; ++channel)
-        [self.deviceChannelPopup addItemWithTitle:[NSString
-            stringWithFormat:@"CH %02ld", static_cast<long>(channel)]];
-    self.deviceChannelPopup.target = self;
-    self.deviceChannelPopup.action = @selector(midiChannelChanged:);
-    self.deviceChannelPopup.accessibilityLabel = @"Selected track MIDI channel";
-    self.deviceChannelPopup.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.devicePanel addSubview:self.deviceChannelPopup];
-
     self.consolePanel = [[S3GTrackerPanelView alloc] initWithFrame:NSZeroRect];
     self.consolePanel.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.consolePanel];
@@ -3311,8 +3433,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
     self.envelopeHeightConstraint =
         [self.envelopeView.heightAnchor constraintEqualToConstant:140.0];
-    self.devicePanelHeightConstraint =
-        [self.devicePanel.heightAnchor constraintEqualToConstant:104.0];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
@@ -3348,27 +3468,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         [self.gridScroll.bottomAnchor constraintEqualToAnchor:self.envelopeView.topAnchor constant:-1.0],
         [self.envelopeView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
         [self.envelopeView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [self.envelopeView.bottomAnchor constraintEqualToAnchor:self.devicePanel.topAnchor constant:-1.0],
+        [self.envelopeView.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
         self.envelopeHeightConstraint,
-
-        [self.devicePanel.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [self.devicePanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [self.devicePanel.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-        self.devicePanelHeightConstraint,
-        [self.deviceTitle.leadingAnchor constraintEqualToAnchor:self.devicePanel.leadingAnchor constant:14.0],
-        [self.deviceTitle.topAnchor constraintEqualToAnchor:self.devicePanel.topAnchor constant:12.0],
-        [self.deviceRoute.leadingAnchor constraintEqualToAnchor:self.deviceTitle.leadingAnchor],
-        [self.deviceRoute.topAnchor constraintEqualToAnchor:self.deviceTitle.bottomAnchor constant:5.0],
-        [self.deviceChain.leadingAnchor constraintEqualToAnchor:self.devicePanel.leadingAnchor constant:260.0],
-        [self.deviceChain.centerYAnchor constraintEqualToAnchor:self.devicePanel.centerYAnchor],
-        [self.deviceChain.heightAnchor constraintEqualToConstant:52.0],
-        [self.deviceChain.trailingAnchor constraintEqualToAnchor:self.devicePanel.trailingAnchor constant:-14.0],
-        [self.midiPopup.leadingAnchor constraintEqualToAnchor:self.devicePanel.leadingAnchor constant:14.0],
-        [self.midiPopup.bottomAnchor constraintEqualToAnchor:self.devicePanel.bottomAnchor constant:-12.0],
-        [self.midiPopup.widthAnchor constraintEqualToConstant:154.0],
-        [self.deviceChannelPopup.leadingAnchor constraintEqualToAnchor:self.midiPopup.trailingAnchor constant:6.0],
-        [self.deviceChannelPopup.bottomAnchor constraintEqualToAnchor:self.midiPopup.bottomAnchor],
-        [self.deviceChannelPopup.widthAnchor constraintEqualToConstant:72.0],
 
         [consoleTitle.leadingAnchor constraintEqualToAnchor:self.consolePanel.leadingAnchor constant:12.0],
         [consoleTitle.centerYAnchor constraintEqualToAnchor:self.consolePanel.centerYAnchor],
@@ -3400,8 +3501,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         NSWidth(self.view.bounds), NSHeight(self.view.bounds));
     self.envelopeHeightConstraint.constant =
         static_cast<CGFloat>(metrics.envelopeHeight);
-    self.devicePanelHeightConstraint.constant =
-        static_cast<CGFloat>(metrics.devicePanelHeight);
 }
 
 - (void)viewDidLayout
@@ -3515,7 +3614,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.geometryView setNeedsDisplay:YES];
     [self.warpWindowController reloadModel];
     [self.envelopeView setNeedsDisplay:YES];
-    [self reloadDeviceView];
     [self.view setNeedsLayout:YES];
     [self.gridView scrollSelectionToVisible];
 }
@@ -3549,71 +3647,14 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.gridView setNeedsDisplay:YES];
     [self.geometryView setNeedsDisplay:YES];
     [self.envelopeView setNeedsDisplay:YES];
-    [self reloadDeviceView];
-}
-
-- (void)reloadDeviceView
-{
-    auto* state = self.trackerState;
-    if (!state || !self.devicePanel) return;
-    if (state->session.pattern.tracks.empty()) {
-        self.deviceTitle.stringValue = @"TRACK MIDI OUTPUT";
-        self.deviceRoute.stringValue = @"NO TRACK SELECTED";
-        self.deviceChain.stringValue = @"—";
-        self.midiPopup.hidden = YES;
-        self.deviceChannelPopup.hidden = YES;
-        return;
-    }
-
-    const auto trackIndex = std::min(state->session.selectedTrack,
-        state->session.pattern.tracks.size() - 1u);
-    const auto& track = state->session.pattern.tracks[trackIndex];
-    auto bus = s3g::tracker::midiOutRackSlotIndex(
-        track.initialInstrumentNodeId);
-    if (bus >= s3g::tracker::kMidiOutRackSlotCount) bus = 0u;
-    const auto channel = static_cast<uint8_t>(std::clamp<int>(
-        track.midiChannel, 1, 16));
-    state->selectedRackInstrument = s3g::tracker::midiOutNodeForRackSlot(bus);
-    self.deviceTitle.stringValue = [NSString stringWithFormat:
-        @"TRACK %02lu  /  %@", static_cast<unsigned long>(trackIndex + 1u),
-        nsString(track.name)];
-    self.deviceRoute.stringValue = [NSString stringWithFormat:
-        @"REAPER MIDI BUS %lu  /  CHANNEL %u",
-        static_cast<unsigned long>(bus + 1u),
-        static_cast<unsigned int>(channel)];
-    self.deviceChain.stringValue =
-        @"TRACK  →  MIDI BUS / CHANNEL  →  REAPER DEVICE CHAIN";
-    self.midiPopup.hidden = NO;
-    self.deviceChannelPopup.hidden = NO;
-    if (bus < static_cast<std::size_t>(self.midiPopup.numberOfItems))
-        [self.midiPopup selectItemAtIndex:static_cast<NSInteger>(bus)];
-    [self.deviceChannelPopup selectItemAtIndex:
-        static_cast<NSInteger>(channel - 1u)];
 }
 
 - (void)setMidiDestinations:
     (const std::vector<s3g::tracker::MidiDestination>&)destinations
     selectedTarget:(const s3g::tracker::MidiOutputTarget&)target
 {
+    (void)destinations;
     (void)target;
-    [self.midiPopup removeAllItems];
-    for (std::size_t source = 1u;
-        source <= s3g::tracker::kMidiOutRackSlotCount; ++source) {
-        [self.midiPopup addItemWithTitle:[NSString stringWithFormat:
-            @"REAPER MIDI BUS %lu", static_cast<unsigned long>(source)]];
-        self.midiPopup.lastItem.representedObject = @{
-            @"virtual": @YES, @"value": @(source),
-        };
-    }
-    if (!destinations.empty())
-        [self.midiPopup.menu addItem:[NSMenuItem separatorItem]];
-    for (const auto& destination : destinations) {
-        [self.midiPopup addItemWithTitle:nsString(destination.name)];
-        self.midiPopup.lastItem.representedObject = @{
-            @"virtual": @NO, @"value": @(destination.id),
-        };
-    }
-    [self reloadDeviceView];
 }
 
 - (void)setAudioOutputDevices:
@@ -3803,7 +3844,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     state->selectedRackInstrument = nodeId;
     if (nodeId < s3g::tracker::kMembraneRackSlotCount)
         state->instrumentRack.selectedNode = nodeId;
-    [self reloadDeviceView];
     if (self.trackerCallbacks && self.trackerCallbacks->editRackInstrument)
         self.trackerCallbacks->editRackInstrument(nodeId);
 }
@@ -4026,42 +4066,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.trackerCallbacks->refreshMidiDestinations();
     if (self.trackerCallbacks && self.trackerCallbacks->refreshAudioOutputDevices)
         self.trackerCallbacks->refreshAudioOutputDevices();
-}
-
-- (void)midiDestinationChanged:(id)sender
-{
-    (void)sender;
-    auto* state = self.trackerState;
-    if (!state || state->session.pattern.tracks.empty()) return;
-    NSDictionary* value = self.midiPopup.selectedItem.representedObject;
-    if (![value isKindOfClass:NSDictionary.class]
-        || ![value[@"virtual"] boolValue]) return;
-    const auto source = [value[@"value"] unsignedIntegerValue];
-    if (source < 1u || source > s3g::tracker::kMidiOutRackSlotCount) return;
-    const auto lane = std::min(state->session.selectedTrack,
-        state->session.pattern.tracks.size() - 1u);
-    auto& track = state->session.pattern.tracks[lane];
-    track.initialInstrumentNodeId = s3g::tracker::midiOutNodeForRackSlot(
-        source - 1u);
-    track.destination = EventDestination::Midi;
-    state->selectedRackInstrument = track.initialInstrumentNodeId;
-    if (self.trackerCallbacks && self.trackerCallbacks->patternChanged)
-        self.trackerCallbacks->patternChanged();
-    [self reloadModel];
-}
-
-- (void)midiChannelChanged:(id)sender
-{
-    (void)sender;
-    auto* state = self.trackerState;
-    if (!state || state->session.pattern.tracks.empty()) return;
-    const auto lane = std::min(state->session.selectedTrack,
-        state->session.pattern.tracks.size() - 1u);
-    state->session.pattern.tracks[lane].midiChannel = static_cast<uint8_t>(
-        self.deviceChannelPopup.indexOfSelectedItem + 1);
-    if (self.trackerCallbacks && self.trackerCallbacks->patternChanged)
-        self.trackerCallbacks->patternChanged();
-    [self reloadModel];
 }
 
 - (void)audioOutputDeviceChanged:(id)sender

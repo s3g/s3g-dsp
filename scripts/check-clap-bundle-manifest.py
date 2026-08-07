@@ -42,6 +42,7 @@ FUTURE_ONLY_CMAKE_DIRECTORIES = {
     "clap_drum_cowbell",
     "clap_drum_crash",
     "clap_drum_kick",
+    "clap_drum_mixer",
     "clap_drum_overload",
     "clap_drum_snare",
     "clap_drum_toms",

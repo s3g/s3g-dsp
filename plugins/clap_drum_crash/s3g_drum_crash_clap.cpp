@@ -2,6 +2,7 @@
 #include "s3g_drum_crash_presets.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_drum_midi_receive.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -33,7 +34,7 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x52473353u; // "S3GR" in little endian.
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 920u;
 constexpr uint32_t kGuiHeight = 680u;
@@ -65,8 +66,10 @@ constexpr clap_id kStereoWidthParamId = 24u;
 constexpr clap_id kVelocityParamId = 25u;
 constexpr clap_id kOutputParamId = 26u;
 constexpr clap_id kTriggerParamId = 27u;
-constexpr uint32_t kParamCount = 27u;
+constexpr clap_id kMidiReceiveParamId = 28u;
+constexpr uint32_t kParamCount = 28u;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
+constexpr uint32_t kLegacySavedParamCount = kSavedParamCount - 1u;
 
 struct ParamDef {
     clap_id id;
@@ -105,6 +108,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kStereoWidthParamId, "Stereo Width", "Output", 0.0, 1.0, 0.68, false },
     { kVelocityParamId, "Velocity Sensitivity", "MIDI", 0.0, 1.0, 0.90, false },
     { kOutputParamId, "Output Gain", "Output", -36.0, 12.0, -11.0, false },
+    { kMidiReceiveParamId, "MIDI Receive", "MIDI / Routing", 0.0, 16.0, 0.0, true },
     { kTriggerParamId, "Trigger", "Performance", 0.0, 3.0, 0.0, true },
 }};
 
@@ -128,6 +132,7 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::DrumCrashParams params {};
     s3g::DrumCrash crash;
+    double midiReceive = 0.0;
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     std::array<std::atomic<double>, kSavedParamCount> pendingStateValues {};
     std::atomic<uint64_t> pendingStateSequence { 0u };
@@ -144,6 +149,7 @@ struct Plugin {
     std::atomic<double> preservedOutputValue { -11.0 };
     std::atomic<uint64_t> parameterRevision { 0u };
     std::atomic<float> visualActivity { 0.0f };
+    std::atomic<uint32_t> visualTriggerCode { 0u };
     uint32_t triggerCode = 0u;
     bool active = false;
 #if defined(__APPLE__)
@@ -160,9 +166,10 @@ Plugin* self(const clap_plugin_t* plugin)
 
 const ParamDef* paramDef(clap_id id)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return nullptr;
-    const auto& def = kParamDefs[id - kTuneParamId];
-    return def.id == id ? &def : nullptr;
+    for (const auto& def : kParamDefs) {
+        if (def.id == id) return &def;
+    }
+    return nullptr;
 }
 
 double clampValue(const ParamDef& def, double value)
@@ -176,14 +183,14 @@ double rawParamValue(const Plugin& p, clap_id id);
 
 void publishParam(Plugin& p, clap_id id, double value)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return;
+    if (id < kTuneParamId || id > kMidiReceiveParamId) return;
     p.publishedParams[id - kTuneParamId].store(
         value, std::memory_order_release);
 }
 
 double paramValue(const Plugin& p, clap_id id)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return 0.0;
+    if (id < kTuneParamId || id > kMidiReceiveParamId) return 0.0;
     return p.publishedParams[id - kTuneParamId].load(
         std::memory_order_acquire);
 }
@@ -270,6 +277,10 @@ void ageActiveTail(Plugin& p, uint32_t frames)
 void triggerCrash(Plugin& p, s3g::DrumCrashArticulation articulation,
     float velocity, int midiNote)
 {
+    p.visualTriggerCode.store(
+        articulation == s3g::DrumCrashArticulation::Bell ? 3u
+            : articulation == s3g::DrumCrashArticulation::Choke ? 2u : 1u,
+        std::memory_order_relaxed);
     p.crash.trigger(articulation, std::clamp(velocity, 0.0f, 1.0f),
         std::clamp(midiNote, 0, 127));
     extendActiveTail(p, tailSamplesForParams(p.params, p.sampleRate));
@@ -296,6 +307,12 @@ void applyParam(Plugin& p, clap_id id, double value,
     const auto* def = paramDef(id);
     if (!def) return;
     value = clampValue(*def, value);
+    if (id == kMidiReceiveParamId) {
+        p.midiReceive = value;
+        publishParam(p, id, value);
+        p.parameterRevision.fetch_add(1u, std::memory_order_release);
+        return;
+    }
     if (id == kTriggerParamId) {
         const uint32_t code = static_cast<uint32_t>(value);
         if (code > 0u && code != p.triggerCode) {
@@ -442,6 +459,7 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kStereoWidthParamId: return p.params.stereoWidth;
     case kVelocityParamId: return p.params.velocitySensitivity;
     case kOutputParamId: return p.params.outputGainDb;
+    case kMidiReceiveParamId: return p.midiReceive;
     case kTriggerParamId: return static_cast<double>(p.triggerCode);
     default: return 0.0;
     }
@@ -519,6 +537,7 @@ bool consumePendingState(Plugin& p)
     assignSavedStateValues(next, values);
     p.crash.setParams(next);
     p.params = p.crash.params();
+    p.midiReceive = values.back();
     p.pendingCrashTriggers.store(0u, std::memory_order_relaxed);
     p.pendingChokeTriggers.store(0u, std::memory_order_relaxed);
     p.pendingBellTriggers.store(0u, std::memory_order_relaxed);
@@ -542,7 +561,8 @@ void applyEvent(Plugin& p, const clap_event_header_t* event)
     } else if (event->type == CLAP_EVENT_NOTE_ON
         && event->size >= sizeof(clap_event_note_t)) {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
-        if (note->velocity > 0.0) {
+        if (note->velocity > 0.0
+            && s3g::drum_midi::accepts(p.midiReceive, note->channel)) {
             const auto articulation = note->key == 50
                 ? s3g::DrumCrashArticulation::Choke
                 : note->key == 53 ? s3g::DrumCrashArticulation::Bell
@@ -553,7 +573,9 @@ void applyEvent(Plugin& p, const clap_event_header_t* event)
     } else if (event->type == CLAP_EVENT_MIDI
         && event->size >= sizeof(clap_event_midi_t)) {
         const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
-        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u) {
+        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u
+            && s3g::drum_midi::accepts(
+                p.midiReceive, midi->data[0] & 0x0fu)) {
             const int note = midi->data[1];
             const auto articulation = note == 50
                 ? s3g::DrumCrashArticulation::Choke
@@ -669,7 +691,9 @@ bool queueGuiParamSet(Plugin& p,
     std::array<s3g::clap_gui::ParamEvent, kSavedParamCount * 3u> events {};
     for (uint32_t index = 0u; index < values.size(); ++index) {
         const auto& def = kParamDefs[index];
-        values[index] = clampValue(def, sourceValues[index]);
+        values[index] = def.id == kMidiReceiveParamId
+            ? paramValue(p, def.id)
+            : clampValue(def, sourceValues[index]);
         const uint32_t eventIndex = index * 3u;
         events[eventIndex] = { Kind::GestureBegin, def.id, 0.0 };
         events[eventIndex + 1u] = { Kind::Value, def.id, values[index] };
@@ -775,6 +799,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     p->active = false;
     (void)consumePendingState(*p);
     p->visualActivity.store(0.0f, std::memory_order_relaxed);
+    p->visualTriggerCode.store(0u, std::memory_order_relaxed);
     p->activated.store(true, std::memory_order_release);
     return true;
 }
@@ -797,6 +822,7 @@ void reset(const clap_plugin_t* plugin)
     p->triggerCode = 0u;
     publishParam(*p, kTriggerParamId, 0.0);
     p->visualActivity.store(0.0f, std::memory_order_relaxed);
+    p->visualTriggerCode.store(0u, std::memory_order_relaxed);
     p->active = false;
 }
 
@@ -1010,6 +1036,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (id == kBiasParamId || id == kCharacterToneParamId) {
         std::snprintf(display, size, "%+.0f%%", value * 100.0);
+    } else if (id == kMidiReceiveParamId) {
+        s3g::drum_midi::valueToText(value, display, size);
     } else if (id == kTriggerParamId) {
         const uint32_t code = static_cast<uint32_t>(std::round(value));
         std::snprintf(display, size, "%s",
@@ -1026,6 +1054,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 {
     const auto* def = paramDef(id);
     if (!display || !value || !def) return false;
+    if (id == kMidiReceiveParamId) {
+        return s3g::drum_midi::textToValue(display, value);
+    }
     if (id == kTriggerParamId) {
         if (std::strcmp(display, "Crash") == 0) {
             *value = 1.0;
@@ -1061,7 +1092,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         && id != kChokeTimeParamId && id != kDecayParamId
         && id != kWashDecayParamId
         && id != kOutputParamId
-        && id != kTriggerParamId;
+        && id != kMidiReceiveParamId && id != kTriggerParamId;
     const char* expectedSuffix = (id == kTuneParamId
             || id == kBellTuneParamId) ? "Hz"
         : ((id == kDecayParamId || id == kWashDecayParamId) ? "s"
@@ -1128,10 +1159,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
-    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))) return false;
-    if (state.header.magic != kStateMagic
-        || state.header.version != kStateVersion
-        || state.header.valueCount != kSavedParamCount) return false;
+    if (!s3g::clap_state::readVersionedValues(stream,
+            state.header, state.values, kStateMagic, kStateVersion,
+            1u, kLegacySavedParamCount)) return false;
     auto* p = self(plugin);
     for (uint32_t index = 0u; index < state.values.size(); ++index) {
         state.values[index] = clampValue(kParamDefs[index],
@@ -1233,6 +1263,7 @@ constexpr std::array<ClapUiRow, kSavedParamCount> kUiRows {{
     { kStereoWidthParamId, "STEREO WIDTH", kRightPanelX, kPanelWidth, 374.0 },
     { kVelocityParamId, "VELOCITY", kRightPanelX, kPanelWidth, 398.0 },
     { kOutputParamId, "OUTPUT", kRightPanelX, kPanelWidth, 422.0 },
+    { kMidiReceiveParamId, "MIDI RECEIVE", kRightPanelX, kPanelWidth, 446.0 },
 }};
 
 bool isLogUiParam(clap_id id)
@@ -1549,6 +1580,8 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
         kGuiWidth, kGuiHeight);
     const float activity = std::clamp(
         p->visualActivity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const uint32_t visualTrigger = p->visualTriggerCode.load(
+        std::memory_order_relaxed);
     s3g::clap_gui::drawEncoderTitleBand(
         @"s3g DRUM CRASH",
         [NSString stringWithUTF8String:_presetName],
@@ -1588,18 +1621,18 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
     }
 
     const CGFloat padWidth = (kPanelWidth - 36.0) / 3.0;
-    const NSRect clapPad = NSMakeRect(kRightPanelX + 12.0, 456.0,
+    const NSRect clapPad = NSMakeRect(kRightPanelX + 12.0, 480.0,
         padWidth, 24.0);
-    const NSRect flamPad = NSMakeRect(NSMaxX(clapPad) + 6.0, 456.0,
+    const NSRect flamPad = NSMakeRect(NSMaxX(clapPad) + 6.0, 480.0,
         padWidth, 24.0);
-    const NSRect tightPad = NSMakeRect(NSMaxX(flamPad) + 6.0, 456.0,
+    const NSRect tightPad = NSMakeRect(NSMaxX(flamPad) + 6.0, 480.0,
         padWidth, 24.0);
     s3g::clap_gui::drawHeaderButton(clapPad, outputPanel, @"CRASH",
-        activity > 0.02f, valueAttrs, style);
+        visualTrigger == 1u && activity > 0.02f, valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(flamPad, outputPanel, @"CHOKE",
-        activity > 0.02f, valueAttrs, style);
+        visualTrigger == 2u && activity > 0.02f, valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(tightPad, outputPanel, @"BELL",
-        activity > 0.02f, valueAttrs, style);
+        visualTrigger == 3u && activity > 0.02f, valueAttrs, style);
 
     const NSPoint center = NSMakePoint(687.0, 568.0);
     for (uint32_t ring = 0u; ring < 5u; ++ring) {
@@ -1735,11 +1768,11 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
         return;
     }
     const CGFloat padWidth = (kPanelWidth - 36.0) / 3.0;
-    const NSRect clapPad = NSMakeRect(kRightPanelX + 12.0, 456.0,
+    const NSRect clapPad = NSMakeRect(kRightPanelX + 12.0, 480.0,
         padWidth, 24.0);
-    const NSRect flamPad = NSMakeRect(NSMaxX(clapPad) + 6.0, 456.0,
+    const NSRect flamPad = NSMakeRect(NSMaxX(clapPad) + 6.0, 480.0,
         padWidth, 24.0);
-    const NSRect tightPad = NSMakeRect(NSMaxX(flamPad) + 6.0, 456.0,
+    const NSRect tightPad = NSMakeRect(NSMaxX(flamPad) + 6.0, 480.0,
         padWidth, 24.0);
     if (NSPointInRect(point, clapPad) || NSPointInRect(point, flamPad)
         || NSPointInRect(point, tightPad)) {
@@ -1768,7 +1801,9 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
             queueGuiParamGestureBegin(*p, row.id);
             [self updateDraggedParam:point];
         }
-        if (row.id != kOutputParamId) [self markCustomPreset];
+        if (row.id != kOutputParamId && row.id != kMidiReceiveParamId) {
+            [self markCustomPreset];
+        }
         return;
     }
 }

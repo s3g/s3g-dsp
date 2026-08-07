@@ -85,6 +85,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/drum_overload_smoke.cpp)
   target_link_libraries(s3g_drum_overload_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_drum_mixer_smoke
+    tests/drum_mixer_smoke.cpp)
+  target_link_libraries(s3g_drum_mixer_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_drum_kick_smoke
     tests/drum_kick_smoke.cpp)
   target_link_libraries(s3g_drum_kick_smoke PRIVATE s3g_dsp)
@@ -323,6 +327,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_drum_overload_smoke
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
     set_tests_properties(s3g_drum_overload_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_mixer_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_mixer_smoke>)
+    set_tests_properties(s3g_drum_mixer_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_kick_smoke
       COMMAND $<TARGET_FILE:s3g_drum_kick_smoke>)
@@ -664,6 +672,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_drum_overload_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_drum_mixer_clap_smoke
+      tests/drum_mixer_clap_smoke.cpp)
+    target_include_directories(s3g_drum_mixer_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_mixer_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_drum_floor_tom_clap_smoke
       tests/drum_floor_tom_clap_smoke.cpp)
     target_include_directories(s3g_drum_floor_tom_clap_smoke
@@ -786,6 +801,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_drum_overload)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_mixer)
   endif()
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_drum_overload)
@@ -1356,6 +1374,35 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_overload_gui)
     endif()
 
+    add_custom_target(audit_drum_mixer
+      COMMAND $<TARGET_FILE:s3g_drum_mixer_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_mixer_clap_smoke>
+        $<TARGET_FILE:s3g_drum_mixer_clap>
+        org.s3g.s3g-dsp.drum-mixer-16
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_drum_mixer_clap>
+        org.s3g.s3g-dsp.drum-mixer-16
+      DEPENDS
+        s3g_drum_mixer_smoke
+        s3g_drum_mixer_clap_smoke
+        s3g_drum_mixer_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating 8x2 drum mixer DSP, 16-channel routing, automation, and state")
+    if(APPLE)
+      add_custom_target(audit_drum_mixer_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_mixer_clap>
+          org.s3g.s3g-dsp.drum-mixer-16
+          1320 600 "s3g Drum Mixer 16" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_mixer_clap
+        COMMENT "Validating the responsive Drum Mixer 16 editor")
+      add_dependencies(audit_drum_mixer audit_drum_mixer_gui)
+    endif()
+
     add_custom_target(audit_drum_family
       DEPENDS
         audit_drum_kick
@@ -1365,6 +1412,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_hi_hat
         audit_drum_clap
         audit_drum_overload
+        audit_drum_mixer
       COMMENT "Validating the shared procedural drum instrument family")
 
     add_custom_target(audit_ambi_membrane_kick

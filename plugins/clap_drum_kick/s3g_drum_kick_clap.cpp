@@ -2,6 +2,7 @@
 #include "s3g_drum_kick_presets.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_drum_midi_receive.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -32,7 +33,7 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x4b473353u; // "S3GK" in little endian.
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 920u;
 constexpr uint32_t kGuiHeight = 680u;
@@ -64,8 +65,10 @@ constexpr clap_id kStereoWidthParamId = 24u;
 constexpr clap_id kVelocityParamId = 25u;
 constexpr clap_id kOutputParamId = 26u;
 constexpr clap_id kTriggerParamId = 27u;
-constexpr uint32_t kParamCount = 27u;
+constexpr clap_id kMidiReceiveParamId = 28u;
+constexpr uint32_t kParamCount = 28u;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
+constexpr uint32_t kLegacySavedParamCount = kSavedParamCount - 1u;
 
 struct ParamDef {
     clap_id id;
@@ -104,6 +107,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kStereoWidthParamId, "Stereo Width", "Output", 0.0, 1.0, 0.0, false },
     { kVelocityParamId, "Velocity Sensitivity", "MIDI", 0.0, 1.0, 0.90, false },
     { kOutputParamId, "Output Gain", "Output", -36.0, 12.0, -6.0, false },
+    { kMidiReceiveParamId, "MIDI Receive", "MIDI / Routing", 0.0, 16.0, 0.0, true },
     { kTriggerParamId, "Trigger", "Performance", 0.0, 1.0, 0.0, true },
 }};
 
@@ -127,6 +131,7 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::DrumKickParams params {};
     s3g::DrumKick kick;
+    double midiReceive = 0.0;
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<uint32_t> pendingTriggers { 0u };
@@ -149,9 +154,10 @@ Plugin* self(const clap_plugin_t* plugin)
 
 const ParamDef* paramDef(clap_id id)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return nullptr;
-    const auto& def = kParamDefs[id - kTuneParamId];
-    return def.id == id ? &def : nullptr;
+    for (const auto& def : kParamDefs) {
+        if (def.id == id) return &def;
+    }
+    return nullptr;
 }
 
 double clampValue(const ParamDef& def, double value)
@@ -165,14 +171,14 @@ double rawParamValue(const Plugin& p, clap_id id);
 
 void publishParam(Plugin& p, clap_id id, double value)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return;
+    if (id < kTuneParamId || id > kMidiReceiveParamId) return;
     p.publishedParams[id - kTuneParamId].store(
         value, std::memory_order_release);
 }
 
 double paramValue(const Plugin& p, clap_id id)
 {
-    if (id < kTuneParamId || id > kTriggerParamId) return 0.0;
+    if (id < kTuneParamId || id > kMidiReceiveParamId) return 0.0;
     return p.publishedParams[id - kTuneParamId].load(
         std::memory_order_acquire);
 }
@@ -204,6 +210,12 @@ void applyParam(Plugin& p, clap_id id, double value,
     const auto* def = paramDef(id);
     if (!def) return;
     value = clampValue(*def, value);
+    if (id == kMidiReceiveParamId) {
+        p.midiReceive = value;
+        publishParam(p, id, value);
+        p.parameterRevision.fetch_add(1u, std::memory_order_release);
+        return;
+    }
     if (id == kTriggerParamId) {
         const bool gate = value >= 0.5;
         if (gate && !p.triggerGate) {
@@ -315,6 +327,7 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kStereoWidthParamId: return p.params.stereoWidth;
     case kVelocityParamId: return p.params.velocitySensitivity;
     case kOutputParamId: return p.params.outputGainDb;
+    case kMidiReceiveParamId: return p.midiReceive;
     case kTriggerParamId: return p.triggerGate ? 1.0 : 0.0;
     default: return 0.0;
     }
@@ -331,13 +344,16 @@ void applyEvent(Plugin& p, const clap_event_header_t* event)
     } else if (event->type == CLAP_EVENT_NOTE_ON
         && event->size >= sizeof(clap_event_note_t)) {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
-        if (note->velocity > 0.0) {
+        if (note->velocity > 0.0
+            && s3g::drum_midi::accepts(p.midiReceive, note->channel)) {
             triggerKick(p, static_cast<float>(note->velocity), note->key);
         }
     } else if (event->type == CLAP_EVENT_MIDI
         && event->size >= sizeof(clap_event_midi_t)) {
         const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
-        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u) {
+        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u
+            && s3g::drum_midi::accepts(
+                p.midiReceive, midi->data[0] & 0x0fu)) {
             triggerKick(p, static_cast<float>(midi->data[2]) / 127.0f,
                 midi->data[1]);
         }
@@ -716,6 +732,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (id == kBiasParamId || id == kCharacterToneParamId) {
         std::snprintf(display, size, "%+.0f%%", value * 100.0);
+    } else if (id == kMidiReceiveParamId) {
+        s3g::drum_midi::valueToText(value, display, size);
     } else if (id == kTriggerParamId) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "Hit" : "Ready");
     } else {
@@ -729,6 +747,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 {
     const auto* def = paramDef(id);
     if (!display || !value || !def) return false;
+    if (id == kMidiReceiveParamId) {
+        return s3g::drum_midi::textToValue(display, value);
+    }
     if (id == kTriggerParamId) {
         if (std::strcmp(display, "Hit") == 0) {
             *value = 1.0;
@@ -755,7 +776,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         && id != kPitchDropParamId && id != kPitchSweepTimeParamId
         && id != kClickDecayParamId && id != kDecayParamId
         && id != kTextureDecayParamId && id != kOutputParamId
-        && id != kTriggerParamId;
+        && id != kMidiReceiveParamId && id != kTriggerParamId;
     const char* expectedSuffix = id == kTuneParamId ? "Hz"
         : (id == kPitchDropParamId ? "st"
         : ((id == kPitchSweepTimeParamId || id == kClickDecayParamId) ? "ms"
@@ -821,10 +842,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
-    if (!s3g::clap_state::readAll(stream, &state, sizeof(state))) return false;
-    if (state.header.magic != kStateMagic
-        || state.header.version != kStateVersion
-        || state.header.valueCount != kSavedParamCount) return false;
+    if (!s3g::clap_state::readVersionedValues(stream,
+            state.header, state.values, kStateMagic, kStateVersion,
+            1u, kLegacySavedParamCount)) return false;
     auto* p = self(plugin);
     for (uint32_t index = 0u; index < state.values.size(); ++index) {
         applyParam(*p, kParamDefs[index].id, state.values[index]);
@@ -906,6 +926,7 @@ constexpr std::array<KickUiRow, kSavedParamCount> kUiRows {{
     { kStereoWidthParamId, "STEREO WIDTH", kRightPanelX, kPanelWidth, 374.0 },
     { kVelocityParamId, "VELOCITY", kRightPanelX, kPanelWidth, 398.0 },
     { kOutputParamId, "OUTPUT", kRightPanelX, kPanelWidth, 422.0 },
+    { kMidiReceiveParamId, "MIDI RECEIVE", kRightPanelX, kPanelWidth, 446.0 },
 }};
 
 bool isLogUiParam(clap_id id)
@@ -1216,7 +1237,7 @@ s3g::DrumKickParams publishedParamsSnapshot(const Plugin& p)
             row.panelX, row.panelWidth, labelAttrs, valueAttrs, style);
     }
 
-    const NSRect trigger = NSMakeRect(kRightPanelX + 12.0, 456.0,
+    const NSRect trigger = NSMakeRect(kRightPanelX + 12.0, 480.0,
         kPanelWidth - 24.0, 24.0);
     s3g::clap_gui::drawHeaderButton(trigger, outputPanel, @"TRIGGER",
         activity > 0.02f, valueAttrs, style);
@@ -1324,7 +1345,7 @@ s3g::DrumKickParams publishedParamsSnapshot(const Plugin& p)
         if (![self applySafeRandom]) NSBeep();
         return;
     }
-    const NSRect trigger = NSMakeRect(kRightPanelX + 12.0, 456.0,
+    const NSRect trigger = NSMakeRect(kRightPanelX + 12.0, 480.0,
         kPanelWidth - 24.0, 24.0);
     if (NSPointInRect(point, trigger)) {
         queueGuiTrigger(*p);
@@ -1350,7 +1371,9 @@ s3g::DrumKickParams publishedParamsSnapshot(const Plugin& p)
             queueGuiParamGestureBegin(*p, row.id);
             [self updateDraggedParam:point];
         }
-        if (row.id != kOutputParamId) [self markCustomPreset];
+        if (row.id != kOutputParamId && row.id != kMidiReceiveParamId) {
+            [self markCustomPreset];
+        }
         return;
     }
 }

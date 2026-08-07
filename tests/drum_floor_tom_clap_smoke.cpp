@@ -58,6 +58,7 @@ enum ParamId : clap_id {
     kVelocitySensitivity,
     kOutputGain,
     kTrigger,
+    kMidiReceive,
 };
 
 struct ParamSpec {
@@ -70,7 +71,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 27u> kParamSpecs {{
+constexpr std::array<ParamSpec, 28u> kParamSpecs {{
     { kTune, "Tune", 35.0, 180.0, 72.0, 91.0, false },
     { kNoteTracking, "Note Tracking", 0.0, 1.0, 0.75, 0.37, false },
     { kPitchDrop, "Pitch Drop", -6.0, 30.0, 8.0, 12.5, false },
@@ -97,6 +98,7 @@ constexpr std::array<ParamSpec, 27u> kParamSpecs {{
     { kStereoWidth, "Stereo Width", 0.0, 1.0, 0.0, 0.67, false },
     { kVelocitySensitivity, "Velocity Sensitivity", 0.0, 1.0, 0.90, 0.83, false },
     { kOutputGain, "Output Gain", -36.0, 12.0, -6.0, -4.5, false },
+    { kMidiReceive, "MIDI Receive", 0.0, 16.0, 0.0, 7.0, true },
     { kTrigger, "Trigger", 0.0, 2.0, 0.0, 2.0, true },
 }};
 
@@ -237,7 +239,8 @@ struct EventList {
         return insert(&event.header);
     }
 
-    bool addNote(int16_t key, double velocity, uint32_t time = 0u)
+    bool addNote(int16_t key, double velocity, uint32_t time = 0u,
+        int16_t channel = 0)
     {
         if (noteCount >= notes.size()) return false;
         auto& event = notes[noteCount++];
@@ -249,13 +252,14 @@ struct EventList {
         event.header.flags = CLAP_EVENT_IS_LIVE;
         event.note_id = key;
         event.port_index = 0;
-        event.channel = 0;
+        event.channel = channel;
         event.key = key;
         event.velocity = velocity;
         return insert(&event.header);
     }
 
-    bool addMidi(uint8_t key, uint8_t velocity, uint32_t time = 0u)
+    bool addMidi(uint8_t key, uint8_t velocity, uint32_t time = 0u,
+        uint8_t channel = 0u)
     {
         if (midiCount >= midi.size()) return false;
         auto& event = midi[midiCount++];
@@ -266,7 +270,7 @@ struct EventList {
         event.header.type = CLAP_EVENT_MIDI;
         event.header.flags = CLAP_EVENT_IS_LIVE;
         event.port_index = 0u;
-        event.data[0] = 0x90u;
+        event.data[0] = static_cast<uint8_t>(0x90u | (channel & 0x0fu));
         event.data[1] = key;
         event.data[2] = velocity;
         return insert(&event.header);
@@ -772,6 +776,57 @@ int main(int argc, char** argv)
         && finiteBlock(audio) && blockEnergy(audio) == 0.0;
     if (!silent) std::cerr << "untriggered silence contract failed\n";
     ok = ok && silent;
+    // MIDI RECEIVE uses OMNI=0 and user-facing channels 1-16.
+    const bool receiveSet = flushParamsOnAudioThread(
+        plugin, params, { { kMidiReceive, 2.0 } });
+    resetOnAudioThread(plugin);
+    EventList rejectedNote;
+    const bool rejectedNoteAdded = rejectedNote.addNote(
+        kBaseMidiNote, 1.0, 0u, 0);
+    audio.clear();
+    const auto rejectedNoteStatus = runBlock(
+        plugin, audio, &rejectedNote.input);
+    const bool rejectedNoteSilent = rejectedNoteStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) == 0.0;
+
+    resetOnAudioThread(plugin);
+    EventList acceptedNote;
+    const bool acceptedNoteAdded = acceptedNote.addNote(
+        kBaseMidiNote, 1.0, 0u, 1);
+    audio.clear();
+    const auto acceptedNoteStatus = runBlock(
+        plugin, audio, &acceptedNote.input);
+    const bool acceptedNoteAudible = acceptedNoteStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) > 1.0e-8;
+
+    resetOnAudioThread(plugin);
+    EventList rejectedMidi;
+    const bool rejectedMidiAdded = rejectedMidi.addMidi(
+        static_cast<uint8_t>(kBaseMidiNote), 127u, 0u, 0u);
+    audio.clear();
+    const auto rejectedMidiStatus = runBlock(
+        plugin, audio, &rejectedMidi.input);
+    const bool rejectedMidiSilent = rejectedMidiStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) == 0.0;
+
+    resetOnAudioThread(plugin);
+    EventList acceptedMidi;
+    const bool acceptedMidiAdded = acceptedMidi.addMidi(
+        static_cast<uint8_t>(kBaseMidiNote), 127u, 0u, 1u);
+    audio.clear();
+    const auto acceptedMidiStatus = runBlock(
+        plugin, audio, &acceptedMidi.input);
+    const bool acceptedMidiAudible = acceptedMidiStatus != CLAP_PROCESS_ERROR
+        && finiteBlock(audio) && blockEnergy(audio) > 1.0e-8;
+    const bool receiveRestored = flushParamsOnAudioThread(
+        plugin, params, { { kMidiReceive, 0.0 } });
+    const bool receiveRouting = receiveSet && rejectedNoteAdded
+        && rejectedNoteSilent && acceptedNoteAdded && acceptedNoteAudible
+        && rejectedMidiAdded && rejectedMidiSilent
+        && acceptedMidiAdded && acceptedMidiAudible && receiveRestored;
+    if (!receiveRouting) std::cerr << "MIDI receive routing failed\n";
+    ok = ok && receiveRouting;
+
 
     // Native CLAP notes must start at their exact sample offsets.
     resetOnAudioThread(plugin);
@@ -1011,7 +1066,7 @@ int main(int argc, char** argv)
         std::memcpy(stateHeader.data(), memory.bytes.data(),
             sizeof(stateHeader));
         saved = stateHeader[0u] == 0x46473353u
-            && stateHeader[1u] == 1u
+            && stateHeader[1u] == 2u
             && stateHeader[2u] == kParamSpecs.size() - 1u
             && stateHeader[3u] == 0u;
     }

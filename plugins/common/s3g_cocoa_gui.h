@@ -598,6 +598,169 @@ inline void drawSlider(NSString* name,
     drawBoundedRightText(value, NSMakeRect(valueX, y - 2, valueW, 15.0), valueAttrs);
 }
 
+inline NSRect mixerStripSliderTrackRect(CGFloat panelX,
+                                        CGFloat panelWidth,
+                                        CGFloat y)
+{
+    const CGFloat labelX = panelX + static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.labelInset);
+    const CGFloat valueWidth = 40.0;
+    const CGFloat valueX = panelX + panelWidth
+        - static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.panelRightInset)
+        - valueWidth;
+    const CGFloat trackX = labelX + 28.0;
+    return NSMakeRect(trackX, y + 1.0,
+        std::max<CGFloat>(12.0, valueX - trackX - 5.0), 9.0);
+}
+
+inline NSRect mixerStripSliderHitRect(CGFloat panelX,
+                                      CGFloat panelWidth,
+                                      CGFloat y)
+{
+    return NSMakeRect(panelX + static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitInset),
+        y - 8.0,
+        panelWidth - 2.0 * static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitInset),
+        static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.hitHeight));
+}
+
+inline void drawMixerStripSlider(NSString* name,
+                                 NSString* value,
+                                 CGFloat norm,
+                                 CGFloat y,
+                                 CGFloat panelX,
+                                 CGFloat panelWidth,
+                                 NSDictionary* labelAttrs,
+                                 NSDictionary* valueAttrs,
+                                 const Style& style)
+{
+    const NSRect track = mixerStripSliderTrackRect(panelX, panelWidth, y);
+    const CGFloat valueWidth = 40.0;
+    const CGFloat valueX = panelX + panelWidth
+        - static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.panelRightInset)
+        - valueWidth;
+    drawSlider([name uppercaseString], value, norm, y,
+        labelAttrs, valueAttrs, style,
+        panelX + static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.labelInset),
+        track.origin.x, valueX, track.size.width, valueWidth);
+}
+
+inline void drawMixerFader(CGFloat norm,
+                           NSRect rect,
+                           const Style& style)
+{
+    norm = std::clamp(norm, static_cast<CGFloat>(0.0),
+        static_cast<CGFloat>(1.0));
+    const NSRect track = NSMakeRect(NSMidX(rect) - 3.0,
+        rect.origin.y, 6.0, rect.size.height);
+    [style.strip setFill];
+    NSRectFill(track);
+    [style.grid setStroke];
+    NSFrameRect(track);
+    NSRect fill = NSInsetRect(track, 1.0, 1.0);
+    const CGFloat fillTop = fill.origin.y
+        + fill.size.height * (1.0 - norm);
+    fill.size.height = NSMaxY(fill) - fillTop;
+    fill.origin.y = fillTop;
+    [style.fill setFill];
+    NSRectFill(fill);
+    const CGFloat handleY = NSMaxY(rect) - norm * rect.size.height;
+    [style.text setFill];
+    NSRectFill(NSMakeRect(rect.origin.x + 5.0, handleY - 4.0,
+        rect.size.width - 10.0, 9.0));
+}
+
+inline void drawCenteredTextToFit(NSString* text,
+                                  NSRect rect,
+                                  NSDictionary* attrs)
+{
+    NSString* fitted = sliderValueTextToFit(text, rect.size.width, attrs);
+    const NSSize size = [fitted sizeWithAttributes:attrs];
+    [fitted drawAtPoint:NSMakePoint(
+        rect.origin.x + std::max<CGFloat>(0.0,
+            (rect.size.width - size.width) * 0.5),
+        rect.origin.y) withAttributes:attrs];
+}
+
+inline void drawDial(NSString* name,
+                     NSString* value,
+                     CGFloat norm,
+                     NSRect rect,
+                     NSDictionary* labelAttrs,
+                     NSDictionary* valueAttrs,
+                     const Style& style)
+{
+    norm = std::clamp(norm, static_cast<CGFloat>(0.0),
+        static_cast<CGFloat>(1.0));
+    drawCenteredTextToFit([name uppercaseString],
+        NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 13.0),
+        labelAttrs);
+
+    const CGFloat diameter = std::min<CGFloat>(32.0, rect.size.width - 8.0);
+    const NSRect face = NSMakeRect(
+        NSMidX(rect) - diameter * 0.5, rect.origin.y + 14.0,
+        diameter, diameter);
+    NSBezierPath* body = [NSBezierPath bezierPathWithOvalInRect:face];
+    [style.strip setFill];
+    [body fill];
+    [style.grid setStroke];
+    [body setLineWidth:1.0];
+    [body stroke];
+
+    const CGFloat angle = static_cast<CGFloat>(
+        (135.0 + 270.0 * norm) * kPi / 180.0);
+    const NSPoint center = NSMakePoint(NSMidX(face), NSMidY(face));
+    const CGFloat innerRadius = diameter * 0.13;
+    const CGFloat outerRadius = diameter * 0.40;
+    NSBezierPath* needle = [NSBezierPath bezierPath];
+    [needle moveToPoint:NSMakePoint(
+        center.x + std::cos(angle) * innerRadius,
+        center.y + std::sin(angle) * innerRadius)];
+    [needle lineToPoint:NSMakePoint(
+        center.x + std::cos(angle) * outerRadius,
+        center.y + std::sin(angle) * outerRadius)];
+    [style.text setStroke];
+    [needle setLineWidth:2.0];
+    [needle stroke];
+
+    [style.fill setFill];
+    NSRectFill(NSMakeRect(center.x - 1.5, center.y - 1.5, 3.0, 3.0));
+    drawCenteredTextToFit(value,
+        NSMakeRect(rect.origin.x, NSMaxY(face) + 3.0,
+            rect.size.width, 13.0), valueAttrs);
+}
+
+inline void drawVerticalVuMeter(CGFloat norm,
+                                NSRect rect,
+                                const Style& style)
+{
+    norm = std::clamp(norm, static_cast<CGFloat>(0.0),
+        static_cast<CGFloat>(1.0));
+    [style.strip setFill];
+    NSRectFill(rect);
+
+    const NSRect inner = NSInsetRect(rect, 1.0, 1.0);
+    const auto drawRange = [&](CGFloat low, CGFloat high, NSColor* color) {
+        const CGFloat activeTop = std::min(norm, high);
+        if (activeTop <= low) return;
+        const CGFloat height = inner.size.height * (activeTop - low);
+        [color setFill];
+        NSRectFill(NSMakeRect(inner.origin.x,
+            NSMaxY(inner) - inner.size.height * activeTop,
+            inner.size.width, height));
+    };
+    drawRange(0.0, 0.76, color(0x4f9a63));
+    drawRange(0.76, 0.92, color(0xc59b3d));
+    drawRange(0.92, 1.0, color(0xbd514d));
+
+    [style.grid setStroke];
+    NSFrameRect(rect);
+}
+
 inline NSString* menuDisplayText(NSString* value,
                                  CGFloat maximumWidth,
                                  NSDictionary* attrs)

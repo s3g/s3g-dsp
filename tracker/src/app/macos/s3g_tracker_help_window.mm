@@ -89,7 +89,7 @@ NSAttributedString* helpDocument()
         NSParagraphStyleAttributeName: paragraph(17.0, 8.0, 2.0),
     };
     [document appendAttributedString:[[NSAttributedString alloc]
-        initWithString:@"COLUMNS  NOTE · BUS · VOL · FX1 · V1 · FX2 · V2 · Double-click a header to enter its independent length\nVALUES  BUS uses B01–B08 for the eight REAPER MIDI buses · VOL uses normalized 0.000–1.000\nDIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (?)\n\nTRANSPORT  Space play/pause · Shift-Space loop · Stop returns to row 1\nTRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle · Command-A/C/X/V select all, copy, cut, paste · Command-=/−/0 zoom\nNAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\nLOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\nPAGES  Tracker, Song, Geometry, Warps, Console, and Help stay inside the REAPER plug-in editor\n\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
+        initWithString:@"COLUMNS  NOTE · BUS · VOL · FX1 · V1 · FX2 · V2 · Double-click a header to enter its independent length\nROUTING  Click B01–B08 or CH01–CH16 in any lane header to set that track's default MIDI bus and channel\nVALUES  BUS cells use B01–B08 and may change bus within a track · VOL uses normalized 0.000–1.000\nDIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (?)\n\nTRANSPORT  Space play/pause · Shift-Space loop · Stop returns to row 1\nTRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\nTRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-=/−/0 zoom · Control-1/2/3 choose column page\nHOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\nNAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\nLOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\nPAGES  Tracker, Song, Geometry, Warps, Console, and Help stay inside the REAPER plug-in editor\n\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
         attributes:footerAttributes]];
     return document;
 }
@@ -178,7 +178,7 @@ NSAttributedString* helpDocument()
     [root addSubview:title];
 
     NSTextField* subtitle = [NSTextField
-        labelWithString:@"COMPLETE NATIVE COMMAND LANGUAGE  /  ⌘5  /  ESC TO CLOSE"];
+        labelWithString:@"COMPLETE NATIVE COMMAND LANGUAGE  /  EMBEDDED HELP PAGE"];
     subtitle.translatesAutoresizingMaskIntoConstraints = NO;
     subtitle.font = helpFont(9.0, NSFontWeightMedium);
     subtitle.textColor = S3GTrackerColor(0x737a7c);
