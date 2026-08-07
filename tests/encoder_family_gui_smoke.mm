@@ -1151,6 +1151,16 @@ int main(int argc, char** argv)
             || std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0;
+        const bool drumInstrument = std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-kick") == 0
+            || std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-snare") == 0
+            || std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-floor-tom") == 0
+            || std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-toms") == 0;
+        const bool drumOverload = std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-overload") == 0;
         NSPanel* parameterSurfacePanel = nil;
         auto mouseEvent = [&](NSEventType type, NSPoint documentPoint) {
             return [NSEvent
@@ -1164,6 +1174,182 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && drumOverload && !documentationCapture) {
+            failureStage = "Drum Overload dropdown and DRIVE hit map";
+            @try {
+                // The compact-effect DRIVE panel begins below the three-row
+                // OUTPUT panel. Its first control is the CIRCUIT menu.
+                const NSPoint circuitMenu = NSMakePoint(235.0, 202.0);
+                const NSPoint transformerItem = NSMakePoint(235.0, 312.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, circuitMenu)];
+                ok = [[document valueForKey:@"openMenu"] intValue] == 1;
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, transformerItem)];
+                    ok = [[document valueForKey:@"hoverMenuItem"] intValue]
+                        == 5;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, transformerItem)];
+                }
+                double circuit = -1.0;
+                ok = ok && params->get_value(plugin, 1u, &circuit)
+                    && std::fabs(circuit - 5.0) < 0.000001
+                    && [[document valueForKey:@"openMenu"] intValue] == 0;
+                if (!ok) {
+                    std::cerr << "Drum Overload dropdown details: open="
+                        << [[document valueForKey:@"openMenu"] intValue]
+                        << " hover="
+                        << [[document valueForKey:@"hoverMenuItem"] intValue]
+                        << " circuit=" << circuit << "\n";
+                }
+                SingleParamEventInput restoreCircuit {};
+                setSingleParamEvent(restoreCircuit, 1u, 0.0);
+                params->flush(plugin, &restoreCircuit.events, nullptr);
+
+                // CIRCUIT occupies row zero, so the DRIVE sliders must map
+                // to their drawn rows one through four.
+                const NSPoint inputSlider = NSMakePoint(275.0, 222.0);
+                const NSPoint punchSlider = NSMakePoint(275.0, 300.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, inputSlider)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, inputSlider)];
+                }
+                double driveInput = 0.0;
+                double overload = 0.0;
+                ok = ok && params->get_value(plugin, 2u, &driveInput)
+                    && params->get_value(plugin, 3u, &overload)
+                    && driveInput > 23.0
+                    && std::fabs(overload - 0.62) < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, punchSlider)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, punchSlider)];
+                }
+                double punch = 0.0;
+                ok = ok && params->get_value(plugin, 5u, &punch)
+                    && punch > 0.95;
+                if (!ok) {
+                    std::cerr << "Drum Overload DRIVE details: input="
+                        << driveInput << " overload=" << overload
+                        << " punch=" << punch << "\n";
+                }
+                SingleParamEventInput restoreDrive {};
+                setSingleParamEvent(restoreDrive, 2u, 0.0);
+                params->flush(plugin, &restoreDrive.events, nullptr);
+                setSingleParamEvent(restoreDrive, 5u, 0.24);
+                params->flush(plugin, &restoreDrive.events, nullptr);
+            } @catch (NSException* exception) {
+                std::cerr << "Drum Overload dropdown exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
+        if (ok && drumInstrument && !documentationCapture) {
+            failureStage = "drum RANDOM safe parameter ownership";
+            constexpr clap_id kNoteTrackingId = 2u;
+            constexpr clap_id kStereoWidthId = 24u;
+            constexpr clap_id kVelocityId = 25u;
+            constexpr clap_id kOutputId = 26u;
+            constexpr clap_id kTriggerId = 27u;
+            constexpr std::array<clap_id, 23u> kRandomizedIds {{
+                1u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u,
+                13u, 14u, 15u, 16u, 17u, 18u, 19u, 20u, 21u, 22u,
+                23u, kStereoWidthId,
+            }};
+
+            const auto setParam = [&](clap_id id, double value) {
+                SingleParamEventInput input {};
+                setSingleParamEvent(input, id, value);
+                params->flush(plugin, &input.events, nullptr);
+                double actual = 0.0;
+                return params->get_value(plugin, id, &actual)
+                    && std::fabs(actual - value) < 1.0e-6;
+            };
+            ok = params && params->flush && params->get_value
+                && setParam(kNoteTrackingId, 0.371)
+                && setParam(kVelocityId, 0.427)
+                && setParam(kOutputId, -17.25)
+                && setParam(kStereoWidthId, 0.0);
+
+            std::array<double, 28u> before {};
+            std::array<double, 28u> after {};
+            for (clap_id id = 1u; ok && id <= kTriggerId; ++id) {
+                ok = params->get_value(plugin, id, &before[id]);
+            }
+
+            CapturedOutputEvents captured {};
+            captured.events.ctx = &captured;
+            captured.events.try_push = captureOutputEvent;
+            hostContext.deferParamFlush = true;
+            hostContext.paramFlushRequested = false;
+            if (ok) {
+                const auto titleBand = s3g::clap_gui::encoderTitleBand(
+                    nativeWidth, nativeHeight);
+                const NSPoint randomPoint = NSMakePoint(
+                    titleBand.randomButton.x
+                        + titleBand.randomButton.width * 0.5,
+                    titleBand.randomButton.y
+                        + titleBand.randomButton.height * 0.5);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, randomPoint)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, randomPoint)];
+            }
+            hostContext.deferParamFlush = false;
+            if (ok) params->flush(plugin, nullptr, &captured.events);
+            hostContext.paramFlushRequested = false;
+
+            uint32_t changed = 0u;
+            for (clap_id id = 1u; ok && id <= kTriggerId; ++id) {
+                ok = params->get_value(plugin, id, &after[id])
+                    && std::isfinite(after[id]);
+                if (ok && std::fabs(after[id] - before[id]) > 1.0e-6) {
+                    ++changed;
+                }
+            }
+            ok = ok
+                && after[kNoteTrackingId] == before[kNoteTrackingId]
+                && after[kVelocityId] == before[kVelocityId]
+                && after[kOutputId] == before[kOutputId]
+                && after[kTriggerId] == before[kTriggerId]
+                && changed >= 16u
+                && captured.values.size() == kRandomizedIds.size() * 3u;
+
+            for (size_t index = 0u; ok && index < kRandomizedIds.size();
+                 ++index) {
+                const clap_id id = kRandomizedIds[index];
+                const size_t eventIndex = index * 3u;
+                clap_param_info_t info {};
+                ok = params->get_info(plugin, id - 1u, &info)
+                    && info.id == id
+                    && after[id] >= info.min_value
+                    && after[id] <= info.max_value
+                    && captured.values[eventIndex].type
+                        == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                    && captured.values[eventIndex].paramId == id
+                    && captured.values[eventIndex + 1u].type
+                        == CLAP_EVENT_PARAM_VALUE
+                    && captured.values[eventIndex + 1u].paramId == id
+                    && std::fabs(captured.values[eventIndex + 1u].value
+                        - after[id]) < 1.0e-6
+                    && captured.values[eventIndex + 2u].type
+                        == CLAP_EVENT_PARAM_GESTURE_END
+                    && captured.values[eventIndex + 2u].paramId == id;
+            }
+            if (!ok) {
+                std::cerr << "Drum RANDOM changed an owned parameter or "
+                    "published an incomplete host gesture set for "
+                          << pluginId << " (events="
+                          << captured.values.size() << ", changed="
+                          << changed << ")\n";
+            }
+        }
         if (ok && cartographyEncoder && !documentationCapture) {
             failureStage = "Cartography camera contract";
             @try {

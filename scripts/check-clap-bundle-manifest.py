@@ -36,6 +36,12 @@ FUTURE_ONLY_CMAKE_DIRECTORIES = {
     "clap_ambi_acid_encoder",
     "clap_ambi_horizon_encoder",
     "clap_ambi_membrane_kick",
+    "clap_drum_floor_tom",
+    "clap_drum_hi_hat",
+    "clap_drum_kick",
+    "clap_drum_overload",
+    "clap_drum_snare",
+    "clap_drum_toms",
 }
 
 

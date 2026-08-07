@@ -21,6 +21,8 @@ target_include_directories(s3g_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
 # absent from the active 0.6.0-pre bundle manifest and release-gate inventory.
 option(S3G_BUILD_FUTURE_COMPONENTS
   "Build future-release DSP previews that are excluded from 0.6.0-pre" OFF)
+option(S3G_BUILD_DRUM_OVERLOAD_PREVIEW
+  "Build Drum Overload without enabling every future component" OFF)
 
 include(FetchContent)
 include(cmake/S3GRealtimeAllocProbe.cmake)
@@ -65,6 +67,42 @@ add_executable(s3g_fractional_waveguide_network_smoke
 target_link_libraries(s3g_fractional_waveguide_network_smoke PRIVATE s3g_dsp)
 
 if(S3G_BUILD_FUTURE_COMPONENTS)
+  add_executable(s3g_drum_primitives_smoke
+    tests/drum_primitives_smoke.cpp)
+  target_link_libraries(s3g_drum_primitives_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_character_smoke
+    tests/drum_character_smoke.cpp)
+  target_link_libraries(s3g_drum_character_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_overload_smoke
+    tests/drum_overload_smoke.cpp)
+  target_link_libraries(s3g_drum_overload_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_kick_smoke
+    tests/drum_kick_smoke.cpp)
+  target_link_libraries(s3g_drum_kick_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_snare_smoke
+    tests/drum_snare_smoke.cpp)
+  target_link_libraries(s3g_drum_snare_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_tom_voice_smoke
+    tests/drum_tom_voice_smoke.cpp)
+  target_link_libraries(s3g_drum_tom_voice_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_floor_tom_smoke
+    tests/drum_floor_tom_smoke.cpp)
+  target_link_libraries(s3g_drum_floor_tom_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_toms_smoke
+    tests/drum_toms_smoke.cpp)
+  target_link_libraries(s3g_drum_toms_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_hi_hat_smoke
+    tests/drum_hi_hat_smoke.cpp)
+  target_link_libraries(s3g_drum_hi_hat_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_ambi_membrane_kick_smoke
     tests/ambi_membrane_kick_smoke.cpp)
   target_link_libraries(s3g_ambi_membrane_kick_smoke PRIVATE s3g_dsp)
@@ -76,6 +114,12 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
   add_executable(s3g_ambi_acid_encoder_render
     tools/render_ambi_acid_encoder.cpp)
   target_link_libraries(s3g_ambi_acid_encoder_render PRIVATE s3g_dsp)
+endif()
+
+if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+  add_executable(s3g_drum_overload_smoke
+    tests/drum_overload_smoke.cpp)
+  target_link_libraries(s3g_drum_overload_smoke PRIVATE s3g_dsp)
 endif()
 
 add_executable(s3g_ambi_ray_bilocation_encoder_smoke tests/ambi_ray_bilocation_encoder_smoke.cpp)
@@ -250,6 +294,42 @@ if(BUILD_TESTING)
   endforeach()
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_test(NAME s3g_drum_primitives_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>)
+    set_tests_properties(s3g_drum_primitives_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_character_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>)
+    set_tests_properties(s3g_drum_character_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_overload_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
+    set_tests_properties(s3g_drum_overload_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_kick_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_kick_smoke>)
+    set_tests_properties(s3g_drum_kick_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_snare_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_snare_smoke>)
+    set_tests_properties(s3g_drum_snare_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_tom_voice_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_tom_voice_smoke>)
+    set_tests_properties(s3g_drum_tom_voice_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_floor_tom_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_floor_tom_smoke>)
+    set_tests_properties(s3g_drum_floor_tom_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_toms_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_toms_smoke>)
+    set_tests_properties(s3g_drum_toms_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_hi_hat_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_hi_hat_smoke>)
+    set_tests_properties(s3g_drum_hi_hat_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_membrane_kick_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>)
     set_tests_properties(s3g_ambi_membrane_kick_smoke PROPERTIES
@@ -261,6 +341,13 @@ if(BUILD_TESTING)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
     set_tests_properties(s3g_ambi_horizon_encoder_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+  endif()
+
+  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+    add_test(NAME s3g_drum_overload_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
+    set_tests_properties(s3g_drum_overload_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
   endif()
 
@@ -513,6 +600,48 @@ if(S3G_BUILD_CLAP_PLUGIN)
     PRIVATE ${CMAKE_DL_LIBS})
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_executable(s3g_drum_kick_clap_smoke
+      tests/drum_kick_clap_smoke.cpp)
+    target_include_directories(s3g_drum_kick_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_kick_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_snare_clap_smoke
+      tests/drum_snare_clap_smoke.cpp)
+    target_include_directories(s3g_drum_snare_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_snare_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_overload_clap_smoke
+      tests/drum_overload_clap_smoke.cpp)
+    target_include_directories(s3g_drum_overload_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_overload_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_floor_tom_clap_smoke
+      tests/drum_floor_tom_clap_smoke.cpp)
+    target_include_directories(s3g_drum_floor_tom_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_floor_tom_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_toms_clap_smoke
+      tests/drum_toms_clap_smoke.cpp)
+    target_include_directories(s3g_drum_toms_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_toms_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_hi_hat_clap_smoke
+      tests/drum_hi_hat_clap_smoke.cpp)
+    target_include_directories(s3g_drum_hi_hat_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_hi_hat_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_ambi_membrane_kick_clap_smoke
       tests/ambi_membrane_kick_clap_smoke.cpp)
     target_include_directories(s3g_ambi_membrane_kick_clap_smoke
@@ -525,6 +654,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_include_directories(s3g_ambi_acid_encoder_clap_smoke
       PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_ambi_acid_encoder_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+  endif()
+
+  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+    add_executable(s3g_drum_overload_clap_smoke
+      tests/drum_overload_clap_smoke.cpp)
+    target_include_directories(s3g_drum_overload_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_overload_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
   endif()
 
@@ -576,6 +714,27 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
   add_subdirectory(plugins/clap_ambi_encoder_medium)
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_kick)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_snare)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_overload)
+  endif()
+  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_overload)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_floor_tom)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_toms)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_hi_hat)
+  endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_membrane_kick)
   endif()
@@ -864,6 +1023,182 @@ if(S3G_BUILD_CLAP_PLUGIN)
     COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_custom_target(audit_drum_kick
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_kick_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_kick_clap_smoke>
+        $<TARGET_FILE:s3g_drum_kick_clap>
+        org.s3g.s3g-dsp.drum-kick
+      DEPENDS
+        s3g_drum_character_smoke
+        s3g_drum_kick_smoke
+        s3g_drum_kick_clap_smoke
+        s3g_drum_kick_clap
+      COMMENT "Validating shared drum character DSP, kick synthesis, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_kick_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_kick_clap>
+          org.s3g.s3g-dsp.drum-kick
+          920 680 "s3g Drum Kick" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_kick_clap
+        COMMENT "Validating the responsive Drum Kick editor")
+      add_dependencies(audit_drum_kick
+        audit_drum_kick_gui)
+    endif()
+
+    add_custom_target(audit_drum_snare
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_snare_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_snare_clap_smoke>
+        $<TARGET_FILE:s3g_drum_snare_clap>
+        org.s3g.s3g-dsp.drum-snare
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_snare_smoke
+        s3g_drum_snare_clap_smoke
+        s3g_drum_snare_clap
+      COMMENT "Validating shared drum primitives, snare synthesis, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_snare_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_snare_clap>
+          org.s3g.s3g-dsp.drum-snare
+          920 680 "s3g Drum Snare" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_snare_clap
+        COMMENT "Validating the responsive Drum Snare editor")
+      add_dependencies(audit_drum_snare
+        audit_drum_snare_gui)
+    endif()
+
+    add_custom_target(audit_drum_floor_tom
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_tom_voice_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_floor_tom_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_floor_tom_clap_smoke>
+        $<TARGET_FILE:s3g_drum_floor_tom_clap>
+        org.s3g.s3g-dsp.drum-floor-tom
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_tom_voice_smoke
+        s3g_drum_floor_tom_smoke
+        s3g_drum_floor_tom_clap_smoke
+        s3g_drum_floor_tom_clap
+      COMMENT "Validating shared tom voice DSP, Floor Tom synthesis, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_floor_tom_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_floor_tom_clap>
+          org.s3g.s3g-dsp.drum-floor-tom
+          920 680 "s3g Drum Floor Tom" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_floor_tom_clap
+        COMMENT "Validating the responsive Drum Floor Tom editor")
+      add_dependencies(audit_drum_floor_tom
+        audit_drum_floor_tom_gui)
+    endif()
+
+    add_custom_target(audit_drum_toms
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_tom_voice_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_toms_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_toms_clap_smoke>
+        $<TARGET_FILE:s3g_drum_toms_clap>
+        org.s3g.s3g-dsp.drum-toms
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_tom_voice_smoke
+        s3g_drum_toms_smoke
+        s3g_drum_toms_clap_smoke
+        s3g_drum_toms_clap
+      COMMENT "Validating shared tom voice DSP, Low/Mid/High Toms synthesis, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_toms_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_toms_clap>
+          org.s3g.s3g-dsp.drum-toms
+          920 680 "s3g Drum Toms" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_toms_clap
+        COMMENT "Validating the responsive Low/Mid/High Drum Toms editor")
+      add_dependencies(audit_drum_toms
+        audit_drum_toms_gui)
+    endif()
+
+    add_custom_target(audit_drum_hi_hat
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_hi_hat_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_hi_hat_clap_smoke>
+        $<TARGET_FILE:s3g_drum_hi_hat_clap>
+        org.s3g.s3g-dsp.drum-hi-hat
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_hi_hat_smoke
+        s3g_drum_hi_hat_clap_smoke
+        s3g_drum_hi_hat_clap
+      COMMENT "Validating hi-hat synthesis, articulations, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_hi_hat_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_hi_hat_clap>
+          org.s3g.s3g-dsp.drum-hi-hat
+          920 680 "s3g Drum Hi-Hat" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_hi_hat_clap
+        COMMENT "Validating the responsive Drum Hi-Hat editor")
+      add_dependencies(audit_drum_hi_hat
+        audit_drum_hi_hat_gui)
+    endif()
+
+    add_custom_target(audit_drum_overload
+      COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_overload_clap_smoke>
+        $<TARGET_FILE:s3g_drum_overload_clap>
+        org.s3g.s3g-dsp.drum-overload
+      DEPENDS
+        s3g_drum_overload_smoke
+        s3g_drum_overload_clap_smoke
+        s3g_drum_overload_clap
+      COMMENT "Validating stereo drum overload DSP, CLAP ports, automation, and state")
+    if(APPLE)
+      add_custom_target(audit_drum_overload_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_overload_clap>
+          org.s3g.s3g-dsp.drum-overload
+          760 376 "s3g Effect " responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_overload_clap
+        COMMENT "Validating the responsive Drum Overload editor")
+      add_dependencies(audit_drum_overload
+        audit_drum_overload_gui)
+    endif()
+
+    add_custom_target(audit_drum_family
+      DEPENDS
+        audit_drum_kick
+        audit_drum_snare
+        audit_drum_floor_tom
+        audit_drum_toms
+        audit_drum_hi_hat
+        audit_drum_overload
+      COMMENT "Validating the shared procedural drum instrument family")
+
     add_custom_target(audit_ambi_membrane_kick
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_clap_smoke>
@@ -910,6 +1245,31 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMENT "Validating the responsive Ambi Encoder Acid dual-view path editor")
       add_dependencies(audit_ambi_acid_encoder
         audit_ambi_acid_encoder_gui)
+    endif()
+  endif()
+
+  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+    add_custom_target(audit_drum_overload
+      COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_overload_clap_smoke>
+        $<TARGET_FILE:s3g_drum_overload_clap>
+        org.s3g.s3g-dsp.drum-overload
+      DEPENDS
+        s3g_drum_overload_smoke
+        s3g_drum_overload_clap_smoke
+        s3g_drum_overload_clap
+      COMMENT "Validating stereo drum overload DSP, CLAP ports, automation, and state")
+    if(APPLE)
+      add_custom_target(audit_drum_overload_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_overload_clap>
+          org.s3g.s3g-dsp.drum-overload
+          760 376 "s3g Effect " responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_overload_clap
+        COMMENT "Validating the responsive Drum Overload editor")
+      add_dependencies(audit_drum_overload audit_drum_overload_gui)
     endif()
   endif()
 
