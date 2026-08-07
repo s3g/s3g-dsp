@@ -88,6 +88,10 @@ See [Building From Source](https://s3g.github.io/s3g-dsp/building-from-source.ht
 for requirements, CMake presets, optional dependencies, validation, packaging,
 and local installation.
 
+The source-only [s3g Tracker CLAP preview](docs/s3g-tracker-clap.md) is a
+host-synchronized MIDI tracker for REAPER and a companion to the s3g drum
+synthesis plugins.
+
 ## Related Projects
 
 - [`s3g-mc`](https://github.com/s3g/s3g-mc): REAPER scripts, JSFX, and

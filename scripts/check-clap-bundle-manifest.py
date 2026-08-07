@@ -38,11 +38,22 @@ FUTURE_ONLY_CMAKE_DIRECTORIES = {
     "clap_ambi_membrane_kick",
     "clap_drum_floor_tom",
     "clap_drum_hi_hat",
+    "clap_drum_clap",
+    "clap_drum_cowbell",
+    "clap_drum_crash",
     "clap_drum_kick",
     "clap_drum_overload",
     "clap_drum_snare",
     "clap_drum_toms",
 }
+
+PREVIEW_ONLY_CMAKE_GATES = {
+    "clap_tracker": "S3G_BUILD_TRACKER_PREVIEW",
+}
+
+SOURCE_ONLY_CMAKE_DIRECTORIES = (
+    FUTURE_ONLY_CMAKE_DIRECTORIES | PREVIEW_ONLY_CMAKE_GATES.keys()
+)
 
 
 @dataclass(frozen=True)
@@ -338,7 +349,7 @@ def validate_source_metadata(
     configured_directories = set(
         re.findall(r"add_subdirectory\(plugins/(clap_[A-Za-z0-9_]+)\)", top_text)
     )
-    active_directories = configured_directories - FUTURE_ONLY_CMAKE_DIRECTORIES
+    active_directories = configured_directories - SOURCE_ONLY_CMAKE_DIRECTORIES
     manifest_directories = {
         PurePosixPath(bundle.build_path).parts[0]
         for bundle in bundles
@@ -352,25 +363,27 @@ def validate_source_metadata(
             f"manifest directory {directory!r} is not active in the top-level CMake file",
         )
     for directory in sorted(
-        manifest_directories & FUTURE_ONLY_CMAKE_DIRECTORIES
+        manifest_directories & SOURCE_ONLY_CMAKE_DIRECTORIES
     ):
         audit.error(
             location(active_manifest),
-            f"future-only CMake directory {directory!r} must not be in the active manifest",
+            f"source-only CMake directory {directory!r} must not be in the active manifest",
         )
     for directory in sorted(
-        configured_directories & FUTURE_ONLY_CMAKE_DIRECTORIES
+        configured_directories & SOURCE_ONLY_CMAKE_DIRECTORIES
     ):
+        gate = PREVIEW_ONLY_CMAKE_GATES.get(
+            directory, "S3G_BUILD_FUTURE_COMPONENTS"
+        )
         gated = re.search(
-            rf"if\(S3G_BUILD_FUTURE_COMPONENTS\)\s*"
+            rf"if\({re.escape(gate)}\)\s*"
             rf"add_subdirectory\(plugins/{re.escape(directory)}\)\s*endif\(\)",
             top_text,
         )
         if gated is None:
             audit.error(
                 location(top_cmake),
-                f"future-only CMake directory {directory!r} is not gated by "
-                "S3G_BUILD_FUTURE_COMPONENTS",
+                f"source-only CMake directory {directory!r} is not gated by {gate}",
             )
 
     cache: dict[str, tuple[Path, str, list[Path], str]] = {}

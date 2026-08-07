@@ -17,6 +17,17 @@
       }
     },
     {
+      "name": "clap-tracker",
+      "displayName": "s3g Tracker CLAP Preview",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-tracker",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_BUILD_TRACKER_PREVIEW": "ON"
+      }
+    },
+    {
       "name": "clap-release",
       "displayName": "CLAP Release",
       "generator": "Unix Makefiles",
@@ -61,6 +72,15 @@
     {
       "name": "clap",
       "configurePreset": "clap"
+    },
+    {
+      "name": "clap-tracker",
+      "configurePreset": "clap-tracker",
+      "targets": [
+        "s3g_tracker_clap",
+        "s3g_tracker_timing_playback_scheduler_tests",
+        "s3g_tracker_clap_smoke"
+      ]
     },
     {
       "name": "clap-release",

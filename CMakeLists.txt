@@ -23,6 +23,12 @@ option(S3G_BUILD_FUTURE_COMPONENTS
   "Build future-release DSP previews that are excluded from 0.6.0-pre" OFF)
 option(S3G_BUILD_DRUM_OVERLOAD_PREVIEW
   "Build Drum Overload without enabling every future component" OFF)
+option(S3G_BUILD_TRACKER_PREVIEW
+  "Build the host-synchronized s3g Tracker MIDI CLAP preview" OFF)
+
+if(S3G_BUILD_TRACKER_PREVIEW)
+  add_subdirectory(tracker)
+endif()
 
 include(FetchContent)
 include(cmake/S3GRealtimeAllocProbe.cmake)
@@ -102,6 +108,18 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
   add_executable(s3g_drum_hi_hat_smoke
     tests/drum_hi_hat_smoke.cpp)
   target_link_libraries(s3g_drum_hi_hat_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_clap_smoke
+    tests/drum_clap_smoke.cpp)
+  target_link_libraries(s3g_drum_clap_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_cowbell_smoke
+    tests/drum_cowbell_smoke.cpp)
+  target_link_libraries(s3g_drum_cowbell_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_crash_smoke
+    tests/drum_crash_smoke.cpp)
+  target_link_libraries(s3g_drum_crash_smoke PRIVATE s3g_dsp)
 
   add_executable(s3g_ambi_membrane_kick_smoke
     tests/ambi_membrane_kick_smoke.cpp)
@@ -330,6 +348,18 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_drum_hi_hat_smoke>)
     set_tests_properties(s3g_drum_hi_hat_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_clap_smoke>)
+    set_tests_properties(s3g_drum_clap_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_cowbell_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_cowbell_smoke>)
+    set_tests_properties(s3g_drum_cowbell_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_crash_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_crash_smoke>)
+    set_tests_properties(s3g_drum_crash_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_membrane_kick_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>)
     set_tests_properties(s3g_ambi_membrane_kick_smoke PROPERTIES
@@ -463,6 +493,19 @@ if(S3G_BUILD_CLAP_PLUGIN)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Checking compiled CLAP bundles for process-global Objective-C class collisions"
       VERBATIM)
+  endif()
+
+  if(S3G_BUILD_TRACKER_PREVIEW)
+    add_executable(s3g_tracker_clap_smoke tests/tracker_clap_smoke.cpp)
+    target_include_directories(s3g_tracker_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_tracker_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+    if(APPLE)
+      set_source_files_properties(tests/tracker_clap_smoke.cpp PROPERTIES
+        LANGUAGE OBJCXX)
+      target_compile_options(s3g_tracker_clap_smoke PRIVATE -fobjc-arc)
+      target_link_libraries(s3g_tracker_clap_smoke PRIVATE "-framework Cocoa")
+    endif()
   endif()
 
   add_executable(s3g_accelerometer_field_encoder_clap_state_smoke
@@ -642,6 +685,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_drum_hi_hat_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_drum_clap_clap_smoke
+      tests/drum_clap_clap_smoke.cpp)
+    target_include_directories(s3g_drum_clap_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_clap_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_ambi_membrane_kick_clap_smoke
       tests/ambi_membrane_kick_clap_smoke.cpp)
     target_include_directories(s3g_ambi_membrane_kick_clap_smoke
@@ -736,6 +786,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_subdirectory(plugins/clap_drum_hi_hat)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_clap)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_cowbell)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_crash)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_membrane_kick)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
@@ -748,6 +807,16 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
   add_subdirectory(plugins/clap_no_input_mixer)
   add_subdirectory(plugins/clap_nim_gesture)
+  if(S3G_BUILD_TRACKER_PREVIEW)
+    add_subdirectory(plugins/clap_tracker)
+  endif()
+  if(S3G_BUILD_TRACKER_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_tracker_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
+        $<TARGET_FILE:s3g_tracker_clap>)
+    set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
+      LABELS "tracker;clap;smoke" TIMEOUT 120)
+  endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_ray_bilocation_encoder)
@@ -1165,6 +1234,34 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_hi_hat_gui)
     endif()
 
+    add_custom_target(audit_drum_clap
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_clap_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_clap_clap_smoke>
+        $<TARGET_FILE:s3g_drum_clap_clap>
+        org.s3g.s3g-dsp.drum-clap
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_clap_smoke
+        s3g_drum_clap_clap_smoke
+        s3g_drum_clap_clap
+      COMMENT "Validating clap synthesis, articulations, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_clap_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_clap_clap>
+          org.s3g.s3g-dsp.drum-clap
+          920 680 "s3g Drum Clap" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_clap_clap
+        COMMENT "Validating the responsive Drum Clap editor")
+      add_dependencies(audit_drum_clap
+        audit_drum_clap_gui)
+    endif()
+
     add_custom_target(audit_drum_overload
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>
       COMMAND $<TARGET_FILE:s3g_drum_overload_clap_smoke>
@@ -1196,6 +1293,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_floor_tom
         audit_drum_toms
         audit_drum_hi_hat
+        audit_drum_clap
         audit_drum_overload
       COMMENT "Validating the shared procedural drum instrument family")
 
