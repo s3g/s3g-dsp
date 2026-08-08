@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Errant - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Errant MIDI-playable mutant analog bass and procedural stereo glitch-lineage instrument documentation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Errant <em>(source preview)</em></h1>
+
+        <p><code>s3g Processor Errant</code> is a zero-input, stereo, eight-voice heavy bass synthesizer that composes repeatable glitch genealogy around a playable analog-style core. A band-limited saw/pulse/triangle body, protected sub oscillator, driven four-stage resonant low-pass filter, and snappy pitch and filter contours keep the MIDI note clear enough for growling basslines, sub-bass, gabber, and hard techno. Errant captures that performance into a causal family archive and lets later notes inherit it through recurrence, reversal, rate changes, ratchets, prediction error, block loss and replacement, quantized reconstruction, polarity edits, folding, and stereo exchange. Those processes disturb the upper body while the oscillator spine and sub remain intact. No source samples are distributed with or loaded by the instrument.</p>
+
+        <p>Errant sits near <a href="processor-fault.html">Processor Fault</a> and Ambi Encoder Stochastic in the instrument family, but it gives their unstable processes a different performance grammar. Fault continuously interprets bytes, waveforms, codecs, and transmission processes. Stochastic evolves breakpoint-waveform populations. Errant makes the MIDI sequence itself a mutation program: repeated notes recall a lineage, intervals transform it, and simultaneous notes branch as siblings from the same archive snapshot.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Processor Errant</code> on a stereo instrument track and play MIDI notes, or press <code>GENERATE</code> in the editor to audition middle C.</li>
+          <li>Route its ordinary stereo output to the main stereo speakers or the project's established monitor path.</li>
+          <li>Choose <code>CELL</code>, <code>PHRASE</code>, or <code>FIELD</code> for the intended time scale.</li>
+          <li>Raise <code>GROWL</code> from a rounded analog body into pressured harmonics and formant bite, then place the voice with <code>REGISTER</code>, <code>KEY ROLE</code>, and <code>PITCH GRAVITY</code>.</li>
+          <li>Build the bass circuit with <code>SUB</code>, <code>CUTOFF</code>, <code>RESONANCE</code>, <code>CONTOUR</code>, and <code>DRIVE</code>. Add <code>CROSSWIRE</code> after the stable body is established.</li>
+          <li>Set <code>ANCESTRY</code> for continuity with earlier events and <code>MUTATION</code> for the severity of each transformation.</li>
+          <li>Use <code>SPAN</code>, <code>DENSITY</code>, and <code>REPEAT</code> to establish the phrase scale and recurrence.</li>
+          <li>Select a stereo topology, then set <code>COHERENCE</code> and <code>WIDTH</code>. The low body remains centered by design.</li>
+          <li>Change <code>SEED</code> to create another repeatable genealogy. The same seed, parameters, and MIDI performance reproduce the same result.</li>
+        </ol>
+
+        <h2 id="grammar">Event Grammar</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MODE</td><td><code>CELL</code> makes a finite one-shot, <code>PHRASE</code> makes a longer self-mutating utterance, and <code>FIELD</code> continues while held before following its release.</td></tr>
+            <tr><td>SPAN</td><td>Moves from compact event cells toward longer segments and phrase memory.</td></tr>
+            <tr><td>DENSITY</td><td>Increases the admission of impulses, cuts, and active descendants.</td></tr>
+            <tr><td>ANCESTRY</td><td>Controls how strongly a segment reuses audible history from the current note or the shared family archive instead of returning to fresh synthesis.</td></tr>
+            <tr><td>MUTATION</td><td>Raises the probability and depth of reverse reads, held rates, quantized levels, prediction errors, block failures, replacement, folding, ratchets, polarity changes, and related edits. Discontinuous operations enter through short transitions rather than raw sample jumps.</td></tr>
+            <tr><td>REPEAT</td><td>Raises recurrence and makes a repeated MIDI note more likely to recall an established family fragment.</td></tr>
+            <tr><td>COHERENCE</td><td>Moves the two lanes from related but independent timing and pitch behavior toward shared decisions.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The phrase memory is causal: a voice can only transform sound the instrument has already generated. Every sounding voice contributes to a four-second family archive. A new note takes a fixed snapshot of the preceding archive, so notes arriving together receive the same ancestor and become siblings rather than feeding instantaneously into one another. The new voice also owns a local memory whose descendants are written back alongside some fresh source. Long notes therefore contribute more history, and later notes accumulate performance history instead of selecting unrelated random effects.</p>
+
+        <h3 id="note-relationships">Note Relationships</h3>
+
+        <ul>
+          <li>A repeated note receives the greatest inheritance and recurrence.</li>
+          <li>Small intervals transpose and stretch a related branch.</li>
+          <li>Fifths and octaves retain strong family resemblance.</li>
+          <li>Larger or less-related leaps admit more rupture and fresh synthesis.</li>
+          <li>Low velocity favors faithful inheritance. Higher velocity increases fresh excitation, damage depth, and divergence as well as level.</li>
+        </ul>
+
+        <h2 id="bass-circuit">Mutant Bass Circuit</h2>
+
+        <p><code>GROWL</code> pressures a continuous upper body derived from the same oscillators as the fundamental. It no longer selects a replacement sound source, so high settings cannot crossfade the bass entirely into noise:</p>
+
+        <ul>
+          <li><code>OSCILLATOR SPINE</code> combines band-limited saw and variable-width pulse with a continuous triangle component.</li>
+          <li><code>GROWL BODY</code> adds pressure-shaped harmonics, oscillator cross-products, and a three-resonator throat bank.</li>
+          <li><code>PROTECTED SUB</code> blends pulse and sine one octave below and retains a restrained post-filter path.</li>
+          <li><code>CROSSWIRE LAYER</code> introduces smoothed wire strands, dust, pitch-width disagreement, and genealogy voltage above the stable low anchor.</li>
+        </ul>
+
+        <p><code>REGISTER</code> offsets the center by ±36 semitones. <code>KEY ROLE</code> determines whether MIDI note number addresses ancestor and inherited-fragment pitch, event clocks, or both. <code>PITCH GRAVITY</code> controls the strength of equal-tempered tracking and how firmly the stochastic period walk is pulled back toward the played note. Velocity sensitivity determines how much note velocity controls final excitation level; velocity always remains part of the mutation relationship.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Bass-circuit behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SUB</td><td>Adds a band-limited pulse/sine voice one octave below the played oscillator. A restrained protected path remains centered after the main filter and drive stages.</td></tr>
+            <tr><td>CUTOFF</td><td>Sets the nominal four-stage low-pass frequency from approximately 45 Hz to 9.9 kHz before note tracking and modulation.</td></tr>
+            <tr><td>RESONANCE</td><td>Raises bounded filter feedback. Saturation occurs inside the cascade so high settings reinforce rather than detach from the bass body.</td></tr>
+            <tr><td>CONTOUR</td><td>Moves cutoff over the note: positive values begin open and close, while negative values begin closed and open toward the nominal cutoff.</td></tr>
+            <tr><td>DRIVE</td><td>Raises input pressure and stage saturation inside the filter, followed by restrained output saturation.</td></tr>
+            <tr><td>CROSSWIRE</td><td>Routes a smoothed, segment-level fault voltage into upper-oscillator detune, pulse width, cutoff, resonance, wire strands, and genealogy level. It is intentionally unstable but cannot displace the MIDI-rooted oscillator spine.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Glitch operations are treated as damaged circuitry rather than accidental DSP failure. The event genealogy is now an upper-body mutation layer around a continuous oscillator spine. Segment boundaries and memory-loop wraps use extended crossfades; ratchets use smooth windows; dropped or replaced blocks slew between states; held-rate and quantized samples are de-stepped; and Crosswire, filter, voice-count normalization, voice stealing, output gain, and final sample motion are independently ramped. The pulse family uses a predominantly rounded analog pulse with only a restrained band-limited hard edge, and the throat bank is excited by continuous oscillator energy rather than an impulse train. The result can still fracture abruptly, but an isolated click should belong to the synthesized event rather than to an unsafe sample jump.</p>
+
+        <h2 id="stereo">Stereo Topology</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Topology</th><th>Event relationship</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SPINE</td><td>Places related material near a shared center.</td></tr>
+            <tr><td>WINGS</td><td>Opens related but decorrelated descendants to either side.</td></tr>
+            <tr><td>EXCHANGE</td><td>Alternates event emphasis between left and right.</td></tr>
+            <tr><td>SIDE</td><td>Uses complementary polarity for deliberately lateral fragments.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>WIDTH</code> sets the strength of the selected relationship. A low-band split below approximately 125 Hz maintains a centered anchor even when descendants become strongly lateral.</p>
+
+        <h2 id="midi-state">MIDI and State</h2>
+
+        <p>The instrument accepts CLAP note events and ordinary MIDI note-on and note-off messages, with a selectable omni or single-channel receive filter. MIDI CC 120 and CC 123 release all active voices. Eight voices are available; when all are occupied, the oldest is replaced. <code>CELL</code> behaves as a one-shot, <code>PHRASE</code> runs a finite genealogy that note-off may close early, and <code>FIELD</code> evolves until its note is released.</p>
+
+        <p><code>SEED</code> is stored with every host parameter, including the complete bass circuit, MIDI receive, topology, and output gain. The momentary <code>TRIGGER</code> action is intentionally excluded from saved state so loading a project cannot generate a surprise note. Version 0.1 and 0.2 project states migrate to the new bass circuit with safe defaults. Audio is DC-blocked and passes through a final bounded knee.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="processor-fault.html">
+            <span>Previous</span>
+            Processor Fault
+          </a>
+          <a class="page-nav-link next" href="sample-instruments.html">
+            <span>Next</span>
+            Sample / Loop Instruments
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>Generative Pages</h2>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="no-input-mixer-control.html">No Input Mixer Control</a>
+          <a href="processor-fault.html">Processor Fault</a>
+          <a href="processor-errant.html">Processor Errant</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#grammar">Event Grammar</a>
+          <a href="#note-relationships">Note Relationships</a>
+          <a href="#bass-circuit">Mutant Bass Circuit</a>
+          <a href="#stereo">Stereo Topology</a>
+          <a href="#midi-state">MIDI and State</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

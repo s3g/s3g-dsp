@@ -9,8 +9,12 @@
 namespace s3g::tracker {
 namespace {
 
-constexpr double kMinimumBpm = 20.0;
-constexpr double kMaximumBpm = 400.0;
+// Authored project/console tempo remains constrained to 20..400, while the
+// CLAP host-rate multiplier may legitimately produce quarter-speed 5 BPM or
+// four-times-speed 1600 BPM clocks. The realtime clock must preserve those
+// musical ratios rather than silently clamping them back to the authoring UI.
+constexpr double kMinimumBpm = 5.0;
+constexpr double kMaximumBpm = 1600.0;
 constexpr double kMinimumSampleRate = 8000.0;
 constexpr double kMaximumSampleRate = 768000.0;
 constexpr uint32_t kMaximumTicksPerBeat = 64u;

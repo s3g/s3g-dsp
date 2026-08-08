@@ -12,7 +12,10 @@ inline constexpr double kWorkspaceMinimumContentHeight = 560.0;
 inline constexpr double kWorkspaceToolbarHeight = 92.0;
 inline constexpr double kWorkspaceConsoleInputHeight = 44.0;
 inline constexpr double kTrackerRowNumberWidth = 34.0;
-inline constexpr double kTrackerLanePreferredWidth = 168.0;
+// A lane now exposes NOTE, VOL, and both sequencing action/value pairs at
+// once. Preserve readable field widths and let the horizontal scroller carry
+// larger patterns instead of compressing the unified lane.
+inline constexpr double kTrackerLanePreferredWidth = 360.0;
 inline constexpr double kTrackerLaneGutter = 7.0;
 
 struct WorkspaceLayoutMetrics {

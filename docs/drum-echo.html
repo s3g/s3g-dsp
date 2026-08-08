@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drum Echo - s3g-dsp</title>
+    <meta name="description" content="User guide for the transient-aware s3g Drum Echo multi-head tape delay CLAP effect.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header"><a class="brand" href="index.html">s3g-dsp</a><nav class="top-nav" aria-label="Top navigation"><a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a><a href="installing-plugins.html">Install</a><a href="apps.html">Apps</a><a href="multichannel.html">Multichannel</a><a href="ambisonics.html">Ambisonics</a><a href="instruments.html">Instruments</a><a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a></nav></header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Drum Echo</h1>
+        <p>Drum Echo is a stereo, transient-aware, three-head tape delay for individual percussion voices and complete drum buses. It can reinforce selected attacks, duck the existing echo while a new hit lands, and recover the tail between hits.</p>
+
+        <p>The interaction model takes broad cues from classic multi-head tape echoes and modern software such as <a href="https://www.arturia.com/products/software-effects/delay-tape201/overview" target="_blank" rel="noopener noreferrer">Arturia Delay TAPE-201</a>. Drum Echo uses original DSP and is not a circuit or product emulation.</p>
+
+        <p>This effect is currently a source-build preview included with <code>S3G_BUILD_FUTURE_COMPONENTS</code>.</p>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert <code>s3g Drum Echo</code> after a drum instrument or stereo drum bus.</li>
+          <li>Route the processed track to the main stereo output or a headphone monitor.</li>
+          <li>Choose a <code>HEADS</code> pattern and a host-synchronized <code>CLOCK</code> division, or select <code>FREE</code> and set <code>TIME</code>.</li>
+          <li>Set <code>HIT SEND</code> positive to emphasize attacks in the repeats, or negative to keep clicks and sticks out of the echo.</li>
+          <li>Raise <code>DUCK</code>, then tune <code>SENSE</code> until each new hit briefly clears the wet path without erasing its tail.</li>
+          <li>Finish with feedback, wear, flutter, tone, stereo spread, mix, and output trim.</li>
+        </ol>
+
+        <h2 id="heads">Heads and Clock</h2>
+        <p>The three playback heads are equally spaced at one, two, and three times the base delay. <code>HEADS</code> selects any single head, the three two-head pairs, or all heads. The rhythmic pattern therefore remains related when tape time or host tempo changes.</p>
+
+        <p><code>CLOCK</code> provides Free, 1/32, 1/16 triplet, 1/16, 1/8 triplet, 1/8, 1/4 triplet, 1/4, 1/2, and one-bar bases. Host tempo is read from the CLAP transport; 120 BPM is used when the host does not publish tempo. Time changes glide like a moving tape mechanism rather than jumping discontinuously.</p>
+
+        <h2 id="transients">Drum Response</h2>
+        <table class="readout-table"><thead><tr><th>Control</th><th>Drum-specific behavior</th></tr></thead><tbody>
+          <tr><td>Hit Send</td><td>Changes only the detected attack written into the echo. Positive values make kicks, sticks, and rim attacks repeat more strongly; negative values favor bodies and tails.</td></tr>
+          <tr><td>Sense</td><td>Moves the transient and duck detector threshold from strong bus hits toward quiet percussion detail.</td></tr>
+          <tr><td>Duck</td><td>Attenuates the wet output while a fresh hit is present, then releases over roughly 150 ms. Delay memory and feedback continue underneath.</td></tr>
+          <tr><td>Tone</td><td>Sets repeat bandwidth. Darker values reduce cymbal accumulation and leave more room for new attacks.</td></tr>
+          <tr><td>Spread</td><td>Places heads left, center, and right while adding restrained stereo cross-feedback.</td></tr>
+        </tbody></table>
+
+        <h2 id="tape">Tape Behavior</h2>
+        <p><code>WEAR</code> increases record and regeneration saturation while reducing feedback bandwidth. <code>FLUT</code> combines two slow tape-speed variations whose depth grows nonlinearly, so low values add movement without noticeably shifting the groove. Feedback is high-pass protected and soft-limited to keep low drum energy from producing DC buildup or unbounded regeneration.</p>
+
+        <h2 id="controls">Controls</h2>
+        <table class="readout-table"><thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead><tbody>
+          <tr><td>Multi-Head Tape</td><td>Heads / Clock / Time / Fdbk / Wear / Flut</td><td>Selects the tap pattern, timing, regeneration, and tape instability.</td></tr>
+          <tr><td>Drum Response</td><td>Hit Send / Sense / Duck / Tone / Spread</td><td>Controls transient injection, new-hit clearance, echo bandwidth, and image.</td></tr>
+          <tr><td>Output</td><td>Out / Mix / Byp</td><td>Sets final trim, clean/wet balance, and sample-exact bypass.</td></tr>
+          <tr><td>Readout</td><td>PK / Hit / Wet Duck</td><td>Shows output peak, detected transient activity, and current wet attenuation.</td></tr>
+        </tbody></table>
+
+        <h2 id="state">Automation and State</h2>
+        <p>All fourteen controls are automatable and saved in CLAP state. The effect reports a tail derived from the longest active head and feedback setting. It allocates delay memory during activation, not on the audio thread.</p>
+
+        <h2 id="limits">Limits</h2>
+        <p>Drum Echo requires a two-channel input and output and does not accept MIDI. It provides tape-style saturation and speed variation, but no spring-reverb model or claim of hardware accuracy. At extremely slow tempos, the longest head is limited by the prepared twelve-second delay memory.</p>
+
+        <nav class="page-nav" aria-label="Page navigation"><a class="page-nav-link" href="drum-overload.html"><span>Previous</span>Drum Overload</a><a class="page-nav-link next" href="drum-mixer.html"><span>Next</span>Drum Mixer 16</a></nav>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section"><h2>Drums</h2><a href="drums.html">Overview</a><a href="drum-kick.html">Kick</a><a href="drum-snare.html">Snare</a><a href="drum-floor-tom.html">Floor Tom</a><a href="drum-toms.html">Low / Mid / High Toms</a><a href="drum-hi-hat.html">Hi-Hat</a><a href="drum-clap.html">Clap</a><a href="drum-cowbell.html">Cowbell</a><a href="drum-crash.html">Crash</a><a href="drum-overload.html">Drum Overload</a><a href="drum-echo.html">Drum Echo</a><a href="drum-mixer.html">Drum Mixer 16</a></div><div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#heads">Heads and Clock</a><a href="#transients">Drum Response</a><a href="#tape">Tape Behavior</a><a href="#controls">Controls</a><a href="#state">Automation and State</a><a href="#limits">Limits</a></div></aside>
+    </div>
+  </body>
+</html>

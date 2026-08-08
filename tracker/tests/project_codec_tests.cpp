@@ -141,6 +141,7 @@ ProjectDocument makeDocument()
         "fixture Euclidean warp should be valid");
 
     document.session.gateMilliseconds = 123.5;
+    document.session.tempoScale = 1.5;
     document.session.mainOutputGain = 0.73f;
     document.session.mainOutputMuted = true;
     document.session.songPlaybackEnabled = true;
@@ -198,7 +199,7 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 3") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 4") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"phase\": 4") != std::string::npos,
@@ -216,6 +217,7 @@ void testCompleteDeterministicRoundTrip()
             && decoded.session.playbackSeed == 0xfedcba98u
             && decoded.session.mainOutputMuted
             && decoded.session.songPlaybackEnabled
+            && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9
             && std::abs(decoded.session.mainOutputGain - 0.73f) < 1.0e-6f,
         "random seeds, MAIN OUT, and Song mode should survive without precision loss");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
@@ -330,8 +332,8 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 3");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 3").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 4");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 4").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion

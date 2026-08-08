@@ -1,4 +1,4 @@
-# s3g Effect Drum Overload
+# s3g Drum Overload
 
 Drum Overload is a stereo-only, zero-latency distortion effect voiced for
 clean procedural drums, especially the `s3g_drum_*` family. It uses one shared

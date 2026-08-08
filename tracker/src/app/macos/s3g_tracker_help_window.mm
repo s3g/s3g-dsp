@@ -3,6 +3,7 @@
 #import "s3g_tracker_controls.h"
 
 #include "s3g/tracker/command.h"
+#include "s3g/tracker/fx_catalog.h"
 
 #include <string>
 #include <string_view>
@@ -47,6 +48,7 @@ NSAttributedString* helpDocument()
 
     const auto& sections = s3g::tracker::CommandEngine::helpSections();
     for (const auto& section : sections) {
+        const std::string_view visibleTitle = section.title;
         NSDictionary* sectionAttributes = @{
             NSFontAttributeName: helpFont(11.0, NSFontWeightSemibold),
             NSForegroundColorAttributeName: S3GTrackerThemeColor(
@@ -55,11 +57,18 @@ NSAttributedString* helpDocument()
             NSKernAttributeName: @0.8,
         };
         [document appendAttributedString:[[NSAttributedString alloc]
-            initWithString:[stringFromView(section.title)
+            initWithString:[stringFromView(visibleTitle)
                 stringByAppendingString:@"\n"]
             attributes:sectionAttributes]];
 
         for (const auto& entry : section.entries) {
+            std::string_view visibleSyntax = entry.syntax;
+            std::string_view visibleDescription = entry.description;
+            if (entry.syntax == "actions") {
+                visibleDescription = "List the sequencing action keys accepted by SEQ1 and SEQ2.";
+            } else if (entry.syntax == "demo") {
+                visibleDescription = "Load the General MIDI tracker demonstration.";
+            }
             NSDictionary* syntaxAttributes = @{
                 NSFontAttributeName: helpFont(11.0, NSFontWeightMedium),
                 NSForegroundColorAttributeName: S3GTrackerThemeColor(
@@ -67,7 +76,7 @@ NSAttributedString* helpDocument()
                 NSParagraphStyleAttributeName: paragraph(5.0, 2.0, 1.5),
             };
             [document appendAttributedString:[[NSAttributedString alloc]
-                initWithString:[stringFromView(entry.syntax)
+                initWithString:[stringFromView(visibleSyntax)
                     stringByAppendingString:@"\n"]
                 attributes:syntaxAttributes]];
 
@@ -77,10 +86,37 @@ NSAttributedString* helpDocument()
                 NSParagraphStyleAttributeName: paragraph(0.0, 4.0, 2.0),
             };
             [document appendAttributedString:[[NSAttributedString alloc]
-                initWithString:[stringFromView(entry.description)
+                initWithString:[stringFromView(visibleDescription)
                     stringByAppendingString:@"\n"]
                 attributes:descriptionAttributes]];
         }
+    }
+
+    NSDictionary* actionHeadingAttributes = @{
+        NSFontAttributeName: helpFont(11.0, NSFontWeightSemibold),
+        NSForegroundColorAttributeName: S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Focus),
+        NSParagraphStyleAttributeName: paragraph(14.0, 7.0, 1.0),
+        NSKernAttributeName: @0.8,
+    };
+    [document appendAttributedString:[[NSAttributedString alloc]
+        initWithString:@"SEQUENCING ACTIONS\n"
+        attributes:actionHeadingAttributes]];
+    for (std::size_t index = 0u;
+         index < s3g::tracker::sequencerActionCount(); ++index) {
+        const auto* action = s3g::tracker::sequencerAction(index);
+        if (!action) continue;
+        NSString* line = [NSString stringWithFormat:@"%@  %@  —  %@\n",
+            stringFromView(action->mnemonic),
+            stringFromView(action->displayName).uppercaseString,
+            stringFromView(action->valueMeaning)];
+        NSDictionary* actionAttributes = @{
+            NSFontAttributeName: helpFont(10.0, NSFontWeightRegular),
+            NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
+            NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 2.0),
+        };
+        [document appendAttributedString:[[NSAttributedString alloc]
+            initWithString:line attributes:actionAttributes]];
     }
 
     NSDictionary* footerAttributes = @{
@@ -89,7 +125,7 @@ NSAttributedString* helpDocument()
         NSParagraphStyleAttributeName: paragraph(17.0, 8.0, 2.0),
     };
     [document appendAttributedString:[[NSAttributedString alloc]
-        initWithString:@"COLUMNS  NOTE · BUS · VOL · FX1 · V1 · FX2 · V2 · Double-click a header to enter its independent length\nROUTING  Click B01–B08 or CH01–CH16 in any lane header to set that track's default MIDI bus and channel\nVALUES  BUS cells use B01–B08 and may change bus within a track · VOL uses normalized 0.000–1.000\nDIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (?)\n\nTRANSPORT  Space play/pause · Shift-Space loop · Stop returns to row 1\nTRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\nTRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-=/−/0 zoom · Control-1/2/3 choose column page\nHOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\nNAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\nLOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\nPAGES  Tracker, Song, Geometry, Warps, Console, and Help stay inside the REAPER plug-in editor\n\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
+        initWithString:@"COLUMNS  NOTE · VOL · SEQ1 · V1 · SEQ2 · V2 are visible together · Double-click a column header to enter its independent length\nSEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action, or double-click and type its code\nROUTING  Click B01–B08 or CH01–CH16 in any lane header to set that track's MIDI bus and channel · Double-click the lane name to rename it\nVALUES  VOL and sequence values use normalized 0.000–1.000\nDIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (?)\n\nTRANSPORT  Tempo follows REAPER · RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4× · Space play/pause · Shift-Space loop\nTRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\nTRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-=/−/0 zoom\nHOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\nNAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\nLOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\nTOOLS  Geometry, Warps, and Console can be detached with ↗ or by double-clicking their page tab\n\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
         attributes:footerAttributes]];
     return document;
 }

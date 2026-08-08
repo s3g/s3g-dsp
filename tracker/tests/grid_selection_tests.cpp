@@ -1,6 +1,7 @@
 #include "s3g_tracker_grid_selection.h"
 #include "s3g_tracker_grid_input.h"
 
+#include <cmath>
 #include <iostream>
 
 namespace {
@@ -82,6 +83,16 @@ int main()
             && !parseGridNormalizedValue("0.5x", normalized)
             && !parseGridNormalizedValue(".", normalized),
         "VOL parser should reject MIDI integers and malformed values");
+
+    check(std::abs(normalizedValueFromVerticalDrag(
+                0.5f, 20.0, false, false) - 0.6f) < 0.0001f
+            && normalizedValueFromVerticalDrag(
+                0.05f, -100.0, false, false) == 0.0f
+            && std::abs(normalizedValueFromVerticalDrag(
+                0.5f, 20.0, true, false) - 0.51f) < 0.0001f
+            && std::abs(normalizedValueFromVerticalDrag(
+                0.5f, 20.0, false, true) - 0.9f) < 0.0001f,
+        "numeric cell drag should increase upward, clamp, and honor fine/coarse modifiers");
 
     if (failures == 0) {
         std::cout << "grid selection tests passed\n";

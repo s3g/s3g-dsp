@@ -61,6 +61,10 @@ struct TrackerViewState {
     uint64_t audioRenderErrorCount = 0u;
     std::string midiRoute = "1 MIDI DEVICE";
     std::string audioOutputDevice = "DEFAULT OUTPUT";
+    // The embedded CLAP build displays the host clock and applies this
+    // persisted musical ratio to the tracker scheduler.
+    double hostBpm = 0.0;
+    double tempoScale = 1.0;
     std::string status = "MIDI ready";
     std::string lastEvent = "No MIDI sent yet";
     uint64_t sentEventCount = 0u;
@@ -69,8 +73,7 @@ struct TrackerViewState {
 
 struct WorkspaceCallbacks {
     std::function<void()> togglePlayback;
-    std::function<void()> pausePlayback;
-    std::function<void()> stopPlayback;
+    std::function<void()> restartPlayback;
     std::function<void()> panic;
     std::function<void()> showSongWindow;
     // Standalone builds may still present these modules as windows. Embedded

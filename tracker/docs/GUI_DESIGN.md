@@ -17,11 +17,14 @@ dense instrument surface, not a collection of stock AppKit controls.
   `#878787`, and `#656565`. Structural colors do not carry a purple or blue
   cast.
 - Semantic accents are sparse and stable: neutral light gray `#c0c0bc` is
-  keyboard focus and selection, cyan `#7fd7e8` is live playback or signal
-  flow, cyan `#85cbd3` labels NOTE structure, neutral `#b5b5b1` labels
+  keyboard focus, cyan `#7fd7e8` is general live state or signal flow, cyan
+  `#85cbd3` labels NOTE structure, neutral `#b5b5b1` labels
   instruments, yellow `#e8d47d` labels values, and green/orange/red indicate
-  success/warning/danger. Lane identity colors remain the only repeating
-  per-track color family.
+  success/warning/danger. Tracker cells deliberately restore the v8 semantic
+  palette: muted green `#2e412e` for playback, blue-purple `#303854` for a
+  dragged selection, and muted purple `#4d4d6b` for the editing cursor. These
+  colors do not replace the grayscale structural palette. Lane identity
+  colors remain the only repeating per-track color family.
 - The direction is informed by
   [Dracula](https://github.com/dracula/dracula-theme)'s readable foreground and
   semantic accent family and
@@ -172,11 +175,12 @@ top-level command registry.
   controls, cell hit-testing, playheads,
   and accessibility geometry all derive from the same lane bounds; the
   selected lane receives a full-height light outline and header underline.
-- Four-row beat groups alternate between close neutral tones and begin with a
-  stronger horizontal guide. The selected row receives one translucent band
-  across the complete tracker, while the cursor cell receives the neutral
-  light focus frame and any dragged block receives a quieter selection fill.
-  This separates row navigation from cell editing and
+- Every fourth row receives the stronger beat tone and horizontal guide. The
+  selected row keeps one quiet band across the complete tracker. Within it,
+  the editing cursor uses muted purple, a dragged block uses the darker
+  blue-purple selection fill, and each advancing column playhead uses muted
+  green. Cursor and selection take visual precedence when states coincide.
+  This separates row navigation from playback and cell editing and
   makes long polymetric rows easier to scan laterally.
 - The page control cycles `NOTE/INS/VOL -> FX1/V1 -> FX2/V2`.
   Tab/Shift-Tab traverses each field and wraps across those pages. Selection,

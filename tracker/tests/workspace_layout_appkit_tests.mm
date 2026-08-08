@@ -1,6 +1,11 @@
 #import <Cocoa/Cocoa.h>
 
+#import "s3g_tracker_controls.h"
 #import "s3g_tracker_workspace.h"
+
+#include "s3g_tracker_workspace_layout.h"
+
+#include "s3g/tracker/fx_catalog.h"
 
 #include <cmath>
 #include <iostream>
@@ -10,6 +15,10 @@
 @interface NSView (S3GTrackerGridTestAccess)
 - (void)laneMidiChannelSelected:(NSMenuItem*)sender;
 - (void)laneMidiBusSelected:(NSMenuItem*)sender;
+- (void)beginTrackNameEditingForTrack:(std::size_t)track rect:(NSRect)rect;
+- (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
+    row:(std::size_t)row field:(std::size_t)field;
+- (void)sequenceActionSelected:(NSMenuItem*)sender;
 @end
 
 namespace {
@@ -35,6 +44,15 @@ NSEvent* keyEvent(NSWindow* window, NSString* characters,
         location:NSZeroPoint modifierFlags:modifiers timestamp:0.0
         windowNumber:window.windowNumber context:nil characters:characters
         charactersIgnoringModifiers:characters isARepeat:NO keyCode:keyCode];
+}
+
+NSEvent* mouseDownEvent(NSWindow* window, NSPoint location,
+    NSInteger clickCount)
+{
+    return [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+        location:location modifierFlags:0u timestamp:0.0
+        windowNumber:window.windowNumber context:nil eventNumber:1
+        clickCount:clickCount pressure:1.0];
 }
 
 void seedTracks(s3g::tracker::app::TrackerViewState& state)
@@ -78,6 +96,8 @@ int main()
         int renamePatternRequests = 0;
         int deletePatternRequests = 0;
         int patternChangeRequests = 0;
+        int transportChangeRequests = 0;
+        int restartRequests = 0;
         callbacks.selectPattern = [&](const std::string& patternId) {
             selectedPattern = patternId;
             (void)state.patternBank.selectPattern(patternId);
@@ -86,6 +106,8 @@ int main()
         callbacks.renamePattern = [&] { ++renamePatternRequests; };
         callbacks.deletePattern = [&] { ++deletePatternRequests; };
         callbacks.patternChanged = [&] { ++patternChangeRequests; };
+        callbacks.transportChanged = [&] { ++transportChangeRequests; };
+        callbacks.restartPlayback = [&] { ++restartRequests; };
 
         S3GTrackerWorkspaceController* controller =
             [[S3GTrackerWorkspaceController alloc]
@@ -118,6 +140,12 @@ int main()
             valueForKey:@"renamePatternButton"];
         NSButton* deletePatternButton = [controller
             valueForKey:@"deletePatternButton"];
+        NSTextField* columnSummary = [controller valueForKey:@"columnSummary"];
+        NSTextField* bpmDisplay = [controller valueForKey:@"bpmDisplay"];
+        NSPopUpButton* tempoScalePopup = [controller
+            valueForKey:@"tempoScalePopup"];
+        NSTextField* swingField = [controller valueForKey:@"swingField"];
+        NSButton* restartButton = [controller valueForKey:@"restartButton"];
         NSView* envelope = [controller valueForKey:@"envelopeView"];
         NSView* consoleOutput = [controller consolePageView];
         NSView* geometryPage = [controller geometryPageView];
@@ -131,6 +159,21 @@ int main()
                 && consoleOutput != geometryPage
                 && geometryPage != warpPage,
             "console, geometry, and warp modules should expose distinct pages");
+        check([columnSummary.stringValue containsString:@"SEQ2"]
+                && ![columnSummary.stringValue containsString:@"BUS"],
+            "tracker should expose one unified sequencing grid without INS/BUS cells");
+        state.hostBpm = 128.25;
+        state.tempoScale = 0.5;
+        [controller reloadModel];
+        check([bpmDisplay.stringValue isEqualToString:@"128.25"]
+                && [tempoScalePopup.selectedItem.title isEqualToString:@"1/2×"],
+            "transport should display host BPM and the persisted musical rate");
+        [tempoScalePopup selectItemAtIndex:4u];
+        [tempoScalePopup sendAction:tempoScalePopup.action
+            to:tempoScalePopup.target];
+        check(std::abs(state.tempoScale - 1.5) < 1.0e-9
+                && transportChangeRequests == 1,
+            "rate menu should publish the selected musical host-tempo ratio");
         check(NSWidth(grid.documentView.frame) >
                 NSWidth(grid.contentView.bounds) + 1000.0
                 && grid.hasHorizontalScroller,
@@ -139,6 +182,51 @@ int main()
                 NSHeight(grid.contentView.bounds)
                 && grid.hasVerticalScroller,
             "many rows should heighten the grid document and scroll");
+        const CGFloat laneWidth = (NSWidth(grid.documentView.bounds)
+                - s3g::tracker::app::kTrackerRowNumberWidth
+                - 11.0 * s3g::tracker::app::kTrackerLaneGutter) / 12.0;
+        const CGFloat firstFieldCenterX
+            = s3g::tracker::app::kTrackerRowNumberWidth + 3.0
+                + (laneWidth - 6.0) * 0.095;
+        const auto headerClick = [&](CGFloat y, NSInteger clicks) {
+            const NSPoint inWindow = [grid.documentView convertPoint:
+                NSMakePoint(firstFieldCenterX, y) toView:nil];
+            [grid.documentView mouseDown:mouseDownEvent(
+                window, inWindow, clicks)];
+        };
+        const bool initiallyMuted
+            = state.session.pattern.tracks[0u].noteColumn.muted;
+        headerClick(44.0, 1);
+        check(state.session.pattern.tracks[0u].noteColumn.muted
+                    == initiallyMuted
+                && patternChangeRequests == 0,
+            "clicking the dedicated length row must not toggle column mute");
+        const auto initialDirection
+            = state.session.pattern.tracks[0u].noteColumn.direction;
+        headerClick(60.0, 1);
+        check(state.session.pattern.tracks[0u].noteColumn.direction
+                    != initialDirection
+                && state.session.pattern.tracks[0u].noteColumn.muted
+                    == initiallyMuted
+                && patternChangeRequests == 1,
+            "the dedicated direction row should cycle without toggling mute");
+        headerClick(60.0, 1);
+        headerClick(60.0, 1);
+        headerClick(60.0, 1);
+        check(state.session.pattern.tracks[0u].noteColumn.direction
+                    == initialDirection
+                && patternChangeRequests == 4,
+            "four direction-row clicks should cycle back to the original mode");
+        headerClick(76.0, 1);
+        check(state.session.pattern.tracks[0u].noteColumn.muted
+                    != initiallyMuted
+                && patternChangeRequests == 5,
+            "the dedicated MUTE row should be the column mute mouse target");
+        headerClick(76.0, 1);
+        check(state.session.pattern.tracks[0u].noteColumn.muted
+                    == initiallyMuted,
+            "the dedicated MUTE row should toggle independently");
+        patternChangeRequests = 0;
         check(NSWidth(transport.documentView.frame) >
                 NSWidth(transport.contentView.bounds) + 200.0
                 && transport.hasHorizontalScroller,
@@ -147,6 +235,51 @@ int main()
                 && patternPopup.target == controller
                 && patternPopup.action == @selector(patternSelectionChanged:),
             "compact pattern popup should expose both bank entries");
+        check([patternPopup isKindOfClass:S3GTrackerPopupButton.class]
+                && patternPopup.menu.font != nil
+                && near(patternPopup.intrinsicContentSize.height, 26.0),
+            "tracker popups should share centered mono menu typography");
+        check([swingField isKindOfClass:S3GTrackerDragNumberField.class],
+            "toolbar numeric fields should support vertical tracker dragging");
+        if ([swingField isKindOfClass:S3GTrackerDragNumberField.class]) {
+            auto* dragField = (S3GTrackerDragNumberField*)swingField;
+            check(near([dragField s3gValueFromStart:60.0 verticalDelta:10.0
+                           modifierFlags:0u], 61.0)
+                    && near([dragField s3gValueFromStart:50.0
+                           verticalDelta:-100.0 modifierFlags:0u], 50.0),
+                "vertical number dragging should increase upward and clamp to range");
+        }
+        check([root isKindOfClass:S3GTrackerFocusReleaseView.class]
+                && [controller valueForKey:@"toolbar"] != nil,
+            "workspace backgrounds should support click-away field release");
+        const double unchangedSwing = swingField.doubleValue;
+        [window makeFirstResponder:swingField];
+        [swingField selectText:nil];
+        NSText* activeFieldEditor = swingField.currentEditor;
+        check(activeFieldEditor != nil && window.firstResponder == activeFieldEditor,
+            "click-away test should begin with the numeric field editor active");
+        [(S3GTrackerFocusReleaseView*)root mouseDown:mouseDownEvent(
+            window, NSMakePoint(1.0, 1.0), 1)];
+        check(window.firstResponder == root
+                && swingField.currentEditor == nil
+                && near(swingField.doubleValue, unchangedSwing, 0.0001),
+            "clicking blank workspace should release an unchanged text field");
+        check(restartButton != nil
+                && [restartButton.accessibilityLabel
+                    containsString:@"Restart tracker"],
+            "embedded transport should expose tracker restart instead of host stop/pause");
+        [restartButton sendAction:restartButton.action to:restartButton.target];
+        check(restartRequests == 1,
+            "restart control should dispatch an internal scheduler restart");
+        check(S3GTrackerThemeRGB(S3GTrackerThemeRole::GridPlayback)
+                    == 0x2e412e
+                && S3GTrackerThemeRGB(
+                    S3GTrackerThemeRole::GridPlaybackAccent) == 0x69826b
+                && S3GTrackerThemeRGB(S3GTrackerThemeRole::GridSelection)
+                    == 0x303854
+                && S3GTrackerThemeRGB(S3GTrackerThemeRole::GridCursor)
+                    == 0x4d4d6b,
+            "tracker playback and selection cells should retain the v8 semantic palette");
         [patternPopup selectItemAtIndex:1];
         [patternPopup sendAction:patternPopup.action to:patternPopup.target];
         check(selectedPattern == "A02",
@@ -204,6 +337,54 @@ int main()
                     != s3g::tracker::midiOutNodeForRackSlot(5u)
                 && patternChangeRequests == 2,
             "lane bus menu should change only the targeted track and publish");
+
+        [grid.documentView beginTrackNameEditingForTrack:2u
+            rect:NSMakeRect(40.0, 3.0, 110.0, 18.0)];
+        NSTextField* trackNameEditor = [grid.documentView
+            valueForKey:@"cellEditor"];
+        trackNameEditor.stringValue = @"BREAKS A";
+        [trackNameEditor sendAction:trackNameEditor.action
+            to:trackNameEditor.target];
+        check(state.session.pattern.tracks[2u].name == "BREAKS A"
+                && patternChangeRequests == 3,
+            "lane-name editor should commit a renamed track and publish it");
+
+        NSMenu* sequenceMenu = [grid.documentView
+            sequenceActionMenuForTrack:0u row:4u field:2u];
+        NSMenuItem* flamItem = nil;
+        for (NSMenuItem* item in sequenceMenu.itemArray) {
+            NSDictionary* represented = item.representedObject;
+            if (![represented isKindOfClass:NSDictionary.class]
+                || ![represented[@"kind"] isEqualToString:@"action"])
+                continue;
+            const auto* action = s3g::tracker::sequencerAction(
+                [represented[@"action"] unsignedIntegerValue]);
+            if (action && action->action
+                    == s3g::tracker::SequencerAction::Flam) {
+                flamItem = item;
+                break;
+            }
+        }
+        check(sequenceMenu.numberOfItems
+                    == static_cast<NSInteger>(
+                        s3g::tracker::sequencerActionCount() + 5u)
+                && sequenceMenu.font != nil && flamItem != nil
+                && [flamItem.title containsString:@"FL"]
+                && [flamItem.title containsString:@"FLAM"],
+            "SEQ context menu should expose every named sequencing action");
+        [grid.documentView sequenceActionSelected:flamItem];
+        const auto& chosenPair = state.session.pattern.tracks[0u].fxPairs[0u];
+        check(chosenPair.actions.size() > 4u
+                && chosenPair.actions[4u].state
+                    == s3g::tracker::FxActionCellState::Sequencer
+                && chosenPair.actions[4u].sequencerAction
+                    == s3g::tracker::SequencerAction::Flam
+                && chosenPair.values.size() > 4u
+                && chosenPair.values[4u].state
+                    == s3g::tracker::FxValueCellState::Value
+                && near(chosenPair.values[4u].normalized, 0.5)
+                && patternChangeRequests == 4,
+            "choosing a SEQ action should author it with a visible default value");
 
         NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
         [pasteboard clearContents];

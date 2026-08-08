@@ -2742,6 +2742,8 @@ JsonValue encodeSession(const ProjectSessionState& session,
 {
     finiteRange(session.gateMilliseconds, 1.0, 10000.0,
         "$.session.gateMilliseconds", result);
+    finiteRange(session.tempoScale, 0.25, 4.0,
+        "$.session.tempoScale", result);
     finiteRange(session.mainOutputGain, 0.0, 1.0,
         "$.session.mainOutputGain", result);
     JsonValue output = JsonValue::objectValue();
@@ -2749,6 +2751,7 @@ JsonValue encodeSession(const ProjectSessionState& session,
         std::to_string(session.commandRngState));
     output.object["gateMilliseconds"] = JsonValue::numberValue(
         session.gateMilliseconds);
+    output.object["tempoScale"] = JsonValue::numberValue(session.tempoScale);
     output.object["mainOutputGain"] = JsonValue::numberValue(
         session.mainOutputGain);
     output.object["mainOutputMuted"] = JsonValue::booleanValue(
@@ -2764,6 +2767,8 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
 {
     const auto* gate = requiredField(input, "gateMilliseconds",
         JsonType::Number, "$.session", result);
+    const auto* tempoScale = requiredField(input, "tempoScale",
+        JsonType::Number, "$.session", result);
     const auto* commandSeed = requiredField(input, "commandRngState",
         JsonType::String, "$.session", result);
     const auto* playbackSeed = requiredField(input, "playbackSeed",
@@ -2774,13 +2779,15 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
         JsonType::Boolean, "$.session", result);
     const auto* songEnabled = requiredField(input, "songPlaybackEnabled",
         JsonType::Boolean, "$.session", result);
-    if (!gate || !commandSeed || !playbackSeed
+    if (!gate || !tempoScale || !commandSeed || !playbackSeed
         || !mainGain || !mainMuted || !songEnabled)
         return false;
     ProjectSessionState candidate;
     double decodedMainGain = 1.0;
     if (!checkedNumber(*gate, candidate.gateMilliseconds, 1.0, 10000.0,
             "$.session.gateMilliseconds", result)
+        || !checkedNumber(*tempoScale, candidate.tempoScale, 0.25, 4.0,
+            "$.session.tempoScale", result)
         || !checkedNumber(*mainGain, decodedMainGain, 0.0, 1.0,
             "$.session.mainOutputGain", result)
         || !checkedBoolean(*mainMuted, candidate.mainOutputMuted,

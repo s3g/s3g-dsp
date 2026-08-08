@@ -15,6 +15,10 @@ enum class S3GTrackerThemeRole : std::uint8_t {
     Control,
     ControlHover,
     Selection,
+    GridPlayback,
+    GridPlaybackAccent,
+    GridSelection,
+    GridCursor,
     Grid,
     Border,
     BorderStrong,
@@ -56,5 +60,29 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName);
 @interface S3GTrackerPopupButton : NSPopUpButton
 @end
 
-@interface S3GTrackerPanelView : NSView
+// Background containers accept first responder so clicking unused space ends
+// native text editing and clears the selection highlight. This is especially
+// important in an embedded plug-in, where the host window otherwise keeps the
+// AppKit field editor active indefinitely.
+@interface S3GTrackerFocusReleaseView : NSView
+@end
+
+@interface S3GTrackerFocusReleaseStackView : NSStackView
+@end
+
+// Tracker-style numeric entry: drag vertically for continuous adjustment,
+// or click/double-click to retain ordinary direct text entry. The explicit
+// range and increment keep the interaction independent of locale-sensitive
+// NSNumberFormatter internals.
+@interface S3GTrackerDragNumberField : NSTextField
+@property(nonatomic) double s3gMinimumValue;
+@property(nonatomic) double s3gMaximumValue;
+@property(nonatomic) double s3gDragIncrement;
+@property(nonatomic) NSUInteger s3gFractionDigits;
+- (double)s3gValueFromStart:(double)start
+    verticalDelta:(CGFloat)verticalDelta
+    modifierFlags:(NSEventModifierFlags)modifierFlags;
+@end
+
+@interface S3GTrackerPanelView : S3GTrackerFocusReleaseView
 @end

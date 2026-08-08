@@ -14,12 +14,14 @@
 
 namespace {
 
-constexpr clap_id kCircuitParamId = 1u;
-constexpr clap_id kOverloadParamId = 3u;
-constexpr clap_id kOutputParamId = 12u;
-constexpr clap_id kBypassParamId = 13u;
-constexpr uint32_t kParamCount = 13u;
-constexpr uint32_t kFrames = 512u;
+constexpr clap_id kHeadModeParamId = 1u;
+constexpr clap_id kClockParamId = 2u;
+constexpr clap_id kTimeParamId = 3u;
+constexpr clap_id kMixParamId = 12u;
+constexpr clap_id kOutputParamId = 13u;
+constexpr clap_id kBypassParamId = 14u;
+constexpr uint32_t kParamCount = 14u;
+constexpr uint32_t kFrames = 2048u;
 
 struct EventList {
     std::vector<clap_event_param_value_t> events;
@@ -162,32 +164,39 @@ bool parameterProbe(const clap_plugin_t* plugin,
     const clap_plugin_params_t* params)
 {
     if (!params || params->count(plugin) != kParamCount) return false;
-    clap_param_info_t circuit {};
+    clap_param_info_t headMode {};
+    clap_param_info_t clock {};
     clap_param_info_t bypass {};
     for (uint32_t index = 0u; index < kParamCount; ++index) {
         clap_param_info_t info {};
         if (!params->get_info(plugin, index, &info)) return false;
-        if (info.id == kCircuitParamId) circuit = info;
+        if (info.id == kHeadModeParamId) headMode = info;
+        if (info.id == kClockParamId) clock = info;
         if (info.id == kBypassParamId) bypass = info;
     }
-    if ((circuit.flags & CLAP_PARAM_IS_STEPPED) == 0u
+    if ((headMode.flags & CLAP_PARAM_IS_STEPPED) == 0u
+        || (clock.flags & CLAP_PARAM_IS_STEPPED) == 0u
         || (bypass.flags & CLAP_PARAM_IS_STEPPED) == 0u
-        || circuit.min_value != 0.0 || circuit.max_value != 7.0) {
+        || headMode.min_value != 0.0 || headMode.max_value != 6.0
+        || clock.min_value != 0.0 || clock.max_value != 9.0) {
         return false;
     }
-    constexpr std::array<const char*, 8u> kCircuitNames {
-        "CONSOLE", "VALVE", "CLIP", "RUPTURE",
-        "TAPE", "TRANSFORMER", "DIODE", "SPEAKER"
+    constexpr std::array<const char*, 7u> kHeadNames {
+        "HEAD 1", "HEAD 2", "HEAD 3", "HEAD 1+2",
+        "HEAD 2+3", "HEAD 1+3", "ALL HEADS"
     };
-    for (uint32_t index = 0u; index < kCircuitNames.size(); ++index) {
+    for (uint32_t index = 0u; index < kHeadNames.size(); ++index) {
         char text[32] {};
-        if (!params->value_to_text(plugin, kCircuitParamId,
+        if (!params->value_to_text(plugin, kHeadModeParamId,
                 static_cast<double>(index), text, sizeof(text))
-            || std::strcmp(text, kCircuitNames[index]) != 0) {
+            || std::strcmp(text, kHeadNames[index]) != 0) {
             return false;
         }
     }
-    return true;
+    char clockText[32] {};
+    return params->value_to_text(plugin, kClockParamId, 5.0,
+        clockText, sizeof(clockText))
+        && std::strcmp(clockText, "1/8") == 0;
 }
 
 bool processProbe(const clap_plugin_t* plugin)
@@ -228,11 +237,14 @@ bool processProbe(const clap_plugin_t* plugin)
         return false;
     }
 
-    EventList overload;
-    overload.add(kBypassParamId, 0.0);
-    overload.add(kCircuitParamId, 3.0);
-    overload.add(kOverloadParamId, 1.0);
-    context.in_events = &overload.input;
+    EventList echo;
+    echo.add(kBypassParamId, 0.0);
+    echo.add(kHeadModeParamId, 0.0);
+    echo.add(kClockParamId, 0.0);
+    echo.add(kTimeParamId, 20.0);
+    echo.add(kMixParamId, 1.0);
+    echo.add(kOutputParamId, 0.0);
+    context.in_events = &echo.input;
     outputLeft.fill(0.0f);
     outputRight.fill(0.0f);
     if (plugin->process(plugin, &context) != CLAP_PROCESS_CONTINUE) {
@@ -247,8 +259,8 @@ bool processProbe(const clap_plugin_t* plugin)
         const double difference = outputLeft[frame] - inputLeft[frame];
         differenceEnergy += difference * difference;
     }
-    if (!(std::sqrt(differenceEnergy / kFrames) > 0.03)) {
-        std::cerr << "CLAP overload processing was not audible\n";
+    if (!(std::sqrt(differenceEnergy / kFrames) > 0.005)) {
+        std::cerr << "CLAP echo processing was not audible\n";
         return false;
     }
 
@@ -289,7 +301,7 @@ bool stateProbe(const clap_plugin_t* plugin,
     const clap_plugin_state_t* state)
 {
     EventList chosen;
-    chosen.add(kCircuitParamId, 2.0);
+    chosen.add(kHeadModeParamId, 2.0);
     chosen.add(kOutputParamId, -11.25);
     params->flush(plugin, &chosen.input, nullptr);
 
@@ -298,14 +310,14 @@ bool stateProbe(const clap_plugin_t* plugin,
     if (!state->save(plugin, &output) || memory.bytes.empty()) return false;
 
     EventList changed;
-    changed.add(kCircuitParamId, 0.0);
+    changed.add(kHeadModeParamId, 0.0);
     changed.add(kOutputParamId, 4.0);
     params->flush(plugin, &changed.input, nullptr);
     if (!getParam(plugin, params, kOutputParamId, 4.0)) return false;
 
     clap_istream_t input { &memory, stateRead };
     return state->load(plugin, &input)
-        && getParam(plugin, params, kCircuitParamId, 2.0)
+        && getParam(plugin, params, kHeadModeParamId, 2.0)
         && getParam(plugin, params, kOutputParamId, -11.25);
 }
 
@@ -314,18 +326,18 @@ bool stateProbe(const clap_plugin_t* plugin,
 int main(int argc, char** argv)
 {
     if (argc != 3) {
-        std::cerr << "usage: s3g_drum_overload_clap_smoke "
+        std::cerr << "usage: s3g_drum_echo_clap_smoke "
                   << "<bundle-or-binary> <plugin-id>\n";
         return 2;
     }
     const auto binary = resolveBinary(argv[1]);
     if (binary.empty()) {
-        std::cerr << "Could not resolve Drum Overload binary\n";
+        std::cerr << "Could not resolve Drum Echo binary\n";
         return 1;
     }
     void* library = dlopen(binary.c_str(), RTLD_LOCAL | RTLD_NOW);
     if (!library) {
-        std::cerr << "Could not load Drum Overload: " << dlerror() << "\n";
+        std::cerr << "Could not load Drum Echo: " << dlerror() << "\n";
         return 1;
     }
     const auto* entry = static_cast<const clap_plugin_entry_t*>(
@@ -334,7 +346,7 @@ int main(int argc, char** argv)
 
     clap_host_t host {};
     host.clap_version = CLAP_VERSION_INIT;
-    host.name = "Drum Overload smoke";
+    host.name = "Drum Echo smoke";
     host.vendor = "s3g";
     host.url = "https://github.com/s3g/s3g-dsp";
     host.version = "1";
@@ -349,8 +361,8 @@ int main(int argc, char** argv)
         ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
     ok = ok && factory && factory->get_plugin_count(factory) == 1u
         && descriptor && std::strcmp(descriptor->id, argv[2]) == 0
-        && std::strcmp(descriptor->name, "s3g Drum Overload") == 0
-        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_DISTORTION)
+        && std::strcmp(descriptor->name, "s3g Drum Echo") == 0
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_DELAY)
         && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_STEREO);
 
     const clap_plugin_t* plugin = ok
@@ -375,9 +387,9 @@ int main(int argc, char** argv)
     if (entry && entry->deinit) entry->deinit();
     dlclose(library);
     if (!ok) {
-        std::cerr << "Drum Overload CLAP smoke failed\n";
+        std::cerr << "Drum Echo CLAP smoke failed\n";
         return 1;
     }
-    std::cout << "s3g Drum Overload CLAP smoke passed\n";
+    std::cout << "s3g Drum Echo CLAP smoke passed\n";
     return 0;
 }

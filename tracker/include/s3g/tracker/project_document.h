@@ -15,12 +15,15 @@ namespace s3g::tracker {
 // no Max/pattr compatibility contract. A future incompatible representation
 // gets a new schema version and an explicit migration rather than silently
 // coercing musical data.
-constexpr uint32_t kProjectSchemaVersion = 3u;
+constexpr uint32_t kProjectSchemaVersion = 4u;
 constexpr const char* kProjectFormatIdentifier = "s3g-tracker-project";
 constexpr const char* kProjectFileExtension = ".s3gt";
 
 struct ProjectSessionState {
     double gateMilliseconds = 90.0;
+    // Musical rate applied to the host tempo by the CLAP tracker. Values are
+    // normalized by the UI to the supported ratio menu.
+    double tempoScale = 1.0;
     float mainOutputGain = 1.0f;
     bool mainOutputMuted = false;
     // Pattern transport remains the default. Enabling Song transport is an

@@ -16,8 +16,6 @@ namespace s3g::tracker {
 namespace {
 
 constexpr std::size_t kMaximumRows = 256u;
-constexpr double kMinimumBpm = 20.0;
-constexpr double kMaximumBpm = 400.0;
 constexpr double kMinimumSwing = 0.5;
 constexpr double kMaximumSwing = 0.75;
 constexpr double kMinimumGateMilliseconds = 1.0;
@@ -713,24 +711,6 @@ void normalizeColumnPhases(Pattern& pattern) noexcept
     }
 }
 
-bool parseParameterScope(std::string_view token, ParameterScope& scope)
-{
-    const auto value = asciiLower(token);
-    if (value == "global" || value == "g") {
-        scope = ParameterScope::Global;
-        return true;
-    }
-    if (value == "channel" || value == "ch" || value == "c") {
-        scope = ParameterScope::Channel;
-        return true;
-    }
-    if (value == "note" || value == "n") {
-        scope = ParameterScope::Note;
-        return true;
-    }
-    return false;
-}
-
 bool parseFxPair(std::string_view token, std::size_t& pair)
 {
     auto value = asciiLower(token);
@@ -864,37 +844,16 @@ bool parseFxSequence(const std::vector<std::string>& tokens,
     return !cells.empty();
 }
 
-const FxParameterActionDefinition* parseFxAction(std::string_view token)
-{
-    auto key = asciiLower(token);
-    if (const auto* action = findFxParameterAction(key)) return action;
-    if (key.find('.') == std::string::npos) {
-        if (const auto* action = findFxParameterAction(
-                "membrane." + key)) return action;
-    }
-    for (std::size_t index = 0u; index < fxParameterActionCount(); ++index) {
-        const auto* action = fxParameterAction(index);
-        if (action && asciiLower(action->mnemonic) == key) return action;
-    }
-    return nullptr;
-}
-
 std::string fxActionsText()
 {
     std::ostringstream stream;
-    stream << "Parameter actions (relative to each lane's instrument):";
-    for (std::size_t index = 0u; index < fxParameterActionCount(); ++index) {
-        const auto* action = fxParameterAction(index);
-        if (!action) continue;
-        stream << ' ' << action->stableKey << '(' << action->mnemonic << ')';
-    }
-    stream << "; Sequencer actions:";
+    stream << "Sequencing actions:";
     for (std::size_t index = 0u; index < sequencerActionCount(); ++index) {
         const auto* action = sequencerAction(index);
         if (!action) continue;
-        stream << ' ' << action->stableKey << '(' << action->mnemonic << ')';
+        stream << ' ' << action->mnemonic << '=' << action->displayName;
     }
-    stream << "; membrane rack: kick=0 snare=1 floor=2 tom=3 high=4.";
+    stream << ". Enter a code in SEQ1/SEQ2 or right-click a SEQ cell.";
     return stream.str();
 }
 
@@ -1410,20 +1369,9 @@ CommandResult executeTokens(TrackerSession& session,
     if (verb == "demo") {
         if (tokens.size() != 1u) return failure("Usage: demo");
         loadDemo(session);
-        return success("Loaded the 8-lane membrane and MIDI drum test pattern.",
+        return success("Loaded the 8-lane General MIDI drum pattern.",
             CommandEffect::PatternChanged | CommandEffect::TransportChanged
                 | CommandEffect::SelectionChanged);
-    }
-    if (verb == "bpm") {
-        if (tokens.size() != 2u) return failure("Usage: bpm <20..400>");
-        double bpm = 0.0;
-        if (!parseFiniteDouble(tokens[1], bpm) || bpm < kMinimumBpm
-            || bpm > kMaximumBpm)
-            return failure("BPM must be a finite number between 20 and 400.");
-        session.transport.bpm = bpm;
-        std::ostringstream stream;
-        stream << "Tempo set to " << bpm << " BPM.";
-        return success(stream.str(), CommandEffect::TransportChanged);
     }
     if (verb == "swing") {
         if (tokens.size() != 2u)
@@ -1641,14 +1589,11 @@ CommandResult executeTokens(TrackerSession& session,
         if (!parseLane(session, tokens[1], lane, error))
             return failure(std::move(error));
         std::size_t pairIndex = (verb == "fx2" || verb == "f2") ? 1u : 0u;
-        const auto* parameterAction = parseFxAction(tokens[2]);
         const auto* sequencerAction = findSequencerAction(tokens[2]);
-        if (!parameterAction && !sequencerAction)
-            return failure("Unknown FX action; use actions to list stable keys.");
-        const auto selectedAction = sequencerAction
-            ? FxActionCell::sequencer(sequencerAction->action)
-            : FxActionCell::parameter(parameterAction->parameterId,
-                  ParameterScope::Global, parameterAction->targetNode);
+        if (!sequencerAction)
+            return failure("Unknown sequencing action; use actions to list codes.");
+        const auto selectedAction = FxActionCell::sequencer(
+            sequencerAction->action);
         std::vector<ParsedFxSequenceCell> cells;
         if (!parseFxSequence(tokens, 3u, selectedAction, cells, error))
             return failure(std::move(error));
@@ -1713,8 +1658,8 @@ CommandResult executeTokens(TrackerSession& session,
     }
 
     if (verb == "fx") {
-        if (tokens.size() < 5u || tokens.size() > 7u) {
-            return failure("Usage: fx <lane|@alias> <pair> <row> <clear|previous|action value [scope]>");
+        if (tokens.size() < 5u || tokens.size() > 6u) {
+            return failure("Usage: fx <lane|@alias> <pair> <row> <clear|previous|sequencing-action value>");
         }
         std::size_t lane = 0u;
         std::size_t pair = 0u;
@@ -1742,33 +1687,18 @@ CommandResult executeTokens(TrackerSession& session,
                 return failure("FX previous does not take a value or scope.");
             target.actions[row] = FxActionCell::previous();
         } else {
-            if (tokens.size() != 6u && tokens.size() != 7u)
-                return failure("An FX action requires a normalized value; parameter actions may add a scope.");
-            const auto* parameterAction = parseFxAction(tokens[4]);
+            if (tokens.size() != 6u)
+                return failure("A sequencing action requires a normalized value.");
             const auto* timingAction = findSequencerAction(tokens[4]);
-            if (!parameterAction && !timingAction)
-                return failure("Unknown FX action; use actions to list stable keys.");
+            if (!timingAction)
+                return failure("Unknown sequencing action; use actions to list codes.");
             double value = 0.0;
             if (!parseFiniteDouble(tokens[5], value)
                 || value < 0.0 || value > 1.0)
                 return failure("FX values must be normalized between 0 and 1.");
-            if (timingAction && tokens.size() == 7u)
-                return failure("Sequencer timing actions do not take a parameter scope.");
             ensureFxStorage(session, target, false, row + 1u);
-            if (timingAction) {
-                target.actions[row] = FxActionCell::sequencer(
-                    timingAction->action);
-            } else {
-                ParameterScope scope = ParameterScope::Global;
-                if (tokens.size() == 7u
-                    && !parseParameterScope(tokens[6], scope))
-                    return failure("FX scope must be global, channel, or note.");
-                if (!fxActionSupportsScope(*parameterAction, scope))
-                    return failure("This parameter action supports global scope only.");
-                target.actions[row] = FxActionCell::parameter(
-                    parameterAction->parameterId, scope,
-                    parameterAction->targetNode);
-            }
+            target.actions[row] = FxActionCell::sequencer(
+                timingAction->action);
             target.values[row] = FxValueCell::withValue(
                 static_cast<float>(value));
             wroteValue = true;
@@ -2502,9 +2432,9 @@ std::string CommandEngine::helpText()
     }
     stream
         << "\nTargets are one-based lane numbers or @aliases; rows are one-based.\n"
-        << "Columns: note, ins, vel, fx1, v1, fx2, v2. "
+        << "Columns: note, vol, fx1, v1, fx2, v2. "
         << "Directions: forward (>), reverse (<), palindrome (<>), random (?).\n"
-        << "Randomize materializes repeatable values into the targeted VEL column.";
+        << "Randomize materializes repeatable values into the targeted VOL column.";
     return stream.str();
 }
 
@@ -2513,13 +2443,12 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
     static const std::vector<CommandHelpSection> sections {
         { "ESSENTIALS", {
             { "help  |  ?", "Show this complete command reference.", "help ?" },
-            { "demo", "Load the kick, sampler, and MIDI OUT demonstration.", "demo" },
+            { "demo", "Load the General MIDI tracker demonstration.", "demo" },
             { "play", "Start timestamped playback.", "play" },
             { "stop", "Stop playback and clean up active notes.", "stop" },
             { "panic", "Send MIDI All Notes Off and reset active voices.", "panic" },
         } },
         { "TRANSPORT & TIMING", {
-            { "bpm <20..400>", "Set tempo in beats per minute.", "bpm" },
             { "swing <0.50..0.75 | 50..75>", "Set traditional pair swing.", "swing" },
             { "gate <1..5000 ms>", "Set external MIDI note-gate duration.", "gate" },
             { "loop <on|off|toggle>  |  loop [rows] <start> <end>", "Toggle the global loop or set its inclusive one-based row region.", "loop" },
@@ -2559,13 +2488,10 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "rotatehits <target> [note] <steps>", "Rotate active hits and clear non-hit cells.", "rotatehits" },
             { "humanize <target> [note] <0..1>", "Move selected hits one step left or right when the destination is empty.", "humanize" },
         } },
-        { "INSTRUMENTS & VELOCITY", {
-            { "instrument|inst <target> <kick|sampler|midi|0..2>", "Set a default instrument; use the song index for added devices.", "instrument inst" },
-            { "instrument|inst <target> <row> <name|0..2|previous|clear>", "Write an optional tracker-style INS override.", "" },
-            { "vel <target> <row> <0..127>", "Edit one velocity cell.", "vel" },
-            { "velseq|vol <target> <symbols|values...>", "Replace the velocity sequence with symbolic, MIDI, or normalized values.", "velseq vol" },
-            { "randomize|random|rand <target> [vel] [minimum maximum]", "Materialize random MIDI velocities across the active VEL length.", "randomize random rand" },
-            { "out|route ...", "Deprecated: routing follows each rack instrument.", "out route" },
+        { "VOLUME", {
+            { "vel <target> <row> <0..127>", "Edit one VOL cell using MIDI velocity notation.", "vel" },
+            { "velseq|vol <target> <symbols|values...>", "Replace VOL with symbolic, MIDI, or normalized values.", "velseq vol" },
+            { "randomize|random|rand <target> [vol] [minimum maximum]", "Materialize random values across the active VOL length.", "randomize random rand" },
         } },
         { "COLUMN MOTION & LANE STATE", {
             { "len|length <target> [column] <1..256>", "Set an independent column length; NOTE is the default.", "len length" },
@@ -2576,10 +2502,10 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "unmute <target|all>", "Unmute one NOTE lane or every NOTE lane.", "unmute" },
             { "solo <target> [target ...]", "Mute every NOTE lane except the listed targets.", "solo" },
         } },
-        { "TYPED FX COLUMNS", {
-            { "actions", "List parameter and sequencer action keys.", "actions" },
+        { "SEQUENCING COLUMNS", {
+            { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx" },
-            { "fx <target> <pair> <row> <action> <0..1> [scope]", "Write a typed action/value; scope applies only to parameter actions.", "" },
+            { "fx <target> <pair> <row> <sequencing-action> <0..1>", "Write a sequencing behavior and its normalized amount.", "" },
             { "fxvalue|fxv <target> <pair> <row> <0..1|previous>", "Edit the value paired with an FX action.", "fxvalue fxv" },
             { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; ! + * o . 0..9 write values, = recalls, and - rests.", "fx1 f1 fx2 f2" },
             { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability" },

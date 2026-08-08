@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <string_view>
@@ -53,6 +55,18 @@ inline bool parseGridNormalizedValue(std::string_view text,
     if (!sawDigit || value < 0.0L || value > 1.0L) return false;
     result = static_cast<float>(value);
     return true;
+}
+
+inline float normalizedValueFromVerticalDrag(float initial,
+    double verticalDelta, bool fine, bool coarse) noexcept
+{
+    double sensitivity = 0.005;
+    if (coarse) sensitivity *= 4.0;
+    if (fine) sensitivity *= 0.1;
+    return static_cast<float>(std::clamp(
+        std::round((static_cast<double>(initial)
+            + verticalDelta * sensitivity) * 1000.0) / 1000.0,
+        0.0, 1.0));
 }
 
 } // namespace s3g::tracker::app

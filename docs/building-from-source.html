@@ -88,6 +88,14 @@ cmake --build build-clap-future</code></pre>
 
         <p>Future-component previews are intentionally absent from the packaged pre-release manifest. Their plugin names, parameters, state formats, routing, and CPU cost can still change.</p>
 
+        <p><a href="s3g-tracker.html">s3g Tracker</a> has its own source-build preset because it is a MIDI-only CLAP preview with a focused tracker test suite:</p>
+
+        <pre><code>cmake --preset clap-tracker
+cmake --build --preset clap-tracker
+ctest --test-dir build-tracker -L tracker --output-on-failure</code></pre>
+
+        <p>The resulting bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. It is not installed by the ordinary packaged-manifest workflow yet.</p>
+
         <h2 id="clap-realtime-audit">Audit CLAP Realtime Cost</h2>
 
         <p>Timing measurements must use optimized plugins and an optimized audit executable. The dedicated <code>clap-release</code> preset creates a separate Release build without changing the ordinary development or CLAP build directories:</p>

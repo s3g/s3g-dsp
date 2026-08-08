@@ -42,9 +42,9 @@ int main()
 
     check(near(trackerDocumentWidth(1u, 500.0), 500.0),
         "one track should expand to fill a wide viewport");
-    check(near(trackerDocumentWidth(4u, 500.0), 727.0),
+    check(near(trackerDocumentWidth(4u, 500.0), 1495.0),
         "track lanes should retain readable intrinsic widths");
-    check(near(trackerDocumentWidth(12u, 500.0), 2127.0),
+    check(near(trackerDocumentWidth(12u, 500.0), 4431.0),
         "track count should grow the scroll document, not the window");
     check(near(trackerDocumentWidth(0u, 300.0), 300.0),
         "empty tracker should still fill its viewport");

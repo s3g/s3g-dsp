@@ -64,6 +64,13 @@ std::uint32_t S3GTrackerThemeRGB(S3GTrackerThemeRole role)
     case S3GTrackerThemeRole::Control: return 0x262626;
     case S3GTrackerThemeRole::ControlHover: return 0x353535;
     case S3GTrackerThemeRole::Selection: return 0x424242;
+    // Restored from the v8 tracker as grid-only semantic states. Keeping
+    // these separate from Live/Selection prevents transport and native
+    // controls from acquiring decorative tracker-cell color.
+    case S3GTrackerThemeRole::GridPlayback: return 0x2e412e;
+    case S3GTrackerThemeRole::GridPlaybackAccent: return 0x69826b;
+    case S3GTrackerThemeRole::GridSelection: return 0x303854;
+    case S3GTrackerThemeRole::GridCursor: return 0x4d4d6b;
     case S3GTrackerThemeRole::Grid: return 0x303030;
     case S3GTrackerThemeRole::Border: return 0x4c4c4c;
     case S3GTrackerThemeRole::BorderStrong: return 0x6a6a6a;
@@ -305,6 +312,89 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
 
 @end
 
+@implementation S3GTrackerDragNumberField
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        _s3gMinimumValue = 0.0;
+        _s3gMaximumValue = 1.0;
+        _s3gDragIncrement = 0.01;
+        _s3gFractionDigits = 2u;
+    }
+    return self;
+}
+
+- (double)s3gValueFromStart:(double)start
+    verticalDelta:(CGFloat)verticalDelta
+    modifierFlags:(NSEventModifierFlags)modifierFlags
+{
+    double sensitivity = self.s3gDragIncrement;
+    if ((modifierFlags & NSEventModifierFlagShift) != 0u)
+        sensitivity *= 4.0;
+    if ((modifierFlags & NSEventModifierFlagOption) != 0u)
+        sensitivity *= 0.1;
+    const double raw = start + static_cast<double>(verticalDelta)
+        * sensitivity;
+    const double scale = std::pow(10.0,
+        static_cast<double>(std::min<NSUInteger>(self.s3gFractionDigits, 9u)));
+    const double rounded = scale > 0.0
+        ? std::round(raw * scale) / scale : raw;
+    return std::clamp(rounded,
+        std::min(self.s3gMinimumValue, self.s3gMaximumValue),
+        std::max(self.s3gMinimumValue, self.s3gMaximumValue));
+}
+
+- (void)resetCursorRects
+{
+    [super resetCursorRects];
+    if (self.enabled)
+        [self addCursorRect:self.bounds cursor:NSCursor.resizeUpDownCursor];
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    if (!self.enabled || event.clickCount >= 2 || !self.window) {
+        [super mouseDown:event];
+        return;
+    }
+
+    const CGFloat startY = event.locationInWindow.y;
+    const double startValue = self.doubleValue;
+    double lastValue = startValue;
+    BOOL dragged = NO;
+    const NSEventMask mask = NSEventMaskLeftMouseDragged
+        | NSEventMaskLeftMouseUp;
+    for (;;) {
+        NSEvent* next = [self.window nextEventMatchingMask:mask
+            untilDate:NSDate.distantFuture
+            inMode:NSEventTrackingRunLoopMode dequeue:YES];
+        if (!next || next.type == NSEventTypeLeftMouseUp) break;
+        const CGFloat delta = next.locationInWindow.y - startY;
+        if (!dragged && std::abs(delta) < 1.5) continue;
+        dragged = YES;
+        const double value = [self s3gValueFromStart:startValue
+            verticalDelta:delta modifierFlags:next.modifierFlags];
+        if (value == lastValue) continue;
+        lastValue = value;
+        self.doubleValue = value;
+        [self sendAction:self.action to:self.target];
+    }
+
+    if (!dragged) {
+        [self.window makeFirstResponder:self];
+        [self selectText:nil];
+    }
+}
+
+@end
+
+@interface S3GTrackerPopupButton ()
+@property(nonatomic, strong) NSTrackingArea* s3gTrackingArea;
+@property(nonatomic) BOOL s3gHovered;
+@end
+
 @implementation S3GTrackerPopupButton
 
 - (instancetype)initWithFrame:(NSRect)frameRect pullsDown:(BOOL)flag
@@ -314,8 +404,45 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
         self.bordered = NO;
         self.focusRingType = NSFocusRingTypeNone;
         self.font = S3GTrackerFont(10.0);
+        self.menu.font = self.font;
     }
     return self;
+}
+
+- (NSSize)intrinsicContentSize
+{
+    NSString* title = self.titleOfSelectedItem;
+    if (!title) title = @"—";
+    const NSSize titleSize = [title sizeWithAttributes:@{
+        NSFontAttributeName: S3GTrackerFont(10.0),
+    }];
+    return NSMakeSize(std::ceil(titleSize.width) + 34.0, 26.0);
+}
+
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    if (self.s3gTrackingArea)
+        [self removeTrackingArea:self.s3gTrackingArea];
+    self.s3gTrackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+        options:(NSTrackingMouseEnteredAndExited
+            | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect)
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.s3gTrackingArea];
+}
+
+- (void)mouseEntered:(NSEvent*)event
+{
+    (void)event;
+    self.s3gHovered = YES;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseExited:(NSEvent*)event
+{
+    (void)event;
+    self.s3gHovered = NO;
+    [self setNeedsDisplay:YES];
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -323,8 +450,10 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     (void)dirtyRect;
     const bool enabled = self.enabled;
     const NSRect rect = NSInsetRect(self.bounds, 0.5, 0.5);
-    [S3GTrackerThemeColor(enabled ? S3GTrackerThemeRole::Control
-                                  : S3GTrackerThemeRole::Panel) setFill];
+    [S3GTrackerThemeColor(!enabled ? S3GTrackerThemeRole::Panel
+        : self.highlighted ? S3GTrackerThemeRole::Selection
+        : self.s3gHovered ? S3GTrackerThemeRole::ControlHover
+                          : S3GTrackerThemeRole::Control) setFill];
     NSRectFill(rect);
     [S3GTrackerThemeColor(enabled ? S3GTrackerThemeRole::BorderStrong
                                   : S3GTrackerThemeRole::Grid) setStroke];
@@ -334,21 +463,29 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
         NSFrameRect(NSInsetRect(rect, 2.0, 2.0));
     }
 
-    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+    NSFont* font = S3GTrackerFont(10.0, NSFontWeightMedium);
+    self.menu.font = font;
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc]
+        init];
     paragraph.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    paragraph.alignment = NSTextAlignmentLeft;
+    paragraph.alignment = NSTextAlignmentCenter;
+    const CGFloat lineHeight = std::ceil(
+        font.ascender - font.descender + font.leading);
+    paragraph.minimumLineHeight = lineHeight;
+    paragraph.maximumLineHeight = lineHeight;
     NSDictionary* attributes = @{
         NSForegroundColorAttributeName: S3GTrackerThemeColor(enabled
             ? S3GTrackerThemeRole::TextSecondary
             : S3GTrackerThemeRole::TextFaint),
-        NSFontAttributeName: S3GTrackerFont(10.0),
+        NSFontAttributeName: font,
         NSParagraphStyleAttributeName: paragraph,
     };
     NSString* uppercaseTitle = self.titleOfSelectedItem.uppercaseString;
     NSString* title = uppercaseTitle ? uppercaseTitle : @"—";
-    [title drawInRect:NSMakeRect(rect.origin.x + 9.0,
-        rect.origin.y + (rect.size.height - 14.0) * 0.5,
-        std::max<CGFloat>(0.0, rect.size.width - 29.0), 14.0)
+    const NSRect textRect = NSMakeRect(rect.origin.x + 6.0,
+        std::floor(NSMidY(rect) - lineHeight * 0.5),
+        std::max<CGFloat>(0.0, rect.size.width - 27.0), lineHeight);
+    [title drawInRect:textRect
         withAttributes:attributes];
 
     const CGFloat arrowX = NSMaxX(rect) - 13.0;
@@ -361,6 +498,30 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     [S3GTrackerThemeColor(enabled ? S3GTrackerThemeRole::TextSecondary
                                   : S3GTrackerThemeRole::Grid) setFill];
     [arrow fill];
+}
+
+@end
+
+@implementation S3GTrackerFocusReleaseView
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)mouseDown:(NSEvent*)event
+{
+    (void)event;
+    [self.window makeFirstResponder:self];
+}
+
+@end
+
+@implementation S3GTrackerFocusReleaseStackView
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)mouseDown:(NSEvent*)event
+{
+    (void)event;
+    [self.window makeFirstResponder:self];
 }
 
 @end

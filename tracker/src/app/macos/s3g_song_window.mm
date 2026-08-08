@@ -348,7 +348,7 @@ bool s3gUsesProjectValue(NSString* text)
     row.pattern = pattern;
     row.repeats = 1;
     row.bpm = 126.0;
-    row.hasBPMOverride = YES;
+    row.hasBPMOverride = NO;
     row.ticks = 4;
     row.swing = 56.0;
     row.hasSwingOverride = YES;
@@ -421,7 +421,6 @@ bool s3gUsesProjectValue(NSString* text)
     [self addColumn:S3GSongColumnRow title:@"ROW" width:48.0 minWidth:44.0];
     [self addColumn:S3GSongColumnPattern title:@"PATTERN" width:180.0 minWidth:110.0];
     [self addColumn:S3GSongColumnRepeats title:@"REP" width:70.0 minWidth:56.0];
-    [self addColumn:S3GSongColumnBPM title:@"BPM" width:92.0 minWidth:70.0];
     [self addColumn:S3GSongColumnTicks title:@"TICKS" width:80.0 minWidth:62.0];
     [self addColumn:S3GSongColumnSwing title:@"SWING %" width:92.0 minWidth:76.0];
     [self addColumn:S3GSongColumnMutes
@@ -867,19 +866,15 @@ bool s3gUsesProjectValue(NSString* text)
     const NSUInteger count = self.rows.count;
     if (count == 0) return @"0 ROWS · EMPTY ARRANGEMENT";
     NSInteger passes = 0;
-    double lowBPM = self.rows.firstObject.bpm;
-    double highBPM = lowBPM;
     NSMutableSet<NSString*>* patterns = [[NSMutableSet alloc] init];
     for (S3GTrackerSongRow* row in self.rows) {
         passes += row.repeats;
-        lowBPM = std::min(lowBPM, row.bpm);
-        highBPM = std::max(highBPM, row.bpm);
         [patterns addObject:row.pattern];
     }
-    return [NSString stringWithFormat:@"%lu ROW%@ · %lu PATTERN%@ · %ld PASS%@ · %.1f–%.1f BPM",
+    return [NSString stringWithFormat:@"%lu ROW%@ · %lu PATTERN%@ · %ld PASS%@ · HOST TEMPO",
         (unsigned long)count, count == 1 ? @"" : @"S",
         (unsigned long)patterns.count, patterns.count == 1 ? @"" : @"S",
-        passes, passes == 1 ? @"" : @"ES", lowBPM, highBPM];
+        passes, passes == 1 ? @"" : @"ES"];
 }
 
 - (void)songDidChange

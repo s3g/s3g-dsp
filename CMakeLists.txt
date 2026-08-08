@@ -85,6 +85,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/drum_overload_smoke.cpp)
   target_link_libraries(s3g_drum_overload_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_drum_echo_smoke
+    tests/drum_echo_smoke.cpp)
+  target_link_libraries(s3g_drum_echo_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_drum_mixer_smoke
     tests/drum_mixer_smoke.cpp)
   target_link_libraries(s3g_drum_mixer_smoke PRIVATE s3g_dsp)
@@ -124,6 +128,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
   add_executable(s3g_drum_crash_smoke
     tests/drum_crash_smoke.cpp)
   target_link_libraries(s3g_drum_crash_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_processor_errant_smoke
+    tests/processor_errant_smoke.cpp)
+  target_link_libraries(s3g_processor_errant_smoke PRIVATE s3g_dsp)
 
   add_executable(s3g_ambi_membrane_kick_smoke
     tests/ambi_membrane_kick_smoke.cpp)
@@ -328,6 +336,10 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
     set_tests_properties(s3g_drum_overload_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_echo_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_echo_smoke>)
+    set_tests_properties(s3g_drum_echo_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_mixer_smoke
       COMMAND $<TARGET_FILE:s3g_drum_mixer_smoke>)
     set_tests_properties(s3g_drum_mixer_smoke PROPERTIES
@@ -367,6 +379,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_drum_crash_smoke
       COMMAND $<TARGET_FILE:s3g_drum_crash_smoke>)
     set_tests_properties(s3g_drum_crash_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_processor_errant_smoke
+      COMMAND $<TARGET_FILE:s3g_processor_errant_smoke>)
+    set_tests_properties(s3g_processor_errant_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_membrane_kick_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>)
@@ -672,6 +688,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_drum_overload_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_drum_echo_clap_smoke
+      tests/drum_echo_clap_smoke.cpp)
+    target_include_directories(s3g_drum_echo_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_echo_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_drum_mixer_clap_smoke
       tests/drum_mixer_clap_smoke.cpp)
     target_include_directories(s3g_drum_mixer_clap_smoke
@@ -803,6 +826,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_subdirectory(plugins/clap_drum_overload)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_echo)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_drum_mixer)
   endif()
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
@@ -834,6 +860,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_processor_errant)
   endif()
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
@@ -1365,13 +1394,42 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_overload_clap>
           org.s3g.s3g-dsp.drum-overload
-          760 376 "s3g Effect " responsive
+          760 376 "s3g Drum " responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_overload_clap
         COMMENT "Validating the responsive Drum Overload editor")
       add_dependencies(audit_drum_overload
         audit_drum_overload_gui)
+    endif()
+
+    add_custom_target(audit_drum_echo
+      COMMAND $<TARGET_FILE:s3g_drum_echo_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_echo_clap_smoke>
+        $<TARGET_FILE:s3g_drum_echo_clap>
+        org.s3g.s3g-dsp.drum-echo
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_drum_echo_clap>
+        org.s3g.s3g-dsp.drum-echo
+      DEPENDS
+        s3g_drum_echo_smoke
+        s3g_drum_echo_clap_smoke
+        s3g_drum_echo_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating transient-aware multi-head Drum Echo DSP, CLAP ports, automation, and state")
+    if(APPLE)
+      add_custom_target(audit_drum_echo_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_echo_clap>
+          org.s3g.s3g-dsp.drum-echo
+          760 376 "s3g Drum " responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_echo_clap
+        COMMENT "Validating the responsive Drum Echo editor")
+      add_dependencies(audit_drum_echo audit_drum_echo_gui)
     endif()
 
     add_custom_target(audit_drum_mixer
@@ -1412,8 +1470,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_hi_hat
         audit_drum_clap
         audit_drum_overload
+        audit_drum_echo
         audit_drum_mixer
-      COMMENT "Validating the shared procedural drum instrument family")
+      COMMENT "Validating the shared procedural drum instrument and effect family")
 
     add_custom_target(audit_ambi_membrane_kick
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>
@@ -1480,7 +1539,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_overload_clap>
           org.s3g.s3g-dsp.drum-overload
-          760 376 "s3g Effect " responsive
+          760 376 "s3g Drum " responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_overload_clap

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Drums - s3g-dsp</title>
-    <meta name="description" content="Guide to the synthesized drum instruments, Drum Overload effect, and Drum Mixer 16 in the s3g-dsp drum family.">
+    <meta name="description" content="Guide to the synthesized drum instruments, drum-focused effects, and Drum Mixer 16 in the s3g-dsp drum family.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>s3g Drums</h1>
 
-        <p>The s3g drum family turns the shared character of a broad reference library into playable synthesis models. No sample is loaded or replayed: each hit is created at performance time from pitched oscillators, modal bodies, filtered noise, envelopes, articulation logic, and nonlinear character stages. A companion stereo effect overloads those generated voices without collapsing their image or discarding their low fundamentals.</p>
+        <p>The s3g drum family turns the shared character of a broad reference library into playable synthesis models. No sample is loaded or replayed: each hit is created at performance time from pitched oscillators, modal bodies, filtered noise, envelopes, articulation logic, and nonlinear character stages. Companion effects shape those generated voices with transient-aware distortion and echo behavior.</p>
 
         <p>Each instrument is a two-output CLAP plugin for ordinary mono or stereo production. It can be sequenced directly in REAPER or placed downstream of the <code>s3g Tracker</code> CLAP. Set <code>STEREO WIDTH</code> to <code>0%</code> when an exact dual-mono result is required.</p>
 
@@ -49,7 +49,9 @@
 
         <h2 id="effect">Mixer and Effects</h2>
 
-        <p><a href="drum-overload.html">Effect Drum Overload</a> is the family's stereo transient-aware distortion. Eight nonlinear circuits range from controlled console saturation to folded rupture, tape memory, transformer weight, diode asymmetry, and speaker sag. Its reusable DSP core has the same host-independent boundary intended for later direct tracker integration.</p>
+        <p><a href="drum-overload.html">Drum Overload</a> is the family's stereo transient-aware distortion. Eight nonlinear circuits range from controlled console saturation to folded rupture, tape memory, transformer weight, diode asymmetry, and speaker sag. Its reusable DSP core has the same host-independent boundary intended for later direct tracker integration.</p>
+
+        <p><a href="drum-echo.html">Drum Echo</a> is a three-head tape delay whose detector can emphasize or suppress attacks entering the repeats, then duck the wet path under each new hit. Free and host-synchronized timing, head combinations, tape wear, flutter, tone, and stereo spread cover tight rhythmic reinforcement through unstable percussion trails.</p>
 
         <p><a href="drum-mixer.html">Drum Mixer 16</a> receives eight stereo pairs through REAPER's plug-in pin routing. Each lane supplies level, balance, three-band EQ, mute, solo, and a post-fader AUX send; the fixed 16-channel output switches between a stereo sum and eight post-strip direct pairs. The optional parallel drum bus sits before the summed master.</p>
 
@@ -78,7 +80,7 @@
         <p>Every drum ends in the same character family: <code>DRIVE</code>, <code>BIAS</code>, and <code>COMPRESSION</code> shape nonlinear weight; <code>RATE REDUCTION</code>, <code>BIT DEPTH REDUCTION</code>, and <code>RECONSTRUCTION</code> create sampler-like conversion color without playing a sample; <code>CHARACTER TONE</code> shades that result. Use <code>OUTPUT GAIN</code> for final session trim after the voice is designed.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="instruments.html"><span>Previous</span>Instruments Overview</a>
+          <a class="page-nav-link" href="s3g-tracker.html"><span>Previous</span>s3g Tracker</a>
           <a class="page-nav-link next" href="drum-kick.html"><span>Next</span>Drum Kick</a>
         </nav>
       </main>
@@ -95,7 +97,8 @@
           <a href="drum-clap.html">Clap</a>
           <a href="drum-cowbell.html">Cowbell</a>
           <a href="drum-crash.html">Crash</a>
-          <a href="drum-overload.html">Effect Drum Overload</a>
+          <a href="drum-overload.html">Drum Overload</a>
+          <a href="drum-echo.html">Drum Echo</a>
           <a href="drum-mixer.html">Drum Mixer 16</a>
         </div>
         <div class="toc-section">

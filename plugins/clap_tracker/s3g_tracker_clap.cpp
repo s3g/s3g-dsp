@@ -7,6 +7,7 @@
 #include "s3g_tracker_workspace_layout.h"
 
 #include "s3g/tracker/command.h"
+#include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/project_codec.h"
 #include "s3g/tracker/timing_playback_scheduler.h"
 
@@ -26,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +62,36 @@ constexpr uint32_t kNativeWidth = 1320u;
 constexpr uint32_t kNativeHeight = 780u;
 constexpr uint32_t kMinimumWidth = 760u;
 constexpr uint32_t kMinimumHeight = 560u;
+
+double normalizedTempoScale(double value) noexcept
+{
+    constexpr std::array<double, 7u> choices {
+        0.25, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 4.0,
+    };
+    if (!std::isfinite(value)) return 1.0;
+    double best = 1.0;
+    double distance = std::numeric_limits<double>::infinity();
+    for (const double choice : choices) {
+        const double candidate = std::abs(value - choice);
+        if (candidate < distance) { distance = candidate; best = choice; }
+    }
+    return best;
+}
+
+std::vector<std::string> commandWords(std::string_view command)
+{
+    std::istringstream stream { std::string(command) };
+    std::vector<std::string> words;
+    std::string word;
+    while (stream >> word) {
+        for (char& character : word) {
+            if (character >= 'A' && character <= 'Z')
+                character = static_cast<char>(character - 'A' + 'a');
+        }
+        words.push_back(std::move(word));
+    }
+    return words;
+}
 
 bool syncSessionToActivePattern(TrackerViewState& state)
 {
@@ -128,6 +160,8 @@ PatternBankEntry newPatternEntry(const PatternBankEntry& source,
 
 void normalizeMidiOnlyDocument(ProjectDocument& document)
 {
+    document.session.tempoScale = normalizedTempoScale(
+        document.session.tempoScale);
     auto rack = s3g::tracker::makeDefaultInstrumentRack();
     for (auto& instrument : rack.instruments)
         instrument = s3g::tracker::RackInstrument {};
@@ -147,6 +181,7 @@ void normalizeMidiOnlyDocument(ProjectDocument& document)
     }
     rack.selectedNode = s3g::tracker::midiOutNodeForRackSlot(0u);
     document.instrumentRack = rack;
+    for (auto& row : document.song.rows) row.bpm.reset();
 
     for (auto& entry : document.patternBank.entries) {
         for (std::size_t lane = 0u; lane < entry.pattern.tracks.size();
@@ -161,11 +196,17 @@ void normalizeMidiOnlyDocument(ProjectDocument& document)
             track.destination = EventDestination::Midi;
             track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
                 track.midiChannel, 1, 16));
-            for (auto& cell : track.instruments) {
-                if (cell.state != s3g::tracker::InstrumentCellState::Instrument)
-                    continue;
-                if (!s3g::tracker::isMidiOutInstrumentNode(cell.nodeId))
-                    cell = s3g::tracker::InstrumentCell::withInstrument(node);
+            // Routing is owned by the lane header. The removed INS column may
+            // not override buses row-by-row in the MIDI-only instrument.
+            std::fill(track.instruments.begin(), track.instruments.end(),
+                s3g::tracker::InstrumentCell::empty());
+            for (auto& pair : track.fxPairs) {
+                for (auto& action : pair.actions) {
+                    if (action.state
+                        == s3g::tracker::FxActionCellState::Parameter) {
+                        action = s3g::tracker::FxActionCell::empty();
+                    }
+                }
             }
         }
     }
@@ -187,6 +228,7 @@ ProjectDocument makeInitialDocument()
     document.patternBank = state.patternBank;
     document.transport = state.session.transport;
     document.session.gateMilliseconds = state.session.gateMilliseconds;
+    document.session.tempoScale = 1.0;
     document.session.commandRngState = state.session.commandRngState;
     document.session.playbackSeed = state.session.playbackSeed;
     document.instrumentRack = state.instrumentRack;
@@ -196,7 +238,6 @@ ProjectDocument makeInitialDocument()
     row.patternId = state.patternBank.activePatternId;
     row.durationTicks = static_cast<uint32_t>(std::max<std::size_t>(
         state.session.pattern.visibleRows, 1u));
-    row.bpm = state.session.transport.bpm;
     row.swing = state.session.transport.swing;
     document.song.rows.push_back(row);
     document.song.rows.push_back(row);
@@ -258,12 +299,14 @@ struct Runtime {
     std::vector<std::string> patternIds;
     std::vector<std::size_t> songPatternIndices;
     double gateMilliseconds = 90.0;
+    double tempoScale = 1.0;
     bool songEnabled = false;
     bool valid = false;
 
     Runtime(const ProjectDocument& document, double sampleRate)
         : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
+        , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
     {
         if (document.patternBank.entries.empty()) return;
         std::vector<s3g::tracker::Pattern> patterns;
@@ -312,7 +355,8 @@ struct Runtime {
     {
         auto result = projectTransport;
         result.sampleRate = sampleRate;
-        if (std::isfinite(tempo) && tempo > 0.0) result.bpm = tempo;
+        if (std::isfinite(tempo) && tempo > 0.0)
+            result.bpm = tempo * tempoScale;
         return result;
     }
 
@@ -409,6 +453,7 @@ struct Plugin {
     bool hostWasPlaying = false;
     bool runtimeArmed = false;
     std::atomic<bool> requestPanic { false };
+    std::atomic<bool> requestRestart { false };
     std::atomic<uint32_t> auditionNode { s3g::tracker::kInvalidInstrumentNode };
     std::atomic<uint32_t> auditionData { 0u };
     std::atomic<uint32_t> auditionRevision { 0u };
@@ -430,6 +475,7 @@ struct Plugin {
     std::array<std::array<std::atomic<uint16_t>, s3g::tracker::kFxPairCount>,
         s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
     std::atomic<bool> visualPlaying { false };
+    std::atomic<double> visualHostTempo { 0.0 };
     std::atomic<int32_t> visualSongRow { -1 };
     std::atomic<uint64_t> sentEvents { 0u };
     std::atomic<uint64_t> droppedEvents { 0u };
@@ -730,6 +776,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     HostTransport transport, uint32_t blockOffset, uint32_t frameCount)
     noexcept
 {
+    plugin.visualHostTempo.store(transport.tempo,
+        std::memory_order_relaxed);
     Runtime* runtime = plugin.audioRuntime;
     if (!runtime || frameCount == 0u) return;
     if (plugin.requestPanic.exchange(false, std::memory_order_acq_rel))
@@ -746,6 +794,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
         plugin.expectedBeatValid = false;
         plugin.visualPlaying.store(false, std::memory_order_relaxed);
     } else {
+        const bool restartRequested = plugin.requestRestart.exchange(false,
+            std::memory_order_acq_rel);
         const uint32_t launchRevision = plugin.songLaunchRevision.load(
             std::memory_order_acquire);
         if (launchRevision != plugin.consumedSongLaunchRevision) {
@@ -763,9 +813,14 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
             && std::abs(transport.beat - plugin.expectedBeat) > 0.01;
         const bool tempoChanged = plugin.runtimeArmed
             && std::abs(runtime->scheduler.transport().bpm
-                - transport.tempo) > 1.0e-7;
-        if (!plugin.runtimeArmed || !plugin.hostWasPlaying || discontinuity
-            || tempoChanged) {
+                - transport.tempo * runtime->tempoScale) > 1.0e-7;
+        if (restartRequested) {
+            releaseActiveNotes(plugin, output, blockOffset);
+            plugin.runtimeArmed = runtime->arm(
+                0.0, transport.tempo, plugin.sampleRate);
+            plugin.expectedBeatValid = false;
+        } else if (!plugin.runtimeArmed || !plugin.hostWasPlaying
+            || discontinuity || tempoChanged) {
             releaseActiveNotes(plugin, output, blockOffset);
             plugin.runtimeArmed = runtime->arm(
                 transport.hasBeat ? transport.beat : 0.0,
@@ -827,12 +882,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageHelp,
 };
 
-@interface S3GTrackerClapPageView : NSView
+@interface S3GTrackerClapPageView : NSView <NSWindowDelegate>
 @property(nonatomic, copy) NSArray<NSView*>* pageViews;
+@property(nonatomic, copy) NSArray<NSView*>* pageHosts;
+@property(nonatomic, copy) NSArray<NSTextField*>* detachedPlaceholders;
 @property(nonatomic, copy) NSArray<S3GTrackerActionButton*>* pageButtons;
+@property(nonatomic, strong) S3GTrackerActionButton* popoutButton;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSWindow*>*
+    detachedWindows;
 @property(nonatomic) S3GTrackerClapPage selectedPage;
 - (instancetype)initWithPages:(NSArray<NSView*>*)pages;
 - (void)showPage:(S3GTrackerClapPage)page;
+- (BOOL)pageCanDetach:(S3GTrackerClapPage)page;
+- (void)toggleDetachPage:(S3GTrackerClapPage)page;
+- (void)reattachPage:(S3GTrackerClapPage)page closeWindow:(BOOL)closeWindow;
+- (void)detachFromPlugin;
 @end
 
 @implementation S3GTrackerClapPageView
@@ -849,6 +913,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.accessibilityRole = NSAccessibilityGroupRole;
     self.accessibilityLabel = @"s3g Tracker REAPER page workspace";
     self.pageViews = pages;
+    self.detachedWindows = [[NSMutableDictionary alloc] init];
 
     NSArray<NSString*>* titles = @[
         @"TRACKER", @"SONG", @"GEOMETRY", @"WARPS", @"CONSOLE", @"HELP",
@@ -871,12 +936,45 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     }
     self.pageButtons = buttons;
 
-    for (NSView* page in self.pageViews) {
+    NSMutableArray<NSView*>* hosts = [[NSMutableArray alloc]
+        initWithCapacity:self.pageViews.count];
+    NSMutableArray<NSTextField*>* placeholders = [[NSMutableArray alloc]
+        initWithCapacity:self.pageViews.count];
+    for (NSUInteger index = 0u; index < self.pageViews.count; ++index) {
+        NSView* host = [[NSView alloc] initWithFrame:NSZeroRect];
+        host.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        host.wantsLayer = YES;
+        host.layer.backgroundColor = S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Canvas).CGColor;
+        [self addSubview:host positioned:NSWindowBelow relativeTo:nil];
+        NSTextField* placeholder = [NSTextField labelWithString:
+            @"THIS PAGE IS OPEN IN A DETACHED WINDOW"];
+        placeholder.font = S3GTrackerFont(11.0, NSFontWeightMedium);
+        placeholder.textColor = S3GTrackerThemeColor(
+            S3GTrackerThemeRole::TextMuted);
+        placeholder.alignment = NSTextAlignmentCenter;
+        placeholder.hidden = YES;
+        [host addSubview:placeholder];
+        [hosts addObject:host];
+        [placeholders addObject:placeholder];
+
+        NSView* page = self.pageViews[index];
         [page removeFromSuperview];
         page.translatesAutoresizingMaskIntoConstraints = YES;
         page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        [self addSubview:page positioned:NSWindowBelow relativeTo:nil];
+        [host addSubview:page];
     }
+    self.pageHosts = hosts;
+    self.detachedPlaceholders = placeholders;
+
+    self.popoutButton = [[S3GTrackerActionButton alloc]
+        initWithFrame:NSZeroRect];
+    self.popoutButton.title = @"↗";
+    self.popoutButton.font = S3GTrackerFont(13.0, NSFontWeightMedium);
+    self.popoutButton.target = self;
+    self.popoutButton.action = @selector(popoutPressed:);
+    self.popoutButton.accessibilityLabel = @"Detach selected tool page";
+    [self addSubview:self.popoutButton];
     [self showPage:S3GTrackerClapPageTracker];
     return self;
 }
@@ -898,16 +996,127 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             x, 6.0, width, navigationHeight - 12.0);
         x += width + 6.0;
     }
+    self.popoutButton.frame = NSMakeRect(
+        std::max<CGFloat>(12.0, NSWidth(self.bounds) - 48.0),
+        6.0, 36.0, navigationHeight - 12.0);
     const NSRect contentFrame = NSMakeRect(0.0, navigationHeight,
         NSWidth(self.bounds), std::max<CGFloat>(0.0,
             NSHeight(self.bounds) - navigationHeight));
-    for (NSView* page in self.pageViews) page.frame = contentFrame;
+    for (NSUInteger index = 0u; index < self.pageHosts.count; ++index) {
+        NSView* host = self.pageHosts[index];
+        host.frame = contentFrame;
+        self.detachedPlaceholders[index].frame = NSMakeRect(20.0,
+            std::max<CGFloat>(20.0, NSMidY(host.bounds) - 10.0),
+            std::max<CGFloat>(1.0, NSWidth(host.bounds) - 40.0), 20.0);
+        if (!self.detachedWindows[@(index)])
+            self.pageViews[index].frame = host.bounds;
+    }
 }
 
 - (void)pagePressed:(NSButton*)sender
 {
-    [self showPage:static_cast<S3GTrackerClapPage>(
-        sender.identifier.integerValue)];
+    const auto page = static_cast<S3GTrackerClapPage>(
+        sender.identifier.integerValue);
+    [self showPage:page];
+    if (NSApp.currentEvent.clickCount >= 2
+        && (page == S3GTrackerClapPageGeometry
+            || page == S3GTrackerClapPageWarps
+            || page == S3GTrackerClapPageConsole)) {
+        [self toggleDetachPage:page];
+    }
+}
+
+- (BOOL)pageCanDetach:(S3GTrackerClapPage)page
+{
+    return page == S3GTrackerClapPageGeometry
+        || page == S3GTrackerClapPageWarps
+        || page == S3GTrackerClapPageConsole;
+}
+
+- (void)popoutPressed:(id)sender
+{
+    (void)sender;
+    [self toggleDetachPage:self.selectedPage];
+}
+
+- (void)toggleDetachPage:(S3GTrackerClapPage)page
+{
+    if (![self pageCanDetach:page]) return;
+    NSNumber* key = @(static_cast<NSInteger>(page));
+    NSWindow* existing = self.detachedWindows[key];
+    if (existing) {
+        [self reattachPage:page closeWindow:YES];
+        return;
+    }
+    const NSInteger index = static_cast<NSInteger>(page);
+    if (index < 0 || index >= static_cast<NSInteger>(self.pageViews.count))
+        return;
+    NSView* content = self.pageViews[static_cast<NSUInteger>(index)];
+    [content removeFromSuperview];
+    NSWindow* window = [[NSWindow alloc] initWithContentRect:
+        NSMakeRect(0.0, 0.0, 920.0, 660.0)
+        styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+            | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+        backing:NSBackingStoreBuffered defer:NO];
+    NSArray<NSString*>* names = @[
+        @"Tracker", @"Song", @"Rhythm Geometry", @"Timing Warps",
+        @"Console", @"Help",
+    ];
+    window.title = [@"s3g Tracker — " stringByAppendingString:
+        names[static_cast<NSUInteger>(index)]];
+    window.minSize = NSMakeSize(480.0, 360.0);
+    window.backgroundColor = S3GTrackerThemeColor(
+        S3GTrackerThemeRole::Canvas);
+    window.appearance = [NSAppearance appearanceNamed:
+        NSAppearanceNameDarkAqua];
+    window.releasedWhenClosed = NO;
+    window.tabbingMode = NSWindowTabbingModeDisallowed;
+    window.delegate = self;
+    content.frame = window.contentView.bounds;
+    content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = content;
+    self.detachedWindows[key] = window;
+    self.detachedPlaceholders[static_cast<NSUInteger>(index)].hidden = NO;
+    [window center];
+    [window makeKeyAndOrderFront:nil];
+    [self showPage:page];
+}
+
+- (void)reattachPage:(S3GTrackerClapPage)page closeWindow:(BOOL)closeWindow
+{
+    NSNumber* key = @(static_cast<NSInteger>(page));
+    NSWindow* window = self.detachedWindows[key];
+    if (!window) return;
+    const NSUInteger index = static_cast<NSUInteger>(page);
+    NSView* content = self.pageViews[index];
+    window.delegate = nil;
+    window.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
+    [content removeFromSuperview];
+    [self.pageHosts[index] addSubview:content];
+    content.frame = self.pageHosts[index].bounds;
+    self.detachedPlaceholders[index].hidden = YES;
+    [self.detachedWindows removeObjectForKey:key];
+    if (closeWindow) [window close];
+    else [window orderOut:nil];
+    [self showPage:page];
+}
+
+- (BOOL)windowShouldClose:(NSWindow*)sender
+{
+    for (NSNumber* key in self.detachedWindows.allKeys) {
+        if (self.detachedWindows[key] != sender) continue;
+        [self reattachPage:static_cast<S3GTrackerClapPage>(
+            key.integerValue) closeWindow:NO];
+        return NO;
+    }
+    return YES;
+}
+
+- (void)detachFromPlugin
+{
+    for (NSNumber* key in self.detachedWindows.allKeys.copy)
+        [self reattachPage:static_cast<S3GTrackerClapPage>(
+            key.integerValue) closeWindow:YES];
 }
 
 - (void)showPage:(S3GTrackerClapPage)page
@@ -916,15 +1125,24 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     if (index < 0 || index >= static_cast<NSInteger>(self.pageViews.count))
         return;
     self.selectedPage = page;
-    for (NSUInteger item = 0u; item < self.pageViews.count; ++item) {
+    for (NSUInteger item = 0u; item < self.pageHosts.count; ++item) {
         const BOOL selected = item == static_cast<NSUInteger>(index);
-        self.pageViews[item].hidden = !selected;
-        self.pageViews[item].accessibilityHidden = !selected;
+        self.pageHosts[item].hidden = !selected;
+        self.pageHosts[item].accessibilityHidden = !selected;
         self.pageButtons[item].state = selected
             ? NSControlStateValueOn : NSControlStateValueOff;
         self.pageButtons[item].tag = selected ? 1 : 0;
         [self.pageButtons[item] setNeedsDisplay:YES];
     }
+    const BOOL detachable = [self pageCanDetach:page];
+    self.popoutButton.hidden = !detachable;
+    const BOOL detached = self.detachedWindows[@(index)] != nil;
+    self.popoutButton.title = detached ? @"↙" : @"↗";
+    self.popoutButton.toolTip = detached
+        ? @"Return this tool to the plug-in window"
+        : @"Open this tool in its own window";
+    if (detached)
+        [self.detachedWindows[@(index)] makeKeyAndOrderFront:nil];
     [self setNeedsLayout:YES];
     NSAccessibilityPostNotification(
         self, NSAccessibilityLayoutChangedNotification);
@@ -973,26 +1191,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             [owner.workspace reloadModel];
         }
     };
-    _callbacks->pausePlayback = [weakSelf] {
+    _callbacks->restartPlayback = [weakSelf] {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner) return;
-        const auto* control = hostTransportControl(*owner->_plugin);
-        if (!control) return;
-        if (owner->_state->playing && !owner->_state->paused) {
-            if (control->request_pause) control->request_pause(owner->_plugin->host);
-        } else if (control->request_continue) {
-            control->request_continue(owner->_plugin->host);
-        }
-    };
-    _callbacks->stopPlayback = [weakSelf] {
-        S3GTrackerClapCoordinator* owner = weakSelf;
-        if (!owner) return;
-        const auto* control = hostTransportControl(*owner->_plugin);
-        if (control && control->request_stop)
-            control->request_stop(owner->_plugin->host);
-        owner->_plugin->requestPanic.store(true, std::memory_order_release);
+        owner->_plugin->requestRestart.store(true, std::memory_order_release);
         if (owner->_plugin->host && owner->_plugin->host->request_process)
             owner->_plugin->host->request_process(owner->_plugin->host);
+        [owner.workspace appendConsoleMessage:
+            "Tracker restart queued at row 1; REAPER transport unchanged"
+            error:NO];
     };
     _callbacks->panic = [weakSelf] {
         S3GTrackerClapCoordinator* owner = weakSelf;
@@ -1126,6 +1333,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)dealloc
 {
     [self stopTimer];
+    [self.pageView detachFromPlugin];
     [self.songWindow close];
     [self.helpWindow close];
 }
@@ -1166,6 +1374,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     document.patternBank = _state->patternBank;
     document.transport = _state->session.transport;
     document.session.gateMilliseconds = _state->session.gateMilliseconds;
+    document.session.tempoScale = _state->tempoScale;
     document.session.mainOutputGain = _state->mainOutputGain;
     document.session.mainOutputMuted = _state->mainOutputMuted;
     document.session.songPlaybackEnabled = _state->songPlaybackEnabled;
@@ -1185,6 +1394,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
     _state->session.gateMilliseconds = midiDocument.session.gateMilliseconds;
+    _state->tempoScale = midiDocument.session.tempoScale;
     _state->session.commandRngState = midiDocument.session.commandRngState;
     _state->session.playbackSeed = midiDocument.session.playbackSeed;
     _state->instrumentRack = midiDocument.instrumentRack;
@@ -1295,6 +1505,66 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)executeCommand:(const std::string&)command
 {
+    const auto words = commandWords(command);
+    if (!words.empty()) {
+        const auto& verb = words.front();
+        if (verb == "help" || verb == "?") {
+            [self.pageView showPage:S3GTrackerClapPageHelp];
+            [self.workspace appendConsoleMessage:
+                "Opened the MIDI tracker command reference" error:NO];
+            return;
+        }
+        if (verb == "bpm") {
+            [self.workspace appendConsoleMessage:
+                "Tempo follows REAPER. Use the RATE menu for musical multiples."
+                error:YES];
+            return;
+        }
+        if (verb == "instrument" || verb == "inst") {
+            [self.workspace appendConsoleMessage:
+                "The MIDI tracker has no INS column; set Bxx and CHxx in the lane header."
+                error:YES];
+            return;
+        }
+        if (verb == "actions") {
+            std::string message = "SEQUENCER ACTIONS";
+            for (std::size_t index = 0u;
+                 index < s3g::tracker::sequencerActionCount(); ++index) {
+                const auto* action = s3g::tracker::sequencerAction(index);
+                if (!action) continue;
+                message += index == 0u ? "  " : " · ";
+                message += action->mnemonic;
+                message += " ";
+                message += action->displayName;
+            }
+            [self.workspace appendConsoleMessage:message error:NO];
+            return;
+        }
+        const bool columnCommand = verb == "len" || verb == "length"
+            || verb == "stride" || verb == "speed" || verb == "spd"
+            || verb == "phase" || verb == "ph" || verb == "dir"
+            || verb == "mode" || verb == "mute";
+        if (columnCommand && std::find_if(words.begin(), words.end(),
+                [](const std::string& word) {
+                    return word == "ins" || word == "instrument";
+                }) != words.end()) {
+            [self.workspace appendConsoleMessage:
+                "INS is not a column in the MIDI tracker." error:YES];
+            return;
+        }
+        std::string action;
+        if (verb == "fx" && words.size() >= 5u) action = words[4u];
+        else if ((verb == "fx1" || verb == "f1" || verb == "fx2"
+                || verb == "f2") && words.size() >= 3u) action = words[2u];
+        if (!action.empty() && action != "clear" && action != "previous"
+            && action != "prv"
+            && !s3g::tracker::findSequencerAction(action)) {
+            [self.workspace appendConsoleMessage:
+                "SEQ columns accept sequencing actions only; type actions to list them."
+                error:YES];
+            return;
+        }
+    }
     const auto result = CommandEngine::execute(_state->session, command);
     [self.workspace appendConsoleMessage:result.message error:!result.ok];
     if (!result.ok) return;
@@ -1324,6 +1594,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     (void)timer;
     drainRetiredRuntimes(*_plugin);
     _state->playing = _plugin->visualPlaying.load(std::memory_order_relaxed);
+    _state->hostBpm = _plugin->visualHostTempo.load(
+        std::memory_order_relaxed);
     _state->paused = false;
     for (std::size_t track = 0u;
          track < s3g::tracker::kMaximumTrackCount; ++track) {
@@ -1734,7 +2006,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.3.0",
+    "0.4.0",
     "Polymetric tracker, song sequencer, and sample-accurate MIDI generator.",
     features,
 };

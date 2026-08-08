@@ -18,10 +18,8 @@ using s3g::tracker::Direction;
 using s3g::tracker::EventDestination;
 using s3g::tracker::FxActionCellState;
 using s3g::tracker::FxValueCellState;
-using s3g::tracker::InstrumentCellState;
 using s3g::tracker::kMidiOutInstrumentNode;
 using s3g::tracker::kStereoSamplerInstrumentNode;
-using s3g::tracker::kTrackInstrumentNode;
 using s3g::tracker::NoteCell;
 using s3g::tracker::NoteCellState;
 using s3g::tracker::Pattern;
@@ -184,8 +182,10 @@ void testTransportActionsAndHelp()
     result = CommandEngine::execute(session, "help");
     check(result.ok && result.effects == CommandEffect::None
             && result.message.find("mask") != std::string::npos
-            && result.message.find("instrument") != std::string::npos,
-        "help should return the complete native command summary");
+            && result.message.find("SEQUENCING COLUMNS") != std::string::npos
+            && result.message.find("instrument") == std::string::npos
+            && result.message.find("bpm <") == std::string::npos,
+        "help should return the current MIDI-product command summary");
     check(!CommandEngine::execute(session, "play now").ok,
         "transport commands should reject trailing arguments");
 }
@@ -197,12 +197,12 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // undiscoverable console feature behind. `@` represents alias-first
     // assignment, queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
-        "@", "?", "accent", "actions", "alias", "aliases", "bpm", "delay", "demo",
+        "@", "?", "accent", "actions", "alias", "aliases", "delay", "demo",
         "density", "dir", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue",
-        "gate", "help", "hit", "inst", "instrument", "kill", "kit",
+        "gate", "help", "hit", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
-        "out", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
-        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "route", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
+        "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
+        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
         "warps", "track",
     };
@@ -229,7 +229,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
         }
     }
     check(documentedVerbs == auditedParserVerbs,
-        "help catalog should cover every audited executeTokens command spelling");
+        "help catalog should cover every current MIDI-product command spelling");
     for (const auto& verb : auditedParserVerbs) {
         auto probe = makeSession();
         const auto result = CommandEngine::execute(probe,
@@ -244,10 +244,12 @@ void testHelpCatalogCoversAuditedParserVerbs()
 void testTempoAndSwing()
 {
     auto session = makeSession();
+    const double hostTempo = session.transport.bpm;
     auto result = CommandEngine::execute(session, "bpm 137.5");
-    check(result.ok && result.hasEffect(CommandEffect::TransportChanged)
-            && session.transport.bpm == 137.5,
-        "bpm should update transport and report its effect");
+    check(!result.ok && result.message.find("Unknown command")
+                != std::string::npos
+            && session.transport.bpm == hostTempo,
+        "BPM commands should not override the CLAP host tempo");
     result = CommandEngine::execute(session, "swing 62");
     check(result.ok && std::abs(session.transport.swing - 0.62) < 1.0e-9,
         "swing should accept a percentage");
@@ -255,9 +257,6 @@ void testTempoAndSwing()
     check(result.ok && std::abs(session.transport.swing - 0.7) < 1.0e-9,
         "swing should accept a normalized value");
     const auto previous = session.transport;
-    check(!CommandEngine::execute(session, "bpm nan").ok
-            && session.transport.bpm == previous.bpm,
-        "non-finite tempo must fail without changing state");
     check(!CommandEngine::execute(session, "swing 49").ok
             && session.transport.swing == previous.swing,
         "out-of-range swing must fail without changing state");
@@ -326,32 +325,6 @@ void testTimingWarpCommands()
     imported.transport.warpCycleTicks = 1024u;
     checkRejectedWithoutMutation(imported, "warp exp 64",
         "a pre-existing offline cycle must be made live-safe before command append");
-}
-
-void testOutputRoutingCommands()
-{
-    auto session = makeSession(2u);
-    check(CommandEngine::execute(session, "alias k 1").ok,
-        "routing tests should establish an alias");
-    auto result = CommandEngine::execute(session, "@k instrument midi");
-    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
-            && result.hasEffect(CommandEffect::RoutingChanged)
-            && !result.hasEffect(CommandEffect::OutputChanged)
-            && session.pattern.tracks[0].initialInstrumentNodeId
-                == kMidiOutInstrumentNode
-            && session.pattern.tracks[0].destination
-                == EventDestination::Midi,
-        "MIDI OUT should be an explicit rack instrument");
-    result = CommandEngine::execute(session, "instrument 2 sampler");
-    check(result.ok && session.pattern.tracks[1].initialInstrumentNodeId
-            == kStereoSamplerInstrumentNode
-            && session.pattern.tracks[1].destination
-                == EventDestination::Internal,
-        "the sampler rack instrument should select internal routing");
-    checkRejectedWithoutMutation(session, "out 2 none",
-        "legacy route switches should be rejected in the instrument model");
-    checkRejectedWithoutMutation(session, "out 1 vst",
-        "unknown output kinds must not mutate lane routing");
 }
 
 void testDynamicTrackCommands()
@@ -846,17 +819,16 @@ void testFxCommands()
 {
     auto session = makeSession(1u);
     auto result = CommandEngine::execute(session,
-        "fx 1 1 3 membrane.click 0.75 global");
+        "fx 1 1 3 PR 0.75");
     const auto& pair = session.pattern.tracks[0].fxPairs[0u];
     check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
             && pair.actions.size() >= 3u && pair.values.size() >= 3u
-            && pair.actions[2u].state == FxActionCellState::Parameter
-            && pair.actions[2u].parameterId == 9u
-            && pair.actions[2u].targetNode == kTrackInstrumentNode
-            && pair.actions[2u].scope == s3g::tracker::ParameterScope::Global
+            && pair.actions[2u].state == FxActionCellState::Sequencer
+            && pair.actions[2u].sequencerAction
+                == s3g::tracker::SequencerAction::Probability
             && pair.values[2u].state == FxValueCellState::Value
             && std::abs(pair.values[2u].normalized - 0.75f) < 1.0e-6f,
-        "fx should transactionally resolve a stable action key and normalized value");
+        "fx should transactionally resolve a sequencing code and normalized value");
     result = CommandEngine::execute(session, "fx 1 fx1 4 previous");
     check(result.ok
             && session.pattern.tracks[0].fxPairs[0u].actions[3u].state
@@ -896,32 +868,11 @@ void testFxCommands()
         "FX value columns should support independent mute/freeze");
     result = CommandEngine::execute(session, "actions");
     check(result.ok
-            && result.message.find("membrane.tune") != std::string::npos
-            && result.message.find("membrane.output") != std::string::npos
-            && result.message.find("membrane.strike_placement")
-                != std::string::npos
-            && result.message.find("seq.ratchet(RR)") != std::string::npos
-            && result.message.find("seq.microtime(MT)") != std::string::npos
-            && result.message.find("kick=0 snare=1 floor=2 tom=3 high=4")
-                != std::string::npos,
-        "actions should expose stable catalog keys and membrane rack slots");
-    bool completeMembraneCatalog
-        = s3g::tracker::fxParameterActionCount() == 19u;
-    for (uint32_t parameter = 2u; parameter <= 19u; ++parameter) {
-        completeMembraneCatalog = completeMembraneCatalog
-            && s3g::tracker::findFxParameterAction(
-                kTrackInstrumentNode, parameter) != nullptr;
-    }
-    completeMembraneCatalog = completeMembraneCatalog
-        && s3g::tracker::findFxParameterAction(
-            kTrackInstrumentNode, 21u) != nullptr
-        && s3g::tracker::findFxParameterAction(
-            kTrackInstrumentNode, 1u) == nullptr
-        && s3g::tracker::findFxParameterAction(
-            kTrackInstrumentNode, 20u) == nullptr
-        && s3g::tracker::findFxParameterAction(0u, 3u) == nullptr;
-    check(completeMembraneCatalog,
-        "the membrane catalog should include every automatable parameter and exclude topology/trigger controls");
+            && result.message.find("RR=Ratchet") != std::string::npos
+            && result.message.find("MT=Microtime") != std::string::npos
+            && result.message.find("EU=Euclidean Gate") != std::string::npos
+            && result.message.find("membrane") == std::string::npos,
+        "actions should expose only MIDI-product sequencing choices");
 
     auto compact = makeSession(1u);
     result = CommandEngine::execute(compact, "fx1 1 PR !.=-");
@@ -947,7 +898,7 @@ void testFxCommands()
                     .normalized - 0.25f) < 1.0e-6f,
         "alias-first compact FX entry should accept normalized value lists");
     check(CommandEngine::execute(compact,
-                "fx 1 1 5 membrane.click .4").ok
+                "fx 1 1 5 RR .4").ok
             && CommandEngine::execute(compact, "prob 1 5 25%").ok
             && compact.pattern.tracks[0].fxPairs[1u].actions[4u]
                     .sequencerAction
@@ -980,16 +931,13 @@ void testFxCommands()
         "compact FX random values should remain explicit rather than hide RNG state");
 
     checkRejectedWithoutMutation(session,
-        "fx 1 2 1 membrane.output_format .5",
-        "unknown or topology-changing FX actions must reject atomically");
+        "fx 1 2 1 membrane.click .5",
+        "obsolete internal-audio actions must reject atomically");
     checkRejectedWithoutMutation(session,
-        "fx 1 2 1 membrane.click nan",
+        "fx 1 2 1 RR nan",
         "non-finite FX values must reject atomically");
-    checkRejectedWithoutMutation(session,
-        "fx 1 2 1 membrane.click .5 note",
-        "a global-only instrument parameter must reject unsupported note scope");
     checkRejectedWithoutMutation(session, "fx 1 2 1 ST .5 note",
-        "sequencer actions must reject parameter scopes atomically");
+        "sequencing actions must reject obsolete parameter scopes atomically");
     checkRejectedWithoutMutation(session, "fx 1 3 1 clear",
         "FX pair indices outside 1..2 must reject atomically");
 
@@ -1018,100 +966,6 @@ void testFxCommands()
             && timingEvents[0u].absoluteSampleTime == 0u
             && timingEvents[1u].absoluteSampleTime == 4000u,
         "a console-authored RR action should reach the cross-buffer scheduler");
-}
-
-void testInstrumentRoutingCommands()
-{
-    auto session = makeSession(3u);
-    check(CommandEngine::execute(session, "alias sn 2").ok,
-        "instrument routing tests should establish an alias");
-
-    auto result = CommandEngine::execute(session, "instrument @sn kick");
-    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
-            && result.hasEffect(CommandEffect::RoutingChanged)
-            && session.pattern.tracks[1].initialInstrumentNodeId == 0u,
-        "the three-token instrument form should set the default kick");
-
-    result = CommandEngine::execute(session, "@sn instrument sampler");
-    check(result.ok
-            && session.pattern.tracks[1].initialInstrumentNodeId
-                == kStereoSamplerInstrumentNode,
-        "alias-first instrument syntax should assign the sampler slot");
-    result = CommandEngine::execute(session, "inst 3 2");
-    check(result.ok
-            && session.pattern.tracks[2].initialInstrumentNodeId
-                == kMidiOutInstrumentNode
-            && result.message.find("midi") != std::string::npos,
-        "instrument should map the default numeric song index to MIDI OUT");
-    result = CommandEngine::execute(session, "instrument 1 midi");
-    check(result.ok
-            && session.pattern.tracks[0].initialInstrumentNodeId
-                == kMidiOutInstrumentNode,
-        "instrument should accept the explicit MIDI OUT spelling");
-    result = CommandEngine::execute(session, "instrument 1 slice");
-    check(result.ok
-            && session.pattern.tracks[0].initialInstrumentNodeId
-                == kStereoSamplerInstrumentNode,
-        "slice should select the stereo sampler slot");
-
-    result = CommandEngine::execute(session, "instrument @sn 3 kick");
-    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
-            && !result.hasEffect(CommandEffect::RoutingChanged)
-            && session.pattern.tracks[1].instruments.size() >= 3u
-            && session.pattern.tracks[1].instruments[2u].state
-                == InstrumentCellState::Instrument
-            && session.pattern.tracks[1].instruments[2u].nodeId == 0u
-            && session.pattern.tracks[1].instrumentColumn.length == 16u
-            && session.pattern.tracks[1].instruments.size() == 16u,
-        "the first row edit should retain the default 16-row INS column");
-    result = CommandEngine::execute(session,
-        "@sn instrument 4 previous");
-    check(result.ok
-            && session.pattern.tracks[1].instruments[3u].state
-                == InstrumentCellState::Previous,
-        "alias-first instrument syntax should write explicit Previous memory");
-    result = CommandEngine::execute(session, "inst 2 5 clear");
-    check(result.ok
-            && session.pattern.tracks[1].instruments[4u].state
-                == InstrumentCellState::Empty,
-        "clear should write an Empty instrument cell");
-    result = CommandEngine::execute(session, "instrument 2 6 1");
-    check(result.ok
-            && session.pattern.tracks[1].instruments[5u].state
-                == InstrumentCellState::Instrument
-            && session.pattern.tracks[1].instruments[5u].nodeId
-                == kStereoSamplerInstrumentNode,
-        "per-row instrument editing should map a numeric song index");
-
-    check(CommandEngine::execute(session, "len @sn ins 7").ok
-            && session.pattern.tracks[1].instrumentColumn.length == 7u
-            && session.pattern.tracks[1].instruments.size() >= 7u,
-        "INS should participate in generic length controls");
-    check(CommandEngine::execute(session, "stride @sn instrument 2").ok
-            && session.pattern.tracks[1].instrumentColumn.stride == 2u,
-        "Instrument should participate in generic stride controls");
-    check(CommandEngine::execute(session, "dir @sn ins reverse").ok
-            && session.pattern.tracks[1].instrumentColumn.direction
-                == Direction::Reverse,
-        "INS should support an independent direction");
-    check(CommandEngine::execute(session, "mute @sn ins on").ok
-            && session.pattern.tracks[1].instrumentColumn.muted,
-        "INS should support an independent mute/freeze state");
-
-    checkRejectedWithoutMutation(session, "instrument 1 3",
-        "dynamically added song devices must be selected through the rack-aware index UI");
-    checkRejectedWithoutMutation(session, "instrument 1 4",
-        "a console index outside the built-in instrument types must reject atomically");
-    checkRejectedWithoutMutation(session, "instrument @sn fm",
-        "an unknown instrument name must reject atomically");
-    checkRejectedWithoutMutation(session, "instrument @sn 0 kick",
-        "instrument row zero must reject atomically");
-    checkRejectedWithoutMutation(session, "instrument @sn 257 kick",
-        "instrument rows beyond the live maximum must reject atomically");
-    checkRejectedWithoutMutation(session, "instrument @sn 2 fm",
-        "an unknown per-row instrument must reject atomically");
-    checkRejectedWithoutMutation(session, "instrument @sn 2 4",
-        "an out-of-range per-row song index must reject atomically");
 }
 
 void testDemoAndErrors()
@@ -1183,7 +1037,6 @@ int main()
     testHelpCatalogCoversAuditedParserVerbs();
     testTempoAndSwing();
     testTimingWarpCommands();
-    testOutputRoutingCommands();
     testDynamicTrackCommands();
     testSelectionAndLaneControls();
     testNoteAndVelocityEdits();
@@ -1195,7 +1048,6 @@ int main()
     testEuclidAndDeterministicTransforms();
     testSoloUnmuteAndNames();
     testFxCommands();
-    testInstrumentRoutingCommands();
     testDemoAndErrors();
 
     if (failures == 0) {

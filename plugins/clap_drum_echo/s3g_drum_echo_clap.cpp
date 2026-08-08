@@ -1,10 +1,11 @@
-#include "s3g_drum_overload.h"
+#include "s3g_drum_echo.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -30,16 +31,17 @@ constexpr uint32_t kGuiWidth = 760u;
 constexpr uint32_t kGuiHeight = 376u;
 
 enum ParamId : clap_id {
-    kCircuitParamId = 1u,
-    kInputParamId,
-    kOverloadParamId,
-    kDensityParamId,
-    kPunchParamId,
-    kBiasParamId,
-    kBreakupParamId,
-    kWeightParamId,
+    kHeadModeParamId = 1u,
+    kClockParamId,
+    kTimeParamId,
+    kFeedbackParamId,
+    kWearParamId,
+    kFlutterParamId,
+    kTransientParamId,
+    kSensitivityParamId,
+    kDuckParamId,
     kToneParamId,
-    kLinkParamId,
+    kSpreadParamId,
     kMixParamId,
     kOutputParamId,
     kBypassParamId,
@@ -58,18 +60,19 @@ struct ParamDef {
 };
 
 constexpr ParamDef kParamDefs[] {
-    { kCircuitParamId, "Circuit", "CIRCUIT", "Drive", 0.0, 7.0, 0.0, "circuit", true },
-    { kInputParamId, "Input", "INPUT", "Drive", -18.0, 24.0, 0.0, "db", false },
-    { kOverloadParamId, "Overload", "OVR", "Drive", 0.0, 1.0, 0.62, "pct", false },
-    { kDensityParamId, "Density", "DENS", "Drive", 0.0, 1.0, 0.50, "pct", false },
-    { kPunchParamId, "Punch", "PUNCH", "Drive", -1.0, 1.0, 0.24, "signedpct", false },
-    { kBiasParamId, "Bias", "BIAS", "Color", -1.0, 1.0, 0.12, "signedpct", false },
-    { kBreakupParamId, "Breakup", "BREAK", "Color", 0.0, 1.0, 0.16, "pct", false },
-    { kWeightParamId, "Weight", "WEIGHT", "Color", 0.0, 1.0, 0.72, "pct", false },
-    { kToneParamId, "Tone", "TONE", "Color", -1.0, 1.0, 0.0, "signedpct", false },
-    { kLinkParamId, "Stereo Link", "LINK", "Color", 0.0, 1.0, 0.85, "pct", false },
-    { kMixParamId, "Mix", "MIX", "Output", 0.0, 1.0, 0.82, "pct", false },
-    { kOutputParamId, "Output", "OUT", "Output", -36.0, 12.0, -6.0, "db", false },
+    { kHeadModeParamId, "Head Pattern", "HEADS", "Echo", 0.0, 6.0, 6.0, "heads", true },
+    { kClockParamId, "Clock", "CLOCK", "Echo", 0.0, 9.0, 5.0, "clock", true },
+    { kTimeParamId, "Free Time", "TIME", "Echo", 20.0, 1800.0, 180.0, "ms", false },
+    { kFeedbackParamId, "Feedback", "FDBK", "Echo", 0.0, 0.92, 0.38, "pct", false },
+    { kWearParamId, "Tape Wear", "WEAR", "Echo", 0.0, 1.0, 0.20, "pct", false },
+    { kFlutterParamId, "Flutter", "FLUT", "Echo", 0.0, 1.0, 0.12, "pct", false },
+    { kTransientParamId, "Transient Send", "HIT SEND", "Drum Response", -1.0, 1.0, 0.35, "signedpct", false },
+    { kSensitivityParamId, "Sensitivity", "SENSE", "Drum Response", 0.0, 1.0, 0.55, "pct", false },
+    { kDuckParamId, "Hit Duck", "DUCK", "Drum Response", 0.0, 1.0, 0.45, "pct", false },
+    { kToneParamId, "Echo Tone", "TONE", "Drum Response", -1.0, 1.0, 0.0, "signedpct", false },
+    { kSpreadParamId, "Head Spread", "SPREAD", "Drum Response", 0.0, 1.0, 0.55, "pct", false },
+    { kMixParamId, "Mix", "MIX", "Output", 0.0, 1.0, 0.35, "pct", false },
+    { kOutputParamId, "Output", "OUT", "Output", -36.0, 12.0, -3.0, "db", false },
     { kBypassParamId, "Bypass", "BYP", "Output", 0.0, 1.0, 0.0, "bool", true },
 };
 
@@ -85,18 +88,18 @@ const ParamDef* findParam(clap_id id)
 
 struct SavedState {
     uint32_t version = kStateVersion;
-    s3g::DrumOverloadParams params {};
+    s3g::DrumEchoParams params {};
 };
 
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
-    s3g::DrumOverloadParams params {};
-    s3g::DrumOverload dsp {};
+    s3g::DrumEchoParams params {};
+    s3g::DrumEcho dsp {};
     std::atomic<float> outputPeak { 0.0f };
-    std::atomic<float> gainReductionDb { 0.0f };
-    std::atomic<float> overloadActivity { 0.0f };
+    std::atomic<float> transientActivity { 0.0f };
+    std::atomic<float> duckGain { 1.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
@@ -112,20 +115,25 @@ Plugin* self(const clap_plugin_t* plugin)
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
-    case kCircuitParamId:
-        plugin.params.circuit = static_cast<s3g::DrumOverloadCircuit>(
+    case kHeadModeParamId:
+        plugin.params.headMode = static_cast<s3g::DrumEchoHeadMode>(
             std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
-                0u, s3g::kDrumOverloadCircuitCount - 1u));
+                0u, s3g::kDrumEchoHeadModeCount - 1u));
         break;
-    case kInputParamId: plugin.params.inputGainDb = static_cast<float>(value); break;
-    case kOverloadParamId: plugin.params.overload = static_cast<float>(value); break;
-    case kDensityParamId: plugin.params.density = static_cast<float>(value); break;
-    case kPunchParamId: plugin.params.punch = static_cast<float>(value); break;
-    case kBiasParamId: plugin.params.bias = static_cast<float>(value); break;
-    case kBreakupParamId: plugin.params.breakup = static_cast<float>(value); break;
-    case kWeightParamId: plugin.params.weight = static_cast<float>(value); break;
+    case kClockParamId:
+        plugin.params.clock = static_cast<s3g::DrumEchoClock>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, s3g::kDrumEchoClockCount - 1u));
+        break;
+    case kTimeParamId: plugin.params.timeMs = static_cast<float>(value); break;
+    case kFeedbackParamId: plugin.params.feedback = static_cast<float>(value); break;
+    case kWearParamId: plugin.params.wear = static_cast<float>(value); break;
+    case kFlutterParamId: plugin.params.flutter = static_cast<float>(value); break;
+    case kTransientParamId: plugin.params.transient = static_cast<float>(value); break;
+    case kSensitivityParamId: plugin.params.sensitivity = static_cast<float>(value); break;
+    case kDuckParamId: plugin.params.duck = static_cast<float>(value); break;
     case kToneParamId: plugin.params.tone = static_cast<float>(value); break;
-    case kLinkParamId: plugin.params.stereoLink = static_cast<float>(value); break;
+    case kSpreadParamId: plugin.params.spread = static_cast<float>(value); break;
     case kMixParamId: plugin.params.mix = static_cast<float>(value); break;
     case kOutputParamId: plugin.params.outputGainDb = static_cast<float>(value); break;
     case kBypassParamId: plugin.params.bypass = value >= 0.5; break;
@@ -157,8 +165,8 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     instance->dsp.setParams(instance->params);
     instance->dsp.prepare(sampleRate);
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
-    instance->gainReductionDb.store(0.0f, std::memory_order_relaxed);
-    instance->overloadActivity.store(0.0f, std::memory_order_relaxed);
+    instance->transientActivity.store(0.0f, std::memory_order_relaxed);
+    instance->duckGain.store(1.0f, std::memory_order_relaxed);
     return true;
 }
 
@@ -171,8 +179,8 @@ void reset(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     instance->dsp.reset();
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
-    instance->gainReductionDb.store(0.0f, std::memory_order_relaxed);
-    instance->overloadActivity.store(0.0f, std::memory_order_relaxed);
+    instance->transientActivity.store(0.0f, std::memory_order_relaxed);
+    instance->duckGain.store(1.0f, std::memory_order_relaxed);
 }
 
 void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
@@ -220,6 +228,13 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     auto* instance = self(plugin);
     readParamEvents(*instance, processContext->in_events);
+    const bool tempoValid = processContext->transport
+        && (processContext->transport->flags
+            & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+        && std::isfinite(processContext->transport->tempo)
+        && processContext->transport->tempo > 0.0;
+    instance->dsp.setTempo(tempoValid
+        ? processContext->transport->tempo : 120.0, tempoValid);
     if (processContext->audio_inputs_count == 0u
         || processContext->audio_outputs_count == 0u) {
         return CLAP_PROCESS_CONTINUE;
@@ -228,8 +243,8 @@ clap_process_status process(const clap_plugin_t* plugin,
     const auto& output = processContext->audio_outputs[0];
     const uint32_t frames = processContext->frames_count;
     float blockPeak = 0.0f;
-    float blockReduction = 0.0f;
-    float blockActivity = 0.0f;
+    float blockTransient = 0.0f;
+    float blockDuckGain = 1.0f;
     for (uint32_t frame = 0u; frame < frames; ++frame) {
         float left = readInputSample(input, 0u, frame);
         float right = readInputSample(input, 1u, frame);
@@ -238,20 +253,20 @@ clap_process_status process(const clap_plugin_t* plugin,
         writeOutputSample(output, 1u, frame, right);
         blockPeak = std::max(blockPeak,
             std::max(std::abs(left), std::abs(right)));
-        blockReduction = std::min(
-            blockReduction, instance->dsp.gainReductionDb());
-        blockActivity = std::max(
-            blockActivity, instance->dsp.overloadActivity());
+        blockTransient = std::max(
+            blockTransient, instance->dsp.transientActivity());
+        blockDuckGain = std::min(
+            blockDuckGain, instance->dsp.duckGain());
     }
     s3g::clearAudioBufferFromChannel(output, kChannelCount, frames);
     instance->outputPeak.store(std::max(
         instance->outputPeak.load(std::memory_order_relaxed) * 0.90f,
         blockPeak), std::memory_order_relaxed);
-    instance->gainReductionDb.store(blockReduction,
+    instance->transientActivity.store(std::max(
+        instance->transientActivity.load(std::memory_order_relaxed) * 0.88f,
+        blockTransient), std::memory_order_relaxed);
+    instance->duckGain.store(blockDuckGain,
         std::memory_order_relaxed);
-    instance->overloadActivity.store(std::max(
-        instance->overloadActivity.load(std::memory_order_relaxed) * 0.88f,
-        blockActivity), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -300,16 +315,17 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     if (!value) return false;
     const auto& params = self(plugin)->params;
     switch (id) {
-    case kCircuitParamId: *value = static_cast<uint32_t>(params.circuit); return true;
-    case kInputParamId: *value = params.inputGainDb; return true;
-    case kOverloadParamId: *value = params.overload; return true;
-    case kDensityParamId: *value = params.density; return true;
-    case kPunchParamId: *value = params.punch; return true;
-    case kBiasParamId: *value = params.bias; return true;
-    case kBreakupParamId: *value = params.breakup; return true;
-    case kWeightParamId: *value = params.weight; return true;
+    case kHeadModeParamId: *value = static_cast<uint32_t>(params.headMode); return true;
+    case kClockParamId: *value = static_cast<uint32_t>(params.clock); return true;
+    case kTimeParamId: *value = params.timeMs; return true;
+    case kFeedbackParamId: *value = params.feedback; return true;
+    case kWearParamId: *value = params.wear; return true;
+    case kFlutterParamId: *value = params.flutter; return true;
+    case kTransientParamId: *value = params.transient; return true;
+    case kSensitivityParamId: *value = params.sensitivity; return true;
+    case kDuckParamId: *value = params.duck; return true;
     case kToneParamId: *value = params.tone; return true;
-    case kLinkParamId: *value = params.stereoLink; return true;
+    case kSpreadParamId: *value = params.spread; return true;
     case kMixParamId: *value = params.mix; return true;
     case kOutputParamId: *value = params.outputGainDb; return true;
     case kBypassParamId: *value = params.bypass ? 1.0 : 0.0; return true;
@@ -323,14 +339,22 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     if (!display || size == 0u) return false;
     const auto* definition = findParam(id);
     if (!definition) return false;
-    if (id == kCircuitParamId) {
-        const auto circuit = static_cast<s3g::DrumOverloadCircuit>(
+    if (id == kHeadModeParamId) {
+        const auto mode = static_cast<s3g::DrumEchoHeadMode>(
             std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
-                0u, s3g::kDrumOverloadCircuitCount - 1u));
+                0u, s3g::kDrumEchoHeadModeCount - 1u));
         std::snprintf(display, size, "%s",
-            s3g::drumOverloadCircuitName(circuit));
+            s3g::drumEchoHeadModeName(mode));
+    } else if (id == kClockParamId) {
+        const auto clock = static_cast<s3g::DrumEchoClock>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, s3g::kDrumEchoClockCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::drumEchoClockName(clock));
     } else if (std::strcmp(definition->unit, "db") == 0) {
         std::snprintf(display, size, "%+.1f dB", value);
+    } else if (std::strcmp(definition->unit, "ms") == 0) {
+        std::snprintf(display, size, "%.0f ms", value);
     } else if (std::strcmp(definition->unit, "pct") == 0) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else if (std::strcmp(definition->unit, "signedpct") == 0) {
@@ -347,12 +371,23 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     const char* display, double* value)
 {
     if (!display || !value) return false;
-    if (id == kCircuitParamId) {
-        for (uint32_t circuit = 0u;
-             circuit < s3g::kDrumOverloadCircuitCount; ++circuit) {
-            if (std::strcmp(display, s3g::drumOverloadCircuitName(
-                    static_cast<s3g::DrumOverloadCircuit>(circuit))) == 0) {
-                *value = static_cast<double>(circuit);
+    if (id == kHeadModeParamId) {
+        for (uint32_t mode = 0u;
+             mode < s3g::kDrumEchoHeadModeCount; ++mode) {
+            if (std::strcmp(display, s3g::drumEchoHeadModeName(
+                    static_cast<s3g::DrumEchoHeadMode>(mode))) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kClockParamId) {
+        for (uint32_t clock = 0u;
+             clock < s3g::kDrumEchoClockCount; ++clock) {
+            if (std::strcmp(display, s3g::drumEchoClockName(
+                    static_cast<s3g::DrumEchoClock>(clock))) == 0) {
+                *value = static_cast<double>(clock);
                 return true;
             }
         }
@@ -410,17 +445,24 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
 const clap_plugin_state_t stateExtension { stateSave, stateLoad };
 
+uint32_t tailGet(const clap_plugin_t* plugin)
+{
+    return self(plugin)->dsp.tailSamples();
+}
+
+const clap_plugin_tail_t tailExtension { tailGet };
+
 } // namespace
 
 #if defined(__APPLE__)
 constexpr auto kOutputPanel =
     s3g::gui_layout::compactEffectOutputPanel(3u);
-constexpr auto kDrivePanel = s3g::gui_layout::compactEffectLeftPanel(
-    kOutputPanel, s3g::gui_layout::PanelRole::Engine, 5u);
-constexpr auto kColorPanel = s3g::gui_layout::compactEffectRightPanel(
-    s3g::gui_layout::PanelRole::ToneShape, 5u);
-constexpr std::array kFirstColumnPanels { kOutputPanel, kDrivePanel };
-constexpr std::array kSecondColumnPanels { kColorPanel };
+constexpr auto kEchoPanel = s3g::gui_layout::compactEffectLeftPanel(
+    kOutputPanel, s3g::gui_layout::PanelRole::Engine, 6u);
+constexpr auto kResponsePanel = s3g::gui_layout::compactEffectRightPanel(
+    s3g::gui_layout::PanelRole::EventTiming, 5u);
+constexpr std::array kFirstColumnPanels { kOutputPanel, kEchoPanel };
+constexpr std::array kSecondColumnPanels { kResponsePanel };
 static_assert(s3g::gui_layout::validateColumn(
     kFirstColumnPanels,
     s3g::gui_layout::kCompactEffectFamilyLayout.canvas));
@@ -428,10 +470,10 @@ static_assert(s3g::gui_layout::validateColumn(
     kSecondColumnPanels,
     s3g::gui_layout::kCompactEffectFamilyLayout.canvas, false));
 
-constexpr uint32_t kOutputParamIndices[] { 11u, 10u, 12u };
-constexpr uint32_t kDriveParamIndices[] { 0u, 1u, 2u, 3u, 4u };
-constexpr uint32_t kColorParamIndices[] { 5u, 6u, 7u, 8u, 9u };
-constexpr uint32_t kDriveSliderParamIndices[] { 1u, 2u, 3u, 4u };
+constexpr uint32_t kOutputParamIndices[] { 12u, 11u, 13u };
+constexpr uint32_t kEchoParamIndices[] { 0u, 1u, 2u, 3u, 4u, 5u };
+constexpr uint32_t kResponseParamIndices[] { 6u, 7u, 8u, 9u, 10u };
+constexpr uint32_t kEchoSliderParamIndices[] { 2u, 3u, 4u, 5u };
 
 NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
 {
@@ -441,7 +483,7 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
         s3g::gui_layout::processorMenuWidth(panel.frame.width), 15.0);
 }
 
-@interface S3GDrumOverloadView : NSView {
+@interface S3GDrumEchoView : NSView {
     void* _plugin;
     int _dragSlider;
     int _openMenu;
@@ -458,11 +500,12 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     panel:(const s3g::gui_layout::Panel&)panel
     attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)point;
-- (NSRect)circuitDropdownRect;
+- (NSRect)dropdownRect;
+- (uint32_t)openMenuItemCount;
 - (void)updateMenuHover:(NSPoint)point;
 @end
 
-@implementation S3GDrumOverloadView
+@implementation S3GDrumEchoView
 
 - (id)initWithPlugin:(void*)plugin
 {
@@ -548,7 +591,7 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     s3g::clap_gui::drawCompactEffectTitleBand(
-        @"s3g EFFECT DRUM OVERLOAD",
+        @"s3g DRUM ECHO",
         [NSString stringWithUTF8String:_titlePresetName],
         s3g::clap_gui::peakDbText(
             plugin->outputPeak.load(std::memory_order_relaxed)),
@@ -565,8 +608,8 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
             labels, style);
     };
     drawPanel(@"OUTPUT", kOutputPanel);
-    drawPanel(@"DRIVE", kDrivePanel);
-    drawPanel(@"COLOR", kColorPanel);
+    drawPanel(@"MULTI-HEAD TAPE", kEchoPanel);
+    drawPanel(@"DRUM RESPONSE", kResponsePanel);
 
     const auto drawParam = [&](uint32_t parameterIndex, uint32_t row,
                                const s3g::gui_layout::Panel& panel) {
@@ -580,7 +623,8 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
         char text[32] {};
         paramsValueToText(&plugin->plugin, definition.id,
             value, text, sizeof(text));
-        if (definition.id == kCircuitParamId) {
+        if (definition.id == kHeadModeParamId
+            || definition.id == kClockParamId) {
             s3g::clap_gui::drawProcessorMenu(
                 [NSString stringWithUTF8String:definition.label],
                 [NSString stringWithUTF8String:text],
@@ -597,51 +641,73 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     for (uint32_t row = 0u; row < std::size(kOutputParamIndices); ++row) {
         drawParam(kOutputParamIndices[row], row, kOutputPanel);
     }
-    for (uint32_t row = 0u; row < std::size(kDriveParamIndices); ++row) {
-        drawParam(kDriveParamIndices[row], row, kDrivePanel);
+    for (uint32_t row = 0u; row < std::size(kEchoParamIndices); ++row) {
+        drawParam(kEchoParamIndices[row], row, kEchoPanel);
     }
-    for (uint32_t row = 0u; row < std::size(kColorParamIndices); ++row) {
-        drawParam(kColorParamIndices[row], row, kColorPanel);
+    for (uint32_t row = 0u; row < std::size(kResponseParamIndices); ++row) {
+        drawParam(kResponseParamIndices[row], row, kResponsePanel);
     }
 
-    const float reduction = plugin->gainReductionDb.load(
+    const float transient = plugin->transientActivity.load(
         std::memory_order_relaxed);
-    const float activity = plugin->overloadActivity.load(
+    const float duck = plugin->duckGain.load(
         std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"GR %+.1f dB  //  CORE %.0f%%",
-        static_cast<double>(reduction), static_cast<double>(activity * 100.0f)]
+    [[NSString stringWithFormat:@"HIT %.0f%%  //  WET DUCK %.0f%%",
+        static_cast<double>(transient * 100.0f),
+        static_cast<double>((1.0f - duck) * 100.0f)]
         drawAtPoint:NSMakePoint(
-            kColorPanel.frame.x + 16.0,
-            kColorPanel.frame.y + kColorPanel.frame.height + 12.0)
+            kResponsePanel.frame.x + 16.0,
+            kResponsePanel.frame.y + kResponsePanel.frame.height + 12.0)
         withAttributes:values];
 
-    if (_openMenu == static_cast<int>(kCircuitParamId)) {
-        static NSString* circuitItems[] = {
-            @"CONSOLE", @"VALVE", @"CLIP", @"RUPTURE",
-            @"TAPE", @"TRANSFORMER", @"DIODE", @"SPEAKER",
+    if (_openMenu == static_cast<int>(kHeadModeParamId)) {
+        static NSString* headItems[] = {
+            @"HEAD 1", @"HEAD 2", @"HEAD 3", @"HEAD 1+2",
+            @"HEAD 2+3", @"HEAD 1+3", @"ALL HEADS",
         };
         s3g::clap_gui::drawDropdownMenu(
-            [self circuitDropdownRect], 18.0,
-            circuitItems, s3g::kDrumOverloadCircuitCount,
-            static_cast<int>(plugin->params.circuit),
+            [self dropdownRect], 18.0,
+            headItems, s3g::kDrumEchoHeadModeCount,
+            static_cast<int>(plugin->params.headMode),
+            _hoverMenuItem, values, style);
+    } else if (_openMenu == static_cast<int>(kClockParamId)) {
+        static NSString* clockItems[] = {
+            @"FREE", @"1/32", @"1/16T", @"1/16", @"1/8T",
+            @"1/8", @"1/4T", @"1/4", @"1/2", @"1 BAR",
+        };
+        s3g::clap_gui::drawDropdownMenu(
+            [self dropdownRect], 18.0,
+            clockItems, s3g::kDrumEchoClockCount,
+            static_cast<int>(plugin->params.clock),
             _hoverMenuItem, values, style);
     }
 }
 
-- (NSRect)circuitDropdownRect
+- (uint32_t)openMenuItemCount
+{
+    if (_openMenu == static_cast<int>(kHeadModeParamId)) {
+        return s3g::kDrumEchoHeadModeCount;
+    }
+    if (_openMenu == static_cast<int>(kClockParamId)) {
+        return s3g::kDrumEchoClockCount;
+    }
+    return 0u;
+}
+
+- (NSRect)dropdownRect
 {
     return NSMakeRect(
         _menuOrigin.x, _menuOrigin.y,
-        s3g::gui_layout::processorMenuWidth(kDrivePanel.frame.width),
-        18.0 * static_cast<CGFloat>(s3g::kDrumOverloadCircuitCount));
+        s3g::gui_layout::processorMenuWidth(kEchoPanel.frame.width),
+        18.0 * static_cast<CGFloat>([self openMenuItemCount]));
 }
 
 - (void)updateMenuHover:(NSPoint)point
 {
-    if (_openMenu != static_cast<int>(kCircuitParamId)) return;
+    const uint32_t count = [self openMenuItemCount];
+    if (count == 0u) return;
     const int hover = s3g::clap_gui::dropdownHitIndex(
-        point, [self circuitDropdownRect], 18.0,
-        s3g::kDrumOverloadCircuitCount);
+        point, [self dropdownRect], 18.0, count);
     if (hover != _hoverMenuItem) {
         _hoverMenuItem = hover;
         [self setNeedsDisplay:YES];
@@ -657,10 +723,10 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     const bool output = definition->id == kOutputParamId
         || definition->id == kMixParamId
         || definition->id == kBypassParamId;
-    const bool drive = definition->id >= kCircuitParamId
-        && definition->id <= kPunchParamId;
+    const bool echo = definition->id >= kHeadModeParamId
+        && definition->id <= kFlutterParamId;
     const auto& panel = output ? kOutputPanel
-        : (drive ? kDrivePanel : kColorPanel);
+        : (echo ? kEchoPanel : kResponsePanel);
     const double start = s3g::gui_layout::processorControlX(panel.frame.x);
     const double width =
         s3g::gui_layout::processorTrackWidth(panel.frame.width);
@@ -681,19 +747,20 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
         s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
-            point, &plugin->plugin, @"Drum Overload",
+            point, &plugin->plugin, @"Drum Echo",
             titleBand, _titlePresetName,
             sizeof(_titlePresetName), kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
     }
 
-    if (_openMenu == static_cast<int>(kCircuitParamId)) {
+    if ([self openMenuItemCount] > 0u) {
+        const clap_id menuId = static_cast<clap_id>(_openMenu);
         const int hit = s3g::clap_gui::dropdownHitIndex(
-            point, [self circuitDropdownRect], 18.0,
-            s3g::kDrumOverloadCircuitCount);
+            point, [self dropdownRect], 18.0,
+            [self openMenuItemCount]);
         if (hit >= 0) {
-            applyParam(*plugin, kCircuitParamId,
+            applyParam(*plugin, menuId,
                 static_cast<double>(hit));
         }
         _openMenu = 0;
@@ -702,13 +769,22 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
         return;
     }
 
-    if (NSPointInRect(point, processorMenuRect(kDrivePanel, 0u))) {
-        const NSRect box = processorMenuRect(kDrivePanel, 0u);
-        _openMenu = static_cast<int>(kCircuitParamId);
-        _hoverMenuItem = -1;
-        _menuOrigin = NSMakePoint(box.origin.x, NSMaxY(box) + 3.0);
-        [self setNeedsDisplay:YES];
-        return;
+    for (uint32_t row = 0u; row < 2u; ++row) {
+        if (NSPointInRect(point, processorMenuRect(kEchoPanel, row))) {
+            const NSRect box = processorMenuRect(kEchoPanel, row);
+            _openMenu = static_cast<int>(row == 0u
+                ? kHeadModeParamId : kClockParamId);
+            _hoverMenuItem = -1;
+            const CGFloat menuHeight = 18.0
+                * static_cast<CGFloat>([self openMenuItemCount]);
+            const CGFloat below = NSMaxY(box) + 3.0;
+            const CGFloat menuY = below + menuHeight
+                    <= static_cast<CGFloat>(kGuiHeight) - 8.0
+                ? below : box.origin.y - menuHeight - 3.0;
+            _menuOrigin = NSMakePoint(box.origin.x, menuY);
+            [self setNeedsDisplay:YES];
+            return;
+        }
     }
     const auto beginSlider = [&](clap_id parameterId) {
         double defaultValue = 0.0;
@@ -737,10 +813,10 @@ NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
     };
     if (hitPanel(kOutputPanel, kOutputParamIndices,
             static_cast<uint32_t>(std::size(kOutputParamIndices)), 0u)
-        || hitPanel(kDrivePanel, kDriveSliderParamIndices,
-            static_cast<uint32_t>(std::size(kDriveSliderParamIndices)), 1u)
-        || hitPanel(kColorPanel, kColorParamIndices,
-            static_cast<uint32_t>(std::size(kColorParamIndices)), 0u)) {
+        || hitPanel(kEchoPanel, kEchoSliderParamIndices,
+            static_cast<uint32_t>(std::size(kEchoSliderParamIndices)), 2u)
+        || hitPanel(kResponsePanel, kResponseParamIndices,
+            static_cast<uint32_t>(std::size(kResponseParamIndices)), 0u)) {
         return;
     }
 }
@@ -792,7 +868,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     if (!guiIsApiSupported(plugin, api, floating)) return false;
     auto* instance = self(plugin);
     if (instance->guiView) return true;
-    instance->guiView = [[S3GDrumOverloadView alloc]
+    instance->guiView = [[S3GDrumEchoView alloc]
         initWithPlugin:instance];
     if (!instance->guiView) return false;
     if (!s3g::clap_gui::createResponsiveViewport(
@@ -811,7 +887,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (instance->guiView) {
         instance->guiVisible = false;
-        [static_cast<S3GDrumOverloadView*>(instance->guiView)
+        [static_cast<S3GDrumEchoView*>(instance->guiView)
             stopRefreshTimer];
         s3g::clap_gui::destroyResponsiveViewport(
             instance->guiViewport, instance->guiView);
@@ -870,7 +946,7 @@ bool guiShow(const clap_plugin_t* plugin)
         return false;
     }
     instance->guiVisible = true;
-    [static_cast<S3GDrumOverloadView*>(instance->guiView)
+    [static_cast<S3GDrumEchoView*>(instance->guiView)
         startRefreshTimer];
     return true;
 }
@@ -880,7 +956,7 @@ bool guiHide(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
     instance->guiVisible = false;
-    [static_cast<S3GDrumOverloadView*>(instance->guiView)
+    [static_cast<S3GDrumEchoView*>(instance->guiView)
         stopRefreshTimer];
     return s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, true);
@@ -900,6 +976,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
+    if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExtension;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
@@ -908,21 +985,21 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 
 const char* const features[] {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
-    CLAP_PLUGIN_FEATURE_DISTORTION,
+    CLAP_PLUGIN_FEATURE_DELAY,
     CLAP_PLUGIN_FEATURE_STEREO,
     nullptr,
 };
 
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.drum-overload",
-    "s3g Drum Overload",
+    "org.s3g.s3g-dsp.drum-echo",
+    "s3g Drum Echo",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.1",
-    "Stereo transient-aware distortion tuned to overload clean procedural drums.",
+    "0.1.0",
+    "Transient-aware multi-head tape echo tuned for drums and percussion.",
     features,
 };
 
