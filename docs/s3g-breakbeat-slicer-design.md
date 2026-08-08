@@ -47,7 +47,7 @@ standalone code.
 | equal slicing | deterministic contiguous slice construction | add musically named counts and a direct count editor |
 | marker editing | add, drag, delete, snap | add undo/redo local to the plug-in editor |
 | `SampleSlice` | start/end, gain, reverse | add pitch, pan, choke group, play mode, and loop region |
-| `SamplerEnvelope` | click-safe ADSR | store a normalized envelope per slice so articulation follows marker and pitch changes |
+| `SamplerEnvelope` | click-safe ADSR | store one normalized envelope per break and evaluate it against each triggered slice length |
 | sampler voice engine | sample-offset events, interpolation, velocity, reverse, 32 voices | one voice clock reads up to 16 sample-locked channels from an immutable bank snapshot |
 | native waveform view | Retina-aware peak view, sample-level zoom, playhead, marker gestures | detach it from `TrackerViewState` and bind it to the selected bank slot |
 | macOS decoder | native floating-point file decoding | accept and validate 1–16 equal-length channels, then add worker loading and path/bookmark state |
@@ -86,8 +86,8 @@ Per-break Auto Map
 Auto Map commits every current slice consecutively from the break's root note.
 Moving a marker preserves that mapping because slice indices do not change.
 Loading, re-slicing, adding/deleting a marker, or changing the root makes the
-map stale; pressing Auto Map again explicitly rebuilds it. Ranges may overlap because
-channel filtering belongs to each break. Host note names include the break and
+map stale; pressing Auto Map again explicitly rebuilds it. Ranges may overlap
+because channel filtering belongs to each break. Host note names include the break and
 slice and publish the corresponding channel when it is not Omni.
 
 This model supports both important workflows:
@@ -153,8 +153,9 @@ text.
 - add/drag/delete markers, zero-cross snap, undo/redo;
 - slice start/end, loop start/end, gain, pan, pitch, reverse, choke, and launch
   mode;
-- a per-slice ADSR editor with attack, decay, and release expressed as
-  proportions of the rendered slice duration, plus a live playhead;
+- one BREAK ENVELOPE per break, with attack, decay, and release expressed as
+  proportions of each triggered slice's rendered duration, plus a live
+  playhead;
 - keyboard audition using the currently mapped note.
 
 Novelty slicing was present in the Max/FluCoMa prototype but is not in the C++
@@ -172,18 +173,21 @@ readable without crowding the waveform.
 - four Drum Mixer-family strips with post-voice low/mid/high EQ, tunable mid
   frequency, break level, stereo pan, mute, solo, audition, post-fader AUX
   send, and per-break peak meters;
-- an AUX BUS processor with Drive, Glue, Room, Weight, Tone, Return, activity,
+- a wet-only `s3g Break Bus` processor with Press, bipolar Snap, Recovery,
+  Saturation, Bite, antiderivative-antialiased Clip, Tilt, Return, activity,
   and gain-reduction indication;
 - one output panel controlling the host-visible output gain;
 - multichannel break pan remains locked so quad, octal, and 3OA channel order
   is never folded or altered; Slicer 16 applies EQ per discrete channel and
-  runs the AUX return on eight linked pairs without downmixing or reordering.
+  supports all-channel, adjacent-pair, or free dynamics linking without
+  downmixing or reordering; Field Safe bypasses nonlinear stages for encoded
+  spatial material.
 
 Playback-character controls can become a later page without changing the
 four-break mapping model.
 
-The current AUX character stage is temporary. The researched replacement is
-specified in [s3g Break Bus: AUX processor research and design direction](s3g-breakbeat-aux-research.md).
+The Break Bus implementation follows
+[s3g Break Bus: AUX processor research and design direction](s3g-breakbeat-aux-research.md).
 
 ## CLAP and host contract
 
@@ -219,8 +223,9 @@ special integration code.
 
 ## State and sample portability
 
-State version 6 saves global parameters, the selected break, output
-configuration, external paths, slice tables, per-slice/per-slot properties,
+State version 8 saves global parameters, the selected break, output
+configuration, external paths, slice tables, a normalized envelope per break,
+per-slice/per-slot properties,
 each break's committed root/count, MIDI channel, level, pan, EQ, mid frequency,
 AUX send, mute and solo, the shared AUX processor settings, and the
 project-audio embedding preference. With
@@ -357,10 +362,10 @@ This remains a source-build preview and is intentionally absent from the
 release bundle manifest. Finder files can be dropped onto a break card or
 overview waveform, and user-initiated file decode and analysis run on a
 generation-checked worker; CLAP state restoration remains synchronous by
-contract. State version 7 embeds decoded multichannel samples and per-slice
-normalized envelopes directly in
-the host project. Current limitations are explicit: bank replacement ends
-currently playing voices, path-only state has no relocation UI, and loop
+contract. State version 8 embeds decoded multichannel samples and per-break
+normalized envelopes directly in the host project. Prepared bank and mixer
+publication leave already-playing voices intact. Current limitations are
+explicit: path-only state has no relocation UI, and loop
 points, fine tune, and labels are not yet all exposed by the custom
 editor. Those are the next publication/editor tasks; they do not require
 changing the Tracker/MIDI boundary.

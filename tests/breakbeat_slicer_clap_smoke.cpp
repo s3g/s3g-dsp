@@ -32,13 +32,14 @@ constexpr const char* kPluginId =
 constexpr const char* kStereoPluginId =
     "org.s3g.s3g-dsp.breakbeat-slicer-stereo";
 constexpr uint32_t kStateMagic = 0x53423353u;
-constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct FixtureSavedSlot {
     std::array<char, kPathBytes> path {};
     std::array<s3g::breakbeat::Slice,
         s3g::breakbeat::kMaximumSlicesPerSlot> slices {};
+    s3g::breakbeat::Envelope envelope {};
     uint32_t sliceCount = 0u;
     uint32_t mappedSliceCount = 0u;
     float mixerGain = 1.0f;
@@ -67,15 +68,18 @@ struct FixtureSavedState {
     double outputGainDb = 0.0;
     double velocitySensitivity = 1.0;
     clap_id outputConfigId = 2002u;
-    float auxDrive = 0.38f;
-    float auxGlue = 0.34f;
-    float auxRoom = 0.0f;
-    float auxWeight = 0.68f;
-    float auxTone = 0.0f;
+    float auxPress = 0.42f;
+    float auxSnap = 0.18f;
+    float auxRecovery = 0.34f;
+    float auxSaturation = 0.20f;
+    float auxBite = 0.08f;
+    float auxClip = 0.0f;
+    float auxTilt = 0.0f;
     float auxReturnDb = -9.0f;
     uint8_t embedSamples = 1u;
     uint8_t auxEnabled = 0u;
-    std::array<uint8_t, 2u> reserved {};
+    uint8_t auxLinkMode = 0u;
+    uint8_t auxFieldSafe = 0u;
     std::array<FixtureSavedSlot,
         s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
@@ -328,12 +332,16 @@ int main(int argc, char** argv)
     }
 
     FixtureSavedState fixture;
-    fixture.auxDrive = 0.52f;
-    fixture.auxGlue = 0.43f;
-    fixture.auxRoom = 0.16f;
-    fixture.auxWeight = 0.74f;
-    fixture.auxTone = -0.18f;
+    fixture.auxPress = 0.52f;
+    fixture.auxSnap = 0.43f;
+    fixture.auxRecovery = 0.16f;
+    fixture.auxSaturation = 0.74f;
+    fixture.auxBite = 0.28f;
+    fixture.auxClip = 0.36f;
+    fixture.auxTilt = -0.18f;
     fixture.auxReturnDb = -7.5f;
+    fixture.auxLinkMode = static_cast<uint8_t>(s3g::BreakBusLinkMode::Pair);
+    fixture.auxFieldSafe = 1u;
     auto& fixtureSlot = fixture.slots[0u];
     std::snprintf(fixtureSlot.path.data(), fixtureSlot.path.size(), "%s",
         "missing-original-file.wav");
@@ -350,10 +358,10 @@ int main(int argc, char** argv)
     fixtureSlot.sampleRate = 48000.0;
     fixtureSlot.slices[0u].startFrame = 0u;
     fixtureSlot.slices[0u].endFrame = fixtureSlot.frameCount;
-    fixtureSlot.slices[0u].envelope.attackProportion = 0.0f;
-    fixtureSlot.slices[0u].envelope.decayProportion = 0.0f;
-    fixtureSlot.slices[0u].envelope.sustain = 1.0f;
-    fixtureSlot.slices[0u].envelope.releaseProportion = 0.2f;
+    fixtureSlot.envelope.attackProportion = 0.0f;
+    fixtureSlot.envelope.decayProportion = 0.0f;
+    fixtureSlot.envelope.sustain = 1.0f;
+    fixtureSlot.envelope.releaseProportion = 0.2f;
     StateBuffer embeddedFixture;
     const auto* fixtureBytes = reinterpret_cast<const uint8_t*>(&fixture);
     embeddedFixture.bytes.insert(embeddedFixture.bytes.end(), fixtureBytes,
@@ -379,12 +387,15 @@ int main(int argc, char** argv)
     if (stateRoundTrip) {
         FixtureSavedState savedFixture;
         std::memcpy(&savedFixture, saved.bytes.data(), sizeof(savedFixture));
-        stateRoundTrip = std::fabs(savedFixture.auxDrive - 0.52f) < 1.0e-6f
-            && std::fabs(savedFixture.auxTone + 0.18f) < 1.0e-6f
+        stateRoundTrip = std::fabs(savedFixture.auxPress - 0.52f) < 1.0e-6f
+            && std::fabs(savedFixture.auxTilt + 0.18f) < 1.0e-6f
+            && savedFixture.auxLinkMode
+                == static_cast<uint8_t>(s3g::BreakBusLinkMode::Pair)
+            && savedFixture.auxFieldSafe == 1u
             && std::fabs(savedFixture.slots[0u].mixerAuxSend - 0.62f)
                 < 1.0e-6f
-            && std::fabs(savedFixture.slots[0u].slices[0u].envelope
-                    .releaseProportion - 0.2f) < 1.0e-6f;
+            && std::fabs(savedFixture.slots[0u].envelope.releaseProportion
+                    - 0.2f) < 1.0e-6f;
     }
     if (stateRoundTrip && portConfigs) {
         clap_audio_ports_config_t fixed {};

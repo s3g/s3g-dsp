@@ -2,9 +2,9 @@
 
 ## Decision
 
-Replace the Slicer's temporary `DrumOverload` AUX return with a new processor,
-provisionally named **s3g Break Bus**. It should be designed for parallel
-breakbeat treatment rather than inherited from the drum-synthesis mixer.
+The Slicer's temporary `DrumOverload` AUX return has been replaced by
+**s3g Break Bus**, a dedicated processor for parallel breakbeat treatment
+rather than an inherited drum-synthesis mixer circuit.
 
 The effect must keep compression, saturation, distortion, and clipping as
 separate stages. A single Drive macro cannot distinguish gentle glue from
@@ -130,15 +130,21 @@ tilt, and return gain.
 No link mode may fold, exchange, decode, or reorder channels. Every output lane
 retains the same sample clock.
 
-## Implementation sequence
+## Implementation status
 
-1. Add `dsp/s3g_break_bus.h` with the log-domain soft-knee compressor,
-   peak/slow detector, adaptive recovery, SNAP, link modes, and meters.
-2. Add independently switchable SAT and BITE stages with DC rejection.
-3. Implement an ADAA clip/saturator path, benchmark it against 2x and 4x
-   oversampling, and select by measured alias rejection and 16-channel CPU.
-4. Replace the temporary DrumOverload fields in Slicer state and GUI; old
-   preview-state compatibility is not required.
-5. Add impulse, stepped-level, swept-sine, channel-link, 3OA field-safe, and
-   sample-lock regression tests before installing the new processor.
+Implemented in `dsp/s3g_break_bus.h`:
 
+- log-domain soft-knee compression with fast/slow detection, adaptive
+  recovery, bipolar SNAP, gain-reduction/activity meters, and ALL/PAIR/FREE
+  link modes;
+- independent SAT and asymmetric BITE stages, including post-BITE DC
+  rejection;
+- first-order antiderivative antialiasing for the smooth saturator,
+  asymmetric transfer, and final safety clipper;
+- broad post-color TILT and FIELD SAFE nonlinear bypass;
+- Slicer state, GUI, live mixer publication, and multichannel relationship
+  regression coverage.
+
+Still useful before calling the processor final: swept-sine alias measurements
+against 2x/4x oversampling, preset authoring, exposed advanced ratio/attack/
+sidechain controls, and impulse/automation stress fixtures.

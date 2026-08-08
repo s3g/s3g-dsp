@@ -20,10 +20,10 @@ The first playable build includes:
   samples are loaded;
 - one shared playback clock per voice, keeping every source channel precisely
   aligned through slice, pitch, reverse, and loop transitions;
-- 32 fixed playback voices with velocity, per-slice proportional ADSR, pitch,
-  pan, reverse, looping, ping-pong, and choke behavior in the engine; attack,
-  decay, and release are normalized to the rendered slice length rather than
-  milliseconds;
+- 32 fixed playback voices with velocity, a proportional ADSR per break,
+  pitch, pan, reverse, looping, ping-pong, and choke behavior in the engine;
+  one envelope gives the break a coherent articulation while attack, decay,
+  and release scale to each triggered slice rather than milliseconds;
 - equal and transient slicing with zero-crossing snap;
 - manual marker add, drag, and delete, plus waveform zoom, sample-to-sample
   drawing at close zoom, distinct multichannel lanes, and a draggable
@@ -32,14 +32,16 @@ The first playable build includes:
   multi-file drops that fill successive breaks;
 - an OVERVIEW page showing all four waveforms, slice markers, and independent
   playback cursors at once;
-- a BREAK EDIT page with the detailed selected-break waveform and a compact
-  mapped-note audition keyboard that shows pitch names and MIDI values;
+- a BREAK EDIT page with the detailed selected-break waveform, global BREAK
+  ENVELOPE, and a compact mapped-note audition keyboard that shows pitch names
+  and MIDI values;
 - a Drum Mixer-family MIXER page with four strips providing level, stereo pan,
   low/mid/high EQ, tunable mid frequency, post-fader aux send, mute, solo,
   audition, and lane meters; pan is locked for sources wider than stereo;
-- a shared AUX BUS processor with Drive, Glue, Room, Weight, Tone, and Return
-  controls. Slicer 16 processes the return as eight linked channel pairs and
-  never folds the 16-channel field to stereo;
+- a dedicated wet-only `s3g Break Bus` AUX processor with PRESS, bipolar SNAP,
+  RECOVERY, SAT, BITE, antiderivative-antialiased CLIP, TILT, and RETURN;
+  dynamics can link ALL channels, adjacent PAIRS, or run FREE, while FIELD
+  SAFE disables nonlinear stages for encoded spatial material;
 - selected-slice gain, pitch, pan (mono/stereo only), reverse, launch-mode,
   and choke controls;
 - background user-initiated file decoding and transient analysis with stale
@@ -53,9 +55,10 @@ The first playable build includes:
   allowing the host project to reopen without the original files; and
 - one MIDI/CLAP note input and one fixed main output per variant.
 
-Mixer controls use a runtime snapshot separate from the sample/slice bank.
-Changing level, pan, EQ, mute, solo, AUX send, or bus settings does not restart
-sample playback or clear the post-playback processor histories.
+Mixer controls use a runtime snapshot separate from the sample/slice bank and
+publish continuously during click-drag interaction. Changing level, pan, EQ,
+mute, solo, AUX send, or bus settings affects active voices on the next audio
+block; it does not restart playback or clear post-playback processor histories.
 
 For spatial sources, channel order is preserved without downmixing or
 per-channel timing. The 16-channel variant exposes a generic 16-channel port so
@@ -80,9 +83,11 @@ post-fader AUX send. The dry strip and processed return meet before the global
 output control.
 
 On `s3g Slicer 16`, the same EQ is applied independently to every source lane.
-The AUX bus owns eight identical processor instances for channel pairs 1/2
-through 15/16. Pair linking controls dynamics only: it does not exchange,
-decode, sum, or reorder samples. Unused channels remain silent.
+Break Bus keeps separate nonlinear and filter state per lane. Its `ALL`,
+`PAIR`, and `FREE` modes alter only detector/gain linking: they never exchange,
+decode, sum, or reorder samples. `FIELD SAFE` retains linked compression, SNAP,
+and linear tilt while bypassing SAT, BITE, and CLIP. Unused channels remain
+silent.
 
 Click the button to select `PROJECT AUDIO: PATHS` when smaller project files
 are preferable. The original paths are still stored as useful references in
@@ -116,5 +121,5 @@ This preview is not yet part of the release bundle manifest. See
 for the product boundary, architecture, state model, and implementation
 sequence.
 
-The planned replacement for the temporary AUX character stage is documented in
+The research and signal-path rationale behind Break Bus is documented in
 [`docs/s3g-breakbeat-aux-research.md`](../../docs/s3g-breakbeat-aux-research.md).

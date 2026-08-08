@@ -43,10 +43,11 @@ SampleSlot oneSliceSlot(std::shared_ptr<const SampleAsset> asset,
     slot.slices[0u].startFrame = 0u;
     slot.slices[0u].endFrame = slot.asset->frameCount();
     slot.slices[0u].launchMode = launch;
-    slot.slices[0u].envelope.attackProportion = 0.0f;
-    slot.slices[0u].envelope.decayProportion = 0.0f;
-    slot.slices[0u].envelope.sustain = 1.0f;
-    slot.slices[0u].envelope.releaseProportion = 0.0f;
+    slot.envelope.attackProportion = 0.0f;
+    slot.envelope.decayProportion = 0.0f;
+    slot.envelope.sustain = 1.0f;
+    slot.envelope.releaseProportion = 1.0f
+        / static_cast<float>(slot.asset->frameCount());
     return slot;
 }
 
@@ -406,6 +407,20 @@ void testRealtimeMixerPublicationPreservesPlayback()
             && near(secondRight[0u], 0.2f * center * 0.5f),
         "publishing mixer state reset or restarted the active sample voice");
 
+    mixer.strips[0u].gain = 1.0f;
+    mixer.strips[0u].lowEqDb = 12.0f;
+    engine.setPreparedMixer(&mixer);
+    std::array<float, 64u> eqLeft {};
+    std::array<float, 64u> eqRight {};
+    const float beforeEqAdoption = engine.slotPlayheadNormalized(0u);
+    engine.render(nullptr, 0u, eqLeft.data(), eqRight.data(),
+        static_cast<uint32_t>(eqLeft.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.slotPlayheadNormalized(0u) > beforeEqAdoption
+            && eqLeft.back() > 0.4f * center * 1.25f
+            && eqRight.back() > 0.2f * center * 1.25f,
+        "post-playback EQ did not update an already-playing sample voice");
+
     BankSnapshot editedBank = bank;
     editedBank.slots[0u].rootNote = 61u;
     engine.setPreparedBank(&editedBank);
@@ -415,6 +430,58 @@ void testRealtimeMixerPublicationPreservesPlayback()
     check(engine.activeVoiceCount() == 1u
             && engine.slotPlayheadNormalized(0u) > beforeBankAdoption,
         "prepared sample-bank adoption ended an already-playing voice");
+}
+
+void testBreakBusCore()
+{
+    s3g::BreakBus bus;
+    s3g::BreakBusParams params;
+    params.press = 1.0f;
+    params.snap = 0.0f;
+    params.recovery = 0.25f;
+    params.saturation = 0.0f;
+    params.bite = 0.0f;
+    params.clip = 0.0f;
+    params.tilt = 0.0f;
+    params.linkMode = s3g::BreakBusLinkMode::All;
+    params.fieldSafe = true;
+    check(bus.prepare(48000.0) && bus.setParams(params),
+        "Break Bus linked dynamics did not prepare");
+    bus.beginBlock();
+    std::array<float, 4u> linked {{ 0.2f, 0.4f, 0.6f, 0.8f }};
+    for (uint32_t frame = 0u; frame < 2048u; ++frame) {
+        const float sign = (frame & 1u) == 0u ? 1.0f : -1.0f;
+        linked = {{ sign * 0.2f, sign * 0.4f,
+            sign * 0.6f, sign * 0.8f }};
+        bus.processFrame(linked.data(), static_cast<uint32_t>(linked.size()));
+    }
+    check(near(linked[1u] / linked[0u], 2.0f, 1.0e-4f)
+            && near(linked[2u] / linked[0u], 3.0f, 1.0e-4f)
+            && near(linked[3u] / linked[0u], 4.0f, 1.0e-4f)
+            && bus.activity() > 0.0f && bus.gainReductionDb() < -1.0f,
+        "ALL-linked field-safe dynamics changed channel relationships");
+
+    params.press = 0.2f;
+    params.saturation = 0.8f;
+    params.bite = 0.7f;
+    params.clip = 0.9f;
+    params.tilt = 0.3f;
+    params.linkMode = s3g::BreakBusLinkMode::Pair;
+    params.fieldSafe = false;
+    check(bus.setParams(params), "Break Bus nonlinear mode was rejected");
+    bus.reset();
+    bus.beginBlock();
+    std::array<float, 4u> colored {{ 2.0f, -1.7f, 1.4f, -1.1f }};
+    for (uint32_t frame = 0u; frame < 256u; ++frame) {
+        colored = {{ 2.0f, -1.7f, 1.4f, -1.1f }};
+        bus.processFrame(colored.data(),
+            static_cast<uint32_t>(colored.size()));
+    }
+    check(std::all_of(colored.begin(), colored.end(), [](float sample) {
+                return std::isfinite(sample) && std::abs(sample) <= 1.31f;
+            })
+            && std::abs(colored[0u] - 2.0f) > 0.1f,
+        "Break Bus SAT/BITE/ADAA clip chain was inactive or unbounded");
 }
 
 void testWideOutputSilencesUnusedChannels()
@@ -449,8 +516,11 @@ void testProportionalSliceEnvelope()
 {
     BankSnapshot bank;
     bank.slots[0u] = oneSliceSlot(
-        constantAsset(1.0f, 1.0f, 100u, 1000.0));
-    auto& envelope = bank.slots[0u].slices[0u].envelope;
+        constantAsset(1.0f, 1.0f, 150u, 1000.0));
+    bank.slots[0u].sliceCount = 2u;
+    bank.slots[0u].slices[0u] = { 0u, 100u };
+    bank.slots[0u].slices[1u] = { 100u, 150u };
+    auto& envelope = bank.slots[0u].envelope;
     envelope.attackProportion = 0.10f;
     envelope.decayProportion = 0.10f;
     envelope.sustain = 0.50f;
@@ -475,6 +545,21 @@ void testProportionalSliceEnvelope()
             && near(left[90u], center * 0.5f * (9.0f / 19.0f))
             && left[99u] == 0.0f,
         "one-shot ADSR stages were not proportional to slice duration");
+
+    engine.reset();
+    const RenderEvent shortEvent {
+        0u, EventKind::NoteOn, 41u, 61u, 0u, 1.0f,
+    };
+    std::array<float, 50u> shortLeft {};
+    std::array<float, 50u> shortRight {};
+    engine.render(&shortEvent, 1u, shortLeft.data(), shortRight.data(),
+        static_cast<uint32_t>(shortLeft.size()));
+    check(shortLeft[0u] == 0.0f
+            && near(shortLeft[5u], center)
+            && near(shortLeft[10u], center * 0.5f)
+            && near(shortLeft[45u], center * 0.5f * (4.0f / 9.0f))
+            && shortLeft[49u] == 0.0f,
+        "the break envelope did not scale across different slice lengths");
 
     envelope.attackProportion = 0.6f;
     envelope.decayProportion = 0.3f;
@@ -534,6 +619,7 @@ int main()
     testCleanMixKeepsFloatingPointHeadroom();
     testMixerEqAndAuxBus();
     testRealtimeMixerPublicationPreservesPlayback();
+    testBreakBusCore();
     testProportionalSliceEnvelope();
     testLoopGateAndChoke();
     if (failures == 0)

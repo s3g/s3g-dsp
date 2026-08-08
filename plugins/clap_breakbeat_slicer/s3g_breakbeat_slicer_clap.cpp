@@ -43,7 +43,7 @@ using s3g::breakbeat::SampleAsset;
 using s3g::breakbeat::Slice;
 
 constexpr uint32_t kStateMagic = 0x53423353u; // "S3BS"
-constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
 constexpr uint32_t kGuiWidth = 1080u;
 constexpr uint32_t kGuiHeight = 800u;
@@ -87,6 +87,7 @@ constexpr std::array<ParamDef, 2u> kParamDefs {{
 struct SavedSlot {
     std::array<char, kMaximumPathBytes> path {};
     std::array<Slice, s3g::breakbeat::kMaximumSlicesPerSlot> slices {};
+    s3g::breakbeat::Envelope envelope {};
     uint32_t sliceCount = 0u;
     uint32_t mappedSliceCount = 0u;
     float mixerGain = 1.0f;
@@ -115,15 +116,18 @@ struct SavedState {
     double outputGainDb = -6.0;
     double velocitySensitivity = 1.0;
     clap_id outputConfigId = kStereoOutputConfigId;
-    float auxDrive = 0.38f;
-    float auxGlue = 0.34f;
-    float auxRoom = 0.0f;
-    float auxWeight = 0.68f;
-    float auxTone = 0.0f;
+    float auxPress = 0.42f;
+    float auxSnap = 0.18f;
+    float auxRecovery = 0.34f;
+    float auxSaturation = 0.20f;
+    float auxBite = 0.08f;
+    float auxClip = 0.0f;
+    float auxTilt = 0.0f;
     float auxReturnDb = -9.0f;
     uint8_t embedSamples = 1u;
     uint8_t auxEnabled = 0u;
-    std::array<uint8_t, 2u> reserved {};
+    uint8_t auxLinkMode = 0u;
+    uint8_t auxFieldSafe = 0u;
     std::array<SavedSlot, s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
 
@@ -507,6 +511,7 @@ bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     slot.rootNote = root;
     slot.mappedRootNote = root;
     slot.midiChannel = channel;
+    slot.envelope = previous.envelope;
     slot.mixerGain = previous.mixerGain;
     slot.mixerPan = previous.mixerPan;
     slot.mixerLowEqDb = previous.mixerLowEqDb;
@@ -1176,14 +1181,19 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.outputGainDb = paramValue(instance, kOutputGainParamId);
     saved.velocitySensitivity = paramValue(instance, kVelocityParamId);
     saved.outputConfigId = instance.outputConfigId;
-    saved.auxDrive = instance.controlBank->auxDrive;
-    saved.auxGlue = instance.controlBank->auxGlue;
-    saved.auxRoom = instance.controlBank->auxRoom;
-    saved.auxWeight = instance.controlBank->auxWeight;
-    saved.auxTone = instance.controlBank->auxTone;
+    saved.auxPress = instance.controlBank->auxPress;
+    saved.auxSnap = instance.controlBank->auxSnap;
+    saved.auxRecovery = instance.controlBank->auxRecovery;
+    saved.auxSaturation = instance.controlBank->auxSaturation;
+    saved.auxBite = instance.controlBank->auxBite;
+    saved.auxClip = instance.controlBank->auxClip;
+    saved.auxTilt = instance.controlBank->auxTilt;
     saved.auxReturnDb = instance.controlBank->auxReturnDb;
     saved.embedSamples = instance.embedSamplesInState ? 1u : 0u;
     saved.auxEnabled = instance.controlBank->auxEnabled ? 1u : 0u;
+    saved.auxLinkMode = static_cast<uint8_t>(
+        instance.controlBank->auxLinkMode);
+    saved.auxFieldSafe = instance.controlBank->auxFieldSafe ? 1u : 0u;
     uint64_t embeddedBytes = 0u;
     for (std::size_t index = 0u; index < saved.slots.size(); ++index) {
         const auto& source = instance.controlBank->slots[index];
@@ -1191,6 +1201,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         std::snprintf(destination.path.data(), destination.path.size(), "%s",
             instance.samplePaths[index].c_str());
         destination.slices = source.slices;
+        destination.envelope = source.envelope;
         destination.sliceCount = source.sliceCount;
         destination.mappedSliceCount = source.mappedSliceCount;
         destination.mixerGain = source.mixerGain;
@@ -1252,18 +1263,26 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         ? s3g::breakbeat::Interpolation::Nearest
         : s3g::breakbeat::Interpolation::Linear;
     bank->auxEnabled = saved.auxEnabled != 0u;
-    bank->auxDrive = std::isfinite(saved.auxDrive)
-        ? std::clamp(saved.auxDrive, 0.0f, 1.0f) : 0.38f;
-    bank->auxGlue = std::isfinite(saved.auxGlue)
-        ? std::clamp(saved.auxGlue, 0.0f, 1.0f) : 0.34f;
-    bank->auxRoom = std::isfinite(saved.auxRoom)
-        ? std::clamp(saved.auxRoom, -1.0f, 1.0f) : 0.0f;
-    bank->auxWeight = std::isfinite(saved.auxWeight)
-        ? std::clamp(saved.auxWeight, 0.0f, 1.0f) : 0.68f;
-    bank->auxTone = std::isfinite(saved.auxTone)
-        ? std::clamp(saved.auxTone, -1.0f, 1.0f) : 0.0f;
+    bank->auxPress = std::isfinite(saved.auxPress)
+        ? std::clamp(saved.auxPress, 0.0f, 1.0f) : 0.42f;
+    bank->auxSnap = std::isfinite(saved.auxSnap)
+        ? std::clamp(saved.auxSnap, -1.0f, 1.0f) : 0.18f;
+    bank->auxRecovery = std::isfinite(saved.auxRecovery)
+        ? std::clamp(saved.auxRecovery, 0.0f, 1.0f) : 0.34f;
+    bank->auxSaturation = std::isfinite(saved.auxSaturation)
+        ? std::clamp(saved.auxSaturation, 0.0f, 1.0f) : 0.20f;
+    bank->auxBite = std::isfinite(saved.auxBite)
+        ? std::clamp(saved.auxBite, 0.0f, 1.0f) : 0.08f;
+    bank->auxClip = std::isfinite(saved.auxClip)
+        ? std::clamp(saved.auxClip, 0.0f, 1.0f) : 0.0f;
+    bank->auxTilt = std::isfinite(saved.auxTilt)
+        ? std::clamp(saved.auxTilt, -1.0f, 1.0f) : 0.0f;
     bank->auxReturnDb = std::isfinite(saved.auxReturnDb)
         ? std::clamp(saved.auxReturnDb, -60.0f, 12.0f) : -9.0f;
+    bank->auxLinkMode = static_cast<s3g::BreakBusLinkMode>(
+        std::min<uint8_t>(saved.auxLinkMode,
+            static_cast<uint8_t>(s3g::BreakBusLinkMode::Free)));
+    bank->auxFieldSafe = saved.auxFieldSafe != 0u;
     instance.samplePaths = {};
     instance.analyses = {};
     uint64_t embeddedBytes = 0u;
@@ -1294,6 +1313,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         bank->slots[index].mixerAuxSend = std::isfinite(
             source.mixerAuxSend)
             ? std::clamp(source.mixerAuxSend, 0.0f, 1.0f) : 0.0f;
+        bank->slots[index].envelope = source.envelope.valid()
+            ? source.envelope : s3g::breakbeat::Envelope {};
         bank->slots[index].muted = source.muted != 0u;
         bank->slots[index].solo = source.solo != 0u;
         std::shared_ptr<const SampleAsset> asset;
@@ -1600,10 +1621,24 @@ NSRect mixerBusEnableRect()
         NSWidth(panel) - 32.0, 25.0);
 }
 
+NSRect mixerBusLinkRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 478.0,
+        158.0, 25.0);
+}
+
+NSRect mixerBusFieldSafeRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 188.0, NSMinY(panel) + 478.0,
+        168.0, 25.0);
+}
+
 CGFloat mixerBusSliderY(uint32_t row)
 {
     return NSMinY(mixerAuxBusRect()) + 92.0
-        + static_cast<CGFloat>(row) * 52.0;
+        + static_cast<CGFloat>(row) * 43.0;
 }
 
 NSRect mixerBusSliderHitRect(uint32_t row)
@@ -2362,26 +2397,28 @@ double gainDb(float gain)
     const NSRect bus = mixerAuxBusRect();
     s3g::clap_gui::drawPanelFrame(NSMinX(bus), NSMinY(bus),
         NSWidth(bus), NSHeight(bus), style);
-    s3g::clap_gui::drawPanelHeader(@"AUX BUS PROCESSOR", true,
+    s3g::clap_gui::drawPanelHeader(@"s3g BREAK BUS", true,
         NSMinX(bus), NSMinY(bus), NSWidth(bus), 24.0, label, style);
     s3g::clap_gui::drawHeaderButton(mixerBusEnableRect(), bus, @"AUX BUS",
         bank.auxEnabled, value, style);
     static constexpr const char* busLabels[] {
-        "DRV", "GLU", "ROM", "WGT", "TON", "RET",
+        "PRS", "SNP", "RCV", "SAT", "BIT", "CLP", "TLT", "RET",
     };
-    const std::array<float, 6u> busValues {{
-        bank.auxDrive, bank.auxGlue, bank.auxRoom,
-        bank.auxWeight, bank.auxTone, bank.auxReturnDb,
+    const std::array<float, 8u> busValues {{
+        bank.auxPress, bank.auxSnap, bank.auxRecovery,
+        bank.auxSaturation, bank.auxBite, bank.auxClip,
+        bank.auxTilt, bank.auxReturnDb,
     }};
-    const std::array<CGFloat, 6u> busNorms {{
-        bank.auxDrive, bank.auxGlue, (bank.auxRoom + 1.0f) * 0.5f,
-        bank.auxWeight, (bank.auxTone + 1.0f) * 0.5f,
+    const std::array<CGFloat, 8u> busNorms {{
+        bank.auxPress, (bank.auxSnap + 1.0f) * 0.5f, bank.auxRecovery,
+        bank.auxSaturation, bank.auxBite, bank.auxClip,
+        (bank.auxTilt + 1.0f) * 0.5f,
         (bank.auxReturnDb + 60.0f) / 72.0f,
     }};
-    for (uint32_t row = 0u; row < 6u; ++row) {
-        NSString* text = row == 5u
+    for (uint32_t row = 0u; row < busValues.size(); ++row) {
+        NSString* text = row == 7u
             ? [NSString stringWithFormat:@"%+.1f", busValues[row]]
-            : row == 2u || row == 4u
+            : row == 1u || row == 6u
                 ? [NSString stringWithFormat:@"%+.2f", busValues[row]]
                 : [NSString stringWithFormat:@"%.0f%%",
                     busValues[row] * 100.0f];
@@ -2396,14 +2433,18 @@ double gainDb(float gain)
         std::memory_order_relaxed);
     [[NSString stringWithFormat:@"BUS %.0f%%  //  GR %+.1f dB",
         std::min(activity, 1.0f) * 100.0f, reduction]
-        drawAtPoint:NSMakePoint(NSMinX(bus) + 16.0, NSMinY(bus) + 416.0)
+        drawAtPoint:NSMakePoint(NSMinX(bus) + 16.0, NSMinY(bus) + 438.0)
         withAttributes:value];
-    [@"POST-FADER SENDS  //  DISCRETE LINKED PAIRS"
-        drawAtPoint:NSMakePoint(NSMinX(bus) + 16.0, NSMinY(bus) + 452.0)
+    [@"POST-FADER WET RETURN  //  NO LANE REORDERING"
+        drawAtPoint:NSMakePoint(NSMinX(bus) + 16.0, NSMinY(bus) + 458.0)
         withAttributes:label];
-    [@"SLICER 16 NEVER FOLDS THE MULTICHANNEL FIELD"
-        drawAtPoint:NSMakePoint(NSMinX(bus) + 16.0, NSMinY(bus) + 474.0)
-        withAttributes:label];
+    NSString* link = bank.auxLinkMode == s3g::BreakBusLinkMode::All
+        ? @"LINK ALL" : bank.auxLinkMode == s3g::BreakBusLinkMode::Pair
+            ? @"LINK PAIR" : @"LINK FREE";
+    s3g::clap_gui::drawHeaderButton(mixerBusLinkRect(), bus, link,
+        true, value, style);
+    s3g::clap_gui::drawHeaderButton(mixerBusFieldSafeRect(), bus,
+        @"FIELD SAFE", bank.auxFieldSafe, value, style);
 }
 
 - (void)editSelectedSliceControl:(uint32_t)index
@@ -2596,20 +2637,20 @@ double gainDb(float gain)
             s3g::clap_gui::drawPanelFrame(NSMinX(envelopePanel),
                 NSMinY(envelopePanel), NSWidth(envelopePanel),
                 NSHeight(envelopePanel), envelopeStyle);
-            s3g::clap_gui::drawPanelHeader(@"SLICE ENVELOPE", true,
+            s3g::clap_gui::drawPanelHeader(@"BREAK ENVELOPE", true,
                 NSMinX(envelopePanel), NSMinY(envelopePanel),
                 NSWidth(envelopePanel), 24.0, label, envelopeStyle);
-            [@"A / D / R FOLLOW RENDERED SLICE LENGTH"
+            [@"ALL SLICES  //  A D R SCALE TO LENGTH"
                 drawAtPoint:NSMakePoint(NSMinX(envelopePanel) + 16.0,
                     NSMinY(envelopePanel) + 31.0)
                 withAttributes:slicerTextAttrs(
                     s3g::clap_gui::color(0x888e8a), 8.0,
                     NSFontWeightMedium)];
             const std::array<float, 4u> envelopeValues {{
-                slice.envelope.attackProportion,
-                slice.envelope.decayProportion,
-                slice.envelope.sustain,
-                slice.envelope.releaseProportion,
+                slot.envelope.attackProportion,
+                slot.envelope.decayProportion,
+                slot.envelope.sustain,
+                slot.envelope.releaseProportion,
             }};
             static constexpr const char* envelopeLabels[] {
                 "A", "D", "S", "R",
@@ -2700,12 +2741,14 @@ double gainDb(float gain)
     const float mixerMidFrequencyHz =
         bank->slots[index].mixerMidFrequencyHz;
     const float mixerAuxSend = bank->slots[index].mixerAuxSend;
+    const s3g::breakbeat::Envelope envelope = bank->slots[index].envelope;
     const bool muted = bank->slots[index].muted;
     const bool solo = bank->slots[index].solo;
     bank->slots[index] = {};
     bank->slots[index].rootNote = root;
     bank->slots[index].mappedRootNote = root;
     bank->slots[index].midiChannel = channel;
+    bank->slots[index].envelope = envelope;
     bank->slots[index].mixerGain = mixerGain;
     bank->slots[index].mixerPan = mixerPan;
     bank->slots[index].mixerLowEqDb = mixerLowEqDb;
@@ -2775,10 +2818,7 @@ double gainDb(float gain)
         return;
     auto& slot = _dragBank->slots[[self selectedSlot]];
     if (!slot.asset || slot.sliceCount == 0u) return;
-    const std::size_t selected = static_cast<std::size_t>(
-        std::clamp<NSInteger>(_selectedSlice, 0,
-            static_cast<NSInteger>(slot.sliceCount) - 1));
-    auto& envelope = slot.slices[selected].envelope;
+    auto& envelope = slot.envelope;
     const NSRect track = envelopeSliderTrackRect(
         static_cast<uint32_t>(_envelopeDragIndex));
     float normalized = static_cast<float>(std::clamp(
@@ -2815,21 +2855,24 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (_mixerDragKind >= 9 && _mixerDragKind <= 14) {
+    if (_mixerDragKind >= 9 && _mixerDragKind <= 16) {
         if (!_dragBank) return;
         const uint32_t row = static_cast<uint32_t>(_mixerDragKind - 9);
         const NSRect track = mixerBusSliderTrackRect(row);
         const float normalized = static_cast<float>(std::clamp(
             (point.x - NSMinX(track)) / NSWidth(track), 0.0, 1.0));
         switch (row) {
-        case 0u: _dragBank->auxDrive = normalized; break;
-        case 1u: _dragBank->auxGlue = normalized; break;
-        case 2u: _dragBank->auxRoom = normalized * 2.0f - 1.0f; break;
-        case 3u: _dragBank->auxWeight = normalized; break;
-        case 4u: _dragBank->auxTone = normalized * 2.0f - 1.0f; break;
-        case 5u: _dragBank->auxReturnDb = -60.0f + normalized * 72.0f; break;
+        case 0u: _dragBank->auxPress = normalized; break;
+        case 1u: _dragBank->auxSnap = normalized * 2.0f - 1.0f; break;
+        case 2u: _dragBank->auxRecovery = normalized; break;
+        case 3u: _dragBank->auxSaturation = normalized; break;
+        case 4u: _dragBank->auxBite = normalized; break;
+        case 5u: _dragBank->auxClip = normalized; break;
+        case 6u: _dragBank->auxTilt = normalized * 2.0f - 1.0f; break;
+        case 7u: _dragBank->auxReturnDb = -60.0f + normalized * 72.0f; break;
         default: break;
         }
+        (void)publishMixerBank(*_instance, _dragBank, false);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2872,6 +2915,10 @@ double gainDb(float gain)
             slot.mixerHighEqDb = static_cast<float>(normalized * 24.0 - 12.0);
         }
     }
+    // Publish a post-playback mixer snapshot for every drag update. This is
+    // independent of voice/sample state, so an active slice hears the change
+    // on the next process block instead of waiting for a retrigger.
+    (void)publishMixerBank(*_instance, _dragBank, false);
     [self setNeedsDisplay:YES];
 }
 
@@ -2955,7 +3002,28 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
-    for (uint32_t row = 0u; row < 6u; ++row) {
+    if (NSPointInRect(point, mixerBusLinkRect())) {
+        auto bank = editableBank(*_instance);
+        const uint8_t next = (static_cast<uint8_t>(bank->auxLinkMode) + 1u)
+            % 3u;
+        bank->auxLinkMode = static_cast<s3g::BreakBusLinkMode>(next);
+        if (publishMixerBank(*_instance, std::move(bank)))
+            _instance->status = "BREAK BUS LINK MODE UPDATED";
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, mixerBusFieldSafeRect())) {
+        auto bank = editableBank(*_instance);
+        bank->auxFieldSafe = !bank->auxFieldSafe;
+        const bool fieldSafe = bank->auxFieldSafe;
+        if (publishMixerBank(*_instance, std::move(bank)))
+            _instance->status = fieldSafe
+                ? "FIELD SAFE DISABLES NONLINEAR STAGES"
+                : "BREAK BUS NONLINEAR STAGES ENABLED";
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    for (uint32_t row = 0u; row < 8u; ++row) {
         if (!NSPointInRect(point, mixerBusSliderHitRect(row))) continue;
         _mixerDragKind = static_cast<NSInteger>(9u + row);
         _dragBank = editableBank(*_instance);
@@ -3189,7 +3257,7 @@ double gainDb(float gain)
     (void)event;
     if (_envelopeDragIndex >= 0) {
         if (_dragBank && publishBank(*_instance, _dragBank))
-            _instance->status = "SLICE ENVELOPE UPDATED";
+            _instance->status = "BREAK ENVELOPE UPDATED";
         _dragBank.reset();
         _envelopeDragIndex = -1;
         [self setNeedsDisplay:YES];
@@ -3478,7 +3546,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.5.0",
+    "0.5.1",
     "Four-break fixed 16-output, 1-16 channel sample-locked slicer.",
     multichannelFeatures,
 };
@@ -3491,7 +3559,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.5.0",
+    "0.5.1",
     "Four-break fixed stereo slicer for mono and stereo files.",
     stereoFeatures,
 };

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "s3g_drum_overload.h"
+#include "s3g_break_bus.h"
 
 #include <algorithm>
 #include <array>
@@ -35,8 +35,9 @@ enum class Interpolation : uint8_t {
 };
 
 struct Envelope {
-    // A, D, and R are fractions of this slice's rendered duration. This
-    // keeps one-shot articulation stable when markers or pitch change.
+    // One envelope belongs to each break slot. A, D, and R are evaluated as
+    // fractions of the triggered slice's rendered duration, keeping the break
+    // coherent while preserving articulation across different slice lengths.
     float attackProportion = 0.001f;
     float decayProportion = 0.0f;
     float sustain = 1.0f;
@@ -154,7 +155,6 @@ struct Slice {
     float pan = 0.0f;
     float transposeSemitones = 0.0f;
     float fineTuneCents = 0.0f;
-    Envelope envelope {};
     uint8_t chokeGroup = 0u;
     LaunchMode launchMode = LaunchMode::OneShot;
     bool reverse = false;
@@ -168,7 +168,7 @@ struct Slice {
             || transposeSemitones < -96.0f || transposeSemitones > 96.0f
             || !std::isfinite(fineTuneCents)
             || fineTuneCents < -100.0f || fineTuneCents > 100.0f
-            || chokeGroup > 16u || !envelope.valid()) return false;
+            || chokeGroup > 16u) return false;
         if (loopStartFrame == 0u && loopEndFrame == 0u) return true;
         return loopStartFrame >= startFrame && loopStartFrame < loopEndFrame
             && loopEndFrame <= endFrame;
@@ -432,6 +432,7 @@ struct SampleSlot {
     std::array<Slice, kMaximumSlicesPerSlot> slices {};
     uint16_t sliceCount = 0u;
     uint16_t mappedSliceCount = 0u;
+    Envelope envelope {};
     float mixerGain = 1.0f;
     float mixerPan = 0.0f;
     float mixerLowEqDb = 0.0f;
@@ -447,7 +448,7 @@ struct SampleSlot {
 
     bool valid() const noexcept
     {
-        if (!std::isfinite(mixerGain)
+        if (!envelope.valid() || !std::isfinite(mixerGain)
             || mixerGain < 0.0f || mixerGain > 2.0f
             || !std::isfinite(mixerPan) || mixerPan < -1.0f
             || mixerPan > 1.0f
@@ -481,29 +482,40 @@ struct BankSnapshot {
     Interpolation interpolation = Interpolation::Linear;
     float outputGain = 1.0f;
     bool auxEnabled = false;
-    float auxDrive = 0.38f;
-    float auxGlue = 0.34f;
-    float auxRoom = 0.0f;
-    float auxWeight = 0.68f;
-    float auxTone = 0.0f;
+    float auxPress = 0.42f;
+    float auxSnap = 0.18f;
+    float auxRecovery = 0.34f;
+    float auxSaturation = 0.20f;
+    float auxBite = 0.08f;
+    float auxClip = 0.0f;
+    float auxTilt = 0.0f;
     float auxReturnDb = -9.0f;
+    s3g::BreakBusLinkMode auxLinkMode = s3g::BreakBusLinkMode::All;
+    bool auxFieldSafe = false;
 
     bool valid() const noexcept
     {
         if (!std::isfinite(outputGain) || outputGain < 0.0f
             || outputGain > 4.0f
-            || !std::isfinite(auxDrive) || auxDrive < 0.0f
-            || auxDrive > 1.0f
-            || !std::isfinite(auxGlue) || auxGlue < 0.0f
-            || auxGlue > 1.0f
-            || !std::isfinite(auxRoom) || auxRoom < -1.0f
-            || auxRoom > 1.0f
-            || !std::isfinite(auxWeight) || auxWeight < 0.0f
-            || auxWeight > 1.0f
-            || !std::isfinite(auxTone) || auxTone < -1.0f
-            || auxTone > 1.0f
+            || !std::isfinite(auxPress) || auxPress < 0.0f
+            || auxPress > 1.0f
+            || !std::isfinite(auxSnap) || auxSnap < -1.0f
+            || auxSnap > 1.0f
+            || !std::isfinite(auxRecovery) || auxRecovery < 0.0f
+            || auxRecovery > 1.0f
+            || !std::isfinite(auxSaturation) || auxSaturation < 0.0f
+            || auxSaturation > 1.0f
+            || !std::isfinite(auxBite) || auxBite < 0.0f
+            || auxBite > 1.0f
+            || !std::isfinite(auxClip) || auxClip < 0.0f
+            || auxClip > 1.0f
+            || !std::isfinite(auxTilt) || auxTilt < -1.0f
+            || auxTilt > 1.0f
             || !std::isfinite(auxReturnDb) || auxReturnDb < -60.0f
-            || auxReturnDb > 12.0f) return false;
+            || auxReturnDb > 12.0f
+            || static_cast<uint8_t>(auxLinkMode)
+                > static_cast<uint8_t>(s3g::BreakBusLinkMode::Free))
+            return false;
         for (const auto& slot : slots) {
             if (!slot.valid()) return false;
         }
@@ -547,29 +559,40 @@ struct MixerSnapshot {
     std::array<MixerStripSnapshot, kMaximumSampleSlots> strips {};
     float outputGain = 1.0f;
     bool auxEnabled = false;
-    float auxDrive = 0.38f;
-    float auxGlue = 0.34f;
-    float auxRoom = 0.0f;
-    float auxWeight = 0.68f;
-    float auxTone = 0.0f;
+    float auxPress = 0.42f;
+    float auxSnap = 0.18f;
+    float auxRecovery = 0.34f;
+    float auxSaturation = 0.20f;
+    float auxBite = 0.08f;
+    float auxClip = 0.0f;
+    float auxTilt = 0.0f;
     float auxReturnDb = -9.0f;
+    s3g::BreakBusLinkMode auxLinkMode = s3g::BreakBusLinkMode::All;
+    bool auxFieldSafe = false;
 
     bool valid() const noexcept
     {
         if (!std::isfinite(outputGain) || outputGain < 0.0f
             || outputGain > 4.0f
-            || !std::isfinite(auxDrive) || auxDrive < 0.0f
-            || auxDrive > 1.0f
-            || !std::isfinite(auxGlue) || auxGlue < 0.0f
-            || auxGlue > 1.0f
-            || !std::isfinite(auxRoom) || auxRoom < -1.0f
-            || auxRoom > 1.0f
-            || !std::isfinite(auxWeight) || auxWeight < 0.0f
-            || auxWeight > 1.0f
-            || !std::isfinite(auxTone) || auxTone < -1.0f
-            || auxTone > 1.0f
+            || !std::isfinite(auxPress) || auxPress < 0.0f
+            || auxPress > 1.0f
+            || !std::isfinite(auxSnap) || auxSnap < -1.0f
+            || auxSnap > 1.0f
+            || !std::isfinite(auxRecovery) || auxRecovery < 0.0f
+            || auxRecovery > 1.0f
+            || !std::isfinite(auxSaturation) || auxSaturation < 0.0f
+            || auxSaturation > 1.0f
+            || !std::isfinite(auxBite) || auxBite < 0.0f
+            || auxBite > 1.0f
+            || !std::isfinite(auxClip) || auxClip < 0.0f
+            || auxClip > 1.0f
+            || !std::isfinite(auxTilt) || auxTilt < -1.0f
+            || auxTilt > 1.0f
             || !std::isfinite(auxReturnDb) || auxReturnDb < -60.0f
-            || auxReturnDb > 12.0f) return false;
+            || auxReturnDb > 12.0f
+            || static_cast<uint8_t>(auxLinkMode)
+                > static_cast<uint8_t>(s3g::BreakBusLinkMode::Free))
+            return false;
         return std::all_of(strips.begin(), strips.end(),
             [](const MixerStripSnapshot& strip) { return strip.valid(); });
     }
@@ -581,12 +604,16 @@ inline MixerSnapshot mixerSnapshotFromBank(
     MixerSnapshot mixer;
     mixer.outputGain = bank.outputGain;
     mixer.auxEnabled = bank.auxEnabled;
-    mixer.auxDrive = bank.auxDrive;
-    mixer.auxGlue = bank.auxGlue;
-    mixer.auxRoom = bank.auxRoom;
-    mixer.auxWeight = bank.auxWeight;
-    mixer.auxTone = bank.auxTone;
+    mixer.auxPress = bank.auxPress;
+    mixer.auxSnap = bank.auxSnap;
+    mixer.auxRecovery = bank.auxRecovery;
+    mixer.auxSaturation = bank.auxSaturation;
+    mixer.auxBite = bank.auxBite;
+    mixer.auxClip = bank.auxClip;
+    mixer.auxTilt = bank.auxTilt;
     mixer.auxReturnDb = bank.auxReturnDb;
+    mixer.auxLinkMode = bank.auxLinkMode;
+    mixer.auxFieldSafe = bank.auxFieldSafe;
     for (std::size_t index = 0u; index < mixer.strips.size(); ++index) {
         const auto& source = bank.slots[index];
         auto& destination = mixer.strips[index];
@@ -661,11 +688,8 @@ public:
         const float sr = static_cast<float>(sampleRate_);
         lowCoefficient_ = frequencyCoefficient(170.0f, sr);
         highCoefficient_ = frequencyCoefficient(4200.0f, sr);
-        fastAttackCoefficient_ = onePoleCoefficient(0.18f, sr);
-        fastReleaseCoefficient_ = onePoleCoefficient(24.0f, sr);
-        slowAttackCoefficient_ = onePoleCoefficient(14.0f, sr);
-        slowReleaseCoefficient_ = onePoleCoefficient(260.0f, sr);
-        for (auto& processor : auxProcessors_) processor.prepare(sampleRate_);
+        if (!auxProcessor_.prepare(sampleRate_)) return false;
+        updateAuxProcessorParams();
         naturalFadeFrames_ = std::max<uint32_t>(2u,
             static_cast<uint32_t>(std::lround(sampleRate_ * 0.002)));
         chokeReleaseFrames_ = naturalFadeFrames_;
@@ -724,12 +748,10 @@ public:
         voices_ = {};
         mixerFilters_ = {};
         slotPeaks_.fill(0.0f);
-        auxFastEnvelopes_.fill(0.0f);
-        auxSlowEnvelopes_.fill(0.0f);
-        auxRoomGains_.fill(1.0f);
-        for (auto& processor : auxProcessors_) processor.reset();
+        auxProcessor_.reset();
         auxActivity_ = 0.0f;
         auxGainReductionDb_ = 0.0f;
+        auxProcessor_.beginBlock();
         voiceAge_ = 0u;
     }
 
@@ -891,24 +913,12 @@ public:
             }
 
             if (mixer_->auxEnabled) {
-                float frameActivity = 0.0f;
-                float frameReduction = 0.0f;
-                for (uint32_t pair = 0u; pair < outputChannelCount / 2u;
-                     ++pair) {
-                    float left = aux[pair * 2u];
-                    float right = aux[pair * 2u + 1u];
-                    processAuxRoom(pair, left, right);
-                    auxProcessors_[pair].processFrame(left, right);
-                    mixed[pair * 2u] += left * auxReturnGain;
-                    mixed[pair * 2u + 1u] += right * auxReturnGain;
-                    frameActivity = std::max(frameActivity,
-                        std::max(std::abs(left), std::abs(right)));
-                    frameReduction = std::min(frameReduction,
-                        auxProcessors_[pair].gainReductionDb());
-                }
-                auxActivity_ = std::max(auxActivity_, frameActivity);
-                auxGainReductionDb_ = std::min(auxGainReductionDb_,
-                    frameReduction);
+                auxProcessor_.processFrame(aux.data(), outputChannelCount);
+                for (uint32_t channel = 0u; channel < outputChannelCount;
+                     ++channel)
+                    mixed[channel] += aux[channel] * auxReturnGain;
+                auxActivity_ = auxProcessor_.activity();
+                auxGainReductionDb_ = auxProcessor_.gainReductionDb();
             }
             for (uint32_t channel = 0u; channel < outputChannelCount;
                  ++channel) {
@@ -984,14 +994,6 @@ private:
         return std::pow(10.0f, decibels * 0.05f);
     }
 
-    static float onePoleCoefficient(float timeMilliseconds,
-        float sampleRate) noexcept
-    {
-        const float seconds = std::max(0.000001f,
-            timeMilliseconds * 0.001f);
-        return 1.0f - std::exp(-1.0f / (seconds * sampleRate));
-    }
-
     static float frequencyCoefficient(float frequencyHz,
         float sampleRate) noexcept
     {
@@ -999,14 +1001,6 @@ private:
         const float frequency = std::clamp(frequencyHz, 1.0f,
             sampleRate * 0.45f);
         return 1.0f - std::exp(-kTwoPi * frequency / sampleRate);
-    }
-
-    static float followEnvelope(float current, float input,
-        float attackCoefficient, float releaseCoefficient) noexcept
-    {
-        const float coefficient = input > current
-            ? attackCoefficient : releaseCoefficient;
-        return finiteSample(current + (input - current) * coefficient);
     }
 
     float midFrequencyG(float frequencyHz) const noexcept
@@ -1046,43 +1040,17 @@ private:
     {
         const MixerSnapshot defaults {};
         const auto& source = mixer_ ? *mixer_ : defaults;
-        s3g::DrumOverloadParams params;
-        params.circuit = s3g::DrumOverloadCircuit::Console;
-        params.inputGainDb = source.auxDrive * 12.0f;
-        params.overload = 0.18f + source.auxDrive * 0.72f;
-        params.density = source.auxGlue;
-        params.punch = 0.08f + source.auxGlue * 0.20f;
-        params.bias = 0.08f;
-        params.breakup = source.auxGlue * 0.18f;
-        params.weight = source.auxWeight;
-        params.tone = source.auxTone;
-        params.stereoLink = 0.92f;
-        params.mix = 1.0f;
-        params.outputGainDb = -3.0f;
-        params.bypass = false;
-        for (auto& processor : auxProcessors_) processor.setParams(params);
-    }
-
-    void processAuxRoom(uint32_t pair, float& left, float& right) noexcept
-    {
-        if (!mixer_ || pair >= auxRoomGains_.size()) return;
-        const float magnitude = std::max(std::abs(left), std::abs(right));
-        auxFastEnvelopes_[pair] = followEnvelope(auxFastEnvelopes_[pair],
-            magnitude, fastAttackCoefficient_, fastReleaseCoefficient_);
-        auxSlowEnvelopes_[pair] = followEnvelope(auxSlowEnvelopes_[pair],
-            magnitude, slowAttackCoefficient_, slowReleaseCoefficient_);
-        const float transient = std::clamp(
-            (auxFastEnvelopes_[pair] - auxSlowEnvelopes_[pair])
-                / (auxSlowEnvelopes_[pair] + 0.025f), 0.0f, 1.0f);
-        const float body = 1.0f - transient;
-        const float targetGain = mixer_->auxRoom < 0.0f
-            ? 1.0f - (-mixer_->auxRoom) * body * 0.94f
-            : 1.0f + mixer_->auxRoom * body * 1.45f;
-        auxRoomGains_[pair] = finiteSample(auxRoomGains_[pair]
-            + (targetGain - auxRoomGains_[pair])
-                * fastReleaseCoefficient_);
-        left = finiteSample(left * auxRoomGains_[pair]);
-        right = finiteSample(right * auxRoomGains_[pair]);
+        s3g::BreakBusParams params;
+        params.press = source.auxPress;
+        params.snap = source.auxSnap;
+        params.recovery = source.auxRecovery;
+        params.saturation = source.auxSaturation;
+        params.bite = source.auxBite;
+        params.clip = source.auxClip;
+        params.tilt = source.auxTilt;
+        params.linkMode = source.auxLinkMode;
+        params.fieldSafe = source.auxFieldSafe;
+        (void)auxProcessor_.setParams(params);
     }
 
     static uint32_t proportionalFrames(float proportion,
@@ -1217,14 +1185,14 @@ private:
         const auto boundedLength = static_cast<uint32_t>(std::clamp<double>(
             outputLength, 1.0, std::numeric_limits<uint32_t>::max()));
         voice.attackFrames = proportionalFrames(
-            slice.envelope.attackProportion, boundedLength);
+            slot.envelope.attackProportion, boundedLength);
         voice.decayFrames = proportionalFrames(
-            slice.envelope.decayProportion, boundedLength);
+            slot.envelope.decayProportion, boundedLength);
         voice.releaseFrames = proportionalFrames(
-            slice.envelope.releaseProportion, boundedLength);
+            slot.envelope.releaseProportion, boundedLength);
         voice.tailReleaseFrames = slice.launchMode == LaunchMode::OneShot
             ? voice.releaseFrames : 0u;
-        voice.sustainLevel = slice.envelope.sustain;
+        voice.sustainLevel = slot.envelope.sustain;
         voice.naturalFadeFrames = std::min(naturalFadeFrames_,
             std::max<uint32_t>(2u, boundedLength / 2u));
         if (voice.attackFrames != 0u) {
@@ -1396,21 +1364,13 @@ private:
     std::array<float, kMaximumSampleSlots> slotPeaks_ {};
     std::array<std::array<MixerFilterState, kMaximumAudioChannels>,
         kMaximumSampleSlots> mixerFilters_ {};
-    std::array<s3g::DrumOverload, kMaximumAudioChannels / 2u>
-        auxProcessors_ {};
-    std::array<float, kMaximumAudioChannels / 2u> auxFastEnvelopes_ {};
-    std::array<float, kMaximumAudioChannels / 2u> auxSlowEnvelopes_ {};
-    std::array<float, kMaximumAudioChannels / 2u> auxRoomGains_ {};
+    s3g::BreakBus auxProcessor_ {};
     double sampleRate_ = 48000.0;
     uint64_t voiceAge_ = 0u;
     uint32_t naturalFadeFrames_ = 96u;
     uint32_t chokeReleaseFrames_ = 96u;
     float lowCoefficient_ = 0.02f;
     float highCoefficient_ = 0.35f;
-    float fastAttackCoefficient_ = 0.10f;
-    float fastReleaseCoefficient_ = 0.001f;
-    float slowAttackCoefficient_ = 0.001f;
-    float slowReleaseCoefficient_ = 0.0001f;
     float auxActivity_ = 0.0f;
     float auxGainReductionDb_ = 0.0f;
     bool prepared_ = false;
