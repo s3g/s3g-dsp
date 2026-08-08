@@ -34,6 +34,76 @@ enum class Interpolation : uint8_t {
     Linear,
 };
 
+constexpr std::size_t kInsertSlotsPerStrip = 2u;
+constexpr std::size_t kInsertParameterCount = 4u;
+
+enum class InsertType : uint8_t {
+    Off = 0u,
+    Filter,
+    Degrade,
+    Transient,
+    Resonator,
+};
+
+enum class FilterMode : uint8_t {
+    LowPass = 0u,
+    BandPass,
+    HighPass,
+    Notch,
+};
+
+// Insert values are normalized so the document/runtime snapshot stays small
+// and stable while each processor owns its musically useful mapping. Mode is
+// currently used by FILTER and retained for future stepped device options.
+struct InsertSettings {
+    InsertType type = InsertType::Off;
+    FilterMode mode = FilterMode::LowPass;
+    std::array<float, kInsertParameterCount> values {{
+        0.5f, 0.5f, 0.0f, 1.0f,
+    }};
+    bool bypassed = false;
+
+    bool valid() const noexcept
+    {
+        return static_cast<uint8_t>(type)
+                <= static_cast<uint8_t>(InsertType::Resonator)
+            && static_cast<uint8_t>(mode)
+                <= static_cast<uint8_t>(FilterMode::Notch)
+            && std::all_of(values.begin(), values.end(), [](float value) {
+                return std::isfinite(value) && value >= 0.0f
+                    && value <= 1.0f;
+            });
+    }
+};
+
+inline InsertSettings defaultInsertSettings(InsertType type) noexcept
+{
+    InsertSettings settings;
+    settings.type = type;
+    switch (type) {
+    case InsertType::Filter:
+        // 1 kHz low-pass, moderate resonance, clean drive, fully wet.
+        settings.values = {{ 0.55f, 0.22f, 0.0f, 1.0f }};
+        break;
+    case InsertType::Degrade:
+        // Audible but usable rate/bit reduction with no timing jitter.
+        settings.values = {{ 0.30f, 0.58f, 0.0f, 1.0f }};
+        break;
+    case InsertType::Transient:
+        // More attack, less sustain, gate disabled, fully wet.
+        settings.values = {{ 0.66f, 0.38f, 0.0f, 1.0f }};
+        break;
+    case InsertType::Resonator:
+        // Low-mid tuning, controlled feedback and a parallel wet balance.
+        settings.values = {{ 0.38f, 0.52f, 0.48f, 0.48f }};
+        break;
+    case InsertType::Off:
+        settings.values = {{ 0.5f, 0.5f, 0.0f, 1.0f }};
+        break;
+    }
+    return settings;
+}
+
 struct Envelope {
     // One envelope belongs to each break slot. A, D, and R are evaluated as
     // fractions of the triggered slice's rendered duration, keeping the break
@@ -440,6 +510,7 @@ struct SampleSlot {
     float mixerHighEqDb = 0.0f;
     float mixerMidFrequencyHz = 900.0f;
     float mixerAuxSend = 0.0f;
+    std::array<InsertSettings, kInsertSlotsPerStrip> inserts {};
     uint8_t rootNote = 36u;
     uint8_t mappedRootNote = 36u;
     uint8_t midiChannel = 0u; // zero is omni; 1-16 are explicit MIDI channels
@@ -468,6 +539,10 @@ struct SampleSlot {
             || mappedSliceCount > sliceCount
             || static_cast<std::size_t>(mappedRootNote) + mappedSliceCount
                 > kMidiNoteCount) return false;
+        if (!std::all_of(inserts.begin(), inserts.end(),
+                [](const InsertSettings& insert) {
+                    return insert.valid();
+                })) return false;
         if (!asset) return sliceCount == 0u && mappedSliceCount == 0u;
         if (!asset->valid() || sliceCount == 0u) return false;
         for (std::size_t index = 0u; index < sliceCount; ++index) {
@@ -535,6 +610,7 @@ struct MixerStripSnapshot {
     float highEqDb = 0.0f;
     float midFrequencyHz = 900.0f;
     float auxSend = 0.0f;
+    std::array<InsertSettings, kInsertSlotsPerStrip> inserts {};
     bool muted = false;
     bool solo = false;
 
@@ -551,7 +627,11 @@ struct MixerStripSnapshot {
             && std::isfinite(midFrequencyHz) && midFrequencyHz >= 120.0f
             && midFrequencyHz <= 8000.0f
             && std::isfinite(auxSend) && auxSend >= 0.0f
-            && auxSend <= 1.0f;
+            && auxSend <= 1.0f
+            && std::all_of(inserts.begin(), inserts.end(),
+                [](const InsertSettings& insert) {
+                    return insert.valid();
+                });
     }
 };
 
@@ -624,6 +704,7 @@ inline MixerSnapshot mixerSnapshotFromBank(
         destination.highEqDb = source.mixerHighEqDb;
         destination.midFrequencyHz = source.mixerMidFrequencyHz;
         destination.auxSend = source.mixerAuxSend;
+        destination.inserts = source.inserts;
         destination.muted = source.muted;
         destination.solo = source.solo;
     }
@@ -736,6 +817,24 @@ public:
 
     void setPreparedMixer(const MixerSnapshot* mixer) noexcept
     {
+        // Device topology changes clear only the affected insert history.
+        // Parameter-only publication retains filter, detector, hold, and
+        // resonator tails so active slices hear continuous automation.
+        for (std::size_t slot = 0u; slot < insertStates_.size(); ++slot) {
+            for (std::size_t insert = 0u;
+                 insert < insertStates_[slot].size(); ++insert) {
+                const InsertType next = mixer
+                    ? mixer->strips[slot].inserts[insert].type
+                    : InsertType::Off;
+                auto& state = insertStates_[slot][insert];
+                if (state.activeType == next) continue;
+                // The large delay memory is touched only when a resonator is
+                // selected. Other topology changes reset a few scalar states
+                // and remain bounded to a cache line on the audio thread.
+                resetInsertState(state, next == InsertType::Resonator);
+                state.activeType = next;
+            }
+        }
         mixer_ = mixer;
         updateAuxProcessorParams();
     }
@@ -747,6 +846,7 @@ public:
     {
         voices_ = {};
         mixerFilters_ = {};
+        resetAllInsertStates();
         slotPeaks_.fill(0.0f);
         auxProcessor_.reset();
         auxActivity_ = 0.0f;
@@ -812,6 +912,7 @@ public:
             float midG = 0.06f;
             float level = 1.0f;
             float auxSendSquared = 0.0f;
+            std::array<InsertRenderParams, kInsertSlotsPerStrip> inserts {};
             bool stereoPan = true;
         };
         const bool anySolo = std::any_of(mixer_->strips.begin(),
@@ -838,6 +939,10 @@ public:
             params.level = strip.gain
                 * (!strip.muted && (!anySolo || strip.solo) ? 1.0f : 0.0f);
             params.auxSendSquared = strip.auxSend * strip.auxSend;
+            for (std::size_t insert = 0u;
+                 insert < params.inserts.size(); ++insert)
+                params.inserts[insert] = insertRenderParams(
+                    strip.inserts[insert]);
         }
         const float auxReturnGain = dbGain(mixer_->auxReturnDb);
         std::size_t eventIndex = 0u;
@@ -895,9 +1000,15 @@ public:
             for (std::size_t slotIndex = 0u;
                  slotIndex < bank_->slots.size(); ++slotIndex) {
                 const auto& params = stripParams[slotIndex];
+                auto insertFrame = slotMixed[slotIndex];
+                for (std::size_t insert = 0u;
+                     insert < params.inserts.size(); ++insert)
+                    processInsertFrame(insertFrame, outputChannelCount,
+                        insertStates_[slotIndex][insert],
+                        params.inserts[insert]);
                 for (uint32_t channel = 0u; channel < outputChannelCount;
                      ++channel) {
-                    float strip = processEq(slotMixed[slotIndex][channel],
+                    float strip = processEq(insertFrame[channel],
                         mixerFilters_[slotIndex][channel], params.midG,
                         params.lowGain, params.midGain, params.highGain);
                     if (params.stereoPan && channel < 2u)
@@ -938,6 +1049,59 @@ public:
     }
 
 private:
+    static constexpr std::size_t kResonatorDelayFrames = 2048u;
+
+    struct InsertRenderParams {
+        InsertType type = InsertType::Off;
+        FilterMode filterMode = FilterMode::LowPass;
+        bool bypassed = false;
+        float mix = 1.0f;
+
+        float filterA1 = 1.0f;
+        float filterA2 = 0.0f;
+        float filterA3 = 0.0f;
+        float filterK = 1.0f;
+        float filterDrive = 1.0f;
+        float filterDriveNorm = 1.0f;
+
+        uint32_t degradePeriod = 1u;
+        uint32_t degradeJitter = 0u;
+        float degradeScale = 32768.0f;
+
+        float transientAttack = 0.0f;
+        float transientSustain = 0.0f;
+        float transientGateThreshold = 0.0f;
+        float transientFastAttack = 1.0f;
+        float transientFastRelease = 1.0f;
+        float transientSlowAttack = 1.0f;
+        float transientSlowRelease = 1.0f;
+        float transientGateRelease = 1.0f;
+
+        uint32_t resonatorDelay = 1u;
+        float resonatorFeedback = 0.0f;
+        float resonatorDamping = 1.0f;
+    };
+
+    struct InsertFilterState {
+        float ic1 = 0.0f;
+        float ic2 = 0.0f;
+    };
+
+    struct InsertProcessorState {
+        std::array<InsertFilterState, kMaximumAudioChannels> filters {};
+        std::array<float, kMaximumAudioChannels> held {};
+        std::array<float, kMaximumAudioChannels> resonatorDamped {};
+        std::array<std::array<float, kResonatorDelayFrames>,
+            kMaximumAudioChannels> resonatorBuffer {};
+        uint32_t degradeRemaining = 0u;
+        uint32_t random = 0x9e3779b9u;
+        uint32_t resonatorWrite = 0u;
+        float transientFast = 0.0f;
+        float transientSlow = 0.0f;
+        float transientGate = 1.0f;
+        InsertType activeType = InsertType::Off;
+    };
+
     struct Voice {
         enum class EnvelopeStage : uint8_t {
             Attack = 0u,
@@ -1034,6 +1198,247 @@ private:
         const float mid = kMidQInverse * v1;
         return finiteSample(clean + (lowGain - 1.0f) * low
             + (midGain - 1.0f) * mid + (highGain - 1.0f) * high);
+    }
+
+    float timeCoefficient(float milliseconds) const noexcept
+    {
+        const double frames = std::max(1.0,
+            sampleRate_ * static_cast<double>(milliseconds) * 0.001);
+        return static_cast<float>(1.0 - std::exp(-1.0 / frames));
+    }
+
+    InsertRenderParams insertRenderParams(
+        const InsertSettings& settings) const noexcept
+    {
+        constexpr float kPi = 3.14159265358979323846f;
+        InsertRenderParams result;
+        result.type = settings.type;
+        result.filterMode = settings.mode;
+        result.bypassed = settings.bypassed;
+        result.mix = settings.values[3u];
+        switch (settings.type) {
+        case InsertType::Filter: {
+            const float cutoff = 30.0f * std::pow(
+                20000.0f / 30.0f, settings.values[0u]);
+            const float normalized = std::min(0.45f,
+                cutoff / static_cast<float>(sampleRate_));
+            const float g = std::tan(kPi * normalized);
+            const float q = 0.5f
+                + 15.5f * settings.values[1u] * settings.values[1u];
+            result.filterK = 1.0f / q;
+            result.filterA1 = 1.0f
+                / (1.0f + g * (g + result.filterK));
+            result.filterA2 = g * result.filterA1;
+            result.filterA3 = g * result.filterA2;
+            result.filterDrive = 1.0f
+                + 15.0f * settings.values[2u] * settings.values[2u];
+            result.filterDriveNorm = result.filterDrive > 1.0001f
+                ? 1.0f / std::tanh(result.filterDrive) : 1.0f;
+            break;
+        }
+        case InsertType::Degrade: {
+            result.degradePeriod = 1u + static_cast<uint32_t>(std::lround(
+                settings.values[0u] * settings.values[0u] * 95.0f));
+            result.degradeJitter = static_cast<uint32_t>(std::lround(
+                static_cast<float>(result.degradePeriod)
+                    * 0.75f * settings.values[2u]));
+            const uint32_t bits = 4u + static_cast<uint32_t>(std::lround(
+                settings.values[1u] * 12.0f));
+            result.degradeScale = static_cast<float>(1u << (bits - 1u));
+            break;
+        }
+        case InsertType::Transient:
+            result.transientAttack = settings.values[0u] * 2.0f - 1.0f;
+            result.transientSustain = settings.values[1u] * 2.0f - 1.0f;
+            result.transientGateThreshold = settings.values[2u] <= 0.002f
+                ? 0.0f : std::pow(10.0f,
+                    (-72.0f + settings.values[2u] * 48.0f) * 0.05f);
+            result.transientFastAttack = timeCoefficient(0.25f);
+            result.transientFastRelease = timeCoefficient(18.0f);
+            result.transientSlowAttack = timeCoefficient(12.0f);
+            result.transientSlowRelease = timeCoefficient(180.0f);
+            result.transientGateRelease = timeCoefficient(55.0f);
+            break;
+        case InsertType::Resonator: {
+            const float frequency = 40.0f * std::pow(
+                100.0f, settings.values[0u]);
+            result.resonatorDelay = static_cast<uint32_t>(std::clamp<double>(
+                std::round(sampleRate_ / frequency), 1.0,
+                static_cast<double>(kResonatorDelayFrames - 1u)));
+            result.resonatorFeedback = 0.94f * settings.values[1u];
+            const float dampingCutoff = 250.0f
+                + 17750.0f * std::pow(1.0f - settings.values[2u], 2.0f);
+            result.resonatorDamping = frequencyCoefficient(dampingCutoff,
+                static_cast<float>(sampleRate_));
+            break;
+        }
+        case InsertType::Off: break;
+        }
+        return result;
+    }
+
+    static void resetInsertState(InsertProcessorState& state,
+        bool clearResonator = true) noexcept
+    {
+        state.filters = {};
+        state.held.fill(0.0f);
+        if (clearResonator) {
+            state.resonatorDamped.fill(0.0f);
+            for (auto& channel : state.resonatorBuffer) channel.fill(0.0f);
+            state.resonatorWrite = 0u;
+        }
+        state.degradeRemaining = 0u;
+        state.random = 0x9e3779b9u;
+        state.transientFast = 0.0f;
+        state.transientSlow = 0.0f;
+        state.transientGate = 1.0f;
+        state.activeType = InsertType::Off;
+    }
+
+    void resetAllInsertStates() noexcept
+    {
+        for (std::size_t slot = 0u; slot < insertStates_.size(); ++slot) {
+            for (std::size_t insert = 0u;
+                 insert < insertStates_[slot].size(); ++insert) {
+                auto& state = insertStates_[slot][insert];
+                resetInsertState(state);
+                if (mixer_)
+                    state.activeType = mixer_->strips[slot]
+                        .inserts[insert].type;
+            }
+        }
+    }
+
+    static uint32_t advanceRandom(uint32_t& state) noexcept
+    {
+        state ^= state << 13u;
+        state ^= state >> 17u;
+        state ^= state << 5u;
+        if (state == 0u) state = 0x9e3779b9u;
+        return state;
+    }
+
+    void processInsertFrame(
+        std::array<float, kMaximumAudioChannels>& samples,
+        uint32_t channelCount, InsertProcessorState& state,
+        const InsertRenderParams& params) const noexcept
+    {
+        if (params.type == InsertType::Off || channelCount == 0u) return;
+        const auto dry = samples;
+        switch (params.type) {
+        case InsertType::Filter:
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const float input = finiteSample(samples[channel]);
+                const float driven = params.filterDrive > 1.0001f
+                    ? std::tanh(input * params.filterDrive)
+                        * params.filterDriveNorm : input;
+                auto& filter = state.filters[channel];
+                const float v3 = driven - filter.ic2;
+                const float v1 = params.filterA1 * filter.ic1
+                    + params.filterA2 * v3;
+                const float v2 = filter.ic2
+                    + params.filterA2 * filter.ic1
+                    + params.filterA3 * v3;
+                filter.ic1 = finiteSample(2.0f * v1 - filter.ic1);
+                filter.ic2 = finiteSample(2.0f * v2 - filter.ic2);
+                const float high = driven - params.filterK * v1 - v2;
+                float wet = v2;
+                switch (params.filterMode) {
+                case FilterMode::LowPass: wet = v2; break;
+                case FilterMode::BandPass: wet = v1; break;
+                case FilterMode::HighPass: wet = high; break;
+                case FilterMode::Notch: wet = high + v2; break;
+                }
+                samples[channel] = finiteSample(input
+                    + (wet - input) * params.mix);
+            }
+            break;
+        case InsertType::Degrade:
+            if (state.degradeRemaining == 0u) {
+                int32_t jitter = 0;
+                if (params.degradeJitter != 0u) {
+                    const uint32_t span = params.degradeJitter * 2u + 1u;
+                    jitter = static_cast<int32_t>(advanceRandom(state.random)
+                        % span) - static_cast<int32_t>(params.degradeJitter);
+                }
+                state.degradeRemaining = static_cast<uint32_t>(std::max(
+                    1, static_cast<int32_t>(params.degradePeriod) + jitter));
+                for (uint32_t channel = 0u; channel < channelCount;
+                     ++channel)
+                    state.held[channel] = finiteSample(std::round(
+                        samples[channel] * params.degradeScale)
+                        / params.degradeScale);
+            }
+            --state.degradeRemaining;
+            for (uint32_t channel = 0u; channel < channelCount; ++channel)
+                samples[channel] = finiteSample(samples[channel]
+                    + (state.held[channel] - samples[channel]) * params.mix);
+            break;
+        case InsertType::Transient: {
+            float detector = 0.0f;
+            for (uint32_t channel = 0u; channel < channelCount; ++channel)
+                detector = std::max(detector, std::abs(samples[channel]));
+            const float fastCoefficient = detector > state.transientFast
+                ? params.transientFastAttack : params.transientFastRelease;
+            const float slowCoefficient = detector > state.transientSlow
+                ? params.transientSlowAttack : params.transientSlowRelease;
+            state.transientFast = finiteSample(state.transientFast
+                + (detector - state.transientFast) * fastCoefficient);
+            state.transientSlow = finiteSample(state.transientSlow
+                + (detector - state.transientSlow) * slowCoefficient);
+            const float onset = std::clamp((state.transientFast
+                - state.transientSlow)
+                / std::max(0.001f, state.transientFast), 0.0f, 1.0f);
+            const float body = std::clamp(state.transientSlow * 3.0f,
+                0.0f, 1.0f) * (1.0f - onset);
+            const float shapedGain = dbGain(
+                params.transientAttack * onset * 18.0f
+                + params.transientSustain * body * 12.0f);
+            const float gateTarget = params.transientGateThreshold <= 0.0f
+                    || detector >= params.transientGateThreshold
+                ? 1.0f : 0.0f;
+            if (gateTarget >= state.transientGate)
+                state.transientGate = gateTarget;
+            else
+                state.transientGate += (gateTarget - state.transientGate)
+                    * params.transientGateRelease;
+            const float gain = shapedGain * state.transientGate;
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const float wet = samples[channel] * gain;
+                samples[channel] = finiteSample(samples[channel]
+                    + (wet - samples[channel]) * params.mix);
+            }
+            break;
+        }
+        case InsertType::Resonator: {
+            const uint32_t read = static_cast<uint32_t>(
+                (state.resonatorWrite + kResonatorDelayFrames
+                    - params.resonatorDelay) % kResonatorDelayFrames);
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const float delayed = state.resonatorBuffer[channel][read];
+                state.resonatorDamped[channel] = finiteSample(
+                    state.resonatorDamped[channel]
+                    + (delayed - state.resonatorDamped[channel])
+                        * params.resonatorDamping);
+                const float wet = state.resonatorDamped[channel];
+                state.resonatorBuffer[channel][state.resonatorWrite]
+                    = finiteSample(samples[channel]
+                        + wet * params.resonatorFeedback);
+                // Parallel resonator amount: zero is dry, full preserves the
+                // original slice while adding the tuned decay.
+                samples[channel] = finiteSample(samples[channel]
+                    + wet * params.mix);
+            }
+            state.resonatorWrite = static_cast<uint32_t>(
+                (state.resonatorWrite + 1u) % kResonatorDelayFrames);
+            break;
+        }
+        case InsertType::Off: break;
+        }
+        if (params.bypassed) {
+            for (uint32_t channel = 0u; channel < channelCount; ++channel)
+                samples[channel] = dry[channel];
+        }
     }
 
     void updateAuxProcessorParams() noexcept
@@ -1364,6 +1769,8 @@ private:
     std::array<float, kMaximumSampleSlots> slotPeaks_ {};
     std::array<std::array<MixerFilterState, kMaximumAudioChannels>,
         kMaximumSampleSlots> mixerFilters_ {};
+    std::array<std::array<InsertProcessorState, kInsertSlotsPerStrip>,
+        kMaximumSampleSlots> insertStates_ {};
     s3g::BreakBus auxProcessor_ {};
     double sampleRate_ = 48000.0;
     uint64_t voiceAge_ = 0u;

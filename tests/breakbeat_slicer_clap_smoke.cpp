@@ -32,7 +32,7 @@ constexpr const char* kPluginId =
 constexpr const char* kStereoPluginId =
     "org.s3g.s3g-dsp.breakbeat-slicer-stereo";
 constexpr uint32_t kStateMagic = 0x53423353u;
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 9u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct FixtureSavedSlot {
@@ -49,6 +49,8 @@ struct FixtureSavedSlot {
     float mixerHighEqDb = 0.0f;
     float mixerMidFrequencyHz = 900.0f;
     float mixerAuxSend = 0.0f;
+    std::array<s3g::breakbeat::InsertSettings,
+        s3g::breakbeat::kInsertSlotsPerStrip> inserts {};
     uint8_t rootNote = 36u;
     uint8_t mappedRootNote = 36u;
     uint8_t midiChannel = 0u;
@@ -349,6 +351,13 @@ int main(int argc, char** argv)
     fixtureSlot.mappedSliceCount = 1u;
     fixtureSlot.mixerGain = 0.5f;
     fixtureSlot.mixerAuxSend = 0.62f;
+    fixtureSlot.inserts[0u] = s3g::breakbeat::defaultInsertSettings(
+        s3g::breakbeat::InsertType::Degrade);
+    fixtureSlot.inserts[0u].values[2u] = 0.37f;
+    fixtureSlot.inserts[0u].bypassed = true;
+    fixtureSlot.inserts[1u] = s3g::breakbeat::defaultInsertSettings(
+        s3g::breakbeat::InsertType::Resonator);
+    fixtureSlot.inserts[1u].bypassed = true;
     fixtureSlot.rootNote = 60u;
     fixtureSlot.mappedRootNote = 60u;
     fixtureSlot.midiChannel = 1u;
@@ -394,6 +403,12 @@ int main(int argc, char** argv)
             && savedFixture.auxFieldSafe == 1u
             && std::fabs(savedFixture.slots[0u].mixerAuxSend - 0.62f)
                 < 1.0e-6f
+            && savedFixture.slots[0u].inserts[0u].type
+                == s3g::breakbeat::InsertType::Degrade
+            && std::fabs(savedFixture.slots[0u].inserts[0u].values[2u]
+                    - 0.37f) < 1.0e-6f
+            && savedFixture.slots[0u].inserts[1u].type
+                == s3g::breakbeat::InsertType::Resonator
             && std::fabs(savedFixture.slots[0u].envelope.releaseProportion
                     - 0.2f) < 1.0e-6f;
     }

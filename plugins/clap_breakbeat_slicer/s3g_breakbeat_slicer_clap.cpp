@@ -36,6 +36,9 @@ namespace {
 
 using s3g::breakbeat::BankSnapshot;
 using s3g::breakbeat::EventKind;
+using s3g::breakbeat::FilterMode;
+using s3g::breakbeat::InsertSettings;
+using s3g::breakbeat::InsertType;
 using s3g::breakbeat::MixerSnapshot;
 using s3g::breakbeat::RenderEvent;
 using s3g::breakbeat::SampleAnalysis;
@@ -43,7 +46,7 @@ using s3g::breakbeat::SampleAsset;
 using s3g::breakbeat::Slice;
 
 constexpr uint32_t kStateMagic = 0x53423353u; // "S3BS"
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 9u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
 constexpr uint32_t kGuiWidth = 1080u;
 constexpr uint32_t kGuiHeight = 800u;
@@ -97,6 +100,8 @@ struct SavedSlot {
     float mixerHighEqDb = 0.0f;
     float mixerMidFrequencyHz = 900.0f;
     float mixerAuxSend = 0.0f;
+    std::array<s3g::breakbeat::InsertSettings,
+        s3g::breakbeat::kInsertSlotsPerStrip> inserts {};
     uint8_t rootNote = 36u;
     uint8_t mappedRootNote = 36u;
     uint8_t midiChannel = 0u;
@@ -519,6 +524,7 @@ bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     slot.mixerHighEqDb = previous.mixerHighEqDb;
     slot.mixerMidFrequencyHz = previous.mixerMidFrequencyHz;
     slot.mixerAuxSend = previous.mixerAuxSend;
+    slot.inserts = previous.inserts;
     slot.muted = previous.muted;
     slot.solo = previous.solo;
     slot.sliceCount = 1u;
@@ -1211,6 +1217,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         destination.mixerHighEqDb = source.mixerHighEqDb;
         destination.mixerMidFrequencyHz = source.mixerMidFrequencyHz;
         destination.mixerAuxSend = source.mixerAuxSend;
+        destination.inserts = source.inserts;
         destination.rootNote = source.rootNote;
         destination.mappedRootNote = source.mappedRootNote;
         destination.midiChannel = source.midiChannel;
@@ -1313,6 +1320,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         bank->slots[index].mixerAuxSend = std::isfinite(
             source.mixerAuxSend)
             ? std::clamp(source.mixerAuxSend, 0.0f, 1.0f) : 0.0f;
+        for (std::size_t insert = 0u;
+             insert < bank->slots[index].inserts.size(); ++insert)
+            bank->slots[index].inserts[insert]
+                = source.inserts[insert].valid()
+                ? source.inserts[insert]
+                : s3g::breakbeat::InsertSettings {};
         bank->slots[index].envelope = source.envelope.valid()
             ? source.envelope : s3g::breakbeat::Envelope {};
         bank->slots[index].muted = source.muted != 0u;
@@ -1527,11 +1540,75 @@ NSRect mixerAuxBusRect()
     return NSMakeRect(690.0, 216.0, 372.0, 532.0);
 }
 
+NSRect mixerInsertTypeRect(uint32_t type)
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 16.0
+            + static_cast<CGFloat>(type) * 68.0,
+        NSMinY(panel) + 36.0, 64.0, 25.0);
+}
+
+NSRect mixerInsertBypassRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 72.0,
+        104.0, 25.0);
+}
+
+NSRect mixerInsertSwapRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 132.0, NSMinY(panel) + 72.0,
+        104.0, 25.0);
+}
+
+NSRect mixerInsertCloseRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 248.0, NSMinY(panel) + 72.0,
+        108.0, 25.0);
+}
+
+NSRect mixerInsertOptionRect()
+{
+    const NSRect panel = mixerAuxBusRect();
+    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 108.0,
+        NSWidth(panel) - 32.0, 25.0);
+}
+
+CGFloat mixerInsertParameterY(uint32_t parameter)
+{
+    return NSMinY(mixerAuxBusRect()) + 172.0
+        + static_cast<CGFloat>(parameter) * 64.0;
+}
+
+NSRect mixerInsertParameterHitRect(uint32_t parameter)
+{
+    const NSRect panel = mixerAuxBusRect();
+    return s3g::clap_gui::mixerStripSliderHitRect(NSMinX(panel),
+        NSWidth(panel), mixerInsertParameterY(parameter));
+}
+
+NSRect mixerInsertParameterTrackRect(uint32_t parameter)
+{
+    const NSRect panel = mixerAuxBusRect();
+    return s3g::clap_gui::mixerStripSliderTrackRect(NSMinX(panel),
+        NSWidth(panel), mixerInsertParameterY(parameter));
+}
+
 NSRect mixerDialRect(uint32_t index, uint32_t dial)
 {
     const NSRect strip = mixerStripRect(index);
     return NSMakeRect(NSMinX(strip) + 19.0 + (dial % 2u) * 76.0,
         NSMinY(strip) + 72.0 + (dial / 2u) * 72.0, 50.0, 62.0);
+}
+
+NSRect mixerInsertRect(uint32_t index, uint32_t insert)
+{
+    const NSRect strip = mixerStripRect(index);
+    return NSMakeRect(NSMinX(strip) + 84.0,
+        NSMinY(strip) + 218.0 + static_cast<CGFloat>(insert) * 32.0,
+        66.0, 25.0);
 }
 
 CGFloat mixerAuxY(uint32_t index)
@@ -1687,6 +1764,128 @@ NSString* launchModeText(s3g::breakbeat::LaunchMode mode)
     return @"ONE SHOT";
 }
 
+NSString* insertTypeText(InsertType type)
+{
+    switch (type) {
+    case InsertType::Filter: return @"FILTER";
+    case InsertType::Degrade: return @"DEGRADE";
+    case InsertType::Transient: return @"TRANSIENT";
+    case InsertType::Resonator: return @"RESONATOR";
+    case InsertType::Off: return @"OFF";
+    }
+    return @"OFF";
+}
+
+NSString* insertTypeShortText(InsertType type)
+{
+    switch (type) {
+    case InsertType::Filter: return @"FLT";
+    case InsertType::Degrade: return @"DGR";
+    case InsertType::Transient: return @"TRN";
+    case InsertType::Resonator: return @"RSN";
+    case InsertType::Off: return @"OFF";
+    }
+    return @"OFF";
+}
+
+NSString* filterModeText(FilterMode mode)
+{
+    switch (mode) {
+    case FilterMode::LowPass: return @"LOW PASS";
+    case FilterMode::BandPass: return @"BAND PASS";
+    case FilterMode::HighPass: return @"HIGH PASS";
+    case FilterMode::Notch: return @"NOTCH";
+    }
+    return @"LOW PASS";
+}
+
+NSString* insertParameterLabel(InsertType type, uint32_t parameter)
+{
+    static NSArray<NSString*>* filter = @[
+        @"CUTOFF", @"RESONANCE", @"DRIVE", @"MIX"
+    ];
+    static NSArray<NSString*>* degrade = @[
+        @"RATE DIVIDE", @"BIT DEPTH", @"JITTER", @"MIX"
+    ];
+    static NSArray<NSString*>* transient = @[
+        @"ATTACK", @"SUSTAIN", @"GATE", @"MIX"
+    ];
+    static NSArray<NSString*>* resonator = @[
+        @"TUNE", @"FEEDBACK", @"DAMPING", @"AMOUNT"
+    ];
+    if (parameter >= s3g::breakbeat::kInsertParameterCount) return @"";
+    switch (type) {
+    case InsertType::Filter: return filter[parameter];
+    case InsertType::Degrade: return degrade[parameter];
+    case InsertType::Transient: return transient[parameter];
+    case InsertType::Resonator: return resonator[parameter];
+    case InsertType::Off: return @"UNASSIGNED";
+    }
+    return @"";
+}
+
+NSString* insertParameterValue(const InsertSettings& insert,
+    uint32_t parameter)
+{
+    if (parameter >= insert.values.size()) return @"";
+    const float value = insert.values[parameter];
+    if (insert.type == InsertType::Filter && parameter == 0u) {
+        const float frequency = 30.0f * std::pow(20000.0f / 30.0f, value);
+        return frequency >= 1000.0f
+            ? [NSString stringWithFormat:@"%.2f kHz", frequency / 1000.0f]
+            : [NSString stringWithFormat:@"%.0f Hz", frequency];
+    }
+    if (insert.type == InsertType::Filter && parameter == 1u) {
+        const float q = 0.5f + 15.5f * value * value;
+        return [NSString stringWithFormat:@"Q %.2f", q];
+    }
+    if (insert.type == InsertType::Degrade && parameter == 0u) {
+        const uint32_t period = 1u + static_cast<uint32_t>(std::lround(
+            value * value * 95.0f));
+        return [NSString stringWithFormat:@"÷ %u", period];
+    }
+    if (insert.type == InsertType::Degrade && parameter == 1u) {
+        const uint32_t bits = 4u + static_cast<uint32_t>(std::lround(
+            value * 12.0f));
+        return [NSString stringWithFormat:@"%u BIT", bits];
+    }
+    if (insert.type == InsertType::Transient
+        && (parameter == 0u || parameter == 1u))
+        return [NSString stringWithFormat:@"%+.0f%%",
+            (value * 2.0f - 1.0f) * 100.0f];
+    if (insert.type == InsertType::Transient && parameter == 2u) {
+        if (value <= 0.002f) return @"OFF";
+        return [NSString stringWithFormat:@"%+.1f dB",
+            -72.0f + value * 48.0f];
+    }
+    if (insert.type == InsertType::Resonator && parameter == 0u) {
+        const float frequency = 40.0f * std::pow(100.0f, value);
+        return frequency >= 1000.0f
+            ? [NSString stringWithFormat:@"%.2f kHz", frequency / 1000.0f]
+            : [NSString stringWithFormat:@"%.0f Hz", frequency];
+    }
+    if (insert.type == InsertType::Filter && parameter == 2u)
+        return [NSString stringWithFormat:@"%.0f%%", value * 100.0f];
+    return [NSString stringWithFormat:@"%.0f%%", value * 100.0f];
+}
+
+NSString* insertSafetyText(InsertType type)
+{
+    switch (type) {
+    case InsertType::Filter:
+        return @"SHARED COEFFICIENTS  //  DRIVE ADDS NONLINEAR COLOR";
+    case InsertType::Degrade:
+        return @"LOCKED HOLD CLOCK  //  NONLINEAR COLOR PROCESS";
+    case InsertType::Transient:
+        return @"ONE LINKED DETECTOR CONTROLS EVERY SOURCE CHANNEL";
+    case InsertType::Resonator:
+        return @"SHARED TUNE AND CLOCK  //  DISCRETE CHANNEL STATE";
+    case InsertType::Off:
+        return @"SELECT A DEVICE FOR THIS POST-PLAYBACK INSERT";
+    }
+    return @"";
+}
+
 NSString* slotFilename(const Plugin& instance, uint32_t slot)
 {
     if (slot >= instance.samplePaths.size()
@@ -1744,6 +1943,26 @@ void drawCentered(NSRect rect, NSString* label, NSDictionary* attrs)
         withAttributes:attrs];
 }
 
+void drawCenteredTruncatedFilename(NSRect rect, NSString* filename,
+    NSDictionary* attrs)
+{
+    if (!filename) return;
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc]
+        init];
+    [paragraph setAlignment:NSTextAlignmentCenter];
+    // Retain both the recognizable beginning and extension/end of a long
+    // sample name instead of allowing it to spill into adjacent mixer lanes.
+    [paragraph setLineBreakMode:NSLineBreakByTruncatingMiddle];
+    NSMutableDictionary* bounded = [NSMutableDictionary
+        dictionaryWithDictionary:attrs];
+    [bounded setObject:paragraph forKey:NSParagraphStyleAttributeName];
+    const CGFloat textHeight = [filename sizeWithAttributes:attrs].height;
+    rect.origin.y += std::max<CGFloat>(0.0,
+        (rect.size.height - textHeight) * 0.5);
+    rect.size.height = textHeight + 2.0;
+    [filename drawInRect:rect withAttributes:bounded];
+}
+
 double gainDb(float gain)
 {
     return gain <= 0.001f ? -60.0
@@ -1769,6 +1988,8 @@ double gainDb(float gain)
     uint32_t _mixerDragSlot;
     NSPoint _mixerDragStartPoint;
     double _mixerDragStartValue;
+    NSInteger _insertEditorSlot;
+    uint32_t _insertEditorIndex;
 }
 - (instancetype)initWithPlugin:(Plugin*)instance;
 - (void)startTimer;
@@ -1796,6 +2017,8 @@ double gainDb(float gain)
         _mixerDragSlot = 0u;
         _mixerDragStartPoint = NSZeroPoint;
         _mixerDragStartValue = 0.0;
+        _insertEditorSlot = -1;
+        _insertEditorIndex = 0u;
         [self setWantsLayer:YES];
         [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
     }
@@ -2269,6 +2492,73 @@ double gainDb(float gain)
     }
 }
 
+- (void)drawInsertEditorForBank:(const BankSnapshot&)bank
+{
+    if (_insertEditorSlot < 0
+        || static_cast<std::size_t>(_insertEditorSlot) >= bank.slots.size()
+        || _insertEditorIndex >= s3g::breakbeat::kInsertSlotsPerStrip)
+        return;
+    const uint32_t slotIndex = static_cast<uint32_t>(_insertEditorSlot);
+    const auto& insert = bank.slots[slotIndex].inserts[_insertEditorIndex];
+    const NSRect panel = mixerAuxBusRect();
+    s3g::clap_gui::Style style;
+    NSDictionary* label = slicerTextAttrs(
+        s3g::clap_gui::color(0x929994), 9.0, NSFontWeightMedium);
+    NSDictionary* value = slicerTextAttrs(
+        s3g::clap_gui::color(0xc2c7c3), 10.0, NSFontWeightMedium);
+    NSString* heading = [NSString stringWithFormat:
+        @"BREAK %02u  //  INSERT %u  //  %@", slotIndex + 1u,
+        _insertEditorIndex + 1u, insertTypeText(insert.type)];
+    s3g::clap_gui::drawPanelFrame(NSMinX(panel), NSMinY(panel),
+        NSWidth(panel), NSHeight(panel), style);
+    s3g::clap_gui::drawPanelHeader(heading, true, NSMinX(panel),
+        NSMinY(panel), NSWidth(panel), 24.0, label, style);
+
+    static NSArray<NSString*>* deviceLabels = @[
+        @"OFF", @"FLTR", @"DGRD", @"TRNS", @"RSNR"
+    ];
+    for (uint32_t type = 0u; type < deviceLabels.count; ++type)
+        s3g::clap_gui::drawHeaderButton(mixerInsertTypeRect(type), panel,
+            deviceLabels[type], static_cast<uint8_t>(insert.type) == type,
+            value, style);
+    s3g::clap_gui::drawHeaderButton(mixerInsertBypassRect(), panel,
+        @"BYPASS", insert.bypassed, value, style);
+    s3g::clap_gui::drawHeaderButton(mixerInsertSwapRect(), panel,
+        @"SWAP I1/I2", false, value, style);
+    s3g::clap_gui::drawHeaderButton(mixerInsertCloseRect(), panel,
+        @"CLOSE", false, value, style);
+    NSString* option = insert.type == InsertType::Filter
+        ? [NSString stringWithFormat:@"MODE  %@",
+            filterModeText(insert.mode)]
+        : insert.type == InsertType::Off ? @"NO DEVICE ASSIGNED"
+        : [NSString stringWithFormat:@"RESET  %@",
+            insertTypeText(insert.type)];
+    s3g::clap_gui::drawHeaderButton(mixerInsertOptionRect(), panel,
+        option, insert.type == InsertType::Filter, value, style);
+
+    if (insert.type != InsertType::Off) {
+        for (uint32_t parameter = 0u;
+             parameter < insert.values.size(); ++parameter) {
+            s3g::clap_gui::drawMixerStripSlider(
+                insertParameterLabel(insert.type, parameter),
+                insertParameterValue(insert, parameter),
+                insert.values[parameter],
+                mixerInsertParameterY(parameter), NSMinX(panel),
+                NSWidth(panel), label, value, style);
+        }
+    } else {
+        drawCentered(NSMakeRect(NSMinX(panel) + 16.0,
+            NSMinY(panel) + 190.0, NSWidth(panel) - 32.0, 24.0),
+            @"CHOOSE FILTER, DEGRADE, TRANSIENT, OR RESONATOR", label);
+    }
+    [insertSafetyText(insert.type) drawAtPoint:NSMakePoint(
+        NSMinX(panel) + 16.0, NSMinY(panel) + 465.0)
+        withAttributes:label];
+    [@"POST VOICES  →  I1  →  I2  →  EQ / PAN / FADER  →  AUX"
+        drawAtPoint:NSMakePoint(NSMinX(panel) + 16.0,
+            NSMinY(panel) + 487.0) withAttributes:label];
+}
+
 - (void)drawMixerForBank:(const BankSnapshot&)bank
 {
     constexpr std::array<uint32_t, 4u> colors {{
@@ -2296,9 +2586,9 @@ double gainDb(float gain)
         [accent setFill];
         NSRectFill(NSMakeRect(NSMinX(strip), NSMinY(strip),
             NSWidth(strip), 3.0));
-        drawCentered(NSMakeRect(NSMinX(strip) + 8.0, NSMinY(strip) + 30.0,
-            NSWidth(strip) - 16.0, 16.0), slotFilename(*_instance, index),
-            value);
+        drawCenteredTruncatedFilename(NSMakeRect(NSMinX(strip) + 8.0,
+            NSMinY(strip) + 30.0, NSWidth(strip) - 16.0, 16.0),
+            slotFilename(*_instance, index), value);
         NSString* midiRoute = slot.midiChannel == 0u ? @"OMNI"
             : [NSString stringWithFormat:@"CH%02u",
                 static_cast<unsigned>(slot.midiChannel)];
@@ -2343,6 +2633,27 @@ double gainDb(float gain)
                 [NSString stringWithUTF8String:dialLabels[dial]], text,
                 dialNorms[dial], mixerDialRect(index, dial),
                 label, value, style);
+        }
+        for (uint32_t insertIndex = 0u;
+             insertIndex < slot.inserts.size(); ++insertIndex) {
+            const auto& insert = slot.inserts[insertIndex];
+            NSString* insertLabel = insert.bypassed
+                && insert.type != InsertType::Off
+                ? [NSString stringWithFormat:@"I%u BYP", insertIndex + 1u]
+                : [NSString stringWithFormat:@"I%u %@", insertIndex + 1u,
+                    insertTypeShortText(insert.type)];
+            const NSRect rect = mixerInsertRect(index, insertIndex);
+            s3g::clap_gui::drawHeaderButton(rect, strip, insertLabel,
+                insert.type != InsertType::Off && !insert.bypassed,
+                value, style);
+            if (_insertEditorSlot == static_cast<NSInteger>(index)
+                && _insertEditorIndex == insertIndex) {
+                [accent setStroke];
+                NSBezierPath* selection = [NSBezierPath
+                    bezierPathWithRect:NSInsetRect(rect, -1.0, -1.0)];
+                selection.lineWidth = 2.0;
+                [selection stroke];
+            }
         }
 
         s3g::clap_gui::drawMixerStripSlider(@"AUX",
@@ -2394,6 +2705,12 @@ double gainDb(float gain)
     s3g::clap_gui::drawHeaderButton(mixerUnityRect(), main, @"UNITY",
         std::abs(outputDb) < 0.01, value, style);
 
+    if (_insertEditorSlot >= 0
+        && static_cast<std::size_t>(_insertEditorSlot) < bank.slots.size()) {
+        [self drawInsertEditorForBank:bank];
+        return;
+    }
+
     const NSRect bus = mixerAuxBusRect();
     s3g::clap_gui::drawPanelFrame(NSMinX(bus), NSMinY(bus),
         NSWidth(bus), NSHeight(bus), style);
@@ -2415,8 +2732,19 @@ double gainDb(float gain)
         (bank.auxTilt + 1.0f) * 0.5f,
         (bank.auxReturnDb + 60.0f) / 72.0f,
     }};
+    s3g::clap_gui::Style bypassStyle = style;
+    bypassStyle.strip = s3g::clap_gui::color(0x101010);
+    bypassStyle.grid = s3g::clap_gui::color(0x303030);
+    bypassStyle.text = s3g::clap_gui::color(0x5d625f);
+    bypassStyle.fill = s3g::clap_gui::color(0x343735);
+    NSDictionary* bypassLabel = slicerTextAttrs(
+        s3g::clap_gui::color(0x626662), 9.0, NSFontWeightMedium);
+    NSDictionary* bypassValue = slicerTextAttrs(
+        s3g::clap_gui::color(0x686c69), 10.0, NSFontWeightMedium);
     for (uint32_t row = 0u; row < busValues.size(); ++row) {
-        NSString* text = row == 7u
+        const bool bypassed = bank.auxFieldSafe
+            && row >= 3u && row <= 5u;
+        NSString* text = bypassed ? @"BYP" : row == 7u
             ? [NSString stringWithFormat:@"%+.1f", busValues[row]]
             : row == 1u || row == 6u
                 ? [NSString stringWithFormat:@"%+.2f", busValues[row]]
@@ -2425,7 +2753,9 @@ double gainDb(float gain)
         s3g::clap_gui::drawMixerStripSlider(
             [NSString stringWithUTF8String:busLabels[row]], text,
             busNorms[row], mixerBusSliderY(row), NSMinX(bus), NSWidth(bus),
-            label, value, style);
+            bypassed ? bypassLabel : label,
+            bypassed ? bypassValue : value,
+            bypassed ? bypassStyle : style);
     }
     const float activity = _instance->auxActivity.load(
         std::memory_order_relaxed);
@@ -2506,13 +2836,16 @@ double gainDb(float gain)
     (void)dirtyRect;
     [s3g::clap_gui::color(0x090909) setFill];
     NSRectFill(self.bounds);
+    // Match the resolved 17.5 pt header used by "s3g TRACKER". Slicer's
+    // shared font helper uses a slightly different readability scale, so a
+    // 16 pt design size produces the same rendered title size here.
     NSDictionary* title = slicerTextAttrs(
-        s3g::clap_gui::color(0xc8c8c8), 17.0);
+        s3g::clap_gui::color(0xc8c8c8), 16.0);
     NSDictionary* label = slicerTextAttrs(
         s3g::clap_gui::color(0xa6a6a6), 10.5);
     NSDictionary* value = slicerTextAttrs(
         s3g::clap_gui::color(0xc6c6c6), 11.0);
-    [@"s3g Slicer" drawAtPoint:NSMakePoint(18.0, 17.0)
+    [@"s3g SLICER" drawAtPoint:NSMakePoint(18.0, 17.0)
         withAttributes:title];
     NSString* variant = [NSString stringWithFormat:@"%u OUT",
         static_cast<unsigned>(_instance->outputChannelCount)];
@@ -2741,6 +3074,7 @@ double gainDb(float gain)
     const float mixerMidFrequencyHz =
         bank->slots[index].mixerMidFrequencyHz;
     const float mixerAuxSend = bank->slots[index].mixerAuxSend;
+    const auto inserts = bank->slots[index].inserts;
     const s3g::breakbeat::Envelope envelope = bank->slots[index].envelope;
     const bool muted = bank->slots[index].muted;
     const bool solo = bank->slots[index].solo;
@@ -2756,6 +3090,7 @@ double gainDb(float gain)
     bank->slots[index].mixerHighEqDb = mixerHighEqDb;
     bank->slots[index].mixerMidFrequencyHz = mixerMidFrequencyHz;
     bank->slots[index].mixerAuxSend = mixerAuxSend;
+    bank->slots[index].inserts = inserts;
     bank->slots[index].muted = muted;
     bank->slots[index].solo = solo;
     if (publishBank(*_instance, std::move(bank), false)) {
@@ -2855,9 +3190,25 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
+    if (_mixerDragKind >= 20 && _mixerDragKind <= 23) {
+        if (!_dragBank || _mixerDragSlot >= _dragBank->slots.size()
+            || _insertEditorIndex >= s3g::breakbeat::kInsertSlotsPerStrip)
+            return;
+        const uint32_t parameter = static_cast<uint32_t>(
+            _mixerDragKind - 20);
+        const NSRect track = mixerInsertParameterTrackRect(parameter);
+        auto& insert = _dragBank->slots[_mixerDragSlot]
+            .inserts[_insertEditorIndex];
+        insert.values[parameter] = static_cast<float>(std::clamp(
+            (point.x - NSMinX(track)) / NSWidth(track), 0.0, 1.0));
+        (void)publishMixerBank(*_instance, _dragBank, false);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_mixerDragKind >= 9 && _mixerDragKind <= 16) {
         if (!_dragBank) return;
         const uint32_t row = static_cast<uint32_t>(_mixerDragKind - 9);
+        if (_dragBank->auxFieldSafe && row >= 3u && row <= 5u) return;
         const NSRect track = mixerBusSliderTrackRect(row);
         const float normalized = static_cast<float>(std::clamp(
             (point.x - NSMinX(track)) / NSWidth(track), 0.0, 1.0));
@@ -2932,6 +3283,17 @@ double gainDb(float gain)
         const auto* displayed = [self displayBank];
         if (!displayed) return;
         const auto& slot = displayed->slots[index];
+        for (uint32_t insert = 0u;
+             insert < s3g::breakbeat::kInsertSlotsPerStrip; ++insert) {
+            if (!NSPointInRect(point, mixerInsertRect(index, insert)))
+                continue;
+            _insertEditorSlot = static_cast<NSInteger>(index);
+            _insertEditorIndex = insert;
+            _instance->status = "BREAK INSERT EDITOR OPEN";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        _insertEditorSlot = -1;
         if (NSPointInRect(point, mixerFaderRect(index))) {
             _mixerDragKind = 1;
             _mixerDragSlot = index;
@@ -2994,6 +3356,87 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
+    if (_insertEditorSlot >= 0
+        && static_cast<std::size_t>(_insertEditorSlot)
+            < s3g::breakbeat::kMaximumSampleSlots) {
+        const uint32_t slotIndex = static_cast<uint32_t>(_insertEditorSlot);
+        for (uint32_t type = 0u;
+             type <= static_cast<uint32_t>(InsertType::Resonator); ++type) {
+            if (!NSPointInRect(point, mixerInsertTypeRect(type))) continue;
+            auto bank = editableBank(*_instance);
+            bank->slots[slotIndex].inserts[_insertEditorIndex]
+                = s3g::breakbeat::defaultInsertSettings(
+                    static_cast<InsertType>(type));
+            if (publishMixerBank(*_instance, std::move(bank)))
+                _instance->status = type == 0u
+                    ? "BREAK INSERT CLEARED" : "BREAK INSERT ASSIGNED";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, mixerInsertBypassRect())) {
+            auto bank = editableBank(*_instance);
+            auto& insert = bank->slots[slotIndex].inserts[_insertEditorIndex];
+            if (insert.type != InsertType::Off) {
+                insert.bypassed = !insert.bypassed;
+                const bool bypassed = insert.bypassed;
+                if (publishMixerBank(*_instance, std::move(bank)))
+                    _instance->status = bypassed
+                        ? "BREAK INSERT BYPASSED"
+                        : "BREAK INSERT ENABLED";
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, mixerInsertSwapRect())) {
+            auto bank = editableBank(*_instance);
+            auto& inserts = bank->slots[slotIndex].inserts;
+            std::swap(inserts[0u], inserts[1u]);
+            _insertEditorIndex = 1u - _insertEditorIndex;
+            if (publishMixerBank(*_instance, std::move(bank)))
+                _instance->status = "BREAK INSERT ORDER SWAPPED";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, mixerInsertCloseRect())) {
+            _insertEditorSlot = -1;
+            _instance->status = "BREAK BUS VIEW RESTORED";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, mixerInsertOptionRect())) {
+            auto bank = editableBank(*_instance);
+            auto& insert = bank->slots[slotIndex].inserts[_insertEditorIndex];
+            if (insert.type == InsertType::Filter) {
+                const uint8_t next = (static_cast<uint8_t>(insert.mode) + 1u)
+                    % 4u;
+                insert.mode = static_cast<FilterMode>(next);
+                _instance->status = "FILTER MODE UPDATED";
+            } else if (insert.type != InsertType::Off) {
+                insert = s3g::breakbeat::defaultInsertSettings(insert.type);
+                _instance->status = "BREAK INSERT RESET";
+            }
+            (void)publishMixerBank(*_instance, std::move(bank));
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        for (uint32_t parameter = 0u;
+             parameter < s3g::breakbeat::kInsertParameterCount;
+             ++parameter) {
+            if (!NSPointInRect(point,
+                    mixerInsertParameterHitRect(parameter))) continue;
+            const auto* displayed = [self displayBank];
+            if (!displayed || displayed->slots[slotIndex]
+                    .inserts[_insertEditorIndex].type == InsertType::Off)
+                return;
+            _mixerDragKind = static_cast<NSInteger>(20u + parameter);
+            _mixerDragSlot = slotIndex;
+            _dragBank = editableBank(*_instance);
+            [self updateMixerDragAt:point];
+            return;
+        }
+        // The editor owns the former Break Bus rectangle while open.
+        if (NSPointInRect(point, mixerAuxBusRect())) return;
+    }
     if (NSPointInRect(point, mixerBusEnableRect())) {
         auto bank = editableBank(*_instance);
         bank->auxEnabled = !bank->auxEnabled;
@@ -3025,6 +3468,12 @@ double gainDb(float gain)
     }
     for (uint32_t row = 0u; row < 8u; ++row) {
         if (!NSPointInRect(point, mixerBusSliderHitRect(row))) continue;
+        const auto* bank = [self displayBank];
+        if (bank && bank->auxFieldSafe && row >= 3u && row <= 5u) {
+            _instance->status = "SAT / BITE / CLIP BYPASSED IN FIELD SAFE";
+            [self setNeedsDisplay:YES];
+            return;
+        }
         _mixerDragKind = static_cast<NSInteger>(9u + row);
         _dragBank = editableBank(*_instance);
         [self updateMixerDragAt:point];
@@ -3268,7 +3717,9 @@ double gainDb(float gain)
             markStateDirty(*_instance);
             _instance->status = "MAIN OUTPUT GAIN UPDATED";
         } else if (_dragBank && publishMixerBank(*_instance, _dragBank)) {
-            _instance->status = _mixerDragKind >= 9
+            _instance->status = _mixerDragKind >= 20
+                ? "BREAK INSERT UPDATED"
+                : _mixerDragKind >= 9
                 ? "AUX BUS PROCESSOR UPDATED"
                 : _mixerDragKind == 1 ? "BREAK LEVEL UPDATED"
                 : _mixerDragKind == 2 ? "BREAK PAN UPDATED"
@@ -3546,7 +3997,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.5.1",
+    "0.6.0",
     "Four-break fixed 16-output, 1-16 channel sample-locked slicer.",
     multichannelFeatures,
 };
@@ -3559,7 +4010,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.5.1",
+    "0.6.0",
     "Four-break fixed stereo slicer for mono and stereo files.",
     stereoFeatures,
 };

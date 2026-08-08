@@ -37,11 +37,17 @@ The first playable build includes:
   and MIDI values;
 - a Drum Mixer-family MIXER page with four strips providing level, stereo pan,
   low/mid/high EQ, tunable mid frequency, post-fader aux send, mute, solo,
-  audition, and lane meters; pan is locked for sources wider than stereo;
+  audition, lane meters, and width-aware middle-truncated sample names; pan is
+  locked for sources wider than stereo;
+- two serial post-playback insert slots per break with FILTER, DEGRADE,
+  TRANSIENT, and RESONATOR devices; click `I1` or `I2` in a strip to open its
+  editor, assign or bypass a device, drag its four controls, reset it, or swap
+  insert order without retriggering the active slice;
 - a dedicated wet-only `s3g Break Bus` AUX processor with PRESS, bipolar SNAP,
   RECOVERY, SAT, BITE, antiderivative-antialiased CLIP, TILT, and RETURN;
   dynamics can link ALL channels, adjacent PAIRS, or run FREE, while FIELD
-  SAFE disables nonlinear stages for encoded spatial material;
+  SAFE disables nonlinear stages for encoded spatial material; SAT, BITE, and
+  CLIP then draw as muted `BYP` controls and reject interaction;
 - selected-slice gain, pitch, pan (mono/stereo only), reverse, launch-mode,
   and choke controls;
 - background user-initiated file decoding and transient analysis with stale
@@ -56,9 +62,11 @@ The first playable build includes:
 - one MIDI/CLAP note input and one fixed main output per variant.
 
 Mixer controls use a runtime snapshot separate from the sample/slice bank and
-publish continuously during click-drag interaction. Changing level, pan, EQ,
-mute, solo, AUX send, or bus settings affects active voices on the next audio
-block; it does not restart playback or clear post-playback processor histories.
+publish continuously during click-drag interaction. Changing an insert, level,
+pan, EQ, mute, solo, AUX send, or bus setting affects active voices on the next
+audio block; it does not restart playback. Parameter edits retain insert and
+post-playback histories; changing a device type clears only that insert's
+history.
 
 For spatial sources, channel order is preserved without downmixing or
 per-channel timing. The 16-channel variant exposes a generic 16-channel port so
@@ -77,10 +85,18 @@ original sample paths. Embedded audio remains inter-channel and sample locked.
 ## Mixer and aux routing
 
 The strip and bus architecture follows `s3g Drum Mixer 16`, reduced to the
-four break slots. Each strip's signal order is playback voices, three-band EQ,
-pan for mono/stereo sources, level/mute/solo, metering, then the squared
-post-fader AUX send. The dry strip and processed return meet before the global
-output control.
+four break slots. Each strip's signal order is playback voices, insert 1,
+insert 2, three-band EQ, pan for mono/stereo sources, level/mute/solo,
+metering, then the squared post-fader AUX send. The dry strip and processed
+return meet before the global output control.
+
+FILTER provides low-pass, band-pass, high-pass, and notch modes with cutoff,
+resonance, drive, and mix. DEGRADE combines a shared multichannel sample-hold
+clock with bit reduction and timing jitter. TRANSIENT uses one linked detector
+for attack, sustain, and gate shaping across every source channel. RESONATOR
+uses one tune/clock with independent delay state per channel, plus feedback,
+damping, and parallel amount. Both insert slots process every channel at the
+same frame and never exchange or reorder channels.
 
 On `s3g Slicer 16`, the same EQ is applied independently to every source lane.
 Break Bus keeps separate nonlinear and filter state per lane. Its `ALL`,

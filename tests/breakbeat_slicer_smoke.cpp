@@ -377,6 +377,132 @@ void testMixerEqAndAuxBus()
         "post-fader aux send or shared bus processor did not run");
 }
 
+void testPriorityLaneInserts()
+{
+    auto alternating = std::make_shared<SampleAsset>();
+    alternating->sampleRate = 48000.0;
+    alternating->channelCount = 2u;
+    alternating->channels[0u].resize(4096u);
+    alternating->channels[1u].resize(4096u);
+    for (uint32_t frame = 0u; frame < 4096u; ++frame) {
+        const float sample = (frame & 1u) == 0u ? 0.6f : -0.6f;
+        alternating->channels[0u][frame] = sample;
+        alternating->channels[1u][frame] = sample * 0.5f;
+    }
+    BankSnapshot bank;
+    bank.slots[0u] = oneSliceSlot(alternating);
+    check(mapSlotConsecutively(bank, 0u, 60u),
+        "insert fixture mapping failed");
+    const RenderEvent event { 0u, EventKind::NoteOn, 100u, 60u, 0u, 1.0f };
+    SlicerEngine engine;
+    check(engine.prepare(48000.0) && engine.setBank(&bank),
+        "insert fixture did not prepare");
+    std::array<float, 512u> dryLeft {};
+    std::array<float, 512u> dryRight {};
+    engine.render(&event, 1u, dryLeft.data(), dryRight.data(),
+        static_cast<uint32_t>(dryLeft.size()));
+
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(InsertType::Filter);
+    bank.slots[0u].inserts[0u].values = {{ 0.16f, 0.1f, 0.0f, 1.0f }};
+    check(bank.valid() && engine.setBank(&bank),
+        "filter insert settings were rejected");
+    std::array<float, 512u> filterLeft {};
+    std::array<float, 512u> filterRight {};
+    engine.render(&event, 1u, filterLeft.data(), filterRight.data(),
+        static_cast<uint32_t>(filterLeft.size()));
+    float dryEnergy = 0.0f;
+    float filterEnergy = 0.0f;
+    for (std::size_t frame = 256u; frame < dryLeft.size(); ++frame) {
+        dryEnergy += std::abs(dryLeft[frame]);
+        filterEnergy += std::abs(filterLeft[frame]);
+    }
+    check(filterEnergy < dryEnergy * 0.08f,
+        "post-playback filter insert did not reject high-frequency audio");
+
+    auto ramp = std::make_shared<SampleAsset>();
+    ramp->sampleRate = 48000.0;
+    ramp->channelCount = 2u;
+    ramp->channels[0u].resize(4096u);
+    ramp->channels[1u].resize(4096u);
+    for (uint32_t frame = 0u; frame < 4096u; ++frame) {
+        ramp->channels[0u][frame] = static_cast<float>(frame % 256u) / 256.0f;
+        ramp->channels[1u][frame] = ramp->channels[0u][frame] * 0.5f;
+    }
+    bank.slots[0u] = oneSliceSlot(ramp);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(InsertType::Degrade);
+    bank.slots[0u].inserts[0u].values = {{ 0.72f, 0.2f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "degrade insert fixture failed");
+    std::array<float, 96u> degradeLeft {};
+    std::array<float, 96u> degradeRight {};
+    engine.render(&event, 1u, degradeLeft.data(), degradeRight.data(),
+        static_cast<uint32_t>(degradeLeft.size()));
+    bool held = true;
+    for (std::size_t frame = 1u; frame < 24u; ++frame)
+        held = held && near(degradeLeft[frame], degradeLeft[0u]);
+    check(held && !near(degradeLeft[64u], degradeLeft[0u]),
+        "degrade insert did not use its shared sample-hold clock");
+
+    auto shaped = std::make_shared<SampleAsset>();
+    shaped->sampleRate = 48000.0;
+    shaped->channelCount = 2u;
+    shaped->channels[0u].assign(4096u, 0.10f);
+    shaped->channels[1u].assign(4096u, 0.05f);
+    for (uint32_t frame = 0u; frame < 32u; ++frame) {
+        shaped->channels[0u][frame] = 0.8f;
+        shaped->channels[1u][frame] = 0.4f;
+    }
+    bank.slots[0u] = oneSliceSlot(shaped);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Transient);
+    bank.slots[0u].inserts[0u].values[0u] = 0.5f;
+    bank.slots[0u].inserts[0u].values[1u] = 0.0f;
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "transient insert fixture failed");
+    std::array<float, 512u> transientLeft {};
+    std::array<float, 512u> transientRight {};
+    engine.render(&event, 1u, transientLeft.data(), transientRight.data(),
+        static_cast<uint32_t>(transientLeft.size()));
+    bool linked = true;
+    for (std::size_t frame = 0u; frame < transientLeft.size(); ++frame) {
+        if (std::abs(transientRight[frame]) < 1.0e-7f) continue;
+        linked = linked && near(transientLeft[frame]
+            / transientRight[frame], 2.0f, 1.0e-4f);
+    }
+    check(linked,
+        "linked transient insert changed inter-channel relationships");
+    check(transientLeft[200u] < 0.10f * 0.7071068f,
+        "transient insert did not reduce the configured sustain");
+
+    auto impulse = std::make_shared<SampleAsset>();
+    impulse->sampleRate = 48000.0;
+    impulse->channelCount = 2u;
+    impulse->channels[0u].assign(4096u, 0.0f);
+    impulse->channels[1u].assign(4096u, 0.0f);
+    impulse->channels[0u][0u] = 0.8f;
+    impulse->channels[1u][0u] = 0.4f;
+    bank.slots[0u] = oneSliceSlot(impulse);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Resonator);
+    bank.slots[0u].inserts[0u].values = {{ 0.5f, 0.7f, 0.2f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "resonator insert fixture failed");
+    std::array<float, 300u> resonatorLeft {};
+    std::array<float, 300u> resonatorRight {};
+    engine.render(&event, 1u, resonatorLeft.data(), resonatorRight.data(),
+        static_cast<uint32_t>(resonatorLeft.size()));
+    check(std::abs(resonatorLeft[120u]) > 0.2f
+            && near(resonatorLeft[120u] / resonatorRight[120u],
+                2.0f, 1.0e-4f),
+        "resonator insert did not create a sample-locked tuned return");
+
+    bank.slots[0u].inserts[1u] = defaultInsertSettings(InsertType::Filter);
+    check(bank.valid(), "two serial inserts were not accepted per lane");
+    bank.slots[0u].inserts[1u].values[0u]
+        = std::numeric_limits<float>::quiet_NaN();
+    check(!bank.valid(), "non-finite insert settings were accepted");
+}
+
 void testRealtimeMixerPublicationPreservesPlayback()
 {
     BankSnapshot bank;
@@ -420,6 +546,22 @@ void testRealtimeMixerPublicationPreservesPlayback()
             && eqLeft.back() > 0.4f * center * 1.25f
             && eqRight.back() > 0.2f * center * 1.25f,
         "post-playback EQ did not update an already-playing sample voice");
+
+    mixer.strips[0u].lowEqDb = 0.0f;
+    mixer.strips[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Transient);
+    mixer.strips[0u].inserts[0u].values = {{ 0.5f, 0.0f, 0.0f, 1.0f }};
+    engine.setPreparedMixer(&mixer);
+    std::array<float, 512u> insertLeft {};
+    std::array<float, 512u> insertRight {};
+    const float beforeInsertAdoption = engine.slotPlayheadNormalized(0u);
+    engine.render(nullptr, 0u, insertLeft.data(), insertRight.data(),
+        static_cast<uint32_t>(insertLeft.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.slotPlayheadNormalized(0u) > beforeInsertAdoption
+            && insertLeft.back() < 0.4f * center * 0.7f
+            && insertRight.back() < 0.2f * center * 0.7f,
+        "publishing an insert reset the voice or failed to affect active audio");
 
     BankSnapshot editedBank = bank;
     editedBank.slots[0u].rootNote = 61u;
@@ -618,6 +760,7 @@ int main()
     testWideOutputSilencesUnusedChannels();
     testCleanMixKeepsFloatingPointHeadroom();
     testMixerEqAndAuxBus();
+    testPriorityLaneInserts();
     testRealtimeMixerPublicationPreservesPlayback();
     testBreakBusCore();
     testProportionalSliceEnvelope();

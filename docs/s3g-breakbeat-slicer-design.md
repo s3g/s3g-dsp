@@ -181,7 +181,7 @@ readable without crowding the waveform.
   is never folded or altered; Slicer 16 applies EQ per discrete channel and
   supports all-channel, adjacent-pair, or free dynamics linking without
   downmixing or reordering; Field Safe bypasses nonlinear stages for encoded
-  spatial material.
+  spatial material, with SAT/BITE/CLIP visibly muted and non-interactive.
 
 Playback-character controls can become a later page without changing the
 four-break mapping model.
@@ -343,7 +343,8 @@ Map ranges, per-break Omni/channel filtering, 32 fixed voices, four live
 waveform overviews, a detailed multichannel waveform/marker editor, equal and
 transient slicing, root-note remapping, keyboard audition,
 velocity-sensitive playback, envelopes,
-pitch/pan/reverse, loop and choke behavior, CLAP state, dynamic note names,
+pitch/pan/reverse, loop and choke behavior, two post-playback insert slots per
+break (FILTER, DEGRADE, TRANSIENT, and RESONATOR), CLAP state, dynamic note names,
 and two immutable host-visible variants. Stereo exposes two outputs and accepts
 mono/stereo assets. Slicer 16 exposes sixteen generic outputs and accepts 1–16
 channel assets; unused outputs are cleared to silence every block.
@@ -362,8 +363,9 @@ This remains a source-build preview and is intentionally absent from the
 release bundle manifest. Finder files can be dropped onto a break card or
 overview waveform, and user-initiated file decode and analysis run on a
 generation-checked worker; CLAP state restoration remains synchronous by
-contract. State version 8 embeds decoded multichannel samples and per-break
-normalized envelopes directly in the host project. Prepared bank and mixer
+contract. State version 9 embeds decoded multichannel samples, per-break
+normalized envelopes, and both insert configurations directly in the host
+project. Prepared bank and mixer
 publication leave already-playing voices intact. Current limitations are
 explicit: path-only state has no relocation UI, and loop
 points, fine tune, and labels are not yet all exposed by the custom
