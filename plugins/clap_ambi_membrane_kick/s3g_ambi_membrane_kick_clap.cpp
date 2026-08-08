@@ -69,7 +69,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
-    { kOrderParamId, "Output Format", "Output", 1.0, 4.0, 3.0, true },
+    { kOrderParamId, "Output Format", "Output", 1.0, 5.0, 3.0, true },
     { kShapeParamId, "Membrane Shape", "Membrane", 0.0, 4.0, 0.0, true },
     { kTuneParamId, "Fundamental", "Body", 25.0, 90.0, 43.0, false },
     { kPitchSweepParamId, "Pitch Drop", "Impact", 0.0, 48.0, 31.0, false },
@@ -522,7 +522,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     if (!info || isInput || index != 0u) return false;
     *info = {};
     info->id = 20u;
-    std::strncpy(info->name, "3OA ACN/SN3D / 16 Pickup Direct",
+    std::strncpy(info->name, "3OA / 16 Pickups / Stereo Downmix",
         sizeof(info->name) - 1u);
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kOutputChannels;
@@ -595,6 +595,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         const uint32_t format = static_cast<uint32_t>(std::round(value));
         if (format == s3g::kAmbiMembraneKickDirectPickups) {
             std::snprintf(display, size, "%s", "16 Pickups");
+        } else if (format == s3g::kAmbiMembraneKickStereoDownmix) {
+            std::snprintf(display, size, "%s", "Stereo Downmix");
         } else {
             std::snprintf(display, size, "%uOA", format);
         }
@@ -640,6 +642,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     const auto* def = paramDef(id);
     if (!display || !value || !def) return false;
     if (id == kOrderParamId
+        && (std::strstr(display, "stereo")
+            || std::strstr(display, "Stereo")
+            || std::strstr(display, "STEREO"))) {
+        *value = s3g::kAmbiMembraneKickStereoDownmix;
+        return true;
+    } else if (id == kOrderParamId
         && (std::strstr(display, "pickup")
             || std::strstr(display, "Pickup")
             || std::strstr(display, "PICKUP")
@@ -1079,6 +1087,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         items[1u] = @"2OA / 9CH";
         items[2u] = @"3OA / 16CH";
         items[3u] = @"16 PICKUPS";
+        items[4u] = @"STEREO DOWNMIX";
     } else if (_openMenu == kShapeParamId) {
         items[0u] = @"CIRCLE";
         items[1u] = @"ELLIPSE";
@@ -1151,11 +1160,15 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
     drawPanel(@"MEMBRANE", membranePanel);
     drawPanel(@"LOW BODY", bodyPanel);
     drawPanel(@"IMPACT", impactPanel);
-    const bool directPickups = static_cast<uint32_t>(std::lround(
-        paramValue(*p, kOrderParamId)))
+    const uint32_t outputFormat = static_cast<uint32_t>(std::lround(
+        paramValue(*p, kOrderParamId)));
+    const bool directPickups = outputFormat
         == s3g::kAmbiMembraneKickDirectPickups;
+    const bool stereoDownmix = outputFormat
+        == s3g::kAmbiMembraneKickStereoDownmix;
     drawPanel(directPickups ? @"DIRECT PICKUPS / SPACE OFF"
-                            : @"AMBISONIC SPACE", spacePanel);
+            : (stereoDownmix ? @"STEREO DOWNMIX / SPACE OFF"
+                             : @"AMBISONIC SPACE"), spacePanel);
     s3g::clap_gui::drawHeaderButton(membranePageButtonRect(0u),
         membranePanel, @"BODY", _membranePage == 0, valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(membranePageButtonRect(1u),
@@ -1395,7 +1408,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
             _openMenu = row.id;
             _hoverMenuItem = -1;
             _menuItemCount = row.id == kShapeParamId ? 5u
-                : (row.id == kOrderParamId ? 4u : 3u);
+                : (row.id == kOrderParamId ? 5u : 3u);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1596,7 +1609,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "Deep pitch-dropping kick synthesized by a shaped twelve-mode membrane whose sixteen surface pickups can feed first- to third-order ACN/SN3D or sixteen direct lanes.",
+    "Deep pitch-dropping kick synthesized by a shaped twelve-mode membrane whose sixteen surface pickups can feed first- to third-order ACN/SN3D, sixteen direct lanes, or a stereo downmix.",
     features
 };
 

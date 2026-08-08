@@ -93,6 +93,11 @@ is a host-synchronized MIDI tracker for REAPER and a companion to the s3g drum
 synthesis plugins. Repository-level implementation notes remain in
 [the tracker preview document](docs/s3g-tracker-clap.md).
 
+The source-only [s3g Slicer design and build notes](docs/s3g-breakbeat-slicer-design.md)
+describe the shared four-break stereo/16-channel sampler CLAP that pairs with
+Tracker through ordinary MIDI. Its overview/editor and real-time engine are
+available behind `S3G_BUILD_BREAKBEAT_SLICER_PREVIEW`.
+
 ## Related Projects
 
 - [`s3g-mc`](https://github.com/s3g/s3g-mc): REAPER scripts, JSFX, and

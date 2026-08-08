@@ -2682,7 +2682,7 @@ int main(int argc, char** argv)
                     ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
                             == 1u
                         && [[document valueForKey:@"menuItemCount"]
-                            unsignedIntValue] == 4u
+                            unsignedIntValue] == 5u
                         && [[document valueForKey:@"hoverMenuItem"] intValue]
                             == 3;
                 }
@@ -2692,6 +2692,25 @@ int main(int argc, char** argv)
                     double format = 0.0;
                     ok = params->get_value(plugin, 1u, &format)
                         && std::fabs(format - 4.0) < 0.000001;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 80.0))];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(760.0, 177.0))];
+                    ok = [[document valueForKey:@"openMenu"] unsignedIntValue]
+                            == 1u
+                        && [[document valueForKey:@"menuItemCount"]
+                            unsignedIntValue] == 5u
+                        && [[document valueForKey:@"hoverMenuItem"] intValue]
+                            == 4;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(760.0, 177.0))];
+                    double format = 0.0;
+                    ok = params->get_value(plugin, 1u, &format)
+                        && std::fabs(format - 5.0) < 0.000001;
                 }
                 if (ok) {
                     [document mouseDown:mouseEvent(

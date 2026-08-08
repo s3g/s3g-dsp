@@ -37,7 +37,7 @@ bool silenceAndFiniteProbe()
     kick.setParams(params);
     params = kick.params();
     if (params.tuneHz != 43.0f || params.decaySeconds != 1.45f
-        || params.order != s3g::kAmbiMembraneKickDirectPickups
+        || params.order != s3g::kAmbiMembraneKickStereoDownmix
         || std::sqrt(params.strikeX * params.strikeX
             + params.strikeY * params.strikeY) > 0.981f) {
         std::cerr << "membrane parameter sanitization failed\n";
@@ -320,6 +320,95 @@ bool directPickupProbe()
     return true;
 }
 
+bool stereoDownmixProbe()
+{
+    s3g::AmbiMembraneKick direct;
+    s3g::AmbiMembraneKick stereo;
+    direct.prepare(kSampleRate);
+    stereo.prepare(kSampleRate);
+    auto params = direct.params();
+    params.shape = s3g::AmbiMembraneShape::Ellipse;
+    params.shapeAmount = 0.85f;
+    params.strikeX = 0.47f;
+    params.strikeY = -0.21f;
+    params.click = 0.03f;
+    params.outputGainDb = -30.0f;
+    params.order = s3g::kAmbiMembraneKickDirectPickups;
+    direct.setParams(params);
+    params.order = s3g::kAmbiMembraneKickStereoDownmix;
+    stereo.setParams(params);
+    direct.trigger(0.35f, 36);
+    stereo.trigger(0.35f, 36);
+
+    std::array<float, s3g::kAmbiMembraneKickChannels> directFrame {};
+    std::array<float, s3g::kAmbiMembraneKickChannels> stereoFrame {};
+    std::array<double, 2u> stereoEnergy {};
+    double stereoDifference = 0.0;
+    float maximumFoldError = 0.0f;
+    double higherLaneEnergy = 0.0;
+    constexpr float foldNormalization = 0.25f;
+    constexpr float halfPi = 1.57079632679489661923f;
+    for (uint32_t sample = 0u; sample < 4096u; ++sample) {
+        direct.processFrame(
+            directFrame.data(), static_cast<uint32_t>(directFrame.size()));
+        stereo.processFrame(
+            stereoFrame.data(), static_cast<uint32_t>(stereoFrame.size()));
+        std::array<float, 2u> expected {};
+        for (uint32_t patch = 0u;
+             patch < s3g::kAmbiMembraneKickPatches; ++patch) {
+            const float x = direct.patchPosition(patch)[0u];
+            const float pan = std::clamp(x * 0.5f + 0.5f, 0.0f, 1.0f);
+            expected[0u] += directFrame[patch] * std::cos(pan * halfPi)
+                * foldNormalization;
+            expected[1u] += directFrame[patch] * std::sin(pan * halfPi)
+                * foldNormalization;
+        }
+        for (uint32_t channel = 0u; channel < 2u; ++channel) {
+            if (!std::isfinite(stereoFrame[channel])) {
+                std::cerr << "stereo membrane downmix was non-finite\n";
+                return false;
+            }
+            maximumFoldError = std::max(maximumFoldError,
+                std::fabs(stereoFrame[channel] - expected[channel]));
+            stereoEnergy[channel] += static_cast<double>(
+                stereoFrame[channel]) * stereoFrame[channel];
+        }
+        stereoDifference += std::fabs(
+            stereoFrame[0u] - stereoFrame[1u]);
+        for (uint32_t channel = 2u; channel < stereoFrame.size(); ++channel) {
+            higherLaneEnergy += std::fabs(stereoFrame[channel]);
+        }
+    }
+    if (stereoEnergy[0u] <= 1.0e-8 || stereoEnergy[1u] <= 1.0e-8
+        || stereoDifference <= 1.0e-4 || higherLaneEnergy != 0.0
+        || maximumFoldError > 1.0e-6f) {
+        std::cerr << "stereo membrane downmix contract failed: "
+                  << stereoEnergy[0u] << " / " << stereoEnergy[1u]
+                  << " / " << stereoDifference << " / "
+                  << higherLaneEnergy << " / " << maximumFoldError << "\n";
+        return false;
+    }
+
+    auto spatialEdit = stereo;
+    auto unchanged = stereo;
+    auto editedParams = spatialEdit.params();
+    editedParams.spatialSpread = 0.0f;
+    editedParams.membraneDepth = 1.0f;
+    editedParams.rotationDeg = 177.0f;
+    spatialEdit.setParams(editedParams);
+    for (uint32_t sample = 0u; sample < 512u; ++sample) {
+        spatialEdit.processFrame(
+            stereoFrame.data(), static_cast<uint32_t>(stereoFrame.size()));
+        unchanged.processFrame(
+            directFrame.data(), static_cast<uint32_t>(directFrame.size()));
+        if (stereoFrame != directFrame) {
+            std::cerr << "ambisonic space controls altered stereo downmix\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 bool noteTrackingProbe()
 {
     s3g::AmbiMembraneKick kick;
@@ -549,6 +638,7 @@ int main()
         || !spatialAutomationContinuityProbe()
         || !orderAndShapeProbe()
         || !directPickupProbe()
+        || !stereoDownmixProbe()
         || !noteTrackingProbe()
         || !velocityResponseProbe()
         || !strikePlacementProbe()

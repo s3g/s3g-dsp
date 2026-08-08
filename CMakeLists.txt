@@ -25,6 +25,8 @@ option(S3G_BUILD_DRUM_OVERLOAD_PREVIEW
   "Build Drum Overload without enabling every future component" OFF)
 option(S3G_BUILD_TRACKER_PREVIEW
   "Build the host-synchronized s3g Tracker MIDI CLAP preview" OFF)
+option(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
+  "Build the s3g Breakbeat Slicer multisample CLAP preview" OFF)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -43,6 +45,14 @@ endif()
 
 add_executable(s3g_crcltr_smoke tests/crcltr_smoke.cpp)
 target_link_libraries(s3g_crcltr_smoke PRIVATE s3g_dsp)
+
+add_executable(s3g_breakbeat_slicer_smoke
+  tests/breakbeat_slicer_smoke.cpp)
+target_link_libraries(s3g_breakbeat_slicer_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_breakbeat_slicer_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
 
 add_executable(s3g_crcltr_external_memory_smoke
   tests/crcltr_external_memory_smoke.cpp)
@@ -290,6 +300,7 @@ if(BUILD_TESTING)
   set(S3G_NON_NIM_CORE_SMOKE_TARGETS
     s3g_dsp_smoke
     s3g_crcltr_smoke
+    s3g_breakbeat_slicer_smoke
     s3g_crcltr_external_memory_smoke
     s3g_ambi_effect_displacement_smoke
     s3g_ambi_imprint_safety_smoke
@@ -529,6 +540,25 @@ if(S3G_BUILD_CLAP_PLUGIN)
         LANGUAGE OBJCXX)
       target_compile_options(s3g_tracker_clap_smoke PRIVATE -fobjc-arc)
       target_link_libraries(s3g_tracker_clap_smoke PRIVATE "-framework Cocoa")
+    endif()
+  endif()
+
+  if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
+    add_executable(s3g_breakbeat_slicer_clap_smoke
+      tests/breakbeat_slicer_clap_smoke.cpp)
+    target_include_directories(s3g_breakbeat_slicer_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+    target_link_libraries(s3g_breakbeat_slicer_clap_smoke PRIVATE
+      s3g_dsp
+      ${CMAKE_DL_LIBS})
+    if(APPLE)
+      set_source_files_properties(tests/breakbeat_slicer_clap_smoke.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+      target_compile_options(s3g_breakbeat_slicer_clap_smoke PRIVATE
+        -fobjc-arc)
+      target_link_libraries(s3g_breakbeat_slicer_clap_smoke PRIVATE
+        "-framework Cocoa")
     endif()
   endif()
 
@@ -871,12 +901,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_TRACKER_PREVIEW)
     add_subdirectory(plugins/clap_tracker)
   endif()
+  if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
+    add_subdirectory(plugins/clap_breakbeat_slicer)
+  endif()
   if(S3G_BUILD_TRACKER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
         $<TARGET_FILE:s3g_tracker_clap>)
     set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
       LABELS "tracker;clap;smoke" TIMEOUT 120)
+  endif()
+  if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_breakbeat_slicer_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_clap_smoke>
+        $<TARGET_FILE:s3g_breakbeat_slicer_clap>)
+    set_tests_properties(s3g_breakbeat_slicer_clap_smoke PROPERTIES
+      LABELS "breakbeat-slicer;clap;smoke" TIMEOUT 120)
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)

@@ -221,7 +221,8 @@ EXPECTED_MODAL_WORKFLOW_OUTPUT_STEP = (
 )
 EXPECTED_MEMBRANE_KICK_WORKFLOW_OUTPUT_STEP = (
     "Follow an ACN/SN3D format with an ambisonic decoder. Route 16 PICKUPS as "
-    "ordinary lanes instead."
+    "ordinary lanes instead. STEREO DOWNMIX is ready for an ordinary stereo path "
+    "on channels 1–2."
 )
 EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_PAGES = {
     "ambisonic-bus-processors.html",
@@ -237,7 +238,8 @@ EXPECTED_GROUPED_AMBI_WORKFLOW_OUTPUT_STEP = (
 EXPECTED_AMBI_ENCODER_FAMILY_WORKFLOW_OUTPUT_STEP = (
     "Follow an ACN/SN3D output with an ambisonic decoder. Route Ambi Encoder Modal's "
     "8 BODY STEMS or Membrane Kick's 16 PICKUPS as ordinary lanes to main outputs, a "
-    "downstream direct panner, or an appropriate fold-down utility."
+    "downstream direct panner, or an appropriate fold-down utility. Membrane Kick's "
+    "STEREO DOWNMIX can feed an ordinary stereo path directly."
 )
 AUDIBLE_WORKFLOW_STEP_TERMS = (
     "decoder",

@@ -15,8 +15,10 @@ constexpr uint32_t kAmbiMembraneKickChannels = 16u;
 constexpr uint32_t kAmbiMembraneKickPatches = 16u;
 constexpr uint32_t kAmbiMembraneKickModes = 12u;
 // FORMAT values 1-3 retain their historical ambisonic-order meaning. Four is
-// the state-compatible direct format: one post-membrane pickup per lane.
+// the state-compatible direct format: one post-membrane pickup per lane. Five
+// folds those same physical pickups onto output lanes one and two.
 constexpr uint32_t kAmbiMembraneKickDirectPickups = 4u;
+constexpr uint32_t kAmbiMembraneKickStereoDownmix = 5u;
 
 enum class AmbiMembraneShape : uint32_t {
     Circle = 0u,
@@ -85,6 +87,9 @@ public:
         smoothedDirectMix_ = params_.order
                 == kAmbiMembraneKickDirectPickups
             ? 1.0f : 0.0f;
+        smoothedStereoMix_ = params_.order
+                == kAmbiMembraneKickStereoDownmix
+            ? 1.0f : 0.0f;
         if (radiationInitialized_) {
             patchBasis_ = targetPatchBasis_;
             smoothedSpatialNormalization_ = targetSpatialNormalization_;
@@ -107,6 +112,9 @@ public:
         if (!active()) {
             smoothedDirectMix_ = params_.order
                     == kAmbiMembraneKickDirectPickups
+                ? 1.0f : 0.0f;
+            smoothedStereoMix_ = params_.order
+                    == kAmbiMembraneKickStereoDownmix
                 ? 1.0f : 0.0f;
         }
         if (params_.strikeMode == AmbiMembraneStrikeMode::Fixed
@@ -225,7 +233,9 @@ public:
         const float driveGain = 1.0f + params_.drive * 8.0f;
         const float normalization = smoothedSpatialNormalization_;
         constexpr float directPickupNormalization = 0.22f;
+        constexpr float stereoFoldNormalization = 0.25f;
         std::array<float, kAmbiMembraneKickPatches> pickupSamples {};
+        std::array<float, 2u> stereoSamples {};
         for (uint32_t patch = 0u; patch < kAmbiMembraneKickPatches; ++patch) {
             float sample = 0.0f;
             for (uint32_t mode = 0u; mode < kAmbiMembraneKickModes; ++mode) {
@@ -238,6 +248,12 @@ public:
             sample = softSat((sample + localClick * 0.82f) * driveGain)
                 / softSat(driveGain);
             pickupSamples[patch] = sample * directPickupNormalization;
+            stereoSamples[0u] += pickupSamples[patch]
+                * stereoPanGains_[patch][0u]
+                * stereoFoldNormalization;
+            stereoSamples[1u] += pickupSamples[patch]
+                * stereoPanGains_[patch][1u]
+                * stereoFoldNormalization;
             sample *= normalization;
             for (uint32_t channel = 0u;
                  channel < ambisonicChannels; ++channel) {
@@ -250,9 +266,19 @@ public:
             ? 1.0f : 0.0f;
         smoothedDirectMix_ += (directTarget - smoothedDirectMix_)
             * spatialSmoothing;
+        const float stereoTarget = params_.order
+                == kAmbiMembraneKickStereoDownmix
+            ? 1.0f : 0.0f;
+        smoothedStereoMix_ += (stereoTarget - smoothedStereoMix_)
+            * spatialSmoothing;
+        const float ambisonicMix = std::max(0.0f,
+            1.0f - smoothedDirectMix_ - smoothedStereoMix_);
         for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
-            output[channel] = output[channel] * (1.0f - smoothedDirectMix_)
-                + pickupSamples[channel] * smoothedDirectMix_;
+            const float stereoSample = channel < stereoSamples.size()
+                ? stereoSamples[channel] : 0.0f;
+            output[channel] = output[channel] * ambisonicMix
+                + pickupSamples[channel] * smoothedDirectMix_
+                + stereoSample * smoothedStereoMix_;
         }
 
         const float outputTarget = dbToLinear(params_.outputGainDb);
@@ -371,7 +397,7 @@ private:
     static void sanitize(AmbiMembraneKickParams& params)
     {
         params.order = std::clamp<uint32_t>(
-            params.order, 1u, kAmbiMembraneKickDirectPickups);
+            params.order, 1u, kAmbiMembraneKickStereoDownmix);
         params.shape = static_cast<AmbiMembraneShape>(std::min<uint32_t>(
             static_cast<uint32_t>(params.shape), 4u));
         params.tuneHz = finiteClamp(params.tuneHz, 43.0f, 25.0f, 90.0f);
@@ -500,6 +526,12 @@ private:
                 break;
             }
             patchPositions_[patch] = { shapedX, shapedY };
+            const float stereoPan = std::clamp(
+                shapedX * 0.5f + 0.5f, 0.0f, 1.0f)
+                * 1.57079632679489661923f;
+            stereoPanGains_[patch] = {
+                std::cos(stereoPan), std::sin(stereoPan)
+            };
             const float shapedRadius = std::min(1.0f,
                 std::sqrt(shapedX * shapedX + shapedY * shapedY));
             const float shapedTheta = std::atan2(shapedY, shapedX);
@@ -576,6 +608,8 @@ private:
     std::array<ModeState, kAmbiMembraneKickModes> modes_ {};
     std::array<std::array<float, 2u>, kAmbiMembraneKickPatches>
         patchPositions_ {};
+    std::array<std::array<float, 2u>, kAmbiMembraneKickPatches>
+        stereoPanGains_ {};
     std::array<std::array<float, kAmbiMembraneKickModes>,
         kAmbiMembraneKickPatches> modeShapes_ {};
     std::array<std::array<float, kAmbiMembraneKickChannels>,
@@ -593,6 +627,7 @@ private:
     float smoothedSpatialNormalization_ = 0.052f;
     float targetSpatialNormalization_ = 0.052f;
     float smoothedDirectMix_ = 0.0f;
+    float smoothedStereoMix_ = 0.0f;
     float activity_ = 0.0f;
     bool radiationInitialized_ = false;
     uint32_t rng_ = 0x6d2b79f5u;

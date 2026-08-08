@@ -1,0 +1,120 @@
+# s3g Slicer preview
+
+`s3g Slicer` is a multichannel multisample CLAP instrument designed to sit
+after `s3g Tracker` in REAPER. Tracker supplies timing and MIDI; this plug-in
+owns sample files, slices, mapping, voices, and audio.
+
+The bundle exposes two instruments backed by the same sampler core:
+
+- `s3g Slicer 2` has one immutable 2-channel output and accepts
+  mono or stereo files; and
+- `s3g Slicer 16` has one immutable 16-channel output, accepts 1–16
+  channel files, passes lanes through in source order, and clears every unused
+  output to silence.
+
+The first playable build includes:
+
+- four break slots, each with a MIDI channel menu (`OMNI` or `1–16`) and an
+  explicit consecutive Auto Map range;
+- fixed output topology per variant, with no host restart or bus mutation when
+  samples are loaded;
+- one shared playback clock per voice, keeping every source channel precisely
+  aligned through slice, pitch, reverse, and loop transitions;
+- 32 fixed playback voices with velocity, per-slice proportional ADSR, pitch,
+  pan, reverse, looping, ping-pong, and choke behavior in the engine; attack,
+  decay, and release are normalized to the rendered slice length rather than
+  milliseconds;
+- equal and transient slicing with zero-crossing snap;
+- manual marker add, drag, and delete, plus waveform zoom, sample-to-sample
+  drawing at close zoom, distinct multichannel lanes, and a draggable
+  horizontal viewport bar;
+- Finder drag-and-drop onto a break card or overview waveform, including
+  multi-file drops that fill successive breaks;
+- an OVERVIEW page showing all four waveforms, slice markers, and independent
+  playback cursors at once;
+- a BREAK EDIT page with the detailed selected-break waveform and a compact
+  mapped-note audition keyboard that shows pitch names and MIDI values;
+- a Drum Mixer-family MIXER page with four strips providing level, stereo pan,
+  low/mid/high EQ, tunable mid frequency, post-fader aux send, mute, solo,
+  audition, and lane meters; pan is locked for sources wider than stereo;
+- a shared AUX BUS processor with Drive, Glue, Room, Weight, Tone, and Return
+  controls. Slicer 16 processes the return as eight linked channel pairs and
+  never folds the 16-channel field to stereo;
+- selected-slice gain, pitch, pan (mono/stereo only), reverse, launch-mode,
+  and choke controls;
+- background user-initiated file decoding and transient analysis with stale
+  load cancellation when a slot is replaced or cleared;
+- explicit remapping from a selectable root note and channel-aware CLAP note
+  names; marker moves preserve the map while marker add/delete, re-slicing,
+  and root edits deliberately require another Auto Map press;
+- a resizable native macOS bank/slice editor and audition control;
+- versioned project state retaining the original external sample paths;
+- optional decoded-audio embedding in CLAP project state (enabled by default),
+  allowing the host project to reopen without the original files; and
+- one MIDI/CLAP note input and one fixed main output per variant.
+
+Mixer controls use a runtime snapshot separate from the sample/slice bank.
+Changing level, pan, EQ, mute, solo, AUX send, or bus settings does not restart
+sample playback or clear the post-playback processor histories.
+
+For spatial sources, channel order is preserved without downmixing or
+per-channel timing. The 16-channel variant exposes a generic 16-channel port so
+it can carry quad, octal, arbitrary discrete multichannel, or 3OA ACN/SN3D
+material without claiming that every loaded file uses the same spatial
+encoding. The stereo variant rejects wider files; it never folds or truncates
+them. Set the REAPER track to 16 channels when using the 16-channel variant.
+
+## Project audio
+
+`PROJECT AUDIO: EMBED` is enabled by default. The button reports the decoded
+audio size that will be added to plug-in state. REAPER stores that CLAP state
+with the project, so reopening or moving the project does not require the
+original sample paths. Embedded audio remains inter-channel and sample locked.
+
+## Mixer and aux routing
+
+The strip and bus architecture follows `s3g Drum Mixer 16`, reduced to the
+four break slots. Each strip's signal order is playback voices, three-band EQ,
+pan for mono/stereo sources, level/mute/solo, metering, then the squared
+post-fader AUX send. The dry strip and processed return meet before the global
+output control.
+
+On `s3g Slicer 16`, the same EQ is applied independently to every source lane.
+The AUX bus owns eight identical processor instances for channel pairs 1/2
+through 15/16. Pair linking controls dynamics only: it does not exchange,
+decode, sum, or reorder samples. Unused channels remain silent.
+
+Click the button to select `PROJECT AUDIO: PATHS` when smaller project files
+are preferable. The original paths are still stored as useful references in
+embedded mode. A single plug-in instance embeds up to 1 GiB of decoded audio;
+if the bank exceeds that bound, the button reports `PARTIAL` and later slots
+fall back to paths.
+
+Standard CLAP does not provide a plug-in with REAPER's current project-media
+directory, so the plug-in does not silently copy files into that folder.
+Embedding is the reliable automatic project-portability path. A future
+explicit “collect bank to folder” operation can let the user choose the REAPER
+media folder and then rewrite the stored paths.
+
+## Build
+
+```sh
+cmake -S . -B build-clap \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_BUILD_BREAKBEAT_SLICER_PREVIEW=ON
+cmake --build build-clap --target s3g_breakbeat_slicer_clap -j 8
+```
+
+The bundle is written to:
+
+```text
+build-clap/plugins/clap_breakbeat_slicer/s3g_slicer.clap
+```
+
+This preview is not yet part of the release bundle manifest. See
+[`docs/s3g-breakbeat-slicer-design.md`](../../docs/s3g-breakbeat-slicer-design.md)
+for the product boundary, architecture, state model, and implementation
+sequence.
+
+The planned replacement for the temporary AUX character stage is documented in
+[`docs/s3g-breakbeat-aux-research.md`](../../docs/s3g-breakbeat-aux-research.md).

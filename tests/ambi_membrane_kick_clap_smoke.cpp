@@ -368,6 +368,14 @@ int main(int argc, char** argv)
     ok = ok && params->value_to_text(plugin, kOrderParamId, 4.0,
         directText, sizeof(directText))
         && std::strcmp(directText, "16 Pickups") == 0;
+    char stereoText[32] {};
+    double stereoValue = 0.0;
+    ok = ok && params->value_to_text(plugin, kOrderParamId, 5.0,
+        stereoText, sizeof(stereoText))
+        && std::strcmp(stereoText, "Stereo Downmix") == 0
+        && params->text_to_value(plugin, kOrderParamId,
+            "STEREO DOWNMIX", &stereoValue)
+        && stereoValue == 5.0;
     if (!ok || !plugin->activate(plugin, 48000.0, 1u, kFrames)
         || !plugin->start_processing(plugin)) {
         std::cerr << "membrane kick CLAP contract failed\n";
@@ -425,6 +433,38 @@ int main(int argc, char** argv)
         std::cerr << "sixteen-pickup direct output contract failed\n";
     }
     ok = ok && directContract;
+
+    plugin->reset(plugin);
+    EventList stereoSelect;
+    stereoSelect.addParam(kOrderParamId, 5.0);
+    params->flush(plugin, &stereoSelect.input, nullptr);
+    EventList stereoStrike;
+    stereoStrike.addNote(36, 0.9, 0u);
+    audio.clear();
+    runBlock(plugin, audio, &stereoStrike.input);
+    std::array<double, 2u> stereoEnergy {};
+    double stereoDifference = 0.0;
+    double higherLaneEnergy = 0.0;
+    for (uint32_t sample = 0u; sample < kFrames; ++sample) {
+        stereoDifference += std::fabs(audio.storage[0u][sample]
+            - audio.storage[1u][sample]);
+        for (uint32_t channel = 0u; channel < 2u; ++channel) {
+            stereoEnergy[channel] += static_cast<double>(
+                audio.storage[channel][sample]) * audio.storage[channel][sample];
+        }
+        for (uint32_t channel = 2u; channel < kChannels; ++channel) {
+            higherLaneEnergy += std::fabs(audio.storage[channel][sample]);
+        }
+    }
+    const bool stereoContract = getParam(
+        plugin, params, kOrderParamId, 5.0)
+        && stereoEnergy[0u] > 1.0e-10 && stereoEnergy[1u] > 1.0e-10
+        && stereoDifference > 1.0e-6 && higherLaneEnergy == 0.0;
+    if (!stereoContract) {
+        std::cerr << "stereo downmix output contract failed\n";
+    }
+    ok = ok && stereoContract;
+
     plugin->reset(plugin);
     EventList restoreHoa;
     restoreHoa.addParam(kOrderParamId, 3.0);
@@ -460,10 +500,14 @@ int main(int argc, char** argv)
     }
     ok = ok && highOrder == 0.0;
 
+    EventList saveStereoFormat;
+    saveStereoFormat.addParam(kOrderParamId, 5.0);
+    params->flush(plugin, &saveStereoFormat.input, nullptr);
     MemoryState memory;
     clap_ostream_t ostream { &memory, stateWrite };
     ok = ok && state->save(plugin, &ostream);
     EventList change;
+    change.addParam(kOrderParamId, 3.0);
     change.addParam(kTuneParamId, 70.0);
     change.addParam(kDecayParamId, 2.5);
     change.addParam(kStrikeModeParamId, 2.0);
@@ -474,6 +518,7 @@ int main(int argc, char** argv)
     memory.offset = 0u;
     clap_istream_t istream { &memory, stateRead };
     ok = ok && state->load(plugin, &istream)
+        && getParam(plugin, params, kOrderParamId, 5.0)
         && getParam(plugin, params, kTuneParamId, 43.0)
         && getParam(plugin, params, kStrikeModeParamId, 0.0)
         && tail->get(plugin) > 48000u;
@@ -486,6 +531,7 @@ int main(int argc, char** argv)
     for (clap_id id = 1u; id <= 19u; ++id) {
         params->get_value(plugin, id, &legacyState.values[id - 1u]);
     }
+    legacyState.values[kOrderParamId - 1u] = 3.0;
     legacyState.values[kTuneParamId - 1u] = 55.0;
     MemoryState legacyMemory;
     legacyMemory.bytes.resize(sizeof(legacyState));
