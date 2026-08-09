@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,6 +56,27 @@ enum class CommandEffect : uint32_t {
     ProjectChanged = 1u << 8u,
 };
 
+enum class PatternVariationLaunch : uint8_t {
+    None,
+    NextTick,
+    NextBeat,
+    NextPatternCycle,
+};
+
+bool patternVariationLaunchIsDue(PatternVariationLaunch launch,
+    uint64_t completedTickIndex, uint64_t completedTransportRow,
+    uint32_t ticksPerBeat, std::size_t patternRows) noexcept;
+
+// Bank-level requests are parsed and generated transactionally by the shared
+// command engine, then installed by the application coordinator that owns the
+// PatternBank. Keeping the generated session here avoids reparsing or drawing
+// from the random stream twice.
+struct PatternVariationRequest {
+    TrackerSession generatedSession;
+    PatternVariationLaunch launch = PatternVariationLaunch::None;
+    std::string sourceCommand;
+};
+
 constexpr CommandEffect operator|(CommandEffect left,
     CommandEffect right) noexcept
 {
@@ -80,6 +102,7 @@ struct CommandResult {
     bool ok = false;
     CommandEffect effects = CommandEffect::None;
     std::string message;
+    std::optional<PatternVariationRequest> patternVariation;
 
     bool hasEffect(CommandEffect effect) const noexcept
     {

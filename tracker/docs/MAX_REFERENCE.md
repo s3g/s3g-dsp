@@ -76,6 +76,30 @@ ports behavior, not JavaScript structure or Max task scheduling; `humanize`
 still moves a hit by a neighboring tracker row and is not yet sample-domain
 microtiming.
 
+The first whole-pattern pass now exposes native `generate`, `generateseed`,
+named `scene`, scoped `mutate`, and seeded `drumscene` commands. Generation
+authors NOTE, INS, VOL, FX1/V1, and FX2/V2 plus independent length, stride,
+phase, and direction. Seeded commands use a stable local stream and therefore
+do not perturb later unseeded edits. Drum scenes retain the Max role recipes
+for `techno`, `broken`, `sparse`, `blast`, and `ritual` while writing typed
+native NOTE cells and configured kit pitches.
+
+This is a semantic port, not byte-identical Max output. The native model does
+not yet store per-lane root/scale metadata and has no exact typed equivalents
+for Max `??`, `!!`, or per-cell value mute. The `symbols` control therefore
+uses supported rest, previous, kill, empty, and default states, and melodic
+generation varies around the lane's stable note anchor. Generated FX are drawn
+from the native destination-neutral sequencing-action catalog; arbitrary Max
+FX tokens are never inserted into typed cells.
+
+Bank-level `variation`/`vary` wraps those generators transactionally: it clones
+the active entry's routing, aliases, and anchors into the next stable pattern
+ID, applies one generation or mutation command to the clone, and preserves the
+source. Optional `launch tick|beat|cycle` publication prebuilds the replacement
+runtime on the control thread and defers the audio-thread handoff until the
+requested logical boundary. Song playback remains authoritative when enabled,
+so it refuses a competing bank launch.
+
 ## Why the old corpus stays out of scope
 
 An explicit `jq empty` pass over top-level, `patterns/`, and `songs/` JSON found

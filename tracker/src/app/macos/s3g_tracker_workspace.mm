@@ -4563,7 +4563,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     if (selector == @selector(insertTab:)) {
         constexpr const char* commands[] {
             "help", "aliases", "alias", "kit", "play", "stop", "panic",
-            "demo", "bpm", "swing", "gate", "select", "hit", "rest",
+            "demo", "variation", "vary", "generate", "generateseed", "scene", "mutate",
+            "drumscene", "bpm", "swing", "gate", "select", "hit", "rest",
             "repeat", "kill", "note", "vel", "velseq", "vol", "mask",
             "len", "stride", "dir", "mute", "unmute", "solo", "name",
             "eu", "euclid", "rotate", "fill", "reverse", "actions",

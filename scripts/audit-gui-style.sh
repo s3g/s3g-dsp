@@ -943,6 +943,7 @@ processor_family_names=(
   'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain 16ch'
   'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 8ch'
   'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 24ch'
+  'plugins/clap_feedback_shift/s3g_feedback_shift_clap.cpp|s3g Processor Feedback Shift'
 )
 for contract in "${processor_family_names[@]}"; do
   file="${contract%%|*}"
@@ -962,6 +963,7 @@ processor_family_sources=(
   plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp
   plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp
   plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp
+  plugins/clap_feedback_shift/s3g_feedback_shift_gui.inc
 )
 if ! rg -q 'drawDecoderTitleBand\(title, preset, status, band,[[:space:]]*$' \
     plugins/common/s3g_cocoa_gui.h \

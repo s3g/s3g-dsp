@@ -42,6 +42,7 @@ using s3g::tracker::EventDestination;
 using s3g::tracker::LogicalTickBoundary;
 using s3g::tracker::LogicalTickBoundaryAction;
 using s3g::tracker::PatternBankEntry;
+using s3g::tracker::PatternVariationLaunch;
 using s3g::tracker::ProjectDocument;
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
@@ -155,6 +156,21 @@ PatternBankEntry newPatternEntry(const PatternBankEntry& source,
                 s3g::tracker::FxValueCell::previous());
         }
     }
+    return entry;
+}
+
+PatternBankEntry variationPatternEntry(const PatternBankEntry& source,
+    std::string id,
+    const s3g::tracker::PatternVariationRequest& variation)
+{
+    PatternBankEntry entry = source;
+    entry.id = std::move(id);
+    entry.pattern = variation.generatedSession.pattern;
+    entry.laneDefaultNotes = variation.generatedSession.laneDefaultNotes;
+    entry.aliases = variation.generatedSession.aliases;
+    entry.pattern.name = source.pattern.name.empty()
+        ? "VAR " + entry.id
+        : source.pattern.name + " VAR " + entry.id;
     return entry;
 }
 
@@ -292,6 +308,13 @@ HostTransport readHostTransport(const clap_event_transport_t* source)
     return result;
 }
 
+struct PatternLaunchMailbox {
+    std::atomic<uint32_t> revision { 0u };
+    std::atomic<uint32_t> consumedRevision { 0u };
+    std::atomic<uint32_t> dueRevision { 0u };
+    std::atomic<uint32_t> quantization { 0u };
+};
+
 struct Runtime {
     TimingPlaybackScheduler scheduler;
     SongPlaybackPlanner songPlanner;
@@ -302,11 +325,14 @@ struct Runtime {
     double tempoScale = 1.0;
     bool songEnabled = false;
     bool valid = false;
+    PatternLaunchMailbox* patternLaunch = nullptr;
 
-    Runtime(const ProjectDocument& document, double sampleRate)
+    Runtime(const ProjectDocument& document, double sampleRate,
+        PatternLaunchMailbox* launchMailbox = nullptr)
         : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
         , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
+        , patternLaunch(launchMailbox)
     {
         if (document.patternBank.entries.empty()) return;
         std::vector<s3g::tracker::Pattern> patterns;
@@ -348,6 +374,9 @@ struct Runtime {
         scheduler.setRandomSeed(document.session.playbackSeed);
         if (songEnabled)
             scheduler.setLogicalTickObserver(&Runtime::advanceSong, this);
+        else if (patternLaunch)
+            scheduler.setLogicalTickObserver(
+                &Runtime::advancePatternLaunch, this);
     }
 
     TransportSettings hostClock(double tempo, double sampleRate) const
@@ -375,7 +404,9 @@ struct Runtime {
             scheduler.setLogicalTickObserver(&Runtime::advanceSong, this);
         } else {
             scheduler.setRuntimeTrackMuteMask(0u);
-            scheduler.setLogicalTickObserver(nullptr, nullptr);
+            scheduler.setLogicalTickObserver(patternLaunch
+                    ? &Runtime::advancePatternLaunch : nullptr,
+                patternLaunch ? this : nullptr);
         }
         const bool started = scheduler.startPreparedAtHostBeat(hostBeat);
         if (started && songEnabled)
@@ -409,6 +440,32 @@ struct Runtime {
             : LogicalTickBoundaryAction::Continue;
     }
 
+    static LogicalTickBoundaryAction advancePatternLaunch(void* context,
+        const LogicalTickBoundary& boundary) noexcept
+    {
+        auto& runtime = *static_cast<Runtime*>(context);
+        if (!runtime.patternLaunch)
+            return LogicalTickBoundaryAction::Continue;
+        auto& mailbox = *runtime.patternLaunch;
+        const uint32_t revision = mailbox.revision.load(
+            std::memory_order_acquire);
+        if (revision == 0u || revision == mailbox.consumedRevision.load(
+                std::memory_order_relaxed))
+            return LogicalTickBoundaryAction::Continue;
+
+        const auto quantization = static_cast<PatternVariationLaunch>(
+            mailbox.quantization.load(std::memory_order_relaxed));
+        const bool due = s3g::tracker::patternVariationLaunchIsDue(
+            quantization, boundary.completedTickIndex,
+            boundary.completedTransportRow,
+            runtime.scheduler.transport().ticksPerBeat,
+            runtime.scheduler.pattern().visibleRows);
+        if (!due) return LogicalTickBoundaryAction::Continue;
+        mailbox.consumedRevision.store(revision, std::memory_order_relaxed);
+        mailbox.dueRevision.store(revision, std::memory_order_release);
+        return LogicalTickBoundaryAction::StopAfterBoundary;
+    }
+
     void routeFor(uint32_t nodeId, uint8_t fallbackChannel,
         uint8_t& bus, uint8_t& channel) const noexcept
     {
@@ -438,8 +495,10 @@ struct Plugin {
     double sampleRate = 48000.0;
     std::mutex documentMutex;
     ProjectDocument document = makeInitialDocument();
+    PatternLaunchMailbox patternLaunch;
     Runtime* audioRuntime = nullptr;
     std::atomic<Runtime*> pendingRuntime { nullptr };
+    std::atomic<Runtime*> queuedVariationRuntime { nullptr };
     std::array<Runtime*, kRetiredRuntimeCapacity> retiredRuntimes {};
     std::atomic<uint32_t> retiredRead { 0u };
     std::atomic<uint32_t> retiredWrite { 0u };
@@ -536,11 +595,66 @@ void drainRetiredRuntimes(Plugin& plugin)
     plugin.retiredRead.store(read, std::memory_order_release);
 }
 
+void cancelQueuedVariation(Plugin& plugin)
+{
+    plugin.patternLaunch.revision.store(0u, std::memory_order_release);
+    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_release);
+    plugin.patternLaunch.consumedRevision.store(0u,
+        std::memory_order_relaxed);
+    delete plugin.queuedVariationRuntime.exchange(nullptr,
+        std::memory_order_acq_rel);
+}
+
+void storeDocumentWithoutRuntime(Plugin& plugin, ProjectDocument document,
+    bool markDirty)
+{
+    normalizeMidiOnlyDocument(document);
+    {
+        std::lock_guard<std::mutex> lock(plugin.documentMutex);
+        plugin.document = std::move(document);
+    }
+    if (markDirty) markHostStateDirty(plugin);
+}
+
+bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
+    PatternVariationLaunch quantization, bool markDirty)
+{
+    normalizeMidiOnlyDocument(document);
+    auto* runtime = new (std::nothrow) Runtime(document,
+        plugin.sampleRate, &plugin.patternLaunch);
+    if (!runtime || !runtime->valid) {
+        delete runtime;
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(plugin.documentMutex);
+        plugin.document = std::move(document);
+    }
+    delete plugin.pendingRuntime.exchange(nullptr,
+        std::memory_order_acq_rel);
+    Runtime* superseded = plugin.queuedVariationRuntime.exchange(runtime,
+        std::memory_order_acq_rel);
+    delete superseded;
+    plugin.patternLaunch.quantization.store(
+        static_cast<uint32_t>(quantization), std::memory_order_relaxed);
+    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_relaxed);
+    auto revision = plugin.patternLaunch.revision.load(
+        std::memory_order_relaxed) + 1u;
+    if (revision == 0u) revision = 1u;
+    plugin.patternLaunch.revision.store(revision,
+        std::memory_order_release);
+    if (markDirty) markHostStateDirty(plugin);
+    else if (plugin.host && plugin.host->request_process)
+        plugin.host->request_process(plugin.host);
+    return true;
+}
+
 void publishDocument(Plugin& plugin, ProjectDocument document,
     bool markDirty)
 {
     normalizeMidiOnlyDocument(document);
-    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate);
+    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
+        &plugin.patternLaunch);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return;
@@ -549,6 +663,7 @@ void publishDocument(Plugin& plugin, ProjectDocument document,
         std::lock_guard<std::mutex> lock(plugin.documentMutex);
         plugin.document = std::move(document);
     }
+    cancelQueuedVariation(plugin);
     Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
         std::memory_order_acq_rel);
     delete superseded;
@@ -767,6 +882,39 @@ bool swapPendingRuntime(Plugin& plugin,
     plugin.audioRuntime = pending;
     plugin.runtimeArmed = false;
     plugin.expectedBeatValid = false;
+    if (plugin.host && plugin.host->request_callback)
+        plugin.host->request_callback(plugin.host);
+    return true;
+}
+
+bool swapQueuedVariationRuntime(Plugin& plugin,
+    const clap_output_events_t* output) noexcept
+{
+    const uint32_t due = plugin.patternLaunch.dueRevision.load(
+        std::memory_order_acquire);
+    if (due == 0u) return false;
+    Runtime* queued = plugin.queuedVariationRuntime.load(
+        std::memory_order_acquire);
+    if (!queued) {
+        plugin.patternLaunch.dueRevision.store(0u,
+            std::memory_order_release);
+        plugin.runtimeArmed = false;
+        return false;
+    }
+    if (plugin.audioRuntime && retireQueueFull(plugin)) return false;
+    queued = plugin.queuedVariationRuntime.exchange(nullptr,
+        std::memory_order_acq_rel);
+    if (!queued) return false;
+    releaseActiveNotes(plugin, output, 0u);
+    if (plugin.audioRuntime)
+        (void)retireRuntimeFromAudio(plugin, plugin.audioRuntime);
+    plugin.audioRuntime = queued;
+    plugin.runtimeArmed = false;
+    plugin.expectedBeatValid = false;
+    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_release);
+    plugin.patternLaunch.revision.store(0u, std::memory_order_release);
+    plugin.patternLaunch.consumedRevision.store(0u,
+        std::memory_order_relaxed);
     if (plugin.host && plugin.host->request_callback)
         plugin.host->request_callback(plugin.host);
     return true;
@@ -1164,6 +1312,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (ProjectDocument)currentDocument;
 - (void)applyDocument:(const ProjectDocument&)document;
+- (void)commitProjectWithoutRuntime:(BOOL)dirty;
+- (BOOL)installPatternVariation:
+    (const s3g::tracker::PatternVariationRequest&)variation;
 - (void)startTimer;
 - (void)stopTimer;
 @end
@@ -1421,6 +1572,73 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [self.workspace reloadModel];
 }
 
+- (void)commitProjectWithoutRuntime:(BOOL)dirty
+{
+    if (!_state) return;
+    ProjectDocument document = [self currentDocument];
+    _state->patternBank = document.patternBank;
+    _state->instrumentRack = document.instrumentRack;
+    _state->selectedRackInstrument = document.instrumentRack.selectedNode;
+    (void)loadActivePatternIntoSession(*_state);
+    storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
+    [self.workspace reloadModel];
+}
+
+- (BOOL)installPatternVariation:
+    (const s3g::tracker::PatternVariationRequest&)variation
+{
+    if (_state->patternBank.entries.size()
+            >= s3g::tracker::kMaximumPatternBankEntries
+        || !syncSessionToActivePattern(*_state)) return NO;
+    const std::string sourceId = _state->patternBank.activePatternId;
+    const auto* source = _state->patternBank.findEntry(sourceId);
+    const std::string id = nextPatternId(_state->patternBank);
+    if (!source || id.empty()) return NO;
+    _state->patternBank.entries.push_back(variationPatternEntry(
+        *source, id, variation));
+
+    if (variation.launch == PatternVariationLaunch::None) {
+        _state->status = "Created variation " + id
+            + "; active pattern remains " + sourceId;
+        [self refreshSongPatterns];
+        [self commitProjectWithoutRuntime:YES];
+        [self.workspace appendConsoleMessage:_state->status error:NO];
+        return YES;
+    }
+
+    _state->patternBank.activePatternId = id;
+    if (!loadActivePatternIntoSession(*_state)) return NO;
+    _state->session.selectedRow = 0u;
+    ProjectDocument document = [self currentDocument];
+    _state->patternBank = document.patternBank;
+    (void)loadActivePatternIntoSession(*_state);
+    const bool playing = _plugin->visualPlaying.load(
+        std::memory_order_acquire);
+    bool installed = true;
+    if (playing) {
+        installed = queueVariationDocument(*_plugin, std::move(document),
+            variation.launch, true);
+    } else {
+        publishDocument(*_plugin, std::move(document), true);
+    }
+    if (!installed) {
+        _state->patternBank.entries.pop_back();
+        _state->patternBank.activePatternId = sourceId;
+        (void)loadActivePatternIntoSession(*_state);
+        _state->status = "Could not prepare variation runtime";
+        [self refreshSongPatterns];
+        [self.workspace reloadModel];
+        return NO;
+    }
+    _state->status = playing
+        ? "Queued variation " + id + " for quantized launch"
+        : "Selected variation " + id;
+    [self refreshSongPatterns];
+    [self.workspace reloadModel];
+    [self.workspace appendConsoleMessage:_state->status error:NO];
+    return YES;
+}
+
 - (void)selectPattern:(const std::string&)patternId
 {
     if (patternId == _state->patternBank.activePatternId
@@ -1508,6 +1726,25 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const auto words = commandWords(command);
     if (!words.empty()) {
         const auto& verb = words.front();
+        const bool variationCommand = verb == "variation" || verb == "vary";
+        const bool quantizedVariationLaunch = variationCommand
+            && words.size() >= 4u
+            && words[words.size() - 2u] == "launch"
+            && (words.back() == "tick" || words.back() == "beat"
+                || words.back() == "cycle" || words.back() == "pattern");
+        if (variationCommand && _state->patternBank.entries.size()
+                >= s3g::tracker::kMaximumPatternBankEntries) {
+            [self.workspace appendConsoleMessage:
+                "Pattern bank is full; delete a pattern before creating a variation."
+                error:YES];
+            return;
+        }
+        if (quantizedVariationLaunch && _state->songPlaybackEnabled) {
+            [self.workspace appendConsoleMessage:
+                "Quantized bank variation launch is unavailable while Song playback owns pattern transitions."
+                error:YES];
+            return;
+        }
         if (verb == "help" || verb == "?") {
             [self.pageView showPage:S3GTrackerClapPageHelp];
             [self.workspace appendConsoleMessage:
@@ -1565,9 +1802,22 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             return;
         }
     }
+    const auto commandRngBefore = _state->session.commandRngState;
     const auto result = CommandEngine::execute(_state->session, command);
-    [self.workspace appendConsoleMessage:result.message error:!result.ok];
-    if (!result.ok) return;
+    if (!result.ok) {
+        [self.workspace appendConsoleMessage:result.message error:YES];
+        return;
+    }
+    if (result.patternVariation) {
+        [self.workspace appendConsoleMessage:result.message error:NO];
+        if (![self installPatternVariation:*result.patternVariation]) {
+            _state->session.commandRngState = commandRngBefore;
+            [self.workspace appendConsoleMessage:
+                "Pattern variation was not installed." error:YES];
+        }
+        return;
+    }
+    [self.workspace appendConsoleMessage:result.message error:NO];
     if (result.hasEffect(CommandEffect::PatternChanged)
         || result.hasEffect(CommandEffect::TransportChanged)
         || result.hasEffect(CommandEffect::OutputChanged)
@@ -1667,6 +1917,8 @@ void destroy(const clap_plugin_t* plugin)
     guiDestroy(plugin);
     delete instance->pendingRuntime.exchange(nullptr,
         std::memory_order_acq_rel);
+    delete instance->queuedVariationRuntime.exchange(nullptr,
+        std::memory_order_acq_rel);
     delete instance->audioRuntime;
     instance->audioRuntime = nullptr;
     drainRetiredRuntimes(*instance);
@@ -1684,13 +1936,15 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
         std::lock_guard<std::mutex> lock(instance->documentMutex);
         document = instance->document;
     }
-    auto* runtime = new (std::nothrow) Runtime(document, sampleRate);
+    auto* runtime = new (std::nothrow) Runtime(document, sampleRate,
+        &instance->patternLaunch);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return false;
     }
     delete instance->pendingRuntime.exchange(nullptr,
         std::memory_order_acq_rel);
+    cancelQueuedVariation(*instance);
     delete instance->audioRuntime;
     instance->audioRuntime = runtime;
     instance->processFrame = 0u;
@@ -1729,6 +1983,7 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     if (!processData) return CLAP_PROCESS_ERROR;
     auto& instance = *self(plugin);
+    (void)swapQueuedVariationRuntime(instance, processData->out_events);
     (void)swapPendingRuntime(instance, processData->out_events);
     HostTransport transport = readHostTransport(processData->transport);
     uint32_t cursor = 0u;
@@ -2019,7 +2274,8 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     if (!instance) return nullptr;
     instance->host = host;
     instance->audioRuntime = new (std::nothrow) Runtime(
-        instance->document, instance->sampleRate);
+        instance->document, instance->sampleRate,
+        &instance->patternLaunch);
     if (!instance->audioRuntime || !instance->audioRuntime->valid) {
         delete instance->audioRuntime;
         delete instance;

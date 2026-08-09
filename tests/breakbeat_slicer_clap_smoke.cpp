@@ -356,7 +356,8 @@ int main(int argc, char** argv)
     fixtureSlot.inserts[0u].values[2u] = 0.37f;
     fixtureSlot.inserts[0u].bypassed = true;
     fixtureSlot.inserts[1u] = s3g::breakbeat::defaultInsertSettings(
-        s3g::breakbeat::InsertType::Resonator);
+        s3g::breakbeat::InsertType::TimeMangler);
+    fixtureSlot.inserts[1u].variant = 2u;
     fixtureSlot.inserts[1u].bypassed = true;
     fixtureSlot.rootNote = 60u;
     fixtureSlot.mappedRootNote = 60u;
@@ -408,7 +409,8 @@ int main(int argc, char** argv)
             && std::fabs(savedFixture.slots[0u].inserts[0u].values[2u]
                     - 0.37f) < 1.0e-6f
             && savedFixture.slots[0u].inserts[1u].type
-                == s3g::breakbeat::InsertType::Resonator
+                == s3g::breakbeat::InsertType::TimeMangler
+            && savedFixture.slots[0u].inserts[1u].variant == 2u
             && std::fabs(savedFixture.slots[0u].envelope.releaseProportion
                     - 0.2f) < 1.0e-6f;
     }
@@ -473,8 +475,19 @@ int main(int argc, char** argv)
     output.data32 = channels.data();
     output.channel_count = static_cast<uint32_t>(channels.size());
     NoteEvents noteOn;
+    clap_event_transport_t transport {};
+    transport.header.size = sizeof(transport);
+    transport.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    transport.header.type = CLAP_EVENT_TRANSPORT;
+    transport.flags = CLAP_TRANSPORT_HAS_TEMPO
+        | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+        | CLAP_TRANSPORT_IS_PLAYING;
+    transport.tempo = 137.0;
+    transport.song_pos_beats = static_cast<clap_beattime>(
+        8.0 * static_cast<double>(CLAP_BEATTIME_FACTOR));
     clap_process_t process {};
     process.frames_count = static_cast<uint32_t>(rendered[0u].size());
+    process.transport = &transport;
     process.in_events = &noteOn.input;
     process.audio_outputs = &output;
     process.audio_outputs_count = 1u;

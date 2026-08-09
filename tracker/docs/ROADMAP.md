@@ -110,13 +110,14 @@ and recovered without touching the mouse.
 ## M3 — composition system
 
 - Versioned project document, undo/redo, autosave/recovery.
-- Extend the delivered pattern bank with allocation-free Song boundary pattern
-  switching, snapshots, chains, and direct pattern launch controls on top of
-  the quantized row queue.
+- Extend the delivered pattern bank, Song boundary switching, and quantized
+  command-driven variation launches with snapshots, chains, and direct GUI
+  pattern launch controls.
 - Move the current command mutations behind shared undoable semantic actions,
   then add command search and the remaining high-value language features.
-- Connect the current Euclidean/mask/transform commands to Geometry controls,
-  then add seeded generation/mutation and multi-parameter envelopes.
+- Connect the current Euclidean/mask/transform and delivered first-pass seeded
+  generation/mutation commands to Geometry controls, then add root/scale-aware
+  generation, richer typed symbols, and multi-parameter envelopes.
 - Explicit native schema evolution policy; no Max file compatibility layer.
 
 Exit: the selected musical behaviors from Max have native specifications and

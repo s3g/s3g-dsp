@@ -176,6 +176,13 @@ help
 actions
 aliases
 alias kick 1
+kit superior basic
+drumscene techno 101
+scene balanced 101
+generateseed sketch 0.48 0.55 0.18
+mutate 0.12 notes
+variation scene drift 202
+variation drumscene blast 666 launch beat
 mask @kick x---x---x---x---
 eu @kick 5 16
 vol @kick 1.0 .8 .9 .7

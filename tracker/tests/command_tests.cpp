@@ -23,6 +23,8 @@ using s3g::tracker::kStereoSamplerInstrumentNode;
 using s3g::tracker::NoteCell;
 using s3g::tracker::NoteCellState;
 using s3g::tracker::Pattern;
+using s3g::tracker::PatternVariationLaunch;
+using s3g::tracker::patternVariationLaunchIsDue;
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::Sequencer;
@@ -157,6 +159,74 @@ std::string activeNoteMask(const Track& track)
     return result;
 }
 
+std::string noteFingerprint(const TrackerSession& session)
+{
+    std::ostringstream stream;
+    for (const auto& track : session.pattern.tracks) {
+        for (const auto& cell : track.notes) {
+            stream << static_cast<unsigned int>(cell.state) << ':'
+                   << static_cast<unsigned int>(cell.note) << '|';
+        }
+    }
+    return stream.str();
+}
+
+std::string valueFingerprint(const TrackerSession& session)
+{
+    std::ostringstream stream;
+    for (const auto& track : session.pattern.tracks) {
+        for (const auto& cell : track.velocities)
+            stream << static_cast<unsigned int>(cell.state) << ':'
+                   << cell.normalized << '|';
+        for (const auto& pair : track.fxPairs) {
+            for (const auto& cell : pair.values)
+                stream << static_cast<unsigned int>(cell.state) << ':'
+                       << cell.normalized << '|';
+        }
+    }
+    return stream.str();
+}
+
+std::string actionFingerprint(const TrackerSession& session)
+{
+    std::ostringstream stream;
+    for (const auto& track : session.pattern.tracks) {
+        for (const auto& cell : track.instruments)
+            stream << static_cast<unsigned int>(cell.state) << ':'
+                   << cell.nodeId << '|';
+        for (const auto& pair : track.fxPairs) {
+            for (const auto& cell : pair.actions) {
+                stream << static_cast<unsigned int>(cell.state) << ':'
+                       << cell.targetNode << ':' << cell.parameterId << ':'
+                       << static_cast<unsigned int>(cell.sequencerAction)
+                       << '|';
+            }
+        }
+    }
+    return stream.str();
+}
+
+std::string structureFingerprint(const TrackerSession& session)
+{
+    std::ostringstream stream;
+    const auto append = [&](const auto& column) {
+        stream << column.length << ':' << column.stride << ':'
+               << column.phase << ':'
+               << static_cast<unsigned int>(column.direction) << ':'
+               << column.muted << '|';
+    };
+    for (const auto& track : session.pattern.tracks) {
+        append(track.noteColumn);
+        append(track.instrumentColumn);
+        append(track.velocityColumn);
+        for (const auto& pair : track.fxPairs) {
+            append(pair.actionColumn);
+            append(pair.valueColumn);
+        }
+    }
+    return stream.str();
+}
+
 void testTransportActionsAndHelp()
 {
     auto session = makeSession();
@@ -198,13 +268,13 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // assignment, queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "delay", "demo",
-        "density", "dir", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue",
+        "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
         "gate", "help", "hit", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
-        "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
-        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
+        "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
+        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
-        "warps", "track",
+        "variation", "vary", "warps", "track",
     };
 
     std::set<std::string> documentedVerbs;
@@ -710,6 +780,244 @@ void testRandomVelocityCommands()
         "unsupported columns and reversed random bounds must reject");
 }
 
+void testWholePatternGenerationAndMutation()
+{
+    auto seeded = makeSession(3u);
+    auto replay = seeded;
+    const auto initialCommandRng = seeded.commandRngState;
+    auto result = CommandEngine::execute(seeded,
+        "generateseed orchard 1 0.5 0");
+    const auto replayResult = CommandEngine::execute(replay,
+        "generateseed orchard 1 0.5 0");
+    check(result.ok && replayResult.ok
+            && result.hasEffect(CommandEffect::PatternChanged)
+            && sessionFingerprint(seeded) == sessionFingerprint(replay),
+        "seeded whole-pattern generation should be exactly repeatable");
+    check(seeded.commandRngState == initialCommandRng,
+        "seeded generation must not consume the session command stream");
+    const auto firstSeededPattern = sessionFingerprint(seeded);
+    check(CommandEngine::execute(seeded,
+              "generateseed orchard 1 0.5 0")
+              .ok
+            && sessionFingerprint(seeded) == firstSeededPattern,
+        "repeating a seed on the already-generated pattern should reproduce it without anchor drift");
+
+    const std::set<std::size_t> allowedLengths {
+        5u, 7u, 8u, 9u, 11u, 13u, 16u, 21u,
+    };
+    bool columnsAreComplete = true;
+    bool everyNoteIsGenerated = true;
+    for (const auto& track : seeded.pattern.tracks) {
+        const std::array<const s3g::tracker::ColumnDefinition*, 7u> columns {
+            &track.noteColumn, &track.instrumentColumn,
+            &track.velocityColumn, &track.fxPairs[0u].actionColumn,
+            &track.fxPairs[0u].valueColumn,
+            &track.fxPairs[1u].actionColumn,
+            &track.fxPairs[1u].valueColumn,
+        };
+        for (const auto* column : columns) {
+            columnsAreComplete = columnsAreComplete
+                && allowedLengths.count(column->length) == 1u
+                && column->stride >= 1u;
+        }
+        columnsAreComplete = columnsAreComplete
+            && track.notes.size() >= track.noteColumn.length
+            && track.instruments.size() >= track.instrumentColumn.length
+            && track.velocities.size() >= track.velocityColumn.length
+            && track.fxPairs[0u].actions.size()
+                >= track.fxPairs[0u].actionColumn.length
+            && track.fxPairs[0u].values.size()
+                >= track.fxPairs[0u].valueColumn.length
+            && track.fxPairs[1u].actions.size()
+                >= track.fxPairs[1u].actionColumn.length
+            && track.fxPairs[1u].values.size()
+                >= track.fxPairs[1u].valueColumn.length;
+        for (std::size_t row = 0u; row < track.noteColumn.length; ++row) {
+            everyNoteIsGenerated = everyNoteIsGenerated
+                && track.notes[row].state == NoteCellState::Note;
+        }
+    }
+    check(columnsAreComplete && everyNoteIsGenerated,
+        "whole-pattern generation should author all seven typed columns and their structures");
+
+    auto differentSeed = makeSession(3u);
+    check(CommandEngine::execute(differentSeed,
+              "generateseed another 1 0.5 0")
+              .ok
+            && sessionFingerprint(differentSeed)
+                != sessionFingerprint(seeded),
+        "different explicit seeds should create different whole patterns");
+
+    auto sparseScene = makeSession(2u);
+    auto sparseEquivalent = sparseScene;
+    check(CommandEngine::execute(sparseScene, "scene sparse 101").ok
+            && CommandEngine::execute(sparseEquivalent,
+                "generateseed 101 0.28 0.25 0.08")
+                .ok
+            && sessionFingerprint(sparseScene)
+                == sessionFingerprint(sparseEquivalent),
+        "named scenes should be exact seeded parameter presets");
+
+    auto unseeded = makeSession(1u);
+    const auto beforeUnseededRng = unseeded.commandRngState;
+    check(CommandEngine::execute(unseeded, "generate 0.5 0.5 0.1").ok
+            && unseeded.commandRngState != beforeUnseededRng,
+        "unseeded generation should consume the persistent command stream");
+
+    auto mutationBase = seeded;
+    auto mutationReplay = mutationBase;
+    const auto notesBefore = noteFingerprint(mutationBase);
+    const auto actionsBefore = actionFingerprint(mutationBase);
+    const auto valuesBefore = valueFingerprint(mutationBase);
+    const auto structureBefore = structureFingerprint(mutationBase);
+    result = CommandEngine::execute(mutationBase, "mutate 1 values");
+    const auto replayMutation = CommandEngine::execute(
+        mutationReplay, "mutate 1 values");
+    check(result.ok && replayMutation.ok
+            && sessionFingerprint(mutationBase)
+                == sessionFingerprint(mutationReplay),
+        "mutation should be repeatable from the same session RNG state");
+    check(noteFingerprint(mutationBase) == notesBefore
+            && actionFingerprint(mutationBase) == actionsBefore
+            && structureFingerprint(mutationBase) == structureBefore
+            && valueFingerprint(mutationBase) != valuesBefore,
+        "values mutation should not leak into notes, actions, or structure");
+
+    auto structureOnly = seeded;
+    const auto structureNotes = noteFingerprint(structureOnly);
+    const auto structureActions = actionFingerprint(structureOnly);
+    const auto structureValues = valueFingerprint(structureOnly);
+    const auto oldStructure = structureFingerprint(structureOnly);
+    result = CommandEngine::execute(structureOnly, "mutate 1 structure");
+    check(result.ok && structureFingerprint(structureOnly) != oldStructure
+            && noteFingerprint(structureOnly) == structureNotes
+            && actionFingerprint(structureOnly) == structureActions
+            && valueFingerprint(structureOnly) == structureValues,
+        "structure mutation should leave authored cell contents intact");
+
+    checkRejectedWithoutMutation(seeded, "generate 1.1 0.5 0.2",
+        "invalid generation controls must reject transactionally");
+    checkRejectedWithoutMutation(seeded, "scene ambient 5",
+        "unknown generation scenes must reject transactionally");
+    checkRejectedWithoutMutation(seeded, "mutate 0.2 harmony",
+        "unknown mutation scopes must reject transactionally");
+}
+
+void testSeededDrumScenes()
+{
+    auto scene = makeSession(1u);
+    check(CommandEngine::execute(scene, "kit superior basic").ok,
+        "drum-scene tests should establish native kit roles");
+    auto replay = scene;
+    const auto velocitiesBefore = valueFingerprint(scene);
+    const auto commandRngBefore = scene.commandRngState;
+    auto result = CommandEngine::execute(scene, "drumscene blast 666");
+    const auto replayResult = CommandEngine::execute(
+        replay, "drumscene blast 666");
+    check(result.ok && replayResult.ok
+            && sessionFingerprint(scene) == sessionFingerprint(replay),
+        "a named drum scene and seed should be exactly repeatable");
+    check(scene.commandRngState == commandRngBefore
+            && valueFingerprint(scene) == velocitiesBefore,
+        "seeded drum scenes should change NOTE rhythms without consuming mutation RNG or changing values");
+    check(scene.pattern.tracks.size() == 7u
+            && scene.pattern.tracks[0u].noteColumn.length == 16u
+            && scene.pattern.tracks[2u].noteColumn.length == 16u
+            && scene.pattern.tracks[3u].noteColumn.length == 32u
+            && scene.pattern.tracks[4u].noteColumn.length == 16u
+            && scene.pattern.tracks[3u].noteColumn.stride == 1u
+            && scene.pattern.tracks[3u].noteColumn.direction
+                == Direction::Forward,
+        "blast should install the Max role-specific lengths and forward unit motion");
+    bool anchoredPitches = true;
+    for (std::size_t lane = 0u; lane < scene.pattern.tracks.size(); ++lane) {
+        for (std::size_t row = 0u;
+             row < scene.pattern.tracks[lane].noteColumn.length; ++row) {
+            const auto& cell = scene.pattern.tracks[lane].notes[row];
+            if (cell.state == NoteCellState::Note) {
+                anchoredPitches = anchoredPitches
+                    && cell.note == scene.laneDefaultNotes[lane];
+            }
+        }
+    }
+    check(anchoredPitches,
+        "drum scenes should preserve each configured kit lane pitch");
+
+    auto noKit = makeSession(2u);
+    checkRejectedWithoutMutation(noKit, "drumscene techno 101",
+        "drum scenes should explicitly reject patterns without recognized kit lanes");
+    checkRejectedWithoutMutation(scene, "drumscene jungle 101",
+        "unknown drum scenes should reject transactionally");
+}
+
+void testPatternVariationRequests()
+{
+    check(patternVariationLaunchIsDue(PatternVariationLaunch::NextTick,
+              0u, 0u, 4u, 16u)
+            && !patternVariationLaunchIsDue(
+                PatternVariationLaunch::NextBeat, 0u, 0u, 4u, 16u)
+            && patternVariationLaunchIsDue(
+                PatternVariationLaunch::NextBeat, 3u, 3u, 4u, 16u)
+            && !patternVariationLaunchIsDue(
+                PatternVariationLaunch::NextPatternCycle,
+                14u, 14u, 4u, 16u)
+            && patternVariationLaunchIsDue(
+                PatternVariationLaunch::NextPatternCycle,
+                15u, 15u, 4u, 16u),
+        "variation launch quantization should become due only at its requested logical boundary");
+
+    auto source = makeSession(2u);
+    const auto sourceBefore = sessionFingerprint(source);
+    auto result = CommandEngine::execute(source,
+        "variation generateseed orchard 0.48 0.55 0.18 launch beat");
+    check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
+            && result.patternVariation
+            && result.patternVariation->launch
+                == PatternVariationLaunch::NextBeat
+            && result.patternVariation->sourceCommand
+                == "generateseed orchard 0.48 0.55 0.18"
+            && sessionFingerprint(source) == sourceBefore,
+        "a seeded variation should preserve its source session and return a structured beat launch");
+    check(result.patternVariation
+            && noteFingerprint(result.patternVariation->generatedSession)
+                != noteFingerprint(source),
+        "a variation request should carry the generated pattern without installing it over the source");
+
+    auto unseeded = makeSession(1u);
+    check(CommandEngine::execute(unseeded, "mask 1 x---").ok,
+        "unseeded variation test should establish source material");
+    const auto unseededNotes = noteFingerprint(unseeded);
+    const auto unseededRng = unseeded.commandRngState;
+    result = CommandEngine::execute(unseeded,
+        "vary mutate 1 notes launch cycle");
+    check(result.ok && result.patternVariation
+            && result.patternVariation->launch
+                == PatternVariationLaunch::NextPatternCycle
+            && noteFingerprint(unseeded) == unseededNotes
+            && unseeded.commandRngState != unseededRng
+            && noteFingerprint(result.patternVariation->generatedSession)
+                != unseededNotes,
+        "an unseeded mutation variation should advance only the shared RNG while preserving source cells");
+
+    auto storedOnly = makeSession(1u);
+    result = CommandEngine::execute(storedOnly,
+        "variation scene sparse 101");
+    check(result.ok && result.patternVariation
+            && result.patternVariation->launch
+                == PatternVariationLaunch::None,
+        "a variation without launch should request bank storage only");
+
+    checkRejectedWithoutMutation(source,
+        "variation scene ambient 5 launch tick",
+        "invalid nested scene commands should reject the complete variation transaction");
+    checkRejectedWithoutMutation(source,
+        "variation mask 1 x--- launch beat",
+        "variation should reject non-generative nested commands");
+    checkRejectedWithoutMutation(source,
+        "variation scene sparse launch bar",
+        "variation should reject unknown launch quantization");
+}
+
 void testEuclidAndDeterministicTransforms()
 {
     auto session = makeSession(1u);
@@ -1045,6 +1353,9 @@ int main()
     testCompactMasksAndColumnControls();
     testVelocitySequences();
     testRandomVelocityCommands();
+    testWholePatternGenerationAndMutation();
+    testSeededDrumScenes();
+    testPatternVariationRequests();
     testEuclidAndDeterministicTransforms();
     testSoloUnmuteAndNames();
     testFxCommands();

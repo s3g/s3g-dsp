@@ -54,6 +54,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
+add_executable(s3g_feedback_shift_smoke
+  tests/feedback_shift_smoke.cpp)
+target_link_libraries(s3g_feedback_shift_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_feedback_shift_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
 add_executable(s3g_crcltr_external_memory_smoke
   tests/crcltr_external_memory_smoke.cpp)
 target_link_libraries(s3g_crcltr_external_memory_smoke PRIVATE s3g_dsp)
@@ -119,6 +127,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/drum_floor_tom_smoke.cpp)
   target_link_libraries(s3g_drum_floor_tom_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_drum_concert_bass_smoke
+    tests/drum_concert_bass_smoke.cpp)
+  target_link_libraries(s3g_drum_concert_bass_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_drum_toms_smoke
     tests/drum_toms_smoke.cpp)
   target_link_libraries(s3g_drum_toms_smoke PRIVATE s3g_dsp)
@@ -138,6 +150,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
   add_executable(s3g_drum_crash_smoke
     tests/drum_crash_smoke.cpp)
   target_link_libraries(s3g_drum_crash_smoke PRIVATE s3g_dsp)
+
+  add_executable(s3g_drum_break_smoke
+    tests/drum_break_smoke.cpp)
+  target_link_libraries(s3g_drum_break_smoke PRIVATE s3g_dsp)
 
   add_executable(s3g_processor_errant_smoke
     tests/processor_errant_smoke.cpp)
@@ -301,6 +317,7 @@ if(BUILD_TESTING)
     s3g_dsp_smoke
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
+    s3g_feedback_shift_smoke
     s3g_crcltr_external_memory_smoke
     s3g_ambi_effect_displacement_smoke
     s3g_ambi_imprint_safety_smoke
@@ -370,6 +387,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_drum_floor_tom_smoke
       COMMAND $<TARGET_FILE:s3g_drum_floor_tom_smoke>)
     set_tests_properties(s3g_drum_floor_tom_smoke PROPERTIES
+      LABELS "future;smoke" TIMEOUT 300)
+    add_test(NAME s3g_drum_concert_bass_smoke
+      COMMAND $<TARGET_FILE:s3g_drum_concert_bass_smoke>)
+    set_tests_properties(s3g_drum_concert_bass_smoke PROPERTIES
       LABELS "future;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_toms_smoke
       COMMAND $<TARGET_FILE:s3g_drum_toms_smoke>)
@@ -697,6 +718,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     PRIVATE ${CMAKE_DL_LIBS})
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_executable(s3g_feedback_shift_clap_smoke
+      tests/feedback_shift_clap_smoke.cpp)
+    target_include_directories(s3g_feedback_shift_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_feedback_shift_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_drum_kick_clap_smoke
       tests/drum_kick_clap_smoke.cpp)
     target_include_directories(s3g_drum_kick_clap_smoke
@@ -739,6 +767,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_drum_floor_tom_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_drum_concert_bass_clap_smoke
+      tests/drum_concert_bass_clap_smoke.cpp)
+    target_include_directories(s3g_drum_concert_bass_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_concert_bass_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_drum_toms_clap_smoke
       tests/drum_toms_clap_smoke.cpp)
     target_include_directories(s3g_drum_toms_clap_smoke
@@ -772,6 +807,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_include_directories(s3g_drum_crash_clap_smoke
       PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_drum_crash_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_drum_break_clap_smoke
+      tests/drum_break_clap_smoke.cpp)
+    target_include_directories(s3g_drum_break_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_drum_break_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
     add_executable(s3g_ambi_membrane_kick_clap_smoke
@@ -868,6 +910,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_subdirectory(plugins/clap_drum_floor_tom)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_concert_bass)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_drum_toms)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
@@ -883,6 +928,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_subdirectory(plugins/clap_drum_crash)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_drum_break)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_membrane_kick)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
@@ -893,6 +941,25 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_processor_errant)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_feedback_shift)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS AND BUILD_TESTING)
+    add_test(NAME s3g_feedback_shift_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_feedback_shift_clap_smoke>
+        $<TARGET_FILE:s3g_feedback_shift_clap>)
+    set_tests_properties(s3g_feedback_shift_clap_smoke PROPERTIES
+      LABELS "future;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_feedback_shift_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_feedback_shift_clap>
+          org.s3g.s3g-dsp.feedback-shift
+          1100 760 "s3g Processor Feedback Shift" responsive)
+      set_tests_properties(s3g_feedback_shift_gui_smoke PROPERTIES
+        LABELS "future;clap;gui" TIMEOUT 120)
+    endif()
   endif()
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
@@ -1277,6 +1344,40 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_floor_tom_gui)
     endif()
 
+    add_custom_target(audit_drum_concert_bass
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_concert_bass_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_concert_bass_clap_smoke>
+        $<TARGET_FILE:s3g_drum_concert_bass_clap>
+        org.s3g.s3g-dsp.drum-concert-bass
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 44100,48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_drum_concert_bass_clap>
+        org.s3g.s3g-dsp.drum-concert-bass
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_concert_bass_smoke
+        s3g_drum_concert_bass_clap_smoke
+        s3g_drum_concert_bass_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating Concert Bass Drum synthesis, articulations, MIDI, state, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_concert_bass_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_concert_bass_clap>
+          org.s3g.s3g-dsp.drum-concert-bass
+          920 704 "s3g Drum Concert Bass" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_concert_bass_clap
+        COMMENT "Validating the responsive Drum Concert Bass editor")
+      add_dependencies(audit_drum_concert_bass
+        audit_drum_concert_bass_gui)
+    endif()
+
     add_custom_target(audit_drum_toms
       COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
       COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
@@ -1419,6 +1520,39 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_crash_gui)
     endif()
 
+    add_custom_target(audit_drum_break
+      COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_character_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_break_smoke>
+      COMMAND $<TARGET_FILE:s3g_drum_break_clap_smoke>
+        $<TARGET_FILE:s3g_drum_break_clap>
+        org.s3g.s3g-dsp.drum-break
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_drum_break_clap>
+        org.s3g.s3g-dsp.drum-break
+      DEPENDS
+        s3g_drum_primitives_smoke
+        s3g_drum_character_smoke
+        s3g_drum_break_smoke
+        s3g_drum_break_clap_smoke
+        s3g_drum_break_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating four-voice Break synthesis, MIDI, state, realtime safety, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_drum_break_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_drum_break_clap>
+          org.s3g.s3g-dsp.drum-break
+          920 760 "s3g Drum Break" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_drum_break_clap
+        COMMENT "Validating the responsive Drum Break editor")
+      add_dependencies(audit_drum_break audit_drum_break_gui)
+    endif()
+
     add_custom_target(audit_drum_overload
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>
       COMMAND $<TARGET_FILE:s3g_drum_overload_clap_smoke>
@@ -1506,9 +1640,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_drum_kick
         audit_drum_snare
         audit_drum_floor_tom
+        audit_drum_concert_bass
         audit_drum_toms
         audit_drum_hi_hat
         audit_drum_clap
+        audit_drum_cowbell
+        audit_drum_crash
+        audit_drum_break
         audit_drum_overload
         audit_drum_echo
         audit_drum_mixer
@@ -1936,6 +2074,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_spectral_topology_processor_clap
         s3g_24ch_spectral_topology_processor_clap
       COMMENT "Rendering and validating every Processor-family GUI")
+
+    if(S3G_BUILD_FUTURE_COMPONENTS)
+      add_custom_target(audit_gui_processor_feedback_shift
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_feedback_shift_clap>
+          org.s3g.s3g-dsp.feedback-shift
+          1100 760 "s3g Processor " responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_feedback_shift_clap
+        COMMENT "Rendering and validating Processor Feedback Shift")
+      add_dependencies(audit_gui_processor_family
+        audit_gui_processor_feedback_shift)
+    endif()
 
     add_custom_target(audit_gui_macro_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>

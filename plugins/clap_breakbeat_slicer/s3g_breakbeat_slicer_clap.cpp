@@ -800,7 +800,8 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
 {
     auto& instance = *self(plugin);
     if (!(sampleRate > 0.0) || maximumFrames == 0u
-        || !instance.engine.prepare(sampleRate)) return false;
+        || !instance.engine.prepare(sampleRate,
+            instance.outputChannelCount)) return false;
     instance.sampleRate = sampleRate;
     instance.maximumFrames = maximumFrames;
     for (std::size_t channel = 0u;
@@ -1321,11 +1322,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             source.mixerAuxSend)
             ? std::clamp(source.mixerAuxSend, 0.0f, 1.0f) : 0.0f;
         for (std::size_t insert = 0u;
-             insert < bank->slots[index].inserts.size(); ++insert)
-            bank->slots[index].inserts[insert]
-                = source.inserts[insert].valid()
-                ? source.inserts[insert]
-                : s3g::breakbeat::InsertSettings {};
+             insert < bank->slots[index].inserts.size(); ++insert) {
+            auto restored = source.inserts[insert];
+            // Variant occupies padding reserved by state v9's original
+            // InsertSettings layout. Normalize an indeterminate legacy byte
+            // while preserving the device and its four existing values.
+            if (restored.variant > 2u) restored.variant = 0u;
+            bank->slots[index].inserts[insert] = restored.valid()
+                ? restored : s3g::breakbeat::InsertSettings {};
+        }
         bank->slots[index].envelope = source.envelope.valid()
             ? source.envelope : s3g::breakbeat::Envelope {};
         bank->slots[index].muted = source.muted != 0u;
@@ -1543,57 +1548,94 @@ NSRect mixerAuxBusRect()
 NSRect mixerInsertTypeRect(uint32_t type)
 {
     const NSRect panel = mixerAuxBusRect();
+    const uint32_t column = type % 5u;
+    const uint32_t row = type / 5u;
     return NSMakeRect(NSMinX(panel) + 16.0
-            + static_cast<CGFloat>(type) * 68.0,
-        NSMinY(panel) + 36.0, 64.0, 25.0);
+            + static_cast<CGFloat>(column) * 68.0,
+        NSMinY(panel) + 36.0 + static_cast<CGFloat>(row) * 32.0,
+        64.0, 25.0);
 }
 
 NSRect mixerInsertBypassRect()
 {
     const NSRect panel = mixerAuxBusRect();
-    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 72.0,
+    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 104.0,
         104.0, 25.0);
 }
 
 NSRect mixerInsertSwapRect()
 {
     const NSRect panel = mixerAuxBusRect();
-    return NSMakeRect(NSMinX(panel) + 132.0, NSMinY(panel) + 72.0,
+    return NSMakeRect(NSMinX(panel) + 132.0, NSMinY(panel) + 104.0,
         104.0, 25.0);
 }
 
 NSRect mixerInsertCloseRect()
 {
     const NSRect panel = mixerAuxBusRect();
-    return NSMakeRect(NSMinX(panel) + 248.0, NSMinY(panel) + 72.0,
+    return NSMakeRect(NSMinX(panel) + 248.0, NSMinY(panel) + 104.0,
         108.0, 25.0);
 }
 
 NSRect mixerInsertOptionRect()
 {
     const NSRect panel = mixerAuxBusRect();
-    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 108.0,
+    return NSMakeRect(NSMinX(panel) + 16.0, NSMinY(panel) + 140.0,
         NSWidth(panel) - 32.0, 25.0);
 }
 
 CGFloat mixerInsertParameterY(uint32_t parameter)
 {
-    return NSMinY(mixerAuxBusRect()) + 172.0
+    return NSMinY(mixerAuxBusRect()) + 204.0
         + static_cast<CGFloat>(parameter) * 64.0;
 }
 
 NSRect mixerInsertParameterHitRect(uint32_t parameter)
 {
     const NSRect panel = mixerAuxBusRect();
-    return s3g::clap_gui::mixerStripSliderHitRect(NSMinX(panel),
-        NSWidth(panel), mixerInsertParameterY(parameter));
+    return NSMakeRect(NSMinX(panel) + 12.0,
+        mixerInsertParameterY(parameter) + 17.0,
+        NSWidth(panel) - 24.0, 28.0);
 }
 
 NSRect mixerInsertParameterTrackRect(uint32_t parameter)
 {
     const NSRect panel = mixerAuxBusRect();
-    return s3g::clap_gui::mixerStripSliderTrackRect(NSMinX(panel),
-        NSWidth(panel), mixerInsertParameterY(parameter));
+    return NSMakeRect(NSMinX(panel) + 16.0,
+        mixerInsertParameterY(parameter) + 27.0,
+        NSWidth(panel) - 32.0, 9.0);
+}
+
+void drawMixerInsertParameter(NSString* name, NSString* value,
+    CGFloat normalized, uint32_t parameter, NSDictionary* labelAttrs,
+    NSDictionary* valueAttrs, const s3g::clap_gui::Style& style)
+{
+    const NSRect panel = mixerAuxBusRect();
+    const CGFloat rowY = mixerInsertParameterY(parameter);
+    [name drawAtPoint:NSMakePoint(NSMinX(panel) + 16.0, rowY)
+        withAttributes:labelAttrs];
+    s3g::clap_gui::drawBoundedRightText(value,
+        NSMakeRect(NSMinX(panel) + 150.0, rowY - 1.0,
+            NSWidth(panel) - 166.0, 17.0), valueAttrs);
+
+    const NSRect track = mixerInsertParameterTrackRect(parameter);
+    [style.strip setFill];
+    NSRectFill(track);
+    [style.grid setStroke];
+    NSFrameRect(track);
+    normalized = std::clamp(normalized, static_cast<CGFloat>(0.0),
+        static_cast<CGFloat>(1.0));
+    NSRect filled = NSInsetRect(track, 1.0, 1.0);
+    filled.size.width = std::max<CGFloat>(1.0,
+        filled.size.width * normalized);
+    [style.fill setFill];
+    NSRectFill(filled);
+    const CGFloat handleX = std::clamp(
+        track.origin.x + track.size.width * normalized - 1.5,
+        track.origin.x + 1.0, NSMaxX(track) - 4.0);
+    [style.text setFill];
+    NSRectFill(NSMakeRect(handleX, track.origin.y - 2.0, 3.0,
+        track.size.height + 4.0));
 }
 
 NSRect mixerDialRect(uint32_t index, uint32_t dial)
@@ -1771,6 +1813,11 @@ NSString* insertTypeText(InsertType type)
     case InsertType::Degrade: return @"DEGRADE";
     case InsertType::Transient: return @"TRANSIENT";
     case InsertType::Resonator: return @"RESONATOR";
+    case InsertType::Erosion: return @"EROSION";
+    case InsertType::Shifter: return @"SHIFT";
+    case InsertType::Wavefolder: return @"FOLD";
+    case InsertType::Repeater: return @"REPEATER";
+    case InsertType::TimeMangler: return @"TIME";
     case InsertType::Off: return @"OFF";
     }
     return @"OFF";
@@ -1783,6 +1830,11 @@ NSString* insertTypeShortText(InsertType type)
     case InsertType::Degrade: return @"DGR";
     case InsertType::Transient: return @"TRN";
     case InsertType::Resonator: return @"RSN";
+    case InsertType::Erosion: return @"ERO";
+    case InsertType::Shifter: return @"SHF";
+    case InsertType::Wavefolder: return @"FLD";
+    case InsertType::Repeater: return @"RPT";
+    case InsertType::TimeMangler: return @"TIM";
     case InsertType::Off: return @"OFF";
     }
     return @"OFF";
@@ -1799,7 +1851,8 @@ NSString* filterModeText(FilterMode mode)
     return @"LOW PASS";
 }
 
-NSString* insertParameterLabel(InsertType type, uint32_t parameter)
+NSString* insertParameterLabel(const InsertSettings& insert,
+    uint32_t parameter)
 {
     static NSArray<NSString*>* filter = @[
         @"CUTOFF", @"RESONANCE", @"DRIVE", @"MIX"
@@ -1813,12 +1866,36 @@ NSString* insertParameterLabel(InsertType type, uint32_t parameter)
     static NSArray<NSString*>* resonator = @[
         @"TUNE", @"FEEDBACK", @"DAMPING", @"AMOUNT"
     ];
+    static NSArray<NSString*>* erosion = @[
+        @"MOD RATE", @"DEPTH", @"FEEDBACK", @"MIX"
+    ];
+    static NSArray<NSString*>* shifter = @[
+        @"FREQUENCY", @"REGEN", @"COLOR", @"MIX"
+    ];
+    static NSArray<NSString*>* wavefolder = @[
+        @"DRIVE", @"BIAS", @"SHAPE", @"MIX"
+    ];
+    static NSArray<NSString*>* repeater = @[
+        @"BUFFER", @"REPEATS", @"PITCH DECAY", @"MIX"
+    ];
     if (parameter >= s3g::breakbeat::kInsertParameterCount) return @"";
-    switch (type) {
+    if (insert.type == InsertType::TimeMangler) {
+        if (parameter == 0u) return @"WINDOW";
+        if (parameter == 1u) return @"PITCH";
+        if (parameter == 2u) return insert.variant == 0u ? @"RELEASE"
+            : insert.variant == 1u ? @"DECAY" : @"BRAKE";
+        return @"MIX";
+    }
+    switch (insert.type) {
     case InsertType::Filter: return filter[parameter];
     case InsertType::Degrade: return degrade[parameter];
     case InsertType::Transient: return transient[parameter];
     case InsertType::Resonator: return resonator[parameter];
+    case InsertType::Erosion: return erosion[parameter];
+    case InsertType::Shifter: return shifter[parameter];
+    case InsertType::Wavefolder: return wavefolder[parameter];
+    case InsertType::Repeater: return repeater[parameter];
+    case InsertType::TimeMangler: break;
     case InsertType::Off: return @"UNASSIGNED";
     }
     return @"";
@@ -1829,6 +1906,43 @@ NSString* insertParameterValue(const InsertSettings& insert,
 {
     if (parameter >= insert.values.size()) return @"";
     const float value = insert.values[parameter];
+    if ((insert.type == InsertType::Repeater
+            || insert.type == InsertType::TimeMangler)
+        && parameter == 0u) {
+        static NSArray<NSString*>* windows = @[
+            @"8 ms", @"16 ms", @"32 ms", @"64 ms",
+            @"125 ms", @"250 ms", @"500 ms", @"1000 ms"
+        ];
+        const NSUInteger index = static_cast<NSUInteger>(std::clamp(
+            std::lround(value * 7.0f), 0l, 7l));
+        return windows[index];
+    }
+    if (insert.type == InsertType::Repeater && parameter == 1u) {
+        const uint32_t repeats = 1u + static_cast<uint32_t>(std::lround(
+            value * 15.0f));
+        return [NSString stringWithFormat:@"× %u", repeats];
+    }
+    if (insert.type == InsertType::Repeater && parameter == 2u) {
+        return [NSString stringWithFormat:@"-%.1f st / repeat",
+            value * 12.0f];
+    }
+    if (insert.type == InsertType::TimeMangler && parameter == 1u) {
+        const float semitones = (value * 2.0f - 1.0f) * 24.0f;
+        return [NSString stringWithFormat:@"%+.1f st", semitones];
+    }
+    if (insert.type == InsertType::TimeMangler && parameter == 2u) {
+        if (insert.variant == 0u) {
+            const float milliseconds = 2.0f * std::pow(100.0f, value);
+            return [NSString stringWithFormat:@"%.0f ms", milliseconds];
+        }
+        if (insert.variant == 1u) {
+            const float seconds = 0.125f * std::pow(128.0f, value);
+            return seconds < 1.0f
+                ? [NSString stringWithFormat:@"%.0f ms", seconds * 1000.0f]
+                : [NSString stringWithFormat:@"%.2f s", seconds];
+        }
+        return [NSString stringWithFormat:@"%.0f%%", value * 100.0f];
+    }
     if (insert.type == InsertType::Filter && parameter == 0u) {
         const float frequency = 30.0f * std::pow(20000.0f / 30.0f, value);
         return frequency >= 1000.0f
@@ -1864,6 +1978,32 @@ NSString* insertParameterValue(const InsertSettings& insert,
             ? [NSString stringWithFormat:@"%.2f kHz", frequency / 1000.0f]
             : [NSString stringWithFormat:@"%.0f Hz", frequency];
     }
+    if (insert.type == InsertType::Erosion && parameter == 0u) {
+        const float frequency = 10.0f * std::pow(1600.0f, value);
+        return frequency >= 1000.0f
+            ? [NSString stringWithFormat:@"%.2f kHz", frequency / 1000.0f]
+            : [NSString stringWithFormat:@"%.0f Hz", frequency];
+    }
+    if (insert.type == InsertType::Shifter && parameter == 0u) {
+        float frequency = 0.0f;
+        if (insert.variant == 0u) {
+            const float bipolar = value * 2.0f - 1.0f;
+            frequency = std::copysign(bipolar * bipolar * 4000.0f,
+                bipolar);
+            return [NSString stringWithFormat:@"%+.0f Hz", frequency];
+        }
+        frequency = 20.0f * std::pow(1000.0f, value);
+        return frequency >= 1000.0f
+            ? [NSString stringWithFormat:@"%.2f kHz", frequency / 1000.0f]
+            : [NSString stringWithFormat:@"%.0f Hz", frequency];
+    }
+    if (insert.type == InsertType::Wavefolder && parameter == 0u) {
+        const float drive = 1.0f + value * value * 31.0f;
+        return [NSString stringWithFormat:@"%.1f×", drive];
+    }
+    if (insert.type == InsertType::Wavefolder && parameter == 1u)
+        return [NSString stringWithFormat:@"%+.0f%%",
+            (value * 2.0f - 1.0f) * 100.0f];
     if (insert.type == InsertType::Filter && parameter == 2u)
         return [NSString stringWithFormat:@"%.0f%%", value * 100.0f];
     return [NSString stringWithFormat:@"%.0f%%", value * 100.0f];
@@ -1880,6 +2020,16 @@ NSString* insertSafetyText(InsertType type)
         return @"ONE LINKED DETECTOR CONTROLS EVERY SOURCE CHANNEL";
     case InsertType::Resonator:
         return @"SHARED TUNE AND CLOCK  //  DISCRETE CHANNEL STATE";
+    case InsertType::Erosion:
+        return @"SHARED MOD CLOCK  //  DISCRETE MULTICHANNEL DELAYS";
+    case InsertType::Shifter:
+        return @"REGEN GOVERNOR  //  PERIODIC SQUASH + SMOOTH RECOVERY";
+    case InsertType::Wavefolder:
+        return @"4× SUBSTEP ANTIALIASING  //  NONLINEAR COLOR";
+    case InsertType::Repeater:
+        return @"TRANSIENT CAPTURE  //  ONE READ/WRITE CLOCK FOR ALL LANES";
+    case InsertType::TimeMangler:
+        return @"TRANSIENT CAPTURE  //  SHARED FRACTIONAL READ POSITION";
     case InsertType::Off:
         return @"SELECT A DEVICE FOR THIS POST-PLAYBACK INSERT";
     }
@@ -2515,7 +2665,8 @@ double gainDb(float gain)
         NSMinY(panel), NSWidth(panel), 24.0, label, style);
 
     static NSArray<NSString*>* deviceLabels = @[
-        @"OFF", @"FLTR", @"DGRD", @"TRNS", @"RSNR"
+        @"OFF", @"FLTR", @"DGRD", @"TRNS",
+        @"RSNR", @"ERSN", @"SHIFT", @"FOLD", @"RPT", @"TIME"
     ];
     for (uint32_t type = 0u; type < deviceLabels.count; ++type)
         s3g::clap_gui::drawHeaderButton(mixerInsertTypeRect(type), panel,
@@ -2530,26 +2681,46 @@ double gainDb(float gain)
     NSString* option = insert.type == InsertType::Filter
         ? [NSString stringWithFormat:@"MODE  %@",
             filterModeText(insert.mode)]
+        : insert.type == InsertType::Erosion
+            ? [NSString stringWithFormat:@"MODE  %@",
+                insert.variant == 0u ? @"SINE" : @"NOISE"]
+        : insert.type == InsertType::Shifter
+            ? [NSString stringWithFormat:@"MODE  %@",
+                insert.variant == 0u ? @"FREQUENCY" : @"RING"]
+        : insert.type == InsertType::Wavefolder
+            ? [NSString stringWithFormat:@"MODE  %@",
+                insert.variant == 0u ? @"FOLD" : @"CLIP"]
+        : insert.type == InsertType::Repeater
+            ? [NSString stringWithFormat:@"MODE  %@",
+                insert.variant == 0u ? @"FORWARD"
+                    : insert.variant == 1u ? @"REVERSE" : @"ALTERNATE"]
+        : insert.type == InsertType::TimeMangler
+            ? [NSString stringWithFormat:@"MODE  %@",
+                insert.variant == 0u ? @"REVERSE"
+                    : insert.variant == 1u ? @"FREEZE" : @"TAPE"]
         : insert.type == InsertType::Off ? @"NO DEVICE ASSIGNED"
         : [NSString stringWithFormat:@"RESET  %@",
             insertTypeText(insert.type)];
     s3g::clap_gui::drawHeaderButton(mixerInsertOptionRect(), panel,
-        option, insert.type == InsertType::Filter, value, style);
+        option, insert.type == InsertType::Filter
+            || insert.type == InsertType::Erosion
+            || insert.type == InsertType::Shifter
+            || insert.type == InsertType::Wavefolder
+            || insert.type == InsertType::Repeater
+            || insert.type == InsertType::TimeMangler, value, style);
 
     if (insert.type != InsertType::Off) {
         for (uint32_t parameter = 0u;
              parameter < insert.values.size(); ++parameter) {
-            s3g::clap_gui::drawMixerStripSlider(
-                insertParameterLabel(insert.type, parameter),
+            drawMixerInsertParameter(
+                insertParameterLabel(insert, parameter),
                 insertParameterValue(insert, parameter),
-                insert.values[parameter],
-                mixerInsertParameterY(parameter), NSMinX(panel),
-                NSWidth(panel), label, value, style);
+                insert.values[parameter], parameter, label, value, style);
         }
     } else {
         drawCentered(NSMakeRect(NSMinX(panel) + 16.0,
             NSMinY(panel) + 190.0, NSWidth(panel) - 32.0, 24.0),
-            @"CHOOSE FILTER, DEGRADE, TRANSIENT, OR RESONATOR", label);
+            @"CHOOSE A POST-PLAYBACK DEVICE ABOVE", label);
     }
     [insertSafetyText(insert.type) drawAtPoint:NSMakePoint(
         NSMinX(panel) + 16.0, NSMinY(panel) + 465.0)
@@ -3361,7 +3532,7 @@ double gainDb(float gain)
             < s3g::breakbeat::kMaximumSampleSlots) {
         const uint32_t slotIndex = static_cast<uint32_t>(_insertEditorSlot);
         for (uint32_t type = 0u;
-             type <= static_cast<uint32_t>(InsertType::Resonator); ++type) {
+             type <= static_cast<uint32_t>(InsertType::TimeMangler); ++type) {
             if (!NSPointInRect(point, mixerInsertTypeRect(type))) continue;
             auto bank = editableBank(*_instance);
             bank->slots[slotIndex].inserts[_insertEditorIndex]
@@ -3411,6 +3582,16 @@ double gainDb(float gain)
                     % 4u;
                 insert.mode = static_cast<FilterMode>(next);
                 _instance->status = "FILTER MODE UPDATED";
+            } else if (insert.type == InsertType::Erosion
+                || insert.type == InsertType::Shifter
+                || insert.type == InsertType::Wavefolder) {
+                insert.variant = insert.variant == 0u ? 1u : 0u;
+                _instance->status = "BREAK INSERT MODE UPDATED";
+            } else if (insert.type == InsertType::Repeater
+                || insert.type == InsertType::TimeMangler) {
+                insert.variant = static_cast<uint8_t>(
+                    (insert.variant + 1u) % 3u);
+                _instance->status = "BUFFER INSERT MODE UPDATED";
             } else if (insert.type != InsertType::Off) {
                 insert = s3g::breakbeat::defaultInsertSettings(insert.type);
                 _instance->status = "BREAK INSERT RESET";
@@ -3997,7 +4178,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.0",
+    "0.8.3",
     "Four-break fixed 16-output, 1-16 channel sample-locked slicer.",
     multichannelFeatures,
 };
@@ -4010,7 +4191,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.0",
+    "0.8.3",
     "Four-break fixed stereo slicer for mono and stereo files.",
     stereoFeatures,
 };

@@ -344,10 +344,28 @@ waveform overviews, a detailed multichannel waveform/marker editor, equal and
 transient slicing, root-note remapping, keyboard audition,
 velocity-sensitive playback, envelopes,
 pitch/pan/reverse, loop and choke behavior, two post-playback insert slots per
-break (FILTER, DEGRADE, TRANSIENT, and RESONATOR), CLAP state, dynamic note names,
+break (FILTER, DEGRADE, TRANSIENT, RESONATOR, EROSION, SHIFT, FOLD, REPEATER,
+and TIME), CLAP state, dynamic note names,
 and two immutable host-visible variants. Stereo exposes two outputs and accepts
 mono/stereo assets. Slicer 16 exposes sixteen generic outputs and accepts 1–16
 channel assets; unused outputs are cleared to silence every block.
+
+REPEATER and TIME are signal-driven rather than transport-driven. A linked
+onset detector observes every source channel, makes one transient decision,
+and starts one shared 8–1000 ms capture window. Repeater returns to listening
+after its requested repetitions; Reverse and Tape are one-shot operations;
+Freeze loops through a finite 0.125–16 second decay, unless a new detected
+transient replaces its buffer first. Host tempo and play position do not affect
+these devices. Continuously variable buffer controls are smoothed, structural
+controls are latched per capture, and short dry/wet transition envelopes
+protect every playback boundary.
+
+SHIFT deliberately retains high-regeneration behavior, but a shared governor
+prevents it from remaining in an uncontrolled feedback state. After 750 ms of
+sustained regeneration it ramps down only the feedback injection, holds that
+squash for 30 ms, and recovers over roughly 180 ms. Excess energy can trigger
+the same action early. The direct shifted signal and channel ordering are never
+muted or collapsed by the governor.
 
 Multichannel timing is deliberately a structural invariant. Each voice stores
 one source position, increment, envelope, direction, and loop state. It reads

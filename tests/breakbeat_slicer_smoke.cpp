@@ -496,8 +496,205 @@ void testPriorityLaneInserts()
                 2.0f, 1.0e-4f),
         "resonator insert did not create a sample-locked tuned return");
 
+    bank.slots[0u] = oneSliceSlot(impulse);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Erosion);
+    bank.slots[0u].inserts[0u].values = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "erosion insert fixture failed");
+    std::array<float, 16u> erosionLeft {};
+    std::array<float, 16u> erosionRight {};
+    engine.render(&event, 1u, erosionLeft.data(), erosionRight.data(),
+        static_cast<uint32_t>(erosionLeft.size()));
+    check(std::abs(erosionLeft[1u]) > 0.1f
+            && near(erosionLeft[1u] / erosionRight[1u],
+                2.0f, 1.0e-4f),
+        "erosion insert did not produce a locked short-delay response");
+
+    bank.slots[0u] = oneSliceSlot(constantAsset(0.4f, 0.2f));
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Shifter);
+    bank.slots[0u].inserts[0u].variant = 1u;
+    bank.slots[0u].inserts[0u].values = {{ 0.35f, 0.0f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "ring-shift insert fixture failed");
+    std::array<float, 256u> shifterLeft {};
+    std::array<float, 256u> shifterRight {};
+    engine.render(&event, 1u, shifterLeft.data(), shifterRight.data(),
+        static_cast<uint32_t>(shifterLeft.size()));
+    const auto [shiftMinimum, shiftMaximum] = std::minmax_element(
+        shifterLeft.begin(), shifterLeft.end());
+    bool shiftLinked = true;
+    for (std::size_t frame = 0u; frame < shifterLeft.size(); ++frame) {
+        if (std::abs(shifterRight[frame]) < 1.0e-7f) continue;
+        shiftLinked = shiftLinked && near(shifterLeft[frame]
+            / shifterRight[frame], 2.0f, 1.0e-4f);
+    }
+    check(shiftLinked && *shiftMaximum - *shiftMinimum > 0.3f,
+        "ring shifter lacked modulation or changed channel relationships");
+
+    bank.slots[0u] = oneSliceSlot(constantAsset(0.02f, 0.01f, 96000u));
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Shifter);
+    bank.slots[0u].inserts[0u].variant = 0u;
+    bank.slots[0u].inserts[0u].values = {{ 0.50f, 1.0f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "governed shifter fixture failed");
+    std::vector<float> governedShiftLeft(90000u, 0.0f);
+    std::vector<float> governedShiftRight(90000u, 0.0f);
+    engine.render(&event, 1u, governedShiftLeft.data(),
+        governedShiftRight.data(),
+        static_cast<uint32_t>(governedShiftLeft.size()));
+    float preSquashEnergy = 0.0f;
+    float squashEnergy = 0.0f;
+    float governedPeak = 0.0f;
+    for (const float sample : governedShiftLeft)
+        governedPeak = std::max(governedPeak, std::abs(sample));
+    for (uint32_t frame = 30000u; frame < 34000u; ++frame)
+        preSquashEnergy += std::abs(governedShiftLeft[frame]);
+    for (uint32_t frame = 37000u; frame < 39000u; ++frame)
+        squashEnergy += std::abs(governedShiftLeft[frame]) * 2.0f;
+    check(std::all_of(governedShiftLeft.begin(), governedShiftLeft.end(),
+                [](float sample) { return std::isfinite(sample); })
+            && preSquashEnergy > 0.1f
+            && squashEnergy < preSquashEnergy * 0.85f
+            && governedPeak < 8.0f,
+        "shifter governor did not periodically squash sustained regeneration");
+
+    bank.slots[0u] = oneSliceSlot(constantAsset(0.7f, 0.35f));
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Wavefolder);
+    bank.slots[0u].inserts[0u].values = {{ 0.80f, 0.50f, 0.20f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "wavefolder insert fixture failed");
+    std::array<float, 128u> foldLeft {};
+    std::array<float, 128u> foldRight {};
+    engine.render(&event, 1u, foldLeft.data(), foldRight.data(),
+        static_cast<uint32_t>(foldLeft.size()));
+    check(std::all_of(foldLeft.begin(), foldLeft.end(), [](float sample) {
+                return std::isfinite(sample) && std::abs(sample) <= 1.1f;
+            })
+            && std::abs(foldLeft[64u] - 0.7f * 0.7071068f) > 0.05f,
+        "oversampled wavefolder was inactive or unbounded");
+
+    bank.slots[0u] = oneSliceSlot(ramp);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Repeater);
+    bank.slots[0u].inserts[0u].values = {{ 0.0f, 0.20f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "buffer repeater fixture failed");
+    std::array<float, 2100u> repeaterLeft {};
+    std::array<float, 2100u> repeaterRight {};
+    engine.render(&event, 1u, repeaterLeft.data(), repeaterRight.data(),
+        static_cast<uint32_t>(repeaterLeft.size()));
+    // The ramp crosses the transient threshold near its start. An 8 ms
+    // window at 48 kHz is 384 frames; compare equal full-level positions in
+    // successive repeats after the de-click attack.
+    check(near(repeaterLeft[635u], repeaterLeft[1019u], 1.0e-4f)
+            && near(repeaterRight[635u], repeaterRight[1019u], 1.0e-4f)
+            && near(repeaterLeft[635u] / repeaterRight[635u],
+                2.0f, 1.0e-4f),
+        "transient buffer repeat was not periodic or multichannel locked");
+
+    bank.slots[0u].inserts[0u].values[2u] = 1.0f;
+    check(engine.setBank(&bank), "pitch-decay repeater fixture failed");
+    std::array<float, 2100u> decayedRepeatLeft {};
+    std::array<float, 2100u> decayedRepeatRight {};
+    engine.render(&event, 1u, decayedRepeatLeft.data(),
+        decayedRepeatRight.data(),
+        static_cast<uint32_t>(decayedRepeatLeft.size()));
+    const float firstRepeatSlope = std::abs(
+        decayedRepeatLeft[635u] - decayedRepeatLeft[627u]);
+    const float secondRepeatSlope = std::abs(
+        decayedRepeatLeft[1019u] - decayedRepeatLeft[1011u]);
+    check(secondRepeatSlope < firstRepeatSlope * 0.7f
+            && secondRepeatSlope > firstRepeatSlope * 0.2f
+            && near(decayedRepeatLeft[1019u] / decayedRepeatRight[1019u],
+                2.0f, 1.0e-4f),
+        "repeater pitch decay did not slow its shared read head");
+
+    bank.slots[0u] = oneSliceSlot(ramp);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::TimeMangler);
+    bank.slots[0u].inserts[0u].values = {{ 0.0f, 0.50f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "time mangler fixture failed");
+    std::array<float, 900u> timeLeft {};
+    std::array<float, 900u> timeRight {};
+    engine.render(&event, 1u, timeLeft.data(), timeRight.data(),
+        static_cast<uint32_t>(timeLeft.size()));
+    check(timeLeft[635u] > timeLeft[636u]
+            && near(timeLeft[635u] / timeRight[635u],
+                2.0f, 1.0e-4f),
+        "transient reverse capture did not share one multichannel read head");
+
+    auto freezeAsset = std::make_shared<SampleAsset>();
+    freezeAsset->sampleRate = 48000.0;
+    freezeAsset->channelCount = 2u;
+    freezeAsset->channels[0u].assign(1000u, 0.4f);
+    freezeAsset->channels[1u].assign(1000u, 0.2f);
+    freezeAsset->channels[0u][0u] = 0.0f;
+    freezeAsset->channels[1u][0u] = 0.0f;
+    bank.slots[0u] = oneSliceSlot(freezeAsset);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::TimeMangler);
+    bank.slots[0u].inserts[0u].variant = 1u;
+    // Minimum DECAY is 125 ms, or 6000 frames at 48 kHz.
+    bank.slots[0u].inserts[0u].values = {{ 0.0f, 0.50f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "finite freeze fixture failed");
+    std::array<float, 7000u> freezeLeft {};
+    std::array<float, 7000u> freezeRight {};
+    engine.render(&event, 1u, freezeLeft.data(), freezeRight.data(),
+        static_cast<uint32_t>(freezeLeft.size()));
+    check(std::abs(freezeLeft[2000u]) > 0.05f
+            && near(freezeLeft[2000u] / freezeRight[2000u],
+                2.0f, 1.0e-4f)
+            && std::abs(freezeLeft[6500u]) < 1.0e-5f
+            && std::abs(freezeRight[6500u]) < 1.0e-5f,
+        "freeze did not decay to silence and return to listening");
+
+    auto smoothingAsset = std::make_shared<SampleAsset>();
+    smoothingAsset->sampleRate = 48000.0;
+    smoothingAsset->channelCount = 2u;
+    smoothingAsset->channels[0u].assign(4096u, -0.4f);
+    smoothingAsset->channels[1u].assign(4096u, -0.2f);
+    smoothingAsset->channels[0u][0u] = 0.0f;
+    smoothingAsset->channels[1u][0u] = 0.0f;
+    std::fill(smoothingAsset->channels[0u].begin() + 1u,
+        smoothingAsset->channels[0u].begin() + 400u, 0.4f);
+    std::fill(smoothingAsset->channels[1u].begin() + 1u,
+        smoothingAsset->channels[1u].begin() + 400u, 0.2f);
+    bank.slots[0u] = oneSliceSlot(smoothingAsset);
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Repeater);
+    bank.slots[0u].inserts[0u].values = {{ 0.0f, 0.20f, 0.0f, 1.0f }};
+    check(mapSlotConsecutively(bank, 0u, 60u) && engine.setBank(&bank),
+        "live insert smoothing fixture failed");
+    std::array<float, 600u> beforeMixChangeLeft {};
+    std::array<float, 600u> beforeMixChangeRight {};
+    engine.render(&event, 1u, beforeMixChangeLeft.data(),
+        beforeMixChangeRight.data(),
+        static_cast<uint32_t>(beforeMixChangeLeft.size()));
+    MixerSnapshot smoothedMixer = mixerSnapshotFromBank(bank);
+    smoothedMixer.strips[0u].inserts[0u].values[3u] = 0.0f;
+    engine.setPreparedMixer(&smoothedMixer);
+    std::array<float, 128u> afterMixChangeLeft {};
+    std::array<float, 128u> afterMixChangeRight {};
+    engine.render(nullptr, 0u, afterMixChangeLeft.data(),
+        afterMixChangeRight.data(),
+        static_cast<uint32_t>(afterMixChangeLeft.size()));
+    check(std::abs(afterMixChangeLeft[0u]
+                - beforeMixChangeLeft.back()) < 0.01f
+            && near(afterMixChangeLeft[0u] / afterMixChangeRight[0u],
+                2.0f, 1.0e-4f),
+        "live buffer mix change introduced a discontinuity");
+
     bank.slots[0u].inserts[1u] = defaultInsertSettings(InsertType::Filter);
     check(bank.valid(), "two serial inserts were not accepted per lane");
+    bank.slots[0u].inserts[1u].variant = 3u;
+    check(!bank.valid(), "an invalid insert mode was accepted");
+    bank.slots[0u].inserts[1u].variant = 0u;
     bank.slots[0u].inserts[1u].values[0u]
         = std::numeric_limits<float>::quiet_NaN();
     check(!bank.valid(), "non-finite insert settings were accepted");

@@ -53,6 +53,79 @@ Available templates are `compact`, `basic`, and `toms`; maps are `gm` and
 Aliases begin with a letter and contain letters, digits, or underscore. They
 are case-insensitive and can be used anywhere a lane target is accepted.
 
+## Whole-pattern generation and variation
+
+```text
+generate
+generate 0.48 0.55 0.18
+generateseed myseed 0.50 0.70 0.25
+
+scene sparse 101
+scene balanced 101
+scene drift 202
+scene weird 303
+
+mutate 0.08 all
+mutate 0.18 values
+mutate 0.25 structure
+mutate 0.15 symbols
+mutate 0.20 fx
+```
+
+`generate` replaces the authored contents and structure of all seven native
+columns on every lane. Density controls NOTE occupancy, chaos increases pitch
+motion, non-unit strides, and FX activity, and symbols introduces typed
+rest/previous/kill/default states. All three controls are normalized `0`–`1`.
+The command without arguments uses `0.45 0.50 0.18`.
+
+`generateseed` is repeatable and does not consume the session's unseeded
+command stream. Named `scene` commands are exact seeded parameter presets;
+when the optional seed is omitted, the scene name itself is the seed.
+
+Create a variation in a new pattern-bank slot when the source should remain
+untouched:
+
+```text
+variation scene drift 202
+variation generateseed sketch 0.48 0.55 0.18
+variation mutate 0.12 notes
+variation drumscene blast 666
+
+variation scene weird 303 launch tick
+variation mutate 0.08 drums launch beat
+variation drumscene ritual 505 launch cycle
+```
+
+Without `launch`, the tracker stores the result under the next free stable ID
+(`A02`, `A03`, and so on), while the active pattern and audio runtime remain
+unchanged. `launch tick`, `launch beat`, and `launch cycle` select the new bank
+entry and hand its prebuilt runtime to audio only after that logical boundary.
+When transport is stopped, a requested launch selects the variation
+immediately. Quantized variation launch is deliberately unavailable while
+Song playback owns pattern transitions. `vary` is a short alias for
+`variation`.
+
+Mutation preserves the current pattern and changes cells independently by the
+requested amount. Scopes are `all`, `notes`/`rhythm`, `drums`, `values`, `fx`,
+`symbols`, `structure`, and `meta` (the instrument column). Invalid generation
+or mutation input is transactional and leaves the project unchanged.
+
+Drum scenes operate on recognized kit roles:
+
+```text
+kit superior basic
+drumscene techno 101
+drumscene broken 202
+drumscene sparse 303
+drumscene blast 404
+drumscene ritual 505
+```
+
+The seed is repeatable and the five scene algorithms retain the role-specific
+lengths and masks from the Max behavior reference. A drum scene changes NOTE
+rhythms only. It refuses patterns without kit aliases or recognizable drum
+lane names.
+
 ## Notes and rhythms
 
 ```text

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <vector>
 
 namespace s3g::breakbeat {
@@ -43,6 +44,11 @@ enum class InsertType : uint8_t {
     Degrade,
     Transient,
     Resonator,
+    Erosion,
+    Shifter,
+    Wavefolder,
+    Repeater,
+    TimeMangler,
 };
 
 enum class FilterMode : uint8_t {
@@ -58,6 +64,7 @@ enum class FilterMode : uint8_t {
 struct InsertSettings {
     InsertType type = InsertType::Off;
     FilterMode mode = FilterMode::LowPass;
+    uint8_t variant = 0u;
     std::array<float, kInsertParameterCount> values {{
         0.5f, 0.5f, 0.0f, 1.0f,
     }};
@@ -66,9 +73,10 @@ struct InsertSettings {
     bool valid() const noexcept
     {
         return static_cast<uint8_t>(type)
-                <= static_cast<uint8_t>(InsertType::Resonator)
+                <= static_cast<uint8_t>(InsertType::TimeMangler)
             && static_cast<uint8_t>(mode)
                 <= static_cast<uint8_t>(FilterMode::Notch)
+            && variant <= 2u
             && std::all_of(values.begin(), values.end(), [](float value) {
                 return std::isfinite(value) && value >= 0.0f
                     && value <= 1.0f;
@@ -96,6 +104,26 @@ inline InsertSettings defaultInsertSettings(InsertType type) noexcept
     case InsertType::Resonator:
         // Low-mid tuning, controlled feedback and a parallel wet balance.
         settings.values = {{ 0.38f, 0.52f, 0.48f, 0.48f }};
+        break;
+    case InsertType::Erosion:
+        // Sine-modulated short delay with modest depth and regeneration.
+        settings.values = {{ 0.45f, 0.35f, 0.20f, 0.60f }};
+        break;
+    case InsertType::Shifter:
+        // A subtle upward frequency shift with restrained regeneration.
+        settings.values = {{ 0.55f, 0.15f, 0.0f, 0.65f }};
+        break;
+    case InsertType::Wavefolder:
+        // Two folds, centered symmetry, smooth triangle shape, parallel mix.
+        settings.values = {{ 0.30f, 0.50f, 0.20f, 0.65f }};
+        break;
+    case InsertType::Repeater:
+        // 64 ms transient capture, four repeats, slight pitch decay, wet.
+        settings.values = {{ 0.43f, 0.20f, 0.12f, 1.0f }};
+        break;
+    case InsertType::TimeMangler:
+        // 125 ms transient capture, original pitch, one-second freeze decay.
+        settings.values = {{ 0.57f, 0.50f, 0.43f, 1.0f }};
         break;
     case InsertType::Off:
         settings.values = {{ 0.5f, 0.5f, 0.0f, 1.0f }};
@@ -762,13 +790,46 @@ struct RenderEvent {
 
 class SlicerEngine {
 public:
-    bool prepare(double sampleRate) noexcept
+    bool prepare(double sampleRate,
+        uint32_t maximumOutputChannels = kMaximumAudioChannels) noexcept
     {
-        if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)) return false;
+        if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)
+            || maximumOutputChannels == 0u
+            || maximumOutputChannels > kMaximumAudioChannels) return false;
         sampleRate_ = sampleRate;
+        constexpr std::size_t insertStateCount = kMaximumSampleSlots
+            * kInsertSlotsPerStrip;
+        const std::size_t temporalSamples = insertStateCount
+            * maximumOutputChannels * kTemporalBufferFrames;
+        temporalBuffer_.reset(new (std::nothrow) float[temporalSamples]);
+        if (!temporalBuffer_) return false;
+        std::fill_n(temporalBuffer_.get(), temporalSamples, 0.0f);
+        for (std::size_t slot = 0u; slot < insertStates_.size(); ++slot) {
+            for (std::size_t insert = 0u;
+                 insert < insertStates_[slot].size(); ++insert) {
+                const std::size_t stateIndex = slot * kInsertSlotsPerStrip
+                    + insert;
+                insertStates_[slot][insert].temporalBuffer
+                    = temporalBuffer_.get() + stateIndex
+                        * maximumOutputChannels * kTemporalBufferFrames;
+            }
+        }
         const float sr = static_cast<float>(sampleRate_);
         lowCoefficient_ = frequencyCoefficient(170.0f, sr);
         highCoefficient_ = frequencyCoefficient(4200.0f, sr);
+        temporalFastReleaseCoefficient_ = timeCoefficient(12.0f);
+        temporalSlowAttackCoefficient_ = timeCoefficient(22.0f);
+        temporalSlowReleaseCoefficient_ = timeCoefficient(140.0f);
+        temporalParameterCoefficient_ = timeCoefficient(20.0f);
+        temporalTransitionFrames_ = std::max<uint32_t>(2u,
+            static_cast<uint32_t>(std::lround(sampleRate_ * 0.005)));
+        shifterGovernorAttackCoefficient_ = timeCoefficient(1.5f);
+        shifterGovernorReleaseCoefficient_ = timeCoefficient(140.0f);
+        shifterGovernorRecoveryCoefficient_ = timeCoefficient(180.0f);
+        shifterGovernorIntervalFrames_ = std::max<uint32_t>(2u,
+            static_cast<uint32_t>(std::lround(sampleRate_ * 0.75)));
+        shifterGovernorHoldFrames_ = std::max<uint32_t>(2u,
+            static_cast<uint32_t>(std::lround(sampleRate_ * 0.030)));
         if (!auxProcessor_.prepare(sampleRate_)) return false;
         updateAuxProcessorParams();
         naturalFadeFrames_ = std::max<uint32_t>(2u,
@@ -785,6 +846,9 @@ public:
         bank_ = nullptr;
         mixer_ = nullptr;
         reset();
+        for (auto& slot : insertStates_)
+            for (auto& insert : slot) insert.temporalBuffer = nullptr;
+        temporalBuffer_.reset();
     }
 
     // Convenience setter for non-realtime users and tests. Hosted publication
@@ -828,10 +892,11 @@ public:
                     : InsertType::Off;
                 auto& state = insertStates_[slot][insert];
                 if (state.activeType == next) continue;
-                // The large delay memory is touched only when a resonator is
-                // selected. Other topology changes reset a few scalar states
-                // and remain bounded to a cache line on the audio thread.
-                resetInsertState(state, next == InsertType::Resonator);
+                // Large delay memory is touched only when its device is
+                // selected. Other topology changes reset compact state and
+                // avoid clearing unrelated buffers on the audio thread.
+                resetInsertState(state, next == InsertType::Resonator,
+                    next == InsertType::Erosion);
                 state.activeType = next;
             }
         }
@@ -1050,10 +1115,14 @@ public:
 
 private:
     static constexpr std::size_t kResonatorDelayFrames = 2048u;
+    static constexpr std::size_t kErosionDelayFrames = 512u;
+    static constexpr std::size_t kHilbertStages = 4u;
+    static constexpr std::size_t kTemporalBufferFrames = 65536u;
 
     struct InsertRenderParams {
         InsertType type = InsertType::Off;
         FilterMode filterMode = FilterMode::LowPass;
+        uint8_t variant = 0u;
         bool bypassed = false;
         float mix = 1.0f;
 
@@ -1080,6 +1149,26 @@ private:
         uint32_t resonatorDelay = 1u;
         float resonatorFeedback = 0.0f;
         float resonatorDamping = 1.0f;
+
+        float erosionPhaseIncrement = 0.0f;
+        float erosionDepthFrames = 1.0f;
+        float erosionFeedback = 0.0f;
+
+        float shifterPhaseIncrement = 0.0f;
+        float shifterFeedback = 0.0f;
+        float shifterColor = 0.0f;
+
+        float foldDrive = 1.0f;
+        float foldBias = 0.0f;
+        float foldShape = 0.0f;
+
+        uint32_t temporalWindowFrames = 384u;
+        uint32_t repeaterCount = 1u;
+        float repeaterDecay = 0.0f;
+        float timePitchRatio = 1.0f;
+        float timeBrake = 0.0f;
+        float timeFreezeDecayFrames = 48000.0f;
+        float timeReverseReleaseFrames = 480.0f;
     };
 
     struct InsertFilterState {
@@ -1093,9 +1182,57 @@ private:
         std::array<float, kMaximumAudioChannels> resonatorDamped {};
         std::array<std::array<float, kResonatorDelayFrames>,
             kMaximumAudioChannels> resonatorBuffer {};
+        std::array<std::array<float, kErosionDelayFrames>,
+            kMaximumAudioChannels> erosionBuffer {};
+        std::array<std::array<float, kHilbertStages>,
+            kMaximumAudioChannels> shifterHilbertA {};
+        std::array<std::array<float, kHilbertStages>,
+            kMaximumAudioChannels> shifterHilbertB {};
+        std::array<float, kMaximumAudioChannels> shifterPreviousWet {};
+        std::array<float, kMaximumAudioChannels> foldPreviousInput {};
+        std::array<float, kMaximumAudioChannels> foldDcInput {};
+        std::array<float, kMaximumAudioChannels> foldDcOutput {};
+        std::array<float, kMaximumAudioChannels> temporalPreviousWet {};
         uint32_t degradeRemaining = 0u;
         uint32_t random = 0x9e3779b9u;
         uint32_t resonatorWrite = 0u;
+        uint32_t erosionWrite = 0u;
+        uint32_t erosionRandom = 0x243f6a88u;
+        uint32_t shifterGovernorRunFrames = 0u;
+        uint32_t shifterGovernorHoldFrames = 0u;
+        float erosionPhase = 0.0f;
+        float erosionNoise = 0.0f;
+        float erosionNoiseTarget = 0.0f;
+        float shifterPhase = 0.0f;
+        float shifterGovernorEnvelope = 0.0f;
+        float shifterGovernorGain = 1.0f;
+        float* temporalBuffer = nullptr;
+        uint32_t temporalWrite = 0u;
+        uint32_t temporalValidFrames = 0u;
+        uint32_t temporalCaptureStart = 0u;
+        uint32_t temporalCaptureFrames = 0u;
+        uint32_t temporalCaptureTarget = 0u;
+        uint32_t temporalCaptureWritten = 0u;
+        uint32_t temporalPlaybackFrame = 0u;
+        uint32_t temporalCaptureTransitionFrame
+            = std::numeric_limits<uint32_t>::max();
+        uint32_t temporalLatchedRepeaterCount = 1u;
+        double temporalRead = 0.0;
+        double temporalSpeed = 1.0;
+        float temporalDetectorFast = 0.0f;
+        float temporalDetectorSlow = 0.0f;
+        float temporalSmoothedMix = 1.0f;
+        float temporalSmoothedDecay = 0.0f;
+        float temporalSmoothedPitchRatio = 1.0f;
+        float temporalSmoothedBrake = 0.0f;
+        float temporalSmoothedFreezeDecayFrames = 48000.0f;
+        float temporalSmoothedReverseReleaseFrames = 480.0f;
+        float temporalTapeRateScale = 1.0f;
+        bool temporalCaptureReady = false;
+        bool temporalDetectorArmed = true;
+        bool temporalParametersInitialized = false;
+        uint8_t temporalLatchedVariant = 0u;
+        uint8_t temporalPhase = 0u; // listen, capture, playback
         float transientFast = 0.0f;
         float transientSlow = 0.0f;
         float transientGate = 1.0f;
@@ -1207,6 +1344,20 @@ private:
         return static_cast<float>(1.0 - std::exp(-1.0 / frames));
     }
 
+    uint32_t temporalWindowFrames(float normalized) const noexcept
+    {
+        constexpr std::array<double, 8u> milliseconds {{
+            8.0, 16.0, 32.0, 64.0, 125.0, 250.0, 500.0, 1000.0,
+        }};
+        const std::size_t index = static_cast<std::size_t>(std::clamp(
+            std::lround(normalized
+                * static_cast<float>(milliseconds.size() - 1u)),
+            0l, static_cast<long>(milliseconds.size() - 1u)));
+        return static_cast<uint32_t>(std::clamp<double>(std::round(
+            milliseconds[index] * sampleRate_ * 0.001), 2.0,
+            static_cast<double>(kTemporalBufferFrames)));
+    }
+
     InsertRenderParams insertRenderParams(
         const InsertSettings& settings) const noexcept
     {
@@ -1214,6 +1365,7 @@ private:
         InsertRenderParams result;
         result.type = settings.type;
         result.filterMode = settings.mode;
+        result.variant = settings.variant;
         result.bypassed = settings.bypassed;
         result.mix = settings.values[3u];
         switch (settings.type) {
@@ -1272,13 +1424,68 @@ private:
                 static_cast<float>(sampleRate_));
             break;
         }
+        case InsertType::Erosion: {
+            const float modulationHz = 10.0f * std::pow(
+                1600.0f, settings.values[0u]);
+            result.erosionPhaseIncrement = 2.0f * kPi * modulationHz
+                / static_cast<float>(sampleRate_);
+            result.erosionDepthFrames = 1.0f
+                + settings.values[1u] * settings.values[1u]
+                    * static_cast<float>(kErosionDelayFrames - 3u);
+            result.erosionFeedback = settings.values[2u] * 0.88f;
+            break;
+        }
+        case InsertType::Shifter: {
+            float frequency = 0.0f;
+            if (settings.variant == 0u) {
+                const float bipolar = settings.values[0u] * 2.0f - 1.0f;
+                frequency = std::copysign(bipolar * bipolar * 4000.0f,
+                    bipolar);
+            } else {
+                frequency = 20.0f * std::pow(1000.0f,
+                    settings.values[0u]);
+            }
+            result.shifterPhaseIncrement = 2.0f * kPi * frequency
+                / static_cast<float>(sampleRate_);
+            result.shifterFeedback = settings.values[1u] * 0.88f;
+            result.shifterColor = settings.values[2u];
+            break;
+        }
+        case InsertType::Wavefolder:
+            result.foldDrive = 1.0f
+                + settings.values[0u] * settings.values[0u] * 31.0f;
+            result.foldBias = settings.values[1u] * 2.0f - 1.0f;
+            result.foldShape = settings.values[2u];
+            break;
+        case InsertType::Repeater:
+            result.temporalWindowFrames = temporalWindowFrames(
+                settings.values[0u]);
+            result.repeaterCount = 1u + static_cast<uint32_t>(std::lround(
+                settings.values[1u] * 15.0f));
+            result.repeaterDecay = settings.values[2u];
+            break;
+        case InsertType::TimeMangler: {
+            result.temporalWindowFrames = temporalWindowFrames(
+                settings.values[0u]);
+            const float semitones = (settings.values[1u] * 2.0f - 1.0f)
+                * 24.0f;
+            result.timePitchRatio = std::pow(2.0f, semitones / 12.0f);
+            result.timeBrake = settings.values[2u];
+            result.timeFreezeDecayFrames = static_cast<float>(sampleRate_
+                * 0.125 * std::pow(128.0,
+                    static_cast<double>(settings.values[2u])));
+            result.timeReverseReleaseFrames = static_cast<float>(sampleRate_
+                * 0.002 * std::pow(100.0,
+                    static_cast<double>(settings.values[2u])));
+            break;
+        }
         case InsertType::Off: break;
         }
         return result;
     }
 
     static void resetInsertState(InsertProcessorState& state,
-        bool clearResonator = true) noexcept
+        bool clearResonator = true, bool clearErosion = true) noexcept
     {
         state.filters = {};
         state.held.fill(0.0f);
@@ -1287,11 +1494,57 @@ private:
             for (auto& channel : state.resonatorBuffer) channel.fill(0.0f);
             state.resonatorWrite = 0u;
         }
+        if (clearErosion) {
+            for (auto& channel : state.erosionBuffer) channel.fill(0.0f);
+            state.erosionWrite = 0u;
+        }
+        state.shifterHilbertA = {};
+        state.shifterHilbertB = {};
+        state.shifterPreviousWet.fill(0.0f);
+        state.foldPreviousInput.fill(0.0f);
+        state.foldDcInput.fill(0.0f);
+        state.foldDcOutput.fill(0.0f);
+        state.temporalPreviousWet.fill(0.0f);
         state.degradeRemaining = 0u;
         state.random = 0x9e3779b9u;
         state.transientFast = 0.0f;
         state.transientSlow = 0.0f;
         state.transientGate = 1.0f;
+        state.erosionRandom = 0x243f6a88u;
+        state.erosionPhase = 0.0f;
+        state.erosionNoise = 0.0f;
+        state.erosionNoiseTarget = 0.0f;
+        state.shifterPhase = 0.0f;
+        state.shifterGovernorRunFrames = 0u;
+        state.shifterGovernorHoldFrames = 0u;
+        state.shifterGovernorEnvelope = 0.0f;
+        state.shifterGovernorGain = 1.0f;
+        state.temporalWrite = 0u;
+        state.temporalValidFrames = 0u;
+        state.temporalCaptureStart = 0u;
+        state.temporalCaptureFrames = 0u;
+        state.temporalCaptureTarget = 0u;
+        state.temporalCaptureWritten = 0u;
+        state.temporalPlaybackFrame = 0u;
+        state.temporalCaptureTransitionFrame
+            = std::numeric_limits<uint32_t>::max();
+        state.temporalLatchedRepeaterCount = 1u;
+        state.temporalRead = 0.0;
+        state.temporalSpeed = 1.0;
+        state.temporalDetectorFast = 0.0f;
+        state.temporalDetectorSlow = 0.0f;
+        state.temporalSmoothedMix = 1.0f;
+        state.temporalSmoothedDecay = 0.0f;
+        state.temporalSmoothedPitchRatio = 1.0f;
+        state.temporalSmoothedBrake = 0.0f;
+        state.temporalSmoothedFreezeDecayFrames = 48000.0f;
+        state.temporalSmoothedReverseReleaseFrames = 480.0f;
+        state.temporalTapeRateScale = 1.0f;
+        state.temporalCaptureReady = false;
+        state.temporalDetectorArmed = true;
+        state.temporalParametersInitialized = false;
+        state.temporalLatchedVariant = 0u;
+        state.temporalPhase = 0u;
         state.activeType = InsertType::Off;
     }
 
@@ -1316,6 +1569,260 @@ private:
         state ^= state << 5u;
         if (state == 0u) state = 0x9e3779b9u;
         return state;
+    }
+
+    static float allpassCascade(float input,
+        std::array<float, kHilbertStages>& state,
+        const std::array<float, kHilbertStages>& coefficients) noexcept
+    {
+        float value = input;
+        for (std::size_t stage = 0u; stage < state.size(); ++stage) {
+            const float output = coefficients[stage] * value + state[stage];
+            state[stage] = finiteSample(value
+                - coefficients[stage] * output);
+            value = finiteSample(output);
+        }
+        return value;
+    }
+
+    static float foldShape(float input, uint8_t variant,
+        float shape) noexcept
+    {
+        constexpr float kHalfPi = 1.57079632679489661923f;
+        constexpr float kTwoOverPi = 0.63661977236758134308f;
+        if (variant == 0u) {
+            const float triangle = kTwoOverPi
+                * std::asin(std::sin(kHalfPi * input));
+            const float sineFold = std::sin(kHalfPi * input);
+            return triangle + (sineFold - triangle) * shape;
+        }
+        const float softness = 1.0f + shape * 12.0f;
+        const float soft = std::tanh(input * softness)
+            / std::tanh(softness);
+        const float hard = std::clamp(input, -1.0f, 1.0f);
+        return soft + (hard - soft) * shape;
+    }
+
+    static float* temporalChannel(InsertProcessorState& state,
+        uint32_t channel) noexcept
+    {
+        return state.temporalBuffer
+            ? state.temporalBuffer
+                + static_cast<std::size_t>(channel) * kTemporalBufferFrames
+            : nullptr;
+    }
+
+    static const float* temporalChannel(const InsertProcessorState& state,
+        uint32_t channel) noexcept
+    {
+        return state.temporalBuffer
+            ? state.temporalBuffer
+                + static_cast<std::size_t>(channel) * kTemporalBufferFrames
+            : nullptr;
+    }
+
+    static void writeTemporalFrame(InsertProcessorState& state,
+        const std::array<float, kMaximumAudioChannels>& input,
+        uint32_t channelCount) noexcept
+    {
+        if (!state.temporalBuffer) return;
+        for (uint32_t channel = 0u; channel < channelCount; ++channel)
+            temporalChannel(state, channel)[state.temporalWrite]
+                = finiteSample(input[channel]);
+        state.temporalWrite = static_cast<uint32_t>(
+            (state.temporalWrite + 1u) % kTemporalBufferFrames);
+        state.temporalValidFrames = std::min<uint32_t>(
+            static_cast<uint32_t>(kTemporalBufferFrames),
+            state.temporalValidFrames + 1u);
+    }
+
+    bool detectTemporalOnset(InsertProcessorState& state,
+        const std::array<float, kMaximumAudioChannels>& input,
+        uint32_t channelCount) const noexcept
+    {
+        float peak = 0.0f;
+        for (uint32_t channel = 0u; channel < channelCount; ++channel)
+            peak = std::max(peak, std::abs(finiteSample(input[channel])));
+        if (peak >= state.temporalDetectorFast)
+            state.temporalDetectorFast = peak;
+        else
+            state.temporalDetectorFast += (peak
+                - state.temporalDetectorFast)
+                * temporalFastReleaseCoefficient_;
+        const float slowCoefficient = peak >= state.temporalDetectorSlow
+            ? temporalSlowAttackCoefficient_
+            : temporalSlowReleaseCoefficient_;
+        state.temporalDetectorSlow += (peak
+            - state.temporalDetectorSlow) * slowCoefficient;
+        const float novelty = std::max(0.0f,
+            state.temporalDetectorFast - state.temporalDetectorSlow);
+        if (!state.temporalDetectorArmed
+            && novelty <= std::max(0.00025f,
+                state.temporalDetectorSlow * 0.15f))
+            state.temporalDetectorArmed = true;
+        if (!state.temporalDetectorArmed || peak < 0.002f
+            || novelty <= std::max(0.00075f,
+                state.temporalDetectorSlow * 0.55f)) return false;
+        state.temporalDetectorArmed = false;
+        return true;
+    }
+
+    void smoothTemporalParameters(InsertProcessorState& state,
+        const InsertRenderParams& params) const noexcept
+    {
+        const float mixTarget = params.bypassed ? 0.0f : params.mix;
+        if (!state.temporalParametersInitialized) {
+            state.temporalSmoothedMix = mixTarget;
+            state.temporalSmoothedDecay = params.repeaterDecay;
+            state.temporalSmoothedPitchRatio = params.timePitchRatio;
+            state.temporalSmoothedBrake = params.timeBrake;
+            state.temporalSmoothedFreezeDecayFrames
+                = params.timeFreezeDecayFrames;
+            state.temporalSmoothedReverseReleaseFrames
+                = params.timeReverseReleaseFrames;
+            state.temporalParametersInitialized = true;
+            return;
+        }
+        const auto smooth = [this](float current, float target) noexcept {
+            return current + (target - current)
+                * temporalParameterCoefficient_;
+        };
+        state.temporalSmoothedMix = smooth(state.temporalSmoothedMix,
+            mixTarget);
+        state.temporalSmoothedDecay = smooth(state.temporalSmoothedDecay,
+            params.repeaterDecay);
+        state.temporalSmoothedPitchRatio = smooth(
+            state.temporalSmoothedPitchRatio, params.timePitchRatio);
+        state.temporalSmoothedBrake = smooth(state.temporalSmoothedBrake,
+            params.timeBrake);
+        state.temporalSmoothedFreezeDecayFrames = smooth(
+            state.temporalSmoothedFreezeDecayFrames,
+            params.timeFreezeDecayFrames);
+        state.temporalSmoothedReverseReleaseFrames = smooth(
+            state.temporalSmoothedReverseReleaseFrames,
+            params.timeReverseReleaseFrames);
+    }
+
+    float temporalPlaybackEnvelope(uint32_t frame,
+        uint32_t totalFrames) const noexcept
+    {
+        if (totalFrames == 0u) return 0.0f;
+        const uint32_t fadeFrames = std::max<uint32_t>(2u,
+            std::min<uint32_t>(temporalTransitionFrames_,
+                std::max<uint32_t>(2u, totalFrames / 4u)));
+        const float attack = std::min(1.0f,
+            static_cast<float>(frame + 1u) / fadeFrames);
+        const float release = std::min(1.0f,
+            static_cast<float>(totalFrames - std::min(frame, totalFrames))
+                / fadeFrames);
+        return std::min(attack, release);
+    }
+
+    static void beginTemporalCapture(InsertProcessorState& state,
+        uint32_t captureFrames, uint8_t variant,
+        uint32_t repeaterCount) noexcept
+    {
+        const bool replacingPlayback = state.temporalPhase == 2u;
+        state.temporalCaptureTarget = std::clamp<uint32_t>(captureFrames,
+            2u, static_cast<uint32_t>(kTemporalBufferFrames));
+        state.temporalCaptureStart = state.temporalWrite;
+        state.temporalCaptureWritten = 0u;
+        state.temporalCaptureFrames = 0u;
+        state.temporalPlaybackFrame = 0u;
+        state.temporalRead = 0.0;
+        state.temporalSpeed = 1.0;
+        state.temporalTapeRateScale = 1.0f;
+        state.temporalCaptureReady = false;
+        state.temporalCaptureTransitionFrame = replacingPlayback ? 0u
+            : std::numeric_limits<uint32_t>::max();
+        state.temporalLatchedVariant = variant;
+        state.temporalLatchedRepeaterCount = std::max<uint32_t>(1u,
+            repeaterCount);
+        if (!replacingPlayback) state.temporalPreviousWet.fill(0.0f);
+        state.temporalPhase = 1u;
+    }
+
+    void applyTemporalCaptureTransition(
+        std::array<float, kMaximumAudioChannels>& samples,
+        const std::array<float, kMaximumAudioChannels>& dry,
+        uint32_t channelCount, InsertProcessorState& state) const noexcept
+    {
+        if (state.temporalCaptureTransitionFrame
+            >= temporalTransitionFrames_) return;
+        const float gain = 1.0f
+            - static_cast<float>(state.temporalCaptureTransitionFrame + 1u)
+                / static_cast<float>(temporalTransitionFrames_);
+        for (uint32_t channel = 0u; channel < channelCount; ++channel)
+            samples[channel] = finiteSample(dry[channel]
+                + (state.temporalPreviousWet[channel] - dry[channel])
+                    * state.temporalSmoothedMix
+                    * std::clamp(gain, 0.0f, 1.0f));
+        ++state.temporalCaptureTransitionFrame;
+    }
+
+    static bool advanceTemporalCapture(
+        InsertProcessorState& state) noexcept
+    {
+        if (state.temporalPhase != 1u
+            || state.temporalCaptureTarget < 2u) return false;
+        ++state.temporalCaptureWritten;
+        if (state.temporalCaptureWritten
+            < state.temporalCaptureTarget) return false;
+        state.temporalCaptureFrames = state.temporalCaptureTarget;
+        state.temporalPlaybackFrame = 0u;
+        state.temporalCaptureReady = true;
+        state.temporalPhase = 2u;
+        return true;
+    }
+
+    static float readTemporal(const InsertProcessorState& state,
+        uint32_t channel, double offset) noexcept
+    {
+        if (!state.temporalBuffer || state.temporalCaptureFrames == 0u)
+            return 0.0f;
+        const double length = static_cast<double>(
+            state.temporalCaptureFrames);
+        offset = std::fmod(offset, length);
+        if (offset < 0.0) offset += length;
+        const uint32_t firstOffset = static_cast<uint32_t>(offset);
+        const uint32_t secondOffset = static_cast<uint32_t>(
+            (firstOffset + 1u) % state.temporalCaptureFrames);
+        const float fraction = static_cast<float>(offset
+            - static_cast<double>(firstOffset));
+        const uint32_t first = static_cast<uint32_t>(
+            (state.temporalCaptureStart + firstOffset)
+                % kTemporalBufferFrames);
+        const uint32_t second = static_cast<uint32_t>(
+            (state.temporalCaptureStart + secondOffset)
+                % kTemporalBufferFrames);
+        const float* buffer = temporalChannel(state, channel);
+        return finiteSample(buffer[first]
+            + (buffer[second] - buffer[first]) * fraction);
+    }
+
+    float loopCrossfadedTemporal(
+        const InsertProcessorState& state, uint32_t channel,
+        double position, bool reverse) const noexcept
+    {
+        const uint32_t length = state.temporalCaptureFrames;
+        if (length < 4u) return readTemporal(state, channel, position);
+        const uint32_t fadeFrames = std::min<uint32_t>(
+            temporalTransitionFrames_, length / 4u);
+        float wet = readTemporal(state, channel, position);
+        if (!reverse && position >= static_cast<double>(length - fadeFrames)) {
+            const float blend = static_cast<float>((position
+                - static_cast<double>(length - fadeFrames)) / fadeFrames);
+            const float wrapped = readTemporal(state, channel,
+                position - static_cast<double>(length - fadeFrames));
+            wet += (wrapped - wet) * std::clamp(blend, 0.0f, 1.0f);
+        } else if (reverse && position < static_cast<double>(fadeFrames)) {
+            const float blend = 1.0f
+                - static_cast<float>(position / fadeFrames);
+            const float wrapped = readTemporal(state, channel,
+                static_cast<double>(length - fadeFrames) + position);
+            wet += (wrapped - wet) * std::clamp(blend, 0.0f, 1.0f);
+        }
+        return finiteSample(wet);
     }
 
     void processInsertFrame(
@@ -1433,9 +1940,378 @@ private:
                 (state.resonatorWrite + 1u) % kResonatorDelayFrames);
             break;
         }
+        case InsertType::Erosion: {
+            constexpr float kTwoPi = 6.28318530717958647692f;
+            state.erosionPhase += params.erosionPhaseIncrement;
+            bool wrapped = false;
+            if (state.erosionPhase >= kTwoPi) {
+                state.erosionPhase -= kTwoPi;
+                wrapped = true;
+            }
+            if (params.variant != 0u && wrapped) {
+                const uint32_t random = advanceRandom(state.erosionRandom);
+                state.erosionNoiseTarget = static_cast<float>(
+                    random & 0x00ffffffu) / 8388607.5f - 1.0f;
+            }
+            state.erosionNoise = finiteSample(state.erosionNoise
+                + (state.erosionNoiseTarget - state.erosionNoise) * 0.08f);
+            const float modulation = params.variant == 0u
+                ? std::sin(state.erosionPhase) : state.erosionNoise;
+            const float delay = 1.0f + params.erosionDepthFrames
+                * (0.5f + modulation * 0.5f);
+            float readPosition = static_cast<float>(state.erosionWrite)
+                - delay;
+            while (readPosition < 0.0f)
+                readPosition += static_cast<float>(kErosionDelayFrames);
+            const uint32_t first = static_cast<uint32_t>(readPosition)
+                % static_cast<uint32_t>(kErosionDelayFrames);
+            const uint32_t second = static_cast<uint32_t>(
+                (first + 1u) % kErosionDelayFrames);
+            const float fraction = readPosition
+                - static_cast<float>(static_cast<uint32_t>(readPosition));
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const auto& buffer = state.erosionBuffer[channel];
+                const float wet = finiteSample(buffer[first]
+                    + (buffer[second] - buffer[first]) * fraction);
+                state.erosionBuffer[channel][state.erosionWrite]
+                    = finiteSample(samples[channel]
+                        + wet * params.erosionFeedback);
+                samples[channel] = finiteSample(samples[channel]
+                    + (wet - samples[channel]) * params.mix);
+            }
+            state.erosionWrite = static_cast<uint32_t>(
+                (state.erosionWrite + 1u) % kErosionDelayFrames);
+            break;
+        }
+        case InsertType::Shifter: {
+            constexpr float kTwoPi = 6.28318530717958647692f;
+            constexpr std::array<float, kHilbertStages> branchA {{
+                0.161758f, 0.733029f, 0.945350f, 0.990598f,
+            }};
+            constexpr std::array<float, kHilbertStages> branchB {{
+                0.479401f, 0.876218f, 0.976599f, 0.997500f,
+            }};
+            float previousWetPeak = 0.0f;
+            for (uint32_t channel = 0u; channel < channelCount; ++channel)
+                previousWetPeak = std::max(previousWetPeak,
+                    std::abs(finiteSample(
+                        state.shifterPreviousWet[channel])));
+            const float detectorCoefficient
+                = previousWetPeak >= state.shifterGovernorEnvelope
+                ? shifterGovernorAttackCoefficient_
+                : shifterGovernorReleaseCoefficient_;
+            state.shifterGovernorEnvelope += (previousWetPeak
+                - state.shifterGovernorEnvelope) * detectorCoefficient;
+
+            if (state.shifterGovernorHoldFrames > 0u) {
+                --state.shifterGovernorHoldFrames;
+                state.shifterGovernorRunFrames = 0u;
+            } else {
+                const bool sustainedRegeneration
+                    = params.shifterFeedback >= 0.55f
+                    && state.shifterGovernorEnvelope >= 0.05f
+                    && state.shifterGovernorGain >= 0.85f;
+                state.shifterGovernorRunFrames = sustainedRegeneration
+                    ? std::min<uint32_t>(shifterGovernorIntervalFrames_,
+                        state.shifterGovernorRunFrames + 1u)
+                    : 0u;
+                const bool emergency = state.shifterGovernorGain >= 0.85f
+                    && (previousWetPeak >= 4.0f
+                        || state.shifterGovernorEnvelope >= 1.75f);
+                if (emergency || state.shifterGovernorRunFrames
+                        >= shifterGovernorIntervalFrames_) {
+                    state.shifterGovernorHoldFrames
+                        = shifterGovernorHoldFrames_;
+                    state.shifterGovernorRunFrames = 0u;
+                }
+            }
+            const float governorTarget
+                = state.shifterGovernorHoldFrames > 0u ? 0.0f : 1.0f;
+            const float governorCoefficient = governorTarget
+                    < state.shifterGovernorGain
+                ? shifterGovernorAttackCoefficient_
+                : shifterGovernorRecoveryCoefficient_;
+            state.shifterGovernorGain += (governorTarget
+                - state.shifterGovernorGain) * governorCoefficient;
+            state.shifterGovernorGain = std::clamp(
+                state.shifterGovernorGain, 0.0f, 1.0f);
+
+            const float sine = std::sin(state.shifterPhase);
+            const float cosine = std::cos(state.shifterPhase);
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const float feedback = state.shifterPreviousWet[channel]
+                    * params.shifterFeedback * state.shifterGovernorGain;
+                // The soft ceiling is a final guard against numerical bursts;
+                // ordinary regeneration remains below this range unchanged.
+                const float governedFeedback = 4.0f
+                    * std::tanh(feedback * 0.25f);
+                const float input = finiteSample(samples[channel]
+                    + governedFeedback);
+                float wet = 0.0f;
+                if (params.variant == 0u) {
+                    const float inPhase = allpassCascade(input,
+                        state.shifterHilbertA[channel], branchA);
+                    const float quadrature = allpassCascade(input,
+                        state.shifterHilbertB[channel], branchB);
+                    wet = inPhase * cosine - quadrature * sine;
+                } else {
+                    float carrier = sine;
+                    if (params.shifterColor > 0.0f) {
+                        const float drive = 1.0f
+                            + params.shifterColor * 12.0f;
+                        const float colored = std::tanh(carrier * drive)
+                            / std::tanh(drive);
+                        carrier += (colored - carrier)
+                            * params.shifterColor;
+                    }
+                    wet = input * carrier;
+                }
+                if (params.variant == 0u && params.shifterColor > 0.0f) {
+                    const float drive = 1.0f
+                        + params.shifterColor * 8.0f;
+                    const float colored = std::tanh(wet * drive)
+                        / std::tanh(drive);
+                    wet += (colored - wet) * params.shifterColor;
+                }
+                wet = finiteSample(wet);
+                state.shifterPreviousWet[channel] = wet;
+                samples[channel] = finiteSample(samples[channel]
+                    + (wet - samples[channel]) * params.mix);
+            }
+            state.shifterPhase += params.shifterPhaseIncrement;
+            while (state.shifterPhase >= kTwoPi)
+                state.shifterPhase -= kTwoPi;
+            while (state.shifterPhase < 0.0f)
+                state.shifterPhase += kTwoPi;
+            break;
+        }
+        case InsertType::Wavefolder:
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                const float input = finiteSample(samples[channel]);
+                float wet = 0.0f;
+                // Four linearly interpolated substeps reduce fold/clip aliasing
+                // while retaining fixed cost and no render-thread allocation.
+                for (uint32_t substep = 1u; substep <= 4u; ++substep) {
+                    const float fraction = static_cast<float>(substep) * 0.25f;
+                    const float interpolated = state.foldPreviousInput[channel]
+                        + (input - state.foldPreviousInput[channel]) * fraction;
+                    wet += foldShape(interpolated * params.foldDrive
+                        + params.foldBias, params.variant,
+                        params.foldShape);
+                }
+                wet *= 0.25f;
+                state.foldPreviousInput[channel] = input;
+                const float dcBlocked = wet - state.foldDcInput[channel]
+                    + 0.995f * state.foldDcOutput[channel];
+                state.foldDcInput[channel] = wet;
+                state.foldDcOutput[channel] = finiteSample(dcBlocked);
+                samples[channel] = finiteSample(input
+                    + (state.foldDcOutput[channel] - input) * params.mix);
+            }
+            break;
+        case InsertType::Repeater: {
+            smoothTemporalParameters(state, params);
+            const bool onset = detectTemporalOnset(state, dry,
+                channelCount);
+            if (state.temporalPhase == 0u && onset)
+                beginTemporalCapture(state, params.temporalWindowFrames,
+                    params.variant, params.repeaterCount);
+            if (state.temporalPhase == 2u
+                && state.temporalCaptureReady) {
+                const uint32_t length = state.temporalCaptureFrames;
+                const uint32_t repeat = state.temporalPlaybackFrame / length;
+                const uint32_t frameInRepeat = state.temporalPlaybackFrame
+                    % length;
+                const bool reverse = state.temporalLatchedVariant == 1u
+                    || (state.temporalLatchedVariant == 2u
+                        && (repeat & 1u) != 0u);
+                const float repeatRate = std::pow(2.0f,
+                    -state.temporalSmoothedDecay
+                        * static_cast<float>(repeat));
+                if (frameInRepeat == 0u)
+                    state.temporalRead = reverse
+                        ? static_cast<double>(length - 1u) : 0.0;
+                state.temporalSpeed = reverse
+                    ? -static_cast<double>(repeatRate)
+                    : static_cast<double>(repeatRate);
+                const double position = std::clamp(state.temporalRead, 0.0,
+                    static_cast<double>(length - 1u));
+                const float repeatGain = std::pow(std::max(0.05f,
+                    1.0f - state.temporalSmoothedDecay * 0.12f),
+                    static_cast<float>(repeat));
+                const uint32_t totalFrames = length
+                    * state.temporalLatchedRepeaterCount;
+                const float playbackGain = temporalPlaybackEnvelope(
+                    state.temporalPlaybackFrame, totalFrames);
+                for (uint32_t channel = 0u; channel < channelCount;
+                     ++channel) {
+                    float wet = loopCrossfadedTemporal(state, channel,
+                        position, reverse) * repeatGain;
+                    const uint32_t boundaryFadeFrames
+                        = std::max<uint32_t>(2u,
+                            std::min<uint32_t>(temporalTransitionFrames_,
+                                length / 4u));
+                    if (repeat != 0u
+                        && frameInRepeat < boundaryFadeFrames) {
+                        const float blend = static_cast<float>(
+                            frameInRepeat + 1u)
+                            / static_cast<float>(boundaryFadeFrames);
+                        wet = state.temporalPreviousWet[channel]
+                            + (wet - state.temporalPreviousWet[channel])
+                                * blend;
+                    }
+                    state.temporalPreviousWet[channel] = finiteSample(wet);
+                    samples[channel] = finiteSample(dry[channel]
+                        + (wet - dry[channel])
+                            * state.temporalSmoothedMix * playbackGain);
+                }
+                state.temporalRead += state.temporalSpeed;
+                ++state.temporalPlaybackFrame;
+                if (state.temporalPlaybackFrame >= totalFrames) {
+                    state.temporalPhase = 0u;
+                    state.temporalCaptureReady = false;
+                }
+            } else {
+                applyTemporalCaptureTransition(samples, dry, channelCount,
+                    state);
+                writeTemporalFrame(state, dry, channelCount);
+                (void)advanceTemporalCapture(state);
+            }
+            break;
+        }
+        case InsertType::TimeMangler: {
+            smoothTemporalParameters(state, params);
+            const bool onset = detectTemporalOnset(state, dry,
+                channelCount);
+            if ((state.temporalPhase == 0u
+                    || (state.temporalLatchedVariant == 1u
+                        && state.temporalPhase == 2u))
+                && onset)
+                beginTemporalCapture(state, params.temporalWindowFrames,
+                    params.variant, 1u);
+            if (state.temporalPhase == 2u
+                && state.temporalCaptureReady) {
+                const uint8_t variant = state.temporalLatchedVariant;
+                const bool reverse = variant == 0u;
+                float playbackGain = std::min(1.0f,
+                    static_cast<float>(state.temporalPlaybackFrame + 1u)
+                        / static_cast<float>(temporalTransitionFrames_));
+                if (variant == 0u) {
+                    const double remainingFrames = state.temporalRead
+                        / std::max(0.0001f,
+                            state.temporalSmoothedPitchRatio);
+                    playbackGain = std::min(playbackGain,
+                        static_cast<float>(std::clamp(remainingFrames
+                            / std::max(2.0f,
+                                state.temporalSmoothedReverseReleaseFrames),
+                            0.0, 1.0)));
+                } else if (variant == 1u) {
+                    const uint32_t decayFrames = std::max<uint32_t>(2u,
+                        static_cast<uint32_t>(std::lround(
+                            state.temporalSmoothedFreezeDecayFrames)));
+                    playbackGain = std::min(playbackGain,
+                        std::max(0.0f, 1.0f
+                            - static_cast<float>(
+                                state.temporalPlaybackFrame)
+                                / static_cast<float>(decayFrames)));
+                } else {
+                    const uint32_t limit = state.temporalCaptureFrames * 4u;
+                    playbackGain = std::min(playbackGain,
+                        temporalPlaybackEnvelope(
+                            state.temporalPlaybackFrame, limit));
+                    const double remainingFrames = (static_cast<double>(
+                        state.temporalCaptureFrames - 1u)
+                            - state.temporalRead)
+                        / std::max(0.0001, state.temporalSpeed);
+                    playbackGain = std::min(playbackGain,
+                        static_cast<float>(std::clamp(remainingFrames
+                            / static_cast<double>(
+                                temporalTransitionFrames_), 0.0, 1.0)));
+                }
+                for (uint32_t channel = 0u; channel < channelCount;
+                     ++channel) {
+                    const float wet = variant == 2u
+                        ? readTemporal(state, channel, state.temporalRead)
+                        : loopCrossfadedTemporal(state, channel,
+                            state.temporalRead, reverse);
+                    state.temporalPreviousWet[channel] = finiteSample(wet);
+                    samples[channel] = finiteSample(dry[channel]
+                        + (wet - dry[channel])
+                            * state.temporalSmoothedMix * playbackGain);
+                }
+                if (variant == 2u) {
+                    const double brake = std::exp(
+                        -static_cast<double>(
+                            state.temporalSmoothedBrake) * 5.0
+                            / static_cast<double>(
+                                state.temporalCaptureFrames));
+                    state.temporalTapeRateScale *= static_cast<float>(brake);
+                    state.temporalSpeed
+                        = state.temporalSmoothedPitchRatio
+                            * state.temporalTapeRateScale;
+                    const double next = state.temporalRead
+                        + state.temporalSpeed;
+                    ++state.temporalPlaybackFrame;
+                    if (next >= static_cast<double>(
+                            state.temporalCaptureFrames - 1u)
+                        || state.temporalPlaybackFrame
+                            >= state.temporalCaptureFrames * 4u) {
+                        state.temporalPhase = 0u;
+                        state.temporalCaptureReady = false;
+                    } else {
+                        state.temporalRead = next;
+                    }
+                } else if (variant == 1u) {
+                    state.temporalSpeed
+                        = state.temporalSmoothedPitchRatio;
+                    state.temporalRead += state.temporalSpeed;
+                    const double length = static_cast<double>(
+                        state.temporalCaptureFrames);
+                    state.temporalRead = std::fmod(state.temporalRead,
+                        length);
+                    if (state.temporalRead < 0.0)
+                        state.temporalRead += length;
+                    ++state.temporalPlaybackFrame;
+                    if (state.temporalPlaybackFrame >= static_cast<uint32_t>(
+                            std::max(2.0f,
+                                state.temporalSmoothedFreezeDecayFrames))) {
+                        state.temporalPhase = 0u;
+                        state.temporalCaptureReady = false;
+                    }
+                } else {
+                    state.temporalSpeed = -static_cast<double>(
+                        state.temporalSmoothedPitchRatio);
+                    state.temporalRead += state.temporalSpeed;
+                    ++state.temporalPlaybackFrame;
+                    if (state.temporalRead < 0.0) {
+                        state.temporalPhase = 0u;
+                        state.temporalCaptureReady = false;
+                    }
+                }
+            } else {
+                applyTemporalCaptureTransition(samples, dry, channelCount,
+                    state);
+                writeTemporalFrame(state, dry, channelCount);
+                if (advanceTemporalCapture(state)) {
+                    state.temporalRead
+                        = state.temporalLatchedVariant == 0u
+                        ? static_cast<double>(
+                            state.temporalCaptureFrames - 1u) : 0.0;
+                    state.temporalSpeed
+                        = state.temporalLatchedVariant == 0u
+                        ? -static_cast<double>(
+                            state.temporalSmoothedPitchRatio)
+                        : static_cast<double>(
+                            state.temporalSmoothedPitchRatio);
+                    state.temporalTapeRateScale = 1.0f;
+                }
+            }
+            break;
+        }
         case InsertType::Off: break;
         }
-        if (params.bypassed) {
+        if (params.bypassed && params.type != InsertType::Repeater
+            && params.type != InsertType::TimeMangler) {
             for (uint32_t channel = 0u; channel < channelCount; ++channel)
                 samples[channel] = dry[channel];
         }
@@ -1771,6 +2647,7 @@ private:
         kMaximumSampleSlots> mixerFilters_ {};
     std::array<std::array<InsertProcessorState, kInsertSlotsPerStrip>,
         kMaximumSampleSlots> insertStates_ {};
+    std::unique_ptr<float[]> temporalBuffer_;
     s3g::BreakBus auxProcessor_ {};
     double sampleRate_ = 48000.0;
     uint64_t voiceAge_ = 0u;
@@ -1778,6 +2655,16 @@ private:
     uint32_t chokeReleaseFrames_ = 96u;
     float lowCoefficient_ = 0.02f;
     float highCoefficient_ = 0.35f;
+    float temporalFastReleaseCoefficient_ = 0.002f;
+    float temporalSlowAttackCoefficient_ = 0.001f;
+    float temporalSlowReleaseCoefficient_ = 0.0001f;
+    float temporalParameterCoefficient_ = 0.001f;
+    uint32_t temporalTransitionFrames_ = 240u;
+    float shifterGovernorAttackCoefficient_ = 0.01f;
+    float shifterGovernorReleaseCoefficient_ = 0.0001f;
+    float shifterGovernorRecoveryCoefficient_ = 0.0001f;
+    uint32_t shifterGovernorIntervalFrames_ = 36000u;
+    uint32_t shifterGovernorHoldFrames_ = 1440u;
     float auxActivity_ = 0.0f;
     float auxGainReductionDb_ = 0.0f;
     bool prepared_ = false;

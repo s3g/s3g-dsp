@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 #include <sstream>
 #include <utility>
@@ -56,12 +57,12 @@ constexpr std::array<InstrumentSlot, 3u>
 CommandResult success(std::string message,
     CommandEffect effects = CommandEffect::None)
 {
-    return { true, effects, std::move(message) };
+    return { true, effects, std::move(message), std::nullopt };
 }
 
 CommandResult failure(std::string message)
 {
-    return { false, CommandEffect::None, std::move(message) };
+    return { false, CommandEffect::None, std::move(message), std::nullopt };
 }
 
 std::string asciiLower(std::string_view value)
@@ -1182,17 +1183,674 @@ bool noteCellIsHit(const NoteCell& cell) noexcept
         || cell.state == NoteCellState::RetriggerPrevious;
 }
 
-double nextCommandRandom(TrackerSession& session) noexcept
+double nextRandom(uint64_t& state) noexcept
 {
-    auto value = session.commandRngState;
+    auto value = state;
     if (value == 0u) value = 0x9e3779b97f4a7c15ull;
     value ^= value >> 12u;
     value ^= value << 25u;
     value ^= value >> 27u;
-    session.commandRngState = value;
+    state = value;
     const uint64_t bits = value * 2685821657736338717ull;
     return static_cast<double>(bits >> 11u)
         * (1.0 / 9007199254740992.0);
+}
+
+double nextCommandRandom(TrackerSession& session) noexcept
+{
+    return nextRandom(session.commandRngState);
+}
+
+uint64_t stableSeedState(std::string_view seed) noexcept
+{
+    uint64_t state = 14695981039346656037ull;
+    for (const auto character : seed) {
+        state ^= static_cast<uint8_t>(character);
+        state *= 1099511628211ull;
+    }
+    state ^= state >> 30u;
+    state *= 0xbf58476d1ce4e5b9ull;
+    state ^= state >> 27u;
+    state *= 0x94d049bb133111ebull;
+    state ^= state >> 31u;
+    return state == 0u ? 0x9e3779b97f4a7c15ull : state;
+}
+
+std::size_t randomIndex(uint64_t& state, std::size_t count) noexcept
+{
+    if (count <= 1u) return 0u;
+    return std::min(count - 1u,
+        static_cast<std::size_t>(nextRandom(state)
+            * static_cast<double>(count)));
+}
+
+bool randomChance(uint64_t& state, double probability) noexcept
+{
+    return nextRandom(state) < probability;
+}
+
+enum class DrumRole : uint8_t {
+    None,
+    Kick,
+    Snare,
+    Hat,
+    OpenHat,
+    Tom,
+    Crash,
+    Ride,
+};
+
+bool aliasTargetsLane(const TrackerSession& session, std::string_view name,
+    std::size_t lane) noexcept
+{
+    const auto found = session.aliases.find(std::string(name));
+    return found != session.aliases.end() && found->second == lane;
+}
+
+DrumRole drumRoleForLane(const TrackerSession& session,
+    std::size_t lane)
+{
+    const auto hasAlias = [&](std::string_view name) {
+        return aliasTargetsLane(session, name, lane);
+    };
+    const auto name = asciiLower(session.pattern.tracks[lane].name);
+    const auto contains = [&](std::string_view token) {
+        return name.find(token) != std::string::npos;
+    };
+
+    if (hasAlias("ohh") || hasAlias("open") || contains("open hat"))
+        return DrumRole::OpenHat;
+    if (hasAlias("kik") || hasAlias("kick") || hasAlias("bd")
+        || contains("kick"))
+        return DrumRole::Kick;
+    if (hasAlias("snr") || hasAlias("snare") || contains("snare"))
+        return DrumRole::Snare;
+    if (hasAlias("chh") || hasAlias("hat") || contains("closed hat"))
+        return DrumRole::Hat;
+    if (hasAlias("lt") || hasAlias("mt") || hasAlias("ht")
+        || hasAlias("ft") || contains("tom"))
+        return DrumRole::Tom;
+    if (hasAlias("cr1") || hasAlias("crash") || contains("crash"))
+        return DrumRole::Crash;
+    if (hasAlias("rd1") || hasAlias("ride") || contains("ride"))
+        return DrumRole::Ride;
+    return DrumRole::None;
+}
+
+constexpr std::array<std::size_t, 8u> kGeneratedLengths {
+    5u, 7u, 8u, 9u, 11u, 13u, 16u, 21u,
+};
+
+std::array<ColumnDefinition*, 7u> trackColumns(Track& track) noexcept
+{
+    return { &track.noteColumn, &track.instrumentColumn,
+        &track.velocityColumn, &track.fxPairs[0u].actionColumn,
+        &track.fxPairs[0u].valueColumn,
+        &track.fxPairs[1u].actionColumn,
+        &track.fxPairs[1u].valueColumn };
+}
+
+Direction generatedDirection(uint64_t& rng) noexcept
+{
+    const auto choice = randomIndex(rng, 5u);
+    if (choice < 3u) return Direction::Forward;
+    return choice == 3u ? Direction::Reverse : Direction::Random;
+}
+
+void generateColumnStructure(ColumnDefinition& column, double chaos,
+    uint64_t& rng) noexcept
+{
+    column.length = kGeneratedLengths[randomIndex(rng,
+        kGeneratedLengths.size())];
+    column.stride = randomChance(rng, chaos * 0.35)
+        ? static_cast<uint32_t>(2u + randomIndex(rng, 2u)) : 1u;
+    column.direction = generatedDirection(rng);
+    column.phase = randomIndex(rng, column.length);
+}
+
+uint8_t generatedNote(const TrackerSession& session, std::size_t lane,
+    DrumRole role, double chaos, uint64_t& rng) noexcept
+{
+    const auto anchor = lane < session.laneDefaultNotes.size()
+        ? session.laneDefaultNotes[lane] : anchorNote(session, lane);
+    if (role != DrumRole::None) return anchor;
+    if (!randomChance(rng, chaos)) return anchor;
+    constexpr std::array<int, 9u> offsets {
+        -12, -7, -5, -2, 0, 2, 5, 7, 12,
+    };
+    const auto shifted = static_cast<int>(anchor)
+        + offsets[randomIndex(rng, offsets.size())];
+    return static_cast<uint8_t>(std::clamp(shifted, 0, 127));
+}
+
+NoteCell generatedNoteCell(const TrackerSession& session, std::size_t lane,
+    DrumRole role, double density, double chaos, double symbols,
+    uint64_t& rng) noexcept
+{
+    if (randomChance(rng, symbols * 0.12)) {
+        const auto symbol = randomIndex(rng, 3u);
+        if (symbol == 0u) return NoteCell::retriggerPrevious();
+        if (symbol == 1u) return NoteCell::kill();
+        return NoteCell::rest();
+    }
+    if (!randomChance(rng, density)) return NoteCell::rest();
+    return NoteCell::withNote(generatedNote(session, lane, role, chaos, rng));
+}
+
+InstrumentCell generatedInstrumentCell(const Track& track, double symbols,
+    uint64_t& rng) noexcept
+{
+    if (randomChance(rng, symbols * 0.12)) {
+        return randomChance(rng, 0.5) ? InstrumentCell::previous()
+                                      : InstrumentCell::empty();
+    }
+    if (!randomChance(rng, 0.92)
+        || track.initialInstrumentNodeId == kInvalidInstrumentNode)
+        return InstrumentCell::empty();
+    return InstrumentCell::withInstrument(track.initialInstrumentNodeId);
+}
+
+ValueCell generatedVelocityCell(double symbols, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, symbols)) {
+        return randomChance(rng, 0.5) ? ValueCell::previous()
+                                      : ValueCell::defaultValue();
+    }
+    return ValueCell::withValue(static_cast<float>(
+        0.25 + nextRandom(rng) * 0.75));
+}
+
+FxActionCell randomSupportedFxAction(uint64_t& rng) noexcept
+{
+    const auto* action = sequencerAction(randomIndex(rng,
+        sequencerActionCount()));
+    return action ? FxActionCell::sequencer(action->action)
+                  : FxActionCell::empty();
+}
+
+FxActionCell generatedFxActionCell(double density, double chaos,
+    double symbols, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, symbols * 0.12))
+        return FxActionCell::previous();
+    if (!randomChance(rng, density * (0.45 + chaos * 0.45)))
+        return FxActionCell::empty();
+    return randomSupportedFxAction(rng);
+}
+
+FxValueCell generatedFxValueCell(double symbols, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, symbols)) return FxValueCell::previous();
+    return FxValueCell::withValue(static_cast<float>(nextRandom(rng)));
+}
+
+void generateWholePattern(TrackerSession& session, double density,
+    double chaos, double symbols, uint64_t& rng)
+{
+    const auto existingDefaultCount = session.laneDefaultNotes.size();
+    ensureLaneDefaultNotes(session);
+    for (std::size_t lane = existingDefaultCount;
+         lane < session.pattern.tracks.size(); ++lane) {
+        const auto found = std::find_if(
+            session.pattern.tracks[lane].notes.begin(),
+            session.pattern.tracks[lane].notes.end(),
+            [](const NoteCell& cell) {
+                return cell.state == NoteCellState::Note;
+            });
+        if (found != session.pattern.tracks[lane].notes.end())
+            session.laneDefaultNotes[lane] = found->note;
+    }
+    auto rows = std::max<std::size_t>(session.pattern.visibleRows, 1u);
+    for (auto& track : session.pattern.tracks) {
+        for (auto* column : trackColumns(track)) {
+            generateColumnStructure(*column, chaos, rng);
+            rows = std::max(rows, column->length);
+        }
+    }
+    session.pattern.visibleRows = rows;
+
+    for (std::size_t lane = 0u; lane < session.pattern.tracks.size(); ++lane) {
+        auto& track = session.pattern.tracks[lane];
+        const auto role = drumRoleForLane(session, lane);
+        track.notes.clear();
+        track.notes.reserve(rows);
+        track.instruments.clear();
+        track.instruments.reserve(rows);
+        track.velocities.clear();
+        track.velocities.reserve(rows);
+        for (auto& pair : track.fxPairs) {
+            pair.actions.clear();
+            pair.actions.reserve(rows);
+            pair.values.clear();
+            pair.values.reserve(rows);
+        }
+
+        for (std::size_t row = 0u; row < rows; ++row) {
+            track.notes.push_back(generatedNoteCell(session, lane, role,
+                density, chaos, symbols, rng));
+            track.instruments.push_back(generatedInstrumentCell(track,
+                symbols, rng));
+            track.velocities.push_back(generatedVelocityCell(symbols, rng));
+            for (auto& pair : track.fxPairs) {
+                pair.actions.push_back(generatedFxActionCell(density, chaos,
+                    symbols, rng));
+                pair.values.push_back(generatedFxValueCell(symbols, rng));
+            }
+        }
+    }
+}
+
+enum class NativeMutationScope : uint8_t {
+    All,
+    Notes,
+    Drums,
+    Values,
+    Fx,
+    Symbols,
+    Structure,
+    Meta,
+};
+
+bool parseMutationScope(std::string_view token,
+    NativeMutationScope& scope) noexcept
+{
+    const auto value = asciiLower(token);
+    if (value == "all") scope = NativeMutationScope::All;
+    else if (value == "notes" || value == "note" || value == "n"
+        || value == "rhythm" || value == "rhythms" || value == "r")
+        scope = NativeMutationScope::Notes;
+    else if (value == "drums" || value == "drum" || value == "d")
+        scope = NativeMutationScope::Drums;
+    else if (value == "values" || value == "value" || value == "val"
+        || value == "v")
+        scope = NativeMutationScope::Values;
+    else if (value == "fx" || value == "effect" || value == "effects"
+        || value == "f")
+        scope = NativeMutationScope::Fx;
+    else if (value == "symbols" || value == "symbol" || value == "sym")
+        scope = NativeMutationScope::Symbols;
+    else if (value == "structure" || value == "struct")
+        scope = NativeMutationScope::Structure;
+    else if (value == "meta") scope = NativeMutationScope::Meta;
+    else return false;
+    return true;
+}
+
+std::string_view mutationScopeName(NativeMutationScope scope) noexcept
+{
+    switch (scope) {
+    case NativeMutationScope::All: return "all";
+    case NativeMutationScope::Notes: return "notes";
+    case NativeMutationScope::Drums: return "drums";
+    case NativeMutationScope::Values: return "values";
+    case NativeMutationScope::Fx: return "fx";
+    case NativeMutationScope::Symbols: return "symbols";
+    case NativeMutationScope::Structure: return "structure";
+    case NativeMutationScope::Meta: return "meta";
+    }
+    return "all";
+}
+
+void mutateColumnStructure(ColumnDefinition& column, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, 0.55)) {
+        column.length = kGeneratedLengths[randomIndex(rng,
+            kGeneratedLengths.size())];
+    }
+    if (randomChance(rng, 0.35)) {
+        constexpr std::array<uint32_t, 5u> strides { 1u, 1u, 1u, 2u, 3u };
+        column.stride = strides[randomIndex(rng, strides.size())];
+    }
+    if (randomChance(rng, 0.35)) column.direction = generatedDirection(rng);
+    column.phase = column.length == 0u ? 0u : column.phase % column.length;
+}
+
+NoteCell mutatedNoteCell(const TrackerSession& session, std::size_t lane,
+    DrumRole role, const NoteCell& cell, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, 0.18)) {
+        const auto symbol = randomIndex(rng, 3u);
+        if (symbol == 0u) return NoteCell::rest();
+        if (symbol == 1u) return NoteCell::retriggerPrevious();
+        return NoteCell::kill();
+    }
+    if (role != DrumRole::None)
+        return NoteCell::withNote(anchorNote(session, lane));
+    const auto source = cell.state == NoteCellState::Note
+        ? cell.note : anchorNote(session, lane);
+    constexpr std::array<int, 6u> offsets { -7, -5, -2, 2, 5, 7 };
+    const auto shifted = static_cast<int>(source)
+        + offsets[randomIndex(rng, offsets.size())];
+    return NoteCell::withNote(static_cast<uint8_t>(
+        std::clamp(shifted, 0, 127)));
+}
+
+ValueCell mutatedValueCell(const ValueCell& cell, uint64_t& rng) noexcept
+{
+    if (randomChance(rng, 0.22)) {
+        return randomChance(rng, 0.5) ? ValueCell::previous()
+                                      : ValueCell::defaultValue();
+    }
+    const auto base = cell.state == ValueCellState::Value
+        ? static_cast<double>(cell.normalized) : nextRandom(rng);
+    return ValueCell::withValue(static_cast<float>(std::clamp(
+        base + (nextRandom(rng) - 0.5) * 0.35, 0.0, 1.0)));
+}
+
+FxValueCell mutatedFxValueCell(const FxValueCell& cell,
+    uint64_t& rng) noexcept
+{
+    if (randomChance(rng, 0.22)) return FxValueCell::previous();
+    const auto base = cell.state == FxValueCellState::Value
+        ? static_cast<double>(cell.normalized) : nextRandom(rng);
+    return FxValueCell::withValue(static_cast<float>(std::clamp(
+        base + (nextRandom(rng) - 0.5) * 0.35, 0.0, 1.0)));
+}
+
+NoteCell mutatedNoteSymbol(const NoteCell& cell, uint64_t& rng) noexcept
+{
+    const auto symbol = randomIndex(rng, 3u);
+    if (symbol == 0u) return NoteCell::retriggerPrevious();
+    if (symbol == 1u) return NoteCell::kill();
+    return cell;
+}
+
+InstrumentCell mutatedInstrumentSymbol(const InstrumentCell& cell,
+    uint64_t& rng) noexcept
+{
+    const auto symbol = randomIndex(rng, 3u);
+    if (symbol == 0u) return InstrumentCell::empty();
+    if (symbol == 1u) return InstrumentCell::previous();
+    return cell;
+}
+
+ValueCell mutatedValueSymbol(const ValueCell& cell,
+    uint64_t& rng) noexcept
+{
+    const auto symbol = randomIndex(rng, 3u);
+    if (symbol == 0u) return ValueCell::defaultValue();
+    if (symbol == 1u) return ValueCell::previous();
+    return cell;
+}
+
+FxActionCell mutatedFxActionSymbol(const FxActionCell& cell,
+    uint64_t& rng) noexcept
+{
+    const auto symbol = randomIndex(rng, 3u);
+    if (symbol == 0u) return FxActionCell::empty();
+    if (symbol == 1u) return FxActionCell::previous();
+    return cell;
+}
+
+FxValueCell mutatedFxValueSymbol(const FxValueCell& cell,
+    uint64_t& rng) noexcept
+{
+    return randomChance(rng, 0.5) ? FxValueCell::previous() : cell;
+}
+
+std::size_t mutateWholePattern(TrackerSession& session, double amount,
+    NativeMutationScope scope, uint64_t& rng)
+{
+    ensureLaneDefaultNotes(session);
+    std::size_t changed = 0u;
+    for (std::size_t lane = 0u; lane < session.pattern.tracks.size(); ++lane) {
+        auto& track = session.pattern.tracks[lane];
+        const auto role = drumRoleForLane(session, lane);
+        if (scope == NativeMutationScope::Drums && role == DrumRole::None)
+            continue;
+
+        if (scope == NativeMutationScope::All
+            || scope == NativeMutationScope::Structure) {
+            for (auto* column : trackColumns(track)) {
+                if (!randomChance(rng, amount * 0.35)) continue;
+                mutateColumnStructure(*column, rng);
+                ++changed;
+            }
+        }
+
+        ensureNoteStorage(session, track, track.noteColumn.length);
+        ensureInstrumentStorage(session, track, track.instrumentColumn.length);
+        ensureVelocityStorage(session, track, track.velocityColumn.length);
+        for (auto& pair : track.fxPairs) {
+            ensureFxStorage(session, pair, true, pair.actionColumn.length);
+            ensureFxStorage(session, pair, false, pair.valueColumn.length);
+        }
+
+        const bool mutateNotes = scope == NativeMutationScope::All
+            || scope == NativeMutationScope::Notes
+            || scope == NativeMutationScope::Drums
+            || scope == NativeMutationScope::Symbols;
+        if (mutateNotes) {
+            for (std::size_t row = 0u; row < track.noteColumn.length; ++row) {
+                if (!randomChance(rng, amount)) continue;
+                track.notes[row] = scope == NativeMutationScope::Symbols
+                    ? mutatedNoteSymbol(track.notes[row], rng)
+                    : mutatedNoteCell(session, lane, role, track.notes[row], rng);
+                ++changed;
+            }
+        }
+
+        const bool mutateMeta = scope == NativeMutationScope::All
+            || scope == NativeMutationScope::Meta
+            || scope == NativeMutationScope::Symbols;
+        if (mutateMeta) {
+            for (std::size_t row = 0u;
+                 row < track.instrumentColumn.length; ++row) {
+                if (!randomChance(rng, amount)) continue;
+                if (scope == NativeMutationScope::Symbols) {
+                    track.instruments[row] = mutatedInstrumentSymbol(
+                        track.instruments[row], rng);
+                } else if (track.initialInstrumentNodeId
+                    == kInvalidInstrumentNode) {
+                    track.instruments[row] = InstrumentCell::empty();
+                } else {
+                    track.instruments[row] = InstrumentCell::withInstrument(
+                        track.initialInstrumentNodeId);
+                }
+                ++changed;
+            }
+        }
+
+        const bool mutateValues = scope == NativeMutationScope::All
+            || scope == NativeMutationScope::Values
+            || scope == NativeMutationScope::Symbols;
+        if (mutateValues) {
+            for (std::size_t row = 0u;
+                 row < track.velocityColumn.length; ++row) {
+                if (!randomChance(rng, amount)) continue;
+                track.velocities[row] = scope == NativeMutationScope::Symbols
+                    ? mutatedValueSymbol(track.velocities[row], rng)
+                    : mutatedValueCell(track.velocities[row], rng);
+                ++changed;
+            }
+        }
+
+        for (auto& pair : track.fxPairs) {
+            const bool mutateFx = scope == NativeMutationScope::All
+                || scope == NativeMutationScope::Fx
+                || scope == NativeMutationScope::Symbols;
+            if (mutateFx) {
+                for (std::size_t row = 0u;
+                     row < pair.actionColumn.length; ++row) {
+                    if (!randomChance(rng, amount)) continue;
+                    pair.actions[row] = scope == NativeMutationScope::Symbols
+                        ? mutatedFxActionSymbol(pair.actions[row], rng)
+                        : (randomChance(rng, 0.25)
+                            ? FxActionCell::empty()
+                            : randomSupportedFxAction(rng));
+                    ++changed;
+                }
+            }
+            if (mutateValues) {
+                for (std::size_t row = 0u;
+                     row < pair.valueColumn.length; ++row) {
+                    if (!randomChance(rng, amount)) continue;
+                    pair.values[row] = scope == NativeMutationScope::Symbols
+                        ? mutatedFxValueSymbol(pair.values[row], rng)
+                        : mutatedFxValueCell(pair.values[row], rng);
+                    ++changed;
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+void setDrumSteps(std::vector<bool>& pattern,
+    std::initializer_list<std::size_t> steps)
+{
+    for (const auto step : steps)
+        pattern[step % pattern.size()] = true;
+}
+
+void setDrumEvery(std::vector<bool>& pattern, std::size_t every,
+    std::size_t offset)
+{
+    for (std::size_t row = 0u; row < pattern.size(); ++row) {
+        if ((row + every - (offset % every)) % every == 0u)
+            pattern[row] = true;
+    }
+}
+
+void setDrumProbability(std::vector<bool>& pattern, double amount,
+    uint64_t& rng)
+{
+    for (std::size_t row = 0u; row < pattern.size(); ++row)
+        pattern[row] = randomChance(rng, amount);
+}
+
+void addDrumProbability(std::vector<bool>& pattern, double amount,
+    uint64_t& rng)
+{
+    for (std::size_t row = 0u; row < pattern.size(); ++row) {
+        if (!pattern[row] && randomChance(rng, amount)) pattern[row] = true;
+    }
+}
+
+void thinDrumPattern(std::vector<bool>& pattern, double amount,
+    uint64_t& rng)
+{
+    for (std::size_t row = 0u; row < pattern.size(); ++row) {
+        if (pattern[row] && randomChance(rng, amount)) pattern[row] = false;
+    }
+}
+
+std::size_t drumSceneLength(std::string_view scene, DrumRole role) noexcept
+{
+    if (scene == "broken") {
+        if (role == DrumRole::Hat) return 15u;
+        if (role == DrumRole::Tom) return 13u;
+        if (role == DrumRole::Ride) return 21u;
+    }
+    if (scene == "ritual") {
+        if (role == DrumRole::Kick) return 9u;
+        if (role == DrumRole::Snare) return 11u;
+        if (role == DrumRole::Tom) return 13u;
+        if (role == DrumRole::Hat || role == DrumRole::OpenHat) return 8u;
+    }
+    if (scene == "blast" && role == DrumRole::Hat) return 32u;
+    return 16u;
+}
+
+std::vector<bool> makeDrumScenePattern(std::string_view scene,
+    DrumRole role, std::size_t length, uint64_t& rng)
+{
+    std::vector<bool> pattern(length, false);
+    if (scene == "techno") {
+        if (role == DrumRole::Kick) setDrumEvery(pattern, 4u, 0u);
+        else if (role == DrumRole::Snare) setDrumSteps(pattern, { 4u, 12u });
+        else if (role == DrumRole::Hat) setDrumEvery(pattern, 2u, 0u);
+        else if (role == DrumRole::OpenHat) setDrumSteps(pattern, { 6u, 14u });
+        else if (role == DrumRole::Tom) setDrumProbability(pattern, 0.12, rng);
+        else if (role == DrumRole::Crash) setDrumSteps(pattern, { 0u });
+        else if (role == DrumRole::Ride) setDrumEvery(pattern, 4u, 2u);
+        else setDrumProbability(pattern, 0.18, rng);
+        addDrumProbability(pattern,
+            role == DrumRole::Kick ? 0.05
+            : role == DrumRole::Hat ? 0.08 : 0.04,
+            rng);
+        if (length > 8u && randomChance(rng, 0.4))
+            pattern[length - 1u] = role == DrumRole::Kick
+                || role == DrumRole::Tom;
+    } else if (scene == "sparse") {
+        if (role == DrumRole::Kick) setDrumSteps(pattern, { 0u, 10u });
+        else if (role == DrumRole::Snare) setDrumSteps(pattern, { 8u });
+        else if (role == DrumRole::Hat) setDrumEvery(pattern, 4u, 2u);
+        else if (role == DrumRole::OpenHat) setDrumProbability(pattern, 0.08, rng);
+        else if (role == DrumRole::Tom) setDrumProbability(pattern, 0.10, rng);
+        else if (role == DrumRole::Crash) setDrumProbability(pattern, 0.06, rng);
+        else if (role == DrumRole::Ride) setDrumEvery(pattern, 8u, 4u);
+        else setDrumProbability(pattern, 0.10, rng);
+        addDrumProbability(pattern, 0.035, rng);
+    } else if (scene == "blast") {
+        if (role == DrumRole::Kick) setDrumEvery(pattern, 2u, 0u);
+        else if (role == DrumRole::Snare) setDrumEvery(pattern, 4u, 2u);
+        else if (role == DrumRole::Hat) setDrumEvery(pattern, 1u, 0u);
+        else if (role == DrumRole::OpenHat) setDrumEvery(pattern, 8u, 6u);
+        else if (role == DrumRole::Tom) setDrumProbability(pattern, 0.28, rng);
+        else if (role == DrumRole::Crash) setDrumSteps(pattern, { 0u, 8u });
+        else if (role == DrumRole::Ride) setDrumEvery(pattern, 2u, 1u);
+        else setDrumProbability(pattern, 0.25, rng);
+        thinDrumPattern(pattern, role == DrumRole::Hat ? 0.08 : 0.04, rng);
+    } else if (scene == "ritual") {
+        if (role == DrumRole::Kick) setDrumSteps(pattern, { 0u, 4u, 7u });
+        else if (role == DrumRole::Snare) setDrumSteps(pattern, { 3u, 8u });
+        else if (role == DrumRole::Hat) setDrumEvery(pattern, 2u, 0u);
+        else if (role == DrumRole::OpenHat) setDrumSteps(pattern, { 5u });
+        else if (role == DrumRole::Tom) setDrumSteps(pattern, { 0u, 5u, 8u });
+        else if (role == DrumRole::Crash) setDrumSteps(pattern, { 0u });
+        else if (role == DrumRole::Ride) setDrumEvery(pattern, 3u, 0u);
+        else setDrumProbability(pattern, 0.18, rng);
+        addDrumProbability(pattern, 0.04, rng);
+    } else {
+        if (role == DrumRole::Kick) setDrumSteps(pattern, { 0u, 3u, 7u, 10u });
+        else if (role == DrumRole::Snare) setDrumSteps(pattern, { 5u, 11u });
+        else if (role == DrumRole::Hat) setDrumEvery(pattern, 3u, 0u);
+        else if (role == DrumRole::OpenHat) setDrumSteps(pattern, { 8u });
+        else if (role == DrumRole::Tom) setDrumProbability(pattern, 0.22, rng);
+        else if (role == DrumRole::Crash) setDrumSteps(pattern, { 0u });
+        else if (role == DrumRole::Ride) setDrumEvery(pattern, 5u, 2u);
+        else setDrumProbability(pattern, 0.16, rng);
+        addDrumProbability(pattern, 0.10, rng);
+        thinDrumPattern(pattern, role == DrumRole::Hat ? 0.12 : 0.06, rng);
+    }
+    return pattern;
+}
+
+std::size_t applyDrumScene(TrackerSession& session, std::string_view scene,
+    std::string_view seed)
+{
+    const auto saltedSeed = std::string("drumscene:") + std::string(scene)
+        + ':' + std::string(seed);
+    auto rng = stableSeedState(saltedSeed);
+    auto rows = session.pattern.visibleRows;
+    std::size_t used = 0u;
+    for (std::size_t lane = 0u; lane < session.pattern.tracks.size(); ++lane) {
+        const auto role = drumRoleForLane(session, lane);
+        if (role == DrumRole::None) continue;
+        rows = std::max(rows, drumSceneLength(scene, role));
+        ++used;
+    }
+    session.pattern.visibleRows = rows;
+
+    for (std::size_t lane = 0u; lane < session.pattern.tracks.size(); ++lane) {
+        const auto role = drumRoleForLane(session, lane);
+        if (role == DrumRole::None) continue;
+        auto& track = session.pattern.tracks[lane];
+        const auto length = drumSceneLength(scene, role);
+        const auto pattern = makeDrumScenePattern(scene, role, length, rng);
+        track.noteColumn.length = length;
+        track.noteColumn.stride = 1u;
+        track.noteColumn.direction = Direction::Forward;
+        track.noteColumn.phase %= length;
+        track.notes.resize(rows, NoteCell::rest());
+        const auto note = anchorNote(session, lane);
+        for (std::size_t row = 0u; row < rows; ++row) {
+            track.notes[row] = pattern[row % length]
+                ? NoteCell::withNote(note) : NoteCell::rest();
+        }
+    }
+    return used;
 }
 
 bool parseOptionalNoteField(const std::vector<std::string>& tokens,
@@ -1352,6 +2010,181 @@ CommandResult executeTokens(TrackerSession& session,
             stream << "; muted " << retainedLanes << " retained lane"
                    << (retainedLanes == 1u ? "" : "s");
         stream << '.';
+        return success(stream.str(), CommandEffect::PatternChanged);
+    }
+    if (verb == "variation" || verb == "vary") {
+        if (tokens.size() < 2u) {
+            return failure("Usage: variation <generate|generateseed|scene|mutate|drumscene> ... [launch <tick|beat|cycle>]");
+        }
+        auto generatorEnd = tokens.size();
+        PatternVariationLaunch launch = PatternVariationLaunch::None;
+        if (tokens.size() >= 4u
+            && asciiLower(tokens[tokens.size() - 2u]) == "launch") {
+            const auto quantization = asciiLower(tokens.back());
+            if (quantization == "tick")
+                launch = PatternVariationLaunch::NextTick;
+            else if (quantization == "beat")
+                launch = PatternVariationLaunch::NextBeat;
+            else if (quantization == "cycle"
+                || quantization == "pattern")
+                launch = PatternVariationLaunch::NextPatternCycle;
+            else {
+                return failure("Variation launch must be tick, beat, or cycle.");
+            }
+            generatorEnd -= 2u;
+        }
+        std::vector<std::string> generatorTokens(tokens.begin() + 1,
+            tokens.begin() + static_cast<std::ptrdiff_t>(generatorEnd));
+        if (generatorTokens.empty())
+            return failure("Variation requires a generation or mutation command.");
+        const auto generatorVerb = asciiLower(generatorTokens.front());
+        if (generatorVerb != "generate" && generatorVerb != "generateseed"
+            && generatorVerb != "scene" && generatorVerb != "mutate"
+            && generatorVerb != "drumscene") {
+            return failure("Variation accepts generate, generateseed, scene, mutate, or drumscene.");
+        }
+
+        TrackerSession generated = session;
+        auto generatedResult = executeTokens(generated, generatorTokens);
+        if (!generatedResult.ok) return generatedResult;
+        if (!generatedResult.hasEffect(CommandEffect::PatternChanged))
+            return failure("Variation command did not generate a pattern.");
+        normalizeColumnPhases(generated.pattern);
+        session.commandRngState = generated.commandRngState;
+
+        PatternVariationRequest request;
+        request.generatedSession = std::move(generated);
+        request.launch = launch;
+        request.sourceCommand = joinWords(generatorTokens, 0u);
+        std::ostringstream stream;
+        stream << "Prepared bank variation from " << request.sourceCommand;
+        if (launch == PatternVariationLaunch::NextTick)
+            stream << " for next-tick launch";
+        else if (launch == PatternVariationLaunch::NextBeat)
+            stream << " for next-beat launch";
+        else if (launch == PatternVariationLaunch::NextPatternCycle)
+            stream << " for next-cycle launch";
+        stream << '.';
+        auto result = success(stream.str(), CommandEffect::ProjectChanged);
+        result.patternVariation = std::move(request);
+        return result;
+    }
+    if (verb == "generate" || verb == "generateseed") {
+        const bool seeded = verb == "generateseed";
+        const auto expectedWithoutParameters = seeded ? 2u : 1u;
+        const auto expectedWithParameters = seeded ? 5u : 4u;
+        if (tokens.size() != expectedWithoutParameters
+            && tokens.size() != expectedWithParameters) {
+            return failure(seeded
+                ? "Usage: generateseed <seed> [density chaos symbols]"
+                : "Usage: generate [density chaos symbols]");
+        }
+        if (session.pattern.tracks.empty())
+            return failure("Generation requires at least one lane.");
+
+        double density = 0.45;
+        double chaos = 0.50;
+        double symbols = 0.18;
+        const auto parameterOffset = seeded ? 2u : 1u;
+        if (tokens.size() == expectedWithParameters) {
+            if (!parseFiniteDouble(tokens[parameterOffset], density)
+                || !parseFiniteDouble(tokens[parameterOffset + 1u], chaos)
+                || !parseFiniteDouble(tokens[parameterOffset + 2u], symbols)
+                || density < 0.0 || density > 1.0
+                || chaos < 0.0 || chaos > 1.0
+                || symbols < 0.0 || symbols > 1.0) {
+                return failure("Generation density, chaos, and symbols must each be normalized between 0 and 1.");
+            }
+        }
+
+        auto rng = seeded ? stableSeedState(tokens[1u])
+                          : session.commandRngState;
+        generateWholePattern(session, density, chaos, symbols, rng);
+        if (!seeded) session.commandRngState = rng;
+        std::ostringstream stream;
+        stream << "Generated " << session.pattern.tracks.size()
+               << " lanes at density " << density << ", chaos " << chaos
+               << ", symbols " << symbols;
+        if (seeded) stream << " using seed " << tokens[1u];
+        stream << '.';
+        return success(stream.str(), CommandEffect::PatternChanged);
+    }
+    if (verb == "scene") {
+        if (tokens.size() != 2u && tokens.size() != 3u)
+            return failure("Usage: scene <sparse|balanced|dense|drift|weird> [seed]");
+        if (session.pattern.tracks.empty())
+            return failure("Generation requires at least one lane.");
+        const auto name = asciiLower(tokens[1u]);
+        double density = 0.48;
+        double chaos = 0.55;
+        double symbols = 0.18;
+        if (name == "sparse") {
+            density = 0.28;
+            chaos = 0.25;
+            symbols = 0.08;
+        } else if (name == "dense") {
+            density = 0.72;
+            chaos = 0.65;
+            symbols = 0.22;
+        } else if (name == "weird") {
+            density = 0.55;
+            chaos = 0.95;
+            symbols = 0.35;
+        } else if (name == "drift") {
+            density = 0.38;
+            chaos = 0.75;
+            symbols = 0.28;
+        } else if (name != "balanced") {
+            return failure("Scene must be sparse, balanced, dense, drift, or weird.");
+        }
+        const auto& seed = tokens.size() == 3u ? tokens[2u] : tokens[1u];
+        auto rng = stableSeedState(seed);
+        generateWholePattern(session, density, chaos, symbols, rng);
+        return success("Generated " + name + " scene using seed " + seed
+                + '.',
+            CommandEffect::PatternChanged);
+    }
+    if (verb == "mutate") {
+        if (tokens.size() > 3u)
+            return failure("Usage: mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]");
+        if (session.pattern.tracks.empty())
+            return failure("Mutation requires at least one lane.");
+        double amount = 0.12;
+        if (tokens.size() >= 2u
+            && (!parseFiniteDouble(tokens[1u], amount)
+                || amount < 0.0 || amount > 1.0)) {
+            return failure("Mutation amount must be normalized between 0 and 1.");
+        }
+        NativeMutationScope scope = NativeMutationScope::All;
+        if (tokens.size() == 3u
+            && !parseMutationScope(tokens[2u], scope)) {
+            return failure("Mutation scope must be all, notes, drums, values, fx, symbols, structure, or meta.");
+        }
+        auto rng = session.commandRngState;
+        const auto changed = mutateWholePattern(session, amount, scope, rng);
+        session.commandRngState = rng;
+        std::ostringstream stream;
+        stream << "Mutated " << changed << " cells/columns at amount "
+               << amount << " in " << mutationScopeName(scope)
+               << " scope.";
+        return success(stream.str(), CommandEffect::PatternChanged);
+    }
+    if (verb == "drumscene") {
+        if (tokens.size() != 2u && tokens.size() != 3u)
+            return failure("Usage: drumscene <techno|broken|sparse|blast|ritual> [seed]");
+        const auto name = asciiLower(tokens[1u]);
+        if (name != "techno" && name != "broken" && name != "sparse"
+            && name != "blast" && name != "ritual") {
+            return failure("Drum scene must be techno, broken, sparse, blast, or ritual.");
+        }
+        ensureLaneDefaultNotes(session);
+        const auto& seed = tokens.size() == 3u ? tokens[2u] : tokens[1u];
+        const auto used = applyDrumScene(session, name, seed);
+        if (used == 0u)
+            return failure("Drum scene found no kit lanes. Run kit first or use recognized drum lane names/aliases.");
+        std::ostringstream stream;
+        stream << "Generated " << name << " drum scene using seed " << seed
+               << " across " << used << " lanes.";
         return success(stream.str(), CommandEffect::PatternChanged);
     }
     if (verb == "play") {
@@ -2419,6 +3252,22 @@ CommandResult executeTokens(TrackerSession& session,
 
 } // namespace
 
+bool patternVariationLaunchIsDue(PatternVariationLaunch launch,
+    uint64_t completedTickIndex, uint64_t completedTransportRow,
+    uint32_t ticksPerBeat, std::size_t patternRows) noexcept
+{
+    if (launch == PatternVariationLaunch::NextTick) return true;
+    if (launch == PatternVariationLaunch::NextBeat) {
+        return ((completedTickIndex + 1u)
+            % std::max<uint32_t>(ticksPerBeat, 1u)) == 0u;
+    }
+    if (launch == PatternVariationLaunch::NextPatternCycle) {
+        return ((completedTransportRow + 1u)
+            % std::max<std::size_t>(patternRows, 1u)) == 0u;
+    }
+    return false;
+}
+
 std::string CommandEngine::helpText()
 {
     std::ostringstream stream;
@@ -2470,6 +3319,14 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "name <lane|@alias> <words...>", "Rename a lane.", "name" },
             { "track add [name...]", "Append a lane, up to the 32-track realtime publication limit.", "track" },
             { "track remove <target>", "Remove one lane; at least one remains.", "" },
+        } },
+        { "GENERATION & VARIATION", {
+            { "variation|vary <generator...> [launch <tick|beat|cycle>]", "Create a generated bank entry and optionally request a quantized launch.", "variation vary" },
+            { "generate [density chaos symbols]", "Generate every native column using the session random stream.", "generate" },
+            { "generateseed <seed> [density chaos symbols]", "Generate a repeatable whole pattern without consuming the session stream.", "generateseed" },
+            { "scene <sparse|balanced|dense|drift|weird> [seed]", "Generate a repeatable named whole-pattern scene.", "scene" },
+            { "mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]", "Vary the current pattern within one typed native scope.", "mutate" },
+            { "drumscene <techno|broken|sparse|blast|ritual> [seed]", "Generate seeded rhythms for recognized kit lanes.", "drumscene" },
         } },
         { "RHYTHM & NOTE CELLS", {
             { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit" },
