@@ -15,6 +15,79 @@ bool check(bool condition, const char* message)
     return condition;
 }
 
+struct ExternalShiftSpectrum {
+    double inputTone = 0.0;
+    double lowerSideband = 0.0;
+    double upperSideband = 0.0;
+};
+
+ExternalShiftSpectrum measureExternalShift(float shiftHz)
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr double inputHz = 440.0;
+    constexpr uint32_t settleFrames = 8192u;
+    constexpr uint32_t measurementFrames = 48000u;
+    constexpr double twoPi = 6.28318530717958647692;
+
+    auto params = s3g::defaultFeedbackShiftParams();
+    params.matrix.fill(0.0f);
+    params.excite = 0.0f;
+    params.drift = 0.0f;
+    params.auxMix = 0.0f;
+    params.auxGrainMix = 0.0f;
+    params.outputGainDb = 0.0f;
+    for (auto& node : params.nodes) {
+        node.exciterSource = s3g::FeedbackExciterSource::Off;
+        node.regeneration = 0.0f;
+        node.levelDb = -60.0f;
+        node.pedal = s3g::FeedbackPedalType::Bypass;
+        node.color = 0.0f;
+    }
+    params.nodes[0u].exciterSource = s3g::FeedbackExciterSource::External;
+    params.nodes[0u].regeneration = 0.0f;
+    params.nodes[0u].levelDb = 0.0f;
+    params.nodes[0u].frequencyHz = shiftHz;
+
+    s3g::FeedbackShift processor;
+    processor.setParams(params);
+    processor.prepare(sampleRate);
+    std::array<float, s3g::kFeedbackShiftChannels> input {};
+    std::array<float, s3g::kFeedbackShiftChannels> output {};
+    double inputReal = 0.0;
+    double inputImag = 0.0;
+    double lowerReal = 0.0;
+    double lowerImag = 0.0;
+    double upperReal = 0.0;
+    double upperImag = 0.0;
+    for (uint32_t frame = 0u;
+         frame < settleFrames + measurementFrames; ++frame) {
+        input.fill(0.0f);
+        input[0u] = 0.25f * std::sin(static_cast<float>(
+            twoPi * inputHz * static_cast<double>(frame) / sampleRate));
+        processor.processFrame(input.data(), output.data());
+        if (frame < settleFrames) continue;
+        const double time = static_cast<double>(frame) / sampleRate;
+        const double sample = output[0u];
+        const auto project = [&](double frequency, double& real,
+                                 double& imaginary) {
+            const double phase = twoPi * frequency * time;
+            real += sample * std::cos(phase);
+            imaginary -= sample * std::sin(phase);
+        };
+        project(inputHz, inputReal, inputImag);
+        project(std::abs(inputHz - std::abs(shiftHz)), lowerReal, lowerImag);
+        project(inputHz + std::abs(shiftHz), upperReal, upperImag);
+    }
+    const auto magnitude = [](double real, double imaginary) {
+        return std::sqrt(real * real + imaginary * imaginary);
+    };
+    return {
+        magnitude(inputReal, inputImag),
+        magnitude(lowerReal, lowerImag),
+        magnitude(upperReal, upperImag),
+    };
+}
+
 } // namespace
 
 int main()
@@ -44,8 +117,10 @@ int main()
 
     s3g::FeedbackShift clockProbe;
     auto clockParams = clockProbe.params();
-    clockParams.pulseSync = 1u;
-    clockParams.pulseDivision = 4u;
+    clockParams.morphSource = s3g::FeedbackMorphSource::Pulse;
+    clockParams.morphSync = 1u;
+    clockParams.morphDivision = 4u;
+    clockParams.morphShape = s3g::FeedbackPulseShape::Sine;
     clockProbe.setParams(clockParams);
     clockProbe.prepare(48000.0);
     clockProbe.setTransport(123.0, true);
@@ -53,8 +128,8 @@ int main()
     for (uint32_t frame = 0u; frame < 48000u; ++frame) {
         clockProbe.processFrame(clockOutput.data());
     }
-    ok &= check(std::abs(clockProbe.pulsePhase() - 0.05f) < 0.001f,
-        "host-synchronized quarter-note pulse did not follow tempo");
+    ok &= check(std::abs(clockProbe.morphPhase() - 0.05f) < 0.001f,
+        "host-synchronized morph pulse did not follow tempo");
 
     auto sourceParams = s3g::defaultFeedbackShiftParams();
     sourceParams.matrix.fill(0.0f);
@@ -97,6 +172,15 @@ int main()
     ok &= check(sourceEnergy[0u] > 1.0e-5 && sourceLeak < 1.0e-18,
         "discrete external excitation did not remain on its assigned node");
 
+    const auto zeroShiftSpectrum = measureExternalShift(0.0f);
+    const auto wideShiftSpectrum = measureExternalShift(720.0f);
+    ok &= check(zeroShiftSpectrum.inputTone > 1000.0,
+        "zero-Hz external source did not preserve its input-frequency energy");
+    ok &= check(std::max(wideShiftSpectrum.lowerSideband,
+                    wideShiftSpectrum.upperSideband)
+            > wideShiftSpectrum.inputTone * 20.0,
+        "nonzero external SHIFT behaved like an unprocessed dry path");
+
     auto toneParams = sourceParams;
     toneParams.nodes[0u].exciterSource = s3g::FeedbackExciterSource::Tone;
     toneParams.nodes[0u].frequencyHz = 110.0f;
@@ -104,29 +188,29 @@ int main()
     s3g::FeedbackShift staticTone;
     s3g::FeedbackShift movingTone;
     staticTone.setParams(toneParams);
-    toneParams.motionRate = 0.76f;
-    toneParams.nodes[0u].motionSource = s3g::FeedbackMotionSource::Lfo;
-    toneParams.nodes[0u].motionTarget
-        = s3g::FeedbackMotionTarget::Frequency;
-    toneParams.nodes[0u].motionDepth = 0.85f;
-    toneParams.nodes[0u].motionSlew = 0.0f;
+    toneParams.sceneBNodes[0u].frequencyHz = 880.0f;
+    toneParams.sceneBNodes[0u].levelDb = 0.0f;
+    toneParams.morphSource = s3g::FeedbackMorphSource::Lfo;
+    toneParams.morphRate = 0.76f;
+    toneParams.morphDepth = 1.0f;
+    toneParams.morphInertia = 0.0f;
     movingTone.setParams(toneParams);
     staticTone.prepare(48000.0);
     movingTone.prepare(48000.0);
-    double motionDifference = 0.0;
-    float motionPeak = 0.0f;
+    double morphDifference = 0.0;
+    float morphPeak = 0.0f;
     std::array<float, s3g::kFeedbackShiftChannels> staticOutput {};
     std::array<float, s3g::kFeedbackShiftChannels> movingOutput {};
     for (uint32_t frame = 0u; frame < 24000u; ++frame) {
         staticTone.processFrame(staticOutput.data());
         movingTone.processFrame(movingOutput.data());
-        motionDifference += std::abs(static_cast<double>(
+        morphDifference += std::abs(static_cast<double>(
             staticOutput[0u] - movingOutput[0u]));
-        motionPeak = std::max(motionPeak,
-            std::abs(movingTone.motionValue(0u)));
+        morphPeak = std::max(morphPeak,
+            movingTone.morphValue());
     }
-    ok &= check(motionDifference > 0.01 && motionPeak > 0.10f,
-        "assignable LFO motion did not reach the node frequency target");
+    ok &= check(morphDifference > 0.01 && morphPeak > 0.10f,
+        "LFO ecology morph did not reach the Scene B frequency");
 
     s3g::FeedbackShift synth;
     synth.prepare(48000.0);
@@ -169,7 +253,7 @@ int main()
             node.pedal = s3g::FeedbackPedalType::Bypass;
         }
         params.nodes[0u].frequencyHz = 0.20f;
-        params.nodes[0u].regeneration = 1.18f;
+        params.nodes[0u].regeneration = 1.0f;
         params.nodes[0u].color = color;
         params.nodes[0u].levelDb = 0.0f;
         probe.setParams(params);
@@ -309,10 +393,10 @@ int main()
         && std::string(s3g::feedbackAuxControlInfo(5u).label) == "RETURN"
         && std::string(s3g::feedbackAuxControlInfo(10u).label)
             == "COHERENCE"
-        && s3g::feedbackAuxControlInfo(10u).storageSlot == 20u
+        && s3g::feedbackAuxControlInfo(10u).storageSlot == 12u
         && std::string(s3g::feedbackAuxControlInfo(11u).label)
             == "LANE DRIFT"
-        && s3g::feedbackAuxControlInfo(11u).storageSlot == 21u
+        && s3g::feedbackAuxControlInfo(11u).storageSlot == 13u
         && std::string(s3g::feedbackAuxControlInfo(13u).label)
             == "GRAIN MIX"
         && s3g::feedbackAuxControlInfo(13u).storageSlot == 11u,
@@ -509,45 +593,56 @@ int main()
     for (uint32_t preset = 0u;
          preset < s3g::kFeedbackShiftPresetCount; ++preset) {
         const auto presetParams = s3g::feedbackShiftPreset(preset);
-        uint32_t movingNodes = 0u;
-        for (const auto& node : presetParams.nodes) {
-            movingNodes += node.motionSource != s3g::FeedbackMotionSource::Off
-                ? 1u : 0u;
+        double sceneDistance = 0.0;
+        for (uint32_t node = 0u;
+             node < s3g::kFeedbackShiftChannels; ++node) {
+            sceneDistance += std::abs(
+                presetParams.nodes[node].frequencyHz
+                - presetParams.sceneBNodes[node].frequencyHz);
+            sceneDistance += std::abs(
+                presetParams.nodes[node].regeneration
+                - presetParams.sceneBNodes[node].regeneration);
+            sceneDistance += std::abs(
+                presetParams.nodes[node].color
+                - presetParams.sceneBNodes[node].color);
+            sceneDistance += std::abs(
+                presetParams.nodes[node].body
+                - presetParams.sceneBNodes[node].body);
+            sceneDistance += std::abs(
+                presetParams.nodes[node].levelDb
+                - presetParams.sceneBNodes[node].levelDb);
         }
-        const auto sendBounds = std::minmax_element(
-            presetParams.auxSend.begin(), presetParams.auxSend.end());
-        ok &= check(presetParams.auxMix > 0.0f
-                && presetParams.auxMix <= 0.20f
-                && presetParams.auxGrainMix >= 0.0f
-                && presetParams.auxGrainMix <= 1.0f
-                && presetParams.auxGrainCoherence >= 0.0f
-                && presetParams.auxGrainCoherence <= 1.0f
-                && presetParams.auxGrainLaneDrift >= 0.0f
-                && presetParams.auxGrainLaneDrift <= 1.0f
-                && *sendBounds.first >= 0.0f
-                && *sendBounds.second <= 1.0f
-                && *sendBounds.second - *sendBounds.first > 0.05f
-                && (preset == 0u || movingNodes >= 2u),
-            "factory preset did not use a bounded AUX source return");
+        for (uint32_t route = 0u;
+             route < presetParams.matrix.size(); ++route) {
+            sceneDistance += std::abs(presetParams.matrix[route]
+                - presetParams.sceneBMatrix[route]);
+        }
+        ok &= check(sceneDistance > 0.1
+                && static_cast<uint32_t>(presetParams.morphSource)
+                    < s3g::kFeedbackMorphSourceCount
+                && presetParams.morph >= 0.0f
+                && presetParams.morph <= 1.0f
+                && presetParams.morphDepth >= 0.0f
+                && presetParams.morphDepth <= 1.0f,
+            "factory preset did not define a valid paired ecology");
         s3g::FeedbackShift presetSynth;
         presetSynth.setParams(presetParams);
         presetSynth.prepare(48000.0);
         presetSynth.setTransport(120.0, true);
         presetSynth.strikeAll(0.8f);
-        float presetAuxActivity = 0.0f;
         double presetEnergy = 0.0;
+        std::array<float, s3g::kFeedbackShiftChannels> presetInput {};
         for (uint32_t frame = 0u; frame < 16384u; ++frame) {
-            presetSynth.processFrame(output.data());
-            presetAuxActivity = std::max(presetAuxActivity,
-                presetSynth.auxActivity());
+            presetInput.fill(0.0f);
+            presetInput[0u] = 0.15f * std::sin(static_cast<float>(frame)
+                * 2.0f * 3.14159265358979323846f * 97.0f / 48000.0f);
+            presetSynth.processFrame(presetInput.data(), output.data());
             for (float sample : output) {
                 ok &= check(std::isfinite(sample) && std::abs(sample) <= 1.0f,
                     "built-in preset produced invalid audio");
                 presetEnergy += static_cast<double>(sample) * sample;
             }
         }
-        ok &= check(presetAuxActivity > 1.0e-8f,
-            "factory preset AUX return remained inactive");
         ok &= check(presetEnergy > 1.0e-10,
             "factory preset produced no audible energy");
     }
@@ -572,40 +667,74 @@ int main()
     }
     const auto randomA = s3g::randomFeedbackShiftParams(0x12345678u);
     const auto randomB = s3g::randomFeedbackShiftParams(0x12345678u);
-    ok &= check(randomA.nodes[0u].frequencyHz
-            == randomB.nodes[0u].frequencyHz
-        && randomA.matrix == randomB.matrix
-        && randomA.auxSend == randomB.auxSend
-        && randomA.auxMix >= 0.04f && randomA.auxMix <= 0.17f
-        && randomA.auxGrainCoherence >= 0.08f
-        && randomA.auxGrainCoherence <= 0.95f
-        && randomA.auxGrainLaneDrift >= 0.20f
-        && randomA.auxGrainLaneDrift <= 1.0f
-        && randomA.auxGrainMix >= 0.10f
-        && randomA.auxGrainMix <= 0.65f
-        && randomA.motionRate >= 0.14f && randomA.motionRate <= 0.72f
+    const auto randomSeed = s3g::defaultFeedbackShiftParams();
+    ok &= check(randomA.sceneBNodes[0u].frequencyHz
+            == randomB.sceneBNodes[0u].frequencyHz
+        && randomA.sceneBMatrix == randomB.sceneBMatrix
+        && randomA.sceneBAuxSend == randomB.sceneBAuxSend
+        && randomA.nodes[0u].frequencyHz
+            == randomSeed.nodes[0u].frequencyHz
+        && randomA.matrix == randomSeed.matrix
+        && randomA.auxSend == randomSeed.auxSend
+        && randomA.sceneBNodes[0u].regeneration >= 0.0f
+        && randomA.sceneBNodes[0u].regeneration <= 1.0f
+        && randomA.sceneBNodes[0u].color >= -1.0f
+        && randomA.sceneBNodes[0u].color <= 1.0f
+        && randomA.sceneBNodes[0u].body >= 0.0f
+        && randomA.sceneBNodes[0u].body <= 1.0f
         && static_cast<uint32_t>(randomA.nodes[0u].exciterSource)
             < s3g::kFeedbackExciterSourceCount
-        && static_cast<uint32_t>(randomA.nodes[0u].motionSource)
-            < s3g::kFeedbackMotionSourceCount
-        && static_cast<uint32_t>(randomA.nodes[0u].motionTarget)
-            < s3g::kFeedbackMotionTargetCount
-        && std::abs(randomA.nodes[0u].motionDepth) <= 1.0f
-        && randomA.nodes[0u].motionSlew >= 0.0f
-        && randomA.nodes[0u].motionSlew <= 1.0f,
-        "randomization was not reproducible or feedback-return aware");
+        && static_cast<uint32_t>(randomA.morphSource)
+            < s3g::kFeedbackMorphSourceCount,
+        "Scene B randomization was not reproducible or bounded");
     auto preservedOutput = s3g::defaultFeedbackShiftParams();
     preservedOutput.outputGainDb = -7.3f;
     preservedOutput.outputMode = s3g::FeedbackShiftOutputMode::StereoRing;
     preservedOutput.outputRotationDeg = 47.0f;
+    preservedOutput.morph = 0.37f;
+    preservedOutput.sceneBNodes[0u].frequencyHz = 1234.0f;
+    preservedOutput.sceneBMatrix[0u] = -0.55f;
+    preservedOutput.sceneBAuxSend[0u] = 0.91f;
     const auto topologySafeRandom = s3g::randomFeedbackShiftParams(
         0x87654321u, preservedOutput);
     ok &= check(topologySafeRandom.outputGainDb
             == preservedOutput.outputGainDb
         && topologySafeRandom.outputMode == preservedOutput.outputMode
         && topologySafeRandom.outputRotationDeg
-            == preservedOutput.outputRotationDeg,
-        "RANDOM changed user-owned output level, mode, or rotation");
+            == preservedOutput.outputRotationDeg
+        && topologySafeRandom.nodes[0u].frequencyHz
+            == preservedOutput.nodes[0u].frequencyHz
+        && topologySafeRandom.matrix == preservedOutput.matrix
+        && topologySafeRandom.auxSend == preservedOutput.auxSend,
+        "RANDOM changed Scene A or user-owned output topology");
+    const auto randomizedSceneA = s3g::randomFeedbackShiftScene(
+        0x6a09e667u, preservedOutput, false);
+    const auto randomizedSceneB = s3g::randomFeedbackShiftScene(
+        0xbb67ae85u, preservedOutput, true);
+    ok &= check(randomizedSceneA.sceneBNodes[0u].frequencyHz
+            == preservedOutput.sceneBNodes[0u].frequencyHz
+        && randomizedSceneA.sceneBMatrix == preservedOutput.sceneBMatrix
+        && randomizedSceneA.sceneBAuxSend == preservedOutput.sceneBAuxSend
+        && randomizedSceneA.nodes[0u].frequencyHz
+            != preservedOutput.nodes[0u].frequencyHz
+        && randomizedSceneA.matrix != preservedOutput.matrix
+        && randomizedSceneA.nodes[0u].exciterSource
+            == preservedOutput.nodes[0u].exciterSource
+        && randomizedSceneA.nodes[0u].pedal
+            == preservedOutput.nodes[0u].pedal
+        && randomizedSceneA.morph == preservedOutput.morph
+        && randomizedSceneA.outputGainDb == preservedOutput.outputGainDb,
+        "RANDOM A changed Scene B or shared performance controls");
+    ok &= check(randomizedSceneB.nodes[0u].frequencyHz
+            == preservedOutput.nodes[0u].frequencyHz
+        && randomizedSceneB.matrix == preservedOutput.matrix
+        && randomizedSceneB.auxSend == preservedOutput.auxSend
+        && randomizedSceneB.sceneBNodes[0u].frequencyHz
+            != preservedOutput.sceneBNodes[0u].frequencyHz
+        && randomizedSceneB.sceneBMatrix != preservedOutput.sceneBMatrix
+        && randomizedSceneB.morph == preservedOutput.morph
+        && randomizedSceneB.outputMode == preservedOutput.outputMode,
+        "RANDOM B changed Scene A or shared performance controls");
     synth.panic();
     synth.setParams(randomA);
     synth.strikeAll(1.0f);
@@ -619,18 +748,20 @@ int main()
 
     auto wild = synth.params();
     wild.excite = 1.0f;
-    wild.pulseDepth = 1.0f;
-    wild.pulseSync = 1u;
-    wild.pulseDivision = 2u;
-    wild.pulseShape = s3g::FeedbackPulseShape::Square;
+    wild.morph = 1.0f;
+    wild.morphSource = s3g::FeedbackMorphSource::Manual;
     wild.outputGainDb = 6.0f;
     wild.matrix.fill(1.0f);
+    wild.sceneBMatrix.fill(1.0f);
+    wild.sceneBAuxSend.fill(1.0f);
     for (uint32_t node = 0u; node < s3g::kFeedbackShiftChannels; ++node) {
         wild.nodes[node].frequencyHz = node < 4u ? -6000.0f : 6000.0f;
-        wild.nodes[node].regeneration = 1.18f;
+        wild.nodes[node].regeneration = 1.0f;
         wild.nodes[node].color = 1.0f;
+        wild.nodes[node].body = 1.0f;
         wild.nodes[node].pedal = static_cast<s3g::FeedbackPedalType>(
             node % s3g::kFeedbackPedalTypeCount);
+        wild.sceneBNodes[node] = wild.nodes[node];
         synth.strike(node, 1.0f);
     }
     synth.setParams(wild);

@@ -19,12 +19,7 @@ namespace {
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.feedback-shift";
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 8u;
-constexpr uint32_t kLegacyParamCount = 219u;
-constexpr uint32_t kPreviousParamCount = 230u;
-constexpr uint32_t kFeedbackSourceParamCount = 231u;
-constexpr uint32_t kLaneSendParamCount = 239u;
-constexpr uint32_t kPostGranulatorParamCount = 241u;
-constexpr uint32_t kParamCount = 290u;
+constexpr uint32_t kParamCount = 381u;
 
 struct HostContext {
     clap_host_t host {};
@@ -45,9 +40,9 @@ void hostRequestProcess(const clap_host_t* host)
 void hostRequestCallback(const clap_host_t*) {}
 
 struct EventList {
-    std::array<clap_event_param_value_t, 20u> params {};
+    std::array<clap_event_param_value_t, 32u> params {};
     std::array<clap_event_note_t, 4u> notes {};
-    std::array<const clap_event_header_t*, 24u> events {};
+    std::array<const clap_event_header_t*, 36u> events {};
     uint32_t paramCount = 0u;
     uint32_t noteCount = 0u;
     uint32_t eventCount = 0u;
@@ -268,13 +263,15 @@ int main(int argc, char** argv)
     ok &= check(descriptor && std::strcmp(descriptor->id, kPluginId) == 0
         && std::strcmp(descriptor->name,
             "s3g Processor Feedback Shift") == 0
-        && std::strcmp(descriptor->version, "0.12.0") == 0,
+        && std::strcmp(descriptor->version, "0.13.1") == 0,
         "plugin identity failed");
-    ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_INSTRUMENT)
-        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_SYNTHESIZER)
-        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
-        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_SURROUND),
-        "instrument feature tags failed");
+    ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FREQUENCY_SHIFTER)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_MULTI_EFFECTS)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_SURROUND)
+        && !hasFeature(descriptor, CLAP_PLUGIN_FEATURE_INSTRUMENT)
+        && !hasFeature(descriptor, CLAP_PLUGIN_FEATURE_SYNTHESIZER),
+        "audio processor feature tags failed");
 
     HostContext host;
     host.host.clap_version = CLAP_VERSION_INIT;
@@ -319,153 +316,126 @@ int main(int argc, char** argv)
         && notePorts->get(plugin, 0u, true, &noteInfo)
         && (noteInfo.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u,
         "MIDI excitation port contract failed");
+
     const auto* params = static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
     ok &= check(params && params->count(plugin) == kParamCount,
         "parameter surface failed");
     if (params) {
-        clap_param_info_t pulseSync {};
-        clap_param_info_t nodeMode {};
-        clap_param_info_t pedalAmount {};
-        clap_param_info_t pedalExtra {};
+        clap_param_info_t morphSource {};
+        clap_param_info_t morphHold {};
         clap_param_info_t run {};
-        clap_param_info_t outputMode {};
-        clap_param_info_t outputRotation {};
+        clap_param_info_t nodeMode {};
+        clap_param_info_t exciterSource {};
+        clap_param_info_t sceneAShift {};
+        clap_param_info_t sceneABody {};
+        clap_param_info_t sceneAAuxSend {};
+        clap_param_info_t sceneBShift {};
+        clap_param_info_t matrixA {};
+        clap_param_info_t matrixB {};
         clap_param_info_t auxPress {};
         clap_param_info_t auxReturn {};
-        clap_param_info_t auxGrainMix {};
-        clap_param_info_t auxSend1 {};
-        clap_param_info_t auxSend8 {};
         clap_param_info_t grainCoherence {};
-        clap_param_info_t grainLaneDrift {};
-        clap_param_info_t exciterSource1 {};
-        clap_param_info_t exciterGain8 {};
-        clap_param_info_t motionSource1 {};
-        clap_param_info_t motionTarget1 {};
-        clap_param_info_t motionDepth8 {};
-        clap_param_info_t motionSlew8 {};
-        clap_param_info_t motionRate {};
-        ok &= check(params->get_info(plugin, 4u, &pulseSync)
-            && params->get_info(plugin, 8u, &run)
-            && params->get_info(plugin, 9u, &outputMode)
-            && params->get_info(plugin, 10u, &outputRotation)
-            && params->get_info(plugin, 11u, &nodeMode)
-            && params->get_info(plugin, 17u, &pedalAmount)
-            && params->get_info(plugin, 21u, &pedalExtra)
-            && params->get_info(plugin, 219u, &auxPress)
-            && params->get_info(plugin, 229u, &auxReturn)
-            && params->get_info(plugin, 230u, &auxGrainMix)
-            && params->get_info(plugin, 231u, &auxSend1)
-            && params->get_info(plugin, 238u, &auxSend8)
-            && params->get_info(plugin, 239u, &grainCoherence)
-            && params->get_info(plugin, 240u, &grainLaneDrift)
-            && params->get_info(plugin, 241u, &exciterSource1)
-            && params->get_info(plugin, 256u, &exciterGain8)
-            && params->get_info(plugin, 257u, &motionSource1)
-            && params->get_info(plugin, 258u, &motionTarget1)
-            && params->get_info(plugin, 287u, &motionDepth8)
-            && params->get_info(plugin, 288u, &motionSlew8)
-            && params->get_info(plugin, 289u, &motionRate)
-            && (pulseSync.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && (run.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && (outputMode.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && outputMode.id == 10u && outputRotation.id == 11u,
-            "stepped parameter flags failed");
-        ok &= check((nodeMode.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && std::abs(getParam(plugin, params, 1002u) + 720.0) < 1.0e-6
-            && pedalAmount.id == 1006u
-            && pedalExtra.id == 1010u
-            && std::abs(getParam(plugin, params, 1006u) - 0.52) < 1.0e-6
-            && std::abs(getParam(plugin, params, 1010u) - 0.5) < 1.0e-6
-            && std::abs(getParam(plugin, params, 10u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 11u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 2000u) - 0.86) < 1.0e-6,
-            "node or patch-matrix defaults failed");
-        ok &= check(auxPress.id == 3000u && auxReturn.id == 3010u
-            && auxGrainMix.id == 3011u
-            && std::strcmp(auxPress.module, "Feedback AUX") == 0
-            && std::strcmp(auxReturn.name, "Return") == 0
-            && std::strcmp(auxGrainMix.name, "Grain Mix") == 0
-            && std::strcmp(auxGrainMix.module, "Post Granulator") == 0
-            && auxSend1.id == 3012u && auxSend8.id == 3019u
-            && std::strcmp(auxSend1.module, "AUX Sends") == 0
-            && std::strcmp(auxSend8.name, "Node 8 Send") == 0
-            && grainCoherence.id == 3020u
-            && grainLaneDrift.id == 3021u
-            && std::strcmp(grainCoherence.module, "Post Granulator") == 0
-            && std::strcmp(grainLaneDrift.name, "Grain Lane Drift") == 0
-            && std::abs(getParam(plugin, params, 3000u) - 0.28) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3010u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3011u) - 1.0) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3012u) - 1.0) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3019u) - 1.0) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-            && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6
-            && exciterSource1.id == 4000u
-            && exciterGain8.id == 4015u
-            && motionSource1.id == 5000u
-            && motionTarget1.id == 5001u
-            && motionDepth8.id == 5030u
-            && motionSlew8.id == 5031u
-            && motionRate.id == 6000u
-            && (exciterSource1.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && (motionSource1.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && (motionTarget1.flags & CLAP_PARAM_IS_STEPPED) != 0u
-            && std::strcmp(exciterSource1.module, "Node 1 Exciter") == 0
-            && std::strcmp(motionSource1.module, "Node 1 Motion") == 0
-            && std::strcmp(motionRate.module, "Motion") == 0
-            && std::abs(getParam(plugin, params, 4000u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 4015u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 5000u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 5001u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 5030u)) < 1.0e-6
-            && std::abs(getParam(plugin, params, 5031u) - 0.45) < 1.0e-6
-            && std::abs(getParam(plugin, params, 6000u) - 0.34) < 1.0e-6,
-            "AUX parameter surface or transparent default failed");
+        ok &= check(params->get_info(plugin, 3u, &morphSource)
+            && params->get_info(plugin, 7u, &morphHold)
+            && params->get_info(plugin, 12u, &run)
+            && params->get_info(plugin, 15u, &nodeMode)
+            && params->get_info(plugin, 17u, &exciterSource)
+            && params->get_info(plugin, 143u, &sceneAShift)
+            && params->get_info(plugin, 146u, &sceneABody)
+            && params->get_info(plugin, 148u, &sceneAAuxSend)
+            && params->get_info(plugin, 191u, &sceneBShift)
+            && params->get_info(plugin, 239u, &matrixA)
+            && params->get_info(plugin, 303u, &matrixB)
+            && params->get_info(plugin, 367u, &auxPress)
+            && params->get_info(plugin, 377u, &auxReturn)
+            && params->get_info(plugin, 379u, &grainCoherence),
+            "ecology parameter indices were incomplete");
+        ok &= check((morphSource.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && (morphHold.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && (run.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && (nodeMode.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && (exciterSource.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && std::strcmp(morphSource.name, "Morph Driver") == 0
+                && std::strcmp(morphSource.module, "Morph") == 0
+                && std::strcmp(sceneAShift.module, "Scene A / Node 1") == 0
+                && std::strcmp(sceneBShift.module, "Scene B / Node 1") == 0
+                && std::strcmp(sceneABody.name, "Body") == 0
+                && std::strcmp(sceneAAuxSend.name, "AUX Send") == 0
+                && std::strcmp(matrixA.module, "Scene A Matrix") == 0
+                && std::strcmp(matrixB.module, "Scene B Matrix") == 0
+                && std::strcmp(auxPress.module, "Feedback AUX") == 0
+                && std::strcmp(auxReturn.name, "Return") == 0
+                && std::strcmp(grainCoherence.module,
+                    "Post Granulator") == 0,
+            "scene, morph, or secondary processor metadata failed");
+        ok &= check(std::abs(getParam(plugin, params, 3u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 5u) - 1.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6u) - 0.34) < 1.0e-6
+                && std::abs(getParam(plugin, params, 7u) - 0.32) < 1.0e-6
+                && std::abs(getParam(plugin, params, 12u) + 18.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 1004u) - 0.52) < 1.0e-6
+                && std::abs(getParam(plugin, params, 1008u) - 0.5) < 1.0e-6
+                && std::abs(getParam(plugin, params, 2000u) + 720.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 2001u) - 0.56) < 1.0e-6
+                && std::abs(getParam(plugin, params, 2002u) + 0.24) < 1.0e-6
+                && std::abs(getParam(plugin, params, 2003u) - 0.18) < 1.0e-6
+                && std::abs(getParam(plugin, params, 2005u) - 1.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 3000u) + 1.68) < 1.0e-5
+                && std::abs(getParam(plugin, params, 3003u) - 0.54) < 1.0e-6
+                && std::abs(getParam(plugin, params, 3005u) - 0.24) < 1.0e-6
+                && std::abs(getParam(plugin, params, 4000u) - 0.72) < 1.0e-6
+                && std::abs(getParam(plugin, params, 5000u) - 0.90) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6000u) - 0.28) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6010u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6011u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6012u) - 1.0) < 1.0e-6,
+            "paired-scene defaults failed");
         char frequencyText[32] {};
+        char colorText[32] {};
         char grainSizeText[32] {};
-        ok &= check(params->value_to_text(plugin, 1002u, 0.125,
+        ok &= check(params->value_to_text(plugin, 2000u, 0.125,
                 frequencyText, sizeof(frequencyText))
             && std::strcmp(frequencyText, "+0.125 Hz") == 0
-            && params->value_to_text(plugin, 3004u, 0.0,
+            && params->value_to_text(plugin, 2002u, -0.5,
+                colorText, sizeof(colorText))
+            && std::strcmp(colorText, "-0.50") == 0
+            && params->value_to_text(plugin, 6004u, 0.0,
                 grainSizeText, sizeof(grainSizeText))
             && std::strcmp(grainSizeText, "2.00 ms") == 0,
-            "sub-Hz or AUX grain readout lost precision");
+            "sub-Hz, bipolar color, or AUX readout lost precision");
     }
 
     ok &= check(plugin->activate(plugin, 48000.0, 32u, kFrames)
         && plugin->start_processing(plugin), "activation failed");
-    const double selfExcitedEnergy = processBlocks(plugin, nullptr, 32u);
-    ok &= check(selfExcitedEnergy > 1.0e-9,
+    ok &= check(processBlocks(plugin, nullptr, 32u) > 1.0e-9,
         "default patch did not self-excite");
 
     EventList preciseCrosspoint;
-    preciseCrosspoint.addParam(2001u, 0.137);
+    preciseCrosspoint.addParam(4001u, 0.137);
     (void)processBlocks(plugin, &preciseCrosspoint, 1u);
-    ok &= check(std::abs(getParam(plugin, params, 2001u) - 0.137) < 1.0e-6,
+    ok &= check(std::abs(getParam(plugin, params, 4001u) - 0.137) < 1.0e-6,
         "continuous signed crosspoint gain lost precision");
 
     plugin->reset(plugin);
     EventList strike;
-    strike.addParam(1u, 0.0); // continuous excitation
-    strike.addParam(8u, 0.0); // output gain
+    strike.addParam(1u, 0.0);
+    strike.addParam(12u, 0.0);
     strike.addNote(3, 1.0, 64u);
     std::array<double, kChannels> strikeChannels {};
     const double strikeEnergy = processBlocks(plugin, &strike, 8u,
         &strikeChannels);
-    ok &= check(strikeEnergy > 1.0e-5,
-        "MIDI note did not excite the feedback instrument");
-    ok &= check(strikeChannels[3u] > 1.0e-7,
-        "MIDI channel 4 did not address feedback node 4");
+    ok &= check(strikeEnergy > 1.0e-5 && strikeChannels[3u] > 1.0e-7,
+        "MIDI channel 4 did not excite feedback node 4");
 
     plugin->reset(plugin);
     EventList externalExciter;
-    externalExciter.addParam(1u, 0.0); // suppress continuous internal drive
+    externalExciter.addParam(1u, 0.0);
     for (uint32_t node = 0u; node < kChannels; ++node) {
-        externalExciter.addParam(4000u + node * 2u, 6.0);
+        externalExciter.addParam(1002u + node * 16u, 6.0);
     }
-    externalExciter.addParam(4004u, 4.0); // node 3 external source
-    externalExciter.addParam(4005u, 0.0); // unity input gain
+    externalExciter.addParam(1034u, 4.0);
+    externalExciter.addParam(1035u, 0.0);
     std::array<double, kChannels> externalChannels {};
     const double externalEnergy = processBlocks(plugin, &externalExciter,
         16u, &externalChannels, 2);
@@ -473,30 +443,24 @@ int main(int argc, char** argv)
     EventList externalOff;
     externalOff.addParam(1u, 0.0);
     for (uint32_t node = 0u; node < kChannels; ++node) {
-        externalOff.addParam(4000u + node * 2u, 6.0);
+        externalOff.addParam(1002u + node * 16u, 6.0);
     }
     const double sourceOffEnergy = processBlocks(plugin, &externalOff,
         16u, nullptr, 2);
-    const bool externalExcitationWorked = externalEnergy > 1.0e-5
+    ok &= check(externalEnergy > 1.0e-5
             && externalChannels[2u] > 1.0e-7
-            && externalEnergy > sourceOffEnergy * 20.0;
-    if (!externalExcitationWorked) {
-        std::cerr << "external excitation energy=" << externalEnergy
-                  << ", node3=" << externalChannels[2u]
-                  << ", off=" << sourceOffEnergy << '\n';
-    }
-    ok &= check(externalExcitationWorked,
+            && externalEnergy > sourceOffEnergy * 20.0,
         "eight-channel external input did not excite its selected node");
     EventList restoreSources;
     for (uint32_t node = 0u; node < kChannels; ++node) {
-        restoreSources.addParam(4000u + node * 2u, 0.0);
+        restoreSources.addParam(1002u + node * 16u, 0.0);
     }
     (void)processBlocks(plugin, &restoreSources, 1u);
 
     plugin->reset(plugin);
     EventList quadFold;
-    quadFold.addParam(10u, 1.0); // quad ring projection
-    quadFold.addParam(11u, 37.0); // channel-ring rotation
+    quadFold.addParam(14u, 1.0);
+    quadFold.addParam(15u, 37.0);
     quadFold.addNote(-1, 1.0);
     std::array<double, kChannels> quadChannels {};
     ok &= check(processBlocks(plugin, &quadFold, 8u, &quadChannels) > 1.0e-7
@@ -508,8 +472,8 @@ int main(int argc, char** argv)
 
     plugin->reset(plugin);
     EventList stereoFold;
-    stereoFold.addParam(10u, 2.0); // stereo ring projection
-    stereoFold.addParam(11u, -51.0);
+    stereoFold.addParam(14u, 2.0);
+    stereoFold.addParam(15u, -51.0);
     stereoFold.addNote(-1, 1.0);
     std::array<double, kChannels> stereoChannels {};
     ok &= check(processBlocks(plugin, &stereoFold, 8u, &stereoChannels)
@@ -522,212 +486,44 @@ int main(int argc, char** argv)
 
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
-    EventList outputChange;
-    outputChange.addParam(8u, -3.0);
-    outputChange.addParam(3004u, 0.41);
-    outputChange.addParam(3010u, 0.73);
-    outputChange.addParam(3011u, 0.29);
-    outputChange.addParam(3012u, 0.33);
-    outputChange.addParam(3019u, 0.77);
-    outputChange.addParam(3020u, 0.37);
-    outputChange.addParam(3021u, 0.82);
-    outputChange.addParam(4000u, 4.0);
-    outputChange.addParam(4015u, -6.0);
-    outputChange.addParam(5000u, 2.0);
-    outputChange.addParam(5001u, 2.0);
-    outputChange.addParam(5002u, 0.45);
-    outputChange.addParam(5003u, 0.71);
-    outputChange.addParam(6000u, 0.66);
-    (void)processBlocks(plugin, &outputChange, 1u);
+    EventList ecologyChange;
+    ecologyChange.addParam(3u, 0.63);
+    ecologyChange.addParam(12u, -3.0);
+    ecologyChange.addParam(2003u, 0.70);
+    ecologyChange.addParam(3000u, 123.4);
+    ecologyChange.addParam(5001u, -0.41);
+    ecologyChange.addParam(6012u, 0.37);
+    (void)processBlocks(plugin, &ecologyChange, 1u);
     MemoryState memory;
     clap_ostream_t streamOut { &memory, stateWrite };
     ok &= check(state && state->save(plugin, &streamOut),
-        "state save failed");
-    EventList outputAway;
-    outputAway.addParam(8u, -40.0);
-    (void)processBlocks(plugin, &outputAway, 1u);
+        "paired-ecology state save failed");
+    EventList ecologyAway;
+    ecologyAway.addParam(3u, 0.0);
+    ecologyAway.addParam(12u, -40.0);
+    ecologyAway.addParam(2003u, 0.05);
+    ecologyAway.addParam(3000u, -5000.0);
+    ecologyAway.addParam(5001u, 0.0);
+    ecologyAway.addParam(6012u, 1.0);
+    (void)processBlocks(plugin, &ecologyAway, 1u);
     memory.position = 0u;
     clap_istream_t streamIn { &memory, stateRead };
     ok &= check(state && state->load(plugin, &streamIn)
-        && std::abs(getParam(plugin, params, 8u) + 3.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3004u) - 0.41) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3010u) - 0.73) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3011u) - 0.29) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3012u) - 0.33) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3019u) - 0.77) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 0.37) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.82) < 1.0e-6
-        && std::abs(getParam(plugin, params, 4000u) - 4.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 4015u) + 6.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5000u) - 2.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5001u) - 2.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5002u) - 0.45) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5003u) - 0.71) < 1.0e-6
-        && std::abs(getParam(plugin, params, 6000u) - 0.66) < 1.0e-6,
-        "state round trip failed");
+        && std::abs(getParam(plugin, params, 3u) - 0.63) < 1.0e-6
+        && std::abs(getParam(plugin, params, 12u) + 3.0) < 1.0e-6
+        && std::abs(getParam(plugin, params, 2003u) - 0.70) < 1.0e-6
+        && std::abs(getParam(plugin, params, 3000u) - 123.4) < 1.0e-6
+        && std::abs(getParam(plugin, params, 5001u) + 0.41) < 1.0e-6
+        && std::abs(getParam(plugin, params, 6012u) - 0.37) < 1.0e-6,
+        "paired-ecology state round trip failed");
 
-    MemoryState postGranulator = memory;
-    const uint32_t postGranulatorVersion = 9u;
-    const uint32_t postGranulatorCount = kPostGranulatorParamCount;
-    std::memcpy(postGranulator.bytes.data() + 4u, &postGranulatorVersion,
-        sizeof(postGranulatorVersion));
-    std::memcpy(postGranulator.bytes.data() + 8u, &postGranulatorCount,
-        sizeof(postGranulatorCount));
-    postGranulator.bytes.resize(
-        16u + sizeof(double) * kPostGranulatorParamCount);
-    EventList postGranulatorAway;
-    postGranulatorAway.addParam(4000u, 6.0);
-    postGranulatorAway.addParam(4015u, 9.0);
-    postGranulatorAway.addParam(5000u, 4.0);
-    postGranulatorAway.addParam(5001u, 4.0);
-    postGranulatorAway.addParam(5002u, -0.9);
-    postGranulatorAway.addParam(5003u, 0.05);
-    postGranulatorAway.addParam(6000u, 0.95);
-    (void)processBlocks(plugin, &postGranulatorAway, 1u);
-    postGranulator.position = 0u;
-    clap_istream_t postGranulatorStream { &postGranulator, stateRead };
-    ok &= check(state && state->load(plugin, &postGranulatorStream)
-        && std::abs(getParam(plugin, params, 3012u) - 0.33) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3019u) - 0.77) < 1.0e-6
-        && std::abs(getParam(plugin, params, 4000u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 4015u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5000u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5001u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5002u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 5003u) - 0.45) < 1.0e-6
-        && std::abs(getParam(plugin, params, 6000u) - 0.34) < 1.0e-6,
-        "version-9 state did not add transparent exciter/motion defaults");
-
-    MemoryState laneSend = memory;
-    const uint32_t laneSendVersion = 8u;
-    const uint32_t laneSendCount = kLaneSendParamCount;
-    std::memcpy(laneSend.bytes.data() + 4u, &laneSendVersion,
-        sizeof(laneSendVersion));
-    std::memcpy(laneSend.bytes.data() + 8u, &laneSendCount,
-        sizeof(laneSendCount));
-    laneSend.bytes.resize(16u + sizeof(double) * kLaneSendParamCount);
-    EventList laneSendAway;
-    laneSendAway.addParam(3012u, 0.05);
-    laneSendAway.addParam(3019u, 0.05);
-    laneSendAway.addParam(3020u, 0.05);
-    laneSendAway.addParam(3021u, 0.05);
-    (void)processBlocks(plugin, &laneSendAway, 1u);
-    laneSend.position = 0u;
-    clap_istream_t laneSendStream { &laneSend, stateRead };
-    ok &= check(state && state->load(plugin, &laneSendStream)
-        && std::abs(getParam(plugin, params, 3012u) - 0.33) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3019u) - 0.77) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6,
-        "version-8 lane-send state did not add safe grain-lane defaults");
-
-    MemoryState feedbackSource = memory;
-    const uint32_t feedbackSourceVersion = 7u;
-    const uint32_t feedbackSourceCount = kFeedbackSourceParamCount;
-    std::memcpy(feedbackSource.bytes.data() + 4u, &feedbackSourceVersion,
-        sizeof(feedbackSourceVersion));
-    std::memcpy(feedbackSource.bytes.data() + 8u, &feedbackSourceCount,
-        sizeof(feedbackSourceCount));
-    feedbackSource.bytes.resize(
-        16u + sizeof(double) * kFeedbackSourceParamCount);
-    EventList feedbackSourceAway;
-    feedbackSourceAway.addParam(3011u, 0.05);
-    feedbackSourceAway.addParam(3012u, 0.05);
-    feedbackSourceAway.addParam(3019u, 0.05);
-    feedbackSourceAway.addParam(3020u, 0.05);
-    feedbackSourceAway.addParam(3021u, 0.05);
-    (void)processBlocks(plugin, &feedbackSourceAway, 1u);
-    feedbackSource.position = 0u;
-    clap_istream_t feedbackSourceStream { &feedbackSource, stateRead };
-    ok &= check(state && state->load(plugin, &feedbackSourceStream)
-        && std::abs(getParam(plugin, params, 3011u) - 0.29) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3012u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3019u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6,
-        "version-7 source-return state did not add unity lane sends");
-
-    MemoryState granular = memory;
-    const uint32_t granularVersion = 6u;
-    const uint32_t previousCount = kPreviousParamCount;
-    std::memcpy(granular.bytes.data() + 4u, &granularVersion,
-        sizeof(granularVersion));
-    std::memcpy(granular.bytes.data() + 8u, &previousCount,
-        sizeof(previousCount));
-    granular.bytes.resize(16u + sizeof(double) * kPreviousParamCount);
-    EventList granularAway;
-    granularAway.addParam(3004u, 0.95);
-    granularAway.addParam(3010u, 0.95);
-    granularAway.addParam(3011u, 0.05);
-    granularAway.addParam(3012u, 0.05);
-    granularAway.addParam(3019u, 0.05);
-    granularAway.addParam(3020u, 0.05);
-    granularAway.addParam(3021u, 0.05);
-    (void)processBlocks(plugin, &granularAway, 1u);
-    granular.position = 0u;
-    clap_istream_t granularStream { &granular, stateRead };
-    ok &= check(state && state->load(plugin, &granularStream)
-        && std::abs(getParam(plugin, params, 3004u) - 0.41) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3010u) - 0.73) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3011u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3012u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3019u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6,
-        "version-6 granular state did not add the grain mix default");
-
-    MemoryState holdCut = memory;
-    const uint32_t holdCutVersion = 5u;
-    std::memcpy(holdCut.bytes.data() + 4u, &holdCutVersion,
-        sizeof(holdCutVersion));
-    std::memcpy(holdCut.bytes.data() + 8u, &previousCount,
-        sizeof(previousCount));
-    holdCut.bytes.resize(16u + sizeof(double) * kPreviousParamCount);
-    EventList holdCutAway;
-    holdCutAway.addParam(3004u, 0.95);
-    holdCutAway.addParam(3010u, 0.95);
-    holdCutAway.addParam(3011u, 0.05);
-    holdCutAway.addParam(3012u, 0.05);
-    holdCutAway.addParam(3020u, 0.05);
-    holdCutAway.addParam(3021u, 0.05);
-    (void)processBlocks(plugin, &holdCutAway, 1u);
-    holdCut.position = 0u;
-    clap_istream_t holdCutStream { &holdCut, stateRead };
-    ok &= check(state && state->load(plugin, &holdCutStream)
-        && std::abs(getParam(plugin, params, 3004u) - 0.46) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3010u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3011u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3012u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6,
-        "version-5 hold/cut state did not migrate to safe grain defaults");
-
-    MemoryState legacy = memory;
-    const uint32_t legacyVersion = 4u;
-    const uint32_t legacyCount = kLegacyParamCount;
-    std::memcpy(legacy.bytes.data() + 4u, &legacyVersion,
-        sizeof(legacyVersion));
-    std::memcpy(legacy.bytes.data() + 8u, &legacyCount,
-        sizeof(legacyCount));
-    legacy.bytes.resize(16u + sizeof(double) * kLegacyParamCount);
-    EventList auxAway;
-    auxAway.addParam(3000u, 0.95);
-    auxAway.addParam(3010u, 0.95);
-    auxAway.addParam(3011u, 0.05);
-    auxAway.addParam(3012u, 0.05);
-    auxAway.addParam(3020u, 0.05);
-    auxAway.addParam(3021u, 0.05);
-    (void)processBlocks(plugin, &auxAway, 1u);
-    legacy.position = 0u;
-    clap_istream_t legacyStream { &legacy, stateRead };
-    ok &= check(state && state->load(plugin, &legacyStream)
-        && std::abs(getParam(plugin, params, 3000u) - 0.28) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3010u)) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3011u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3012u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3020u) - 1.0) < 1.0e-6
-        && std::abs(getParam(plugin, params, 3021u) - 0.5) < 1.0e-6,
-        "version-4 state did not migrate with a transparent AUX default");
+    MemoryState obsolete = memory;
+    const uint32_t oldMagic = 0x46533353u;
+    std::memcpy(obsolete.bytes.data(), &oldMagic, sizeof(oldMagic));
+    obsolete.position = 0u;
+    clap_istream_t obsoleteStream { &obsolete, stateRead };
+    ok &= check(state && !state->load(plugin, &obsoleteStream),
+        "obsolete Feedback Shift state was not rejected");
 
     plugin->stop_processing(plugin);
     plugin->deactivate(plugin);

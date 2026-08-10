@@ -42,14 +42,22 @@ constexpr s3g::gui_layout::Panel kExcitationPanel {
     s3g::gui_layout::PluginClass::MixerMatrixLane,
     s3g::gui_layout::PanelRole::Engine,
     { 18.0, 584.0, 254.0, 158.0 }, 36.0, 26.0, 5u };
-constexpr s3g::gui_layout::Panel kRhythmPanel {
+constexpr s3g::gui_layout::Panel kMorphPanel {
+    s3g::gui_layout::PluginClass::MixerMatrixLane,
+    s3g::gui_layout::PanelRole::Modulation,
+    { 284.0, 584.0, 528.0, 158.0 }, 36.0, 26.0, 5u };
+constexpr s3g::gui_layout::Panel kMorphLeftPanel {
     s3g::gui_layout::PluginClass::MixerMatrixLane,
     s3g::gui_layout::PanelRole::Modulation,
     { 284.0, 584.0, 264.0, 158.0 }, 36.0, 26.0, 5u };
+constexpr s3g::gui_layout::Panel kMorphRightPanel {
+    s3g::gui_layout::PluginClass::MixerMatrixLane,
+    s3g::gui_layout::PanelRole::Modulation,
+    { 548.0, 584.0, 264.0, 158.0 }, 36.0, 26.0, 5u };
 constexpr s3g::gui_layout::Panel kOutputPanel {
     s3g::gui_layout::PluginClass::MixerMatrixLane,
     s3g::gui_layout::PanelRole::Output,
-    { 566.0, 596.0, 516.0, 148.0 }, 36.0, 26.0, 4u };
+    { 824.0, 584.0, 258.0, 158.0 }, 36.0, 26.0, 4u };
 constexpr s3g::gui_layout::Panel kCrosspointPanel {
     s3g::gui_layout::PluginClass::MixerMatrixLane,
     s3g::gui_layout::PanelRole::Routing,
@@ -66,13 +74,13 @@ enum FeedbackMenu : int {
     kFeedbackMenuNodeMode,
     kFeedbackMenuPedal,
     kFeedbackMenuExciterSource,
-    kFeedbackMenuMotionSource,
-    kFeedbackMenuMotionTarget,
+    kFeedbackMenuMorphSource,
     kFeedbackMenuOutputMode,
     kFeedbackMenuRun,
-    kFeedbackMenuPulseSync,
-    kFeedbackMenuPulseDivision,
-    kFeedbackMenuPulseShape,
+    kFeedbackMenuMorphHold,
+    kFeedbackMenuMorphSync,
+    kFeedbackMenuMorphDivision,
+    kFeedbackMenuMorphShape,
     kFeedbackMenuEffectBase = 100,
 };
 
@@ -102,13 +110,36 @@ NSRect feedbackMatrixCellRect(uint32_t destination, uint32_t source)
 
 NSRect feedbackNodeButtonRect(uint32_t node)
 {
-    return NSMakeRect(582.0 + static_cast<CGFloat>(node) * 51.0,
-        68.0, 43.0, 22.0);
+    return NSMakeRect(582.0 + static_cast<CGFloat>(node) * 42.0,
+        68.0, 36.0, 22.0);
+}
+
+NSRect feedbackSceneButtonRect(bool sceneB)
+{
+    return NSMakeRect(sceneB ? 956.0 : 918.0, 68.0, 32.0, 22.0);
 }
 
 NSRect feedbackAuxButtonRect()
 {
     return NSMakeRect(998.0, 68.0, 68.0, 22.0);
+}
+
+NSRect feedbackRandomButtonRect(bool sceneB)
+{
+    const auto band = s3g::gui_layout::matrixTitleBand(kFeedbackCanvas);
+    NSRect rect = s3g::clap_gui::cocoaRect(band.randomButton);
+    rect.size.width = 66.0;
+    if (sceneB) rect.origin.x += 74.0;
+    return rect;
+}
+
+NSRect feedbackSceneCopyButtonRect(bool toSceneB)
+{
+    const CGFloat y = toSceneB ? 214.0 : 236.0;
+    return NSMakeRect(s3g::gui_layout::processorControlX(
+        kNodeRightPanel.frame.x), y,
+        s3g::gui_layout::processorTrackWidth(kNodeRightPanel.frame.width),
+        18.0);
 }
 
 NSRect feedbackProcessorMenuRect(
@@ -150,8 +181,9 @@ CGFloat feedbackNormalizedParam(const Plugin& plugin, clap_id id)
     uint32_t node = 0u;
     clap_id offset = 0u;
     const double value = paramValue(plugin, id);
-    if (decodeNodeParam(id, node, offset)
-        && offset == kNodeFrequencyOffset) {
+    bool sceneB = false;
+    if (decodeSceneParam(id, sceneB, node, offset)
+        && offset == kSceneFrequencyOffset) {
         return s3g::feedbackShiftFrequencyControlNorm(
             static_cast<float>(value));
     }
@@ -262,6 +294,7 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     CGFloat _dragPanelX;
     CGFloat _dragPanelWidth;
     uint32_t _selectedNode;
+    bool _editingSceneB;
     bool _editingAux;
     uint32_t _selectedSource;
     uint32_t _selectedDestination;
@@ -297,6 +330,7 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         _dragPanelX = 0.0;
         _dragPanelWidth = 0.0;
         _selectedNode = 0u;
+        _editingSceneB = false;
         _editingAux = false;
         _selectedSource = 0u;
         _selectedDestination = 0u;
@@ -363,16 +397,15 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     case kFeedbackMenuPedal: return s3g::kFeedbackPedalTypeCount;
     case kFeedbackMenuExciterSource:
         return s3g::kFeedbackExciterSourceCount;
-    case kFeedbackMenuMotionSource:
-        return s3g::kFeedbackMotionSourceCount;
-    case kFeedbackMenuMotionTarget:
-        return s3g::kFeedbackMotionTargetCount;
+    case kFeedbackMenuMorphSource:
+        return s3g::kFeedbackMorphSourceCount;
     case kFeedbackMenuOutputMode: return s3g::kFeedbackShiftOutputModeCount;
     case kFeedbackMenuRun:
-    case kFeedbackMenuPulseSync: return 2u;
-    case kFeedbackMenuPulseDivision:
+    case kFeedbackMenuMorphHold:
+    case kFeedbackMenuMorphSync: return 2u;
+    case kFeedbackMenuMorphDivision:
         return static_cast<uint32_t>(s3g::kFeedbackPulseDivisionBeats.size());
-    case kFeedbackMenuPulseShape: return s3g::kFeedbackPulseShapeCount;
+    case kFeedbackMenuMorphShape: return s3g::kFeedbackPulseShapeCount;
     default:
         if (_openMenu >= kFeedbackMenuEffectBase) {
             const auto pedal = static_cast<s3g::FeedbackPedalType>(
@@ -402,24 +435,21 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         return [NSString stringWithUTF8String:s3g::feedbackExciterSourceName(
             static_cast<s3g::FeedbackExciterSource>(std::min(item,
                 s3g::kFeedbackExciterSourceCount - 1u)))];
-    case kFeedbackMenuMotionSource:
-        return [NSString stringWithUTF8String:s3g::feedbackMotionSourceName(
-            static_cast<s3g::FeedbackMotionSource>(std::min(item,
-                s3g::kFeedbackMotionSourceCount - 1u)))];
-    case kFeedbackMenuMotionTarget:
-        return [NSString stringWithUTF8String:s3g::feedbackMotionTargetName(
-            static_cast<s3g::FeedbackMotionTarget>(std::min(item,
-                s3g::kFeedbackMotionTargetCount - 1u)))];
+    case kFeedbackMenuMorphSource:
+        return [NSString stringWithUTF8String:s3g::feedbackMorphSourceName(
+            static_cast<s3g::FeedbackMorphSource>(std::min(item,
+                s3g::kFeedbackMorphSourceCount - 1u)))];
     case kFeedbackMenuOutputMode:
         return [NSString stringWithUTF8String:s3g::feedbackShiftOutputModeName(
             static_cast<s3g::FeedbackShiftOutputMode>(std::min(item,
                 s3g::kFeedbackShiftOutputModeCount - 1u)))];
     case kFeedbackMenuRun:
-    case kFeedbackMenuPulseSync: return item == 0u ? @"OFF" : @"ON";
-    case kFeedbackMenuPulseDivision:
+    case kFeedbackMenuMorphHold:
+    case kFeedbackMenuMorphSync: return item == 0u ? @"OFF" : @"ON";
+    case kFeedbackMenuMorphDivision:
         return [NSString stringWithUTF8String:
             s3g::feedbackPulseDivisionName(item)];
-    case kFeedbackMenuPulseShape:
+    case kFeedbackMenuMorphShape:
         return [NSString stringWithUTF8String:s3g::feedbackPulseShapeName(
             static_cast<s3g::FeedbackPulseShape>(std::min(item,
                 s3g::kFeedbackPulseShapeCount - 1u)))];
@@ -447,23 +477,21 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         nodeParamId(_selectedNode, kNodePedalOffset)));
     case kFeedbackMenuExciterSource:
         return static_cast<int>(paramValue(*plugin,
-            exciterParamId(_selectedNode, kExciterSourceOffset)));
-    case kFeedbackMenuMotionSource:
-        return static_cast<int>(paramValue(*plugin,
-            motionParamId(_selectedNode, kMotionSourceOffset)));
-    case kFeedbackMenuMotionTarget:
-        return static_cast<int>(paramValue(*plugin,
-            motionParamId(_selectedNode, kMotionTargetOffset)));
+            nodeParamId(_selectedNode, kNodeExciterSourceOffset)));
+    case kFeedbackMenuMorphSource:
+        return static_cast<int>(paramValue(*plugin, kMorphSourceParamId));
     case kFeedbackMenuOutputMode:
         return static_cast<int>(paramValue(*plugin, kOutputModeParamId));
     case kFeedbackMenuRun:
         return static_cast<int>(paramValue(*plugin, kRunParamId));
-    case kFeedbackMenuPulseSync:
-        return static_cast<int>(paramValue(*plugin, kPulseSyncParamId));
-    case kFeedbackMenuPulseDivision:
-        return static_cast<int>(paramValue(*plugin, kPulseDivisionParamId));
-    case kFeedbackMenuPulseShape:
-        return static_cast<int>(paramValue(*plugin, kPulseShapeParamId));
+    case kFeedbackMenuMorphHold:
+        return static_cast<int>(paramValue(*plugin, kMorphHoldParamId));
+    case kFeedbackMenuMorphSync:
+        return static_cast<int>(paramValue(*plugin, kMorphSyncParamId));
+    case kFeedbackMenuMorphDivision:
+        return static_cast<int>(paramValue(*plugin, kMorphDivisionParamId));
+    case kFeedbackMenuMorphShape:
+        return static_cast<int>(paramValue(*plugin, kMorphShapeParamId));
     default:
         if (_openMenu >= kFeedbackMenuEffectBase) {
             const auto pedal = static_cast<s3g::FeedbackPedalType>(
@@ -565,18 +593,20 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     }
     const auto outputMode = static_cast<s3g::FeedbackShiftOutputMode>(
         static_cast<uint32_t>(paramValue(*plugin, kOutputModeParamId)));
-    NSString* status = [NSString stringWithFormat:@"%s  //  %@",
+    const float liveMorph = plugin->morphValue.load(std::memory_order_relaxed);
+    NSString* status = [NSString stringWithFormat:@"%s  //  A %.0f%% B  //  %@",
         s3g::feedbackShiftOutputModeName(outputMode),
+        liveMorph * 100.0f,
         s3g::clap_gui::peakDbText(peak)];
     const auto titleBand = s3g::gui_layout::matrixTitleBand(kFeedbackCanvas);
     s3g::clap_gui::drawProcessorTitleBand(
         @"s3g PROCESSOR FEEDBACK SHIFT 8CH",
         [NSString stringWithUTF8String:_titlePresetName], status,
         titleBand, s3g::clap_gui::softTitleAttrs(), labels, values, style);
-    s3g::clap_gui::drawHeaderActionButton(
-        s3g::clap_gui::cocoaRect(titleBand.randomButton),
-        s3g::clap_gui::cocoaRect(titleBand.randomButton),
-        @"RANDOM", labels, style);
+    s3g::clap_gui::drawHeaderActionButton(feedbackRandomButtonRect(false),
+        feedbackRandomButtonRect(false), @"RANDOM A", labels, style);
+    s3g::clap_gui::drawHeaderActionButton(feedbackRandomButtonRect(true),
+        feedbackRandomButtonRect(true), @"RANDOM B", labels, style);
 
     const auto pedal = static_cast<s3g::FeedbackPedalType>(
         static_cast<uint32_t>(paramValue(*plugin,
@@ -606,10 +636,15 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
                 s3g::feedbackPedalMenuItem(pedal, 3u, mode)];
         }
     }
-    [self drawPanel:@"PATCH MATRIX // SOURCE > DESTINATION"
+    [self drawPanel:[NSString stringWithFormat:
+            @"SCENE %c MATRIX // SOURCE > DESTINATION",
+            _editingSceneB ? 'B' : 'A']
         panel:kMatrixPanel style:style labels:labels];
-    [self drawPanel:(_editingAux ? @"AUX SENDS // NODE > BUS"
-                                  : @"SELECTED NODE")
+    [self drawPanel:(_editingAux
+            ? [NSString stringWithFormat:@"SCENE %c AUX SENDS // NODE > BUS",
+                _editingSceneB ? 'B' : 'A']
+            : [NSString stringWithFormat:@"SCENE %c // SELECTED NODE",
+                _editingSceneB ? 'B' : 'A'])
         panel:(_editingAux ? kAuxSendPanel : kNodePanel)
         style:style labels:labels];
     if (_editingAux) {
@@ -630,9 +665,9 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
                     s3g::feedbackPedalName(pedal)]) panel:pedalPanel
             style:style labels:labels];
     }
-    [self drawPanel:@"EXCITATION" panel:kExcitationPanel
+    [self drawPanel:@"ENGINE" panel:kExcitationPanel
         style:style labels:labels];
-    [self drawPanel:@"RHYTHM" panel:kRhythmPanel
+    [self drawPanel:@"ECOLOGY MORPH // A > B" panel:kMorphPanel
         style:style labels:labels];
     [self drawPanel:@"OUTPUT TOPOLOGY" panel:kOutputPanel
         style:style labels:labels];
@@ -668,7 +703,7 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
             const uint32_t index = destination
                 * s3g::kFeedbackShiftChannels + source;
             const double route = paramValue(*plugin,
-                matrixParamId(destination, source));
+                matrixParamId(_editingSceneB, destination, source));
             const float activity = plugin->routeActivity[index].load(
                 std::memory_order_relaxed);
             const NSRect cell = feedbackMatrixCellRect(destination, source);
@@ -707,7 +742,7 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         _selectedSource + 1u, _selectedDestination + 1u]
         drawAtPoint:NSMakePoint(kCrosspointPanel.frame.x + 10.0,
             kCrosspointPanel.frame.y + 8.0) withAttributes:labels];
-    const clap_id selectedRouteId = matrixParamId(
+    const clap_id selectedRouteId = matrixParamId(_editingSceneB,
         _selectedDestination, _selectedSource);
     const double selectedRoute = paramValue(*plugin, selectedRouteId);
     s3g::clap_gui::drawProcessorSlider(@"GAIN",
@@ -737,6 +772,10 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
             NSRectFill(meter);
         }
     }
+    drawFeedbackActionButton(feedbackSceneButtonRect(false), @"A",
+        !_editingSceneB, style);
+    drawFeedbackActionButton(feedbackSceneButtonRect(true), @"B",
+        _editingSceneB, style);
     const CGFloat auxActivity = plugin->auxActivity.load(
         std::memory_order_relaxed);
     drawFeedbackActionButton(feedbackAuxButtonRect(), @"AUX", _editingAux,
@@ -761,7 +800,8 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
             const auto& panel = node < 4u
                 ? kAuxSendLeftPanel : kAuxSendRightPanel;
             [self drawSlider:[NSString stringWithFormat:@"NODE %u", node + 1u]
-                id:auxSendParamId(node) row:node % 4u panel:panel
+                id:sceneParamId(_editingSceneB, node, kSceneAuxSendOffset)
+                row:node % 4u panel:panel
                 style:style labels:labels values:values];
         }
     } else {
@@ -775,40 +815,44 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
             row:0u panel:kNodeLeftPanel style:style labels:labels values:values];
         [self drawMenu:@"INSERT" id:nodeParamId(_selectedNode, kNodePedalOffset)
             row:1u panel:kNodeLeftPanel style:style labels:labels values:values];
-        [self drawSlider:@"FREQ" id:nodeParamId(_selectedNode,
-            kNodeFrequencyOffset) row:2u panel:kNodeLeftPanel style:style
+        [self drawSlider:@"SHIFT" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneFrequencyOffset)
+            row:2u panel:kNodeLeftPanel style:style
             labels:labels values:values];
-        [self drawSlider:@"REGEN" id:nodeParamId(_selectedNode,
-            kNodeRegenerationOffset) row:3u panel:kNodeLeftPanel style:style
+        [self drawSlider:@"REGEN" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneRegenerationOffset)
+            row:3u panel:kNodeLeftPanel style:style
             labels:labels values:values];
-        [self drawSlider:@"COLOR" id:nodeParamId(_selectedNode,
-            kNodeColorOffset) row:4u panel:kNodeLeftPanel style:style
+        [self drawSlider:@"COLOR" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneColorOffset)
+            row:4u panel:kNodeLeftPanel style:style
             labels:labels values:values];
-        [self drawSlider:@"LEVEL" id:nodeParamId(_selectedNode,
-            kNodeLevelOffset) row:5u panel:kNodeLeftPanel style:style
+        [self drawSlider:@"BODY" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneBodyOffset)
+            row:5u panel:kNodeLeftPanel style:style
             labels:labels values:values];
-        [self drawMenu:@"SOURCE" id:exciterParamId(_selectedNode,
-            kExciterSourceOffset) row:0u panel:kNodeRightPanel
+        [self drawMenu:@"SOURCE" id:nodeParamId(_selectedNode,
+            kNodeExciterSourceOffset) row:0u panel:kNodeRightPanel
             style:style labels:labels values:values];
-        [self drawSlider:@"INPUT" id:exciterParamId(_selectedNode,
-            kExciterGainOffset) row:1u panel:kNodeRightPanel
+        [self drawSlider:@"INPUT" id:nodeParamId(_selectedNode,
+            kNodeExciterGainOffset) row:1u panel:kNodeRightPanel
             style:style labels:labels values:values];
-        [self drawMenu:@"MOTION" id:motionParamId(_selectedNode,
-            kMotionSourceOffset) row:2u panel:kNodeRightPanel
+        [self drawSlider:@"LEVEL" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneLevelOffset)
+            row:2u panel:kNodeRightPanel
             style:style labels:labels values:values];
-        [self drawMenu:@"TARGET" id:motionParamId(_selectedNode,
-            kMotionTargetOffset) row:3u panel:kNodeRightPanel
+        [self drawSlider:@"AUX SEND" id:sceneParamId(_editingSceneB,
+            _selectedNode, kSceneAuxSendOffset)
+            row:3u panel:kNodeRightPanel
             style:style labels:labels values:values];
-        [self drawSlider:@"DEPTH" id:motionParamId(_selectedNode,
-            kMotionDepthOffset) row:4u panel:kNodeRightPanel
-            style:style labels:labels values:values];
-        [self drawSlider:@"SLEW" id:motionParamId(_selectedNode,
-            kMotionSlewOffset) row:5u panel:kNodeRightPanel
-            style:style labels:labels values:values];
+        drawFeedbackActionButton(feedbackSceneCopyButtonRect(true),
+            @"COPY A > B", false, style);
+        drawFeedbackActionButton(feedbackSceneCopyButtonRect(false),
+            @"COPY B > A", false, style);
     }
 
     if (effectRows == 0u) {
-        [@"SIGNAL PASSES DIRECTLY TO THE MATRIX"
+        [@"NO INSERT // SHIFT/RING REMAINS ACTIVE"
             drawAtPoint:NSMakePoint(pedalPanel.frame.x + 16.0,
                 pedalPanel.frame.y + 37.0) withAttributes:values];
     }
@@ -842,13 +886,11 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         }
     }
 
-    [self drawSlider:@"EXCITE" id:kExciteParamId row:0u
+    [self drawSlider:@"INT NOISE" id:kExciteParamId row:0u
         panel:kExcitationPanel style:style labels:labels values:values];
     [self drawSlider:@"DRIFT" id:kDriftParamId row:1u
         panel:kExcitationPanel style:style labels:labels values:values];
-    [self drawSlider:@"MOTION" id:kMotionRateParamId row:2u
-        panel:kExcitationPanel style:style labels:labels values:values];
-    [self drawMenu:@"RUN" id:kRunParamId row:3u panel:kExcitationPanel
+    [self drawMenu:@"ENGINE RUN" id:kRunParamId row:2u panel:kExcitationPanel
         style:style labels:labels values:values];
     drawFeedbackActionButton(feedbackActionButtonRect(0u),
         [NSString stringWithFormat:@"HIT N%u", _selectedNode + 1u],
@@ -856,22 +898,45 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     drawFeedbackActionButton(feedbackActionButtonRect(1u), @"PANIC",
         false, style);
 
-    [self drawSlider:@"DEPTH" id:kPulseDepthParamId row:0u panel:kRhythmPanel
+    [style.grid setFill];
+    NSRectFill(NSMakeRect(kMorphRightPanel.frame.x,
+        kMorphPanel.frame.y + s3g::gui_layout::kStandardMetrics.headerHeight,
+        1.0, kMorphPanel.frame.height
+            - s3g::gui_layout::kStandardMetrics.headerHeight));
+    [self drawMenu:@"DRIVER" id:kMorphSourceParamId row:0u
+        panel:kMorphLeftPanel style:style labels:labels values:values];
+    [self drawSlider:@"MORPH" id:kMorphParamId row:1u panel:kMorphLeftPanel
         style:style labels:labels values:values];
-    [self drawSlider:@"RATE" id:kPulseRateParamId row:1u panel:kRhythmPanel
-        style:style labels:labels values:values];
-    [self drawMenu:@"SYNC" id:kPulseSyncParamId row:2u panel:kRhythmPanel
-        style:style labels:labels values:values];
-    [self drawMenu:@"DIV" id:kPulseDivisionParamId row:3u panel:kRhythmPanel
-        style:style labels:labels values:values];
-    [self drawMenu:@"SHAPE" id:kPulseShapeParamId row:4u panel:kRhythmPanel
-        style:style labels:labels values:values];
-    const CGFloat phase = plugin->pulsePhase.load(std::memory_order_relaxed);
+    [self drawSlider:@"DEPTH" id:kMorphDepthParamId row:2u
+        panel:kMorphLeftPanel style:style labels:labels values:values];
+    [self drawSlider:@"INERTIA" id:kMorphInertiaParamId row:3u
+        panel:kMorphLeftPanel style:style labels:labels values:values];
+    const CGFloat inputEnvelope = plugin->inputEnvelope.load(
+        std::memory_order_relaxed);
+    s3g::clap_gui::drawProcessorSlider(@"INPUT ENV",
+        [NSString stringWithFormat:@"%3.0f%%", inputEnvelope * 100.0f],
+        inputEnvelope, s3g::gui_layout::rowY(kMorphLeftPanel, 4u),
+        kMorphLeftPanel.frame.x, kMorphLeftPanel.frame.width,
+        labels, values, style);
+    [self drawSlider:@"RATE" id:kMorphRateParamId row:0u
+        panel:kMorphRightPanel style:style labels:labels values:values];
+    [self drawMenu:@"HOLD" id:kMorphHoldParamId row:1u
+        panel:kMorphRightPanel style:style labels:labels values:values];
+    [self drawMenu:@"SYNC" id:kMorphSyncParamId row:2u
+        panel:kMorphRightPanel style:style labels:labels values:values];
+    [self drawMenu:@"DIV" id:kMorphDivisionParamId row:3u
+        panel:kMorphRightPanel style:style labels:labels values:values];
+    [self drawMenu:@"SHAPE" id:kMorphShapeParamId row:4u
+        panel:kMorphRightPanel style:style labels:labels values:values];
+    const CGFloat phase = plugin->morphPhase.load(std::memory_order_relaxed);
+    const CGFloat driver = plugin->morphDriver.load(std::memory_order_relaxed);
     [s3g::clap_gui::color(0xc9b86f) setFill];
     [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-        kRhythmPanel.frame.x + kRhythmPanel.frame.width - 31.0
-            + phase * 12.0,
-        kRhythmPanel.frame.y + 7.5, 4.0, 4.0)] fill];
+        kMorphPanel.frame.x + 164.0 + phase * 78.0,
+        kMorphPanel.frame.y + 7.0, 5.0, 5.0)] fill];
+    [s3g::clap_gui::color(0x86a48c) setFill];
+    NSRectFill(NSMakeRect(kMorphPanel.frame.x + 258.0,
+        kMorphPanel.frame.y + 20.0, driver * 258.0, 2.0));
 
     [self drawSlider:@"OUT" id:kOutputParamId row:0u panel:kOutputPanel
         style:style labels:labels values:values];
@@ -911,9 +976,10 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         (point.x - trackX) / std::max(1.0, trackWidth), 0.0, 1.0);
     uint32_t node = 0u;
     clap_id offset = 0u;
+    bool sceneB = false;
     double value = 0.0;
-    if (decodeNodeParam(id, node, offset)
-        && offset == kNodeFrequencyOffset) {
+    if (decodeSceneParam(id, sceneB, node, offset)
+        && offset == kSceneFrequencyOffset) {
         value = s3g::feedbackShiftFrequencyFromControlNorm(
             static_cast<float>(normalized));
     } else {
@@ -948,16 +1014,14 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     case kFeedbackMenuPedal:
         id = nodeParamId(_selectedNode, kNodePedalOffset); break;
     case kFeedbackMenuExciterSource:
-        id = exciterParamId(_selectedNode, kExciterSourceOffset); break;
-    case kFeedbackMenuMotionSource:
-        id = motionParamId(_selectedNode, kMotionSourceOffset); break;
-    case kFeedbackMenuMotionTarget:
-        id = motionParamId(_selectedNode, kMotionTargetOffset); break;
+        id = nodeParamId(_selectedNode, kNodeExciterSourceOffset); break;
+    case kFeedbackMenuMorphSource: id = kMorphSourceParamId; break;
     case kFeedbackMenuOutputMode: id = kOutputModeParamId; break;
     case kFeedbackMenuRun: id = kRunParamId; break;
-    case kFeedbackMenuPulseSync: id = kPulseSyncParamId; break;
-    case kFeedbackMenuPulseDivision: id = kPulseDivisionParamId; break;
-    case kFeedbackMenuPulseShape: id = kPulseShapeParamId; break;
+    case kFeedbackMenuMorphHold: id = kMorphHoldParamId; break;
+    case kFeedbackMenuMorphSync: id = kMorphSyncParamId; break;
+    case kFeedbackMenuMorphDivision: id = kMorphDivisionParamId; break;
+    case kFeedbackMenuMorphShape: id = kMorphShapeParamId; break;
     default:
         if (_openMenu >= kFeedbackMenuEffectBase) {
             const auto pedal = static_cast<s3g::FeedbackPedalType>(
@@ -1015,15 +1079,18 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point,
-            s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+    if (NSPointInRect(point, feedbackRandomButtonRect(false))
+        || NSPointInRect(point, feedbackRandomButtonRect(true))) {
+        const bool randomizeSceneB = NSPointInRect(
+            point, feedbackRandomButtonRect(true));
         _randomSeed = _randomSeed * 1664525u + 1013904223u;
         const auto current = paramsSnapshot(*plugin);
-        queueGuiPatch(*plugin,
-            s3g::randomFeedbackShiftParams(_randomSeed, current));
+        queueGuiPatch(*plugin, s3g::randomFeedbackShiftScene(
+            _randomSeed, current, randomizeSceneB));
+        _editingSceneB = randomizeSceneB;
         _factoryPresetIndex = -1;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
-            "GENERATED");
+            randomizeSceneB ? "RANDOM B" : "RANDOM A");
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1037,6 +1104,13 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
             return;
         }
     }
+    if (NSPointInRect(point, feedbackSceneButtonRect(false))
+        || NSPointInRect(point, feedbackSceneButtonRect(true))) {
+        _editingSceneB = NSPointInRect(point, feedbackSceneButtonRect(true));
+        _openMenu = kFeedbackMenuNone;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (NSPointInRect(point, feedbackAuxButtonRect())) {
         _editingAux = true;
         _openMenu = kFeedbackMenuNone;
@@ -1049,7 +1123,8 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
              source < s3g::kFeedbackShiftChannels; ++source) {
             if (!NSPointInRect(point,
                     feedbackMatrixCellRect(destination, source))) continue;
-            const clap_id id = matrixParamId(destination, source);
+            const clap_id id = matrixParamId(
+                _editingSceneB, destination, source);
             const double current = paramValue(*plugin, id);
             const bool alreadySelected = source == _selectedSource
                 && destination == _selectedDestination;
@@ -1078,7 +1153,7 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         }
     }
 
-    const clap_id selectedRouteId = matrixParamId(
+    const clap_id selectedRouteId = matrixParamId(_editingSceneB,
         _selectedDestination, _selectedSource);
     if (NSPointInRect(point, feedbackCrosspointActionRect(0u))) {
         const double current = paramValue(*plugin, selectedRouteId);
@@ -1092,6 +1167,38 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
     }
     if (NSPointInRect(point, feedbackCrosspointActionRect(1u))) {
         queueGuiParamGesture(*plugin, selectedRouteId, 0.0);
+        _factoryPresetIndex = -1;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+            "CUSTOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    if (!_editingAux
+        && (NSPointInRect(point, feedbackSceneCopyButtonRect(true))
+            || NSPointInRect(point, feedbackSceneCopyButtonRect(false)))) {
+        const bool toSceneB = NSPointInRect(
+            point, feedbackSceneCopyButtonRect(true));
+        auto patch = paramsSnapshot(*plugin);
+        if (toSceneB) {
+            patch.sceneBNodes = patch.nodes;
+            patch.sceneBMatrix = patch.matrix;
+            patch.sceneBAuxSend = patch.auxSend;
+        } else {
+            for (uint32_t node = 0u;
+                 node < s3g::kFeedbackShiftChannels; ++node) {
+                patch.nodes[node].frequencyHz
+                    = patch.sceneBNodes[node].frequencyHz;
+                patch.nodes[node].regeneration
+                    = patch.sceneBNodes[node].regeneration;
+                patch.nodes[node].color = patch.sceneBNodes[node].color;
+                patch.nodes[node].body = patch.sceneBNodes[node].body;
+                patch.nodes[node].levelDb = patch.sceneBNodes[node].levelDb;
+            }
+            patch.matrix = patch.sceneBMatrix;
+            patch.auxSend = patch.sceneBAuxSend;
+        }
+        queueGuiPatch(*plugin, patch);
         _factoryPresetIndex = -1;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
             "CUSTOM");
@@ -1116,32 +1223,30 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         [self openMenu:kFeedbackMenuExciterSource control:0u
             rect:feedbackProcessorMenuRect(kNodeRightPanel, 0u)]; return;
     }
-    if (!_editingAux && NSPointInRect(point,
-            feedbackProcessorMenuRect(kNodeRightPanel, 2u))) {
-        [self openMenu:kFeedbackMenuMotionSource control:0u
-            rect:feedbackProcessorMenuRect(kNodeRightPanel, 2u)]; return;
-    }
-    if (!_editingAux && NSPointInRect(point,
-            feedbackProcessorMenuRect(kNodeRightPanel, 3u))) {
-        [self openMenu:kFeedbackMenuMotionTarget control:0u
-            rect:feedbackProcessorMenuRect(kNodeRightPanel, 3u)]; return;
-    }
     if (NSPointInRect(point,
-            feedbackProcessorMenuRect(kExcitationPanel, 3u))) {
+            feedbackProcessorMenuRect(kExcitationPanel, 2u))) {
         [self openMenu:kFeedbackMenuRun control:0u
-            rect:feedbackProcessorMenuRect(kExcitationPanel, 3u)]; return;
+            rect:feedbackProcessorMenuRect(kExcitationPanel, 2u)]; return;
     }
-    if (NSPointInRect(point, feedbackProcessorMenuRect(kRhythmPanel, 2u))) {
-        [self openMenu:kFeedbackMenuPulseSync control:0u
-            rect:feedbackProcessorMenuRect(kRhythmPanel, 2u)]; return;
+    if (NSPointInRect(point, feedbackProcessorMenuRect(kMorphLeftPanel, 0u))) {
+        [self openMenu:kFeedbackMenuMorphSource control:0u
+            rect:feedbackProcessorMenuRect(kMorphLeftPanel, 0u)]; return;
     }
-    if (NSPointInRect(point, feedbackProcessorMenuRect(kRhythmPanel, 3u))) {
-        [self openMenu:kFeedbackMenuPulseDivision control:0u
-            rect:feedbackProcessorMenuRect(kRhythmPanel, 3u)]; return;
+    if (NSPointInRect(point, feedbackProcessorMenuRect(kMorphRightPanel, 1u))) {
+        [self openMenu:kFeedbackMenuMorphHold control:0u
+            rect:feedbackProcessorMenuRect(kMorphRightPanel, 1u)]; return;
     }
-    if (NSPointInRect(point, feedbackProcessorMenuRect(kRhythmPanel, 4u))) {
-        [self openMenu:kFeedbackMenuPulseShape control:0u
-            rect:feedbackProcessorMenuRect(kRhythmPanel, 4u)]; return;
+    if (NSPointInRect(point, feedbackProcessorMenuRect(kMorphRightPanel, 2u))) {
+        [self openMenu:kFeedbackMenuMorphSync control:0u
+            rect:feedbackProcessorMenuRect(kMorphRightPanel, 2u)]; return;
+    }
+    if (NSPointInRect(point, feedbackProcessorMenuRect(kMorphRightPanel, 3u))) {
+        [self openMenu:kFeedbackMenuMorphDivision control:0u
+            rect:feedbackProcessorMenuRect(kMorphRightPanel, 3u)]; return;
+    }
+    if (NSPointInRect(point, feedbackProcessorMenuRect(kMorphRightPanel, 4u))) {
+        [self openMenu:kFeedbackMenuMorphShape control:0u
+            rect:feedbackProcessorMenuRect(kMorphRightPanel, 4u)]; return;
     }
     if (NSPointInRect(point, feedbackProcessorMenuRect(kOutputPanel, 1u))) {
         [self openMenu:kFeedbackMenuOutputMode control:0u
@@ -1211,33 +1316,47 @@ void drawFeedbackActionButton(NSRect rect, NSString* title, bool active,
         return true;
     };
     if ((_editingAux && (hitSlider(kAuxSendLeftPanel, 0u,
-                auxSendParamId(0u))
-            || hitSlider(kAuxSendLeftPanel, 1u, auxSendParamId(1u))
-            || hitSlider(kAuxSendLeftPanel, 2u, auxSendParamId(2u))
-            || hitSlider(kAuxSendLeftPanel, 3u, auxSendParamId(3u))
-            || hitSlider(kAuxSendRightPanel, 0u, auxSendParamId(4u))
-            || hitSlider(kAuxSendRightPanel, 1u, auxSendParamId(5u))
-            || hitSlider(kAuxSendRightPanel, 2u, auxSendParamId(6u))
-            || hitSlider(kAuxSendRightPanel, 3u, auxSendParamId(7u))))
+                sceneParamId(_editingSceneB, 0u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendLeftPanel, 1u,
+                sceneParamId(_editingSceneB, 1u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendLeftPanel, 2u,
+                sceneParamId(_editingSceneB, 2u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendLeftPanel, 3u,
+                sceneParamId(_editingSceneB, 3u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendRightPanel, 0u,
+                sceneParamId(_editingSceneB, 4u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendRightPanel, 1u,
+                sceneParamId(_editingSceneB, 5u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendRightPanel, 2u,
+                sceneParamId(_editingSceneB, 6u, kSceneAuxSendOffset))
+            || hitSlider(kAuxSendRightPanel, 3u,
+                sceneParamId(_editingSceneB, 7u, kSceneAuxSendOffset))))
         || (!_editingAux && (hitSlider(kNodeLeftPanel, 2u,
-                nodeParamId(_selectedNode, kNodeFrequencyOffset))
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneFrequencyOffset))
             || hitSlider(kNodeLeftPanel, 3u,
-                nodeParamId(_selectedNode, kNodeRegenerationOffset))
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneRegenerationOffset))
             || hitSlider(kNodeLeftPanel, 4u,
-                nodeParamId(_selectedNode, kNodeColorOffset))
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneColorOffset))
             || hitSlider(kNodeLeftPanel, 5u,
-                nodeParamId(_selectedNode, kNodeLevelOffset))
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneBodyOffset))
             || hitSlider(kNodeRightPanel, 1u,
-                exciterParamId(_selectedNode, kExciterGainOffset))
-            || hitSlider(kNodeRightPanel, 4u,
-                motionParamId(_selectedNode, kMotionDepthOffset))
-            || hitSlider(kNodeRightPanel, 5u,
-                motionParamId(_selectedNode, kMotionSlewOffset))))
+                nodeParamId(_selectedNode, kNodeExciterGainOffset))
+            || hitSlider(kNodeRightPanel, 2u,
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneLevelOffset))
+            || hitSlider(kNodeRightPanel, 3u,
+                sceneParamId(_editingSceneB, _selectedNode,
+                    kSceneAuxSendOffset))))
         || hitSlider(kExcitationPanel, 0u, kExciteParamId)
         || hitSlider(kExcitationPanel, 1u, kDriftParamId)
-        || hitSlider(kExcitationPanel, 2u, kMotionRateParamId)
-        || hitSlider(kRhythmPanel, 0u, kPulseDepthParamId)
-        || hitSlider(kRhythmPanel, 1u, kPulseRateParamId)
+        || hitSlider(kMorphLeftPanel, 1u, kMorphParamId)
+        || hitSlider(kMorphLeftPanel, 2u, kMorphDepthParamId)
+        || hitSlider(kMorphLeftPanel, 3u, kMorphInertiaParamId)
+        || hitSlider(kMorphRightPanel, 0u, kMorphRateParamId)
         || hitSlider(kOutputPanel, 0u, kOutputParamId)
         || hitSlider(kOutputPanel, 2u, kOutputRotationParamId)
         || hitSlider(kCrosspointPanel, 0u, selectedRouteId)) return;

@@ -75,54 +75,29 @@ inline const char* feedbackExciterSourceName(FeedbackExciterSource source)
     return "NOISE + HIT";
 }
 
-enum class FeedbackMotionSource : uint32_t {
-    Off = 0u,
+enum class FeedbackMorphSource : uint32_t {
+    Manual = 0u,
+    Envelope,
     Lfo,
     Chaos,
-    Envelope,
     Pulse,
     Count,
 };
 
-constexpr uint32_t kFeedbackMotionSourceCount =
-    static_cast<uint32_t>(FeedbackMotionSource::Count);
+constexpr uint32_t kFeedbackMorphSourceCount =
+    static_cast<uint32_t>(FeedbackMorphSource::Count);
 
-inline const char* feedbackMotionSourceName(FeedbackMotionSource source)
+inline const char* feedbackMorphSourceName(FeedbackMorphSource source)
 {
     switch (source) {
-    case FeedbackMotionSource::Off: return "OFF";
-    case FeedbackMotionSource::Lfo: return "LFO";
-    case FeedbackMotionSource::Chaos: return "CHAOS";
-    case FeedbackMotionSource::Envelope: return "ENVELOPE";
-    case FeedbackMotionSource::Pulse: return "PULSE";
-    case FeedbackMotionSource::Count: break;
+    case FeedbackMorphSource::Manual: return "MANUAL";
+    case FeedbackMorphSource::Envelope: return "INPUT ENV";
+    case FeedbackMorphSource::Lfo: return "LFO";
+    case FeedbackMorphSource::Chaos: return "CHAOS";
+    case FeedbackMorphSource::Pulse: return "PULSE";
+    case FeedbackMorphSource::Count: break;
     }
-    return "OFF";
-}
-
-enum class FeedbackMotionTarget : uint32_t {
-    Frequency = 0u,
-    Regeneration,
-    Color,
-    Level,
-    AuxSend,
-    Count,
-};
-
-constexpr uint32_t kFeedbackMotionTargetCount =
-    static_cast<uint32_t>(FeedbackMotionTarget::Count);
-
-inline const char* feedbackMotionTargetName(FeedbackMotionTarget target)
-{
-    switch (target) {
-    case FeedbackMotionTarget::Frequency: return "FREQUENCY";
-    case FeedbackMotionTarget::Regeneration: return "REGEN";
-    case FeedbackMotionTarget::Color: return "COLOR";
-    case FeedbackMotionTarget::Level: return "LEVEL";
-    case FeedbackMotionTarget::AuxSend: return "AUX SEND";
-    case FeedbackMotionTarget::Count: break;
-    }
-    return "FREQUENCY";
+    return "MANUAL";
 }
 
 enum class FeedbackPedalType : uint32_t {
@@ -493,9 +468,9 @@ inline FeedbackPedalControlInfo feedbackAuxControlInfo(uint32_t control)
         0.0f, 100.0f, 0u };
     case 9u: return { "PITCH", 7u, Display::Semitones,
         -12.0f, 12.0f, 0u };
-    case 10u: return { "COHERENCE", 20u, Display::Percent,
+    case 10u: return { "COHERENCE", 12u, Display::Percent,
         0.0f, 100.0f, 0u };
-    case 11u: return { "LANE DRIFT", 21u, Display::Percent,
+    case 11u: return { "LANE DRIFT", 13u, Display::Percent,
         0.0f, 100.0f, 0u };
     case 12u: return { "EDGE", 8u, Display::Percent,
         0.0f, 100.0f, 0u };
@@ -626,13 +601,10 @@ struct FeedbackShiftNodeParams {
     FeedbackPedalType pedal = FeedbackPedalType::Bypass;
     FeedbackExciterSource exciterSource = FeedbackExciterSource::NoiseHit;
     float exciterGainDb = 0.0f;
-    FeedbackMotionSource motionSource = FeedbackMotionSource::Off;
-    FeedbackMotionTarget motionTarget = FeedbackMotionTarget::Frequency;
-    float motionDepth = 0.0f;
-    float motionSlew = 0.45f;
     float frequencyHz = 0.0f;
-    float regeneration = 0.78f;
-    float color = 0.42f;
+    float regeneration = 0.62f;
+    float color = 0.0f;
+    float body = 0.34f;
     float levelDb = -6.0f;
     float pedalAmount = 0.52f;
     float pedalTone = 0.50f;
@@ -675,12 +647,15 @@ inline void setFeedbackPedalStorageValue(
 struct FeedbackShiftParams {
     float excite = 0.24f;
     float drift = 0.10f;
-    float motionRate = 0.34f;
-    float pulseDepth = 0.0f;
-    float pulseRate = 0.42f;
-    uint32_t pulseSync = 1u;
-    uint32_t pulseDivision = 4u;
-    FeedbackPulseShape pulseShape = FeedbackPulseShape::Sine;
+    float morph = 0.0f;
+    FeedbackMorphSource morphSource = FeedbackMorphSource::Manual;
+    float morphDepth = 1.0f;
+    float morphRate = 0.34f;
+    float morphInertia = 0.32f;
+    bool morphHold = false;
+    uint32_t morphSync = 1u;
+    uint32_t morphDivision = 4u;
+    FeedbackPulseShape morphShape = FeedbackPulseShape::Sine;
     float outputGainDb = -18.0f;
     FeedbackShiftOutputMode outputMode = FeedbackShiftOutputMode::Direct8;
     float outputRotationDeg = 0.0f;
@@ -695,15 +670,21 @@ struct FeedbackShiftParams {
     float auxGrainEdge = 0.62f;
     float auxGrainCoherence = 1.0f;
     float auxGrainLaneDrift = 0.50f;
-    float auxGrainMix = 1.0f;
+    float auxGrainMix = 0.0f;
     float auxTilt = 0.0f;
     float auxMix = 0.0f;
     std::array<float, kFeedbackShiftChannels> auxSend {{
         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
     }};
+    std::array<float, kFeedbackShiftChannels> sceneBAuxSend {{
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    }};
     bool run = true;
     std::array<FeedbackShiftNodeParams, kFeedbackShiftChannels> nodes {};
+    std::array<FeedbackShiftNodeParams, kFeedbackShiftChannels>
+        sceneBNodes {};
     std::array<float, kFeedbackShiftMatrixCells> matrix {};
+    std::array<float, kFeedbackShiftMatrixCells> sceneBMatrix {};
 };
 
 inline FeedbackShiftParams defaultFeedbackShiftParams()
@@ -713,30 +694,39 @@ inline FeedbackShiftParams defaultFeedbackShiftParams()
         -720.0f, -210.0f, -42.0f, -4.0f,
         4.0f, 42.0f, 210.0f, 720.0f,
     }};
-    static constexpr std::array<FeedbackPedalType,
-        kFeedbackShiftChannels> pedals {{
-        FeedbackPedalType::Bypass,
-        FeedbackPedalType::Wool,
-        FeedbackPedalType::Rat,
-        FeedbackPedalType::Diode,
-        FeedbackPedalType::Fold,
-        FeedbackPedalType::Crush,
-        FeedbackPedalType::Relay,
-        FeedbackPedalType::Phase,
-    }};
     for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
         auto& lane = params.nodes[node];
         lane.mode = FeedbackShiftMode::Frequency;
-        lane.pedal = pedals[node];
+        lane.pedal = FeedbackPedalType::Bypass;
         lane.frequencyHz = frequencies[node];
-        lane.regeneration = 0.72f + 0.012f * static_cast<float>(node);
-        lane.color = 0.25f + 0.065f * static_cast<float>(node);
+        lane.regeneration = 0.56f + 0.015f * static_cast<float>(node);
+        lane.color = -0.24f + 0.07f * static_cast<float>(node);
+        lane.body = 0.18f + 0.055f * static_cast<float>(node);
         lane.levelDb = -6.0f;
-        params.matrix[node * kFeedbackShiftChannels + node] = 0.86f;
+        params.matrix[node * kFeedbackShiftChannels + node] = 0.72f;
         const uint32_t previous = (node + kFeedbackShiftChannels - 1u)
             % kFeedbackShiftChannels;
         params.matrix[node * kFeedbackShiftChannels + previous] =
-            (node & 1u) == 0u ? 0.16f : -0.14f;
+            (node & 1u) == 0u ? 0.12f : -0.10f;
+
+        auto& sceneB = params.sceneBNodes[node];
+        sceneB = lane;
+        sceneB.frequencyHz = frequencies[
+            (node + 3u) % kFeedbackShiftChannels] * 0.42f;
+        sceneB.regeneration = 0.77f + 0.018f
+            * static_cast<float>(node % 4u);
+        sceneB.color = -0.12f + 0.14f * static_cast<float>(node);
+        sceneB.body = 0.54f + 0.052f * static_cast<float>(node);
+        sceneB.levelDb = -7.5f;
+        params.sceneBMatrix[node * kFeedbackShiftChannels + node] = 0.90f;
+        params.sceneBMatrix[node * kFeedbackShiftChannels
+            + (node + 1u) % kFeedbackShiftChannels]
+            = (node & 1u) == 0u ? 0.30f : -0.27f;
+        params.sceneBMatrix[node * kFeedbackShiftChannels
+            + (node + 5u) % kFeedbackShiftChannels]
+            = (node & 1u) == 0u ? -0.16f : 0.18f;
+        params.sceneBAuxSend[node] = 0.24f
+            + 0.07f * static_cast<float>(node % 4u);
     }
     return params;
 }
@@ -755,7 +745,6 @@ public:
         const float sr = static_cast<float>(sampleRate_);
         parameterCoefficient_ = onePoleCoefficient(18.0f, sr);
         runCoefficient_ = onePoleCoefficient(8.0f, sr);
-        pulseCoefficient_ = onePoleCoefficient(3.0f, sr);
         detectorAttackCoefficient_ = onePoleCoefficient(4.0f, sr);
         detectorReleaseCoefficient_ = onePoleCoefficient(220.0f, sr);
         pedalFastAttackCoefficient_ = onePoleCoefficient(0.25f, sr);
@@ -802,16 +791,13 @@ public:
                 / static_cast<float>(kFeedbackShiftChannels) * kTwoPi;
         }
         driftPhase_ = 0.0f;
-        pulsePhase_ = 0.0f;
-        pulseRandom_ = 0.5f;
-        motionPhase_ = 0.0f;
-        motionChaosPhase_ = 0.0f;
-        for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
-            motionChaosTarget_[node] = std::sin(
-                static_cast<float>(node + 1u) * 1.61803398875f);
-        }
-        motionChaosValue_.fill(0.0f);
-        motionValue_.fill(0.0f);
+        morphPhase_ = 0.0f;
+        morphRandom_ = 0.5f;
+        morphChaosTarget_ = 0.73f;
+        morphChaosValue_ = 0.5f;
+        morphValue_ = target_.morph;
+        morphDriverValue_ = target_.morph;
+        morphInputEnvelope_ = 0.0f;
         effectiveAuxSend_ = target_.auxSend;
         noiseState_ = 0x6d2b79f5u;
         burstEnvelope_.fill(0.0f);
@@ -889,14 +875,31 @@ public:
         smoothParameters();
         runGain_ += ((smoothed_.run ? 1.0f : 0.0f) - runGain_)
             * runCoefficient_;
-        advancePulse();
-        advanceMotion();
+        advanceMorph(externalInput);
         previousReturns_ = returns_;
 
         auto effectiveNodes = smoothed_.nodes;
-        effectiveAuxSend_ = smoothed_.auxSend;
+        std::array<float, kFeedbackShiftMatrixCells> effectiveMatrix {};
         for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
-            applyMotion(node, effectiveNodes[node], effectiveAuxSend_[node]);
+            const auto& sceneB = smoothed_.sceneBNodes[node];
+            auto& effective = effectiveNodes[node];
+            effective.frequencyHz = lerp(effective.frequencyHz,
+                sceneB.frequencyHz, morphValue_);
+            effective.regeneration = lerp(effective.regeneration,
+                sceneB.regeneration, morphValue_);
+            effective.color = lerp(effective.color,
+                sceneB.color, morphValue_);
+            effective.body = lerp(effective.body,
+                sceneB.body, morphValue_);
+            effective.levelDb = lerp(effective.levelDb,
+                sceneB.levelDb, morphValue_);
+            effectiveAuxSend_[node] = lerp(smoothed_.auxSend[node],
+                smoothed_.sceneBAuxSend[node], morphValue_);
+        }
+        for (uint32_t index = 0u; index < kFeedbackShiftMatrixCells;
+             ++index) {
+            effectiveMatrix[index] = lerp(smoothed_.matrix[index],
+                smoothed_.sceneBMatrix[index], morphValue_);
         }
 
         std::array<float, kFeedbackShiftChannels> matrixInput {};
@@ -911,29 +914,41 @@ public:
             const float excitation = processExciter(destination, input,
                 noise - state.noiseLowpass, effectiveNodes[destination])
                 * runGain_;
-            float sum = excitation;
+            float feedbackSum = 0.0f;
             float weight = 0.0f;
             for (uint32_t source = 0u;
                  source < kFeedbackShiftChannels; ++source) {
                 const uint32_t index = destination
                     * kFeedbackShiftChannels + source;
-                const float route = smoothed_.matrix[index];
+                const float route = effectiveMatrix[index];
                 if (std::abs(route) < 1.0e-7f) {
                     routeSignals_[index] = 0.0f;
                     continue;
                 }
                 const float signal = previousReturns_[source] * route;
                 routeSignals_[index] = signal;
-                sum += signal;
+                feedbackSum += signal;
                 weight += std::abs(route);
             }
             const float normalization = 1.0f
-                / std::max(1.0f, 0.55f + weight * 0.58f);
-            const float rhythmicGain = 1.0f - smoothed_.pulseDepth
-                + smoothed_.pulseDepth * pulseForNode(destination);
-            matrixInput[destination] = std::clamp(sum * normalization
-                * effectiveNodes[destination].regeneration
-                * states_[destination].governor * rhythmicGain * runGain_,
+                / std::sqrt(std::max(1.0f, weight * 0.70f));
+            // An external source is feed-forward audio, not part of the
+            // feedback amount. REGEN controls recirculation through both the
+            // visible matrix and processShift's local wet loop. Internal
+            // exciters retain the original REGEN-dependent behavior, while
+            // REGEN=0 turns an external lane into a useful fully wet insert.
+            const auto source = effectiveNodes[destination].exciterSource;
+            const bool externalSource = source
+                    == FeedbackExciterSource::External
+                || source == FeedbackExciterSource::ExternalHit;
+            const float feedbackGain = regenerationGain(
+                effectiveNodes[destination].regeneration);
+            const float sourceGain = externalSource ? 1.0f
+                : std::min(1.0f, feedbackGain);
+            const float networkInput = excitation * sourceGain + feedbackSum
+                * normalization * feedbackGain;
+            matrixInput[destination] = std::clamp(networkInput
+                * states_[destination].governor * runGain_,
                 -5.0f, 5.0f);
         }
 
@@ -958,14 +973,14 @@ public:
                 * detectorCoefficient;
             state.energy = flush(state.energy);
             const float rms = std::sqrt(std::max(0.0f, state.energy));
-            const float excess = std::max(0.0f, rms - 0.48f);
+            const float excess = std::max(0.0f, rms - 0.82f);
             const float targetGovernor = 1.0f
-                / (1.0f + excess * 2.8f + excess * excess * 18.0f);
+                / (1.0f + excess * 0.9f + excess * excess * 5.0f);
             const float governorCoefficient = targetGovernor < state.governor
                 ? governorAttackCoefficient_ : governorReleaseCoefficient_;
             state.governor += (targetGovernor - state.governor)
                 * governorCoefficient;
-            state.governor = std::clamp(state.governor, 0.07f, 1.0f);
+            state.governor = std::clamp(state.governor, 0.12f, 1.0f);
             minimumGovernor_ = std::min(minimumGovernor_, state.governor);
 
             float returned = value * state.governor;
@@ -977,7 +992,7 @@ public:
             const float gain = outputGain_ * dbGain(params.levelDb);
             float audition = dcBlock(value * gain * runGain_,
                 state.outputDcInput, state.outputDcOutput);
-            audition = std::tanh(audition);
+            audition = transparentLimit(audition);
             directOutput[node] = flush(audition);
             burstEnvelope_[node] *= burstDecay_;
             if (burstEnvelope_[node] < 1.0e-6f) {
@@ -1003,13 +1018,13 @@ public:
                 processMcToQuadFrame(directOutput.data(),
                     kFeedbackShiftChannels, output, foldParams);
                 for (uint32_t channel = 0u; channel < 4u; ++channel) {
-                    output[channel] = std::tanh(output[channel]);
+                    output[channel] = transparentLimit(output[channel]);
                 }
             } else {
                 processMcToStereoFrame(directOutput.data(),
                     kFeedbackShiftChannels, output, foldParams);
-                output[0u] = std::tanh(output[0u]);
-                output[1u] = std::tanh(output[1u]);
+                output[0u] = transparentLimit(output[0u]);
+                output[1u] = transparentLimit(output[1u]);
             }
         }
         for (uint32_t channel = 0u; channel < kFeedbackShiftChannels;
@@ -1062,19 +1077,18 @@ public:
     }
 
     float minimumGovernor() const noexcept { return minimumGovernor_; }
-    float pulsePhase() const noexcept { return pulsePhase_; }
+    float morphValue() const noexcept { return morphValue_; }
+    float morphDriverValue() const noexcept { return morphDriverValue_; }
+    float morphPhase() const noexcept { return morphPhase_; }
+    float inputEnvelope() const noexcept { return morphInputEnvelope_; }
     float auxActivity() const noexcept { return auxActivity_; }
     float auxGainReductionDb() const noexcept { return auxGainReductionDb_; }
     float auxGrainActivity() const noexcept { return auxGrainActivity_; }
-    float motionValue(uint32_t node) const noexcept
-    {
-        return node < kFeedbackShiftChannels ? motionValue_[node] : 0.0f;
-    }
-
 private:
     static constexpr float kPi = 3.14159265358979323846f;
     static constexpr float kTwoPi = 2.0f * kPi;
     static constexpr std::size_t kHilbertStages = 4u;
+    static constexpr uint32_t kBodyDelayFrames = 4096u;
     static constexpr uint32_t kAuxGrainVoiceCount = 10u;
 
     struct DriveState {
@@ -1106,13 +1120,15 @@ private:
         float outputDcOutput = 0.0f;
         float phaseMemoryA = 0.0f;
         float phaseMemoryB = 0.0f;
-        float shiftPreviousWet = 0.0f;
+        std::array<float, kBodyDelayFrames> bodyDelay {};
+        uint32_t bodyWrite = 0u;
+        float loopLowpass = 0.0f;
+        float loopMemory = 0.0f;
         float crushHeld = 0.0f;
         float crushCounter = 0.0f;
         float relayEnvelope = 0.0f;
         float relayGate = 0.0f;
         float relaySlew = 0.0f;
-        float pulseGate = 1.0f;
         float energy = 0.0f;
         float governor = 1.0f;
 
@@ -1162,17 +1178,21 @@ private:
     {
         params.excite = finiteClamp(params.excite, 0.0f, 1.0f, 0.24f);
         params.drift = finiteClamp(params.drift, 0.0f, 1.0f, 0.10f);
-        params.motionRate = finiteClamp(params.motionRate,
+        params.morph = finiteClamp(params.morph, 0.0f, 1.0f, 0.0f);
+        params.morphSource = static_cast<FeedbackMorphSource>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.morphSource),
+                kFeedbackMorphSourceCount - 1u));
+        params.morphDepth = finiteClamp(params.morphDepth,
+            0.0f, 1.0f, 1.0f);
+        params.morphRate = finiteClamp(params.morphRate,
             0.0f, 1.0f, 0.34f);
-        params.pulseDepth = finiteClamp(params.pulseDepth,
-            0.0f, 1.0f, 0.0f);
-        params.pulseRate = finiteClamp(params.pulseRate,
-            0.0f, 1.0f, 0.42f);
-        params.pulseSync = params.pulseSync != 0u ? 1u : 0u;
-        params.pulseDivision = std::min<uint32_t>(params.pulseDivision,
+        params.morphInertia = finiteClamp(params.morphInertia,
+            0.0f, 1.0f, 0.32f);
+        params.morphSync = params.morphSync != 0u ? 1u : 0u;
+        params.morphDivision = std::min<uint32_t>(params.morphDivision,
             static_cast<uint32_t>(kFeedbackPulseDivisionBeats.size()) - 1u);
-        params.pulseShape = static_cast<FeedbackPulseShape>(
-            std::min<uint32_t>(static_cast<uint32_t>(params.pulseShape),
+        params.morphShape = static_cast<FeedbackPulseShape>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.morphShape),
                 kFeedbackPulseShapeCount - 1u));
         params.outputGainDb = finiteClamp(params.outputGainDb,
             -60.0f, 6.0f, -18.0f);
@@ -1207,7 +1227,10 @@ private:
         for (float& send : params.auxSend) {
             send = finiteClamp(send, 0.0f, 1.0f, 1.0f);
         }
-        for (auto& node : params.nodes) {
+        for (float& send : params.sceneBAuxSend) {
+            send = finiteClamp(send, 0.0f, 1.0f, 1.0f);
+        }
+        const auto sanitizeNode = [](FeedbackShiftNodeParams& node) noexcept {
             node.mode = static_cast<FeedbackShiftMode>(
                 std::min<uint32_t>(static_cast<uint32_t>(node.mode), 1u));
             node.pedal = static_cast<FeedbackPedalType>(
@@ -1219,23 +1242,12 @@ private:
                     kFeedbackExciterSourceCount - 1u));
             node.exciterGainDb = finiteClamp(node.exciterGainDb,
                 -60.0f, 12.0f, 0.0f);
-            node.motionSource = static_cast<FeedbackMotionSource>(
-                std::min<uint32_t>(
-                    static_cast<uint32_t>(node.motionSource),
-                    kFeedbackMotionSourceCount - 1u));
-            node.motionTarget = static_cast<FeedbackMotionTarget>(
-                std::min<uint32_t>(
-                    static_cast<uint32_t>(node.motionTarget),
-                    kFeedbackMotionTargetCount - 1u));
-            node.motionDepth = finiteClamp(node.motionDepth,
-                -1.0f, 1.0f, 0.0f);
-            node.motionSlew = finiteClamp(node.motionSlew,
-                0.0f, 1.0f, 0.45f);
             node.frequencyHz = finiteClamp(node.frequencyHz,
                 -6000.0f, 6000.0f, 0.0f);
             node.regeneration = finiteClamp(node.regeneration,
-                0.0f, 1.18f, 0.78f);
-            node.color = finiteClamp(node.color, 0.0f, 1.0f, 0.42f);
+                0.0f, 1.0f, 0.62f);
+            node.color = finiteClamp(node.color, -1.0f, 1.0f, 0.0f);
+            node.body = finiteClamp(node.body, 0.0f, 1.0f, 0.34f);
             node.levelDb = finiteClamp(node.levelDb,
                 -60.0f, 6.0f, -6.0f);
             node.pedalAmount = finiteClamp(node.pedalAmount,
@@ -1249,8 +1261,17 @@ private:
             for (float& extra : node.pedalExtra) {
                 extra = finiteClamp(extra, 0.0f, 1.0f, 0.5f);
             }
+        };
+        for (auto& node : params.nodes) {
+            sanitizeNode(node);
+        }
+        for (auto& node : params.sceneBNodes) {
+            sanitizeNode(node);
         }
         for (float& route : params.matrix) {
+            route = finiteClamp(route, -1.0f, 1.0f, 0.0f);
+        }
+        for (float& route : params.sceneBMatrix) {
             route = finiteClamp(route, -1.0f, 1.0f, 0.0f);
         }
         return params;
@@ -1287,6 +1308,37 @@ private:
     static float dbGain(float decibels) noexcept
     {
         return std::pow(10.0f, decibels * 0.05f);
+    }
+
+    static float lerp(float a, float b, float amount) noexcept
+    {
+        return a + (b - a) * amount;
+    }
+
+    // The control's broad center is the musically useful unity neighborhood.
+    // Below 72% loops decay predictably; the upper 28% crosses gradually into
+    // metastable and self-sustaining behavior instead of hiding it at the
+    // final few pixels of the slider.
+    static float regenerationGain(float normalized) noexcept
+    {
+        normalized = std::clamp(normalized, 0.0f, 1.0f);
+        if (normalized <= 0.72f) {
+            return normalized / 0.72f * 0.985f;
+        }
+        const float above = (normalized - 0.72f) / 0.28f;
+        return 0.985f + std::pow(above, 1.35f) * 0.38f;
+    }
+
+    // Pass ordinary material unchanged and round only the last five percent
+    // before full scale. This remains a safety ceiling rather than a permanent
+    // tone-shaping stage.
+    static float transparentLimit(float value) noexcept
+    {
+        const float magnitude = std::abs(value);
+        if (magnitude <= 0.95f) return value;
+        const float limited = 0.95f + 0.05f
+            * std::tanh((magnitude - 0.95f) * 20.0f);
+        return std::copysign(limited, value);
     }
 
     static float allpassCascade(float input,
@@ -1329,10 +1381,12 @@ private:
         state.returnDcInput = state.returnDcOutput = 0.0f;
         state.outputDcInput = state.outputDcOutput = 0.0f;
         state.phaseMemoryA = state.phaseMemoryB = 0.0f;
-        state.shiftPreviousWet = 0.0f;
+        state.bodyDelay.fill(0.0f);
+        state.bodyWrite = 0u;
+        state.loopLowpass = 0.0f;
+        state.loopMemory = 0.0f;
         state.crushHeld = state.crushCounter = 0.0f;
         state.relayEnvelope = state.relayGate = state.relaySlew = 0.0f;
-        state.pulseGate = 1.0f;
         state.energy = 0.0f;
         state.governor = 1.0f;
         state.filterIc1 = state.filterIc2 = 0.0f;
@@ -1377,7 +1431,10 @@ private:
         state.outputDcInput = state.outputDcOutput = 0.0f;
         state.filterIc1 = state.filterIc2 = 0.0f;
         state.phaseMemoryA = state.phaseMemoryB = 0.0f;
-        state.shiftPreviousWet = 0.0f;
+        state.bodyDelay.fill(0.0f);
+        state.bodyWrite = 0u;
+        state.loopLowpass = 0.0f;
+        state.loopMemory = 0.0f;
         state.temporalPhase = 0u;
         state.temporalDriftRatio = 1.0f;
         state.temporalArmed = true;
@@ -1596,11 +1653,13 @@ private:
         };
         smoothed_.excite = smooth(smoothed_.excite, target_.excite);
         smoothed_.drift = smooth(smoothed_.drift, target_.drift);
-        smoothed_.motionRate = smooth(smoothed_.motionRate,
-            target_.motionRate);
-        smoothed_.pulseDepth = smooth(smoothed_.pulseDepth,
-            target_.pulseDepth);
-        smoothed_.pulseRate = smooth(smoothed_.pulseRate, target_.pulseRate);
+        smoothed_.morph = smooth(smoothed_.morph, target_.morph);
+        smoothed_.morphDepth = smooth(smoothed_.morphDepth,
+            target_.morphDepth);
+        smoothed_.morphRate = smooth(smoothed_.morphRate,
+            target_.morphRate);
+        smoothed_.morphInertia = smooth(smoothed_.morphInertia,
+            target_.morphInertia);
         smoothed_.outputGainDb = smooth(smoothed_.outputGainDb,
             target_.outputGainDb);
         smoothed_.outputRotationDeg = smooth(smoothed_.outputRotationDeg,
@@ -1634,25 +1693,33 @@ private:
                 target_.auxSend[node]);
         }
         smoothed_.outputMode = target_.outputMode;
-        smoothed_.pulseSync = target_.pulseSync;
-        smoothed_.pulseDivision = target_.pulseDivision;
-        smoothed_.pulseShape = target_.pulseShape;
+        smoothed_.morphSource = target_.morphSource;
+        smoothed_.morphHold = target_.morphHold;
+        smoothed_.morphSync = target_.morphSync;
+        smoothed_.morphDivision = target_.morphDivision;
+        smoothed_.morphShape = target_.morphShape;
         smoothed_.run = target_.run;
         for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
             auto& current = smoothed_.nodes[node];
             const auto& target = target_.nodes[node];
+            auto& currentB = smoothed_.sceneBNodes[node];
+            const auto& targetB = target_.sceneBNodes[node];
             current.frequencyHz = smooth(current.frequencyHz,
                 target.frequencyHz);
+            currentB.frequencyHz = smooth(currentB.frequencyHz,
+                targetB.frequencyHz);
             current.exciterGainDb = smooth(current.exciterGainDb,
                 target.exciterGainDb);
-            current.motionDepth = smooth(current.motionDepth,
-                target.motionDepth);
-            current.motionSlew = smooth(current.motionSlew,
-                target.motionSlew);
             current.regeneration = smooth(current.regeneration,
                 target.regeneration);
+            currentB.regeneration = smooth(currentB.regeneration,
+                targetB.regeneration);
             current.color = smooth(current.color, target.color);
+            currentB.color = smooth(currentB.color, targetB.color);
+            current.body = smooth(current.body, target.body);
+            currentB.body = smooth(currentB.body, targetB.body);
             current.levelDb = smooth(current.levelDb, target.levelDb);
+            currentB.levelDb = smooth(currentB.levelDb, targetB.levelDb);
             current.pedalAmount = smooth(current.pedalAmount,
                 target.pedalAmount);
             current.pedalTone = smooth(current.pedalTone,
@@ -1669,57 +1736,104 @@ private:
             current.mode = target.mode;
             current.pedal = target.pedal;
             current.exciterSource = target.exciterSource;
-            current.motionSource = target.motionSource;
-            current.motionTarget = target.motionTarget;
+            currentB.mode = target.mode;
+            currentB.pedal = target.pedal;
+            currentB.exciterSource = target.exciterSource;
         }
         for (uint32_t index = 0u; index < kFeedbackShiftMatrixCells;
              ++index) {
             smoothed_.matrix[index] = smooth(smoothed_.matrix[index],
                 target_.matrix[index]);
+            smoothed_.sceneBMatrix[index] = smooth(
+                smoothed_.sceneBMatrix[index], target_.sceneBMatrix[index]);
+        }
+        for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
+            smoothed_.sceneBAuxSend[node] = smooth(
+                smoothed_.sceneBAuxSend[node], target_.sceneBAuxSend[node]);
         }
         exciteGain_ = 0.000035f * std::pow(1500.0f, smoothed_.excite);
         outputGain_ = dbGain(smoothed_.outputGainDb);
     }
 
-    void advancePulse() noexcept
+    void advanceMorph(const float* externalInput) noexcept
     {
-        float rateHz = 0.03f * std::pow(666.6667f, smoothed_.pulseRate);
-        if (smoothed_.pulseSync != 0u && transportHasTempo_) {
+        float peak = 0.0f;
+        if (externalInput) {
+            for (uint32_t channel = 0u;
+                 channel < kFeedbackShiftChannels; ++channel) {
+                peak = std::max(peak, std::abs(externalInput[channel]));
+            }
+        }
+        const float envelopeCoefficient = peak > morphInputEnvelope_
+            ? detectorAttackCoefficient_ : detectorReleaseCoefficient_;
+        morphInputEnvelope_ += (peak - morphInputEnvelope_)
+            * envelopeCoefficient;
+        morphInputEnvelope_ = flush(morphInputEnvelope_);
+        if (smoothed_.morphHold) return;
+
+        float rateHz = 0.01f * std::pow(800.0f, smoothed_.morphRate);
+        if (smoothed_.morphSource == FeedbackMorphSource::Pulse
+            && smoothed_.morphSync != 0u && transportHasTempo_) {
             const float beats = kFeedbackPulseDivisionBeats[
-                smoothed_.pulseDivision];
+                smoothed_.morphDivision];
             rateHz = static_cast<float>(transportTempoBpm_)
                 / (60.0f * std::max(0.001f, beats));
         }
-        const float previous = pulsePhase_;
-        pulsePhase_ += rateHz / static_cast<float>(sampleRate_);
-        pulsePhase_ -= std::floor(pulsePhase_);
-        if (pulsePhase_ < previous) {
-            pulseRandom_ = randomBipolar() * 0.5f + 0.5f;
-        }
-    }
-
-    void advanceMotion() noexcept
-    {
-        motionRateHz_ = 0.01f * std::pow(800.0f, smoothed_.motionRate);
-        motionPhase_ += motionRateHz_ / static_cast<float>(sampleRate_);
-        motionPhase_ -= std::floor(motionPhase_);
-
-        const float previousChaosPhase = motionChaosPhase_;
-        motionChaosPhase_ += motionRateHz_ * 0.37f
-            / static_cast<float>(sampleRate_);
-        motionChaosPhase_ -= std::floor(motionChaosPhase_);
-        if (motionChaosPhase_ < previousChaosPhase) {
-            for (float& target : motionChaosTarget_) {
-                target = randomBipolar();
-            }
+        const float previousPhase = morphPhase_;
+        morphPhase_ += rateHz / static_cast<float>(sampleRate_);
+        morphPhase_ -= std::floor(morphPhase_);
+        if (morphPhase_ < previousPhase) {
+            morphRandom_ = randomBipolar() * 0.5f + 0.5f;
+            morphChaosTarget_ = randomBipolar() * 0.5f + 0.5f;
         }
         const float chaosCoefficient = std::clamp(
-            motionRateHz_ * 5.0f / static_cast<float>(sampleRate_),
-            0.000002f, 0.025f);
-        for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
-            motionChaosValue_[node] += (motionChaosTarget_[node]
-                - motionChaosValue_[node]) * chaosCoefficient;
+            rateHz * 3.0f / static_cast<float>(sampleRate_),
+            0.000001f, 0.02f);
+        morphChaosValue_ += (morphChaosTarget_ - morphChaosValue_)
+            * chaosCoefficient;
+
+        float driver = smoothed_.morph;
+        switch (smoothed_.morphSource) {
+        case FeedbackMorphSource::Manual:
+            driver = smoothed_.morph; break;
+        case FeedbackMorphSource::Envelope:
+            driver = std::clamp(morphInputEnvelope_ * 2.5f, 0.0f, 1.0f);
+            break;
+        case FeedbackMorphSource::Lfo:
+            driver = 0.5f - 0.5f * std::cos(morphPhase_ * kTwoPi); break;
+        case FeedbackMorphSource::Chaos:
+            driver = morphChaosValue_; break;
+        case FeedbackMorphSource::Pulse:
+            switch (smoothed_.morphShape) {
+            case FeedbackPulseShape::Sine:
+                driver = 0.5f - 0.5f
+                    * std::cos(morphPhase_ * kTwoPi); break;
+            case FeedbackPulseShape::Square:
+                driver = morphPhase_ < 0.5f ? 1.0f : 0.0f; break;
+            case FeedbackPulseShape::Ramp:
+                driver = 1.0f - morphPhase_; break;
+            case FeedbackPulseShape::Random:
+                driver = morphRandom_; break;
+            case FeedbackPulseShape::Count:
+                break;
+            }
+            break;
+        case FeedbackMorphSource::Count:
+            break;
         }
+        morphDriverValue_ = std::clamp(driver, 0.0f, 1.0f);
+        const float target = smoothed_.morphSource
+                == FeedbackMorphSource::Manual
+            ? smoothed_.morph
+            : smoothed_.morph + (morphDriverValue_ - smoothed_.morph)
+                * smoothed_.morphDepth;
+        const float inertiaMs = 2.0f * std::pow(
+            2000.0f, smoothed_.morphInertia);
+        const float coefficient = onePoleCoefficient(inertiaMs,
+            static_cast<float>(sampleRate_));
+        morphValue_ += (std::clamp(target, 0.0f, 1.0f) - morphValue_)
+            * coefficient;
+        morphValue_ = std::clamp(flush(morphValue_), 0.0f, 1.0f);
     }
 
     float processExciter(uint32_t node, float externalInput,
@@ -1759,91 +1873,6 @@ private:
         return flush(state.sourceSignal);
     }
 
-    void applyMotion(uint32_t node, FeedbackShiftNodeParams& params,
-        float& auxSend) noexcept
-    {
-        float source = 0.0f;
-        switch (params.motionSource) {
-        case FeedbackMotionSource::Lfo: {
-            float phase = motionPhase_ + static_cast<float>(node)
-                / static_cast<float>(kFeedbackShiftChannels);
-            phase -= std::floor(phase);
-            source = std::sin(phase * kTwoPi);
-            break;
-        }
-        case FeedbackMotionSource::Chaos:
-            source = motionChaosValue_[node]; break;
-        case FeedbackMotionSource::Envelope:
-            source = std::clamp(nodeActivity_[node] * 3.0f, 0.0f, 1.0f);
-            break;
-        case FeedbackMotionSource::Pulse:
-            source = states_[node].pulseGate * 2.0f - 1.0f; break;
-        case FeedbackMotionSource::Off:
-        case FeedbackMotionSource::Count:
-            source = 0.0f; break;
-        }
-        const float inverseSlew = 1.0f - params.motionSlew;
-        const float slewCoefficient = std::clamp(
-            (0.00002f + inverseSlew * inverseSlew
-                * inverseSlew * inverseSlew * 0.20f)
-                * 48000.0f / static_cast<float>(sampleRate_),
-            0.000002f, 0.25f);
-        motionValue_[node] += (source * params.motionDepth
-            - motionValue_[node]) * slewCoefficient;
-        const float motion = motionValue_[node];
-        switch (params.motionTarget) {
-        case FeedbackMotionTarget::Frequency: {
-            const float range = std::max(1.0f,
-                std::abs(params.frequencyHz)) * 0.75f;
-            params.frequencyHz = std::clamp(
-                params.frequencyHz + motion * range,
-                -6000.0f, 6000.0f);
-            break;
-        }
-        case FeedbackMotionTarget::Regeneration:
-            params.regeneration = std::clamp(
-                params.regeneration + motion * 0.32f, 0.0f, 1.18f);
-            break;
-        case FeedbackMotionTarget::Color:
-            params.color = std::clamp(
-                params.color + motion * 0.50f, 0.0f, 1.0f);
-            break;
-        case FeedbackMotionTarget::Level:
-            params.levelDb = std::clamp(
-                params.levelDb + motion * 18.0f, -60.0f, 6.0f);
-            break;
-        case FeedbackMotionTarget::AuxSend:
-            auxSend = std::clamp(auxSend + motion * 0.65f, 0.0f, 1.0f);
-            break;
-        case FeedbackMotionTarget::Count:
-            break;
-        }
-    }
-
-    float pulseForNode(uint32_t node) noexcept
-    {
-        float phase = pulsePhase_ + static_cast<float>(node)
-            / static_cast<float>(kFeedbackShiftChannels);
-        phase -= std::floor(phase);
-        float target = 1.0f;
-        switch (smoothed_.pulseShape) {
-        case FeedbackPulseShape::Sine:
-            target = 0.5f - 0.5f * std::cos(phase * kTwoPi); break;
-        case FeedbackPulseShape::Square:
-            target = phase < 0.5f ? 1.0f : 0.0f; break;
-        case FeedbackPulseShape::Ramp:
-            target = 1.0f - phase; break;
-        case FeedbackPulseShape::Random:
-            target = std::fmod(pulseRandom_
-                + static_cast<float>(node) * 0.61803398875f, 1.0f); break;
-        case FeedbackPulseShape::Count:
-            break;
-        }
-        auto& gate = states_[node].pulseGate;
-        gate += (target - gate) * pulseCoefficient_;
-        return std::clamp(gate, 0.0f, 1.0f);
-    }
-
     float processShift(uint32_t node, float input,
         const FeedbackShiftNodeParams& params) noexcept
     {
@@ -1855,20 +1884,27 @@ private:
             -6000.0f, 6000.0f);
         const float sine = std::sin(phases_[node]);
         const float cosine = std::cos(phases_[node]);
-        // Restore the Slicer SHIFT circuit's local wet recursion. Below the
-        // upper third of REGEN this behaves as coloration and memory; near the
-        // top of the control, COLOR can push the loop above unity. The outer
-        // node governor remains a continuous containment layer rather than a
-        // periodic reset, so near-zero shifts can breathe and self-organize.
-        const float localRegeneration = std::clamp(
-            (params.regeneration - 0.50f) / 0.68f, 0.0f, 1.0f);
-        const float feedbackGain = localRegeneration
-            * (0.78f + params.color * 0.50f);
-        const float feedback = state.shiftPreviousWet * feedbackGain
-            * state.governor;
-        const float governedFeedback = 4.0f * std::tanh(feedback * 0.25f);
+        static constexpr std::array<float, kFeedbackShiftChannels>
+            bodyRatios {{ 0.83f, 1.17f, 0.91f, 1.29f,
+                          1.07f, 1.37f, 0.97f, 1.21f }};
+        const float delayMs = (0.035f + params.body * params.body * 3.80f)
+            * bodyRatios[node];
+        const float delayFrames = std::clamp(delayMs * 0.001f
+                * static_cast<float>(sampleRate_),
+            1.0f, static_cast<float>(kBodyDelayFrames - 2u));
+        float read = static_cast<float>(state.bodyWrite) - delayFrames;
+        while (read < 0.0f) read += static_cast<float>(kBodyDelayFrames);
+        const uint32_t first = static_cast<uint32_t>(read)
+            % kBodyDelayFrames;
+        const uint32_t second = (first + 1u) % kBodyDelayFrames;
+        const float fraction = read - std::floor(read);
+        const float bodyTap = state.bodyDelay[first]
+            + (state.bodyDelay[second] - state.bodyDelay[first]) * fraction;
+
+        const float localGain = regenerationGain(params.regeneration)
+            * (0.34f + params.body * 0.14f) * state.governor;
         const float recursiveInput = std::clamp(
-            input + governedFeedback, -8.0f, 8.0f);
+            input + bodyTap * localGain, -8.0f, 8.0f);
         float wet = 0.0f;
         if (params.mode == FeedbackShiftMode::Frequency) {
             constexpr std::array<float, kHilbertStages> branchA {{
@@ -1882,25 +1918,50 @@ private:
             const float quadrature = allpassCascade(recursiveInput,
                 state.hilbertB, branchB);
             wet = inPhase * cosine - quadrature * sine;
-            if (params.color > 0.0f) {
-                const float drive = 1.0f + params.color * 8.0f;
-                const float colored = std::tanh(wet * drive)
-                    / std::tanh(drive);
-                wet += (colored - wet) * params.color;
-            }
         } else {
-            const float carrierDrive = 1.0f + params.color * 14.0f;
-            const float carrier = std::tanh(sine * carrierDrive)
-                / std::tanh(carrierDrive);
-            wet = recursiveInput * carrier;
+            wet = recursiveInput * sine;
         }
-        wet = std::clamp(flush(wet), -8.0f, 8.0f);
-        state.shiftPreviousWet = wet;
+
+        // COLOR is loop material rather than generic post distortion. A fixed
+        // low/high split supplies loss on the dark side and pre-emphasis on
+        // the bright side; biased, memory-dependent saturation appears only
+        // as the control leaves its neutral center.
+        const float split = frequencyCoefficient(2400.0f,
+            static_cast<float>(sampleRate_));
+        state.loopLowpass += (wet - state.loopLowpass) * split;
+        const float low = state.loopLowpass;
+        const float high = wet - low;
+        const float dark = std::max(0.0f, -params.color);
+        const float bright = std::max(0.0f, params.color);
+        float colored = low * (1.0f - bright * 0.45f)
+            + high * (1.0f - dark * 0.92f + bright * 1.60f);
+        const float colorAmount = std::abs(params.color);
+        if (colorAmount > 1.0e-5f) {
+            const float drive = 1.0f + colorAmount * 5.0f
+                + std::max(0.0f, params.regeneration - 0.72f) * 5.0f;
+            const float bias = params.color * 0.10f
+                + state.loopMemory * 0.055f;
+            const float shaped = (std::tanh((colored + bias) * drive)
+                    - std::tanh(bias * drive))
+                / std::max(0.001f, std::tanh(drive));
+            colored += (shaped - colored) * colorAmount * 0.78f;
+            state.loopMemory += (shaped - state.loopMemory)
+                * onePoleCoefficient(28.0f,
+                    static_cast<float>(sampleRate_));
+        } else {
+            state.loopMemory *= 0.9995f;
+        }
+        colored = std::clamp(flush(colored), -6.0f, 6.0f);
+        state.bodyDelay[state.bodyWrite] = colored;
+        state.bodyWrite = (state.bodyWrite + 1u) % kBodyDelayFrames;
+        const float bodyMix = params.body * 0.22f;
+        wet = colored + (bodyTap - colored) * bodyMix;
+
         phases_[node] += kTwoPi * frequency
             / static_cast<float>(sampleRate_);
         while (phases_[node] >= kTwoPi) phases_[node] -= kTwoPi;
         while (phases_[node] < 0.0f) phases_[node] += kTwoPi;
-        return wet;
+        return std::clamp(flush(wet), -8.0f, 8.0f);
     }
 
     float processPedal(uint32_t node, float input, float modulation,
@@ -2484,9 +2545,6 @@ private:
     std::array<float, kFeedbackShiftChannels> returns_ {};
     std::array<float, kFeedbackShiftChannels> phases_ {};
     std::array<float, kFeedbackShiftChannels> burstEnvelope_ {};
-    std::array<float, kFeedbackShiftChannels> motionChaosTarget_ {};
-    std::array<float, kFeedbackShiftChannels> motionChaosValue_ {};
-    std::array<float, kFeedbackShiftChannels> motionValue_ {};
     std::array<float, kFeedbackShiftChannels> effectiveAuxSend_ {{
         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
     }};
@@ -2513,11 +2571,13 @@ private:
     uint32_t auxGrainControlCounter_ = 0u;
     float driftPhase_ = 0.0f;
     float driftIncrement_ = 0.0f;
-    float pulsePhase_ = 0.0f;
-    float pulseRandom_ = 0.5f;
-    float motionPhase_ = 0.0f;
-    float motionChaosPhase_ = 0.0f;
-    float motionRateHz_ = 0.1f;
+    float morphPhase_ = 0.0f;
+    float morphRandom_ = 0.5f;
+    float morphChaosTarget_ = 0.73f;
+    float morphChaosValue_ = 0.5f;
+    float morphValue_ = 0.0f;
+    float morphDriverValue_ = 0.0f;
+    float morphInputEnvelope_ = 0.0f;
     float burstDecay_ = 0.9997f;
     float runGain_ = 1.0f;
     float exciteGain_ = 0.001f;
@@ -2532,7 +2592,6 @@ private:
     float auxGainReductionDb_ = 0.0f;
     float parameterCoefficient_ = 0.002f;
     float runCoefficient_ = 0.002f;
-    float pulseCoefficient_ = 0.005f;
     float detectorAttackCoefficient_ = 0.005f;
     float detectorReleaseCoefficient_ = 0.0001f;
     float pedalFastAttackCoefficient_ = 0.05f;

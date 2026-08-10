@@ -28,25 +28,23 @@
 
 namespace {
 
-constexpr uint32_t kStateMagic = 0x46533353u; // "S3SF"
-constexpr uint32_t kStateVersion = 10u;
-constexpr uint32_t kBaseStateVersion = 4u;
-constexpr uint32_t kHoldCutStateVersion = 5u;
-constexpr uint32_t kGranularStateVersion = 6u;
-constexpr uint32_t kFeedbackSourceStateVersion = 7u;
-constexpr uint32_t kLaneSendStateVersion = 8u;
-constexpr uint32_t kPostGranulatorStateVersion = 9u;
+constexpr uint32_t kStateMagic = 0x4d463353u; // "S3FM"
+constexpr uint32_t kStateVersion = 1u;
 constexpr uint32_t kGuiWidth = 1100u;
 constexpr uint32_t kGuiHeight = 760u;
 
 enum GlobalParamId : clap_id {
     kExciteParamId = 1u,
     kDriftParamId,
-    kPulseDepthParamId,
-    kPulseRateParamId,
-    kPulseSyncParamId,
-    kPulseDivisionParamId,
-    kPulseShapeParamId,
+    kMorphParamId,
+    kMorphSourceParamId,
+    kMorphDepthParamId,
+    kMorphRateParamId,
+    kMorphInertiaParamId,
+    kMorphHoldParamId,
+    kMorphSyncParamId,
+    kMorphDivisionParamId,
+    kMorphShapeParamId,
     kOutputParamId,
     kRunParamId,
     kOutputModeParamId,
@@ -54,14 +52,12 @@ enum GlobalParamId : clap_id {
 };
 
 constexpr clap_id kNodeParamBase = 1000u;
-constexpr clap_id kNodeParamStride = 18u;
+constexpr clap_id kNodeParamStride = 16u;
 enum NodeParamOffset : clap_id {
     kNodeModeOffset = 0u,
     kNodePedalOffset,
-    kNodeFrequencyOffset,
-    kNodeRegenerationOffset,
-    kNodeColorOffset,
-    kNodeLevelOffset,
+    kNodeExciterSourceOffset,
+    kNodeExciterGainOffset,
     kNodePedalAmountOffset,
     kNodePedalToneOffset,
     kNodePedalBiasOffset,
@@ -76,8 +72,21 @@ enum NodeParamOffset : clap_id {
     kNodePedalExtra7Offset,
 };
 
-constexpr clap_id kMatrixParamBase = 2000u;
-constexpr clap_id kAuxParamBase = 3000u;
+constexpr clap_id kSceneAParamBase = 2000u;
+constexpr clap_id kSceneBParamBase = 3000u;
+constexpr clap_id kSceneParamStride = 6u;
+enum SceneParamOffset : clap_id {
+    kSceneFrequencyOffset = 0u,
+    kSceneRegenerationOffset,
+    kSceneColorOffset,
+    kSceneBodyOffset,
+    kSceneLevelOffset,
+    kSceneAuxSendOffset,
+};
+
+constexpr clap_id kMatrixAParamBase = 4000u;
+constexpr clap_id kMatrixBParamBase = 5000u;
+constexpr clap_id kAuxParamBase = 6000u;
 enum AuxParamOffset : clap_id {
     kAuxPressOffset = 0u,
     kAuxSaturationOffset,
@@ -91,49 +100,18 @@ enum AuxParamOffset : clap_id {
     kAuxTiltOffset,
     kAuxMixOffset,
     kAuxGrainMixOffset,
-    kAuxSend0Offset,
-    kAuxCoherenceOffset = kAuxSend0Offset + s3g::kFeedbackShiftChannels,
+    kAuxCoherenceOffset,
     kAuxLaneDriftOffset,
 };
-constexpr clap_id kExciterParamBase = 4000u;
-constexpr clap_id kExciterParamStride = 2u;
-enum ExciterParamOffset : clap_id {
-    kExciterSourceOffset = 0u,
-    kExciterGainOffset,
-};
-constexpr clap_id kMotionParamBase = 5000u;
-constexpr clap_id kMotionParamStride = 4u;
-enum MotionParamOffset : clap_id {
-    kMotionSourceOffset = 0u,
-    kMotionTargetOffset,
-    kMotionDepthOffset,
-    kMotionSlewOffset,
-};
-constexpr clap_id kMotionRateParamId = 6000u;
-constexpr uint32_t kGlobalParamCount = 11u;
+constexpr uint32_t kGlobalParamCount = 15u;
 constexpr uint32_t kNodeParamCount =
     s3g::kFeedbackShiftChannels * kNodeParamStride;
-constexpr uint32_t kLegacyParamCount = kGlobalParamCount + kNodeParamCount
-    + s3g::kFeedbackShiftMatrixCells;
-constexpr uint32_t kPreviousAuxParamCount = 11u;
-constexpr uint32_t kPreviousParamCount =
-    kLegacyParamCount + kPreviousAuxParamCount;
-constexpr uint32_t kLegacyAuxProcessorParamCount = 12u;
-constexpr uint32_t kFeedbackSourceParamCount =
-    kLegacyParamCount + kLegacyAuxProcessorParamCount;
-constexpr uint32_t kAuxSendParamCount = s3g::kFeedbackShiftChannels;
-constexpr uint32_t kLaneSendParamCount =
-    kFeedbackSourceParamCount + kAuxSendParamCount;
-constexpr uint32_t kAuxParamCount =
-    kLegacyAuxProcessorParamCount + kAuxSendParamCount + 2u;
-constexpr uint32_t kPostGranulatorParamCount =
-    kLegacyParamCount + kAuxParamCount;
-constexpr uint32_t kExciterParamCount =
-    s3g::kFeedbackShiftChannels * kExciterParamStride;
-constexpr uint32_t kMotionParamCount =
-    s3g::kFeedbackShiftChannels * kMotionParamStride;
-constexpr uint32_t kParamCount = kPostGranulatorParamCount
-    + kExciterParamCount + kMotionParamCount + 1u;
+constexpr uint32_t kSceneParamCount =
+    s3g::kFeedbackShiftChannels * kSceneParamStride;
+constexpr uint32_t kMatrixParamCount = s3g::kFeedbackShiftMatrixCells;
+constexpr uint32_t kAuxParamCount = 14u;
+constexpr uint32_t kParamCount = kGlobalParamCount + kNodeParamCount
+    + kSceneParamCount * 2u + kMatrixParamCount * 2u + kAuxParamCount;
 
 struct ParamRange {
     double minimum = 0.0;
@@ -172,7 +150,6 @@ struct Plugin {
     std::atomic<uint32_t> strikeMask { 0u };
     std::array<std::atomic<float>, s3g::kFeedbackShiftChannels> outputPeaks {};
     std::array<std::atomic<float>, s3g::kFeedbackShiftChannels> nodeActivity {};
-    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels> motionValues {};
     std::array<std::atomic<uint32_t>, s3g::kFeedbackShiftChannels>
         temporalPhases {};
     std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
@@ -180,7 +157,10 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kFeedbackShiftMatrixCells>
         routeActivity {};
     std::atomic<float> minimumGovernor { 1.0f };
-    std::atomic<float> pulsePhase { 0.0f };
+    std::atomic<float> morphValue { 0.0f };
+    std::atomic<float> morphDriver { 0.0f };
+    std::atomic<float> morphPhase { 0.0f };
+    std::atomic<float> inputEnvelope { 0.0f };
     std::atomic<float> auxActivity { 0.0f };
     std::atomic<float> auxGainReductionDb { 0.0f };
     std::atomic<float> auxGrainActivity { 0.0f };
@@ -201,9 +181,15 @@ clap_id nodeParamId(uint32_t node, clap_id offset)
     return kNodeParamBase + node * kNodeParamStride + offset;
 }
 
-clap_id matrixParamId(uint32_t destination, uint32_t source)
+clap_id sceneParamId(bool sceneB, uint32_t node, clap_id offset)
 {
-    return kMatrixParamBase
+    return (sceneB ? kSceneBParamBase : kSceneAParamBase)
+        + node * kSceneParamStride + offset;
+}
+
+clap_id matrixParamId(bool sceneB, uint32_t destination, uint32_t source)
+{
+    return (sceneB ? kMatrixBParamBase : kMatrixAParamBase)
         + destination * s3g::kFeedbackShiftChannels + source;
 }
 
@@ -213,28 +199,6 @@ clap_id auxParamId(uint32_t offset)
         ? kAuxParamBase + offset : CLAP_INVALID_ID;
 }
 
-clap_id auxSendParamId(uint32_t node)
-{
-    return node < s3g::kFeedbackShiftChannels
-        ? auxParamId(kAuxSend0Offset + node) : CLAP_INVALID_ID;
-}
-
-clap_id exciterParamId(uint32_t node, clap_id offset)
-{
-    return node < s3g::kFeedbackShiftChannels
-            && offset < kExciterParamStride
-        ? kExciterParamBase + node * kExciterParamStride + offset
-        : CLAP_INVALID_ID;
-}
-
-clap_id motionParamId(uint32_t node, clap_id offset)
-{
-    return node < s3g::kFeedbackShiftChannels
-            && offset < kMotionParamStride
-        ? kMotionParamBase + node * kMotionParamStride + offset
-        : CLAP_INVALID_ID;
-}
-
 bool decodeAuxParam(clap_id id, clap_id& offset)
 {
     if (id < kAuxParamBase || id >= kAuxParamBase + kAuxParamCount) {
@@ -242,26 +206,6 @@ bool decodeAuxParam(clap_id id, clap_id& offset)
     }
     offset = id - kAuxParamBase;
     return true;
-}
-
-bool decodeExciterParam(clap_id id, uint32_t& node, clap_id& offset)
-{
-    if (id < kExciterParamBase
-        || id >= kExciterParamBase + kExciterParamCount) return false;
-    const clap_id relative = id - kExciterParamBase;
-    node = relative / kExciterParamStride;
-    offset = relative % kExciterParamStride;
-    return node < s3g::kFeedbackShiftChannels;
-}
-
-bool decodeMotionParam(clap_id id, uint32_t& node, clap_id& offset)
-{
-    if (id < kMotionParamBase
-        || id >= kMotionParamBase + kMotionParamCount) return false;
-    const clap_id relative = id - kMotionParamBase;
-    node = relative / kMotionParamStride;
-    offset = relative % kMotionParamStride;
-    return node < s3g::kFeedbackShiftChannels;
 }
 
 bool decodeNodeParam(clap_id id, uint32_t& node, clap_id& offset)
@@ -275,13 +219,43 @@ bool decodeNodeParam(clap_id id, uint32_t& node, clap_id& offset)
     return node < s3g::kFeedbackShiftChannels;
 }
 
-bool decodeMatrixParam(clap_id id, uint32_t& destination, uint32_t& source)
+bool decodeSceneParam(clap_id id, bool& sceneB,
+    uint32_t& node, clap_id& offset)
 {
-    if (id < kMatrixParamBase
-        || id >= kMatrixParamBase + s3g::kFeedbackShiftMatrixCells) {
+    clap_id base = 0u;
+    if (id >= kSceneAParamBase
+        && id < kSceneAParamBase + kSceneParamCount) {
+        sceneB = false;
+        base = kSceneAParamBase;
+    } else if (id >= kSceneBParamBase
+        && id < kSceneBParamBase + kSceneParamCount) {
+        sceneB = true;
+        base = kSceneBParamBase;
+    } else {
         return false;
     }
-    const uint32_t relative = id - kMatrixParamBase;
+    const clap_id relative = id - base;
+    node = relative / kSceneParamStride;
+    offset = relative % kSceneParamStride;
+    return node < s3g::kFeedbackShiftChannels;
+}
+
+bool decodeMatrixParam(clap_id id, bool& sceneB,
+    uint32_t& destination, uint32_t& source)
+{
+    clap_id base = 0u;
+    if (id >= kMatrixAParamBase
+        && id < kMatrixAParamBase + kMatrixParamCount) {
+        sceneB = false;
+        base = kMatrixAParamBase;
+    } else if (id >= kMatrixBParamBase
+        && id < kMatrixBParamBase + kMatrixParamCount) {
+        sceneB = true;
+        base = kMatrixBParamBase;
+    } else {
+        return false;
+    }
+    const uint32_t relative = id - base;
     destination = relative / s3g::kFeedbackShiftChannels;
     source = relative % s3g::kFeedbackShiftChannels;
     return true;
@@ -297,21 +271,18 @@ clap_id paramIdAtIndex(uint32_t index)
         return nodeParamId(node, offset);
     }
     index -= kNodeParamCount;
-    if (index < s3g::kFeedbackShiftMatrixCells) {
-        return kMatrixParamBase + index;
+    if (index < kSceneParamCount) return kSceneAParamBase + index;
+    index -= kSceneParamCount;
+    if (index < kSceneParamCount) return kSceneBParamBase + index;
+    index -= kSceneParamCount;
+    if (index < kMatrixParamCount) return kMatrixAParamBase + index;
+    index -= kMatrixParamCount;
+    if (index < kMatrixParamCount) return kMatrixBParamBase + index;
+    index -= kMatrixParamCount;
+    if (index < kAuxParamCount) {
+        return kAuxParamBase + index;
     }
-    index -= s3g::kFeedbackShiftMatrixCells;
-    if (index < kAuxParamCount) return auxParamId(index);
-    index -= kAuxParamCount;
-    if (index < kExciterParamCount) {
-        return kExciterParamBase + index;
-    }
-    index -= kExciterParamCount;
-    if (index < kMotionParamCount) {
-        return kMotionParamBase + index;
-    }
-    index -= kMotionParamCount;
-    return index == 0u ? kMotionRateParamId : CLAP_INVALID_ID;
+    return CLAP_INVALID_ID;
 }
 
 uint32_t paramIndex(clap_id id)
@@ -324,25 +295,24 @@ uint32_t paramIndex(clap_id id)
     if (decodeNodeParam(id, node, offset)) {
         return kGlobalParamCount + node * kNodeParamStride + offset;
     }
+    bool sceneB = false;
+    if (decodeSceneParam(id, sceneB, node, offset)) {
+        return kGlobalParamCount + kNodeParamCount
+            + (sceneB ? kSceneParamCount : 0u)
+            + node * kSceneParamStride + offset;
+    }
     uint32_t destination = 0u;
     uint32_t source = 0u;
-    if (decodeMatrixParam(id, destination, source)) {
-        return kGlobalParamCount + kNodeParamCount
+    if (decodeMatrixParam(id, sceneB, destination, source)) {
+        return kGlobalParamCount + kNodeParamCount + kSceneParamCount * 2u
+            + (sceneB ? kMatrixParamCount : 0u)
             + destination * s3g::kFeedbackShiftChannels + source;
     }
     clap_id auxOffset = 0u;
     if (decodeAuxParam(id, auxOffset)) {
-        return kLegacyParamCount + auxOffset;
+        return kGlobalParamCount + kNodeParamCount + kSceneParamCount * 2u
+            + kMatrixParamCount * 2u + auxOffset;
     }
-    if (decodeExciterParam(id, node, offset)) {
-        return kPostGranulatorParamCount
-            + node * kExciterParamStride + offset;
-    }
-    if (decodeMotionParam(id, node, offset)) {
-        return kPostGranulatorParamCount + kExciterParamCount
-            + node * kMotionParamStride + offset;
-    }
-    if (id == kMotionRateParamId) return kParamCount - 1u;
     return kParamCount;
 }
 
@@ -351,26 +321,26 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
     switch (id) {
     case kExciteParamId: return params.excite;
     case kDriftParamId: return params.drift;
-    case kPulseDepthParamId: return params.pulseDepth;
-    case kPulseRateParamId: return params.pulseRate;
-    case kPulseSyncParamId: return params.pulseSync;
-    case kPulseDivisionParamId: return params.pulseDivision;
-    case kPulseShapeParamId:
-        return static_cast<uint32_t>(params.pulseShape);
+    case kMorphParamId: return params.morph;
+    case kMorphSourceParamId:
+        return static_cast<uint32_t>(params.morphSource);
+    case kMorphDepthParamId: return params.morphDepth;
+    case kMorphRateParamId: return params.morphRate;
+    case kMorphInertiaParamId: return params.morphInertia;
+    case kMorphHoldParamId: return params.morphHold ? 1.0 : 0.0;
+    case kMorphSyncParamId: return params.morphSync;
+    case kMorphDivisionParamId: return params.morphDivision;
+    case kMorphShapeParamId:
+        return static_cast<uint32_t>(params.morphShape);
     case kOutputParamId: return params.outputGainDb;
     case kRunParamId: return params.run ? 1.0 : 0.0;
     case kOutputModeParamId:
         return static_cast<uint32_t>(params.outputMode);
     case kOutputRotationParamId: return params.outputRotationDeg;
-    case kMotionRateParamId: return params.motionRate;
     default: break;
     }
     clap_id auxOffset = 0u;
     if (decodeAuxParam(id, auxOffset)) {
-        if (auxOffset >= kAuxSend0Offset
-            && auxOffset < kAuxSend0Offset + kAuxSendParamCount) {
-            return params.auxSend[auxOffset - kAuxSend0Offset];
-        }
         switch (auxOffset) {
         case kAuxPressOffset: return params.auxPress;
         case kAuxSaturationOffset: return params.auxSaturation;
@@ -389,26 +359,6 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
         default: return 0.0;
         }
     }
-    uint32_t appendedNode = 0u;
-    clap_id appendedOffset = 0u;
-    if (decodeExciterParam(id, appendedNode, appendedOffset)) {
-        const auto& lane = params.nodes[appendedNode];
-        return appendedOffset == kExciterSourceOffset
-            ? static_cast<uint32_t>(lane.exciterSource)
-            : lane.exciterGainDb;
-    }
-    if (decodeMotionParam(id, appendedNode, appendedOffset)) {
-        const auto& lane = params.nodes[appendedNode];
-        switch (appendedOffset) {
-        case kMotionSourceOffset:
-            return static_cast<uint32_t>(lane.motionSource);
-        case kMotionTargetOffset:
-            return static_cast<uint32_t>(lane.motionTarget);
-        case kMotionDepthOffset: return lane.motionDepth;
-        case kMotionSlewOffset: return lane.motionSlew;
-        default: return 0.0;
-        }
-    }
     uint32_t node = 0u;
     clap_id offset = 0u;
     if (decodeNodeParam(id, node, offset)) {
@@ -416,10 +366,9 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
         switch (offset) {
         case kNodeModeOffset: return static_cast<uint32_t>(lane.mode);
         case kNodePedalOffset: return static_cast<uint32_t>(lane.pedal);
-        case kNodeFrequencyOffset: return lane.frequencyHz;
-        case kNodeRegenerationOffset: return lane.regeneration;
-        case kNodeColorOffset: return lane.color;
-        case kNodeLevelOffset: return lane.levelDb;
+        case kNodeExciterSourceOffset:
+            return static_cast<uint32_t>(lane.exciterSource);
+        case kNodeExciterGainOffset: return lane.exciterGainDb;
         case kNodePedalAmountOffset: return lane.pedalAmount;
         case kNodePedalToneOffset: return lane.pedalTone;
         case kNodePedalBiasOffset: return lane.pedalBias;
@@ -432,11 +381,26 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
             return 0.0;
         }
     }
+    bool sceneB = false;
+    if (decodeSceneParam(id, sceneB, node, offset)) {
+        const auto& lane = sceneB ? params.sceneBNodes[node]
+                                  : params.nodes[node];
+        const auto& sends = sceneB ? params.sceneBAuxSend : params.auxSend;
+        switch (offset) {
+        case kSceneFrequencyOffset: return lane.frequencyHz;
+        case kSceneRegenerationOffset: return lane.regeneration;
+        case kSceneColorOffset: return lane.color;
+        case kSceneBodyOffset: return lane.body;
+        case kSceneLevelOffset: return lane.levelDb;
+        case kSceneAuxSendOffset: return sends[node];
+        default: return 0.0;
+        }
+    }
     uint32_t destination = 0u;
     uint32_t source = 0u;
-    if (decodeMatrixParam(id, destination, source)) {
-        return params.matrix[destination * s3g::kFeedbackShiftChannels
-            + source];
+    if (decodeMatrixParam(id, sceneB, destination, source)) {
+        const auto& matrix = sceneB ? params.sceneBMatrix : params.matrix;
+        return matrix[destination * s3g::kFeedbackShiftChannels + source];
     }
     return 0.0;
 }
@@ -448,18 +412,24 @@ bool paramRange(clap_id id, ParamRange& range)
     switch (id) {
     case kExciteParamId:
     case kDriftParamId:
-    case kPulseDepthParamId:
-    case kPulseRateParamId:
-    case kMotionRateParamId:
+    case kMorphParamId:
+    case kMorphDepthParamId:
+    case kMorphRateParamId:
+    case kMorphInertiaParamId:
         range = { 0.0, 1.0, range.defaultValue, "pct", false }; return true;
-    case kPulseSyncParamId:
+    case kMorphHoldParamId:
+    case kMorphSyncParamId:
     case kRunParamId:
         range = { 0.0, 1.0, range.defaultValue, "bool", true }; return true;
-    case kPulseDivisionParamId:
+    case kMorphSourceParamId:
+        range = { 0.0,
+            static_cast<double>(s3g::kFeedbackMorphSourceCount - 1u),
+            range.defaultValue, "morph-source", true }; return true;
+    case kMorphDivisionParamId:
         range = { 0.0,
             static_cast<double>(s3g::kFeedbackPulseDivisionBeats.size() - 1u),
             range.defaultValue, "division", true }; return true;
-    case kPulseShapeParamId:
+    case kMorphShapeParamId:
         range = { 0.0,
             static_cast<double>(s3g::kFeedbackPulseShapeCount - 1u),
             range.defaultValue, "shape", true }; return true;
@@ -494,39 +464,6 @@ bool paramRange(clap_id id, ParamRange& range)
         }
         return true;
     }
-    uint32_t appendedNode = 0u;
-    clap_id appendedOffset = 0u;
-    if (decodeExciterParam(id, appendedNode, appendedOffset)) {
-        (void)appendedNode;
-        if (appendedOffset == kExciterSourceOffset) {
-            range = { 0.0,
-                static_cast<double>(s3g::kFeedbackExciterSourceCount - 1u),
-                range.defaultValue, "exciter-source", true };
-        } else {
-            range = { -60.0, 12.0, range.defaultValue, "db", false };
-        }
-        return true;
-    }
-    if (decodeMotionParam(id, appendedNode, appendedOffset)) {
-        (void)appendedNode;
-        switch (appendedOffset) {
-        case kMotionSourceOffset:
-            range = { 0.0,
-                static_cast<double>(s3g::kFeedbackMotionSourceCount - 1u),
-                range.defaultValue, "motion-source", true }; break;
-        case kMotionTargetOffset:
-            range = { 0.0,
-                static_cast<double>(s3g::kFeedbackMotionTargetCount - 1u),
-                range.defaultValue, "motion-target", true }; break;
-        case kMotionDepthOffset:
-            range = { -1.0, 1.0, range.defaultValue,
-                "bipolar", false }; break;
-        case kMotionSlewOffset:
-            range = { 0.0, 1.0, range.defaultValue, "pct", false }; break;
-        default: return false;
-        }
-        return true;
-    }
     uint32_t node = 0u;
     clap_id offset = 0u;
     if (decodeNodeParam(id, node, offset)) {
@@ -538,17 +475,12 @@ bool paramRange(clap_id id, ParamRange& range)
             range = { 0.0,
                 static_cast<double>(s3g::kFeedbackPedalTypeCount - 1u),
                 range.defaultValue, "pedal", true }; return true;
-        case kNodeFrequencyOffset:
-            range = { -6000.0, 6000.0, range.defaultValue, "hz", false };
-            return true;
-        case kNodeRegenerationOffset:
-            range = { 0.0, 1.18, range.defaultValue, "regen", false };
-            return true;
-        case kNodeColorOffset:
-            range = { 0.0, 1.0, range.defaultValue, "pct", false };
-            return true;
-        case kNodeLevelOffset:
-            range = { -60.0, 6.0, range.defaultValue, "db", false };
+        case kNodeExciterSourceOffset:
+            range = { 0.0,
+                static_cast<double>(s3g::kFeedbackExciterSourceCount - 1u),
+                range.defaultValue, "exciter-source", true }; return true;
+        case kNodeExciterGainOffset:
+            range = { -60.0, 12.0, range.defaultValue, "db", false };
             return true;
         case kNodePedalAmountOffset:
         case kNodePedalToneOffset:
@@ -567,9 +499,32 @@ bool paramRange(clap_id id, ParamRange& range)
             return false;
         }
     }
+    bool sceneB = false;
+    if (decodeSceneParam(id, sceneB, node, offset)) {
+        (void)sceneB;
+        switch (offset) {
+        case kSceneFrequencyOffset:
+            range = { -6000.0, 6000.0, range.defaultValue, "hz", false };
+            return true;
+        case kSceneRegenerationOffset:
+            range = { 0.0, 1.0, range.defaultValue, "regen", false };
+            return true;
+        case kSceneColorOffset:
+            range = { -1.0, 1.0, range.defaultValue, "bipolar", false };
+            return true;
+        case kSceneBodyOffset:
+        case kSceneAuxSendOffset:
+            range = { 0.0, 1.0, range.defaultValue, "pct", false };
+            return true;
+        case kSceneLevelOffset:
+            range = { -60.0, 6.0, range.defaultValue, "db", false };
+            return true;
+        default: return false;
+        }
+    }
     uint32_t destination = 0u;
     uint32_t source = 0u;
-    if (decodeMatrixParam(id, destination, source)) {
+    if (decodeMatrixParam(id, sceneB, destination, source)) {
         (void)destination;
         (void)source;
         range = { -1.0, 1.0, range.defaultValue, "route", false };
@@ -608,18 +563,22 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
     auto params = s3g::defaultFeedbackShiftParams();
     params.excite = static_cast<float>(paramValue(plugin, kExciteParamId));
     params.drift = static_cast<float>(paramValue(plugin, kDriftParamId));
-    params.motionRate = static_cast<float>(
-        paramValue(plugin, kMotionRateParamId));
-    params.pulseDepth = static_cast<float>(
-        paramValue(plugin, kPulseDepthParamId));
-    params.pulseRate = static_cast<float>(
-        paramValue(plugin, kPulseRateParamId));
-    params.pulseSync = static_cast<uint32_t>(
-        paramValue(plugin, kPulseSyncParamId));
-    params.pulseDivision = static_cast<uint32_t>(
-        paramValue(plugin, kPulseDivisionParamId));
-    params.pulseShape = static_cast<s3g::FeedbackPulseShape>(
-        static_cast<uint32_t>(paramValue(plugin, kPulseShapeParamId)));
+    params.morph = static_cast<float>(paramValue(plugin, kMorphParamId));
+    params.morphSource = static_cast<s3g::FeedbackMorphSource>(
+        static_cast<uint32_t>(paramValue(plugin, kMorphSourceParamId)));
+    params.morphDepth = static_cast<float>(
+        paramValue(plugin, kMorphDepthParamId));
+    params.morphRate = static_cast<float>(
+        paramValue(plugin, kMorphRateParamId));
+    params.morphInertia = static_cast<float>(
+        paramValue(plugin, kMorphInertiaParamId));
+    params.morphHold = paramValue(plugin, kMorphHoldParamId) >= 0.5;
+    params.morphSync = static_cast<uint32_t>(
+        paramValue(plugin, kMorphSyncParamId));
+    params.morphDivision = static_cast<uint32_t>(
+        paramValue(plugin, kMorphDivisionParamId));
+    params.morphShape = static_cast<s3g::FeedbackPulseShape>(
+        static_cast<uint32_t>(paramValue(plugin, kMorphShapeParamId)));
     params.outputGainDb = static_cast<float>(
         paramValue(plugin, kOutputParamId));
     params.run = paramValue(plugin, kRunParamId) >= 0.5;
@@ -655,11 +614,6 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
         auxParamId(kAuxCoherenceOffset)));
     params.auxGrainLaneDrift = static_cast<float>(paramValue(plugin,
         auxParamId(kAuxLaneDriftOffset)));
-    for (uint32_t node = 0u;
-         node < s3g::kFeedbackShiftChannels; ++node) {
-        params.auxSend[node] = static_cast<float>(paramValue(plugin,
-            auxSendParamId(node)));
-    }
     for (uint32_t node = 0u; node < s3g::kFeedbackShiftChannels; ++node) {
         auto& lane = params.nodes[node];
         lane.mode = static_cast<s3g::FeedbackShiftMode>(
@@ -670,27 +624,9 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
                 nodeParamId(node, kNodePedalOffset))));
         lane.exciterSource = static_cast<s3g::FeedbackExciterSource>(
             static_cast<uint32_t>(paramValue(plugin,
-                exciterParamId(node, kExciterSourceOffset))));
+                nodeParamId(node, kNodeExciterSourceOffset))));
         lane.exciterGainDb = static_cast<float>(paramValue(plugin,
-            exciterParamId(node, kExciterGainOffset)));
-        lane.motionSource = static_cast<s3g::FeedbackMotionSource>(
-            static_cast<uint32_t>(paramValue(plugin,
-                motionParamId(node, kMotionSourceOffset))));
-        lane.motionTarget = static_cast<s3g::FeedbackMotionTarget>(
-            static_cast<uint32_t>(paramValue(plugin,
-                motionParamId(node, kMotionTargetOffset))));
-        lane.motionDepth = static_cast<float>(paramValue(plugin,
-            motionParamId(node, kMotionDepthOffset)));
-        lane.motionSlew = static_cast<float>(paramValue(plugin,
-            motionParamId(node, kMotionSlewOffset)));
-        lane.frequencyHz = static_cast<float>(paramValue(plugin,
-            nodeParamId(node, kNodeFrequencyOffset)));
-        lane.regeneration = static_cast<float>(paramValue(plugin,
-            nodeParamId(node, kNodeRegenerationOffset)));
-        lane.color = static_cast<float>(paramValue(plugin,
-            nodeParamId(node, kNodeColorOffset)));
-        lane.levelDb = static_cast<float>(paramValue(plugin,
-            nodeParamId(node, kNodeLevelOffset)));
+            nodeParamId(node, kNodeExciterGainOffset)));
         lane.pedalAmount = static_cast<float>(paramValue(plugin,
             nodeParamId(node, kNodePedalAmountOffset)));
         lane.pedalTone = static_cast<float>(paramValue(plugin,
@@ -704,14 +640,43 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
             lane.pedalExtra[extra] = static_cast<float>(paramValue(plugin,
                 nodeParamId(node, kNodePedalExtra0Offset + extra)));
         }
+        auto& sceneBNode = params.sceneBNodes[node];
+        sceneBNode = lane;
+        lane.frequencyHz = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneFrequencyOffset)));
+        lane.regeneration = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneRegenerationOffset)));
+        lane.color = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneColorOffset)));
+        lane.body = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneBodyOffset)));
+        lane.levelDb = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneLevelOffset)));
+        params.auxSend[node] = static_cast<float>(paramValue(plugin,
+            sceneParamId(false, node, kSceneAuxSendOffset)));
+        sceneBNode.frequencyHz = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneFrequencyOffset)));
+        sceneBNode.regeneration = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneRegenerationOffset)));
+        sceneBNode.color = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneColorOffset)));
+        sceneBNode.body = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneBodyOffset)));
+        sceneBNode.levelDb = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneLevelOffset)));
+        params.sceneBAuxSend[node] = static_cast<float>(paramValue(plugin,
+            sceneParamId(true, node, kSceneAuxSendOffset)));
     }
     for (uint32_t destination = 0u;
          destination < s3g::kFeedbackShiftChannels; ++destination) {
         for (uint32_t source = 0u;
              source < s3g::kFeedbackShiftChannels; ++source) {
-            params.matrix[destination * s3g::kFeedbackShiftChannels + source]
-                = static_cast<float>(paramValue(plugin,
-                    matrixParamId(destination, source)));
+            const uint32_t index = destination * s3g::kFeedbackShiftChannels
+                + source;
+            params.matrix[index] = static_cast<float>(paramValue(plugin,
+                matrixParamId(false, destination, source)));
+            params.sceneBMatrix[index] = static_cast<float>(paramValue(plugin,
+                matrixParamId(true, destination, source)));
         }
     }
     return params;
@@ -815,7 +780,6 @@ bool queueGuiPatch(Plugin& plugin,
     for (const auto& event : events) {
         publishParam(plugin, event.paramId, event.value);
     }
-    plugin.panicRequested.store(true, std::memory_order_release);
     requestGuiParamService(plugin);
     return true;
 }
@@ -1052,8 +1016,6 @@ clap_process_status process(const clap_plugin_t* plugin,
             std::memory_order_relaxed);
         instance->nodeActivity[node].store(instance->dsp.nodeActivity(node),
             std::memory_order_relaxed);
-        instance->motionValues[node].store(instance->dsp.motionValue(node),
-            std::memory_order_relaxed);
         instance->temporalPhases[node].store(
             instance->dsp.temporalPhase(node), std::memory_order_relaxed);
         instance->temporalProgress[node].store(
@@ -1068,7 +1030,13 @@ clap_process_status process(const clap_plugin_t* plugin,
     }
     instance->minimumGovernor.store(instance->dsp.minimumGovernor(),
         std::memory_order_relaxed);
-    instance->pulsePhase.store(instance->dsp.pulsePhase(),
+    instance->morphValue.store(instance->dsp.morphValue(),
+        std::memory_order_relaxed);
+    instance->morphDriver.store(instance->dsp.morphDriverValue(),
+        std::memory_order_relaxed);
+    instance->morphPhase.store(instance->dsp.morphPhase(),
+        std::memory_order_relaxed);
+    instance->inputEnvelope.store(instance->dsp.inputEnvelope(),
         std::memory_order_relaxed);
     instance->auxActivity.store(instance->dsp.auxActivity(),
         std::memory_order_relaxed);
@@ -1100,7 +1068,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     *info = {};
     info->id = isInput ? 19u : 20u;
     std::strncpy(info->name,
-        isInput ? "8ch Excitation In" : "8ch Matrix Out",
+        isInput ? "8ch Audio In" : "8ch Matrix Out",
         sizeof(info->name) - 1u);
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = s3g::kFeedbackShiftChannels;
@@ -1152,30 +1120,25 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     info->max_value = range.maximum;
     info->default_value = range.defaultValue;
     static constexpr std::array<const char*, kGlobalParamCount> globalNames {{
-        "Excitation", "Drift", "Pulse Depth", "Pulse Rate",
-        "Pulse Sync", "Pulse Division", "Pulse Shape", "Output Gain", "Run",
+        "Internal Noise", "Drift", "Morph", "Morph Driver", "Morph Depth",
+        "Morph Rate", "Morph Inertia", "Morph Hold", "Morph Sync",
+        "Morph Division", "Morph Shape", "Output Gain", "Engine Run",
         "Output Mode", "Output Rotation",
     }};
     if (id >= kExciteParamId && id <= kOutputRotationParamId) {
         std::strncpy(info->name, globalNames[id - kExciteParamId],
             sizeof(info->name) - 1u);
-        std::strncpy(info->module,
-            id >= kPulseDepthParamId && id <= kPulseShapeParamId
-                ? "Rhythm" : (id >= kOutputParamId ? "Output" : "Excitation"),
-            sizeof(info->module) - 1u);
-        return true;
-    }
-    if (id == kMotionRateParamId) {
-        std::strncpy(info->name, "Motion Rate", sizeof(info->name) - 1u);
-        std::strncpy(info->module, "Motion", sizeof(info->module) - 1u);
+        const char* module = id >= kOutputParamId ? "Output"
+            : id >= kMorphParamId ? "Morph" : "Engine";
+        std::strncpy(info->module, module, sizeof(info->module) - 1u);
         return true;
     }
     uint32_t node = 0u;
     clap_id offset = 0u;
     if (decodeNodeParam(id, node, offset)) {
         static constexpr std::array<const char*, kNodeParamStride> names {{
-            "Mode", "Pedal", "Frequency", "Regeneration", "Color", "Level",
-            "Pedal Amount", "Pedal Tone", "Pedal Bias", "Pedal Mix",
+            "Mode", "Insert", "Exciter Source", "Exciter Gain",
+            "Insert Amount", "Insert Tone", "Insert Bias", "Insert Mix",
             "Pedal Parameter 5", "Pedal Parameter 6", "Pedal Parameter 7",
             "Pedal Parameter 8", "Pedal Parameter 9", "Pedal Parameter 10",
             "Pedal Parameter 11", "Pedal Parameter 12",
@@ -1184,66 +1147,41 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         std::snprintf(info->module, sizeof(info->module), "Node %u", node + 1u);
         return true;
     }
+    bool sceneB = false;
+    if (decodeSceneParam(id, sceneB, node, offset)) {
+        static constexpr std::array<const char*, kSceneParamStride> names {{
+            "Shift", "Regeneration", "Color", "Body", "Level", "AUX Send",
+        }};
+        std::strncpy(info->name, names[offset], sizeof(info->name) - 1u);
+        std::snprintf(info->module, sizeof(info->module), "Scene %c / Node %u",
+            sceneB ? 'B' : 'A', node + 1u);
+        return true;
+    }
     uint32_t destination = 0u;
     uint32_t source = 0u;
-    if (decodeMatrixParam(id, destination, source)) {
+    if (decodeMatrixParam(id, sceneB, destination, source)) {
         std::snprintf(info->name, sizeof(info->name), "Node %u to Node %u",
             source + 1u, destination + 1u);
-        std::strncpy(info->module, "Patch Matrix", sizeof(info->module) - 1u);
-        return true;
-    }
-    uint32_t appendedNode = 0u;
-    clap_id appendedOffset = 0u;
-    if (decodeExciterParam(id, appendedNode, appendedOffset)) {
-        std::strncpy(info->name,
-            appendedOffset == kExciterSourceOffset
-                ? "Exciter Source" : "Exciter Gain",
-            sizeof(info->name) - 1u);
-        std::snprintf(info->module, sizeof(info->module),
-            "Node %u Exciter", appendedNode + 1u);
-        return true;
-    }
-    if (decodeMotionParam(id, appendedNode, appendedOffset)) {
-        static constexpr std::array<const char*, kMotionParamStride> names {{
-            "Motion Source", "Motion Target", "Motion Depth", "Motion Slew",
-        }};
-        std::strncpy(info->name, names[appendedOffset],
-            sizeof(info->name) - 1u);
-        std::snprintf(info->module, sizeof(info->module),
-            "Node %u Motion", appendedNode + 1u);
+        std::snprintf(info->module, sizeof(info->module), "Scene %c Matrix",
+            sceneB ? 'B' : 'A');
         return true;
     }
     clap_id auxOffset = 0u;
     if (decodeAuxParam(id, auxOffset)) {
-        static constexpr std::array<const char*,
-            kLegacyAuxProcessorParamCount> names {{
+        static constexpr std::array<const char*, kAuxParamCount> names {{
             "Press", "Saturation", "Fold", "Clip", "Grain Size",
             "Grain Density", "Grain Scatter", "Grain Pitch", "Grain Edge",
-            "Tilt", "Return", "Grain Mix",
+            "Tilt", "Return", "Grain Mix", "Grain Coherence",
+            "Grain Lane Drift",
         }};
-        if (auxOffset < kLegacyAuxProcessorParamCount) {
-            std::strncpy(info->name, names[auxOffset],
-                sizeof(info->name) - 1u);
-            const bool postGranulator = auxOffset >= kAuxGrainSizeOffset
-                    && auxOffset <= kAuxGrainEdgeOffset
-                || auxOffset == kAuxGrainMixOffset;
-            std::strncpy(info->module,
-                postGranulator ? "Post Granulator" : "Feedback AUX",
-                sizeof(info->module) - 1u);
-        } else if (auxOffset < kAuxCoherenceOffset) {
-            const uint32_t node = auxOffset - kAuxSend0Offset;
-            std::snprintf(info->name, sizeof(info->name), "Node %u Send",
-                node + 1u);
-            std::strncpy(info->module, "AUX Sends",
-                sizeof(info->module) - 1u);
-        } else {
-            std::strncpy(info->name,
-                auxOffset == kAuxCoherenceOffset
-                    ? "Grain Coherence" : "Grain Lane Drift",
-                sizeof(info->name) - 1u);
-            std::strncpy(info->module, "Post Granulator",
-                sizeof(info->module) - 1u);
-        }
+        std::strncpy(info->name, names[auxOffset], sizeof(info->name) - 1u);
+        const bool postGranulator = auxOffset >= kAuxGrainSizeOffset
+            && auxOffset <= kAuxGrainEdgeOffset
+            || auxOffset == kAuxGrainMixOffset
+            || auxOffset >= kAuxCoherenceOffset;
+        std::strncpy(info->module,
+            postGranulator ? "Post Granulator" : "Feedback AUX",
+            sizeof(info->module) - 1u);
         return true;
     }
     return false;
@@ -1275,13 +1213,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", s3g::feedbackExciterSourceName(
             static_cast<s3g::FeedbackExciterSource>(
                 static_cast<uint32_t>(value))));
-    } else if (std::strcmp(range.unit, "motion-source") == 0) {
-        std::snprintf(display, size, "%s", s3g::feedbackMotionSourceName(
-            static_cast<s3g::FeedbackMotionSource>(
-                static_cast<uint32_t>(value))));
-    } else if (std::strcmp(range.unit, "motion-target") == 0) {
-        std::snprintf(display, size, "%s", s3g::feedbackMotionTargetName(
-            static_cast<s3g::FeedbackMotionTarget>(
+    } else if (std::strcmp(range.unit, "morph-source") == 0) {
+        std::snprintf(display, size, "%s", s3g::feedbackMorphSourceName(
+            static_cast<s3g::FeedbackMorphSource>(
                 static_cast<uint32_t>(value))));
     } else if (std::strcmp(range.unit, "shape") == 0) {
         std::snprintf(display, size, "%s", s3g::feedbackPulseShapeName(
@@ -1359,6 +1293,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (std::strcmp(range.unit, "morph-source") == 0) {
+        for (uint32_t source = 0u; source < s3g::kFeedbackMorphSourceCount;
+             ++source) {
+            if (std::strcmp(display, s3g::feedbackMorphSourceName(
+                    static_cast<s3g::FeedbackMorphSource>(source))) == 0) {
+                *value = source;
+                return true;
+            }
+        }
+    }
     if (std::strcmp(range.unit, "output-mode") == 0) {
         for (uint32_t mode = 0u; mode < s3g::kFeedbackShiftOutputModeCount;
              ++mode) {
@@ -1430,58 +1374,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedStateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic) return false;
-    const bool current = header.version == kStateVersion
-        && header.valueCount == kParamCount;
-    const bool baseLegacy = header.version == kBaseStateVersion
-        && header.valueCount == kLegacyParamCount;
-    const bool holdCutLegacy = header.version == kHoldCutStateVersion
-        && header.valueCount == kPreviousParamCount;
-    const bool granularLegacy = header.version == kGranularStateVersion
-        && header.valueCount == kPreviousParamCount;
-    const bool feedbackSourceLegacy =
-        header.version == kFeedbackSourceStateVersion
-        && header.valueCount == kFeedbackSourceParamCount;
-    const bool laneSendLegacy = header.version == kLaneSendStateVersion
-        && header.valueCount == kLaneSendParamCount;
-    const bool postGranulatorLegacy =
-        header.version == kPostGranulatorStateVersion
-        && header.valueCount == kPostGranulatorParamCount;
-    if (!current && !baseLegacy && !holdCutLegacy && !granularLegacy
-        && !feedbackSourceLegacy && !laneSendLegacy
-        && !postGranulatorLegacy) {
+    if (header.version != kStateVersion || header.valueCount != kParamCount) {
         return false;
     }
 
     std::array<double, kParamCount> values {};
-    const uint32_t count = current ? kParamCount
-        : postGranulatorLegacy ? kPostGranulatorParamCount
-        : laneSendLegacy ? kLaneSendParamCount
-        : feedbackSourceLegacy ? kFeedbackSourceParamCount
-        : baseLegacy ? kLegacyParamCount : kPreviousParamCount;
     if (!s3g::clap_state::readAll(stream, values.data(),
-            sizeof(double) * count)) return false;
+            sizeof(values))) return false;
     auto* instance = self(plugin);
-    if (!current) {
-        const auto defaults = s3g::defaultFeedbackShiftParams();
-        const uint32_t firstDefault = postGranulatorLegacy
-            ? kPostGranulatorParamCount
-            : laneSendLegacy
-            ? kLaneSendParamCount
-            : feedbackSourceLegacy
-            ? kFeedbackSourceParamCount
-            : granularLegacy ? kPreviousParamCount : kLegacyParamCount;
-        for (uint32_t index = firstDefault;
-             index < kParamCount; ++index) {
-            const clap_id id = paramIdAtIndex(index);
-            publishParam(*instance, id, rawParamValue(defaults, id));
-        }
-    }
-    const uint32_t restoredCount = current ? kParamCount
-        : postGranulatorLegacy ? kPostGranulatorParamCount
-        : laneSendLegacy ? kLaneSendParamCount
-        : feedbackSourceLegacy ? kFeedbackSourceParamCount
-        : granularLegacy ? kPreviousParamCount : kLegacyParamCount;
-    for (uint32_t index = 0u; index < restoredCount; ++index) {
+    for (uint32_t index = 0u; index < kParamCount; ++index) {
         publishParam(*instance, paramIdAtIndex(index), values[index]);
     }
     instance->panicRequested.store(true, std::memory_order_release);
@@ -1640,9 +1541,9 @@ const void* getExtension(const clap_plugin_t*, const char* id)
 }
 
 const char* const features[] {
-    CLAP_PLUGIN_FEATURE_INSTRUMENT,
-    CLAP_PLUGIN_FEATURE_SYNTHESIZER,
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
+    CLAP_PLUGIN_FEATURE_FREQUENCY_SHIFTER,
+    CLAP_PLUGIN_FEATURE_MULTI_EFFECTS,
     CLAP_PLUGIN_FEATURE_SURROUND,
     nullptr,
 };
@@ -1655,8 +1556,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.12.0",
-    "An eight-node feedback instrument with external excitation and motion.",
+    "0.13.1",
+    "An eight-node feedback processor built around paired ecology morphing.",
     features,
 };
 
