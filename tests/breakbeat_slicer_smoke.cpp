@@ -87,6 +87,16 @@ void testBankMappingAndValidation()
         "per-channel overlapping mapping failed");
     check(bank.valid(), "a populated multisample bank was not valid");
 
+    BankSnapshot fitted = bank;
+    fitted.slots[0u].rootNote = 127u;
+    fitted.slots[0u].mappedSliceCount = 0u;
+    check(autoMapSlotConsecutively(fitted, 0u)
+            && fitted.slots[0u].rootNote == 125u
+            && fitted.slots[0u].mappedRootNote == 125u
+            && fitted.slots[0u].mappedSliceCount == 3u
+            && fitted.valid(),
+        "auto map did not lower an overflowing root to fit all slices");
+
     bank.slots[1u].midiChannel = 17u;
     check(!bank.valid(), "an invalid per-break MIDI channel was accepted");
 }
@@ -126,6 +136,13 @@ void testAnalysisAndSliceEditing()
             && slices[1u].endFrame == 399u
             && slices[2u].startFrame == 399u,
         "transient slice construction failed");
+    const auto preRolled = makeTransientSlices(asset, analysis, 8u, 0u,
+        2000u);
+    check(preRolled.size() == 3u && preRolled[0u].endFrame == 99u
+            && preRolled[1u].startFrame == 99u
+            && preRolled[1u].endFrame == 399u
+            && preRolled[2u].startFrame == 399u,
+        "microsecond transient pre-roll did not move slice onsets earlier");
     std::size_t count = slices.size();
     slices.resize(8u);
     check(addSliceMarker(slices.data(), count, slices.size(), 200u)

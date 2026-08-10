@@ -32,7 +32,8 @@ constexpr const char* kPluginId =
 constexpr const char* kStereoPluginId =
     "org.s3g.s3g-dsp.breakbeat-slicer-stereo";
 constexpr uint32_t kStateMagic = 0x53423353u;
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kLegacyStateVersion = 9u;
+constexpr uint32_t kStateVersion = 10u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct FixtureSavedSlot {
@@ -82,6 +83,7 @@ struct FixtureSavedState {
     uint8_t auxEnabled = 0u;
     uint8_t auxLinkMode = 0u;
     uint8_t auxFieldSafe = 0u;
+    uint32_t transientPreRollMicroseconds = 0u;
     std::array<FixtureSavedSlot,
         s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
@@ -333,6 +335,32 @@ int main(int argc, char** argv)
             "parameter flush did not update output gain");
     }
 
+    FixtureSavedState legacyFixture;
+    legacyFixture.version = kLegacyStateVersion;
+    legacyFixture.embedSamples = 0u;
+    // Version 9 used these bytes only as alignment padding. A loader must not
+    // mistake any prior padding contents for an authored pre-roll value.
+    legacyFixture.transientPreRollMicroseconds = 20000u;
+    StateBuffer legacyState;
+    const auto* legacyBytes = reinterpret_cast<const uint8_t*>(
+        &legacyFixture);
+    legacyState.bytes.insert(legacyState.bytes.end(), legacyBytes,
+        legacyBytes + sizeof(legacyFixture));
+    StateBuffer migratedLegacyState;
+    bool legacyMigration = state
+        && state->load(plugin, &legacyState.input)
+        && state->save(plugin, &migratedLegacyState.output)
+        && migratedLegacyState.bytes.size() >= sizeof(FixtureSavedState);
+    if (legacyMigration) {
+        FixtureSavedState migrated {};
+        std::memcpy(&migrated, migratedLegacyState.bytes.data(),
+            sizeof(migrated));
+        legacyMigration = migrated.version == kStateVersion
+            && migrated.transientPreRollMicroseconds == 0u;
+    }
+    ok &= expect(legacyMigration,
+        "state v9 did not migrate with transient pre-roll disabled");
+
     FixtureSavedState fixture;
     fixture.auxPress = 0.52f;
     fixture.auxSnap = 0.43f;
@@ -344,6 +372,7 @@ int main(int argc, char** argv)
     fixture.auxReturnDb = -7.5f;
     fixture.auxLinkMode = static_cast<uint8_t>(s3g::BreakBusLinkMode::Pair);
     fixture.auxFieldSafe = 1u;
+    fixture.transientPreRollMicroseconds = 1250u;
     auto& fixtureSlot = fixture.slots[0u];
     std::snprintf(fixtureSlot.path.data(), fixtureSlot.path.size(), "%s",
         "missing-original-file.wav");
@@ -402,6 +431,7 @@ int main(int argc, char** argv)
             && savedFixture.auxLinkMode
                 == static_cast<uint8_t>(s3g::BreakBusLinkMode::Pair)
             && savedFixture.auxFieldSafe == 1u
+            && savedFixture.transientPreRollMicroseconds == 1250u
             && std::fabs(savedFixture.slots[0u].mixerAuxSend - 0.62f)
                 < 1.0e-6f
             && savedFixture.slots[0u].inserts[0u].type

@@ -24,7 +24,8 @@ The first playable build includes:
   pitch, pan, reverse, looping, ping-pong, and choke behavior in the engine;
   one envelope gives the break a coherent articulation while attack, decay,
   and release scale to each triggered slice rather than milliseconds;
-- equal and transient slicing with zero-crossing snap;
+- equal and transient slicing with zero-crossing snap plus an adjustable
+  0–20,000 µs pre-transient onset offset;
 - manual marker add, drag, and delete, plus waveform zoom, sample-to-sample
   drawing at close zoom, distinct multichannel lanes, and a draggable
   horizontal viewport bar;

@@ -448,18 +448,24 @@ inline std::vector<Slice> makeEqualSlices(const SampleAsset& asset,
 inline std::vector<Slice> makeTransientSlices(const SampleAsset& asset,
     const SampleAnalysis& analysis,
     std::size_t maximumSliceCount = kMaximumSlicesPerSlot,
-    uint32_t zeroCrossingRadiusFrames = 0u)
+    uint32_t zeroCrossingRadiusFrames = 0u,
+    uint32_t preTransientMicroseconds = 0u)
 {
     std::vector<Slice> result;
     if (!analysis.validFor(asset) || maximumSliceCount == 0u) return result;
     maximumSliceCount = std::min(maximumSliceCount,
         kMaximumSlicesPerSlot);
+    const uint32_t preTransientFrames = static_cast<uint32_t>(
+        std::clamp<double>(std::round(asset.sampleRate
+                * static_cast<double>(preTransientMicroseconds) * 1.0e-6),
+            0.0, std::numeric_limits<uint32_t>::max()));
     std::vector<uint32_t> starts { 0u };
     starts.reserve(std::min(maximumSliceCount,
         analysis.transients.size() + 1u));
     for (const auto& transient : analysis.transients) {
         if (starts.size() >= maximumSliceCount) break;
-        uint32_t marker = transient.frame;
+        uint32_t marker = transient.frame > preTransientFrames
+            ? transient.frame - preTransientFrames : 0u;
         if (zeroCrossingRadiusFrames != 0u)
             marker = nearestZeroFrame(asset, marker,
                 zeroCrossingRadiusFrames);
@@ -770,6 +776,22 @@ inline bool mapSlotConsecutively(BankSnapshot& bank, uint8_t slotIndex,
     slot.mappedRootNote = baseNote;
     slot.mappedSliceCount = slot.sliceCount;
     return true;
+}
+
+// Auto Map favors completing the map over retaining a preferred root that no
+// longer leaves enough MIDI notes after the slice table grows. Valid roots are
+// preserved; only an overflowing range is shifted down to end at note 127.
+inline bool autoMapSlotConsecutively(BankSnapshot& bank, uint8_t slotIndex,
+    bool replace = true) noexcept
+{
+    if (slotIndex >= bank.slots.size()) return false;
+    const auto& slot = bank.slots[slotIndex];
+    if (!slot.asset || slot.sliceCount == 0u
+        || slot.sliceCount > kMidiNoteCount) return false;
+    const uint8_t maximumRoot = static_cast<uint8_t>(
+        kMidiNoteCount - slot.sliceCount);
+    return mapSlotConsecutively(bank, slotIndex,
+        std::min(slot.rootNote, maximumRoot), replace);
 }
 
 enum class EventKind : uint8_t {

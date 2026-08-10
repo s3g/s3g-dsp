@@ -46,7 +46,9 @@ using s3g::breakbeat::SampleAsset;
 using s3g::breakbeat::Slice;
 
 constexpr uint32_t kStateMagic = 0x53423353u; // "S3BS"
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kLegacyStateVersion = 9u;
+constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kMaximumTransientPreRollMicroseconds = 20000u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
 constexpr uint32_t kGuiWidth = 1080u;
 constexpr uint32_t kGuiHeight = 800u;
@@ -133,6 +135,9 @@ struct SavedState {
     uint8_t auxEnabled = 0u;
     uint8_t auxLinkMode = 0u;
     uint8_t auxFieldSafe = 0u;
+    // State v10 deliberately occupies the four alignment bytes that preceded
+    // slots in v9, keeping the fixed metadata and embedded-audio offset stable.
+    uint32_t transientPreRollMicroseconds = 0u;
     std::array<SavedSlot, s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
 
@@ -193,6 +198,7 @@ struct Plugin {
     clap_id outputConfigId = kStereoOutputConfigId;
     uint32_t outputChannelCount = 2u;
     bool embedSamplesInState = true;
+    uint32_t transientPreRollMicroseconds = 0u;
     uint32_t selectedSlot = 0u;
     std::string status { "LOAD A BREAK OR ONE-SHOT" };
     bool active = false;
@@ -395,14 +401,18 @@ bool setSlotMidiChannel(Plugin& instance, uint32_t slotIndex,
     return publishBank(instance, std::move(bank));
 }
 
-bool automapSlot(Plugin& instance, uint32_t slotIndex)
+bool automapSlot(Plugin& instance, uint32_t slotIndex,
+    bool* rootAdjusted = nullptr)
 {
+    if (rootAdjusted) *rootAdjusted = false;
     if (slotIndex >= s3g::breakbeat::kMaximumSampleSlots) return false;
     auto bank = editableBank(instance);
     auto& slot = bank->slots[slotIndex];
     if (!slot.asset || slot.sliceCount == 0u) return false;
-    if (!s3g::breakbeat::mapSlotConsecutively(*bank,
-            static_cast<uint8_t>(slotIndex), slot.rootNote, true)) return false;
+    const uint8_t previousRoot = slot.rootNote;
+    if (!s3g::breakbeat::autoMapSlotConsecutively(*bank,
+            static_cast<uint8_t>(slotIndex), true)) return false;
+    if (rootAdjusted) *rootAdjusted = slot.rootNote != previousRoot;
     return publishBank(instance, std::move(bank));
 }
 
@@ -1201,6 +1211,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.auxLinkMode = static_cast<uint8_t>(
         instance.controlBank->auxLinkMode);
     saved.auxFieldSafe = instance.controlBank->auxFieldSafe ? 1u : 0u;
+    saved.transientPreRollMicroseconds
+        = instance.transientPreRollMicroseconds;
     uint64_t embeddedBytes = 0u;
     for (std::size_t index = 0u; index < saved.slots.size(); ++index) {
         const auto& source = instance.controlBank->slots[index];
@@ -1259,7 +1271,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     SavedState saved;
     if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved))
-        || saved.magic != kStateMagic || saved.version != kStateVersion)
+        || saved.magic != kStateMagic
+        || (saved.version != kLegacyStateVersion
+            && saved.version != kStateVersion))
         return false;
     auto& instance = *self(plugin);
 #if defined(__APPLE__)
@@ -1417,6 +1431,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     setParam(instance, kOutputGainParamId, saved.outputGainDb);
     setParam(instance, kVelocityParamId, saved.velocitySensitivity);
     instance.embedSamplesInState = saved.embedSamples != 0u;
+    instance.transientPreRollMicroseconds
+        = saved.version == kStateVersion
+        ? std::min(saved.transientPreRollMicroseconds,
+            kMaximumTransientPreRollMicroseconds)
+        : 0u;
     instance.status = "PROJECT STATE RESTORED";
     return true;
 }
@@ -1478,6 +1497,14 @@ NSRect controlButtonRect(uint32_t index)
     CGFloat x = 292.0;
     for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 7.0;
     return NSMakeRect(x, 551.0, widths[index], 30.0);
+}
+
+NSRect transientPreRollButtonRect(uint32_t index)
+{
+    constexpr CGFloat widths[] { 32.0, 142.0, 32.0 };
+    CGFloat x = 292.0;
+    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 7.0;
+    return NSMakeRect(x, 588.0, widths[index], 26.0);
 }
 
 NSRect sliceControlButtonRect(uint32_t index)
@@ -2145,6 +2172,7 @@ double gainDb(float gain)
 - (void)startTimer;
 - (void)stopTimer;
 - (void)selectMidiChannel:(NSMenuItem*)sender;
+- (void)selectTransientPreRoll:(NSMenuItem*)sender;
 @end
 
 @implementation S3GBreakbeatSlicerView
@@ -2188,6 +2216,18 @@ double gainDb(float gain)
             ? "BREAK MIDI SET TO OMNI" : "BREAK MIDI CHANNEL UPDATED";
         [self setNeedsDisplay:YES];
     }
+}
+
+- (void)selectTransientPreRoll:(NSMenuItem*)sender
+{
+    const NSInteger tag = [sender tag];
+    if (tag < 0) return;
+    _instance->transientPreRollMicroseconds = std::min<uint32_t>(
+        static_cast<uint32_t>(tag),
+        kMaximumTransientPreRollMicroseconds);
+    markStateDirty(*_instance);
+    _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+    [self setNeedsDisplay:YES];
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
@@ -3121,6 +3161,14 @@ double gainDb(float gain)
         drawButton(controlButtonRect(7u), @"ROOT -");
         drawButton(controlButtonRect(8u), @"ROOT +");
         drawButton(controlButtonRect(9u), @"AUDITION");
+        drawButton(transientPreRollButtonRect(0u), @"-");
+        drawButton(transientPreRollButtonRect(1u),
+            [NSString stringWithFormat:@"PRE %u µs",
+                _instance->transientPreRollMicroseconds]);
+        drawButton(transientPreRollButtonRect(2u), @"+");
+        [@"TRANSIENT PRE-ROLL   ±100 µs   OPTION 10   SHIFT 1000"
+            drawAtPoint:NSMakePoint(523.0, 595.0)
+            withAttributes:label];
 
         if (slot.asset && slot.sliceCount > 0u) {
             const double seconds = slot.asset->frameCount()
@@ -3130,7 +3178,7 @@ double gainDb(float gain)
                 static_cast<unsigned>(slot.asset->channelCount), seconds,
                 slot.asset->sampleRate, slot.sliceCount,
                 noteText(slot.rootNote), _zoom];
-            [details drawAtPoint:NSMakePoint(292.0, 592.0)
+            [details drawAtPoint:NSMakePoint(292.0, 620.0)
                 withAttributes:value];
             const std::size_t selected = static_cast<std::size_t>(
                 std::clamp<NSInteger>(_selectedSlice, 0,
@@ -3294,7 +3342,8 @@ double gainDb(float gain)
         slot->asset->sampleRate * 0.004));
     if (replaceSlotSlices(*_instance, selected,
             s3g::breakbeat::makeTransientSlices(*slot->asset, *analysis,
-                64u, zeroRadius))) {
+                64u, zeroRadius,
+                _instance->transientPreRollMicroseconds))) {
         _selectedSlice = 0;
         _instance->status = "SLICES CHANGED - PRESS AUTO MAP";
     }
@@ -3714,8 +3763,11 @@ double gainDb(float gain)
             return;
         }
         if (NSPointInRect(point, slotAutomapRect(index))) {
-            if (automapSlot(*_instance, index))
-                _instance->status = "BREAK SLICES AUTO-MAPPED";
+            bool rootAdjusted = false;
+            if (automapSlot(*_instance, index, &rootAdjusted))
+                _instance->status = rootAdjusted
+                    ? "AUTO-MAPPED; ROOT LOWERED TO FIT ALL SLICES"
+                    : "BREAK SLICES AUTO-MAPPED";
             else
                 _instance->status = "LOAD A BREAK BEFORE AUTO MAP";
             [self setNeedsDisplay:YES];
@@ -3743,6 +3795,50 @@ double gainDb(float gain)
             [self setNeedsDisplay:YES];
             return;
         }
+        return;
+    }
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (!NSPointInRect(point, transientPreRollButtonRect(index)))
+            continue;
+        if (index == 1u) {
+            static constexpr std::array<uint32_t, 15u> values {{
+                0u, 100u, 250u, 500u, 750u, 1000u, 1500u, 2000u,
+                3000u, 4000u, 6000u, 8000u, 10000u, 15000u, 20000u,
+            }};
+            NSMenu* menu = [[NSMenu alloc]
+                initWithTitle:@"TRANSIENT PRE-ROLL"];
+            for (const uint32_t value : values) {
+                NSString* title = value == 0u ? @"Off (0 µs)"
+                    : [NSString stringWithFormat:@"%u µs", value];
+                NSMenuItem* item = [[NSMenuItem alloc]
+                    initWithTitle:title
+                    action:@selector(selectTransientPreRoll:)
+                    keyEquivalent:@""];
+                [item setTarget:self];
+                [item setTag:static_cast<NSInteger>(value)];
+                [item setState:_instance->transientPreRollMicroseconds
+                        == value
+                    ? NSControlStateValueOn : NSControlStateValueOff];
+                [menu addItem:item];
+            }
+            [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(
+                NSMinX(transientPreRollButtonRect(index)),
+                NSMaxY(transientPreRollButtonRect(index))) inView:self];
+            return;
+        }
+        const NSEventModifierFlags modifiers = [event modifierFlags];
+        const uint32_t step = (modifiers & NSEventModifierFlagShift) != 0u
+            ? 1000u
+            : (modifiers & NSEventModifierFlagOption) != 0u ? 10u : 100u;
+        const int64_t delta = index == 0u
+            ? -static_cast<int64_t>(step) : static_cast<int64_t>(step);
+        _instance->transientPreRollMicroseconds = static_cast<uint32_t>(
+            std::clamp<int64_t>(static_cast<int64_t>(
+                    _instance->transientPreRollMicroseconds) + delta,
+                0, kMaximumTransientPreRollMicroseconds));
+        markStateDirty(*_instance);
+        _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+        [self setNeedsDisplay:YES];
         return;
     }
     for (uint32_t index = 0u; index < 4u; ++index) {

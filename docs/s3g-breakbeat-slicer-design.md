@@ -43,7 +43,7 @@ standalone code.
 |---|---|---|
 | `SampleAsset` | immutable 1–16 channel float audio and validation | retain one shared frame domain across every source channel |
 | `StereoSampleAnalysis` | bounded peak cache and transient locations | store one immutable analysis object per sample slot |
-| transient slicing | deterministic onset analysis and zero-cross snapping | expose sensitivity, minimum spacing, and maximum slice count in the editor |
+| transient slicing | deterministic onset analysis, adjustable microsecond pre-roll, and zero-cross snapping | expose sensitivity, minimum spacing, pre-roll, and maximum slice count in the editor |
 | equal slicing | deterministic contiguous slice construction | add musically named counts and a direct count editor |
 | marker editing | add, drag, delete, snap | add undo/redo local to the plug-in editor |
 | `SampleSlice` | start/end, gain, reverse | add pitch, pan, choke group, play mode, and loop region |
