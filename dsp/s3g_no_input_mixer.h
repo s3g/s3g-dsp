@@ -4,6 +4,7 @@
 #include "s3g_fracture_processors.h"
 #include "s3g_math.h"
 #include "s3g_matrix_flow_shapes.h"
+#include "s3g_modulation_circuits.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -3976,15 +3977,9 @@ private:
         case NoInputDistortionType::Void:
             return processFractureProcessor(FractureProcessor::Void,
                 runtime, state, input, ringSource, gain, tone, rawBias, sr);
-        case NoInputDistortionType::Rotor: {
-            const float rate = 0.08f * std::pow(562.5f, tone);
-            state.phase = noInputWrapPhase(state.phase + rate / sr);
-            const float sine = std::sin(state.phase * 2.0f * kPi);
-            const float shape = std::tanh((sine + rawBias * 0.62f)
-                * (1.25f + std::abs(rawBias) * 5.5f));
-            const float amplitude = 0.5f + shape * 0.5f;
-            return input * lerp(1.0f, amplitude * 1.32f, gain);
-        }
+        case NoInputDistortionType::Rotor:
+            return processRotorCircuit(
+                state, input, gain, tone, rawBias, sr);
         case NoInputDistortionType::Phase: {
             const float rate = 0.03f * std::pow(266.6667f, tone);
             state.phase = noInputWrapPhase(state.phase + rate / sr);
@@ -4006,31 +4001,9 @@ private:
             phased = allpass(phased, state.envelope);
             return lerp(input, phased, gain * 0.5f);
         }
-        case NoInputDistortionType::Chorus: {
-            constexpr uint32_t size = 8192u;
-            const float feedback = rawBias * 0.38f;
-            runtime.timeBuffer[runtime.timeWrite] = clamp(
-                input + state.gate * feedback, -5.0f, 5.0f);
-            runtime.timeWrite = (runtime.timeWrite + 1u) % size;
-            const float rate = 0.05f * std::pow(120.0f, tone);
-            state.phase = noInputWrapPhase(state.phase + rate / sr);
-            const float modulation = std::sin(state.phase * 2.0f * kPi);
-            const float baseMs = 8.0f + std::abs(rawBias) * 11.0f;
-            const float depthMs = 0.6f + gain * 8.5f;
-            const float delaySamples = clamp(
-                (baseMs + modulation * depthMs) * sr * 0.001f,
-                1.0f, static_cast<float>(size - 3u));
-            const uint32_t delayWhole = static_cast<uint32_t>(delaySamples);
-            const float fraction = delaySamples
-                - static_cast<float>(delayWhole);
-            const uint32_t first = (runtime.timeWrite + size
-                - delayWhole - 1u) % size;
-            const uint32_t second = (first + size - 1u) % size;
-            const float delayed = lerp(runtime.timeBuffer[first],
-                runtime.timeBuffer[second], fraction);
-            state.gate = flushDenormal(delayed);
-            return lerp(input, delayed, gain * 0.78f);
-        }
+        case NoInputDistortionType::Chorus:
+            return processChorusCircuit(
+                runtime, state, input, gain, tone, rawBias, sr);
         case NoInputDistortionType::Throat:
             return processFractureProcessor(FractureProcessor::Throat,
                 runtime, state, input, ringSource, gain, tone, rawBias, sr);

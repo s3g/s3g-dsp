@@ -4,13 +4,19 @@
 #include "s3g_break_bus.h"
 #include "s3g_drum_echo.h"
 #include "s3g_drum_overload.h"
+#include "s3g_macro_delay.h"
+#include "s3g_macro_fracture.h"
+#include "s3g_macro_pitch.h"
+#include "s3g_macro_shred.h"
 #include "s3g_mc_to_quad.h"
 #include "s3g_mc_to_stereo.h"
+#include "s3g_modulation_circuits.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace s3g {
@@ -51,6 +57,7 @@ enum class FeedbackExciterSource : uint32_t {
     Noise,
     Hit,
     Tone,
+    SubBass,
     External,
     ExternalHit,
     Off,
@@ -67,6 +74,7 @@ inline const char* feedbackExciterSourceName(FeedbackExciterSource source)
     case FeedbackExciterSource::Noise: return "NOISE";
     case FeedbackExciterSource::Hit: return "MIDI HIT";
     case FeedbackExciterSource::Tone: return "TONE";
+    case FeedbackExciterSource::SubBass: return "SUB BASS";
     case FeedbackExciterSource::External: return "EXTERNAL";
     case FeedbackExciterSource::ExternalHit: return "EXT GATE";
     case FeedbackExciterSource::Off: return "OFF";
@@ -78,6 +86,7 @@ inline const char* feedbackExciterSourceName(FeedbackExciterSource source)
 enum class FeedbackMorphSource : uint32_t {
     Manual = 0u,
     Envelope,
+    Edge,
     Lfo,
     Chaos,
     Pulse,
@@ -91,7 +100,8 @@ inline const char* feedbackMorphSourceName(FeedbackMorphSource source)
 {
     switch (source) {
     case FeedbackMorphSource::Manual: return "MANUAL";
-    case FeedbackMorphSource::Envelope: return "INPUT ENV";
+    case FeedbackMorphSource::Envelope: return "ECOLOGY ENV";
+    case FeedbackMorphSource::Edge: return "ECOLOGY EDGE";
     case FeedbackMorphSource::Lfo: return "LFO";
     case FeedbackMorphSource::Chaos: return "CHAOS";
     case FeedbackMorphSource::Pulse: return "PULSE";
@@ -103,22 +113,27 @@ inline const char* feedbackMorphSourceName(FeedbackMorphSource source)
 enum class FeedbackPedalType : uint32_t {
     Bypass = 0u,
     Filter,
-    Degrade,
-    Transient,
     Resonator,
-    Erosion,
-    Repeater,
-    TimeMangler,
-    DrumEcho,
+    Phase,
+    Transient,
     BreakBus,
     DrumBus,
+    Degrade,
+    Erosion,
+    Relay,
     Wool,
     Rat,
     Diode,
     Fold,
-    Crush,
-    Relay,
-    Phase,
+    Repeater,
+    TimeMangler,
+    DrumEcho,
+    MacroShred,
+    MacroPitch,
+    MacroDelay,
+    Rotor,
+    Chorus,
+    Fracture,
     Count,
 };
 
@@ -130,25 +145,200 @@ inline const char* feedbackPedalName(FeedbackPedalType type)
     switch (type) {
     case FeedbackPedalType::Bypass: return "BYPASS";
     case FeedbackPedalType::Filter: return "FILTER";
-    case FeedbackPedalType::Degrade: return "DEGRADE";
-    case FeedbackPedalType::Transient: return "TRANSIENT";
     case FeedbackPedalType::Resonator: return "RESONATOR";
-    case FeedbackPedalType::Erosion: return "EROSION";
-    case FeedbackPedalType::Repeater: return "REPEATER";
-    case FeedbackPedalType::TimeMangler: return "TIME";
-    case FeedbackPedalType::DrumEcho: return "DRUM ECHO";
+    case FeedbackPedalType::Phase: return "PHASE";
+    case FeedbackPedalType::Transient: return "TRANSIENT";
     case FeedbackPedalType::BreakBus: return "BREAK BUS";
     case FeedbackPedalType::DrumBus: return "DRUM BUS";
+    case FeedbackPedalType::Degrade: return "DEGRADE";
+    case FeedbackPedalType::Erosion: return "EROSION";
+    case FeedbackPedalType::Relay: return "RELAY";
     case FeedbackPedalType::Wool: return "WOOL";
     case FeedbackPedalType::Rat: return "RAT";
     case FeedbackPedalType::Diode: return "DIODE";
     case FeedbackPedalType::Fold: return "FOLD";
-    case FeedbackPedalType::Crush: return "CRUSH";
-    case FeedbackPedalType::Relay: return "RELAY";
-    case FeedbackPedalType::Phase: return "PHASE";
+    case FeedbackPedalType::Repeater: return "REPEATER";
+    case FeedbackPedalType::TimeMangler: return "TIME";
+    case FeedbackPedalType::DrumEcho: return "DRUM ECHO";
+    case FeedbackPedalType::MacroShred: return "MACRO SHRED";
+    case FeedbackPedalType::MacroPitch: return "MACRO PITCH";
+    case FeedbackPedalType::MacroDelay: return "MACRO DELAY";
+    case FeedbackPedalType::Rotor: return "ROTOR";
+    case FeedbackPedalType::Chorus: return "CHORUS";
+    case FeedbackPedalType::Fracture: return "FRACTURE";
     case FeedbackPedalType::Count: break;
     }
     return "BYPASS";
+}
+
+enum class FeedbackInsertCategory : uint32_t {
+    Core = 0u,
+    Spectral,
+    Dynamics,
+    Degrade,
+    Drive,
+    Shred,
+    Pitch,
+    Time,
+    Modulation,
+    Fracture,
+    Count,
+};
+
+constexpr uint32_t kFeedbackInsertCategoryCount =
+    static_cast<uint32_t>(FeedbackInsertCategory::Count);
+
+inline const char* feedbackInsertCategoryName(FeedbackInsertCategory category)
+{
+    switch (category) {
+    case FeedbackInsertCategory::Core: return "CORE";
+    case FeedbackInsertCategory::Spectral: return "SPECTRAL";
+    case FeedbackInsertCategory::Dynamics: return "DYNAMICS";
+    case FeedbackInsertCategory::Degrade: return "DEGRADE";
+    case FeedbackInsertCategory::Drive: return "DRIVE";
+    case FeedbackInsertCategory::Shred: return "SHRED";
+    case FeedbackInsertCategory::Pitch: return "PITCH";
+    case FeedbackInsertCategory::Time: return "TIME";
+    case FeedbackInsertCategory::Modulation: return "MODULATION";
+    case FeedbackInsertCategory::Fracture: return "FRACTURE";
+    case FeedbackInsertCategory::Count: break;
+    }
+    return "CORE";
+}
+
+inline FeedbackInsertCategory feedbackInsertCategory(
+    FeedbackPedalType type)
+{
+    switch (type) {
+    case FeedbackPedalType::Bypass: return FeedbackInsertCategory::Core;
+    case FeedbackPedalType::Filter:
+    case FeedbackPedalType::Resonator:
+    case FeedbackPedalType::Phase: return FeedbackInsertCategory::Spectral;
+    case FeedbackPedalType::Transient:
+    case FeedbackPedalType::BreakBus:
+    case FeedbackPedalType::DrumBus: return FeedbackInsertCategory::Dynamics;
+    case FeedbackPedalType::Degrade:
+    case FeedbackPedalType::Erosion:
+    case FeedbackPedalType::Relay: return FeedbackInsertCategory::Degrade;
+    case FeedbackPedalType::Wool:
+    case FeedbackPedalType::Rat:
+    case FeedbackPedalType::Diode:
+    case FeedbackPedalType::Fold: return FeedbackInsertCategory::Drive;
+    case FeedbackPedalType::MacroShred: return FeedbackInsertCategory::Shred;
+    case FeedbackPedalType::MacroPitch: return FeedbackInsertCategory::Pitch;
+    case FeedbackPedalType::Repeater:
+    case FeedbackPedalType::TimeMangler:
+    case FeedbackPedalType::DrumEcho:
+    case FeedbackPedalType::MacroDelay: return FeedbackInsertCategory::Time;
+    case FeedbackPedalType::Rotor:
+    case FeedbackPedalType::Chorus:
+        return FeedbackInsertCategory::Modulation;
+    case FeedbackPedalType::Fracture: return FeedbackInsertCategory::Fracture;
+    case FeedbackPedalType::Count: break;
+    }
+    return FeedbackInsertCategory::Core;
+}
+
+inline const char* feedbackPedalCategoryName(FeedbackPedalType type)
+{
+    return feedbackInsertCategoryName(feedbackInsertCategory(type));
+}
+
+inline uint32_t feedbackInsertEffectCount(FeedbackInsertCategory category)
+{
+    switch (category) {
+    case FeedbackInsertCategory::Core: return 1u;
+    case FeedbackInsertCategory::Spectral: return 3u;
+    case FeedbackInsertCategory::Dynamics: return 3u;
+    case FeedbackInsertCategory::Degrade: return 3u;
+    case FeedbackInsertCategory::Drive: return 4u;
+    case FeedbackInsertCategory::Shred: return kMacroShredCircuitCount;
+    case FeedbackInsertCategory::Pitch: return 1u;
+    case FeedbackInsertCategory::Time: return 4u;
+    case FeedbackInsertCategory::Modulation: return 2u;
+    case FeedbackInsertCategory::Fracture: return kFractureProcessorCount;
+    case FeedbackInsertCategory::Count: break;
+    }
+    return 1u;
+}
+
+inline FeedbackPedalType feedbackInsertEffectPedal(
+    FeedbackInsertCategory category, uint32_t effect)
+{
+    switch (category) {
+    case FeedbackInsertCategory::Core: return FeedbackPedalType::Bypass;
+    case FeedbackInsertCategory::Spectral: {
+        static constexpr FeedbackPedalType effects[3u] {
+            FeedbackPedalType::Filter, FeedbackPedalType::Resonator,
+            FeedbackPedalType::Phase };
+        return effects[std::min(effect, 2u)];
+    }
+    case FeedbackInsertCategory::Dynamics: {
+        static constexpr FeedbackPedalType effects[3u] {
+            FeedbackPedalType::Transient, FeedbackPedalType::BreakBus,
+            FeedbackPedalType::DrumBus };
+        return effects[std::min(effect, 2u)];
+    }
+    case FeedbackInsertCategory::Degrade: {
+        static constexpr FeedbackPedalType effects[3u] {
+            FeedbackPedalType::Degrade, FeedbackPedalType::Erosion,
+            FeedbackPedalType::Relay };
+        return effects[std::min(effect, 2u)];
+    }
+    case FeedbackInsertCategory::Drive: {
+        static constexpr FeedbackPedalType effects[4u] {
+            FeedbackPedalType::Wool, FeedbackPedalType::Rat,
+            FeedbackPedalType::Diode, FeedbackPedalType::Fold };
+        return effects[std::min(effect, 3u)];
+    }
+    case FeedbackInsertCategory::Shred: return FeedbackPedalType::MacroShred;
+    case FeedbackInsertCategory::Pitch: return FeedbackPedalType::MacroPitch;
+    case FeedbackInsertCategory::Time: {
+        static constexpr FeedbackPedalType effects[4u] {
+            FeedbackPedalType::Repeater, FeedbackPedalType::TimeMangler,
+            FeedbackPedalType::DrumEcho, FeedbackPedalType::MacroDelay };
+        return effects[std::min(effect, 3u)];
+    }
+    case FeedbackInsertCategory::Modulation: {
+        static constexpr FeedbackPedalType effects[2u] {
+            FeedbackPedalType::Rotor, FeedbackPedalType::Chorus };
+        return effects[std::min(effect, 1u)];
+    }
+    case FeedbackInsertCategory::Fracture: return FeedbackPedalType::Fracture;
+    case FeedbackInsertCategory::Count: break;
+    }
+    return FeedbackPedalType::Bypass;
+}
+
+inline const char* feedbackInsertEffectName(FeedbackInsertCategory category,
+    uint32_t effect)
+{
+    if (category == FeedbackInsertCategory::Fracture) {
+        return fractureProcessorName(static_cast<FractureProcessor>(
+            std::min(effect, kFractureProcessorCount - 1u)));
+    }
+    if (category == FeedbackInsertCategory::Shred) {
+        return macroShredCircuitName(static_cast<MacroShredCircuit>(
+            std::min(effect, kMacroShredCircuitCount - 1u)));
+    }
+    return feedbackPedalName(feedbackInsertEffectPedal(category, effect));
+}
+
+inline uint32_t feedbackInsertEffectIndex(FeedbackPedalType pedal,
+    uint32_t fractureProcessor = 0u, uint32_t shredCircuit = 0u)
+{
+    const auto category = feedbackInsertCategory(pedal);
+    if (category == FeedbackInsertCategory::Fracture) {
+        return std::min(fractureProcessor, kFractureProcessorCount - 1u);
+    }
+    if (category == FeedbackInsertCategory::Shred) {
+        return std::min(shredCircuit, kMacroShredCircuitCount - 1u);
+    }
+    const uint32_t count = feedbackInsertEffectCount(category);
+    for (uint32_t effect = 0u; effect < count; ++effect) {
+        if (feedbackInsertEffectPedal(category, effect) == pedal) return effect;
+    }
+    return 0u;
 }
 
 inline const char* feedbackPedalControlName(
@@ -164,8 +354,7 @@ inline const char* feedbackPedalControlName(
             "RESONANCE", "CUTOFF", "MODE", "MIX" };
         return names[control];
     }
-    case FeedbackPedalType::Degrade:
-    case FeedbackPedalType::Crush: {
+    case FeedbackPedalType::Degrade: {
         static constexpr const char* names[4u] {
             "RATE", "BITS", "JITTER", "MIX" };
         return names[control];
@@ -225,6 +414,36 @@ inline const char* feedbackPedalControlName(
             "DEPTH", "RATE", "FEEDBACK", "MIX" };
         return names[control];
     }
+    case FeedbackPedalType::Fracture: {
+        static constexpr const char* names[4u] {
+            "PROCESSOR", "DEPTH", "COLOR", "BIAS" };
+        return names[control];
+    }
+    case FeedbackPedalType::MacroShred: {
+        static constexpr const char* names[4u] {
+            "PRESSURE", "SHRED", "FEEDBACK", "COLOR" };
+        return names[control];
+    }
+    case FeedbackPedalType::MacroPitch: {
+        static constexpr const char* names[4u] {
+            "PITCH", "FINE", "WINDOW", "GLIDE" };
+        return names[control];
+    }
+    case FeedbackPedalType::MacroDelay: {
+        static constexpr const char* names[4u] {
+            "TIME", "FEEDBACK", "TONE", "CHARACTER" };
+        return names[control];
+    }
+    case FeedbackPedalType::Rotor: {
+        static constexpr const char* names[4u] {
+            "AMOUNT", "RATE", "SHAPE", "MIX" };
+        return names[control];
+    }
+    case FeedbackPedalType::Chorus: {
+        static constexpr const char* names[4u] {
+            "DEPTH", "RATE", "FEEDBACK", "MIX" };
+        return names[control];
+    }
     default: return generic[control];
     }
 }
@@ -234,6 +453,7 @@ enum class FeedbackPedalControlDisplay : uint32_t {
     Bipolar,
     HertzLog,
     MillisecondsLog,
+    MillisecondsSpacing,
     Count,
     Semitones,
     Decibels,
@@ -262,6 +482,12 @@ inline uint32_t feedbackPedalControlCount(FeedbackPedalType type)
     case FeedbackPedalType::BreakBus: return 9u;
     case FeedbackPedalType::DrumBus: return 10u;
     case FeedbackPedalType::Phase: return 5u;
+    case FeedbackPedalType::Fracture: return 7u;
+    case FeedbackPedalType::MacroShred: return 8u;
+    case FeedbackPedalType::MacroPitch: return 5u;
+    case FeedbackPedalType::MacroDelay: return 7u;
+    case FeedbackPedalType::Rotor:
+    case FeedbackPedalType::Chorus: return 4u;
     case FeedbackPedalType::Degrade:
     case FeedbackPedalType::Transient:
     case FeedbackPedalType::Resonator:
@@ -269,7 +495,6 @@ inline uint32_t feedbackPedalControlCount(FeedbackPedalType type)
     case FeedbackPedalType::Rat:
     case FeedbackPedalType::Diode:
     case FeedbackPedalType::Fold:
-    case FeedbackPedalType::Crush:
     case FeedbackPedalType::Relay:
         return 4u;
     case FeedbackPedalType::Count: break;
@@ -298,7 +523,6 @@ inline FeedbackPedalControlInfo feedbackPedalControlInfo(
         }
         break;
     case FeedbackPedalType::Degrade:
-    case FeedbackPedalType::Crush:
         switch (control) {
         case 0u: return info("RATE", 0u, Display::Count, 1.0f, 96.0f);
         case 1u: return info("BITS", 1u, Display::Count, 4.0f, 16.0f);
@@ -436,6 +660,77 @@ inline FeedbackPedalControlInfo feedbackPedalControlInfo(
         case 4u: return info("MIX", 3u, Display::Percent);
         }
         break;
+    case FeedbackPedalType::Fracture:
+        switch (control) {
+        case 0u: return info("PROCESSOR", 6u, Display::Menu,
+            0.0f, 1.0f, kFractureProcessorCount);
+        case 1u: return info("DEPTH", 0u, Display::Percent);
+        case 2u: return info("COLOR", 1u, Display::Percent);
+        case 3u: return info("BIAS", 2u, Display::Bipolar,
+            -100.0f, 100.0f);
+        case 4u: return info("REACT", 4u, Display::Percent);
+        case 5u: return info("MEMORY", 5u, Display::Percent);
+        case 6u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
+    case FeedbackPedalType::MacroShred:
+        switch (control) {
+        case 0u: return info("PRESSURE", 0u, Display::Percent);
+        case 1u: return info("SHRED", 1u, Display::Percent);
+        case 2u: return info("FEEDBACK", 4u, Display::Percent);
+        case 3u: return info("COLOR", 5u, Display::Percent);
+        case 4u: return info("REACT", 6u, Display::Percent);
+        case 5u: return info("TUNE", 7u, Display::Percent);
+        case 6u: return info("BODY", 8u, Display::Percent);
+        case 7u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
+    case FeedbackPedalType::MacroPitch:
+        switch (control) {
+        case 0u: return info("PITCH", 2u, Display::Semitones,
+            -24.0f, 24.0f);
+        case 1u: return info("FINE", 4u, Display::Bipolar,
+            -100.0f, 100.0f);
+        case 2u: return info("WINDOW", 0u, Display::MillisecondsLog,
+            20.0f, 180.0f);
+        case 3u: return info("GLIDE", 1u, Display::MillisecondsLog,
+            10.0f, 2000.0f);
+        case 4u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
+    case FeedbackPedalType::MacroDelay:
+        switch (control) {
+        case 0u: return info("TIME", 0u, Display::MillisecondsLog,
+            5.0f, 2000.0f);
+        case 1u: return info("FEEDBACK", 1u, Display::Percent);
+        case 2u: return info("TONE", 4u, Display::Percent);
+        case 3u: return info("CHARACTER", 5u, Display::Percent);
+        case 4u: return info("SMEAR", 6u, Display::Percent);
+        case 5u: return info("GLIDE", 7u, Display::MillisecondsLog,
+            10.0f, 2000.0f);
+        case 6u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
+    case FeedbackPedalType::Rotor:
+        switch (control) {
+        case 0u: return info("AMOUNT", 0u, Display::Percent);
+        case 1u: return info("RATE", 1u, Display::HertzLog,
+            0.08f, 45.0f);
+        case 2u: return info("SHAPE", 2u, Display::Bipolar,
+            -100.0f, 100.0f);
+        case 3u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
+    case FeedbackPedalType::Chorus:
+        switch (control) {
+        case 0u: return info("DEPTH", 0u, Display::Percent);
+        case 1u: return info("RATE", 1u, Display::HertzLog,
+            0.05f, 6.0f);
+        case 2u: return info("FEEDBACK", 2u, Display::Bipolar,
+            -38.0f, 38.0f);
+        case 3u: return info("MIX", 3u, Display::Percent);
+        }
+        break;
     case FeedbackPedalType::Bypass:
     case FeedbackPedalType::Count:
         break;
@@ -443,11 +738,36 @@ inline FeedbackPedalControlInfo feedbackPedalControlInfo(
     return {};
 }
 
-constexpr uint32_t kFeedbackAuxControlCount = 14u;
+enum class FeedbackGrainShape : uint32_t {
+    Tukey = 0u,
+    Hann,
+    Triangle,
+    Decay,
+    Gate,
+    Count,
+};
+
+constexpr uint32_t kFeedbackGrainShapeCount =
+    static_cast<uint32_t>(FeedbackGrainShape::Count);
+
+inline const char* feedbackGrainShapeName(FeedbackGrainShape shape)
+{
+    switch (shape) {
+    case FeedbackGrainShape::Tukey: return "TUKEY";
+    case FeedbackGrainShape::Hann: return "HANN";
+    case FeedbackGrainShape::Triangle: return "TRIANGLE";
+    case FeedbackGrainShape::Decay: return "DECAY";
+    case FeedbackGrainShape::Gate: return "GATE";
+    case FeedbackGrainShape::Count: break;
+    }
+    return "TUKEY";
+}
+
+constexpr uint32_t kFeedbackAuxControlCount = 16u;
 
 // The AUX uses the same display vocabulary as the node inserts, but its
-// controls are global and deliberately contain no menus: every gesture can be
-// swept continuously while the feedback ecosystem is sounding.
+// controls are global. Grain shape is the one discrete selector; all other
+// controls can be swept continuously while the ecology is sounding.
 inline FeedbackPedalControlInfo feedbackAuxControlInfo(uint32_t control)
 {
     using Display = FeedbackPedalControlDisplay;
@@ -476,8 +796,21 @@ inline FeedbackPedalControlInfo feedbackAuxControlInfo(uint32_t control)
         0.0f, 100.0f, 0u };
     case 13u: return { "GRAIN MIX", 11u, Display::Percent,
         0.0f, 100.0f, 0u };
+    case 14u: return { "SPACE", 14u, Display::MillisecondsSpacing,
+        0.0f, 2000.0f, 0u };
+    case 15u: return { "SHAPE", 15u, Display::Menu,
+        0.0f, 4.0f, kFeedbackGrainShapeCount };
     default: return {};
     }
+}
+
+inline const char* feedbackAuxMenuItem(uint32_t control, uint32_t item)
+{
+    if (control == 15u) {
+        return feedbackGrainShapeName(static_cast<FeedbackGrainShape>(
+            std::min<uint32_t>(item, kFeedbackGrainShapeCount - 1u)));
+    }
+    return "";
 }
 
 inline const char* feedbackPedalMenuItem(FeedbackPedalType type,
@@ -517,6 +850,9 @@ inline const char* feedbackPedalMenuItem(FeedbackPedalType type,
     if (type == FeedbackPedalType::DrumBus && control == 0u)
         return drumOverloadCircuitName(static_cast<DrumOverloadCircuit>(
             std::min(item, kDrumOverloadCircuitCount - 1u)));
+    if (type == FeedbackPedalType::Fracture && control == 0u)
+        return fractureProcessorName(static_cast<FractureProcessor>(
+            std::min(item, kFractureProcessorCount - 1u)));
     return "";
 }
 
@@ -647,6 +983,16 @@ inline void setFeedbackPedalStorageValue(
 struct FeedbackShiftParams {
     float excite = 0.24f;
     float drift = 0.10f;
+    float spliceAmount = 0.64f;
+    float spliceRate = 0.66f;
+    float spliceRateFine = 0.0f;
+    float spliceContrast = 0.82f;
+    float spliceSpace = 0.30f;
+    float subBassTune = 0.34f;
+    float subBassShape = 0.18f;
+    float subBassDrive = 0.28f;
+    float subBassDecay = 0.56f;
+    float subBassSustain = 0.0f;
     float morph = 0.0f;
     FeedbackMorphSource morphSource = FeedbackMorphSource::Manual;
     float morphDepth = 1.0f;
@@ -656,6 +1002,10 @@ struct FeedbackShiftParams {
     uint32_t morphSync = 1u;
     uint32_t morphDivision = 4u;
     FeedbackPulseShape morphShape = FeedbackPulseShape::Sine;
+    float governorReflex = 0.32f;
+    float governorSensitivity = 0.28f;
+    float governorRecovery = 0.48f;
+    float governorRest = 0.0f;
     float outputGainDb = -18.0f;
     FeedbackShiftOutputMode outputMode = FeedbackShiftOutputMode::Direct8;
     float outputRotationDeg = 0.0f;
@@ -671,6 +1021,8 @@ struct FeedbackShiftParams {
     float auxGrainCoherence = 1.0f;
     float auxGrainLaneDrift = 0.50f;
     float auxGrainMix = 0.0f;
+    float auxGrainSpacing = 0.0f;
+    FeedbackGrainShape auxGrainShape = FeedbackGrainShape::Tukey;
     float auxTilt = 0.0f;
     float auxMix = 0.0f;
     std::array<float, kFeedbackShiftChannels> auxSend {{
@@ -686,6 +1038,39 @@ struct FeedbackShiftParams {
     std::array<float, kFeedbackShiftMatrixCells> matrix {};
     std::array<float, kFeedbackShiftMatrixCells> sceneBMatrix {};
 };
+
+inline float feedbackSpliceRateHz(float normalizedRate, float fine = 0.0f)
+{
+    normalizedRate = std::clamp(std::isfinite(normalizedRate)
+            ? normalizedRate : 0.66f,
+        0.0f, 1.0f);
+    // The first quarter of travel is a deliberate slow-density zone. Above
+    // it, the original high-rate range remains available through 384 Hz.
+    const float coarse = normalizedRate < 0.25f
+        ? (1.0f / 60.0f) * std::pow(90.0f, normalizedRate * 4.0f)
+        : 1.5f * std::pow(256.0f,
+            (normalizedRate - 0.25f) / 0.75f);
+    const float fineMultiplier = std::exp2(std::clamp(
+        std::isfinite(fine) ? fine : 0.0f, -1.0f, 1.0f));
+    return std::clamp(coarse * fineMultiplier,
+        1.0f / 60.0f, 384.0f);
+}
+
+inline float feedbackSubBassFrequencyHz(float normalizedTune)
+{
+    normalizedTune = std::clamp(std::isfinite(normalizedTune)
+            ? normalizedTune : 0.34f,
+        0.0f, 1.0f);
+    return 18.0f * std::pow(6.6666667f, normalizedTune);
+}
+
+inline float feedbackSubBassDecayMs(float normalizedDecay)
+{
+    normalizedDecay = std::clamp(std::isfinite(normalizedDecay)
+            ? normalizedDecay : 0.56f,
+        0.0f, 1.0f);
+    return 35.0f * std::pow(100.0f, normalizedDecay);
+}
 
 inline FeedbackShiftParams defaultFeedbackShiftParams()
 {
@@ -755,9 +1140,12 @@ public:
         pedalGateReleaseCoefficient_ = onePoleCoefficient(55.0f, sr);
         governorAttackCoefficient_ = onePoleCoefficient(12.0f, sr);
         governorReleaseCoefficient_ = onePoleCoefficient(650.0f, sr);
+        grainDuckAttackCoefficient_ = onePoleCoefficient(2.0f, sr);
+        grainDuckReleaseCoefficient_ = onePoleCoefficient(85.0f, sr);
         noiseHighpassCoefficient_ = frequencyCoefficient(18.0f, sr);
         sourceSwitchCoefficient_ = onePoleCoefficient(1.5f, sr);
-        driftIncrement_ = kTwoPi * 0.071f / sr;
+        driftSlewCoefficient_ = onePoleCoefficient(850.0f, sr);
+        splicePulseDecay_ = std::exp(-1.0f / (sr * 0.025f));
         burstDecay_ = std::exp(-1.0f / (sr * 0.075f));
         dcPole_ = std::exp(-kTwoPi * 12.0f / sr);
         pedalCrossfadeIncrement_ = 1.0f / std::max(1.0f, sr * 0.020f);
@@ -766,9 +1154,28 @@ public:
                 std::max(2048.0, std::ceil(sampleRate_ / 35.0))), 0.0f);
             state.temporalBuffer.assign(static_cast<std::size_t>(
                 std::max(64.0, std::ceil(sampleRate_))), 0.0f);
+            state.modulationRuntime.timeBuffer.assign(
+                static_cast<std::size_t>(std::max(
+                    64.0, std::ceil(sampleRate_ * 0.05))), 0.0f);
             state.echo.prepare(sampleRate_, 2.0);
             state.breakBus.prepare(sampleRate_);
             state.drumBus.prepare(sampleRate_);
+            if (!state.macroShred) {
+                state.macroShred = std::make_unique<MacroShredCore>();
+            }
+            state.macroShred->prepare(sampleRate_);
+            if (!state.macroPitch) {
+                state.macroPitch = std::make_unique<MacroPitch>();
+            }
+            state.macroPitch->prepare(sampleRate_, 1u);
+            if (!state.macroDelay) {
+                state.macroDelay = std::make_unique<MacroDelay>();
+            }
+            state.macroDelay->prepare(sampleRate_, 1u);
+            if (!state.fracture) {
+                state.fracture = std::make_unique<MacroFractureCore>();
+            }
+            state.fracture->prepare(sampleRate_);
         }
         auxGrainBufferFrames_ = static_cast<uint32_t>(std::max(
             64.0, std::ceil(sampleRate_ * 1.5)));
@@ -785,12 +1192,15 @@ public:
         }
         previousReturns_ = {};
         returns_ = {};
+        ecologyReturns_ = {};
         phases_ = {};
         for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
             phases_[node] = static_cast<float>(node)
                 / static_cast<float>(kFeedbackShiftChannels) * kTwoPi;
         }
-        driftPhase_ = 0.0f;
+        driftValues_.fill(0.0f);
+        driftTargets_.fill(0.0f);
+        driftCountdowns_.fill(0u);
         morphPhase_ = 0.0f;
         morphRandom_ = 0.5f;
         morphChaosTarget_ = 0.73f;
@@ -798,9 +1208,33 @@ public:
         morphValue_ = target_.morph;
         morphDriverValue_ = target_.morph;
         morphInputEnvelope_ = 0.0f;
+        morphEdge_ = 0.0f;
+        laneEnvelopes_.fill(0.0f);
+        laneSlowEnvelopes_.fill(0.0f);
+        laneEdges_.fill(0.0f);
         effectiveAuxSend_ = target_.auxSend;
         noiseState_ = 0x6d2b79f5u;
+        driftRandom_ = 0x44524654u;
+        restRandom_ = 0x52455354u;
+        spliceRandom_ = 0x53504c43u;
+        restGains_.fill(1.0f);
+        restPersistenceFrames_.fill(0.0f);
+        restRemainingFrames_.fill(0u);
+        restTriggerFrames_.fill(48000u);
+        splicePatches_ = {};
+        splicePendingPatches_ = {};
+        splicePatchValid_.fill(false);
+        spliceStages_.fill(SpliceStage::Waiting);
+        spliceGains_.fill(1.0f);
+        spliceFadeSteps_.fill(1.0f);
+        spliceCountdowns_.fill(0u);
+        spliceFlurryRemaining_.fill(0u);
+        splicePulses_.fill(0.0f);
+        spliceEventCount_ = 0u;
         burstEnvelope_.fill(0.0f);
+        subBassEnvelope_.fill(0.0f);
+        subBassDecayCoefficient_ = 0.9995f;
+        subBassControlCounter_ = 0u;
         outputPeak_.fill(0.0f);
         nodeActivity_.fill(0.0f);
         routeSignals_.fill(0.0f);
@@ -814,7 +1248,10 @@ public:
         auxGrainScatterFrames_ = 0u;
         auxGrainPitchRatio_ = 1.0f;
         auxGrainFadeFraction_ = 0.28f;
+        auxGrainSpacingFrames_ = 0u;
+        auxGrainLastLengthFrames_ = 96u;
         auxGrainActivity_ = 0.0f;
+        auxGrainDuck_.fill(0.0f);
         auxFoldPrevious_.fill(0.0f);
         auxFoldDcInput_.fill(0.0f);
         auxFoldDcOutput_.fill(0.0f);
@@ -826,6 +1263,10 @@ public:
         auxBreakBus_.reset();
         minimumGovernor_ = 1.0f;
         smoothed_ = target_;
+        for (uint32_t lane = 0u; lane < kFeedbackShiftChannels; ++lane) {
+            scheduleNextRest(lane);
+            scheduleNextSplice(lane, true);
+        }
         runGain_ = target_.run ? 1.0f : 0.0f;
     }
 
@@ -853,6 +1294,8 @@ public:
         }
         burstEnvelope_[node] = std::max(burstEnvelope_[node],
             std::clamp(velocity, 0.0f, 1.0f));
+        subBassEnvelope_[node] = std::max(subBassEnvelope_[node],
+            std::clamp(velocity, 0.0f, 1.0f));
     }
 
     void strikeAll(float velocity = 1.0f) noexcept
@@ -876,6 +1319,7 @@ public:
         runGain_ += ((smoothed_.run ? 1.0f : 0.0f) - runGain_)
             * runCoefficient_;
         advanceMorph(externalInput);
+        advanceRestGovernors();
         previousReturns_ = returns_;
 
         auto effectiveNodes = smoothed_.nodes;
@@ -893,6 +1337,34 @@ public:
                 sceneB.body, morphValue_);
             effective.levelDb = lerp(effective.levelDb,
                 sceneB.levelDb, morphValue_);
+            // Pea Soup-inspired negative control feedback: rising ecology
+            // energy moves each lane's frequency relationship in a different
+            // direction before the amplitude governor needs to clamp it. The
+            // quadratic/log mapping preserves very fine sub-Hz motion while
+            // still allowing decisive modal escapes at the end of the range.
+            const float reflex = smoothed_.governorReflex;
+            if (reflex > 1.0e-5f) {
+                static constexpr std::array<float,
+                    kFeedbackShiftChannels> directions {{
+                    -1.00f, 0.73f, -0.51f, 0.37f,
+                    1.00f, -0.79f, 0.57f, -0.41f,
+                }};
+                const float rms = std::sqrt(std::max(
+                    0.0f, states_[node].energy));
+                const float threshold = governorThreshold(
+                    smoothed_.governorSensitivity);
+                const float sustained = std::clamp((rms
+                        - threshold * 0.35f)
+                        / std::max(0.05f, threshold * 1.35f),
+                    0.0f, 1.0f);
+                const float reflexAmount = std::max(
+                    laneEdges_[node], sustained * 0.72f);
+                const float maximumHz = 0.02f
+                    * std::pow(5000.0f, reflex);
+                effective.frequencyHz = std::clamp(effective.frequencyHz
+                        + directions[node] * maximumHz * reflexAmount,
+                    -6000.0f, 6000.0f);
+            }
             effectiveAuxSend_[node] = lerp(smoothed_.auxSend[node],
                 smoothed_.sceneBAuxSend[node], morphValue_);
         }
@@ -901,6 +1373,7 @@ public:
             effectiveMatrix[index] = lerp(smoothed_.matrix[index],
                 smoothed_.sceneBMatrix[index], morphValue_);
         }
+        advanceSpliceEcology(effectiveNodes, effectiveMatrix);
 
         std::array<float, kFeedbackShiftChannels> matrixInput {};
         for (uint32_t destination = 0u;
@@ -973,7 +1446,8 @@ public:
                 * detectorCoefficient;
             state.energy = flush(state.energy);
             const float rms = std::sqrt(std::max(0.0f, state.energy));
-            const float excess = std::max(0.0f, rms - 0.82f);
+            const float excess = std::max(0.0f, rms
+                - governorThreshold(smoothed_.governorSensitivity));
             const float targetGovernor = 1.0f
                 / (1.0f + excess * 0.9f + excess * excess * 5.0f);
             const float governorCoefficient = targetGovernor < state.governor
@@ -983,7 +1457,8 @@ public:
             state.governor = std::clamp(state.governor, 0.12f, 1.0f);
             minimumGovernor_ = std::min(minimumGovernor_, state.governor);
 
-            float returned = value * state.governor;
+            float returned = value * state.governor * restGains_[node]
+                * spliceGains_[node];
             returned = dcBlock(returned, state.returnDcInput,
                 state.returnDcOutput);
             returns_[node] = flush(returned);
@@ -993,17 +1468,24 @@ public:
             float audition = dcBlock(value * gain * runGain_,
                 state.outputDcInput, state.outputDcOutput);
             audition = transparentLimit(audition);
-            directOutput[node] = flush(audition);
+            directOutput[node] = flush(audition * spliceGains_[node]);
             burstEnvelope_[node] *= burstDecay_;
             if (burstEnvelope_[node] < 1.0e-6f) {
                 burstEnvelope_[node] = 0.0f;
             }
         }
+        // Detect the core network before the optional AUX return is injected.
+        // This prevents an un-routed AUX wall from becoming an invisible
+        // global modulation path into otherwise independent dry nodes.
+        ecologyReturns_ = returns_;
         // The feedback wall returns to the matrix sources one sample later;
         // the granulator is deliberately post-network and precedes output
         // topology so direct, quad and stereo modes share the same texture.
         processAuxFeedback(returns_);
         processPostGranulator(directOutput);
+        for (uint32_t lane = 0u; lane < kFeedbackShiftChannels; ++lane) {
+            directOutput[lane] *= restGains_[lane];
+        }
         std::fill(output, output + kFeedbackShiftChannels, 0.0f);
         if (smoothed_.outputMode == FeedbackShiftOutputMode::Direct8) {
             std::copy(directOutput.begin(), directOutput.end(), output);
@@ -1033,8 +1515,7 @@ public:
             outputPeak_[channel] = std::max(
                 outputPeak_[channel] * 0.9992f, std::abs(output[channel]));
         }
-        driftPhase_ += driftIncrement_;
-        if (driftPhase_ >= kTwoPi) driftPhase_ -= kTwoPi;
+        advanceDrift();
     }
 
     float outputPeak(uint32_t node) const noexcept
@@ -1080,10 +1561,64 @@ public:
     float morphValue() const noexcept { return morphValue_; }
     float morphDriverValue() const noexcept { return morphDriverValue_; }
     float morphPhase() const noexcept { return morphPhase_; }
-    float inputEnvelope() const noexcept { return morphInputEnvelope_; }
+    float inputEnvelope() const noexcept
+    {
+        return std::clamp(morphInputEnvelope_, 0.0f, 1.0f);
+    }
+    float ecologyEnvelope() const noexcept { return inputEnvelope(); }
+    float ecologyEdge() const noexcept { return morphEdge_; }
+    float laneEcologyEnvelope(uint32_t lane) const noexcept
+    {
+        return lane < kFeedbackShiftChannels
+            ? std::clamp(laneEnvelopes_[lane], 0.0f, 1.0f) : 0.0f;
+    }
+    float laneEcologyEdge(uint32_t lane) const noexcept
+    {
+        return lane < kFeedbackShiftChannels ? laneEdges_[lane] : 0.0f;
+    }
+    float restLaneActivity(uint32_t lane) const noexcept
+    {
+        return lane < kFeedbackShiftChannels
+            ? 1.0f - restGains_[lane] : 0.0f;
+    }
+    float restActivity() const noexcept
+    {
+        float maximum = 0.0f;
+        for (float gain : restGains_) maximum = std::max(maximum, 1.0f - gain);
+        return maximum;
+    }
+    uint32_t restingLaneCount() const noexcept
+    {
+        uint32_t count = 0u;
+        for (float gain : restGains_) count += gain < 0.5f ? 1u : 0u;
+        return count;
+    }
+    float spliceLaneActivity(uint32_t lane) const noexcept
+    {
+        return lane < kFeedbackShiftChannels
+            ? splicePulses_[lane] : 0.0f;
+    }
+    float spliceLaneGate(uint32_t lane) const noexcept
+    {
+        return lane < kFeedbackShiftChannels
+            ? spliceGains_[lane] : 1.0f;
+    }
+    float spliceActivity() const noexcept
+    {
+        float maximum = 0.0f;
+        for (float pulse : splicePulses_) maximum = std::max(maximum, pulse);
+        return maximum;
+    }
+    uint32_t spliceEventCount() const noexcept { return spliceEventCount_; }
     float auxActivity() const noexcept { return auxActivity_; }
     float auxGainReductionDb() const noexcept { return auxGainReductionDb_; }
     float auxGrainActivity() const noexcept { return auxGrainActivity_; }
+    float auxGrainSourceDuck() const noexcept
+    {
+        float sum = 0.0f;
+        for (float duck : auxGrainDuck_) sum += duck;
+        return sum / static_cast<float>(kFeedbackShiftChannels);
+    }
 private:
     static constexpr float kPi = 3.14159265358979323846f;
     static constexpr float kTwoPi = 2.0f * kPi;
@@ -1105,6 +1640,34 @@ private:
         std::array<uint32_t, kFeedbackShiftChannels> length {};
         std::array<bool, kFeedbackShiftChannels> enabled {};
         bool active = false;
+    };
+
+    struct SplicePatch {
+        FeedbackShiftMode mode = FeedbackShiftMode::Frequency;
+        float frequencyHz = 0.0f;
+        float regeneration = 0.5f;
+        float color = 0.0f;
+        float body = 0.3f;
+        float levelDb = -9.0f;
+        float auxSend = 0.0f;
+        std::array<float, kFeedbackShiftChannels> routes {};
+        bool audible = true;
+    };
+
+    enum class SpliceStage : uint8_t {
+        Waiting = 0u,
+        FadeOut,
+        FadeIn,
+    };
+
+    struct ModulationState {
+        float phase = 0.0f;
+        float gate = 0.0f;
+    };
+
+    struct ModulationRuntime {
+        std::vector<float> timeBuffer {};
+        uint32_t timeWrite = 0u;
     };
 
     struct NodeState {
@@ -1169,6 +1732,12 @@ private:
         DrumEcho echo {};
         BreakBus breakBus {};
         DrumOverload drumBus {};
+        ModulationState modulation {};
+        ModulationRuntime modulationRuntime {};
+        std::unique_ptr<MacroShredCore> macroShred {};
+        std::unique_ptr<MacroPitch> macroPitch {};
+        std::unique_ptr<MacroDelay> macroDelay {};
+        std::unique_ptr<MacroFractureCore> fracture {};
         FeedbackPedalType activePedal = FeedbackPedalType::Bypass;
         float pedalCrossfade = 1.0f;
         uint32_t controlCounter = 0u;
@@ -1178,6 +1747,26 @@ private:
     {
         params.excite = finiteClamp(params.excite, 0.0f, 1.0f, 0.24f);
         params.drift = finiteClamp(params.drift, 0.0f, 1.0f, 0.10f);
+        params.spliceAmount = finiteClamp(params.spliceAmount,
+            0.0f, 1.0f, 0.64f);
+        params.spliceRate = finiteClamp(params.spliceRate,
+            0.0f, 1.0f, 0.66f);
+        params.spliceRateFine = finiteClamp(params.spliceRateFine,
+            -1.0f, 1.0f, 0.0f);
+        params.spliceContrast = finiteClamp(params.spliceContrast,
+            0.0f, 1.0f, 0.82f);
+        params.spliceSpace = finiteClamp(params.spliceSpace,
+            0.0f, 1.0f, 0.30f);
+        params.subBassTune = finiteClamp(params.subBassTune,
+            0.0f, 1.0f, 0.34f);
+        params.subBassShape = finiteClamp(params.subBassShape,
+            0.0f, 1.0f, 0.18f);
+        params.subBassDrive = finiteClamp(params.subBassDrive,
+            0.0f, 1.0f, 0.28f);
+        params.subBassDecay = finiteClamp(params.subBassDecay,
+            0.0f, 1.0f, 0.56f);
+        params.subBassSustain = finiteClamp(params.subBassSustain,
+            0.0f, 1.0f, 0.0f);
         params.morph = finiteClamp(params.morph, 0.0f, 1.0f, 0.0f);
         params.morphSource = static_cast<FeedbackMorphSource>(
             std::min<uint32_t>(static_cast<uint32_t>(params.morphSource),
@@ -1194,6 +1783,14 @@ private:
         params.morphShape = static_cast<FeedbackPulseShape>(
             std::min<uint32_t>(static_cast<uint32_t>(params.morphShape),
                 kFeedbackPulseShapeCount - 1u));
+        params.governorReflex = finiteClamp(params.governorReflex,
+            0.0f, 1.0f, 0.32f);
+        params.governorSensitivity = finiteClamp(
+            params.governorSensitivity, 0.0f, 1.0f, 0.28f);
+        params.governorRecovery = finiteClamp(params.governorRecovery,
+            0.0f, 1.0f, 0.48f);
+        params.governorRest = finiteClamp(params.governorRest,
+            0.0f, 1.0f, 0.0f);
         params.outputGainDb = finiteClamp(params.outputGainDb,
             -60.0f, 6.0f, -18.0f);
         params.outputMode = static_cast<FeedbackShiftOutputMode>(
@@ -1221,7 +1818,12 @@ private:
         params.auxGrainLaneDrift = finiteClamp(params.auxGrainLaneDrift,
             0.0f, 1.0f, 0.50f);
         params.auxGrainMix = finiteClamp(params.auxGrainMix,
-            0.0f, 1.0f, 1.0f);
+            0.0f, 1.0f, 0.0f);
+        params.auxGrainSpacing = finiteClamp(params.auxGrainSpacing,
+            0.0f, 1.0f, 0.0f);
+        params.auxGrainShape = static_cast<FeedbackGrainShape>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.auxGrainShape),
+                kFeedbackGrainShapeCount - 1u));
         params.auxTilt = finiteClamp(params.auxTilt, -1.0f, 1.0f, 0.0f);
         params.auxMix = finiteClamp(params.auxMix, 0.0f, 1.0f, 0.0f);
         for (float& send : params.auxSend) {
@@ -1329,6 +1931,14 @@ private:
         return 0.985f + std::pow(above, 1.35f) * 0.38f;
     }
 
+    static float governorThreshold(float sensitivity) noexcept
+    {
+        // SENSE increases sensitivity by lowering the containment knee from
+        // near full scale to a deliberately conservative -12 dB region.
+        return 0.95f - 0.70f
+            * std::clamp(sensitivity, 0.0f, 1.0f);
+    }
+
     // Pass ordinary material unchanged and round only the last five percent
     // before full scale. This remains a safety ceiling rather than a permanent
     // tone-shaping stage.
@@ -1417,6 +2027,14 @@ private:
         state.echo.reset();
         state.breakBus.reset();
         state.drumBus.reset();
+        state.modulation = {};
+        std::fill(state.modulationRuntime.timeBuffer.begin(),
+            state.modulationRuntime.timeBuffer.end(), 0.0f);
+        state.modulationRuntime.timeWrite = 0u;
+        if (state.macroShred) state.macroShred->reset();
+        if (state.macroPitch) state.macroPitch->reset();
+        if (state.macroDelay) state.macroDelay->reset();
+        if (state.fracture) state.fracture->reset();
         state.activePedal = pedal;
         state.pedalCrossfade = 1.0f;
         state.controlCounter = 0u;
@@ -1427,6 +2045,14 @@ private:
         state.hilbertA.fill(0.0f);
         state.hilbertB.fill(0.0f);
         state.drive = {};
+        state.modulation = {};
+        std::fill(state.modulationRuntime.timeBuffer.begin(),
+            state.modulationRuntime.timeBuffer.end(), 0.0f);
+        state.modulationRuntime.timeWrite = 0u;
+        if (state.macroShred) state.macroShred->reset();
+        if (state.macroPitch) state.macroPitch->reset();
+        if (state.macroDelay) state.macroDelay->reset();
+        if (state.fracture) state.fracture->reset();
         state.returnDcInput = state.returnDcOutput = 0.0f;
         state.outputDcInput = state.outputDcOutput = 0.0f;
         state.filterIc1 = state.filterIc2 = 0.0f;
@@ -1646,6 +2272,12 @@ private:
             / 8388607.5f - 1.0f;
     }
 
+    static float randomUnit(uint32_t& state) noexcept
+    {
+        return static_cast<float>(advanceRandom(state) & 0x00ffffffu)
+            / 16777215.0f;
+    }
+
     void smoothParameters() noexcept
     {
         const auto smooth = [this](float current, float target) noexcept {
@@ -1653,6 +2285,26 @@ private:
         };
         smoothed_.excite = smooth(smoothed_.excite, target_.excite);
         smoothed_.drift = smooth(smoothed_.drift, target_.drift);
+        smoothed_.spliceAmount = smooth(smoothed_.spliceAmount,
+            target_.spliceAmount);
+        smoothed_.spliceRate = smooth(smoothed_.spliceRate,
+            target_.spliceRate);
+        smoothed_.spliceRateFine = smooth(smoothed_.spliceRateFine,
+            target_.spliceRateFine);
+        smoothed_.spliceContrast = smooth(smoothed_.spliceContrast,
+            target_.spliceContrast);
+        smoothed_.spliceSpace = smooth(smoothed_.spliceSpace,
+            target_.spliceSpace);
+        smoothed_.subBassTune = smooth(smoothed_.subBassTune,
+            target_.subBassTune);
+        smoothed_.subBassShape = smooth(smoothed_.subBassShape,
+            target_.subBassShape);
+        smoothed_.subBassDrive = smooth(smoothed_.subBassDrive,
+            target_.subBassDrive);
+        smoothed_.subBassDecay = smooth(smoothed_.subBassDecay,
+            target_.subBassDecay);
+        smoothed_.subBassSustain = smooth(smoothed_.subBassSustain,
+            target_.subBassSustain);
         smoothed_.morph = smooth(smoothed_.morph, target_.morph);
         smoothed_.morphDepth = smooth(smoothed_.morphDepth,
             target_.morphDepth);
@@ -1660,6 +2312,17 @@ private:
             target_.morphRate);
         smoothed_.morphInertia = smooth(smoothed_.morphInertia,
             target_.morphInertia);
+        smoothed_.governorReflex = smooth(smoothed_.governorReflex,
+            target_.governorReflex);
+        smoothed_.governorSensitivity = smooth(
+            smoothed_.governorSensitivity, target_.governorSensitivity);
+        smoothed_.governorRecovery = smooth(smoothed_.governorRecovery,
+            target_.governorRecovery);
+        smoothed_.governorRest = smooth(smoothed_.governorRest,
+            target_.governorRest);
+        governorReleaseCoefficient_ = onePoleCoefficient(
+            100.0f * std::pow(50.0f, smoothed_.governorRecovery),
+            static_cast<float>(sampleRate_));
         smoothed_.outputGainDb = smooth(smoothed_.outputGainDb,
             target_.outputGainDb);
         smoothed_.outputRotationDeg = smooth(smoothed_.outputRotationDeg,
@@ -1685,6 +2348,8 @@ private:
             target_.auxGrainLaneDrift);
         smoothed_.auxGrainMix = smooth(smoothed_.auxGrainMix,
             target_.auxGrainMix);
+        smoothed_.auxGrainSpacing = smooth(smoothed_.auxGrainSpacing,
+            target_.auxGrainSpacing);
         smoothed_.auxTilt = smooth(smoothed_.auxTilt, target_.auxTilt);
         smoothed_.auxMix = smooth(smoothed_.auxMix, target_.auxMix);
         for (uint32_t node = 0u;
@@ -1698,6 +2363,7 @@ private:
         smoothed_.morphSync = target_.morphSync;
         smoothed_.morphDivision = target_.morphDivision;
         smoothed_.morphShape = target_.morphShape;
+        smoothed_.auxGrainShape = target_.auxGrainShape;
         smoothed_.run = target_.run;
         for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
             auto& current = smoothed_.nodes[node];
@@ -1757,18 +2423,46 @@ private:
 
     void advanceMorph(const float* externalInput) noexcept
     {
-        float peak = 0.0f;
-        if (externalInput) {
-            for (uint32_t channel = 0u;
-                 channel < kFeedbackShiftChannels; ++channel) {
-                peak = std::max(peak, std::abs(externalInput[channel]));
-            }
+        // Every lane owns the same fast/slow ecology detector used by its
+        // REST governor. The morph drivers are the maxima of those detectors,
+        // so the visible global motion is a summary of the actual lane
+        // ecology instead of a second, unrelated envelope follower.
+        const float slowMs = 45.0f + 155.0f
+            * smoothed_.governorRecovery;
+        const float slowCoefficient = onePoleCoefficient(slowMs,
+            static_cast<float>(sampleRate_));
+        const float edgeScale = 1.0f / (0.018f + 0.12f
+            * (1.0f - smoothed_.governorSensitivity));
+        float maximumEnvelope = 0.0f;
+        float maximumEdge = 0.0f;
+        for (uint32_t lane = 0u; lane < kFeedbackShiftChannels; ++lane) {
+            const float external = externalInput
+                ? std::abs(externalInput[lane]) : 0.0f;
+            const float peak = std::min(2.0f,
+                std::max(external, std::abs(ecologyReturns_[lane])));
+            const float envelopeCoefficient = peak > laneEnvelopes_[lane]
+                ? detectorAttackCoefficient_ : detectorReleaseCoefficient_;
+            laneEnvelopes_[lane] += (peak - laneEnvelopes_[lane])
+                * envelopeCoefficient;
+            laneEnvelopes_[lane] = flush(laneEnvelopes_[lane]);
+            laneSlowEnvelopes_[lane] += (laneEnvelopes_[lane]
+                    - laneSlowEnvelopes_[lane]) * slowCoefficient;
+            laneSlowEnvelopes_[lane] = flush(laneSlowEnvelopes_[lane]);
+            const float edgeTarget = std::clamp((laneEnvelopes_[lane]
+                    - laneSlowEnvelopes_[lane]) * edgeScale,
+                0.0f, 1.0f);
+            const float edgeCoefficient = edgeTarget > laneEdges_[lane]
+                ? detectorAttackCoefficient_ : governorReleaseCoefficient_;
+            laneEdges_[lane] += (edgeTarget - laneEdges_[lane])
+                * edgeCoefficient;
+            laneEdges_[lane] = std::clamp(
+                flush(laneEdges_[lane]), 0.0f, 1.0f);
+            maximumEnvelope = std::max(maximumEnvelope,
+                laneEnvelopes_[lane]);
+            maximumEdge = std::max(maximumEdge, laneEdges_[lane]);
         }
-        const float envelopeCoefficient = peak > morphInputEnvelope_
-            ? detectorAttackCoefficient_ : detectorReleaseCoefficient_;
-        morphInputEnvelope_ += (peak - morphInputEnvelope_)
-            * envelopeCoefficient;
-        morphInputEnvelope_ = flush(morphInputEnvelope_);
+        morphInputEnvelope_ = maximumEnvelope;
+        morphEdge_ = maximumEdge;
         if (smoothed_.morphHold) return;
 
         float rateHz = 0.01f * std::pow(800.0f, smoothed_.morphRate);
@@ -1797,7 +2491,13 @@ private:
         case FeedbackMorphSource::Manual:
             driver = smoothed_.morph; break;
         case FeedbackMorphSource::Envelope:
-            driver = std::clamp(morphInputEnvelope_ * 2.5f, 0.0f, 1.0f);
+            driver = std::clamp((morphInputEnvelope_
+                    - governorThreshold(smoothed_.governorSensitivity)
+                        * 0.25f) * 2.5f,
+                0.0f, 1.0f);
+            break;
+        case FeedbackMorphSource::Edge:
+            driver = morphEdge_;
             break;
         case FeedbackMorphSource::Lfo:
             driver = 0.5f - 0.5f * std::cos(morphPhase_ * kTwoPi); break;
@@ -1836,18 +2536,366 @@ private:
         morphValue_ = std::clamp(flush(morphValue_), 0.0f, 1.0f);
     }
 
+    float spliceFrequency(float base, float contrast) noexcept
+    {
+        const float family = randomUnit(spliceRandom_);
+        const float unit = randomUnit(spliceRandom_);
+        const float sign = randomUnit(spliceRandom_) < 0.5f ? -1.0f : 1.0f;
+        float radical = 0.0f;
+        if (family < 0.22f) {
+            radical = sign * 0.02f * std::pow(80.0f, unit);
+        } else if (family < 0.46f) {
+            radical = sign * 1.5f * std::pow(30.0f, unit);
+        } else if (family < 0.82f) {
+            radical = sign * 45.0f * std::pow(24.0f, unit);
+        } else {
+            radical = sign * (1000.0f + unit * 5000.0f);
+        }
+        return std::clamp(lerp(base, radical, contrast),
+            -6000.0f, 6000.0f);
+    }
+
+    SplicePatch makeSplicePatch(uint32_t lane,
+        const FeedbackShiftNodeParams& base,
+        const std::array<float, kFeedbackShiftMatrixCells>& matrix) noexcept
+    {
+        SplicePatch patch;
+        const float contrast = smoothed_.spliceContrast;
+        patch.frequencyHz = spliceFrequency(base.frequencyHz, contrast);
+        const float radicalRegen = randomUnit(spliceRandom_) < 0.18f
+            ? 0.88f + randomUnit(spliceRandom_) * 0.11f
+            : 0.06f + randomUnit(spliceRandom_) * 0.88f;
+        patch.regeneration = std::clamp(lerp(base.regeneration,
+            radicalRegen, contrast), 0.0f, 1.0f);
+        patch.color = std::clamp(lerp(base.color,
+            randomUnit(spliceRandom_) * 2.0f - 1.0f, contrast),
+            -1.0f, 1.0f);
+        const float bodyUnit = randomUnit(spliceRandom_);
+        const float radicalBody = randomUnit(spliceRandom_) < 0.5f
+            ? bodyUnit * bodyUnit * bodyUnit
+            : std::pow(bodyUnit, 0.35f);
+        patch.body = std::clamp(lerp(base.body, radicalBody, contrast),
+            0.0f, 1.0f);
+        const float radicalLevel = -24.0f
+            + randomUnit(spliceRandom_) * 27.0f;
+        patch.levelDb = std::clamp(lerp(base.levelDb, radicalLevel,
+            contrast * 0.72f), -48.0f, 3.0f);
+        patch.auxSend = std::clamp(lerp(effectiveAuxSend_[lane],
+            randomUnit(spliceRandom_), contrast), 0.0f, 1.0f);
+        patch.mode = contrast > 0.32f
+                && randomUnit(spliceRandom_) < contrast * 0.48f
+            ? (randomUnit(spliceRandom_) < 0.5f
+                ? FeedbackShiftMode::Frequency : FeedbackShiftMode::Ring)
+            : base.mode;
+
+        std::array<float, kFeedbackShiftChannels> radicalRoutes {};
+        const uint32_t routeCount = 1u + static_cast<uint32_t>(
+            randomUnit(spliceRandom_) * (1.0f + contrast * 3.0f));
+        for (uint32_t route = 0u; route < routeCount; ++route) {
+            const uint32_t source = static_cast<uint32_t>(
+                randomUnit(spliceRandom_) * kFeedbackShiftChannels)
+                % kFeedbackShiftChannels;
+            const float sign = randomUnit(spliceRandom_) < 0.5f
+                ? -1.0f : 1.0f;
+            radicalRoutes[source] = sign * (0.10f
+                + 0.88f * std::pow(randomUnit(spliceRandom_), 0.72f));
+        }
+        for (uint32_t source = 0u; source < kFeedbackShiftChannels;
+             ++source) {
+            const uint32_t index = lane * kFeedbackShiftChannels + source;
+            patch.routes[source] = std::clamp(lerp(matrix[index],
+                radicalRoutes[source], contrast), -1.0f, 1.0f);
+        }
+
+        float silenceProbability = std::pow(smoothed_.spliceSpace, 1.25f)
+            * (0.18f + contrast * 0.66f);
+        // An onset calls the lane back into the ecology; quiet persistence is
+        // where longer holes are allowed to form.
+        silenceProbability *= 1.0f - laneEdges_[lane] * 0.78f;
+        if (spliceGains_[lane] < 0.01f) silenceProbability *= 0.35f;
+        patch.audible = smoothed_.spliceSpace <= 1.0e-4f
+            || randomUnit(spliceRandom_) >= silenceProbability;
+        return patch;
+    }
+
+    void scheduleNextSplice(uint32_t lane, bool audible) noexcept
+    {
+        float rateHz = feedbackSpliceRateHz(smoothed_.spliceRate,
+            smoothed_.spliceRateFine);
+        const float threshold = governorThreshold(
+            smoothed_.governorSensitivity) * 0.40f;
+        const float pressure = std::clamp((laneEnvelopes_[lane] - threshold)
+                / std::max(0.04f, threshold),
+            0.0f, 1.0f);
+        rateHz *= 1.0f + laneEdges_[lane]
+                * (3.0f + smoothed_.spliceAmount * 9.0f)
+            + pressure * 2.5f;
+        float interval = static_cast<float>(sampleRate_)
+            / std::max(0.1f, rateHz);
+        const float jitter = randomUnit(spliceRandom_) * 2.0f - 1.0f;
+        interval *= std::pow(4.0f,
+            jitter * smoothed_.spliceContrast * 0.92f);
+        if (spliceFlurryRemaining_[lane] > 0u) {
+            --spliceFlurryRemaining_[lane];
+            interval *= 0.12f + randomUnit(spliceRandom_) * 0.26f;
+        } else if (laneEdges_[lane] > 0.08f
+            && randomUnit(spliceRandom_) < laneEdges_[lane]
+                * (0.20f + smoothed_.spliceAmount * 0.72f)) {
+            spliceFlurryRemaining_[lane] = 2u + static_cast<uint32_t>(
+                randomUnit(spliceRandom_) * (3.0f
+                    + smoothed_.spliceContrast * 9.0f));
+        }
+        if (!audible) {
+            interval *= 1.0f + smoothed_.spliceSpace
+                * (2.0f + randomUnit(spliceRandom_) * 10.0f);
+        }
+        spliceCountdowns_[lane] = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(std::lround(interval)));
+    }
+
+    void commitSplice(uint32_t lane) noexcept
+    {
+        splicePatches_[lane] = splicePendingPatches_[lane];
+        splicePatchValid_[lane] = true;
+        spliceGains_[lane] = 0.0f;
+        if (splicePatches_[lane].audible) {
+            spliceStages_[lane] = SpliceStage::FadeIn;
+        } else {
+            spliceStages_[lane] = SpliceStage::Waiting;
+        }
+        scheduleNextSplice(lane, splicePatches_[lane].audible);
+    }
+
+    void beginSplice(uint32_t lane, const FeedbackShiftNodeParams& base,
+        const std::array<float, kFeedbackShiftMatrixCells>& matrix) noexcept
+    {
+        splicePendingPatches_[lane] = makeSplicePatch(lane, base, matrix);
+        const float seamMs = 0.18f + 1.42f
+            * std::pow(1.0f - smoothed_.spliceContrast, 2.0f);
+        const float seamFrames = std::max(2.0f,
+            static_cast<float>(sampleRate_) * seamMs * 0.001f);
+        spliceFadeSteps_[lane] = 1.0f / seamFrames;
+        splicePulses_[lane] = 1.0f;
+        ++spliceEventCount_;
+        if (spliceGains_[lane] <= 1.0e-4f) {
+            commitSplice(lane);
+        } else {
+            spliceStages_[lane] = SpliceStage::FadeOut;
+        }
+    }
+
+    void advanceSpliceEcology(
+        std::array<FeedbackShiftNodeParams, kFeedbackShiftChannels>& nodes,
+        std::array<float, kFeedbackShiftMatrixCells>& matrix) noexcept
+    {
+        const float amount = smoothed_.spliceAmount;
+        for (uint32_t lane = 0u; lane < kFeedbackShiftChannels; ++lane) {
+            splicePulses_[lane] *= splicePulseDecay_;
+            if (splicePulses_[lane] < 1.0e-5f) splicePulses_[lane] = 0.0f;
+            if (amount <= 1.0e-4f) {
+                spliceGains_[lane] += (1.0f - spliceGains_[lane])
+                    * sourceSwitchCoefficient_;
+                spliceStages_[lane] = SpliceStage::Waiting;
+                splicePatchValid_[lane] = false;
+                continue;
+            }
+
+            switch (spliceStages_[lane]) {
+            case SpliceStage::Waiting:
+                if (spliceCountdowns_[lane] > 0u) {
+                    --spliceCountdowns_[lane];
+                } else {
+                    beginSplice(lane, nodes[lane], matrix);
+                }
+                break;
+            case SpliceStage::FadeOut:
+                spliceGains_[lane] = std::max(0.0f,
+                    spliceGains_[lane] - spliceFadeSteps_[lane]);
+                if (spliceGains_[lane] <= 0.0f) commitSplice(lane);
+                break;
+            case SpliceStage::FadeIn:
+                spliceGains_[lane] = std::min(1.0f,
+                    spliceGains_[lane] + spliceFadeSteps_[lane]);
+                if (spliceGains_[lane] >= 1.0f) {
+                    spliceStages_[lane] = SpliceStage::Waiting;
+                }
+                break;
+            }
+
+            if (!splicePatchValid_[lane]) continue;
+            const auto& patch = splicePatches_[lane];
+            auto& node = nodes[lane];
+            node.frequencyHz = lerp(node.frequencyHz,
+                patch.frequencyHz, amount);
+            node.regeneration = lerp(node.regeneration,
+                patch.regeneration, amount);
+            node.color = lerp(node.color, patch.color, amount);
+            node.body = lerp(node.body, patch.body, amount);
+            node.levelDb = lerp(node.levelDb, patch.levelDb, amount);
+            if (amount * smoothed_.spliceContrast > 0.32f) {
+                node.mode = patch.mode;
+            }
+            effectiveAuxSend_[lane] = lerp(effectiveAuxSend_[lane],
+                patch.auxSend, amount);
+            for (uint32_t source = 0u; source < kFeedbackShiftChannels;
+                 ++source) {
+                const uint32_t index = lane * kFeedbackShiftChannels + source;
+                matrix[index] = lerp(matrix[index],
+                    patch.routes[source], amount);
+            }
+        }
+    }
+
+    void scheduleNextRest(uint32_t lane) noexcept
+    {
+        if (lane >= kFeedbackShiftChannels) return;
+        const float rest = std::clamp(smoothed_.governorRest, 0.0f, 1.0f);
+        const float randomScale = 0.68f
+            + randomUnit(restRandom_) * 0.78f;
+        static constexpr std::array<float, kFeedbackShiftChannels>
+            laneScales {{ 0.91f, 1.12f, 0.83f, 1.27f,
+                          1.04f, 0.77f, 1.19f, 0.96f }};
+        const float activeSeconds = (8.0f - rest * 7.15f)
+            * randomScale * laneScales[lane];
+        restTriggerFrames_[lane] = static_cast<uint32_t>(std::max(1.0,
+            sampleRate_ * static_cast<double>(activeSeconds)));
+    }
+
+    void advanceRestGovernors() noexcept
+    {
+        const float rest = smoothed_.governorRest;
+        const float threshold = governorThreshold(
+            smoothed_.governorSensitivity) * 0.38f;
+        const float downCoefficient = onePoleCoefficient(
+            6.0f + 44.0f * (1.0f - rest),
+            static_cast<float>(sampleRate_));
+        const float upCoefficient = onePoleCoefficient(
+            45.0f + 900.0f * smoothed_.governorRecovery,
+            static_cast<float>(sampleRate_));
+        for (uint32_t lane = 0u; lane < kFeedbackShiftChannels; ++lane) {
+            float target = 1.0f;
+            if (rest <= 1.0e-4f) {
+                restPersistenceFrames_[lane] = 0.0f;
+                restRemainingFrames_[lane] = 0u;
+            } else if (restRemainingFrames_[lane] > 0u) {
+                --restRemainingFrames_[lane];
+                target = 0.0f;
+                if (restRemainingFrames_[lane] == 0u) {
+                    scheduleNextRest(lane);
+                }
+            } else {
+                const float envelopePressure = std::clamp(
+                    (laneEnvelopes_[lane] - threshold)
+                        / std::max(0.05f, threshold),
+                    0.0f, 1.0f);
+                const uint32_t previous = (lane
+                        + kFeedbackShiftChannels - 1u)
+                    % kFeedbackShiftChannels;
+                const uint32_t next = (lane + 1u)
+                    % kFeedbackShiftChannels;
+                const float neighborEdge = std::max(
+                    laneEdges_[previous], laneEdges_[next]);
+                if (laneEnvelopes_[lane] > threshold) {
+                    // The lane's edge accelerates its own rest decision;
+                    // adjacent edges add light ecological pressure without
+                    // collapsing the ring into one global gate.
+                    restPersistenceFrames_[lane] += 0.45f
+                        + envelopePressure * 1.35f
+                        + laneEdges_[lane] * 8.0f
+                        + neighborEdge * 1.5f;
+                } else {
+                    restPersistenceFrames_[lane] = std::max(0.0f,
+                        restPersistenceFrames_[lane] - 2.5f);
+                }
+                if (restPersistenceFrames_[lane] >= static_cast<float>(
+                        restTriggerFrames_[lane])) {
+                    const float randomScale = 0.64f
+                        + randomUnit(restRandom_) * 0.92f;
+                    const float silentSeconds = (0.055f
+                            + rest * rest * 3.35f) * randomScale;
+                    restRemainingFrames_[lane] = static_cast<uint32_t>(
+                        std::max(1.0, sampleRate_
+                            * static_cast<double>(silentSeconds)));
+                    restPersistenceFrames_[lane] = 0.0f;
+                    target = 0.0f;
+                }
+            }
+
+            const float coefficient = target < restGains_[lane]
+                ? downCoefficient : upCoefficient;
+            restGains_[lane] += (target - restGains_[lane]) * coefficient;
+            if (target == 0.0f && restGains_[lane] < 1.0e-5f) {
+                restGains_[lane] = 0.0f;
+            }
+            restGains_[lane] = std::clamp(
+                flush(restGains_[lane]), 0.0f, 1.0f);
+        }
+    }
+
+    void advanceDrift() noexcept
+    {
+        for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
+            if (driftCountdowns_[node] == 0u) {
+                driftTargets_[node] = randomUnit(driftRandom_) * 2.0f - 1.0f;
+                const float randomSeconds = 0.65f
+                    + randomUnit(driftRandom_) * 6.75f;
+                driftCountdowns_[node] = static_cast<uint32_t>(std::max(
+                    1.0, sampleRate_ * static_cast<double>(randomSeconds)));
+            } else {
+                --driftCountdowns_[node];
+            }
+            driftValues_[node] += (driftTargets_[node]
+                    - driftValues_[node]) * driftSlewCoefficient_;
+            driftValues_[node] = flush(driftValues_[node]);
+        }
+    }
+
     float processExciter(uint32_t node, float externalInput,
         float noise, const FeedbackShiftNodeParams& params) noexcept
     {
         auto& state = states_[node];
         const float hit = burstEnvelope_[node] * burstEnvelope_[node];
-        const float toneFrequency = std::clamp(
-            std::abs(params.frequencyHz), 18.0f, 4000.0f);
-        state.sourcePhase += kTwoPi * toneFrequency
+        static constexpr std::array<float, kFeedbackShiftChannels>
+            subDetune {{
+                0.9970f, 1.0024f, 0.9952f, 1.0041f,
+                0.9983f, 1.0011f, 0.9964f, 1.0032f,
+            }};
+        const float sourceFrequency = params.exciterSource
+                == FeedbackExciterSource::SubBass
+            ? feedbackSubBassFrequencyHz(smoothed_.subBassTune)
+                * subDetune[node]
+            : std::clamp(std::abs(params.frequencyHz), 18.0f, 4000.0f);
+        state.sourcePhase += kTwoPi * sourceFrequency
             / static_cast<float>(sampleRate_);
         state.sourcePhase -= kTwoPi * std::floor(
             state.sourcePhase / kTwoPi);
         const float tone = std::sin(state.sourcePhase);
+        if (node == 0u && (subBassControlCounter_++ & 63u) == 0u) {
+            const float decaySeconds = feedbackSubBassDecayMs(
+                smoothed_.subBassDecay) * 0.001f;
+            subBassDecayCoefficient_ = std::exp(-1.0f
+                / std::max(1.0f, static_cast<float>(sampleRate_)
+                    * decaySeconds));
+        }
+        subBassEnvelope_[node] *= subBassDecayCoefficient_;
+        if (subBassEnvelope_[node] < 1.0e-7f) {
+            subBassEnvelope_[node] = 0.0f;
+        }
+        const float triangle = 2.0f / kPi * std::asin(tone);
+        const float squareDrive = 2.0f
+            + smoothed_.subBassShape * smoothed_.subBassShape * 22.0f;
+        const float softSquare = std::tanh(tone * squareDrive)
+            / std::tanh(squareDrive);
+        const float shapedSub = smoothed_.subBassShape < 0.5f
+            ? lerp(tone, triangle, smoothed_.subBassShape * 2.0f)
+            : lerp(triangle, softSquare,
+                (smoothed_.subBassShape - 0.5f) * 2.0f);
+        const float subDrive = 1.0f
+            + smoothed_.subBassDrive * smoothed_.subBassDrive * 15.0f;
+        const float sub = std::tanh(shapedSub * subDrive)
+            / std::tanh(subDrive);
+        const float subEnvelope = std::max(subBassEnvelope_[node],
+            smoothed_.subBassSustain);
         float source = 0.0f;
         switch (params.exciterSource) {
         case FeedbackExciterSource::NoiseHit:
@@ -1858,6 +2906,8 @@ private:
             source = noise * hit * 0.44f; break;
         case FeedbackExciterSource::Tone:
             source = tone * (exciteGain_ + hit * 0.32f); break;
+        case FeedbackExciterSource::SubBass:
+            source = sub * subEnvelope; break;
         case FeedbackExciterSource::External:
             source = externalInput; break;
         case FeedbackExciterSource::ExternalHit:
@@ -1877,8 +2927,7 @@ private:
         const FeedbackShiftNodeParams& params) noexcept
     {
         auto& state = states_[node];
-        const float nodeDrift = std::sin(driftPhase_
-            + static_cast<float>(node) * 0.79f)
+        const float nodeDrift = driftValues_[node]
             * smoothed_.drift * smoothed_.drift * 420.0f;
         const float frequency = std::clamp(params.frequencyHz + nodeDrift,
             -6000.0f, 6000.0f);
@@ -2011,8 +3060,7 @@ private:
                 : mode == 2u ? high : low + high;
             break;
         }
-        case FeedbackPedalType::Degrade:
-        case FeedbackPedalType::Crush: {
+        case FeedbackPedalType::Degrade: {
             if (state.holdRemaining == 0u) {
                 const uint32_t base = 1u + static_cast<uint32_t>(
                     std::lround(amount * amount * 95.0f));
@@ -2258,6 +3306,100 @@ private:
             wet = lerp(input, wet, amount);
             break;
         }
+        case FeedbackPedalType::MacroShred: {
+            MacroShredCoreParams shred;
+            shred.inputGainDb = 0.0f;
+            shred.pressure = amount;
+            shred.shred = tone;
+            shred.feedback = params.pedalExtra[0u];
+            shred.color = params.pedalExtra[1u];
+            shred.react = params.pedalExtra[2u];
+            shred.tune = params.pedalExtra[3u];
+            shred.body = params.pedalExtra[4u];
+            shred.mix = 1.0f;
+            shred.outputGainDb = 0.0f;
+            shred.circuit = static_cast<MacroShredCircuit>(
+                std::min<uint32_t>(kMacroShredCircuitCount - 1u,
+                    static_cast<uint32_t>(std::lround(
+                        params.pedalExtra[7u]
+                            * static_cast<float>(
+                                kMacroShredCircuitCount - 1u)))));
+            if (state.macroShred) {
+                state.macroShred->setParams(shred);
+                wet = state.macroShred->processSample(input);
+            }
+            break;
+        }
+        case FeedbackPedalType::MacroPitch: {
+            MacroPitchParams pitch;
+            pitch.pitchSemitones = bias * 24.0f;
+            pitch.fineCents = (params.pedalExtra[0u] * 2.0f - 1.0f)
+                * 100.0f;
+            pitch.windowMs = 20.0f * std::pow(9.0f, amount);
+            pitch.glideMs = 10.0f * std::pow(200.0f, tone);
+            pitch.spread = 0.0f;
+            pitch.deviation = 0.0f;
+            pitch.skew = 0.0f;
+            pitch.center = 0.5f;
+            pitch.mix = 1.0f;
+            pitch.outputGainDb = 0.0f;
+            if (state.macroPitch) {
+                state.macroPitch->setParams(pitch);
+                state.macroPitch->processFrame(&input, &wet);
+            }
+            break;
+        }
+        case FeedbackPedalType::MacroDelay: {
+            MacroDelayParams delay;
+            delay.timeMs = 5.0f * std::pow(400.0f, amount);
+            delay.feedback = tone * 0.78f;
+            delay.tone = params.pedalExtra[0u];
+            delay.character = params.pedalExtra[1u];
+            delay.smear = params.pedalExtra[2u];
+            delay.glideMs = 10.0f * std::pow(
+                200.0f, params.pedalExtra[3u]);
+            delay.spread = 0.0f;
+            delay.deviation = 0.0f;
+            delay.skew = 0.0f;
+            delay.center = 0.5f;
+            delay.mix = 1.0f;
+            delay.outputGainDb = 0.0f;
+            if (state.macroDelay) {
+                state.macroDelay->setParams(delay);
+                state.macroDelay->processFrame(&input, &wet);
+            }
+            break;
+        }
+        case FeedbackPedalType::Rotor:
+            wet = processRotorCircuit(state.modulation, input,
+                amount, tone, bias, sr);
+            break;
+        case FeedbackPedalType::Chorus:
+            wet = processChorusCircuit(state.modulationRuntime,
+                state.modulation, input, amount, tone, bias, sr);
+            break;
+        case FeedbackPedalType::Fracture: {
+            MacroFractureCoreParams fracture;
+            fracture.processor = static_cast<FractureProcessor>(
+                std::min<uint32_t>(kFractureProcessorCount - 1u,
+                    static_cast<uint32_t>(std::lround(
+                        params.pedalExtra[2u]
+                            * static_cast<float>(
+                                kFractureProcessorCount - 1u)))));
+            fracture.amount = amount;
+            fracture.color = tone;
+            fracture.bias = bias;
+            fracture.react = params.pedalExtra[0u];
+            fracture.memory = params.pedalExtra[1u];
+            fracture.mix = 1.0f;
+            fracture.inputGainDb = 0.0f;
+            fracture.outputGainDb = 0.0f;
+            if (state.fracture) {
+                state.fracture->setParams(fracture);
+                wet = state.fracture->processSample(input, modulation);
+            }
+            break;
+        }
         case FeedbackPedalType::Count:
             break;
         }
@@ -2333,6 +3475,7 @@ private:
                 / static_cast<double>(auxGrainBufferFrames_)));
         }
         bool anyEnabled = false;
+        uint32_t maximumLength = 8u;
         for (uint32_t channel = 0u;
              channel < kFeedbackShiftChannels; ++channel) {
             const float positionRandom = randomUnit() * 2.0f - 1.0f;
@@ -2357,6 +3500,7 @@ private:
                     static_cast<float>(auxGrainSizeFrames_) * lengthScale)),
                 8u, std::max<uint32_t>(8u,
                     auxGrainBufferFrames_ / 3u));
+            maximumLength = std::max(maximumLength, grain->length[channel]);
             grain->age[channel] = 0u;
             grain->enabled[channel] = dropoutRandom
                 >= divergence * 0.34f;
@@ -2367,7 +3511,49 @@ private:
                 % kFeedbackShiftChannels] = true;
         }
         grain->active = true;
+        auxGrainLastLengthFrames_ = maximumLength;
         return true;
+    }
+
+    float auxGrainEnvelope(float progress, uint32_t length) const noexcept
+    {
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        switch (smoothed_.auxGrainShape) {
+        case FeedbackGrainShape::Hann: {
+            const float sine = std::sin(progress * kPi);
+            return sine * sine;
+        }
+        case FeedbackGrainShape::Triangle:
+            return std::max(0.0f,
+                1.0f - std::abs(progress * 2.0f - 1.0f));
+        case FeedbackGrainShape::Decay: {
+            const float attackFraction = std::max(
+                2.0f / static_cast<float>(std::max(2u, length)), 0.012f);
+            float attack = std::clamp(progress / attackFraction,
+                0.0f, 1.0f);
+            attack = attack * attack * (3.0f - 2.0f * attack);
+            return attack * std::pow(std::max(0.0f, 1.0f - progress),
+                0.45f + smoothed_.auxGrainEdge * 3.2f);
+        }
+        case FeedbackGrainShape::Gate: {
+            const float antiClick = std::clamp(
+                static_cast<float>(sampleRate_ * 0.00075)
+                    / static_cast<float>(std::max(2u, length)),
+                1.0f / static_cast<float>(std::max(2u, length)), 0.18f);
+            float envelope = std::min({ 1.0f,
+                progress / antiClick, (1.0f - progress) / antiClick });
+            envelope = std::clamp(envelope, 0.0f, 1.0f);
+            return envelope * envelope * (3.0f - 2.0f * envelope);
+        }
+        case FeedbackGrainShape::Tukey:
+        case FeedbackGrainShape::Count:
+            break;
+        }
+        float envelope = std::min({ 1.0f,
+            progress / auxGrainFadeFraction_,
+            (1.0f - progress) / auxGrainFadeFraction_ });
+        envelope = std::clamp(envelope, 0.0f, 1.0f);
+        return envelope * envelope * (3.0f - 2.0f * envelope);
     }
 
     void processPostGranulator(
@@ -2398,16 +3584,23 @@ private:
                 smoothed_.auxGrainPitch);
             auxGrainFadeFraction_ = 0.08f
                 + smoothed_.auxGrainEdge * 0.42f;
-
+            const float spacingNorm = smoothed_.auxGrainSpacing;
+            const float spacingMs = spacingNorm <= 0.001f ? 0.0f
+                : 2000.0f * std::pow((spacingNorm - 0.001f) / 0.999f, 2.0f);
+            auxGrainSpacingFrames_ = static_cast<uint32_t>(std::lround(
+                sampleRate_ * spacingMs * 0.001));
         }
 
         if (smoothed_.auxGrainMix > 0.0001f) {
             auxGrainSpawnCountdown_ -= 1.0f;
             if (auxGrainSpawnCountdown_ <= 0.0f) {
                 if (spawnAuxGrain()) {
-                    auxGrainSpawnCountdown_ += std::max(1.0f,
-                        static_cast<float>(auxGrainSizeFrames_)
-                            / auxGrainDensityRatio_);
+                    const float nextInterval = auxGrainSpacingFrames_ > 0u
+                        ? static_cast<float>(auxGrainLastLengthFrames_
+                            + auxGrainSpacingFrames_)
+                        : static_cast<float>(auxGrainSizeFrames_)
+                            / auxGrainDensityRatio_;
+                    auxGrainSpawnCountdown_ += std::max(1.0f, nextInterval);
                 } else {
                     auxGrainSpawnCountdown_ = 1.0f;
                 }
@@ -2431,12 +3624,8 @@ private:
                 }
                 const float progress = static_cast<float>(grain.age[channel])
                     / static_cast<float>(grain.length[channel] - 1u);
-                float envelope = std::min({ 1.0f,
-                    progress / auxGrainFadeFraction_,
-                    (1.0f - progress) / auxGrainFadeFraction_ });
-                envelope = std::clamp(envelope, 0.0f, 1.0f);
-                envelope = envelope * envelope
-                    * (3.0f - 2.0f * envelope);
+                const float envelope = auxGrainEnvelope(
+                    progress, grain.length[channel]);
                 grainOutput[channel] += readAuxGrain(
                     channel, grain.readPosition[channel]) * envelope;
                 envelopeSum[channel] += envelope;
@@ -2455,11 +3644,30 @@ private:
         }
         for (uint32_t channel = 0u;
              channel < kFeedbackShiftChannels; ++channel) {
+            // Preserve the audible grain window for one voice while applying
+            // only power-style normalization when overlaps accumulate. Full
+            // envelope-sum division would flatten every single-grain shape.
             const float wet = envelopeSum[channel] > 1.0e-5f
-                ? grainOutput[channel] / envelopeSum[channel] : dry[channel];
-            channels[channel] = dry[channel]
-                + (wet - dry[channel])
-                    * smoothed_.auxGrainMix;
+                ? grainOutput[channel] / std::sqrt(
+                    std::max(1.0f, envelopeSum[channel]))
+                : 0.0f;
+            const float duckTarget = std::clamp(
+                envelopeSum[channel], 0.0f, 1.0f);
+            const float duckCoefficient = duckTarget
+                    > auxGrainDuck_[channel]
+                ? grainDuckAttackCoefficient_ : grainDuckReleaseCoefficient_;
+            auxGrainDuck_[channel] += (duckTarget
+                    - auxGrainDuck_[channel]) * duckCoefficient;
+            auxGrainDuck_[channel] = std::clamp(
+                flush(auxGrainDuck_[channel]), 0.0f, 1.0f);
+            const float mix = smoothed_.auxGrainMix;
+            // Retain the endpoint contract while making intermediate mixes
+            // behave like a sidechained layer: active grains push the source
+            // below its ordinary crossfade level, then release smoothly.
+            const float dryGain = (1.0f - mix)
+                * (1.0f - auxGrainDuck_[channel] * mix);
+            channels[channel] = transparentLimit(
+                dry[channel] * dryGain + wet * mix);
         }
         auxGrainActivity_ = static_cast<float>(activeGrains)
             / static_cast<float>(kAuxGrainVoiceCount);
@@ -2543,8 +3751,10 @@ private:
     std::array<NodeState, kFeedbackShiftChannels> states_ {};
     std::array<float, kFeedbackShiftChannels> previousReturns_ {};
     std::array<float, kFeedbackShiftChannels> returns_ {};
+    std::array<float, kFeedbackShiftChannels> ecologyReturns_ {};
     std::array<float, kFeedbackShiftChannels> phases_ {};
     std::array<float, kFeedbackShiftChannels> burstEnvelope_ {};
+    std::array<float, kFeedbackShiftChannels> subBassEnvelope_ {};
     std::array<float, kFeedbackShiftChannels> effectiveAuxSend_ {{
         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
     }};
@@ -2561,16 +3771,22 @@ private:
     double transportTempoBpm_ = 120.0;
     bool transportHasTempo_ = false;
     uint32_t noiseState_ = 0x6d2b79f5u;
+    uint32_t driftRandom_ = 0x44524654u;
+    uint32_t restRandom_ = 0x52455354u;
+    uint32_t spliceRandom_ = 0x53504c43u;
     uint32_t auxRandom_ = 0x41555838u;
     uint32_t auxGrainBufferFrames_ = 0u;
     uint32_t auxGrainWrite_ = 0u;
     uint32_t auxGrainWrittenFrames_ = 0u;
     uint32_t auxGrainSizeFrames_ = 96u;
     uint32_t auxGrainScatterFrames_ = 0u;
+    uint32_t auxGrainSpacingFrames_ = 0u;
+    uint32_t auxGrainLastLengthFrames_ = 96u;
     uint32_t auxControlCounter_ = 0u;
     uint32_t auxGrainControlCounter_ = 0u;
-    float driftPhase_ = 0.0f;
-    float driftIncrement_ = 0.0f;
+    std::array<float, kFeedbackShiftChannels> driftValues_ {};
+    std::array<float, kFeedbackShiftChannels> driftTargets_ {};
+    std::array<uint32_t, kFeedbackShiftChannels> driftCountdowns_ {};
     float morphPhase_ = 0.0f;
     float morphRandom_ = 0.5f;
     float morphChaosTarget_ = 0.73f;
@@ -2578,7 +3794,37 @@ private:
     float morphValue_ = 0.0f;
     float morphDriverValue_ = 0.0f;
     float morphInputEnvelope_ = 0.0f;
+    float morphEdge_ = 0.0f;
+    std::array<float, kFeedbackShiftChannels> laneEnvelopes_ {};
+    std::array<float, kFeedbackShiftChannels> laneSlowEnvelopes_ {};
+    std::array<float, kFeedbackShiftChannels> laneEdges_ {};
+    std::array<float, kFeedbackShiftChannels> restGains_ {{
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    }};
+    std::array<float, kFeedbackShiftChannels> restPersistenceFrames_ {};
+    std::array<uint32_t, kFeedbackShiftChannels> restRemainingFrames_ {};
+    std::array<uint32_t, kFeedbackShiftChannels> restTriggerFrames_ {{
+        48000u, 48000u, 48000u, 48000u,
+        48000u, 48000u, 48000u, 48000u,
+    }};
+    std::array<SplicePatch, kFeedbackShiftChannels> splicePatches_ {};
+    std::array<SplicePatch, kFeedbackShiftChannels>
+        splicePendingPatches_ {};
+    std::array<bool, kFeedbackShiftChannels> splicePatchValid_ {};
+    std::array<SpliceStage, kFeedbackShiftChannels> spliceStages_ {};
+    std::array<float, kFeedbackShiftChannels> spliceGains_ {{
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    }};
+    std::array<float, kFeedbackShiftChannels> spliceFadeSteps_ {{
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    }};
+    std::array<uint32_t, kFeedbackShiftChannels> spliceCountdowns_ {};
+    std::array<uint32_t, kFeedbackShiftChannels> spliceFlurryRemaining_ {};
+    std::array<float, kFeedbackShiftChannels> splicePulses_ {};
+    uint32_t spliceEventCount_ = 0u;
+    uint32_t subBassControlCounter_ = 0u;
     float burstDecay_ = 0.9997f;
+    float subBassDecayCoefficient_ = 0.9995f;
     float runGain_ = 1.0f;
     float exciteGain_ = 0.001f;
     float outputGain_ = 0.125f;
@@ -2588,12 +3834,15 @@ private:
     float auxGrainPitchRatio_ = 1.0f;
     float auxGrainFadeFraction_ = 0.28f;
     float auxGrainActivity_ = 0.0f;
+    std::array<float, kFeedbackShiftChannels> auxGrainDuck_ {};
     float auxActivity_ = 0.0f;
     float auxGainReductionDb_ = 0.0f;
     float parameterCoefficient_ = 0.002f;
     float runCoefficient_ = 0.002f;
     float detectorAttackCoefficient_ = 0.005f;
     float detectorReleaseCoefficient_ = 0.0001f;
+    float driftSlewCoefficient_ = 0.00002f;
+    float splicePulseDecay_ = 0.9992f;
     float pedalFastAttackCoefficient_ = 0.05f;
     float pedalFastReleaseCoefficient_ = 0.001f;
     float pedalSlowAttackCoefficient_ = 0.001f;
@@ -2602,6 +3851,8 @@ private:
     float pedalGateReleaseCoefficient_ = 0.0001f;
     float governorAttackCoefficient_ = 0.001f;
     float governorReleaseCoefficient_ = 0.00005f;
+    float grainDuckAttackCoefficient_ = 0.01f;
+    float grainDuckReleaseCoefficient_ = 0.0002f;
     float noiseHighpassCoefficient_ = 0.002f;
     float sourceSwitchCoefficient_ = 0.01f;
     float dcPole_ = 0.998f;

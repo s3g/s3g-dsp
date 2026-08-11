@@ -29,7 +29,7 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x4d463353u; // "S3FM"
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr uint32_t kGuiWidth = 1100u;
 constexpr uint32_t kGuiHeight = 760u;
 
@@ -49,6 +49,20 @@ enum GlobalParamId : clap_id {
     kRunParamId,
     kOutputModeParamId,
     kOutputRotationParamId,
+    kGovernorReflexParamId,
+    kGovernorSensitivityParamId,
+    kGovernorRecoveryParamId,
+    kGovernorRestParamId,
+    kSpliceAmountParamId,
+    kSpliceRateParamId,
+    kSpliceRateFineParamId,
+    kSpliceContrastParamId,
+    kSpliceSpaceParamId,
+    kSubBassTuneParamId,
+    kSubBassShapeParamId,
+    kSubBassDriveParamId,
+    kSubBassDecayParamId,
+    kSubBassSustainParamId,
 };
 
 constexpr clap_id kNodeParamBase = 1000u;
@@ -102,14 +116,16 @@ enum AuxParamOffset : clap_id {
     kAuxGrainMixOffset,
     kAuxCoherenceOffset,
     kAuxLaneDriftOffset,
+    kAuxGrainSpacingOffset,
+    kAuxGrainShapeOffset,
 };
-constexpr uint32_t kGlobalParamCount = 15u;
+constexpr uint32_t kGlobalParamCount = 29u;
 constexpr uint32_t kNodeParamCount =
     s3g::kFeedbackShiftChannels * kNodeParamStride;
 constexpr uint32_t kSceneParamCount =
     s3g::kFeedbackShiftChannels * kSceneParamStride;
 constexpr uint32_t kMatrixParamCount = s3g::kFeedbackShiftMatrixCells;
-constexpr uint32_t kAuxParamCount = 14u;
+constexpr uint32_t kAuxParamCount = 16u;
 constexpr uint32_t kParamCount = kGlobalParamCount + kNodeParamCount
     + kSceneParamCount * 2u + kMatrixParamCount * 2u + kAuxParamCount;
 
@@ -161,6 +177,21 @@ struct Plugin {
     std::atomic<float> morphDriver { 0.0f };
     std::atomic<float> morphPhase { 0.0f };
     std::atomic<float> inputEnvelope { 0.0f };
+    std::atomic<float> ecologyEdge { 0.0f };
+    std::atomic<float> restActivity { 0.0f };
+    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
+        restLaneActivities {};
+    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
+        laneEcologyEnvelopes {};
+    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
+        laneEcologyEdges {};
+    std::atomic<uint32_t> restingLaneCount { 0u };
+    std::atomic<float> spliceActivity { 0.0f };
+    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
+        spliceLaneActivities {};
+    std::array<std::atomic<float>, s3g::kFeedbackShiftChannels>
+        spliceLaneGates {};
+    std::atomic<uint32_t> spliceEventCount { 0u };
     std::atomic<float> auxActivity { 0.0f };
     std::atomic<float> auxGainReductionDb { 0.0f };
     std::atomic<float> auxGrainActivity { 0.0f };
@@ -287,7 +318,7 @@ clap_id paramIdAtIndex(uint32_t index)
 
 uint32_t paramIndex(clap_id id)
 {
-    if (id >= kExciteParamId && id <= kOutputRotationParamId) {
+    if (id >= kExciteParamId && id <= kSubBassSustainParamId) {
         return id - kExciteParamId;
     }
     uint32_t node = 0u;
@@ -337,6 +368,20 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
     case kOutputModeParamId:
         return static_cast<uint32_t>(params.outputMode);
     case kOutputRotationParamId: return params.outputRotationDeg;
+    case kGovernorReflexParamId: return params.governorReflex;
+    case kGovernorSensitivityParamId: return params.governorSensitivity;
+    case kGovernorRecoveryParamId: return params.governorRecovery;
+    case kGovernorRestParamId: return params.governorRest;
+    case kSpliceAmountParamId: return params.spliceAmount;
+    case kSpliceRateParamId: return params.spliceRate;
+    case kSpliceRateFineParamId: return params.spliceRateFine;
+    case kSpliceContrastParamId: return params.spliceContrast;
+    case kSpliceSpaceParamId: return params.spliceSpace;
+    case kSubBassTuneParamId: return params.subBassTune;
+    case kSubBassShapeParamId: return params.subBassShape;
+    case kSubBassDriveParamId: return params.subBassDrive;
+    case kSubBassDecayParamId: return params.subBassDecay;
+    case kSubBassSustainParamId: return params.subBassSustain;
     default: break;
     }
     clap_id auxOffset = 0u;
@@ -356,6 +401,9 @@ double rawParamValue(const s3g::FeedbackShiftParams& params, clap_id id)
         case kAuxGrainMixOffset: return params.auxGrainMix;
         case kAuxCoherenceOffset: return params.auxGrainCoherence;
         case kAuxLaneDriftOffset: return params.auxGrainLaneDrift;
+        case kAuxGrainSpacingOffset: return params.auxGrainSpacing;
+        case kAuxGrainShapeOffset:
+            return static_cast<uint32_t>(params.auxGrainShape);
         default: return 0.0;
         }
     }
@@ -416,7 +464,29 @@ bool paramRange(clap_id id, ParamRange& range)
     case kMorphDepthParamId:
     case kMorphRateParamId:
     case kMorphInertiaParamId:
+    case kGovernorReflexParamId:
+    case kGovernorSensitivityParamId:
+    case kGovernorRecoveryParamId:
+    case kGovernorRestParamId:
+    case kSpliceAmountParamId:
+    case kSpliceContrastParamId:
+    case kSpliceSpaceParamId:
+    case kSubBassShapeParamId:
+    case kSubBassDriveParamId:
+    case kSubBassSustainParamId:
         range = { 0.0, 1.0, range.defaultValue, "pct", false }; return true;
+    case kSpliceRateParamId:
+        range = { 0.0, 1.0, range.defaultValue,
+            "splice-rate", false }; return true;
+    case kSpliceRateFineParamId:
+        range = { -1.0, 1.0, range.defaultValue,
+            "splice-rate-fine", false }; return true;
+    case kSubBassTuneParamId:
+        range = { 0.0, 1.0, range.defaultValue,
+            "sub-bass-tune", false }; return true;
+    case kSubBassDecayParamId:
+        range = { 0.0, 1.0, range.defaultValue,
+            "sub-bass-decay", false }; return true;
     case kMorphHoldParamId:
     case kMorphSyncParamId:
     case kRunParamId:
@@ -456,6 +526,13 @@ bool paramRange(clap_id id, ParamRange& range)
         case kAuxGrainPitchOffset:
             range = { -1.0, 1.0, range.defaultValue,
                 "aux-grain-pitch", false }; break;
+        case kAuxGrainSpacingOffset:
+            range = { 0.0, 1.0, range.defaultValue,
+                "aux-grain-spacing", false }; break;
+        case kAuxGrainShapeOffset:
+            range = { 0.0,
+                static_cast<double>(s3g::kFeedbackGrainShapeCount - 1u),
+                range.defaultValue, "grain-shape", true }; break;
         case kAuxTiltOffset:
             range = { -1.0, 1.0, range.defaultValue,
                 "bipolar", false }; break;
@@ -586,6 +663,34 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
         static_cast<uint32_t>(paramValue(plugin, kOutputModeParamId)));
     params.outputRotationDeg = static_cast<float>(
         paramValue(plugin, kOutputRotationParamId));
+    params.governorReflex = static_cast<float>(
+        paramValue(plugin, kGovernorReflexParamId));
+    params.governorSensitivity = static_cast<float>(
+        paramValue(plugin, kGovernorSensitivityParamId));
+    params.governorRecovery = static_cast<float>(
+        paramValue(plugin, kGovernorRecoveryParamId));
+    params.governorRest = static_cast<float>(
+        paramValue(plugin, kGovernorRestParamId));
+    params.spliceAmount = static_cast<float>(
+        paramValue(plugin, kSpliceAmountParamId));
+    params.spliceRate = static_cast<float>(
+        paramValue(plugin, kSpliceRateParamId));
+    params.spliceRateFine = static_cast<float>(
+        paramValue(plugin, kSpliceRateFineParamId));
+    params.spliceContrast = static_cast<float>(
+        paramValue(plugin, kSpliceContrastParamId));
+    params.spliceSpace = static_cast<float>(
+        paramValue(plugin, kSpliceSpaceParamId));
+    params.subBassTune = static_cast<float>(
+        paramValue(plugin, kSubBassTuneParamId));
+    params.subBassShape = static_cast<float>(
+        paramValue(plugin, kSubBassShapeParamId));
+    params.subBassDrive = static_cast<float>(
+        paramValue(plugin, kSubBassDriveParamId));
+    params.subBassDecay = static_cast<float>(
+        paramValue(plugin, kSubBassDecayParamId));
+    params.subBassSustain = static_cast<float>(
+        paramValue(plugin, kSubBassSustainParamId));
     params.auxPress = static_cast<float>(paramValue(plugin,
         auxParamId(kAuxPressOffset)));
     params.auxSaturation = static_cast<float>(paramValue(plugin,
@@ -614,6 +719,11 @@ s3g::FeedbackShiftParams paramsSnapshot(const Plugin& plugin)
         auxParamId(kAuxCoherenceOffset)));
     params.auxGrainLaneDrift = static_cast<float>(paramValue(plugin,
         auxParamId(kAuxLaneDriftOffset)));
+    params.auxGrainSpacing = static_cast<float>(paramValue(plugin,
+        auxParamId(kAuxGrainSpacingOffset)));
+    params.auxGrainShape = static_cast<s3g::FeedbackGrainShape>(
+        static_cast<uint32_t>(paramValue(plugin,
+            auxParamId(kAuxGrainShapeOffset))));
     for (uint32_t node = 0u; node < s3g::kFeedbackShiftChannels; ++node) {
         auto& lane = params.nodes[node];
         lane.mode = static_cast<s3g::FeedbackShiftMode>(
@@ -1016,6 +1126,21 @@ clap_process_status process(const clap_plugin_t* plugin,
             std::memory_order_relaxed);
         instance->nodeActivity[node].store(instance->dsp.nodeActivity(node),
             std::memory_order_relaxed);
+        instance->restLaneActivities[node].store(
+            instance->dsp.restLaneActivity(node),
+            std::memory_order_relaxed);
+        instance->laneEcologyEnvelopes[node].store(
+            instance->dsp.laneEcologyEnvelope(node),
+            std::memory_order_relaxed);
+        instance->laneEcologyEdges[node].store(
+            instance->dsp.laneEcologyEdge(node),
+            std::memory_order_relaxed);
+        instance->spliceLaneActivities[node].store(
+            instance->dsp.spliceLaneActivity(node),
+            std::memory_order_relaxed);
+        instance->spliceLaneGates[node].store(
+            instance->dsp.spliceLaneGate(node),
+            std::memory_order_relaxed);
         instance->temporalPhases[node].store(
             instance->dsp.temporalPhase(node), std::memory_order_relaxed);
         instance->temporalProgress[node].store(
@@ -1037,6 +1162,16 @@ clap_process_status process(const clap_plugin_t* plugin,
     instance->morphPhase.store(instance->dsp.morphPhase(),
         std::memory_order_relaxed);
     instance->inputEnvelope.store(instance->dsp.inputEnvelope(),
+        std::memory_order_relaxed);
+    instance->ecologyEdge.store(instance->dsp.ecologyEdge(),
+        std::memory_order_relaxed);
+    instance->restActivity.store(instance->dsp.restActivity(),
+        std::memory_order_relaxed);
+    instance->restingLaneCount.store(instance->dsp.restingLaneCount(),
+        std::memory_order_relaxed);
+    instance->spliceActivity.store(instance->dsp.spliceActivity(),
+        std::memory_order_relaxed);
+    instance->spliceEventCount.store(instance->dsp.spliceEventCount(),
         std::memory_order_relaxed);
     instance->auxActivity.store(instance->dsp.auxActivity(),
         std::memory_order_relaxed);
@@ -1123,12 +1258,20 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         "Internal Noise", "Drift", "Morph", "Morph Driver", "Morph Depth",
         "Morph Rate", "Morph Inertia", "Morph Hold", "Morph Sync",
         "Morph Division", "Morph Shape", "Output Gain", "Engine Run",
-        "Output Mode", "Output Rotation",
+        "Output Mode", "Output Rotation", "Governor Reflex",
+        "Governor Sensitivity", "Governor Recovery", "Governor Rest",
+        "Splice Amount", "Splice Range", "Splice Fine", "Splice Contrast",
+        "Splice Space",
+        "Sub Bass Tune", "Sub Bass Shape", "Sub Bass Drive",
+        "Sub Bass Decay", "Sub Bass Sustain",
     }};
-    if (id >= kExciteParamId && id <= kOutputRotationParamId) {
+    if (id >= kExciteParamId && id <= kSubBassSustainParamId) {
         std::strncpy(info->name, globalNames[id - kExciteParamId],
             sizeof(info->name) - 1u);
-        const char* module = id >= kOutputParamId ? "Output"
+        const char* module = id >= kSubBassTuneParamId ? "Sub Bass"
+            : id >= kSpliceAmountParamId ? "Splice"
+            : id >= kGovernorReflexParamId ? "Governor"
+            : id >= kOutputParamId ? "Output"
             : id >= kMorphParamId ? "Morph" : "Engine";
         std::strncpy(info->module, module, sizeof(info->module) - 1u);
         return true;
@@ -1172,7 +1315,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
             "Press", "Saturation", "Fold", "Clip", "Grain Size",
             "Grain Density", "Grain Scatter", "Grain Pitch", "Grain Edge",
             "Tilt", "Return", "Grain Mix", "Grain Coherence",
-            "Grain Lane Drift",
+            "Grain Lane Drift", "Grain Spacing", "Grain Shape",
         }};
         std::strncpy(info->name, names[auxOffset], sizeof(info->name) - 1u);
         const bool postGranulator = auxOffset >= kAuxGrainSizeOffset
@@ -1239,6 +1382,20 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (std::strcmp(range.unit, "regen") == 0
         || std::strcmp(range.unit, "pct") == 0) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
+    } else if (std::strcmp(range.unit, "splice-rate") == 0) {
+        const double hz = s3g::feedbackSpliceRateHz(
+            static_cast<float>(value));
+        if (hz < 1.0) std::snprintf(display, size, "%.3f Hz", hz);
+        else if (hz < 10.0) std::snprintf(display, size, "%.2f Hz", hz);
+        else std::snprintf(display, size, "%.0f Hz", hz);
+    } else if (std::strcmp(range.unit, "splice-rate-fine") == 0) {
+        std::snprintf(display, size, "x%.3f", std::exp2(value));
+    } else if (std::strcmp(range.unit, "sub-bass-tune") == 0) {
+        std::snprintf(display, size, "%.1f Hz",
+            s3g::feedbackSubBassFrequencyHz(static_cast<float>(value)));
+    } else if (std::strcmp(range.unit, "sub-bass-decay") == 0) {
+        std::snprintf(display, size, "%.0f ms",
+            s3g::feedbackSubBassDecayMs(static_cast<float>(value)));
     } else if (std::strcmp(range.unit, "db") == 0) {
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (std::strcmp(range.unit, "route") == 0) {
@@ -1253,6 +1410,15 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%.2fx", 1.25 + value * 6.75);
     } else if (std::strcmp(range.unit, "aux-grain-pitch") == 0) {
         std::snprintf(display, size, "%+.1f st", value * 12.0);
+    } else if (std::strcmp(range.unit, "aux-grain-spacing") == 0) {
+        const double milliseconds = value <= 0.001 ? 0.0
+            : 2000.0 * std::pow((value - 0.001) / 0.999, 2.0);
+        std::snprintf(display, size,
+            milliseconds < 10.0 ? "%.2f ms" : "%.0f ms", milliseconds);
+    } else if (std::strcmp(range.unit, "grain-shape") == 0) {
+        std::snprintf(display, size, "%s", s3g::feedbackGrainShapeName(
+            static_cast<s3g::FeedbackGrainShape>(
+                static_cast<uint32_t>(value))));
     } else {
         std::snprintf(display, size, "%.2f", value);
     }
@@ -1313,6 +1479,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (std::strcmp(range.unit, "grain-shape") == 0) {
+        for (uint32_t shape = 0u; shape < s3g::kFeedbackGrainShapeCount;
+             ++shape) {
+            if (std::strcmp(display, s3g::feedbackGrainShapeName(
+                    static_cast<s3g::FeedbackGrainShape>(shape))) == 0) {
+                *value = shape;
+                return true;
+            }
+        }
+    }
     errno = 0;
     char* end = nullptr;
     double parsed = std::strtod(display, &end);
@@ -1321,13 +1497,32 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     }
     while (*end == ' ' || *end == '\t') ++end;
     if (*end == '%') parsed *= 0.01;
-    if (std::strcmp(range.unit, "aux-grain-size") == 0) {
+    if (std::strcmp(range.unit, "splice-rate") == 0) {
+        parsed = parsed <= 1.5
+            ? 0.25 * std::log(std::clamp(parsed * 60.0, 1.0, 90.0))
+                / std::log(90.0)
+            : 0.25 + 0.75
+                * std::log(std::clamp(parsed / 1.5, 1.0, 256.0))
+                / std::log(256.0);
+    } else if (std::strcmp(range.unit, "splice-rate-fine") == 0) {
+        parsed = std::log2(std::clamp(parsed, 0.5, 2.0));
+    } else if (std::strcmp(range.unit, "sub-bass-tune") == 0) {
+        parsed = std::log(std::clamp(parsed / 18.0, 1.0, 6.6666667))
+            / std::log(6.6666667);
+    } else if (std::strcmp(range.unit, "sub-bass-decay") == 0) {
+        parsed = std::log(std::clamp(parsed / 35.0, 1.0, 100.0))
+            / std::log(100.0);
+    } else if (std::strcmp(range.unit, "aux-grain-size") == 0) {
         parsed = std::log(std::clamp(parsed / 2.0, 1.0, 125.0))
             / std::log(125.0);
     } else if (std::strcmp(range.unit, "aux-grain-density") == 0) {
         parsed = (parsed - 1.25) / 6.75;
     } else if (std::strcmp(range.unit, "aux-grain-pitch") == 0) {
         parsed /= 12.0;
+    } else if (std::strcmp(range.unit, "aux-grain-spacing") == 0) {
+        parsed = parsed <= 0.0 ? 0.0
+            : 0.001 + 0.999 * std::sqrt(std::clamp(parsed / 2000.0,
+                0.0, 1.0));
     }
     *value = clampValue(id, parsed);
     return true;
@@ -1556,7 +1751,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.13.1",
+    "0.18.0",
     "An eight-node feedback processor built around paired ecology morphing.",
     features,
 };

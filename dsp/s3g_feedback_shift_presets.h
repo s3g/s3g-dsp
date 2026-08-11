@@ -17,7 +17,7 @@ struct FeedbackShiftPresetInfo {
 // Each preset is a paired ecology rather than one static effects patch. Scene
 // A remains the authored foothold; Scene B is the structurally related state
 // reached by MORPH or its selected driver.
-constexpr std::array<FeedbackShiftPresetInfo, 7u>
+constexpr std::array<FeedbackShiftPresetInfo, 9u>
     kFeedbackShiftPresetInfo {{
         { "COLD START", "Sparse metal opens into a tense coupled body" },
         { "ZERO WEATHER", "Sub-Hz beating blooms into breathing instability" },
@@ -26,6 +26,8 @@ constexpr std::array<FeedbackShiftPresetInfo, 7u>
         { "EXTERNAL TEAR", "Eight external lanes move from clear to ruptured" },
         { "HARSH WALL", "Restrained abrasion grows into a dense signed wall" },
         { "MICRO CUTS", "Short metallic cuts scatter through a pulse driver" },
+        { "MILLION SPLICES", "Hyper-dense virtual patches tear into sparse holes" },
+        { "SUB FRACTURE", "Slow sub pulses split through changing fracture circuits" },
     }};
 
 constexpr uint32_t kFeedbackShiftPresetCount =
@@ -71,6 +73,10 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
     params.morphSource = FeedbackMorphSource::Manual;
     params.auxMix = 0.0f;
     params.auxGrainMix = 0.0f;
+    params.spliceAmount = 0.58f;
+    params.spliceRate = 0.62f;
+    params.spliceContrast = 0.76f;
+    params.spliceSpace = 0.24f;
 
     const auto connectPair = [&](uint32_t node, float selfA, float selfB,
                                  uint32_t offset, float crossA, float crossB) {
@@ -92,6 +98,11 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
 
     switch (index) {
     case 0u:
+        params.spliceAmount = 0.44f;
+        params.spliceRate = 0.58f;
+        params.spliceContrast = 0.68f;
+        params.spliceSpace = 0.20f;
+        params.governorRest = 0.18f;
         for (uint32_t node = 0u; node < kFeedbackShiftChannels; ++node) {
             const float sign = node < 4u ? -1.0f : 1.0f;
             const float magnitude = 2.0f * std::pow(2.35f,
@@ -113,6 +124,14 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
         }};
         params.excite = 0.08f;
         params.drift = 0.04f;
+        params.governorReflex = 0.68f;
+        params.governorSensitivity = 0.36f;
+        params.governorRecovery = 0.82f;
+        params.governorRest = 0.42f;
+        params.spliceAmount = 0.36f;
+        params.spliceRate = 0.50f;
+        params.spliceContrast = 0.58f;
+        params.spliceSpace = 0.46f;
         params.morphSource = FeedbackMorphSource::Lfo;
         params.morphRate = 0.18f;
         params.morphDepth = 0.72f;
@@ -132,6 +151,11 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
     }
     case 2u:
         params.drift = 0.18f;
+        params.spliceAmount = 0.66f;
+        params.spliceRate = 0.68f;
+        params.spliceContrast = 0.86f;
+        params.spliceSpace = 0.26f;
+        params.governorRest = 0.28f;
         params.morphSource = FeedbackMorphSource::Chaos;
         params.morphRate = 0.30f;
         params.morphDepth = 0.84f;
@@ -151,9 +175,17 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
         break;
     case 3u:
         params.excite = 0.04f;
-        params.morphSource = FeedbackMorphSource::Envelope;
+        params.spliceAmount = 0.82f;
+        params.spliceRate = 0.76f;
+        params.spliceContrast = 0.92f;
+        params.spliceSpace = 0.58f;
+        params.morphSource = FeedbackMorphSource::Edge;
         params.morphDepth = 0.92f;
         params.morphInertia = 0.22f;
+        params.governorReflex = 0.56f;
+        params.governorSensitivity = 0.72f;
+        params.governorRecovery = 0.24f;
+        params.governorRest = 0.55f;
         for (uint32_t node = 0u; node < 8u; ++node) {
             params.nodes[node].exciterSource = FeedbackExciterSource::Hit;
             feedbackShiftConfigureScenes(params, node,
@@ -167,6 +199,11 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
         break;
     case 4u:
         params.excite = 0.0f;
+        params.spliceAmount = 0.76f;
+        params.spliceRate = 0.72f;
+        params.spliceContrast = 0.94f;
+        params.spliceSpace = 0.34f;
+        params.governorRest = 0.35f;
         params.morphSource = FeedbackMorphSource::Envelope;
         params.morphDepth = 0.78f;
         params.morphInertia = 0.16f;
@@ -185,6 +222,14 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
     case 5u:
         params.excite = 0.19f;
         params.drift = 0.15f;
+        params.spliceAmount = 0.52f;
+        params.spliceRate = 0.64f;
+        params.spliceContrast = 0.78f;
+        params.spliceSpace = 0.08f;
+        params.governorReflex = 0.16f;
+        params.governorSensitivity = 0.20f;
+        params.governorRecovery = 0.76f;
+        params.governorRest = 0.22f;
         params.morphSource = FeedbackMorphSource::Chaos;
         params.morphRate = 0.25f;
         params.morphDepth = 0.66f;
@@ -210,6 +255,11 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
         break;
     case 6u:
         params.excite = 0.12f;
+        params.spliceAmount = 0.88f;
+        params.spliceRate = 0.80f;
+        params.spliceContrast = 0.96f;
+        params.spliceSpace = 0.52f;
+        params.governorRest = 0.50f;
         params.morphSource = FeedbackMorphSource::Pulse;
         params.morphRate = 0.48f;
         params.morphDepth = 1.0f;
@@ -225,6 +275,8 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
         params.auxGrainCoherence = 0.12f;
         params.auxGrainLaneDrift = 0.94f;
         params.auxGrainMix = 0.38f;
+        params.auxGrainSpacing = 0.23f;
+        params.auxGrainShape = FeedbackGrainShape::Decay;
         for (uint32_t node = 0u; node < 8u; ++node) {
             feedbackShiftConfigureScenes(params, node,
                 (static_cast<float>(node) - 3.5f) * 7.0f,
@@ -233,6 +285,93 @@ inline FeedbackShiftParams feedbackShiftPreset(uint32_t index)
                 0.02f + 0.02f * node, 0.34f + 0.06f * node);
             connectPair(node, 0.34f, 0.80f, 3u, 0.0f,
                 node & 1u ? -0.34f : 0.37f);
+        }
+        break;
+    case 7u:
+        params.excite = 0.16f;
+        params.drift = 0.02f;
+        params.spliceAmount = 1.0f;
+        params.spliceRate = 0.90f;
+        params.spliceContrast = 1.0f;
+        params.spliceSpace = 0.42f;
+        params.governorReflex = 0.72f;
+        params.governorSensitivity = 0.64f;
+        params.governorRecovery = 0.18f;
+        params.governorRest = 0.22f;
+        params.morphSource = FeedbackMorphSource::Edge;
+        params.morphDepth = 0.88f;
+        params.morphInertia = 0.0f;
+        params.outputGainDb = -27.0f;
+        params.auxPress = 0.46f;
+        params.auxSaturation = 0.58f;
+        params.auxFold = 0.26f;
+        params.auxClip = 0.18f;
+        params.auxMix = 0.08f;
+        for (uint32_t node = 0u; node < 8u; ++node) {
+            params.nodes[node].mode = node & 1u
+                ? FeedbackShiftMode::Ring : FeedbackShiftMode::Frequency;
+            feedbackShiftConfigureScenes(params, node,
+                (node < 4u ? -1.0f : 1.0f)
+                    * (0.04f + 0.19f * static_cast<float>(node % 4u)),
+                (static_cast<float>(node) - 3.5f) * 430.0f,
+                0.34f + 0.04f * static_cast<float>(node % 3u),
+                0.91f - 0.025f * static_cast<float>(node % 3u),
+                node & 1u ? -0.82f : 0.76f,
+                node & 1u ? 0.94f : -0.88f,
+                0.02f + 0.015f * static_cast<float>(node),
+                0.88f - 0.045f * static_cast<float>(node));
+            connectPair(node, 0.28f, 0.86f, 3u,
+                node & 1u ? -0.06f : 0.07f,
+                node & 1u ? 0.48f : -0.46f);
+            feedbackShiftRoute(params.sceneBMatrix, node,
+                (node + 5u) % 8u, node & 1u ? -0.31f : 0.34f);
+        }
+        break;
+    case 8u:
+        params.excite = 0.02f;
+        params.spliceAmount = 0.72f;
+        params.spliceRate = 0.38f;
+        params.spliceContrast = 0.90f;
+        params.spliceSpace = 0.48f;
+        params.subBassTune = 0.30f;
+        params.subBassShape = 0.38f;
+        params.subBassDrive = 0.62f;
+        params.subBassDecay = 0.66f;
+        params.subBassSustain = 0.08f;
+        params.governorReflex = 0.54f;
+        params.governorSensitivity = 0.48f;
+        params.governorRecovery = 0.30f;
+        params.governorRest = 0.38f;
+        params.morphSource = FeedbackMorphSource::Edge;
+        params.morphDepth = 0.82f;
+        params.morphInertia = 0.04f;
+        params.outputGainDb = -24.0f;
+        for (uint32_t node = 0u; node < 8u; ++node) {
+            params.nodes[node].exciterSource = node == 0u || node == 4u
+                ? FeedbackExciterSource::SubBass
+                : FeedbackExciterSource::Off;
+            params.nodes[node].pedal = FeedbackPedalType::Fracture;
+            params.nodes[node].pedalAmount = 0.60f
+                + 0.04f * static_cast<float>(node % 4u);
+            params.nodes[node].pedalTone = 0.28f
+                + 0.09f * static_cast<float>(node % 5u);
+            params.nodes[node].pedalBias = node & 1u ? -0.36f : 0.31f;
+            params.nodes[node].pedalMix = 0.78f;
+            params.nodes[node].pedalExtra[0u] = 0.62f;
+            params.nodes[node].pedalExtra[1u] = 0.46f;
+            params.nodes[node].pedalExtra[2u] = static_cast<float>(
+                node % kFractureProcessorCount)
+                / static_cast<float>(kFractureProcessorCount - 1u);
+            feedbackShiftConfigureScenes(params, node,
+                (node < 4u ? -1.0f : 1.0f)
+                    * (0.06f + 0.23f * static_cast<float>(node % 4u)),
+                (static_cast<float>(node) - 3.5f) * 72.0f,
+                0.46f, 0.84f, -0.58f, 0.72f,
+                0.08f + 0.025f * static_cast<float>(node),
+                0.72f - 0.035f * static_cast<float>(node));
+            connectPair(node, 0.42f, 0.82f, 4u,
+                node & 1u ? -0.14f : 0.16f,
+                node & 1u ? 0.38f : -0.40f);
         }
         break;
     default: break;

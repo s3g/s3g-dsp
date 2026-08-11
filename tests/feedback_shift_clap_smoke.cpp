@@ -19,7 +19,9 @@ namespace {
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.feedback-shift";
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 8u;
-constexpr uint32_t kParamCount = 381u;
+constexpr uint32_t kParamCount = 397u;
+constexpr double kExternalExciterSource = 5.0;
+constexpr double kOffExciterSource = 7.0;
 
 struct HostContext {
     clap_host_t host {};
@@ -244,6 +246,10 @@ int main(int argc, char** argv)
     ok &= check(!binary.empty(), "could not resolve CLAP binary");
     void* handle = binary.empty()
         ? nullptr : dlopen(binary.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        const char* error = dlerror();
+        if (error) std::cerr << "dlopen: " << error << '\n';
+    }
     ok &= check(handle != nullptr, "could not load CLAP binary");
     if (!handle) return 1;
     const auto* entry = static_cast<const clap_plugin_entry_t*>(
@@ -263,7 +269,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor && std::strcmp(descriptor->id, kPluginId) == 0
         && std::strcmp(descriptor->name,
             "s3g Processor Feedback Shift") == 0
-        && std::strcmp(descriptor->version, "0.13.1") == 0,
+        && std::strcmp(descriptor->version, "0.18.0") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
         && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FREQUENCY_SHIFTER)
@@ -324,6 +330,17 @@ int main(int argc, char** argv)
     if (params) {
         clap_param_info_t morphSource {};
         clap_param_info_t morphHold {};
+        clap_param_info_t governorReflex {};
+        clap_param_info_t governorSensitivity {};
+        clap_param_info_t governorRecovery {};
+        clap_param_info_t governorRest {};
+        clap_param_info_t spliceAmount {};
+        clap_param_info_t spliceRate {};
+        clap_param_info_t spliceFine {};
+        clap_param_info_t spliceContrast {};
+        clap_param_info_t spliceSpace {};
+        clap_param_info_t subBassTune {};
+        clap_param_info_t subBassSustain {};
         clap_param_info_t run {};
         clap_param_info_t nodeMode {};
         clap_param_info_t exciterSource {};
@@ -336,20 +353,35 @@ int main(int argc, char** argv)
         clap_param_info_t auxPress {};
         clap_param_info_t auxReturn {};
         clap_param_info_t grainCoherence {};
+        clap_param_info_t grainSpacing {};
+        clap_param_info_t grainShape {};
         ok &= check(params->get_info(plugin, 3u, &morphSource)
             && params->get_info(plugin, 7u, &morphHold)
             && params->get_info(plugin, 12u, &run)
-            && params->get_info(plugin, 15u, &nodeMode)
-            && params->get_info(plugin, 17u, &exciterSource)
-            && params->get_info(plugin, 143u, &sceneAShift)
-            && params->get_info(plugin, 146u, &sceneABody)
-            && params->get_info(plugin, 148u, &sceneAAuxSend)
-            && params->get_info(plugin, 191u, &sceneBShift)
-            && params->get_info(plugin, 239u, &matrixA)
-            && params->get_info(plugin, 303u, &matrixB)
-            && params->get_info(plugin, 367u, &auxPress)
-            && params->get_info(plugin, 377u, &auxReturn)
-            && params->get_info(plugin, 379u, &grainCoherence),
+            && params->get_info(plugin, 15u, &governorReflex)
+            && params->get_info(plugin, 16u, &governorSensitivity)
+            && params->get_info(plugin, 17u, &governorRecovery)
+            && params->get_info(plugin, 18u, &governorRest)
+            && params->get_info(plugin, 19u, &spliceAmount)
+            && params->get_info(plugin, 20u, &spliceRate)
+            && params->get_info(plugin, 21u, &spliceFine)
+            && params->get_info(plugin, 22u, &spliceContrast)
+            && params->get_info(plugin, 23u, &spliceSpace)
+            && params->get_info(plugin, 24u, &subBassTune)
+            && params->get_info(plugin, 28u, &subBassSustain)
+            && params->get_info(plugin, 29u, &nodeMode)
+            && params->get_info(plugin, 31u, &exciterSource)
+            && params->get_info(plugin, 157u, &sceneAShift)
+            && params->get_info(plugin, 160u, &sceneABody)
+            && params->get_info(plugin, 162u, &sceneAAuxSend)
+            && params->get_info(plugin, 205u, &sceneBShift)
+            && params->get_info(plugin, 253u, &matrixA)
+            && params->get_info(plugin, 317u, &matrixB)
+            && params->get_info(plugin, 381u, &auxPress)
+            && params->get_info(plugin, 391u, &auxReturn)
+            && params->get_info(plugin, 393u, &grainCoherence)
+            && params->get_info(plugin, 395u, &grainSpacing)
+            && params->get_info(plugin, 396u, &grainShape),
             "ecology parameter indices were incomplete");
         ok &= check((morphSource.flags & CLAP_PARAM_IS_STEPPED) != 0u
                 && (morphHold.flags & CLAP_PARAM_IS_STEPPED) != 0u
@@ -358,6 +390,24 @@ int main(int argc, char** argv)
                 && (exciterSource.flags & CLAP_PARAM_IS_STEPPED) != 0u
                 && std::strcmp(morphSource.name, "Morph Driver") == 0
                 && std::strcmp(morphSource.module, "Morph") == 0
+                && std::strcmp(governorReflex.name, "Governor Reflex") == 0
+                && std::strcmp(governorReflex.module, "Governor") == 0
+                && std::strcmp(governorSensitivity.name,
+                    "Governor Sensitivity") == 0
+                && std::strcmp(governorRecovery.name,
+                    "Governor Recovery") == 0
+                && std::strcmp(governorRest.name, "Governor Rest") == 0
+                && std::strcmp(spliceAmount.name, "Splice Amount") == 0
+                && std::strcmp(spliceAmount.module, "Splice") == 0
+                && std::strcmp(spliceRate.name, "Splice Range") == 0
+                && std::strcmp(spliceFine.name, "Splice Fine") == 0
+                && std::strcmp(spliceFine.module, "Splice") == 0
+                && std::strcmp(spliceContrast.name, "Splice Contrast") == 0
+                && std::strcmp(spliceSpace.name, "Splice Space") == 0
+                && std::strcmp(subBassTune.name, "Sub Bass Tune") == 0
+                && std::strcmp(subBassTune.module, "Sub Bass") == 0
+                && std::strcmp(subBassSustain.name,
+                    "Sub Bass Sustain") == 0
                 && std::strcmp(sceneAShift.module, "Scene A / Node 1") == 0
                 && std::strcmp(sceneBShift.module, "Scene B / Node 1") == 0
                 && std::strcmp(sceneABody.name, "Body") == 0
@@ -367,13 +417,32 @@ int main(int argc, char** argv)
                 && std::strcmp(auxPress.module, "Feedback AUX") == 0
                 && std::strcmp(auxReturn.name, "Return") == 0
                 && std::strcmp(grainCoherence.module,
-                    "Post Granulator") == 0,
+                    "Post Granulator") == 0
+                && grainSpacing.id == 6014u
+                && std::strcmp(grainSpacing.name, "Grain Spacing") == 0
+                && grainShape.id == 6015u
+                && std::strcmp(grainShape.name, "Grain Shape") == 0
+                && (grainShape.flags & CLAP_PARAM_IS_STEPPED) != 0u,
             "scene, morph, or secondary processor metadata failed");
         ok &= check(std::abs(getParam(plugin, params, 3u)) < 1.0e-6
                 && std::abs(getParam(plugin, params, 5u) - 1.0) < 1.0e-6
                 && std::abs(getParam(plugin, params, 6u) - 0.34) < 1.0e-6
                 && std::abs(getParam(plugin, params, 7u) - 0.32) < 1.0e-6
                 && std::abs(getParam(plugin, params, 12u) + 18.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 16u) - 0.32) < 1.0e-6
+                && std::abs(getParam(plugin, params, 17u) - 0.28) < 1.0e-6
+                && std::abs(getParam(plugin, params, 18u) - 0.48) < 1.0e-6
+                && std::abs(getParam(plugin, params, 19u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 20u) - 0.64) < 1.0e-6
+                && std::abs(getParam(plugin, params, 21u) - 0.66) < 1.0e-6
+                && std::abs(getParam(plugin, params, 22u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 23u) - 0.82) < 1.0e-6
+                && std::abs(getParam(plugin, params, 24u) - 0.30) < 1.0e-6
+                && std::abs(getParam(plugin, params, 25u) - 0.34) < 1.0e-6
+                && std::abs(getParam(plugin, params, 26u) - 0.18) < 1.0e-6
+                && std::abs(getParam(plugin, params, 27u) - 0.28) < 1.0e-6
+                && std::abs(getParam(plugin, params, 28u) - 0.56) < 1.0e-6
+                && std::abs(getParam(plugin, params, 29u)) < 1.0e-6
                 && std::abs(getParam(plugin, params, 1004u) - 0.52) < 1.0e-6
                 && std::abs(getParam(plugin, params, 1008u) - 0.5) < 1.0e-6
                 && std::abs(getParam(plugin, params, 2000u) + 720.0) < 1.0e-6
@@ -389,20 +458,38 @@ int main(int argc, char** argv)
                 && std::abs(getParam(plugin, params, 6000u) - 0.28) < 1.0e-6
                 && std::abs(getParam(plugin, params, 6010u)) < 1.0e-6
                 && std::abs(getParam(plugin, params, 6011u)) < 1.0e-6
-                && std::abs(getParam(plugin, params, 6012u) - 1.0) < 1.0e-6,
+                && std::abs(getParam(plugin, params, 6012u) - 1.0) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6014u)) < 1.0e-6
+                && std::abs(getParam(plugin, params, 6015u)) < 1.0e-6,
             "paired-scene defaults failed");
         char frequencyText[32] {};
         char colorText[32] {};
+        char edgeDriverText[32] {};
+        char spliceFineText[32] {};
         char grainSizeText[32] {};
+        char grainSpacingText[32] {};
+        char grainShapeText[32] {};
         ok &= check(params->value_to_text(plugin, 2000u, 0.125,
                 frequencyText, sizeof(frequencyText))
             && std::strcmp(frequencyText, "+0.125 Hz") == 0
             && params->value_to_text(plugin, 2002u, -0.5,
                 colorText, sizeof(colorText))
             && std::strcmp(colorText, "-0.50") == 0
+            && params->value_to_text(plugin, 4u, 2.0,
+                edgeDriverText, sizeof(edgeDriverText))
+            && std::strcmp(edgeDriverText, "ECOLOGY EDGE") == 0
+            && params->value_to_text(plugin, 22u, 1.0,
+                spliceFineText, sizeof(spliceFineText))
+            && std::strcmp(spliceFineText, "x2.000") == 0
             && params->value_to_text(plugin, 6004u, 0.0,
                 grainSizeText, sizeof(grainSizeText))
-            && std::strcmp(grainSizeText, "2.00 ms") == 0,
+            && std::strcmp(grainSizeText, "2.00 ms") == 0
+            && params->value_to_text(plugin, 6014u, 0.0,
+                grainSpacingText, sizeof(grainSpacingText))
+            && std::strcmp(grainSpacingText, "0.00 ms") == 0
+            && params->value_to_text(plugin, 6015u, 3.0,
+                grainShapeText, sizeof(grainShapeText))
+            && std::strcmp(grainShapeText, "DECAY") == 0,
             "sub-Hz, bipolar color, or AUX readout lost precision");
     }
 
@@ -432,9 +519,10 @@ int main(int argc, char** argv)
     EventList externalExciter;
     externalExciter.addParam(1u, 0.0);
     for (uint32_t node = 0u; node < kChannels; ++node) {
-        externalExciter.addParam(1002u + node * 16u, 6.0);
+        externalExciter.addParam(1002u + node * 16u,
+            kExternalExciterSource);
     }
-    externalExciter.addParam(1034u, 4.0);
+    externalExciter.addParam(1034u, kExternalExciterSource);
     externalExciter.addParam(1035u, 0.0);
     std::array<double, kChannels> externalChannels {};
     const double externalEnergy = processBlocks(plugin, &externalExciter,
@@ -443,10 +531,18 @@ int main(int argc, char** argv)
     EventList externalOff;
     externalOff.addParam(1u, 0.0);
     for (uint32_t node = 0u; node < kChannels; ++node) {
-        externalOff.addParam(1002u + node * 16u, 6.0);
+        externalOff.addParam(1002u + node * 16u,
+            kOffExciterSource);
     }
     const double sourceOffEnergy = processBlocks(plugin, &externalOff,
         16u, nullptr, 2);
+    if (!(externalEnergy > 1.0e-5
+            && externalChannels[2u] > 1.0e-7
+            && externalEnergy > sourceOffEnergy * 20.0)) {
+        std::cerr << "external energy=" << externalEnergy
+            << " channel3=" << externalChannels[2u]
+            << " silent-input energy=" << sourceOffEnergy << '\n';
+    }
     ok &= check(externalEnergy > 1.0e-5
             && externalChannels[2u] > 1.0e-7
             && externalEnergy > sourceOffEnergy * 20.0,
@@ -489,10 +585,16 @@ int main(int argc, char** argv)
     EventList ecologyChange;
     ecologyChange.addParam(3u, 0.63);
     ecologyChange.addParam(12u, -3.0);
+    ecologyChange.addParam(16u, 0.81);
+    ecologyChange.addParam(17u, 0.66);
+    ecologyChange.addParam(18u, 0.73);
+    ecologyChange.addParam(19u, 0.58);
     ecologyChange.addParam(2003u, 0.70);
     ecologyChange.addParam(3000u, 123.4);
     ecologyChange.addParam(5001u, -0.41);
     ecologyChange.addParam(6012u, 0.37);
+    ecologyChange.addParam(6014u, 0.42);
+    ecologyChange.addParam(6015u, 3.0);
     (void)processBlocks(plugin, &ecologyChange, 1u);
     MemoryState memory;
     clap_ostream_t streamOut { &memory, stateWrite };
@@ -501,20 +603,32 @@ int main(int argc, char** argv)
     EventList ecologyAway;
     ecologyAway.addParam(3u, 0.0);
     ecologyAway.addParam(12u, -40.0);
+    ecologyAway.addParam(16u, 0.0);
+    ecologyAway.addParam(17u, 0.0);
+    ecologyAway.addParam(18u, 0.0);
+    ecologyAway.addParam(19u, 0.0);
     ecologyAway.addParam(2003u, 0.05);
     ecologyAway.addParam(3000u, -5000.0);
     ecologyAway.addParam(5001u, 0.0);
     ecologyAway.addParam(6012u, 1.0);
+    ecologyAway.addParam(6014u, 0.0);
+    ecologyAway.addParam(6015u, 0.0);
     (void)processBlocks(plugin, &ecologyAway, 1u);
     memory.position = 0u;
     clap_istream_t streamIn { &memory, stateRead };
     ok &= check(state && state->load(plugin, &streamIn)
         && std::abs(getParam(plugin, params, 3u) - 0.63) < 1.0e-6
         && std::abs(getParam(plugin, params, 12u) + 3.0) < 1.0e-6
+        && std::abs(getParam(plugin, params, 16u) - 0.81) < 1.0e-6
+        && std::abs(getParam(plugin, params, 17u) - 0.66) < 1.0e-6
+        && std::abs(getParam(plugin, params, 18u) - 0.73) < 1.0e-6
+        && std::abs(getParam(plugin, params, 19u) - 0.58) < 1.0e-6
         && std::abs(getParam(plugin, params, 2003u) - 0.70) < 1.0e-6
         && std::abs(getParam(plugin, params, 3000u) - 123.4) < 1.0e-6
         && std::abs(getParam(plugin, params, 5001u) + 0.41) < 1.0e-6
-        && std::abs(getParam(plugin, params, 6012u) - 0.37) < 1.0e-6,
+        && std::abs(getParam(plugin, params, 6012u) - 0.37) < 1.0e-6
+        && std::abs(getParam(plugin, params, 6014u) - 0.42) < 1.0e-6
+        && std::abs(getParam(plugin, params, 6015u) - 3.0) < 1.0e-6,
         "paired-ecology state round trip failed");
 
     MemoryState obsolete = memory;
