@@ -658,23 +658,42 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         return true;
     } else if (id == kShapeParamId) {
         constexpr const char* names[] {
+            "Circle", "Ellipse", "Square", "Triangle", "Irregular"
+        };
+        constexpr const char* lowercaseNames[] {
             "circle", "ellipse", "square", "triangle", "irregular"
         };
         for (uint32_t shape = 0u; shape < 5u; ++shape) {
-            if (std::strstr(display, names[shape])) {
+            if (std::strcmp(display, names[shape]) == 0
+                || std::strcmp(display, lowercaseNames[shape]) == 0) {
                 *value = shape;
                 return true;
             }
         }
     } else if (id == kStrikeModeParamId) {
         constexpr const char* names[] {
+            "Fixed", "Random Area", "Random Rim"
+        };
+        constexpr const char* lowercaseNames[] {
             "fixed", "random area", "random rim"
         };
         for (uint32_t mode = 0u; mode < 3u; ++mode) {
-            if (std::strstr(display, names[mode])) {
+            if (std::strcmp(display, names[mode]) == 0
+                || std::strcmp(display, lowercaseNames[mode]) == 0) {
                 *value = mode;
                 return true;
             }
+        }
+    } else if (id == kTriggerParamId) {
+        if (std::strcmp(display, "Strike") == 0
+            || std::strcmp(display, "strike") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "Ready") == 0
+            || std::strcmp(display, "ready") == 0) {
+            *value = 0.0;
+            return true;
         }
     }
     *value = std::atof(display);

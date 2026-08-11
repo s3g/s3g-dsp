@@ -1,4 +1,4 @@
-# s3g Tracker CLAP preview
+# s3g Tracker CLAP
 
 For operation inside REAPER, start with the public
 [s3g Tracker guide](s3g-tracker.html). The source-level

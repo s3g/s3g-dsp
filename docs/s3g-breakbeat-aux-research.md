@@ -111,7 +111,7 @@ structures rather than only changing gain:
 
 ## Multichannel behavior
 
-Slicer 16 needs an explicit link policy:
+The 16-channel Slicer needs an explicit link policy:
 
 - `ALL`: one detector and gain computer drive all active channels. This is the
   safest dynamics mode for encoded spatial material because it preserves

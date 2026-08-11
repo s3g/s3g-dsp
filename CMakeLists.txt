@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Collection and default bundle version. Individual targets and CLAP
 # descriptors may keep component-scoped versions and advance independently.
-project(s3g_dsp VERSION 0.6.0 LANGUAGES CXX)
+project(s3g_dsp VERSION 0.7.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -17,16 +17,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(s3g_dsp INTERFACE)
 target_include_directories(s3g_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
 
-# Future-release previews are source-build opt-ins. They are intentionally
-# absent from the active 0.6.0-pre bundle manifest and release-gate inventory.
+# Compatibility toggles for the components introduced in 0.7. Fresh builds
+# include the complete release inventory; the switches remain available for
+# focused developer builds and older local configure commands.
 option(S3G_BUILD_FUTURE_COMPONENTS
-  "Build future-release DSP previews that are excluded from 0.6.0-pre" OFF)
+  "Build the complete set of components introduced in 0.7" ON)
 option(S3G_BUILD_DRUM_OVERLOAD_PREVIEW
-  "Build Drum Overload without enabling every future component" OFF)
+  "Build Drum Overload when the complete 0.7 component set is disabled" OFF)
 option(S3G_BUILD_TRACKER_PREVIEW
-  "Build the host-synchronized s3g Tracker MIDI CLAP preview" OFF)
+  "Build the host-synchronized s3g Tracker MIDI CLAP" ON)
 option(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
-  "Build the s3g Breakbeat Slicer multisample CLAP preview" OFF)
+  "Build the s3g Breakbeat Slicer multisample CLAP" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -355,86 +356,86 @@ if(BUILD_TESTING)
     add_test(NAME s3g_drum_primitives_smoke
       COMMAND $<TARGET_FILE:s3g_drum_primitives_smoke>)
     set_tests_properties(s3g_drum_primitives_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_character_smoke
       COMMAND $<TARGET_FILE:s3g_drum_character_smoke>)
     set_tests_properties(s3g_drum_character_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_overload_smoke
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
     set_tests_properties(s3g_drum_overload_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_echo_smoke
       COMMAND $<TARGET_FILE:s3g_drum_echo_smoke>)
     set_tests_properties(s3g_drum_echo_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_mixer_smoke
       COMMAND $<TARGET_FILE:s3g_drum_mixer_smoke>)
     set_tests_properties(s3g_drum_mixer_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_kick_smoke
       COMMAND $<TARGET_FILE:s3g_drum_kick_smoke>)
     set_tests_properties(s3g_drum_kick_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_snare_smoke
       COMMAND $<TARGET_FILE:s3g_drum_snare_smoke>)
     set_tests_properties(s3g_drum_snare_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_tom_voice_smoke
       COMMAND $<TARGET_FILE:s3g_drum_tom_voice_smoke>)
     set_tests_properties(s3g_drum_tom_voice_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_floor_tom_smoke
       COMMAND $<TARGET_FILE:s3g_drum_floor_tom_smoke>)
     set_tests_properties(s3g_drum_floor_tom_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_concert_bass_smoke
       COMMAND $<TARGET_FILE:s3g_drum_concert_bass_smoke>)
     set_tests_properties(s3g_drum_concert_bass_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_toms_smoke
       COMMAND $<TARGET_FILE:s3g_drum_toms_smoke>)
     set_tests_properties(s3g_drum_toms_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_hi_hat_smoke
       COMMAND $<TARGET_FILE:s3g_drum_hi_hat_smoke>)
     set_tests_properties(s3g_drum_hi_hat_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_clap_smoke
       COMMAND $<TARGET_FILE:s3g_drum_clap_smoke>)
     set_tests_properties(s3g_drum_clap_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_cowbell_smoke
       COMMAND $<TARGET_FILE:s3g_drum_cowbell_smoke>)
     set_tests_properties(s3g_drum_cowbell_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_drum_crash_smoke
       COMMAND $<TARGET_FILE:s3g_drum_crash_smoke>)
     set_tests_properties(s3g_drum_crash_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_processor_errant_smoke
       COMMAND $<TARGET_FILE:s3g_processor_errant_smoke>)
     set_tests_properties(s3g_processor_errant_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_membrane_kick_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_membrane_kick_smoke>)
     set_tests_properties(s3g_ambi_membrane_kick_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_acid_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_acid_encoder_smoke>)
     set_tests_properties(s3g_ambi_acid_encoder_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
     set_tests_properties(s3g_ambi_horizon_encoder_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
   endif()
 
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
     add_test(NAME s3g_drum_overload_smoke
       COMMAND $<TARGET_FILE:s3g_drum_overload_smoke>)
     set_tests_properties(s3g_drum_overload_smoke PROPERTIES
-      LABELS "future;smoke" TIMEOUT 300)
+      LABELS "non_nim;smoke" TIMEOUT 300)
   endif()
 
   add_test(NAME s3g_no_input_mixer_smoke
@@ -950,7 +951,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_feedback_shift_clap_smoke>
         $<TARGET_FILE:s3g_feedback_shift_clap>)
     set_tests_properties(s3g_feedback_shift_clap_smoke PROPERTIES
-      LABELS "future;clap;smoke" TIMEOUT 120)
+      LABELS "non_nim;clap;smoke" TIMEOUT 120)
     if(APPLE)
       add_test(NAME s3g_feedback_shift_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
@@ -958,7 +959,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
           org.s3g.s3g-dsp.feedback-shift
           1100 760 "s3g Processor Feedback Shift" responsive)
       set_tests_properties(s3g_feedback_shift_gui_smoke PROPERTIES
-        LABELS "future;clap;gui" TIMEOUT 120)
+        LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
   endif()
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
@@ -976,14 +977,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
         $<TARGET_FILE:s3g_tracker_clap>)
     set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
-      LABELS "tracker;clap;smoke" TIMEOUT 120)
+      LABELS "non_nim;tracker;clap;smoke" TIMEOUT 120)
   endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_breakbeat_slicer_clap_smoke
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_clap_smoke>
         $<TARGET_FILE:s3g_breakbeat_slicer_clap>)
     set_tests_properties(s3g_breakbeat_slicer_clap_smoke PROPERTIES
-      LABELS "breakbeat-slicer;clap;smoke" TIMEOUT 120)
+      LABELS "non_nim;breakbeat-slicer;clap;smoke" TIMEOUT 120)
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
@@ -1729,7 +1730,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_FUTURE_COMPONENTS)
     set(S3G_HORIZON_REALTIME_REPORT
       "${CMAKE_BINARY_DIR}/ambi-horizon-realtime.json")
-    add_custom_target(audit_ambi_horizon_future
+    add_custom_target(audit_ambi_horizon
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_clap_smoke>
         $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
@@ -1753,12 +1754,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_clap_realtime_audit
         s3g_encoder_family_gui_smoke
         s3g_ambi_horizon_encoder_clap
-      COMMENT "Validating future-release Horizon DSP, realtime CLAP, and GUI")
+      COMMENT "Validating Horizon DSP, realtime CLAP, and GUI")
 
     if(TARGET s3g_realtime_alloc_probe)
       set(S3G_HORIZON_ALLOC_REPORT
         "${CMAKE_BINARY_DIR}/ambi-horizon-realtime-alloc.json")
-      add_custom_target(audit_ambi_horizon_future_alloc
+      add_custom_target(audit_ambi_horizon_alloc
         COMMAND ${CMAKE_COMMAND} -E env
           "DYLD_INSERT_LIBRARIES=$<TARGET_FILE:s3g_realtime_alloc_probe>"
           $<TARGET_FILE:s3g_clap_realtime_audit>
@@ -1776,8 +1777,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_clap_realtime_audit
           s3g_realtime_alloc_probe
         COMMENT "Allocation-probing Horizon underrun scenarios")
-      add_dependencies(audit_ambi_horizon_future
-        audit_ambi_horizon_future_alloc)
+      add_dependencies(audit_ambi_horizon
+        audit_ambi_horizon_alloc)
     endif()
   endif()
 

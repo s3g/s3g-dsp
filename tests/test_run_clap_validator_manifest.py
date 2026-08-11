@@ -168,6 +168,62 @@ class ManifestValidatorRunnerTests(unittest.TestCase):
             self.assertIn("must stay under --build-root", completed.stderr)
             self.assertFalse(output.exists())
 
+    def test_validator_032_tracker_direction_bug_is_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "manifest.tsv"
+            manifest.write_text(
+                "tracker/tracker.clap\ttracker.clap\t"
+                "org.s3g.s3g-dsp.tracker\ts3g Tracker\n",
+                encoding="utf-8",
+            )
+            build = root / "plugins"
+            (build / "tracker" / "tracker.clap").mkdir(parents=True)
+            arguments = root / "arguments.json"
+            validator = root / "fake-validator.py"
+            validator.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json
+                    from pathlib import Path
+                    import sys
+                    if "--version" in sys.argv:
+                        print("clap-validator 0.3.2")
+                        raise SystemExit(0)
+                    Path({str(arguments)!r}).write_text(json.dumps(sys.argv[1:]))
+                    """
+                ),
+                encoding="utf-8",
+            )
+            validator.chmod(0o755)
+            output = root / "report.json"
+            completed = subprocess.run(
+                [
+                    sys.executable, str(RUNNER),
+                    "--validator", str(validator),
+                    "--manifest", str(manifest),
+                    "--build-root", str(build),
+                    "--output", str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            invoked = json.loads(arguments.read_text(encoding="utf-8"))
+            self.assertIn("--invert-filter", invoked)
+            self.assertEqual(
+                invoked[invoked.index("--test-filter") + 1],
+                "^process-note-",
+            )
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["validator_version"], "0.3.2")
+            self.assertEqual(
+                report["results"][0]["compatibility_workaround"],
+                "clap-validator-0.3.2-output-note-port-direction",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

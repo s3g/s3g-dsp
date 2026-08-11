@@ -18,7 +18,7 @@
     },
     {
       "name": "clap-tracker",
-      "displayName": "s3g Tracker CLAP Preview",
+      "displayName": "s3g Tracker CLAP Focused Build",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build-tracker",
       "cacheVariables": {
@@ -35,7 +35,11 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "S3G_BUILD_CLAP_PLUGIN": "ON",
-        "S3G_ENABLE_REALTIME_ALLOC_PROBE": "ON"
+        "S3G_ENABLE_REALTIME_ALLOC_PROBE": "ON",
+        "S3G_BUILD_FUTURE_COMPONENTS": "ON",
+        "S3G_BUILD_DRUM_OVERLOAD_PREVIEW": "OFF",
+        "S3G_BUILD_TRACKER_PREVIEW": "ON",
+        "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "ON"
       }
     },
     {
@@ -50,7 +54,10 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined",
-        "S3G_BUILD_CLAP_PLUGIN": "ON"
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_BUILD_FUTURE_COMPONENTS": "ON",
+        "S3G_BUILD_TRACKER_PREVIEW": "ON",
+        "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "ON"
       }
     },
     {
@@ -60,7 +67,10 @@
       "binaryDir": "${sourceDir}/build-apps",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "S3G_BUILD_STANDALONE_APPS": "ON"
+        "S3G_BUILD_STANDALONE_APPS": "ON",
+        "S3G_BUILD_FUTURE_COMPONENTS": "OFF",
+        "S3G_BUILD_TRACKER_PREVIEW": "OFF",
+        "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "OFF"
       }
     }
   ],

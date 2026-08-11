@@ -26,8 +26,7 @@ but it is original DSP and is not an emulation of a particular product.
 ```sh
 cmake -S . -B build-clap \
   -DCMAKE_BUILD_TYPE=Release \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap --target s3g_drum_echo_clap
 ```
 

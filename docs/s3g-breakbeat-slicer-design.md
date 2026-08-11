@@ -1,6 +1,6 @@
 # s3g Slicer
 
-Status: playable source-build CLAP preview. Both fixed-output variants share a
+Status: included 0.7 CLAP product. Both fixed-output variants share a
 four-break engine and editor with per-break MIDI filtering, explicit Auto Map,
 four simultaneous waveform/playhead overviews, and a detailed slice editor.
 
@@ -178,7 +178,7 @@ readable without crowding the waveform.
   and gain-reduction indication;
 - one output panel controlling the host-visible output gain;
 - multichannel break pan remains locked so quad, octal, and 3OA channel order
-  is never folded or altered; Slicer 16 applies EQ per discrete channel and
+  is never folded or altered; the 16-channel Slicer applies EQ per discrete channel and
   supports all-channel, adjacent-pair, or free dynamics linking without
   downmixing or reordering; Field Safe bypasses nonlinear stages for encoded
   spatial material, with SAT/BITE/CLIP visibly muted and non-interactive.
@@ -195,7 +195,7 @@ The plug-in should expose:
 
 - one MIDI/CLAP note input port;
 - one immutable main audio output: stereo in `s3g Slicer 2`, or 16 discrete
-  channels in `s3g Slicer 16` (unused lanes are silent);
+  channels in `s3g Slicer` (unused lanes are silent);
 - dynamic note names for mapped slices;
 - automatable global performance parameters only; and
 - versioned state containing bank metadata, mapping, slices, and global sound
@@ -347,7 +347,7 @@ pitch/pan/reverse, loop and choke behavior, two post-playback insert slots per
 break (FILTER, DEGRADE, TRANSIENT, RESONATOR, EROSION, SHIFT, FOLD, REPEATER,
 and TIME), CLAP state, dynamic note names,
 and two immutable host-visible variants. Stereo exposes two outputs and accepts
-mono/stereo assets. Slicer 16 exposes sixteen generic outputs and accepts 1–16
+mono/stereo assets. The 16-channel Slicer exposes sixteen generic outputs and accepts 1–16
 channel assets; unused outputs are cleared to silence every block.
 
 REPEATER and TIME are signal-driven rather than transport-driven. A linked
@@ -377,8 +377,7 @@ A source is never truncated or folded into an invalid spatial field. The
 stereo variant rejects assets wider than two channels; the fixed 16-channel
 variant preserves source ordering and needs no run-time port reconfiguration.
 
-This remains a source-build preview and is intentionally absent from the
-release bundle manifest. Finder files can be dropped onto a break card or
+Both variants are included in the 0.7 release bundle manifest. Finder files can be dropped onto a break card or
 overview waveform, and user-initiated file decode and analysis run on a
 generation-checked worker; CLAP state restoration remains synchronous by
 contract. State version 9 embeds decoded multichannel samples, per-break
@@ -390,12 +389,11 @@ points, fine tune, and labels are not yet all exposed by the custom
 editor. Those are the next publication/editor tasks; they do not require
 changing the Tracker/MIDI boundary.
 
-Build and validate the preview on macOS with:
+Build and validate the product on macOS with:
 
 ```sh
 cmake -S . -B build-clap \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_BREAKBEAT_SLICER_PREVIEW=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap \
   --target s3g_breakbeat_slicer_clap \
            s3g_breakbeat_slicer_clap_smoke \

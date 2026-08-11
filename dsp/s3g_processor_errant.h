@@ -253,7 +253,9 @@ private:
 
     static float finite(float value)
     {
-        return std::isfinite(value) ? std::clamp(value, -8.0f, 8.0f) : 0.0f;
+        if (!std::isfinite(value) || std::fpclassify(value) == FP_SUBNORMAL)
+            return 0.0f;
+        return std::clamp(value, -8.0f, 8.0f);
     }
 
     static uint32_t mixSeed(uint32_t x)

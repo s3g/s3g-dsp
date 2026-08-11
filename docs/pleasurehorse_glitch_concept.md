@@ -145,7 +145,7 @@ This instrument is distinct from existing s3g tools:
 - Processor Errant composes finite, repeatable stereo utterances from internally
   synthesized sources and an event-genealogy score.
 
-The current source-preview implementation stays compact: stereo output, eight
+The current implementation stays compact: stereo output, eight
 voices, a short causal phrase-memory buffer, Cell/Phrase/Field modes,
 deterministic seed recall, and output containment. A deliberately matched
 reference preset bank remains a later product step. Existing drum-character

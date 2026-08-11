@@ -30,7 +30,7 @@
         <p><strong>s3g Tracker</strong> is a MIDI-generating CLAP instrument for REAPER. It follows the host transport and tempo, sequences as many as 32 polymetric tracks, and publishes sample-offset notes through eight CLAP MIDI output buses. Sound is produced by downstream s3g-dsp drums, samplers, or other instrument plug-ins.</p>
 
         <div class="callout">
-          <p>The tracker is currently a source-build preview for Apple-silicon macOS and is not part of the packaged s3g-dsp CLAP archive. Its project schema and interface can still change before release.</p>
+          <p>The tracker is included in the 0.7 s3g-dsp CLAP archive for Apple-silicon macOS. It is a MIDI-only companion to the drum and sampler instruments in the same release.</p>
         </div>
 
         <h2 id="workflow">Workflow</h2>
@@ -171,7 +171,7 @@ warp exp 2.0 mix .5</code></pre>
           <li>Project state uses the current native tracker schema and does not import Max tracker files or abandoned standalone formats.</li>
         </ul>
 
-        <p>Build the preview and its focused test targets from the repository root:</p>
+        <p>Build the tracker and its focused test targets from the repository root:</p>
 
         <pre><code>cmake --preset clap-tracker
 cmake --build --preset clap-tracker

@@ -1,4 +1,4 @@
-# s3g Slicer preview
+# s3g Slicer
 
 `s3g Slicer` is a multichannel multisample CLAP instrument designed to sit
 after `s3g Tracker` in REAPER. Tracker supplies timing and MIDI; this plug-in
@@ -8,7 +8,7 @@ The bundle exposes two instruments backed by the same sampler core:
 
 - `s3g Slicer 2` has one immutable 2-channel output and accepts
   mono or stereo files; and
-- `s3g Slicer 16` has one immutable 16-channel output, accepts 1–16
+- `s3g Slicer` has one immutable 16-channel output, accepts 1–16
   channel files, passes lanes through in source order, and clears every unused
   output to silence.
 
@@ -138,7 +138,7 @@ mode are latched at onset so a slider or mode change cannot restructure the
 buffer already playing. Short crossfades protect capture, repeat, and return-to-
 dry boundaries.
 
-On `s3g Slicer 16`, the same EQ is applied independently to every source lane.
+On `s3g Slicer`, the same EQ is applied independently to every source lane.
 Break Bus keeps separate nonlinear and filter state per lane. Its `ALL`,
 `PAIR`, and `FREE` modes alter only detector/gain linking: they never exchange,
 decode, sum, or reorder samples. `FIELD SAFE` retains linked compression, SNAP,
@@ -161,8 +161,7 @@ media folder and then rewrite the stored paths.
 
 ```sh
 cmake -S . -B build-clap \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_BREAKBEAT_SLICER_PREVIEW=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap --target s3g_breakbeat_slicer_clap -j 8
 ```
 
@@ -172,7 +171,7 @@ The bundle is written to:
 build-clap/plugins/clap_breakbeat_slicer/s3g_slicer.clap
 ```
 
-This preview is not yet part of the release bundle manifest. See
+Both variants are part of the 0.7 release bundle manifest. See
 [`docs/s3g-breakbeat-slicer-design.md`](../../docs/s3g-breakbeat-slicer-design.md)
 for the product boundary, architecture, state model, and implementation
 sequence.

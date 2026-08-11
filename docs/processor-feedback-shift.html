@@ -25,7 +25,7 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Processor Feedback Shift <em>(0.18.1 release candidate)</em></h1>
+        <h1>Processor Feedback Shift</h1>
 
         <p><code>s3g Processor Feedback Shift</code> is an eight-input, eight-output CLAP audio effect for performing one coupled feedback ecology. Eight shift/ring nodes, a signed 8-by-8 matrix, paired scenes, ecology-responsive governors, virtual patch splicing, per-node inserts, an in-network aux return, and a post-network granulator form one playable system rather than eight unrelated channel effects.</p>
 
@@ -60,9 +60,9 @@
 
         <h2 id="release-status">Release Status</h2>
 
-        <p>Version 0.18.1 is the current release-candidate source build. Its DSP, CLAP contract, GUI, shared No Input Mixer modulation circuits, and state rejection behavior pass the focused repository smoke tests. It is still built behind <code>S3G_BUILD_FUTURE_COMPONENTS</code> and is intentionally absent from the current packaged pre-release manifest while release inventory, performance, and distribution review remain separate steps.</p>
+        <p>Version 0.18.1 ships in the s3g-dsp 0.7 CLAP archive. Its DSP, CLAP contract, GUI, shared No Input Mixer modulation circuits, and state rejection behavior pass the focused repository smoke tests.</p>
 
-        <p>The 0.18.x state format is version 8 and deliberately rejects older Feedback Shift state. There is no migration layer for abandoned prototypes. Host projects should therefore be made with a 0.18.x build when evaluating this candidate.</p>
+        <p>The 0.18.x state format is version 8 and deliberately rejects older Feedback Shift state. There is no migration layer for abandoned prototypes, so host projects should use a 0.18.x build.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -174,15 +174,14 @@
 
         <p><code>RANDOM A</code> and <code>RANDOM B</code> alter only the named scene. The opposite scene, shared source and insert choices, manual morph position, output level, output mode, rotation, and governor topology remain unchanged. <code>COPY A &gt; B</code> and <code>COPY B &gt; A</code> establish a new destination without clearing the running network.</p>
 
-        <p>All 397 CLAP parameters are stored in the version-8 state. Insert memory is allocated during prepare rather than during audio rendering, and selector changes crossfade into the new processor. The release candidate rejects any state whose version or parameter count does not match exactly.</p>
+        <p>All 397 CLAP parameters are stored in the version-8 state. Insert memory is allocated during prepare rather than during audio rendering, and selector changes crossfade into the new processor. The plug-in rejects any state whose version or parameter count does not match exactly.</p>
 
         <h2 id="build">Build and Test</h2>
 
-        <p>Configure the opt-in future-component build from the repository root:</p>
+        <p>Build the included CLAP product from the repository root:</p>
 
         <pre><code>cmake -S . -B build-clap \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap --target s3g_feedback_shift_clap
 ctest --test-dir build-clap --output-on-failure \
   -R 's3g_feedback_shift|s3g_no_input_mixer'</code></pre>

@@ -30,7 +30,7 @@ if(BUILD_TESTING)
     add_executable(${target} ${source})
     target_link_libraries(${target} PRIVATE s3g_tracker_core)
     add_test(NAME ${target} COMMAND ${target})
-    set_tests_properties(${target} PROPERTIES LABELS "tracker;core")
+    set_tests_properties(${target} PROPERTIES LABELS "non_nim;tracker;core")
   endfunction()
 
   s3g_add_tracker_test(s3g_tracker_core_tests tests/sequencer_tests.cpp)
@@ -55,7 +55,7 @@ if(BUILD_TESTING)
   add_test(NAME s3g_tracker_workspace_layout_tests
     COMMAND s3g_tracker_workspace_layout_tests)
   set_tests_properties(s3g_tracker_workspace_layout_tests PROPERTIES
-    LABELS "tracker;gui")
+    LABELS "non_nim;tracker;gui")
 
   add_executable(s3g_tracker_grid_selection_tests tests/grid_selection_tests.cpp)
   target_include_directories(s3g_tracker_grid_selection_tests PRIVATE
@@ -63,7 +63,7 @@ if(BUILD_TESTING)
   add_test(NAME s3g_tracker_grid_selection_tests
     COMMAND s3g_tracker_grid_selection_tests)
   set_tests_properties(s3g_tracker_grid_selection_tests PROPERTIES
-    LABELS "tracker;gui")
+    LABELS "non_nim;tracker;gui")
 
   if(APPLE)
     add_executable(s3g_tracker_song_window_roundtrip_tests
@@ -80,7 +80,7 @@ if(BUILD_TESTING)
     add_test(NAME s3g_tracker_song_window_roundtrip_tests
       COMMAND s3g_tracker_song_window_roundtrip_tests)
     set_tests_properties(s3g_tracker_song_window_roundtrip_tests PROPERTIES
-      LABELS "tracker;gui")
+      LABELS "non_nim;tracker;gui")
 
     add_executable(s3g_tracker_workspace_layout_appkit_tests
       tests/workspace_layout_appkit_tests.mm
@@ -98,6 +98,6 @@ if(BUILD_TESTING)
     add_test(NAME s3g_tracker_workspace_layout_appkit_tests
       COMMAND s3g_tracker_workspace_layout_appkit_tests)
     set_tests_properties(s3g_tracker_workspace_layout_appkit_tests PROPERTIES
-      LABELS "tracker;gui")
+      LABELS "non_nim;tracker;gui")
   endif()
 endif()

@@ -35,8 +35,7 @@ modes still excite the distortion core.
 ```sh
 cmake -S . -B build-clap \
   -DCMAKE_BUILD_TYPE=Release \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_DRUM_OVERLOAD_PREVIEW=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap --target s3g_drum_overload_clap
 ```
 

@@ -20,7 +20,7 @@ if(BUILD_TESTING)
     COMMAND $<TARGET_FILE:s3g_processor_errant_clap_smoke>
       $<TARGET_FILE:s3g_processor_errant_clap>)
   set_tests_properties(s3g_processor_errant_clap_smoke PROPERTIES
-    LABELS "future;clap;smoke" TIMEOUT 120)
+    LABELS "non_nim;clap;smoke" TIMEOUT 120)
 endif()
 
 set_target_properties(s3g_processor_errant_clap PROPERTIES

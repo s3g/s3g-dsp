@@ -7,6 +7,9 @@ clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap	s3g_output_autogain_quad.c
 clap_ambi_point_encoder/s3g_ambi_point_encoder.clap	s3g_ambi_encoder_point.clap	org.s3g.s3g-dsp.ambi-point-encoder-64	s3g Ambi Encoder Point
 clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap	s3g_ambi_encoder_cloud.clap	org.s3g.s3g-dsp.ambi-cloud-encoder-64	s3g Ambi Encoder Cloud
 clap_ambi_cartography_encoder/s3g_ambi_cartography_encoder.clap	s3g_ambi_encoder_cartography.clap	org.s3g.s3g-dsp.ambi-cartography-encoder-64	s3g Ambi Encoder Cartography
+clap_ambi_acid_encoder/s3g_ambi_encoder_acid.clap	s3g_ambi_encoder_acid_16.clap	org.s3g.s3g-dsp.ambi-encoder-acid-16	s3g Ambi Encoder Acid 16
+clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap	s3g_ambi_encoder_horizon.clap	org.s3g.s3g-dsp.ambi-horizon-encoder-64	s3g Ambi Encoder Horizon
+clap_ambi_membrane_kick/s3g_ambi_encoder_membrane_kick.clap	s3g_ambi_encoder_membrane_kick_16.clap	org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16	s3g Ambi Encoder Membrane Kick 16
 clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap	s3g_ambi_encoder_surface_terrain.clap	org.s3g.s3g-dsp.ambi-terrain-navigator-64	s3g Ambi Encoder Surface Terrain
 clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap	s3g_ambi_encoder_vot.clap	org.s3g.s3g-dsp.ambi-vot-encoder-64	s3g Ambi Encoder VOT
 clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap	s3g_ambi_encoder_vox.clap	org.s3g.s3g-dsp.ambi-vox-encoder-64	s3g Ambi Encoder Vox
@@ -34,9 +37,26 @@ clap_vbap_panner/s3g_vbap_panner.clap	s3g_panner_vbap.clap	org.s3g.s3g-dsp.vbap-
 clap_sub_crossover/s3g_sub_crossover.clap	s3g_output_crossover.clap	org.s3g.s3g-dsp.sub-crossover	s3g Output Crossover
 clap_loop_processor/s3g_loop_processor.clap	s3g_processor_loop_8ch.clap	org.s3g.s3g-dsp.loop-processor-8ch	s3g Processor Loop 8ch
 clap_multi_loop_processor/s3g_multi_loop_processor.clap	s3g_processor_multi_loop_8ch.clap	org.s3g.s3g-dsp.multi-loop-processor-8ch	s3g Processor Multi Loop 8ch
+clap_processor_errant/s3g_processor_errant.clap	s3g_processor_errant.clap	org.s3g.s3g-dsp.processor-errant	s3g Processor Errant
+clap_feedback_shift/s3g_feedback_shift.clap	s3g_processor_feedback_shift.clap	org.s3g.s3g-dsp.feedback-shift	s3g Processor Feedback Shift
 clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8ch.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8ch
 clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8ch.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8ch
 clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
+clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Tracker
+clap_breakbeat_slicer/s3g_slicer.clap	s3g_slicer.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Slicer
+clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick
+clap_drum_snare/s3g_drum_snare.clap	s3g_drum_snare.clap	org.s3g.s3g-dsp.drum-snare	s3g Drum Snare
+clap_drum_floor_tom/s3g_drum_floor_tom.clap	s3g_drum_floor_tom.clap	org.s3g.s3g-dsp.drum-floor-tom	s3g Drum Floor Tom
+clap_drum_concert_bass/s3g_drum_concert_bass.clap	s3g_drum_concert_bass.clap	org.s3g.s3g-dsp.drum-concert-bass	s3g Drum Concert Bass
+clap_drum_toms/s3g_drum_toms.clap	s3g_drum_toms.clap	org.s3g.s3g-dsp.drum-toms	s3g Drum Toms
+clap_drum_hi_hat/s3g_drum_hi_hat.clap	s3g_drum_hi_hat.clap	org.s3g.s3g-dsp.drum-hi-hat	s3g Drum Hi-Hat
+clap_drum_clap/s3g_drum_clap.clap	s3g_drum_clap.clap	org.s3g.s3g-dsp.drum-clap	s3g Drum Clap
+clap_drum_cowbell/s3g_drum_cowbell.clap	s3g_drum_cowbell.clap	org.s3g.s3g-dsp.drum-cowbell	s3g Drum Cowbell
+clap_drum_crash/s3g_drum_crash.clap	s3g_drum_crash.clap	org.s3g.s3g-dsp.drum-crash	s3g Drum Crash
+clap_drum_break/s3g_drum_break.clap	s3g_drum_break.clap	org.s3g.s3g-dsp.drum-break	s3g Drum Break
+clap_drum_overload/s3g_drum_overload.clap	s3g_drum_overload.clap	org.s3g.s3g-dsp.drum-overload	s3g Drum Overload
+clap_drum_echo/s3g_drum_echo.clap	s3g_drum_echo.clap	org.s3g.s3g-dsp.drum-echo	s3g Drum Echo
+clap_drum_mixer/s3g_drum_mixer.clap	s3g_drum_mixer_16.clap	org.s3g.s3g-dsp.drum-mixer-16	s3g Drum Mixer 16
 clap_ambi_grain_processor/s3g_ambi_grain_processor.clap	s3g_processor_ambi_grain_16ch.clap	org.s3g.s3g-dsp.ambi-grain-processor	s3g Processor Ambi Grain 16ch
 clap_macro_delay/s3g_macro_delay.clap	s3g_macro_delay_8ch.clap	org.s3g.s3g-dsp.macro-delay-8ch	s3g Macro Delay 8ch
 clap_macro_delay/s3g_24ch_macro_delay.clap	s3g_macro_delay_24ch.clap	org.s3g.s3g-dsp.macro-delay-24ch	s3g Macro Delay 24ch

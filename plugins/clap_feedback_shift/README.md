@@ -6,11 +6,9 @@ lanes. It exposes stable 8-channel audio input and output ports and is
 advertised as an audio effect, not a CLAP instrument. MIDI remains available as
 an excitation source.
 
-Version 0.18.1 is the current release candidate. It replaces the earlier
+Version 0.18.1 ships in the s3g-dsp 0.7 release. It replaces the earlier
 motion/rhythm architecture and state format. Old Feedback Shift project state
-is rejected rather than migrated. This candidate remains an opt-in
-`S3G_BUILD_FUTURE_COMPONENTS` source build until the packaged
-release inventory, performance, and distribution review is complete.
+is rejected rather than migrated.
 
 ## The instrument
 
@@ -279,8 +277,7 @@ safety action.
 
 ```sh
 cmake -S . -B build-clap \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+  -DS3G_BUILD_CLAP_PLUGIN=ON
 cmake --build build-clap --target s3g_feedback_shift_clap
 ```
 

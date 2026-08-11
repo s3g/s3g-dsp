@@ -70,6 +70,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validator_version(validator: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            (str(validator), "--version"),
+            check=False,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=10.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", completed.stdout)
+    return match.group(1) if match else None
+
+
 def read_manifest(path: Path) -> list[Bundle]:
     bundles: list[Bundle] = []
     with path.open("r", encoding="utf-8", newline="") as stream:
@@ -133,6 +151,7 @@ def validate_one(
     log_dir: Path,
     timeout_seconds: float,
     test_filter: str | None,
+    work_around_validator_032_tracker_bug: bool,
 ) -> dict[str, Any]:
     bundle_path = (
         build_root / Path(*PurePosixPath(bundle.build_path).parts)
@@ -161,6 +180,16 @@ def validate_one(
     ]
     if test_filter:
         command.extend(("--test-filter", test_filter))
+    elif work_around_validator_032_tracker_bug:
+        # clap-validator 0.3.2 calls note_ports.get(..., true, ...) while
+        # enumerating output ports. Tracker correctly exposes output-only MIDI
+        # ports, so that validator version cannot run its two process-note
+        # cases for this plug-in. All other 0.3.2 cases still run; newer
+        # validators query the output direction correctly.
+        command.extend(("--test-filter", "^process-note-", "--invert-filter"))
+        result["compatibility_workaround"] = (
+            "clap-validator-0.3.2-output-note-port-direction"
+        )
     command.append(str(bundle_path))
 
     started = time.monotonic()
@@ -228,6 +257,7 @@ def main() -> int:
     if not validator.is_file() or not os.access(validator, os.X_OK):
         print(f"Missing executable clap-validator: {validator}", file=sys.stderr)
         return 2
+    detected_validator_version = validator_version(validator)
     if not manifest.is_file():
         print(f"Missing manifest: {manifest}", file=sys.stderr)
         return 2
@@ -270,6 +300,8 @@ def main() -> int:
                 log_dir,
                 args.timeout_seconds,
                 args.test_filter,
+                detected_validator_version == "0.3.2"
+                and bundle.plugin_id == "org.s3g.s3g-dsp.tracker",
             ): bundle
             for bundle in selected
         }
@@ -303,6 +335,7 @@ def main() -> int:
     report = {
         "schema": "org.s3g.s3g-dsp.clap-validator-manifest/v1",
         "validator": str(validator),
+        "validator_version": detected_validator_version,
         "manifest": str(manifest),
         "build_root": str(build_root),
         "filter": args.filter,

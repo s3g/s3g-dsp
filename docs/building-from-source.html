@@ -75,26 +75,19 @@ cmake --build build-clap</code></pre>
   -DS3G_BUILD_CLAP_PLUGIN=ON \
   -DS3G_ENABLE_WORLD=OFF</code></pre>
 
-        <h2 id="source-build-previews">Source-Build Previews</h2>
+        <h2 id="release-components">0.7 Release Components</h2>
 
-        <p>Preview documentation can describe work that is newer than the packaged pre-release. <a href="ambi-encoder-cartography.html">Ambi Encoder Cartography</a> is built by the normal CLAP source configuration above; use a fresh source build when matching its current landscape-effects and expanded site-process guide.</p>
+        <p>The normal CLAP configuration includes the complete 0.7 inventory. Along with <a href="ambi-encoder-cartography.html">Ambi Encoder Cartography</a>, it builds <a href="processor-feedback-shift.html">Processor Feedback Shift 0.18.1</a>, <a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a>, <a href="ambi-encoder-acid.html">Ambi Encoder Acid</a>, <a href="ambi-encoder-horizon.html">Ambi Encoder Horizon</a>, <a href="processor-errant.html">Processor Errant</a>, the expanded drum family, <a href="s3g-tracker.html">s3g Tracker</a>, and s3g Slicer.</p>
 
-        <p><a href="processor-feedback-shift.html">Processor Feedback Shift 0.18.1</a>, <a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a>, <a href="ambi-encoder-acid.html">Ambi Encoder Acid</a>, and <a href="ambi-encoder-horizon.html">Ambi Encoder Horizon</a> are opt-in future-component previews. Feedback Shift is documented as a release candidate, but it remains outside the packaged manifest until release inventory, performance, and distribution review are complete. Configure a separate build directory with both options enabled:</p>
+        <p>No additional component switch is required with the <code>clap</code> or <code>clap-release</code> preset. The compatibility switches remain available for focused development configurations, but the release presets enable every packaged 0.7 component.</p>
 
-        <pre><code>cmake -S . -B build-clap-future \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_FUTURE_COMPONENTS=ON
-cmake --build build-clap-future</code></pre>
-
-        <p>Future-component previews are intentionally absent from the packaged pre-release manifest. Their plugin names, parameters, state formats, routing, and CPU cost can still change.</p>
-
-        <p><a href="s3g-tracker.html">s3g Tracker</a> has its own source-build preset because it is a MIDI-only CLAP preview with a focused tracker test suite:</p>
+        <p><a href="s3g-tracker.html">s3g Tracker</a> also has a focused source-build preset for its MIDI-only CLAP and tracker test suite:</p>
 
         <pre><code>cmake --preset clap-tracker
 cmake --build --preset clap-tracker
 ctest --test-dir build-tracker -L tracker --output-on-failure</code></pre>
 
-        <p>The resulting bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. It is not installed by the ordinary packaged-manifest workflow yet.</p>
+        <p>The focused bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. The ordinary release and packaged-manifest workflows include the same product.</p>
 
         <h2 id="clap-realtime-audit">Audit CLAP Realtime Cost</h2>
 
@@ -274,7 +267,7 @@ python3 scripts/check-docs.py
   build-clap/plugins/clap_macro_shred/s3g_24ch_macro_shred.clap \
   build-clap/plugins/clap_psd_raw_field/s3g_fault.clap</code></pre>
 
-        <p>On a quiet macOS release machine, the following target first runs the allocation-hook self-test and known-bad positive-control CLAP, then builds the complete manifest and runs the non-NIM CTest label, manifest and Objective-C audits, an isolated exact-inventory validator sweep, an exact 96-plugin non-NIM allocation gate, all strict realtime profiles with allocation evidence, and the 96 kHz environmental advisory sequentially. It refuses empty CTest selections and stale, malformed, partial, or mismatched JSON evidence. Each phase keeps its own log and the summary is written to <code>build-clap-release/non-nim-release-checks.json</code>:</p>
+        <p>On a quiet macOS release machine, the following target first runs the allocation-hook self-test and known-bad positive-control CLAP, then builds the complete manifest and runs the non-NIM CTest label, manifest and Objective-C audits, an isolated exact-inventory validator sweep, an exact 117-plugin non-NIM allocation gate, all strict realtime profiles with allocation evidence, and the 96 kHz environmental advisory sequentially. It refuses empty CTest selections and stale, malformed, partial, or mismatched JSON evidence. Each phase keeps its own log and the summary is written to <code>build-clap-release/non-nim-release-checks.json</code>:</p>
 
         <pre><code>cmake --build --preset clap-release \
   --target release_checks_non_nim</code></pre>
@@ -287,7 +280,7 @@ python3 scripts/check-docs.py
 
         <p>The archive is written to <code>dist/</code> and includes every manifest-listed CLAP product, <code>Install s3g-dsp CLAPs.command</code>, the active and legacy manifests, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. Packaging rebuilds and consumes <code>build-clap-release/plugins/</code> by default, verifies that its CMake cache names this source tree and a Release configuration, and refuses a dirty source tree. Use <code>S3G_CLAP_BUILD_DIR</code> to select another verified Release build of this source tree; <code>S3G_PACKAGE_ALLOW_DIRTY=1</code> is reserved for explicitly non-final test packages. Packaging and local installation consume the same manifest, so the archive inventory, installed filenames, and generated product list cannot drift independently.</p>
 
-        <p>Before signing, the packager synchronizes each staged bundle's version metadata from its runtime CLAP descriptor; component versions remain independent of the suite archive version. It then requires exactly 98 manifest IDs, arm64-only executables, matching descriptor, plist, ID, and host-name metadata, valid bundle signatures, and a successful isolated installer dry-run. The same checks run again after extracting the finished zip, and a <code>.zip.sha256</code> checksum is written beside it. Bundles are ad-hoc signed by default for integrity verification. Set <code>S3G_CODESIGN_IDENTITY</code> to a Developer ID Application identity to enable hardened runtime and a secure timestamp, and set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
+        <p>Before signing, the packager synchronizes each staged bundle's version metadata from its runtime CLAP descriptor; component versions remain independent of the suite archive version. It then requires exactly 119 manifest IDs, arm64-only executables, matching descriptor, plist, ID, and host-name metadata, valid bundle signatures, and a successful isolated installer dry-run. The same checks run again after extracting the finished zip, and a <code>.zip.sha256</code> checksum is written beside it. Bundles are ad-hoc signed by default for integrity verification. Set <code>S3G_CODESIGN_IDENTITY</code> to a Developer ID Application identity to enable hardened runtime and a secure timestamp, and set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 
@@ -320,7 +313,7 @@ python3 scripts/check-docs.py
           <a href="#requirements">Requirements</a>
           <a href="#smoke-test">Smoke Test</a>
           <a href="#clap-build">Build CLAP Plugins</a>
-          <a href="#source-build-previews">Source-Build Previews</a>
+          <a href="#release-components">0.7 Release Components</a>
           <a href="#clap-realtime-audit">Audit CLAP Realtime Cost</a>
           <a href="#clap-allocation-probe">Probe Realtime Allocations</a>
           <a href="#standalone-apps">Build Standalone Apps</a>

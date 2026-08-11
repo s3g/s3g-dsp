@@ -28,39 +28,12 @@ SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SAFE_LEGACY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\*?$")
 VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
-# Source-build previews may have CLAP CMake directories before they are
-# promoted into the active package. Keeping the exception explicit here makes
-# the release audit fail if an ordinary plugin is omitted accidentally, while
-# also making preview status reviewable in the same place as the manifest rule.
-FUTURE_ONLY_CMAKE_DIRECTORIES = {
-    "clap_ambi_acid_encoder",
-    "clap_ambi_horizon_encoder",
-    "clap_ambi_membrane_kick",
-    "clap_drum_floor_tom",
-    "clap_drum_concert_bass",
-    "clap_drum_hi_hat",
-    "clap_drum_clap",
-    "clap_drum_cowbell",
-    "clap_drum_crash",
-    "clap_drum_break",
-    "clap_drum_echo",
-    "clap_drum_kick",
-    "clap_drum_mixer",
-    "clap_drum_overload",
-    "clap_drum_snare",
-    "clap_drum_toms",
-    "clap_feedback_shift",
-    "clap_processor_errant",
-}
-
-PREVIEW_ONLY_CMAKE_GATES = {
-    "clap_breakbeat_slicer": "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW",
-    "clap_tracker": "S3G_BUILD_TRACKER_PREVIEW",
-}
-
-SOURCE_ONLY_CMAKE_DIRECTORIES = (
-    FUTURE_ONLY_CMAKE_DIRECTORIES | PREVIEW_ONLY_CMAKE_GATES.keys()
-)
+# Every configured CLAP directory belongs to the 0.7 package inventory. Keep
+# these collections in place so a later source-only experiment must be added
+# deliberately and remains visible to the manifest audit.
+FUTURE_ONLY_CMAKE_DIRECTORIES: set[str] = set()
+PREVIEW_ONLY_CMAKE_GATES: dict[str, str] = {}
+SOURCE_ONLY_CMAKE_DIRECTORIES: set[str] = set()
 
 
 @dataclass(frozen=True)

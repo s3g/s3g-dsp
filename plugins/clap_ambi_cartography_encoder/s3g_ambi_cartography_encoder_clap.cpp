@@ -2934,7 +2934,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.0-pre",
+    "0.7.0-pre",
     "Stereo-to-HOA loudspeaker cartography with network timing, landscape effects, macro site processing, and Listener Mode.",
     features
 };

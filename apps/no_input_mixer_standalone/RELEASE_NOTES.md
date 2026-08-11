@@ -1,3 +1,22 @@
+# s3g No Input Mixer 0.7.0-pre
+
+Apple silicon macOS standalone pre-release, released August 11, 2026.
+
+## Asset
+
+- `s3g-no-input-mixer-app-macos-arm64-0.7.0-pre.zip`
+
+## Highlights
+
+- Adds an independently selectable CoreMIDI destination for NIM Gesture key
+  feedback, with state refresh and heartbeat behavior for record, playback,
+  clear, and cancel controls.
+- Retains the safe-muted launch, embedded No Input Mixer and NIM Gesture DSP,
+  stereo/quad/direct output choices, and identity-verified user-level
+  installer from 0.6.0-pre.
+
+---
+
 # s3g No Input Mixer 0.6.0-pre
 
 Apple silicon macOS standalone pre-release, released August 2, 2026.

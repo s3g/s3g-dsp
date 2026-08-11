@@ -954,7 +954,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     const float previous = instance.outputPeak.load(std::memory_order_relaxed);
     instance.outputPeak.store(std::max(peak, previous * 0.92f),
         std::memory_order_relaxed);
-    // Keep the preview awake: this makes host MIDI and editor audition
+    // Keep the instrument awake: this makes host MIDI and editor audition
     // deterministic even in hosts whose sleeping-plugin wake policy differs.
     return CLAP_PROCESS_CONTINUE;
 }
@@ -1192,6 +1192,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     const auto& instance = *self(plugin);
     if (!instance.controlBank) return false;
     SavedState saved;
+    std::memset(&saved, 0, sizeof(saved));
+    saved.magic = kStateMagic;
+    saved.version = kStateVersion;
     saved.selectedSlot = instance.selectedSlot;
     saved.interpolation = static_cast<uint32_t>(
         instance.controlBank->interpolation);
@@ -1219,8 +1222,30 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         auto& destination = saved.slots[index];
         std::snprintf(destination.path.data(), destination.path.size(), "%s",
             instance.samplePaths[index].c_str());
-        destination.slices = source.slices;
-        destination.envelope = source.envelope;
+        for (std::size_t sliceIndex = 0u;
+             sliceIndex < destination.slices.size(); ++sliceIndex) {
+            const auto& sourceSlice = source.slices[sliceIndex];
+            auto& destinationSlice = destination.slices[sliceIndex];
+            destinationSlice.startFrame = sourceSlice.startFrame;
+            destinationSlice.endFrame = sourceSlice.endFrame;
+            destinationSlice.loopStartFrame = sourceSlice.loopStartFrame;
+            destinationSlice.loopEndFrame = sourceSlice.loopEndFrame;
+            destinationSlice.gain = sourceSlice.gain;
+            destinationSlice.pan = sourceSlice.pan;
+            destinationSlice.transposeSemitones
+                = sourceSlice.transposeSemitones;
+            destinationSlice.fineTuneCents = sourceSlice.fineTuneCents;
+            destinationSlice.chokeGroup = sourceSlice.chokeGroup;
+            destinationSlice.launchMode = sourceSlice.launchMode;
+            destinationSlice.reverse = sourceSlice.reverse;
+        }
+        destination.envelope.attackProportion
+            = source.envelope.attackProportion;
+        destination.envelope.decayProportion
+            = source.envelope.decayProportion;
+        destination.envelope.sustain = source.envelope.sustain;
+        destination.envelope.releaseProportion
+            = source.envelope.releaseProportion;
         destination.sliceCount = source.sliceCount;
         destination.mappedSliceCount = source.mappedSliceCount;
         destination.mixerGain = source.mixerGain;
@@ -1230,7 +1255,16 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         destination.mixerHighEqDb = source.mixerHighEqDb;
         destination.mixerMidFrequencyHz = source.mixerMidFrequencyHz;
         destination.mixerAuxSend = source.mixerAuxSend;
-        destination.inserts = source.inserts;
+        for (std::size_t insertIndex = 0u;
+             insertIndex < destination.inserts.size(); ++insertIndex) {
+            const auto& sourceInsert = source.inserts[insertIndex];
+            auto& destinationInsert = destination.inserts[insertIndex];
+            destinationInsert.type = sourceInsert.type;
+            destinationInsert.mode = sourceInsert.mode;
+            destinationInsert.variant = sourceInsert.variant;
+            destinationInsert.values = sourceInsert.values;
+            destinationInsert.bypassed = sourceInsert.bypassed;
+        }
         destination.rootNote = source.rootNote;
         destination.mappedRootNote = source.mappedRootNote;
         destination.midiChannel = source.midiChannel;
@@ -4269,7 +4303,7 @@ const char* const multichannelFeatures[] {
 const clap_plugin_descriptor_t multichannelDescriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.breakbeat-slicer",
-    "s3g Slicer 16",
+    "s3g Slicer",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

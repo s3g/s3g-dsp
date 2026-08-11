@@ -20,7 +20,7 @@ import tempfile
 import zipfile
 
 
-EXPECTED_BUNDLE_COUNT = 98
+EXPECTED_BUNDLE_COUNT = 119
 INSTALLER_NAME = "Install s3g-dsp CLAPs.command"
 MANIFEST_RELATIVE_PATH = Path("Installer Data") / "clap-bundles.tsv"
 LEGACY_MANIFEST_RELATIVE_PATH = Path("Installer Data") / "clap-legacy-bundles.tsv"

@@ -1,25 +1,20 @@
-# s3g Ambi Encoder Horizon — future-release preview
+# s3g Ambi Encoder Horizon — engineering notes
 
 `s3g Ambi Encoder Horizon` is an autonomous, zero-input 1OA–7OA synthesis
 encoder for the audible edge of an outdoor sound field: isolated signals that
 carry for kilometers in a quiet rural environment, or the faint continuous
 traffic and city bed heard beyond the immediate scene.
 
-This component is **not part of the 0.6.0-pre release**. Its DSP smoke test and
-CLAP target are disabled by default, it is absent from `scripts/clap-bundles.tsv`,
-and it is therefore excluded from the 0.6.0-pre package and release gates.
+This component is included in the 0.7 release inventory, package manifest, and
+non-NIM release gates.
 
-## Source-build preview
+## Release audit
 
 ```sh
-cmake -S . -B build-horizon \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DS3G_BUILD_CLAP_PLUGIN=ON \
-  -DS3G_BUILD_FUTURE_COMPONENTS=ON \
-  -DS3G_ENABLE_REALTIME_ALLOC_PROBE=ON
-cmake --build build-horizon \
-  --target audit_ambi_horizon_future
-ctest --test-dir build-horizon -R s3g_ambi_horizon_encoder_smoke
+cmake --preset clap-release
+cmake --build --preset clap-release \
+  --target audit_ambi_horizon
+ctest --test-dir build-clap-release -R s3g_ambi_horizon_encoder_smoke
 ```
 
 The Horizon audit covers 48/96 kHz at 16, 32, 64, and 256 frames with
@@ -30,7 +25,7 @@ blocks at 96 kHz/16 frames and fails if sustained p95 callback load reaches
 90% of the audio deadline.
 
 On macOS the bundle is written to
-`build-horizon/plugins/clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap`.
+`build-clap-release/plugins/clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap`.
 The CLAP has no audio input and exposes a fixed 64-channel ACN/SN3D output bus;
 `ORDER` chooses how many leading channels contain the active 1OA–7OA field.
 
@@ -211,7 +206,7 @@ estimator or a Harmonoise propagation solver.
 
 ## Factory scenes
 
-The preview supplies sixteen deterministic scenes: Bell Across Valley,
+The plug-in supplies sixteen deterministic scenes: Bell Across Valley,
 Clear Night Inversion, Highway Beyond Fields, City Beyond Ridge, Industrial
 Night Reach, Across Still Water, Dawn Long Horizon, Storm Beyond Hills,
 Distant Rail Corridor, Quiet Agricultural Basin, Settlement Through Forest,
@@ -251,5 +246,5 @@ on the shared reference page:
 - Measured long-range rural, highway, rail, marine, and urban-edge corpora for
   perceptual calibration rather than sample playback.
 
-These are calibration and extension paths; the preview remains fully synthetic
+These are calibration and extension paths; the plug-in remains fully synthetic
 and requires no loaded sound files.

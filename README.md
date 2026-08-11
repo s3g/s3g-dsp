@@ -52,7 +52,7 @@ REAPER should not show a separate Gatekeeper dialog for each plugin afterward.
 
 Use this only for a fresh manual install; it cannot migrate older top-level
 copies or retire renamed aliases. In Terminal, type `cd` followed by a space,
-drag the unzipped `s3g-dsp-macos-clap-0.6.0-pre` folder from Finder into the
+drag the unzipped `s3g-dsp-macos-clap-0.7.0-pre` folder from Finder into the
 Terminal window, and press Return. Then run:
 
 ```sh
@@ -88,22 +88,21 @@ See [Building From Source](https://s3g.github.io/s3g-dsp/building-from-source.ht
 for requirements, CMake presets, optional dependencies, validation, packaging,
 and local installation.
 
-The source-only [s3g Tracker CLAP preview](https://s3g.github.io/s3g-dsp/s3g-tracker.html)
+The included [s3g Tracker CLAP](https://s3g.github.io/s3g-dsp/s3g-tracker.html)
 is a host-synchronized MIDI tracker for REAPER and a companion to the s3g drum
 synthesis plugins. Repository-level implementation notes remain in
-[the tracker preview document](docs/s3g-tracker-clap.md).
+[the tracker document](docs/s3g-tracker-clap.md).
 
-The source-only [s3g Slicer design and build notes](docs/s3g-breakbeat-slicer-design.md)
+The included [s3g Slicer design and build notes](docs/s3g-breakbeat-slicer-design.md)
 describe the shared four-break stereo/16-channel sampler CLAP that pairs with
-Tracker through ordinary MIDI. Its overview/editor and real-time engine are
-available behind `S3G_BUILD_BREAKBEAT_SLICER_PREVIEW`.
+Tracker through ordinary MIDI. Its stereo and fixed 16-channel variants share
+the same overview/editor and real-time engine.
 
-The source-only [Processor Feedback Shift 0.18.1 release candidate](https://s3g.github.io/s3g-dsp/processor-feedback-shift.html)
+The included [Processor Feedback Shift 0.18.1](https://s3g.github.io/s3g-dsp/processor-feedback-shift.html)
 is an eight-channel CLAP audio effect built around paired feedback scenes,
 high-density virtual patch splicing, ecology-responsive governors, per-node
 processor inserts, an in-network aux return, and post-network granulation. It
-is available with `S3G_BUILD_FUTURE_COMPONENTS` and is not yet in the packaged
-manifest.
+ships in the 0.7 CLAP archive.
 
 ## Related Projects
 

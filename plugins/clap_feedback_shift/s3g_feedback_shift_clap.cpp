@@ -1459,12 +1459,43 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (std::strcmp(range.unit, "exciter-source") == 0) {
+        for (uint32_t source = 0u;
+             source < s3g::kFeedbackExciterSourceCount; ++source) {
+            if (std::strcmp(display, s3g::feedbackExciterSourceName(
+                    static_cast<s3g::FeedbackExciterSource>(source))) == 0) {
+                *value = source;
+                return true;
+            }
+        }
+    }
     if (std::strcmp(range.unit, "morph-source") == 0) {
         for (uint32_t source = 0u; source < s3g::kFeedbackMorphSourceCount;
              ++source) {
             if (std::strcmp(display, s3g::feedbackMorphSourceName(
                     static_cast<s3g::FeedbackMorphSource>(source))) == 0) {
                 *value = source;
+                return true;
+            }
+        }
+    }
+    if (std::strcmp(range.unit, "shape") == 0) {
+        for (uint32_t shape = 0u; shape < s3g::kFeedbackPulseShapeCount;
+             ++shape) {
+            if (std::strcmp(display, s3g::feedbackPulseShapeName(
+                    static_cast<s3g::FeedbackPulseShape>(shape))) == 0) {
+                *value = shape;
+                return true;
+            }
+        }
+    }
+    if (std::strcmp(range.unit, "division") == 0) {
+        for (uint32_t division = 0u;
+             division < s3g::kFeedbackPulseDivisionBeats.size();
+             ++division) {
+            if (std::strcmp(display,
+                    s3g::feedbackPulseDivisionName(division)) == 0) {
+                *value = division;
                 return true;
             }
         }
@@ -1491,8 +1522,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     }
     errno = 0;
     char* end = nullptr;
-    double parsed = std::strtod(display, &end);
-    if (display == end || errno == ERANGE || !std::isfinite(parsed)) {
+    const char* numericDisplay = display;
+    if (std::strcmp(range.unit, "splice-rate-fine") == 0
+        && (*numericDisplay == 'x' || *numericDisplay == 'X'))
+        ++numericDisplay;
+    double parsed = std::strtod(numericDisplay, &end);
+    if (numericDisplay == end || errno == ERANGE || !std::isfinite(parsed)) {
         return false;
     }
     while (*end == ' ' || *end == '\t') ++end;
