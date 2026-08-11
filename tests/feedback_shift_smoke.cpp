@@ -1198,6 +1198,31 @@ int main()
         && randomizedSceneB.morph == preservedOutput.morph
         && randomizedSceneB.outputMode == preservedOutput.outputMode,
         "RANDOM B changed Scene A or shared performance controls");
+    auto nodeInsertSource = preservedOutput.nodes[3u];
+    nodeInsertSource.mode = s3g::FeedbackShiftMode::Ring;
+    nodeInsertSource.exciterSource = s3g::FeedbackExciterSource::External;
+    nodeInsertSource.exciterGainDb = -4.25f;
+    nodeInsertSource.frequencyHz = -0.37f;
+    nodeInsertSource.regeneration = 0.79f;
+    nodeInsertSource.color = -0.42f;
+    nodeInsertSource.body = 0.71f;
+    nodeInsertSource.levelDb = -8.5f;
+    const auto randomizedInsertA = s3g::randomFeedbackShiftNodeInsert(
+        0x3c6ef372u, nodeInsertSource);
+    const auto randomizedInsertB = s3g::randomFeedbackShiftNodeInsert(
+        0x3c6ef372u, nodeInsertSource);
+    ok &= check(randomizedInsertA.pedal == randomizedInsertB.pedal
+        && randomizedInsertA.pedalExtra == randomizedInsertB.pedalExtra
+        && randomizedInsertA.pedal != nodeInsertSource.pedal
+        && randomizedInsertA.mode == nodeInsertSource.mode
+        && randomizedInsertA.exciterSource == nodeInsertSource.exciterSource
+        && randomizedInsertA.exciterGainDb == nodeInsertSource.exciterGainDb
+        && randomizedInsertA.frequencyHz == nodeInsertSource.frequencyHz
+        && randomizedInsertA.regeneration == nodeInsertSource.regeneration
+        && randomizedInsertA.color == nodeInsertSource.color
+        && randomizedInsertA.body == nodeInsertSource.body
+        && randomizedInsertA.levelDb == nodeInsertSource.levelDb,
+        "node insert RANDOM changed non-insert ecology parameters");
     synth.panic();
     synth.setParams(randomA);
     synth.strikeAll(1.0f);

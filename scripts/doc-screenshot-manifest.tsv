@@ -60,6 +60,7 @@ ambi-grain-processor	ambi-grain-processor
 ambisonic-order-band-tool-64	ambisonic-order-band-tool
 ambisonic-energy-visualizer-64	ambisonic-energy-visualizer
 no-input-mixer-8ch	no-input-mixer
+feedback-shift	feedback-shift
 nim-gesture	nim-gesture
 fault	fault
 loop-processor-8ch	loop-processor

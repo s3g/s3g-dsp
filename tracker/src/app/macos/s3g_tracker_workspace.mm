@@ -345,6 +345,12 @@ NSRect gridLaneChannelRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
         4.0, 48.0, 16.0);
 }
 
+NSRect gridLaneResyncRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
+{
+    return NSMakeRect(fieldX + std::max<CGFloat>(0.0, fieldWidth - 116.0),
+        4.0, 24.0, 16.0);
+}
+
 std::size_t gridFieldAtX(CGFloat localX, CGFloat laneWidth,
     std::size_t page) noexcept
 {
@@ -609,7 +615,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Each lane header has its own clickable MIDI bus and channel. Double-click the lane name to rename it. Each column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across NOTE, VOL, SEQ1, V1, SEQ2, and V2; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, and VOL and sequence values accept 0.000 through 1.000. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Each lane header has a SYNC control that restarts that track's NOTE, VOL, and FX loops together, plus its own clickable MIDI bus and channel. Double-click the lane name to rename it. Each column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across NOTE, VOL, SEQ1, V1, SEQ2, and V2; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, and VOL and sequence values accept 0.000 through 1.000. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -1235,11 +1241,20 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             [self showMidiChannelMenuForTrack:lane event:event];
             return;
         }
+        if (NSPointInRect(point,
+                gridLaneResyncRect(laneLeft, fieldWidth))) {
+            [self selectTrack:lane row:model->session.selectedRow];
+            if (self.owner.trackerCallbacks
+                && self.owner.trackerCallbacks->resyncTrack)
+                self.owner.trackerCallbacks->resyncTrack(lane);
+            [self.window makeFirstResponder:self];
+            return;
+        }
         if (event.clickCount >= 2 && point.y < 22.0) {
             [self selectTrack:lane row:model->session.selectedRow];
             [self beginTrackNameEditingForTrack:lane rect:NSMakeRect(
                 laneLeft + 4.0, 3.0,
-                std::max<CGFloat>(44.0, fieldWidth - 98.0), 18.0)];
+                std::max<CGFloat>(44.0, fieldWidth - 124.0), 18.0)];
             return;
         }
         const auto page = 0u;
@@ -2385,7 +2400,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         drawCenteredText(nsString(track.name.empty()
                 ? "LANE " + std::to_string(lane + 1u) : track.name),
             NSMakeRect(x + 6.0, 3.0,
-                std::max<CGFloat>(1.0, fieldWidth - 100.0), 18.0),
+                std::max<CGFloat>(1.0, fieldWidth - 126.0), 18.0),
             allMuted ? dim : text,
             9.5, NSFontWeightSemibold, NSTextAlignmentLeft);
         auto bus = s3g::tracker::midiOutRackSlotIndex(
@@ -2393,14 +2408,22 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         if (bus >= s3g::tracker::kMidiOutRackSlotCount) bus = 0u;
         const NSRect busRect = gridLaneBusRect(x, fieldWidth);
         const NSRect channelRect = gridLaneChannelRect(x, fieldWidth);
+        const NSRect resyncRect = gridLaneResyncRect(x, fieldWidth);
+        fillRect(resyncRect, S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Control));
         fillRect(busRect, S3GTrackerThemeColor(
             S3GTrackerThemeRole::Control));
         fillRect(channelRect, S3GTrackerThemeColor(
             S3GTrackerThemeRole::Control));
+        strokeRect(resyncRect, lane == session.selectedTrack
+            ? focus : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
         strokeRect(busRect, lane == session.selectedTrack
             ? instrument : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
         strokeRect(channelRect, lane == session.selectedTrack
             ? note : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+        drawCenteredText(@"SYNC", resyncRect,
+            allMuted ? dim : focus, 6.2, NSFontWeightSemibold,
+            NSTextAlignmentCenter);
         drawCenteredText([NSString stringWithFormat:@"B%02lu",
                 static_cast<unsigned long>(bus + 1u)],
             NSInsetRect(busRect, 2.0, 0.0),

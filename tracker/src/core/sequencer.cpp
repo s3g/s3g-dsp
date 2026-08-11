@@ -734,7 +734,7 @@ void Sequencer::relaunchColumnsAtTickBoundary(std::size_t row) noexcept
         auto& state = playback_[trackIndex];
         const auto& track = pattern_.tracks[trackIndex];
         const auto relaunch = [row](const ColumnDefinition& definition,
-                                  ColumnState& column) {
+                                   ColumnState& column) {
             const auto length = std::max<std::size_t>(definition.length, 1u);
             column.position = ((row % length)
                 + (definition.phase % length)) % length;
@@ -752,6 +752,33 @@ void Sequencer::relaunchColumnsAtTickBoundary(std::size_t row) noexcept
                 state.fxPairs[pair].valueColumn);
         }
     }
+}
+
+bool Sequencer::resyncTrackColumnsAtTickBoundary(std::size_t trackIndex,
+    std::size_t row) noexcept
+{
+    if (trackIndex >= pattern_.tracks.size()
+        || trackIndex >= playback_.size()) return false;
+    auto& state = playback_[trackIndex];
+    const auto& track = pattern_.tracks[trackIndex];
+    const auto resync = [row](const ColumnDefinition& definition,
+                              ColumnState& column) {
+        const auto length = std::max<std::size_t>(definition.length, 1u);
+        column.position = row % length;
+        column.pingPongDirection = 1;
+        // lastPosition remains the last cell actually rendered. A resync
+        // changes only the next read head.
+    };
+    resync(track.noteColumn, state.noteColumn);
+    resync(track.instrumentColumn, state.instrumentColumn);
+    resync(track.velocityColumn, state.velocityColumn);
+    for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
+        resync(track.fxPairs[pair].actionColumn,
+            state.fxPairs[pair].actionColumn);
+        resync(track.fxPairs[pair].valueColumn,
+            state.fxPairs[pair].valueColumn);
+    }
+    return true;
 }
 
 uint64_t Sequencer::nextTickSampleFrame() const noexcept

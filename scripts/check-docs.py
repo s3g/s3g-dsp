@@ -199,6 +199,7 @@ EXPECTED_MULTICHANNEL_EFFECT_CHAIN_PAGES = {
     "topology-processors.html",
 }
 EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_SECOND = {
+    "processor-feedback-shift.html",
     "processor-fault.html",
     "processor-loop.html",
     "processor-multi-loop.html",
@@ -370,6 +371,7 @@ DOC_SEQUENCE = [
     "drum-echo.html",
     "drum-mixer.html",
     "generative-instruments.html",
+    "processor-feedback-shift.html",
     "processor-no-input-mixer.html",
     "no-input-mixer-control.html",
     "processor-fault.html",

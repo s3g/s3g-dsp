@@ -6,8 +6,11 @@ lanes. It exposes stable 8-channel audio input and output ports and is
 advertised as an audio effect, not a CLAP instrument. MIDI remains available as
 an excitation source.
 
-Version 0.18 replaces the earlier motion/rhythm architecture and state format.
-Old Feedback Shift project state is rejected rather than migrated.
+Version 0.18.1 is the current release candidate. It replaces the earlier
+motion/rhythm architecture and state format. Old Feedback Shift project state
+is rejected rather than migrated. This candidate remains an opt-in
+`S3G_BUILD_FUTURE_COMPONENTS` source build until the packaged
+release inventory, performance, and distribution review is complete.
 
 ## The instrument
 
@@ -28,6 +31,13 @@ The primary instrument is a pair of complete feedback scenes:
 The GUI's A and B buttons choose which scene is being edited. They do not move
 MORPH. This permits editing the destination while listening anywhere along the
 trajectory.
+
+The editor is divided into four focused workspaces rather than one continuous
+toolbox wall: **PATCH** owns the signed matrix and crosspoint; **INSERT** owns
+node core and insert editing; **ECOLOGY** owns excitation, splicing, morph,
+governors, node activity, and output topology; **AUX** owns the eight sends,
+feedback-bus processor, and post-network granulator. Scene A/B selection and
+scene randomization remain available in the common workspace strip.
 
 ## Morph drivers
 
@@ -206,6 +216,11 @@ character, smear, glide, and mix. ROTOR and CHORUS reuse the modulation cores
 from No Input Mixer, with independent per-node state and storage allocated in
 the plug-in's prepare phase. REPEATER and TIME listen for transients and do not
 require host transport lock.
+
+Every node selector on the INSERT page has its own **RND** button. It changes
+only that node's insert identity and insert-control storage. Source, SHIFT,
+REGEN, COLOR, BODY, scene matrices, aux sends, morph, governors, and output
+topology are not part of this operation.
 
 The clearest remaining insert gaps are a short multichannel diffusion/allpass
 network and a dedicated event-responsive gate/duck processor. Diffusion would

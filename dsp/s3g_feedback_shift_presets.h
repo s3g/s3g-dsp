@@ -394,6 +394,26 @@ inline float feedbackShiftRandomUnit(uint32_t& state)
         / 16777215.0f;
 }
 
+// A node-local performance randomizer. It deliberately owns only the insert
+// selection and its twelve generic storage values: source, shift ecology,
+// matrix, scenes, sends, morphology, and output topology remain user-owned.
+inline FeedbackShiftNodeParams randomFeedbackShiftNodeInsert(uint32_t seed,
+    const FeedbackShiftNodeParams& current)
+{
+    uint32_t random = seed == 0u ? 0x1f123bb5u : seed;
+    auto result = current;
+    result.pedal = static_cast<FeedbackPedalType>(1u
+        + feedbackShiftRandomStep(random) % (kFeedbackPedalTypeCount - 1u));
+    result.pedalAmount = 0.18f + feedbackShiftRandomUnit(random) * 0.78f;
+    result.pedalTone = 0.04f + feedbackShiftRandomUnit(random) * 0.92f;
+    result.pedalBias = feedbackShiftRandomUnit(random) * 1.8f - 0.9f;
+    result.pedalMix = 0.48f + feedbackShiftRandomUnit(random) * 0.52f;
+    for (float& extra : result.pedalExtra) {
+        extra = 0.02f + feedbackShiftRandomUnit(random) * 0.96f;
+    }
+    return result;
+}
+
 // RANDOM is now a safe performance operation: preserve the user's Scene A,
 // source choices, inserts, output topology, and manual morph position while
 // mutating only Scene B into a related but more energetic destination.

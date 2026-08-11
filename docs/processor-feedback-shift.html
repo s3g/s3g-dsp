@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Feedback Shift - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Feedback Shift eight-channel feedback ecology, scene morphing, virtual splicing, insert, aux, routing, and safety documentation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Feedback Shift <em>(0.18.1 release candidate)</em></h1>
+
+        <p><code>s3g Processor Feedback Shift</code> is an eight-input, eight-output CLAP audio effect for performing one coupled feedback ecology. Eight shift/ring nodes, a signed 8-by-8 matrix, paired scenes, ecology-responsive governors, virtual patch splicing, per-node inserts, an in-network aux return, and a post-network granulator form one playable system rather than eight unrelated channel effects.</p>
+
+        <p>Every node may process its matching external input, excite itself from noise, tone, sub bass, or MIDI hits, or run only from matrix feedback. The plug-in remains an audio effect in the host even when an internal source is selected; it does not advertise itself as a CLAP instrument.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/feedback-shift.png" aria-label="Open Processor Feedback Shift Patch page screenshot">
+              <img src="assets/plugin-guis/feedback-shift.png" alt="Processor Feedback Shift Patch page showing the square signed matrix, scene operations, and selected crosspoint controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The <code>PATCH</code> page uses orange squares for positive routes and cyan squares for negative routes; the bright inner square follows live route magnitude.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set a REAPER track to eight channels and insert <code>s3g Processor Feedback Shift</code>. Feed as many matching input lanes as the patch requires.</li>
+          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
+          <li>Begin with <code>COLD START</code>, keep OUTPUT low, and choose a SOURCE for each active node. Use <code>EXTERNAL</code> when the incoming lane should drive the ecology directly.</li>
+          <li>Build a sparse matrix first. Click an empty crosspoint to create it, click an active crosspoint again to remove it, and Option-click to create a negative connection.</li>
+          <li>Set each node's <code>SHIFT</code>, <code>REGEN</code>, <code>COLOR</code>, and <code>BODY</code>, then introduce an INSERT only where it adds a distinct role.</li>
+          <li>Edit Scene B into a contrasting but related network and move <code>MORPH</code> between the scenes manually or with an ecology envelope, edge, LFO, chaos, or pulse driver.</li>
+          <li>Add <code>SPLICE</code>, <code>REST</code>, and the aux return gradually. Use <code>PANIC</code> whenever the network must be cleared immediately.</li>
+        </ol>
+
+        <h2 id="workspace-pages">Workspace Pages</h2>
+
+        <p>The editor follows the focused-page organization used by Processor No Input Mixer. <code>PATCH</code> owns the signed matrix, scene operations, and selected crosspoint. <code>INSERT</code> owns node selection, the node core, insert family, and contextual insert controls. <code>ECOLOGY</code> owns source excitation, virtual splicing, sub bass, morph and governors, per-node activity, and output topology. <code>AUX</code> owns the eight scene sends, in-network bus processor, and post-network granulator. Scene A/B selection and RANDOM A/B remain in the common page strip.</p>
+
+        <p>Matrix crosspoints follow the No Input Mixer visual grammar: every connection is square; positive routes are orange, negative routes are cyan, and the brighter inner square indicates live route magnitude. The gray outline identifies the selected crosspoint.</p>
+
+        <h2 id="release-status">Release Status</h2>
+
+        <p>Version 0.18.1 is the current release-candidate source build. Its DSP, CLAP contract, GUI, shared No Input Mixer modulation circuits, and state rejection behavior pass the focused repository smoke tests. It is still built behind <code>S3G_BUILD_FUTURE_COMPONENTS</code> and is intentionally absent from the current packaged pre-release manifest while release inventory, performance, and distribution review remain separate steps.</p>
+
+        <p>The 0.18.x state format is version 8 and deliberately rejects older Feedback Shift state. There is no migration layer for abandoned prototypes. Host projects should therefore be made with a 0.18.x build when evaluating this candidate.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The selected internal source or matching external input lane enters its node.</li>
+          <li>The signed matrix adds returns from any of the eight source columns to the node's destination row.</li>
+          <li><code>SHIFT</code> or <code>RING</code>, <code>COLOR</code>, and the fractional <code>BODY</code> path reshape the combined excitation.</li>
+          <li>The selected node INSERT processes the result before continuous containment and lane level.</li>
+          <li>Scene-specific sends feed the aux bus; its processed RETURN re-enters the matrix sources rather than acting as an ordinary master insert.</li>
+          <li>The optional granulator processes the dry node outputs after the feedback ecology and before the selected output topology.</li>
+        </ol>
+
+        <p>Matrix columns are sources and rows are destinations. The selected crosspoint exposes a continuous signed gain with three-decimal precision, polarity action, and clear action. A negative value inverts that route before it reaches the destination node.</p>
+
+        <h2 id="scenes">Scenes, Morph, and Virtual Splices</h2>
+
+        <p>Scene A and Scene B each store the complete matrix plus node SHIFT/RING mode, frequency, regeneration, color, body, level, and aux-send values. SOURCE, INPUT gain, INSERT choice, and insert parameters remain shared. The A and B editor buttons choose which scene is being edited; they do not move the audible morph position.</p>
+
+        <p><code>MORPH</code> interpolates the two authored ecologies. <code>ECOLOGY ENV</code> follows network energy, while <code>ECOLOGY EDGE</code> reacts primarily to rising energy. LFO, CHAOS, and PULSE provide autonomous motion. DEPTH preserves the manual morph point as the base, INERTIA smooths travel, and HOLD freezes the live driver position.</p>
+
+        <p>The virtual-patch splice engine operates above the two scenes. Every lane may temporarily change matrix relationships, polarity, processing mode, shift family, regeneration, color, body, level, aux send, and audible presence. RANGE spans approximately one event per minute through 384 events per second per lane; FINE trims that result from half to double speed. CONTRAST sets how far a splice departs from the authored ecology, and SPACE creates asynchronous lane holes. Changes are committed at the bottom of a short fade seam so high-density cuts remain decisive without raw sample discontinuities.</p>
+
+        <h2 id="engine-controls">Engine Controls</h2>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/feedback-shift.ecology.png" aria-label="Open Processor Feedback Shift Ecology page screenshot">
+              <img src="assets/plugin-guis/feedback-shift.ecology.png" alt="Processor Feedback Shift Ecology page showing splice controls, scene morphing, governors, output topology, and node activity" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The <code>ECOLOGY</code> page keeps excitation and splice controls, scene movement, governors, output topology, and all eight node-activity displays in one performance view.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Function</th></tr></thead>
+          <tbody>
+            <tr><td>SHIFT</td><td>Four-stage analytic frequency shift with expanded precision below 1 Hz and logarithmic reach to ±6000 Hz.</td></tr>
+            <tr><td>RING</td><td>Uses the same frequency control as a ring-modulation carrier.</td></tr>
+            <tr><td>REGEN</td><td>Moves through decay, a broad unity neighborhood, and a governed supercritical region.</td></tr>
+            <tr><td>COLOR</td><td>Bipolar in-loop spectral emphasis with asymmetric, memory-dependent saturation away from zero.</td></tr>
+            <tr><td>BODY</td><td>Per-node fractional micro-delay that changes pitch tendency, phase, and feedback density.</td></tr>
+            <tr><td>DRIFT</td><td>Eight independent irregular trajectories applied to component behavior rather than one common LFO.</td></tr>
+            <tr><td>REFLEX</td><td>Moves node-frequency relationships when a mode begins to dominate.</td></tr>
+            <tr><td>SENSE</td><td>Lowers the response threshold for Reflex and continuous amplitude containment.</td></tr>
+            <tr><td>RECOVER</td><td>Sets the release time of the energy governors.</td></tr>
+            <tr><td>REST</td><td>Forces individual persistent lanes to withdraw and recover according to their own ecology envelope and edge history.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Sources are <code>NOISE + HIT</code>, <code>NOISE</code>, <code>MIDI HIT</code>, <code>TONE</code>, <code>SUB BASS</code>, <code>EXTERNAL</code>, <code>EXT GATE</code>, and <code>OFF</code>. INPUT provides −60 to +12 dB per node. External lane 1 feeds node 1 through external lane 8 feeding node 8. MIDI channels 1–8 strike the corresponding node; other channels strike all nodes.</p>
+
+        <h2 id="inserts">Node Inserts</h2>
+
+        <p>Each node has one insert selected through exactly two levels: <code>CATEGORY</code>, then <code>EFFECT</code>. Families whose circuit identity is part of the sound expose every circuit directly at the EFFECT level; there is no third navigation menu.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/feedback-shift.insert.png" aria-label="Open Processor Feedback Shift Insert page screenshot">
+              <img src="assets/plugin-guis/feedback-shift.insert.png" alt="Processor Feedback Shift Insert page with evenly spaced node-core controls, per-node random buttons, insert category and effect selection, and contextual effect parameters" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The <code>INSERT</code> page separates the continuous node-core chain on the left from insert selection and contextual parameters on the right. Each node has an independent insert-only <code>RND</code> action.</figcaption>
+        </figure>
+
+        <table class="readout-table">
+          <thead><tr><th>Category</th><th>Effects</th></tr></thead>
+          <tbody>
+            <tr><td>CORE</td><td>BYPASS</td></tr>
+            <tr><td>SPECTRAL</td><td>FILTER, RESONATOR, PHASE</td></tr>
+            <tr><td>DYNAMICS</td><td>TRANSIENT, BREAK BUS, DRUM BUS</td></tr>
+            <tr><td>DEGRADE</td><td>DEGRADE, EROSION, RELAY</td></tr>
+            <tr><td>DRIVE</td><td>WOOL, RAT, DIODE, FOLD</td></tr>
+            <tr><td>SHRED</td><td>SHRED, WOOL, RAT, ZONE A, ZONE B, FUZZ I, FUZZ II, DIODE</td></tr>
+            <tr><td>PITCH</td><td>MACRO PITCH</td></tr>
+            <tr><td>TIME</td><td>REPEATER, TIME, DRUM ECHO, MACRO DELAY</td></tr>
+            <tr><td>MODULATION</td><td>ROTOR, CHORUS</td></tr>
+            <tr><td>FRACTURE</td><td>RELAY, CRUSH, SPLICE, LOGIC, VOID, THROAT, ROBOT, OCT DOWN, OCT UP, OCT STACK</td></tr>
+          </tbody>
+        </table>
+
+        <p>Macro Shred exposes Pressure, Shred, Feedback, Color, React, Tune, Body, and Mix. Macro Pitch exposes coarse and fine pitch, window, glide, and mix. Macro Delay exposes time, feedback, tone, character, smear, glide, and mix. Rotor and Chorus use the shared No Input Mixer modulation circuits with independent state for each node. Repeater and Time listen for transients and do not depend on host transport.</p>
+
+        <p>Each node selector on the INSERT page has an adjacent <code>RND</code> action. It randomizes only that node's insert identity and insert-control storage. It does not alter the source, core shift ecology, either scene matrix, aux sends, morph system, governors, or output topology.</p>
+
+        <h2 id="aux">Aux Return and Post Granulator</h2>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/feedback-shift.aux.png" aria-label="Open Processor Feedback Shift Aux page screenshot">
+              <img src="assets/plugin-guis/feedback-shift.aux.png" alt="Processor Feedback Shift Aux page showing eight node sends, the feedback-bus processor, and post-network granulator" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The <code>AUX</code> page exposes all eight scene-specific sends above the in-network feedback processor and post-network granulator.</figcaption>
+        </figure>
+
+        <p>The aux feedback bus receives independent Scene A and Scene B sends from all eight lanes. Press, saturation, fold, clip, and tilt shape the combined bus before RETURN sends it back into every matrix source according to the visible routing. This makes the aux processor part of the ecology rather than a post-output effect.</p>
+
+        <p>The granulator is deliberately post-network. SIZE, DENSITY, SCATTER, PITCH, COHERENCE, LANE DRIFT, EDGE, SPACE, SHAPE, and GRAIN MIX define its behavior. A nonzero SPACE waits for existing grains to finish and then inserts a real silent interval. At intermediate mix values the grain envelope ducks its source lane so grains remain legible instead of sitting over an unchanged dry layer.</p>
+
+        <h2 id="output-safety">Output and Safety</h2>
+
+        <p>The CLAP port remains one fixed eight-channel input and one fixed eight-channel output. <code>8CH DIRECT</code> preserves all lanes. <code>QUAD RING</code> projects the node ring to outputs 1–4, and <code>STEREO RING</code> projects it to outputs 1–2; unused lanes are silent. ROTATE turns the ring before either projection without rebuilding host routing.</p>
+
+        <p>Continuous containment responds only when loop energy becomes unsafe. REFLEX first tries to move a dominant mode, the amplitude governor reduces persistent excess, and REST may withdraw individual lanes. A transparent output ceiling remains a final safeguard. <code>PANIC</code> clears feedback, processor, delay, modulation, and granulator memories and returns the network from silence.</p>
+
+        <h2 id="presets-state">Presets, Randomization, and State</h2>
+
+        <p>The factory bank contains <code>COLD START</code>, <code>ZERO WEATHER</code>, <code>RUSTED RING</code>, <code>IMPACT CAVITY</code>, <code>EXTERNAL TEAR</code>, <code>HARSH WALL</code>, <code>MICRO CUTS</code>, <code>MILLION SPLICES</code>, and <code>SUB FRACTURE</code>. Each preset defines a complete paired ecology rather than one static patch.</p>
+
+        <p><code>RANDOM A</code> and <code>RANDOM B</code> alter only the named scene. The opposite scene, shared source and insert choices, manual morph position, output level, output mode, rotation, and governor topology remain unchanged. <code>COPY A &gt; B</code> and <code>COPY B &gt; A</code> establish a new destination without clearing the running network.</p>
+
+        <p>All 397 CLAP parameters are stored in the version-8 state. Insert memory is allocated during prepare rather than during audio rendering, and selector changes crossfade into the new processor. The release candidate rejects any state whose version or parameter count does not match exactly.</p>
+
+        <h2 id="build">Build and Test</h2>
+
+        <p>Configure the opt-in future-component build from the repository root:</p>
+
+        <pre><code>cmake -S . -B build-clap \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+cmake --build build-clap --target s3g_feedback_shift_clap
+ctest --test-dir build-clap --output-on-failure \
+  -R 's3g_feedback_shift|s3g_no_input_mixer'</code></pre>
+
+        <p>The bundle is written to <code>build-clap/plugins/clap_feedback_shift/s3g_feedback_shift.clap</code>. Copy the complete signed bundle to <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>, then rescan CLAP plug-ins or restart REAPER.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="generative-instruments.html">
+            <span>Previous</span>
+            Generative Instruments
+          </a>
+          <a class="page-nav-link next" href="processor-no-input-mixer.html">
+            <span>Next</span>
+            Processor No Input Mixer
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>Generative Pages</h2>
+          <a href="processor-feedback-shift.html">Processor Feedback Shift</a>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="no-input-mixer-control.html">No Input Mixer Control</a>
+          <a href="processor-fault.html">Processor Fault</a>
+          <a href="processor-errant.html">Processor Errant</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#workspace-pages">Workspace Pages</a>
+          <a href="#release-status">Release Status</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#scenes">Scenes, Morph, and Virtual Splices</a>
+          <a href="#engine-controls">Engine Controls</a>
+          <a href="#inserts">Node Inserts</a>
+          <a href="#aux">Aux Return and Post Granulator</a>
+          <a href="#output-safety">Output and Safety</a>
+          <a href="#presets-state">Presets, Randomization, and State</a>
+          <a href="#build">Build and Test</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

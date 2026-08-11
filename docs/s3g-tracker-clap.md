@@ -54,7 +54,10 @@ bus and one-based MIDI channel; there is no row-level instrument or bus column.
 REAPER decides which downstream track or plug-in receives each bus. The
 tracker exposes no audio ports and never opens a global macOS MIDI destination.
 Click the `Bxx` or `CHxx` control in a lane header to edit that lane directly;
-there is no tracker-global channel assignment.
+there is no tracker-global channel assignment. Click that header's `SYNC`
+control to restart its NOTE, VOL, and both sequencing action/value loops
+together at row 1 on the next tracker tick, ignoring their authored phase
+offsets without changing them or moving REAPER and the other tracks.
 
 Tracker-local editing uses a Control-key layer: `Control-A/C/X/V` for select
 all/copy/cut/paste and `Control-=/−/0` for zoom. Command-key combinations are

@@ -98,6 +98,13 @@ describe the shared four-break stereo/16-channel sampler CLAP that pairs with
 Tracker through ordinary MIDI. Its overview/editor and real-time engine are
 available behind `S3G_BUILD_BREAKBEAT_SLICER_PREVIEW`.
 
+The source-only [Processor Feedback Shift 0.18.1 release candidate](https://s3g.github.io/s3g-dsp/processor-feedback-shift.html)
+is an eight-channel CLAP audio effect built around paired feedback scenes,
+high-density virtual patch splicing, ecology-responsive governors, per-node
+processor inserts, an in-network aux return, and post-network granulation. It
+is available with `S3G_BUILD_FUTURE_COMPONENTS` and is not yet in the packaged
+manifest.
+
 ## Related Projects
 
 - [`s3g-mc`](https://github.com/s3g/s3g-mc): REAPER scripts, JSFX, and

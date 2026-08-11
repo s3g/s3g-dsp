@@ -269,7 +269,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor && std::strcmp(descriptor->id, kPluginId) == 0
         && std::strcmp(descriptor->name,
             "s3g Processor Feedback Shift") == 0
-        && std::strcmp(descriptor->version, "0.18.0") == 0,
+        && std::strcmp(descriptor->version, "0.18.1") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
         && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FREQUENCY_SHIFTER)

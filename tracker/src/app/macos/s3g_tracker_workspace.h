@@ -74,6 +74,7 @@ struct TrackerViewState {
 struct WorkspaceCallbacks {
     std::function<void()> togglePlayback;
     std::function<void()> restartPlayback;
+    std::function<void(std::size_t)> resyncTrack;
     std::function<void()> panic;
     std::function<void()> showSongWindow;
     // Standalone builds may still present these modules as windows. Embedded

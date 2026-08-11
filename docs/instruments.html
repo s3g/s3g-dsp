@@ -34,7 +34,7 @@
         <ul>
           <li><a href="s3g-tracker.html">s3g Tracker</a>: a host-synchronized polymetric MIDI tracker with sequencing effects, pattern and Song modes, timing warps, Live Code, and eight REAPER-routable output buses.</li>
           <li><a href="drums.html">Drums</a>: synthesized mono/stereo drum instruments, the companion Drum Overload effect, and an eight-lane stereo Drum Mixer 16.</li>
-          <li><a href="generative-instruments.html">Generative Instruments</a>: internally synthesized feedback, byte, terrain, weather, liquid, pulsaret, stochastic, and logic fields.</li>
+          <li><a href="generative-instruments.html">Generative Instruments</a>: internally synthesized feedback, byte, terrain, weather, liquid, pulsaret, stochastic, and logic fields, including the <a href="processor-feedback-shift.html">Processor Feedback Shift 0.18.1 release candidate</a>.</li>
           <li><a href="sample-instruments.html">Sample / Loop Instruments</a>: one or more loaded files used as persistent multichannel or encoded source material.</li>
           <li><a href="voice-instruments.html">Voice / Language Instruments</a>: voicebank synthesis, phrase mapping, and the companion voicebank-building workflow.</li>
         </ul>
@@ -45,7 +45,7 @@
 
         <h2 id="routing">Routing</h2>
 
-        <p>Check the instrument's output format before inserting it. <a href="processor-errant.html">Processor Errant</a> is stereo. Processor No Input Mixer, Processor Fault, and the loop instruments use ordinary multichannel lanes; route them to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. Ambisonic instruments use either a 16- or 64-channel host bus; the product page gives the required width. Ambi Encoder Modal can instead publish eight body stems, and Ambi Encoder Membrane Kick can publish sixteen membrane pickups or a stereo downmix on channels 1–2. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels and should be followed by an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</p>
+        <p>Check the instrument's output format before inserting it. <a href="processor-errant.html">Processor Errant</a> is stereo. Processor Feedback Shift, Processor No Input Mixer, Processor Fault, and the loop instruments use ordinary multichannel lanes; route them to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. Feedback Shift also accepts eight ordinary input lanes and is advertised as an audio effect rather than an instrument. Ambisonic instruments use either a 16- or 64-channel host bus; the product page gives the required width. Ambi Encoder Modal can instead publish eight body stems, and Ambi Encoder Membrane Kick can publish sixteen membrane pickups or a stereo downmix on channels 1–2. In an encoded mode, the active order occupies the first <code>(order + 1)^2</code> channels and should be followed by an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="s3gray-format.html">

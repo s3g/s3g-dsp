@@ -456,6 +456,13 @@ public:
     // while retaining the sample/tick clock, active voice ownership, FX
     // recall, deterministic random streams, and last-emitted note state.
     void relaunchColumnsAtTickBoundary(std::size_t row = 0u) noexcept;
+    // Performance resync for one track: move NOTE, INS, VOL, and both FX
+    // action/value read heads to the same absolute row, deliberately ignoring
+    // their independent authored phase rotations. The next logical tick
+    // observes the new positions without moving the transport or another
+    // track; playback memory and the last-rendered cursors are kept.
+    bool resyncTrackColumnsAtTickBoundary(std::size_t track,
+        std::size_t row = 0u) noexcept;
 
     // start(true) and reset() rebuild playback storage and may allocate; they
     // are control-thread operations, never audio-callback commands.

@@ -513,6 +513,7 @@ struct Plugin {
     bool runtimeArmed = false;
     std::atomic<bool> requestPanic { false };
     std::atomic<bool> requestRestart { false };
+    std::atomic<uint32_t> requestTrackResyncMask { 0u };
     std::atomic<uint32_t> auditionNode { s3g::tracker::kInvalidInstrumentNode };
     std::atomic<uint32_t> auditionData { 0u };
     std::atomic<uint32_t> auditionRevision { 0u };
@@ -981,6 +982,14 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
             std::memory_order_relaxed);
 
         if (plugin.runtimeArmed) {
+            const uint32_t resyncMask = plugin.requestTrackResyncMask.exchange(
+                0u, std::memory_order_acq_rel);
+            for (std::size_t track = 0u;
+                 track < s3g::tracker::kMaximumTrackCount; ++track) {
+                if ((resyncMask & (uint32_t { 1u } << track)) != 0u)
+                    (void)runtime->scheduler
+                        .resyncTrackColumnsAtTickBoundary(track, 0u);
+            }
             const std::size_t eventCount = runtime->scheduler.process(
                 frameCount, plugin.events.data(), plugin.events.size());
             const uint64_t segmentStart = plugin.processFrame + blockOffset;
@@ -1350,6 +1359,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             owner->_plugin->host->request_process(owner->_plugin->host);
         [owner.workspace appendConsoleMessage:
             "Tracker restart queued at row 1; REAPER transport unchanged"
+            error:NO];
+    };
+    _callbacks->resyncTrack = [weakSelf](std::size_t track) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || track >= s3g::tracker::kMaximumTrackCount) return;
+        owner->_plugin->requestTrackResyncMask.fetch_or(
+            uint32_t { 1u } << track, std::memory_order_release);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
+        [owner.workspace appendConsoleMessage:[NSString stringWithFormat:
+            @"Lane %lu SYNC queued for next tick; REAPER transport unchanged",
+            static_cast<unsigned long>(track + 1u)].UTF8String
             error:NO];
     };
     _callbacks->panic = [weakSelf] {

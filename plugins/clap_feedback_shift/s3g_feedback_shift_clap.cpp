@@ -1751,7 +1751,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.18.0",
+    "0.18.1",
     "An eight-node feedback processor built around paired ecology morphing.",
     features,
 };

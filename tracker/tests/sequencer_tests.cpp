@@ -213,6 +213,77 @@ void testInstrumentColumnPolymeterAndMemory()
         "unmuting INS must resume at its advanced phase without prior memory reads");
 }
 
+void testPerTrackColumnResync()
+{
+    auto makePolymetricTrack = [](uint8_t noteBase, std::size_t offset) {
+        Track track = makeTrack({ noteBase, static_cast<uint8_t>(noteBase + 1u),
+            static_cast<uint8_t>(noteBase + 2u),
+            static_cast<uint8_t>(noteBase + 3u) },
+            { 0.2f, 0.5f, 0.8f });
+        track.instruments.assign(7u, InstrumentCell::empty());
+        track.instrumentColumn.length = track.instruments.size();
+        for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
+            auto& fx = track.fxPairs[pair];
+            fx.actions.assign(5u + pair + offset, FxActionCell::empty());
+            fx.values.assign(6u + pair + offset, FxValueCell::previous());
+            fx.actionColumn.length = fx.actions.size();
+            fx.valueColumn.length = fx.values.size();
+        }
+        return track;
+    };
+
+    Pattern pattern;
+    pattern.tracks.push_back(makePolymetricTrack(60u, 0u));
+    pattern.tracks.push_back(makePolymetricTrack(72u, 2u));
+    pattern.tracks[0u].noteColumn.phase = 3u;
+    pattern.tracks[0u].instrumentColumn.phase = 4u;
+    pattern.tracks[0u].velocityColumn.phase = 2u;
+    pattern.tracks[0u].fxPairs[0u].actionColumn.phase = 1u;
+    pattern.tracks[0u].fxPairs[0u].valueColumn.phase = 5u;
+    pattern.tracks[0u].fxPairs[1u].actionColumn.phase = 4u;
+    pattern.tracks[0u].fxPairs[1u].valueColumn.phase = 6u;
+    Sequencer sequencer;
+    sequencer.setPattern(std::move(pattern));
+    sequencer.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    sequencer.start();
+    std::array<ScheduledEvent, 16u> events {};
+    (void)sequencer.process(6001u, events.data(), events.size());
+
+    const auto tickBefore = sequencer.tickIndex();
+    const auto rowBefore = sequencer.transportRow();
+    const auto otherNoteBefore = sequencer.notePosition(1u);
+    const auto otherVelocityBefore = sequencer.velocityPosition(1u);
+    const auto otherFxBefore = sequencer.fxActionPosition(1u, 1u);
+    const auto renderedNoteBefore = sequencer.lastNotePosition(0u);
+    check(!sequencer.resyncTrackColumnsAtTickBoundary(99u),
+        "an out-of-range per-track resync must fail closed");
+    check(sequencer.resyncTrackColumnsAtTickBoundary(0u)
+            && sequencer.notePosition(0u) == 0u
+            && sequencer.instrumentPosition(0u) == 0u
+            && sequencer.velocityPosition(0u) == 0u
+            && sequencer.fxActionPosition(0u, 0u) == 0u
+            && sequencer.fxValuePosition(0u, 0u) == 0u
+            && sequencer.fxActionPosition(0u, 1u) == 0u
+            && sequencer.fxValuePosition(0u, 1u) == 0u,
+        "per-track resync must return every target column to absolute row one regardless of authored phase");
+    check(sequencer.notePosition(1u) == otherNoteBefore
+            && sequencer.velocityPosition(1u) == otherVelocityBefore
+            && sequencer.fxActionPosition(1u, 1u) == otherFxBefore
+            && sequencer.lastNotePosition(0u) == renderedNoteBefore
+            && sequencer.tickIndex() == tickBefore
+            && sequencer.transportRow() == rowBefore,
+        "per-track resync must preserve other tracks, last-rendered cursors, and the transport clock");
+
+    (void)sequencer.process(6000u, events.data(), events.size());
+    check(sequencer.lastNotePosition(0u) == 0u
+            && sequencer.lastInstrumentPosition(0u) == 0u
+            && sequencer.lastVelocityPosition(0u) == 0u
+            && sequencer.lastFxActionPosition(0u, 0u) == 0u
+            && sequencer.lastFxValuePosition(0u, 1u) == 0u
+            && sequencer.lastNotePosition(1u) == otherNoteBefore,
+        "the next logical tick must read the resynced track starts while the other track continues independently");
+}
+
 void testTrackVelocityScale()
 {
     Track track;
@@ -2242,6 +2313,7 @@ int main()
     testPolymetricColumns();
     testTrackVelocityScale();
     testInstrumentColumnPolymeterAndMemory();
+    testPerTrackColumnResync();
     testInstrumentFxScopeAndReleaseRouting();
     testTypedFxPairs();
     testFxMemoryAndMutedPhase();

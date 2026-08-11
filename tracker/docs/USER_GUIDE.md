@@ -153,6 +153,12 @@ controls into four rows. Double-click the length row to edit it, or click the
 DIR row to cycle direction. The bottom MUTE row is the only mouse target that
 toggles that column's mute state.
 
+Click `SYNC` in a lane header to return that track's NOTE, VOL, SEQ1/V1, and
+SEQ2/V2 loops to row 1 together on the next tracker tick. This performance
+reset deliberately ignores each column's authored phase without changing the
+saved phase value. It does not move REAPER's transport, restart other tracks,
+or change the column lengths.
+
 The play button requests REAPER play/continue. The restart arrow returns the
 tracker scheduler to row 1 without stopping REAPER. Panic releases every note
 tracked as active and sends MIDI CC 123 (All Notes Off) on all 16 channels of

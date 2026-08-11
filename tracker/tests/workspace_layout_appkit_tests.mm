@@ -98,6 +98,8 @@ int main()
         int patternChangeRequests = 0;
         int transportChangeRequests = 0;
         int restartRequests = 0;
+        int trackResyncRequests = 0;
+        std::size_t resyncedTrack = s3g::tracker::kMaximumTrackCount;
         callbacks.selectPattern = [&](const std::string& patternId) {
             selectedPattern = patternId;
             (void)state.patternBank.selectPattern(patternId);
@@ -108,6 +110,10 @@ int main()
         callbacks.patternChanged = [&] { ++patternChangeRequests; };
         callbacks.transportChanged = [&] { ++transportChangeRequests; };
         callbacks.restartPlayback = [&] { ++restartRequests; };
+        callbacks.resyncTrack = [&](std::size_t track) {
+            ++trackResyncRequests;
+            resyncedTrack = track;
+        };
 
         S3GTrackerWorkspaceController* controller =
             [[S3GTrackerWorkspaceController alloc]
@@ -188,6 +194,9 @@ int main()
         const CGFloat firstFieldCenterX
             = s3g::tracker::app::kTrackerRowNumberWidth + 3.0
                 + (laneWidth - 6.0) * 0.095;
+        const CGFloat firstLaneSyncCenterX
+            = s3g::tracker::app::kTrackerRowNumberWidth + 3.0
+                + (laneWidth - 6.0) - 104.0;
         const auto headerClick = [&](CGFloat y, NSInteger clicks) {
             const NSPoint inWindow = [grid.documentView convertPoint:
                 NSMakePoint(firstFieldCenterX, y) toView:nil];
@@ -196,6 +205,13 @@ int main()
         };
         const bool initiallyMuted
             = state.session.pattern.tracks[0u].noteColumn.muted;
+        const NSPoint syncInWindow = [grid.documentView convertPoint:
+            NSMakePoint(firstLaneSyncCenterX, 12.0) toView:nil];
+        [grid.documentView mouseDown:mouseDownEvent(
+            window, syncInWindow, 1)];
+        check(trackResyncRequests == 1 && resyncedTrack == 0u
+                && patternChangeRequests == 0,
+            "the lane-header SYNC control should target only that track without editing the pattern");
         headerClick(44.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.muted
                     == initiallyMuted

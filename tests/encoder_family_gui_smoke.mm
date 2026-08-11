@@ -1087,6 +1087,9 @@ int main(int argc, char** argv)
         const bool noInputMixer = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
+        const bool feedbackShift = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.feedback-shift") == 0;
         const bool horizonEncoder = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-horizon-encoder-64") == 0;
@@ -4345,6 +4348,56 @@ int main(int argc, char** argv)
                 }
                 [[scroll contentView] scrollToPoint:NSZeroPoint];
                 [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
+        if (ok && feedbackShift) {
+            const auto clickFeedback = [&](NSPoint point) {
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+            };
+            @try {
+                failureStage = "Feedback Shift page navigation";
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                for (uint32_t page = 1u; ok && page < 4u; ++page) {
+                    clickFeedback(NSMakePoint(71.0 + page * 92.0, 54.0));
+                    ok = [[document valueForKey:@"page"] unsignedIntValue]
+                        == page;
+                    if (page == 1u && ok) {
+                        // The first node's adjacent RND control is deliberately
+                        // separate from selection and exercises the node-local
+                        // insert-only randomization path.
+                        clickFeedback(NSMakePoint(125.0, 115.0));
+                    }
+                    if (ok) {
+                        [document setNeedsDisplay:YES];
+                        [document displayIfNeeded];
+                        NSData* pageRender = [document dataWithPDFInsideRect:
+                            [document bounds]];
+                        ok = pageRender && [pageRender length] > 0u;
+                        if (ok && captureDirectory && captureDirectory[0]) {
+                            NSString* directory = [NSString
+                                stringWithUTF8String:captureDirectory];
+                            [[NSFileManager defaultManager]
+                                createDirectoryAtPath:directory
+                                withIntermediateDirectories:YES
+                                attributes:nil error:nil];
+                            NSString* pageName = [[NSString stringWithFormat:
+                                @"%s.page%u", pluginId, page + 1u]
+                                stringByAppendingPathExtension:@"pdf"];
+                            ok = [pageRender writeToFile:[directory
+                                    stringByAppendingPathComponent:pageName]
+                                atomically:YES];
+                        }
+                    }
+                }
+                clickFeedback(NSMakePoint(71.0, 54.0));
+                ok = ok && [[document valueForKey:@"page"] unsignedIntValue]
+                    == 0u;
+            } @catch (NSException*) {
+                ok = false;
             }
         }
         if (ok && noInputMixer) {
