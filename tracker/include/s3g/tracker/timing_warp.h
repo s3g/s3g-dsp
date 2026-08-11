@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace s3g::tracker {
 
@@ -155,5 +156,43 @@ private:
     std::array<TimingWarpTransform, kMaximumTransforms> transforms_ {};
     std::size_t size_ = 0u;
 };
+
+// Project-owned library of composed timing-warp stacks. Slots are addressed
+// one-based in the tracker UI/live language and zero-based in the engine.
+// The fixed slot count makes WRP recall deterministic and allocation-free on
+// the render thread; names are authoring metadata and are never touched by
+// realtime recall.
+constexpr std::size_t kMaximumTimingWarpLibraryEntries = 64u;
+constexpr std::size_t kMaximumTimingWarpLibraryNameBytes = 64u;
+constexpr uint32_t kMaximumLiveWarpCycleTicks = 16u;
+
+struct TimingWarpLibraryEntry {
+    std::string name;
+    uint32_t cycleTicks = 16u;
+    TimingWarpStack stack;
+    bool occupied = false;
+};
+
+class TimingWarpLibrary {
+public:
+    bool store(std::size_t index, std::string name, uint32_t cycleTicks,
+        const TimingWarpStack& stack);
+    bool erase(std::size_t index) noexcept;
+    void clear() noexcept;
+
+    const TimingWarpLibraryEntry* entry(std::size_t index) const noexcept;
+    TimingWarpLibraryEntry* entry(std::size_t index) noexcept;
+    std::size_t size() const noexcept;
+
+private:
+    std::array<TimingWarpLibraryEntry,
+        kMaximumTimingWarpLibraryEntries> entries_ {};
+};
+
+// SEQ value columns retain their normalized storage contract. WRP presents
+// that value as a one-based library number while these helpers provide the
+// exact reversible mapping used by the UI, console, and scheduler.
+std::size_t timingWarpLibraryIndexFromNormalized(float normalized) noexcept;
+float timingWarpLibraryNormalizedFromIndex(std::size_t index) noexcept;
 
 } // namespace s3g::tracker

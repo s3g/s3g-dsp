@@ -55,18 +55,12 @@
 
         <h2 id="signal-flow">Signal Flow</h2>
 
-        <pre><code>1OA-7OA ACN/SN3D field
--&gt; unchanged encoded field --------------------------+
-|                                                     |
-+-&gt; decode Icosa 12 / Dodeca 20 listener pickups     |
-    -&gt; global DJ / resonance + per-pickup trims      |
-    -&gt; macro spread + stable deviation               |
-    -&gt; Local / Cross / Diffuse / Roaming topology    |
-    -&gt; subtract the original pickup signals           |
-    -&gt; wet-mask interpolation + outside dry level    |
-    -&gt; subtract original and re-encode correction ----+
-                                                      |
-                         dry field + residual -&gt; MIX -&gt; OUT</code></pre>
+        <figure>
+          <div class="doc-graphic">
+            <img src="ambi_effect_dj_filter_signal_flow.svg" alt="Ambi Effect DJ Filter signal flow showing the encoded input splitting into an unchanged dry field and a decoded pickup path through the DJ filter, topology, directional mask, and re-encoded correction before field mix and output">
+          </div>
+          <figcaption>The encoded dry field stays intact while the auditory-body path returns only its processed-minus-original correction to <code>MIX</code>.</figcaption>
+        </figure>
 
         <ol>
           <li>The selected active-order field is copied to the dry path and decoded at each virtual pickup in the chosen auditory body.</li>

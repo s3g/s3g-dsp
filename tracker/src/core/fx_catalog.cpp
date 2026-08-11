@@ -54,6 +54,8 @@ constexpr std::array<SequencerActionDefinition,
         "fill an empty NOTE source with the last emitted note by probability" },
     { SequencerAction::Euclid, "seq.euclid", "EU", "Euclidean Gate",
         "gate the NOTE row with one through NOTE-length Euclidean hits" },
+    { SequencerAction::WarpRecall, "seq.warp_recall", "WRP", "Warp Recall",
+        "recall composed timing-warp library slot 01 through 64" },
 }};
 
 bool equalFold(std::string_view left, std::string_view right) noexcept

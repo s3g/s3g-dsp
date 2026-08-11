@@ -683,6 +683,38 @@ std::string timingWarpsText(const TrackerSession& session)
     return stream.str();
 }
 
+bool parseWarpLibraryIndex(std::string_view token,
+    std::size_t& zeroBased) noexcept
+{
+    std::size_t oneBased = 0u;
+    if (!parseUnsigned(token, oneBased) || oneBased == 0u
+        || oneBased > kMaximumTimingWarpLibraryEntries) return false;
+    zeroBased = oneBased - 1u;
+    return true;
+}
+
+std::string warpLibraryText(const TrackerSession& session)
+{
+    std::ostringstream stream;
+    stream << timingWarpsText(session) << " Library "
+           << session.warpLibrary.size() << "/"
+           << kMaximumTimingWarpLibraryEntries << ':';
+    if (session.warpLibrary.size() == 0u) stream << " empty";
+    for (std::size_t index = 0u;
+         index < kMaximumTimingWarpLibraryEntries; ++index) {
+        const auto* entry = session.warpLibrary.entry(index);
+        if (!entry) continue;
+        stream << " [";
+        if (index + 1u < 10u) stream << '0';
+        stream << (index + 1u) << ' ';
+        if (entry->name.empty()) stream << "UNTITLED";
+        else stream << entry->name;
+        stream << " · " << entry->cycleTicks << "T · "
+               << entry->stack.size() << "X]";
+    }
+    return stream.str();
+}
+
 ColumnDefinition& columnFor(Track& track, ColumnTarget field)
 {
     if (field.kind == ColumnTargetKind::Note) return track.noteColumn;
@@ -2267,13 +2299,77 @@ CommandResult executeTokens(TrackerSession& session,
     }
     if (verb == "warps") {
         if (tokens.size() != 1u) return failure("Usage: warps");
-        return success(timingWarpsText(session));
+        return success(warpLibraryText(session));
     }
     if (verb == "warp") {
         if (tokens.size() < 2u) {
-            return failure("Usage: warp <clear|cycle|exp|step|eu> ...");
+            return failure("Usage: warp <save|load|delete|rename|clear|cycle|exp|step|eu> ...");
         }
         const auto operation = asciiLower(tokens[1]);
+        if (operation == "save") {
+            std::size_t index = 0u;
+            if (tokens.size() < 3u
+                || !parseWarpLibraryIndex(tokens[2], index))
+                return failure("Usage: warp save <1..64> [name]");
+            std::string name = tokens.size() > 3u
+                ? joinWords(tokens, 3u) : std::string {};
+            if (name.empty()) {
+                if (const auto* previous = session.warpLibrary.entry(index))
+                    name = previous->name;
+            }
+            if (name.empty()) name = "WARP " + std::to_string(index + 1u);
+            if (!session.warpLibrary.store(index, name,
+                    session.transport.warpCycleTicks,
+                    session.transport.timingWarp))
+                return failure("Warp name is too long or the live cycle is outside 1..16 ticks.");
+            return success("Saved current composition to warp "
+                    + std::to_string(index + 1u) + " · " + name + '.',
+                CommandEffect::ProjectChanged);
+        }
+        if (operation == "load" || operation == "recall"
+            || operation == "use") {
+            std::size_t index = 0u;
+            if (tokens.size() != 3u
+                || !parseWarpLibraryIndex(tokens[2], index))
+                return failure("Usage: warp load <1..64>");
+            const auto* entry = session.warpLibrary.entry(index);
+            if (!entry)
+                return failure("Warp library slot "
+                    + std::to_string(index + 1u) + " is empty.");
+            session.transport.warpCycleTicks = entry->cycleTicks;
+            session.transport.timingWarp = entry->stack;
+            return success("Recalled warp " + std::to_string(index + 1u)
+                    + " · " + (entry->name.empty() ? "UNTITLED"
+                                                   : entry->name) + '.',
+                CommandEffect::TransportChanged);
+        }
+        if (operation == "delete" || operation == "remove") {
+            std::size_t index = 0u;
+            if (tokens.size() != 3u
+                || !parseWarpLibraryIndex(tokens[2], index))
+                return failure("Usage: warp delete <1..64>");
+            if (!session.warpLibrary.erase(index))
+                return failure("Warp library slot "
+                    + std::to_string(index + 1u) + " is already empty.");
+            return success("Deleted warp " + std::to_string(index + 1u)
+                    + '.', CommandEffect::ProjectChanged);
+        }
+        if (operation == "rename") {
+            std::size_t index = 0u;
+            if (tokens.size() < 4u
+                || !parseWarpLibraryIndex(tokens[2], index))
+                return failure("Usage: warp rename <1..64> <name>");
+            auto* entry = session.warpLibrary.entry(index);
+            if (!entry)
+                return failure("Warp library slot "
+                    + std::to_string(index + 1u) + " is empty.");
+            const std::string name = joinWords(tokens, 3u);
+            if (name.size() > kMaximumTimingWarpLibraryNameBytes)
+                return failure("Warp names may contain at most 64 UTF-8 bytes.");
+            entry->name = name;
+            return success("Renamed warp " + std::to_string(index + 1u)
+                    + " · " + name + '.', CommandEffect::ProjectChanged);
+        }
         if (operation == "clear") {
             if (tokens.size() != 2u) return failure("Usage: warp clear");
             session.transport.timingWarp.clear();
@@ -2333,7 +2429,7 @@ CommandResult executeTokens(TrackerSession& session,
                 pulses, steps);
             optionsBegin = 4u;
         } else {
-            return failure("Warp type must be exp, step, or eu; use warp clear to reset.");
+            return failure("Warp operation must be save, load, delete, rename, exp, step, eu, cycle, or clear.");
         }
 
         std::string error;
@@ -2459,6 +2555,28 @@ CommandResult executeTokens(TrackerSession& session,
             SequencerAction::Probability, tokens[3], "probability");
     }
 
+    if (verb == "wrp" || verb == "warprecall") {
+        if (tokens.size() != 4u)
+            return failure("Usage: wrp|warprecall <target> <row> <1..64|clear>");
+        std::size_t lane = 0u;
+        std::size_t row = 0u;
+        std::string error;
+        if (!parseLane(session, tokens[1], lane, error))
+            return failure(std::move(error));
+        if (!parseRow(tokens[2], row, error))
+            return failure(std::move(error));
+        if (asciiLower(tokens[3]) == "clear")
+            return writeSequencerFxCell(session, lane, row,
+                SequencerAction::WarpRecall, "clear", "warp recall");
+        std::size_t warpIndex = 0u;
+        if (!parseWarpLibraryIndex(tokens[3], warpIndex))
+            return failure("Warp recall index must be between 1 and 64.");
+        return writeSequencerFxCell(session, lane, row,
+            SequencerAction::WarpRecall,
+            std::to_string(timingWarpLibraryNormalizedFromIndex(warpIndex)),
+            "warp recall");
+    }
+
     if (verb == "ratchet" || verb == "retrig" || verb == "retrigger"
         || verb == "microtime" || verb == "micro" || verb == "delay"
         || verb == "flam" || verb == "stutter" || verb == "skip"
@@ -2526,9 +2644,15 @@ CommandResult executeTokens(TrackerSession& session,
             if (!timingAction)
                 return failure("Unknown sequencing action; use actions to list codes.");
             double value = 0.0;
-            if (!parseFiniteDouble(tokens[5], value)
-                || value < 0.0 || value > 1.0)
+            if (timingAction->action == SequencerAction::WarpRecall) {
+                std::size_t warpIndex = 0u;
+                if (!parseWarpLibraryIndex(tokens[5], warpIndex))
+                    return failure("WRP values are warp library indices 1..64.");
+                value = timingWarpLibraryNormalizedFromIndex(warpIndex);
+            } else if (!parseFiniteDouble(tokens[5], value)
+                || value < 0.0 || value > 1.0) {
                 return failure("FX values must be normalized between 0 and 1.");
+            }
             ensureFxStorage(session, target, false, row + 1u);
             target.actions[row] = FxActionCell::sequencer(
                 timingAction->action);
@@ -2550,7 +2674,7 @@ CommandResult executeTokens(TrackerSession& session,
 
     if (verb == "fxvalue" || verb == "fxv") {
         if (tokens.size() != 5u)
-            return failure("Usage: fxvalue <lane|@alias> <pair> <row> <0..1|previous>");
+            return failure("Usage: fxvalue <lane|@alias> <pair> <row> <0..1|WRP index 1..64|previous>");
         std::size_t lane = 0u;
         std::size_t pair = 0u;
         std::size_t row = 0u;
@@ -2569,9 +2693,19 @@ CommandResult executeTokens(TrackerSession& session,
             target.values[row] = FxValueCell::previous();
         } else {
             double value = 0.0;
-            if (!parseFiniteDouble(tokens[4], value)
-                || value < 0.0 || value > 1.0)
+            const bool warpIndex = row < target.actions.size()
+                && target.actions[row].state == FxActionCellState::Sequencer
+                && target.actions[row].sequencerAction
+                    == SequencerAction::WarpRecall;
+            if (warpIndex) {
+                std::size_t index = 0u;
+                if (!parseWarpLibraryIndex(tokens[4], index))
+                    return failure("WRP values are warp library indices 1..64.");
+                value = timingWarpLibraryNormalizedFromIndex(index);
+            } else if (!parseFiniteDouble(tokens[4], value)
+                || value < 0.0 || value > 1.0) {
                 return failure("FX values must be normalized between 0 and 1.");
+            }
             target.values[row] = FxValueCell::withValue(
                 static_cast<float>(value));
         }
@@ -3301,8 +3435,11 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "swing <0.50..0.75 | 50..75>", "Set traditional pair swing.", "swing" },
             { "gate <1..5000 ms>", "Set external MIDI note-gate duration.", "gate" },
             { "loop <on|off|toggle>  |  loop [rows] <start> <end>", "Toggle the global loop or set its inclusive one-based row region.", "loop" },
-            { "warps", "List the compiled functional timing-warp stack.", "warps" },
+            { "warps", "List the current composition and indexed warp library.", "warps" },
             { "warp clear", "Remove every timing transform.", "warp" },
+            { "warp save <1..64> [name]", "Store the current composed stack and cycle in a library slot.", "" },
+            { "warp load|recall|use <1..64>", "Recall a library warp immediately.", "" },
+            { "warp rename <1..64> <name>  |  warp delete <1..64>", "Edit indexed warp-library metadata.", "" },
             { "warp cycle <1..16 ticks>", "Set the repeating live-warp cycle.", "" },
             { "warp exp|exponential <power> [options]", "Append an exponential warp.", "" },
             { "warp step|quantize <steps> [options]", "Append a stepped quantizer warp.", "" },
@@ -3362,13 +3499,14 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
         { "SEQUENCING COLUMNS", {
             { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx" },
-            { "fx <target> <pair> <row> <sequencing-action> <0..1>", "Write a sequencing behavior and its normalized amount.", "" },
-            { "fxvalue|fxv <target> <pair> <row> <0..1|previous>", "Edit the value paired with an FX action.", "fxvalue fxv" },
+            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior; values are normalized except WRP, which accepts 1..64.", "" },
+            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value; WRP rows accept library index 1..64.", "fxvalue fxv" },
             { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; ! + * o . 0..9 write values, = recalls, and - rests.", "fx1 f1 fx2 f2" },
             { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability" },
             { "ratchet|retrig|retrigger <target> <row> <amount|clear>", "Write or clear a ratchet action in the first available FX pair.", "ratchet retrig retrigger" },
             { "microtime|micro|delay|flam|stutter <target> <row> <amount|clear>", "Write or clear a timing action.", "microtime micro delay flam stutter" },
             { "skip|offset|repeatprev|accent|ghost|euclidfx <target> <row> <amount|clear>", "Write or clear a note-sequencing action.", "skip offset repeatprev accent ghost euclidfx" },
+            { "wrp|warprecall <target> <row> <1..64|clear>", "Write or clear an indexed timing-warp recall action.", "wrp warprecall" },
         } },
         { "ALIAS-FIRST PERFORMANCE SHORTHAND", {
             { "@alias <x---...> [direction]", "Alias-first mask entry.", "" },

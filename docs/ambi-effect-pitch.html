@@ -36,6 +36,22 @@
           <li>Set the common pitch interval and window, then introduce pickup relationships, topology movement, or a directional mask while listening.</li>
         </ol>
 
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="ambi_effect_pitch_signal_flow.svg" alt="Ambi Effect Pitch signal flow showing the encoded input splitting into an unchanged dry field and a decoded pickup path through dual-grain pitch shifting, topology, directional mask, and re-encoded correction before field mix and output">
+          </div>
+          <figcaption>Pitch and window relationships run in the pickup field; only their processed-minus-original correction rejoins the encoded dry path.</figcaption>
+        </figure>
+
+        <ol>
+          <li>The active-order input is copied to the encoded dry path and decoded at the selected auditory body.</li>
+          <li>Each pickup runs through its dual-reader pitch shifter using the effective interval, window, and glide before topology routing.</li>
+          <li>The directional mask chooses between the processed pickup field and the outside-region dry level; subtracting the original pickups leaves a correction.</li>
+          <li>The regularized encoder returns that correction to the active-order field, where <code>MIX</code> scales it against the unchanged input before <code>OUT</code>.</li>
+        </ol>
+
         <h2 id="body">Body and Pitch Model</h2>
         <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code>-<code>2OA</code>, <code>DODECA 20</code> for <code>3OA</code>, and <code>SPHERE 24</code> for <code>4OA</code>-<code>7OA</code>. All three bodies can also be selected directly at every order. <code>PCH</code> sets the common interval from <code>-24</code> to <code>+24 st</code>; <code>WIN</code> controls the dual-reader grain window, and <code>GLD</code> smooths ratio changes.</p>
 
@@ -81,7 +97,7 @@
           <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
-        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#body">Body and Pitch</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#signal-flow">Signal Flow</a><a href="#body">Body and Pitch</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
       </aside>
     </div>
     <script src="lightbox.js"></script>

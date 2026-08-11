@@ -15,7 +15,7 @@ namespace s3g::tracker {
 // no Max/pattr compatibility contract. A future incompatible representation
 // gets a new schema version and an explicit migration rather than silently
 // coercing musical data.
-constexpr uint32_t kProjectSchemaVersion = 4u;
+constexpr uint32_t kProjectSchemaVersion = 5u;
 constexpr const char* kProjectFormatIdentifier = "s3g-tracker-project";
 constexpr const char* kProjectFileExtension = ".s3gt";
 
@@ -41,6 +41,7 @@ struct ProjectSessionState {
 struct ProjectDocument {
     PatternBank patternBank = makeDefaultPatternBank();
     TransportSettings transport;
+    TimingWarpLibrary warpLibrary;
     ProjectSessionState session;
     InstrumentRackState instrumentRack = makeDefaultInstrumentRack();
     SongArrangement song;

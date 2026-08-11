@@ -36,6 +36,22 @@
           <li>Shape the common level, then introduce pickup relationships, topology movement, or a directional mask while listening.</li>
         </ol>
 
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="ambi_effect_gain_signal_flow.svg" alt="Ambi Effect Gain signal flow showing the encoded input splitting into an unchanged dry field and a decoded pickup path through directional gain, topology, directional mask, and re-encoded correction before field mix and output">
+          </div>
+          <figcaption>Gain relationships are calculated in the pickup field, then returned as a correction over the unchanged active-order field.</figcaption>
+        </figure>
+
+        <ol>
+          <li>The active-order input is copied to the encoded dry path and decoded at the selected auditory body.</li>
+          <li>Common gain, spread, deviation, and local trims establish the pickup levels before topology routing.</li>
+          <li>The directional mask chooses between the processed pickup field and the outside-region dry level; subtracting the original pickups leaves a correction.</li>
+          <li>The regularized encoder returns that correction to the active-order field, where <code>MIX</code> scales it against the unchanged input before <code>OUT</code>.</li>
+        </ol>
+
         <h2 id="body">Body and Gain Model</h2>
         <p><code>AUTO</code> uses <code>ICOSA 12</code> for <code>1OA</code>-<code>2OA</code>, <code>DODECA 20</code> for <code>3OA</code>, and <code>SPHERE 24</code> for <code>4OA</code>-<code>7OA</code>. All three bodies can also be selected directly. <code>GAIN</code> ranges from <code>-60</code> to <code>+18 dB</code>; <code>0 dB</code> is neutral. Each of twenty-four persistent pickup slots adds up to <code>±24 dB</code> of local trim inside the bounded range.</p>
 
@@ -81,7 +97,7 @@
           <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
-        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#body">Body and Gain</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
+        <div class="toc-section"><h2>On This Page</h2><a href="#workflow">Workflow</a><a href="#signal-flow">Signal Flow</a><a href="#body">Body and Gain</a><a href="#relationships">Relationships</a><a href="#listener-view">Listener View</a><a href="#mask">Directional Mask</a></div>
       </aside>
     </div>
     <script src="lightbox.js"></script>

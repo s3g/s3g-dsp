@@ -134,6 +134,8 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, assign) WorkspaceCallbacks* trackerCallbacks;
 @property(nonatomic, strong) S3GTrackerWarpCurveView* curveView;
+@property(nonatomic, strong) NSPopUpButton* libraryPopup;
+@property(nonatomic, strong) NSTextField* libraryNameField;
 @property(nonatomic, strong) NSTextField* cycleField;
 @property(nonatomic, strong) NSPopUpButton* transformPopup;
 @property(nonatomic, strong) NSPopUpButton* typePopup;
@@ -147,6 +149,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 @property(nonatomic, strong) NSTextField* repeatsField;
 @property(nonatomic, strong) NSTextField* statusLabel;
 @property(nonatomic) NSInteger selectedTransform;
+@property(nonatomic) NSInteger selectedLibrarySlot;
 @end
 
 @implementation S3GTrackerWarpWindowController
@@ -165,7 +168,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     callbacks:(WorkspaceCallbacks*)callbacks
 {
     NSWindow* window = [[NSWindow alloc] initWithContentRect:
-        NSMakeRect(0.0, 0.0, 820.0, 520.0)
+        NSMakeRect(0.0, 0.0, 820.0, 580.0)
         styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
             | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
@@ -174,15 +177,45 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     self.trackerState = state;
     self.trackerCallbacks = callbacks;
     self.selectedTransform = 0;
+    self.selectedLibrarySlot = 0;
     window.title = @"s3g Tracker — Functional Timing Warps";
     window.delegate = self;
     window.releasedWhenClosed = NO;
-    window.minSize = NSMakeSize(720.0, 470.0);
+    window.minSize = NSMakeSize(720.0, 530.0);
 
     S3GTrackerPanelView* root = [[S3GTrackerPanelView alloc]
         initWithFrame:window.contentView.bounds];
     root.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     window.contentView = root;
+
+    NSStackView* libraryBar = [[NSStackView alloc] initWithFrame:NSZeroRect];
+    libraryBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    libraryBar.alignment = NSLayoutAttributeCenterY;
+    libraryBar.spacing = 8.0;
+    libraryBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [root addSubview:libraryBar];
+    [libraryBar addArrangedSubview:warpLabel(@"WARP LIBRARY")];
+    self.libraryPopup = [[S3GTrackerPopupButton alloc]
+        initWithFrame:NSZeroRect pullsDown:NO];
+    self.libraryPopup.target = self;
+    self.libraryPopup.action = @selector(librarySlotSelected:);
+    [self.libraryPopup.widthAnchor constraintEqualToConstant:230.0].active = YES;
+    [libraryBar addArrangedSubview:self.libraryPopup];
+    [libraryBar addArrangedSubview:warpLabel(@"NAME")];
+    self.libraryNameField = [self editorField:190.0
+        action:@selector(saveLibrarySlot:)];
+    [libraryBar addArrangedSubview:self.libraryNameField];
+    for (NSArray* spec in @[
+             @[ @"SAVE", @"saveLibrarySlot:" ],
+             @[ @"RECALL", @"recallLibrarySlot:" ],
+             @[ @"DELETE", @"deleteLibrarySlot:" ] ]) {
+        S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
+            initWithFrame:NSZeroRect];
+        button.title = spec[0];
+        button.target = self;
+        button.action = NSSelectorFromString(spec[1]);
+        [libraryBar addArrangedSubview:button];
+    }
 
     NSStackView* toolbar = [[NSStackView alloc] initWithFrame:NSZeroRect];
     toolbar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -292,9 +325,12 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     [editor addSubview:self.statusLabel];
 
     [NSLayoutConstraint activateConstraints:@[
+        [libraryBar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
+        [libraryBar.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-16.0],
+        [libraryBar.topAnchor constraintEqualToAnchor:root.topAnchor constant:14.0],
         [toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
         [toolbar.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-16.0],
-        [toolbar.topAnchor constraintEqualToAnchor:root.topAnchor constant:14.0],
+        [toolbar.topAnchor constraintEqualToAnchor:libraryBar.bottomAnchor constant:10.0],
         [self.curveView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
         [self.curveView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16.0],
         [self.curveView.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:14.0],
@@ -325,6 +361,30 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 - (void)reloadModel
 {
     if (!self.trackerState || !self.window) return;
+    const auto& library = self.trackerState->session.warpLibrary;
+    [self.libraryPopup removeAllItems];
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kMaximumTimingWarpLibraryEntries; ++index) {
+        const auto* entry = library.entry(index);
+        NSString* title = entry
+            ? [NSString stringWithFormat:@"%02lu  %@  ·  %uT / %luX",
+                static_cast<unsigned long>(index + 1u),
+                [NSString stringWithUTF8String:entry->name.c_str()],
+                entry->cycleTicks,
+                static_cast<unsigned long>(entry->stack.size())]
+            : [NSString stringWithFormat:@"%02lu  EMPTY",
+                static_cast<unsigned long>(index + 1u)];
+        [self.libraryPopup addItemWithTitle:title];
+    }
+    self.selectedLibrarySlot = std::clamp<NSInteger>(
+        self.selectedLibrarySlot, 0,
+        static_cast<NSInteger>(
+            s3g::tracker::kMaximumTimingWarpLibraryEntries - 1u));
+    [self.libraryPopup selectItemAtIndex:self.selectedLibrarySlot];
+    const auto* selectedEntry = library.entry(
+        static_cast<std::size_t>(self.selectedLibrarySlot));
+    self.libraryNameField.stringValue = selectedEntry
+        ? [NSString stringWithUTF8String:selectedEntry->name.c_str()] : @"";
     const auto& transport = self.trackerState->session.transport;
     self.cycleField.integerValue = transport.warpCycleTicks;
     const auto count = transport.timingWarp.size();
@@ -368,16 +428,77 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         self.endField.doubleValue = transform->options.phaseEnd;
         self.repeatsField.integerValue = transform->options.repetitions;
         self.statusLabel.stringValue = [NSString stringWithFormat:
-            @"%lu TRANSFORM%@ • SERIAL LEFT → RIGHT • YELLOW POINTS = %u-TICK CYCLE",
+            @"%lu TRANSFORM%@ • SERIAL LEFT → RIGHT • %lu SAVED • WRP RECALLS 01–64",
             static_cast<unsigned long>(count), count == 1u ? @"" : @"S",
-            transport.warpCycleTicks];
+            static_cast<unsigned long>(library.size())];
     } else {
         self.primaryLabel.stringValue = @"POWER";
         self.pulsesLabel.hidden = YES;
         self.pulsesField.hidden = YES;
-        self.statusLabel.stringValue = @"IDENTITY TIMING • ADD EXP, STEP, OR EUCLID";
+        self.statusLabel.stringValue = [NSString stringWithFormat:
+            @"IDENTITY TIMING • ADD EXP, STEP, OR EUCLID • %lu SAVED",
+            static_cast<unsigned long>(library.size())];
     }
     [self.curveView setNeedsDisplay:YES];
+}
+
+- (void)librarySlotSelected:(id)sender
+{
+    (void)sender;
+    self.selectedLibrarySlot = std::max<NSInteger>(0,
+        self.libraryPopup.indexOfSelectedItem);
+    [self reloadModel];
+}
+
+- (void)saveLibrarySlot:(id)sender
+{
+    (void)sender;
+    if (!self.trackerState) return;
+    NSString* value = [self.libraryNameField.stringValue
+        stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    const auto index = static_cast<std::size_t>(std::max<NSInteger>(0,
+        self.selectedLibrarySlot));
+    if (value.length == 0u)
+        value = [NSString stringWithFormat:@"WARP %02lu",
+            static_cast<unsigned long>(index + 1u)];
+    const char* utf8 = value.UTF8String;
+    const auto& transport = self.trackerState->session.transport;
+    if (!utf8 || !self.trackerState->session.warpLibrary.store(index,
+            std::string(utf8), transport.warpCycleTicks,
+            transport.timingWarp)) {
+        NSBeep();
+        [self reloadModel];
+        return;
+    }
+    [self publish];
+}
+
+- (void)recallLibrarySlot:(id)sender
+{
+    (void)sender;
+    if (!self.trackerState) return;
+    const auto index = static_cast<std::size_t>(std::max<NSInteger>(0,
+        self.selectedLibrarySlot));
+    const auto* entry = self.trackerState->session.warpLibrary.entry(index);
+    if (!entry) { NSBeep(); return; }
+    self.trackerState->session.transport.warpCycleTicks = entry->cycleTicks;
+    self.trackerState->session.transport.timingWarp = entry->stack;
+    self.selectedTransform = 0;
+    [self publish];
+}
+
+- (void)deleteLibrarySlot:(id)sender
+{
+    (void)sender;
+    if (!self.trackerState) return;
+    const auto index = static_cast<std::size_t>(std::max<NSInteger>(0,
+        self.selectedLibrarySlot));
+    if (!self.trackerState->session.warpLibrary.erase(index)) {
+        NSBeep();
+        return;
+    }
+    [self publish];
 }
 
 - (void)cycleChanged:(id)sender

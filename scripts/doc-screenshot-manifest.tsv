@@ -63,6 +63,7 @@ no-input-mixer-8ch	no-input-mixer
 feedback-shift	feedback-shift
 nim-gesture	nim-gesture
 fault	fault
+tracker	s3g-tracker
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
 crcltr	crcltr

@@ -116,35 +116,14 @@ void drawGeometryReadHead(NSPoint point, CGFloat intensity, bool currentHit,
     bool selected)
 {
     intensity = std::clamp<CGFloat>(intensity, 0.0, 1.0);
-    if (intensity <= 0.0) return;
-    NSColor* yellow = trackerColor(0xffdf3f);
-    const CGFloat haloRadius = selected ? 18.0 : 15.0;
-    NSGradient* halo = [[NSGradient alloc] initWithColorsAndLocations:
-        [yellow colorWithAlphaComponent:0.46 * intensity], 0.0,
-        [yellow colorWithAlphaComponent:0.18 * intensity], 0.42,
-        [yellow colorWithAlphaComponent:0.055 * intensity], 0.72,
-        [yellow colorWithAlphaComponent:0.0], 1.0, nil];
-    [halo drawFromCenter:point radius:0.0
-        toCenter:point radius:haloRadius
-        options:(NSGradientDrawsBeforeStartingLocation
-            | NSGradientDrawsAfterEndingLocation)];
-
-    NSBezierPath* haloRing = [NSBezierPath bezierPathWithOvalInRect:
-        NSMakeRect(point.x - haloRadius * 0.54,
-            point.y - haloRadius * 0.54,
-            haloRadius * 1.08, haloRadius * 1.08)];
-    haloRing.lineWidth = selected ? 1.4 : 1.0;
-    [[yellow colorWithAlphaComponent:0.34 * intensity] setStroke];
-    [haloRing stroke];
-
-    // Only a currently emitted onset receives the solid point. A previous
-    // onset leaves the radial halo to decay without creating a false pulse.
-    if (!currentHit) return;
-    const CGFloat coreRadius = selected ? 6.0 : 5.4;
+    if (intensity <= 0.0 || !currentHit) return;
+    NSColor* yellow = [trackerColor(0xffdf3f)
+        colorWithAlphaComponent:intensity];
+    const CGFloat coreRadius = selected ? 5.4 : 4.8;
     NSBezierPath* outline = [NSBezierPath bezierPathWithOvalInRect:
-        NSMakeRect(point.x - coreRadius - 1.2,
-            point.y - coreRadius - 1.2,
-            (coreRadius + 1.2) * 2.0, (coreRadius + 1.2) * 2.0)];
+        NSMakeRect(point.x - coreRadius - 1.0,
+            point.y - coreRadius - 1.0,
+            (coreRadius + 1.0) * 2.0, (coreRadius + 1.0) * 2.0)];
     [trackerColor(0x161300, 0.88) setFill];
     [outline fill];
     NSBezierPath* core = [NSBezierPath bezierPathWithOvalInRect:
@@ -289,6 +268,16 @@ NSString* fxValueText(const Track& track, std::size_t pair,
         || row >= track.fxPairs[pair].values.size()) return @"PRV";
     const auto& cell = track.fxPairs[pair].values[row];
     if (cell.state == FxValueCellState::Previous) return @"PRV";
+    const auto& actions = track.fxPairs[pair].actions;
+    if (row < actions.size()
+        && actions[row].state == FxActionCellState::Sequencer
+        && actions[row].sequencerAction
+            == s3g::tracker::SequencerAction::WarpRecall) {
+        return [NSString stringWithFormat:@"%02lu",
+            static_cast<unsigned long>(
+                s3g::tracker::timingWarpLibraryIndexFromNormalized(
+                    cell.normalized) + 1u)];
+    }
     return [NSString stringWithFormat:@"%.3f",
         static_cast<double>(
             std::clamp(cell.normalized, 0.0f, 1.0f))];
@@ -615,7 +604,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Each lane header has a SYNC control that restarts that track's NOTE, VOL, and FX loops together, plus its own clickable MIDI bus and channel. Double-click the lane name to rename it. Each column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across NOTE, VOL, SEQ1, V1, SEQ2, and V2; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name, and VOL and sequence values accept 0.000 through 1.000. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Each lane header has a SYNC control that restarts that track's NOTE, VOL, and FX loops together, plus its own clickable MIDI bus and channel. Double-click the lane name to rename it. Each column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across NOTE, VOL, SEQ1, V1, SEQ2, and V2; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and ordinary sequence values accept 0.000 through 1.000; WRP values accept warp library index 1 through 64. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -899,9 +888,25 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         pair.values.resize(row + 1u, FxValueCell::previous());
     const float current = resolvedFxValue(track,
         pairIndex, row);
-    const int scaled = static_cast<int>(std::lround(current * 100.0f));
-    pair.values[row] = FxValueCell::withValue(
-        static_cast<float>(std::clamp(scaled + delta, 0, 100)) / 100.0f);
+    const bool warpIndex = row < pair.actions.size()
+        && pair.actions[row].state == FxActionCellState::Sequencer
+        && pair.actions[row].sequencerAction
+            == s3g::tracker::SequencerAction::WarpRecall;
+    if (warpIndex) {
+        const auto currentIndex = static_cast<int>(
+            s3g::tracker::timingWarpLibraryIndexFromNormalized(current));
+        const auto last = static_cast<int>(
+            s3g::tracker::kMaximumTimingWarpLibraryEntries - 1u);
+        pair.values[row] = FxValueCell::withValue(
+            s3g::tracker::timingWarpLibraryNormalizedFromIndex(
+                static_cast<std::size_t>(std::clamp(currentIndex
+                    + (delta < 0 ? -1 : 1), 0, last))));
+    } else {
+        const int scaled = static_cast<int>(std::lround(current * 100.0f));
+        pair.values[row] = FxValueCell::withValue(
+            static_cast<float>(std::clamp(scaled + delta, 0, 100))
+                / 100.0f);
+    }
     pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
     session.pattern.visibleRows = std::max(session.pattern.visibleRows,
         row + 1u);
@@ -1052,7 +1057,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     menu.autoenablesItems = NO;
     menu.font = trackerFont(9.5, NSFontWeightMedium);
     NSMenuItem* heading = [[NSMenuItem alloc]
-        initWithTitle:@"SEQ ACTION  ·  VALUE 0.000–1.000"
+        initWithTitle:@"SEQ ACTION  ·  NORMALIZED VALUE / WRP 01–64"
         action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [menu addItem:heading];
@@ -1130,7 +1135,10 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         if (pair.values.size() <= row)
             pair.values.resize(row + 1u, FxValueCell::previous());
         if (pair.values[row].state == FxValueCellState::Previous)
-            pair.values[row] = FxValueCell::withValue(0.5f);
+            pair.values[row] = FxValueCell::withValue(
+                action->action == s3g::tracker::SequencerAction::WarpRecall
+                    ? s3g::tracker::timingWarpLibraryNormalizedFromIndex(0u)
+                    : 0.5f);
         pair.valueColumn.length = std::max(
             pair.valueColumn.length, row + 1u);
     } else return;
@@ -1366,8 +1374,18 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
                 if (pair.values.size() <= self.numericDragRow)
                     pair.values.resize(self.numericDragRow + 1u,
                         FxValueCell::previous());
+                const bool warpIndex = self.numericDragRow
+                        < pair.actions.size()
+                    && pair.actions[self.numericDragRow].state
+                        == FxActionCellState::Sequencer
+                    && pair.actions[self.numericDragRow].sequencerAction
+                        == s3g::tracker::SequencerAction::WarpRecall;
                 pair.values[self.numericDragRow]
-                    = FxValueCell::withValue(value);
+                    = FxValueCell::withValue(warpIndex
+                        ? s3g::tracker::timingWarpLibraryNormalizedFromIndex(
+                            s3g::tracker::timingWarpLibraryIndexFromNormalized(
+                                value))
+                        : value);
                 pair.valueColumn.length = std::max(
                     pair.valueColumn.length, self.numericDragRow + 1u);
             }
@@ -1658,10 +1676,25 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     if (lower.length == 0u || [lower isEqualToString:@"prv"]
         || [lower isEqualToString:@"previous"])
         pair.values[row] = FxValueCell::previous();
-    else if (s3g::tracker::app::parseGridNormalizedValue(
-            std::string_view(lower.UTF8String ? lower.UTF8String : ""), value))
+    else {
+        const bool warpIndex = row < pair.actions.size()
+            && pair.actions[row].state == FxActionCellState::Sequencer
+            && pair.actions[row].sequencerAction
+                == s3g::tracker::SequencerAction::WarpRecall;
+        if (warpIndex) {
+            NSInteger oneBased = 0;
+            if (![self scanInteger:lower result:&oneBased]
+                || oneBased < 1
+                || oneBased > static_cast<NSInteger>(
+                    s3g::tracker::kMaximumTimingWarpLibraryEntries))
+                return NO;
+            value = s3g::tracker::timingWarpLibraryNormalizedFromIndex(
+                static_cast<std::size_t>(oneBased - 1));
+        } else if (!s3g::tracker::app::parseGridNormalizedValue(
+                std::string_view(lower.UTF8String ? lower.UTF8String : ""),
+                value)) return NO;
         pair.values[row] = FxValueCell::withValue(value);
-    else return NO;
+    }
     pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
     return YES;
 }
@@ -2908,11 +2941,15 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         _readHeadHaloStrength;
     std::array<std::size_t, s3g::tracker::kMaximumTrackCount>
         _readHeadHaloRows;
+    std::array<bool, s3g::tracker::kMaximumTrackCount>
+        _documentationHitLanes;
+    BOOL _documentationPlaybackSnapshot;
     NSTimeInterval _lastReadHeadAnimationTime;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
 - (void)advancePlaybackAnimation;
+- (NSInteger)prepareDocumentationPlaybackSnapshot;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
@@ -2931,7 +2968,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
-        self.accessibilityHelp = @"Use arrow keys or click a rhythm layer to select a lane; Space toggles playback. Large yellow points mark current note hits and leave a short fading halo. Use the minus, reset, and plus controls to zoom the vector geometry.";
+        self.accessibilityHelp = @"Use arrow keys or click a rhythm layer to select a lane; Space toggles playback. Compact yellow points mark current note hits. Use the minus, reset, and plus controls to zoom the vector geometry.";
     }
     return self;
 }
@@ -2961,6 +2998,79 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             _readHeadHaloStrength[lane] = 1.0;
         }
     }
+}
+
+- (NSInteger)prepareDocumentationPlaybackSnapshot
+{
+    auto* model = self.trackerState;
+    if (!model) return 0;
+    const auto visible = visibleGeometryLanes(model);
+    model->playing = true;
+    std::fill(model->noteHits.begin(), model->noteHits.end(), false);
+    _documentationHitLanes.fill(false);
+    _documentationPlaybackSnapshot = YES;
+    constexpr std::array<double, 6u> playheadPhases {
+        0.0, 0.25, 0.50, 0.75, 0.375, 0.875,
+    };
+    std::size_t activeHits = 0u;
+    for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
+        const auto lane = visible.indices[ordinal];
+        auto& track = model->session.pattern.tracks[lane];
+        track.noteColumn.length = std::max<std::size_t>(
+            track.noteColumn.length, 3u);
+        const auto length = std::clamp<std::size_t>(
+            track.noteColumn.length, 1u, 256u);
+        track.notes.resize(std::max(track.notes.size(), length),
+            NoteCell::rest());
+        const auto isHit = [&track](std::size_t row) {
+            return row < track.notes.size()
+                && (track.notes[row].state == NoteCellState::Note
+                    || track.notes[row].state
+                        == NoteCellState::RetriggerPrevious);
+        };
+        std::size_t authoredHits = 0u;
+        for (std::size_t row = 0u; row < length; ++row)
+            if (isHit(row)) ++authoredHits;
+        const std::array<std::size_t, 3u> anchors {
+            0u, length / 3u, (length * 2u) / 3u,
+        };
+        for (const auto row : anchors) {
+            if (authoredHits >= 3u) break;
+            if (isHit(row)) continue;
+            track.notes[row] = NoteCell::withNote(
+                defaultNoteForLane(track, lane));
+            ++authoredHits;
+        }
+        for (std::size_t row = 0u;
+             row < length && authoredHits < 3u; ++row) {
+            if (isHit(row)) continue;
+            track.notes[row] = NoteCell::withNote(
+                defaultNoteForLane(track, lane));
+            ++authoredHits;
+        }
+        if (activeHits >= 6u) continue;
+        std::size_t playheadRow = 0u;
+        double nearestDistance = 2.0;
+        for (std::size_t row = 0u; row < length; ++row) {
+            if (!isHit(row)) continue;
+            const double phase = static_cast<double>(row)
+                / static_cast<double>(length);
+            const double direct = std::abs(
+                phase - playheadPhases[activeHits]);
+            const double distance = std::min(direct, 1.0 - direct);
+            if (distance >= nearestDistance) continue;
+            nearestDistance = distance;
+            playheadRow = row;
+        }
+        model->notePlayheads[lane] = playheadRow;
+        model->noteHits[lane] = true;
+        _readHeadHaloRows[lane] = playheadRow;
+        _readHeadHaloStrength[lane] = 1.0;
+        _documentationHitLanes[lane] = true;
+        ++activeHits;
+    }
+    [self setNeedsDisplay:YES];
+    return static_cast<NSInteger>(activeHits);
 }
 
 - (NSRect)zoomOutRect
@@ -3172,6 +3282,10 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         const CGFloat radius = spacing
             * static_cast<CGFloat>(ordinal + 2u);
         const bool selected = lane == model->session.selectedTrack;
+        const bool documentationHit = _documentationPlaybackSnapshot
+            && _documentationHitLanes[lane];
+        const bool currentHit = documentationHit
+            || (model->playing && model->noteHits[lane]);
         const CGFloat alpha = selected ? 1.0 : 0.76;
         NSColor* laneColor = trackerColor(
             kGeometryLaneColors[lane % kGeometryLaneColors.size()], alpha);
@@ -3202,14 +3316,15 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         }
 
         // The polygon shows authored pulse structure without vertex dots. A
-        // solid yellow point exists only when this NOTE position emitted an
-        // onset; its stored halo then fades without leaving a false hit dot.
-        const bool currentHit = model->playing && model->noteHits[lane];
+        // compact solid yellow point exists only when this NOTE position
+        // emitted an onset.
         const CGFloat haloStrength = currentHit
             ? 1.0 : _readHeadHaloStrength[lane];
         if (haloStrength > 0.0) {
-            const auto position = (currentHit ? model->notePlayheads[lane]
-                : _readHeadHaloRows[lane]) % length;
+            const auto position = (documentationHit
+                    ? _readHeadHaloRows[lane]
+                    : currentHit ? model->notePlayheads[lane]
+                                 : _readHeadHaloRows[lane]) % length;
             const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
                 + static_cast<CGFloat>(position) * 2.0
                     * static_cast<CGFloat>(M_PI)

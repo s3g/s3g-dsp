@@ -34,9 +34,9 @@ Every track displays six columns at once:
 | `NOTE` | MIDI note, rest, retrigger, or kill |
 | `VOL` | Normalized `0.000`–`1.000` velocity |
 | `SEQ1` | First sequencing action |
-| `V1` | Normalized value for `SEQ1` |
+| `V1` | Value for `SEQ1` (`0.000`–`1.000`, or warp slot `01`–`64`) |
 | `SEQ2` | Second sequencing action |
-| `V2` | Normalized value for `SEQ2` |
+| `V2` | Value for `SEQ2` (`0.000`–`1.000`, or warp slot `01`–`64`) |
 
 Each column owns its own length, stride, phase, direction, mute state, and
 playhead. A track can therefore combine, for example, a 16-row note pattern,
@@ -66,6 +66,7 @@ Double-click a cell, type a value, and press Return.
 ### VOL, V1, and V2
 
 - Enter a normalized value from `0.000` to `1.000`.
+- When the paired action is `WRP`, enter its warp-library index `1`–`64`.
 - `PRV` or `previous` retains the remembered value.
 - `DEF` or `default` restores default volume in `VOL`.
 
@@ -97,11 +98,17 @@ Use `PRV` to recall the remembered action and `---` to clear the cell.
 | `OF` | Note Offset | Read the NOTE source from four rows back to four ahead |
 | `RP` | Repeat Previous | Probability of filling an empty source with the last emitted note |
 | `EU` | Euclidean Gate | One through NOTE-length Euclidean hits |
+| `WRP` | Warp Recall | Recall composed warp-library slot `01`–`64` |
 
 When both pairs resolve the same kind of source transform, `SEQ2` wins.
 Probability, skip, offset, repeat-previous, and Euclidean gating resolve the
 note source before timing expansion. Ratchet, microtime, delay, flam, stutter,
 accent, and ghost then shape the accepted onset.
+
+`WRP` is global timing state. It recalls the saved stack after its tracker row
+has been evaluated and retimes the interval into the next row. If multiple
+lanes request a warp on the same tick, the last lane/SEQ pair in deterministic
+scan order wins. An empty target slot leaves the current warp unchanged.
 
 ## Selection and keyboard editing
 
@@ -203,6 +210,9 @@ dir @kick note palindrome
 mute @kick fx1 toggle
 warps
 warp exp 2.0 mix .5
+warp save 7 Broken Quintuplet
+warp load 7
+wrp @kick 9 7
 ```
 
 `actions` lists only the sequencing behaviors accepted by `SEQ1` and `SEQ2`.
@@ -210,11 +220,13 @@ Internal-audio parameter actions and scopes are not part of the MIDI tracker.
 
 ## Tool pages and windows
 
-- **Geometry** visualizes active, unmuted note polygons. A large yellow point
-  marks a current note hit, then leaves a short radially and temporally fading
-  halo without leaving a false hit point. Use its zoom controls for dense
+- **Geometry** visualizes active, unmuted note polygons. A compact solid yellow
+  point marks a current note hit without obscuring nearby geometry. Use its
+  zoom controls for dense
   patterns.
-- **Warps** edits the functional timing-warp stack.
+- **Warps** composes the current serial timing-warp stack and stores or recalls
+  it from 64 named, numbered project-library slots. Saving captures the stack
+  and cycle together; `WRP` and Live Code resolve the same slots.
 - **Console** displays Live Code results and errors.
 - **Help** contains the generated command reference and sequencing-action
   list.

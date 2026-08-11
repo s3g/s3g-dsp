@@ -18,6 +18,7 @@ namespace s3g::tracker {
 struct TrackerSession {
     Pattern pattern;
     TransportSettings transport;
+    TimingWarpLibrary warpLibrary;
     double gateMilliseconds = 90.0;
     // Console aliases are stored without the leading '@' and point to
     // zero-based lanes. std::map keeps the `aliases` response deterministic.

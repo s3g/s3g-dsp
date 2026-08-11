@@ -82,6 +82,13 @@ std::string sessionFingerprint(const TrackerSession& session)
                << warp->options.phaseEnd << ':'
                << warp->options.repetitions << ':' << warp->options.alpha;
     }
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kMaximumTimingWarpLibraryEntries; ++index) {
+        const auto* entry = session.warpLibrary.entry(index);
+        if (!entry) continue;
+        stream << "|wl:" << index << ':' << entry->name << ':'
+               << entry->cycleTicks << ':' << entry->stack.size();
+    }
     for (const auto& [name, lane] : session.aliases)
         stream << "|a:" << name << ':' << lane;
     for (const auto note : session.laneDefaultNotes)
@@ -274,7 +281,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
         "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
-        "variation", "vary", "warps", "track",
+        "variation", "vary", "warps", "warprecall", "wrp", "track",
     };
 
     std::set<std::string> documentedVerbs;
@@ -370,6 +377,34 @@ void testTimingWarpCommands()
                 != std::string::npos
             && result.message.find("eu 2/5") != std::string::npos,
         "warps should expose a readable compiled-stack summary");
+
+    result = CommandEngine::execute(session,
+        "warp save 7 Broken Quintuplet");
+    const auto* saved = session.warpLibrary.entry(6u);
+    check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
+            && saved && saved->name == "Broken Quintuplet"
+            && saved->cycleTicks == 5u && saved->stack.size() == 2u,
+        "warp save should store the complete composition at a stable index");
+    check(CommandEngine::execute(session, "warp clear").ok
+            && CommandEngine::execute(session, "warp cycle 4").ok
+            && CommandEngine::execute(session, "warp load 7").ok
+            && session.transport.warpCycleTicks == 5u
+            && session.transport.timingWarp.size() == 2u,
+        "warp load should recall stack and cycle as one composition");
+    result = CommandEngine::execute(session, "wrp 1 2 7");
+    const auto& recallPair = session.pattern.tracks[0u].fxPairs[0u];
+    check(result.ok
+            && recallPair.actions[1u].sequencerAction
+                == s3g::tracker::SequencerAction::WarpRecall
+            && s3g::tracker::timingWarpLibraryIndexFromNormalized(
+                recallPair.values[1u].normalized) == 6u,
+        "live code should author a WRP action using its visible library index");
+    check(CommandEngine::execute(session,
+            "warp rename 7 Five Against Four").ok
+            && session.warpLibrary.entry(6u)->name == "Five Against Four"
+            && CommandEngine::execute(session, "warp delete 7").ok
+            && !session.warpLibrary.entry(6u),
+        "warp library entries should support rename and deletion");
 
     checkRejectedWithoutMutation(session, "warp exp 0",
         "an invalid exponent must not partially change transport");

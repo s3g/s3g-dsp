@@ -728,7 +728,7 @@ constexpr std::array<std::pair<std::string_view, ParameterScope>, 3u>
         { "channel", ParameterScope::Channel },
         { "note", ParameterScope::Note },
     }};
-constexpr std::array<std::pair<std::string_view, SequencerAction>, 12u>
+constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
     kSequencerActions {{
         { "ratchet", SequencerAction::Ratchet },
         { "microtime", SequencerAction::MicroTime },
@@ -742,6 +742,7 @@ constexpr std::array<std::pair<std::string_view, SequencerAction>, 12u>
         { "offset", SequencerAction::Offset },
         { "repeat-previous", SequencerAction::RepeatPrevious },
         { "euclid", SequencerAction::Euclid },
+        { "warp-recall", SequencerAction::WarpRecall },
     }};
 static_assert(kSequencerActions.size() == kSequencerActionCount,
     "project schema must explicitly name every sequencing action");
@@ -1868,6 +1869,13 @@ bool validateSongReferences(const ProjectDocument& document,
         "song row references a pattern that is not present in the bank");
 }
 
+// Implemented beside the timing-warp codec below; declared here because the
+// document root is assembled before that specialized section.
+JsonValue encodeTimingWarpLibrary(const TimingWarpLibrary& library,
+    ProjectResult& result);
+bool decodeTimingWarpLibrary(const JsonValue& input,
+    TimingWarpLibrary& destination, ProjectResult& result);
+
 JsonValue encodeDocument(const ProjectDocument& document,
     ProjectResult& result)
 {
@@ -1881,6 +1889,8 @@ JsonValue encodeDocument(const ProjectDocument& document,
     root.object["session"] = encodeSession(document.session, result);
     root.object["song"] = encodeSong(document.song, result);
     root.object["transport"] = encodeTransport(document.transport, result);
+    root.object["warpLibrary"] = encodeTimingWarpLibrary(
+        document.warpLibrary, result);
     validatePatternRackReferences(document, result);
     validateSongReferences(document, result);
     return root;
@@ -1906,8 +1916,10 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         "$", result);
     const auto* song = requiredField(root, "song", JsonType::Object,
         "$", result);
+    const auto* warpLibrary = requiredField(root, "warpLibrary",
+        JsonType::Array, "$", result);
     if (!format || !schema || !patternBank || !transport || !session || !rack
-        || !song) return false;
+        || !song || !warpLibrary) return false;
     if (format->string != kProjectFormatIdentifier)
         return setError(result, ProjectErrorCode::InvalidArgument, "$.format",
             "file is not an s3g Tracker project");
@@ -1925,6 +1937,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         || !decodeSession(*session, candidate.session, result)
         || !decodeInstrumentRack(*rack, candidate.instrumentRack, result)
         || !decodeSong(*song, candidate.song, result)
+        || !decodeTimingWarpLibrary(*warpLibrary, candidate.warpLibrary,
+            result)
         || !validatePatternRackReferences(candidate, result)
         || !validateSongReferences(candidate, result)) return false;
     destination = std::move(candidate);
@@ -2594,6 +2608,117 @@ bool decodeTimingWarp(const JsonValue& input, TimingWarpTransform& destination,
         return setError(result, ProjectErrorCode::InconsistentData,
             std::string(path), "timing warp validation failed");
     destination = *canonical;
+    return true;
+}
+
+JsonValue encodeTimingWarpLibrary(const TimingWarpLibrary& library,
+    ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    output.array.reserve(library.size());
+    for (std::size_t index = 0u;
+         index < kMaximumTimingWarpLibraryEntries; ++index) {
+        const auto* entry = library.entry(index);
+        if (!entry) continue;
+        const std::string path = "$.warpLibrary["
+            + std::to_string(output.array.size()) + "]";
+        if (entry->name.size() > kMaximumTimingWarpLibraryNameBytes)
+            setError(result, ProjectErrorCode::SizeLimitExceeded,
+                path + ".name", "warp name exceeds 64 UTF-8 bytes");
+        if (entry->cycleTicks == 0u
+            || entry->cycleTicks > kMaximumLiveWarpCycleTicks)
+            setError(result, ProjectErrorCode::OutOfRange,
+                path + ".cycleTicks", "warp cycle must be 1..16 ticks");
+        JsonValue encoded = JsonValue::objectValue();
+        encoded.object["cycleTicks"] = number(entry->cycleTicks);
+        encoded.object["index"] = number(index + 1u);
+        encoded.object["name"] = JsonValue::stringValue(entry->name);
+        JsonValue stack = JsonValue::arrayValue();
+        stack.array.reserve(entry->stack.size());
+        for (std::size_t transformIndex = 0u;
+             transformIndex < entry->stack.size(); ++transformIndex) {
+            const auto* transform = entry->stack.transform(transformIndex);
+            if (!transform) {
+                setError(result, ProjectErrorCode::InconsistentData,
+                    path + ".stack", "warp stack contains a missing entry");
+                break;
+            }
+            stack.array.push_back(encodeTimingWarp(*transform,
+                path + ".stack[" + std::to_string(transformIndex) + "]",
+                result));
+        }
+        encoded.object["stack"] = std::move(stack);
+        output.array.push_back(std::move(encoded));
+    }
+    return output;
+}
+
+bool decodeTimingWarpLibrary(const JsonValue& input,
+    TimingWarpLibrary& destination, ProjectResult& result)
+{
+    if (input.type != JsonType::Array)
+        return setError(result, ProjectErrorCode::TypeMismatch,
+            "$.warpLibrary", "expected a timing-warp library array");
+    if (input.array.size() > kMaximumTimingWarpLibraryEntries)
+        return setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.warpLibrary", "warp library exceeds 64 entries");
+    TimingWarpLibrary candidate;
+    std::array<bool, kMaximumTimingWarpLibraryEntries> occupied {};
+    for (std::size_t item = 0u; item < input.array.size(); ++item) {
+        const std::string path = "$.warpLibrary[" + std::to_string(item)
+            + "]";
+        const auto* indexValue = requiredField(input.array[item], "index",
+            JsonType::Number, path, result);
+        const auto* name = requiredField(input.array[item], "name",
+            JsonType::String, path, result);
+        const auto* cycle = requiredField(input.array[item], "cycleTicks",
+            JsonType::Number, path, result);
+        const auto* stack = requiredField(input.array[item], "stack",
+            JsonType::Array, path, result);
+        if (!indexValue || !name || !cycle || !stack) return false;
+        uint32_t oneBased = 0u;
+        uint32_t cycleTicks = 0u;
+        if (!checkedUint32(*indexValue, oneBased,
+                kMaximumTimingWarpLibraryEntries, path + ".index", result)
+            || oneBased == 0u
+            || !checkedUint32(*cycle, cycleTicks,
+                kMaximumLiveWarpCycleTicks, path + ".cycleTicks", result)
+            || cycleTicks == 0u) {
+            if (result.ok())
+                setError(result, ProjectErrorCode::OutOfRange, path,
+                    "warp index and cycle are outside supported ranges");
+            return false;
+        }
+        const std::size_t index = oneBased - 1u;
+        if (occupied[index])
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + ".index", "warp library index is duplicated");
+        if (name->string.size() > kMaximumTimingWarpLibraryNameBytes)
+            return setError(result, ProjectErrorCode::SizeLimitExceeded,
+                path + ".name", "warp name exceeds 64 UTF-8 bytes");
+        if (stack->array.size() > TimingWarpStack::kMaximumTransforms)
+            return setError(result, ProjectErrorCode::SizeLimitExceeded,
+                path + ".stack", "warp stack exceeds 32 transforms");
+        TimingWarpStack compiled;
+        for (std::size_t transformIndex = 0u;
+             transformIndex < stack->array.size(); ++transformIndex) {
+            TimingWarpTransform transform;
+            const std::string transformPath = path + ".stack["
+                + std::to_string(transformIndex) + "]";
+            if (!decodeTimingWarp(stack->array[transformIndex], transform,
+                    transformPath, result)) return false;
+            const auto appended = compiled.append(transform);
+            if (!appended.added()
+                || appended.corrections != TimingWarpCorrection::None)
+                return setError(result, ProjectErrorCode::InconsistentData,
+                    transformPath, "validated warp could not be appended");
+        }
+        if (!candidate.store(index, name->string, cycleTicks, compiled))
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path, "validated warp could not be stored");
+        occupied[index] = true;
+    }
+    destination = std::move(candidate);
     return true;
 }
 

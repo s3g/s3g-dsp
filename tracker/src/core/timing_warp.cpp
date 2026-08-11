@@ -333,4 +333,68 @@ std::size_t TimingWarpStack::precompute(double* output,
     return valueCount;
 }
 
+bool TimingWarpLibrary::store(std::size_t index, std::string name,
+    uint32_t cycleTicks, const TimingWarpStack& stack)
+{
+    if (index >= entries_.size() || cycleTicks == 0u
+        || cycleTicks > kMaximumLiveWarpCycleTicks
+        || name.size() > kMaximumTimingWarpLibraryNameBytes) return false;
+    auto& target = entries_[index];
+    target.name = std::move(name);
+    target.cycleTicks = cycleTicks;
+    target.stack = stack;
+    target.occupied = true;
+    return true;
+}
+
+bool TimingWarpLibrary::erase(std::size_t index) noexcept
+{
+    if (index >= entries_.size() || !entries_[index].occupied) return false;
+    entries_[index] = {};
+    return true;
+}
+
+void TimingWarpLibrary::clear() noexcept
+{
+    for (auto& entry : entries_) entry = {};
+}
+
+const TimingWarpLibraryEntry* TimingWarpLibrary::entry(
+    std::size_t index) const noexcept
+{
+    return index < entries_.size() && entries_[index].occupied
+        ? &entries_[index] : nullptr;
+}
+
+TimingWarpLibraryEntry* TimingWarpLibrary::entry(
+    std::size_t index) noexcept
+{
+    return index < entries_.size() && entries_[index].occupied
+        ? &entries_[index] : nullptr;
+}
+
+std::size_t TimingWarpLibrary::size() const noexcept
+{
+    std::size_t count = 0u;
+    for (const auto& entry : entries_)
+        if (entry.occupied) ++count;
+    return count;
+}
+
+std::size_t timingWarpLibraryIndexFromNormalized(float normalized) noexcept
+{
+    if (!std::isfinite(normalized)) normalized = 0.0f;
+    const auto last = kMaximumTimingWarpLibraryEntries - 1u;
+    return static_cast<std::size_t>(std::clamp<long>(std::lround(
+        static_cast<double>(std::clamp(normalized, 0.0f, 1.0f))
+            * static_cast<double>(last)), 0l, static_cast<long>(last)));
+}
+
+float timingWarpLibraryNormalizedFromIndex(std::size_t index) noexcept
+{
+    const auto last = kMaximumTimingWarpLibraryEntries - 1u;
+    return static_cast<float>(std::min(index, last))
+        / static_cast<float>(last);
+}
+
 } // namespace s3g::tracker

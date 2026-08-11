@@ -1010,6 +1010,198 @@ int main(int argc, char** argv)
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
         }
+        const bool processorArticulator = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.processor-articulator") == 0;
+        if (ok && processorArticulator && !documentationCapture) {
+            failureStage = "Processor Articulator text and audition handoff";
+            @try {
+                const auto articulatorMouseEvent =
+                    [&](NSEventType type, NSPoint documentPoint) {
+                        return [NSEvent
+                            mouseEventWithType:type
+                            location:[document convertPoint:
+                                documentPoint toView:nil]
+                            modifierFlags:0
+                            timestamp:0.0
+                            windowNumber:0
+                            context:nil
+                            eventNumber:0
+                            clickCount:1
+                            pressure:1.0];
+                    };
+                NSTextField* phraseField = nil;
+                bool legacySystemControls = false;
+                for (NSView* child in [document subviews]) {
+                    if ([child isKindOfClass:[NSTextField class]]) {
+                        NSTextField* field = static_cast<NSTextField*>(child);
+                        if ([field placeholderString] != nil) phraseField = field;
+                    } else if ([child isKindOfClass:[NSSlider class]]
+                        || [child isKindOfClass:[NSPopUpButton class]]
+                        || [child isKindOfClass:[NSButton class]]) {
+                        legacySystemControls = true;
+                    }
+                }
+
+                bool hasPhraseMode = false;
+                bool hasEchoHeads = false;
+                bool hasEchoClock = false;
+                bool hasIntelligibility = false;
+                const uint32_t parameterCount = params
+                    ? params->count(plugin) : 0u;
+                for (uint32_t index = 0u; index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) continue;
+                    hasPhraseMode |= info.id == 54u
+                        && std::strcmp(info.name, "Phrase Mode") == 0
+                        && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                    hasIntelligibility |= info.id == 57u
+                        && std::strcmp(info.name, "Intelligibility") == 0;
+                    hasEchoHeads |= info.id == 58u
+                        && std::strcmp(info.name, "Echo Heads") == 0
+                        && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                    hasEchoClock |= info.id == 59u
+                        && std::strcmp(info.name, "Echo Clock") == 0
+                        && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                }
+
+                // Model a sleeping instrument. The editor's Compile action
+                // must still publish the phrase and select Text Phrase before
+                // the host services the outbound gesture queue.
+                hostContext.deferParamFlush = true;
+                hostContext.paramFlushRequested = false;
+                ok = phraseField && !legacySystemControls
+                    && [phraseField isEditable]
+                    && [phraseField focusRingType] == NSFocusRingTypeNone
+                    && [[phraseField stringValue]
+                        isEqualToString:@"hello worlds"]
+                    && [document respondsToSelector:@selector(commitPhrase:)]
+                    && params && params->get_value && params->flush
+                    && parameterCount == 64u
+                    && hasPhraseMode && hasIntelligibility
+                    && hasEchoHeads && hasEchoClock;
+                if (ok) {
+                    const auto titleBand =
+                        s3g::clap_gui::encoderTitleBand(
+                            static_cast<double>(nativeWidth),
+                            static_cast<double>(nativeHeight));
+                    const NSRect preset =
+                        s3g::clap_gui::cocoaRect(titleBand.presetMenu);
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(preset), NSMidY(preset)))];
+                    ok = [phraseField isHidden];
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(700.0, 300.0))];
+                    ok = ok && ![phraseField isHidden];
+                }
+                if (ok) {
+                    [phraseField setStringValue:@"red violence rising"];
+                    [document performSelector:@selector(commitPhrase:)
+                        withObject:document];
+                }
+                double sequence = -1.0;
+                ok = ok && params->get_value(plugin, 51u, &sequence)
+                    && sequence == 5.0;
+
+                const auto flushValue = [&](clap_id id, double value) {
+                    SingleParamEventInput event {};
+                    setSingleParamEvent(event, id, value);
+                    params->flush(plugin, &event.events, nullptr);
+                    double reported = -1.0;
+                    return params->get_value(plugin, id, &reported)
+                        && std::fabs(reported - value) < 1.0e-6;
+                };
+                ok = ok
+                    && flushValue(54u, 0.0)
+                    && flushValue(32u, 9.0)
+                    && flushValue(58u, 3.0)
+                    && flushValue(59u, 7.0)
+                    && flushValue(60u, 0.42)
+                    && flushValue(37u, 0.24)
+                    && flushValue(25u, 1.0);
+
+                double phraseMode = -1.0;
+                double echoHeads = -1.0;
+                double echoClock = -1.0;
+                double echoMix = -1.0;
+                double audition = -1.0;
+                ok = ok
+                    && params->get_value(plugin, 54u, &phraseMode)
+                    && params->get_value(plugin, 58u, &echoHeads)
+                    && params->get_value(plugin, 59u, &echoClock)
+                    && params->get_value(plugin, 37u, &echoMix)
+                    && params->get_value(plugin, 25u, &audition)
+                    && phraseMode == 0.0 && echoHeads == 3.0
+                    && echoClock == 7.0
+                    && std::fabs(echoMix - 0.24) < 1.0e-6
+                    && audition == 1.0;
+
+                constexpr uint32_t kFrames = 256u;
+                std::array<float, kFrames> left {};
+                std::array<float, kFrames> right {};
+                std::array<float*, 2u> channels {{
+                    left.data(), right.data(),
+                }};
+                clap_audio_buffer_t outputBuffer {};
+                outputBuffer.data32 = channels.data();
+                outputBuffer.channel_count = 2u;
+                CapturedOutputEvents captured {};
+                captured.events.ctx = &captured;
+                captured.events.try_push = captureOutputEvent;
+                clap_process_t processBlock {};
+                processBlock.frames_count = kFrames;
+                processBlock.audio_outputs = &outputBuffer;
+                processBlock.audio_outputs_count = 1u;
+                processBlock.out_events = &captured.events;
+                bool activated = false;
+                bool processing = false;
+                if (ok) {
+                    activated = plugin->activate(
+                        plugin, 48000.0, 1u, kFrames);
+                    processing = activated
+                        && plugin->start_processing(plugin);
+                    ok = processing
+                        && plugin->process(plugin, &processBlock)
+                            != CLAP_PROCESS_ERROR;
+                }
+                double energy = 0.0;
+                for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                    energy += std::fabs(left[frame])
+                        + std::fabs(right[frame]);
+                }
+                ok = ok && energy > 1.0e-5;
+
+                if (params) (void)flushValue(25u, 0.0);
+                audition = -1.0;
+                const bool auditionRead = params->get_value(
+                    plugin, 25u, &audition);
+                ok = ok && auditionRead && audition == 0.0;
+                if (processing) {
+                    std::fill(left.begin(), left.end(), 0.0f);
+                    std::fill(right.begin(), right.end(), 0.0f);
+                    (void)plugin->process(plugin, &processBlock);
+                    plugin->stop_processing(plugin);
+                }
+                if (activated) plugin->deactivate(plugin);
+                hostContext.deferParamFlush = false;
+                hostContext.paramFlushRequested = false;
+                if (!ok) {
+                    std::cerr << "Processor Articulator GUI details: sequence="
+                        << sequence << " mode=" << phraseMode
+                        << " heads=" << echoHeads << " clock=" << echoClock
+                        << " mix=" << echoMix << " audition=" << audition
+                        << " energy=" << energy << " events="
+                        << captured.values.size() << "\n";
+                }
+            } @catch (NSException* exception) {
+                hostContext.deferParamFlush = false;
+                hostContext.paramFlushRequested = false;
+                std::cerr << "Processor Articulator GUI exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         const bool topologyProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.delay-processor-8ch") == 0

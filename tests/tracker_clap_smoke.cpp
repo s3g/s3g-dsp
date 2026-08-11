@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -125,11 +126,135 @@ bool expect(bool condition, const char* message)
 
 } // namespace
 
+#if defined(__APPLE__)
+
+@interface S3GTrackerCaptureHostView : NSView
+@end
+
+@implementation S3GTrackerCaptureHostView
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    [[NSColor colorWithCalibratedWhite:0.024 alpha:1.0] setFill];
+    NSRectFill(self.bounds);
+}
+
+@end
+
+
+namespace {
+
+NSButton* findButton(NSView* root, NSString* title,
+    NSString* accessibilityLabel, NSString* identifier)
+{
+    if ([root isKindOfClass:NSButton.class]) {
+        NSButton* button = static_cast<NSButton*>(root);
+        if ((!title || [button.title isEqualToString:title])
+            && (!accessibilityLabel
+                || [button.accessibilityLabel
+                    isEqualToString:accessibilityLabel])
+            && (!identifier
+                || [button.identifier isEqualToString:identifier]))
+            return button;
+    }
+    for (NSView* child in root.subviews) {
+        if (NSButton* result = findButton(
+                child, title, accessibilityLabel, identifier))
+            return result;
+    }
+    return nil;
+}
+
+bool clickButton(NSView* root, NSString* title,
+    NSString* accessibilityLabel, NSString* identifier)
+{
+    NSButton* button = findButton(
+        root, title, accessibilityLabel, identifier);
+    if (!button) return false;
+    [button performClick:nil];
+    return true;
+}
+
+NSView* findAccessibleView(NSView* root, NSString* accessibilityLabel)
+{
+    if ([root.accessibilityLabel isEqualToString:accessibilityLabel])
+        return root;
+    for (NSView* child in root.subviews) {
+        if (NSView* result = findAccessibleView(child, accessibilityLabel))
+            return result;
+    }
+    return nil;
+}
+
+bool prepareGeometryPlaybackSnapshot(NSView* root)
+{
+    [root layoutSubtreeIfNeeded];
+    NSView* geometry = findAccessibleView(root, @"Rhythm geometry");
+    SEL selector = NSSelectorFromString(
+        @"prepareDocumentationPlaybackSnapshot");
+    if (!geometry || ![geometry respondsToSelector:selector]) return false;
+    using PrepareFunction = NSInteger (*)(id, SEL);
+    auto prepare = reinterpret_cast<PrepareFunction>(
+        [geometry methodForSelector:selector]);
+    return prepare(geometry, selector) >= 4;
+}
+
+bool writeDocumentationPage(NSView* root, NSString* directory,
+    NSString* variant)
+{
+    [root setNeedsDisplay:YES];
+    [root layoutSubtreeIfNeeded];
+    [root displayIfNeeded];
+    NSData* rendered = [root dataWithPDFInsideRect:root.bounds];
+    if (!rendered || rendered.length == 0u) return false;
+    if (!directory) return true;
+    [[NSFileManager defaultManager]
+        createDirectoryAtPath:directory
+        withIntermediateDirectories:YES
+        attributes:nil
+        error:nil];
+    NSString* fileName = variant.length == 0u
+        ? @"org.s3g.s3g-dsp.tracker.pdf"
+        : [NSString stringWithFormat:@"org.s3g.s3g-dsp.tracker.%@.pdf",
+            variant];
+    return [rendered writeToFile:
+        [directory stringByAppendingPathComponent:fileName]
+        atomically:YES];
+}
+
+} // namespace
+
+#endif
+
 int main(int argc, char** argv)
 {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: tracker_clap_smoke <bundle-or-binary>\n");
+    if (argc != 2 && argc != 5) {
+        std::fprintf(stderr,
+            "usage: tracker_clap_smoke <bundle-or-binary> "
+            "[plugin-id width height]\n");
         return 2;
+    }
+    uint32_t requestedWidth = 900u;
+    uint32_t requestedHeight = 620u;
+    if (argc == 5) {
+        if (std::strcmp(argv[2], "org.s3g.s3g-dsp.tracker") != 0) {
+            std::fprintf(stderr, "tracker CLAP: unexpected plugin ID %s\n", argv[2]);
+            return 2;
+        }
+        char* widthEnd = nullptr;
+        char* heightEnd = nullptr;
+        const unsigned long parsedWidth = std::strtoul(argv[3], &widthEnd, 10);
+        const unsigned long parsedHeight = std::strtoul(argv[4], &heightEnd, 10);
+        if (!widthEnd || *widthEnd || !heightEnd || *heightEnd
+            || parsedWidth < 760u || parsedWidth > UINT32_MAX
+            || parsedHeight < 560u || parsedHeight > UINT32_MAX) {
+            std::fprintf(stderr, "tracker CLAP: invalid capture size %s x %s\n",
+                argv[3], argv[4]);
+            return 2;
+        }
+        requestedWidth = static_cast<uint32_t>(parsedWidth);
+        requestedHeight = static_cast<uint32_t>(parsedHeight);
     }
     bool ok = true;
     const std::string binary = resolveBinary(argv[1]);
@@ -189,18 +314,131 @@ int main(int argc, char** argv)
                     && gui->get_size(plugin, &width, &height)
                     && width >= 760u && height >= 560u,
                 "full tracker workspace could not be constructed");
-            NSView* parent = [[NSView alloc] initWithFrame:NSMakeRect(
+            NSView* parent = [[S3GTrackerCaptureHostView alloc]
+                initWithFrame:NSMakeRect(
                 0.0, 0.0, width, height)];
             clap_window_t window {};
             window.api = CLAP_WINDOW_API_COCOA;
             window.cocoa = (__bridge clap_nsview)parent;
-            uint32_t resizedWidth = 900u;
-            uint32_t resizedHeight = 620u;
-            ok &= expect(gui->set_parent(plugin, &window)
+            uint32_t resizedWidth = requestedWidth;
+            uint32_t resizedHeight = requestedHeight;
+            const bool shown = gui->set_parent(plugin, &window)
                     && gui->adjust_size(plugin, &resizedWidth, &resizedHeight)
                     && gui->set_size(plugin, resizedWidth, resizedHeight)
-                    && gui->show(plugin) && gui->hide(plugin),
+                    && gui->show(plugin);
+            ok &= expect(shown,
                 "full tracker workspace lifecycle failed");
+            if (shown) {
+                [parent setFrameSize:NSMakeSize(resizedWidth, resizedHeight)];
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                NSString* directory = captureDirectory && captureDirectory[0]
+                    ? [NSString stringWithUTF8String:captureDirectory] : nil;
+                bool documentationProcessing = false;
+                if (directory) {
+                    ok &= expect(clickButton(parent, @"DUP", nil, nil)
+                            && clickButton(parent, @"DUP", nil, nil),
+                        "tracker documentation patterns could not be prepared");
+                    for (int row = 0; row < 4; ++row) {
+                        ok &= expect(clickButton(
+                                parent, @"＋ ADD ROW", nil, nil),
+                            "tracker documentation Song rows could not be added");
+                    }
+                    ok &= expect(clickButton(
+                            parent, nil, @"SONG page", nil),
+                        "Song documentation page could not be prepared");
+                    [parent layoutSubtreeIfNeeded];
+                    [parent displayIfNeeded];
+                    const std::array<NSString*, 14u> songLaneMutes {{
+                        @"Song row 1 lane 5 mute",
+                        @"Song row 1 lane 6 mute",
+                        @"Song row 2 lane 3 mute",
+                        @"Song row 2 lane 7 mute",
+                        @"Song row 3 lane 2 mute",
+                        @"Song row 3 lane 4 mute",
+                        @"Song row 3 lane 6 mute",
+                        @"Song row 4 lane 1 mute",
+                        @"Song row 4 lane 5 mute",
+                        @"Song row 5 lane 3 mute",
+                        @"Song row 5 lane 4 mute",
+                        @"Song row 5 lane 7 mute",
+                        @"Song row 6 lane 2 mute",
+                        @"Song row 6 lane 6 mute",
+                    }};
+                    for (NSString* label : songLaneMutes) {
+                        ok &= expect(clickButton(parent, nil, label, nil),
+                            "tracker documentation Song lane mute could not be set");
+                    }
+                    ok &= expect(clickButton(
+                            parent, @"LOOP SONG: OFF", nil, nil)
+                            && clickButton(parent,
+                                @"SONG TRANSPORT: OFF", nil, nil),
+                        "tracker documentation Song mode could not be enabled");
+                    ok &= expect(clickButton(
+                            parent, nil, nil, @"warp-add-0")
+                            && clickButton(parent,
+                                nil, nil, @"warp-add-1")
+                            && clickButton(parent,
+                                nil, nil, @"warp-add-2"),
+                        "tracker documentation warp stack could not be prepared");
+                    documentationProcessing = plugin->activate(
+                            plugin, 48000.0, 16u, 32768u)
+                        && plugin->start_processing(plugin);
+                    ok &= expect(documentationProcessing,
+                        "tracker documentation playback could not start");
+                    if (documentationProcessing) {
+                        clap_event_transport_t captureTransport {};
+                        captureTransport.header.size = sizeof(captureTransport);
+                        captureTransport.header.space_id =
+                            CLAP_CORE_EVENT_SPACE_ID;
+                        captureTransport.header.type = CLAP_EVENT_TRANSPORT;
+                        captureTransport.flags = CLAP_TRANSPORT_HAS_TEMPO
+                            | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+                            | CLAP_TRANSPORT_IS_PLAYING;
+                        captureTransport.tempo = 120.0;
+                        captureTransport.song_pos_beats = 0;
+                        OutputEvents captureOutput;
+                        clap_process_t captureProcess {};
+                        captureProcess.steady_time = 0;
+                        captureProcess.frames_count = 128u;
+                        captureProcess.transport = &captureTransport;
+                        captureProcess.out_events = &captureOutput.interface;
+                        ok &= expect(plugin->process(plugin, &captureProcess)
+                                == CLAP_PROCESS_CONTINUE,
+                            "tracker documentation playback failed");
+                        [[NSRunLoop currentRunLoop] runUntilDate:
+                            [NSDate dateWithTimeIntervalSinceNow:0.05]];
+                    }
+                }
+
+                ok &= expect(clickButton(
+                        parent, nil, @"TRACKER page", nil),
+                    "Tracker documentation page could not be selected");
+                ok &= expect(writeDocumentationPage(parent, directory, @""),
+                    "full tracker workspace did not render");
+                if (directory) {
+                    ok &= expect(clickButton(
+                            parent, nil, @"GEOMETRY page", nil)
+                            && prepareGeometryPlaybackSnapshot(parent)
+                            && writeDocumentationPage(
+                                parent, directory, @"geometry"),
+                        "active Tracker Geometry page did not render");
+                    ok &= expect(clickButton(parent, nil, @"SONG page", nil)
+                            && writeDocumentationPage(
+                                parent, directory, @"song"),
+                        "active Tracker Song page did not render");
+                    ok &= expect(clickButton(parent, nil, @"WARPS page", nil)
+                            && writeDocumentationPage(
+                                parent, directory, @"warps"),
+                        "active Tracker Warps page did not render");
+                }
+                if (documentationProcessing) {
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                }
+                ok &= expect(gui->hide(plugin),
+                    "full tracker workspace hide failed");
+            }
             gui->destroy(plugin);
         }
     }

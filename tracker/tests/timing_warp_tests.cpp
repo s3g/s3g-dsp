@@ -445,6 +445,36 @@ void testMonotonicEndpointPreservation()
     }
 }
 
+void testIndexedWarpLibrary()
+{
+    TimingWarpStack stack;
+    check(stack.append(TimingWarpTransform::stepQuantize(7u)).added(),
+        "library fixture should compile");
+    s3g::tracker::TimingWarpLibrary library;
+    check(library.store(0u, "Seven", 7u, stack)
+            && library.store(63u, "Edge", 16u, stack)
+            && library.size() == 2u,
+        "warp library should retain sparse stable indices");
+    check(library.entry(0u) && library.entry(0u)->name == "Seven"
+            && library.entry(63u) && !library.entry(1u),
+        "warp library lookup should distinguish occupied and empty slots");
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kMaximumTimingWarpLibraryEntries; ++index) {
+        check(s3g::tracker::timingWarpLibraryIndexFromNormalized(
+                s3g::tracker::timingWarpLibraryNormalizedFromIndex(index))
+                == index,
+            "every displayed warp index should survive normalized storage");
+    }
+    check(!library.store(64u, "Outside", 4u, stack)
+            && !library.store(1u, "Long Cycle", 17u, stack)
+            && library.erase(0u) && !library.erase(0u)
+            && library.size() == 1u,
+        "library bounds and deletion should fail closed");
+    library.clear();
+    check(library.size() == 0u && !library.entry(63u),
+        "library clear should return every slot to empty");
+}
+
 } // namespace
 
 int main()
@@ -459,6 +489,7 @@ int main()
     testCompilationAndCapacity();
     testPrecomputationAndDeterminism();
     testMonotonicEndpointPreservation();
+    testIndexedWarpLibrary();
 
     if (failures == 0) {
         std::cout << "timing warp tests passed\n";

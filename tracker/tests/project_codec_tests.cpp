@@ -81,6 +81,7 @@ ProjectDocument makeDocument()
         SequencerAction::Offset,
         SequencerAction::RepeatPrevious,
         SequencerAction::Euclid,
+        SequencerAction::WarpRecall,
     }};
     auto& firstFx = track.fxPairs[0u];
     firstFx.actions.resize(actions.size());
@@ -139,6 +140,12 @@ ProjectDocument makeDocument()
     check(document.transport.timingWarp.append(
         TimingWarpTransform::euclideanQuantize(5u, 8u)).added(),
         "fixture Euclidean warp should be valid");
+    TimingWarpStack libraryStack;
+    check(libraryStack.append(TimingWarpTransform::exponential(
+            0.75)).added()
+            && document.warpLibrary.store(6u, "Broken Quintuplet", 5u,
+                libraryStack),
+        "fixture warp library entry should be valid");
 
     document.session.gateMilliseconds = 123.5;
     document.session.tempoScale = 1.5;
@@ -199,7 +206,7 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 4") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 5") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"phase\": 4") != std::string::npos,
@@ -239,6 +246,12 @@ void testCompleteDeterministicRoundTrip()
             && decoded.transport.loopEnabled
             && decoded.transport.loopEndRow == 11u,
         "warp stack and global loop should round trip");
+    const auto* libraryWarp = decoded.warpLibrary.entry(6u);
+    check(decoded.warpLibrary.size() == 1u && libraryWarp
+            && libraryWarp->name == "Broken Quintuplet"
+            && libraryWarp->cycleTicks == 5u
+            && libraryWarp->stack.size() == 1u,
+        "indexed composed timing-warps should round trip");
     check(decoded.instrumentRack.samplerSlots[0u].filePath
                 == "/samples/Break α.wav"
             && decoded.instrumentRack.samplerSlots[0u].sliceCount == 2u
@@ -332,8 +345,8 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 4");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 4").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 5");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 5").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion

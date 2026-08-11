@@ -14,14 +14,15 @@ The CLAP embeds the maintained tracker workspace and its native project model:
 - up to 32 tracks, independent column lengths/phase/stride/direction/mute;
 - pattern bank, Song page, prepared pattern-boundary changes, and global
   tracker loop;
-- timing warps, ratchet, microtime, delay, flam, stutter, accent, ghost,
+- composable indexed timing-warp library and `WRP` row recall; ratchet,
+  microtime, delay, flam, stutter, accent, ghost,
   probability, skip, offset, repeat-previous, and Euclidean actions;
 - live-code command entry and categorized help;
 - embedded Tracker, Song, Geometry, Warps, Console, and Help pages, with
   Geometry, Warps, and Console detachable into independent windows;
 - per-lane REAPER MIDI-bus/channel controls and value-envelope editor;
 - responsive tracker zoom, scrolling, direct cell entry, and copy/paste;
-- native schema-4 tracker project JSON stored in the REAPER project.
+- native schema-5 tracker project JSON stored in the REAPER project.
 
 REAPER replaces the standalone host boundary. It owns the audio device,
 transport, tempo, downstream instruments/effects, rendering, and final mix.
@@ -73,6 +74,40 @@ The displayed host BPM is read-only; the RATE menu applies musical ratios
 (`1/4×`, `1/2×`, `2/3×`, `1×`, `3/2×`, `2×`, or `4×`) to the tracker clock.
 The tracker also retains swing, functional timing warps, column phase, and its
 optional row loop.
+
+## Composed warp library
+
+The Warps page is both a serial warp composer and a 64-slot project library.
+Build the current curve from EXP, STEP, and EUCLID transforms; each transform
+retains its mix, phase segment, and repetition settings. Choose a slot
+`01`–`64`, enter a name, and press `SAVE`. A saved entry contains the complete
+transform stack and cycle length. `RECALL` loads it into the current editor;
+moving or changing the recalled transforms does not overwrite the library
+until `SAVE` is pressed again.
+
+`WRP` is the sequencing action for runtime recall. Its paired V column is
+displayed and entered as the one-based slot number `01`–`64`, even though the
+project retains the same normalized value storage used by other action/value
+pairs. Recall occurs after the WRP row is evaluated and retimes the interval
+to the next row. If several WRP actions execute on one logical tick, later
+lane/SEQ-pair order wins deterministically. Empty slots leave the current warp
+unchanged.
+
+Live Code uses the same library:
+
+```text
+warp save 7 Broken Quintuplet
+warp load 7
+warp rename 7 Five Against Four
+warp delete 7
+wrp @kick 9 7
+fx @kick 1 9 WRP 7
+warps
+```
+
+The library is stored inside the REAPER project with the tracker state. Host
+tempo refreshes change only the host-owned clock fields and do not cancel a
+WRP composition already recalled during playback.
 
 ## DSP boundary
 

@@ -247,6 +247,14 @@ endif()
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_acapella_source_synth_smoke
+  tests/acapella_source_synth_smoke.cpp)
+target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE s3g_dsp)
+
+add_executable(s3g_acapella_source_synth_render
+  tools/render_acapella_source_synth.cpp)
+target_link_libraries(s3g_acapella_source_synth_render PRIVATE s3g_dsp)
+
 add_executable(s3g_psd_raw_field_smoke tests/psd_raw_field_smoke.cpp)
 target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
 
@@ -340,6 +348,7 @@ if(BUILD_TESTING)
     s3g_ambi_effect_trace_smoke
     s3g_environmental_encoder_smoke
     s3g_vox_builder_smoke
+    s3g_acapella_source_synth_smoke
     s3g_psd_raw_field_smoke
     s3g_psd_raw_field_parameter_audit
     s3g_gui_layout_contract_smoke
@@ -879,6 +888,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_terrain_navigator)
   add_subdirectory(plugins/clap_ambi_vot_encoder)
   add_subdirectory(plugins/clap_ambi_vox_encoder)
+  add_subdirectory(plugins/clap_acapella_source_synth)
   add_subdirectory(plugins/clap_ambi_wave_terrain_encoder)
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
@@ -2078,10 +2088,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     if(S3G_BUILD_FUTURE_COMPONENTS)
       add_custom_target(audit_gui_processor_feedback_shift
-        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
-          $<TARGET_FILE:s3g_feedback_shift_clap>
-          org.s3g.s3g-dsp.feedback-shift
-          1100 760 "s3g Processor " responsive
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_feedback_shift_clap> org.s3g.s3g-dsp.feedback-shift 1100 760 "s3g Processor " responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_feedback_shift_clap
@@ -2310,6 +2317,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_encoder_family_gui_smoke
         s3g_nim_gesture_clap
       COMMENT "Rendering and validating the NIM Gesture E16 overview GUI")
+
+    if(S3G_BUILD_TRACKER_PREVIEW)
+      add_custom_target(audit_gui_tracker
+        COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke> $<TARGET_FILE:s3g_tracker_clap> org.s3g.s3g-dsp.tracker 1320 780
+        DEPENDS
+          s3g_tracker_clap_smoke
+          s3g_tracker_clap
+        COMMENT "Rendering and validating the s3g Tracker GUI")
+    endif()
   endif()
 
   if(APPLE AND BUILD_TESTING AND Python3_Interpreter_FOUND

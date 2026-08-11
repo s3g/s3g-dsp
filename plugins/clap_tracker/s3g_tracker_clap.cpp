@@ -243,6 +243,7 @@ ProjectDocument makeInitialDocument()
     ProjectDocument document;
     document.patternBank = state.patternBank;
     document.transport = state.session.transport;
+    document.warpLibrary = state.session.warpLibrary;
     document.session.gateMilliseconds = state.session.gateMilliseconds;
     document.session.tempoScale = 1.0;
     document.session.commandRngState = state.session.commandRngState;
@@ -370,6 +371,7 @@ struct Runtime {
         projectTransport.sampleRate = sampleRate;
         valid = scheduler.preparePatternSet(std::move(patterns), initial);
         if (!valid) return;
+        scheduler.setTimingWarpLibrary(document.warpLibrary);
         scheduler.setTransport(projectTransport);
         scheduler.setRandomSeed(document.session.playbackSeed);
         if (songEnabled)
@@ -416,7 +418,14 @@ struct Runtime {
 
     void updateClock(double tempo, double sampleRate) noexcept
     {
-        scheduler.setTransport(hostClock(tempo, sampleRate));
+        // Host clock refreshes happen every process segment. Preserve a WRP
+        // composition recalled by the scheduler and update only the fields
+        // that the host actually owns.
+        auto current = scheduler.transport();
+        current.sampleRate = sampleRate;
+        if (std::isfinite(tempo) && tempo > 0.0)
+            current.bpm = tempo * tempoScale;
+        scheduler.setTransport(std::move(current));
     }
 
     static LogicalTickBoundaryAction advanceSong(void* context,
@@ -1545,6 +1554,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     (void)syncSessionToActivePattern(*_state);
     document.patternBank = _state->patternBank;
     document.transport = _state->session.transport;
+    document.warpLibrary = _state->session.warpLibrary;
     document.session.gateMilliseconds = _state->session.gateMilliseconds;
     document.session.tempoScale = _state->tempoScale;
     document.session.mainOutputGain = _state->mainOutputGain;
@@ -1565,6 +1575,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->patternBank = midiDocument.patternBank;
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
+    _state->session.warpLibrary = midiDocument.warpLibrary;
     _state->session.gateMilliseconds = midiDocument.session.gateMilliseconds;
     _state->tempoScale = midiDocument.session.tempoScale;
     _state->session.commandRngState = midiDocument.session.commandRngState;

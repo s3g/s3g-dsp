@@ -98,6 +98,11 @@ describe the shared four-break stereo/16-channel sampler CLAP that pairs with
 Tracker through ordinary MIDI. Its stereo and fixed 16-channel variants share
 the same overview/editor and real-time engine.
 
+The [s3g Processor Articulator notes](docs/processor-articulator.md) describe
+the sample-free hybrid articulatory instrument, natural-text phoneme score,
+one-shot and held-loop phrase modes, procedural doubling/polyphony, and
+host-synchronized three-head tape echo.
+
 The included [Processor Feedback Shift 0.18.1](https://s3g.github.io/s3g-dsp/processor-feedback-shift.html)
 is an eight-channel CLAP audio effect built around paired feedback scenes,
 high-density virtual patch splicing, ecology-responsive governors, per-node
