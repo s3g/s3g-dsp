@@ -22,13 +22,13 @@ if(APPLE)
   set_source_files_properties(s3g_acapella_source_synth_clap.cpp
     PROPERTIES LANGUAGE OBJCXX)
   target_link_libraries(s3g_acapella_source_synth_clap PRIVATE
-    "-framework Cocoa")
+    "-framework Cocoa" "-framework Accelerate")
   set_target_properties(s3g_acapella_source_synth_clap PROPERTIES
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.processor-articulator"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Articulator"
-    MACOSX_BUNDLE_BUNDLE_VERSION "1.4.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "1.4.0"
+    MACOSX_BUNDLE_BUNDLE_VERSION "3.1.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "3.1.0"
   )
 endif()

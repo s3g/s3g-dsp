@@ -1047,6 +1047,7 @@ int main(int argc, char** argv)
                 bool hasEchoHeads = false;
                 bool hasEchoClock = false;
                 bool hasIntelligibility = false;
+                uint32_t pvocSurfaceMatches = 0u;
                 const uint32_t parameterCount = params
                     ? params->count(plugin) : 0u;
                 for (uint32_t index = 0u; index < parameterCount; ++index) {
@@ -1063,6 +1064,31 @@ int main(int argc, char** argv)
                     hasEchoClock |= info.id == 59u
                         && std::strcmp(info.name, "Echo Clock") == 0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                    if (info.id >= 65u && info.id <= 86u) {
+                        constexpr const char* names[] {
+                            "PVOC Amount", "PVOC Mode", "PVOC Memory",
+                            "PVOC Position", "PVOC Speed", "PVOC Loop Length",
+                            "Time Spread", "PVOC Heads", "PVOC Feedback",
+                            "PVOC Pitch", "PVOC Formant", "Frequency Warp",
+                            "Harmonic Lock", "Peak / Residue", "Partial Cloud",
+                            "Phase Mode", "Coherence", "Phase Drift",
+                            "Transient Preserve", "Capture Trigger",
+                            "Capture Release", "Gesture Follow"
+                        };
+                        constexpr bool stepped[] {
+                            false, true, false, false, false, false,
+                            false, true, false, false, false, false,
+                            false, false, false, true, false, false,
+                            false, true, false, false
+                        };
+                        const uint32_t surfaceIndex = info.id - 65u;
+                        const bool isStepped =
+                            (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                        if (std::strcmp(info.name, names[surfaceIndex]) == 0
+                            && isStepped == stepped[surfaceIndex]) {
+                            ++pvocSurfaceMatches;
+                        }
+                    }
                 }
 
                 // Model a sleeping instrument. The editor's Compile action
@@ -1077,9 +1103,125 @@ int main(int argc, char** argv)
                         isEqualToString:@"hello worlds"]
                     && [document respondsToSelector:@selector(commitPhrase:)]
                     && params && params->get_value && params->flush
-                    && parameterCount == 64u
+                    && parameterCount == 86u
                     && hasPhraseMode && hasIntelligibility
-                    && hasEchoHeads && hasEchoClock;
+                    && hasEchoHeads && hasEchoClock
+                    && pvocSurfaceMatches == 22u;
+                if (ok) {
+                    const auto* articulatorState =
+                        static_cast<const clap_plugin_state_t*>(
+                            plugin->get_extension(plugin, CLAP_EXT_STATE));
+                    MemoryPluginState currentState;
+                    clap_ostream_t stateOutput {
+                        &currentState, stateWriteWhole
+                    };
+                    constexpr size_t headerBytes = 2u * sizeof(uint32_t);
+                    constexpr size_t oldValueBytes = 76u * sizeof(double);
+                    constexpr size_t currentValueBytes = 85u * sizeof(double);
+                    constexpr size_t phraseBytes = sizeof(uint32_t) + 256u;
+                    ok = articulatorState && articulatorState->save
+                        && articulatorState->load
+                        && articulatorState->save(plugin, &stateOutput)
+                        && currentState.bytes.size()
+                            == headerBytes + currentValueBytes + phraseBytes;
+                    if (ok) {
+                        MemoryPluginState versionEleven;
+                        versionEleven.bytes.reserve(
+                            headerBytes + oldValueBytes + phraseBytes);
+                        versionEleven.bytes.insert(versionEleven.bytes.end(),
+                            currentState.bytes.begin(),
+                            currentState.bytes.begin() + headerBytes
+                                + oldValueBytes);
+                        constexpr uint32_t oldVersion = 11u;
+                        std::memcpy(versionEleven.bytes.data(),
+                            &oldVersion, sizeof(oldVersion));
+                        versionEleven.bytes.insert(versionEleven.bytes.end(),
+                            currentState.bytes.begin() + headerBytes
+                                + currentValueBytes,
+                            currentState.bytes.end());
+                        clap_istream_t stateInput {
+                            &versionEleven, stateReadWhole
+                        };
+                        double migratedPvocAmount = -1.0;
+                        ok = articulatorState->load(plugin, &stateInput)
+                            && versionEleven.offset
+                                == versionEleven.bytes.size()
+                            && params->get_value(
+                                plugin, 65u, &migratedPvocAmount)
+                            && migratedPvocAmount == 0.0;
+                    }
+                    if (ok) {
+                        // Version 15 used the same IDs for the retired first
+                        // PVOC engine. Ensure those values are reset while an
+                        // old effect-led profile becomes Custom.
+                        MemoryPluginState versionFourteen;
+                        versionFourteen.bytes = currentState.bytes;
+                        constexpr uint32_t oldVersion = 15u;
+                        std::memcpy(versionFourteen.bytes.data(),
+                            &oldVersion, sizeof(oldVersion));
+                        const auto setOldValue = [&](uint32_t id,
+                                                     double value) {
+                            const size_t savedIndex = id <= 24u
+                                ? id - 1u : id - 2u;
+                            std::memcpy(versionFourteen.bytes.data()
+                                    + headerBytes
+                                    + savedIndex * sizeof(double),
+                                &value, sizeof(value));
+                        };
+                        setOldValue(1u, 8.0);
+                        setOldValue(65u, 0.93);
+                        setOldValue(66u, 5.0);
+                        setOldValue(67u, 8000.0);
+                        clap_istream_t stateInput {
+                            &versionFourteen, stateReadWhole
+                        };
+                        double migratedProfile = -1.0;
+                        double migratedAmount = -1.0;
+                        double migratedMode = -1.0;
+                        double migratedMemory = -1.0;
+                        ok = articulatorState->load(plugin, &stateInput)
+                            && versionFourteen.offset
+                                == versionFourteen.bytes.size()
+                            && params->get_value(
+                                plugin, 1u, &migratedProfile)
+                            && params->get_value(
+                                plugin, 65u, &migratedAmount)
+                            && params->get_value(
+                                plugin, 66u, &migratedMode)
+                            && params->get_value(
+                                plugin, 67u, &migratedMemory)
+                            && migratedProfile == 14.0
+                            && migratedAmount == 0.0
+                            && migratedMode == 1.0
+                            && migratedMemory == 1200.0;
+                    }
+                }
+                if (ok) {
+                    SingleParamEventInput spectralProfile {};
+                    constexpr double expectedPvocModes[] {
+                        1.0, 4.0, 2.0, 6.0, 6.0, 5.0, 3.0, 2.0
+                    };
+                    for (uint32_t index = 0u;
+                         ok && index < std::size(expectedPvocModes);
+                         ++index) {
+                        const double profile = 6.0
+                            + static_cast<double>(index);
+                        setSingleParamEvent(spectralProfile, 1u, profile);
+                        params->flush(plugin,
+                            &spectralProfile.events, nullptr);
+                        double profileValue = -1.0;
+                        double pvocMode = -1.0;
+                        double pvocAmount = 0.0;
+                        ok = params->get_value(plugin, 1u, &profileValue)
+                            && params->get_value(plugin, 66u, &pvocMode)
+                            && params->get_value(plugin, 65u, &pvocAmount)
+                            && profileValue == profile
+                            && pvocMode == expectedPvocModes[index]
+                            && pvocAmount > 0.80;
+                    }
+                    setSingleParamEvent(spectralProfile, 1u, 0.0);
+                    params->flush(plugin, &spectralProfile.events, nullptr);
+                }
                 if (ok) {
                     const auto titleBand =
                         s3g::clap_gui::encoderTitleBand(
@@ -1093,6 +1235,41 @@ int main(int argc, char** argv)
                     ok = [phraseField isHidden];
                     [document mouseDown:articulatorMouseEvent(
                         NSEventTypeLeftMouseDown, NSMakePoint(700.0, 300.0))];
+                    ok = ok && ![phraseField isHidden];
+                }
+                if (ok) {
+                    const NSPoint pageButton = NSMakePoint(571.0, 55.0);
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown, pageButton)];
+                    ok = [phraseField isHidden];
+                    const NSPoint spectralMix = NSMakePoint(209.0, 92.0);
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown, spectralMix)];
+                    [document mouseUp:articulatorMouseEvent(
+                        NSEventTypeLeftMouseUp, spectralMix)];
+                    double spectralValue = 0.0;
+                    ok = ok && params->get_value(plugin, 65u, &spectralValue)
+                        && spectralValue > 0.85;
+                    const NSPoint partialCloud = NSMakePoint(505.0, 152.0);
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown, partialCloud)];
+                    [document mouseUp:articulatorMouseEvent(
+                        NSEventTypeLeftMouseUp, partialCloud)];
+                    double cloudValue = 0.0;
+                    ok = ok && params->get_value(plugin, 79u, &cloudValue)
+                        && cloudValue > 0.85;
+                    const auto* articulatorTail =
+                        static_cast<const clap_plugin_tail_t*>(
+                            plugin->get_extension(plugin, CLAP_EXT_TAIL));
+                    const uint32_t pvocTail = articulatorTail
+                        ? articulatorTail->get(plugin) : 0u;
+                    ok = ok && articulatorTail && pvocTail > 1024u
+                        && pvocTail < 0xffffffffu;
+                    SingleParamEventInput clearCloud {};
+                    setSingleParamEvent(clearCloud, 79u, 0.0);
+                    params->flush(plugin, &clearCloud.events, nullptr);
+                    [document mouseDown:articulatorMouseEvent(
+                        NSEventTypeLeftMouseDown, pageButton)];
                     ok = ok && ![phraseField isHidden];
                 }
                 if (ok) {
@@ -1156,19 +1333,23 @@ int main(int argc, char** argv)
                 processBlock.out_events = &captured.events;
                 bool activated = false;
                 bool processing = false;
+                double energy = 0.0;
                 if (ok) {
                     activated = plugin->activate(
                         plugin, 48000.0, 1u, kFrames);
                     processing = activated
                         && plugin->start_processing(plugin);
-                    ok = processing
-                        && plugin->process(plugin, &processBlock)
+                    ok = processing;
+                    for (uint32_t block = 0u; ok && block < 6u; ++block) {
+                        std::fill(left.begin(), left.end(), 0.0f);
+                        std::fill(right.begin(), right.end(), 0.0f);
+                        ok = plugin->process(plugin, &processBlock)
                             != CLAP_PROCESS_ERROR;
-                }
-                double energy = 0.0;
-                for (uint32_t frame = 0u; frame < kFrames; ++frame) {
-                    energy += std::fabs(left[frame])
-                        + std::fabs(right[frame]);
+                        for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                            energy += std::fabs(left[frame])
+                                + std::fabs(right[frame]);
+                        }
+                    }
                 }
                 ok = ok && energy > 1.0e-5;
 

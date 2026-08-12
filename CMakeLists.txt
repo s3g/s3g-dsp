@@ -251,9 +251,22 @@ add_executable(s3g_acapella_source_synth_smoke
   tests/acapella_source_synth_smoke.cpp)
 target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_acapella_pvoc_regression_smoke
+  tests/acapella_pvoc_regression_smoke.cpp)
+target_link_libraries(s3g_acapella_pvoc_regression_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_acapella_source_synth_render
   tools/render_acapella_source_synth.cpp)
 target_link_libraries(s3g_acapella_source_synth_render PRIVATE s3g_dsp)
+
+if(APPLE)
+  target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE
+    "-framework Accelerate")
+  target_link_libraries(s3g_acapella_pvoc_regression_smoke PRIVATE
+    "-framework Accelerate")
+  target_link_libraries(s3g_acapella_source_synth_render PRIVATE
+    "-framework Accelerate")
+endif()
 
 add_executable(s3g_psd_raw_field_smoke tests/psd_raw_field_smoke.cpp)
 target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
@@ -349,6 +362,7 @@ if(BUILD_TESTING)
     s3g_environmental_encoder_smoke
     s3g_vox_builder_smoke
     s3g_acapella_source_synth_smoke
+    s3g_acapella_pvoc_regression_smoke
     s3g_psd_raw_field_smoke
     s3g_psd_raw_field_parameter_audit
     s3g_gui_layout_contract_smoke

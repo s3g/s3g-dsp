@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_acapella_source_synth.h"
+#include "s3g_acapella_pvoc_field.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -252,6 +253,27 @@ public:
             if (voiceActive(voice)) ++count;
         }
         return count;
+    }
+
+    AcapellaPvocGesture pvocGesture() const
+    {
+        const Voice* dominant = nullptr;
+        for (const auto& voice : voices_) {
+            if (!voiceActive(voice)) continue;
+            if (!dominant || voice.age > dominant->age) dominant = &voice;
+        }
+        if (!dominant) return {};
+        const auto& source = dominant->lead;
+        AcapellaPvocGesture gesture;
+        gesture.phoneme = source.activePhoneme();
+        gesture.frequencyHz = source.currentFrequencyHz();
+        gesture.stepProgress = source.gestureStepProgress();
+        gesture.stepIndex = source.gestureStepIndex();
+        gesture.voiceInstance = dominant->age;
+        gesture.stress = source.activePhonemeStress();
+        gesture.flags = source.activePhonemeFlags();
+        gesture.active = true;
+        return gesture;
     }
 
     AcapellaEnsembleFrame processFrame()

@@ -10,6 +10,7 @@
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
+#include <clap/ext/latency.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
@@ -33,7 +34,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kStateVersion = 16u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 968u;
@@ -103,9 +104,31 @@ constexpr clap_id kEchoWearParamId = 61u;
 constexpr clap_id kEchoFlutterParamId = 62u;
 constexpr clap_id kEchoToneParamId = 63u;
 constexpr clap_id kEchoSpreadParamId = 64u;
-constexpr uint32_t kParamCount = 64u;
+constexpr clap_id kPvocAmountParamId = 65u;
+constexpr clap_id kPvocModeParamId = 66u;
+constexpr clap_id kPvocMemoryParamId = 67u;
+constexpr clap_id kPvocPositionParamId = 68u;
+constexpr clap_id kPvocSpeedParamId = 69u;
+constexpr clap_id kPvocLoopLengthParamId = 70u;
+constexpr clap_id kPvocTimeSpreadParamId = 71u;
+constexpr clap_id kPvocHeadsParamId = 72u;
+constexpr clap_id kPvocFeedbackParamId = 73u;
+constexpr clap_id kPvocPitchParamId = 74u;
+constexpr clap_id kPvocFormantParamId = 75u;
+constexpr clap_id kPvocWarpParamId = 76u;
+constexpr clap_id kPvocHarmonicLockParamId = 77u;
+constexpr clap_id kPvocPeakResidueParamId = 78u;
+constexpr clap_id kPvocPartialCloudParamId = 79u;
+constexpr clap_id kPvocPhaseModeParamId = 80u;
+constexpr clap_id kPvocCoherenceParamId = 81u;
+constexpr clap_id kPvocPhaseDriftParamId = 82u;
+constexpr clap_id kPvocTransientPreserveParamId = 83u;
+constexpr clap_id kPvocCaptureTriggerParamId = 84u;
+constexpr clap_id kPvocCaptureReleaseParamId = 85u;
+constexpr clap_id kPvocGestureFollowParamId = 86u;
+constexpr uint32_t kParamCount = 86u;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
-constexpr double kCustomPreset = 6.0;
+constexpr double kCustomPreset = 14.0;
 
 struct ParamDef {
     clap_id id;
@@ -118,7 +141,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
-    { kPresetParamId, "Source Profile", "Source", 0.0, 6.0, 0.0, true },
+    { kPresetParamId, "Instrument Profile", "Instrument", 0.0, 14.0, 0.0, true },
     { kDeliveryParamId, "Phrasing", "Performance", 0.0, 1.0, 0.0, true },
     { kVowelParamId, "Vowel", "Syllable", 0.0, 5.0, 5.0, true },
     { kOnsetParamId, "Onset", "Syllable", 0.0, 24.0, 0.0, true },
@@ -182,6 +205,28 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kEchoFlutterParamId, "Tape Flutter", "Tape Echo", 0.0, 1.0, 0.10, false },
     { kEchoToneParamId, "Echo Tone", "Tape Echo", -1.0, 1.0, -0.12, false },
     { kEchoSpreadParamId, "Head Spread", "Tape Echo", 0.0, 1.0, 0.58, false },
+    { kPvocAmountParamId, "PVOC Amount", "PVOC Transport", 0.0, 1.0, 0.0, false },
+    { kPvocModeParamId, "PVOC Mode", "PVOC Transport", 0.0, 6.0, 1.0, true },
+    { kPvocMemoryParamId, "PVOC Memory", "PVOC Transport", 20.0, 10000.0, 1200.0, false },
+    { kPvocPositionParamId, "PVOC Position", "PVOC Transport", 0.0, 1.0, 0.18, false },
+    { kPvocSpeedParamId, "PVOC Speed", "PVOC Transport", -2.0, 2.0, 1.0, false },
+    { kPvocLoopLengthParamId, "PVOC Loop Length", "PVOC Transport", 20.0, 5000.0, 360.0, false },
+    { kPvocTimeSpreadParamId, "Time Spread", "PVOC Transport", 0.0, 1.0, 0.0, false },
+    { kPvocHeadsParamId, "PVOC Heads", "PVOC Transport", 1.0, 8.0, 1.0, true },
+    { kPvocFeedbackParamId, "PVOC Feedback", "PVOC Transport", 0.0, 0.94, 0.0, false },
+    { kPvocPitchParamId, "PVOC Pitch", "PVOC Frequency", -24.0, 24.0, 0.0, false },
+    { kPvocFormantParamId, "PVOC Formant", "PVOC Frequency", -24.0, 24.0, 0.0, false },
+    { kPvocWarpParamId, "Frequency Warp", "PVOC Frequency", -1.0, 1.0, 0.0, false },
+    { kPvocHarmonicLockParamId, "Harmonic Lock", "PVOC Frequency", 0.0, 1.0, 0.0, false },
+    { kPvocPeakResidueParamId, "Peak / Residue", "PVOC Partials", -1.0, 1.0, 0.0, false },
+    { kPvocPartialCloudParamId, "Partial Cloud", "PVOC Partials", 0.0, 1.0, 0.0, false },
+    { kPvocPhaseModeParamId, "Phase Mode", "PVOC Phase", 0.0, 3.0, 0.0, true },
+    { kPvocCoherenceParamId, "Coherence", "PVOC Phase", 0.0, 1.0, 0.86, false },
+    { kPvocPhaseDriftParamId, "Phase Drift", "PVOC Phase", 0.0, 1.0, 0.0, false },
+    { kPvocTransientPreserveParamId, "Transient Preserve", "PVOC Gesture", 0.0, 1.0, 0.36, false },
+    { kPvocCaptureTriggerParamId, "Capture Trigger", "PVOC Gesture", 0.0, 5.0, 3.0, true },
+    { kPvocCaptureReleaseParamId, "Capture Release", "PVOC Gesture", 20.0, 5000.0, 320.0, false },
+    { kPvocGestureFollowParamId, "Gesture Follow", "PVOC Gesture", 0.0, 1.0, 0.55, false },
 }};
 
 struct StateHeader {
@@ -197,6 +242,8 @@ constexpr std::array<clap_id, kSavedParamCount> kSavedParamIds {{
     46u, 47u, 48u, 49u, 50u, 51u, 52u, 53u, 54u,
     55u, 56u, 57u,
     58u, 59u, 60u, 61u, 62u, 63u, 64u,
+    65u, 66u, 67u, 68u, 69u, 70u, 71u, 72u, 73u, 74u, 75u,
+    76u, 77u, 78u, 79u, 80u, 81u, 82u, 83u, 84u, 85u, 86u,
 }};
 
 struct PhraseState {
@@ -468,6 +515,34 @@ void storeEffectsParams(Plugin& plugin,
     storeValue(plugin, kEchoFlutterParamId, params.echoFlutter);
     storeValue(plugin, kEchoToneParamId, params.echoTone);
     storeValue(plugin, kEchoSpreadParamId, params.echoSpread);
+    storeValue(plugin, kPvocAmountParamId, params.pvoc.amount);
+    storeValue(plugin, kPvocModeParamId,
+        static_cast<uint32_t>(params.pvoc.mode));
+    storeValue(plugin, kPvocMemoryParamId, params.pvoc.memoryMs);
+    storeValue(plugin, kPvocPositionParamId, params.pvoc.position);
+    storeValue(plugin, kPvocSpeedParamId, params.pvoc.speed);
+    storeValue(plugin, kPvocLoopLengthParamId, params.pvoc.loopLengthMs);
+    storeValue(plugin, kPvocTimeSpreadParamId, params.pvoc.timeSpread);
+    storeValue(plugin, kPvocHeadsParamId, params.pvoc.heads);
+    storeValue(plugin, kPvocFeedbackParamId, params.pvoc.feedback);
+    storeValue(plugin, kPvocPitchParamId, params.pvoc.pitchSemitones);
+    storeValue(plugin, kPvocFormantParamId, params.pvoc.formantSemitones);
+    storeValue(plugin, kPvocWarpParamId, params.pvoc.warp);
+    storeValue(plugin, kPvocHarmonicLockParamId, params.pvoc.harmonicLock);
+    storeValue(plugin, kPvocPeakResidueParamId, params.pvoc.peakResidue);
+    storeValue(plugin, kPvocPartialCloudParamId, params.pvoc.partialCloud);
+    storeValue(plugin, kPvocPhaseModeParamId,
+        static_cast<uint32_t>(params.pvoc.phaseMode));
+    storeValue(plugin, kPvocCoherenceParamId, params.pvoc.coherence);
+    storeValue(plugin, kPvocPhaseDriftParamId, params.pvoc.phaseDrift);
+    storeValue(plugin, kPvocTransientPreserveParamId,
+        params.pvoc.transientPreserve);
+    storeValue(plugin, kPvocCaptureTriggerParamId,
+        static_cast<uint32_t>(params.pvoc.captureTrigger));
+    storeValue(plugin, kPvocCaptureReleaseParamId,
+        params.pvoc.captureReleaseMs);
+    storeValue(plugin, kPvocGestureFollowParamId,
+        params.pvoc.gestureFollow);
 }
 
 void storeEnsembleParams(Plugin& plugin,
@@ -481,19 +556,39 @@ void storeEnsembleParams(Plugin& plugin,
     storeValue(plugin, kDoubleWidthParamId, params.doubleWidth);
 }
 
+s3g::AcapellaSourcePreset pvocProfileBase(uint32_t index)
+{
+    return s3g::acapellaPvocProfileBase(index);
+}
+
+s3g::AcapellaVocalFxParams pvocProfileEffects(uint32_t index,
+    s3g::AcapellaVocalFxParams effects)
+{
+    return s3g::acapellaPvocProfileEffects(index, effects);
+}
+
 void selectPreset(Plugin& plugin, uint32_t index)
 {
-    if (index >= 6u) {
+    if (index >= static_cast<uint32_t>(kCustomPreset)) {
         storeValue(plugin, kPresetParamId, kCustomPreset);
         return;
     }
-    const auto params = s3g::acapellaSourcePreset(
-        static_cast<s3g::AcapellaSourcePreset>(index));
+    const auto sourcePreset = index < 6u
+        ? static_cast<s3g::AcapellaSourcePreset>(index)
+        : pvocProfileBase(index);
+    const auto params = s3g::acapellaSourcePreset(sourcePreset);
     storeVoiceParams(plugin, params);
-    storeEffectsParams(plugin, s3g::acapellaVocalFxPreset(
-        static_cast<s3g::AcapellaSourcePreset>(index)));
-    storeEnsembleParams(plugin, s3g::acapellaEnsemblePreset(
-        static_cast<s3g::AcapellaSourcePreset>(index)));
+    storeEffectsParams(plugin, pvocProfileEffects(index,
+        s3g::acapellaVocalFxPreset(sourcePreset)));
+    auto ensemble = s3g::acapellaEnsemblePreset(sourcePreset);
+    if (index == 10u || index == 13u) {
+        ensemble.polyphony = index == 13u ? 8u : 6u;
+        ensemble.doubleAmount = index == 13u ? 0.32f : 0.48f;
+        ensemble.doubleDetuneCents = index == 13u ? 7.0f : 13.0f;
+        ensemble.doubleTimingMs = index == 13u ? 18.0f : 29.0f;
+        ensemble.doubleWidth = 0.94f;
+    }
+    storeEnsembleParams(plugin, ensemble);
     storeValue(plugin, kPresetParamId, static_cast<double>(index));
 }
 
@@ -511,6 +606,7 @@ bool customisingParam(clap_id id)
         || id == kCoarticulationParamId
         || id == kIntelligibilityParamId
         || (id >= kEchoHeadsParamId && id <= kEchoSpreadParamId)
+        || (id >= kPvocAmountParamId && id <= kPvocGestureFollowParamId)
         || (id >= kGestureSequenceParamId && id <= kGestureDivisionParamId);
 }
 
@@ -621,6 +717,51 @@ void syncAudioParams(Plugin& plugin)
         kEchoToneParamId));
     effects.echoSpread = static_cast<float>(loadValue(plugin,
         kEchoSpreadParamId));
+    effects.pvoc.amount = static_cast<float>(loadValue(plugin,
+        kPvocAmountParamId));
+    effects.pvoc.mode = static_cast<s3g::AcapellaPvocMode>(
+        static_cast<uint32_t>(loadValue(plugin, kPvocModeParamId)));
+    effects.pvoc.memoryMs = static_cast<float>(loadValue(plugin,
+        kPvocMemoryParamId));
+    effects.pvoc.position = static_cast<float>(loadValue(plugin,
+        kPvocPositionParamId));
+    effects.pvoc.speed = static_cast<float>(loadValue(plugin,
+        kPvocSpeedParamId));
+    effects.pvoc.loopLengthMs = static_cast<float>(loadValue(plugin,
+        kPvocLoopLengthParamId));
+    effects.pvoc.timeSpread = static_cast<float>(loadValue(plugin,
+        kPvocTimeSpreadParamId));
+    effects.pvoc.heads = static_cast<uint32_t>(loadValue(plugin,
+        kPvocHeadsParamId));
+    effects.pvoc.feedback = static_cast<float>(loadValue(plugin,
+        kPvocFeedbackParamId));
+    effects.pvoc.pitchSemitones = static_cast<float>(loadValue(plugin,
+        kPvocPitchParamId));
+    effects.pvoc.formantSemitones = static_cast<float>(loadValue(plugin,
+        kPvocFormantParamId));
+    effects.pvoc.warp = static_cast<float>(loadValue(plugin,
+        kPvocWarpParamId));
+    effects.pvoc.harmonicLock = static_cast<float>(loadValue(plugin,
+        kPvocHarmonicLockParamId));
+    effects.pvoc.peakResidue = static_cast<float>(loadValue(plugin,
+        kPvocPeakResidueParamId));
+    effects.pvoc.partialCloud = static_cast<float>(loadValue(plugin,
+        kPvocPartialCloudParamId));
+    effects.pvoc.phaseMode = static_cast<s3g::AcapellaPvocPhaseMode>(
+        static_cast<uint32_t>(loadValue(plugin, kPvocPhaseModeParamId)));
+    effects.pvoc.coherence = static_cast<float>(loadValue(plugin,
+        kPvocCoherenceParamId));
+    effects.pvoc.phaseDrift = static_cast<float>(loadValue(plugin,
+        kPvocPhaseDriftParamId));
+    effects.pvoc.transientPreserve = static_cast<float>(loadValue(plugin,
+        kPvocTransientPreserveParamId));
+    effects.pvoc.captureTrigger = static_cast<
+        s3g::AcapellaPvocCaptureTrigger>(static_cast<uint32_t>(loadValue(
+            plugin, kPvocCaptureTriggerParamId)));
+    effects.pvoc.captureReleaseMs = static_cast<float>(loadValue(plugin,
+        kPvocCaptureReleaseParamId));
+    effects.pvoc.gestureFollow = static_cast<float>(loadValue(plugin,
+        kPvocGestureFollowParamId));
     plugin.effectsParams = s3g::sanitizeAcapellaVocalFxParams(effects);
     auto ensemble = plugin.ensembleParams;
     ensemble.polyphony = static_cast<uint32_t>(loadValue(plugin, kPolyphonyParamId));
@@ -909,6 +1050,8 @@ clap_process_status process(const clap_plugin_t* plugin,
         instance->smoothedOutputGain += (instance->outputGain
             - instance->smoothedOutputGain) * gainCoefficient;
         const auto ensemble = instance->ensemble.processFrame();
+        instance->effects.setPvocGesture(
+            instance->ensemble.pvocGesture());
         const auto vocal = instance->effects.processFrameStereo(
             ensemble.left, ensemble.right);
         const float samples[kOutputChannels] {
@@ -1022,9 +1165,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     if (id == kPresetParamId) {
         constexpr const char* names[] {
             "Neutral", "Rhythmic", "Air", "Pressed",
-            "Overdrive", "Subharmonic", "Custom"
+            "Overdrive", "Subharmonic", "Vowel Suspension",
+            "Reverse Breath", "Formant Loom", "Partial Rain",
+            "Phase Choir", "Consonant Shadow", "Time Scar",
+            "Chord Glass", "Custom"
         };
-        const uint32_t index = std::min<uint32_t>(6u,
+        const uint32_t index = std::min<uint32_t>(14u,
             static_cast<uint32_t>(std::round(value)));
         std::snprintf(display, size, "%s", names[index]);
     } else if (id == kDeliveryParamId) {
@@ -1077,22 +1223,54 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<s3g::DrumEchoClock>(std::clamp<uint32_t>(
                 static_cast<uint32_t>(std::round(value)), 0u,
                 s3g::kDrumEchoClockCount - 1u))));
+    } else if (id == kPvocModeParamId) {
+        constexpr const char* names[] {
+            "Live", "Freeze", "Stretch", "Scrub",
+            "Reverse", "Loop", "Cloud"
+        };
+        const uint32_t index = std::min<uint32_t>(6u,
+            static_cast<uint32_t>(std::round(value)));
+        std::snprintf(display, size, "%s", names[index]);
+    } else if (id == kPvocPhaseModeParamId) {
+        constexpr const char* names[] {
+            "Identity", "Peak Locked", "Loose", "Diffuse"
+        };
+        const uint32_t index = std::min<uint32_t>(3u,
+            static_cast<uint32_t>(std::round(value)));
+        std::snprintf(display, size, "%s", names[index]);
+    } else if (id == kPvocCaptureTriggerParamId) {
+        constexpr const char* names[] {
+            "Continuous", "Note", "Phoneme", "Syllable", "Word", "Rest"
+        };
+        const uint32_t index = std::min<uint32_t>(5u,
+            static_cast<uint32_t>(std::round(value)));
+        std::snprintf(display, size, "%s", names[index]);
     } else if (id == kDurationParamId || id == kGlideParamId
         || id == kAttackParamId || id == kReleaseParamId
         || id == kRetriggerParamId || id == kEchoTimeParamId
-        || id == kDoubleTimingParamId || id == kOnsetGuardParamId) {
+        || id == kDoubleTimingParamId || id == kOnsetGuardParamId
+        || id == kPvocMemoryParamId || id == kPvocLoopLengthParamId
+        || id == kPvocCaptureReleaseParamId) {
         std::snprintf(display, size, "%.1f ms", value);
     } else if (id == kVibratoRateParamId || id == kGestureRateParamId) {
         std::snprintf(display, size, "%.2f Hz", value);
     } else if (id == kVibratoDepthParamId || id == kPitchDriftParamId
         || id == kDoubleDetuneParamId) {
         std::snprintf(display, size, "%.1f ct", value);
-    } else if (id == kScoopParamId || id == kDeclinationParamId) {
+    } else if (id == kScoopParamId || id == kDeclinationParamId
+        || id == kPvocPitchParamId || id == kPvocFormantParamId) {
         std::snprintf(display, size, "%+.2f st", value);
     } else if (id == kOutputParamId || id == kFuzzDriveParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (id == kFuzzToneParamId) {
         std::snprintf(display, size, "%.0f Hz", value);
+    } else if (id == kPvocSpeedParamId) {
+        std::snprintf(display, size, "%+.2fx", value);
+    } else if (id == kPvocWarpParamId
+        || id == kPvocPeakResidueParamId) {
+        std::snprintf(display, size, "%+.0f%%", value * 100.0);
+    } else if (id == kPvocHeadsParamId) {
+        std::snprintf(display, size, "%.0f heads", value);
     } else if (id == kPolyphonyParamId) {
         std::snprintf(display, size, "%.0f voices", value);
     } else if (id == kGestureLoopParamId) {
@@ -1116,9 +1294,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     if (id == kPresetParamId) {
         constexpr const char* names[] {
             "Neutral", "Rhythmic", "Air", "Pressed",
-            "Overdrive", "Subharmonic", "Custom"
+            "Overdrive", "Subharmonic", "Vowel Suspension",
+            "Reverse Breath", "Formant Loom", "Partial Rain",
+            "Phase Choir", "Consonant Shadow", "Time Scar",
+            "Chord Glass", "Custom"
         };
-        for (uint32_t index = 0u; index < 7u; ++index) {
+        for (uint32_t index = 0u; index < 15u; ++index) {
             if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
@@ -1210,6 +1391,37 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         for (uint32_t index = 0u; index < s3g::kDrumEchoClockCount; ++index) {
             if (std::strcmp(display, s3g::drumEchoClockName(
                     static_cast<s3g::DrumEchoClock>(index))) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    } else if (id == kPvocModeParamId) {
+        constexpr const char* names[] {
+            "Live", "Freeze", "Stretch", "Scrub",
+            "Reverse", "Loop", "Cloud"
+        };
+        for (uint32_t index = 0u; index < 7u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    } else if (id == kPvocPhaseModeParamId) {
+        constexpr const char* names[] {
+            "Identity", "Peak Locked", "Loose", "Diffuse"
+        };
+        for (uint32_t index = 0u; index < 4u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    } else if (id == kPvocCaptureTriggerParamId) {
+        constexpr const char* names[] {
+            "Continuous", "Note", "Phoneme", "Syllable", "Word", "Rest"
+        };
+        for (uint32_t index = 0u; index < 6u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
             }
@@ -1420,7 +1632,97 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             kPhraseCapacity - 1u);
         phrase.text[phrase.length] = '\0';
         if (!publishTextPhrase(*instance, phrase.text.data())) return false;
-    } else if (header.version == kStateVersion) {
+    } else if (header.version == 10u) {
+        constexpr uint32_t oldSavedParamCount = 63u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 11u) {
+        constexpr uint32_t oldSavedParamCount = 76u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 12u) {
+        constexpr uint32_t oldSavedParamCount = 77u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 13u) {
+        constexpr uint32_t oldSavedParamCount = 81u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 14u) {
+        std::array<double, kSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 15u
+        || header.version == kStateVersion) {
         std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(stream, values.data(),
                 sizeof(values))) return false;
@@ -1440,6 +1742,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    // Both prior spectral implementations are intentionally retired. Preserve
+    // voice, phrase, echo, and ensemble state, but reset IDs 65--86 so an old
+    // unstable transport/feedback combination cannot enter the new engine.
+    if (header.version <= 15u) {
+        for (clap_id id = kPvocAmountParamId;
+             id <= kPvocGestureFollowParamId; ++id) {
+            if (const auto* def = paramDef(id)) {
+                storeValue(*instance, id, def->defaultValue);
+            }
+        }
+        if (loadValue(*instance, kPresetParamId) >= 6.0) {
+            storeValue(*instance, kPresetParamId, kCustomPreset);
+        }
+    }
     storeValue(*instance, kAuditionParamId, 0.0);
     instance->controlAuditionGate.store(false, std::memory_order_release);
     if (instance->host && instance->host->request_process) {
@@ -1450,12 +1766,25 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
+uint32_t latencyGet(const clap_plugin_t* plugin)
+{
+    return self(plugin)->effects.latencySamples();
+}
+
+const clap_plugin_latency_t latencyExt { latencyGet };
+
 uint32_t tailGet(const clap_plugin_t* plugin)
 {
     const auto* instance = self(plugin);
     const double releaseSeconds = loadValue(*instance, kReleaseParamId) * 0.002;
-    const double delaySamples = loadValue(*instance, kEchoMixParamId) > 0.001
-        ? static_cast<double>(instance->effects.tailSamples()) : 0.0;
+    const bool pvocActive = loadValue(
+        *instance, kPvocAmountParamId) > 0.001;
+    const bool fieldActive = loadValue(*instance, kEchoMixParamId) > 0.001
+        || pvocActive;
+    const uint32_t effectTail = instance->effects.tailSamples();
+    const double delaySamples = fieldActive
+        ? static_cast<double>(effectTail)
+        : static_cast<double>(instance->effects.latencySamples());
     const double samples = releaseSeconds * instance->sampleRate + delaySamples;
     return static_cast<uint32_t>(std::min<double>(
         std::numeric_limits<uint32_t>::max() - 1u,
@@ -1542,6 +1871,19 @@ constexpr clap_id kEchoGuiParams[] {
     kEchoHeadsParamId, kEchoClockParamId, kEchoTimeParamId,
     kEchoFeedbackParamId, kEchoWearParamId, kEchoFlutterParamId,
     kEchoToneParamId, kEchoSpreadParamId, kEchoMixParamId,
+};
+constexpr clap_id kPvocGuiParams[] {
+    kPvocAmountParamId, kPvocModeParamId,
+    kPvocMemoryParamId, kPvocPositionParamId,
+    kPvocSpeedParamId, kPvocLoopLengthParamId,
+    kPvocTimeSpreadParamId, kPvocHeadsParamId, kPvocPhaseModeParamId,
+    kPvocTransientPreserveParamId, kPvocCaptureTriggerParamId,
+    kPvocFeedbackParamId, kPvocPeakResidueParamId,
+    kPvocPartialCloudParamId, kPvocPitchParamId,
+    kPvocFormantParamId, kPvocWarpParamId,
+    kPvocHarmonicLockParamId, kPvocCoherenceParamId,
+    kPvocPhaseDriftParamId, kPvocCaptureReleaseParamId,
+    kPvocGestureFollowParamId,
 };
 
 struct ArticulatorGuiGroup {
@@ -1650,6 +1992,28 @@ const char* articulatorGuiLabel(clap_id id)
     case kEchoToneParamId: return "TONE";
     case kEchoSpreadParamId: return "SPRD";
     case kEchoMixParamId: return "MIX";
+    case kPvocAmountParamId: return "AMOUNT";
+    case kPvocModeParamId: return "MODE";
+    case kPvocMemoryParamId: return "MEMORY";
+    case kPvocPositionParamId: return "POSITION";
+    case kPvocSpeedParamId: return "SPEED";
+    case kPvocLoopLengthParamId: return "LOOP";
+    case kPvocTimeSpreadParamId: return "T-SPREAD";
+    case kPvocHeadsParamId: return "HEADS";
+    case kPvocFeedbackParamId: return "FEEDBACK";
+    case kPvocPitchParamId: return "PITCH";
+    case kPvocFormantParamId: return "FORMANT";
+    case kPvocWarpParamId: return "WARP";
+    case kPvocHarmonicLockParamId: return "H-LOCK";
+    case kPvocPeakResidueParamId: return "PEAK / RES";
+    case kPvocPartialCloudParamId: return "P-CLOUD";
+    case kPvocPhaseModeParamId: return "PHASE";
+    case kPvocCoherenceParamId: return "COHERENCE";
+    case kPvocPhaseDriftParamId: return "P-DRIFT";
+    case kPvocTransientPreserveParamId: return "TRANSIENT";
+    case kPvocCaptureTriggerParamId: return "TRIGGER";
+    case kPvocCaptureReleaseParamId: return "RELEASE";
+    case kPvocGestureFollowParamId: return "G-FOLLOW";
     default: return "";
     }
 }
@@ -1672,6 +2036,43 @@ constexpr CGFloat kScoreRowPitch = 26.0;
 NSRect articulatorCompileRect()
 {
     return NSMakeRect(532.0, 77.0, 84.0, 20.0);
+}
+
+NSRect articulatorPageRect()
+{
+    return NSMakeRect(526.0, 45.0, 90.0, 20.0);
+}
+
+bool articulatorPvocLocation(clap_id id, uint32_t& column,
+    uint32_t& row)
+{
+    for (uint32_t index = 0u; index < std::size(kPvocGuiParams);
+         ++index) {
+        if (kPvocGuiParams[index] != id) continue;
+        column = index < 11u ? 0u : 1u;
+        row = index < 11u ? index : index - 11u;
+        return true;
+    }
+    return false;
+}
+
+CGFloat articulatorPvocRowY(uint32_t row)
+{
+    return 92.0 + static_cast<CGFloat>(row) * 30.0;
+}
+
+CGFloat articulatorPvocTrackX(uint32_t column)
+{
+    return column == 0u ? 112.0 : 408.0;
+}
+
+NSRect articulatorPvocHitRect(clap_id id)
+{
+    uint32_t column = 0u;
+    uint32_t row = 0u;
+    if (!articulatorPvocLocation(id, column, row)) return NSZeroRect;
+    return NSMakeRect(column == 0u ? 20.0 : 316.0,
+        articulatorPvocRowY(row) - 8.0, 292.0, 24.0);
 }
 
 NSRect articulatorScoreMenuRect(clap_id id)
@@ -1729,6 +2130,7 @@ NSRect articulatorProcessorMenuRect(
     NSPoint _menuOrigin;
     CGFloat _menuWidth;
     char _titlePresetName[64];
+    BOOL _pvocPage;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -1749,6 +2151,7 @@ NSRect articulatorProcessorMenuRect(
         _menuOrigin = NSZeroPoint;
         _menuWidth = 180.0;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        _pvocPage = NO;
         _phraseField = [[NSTextField alloc] initWithFrame:
             NSMakeRect(28.0, 76.0, 492.0, 24.0)];
         s3g::clap_gui::styleNumberTextField(
@@ -1960,6 +2363,77 @@ NSRect articulatorProcessorMenuRect(
     }
 }
 
+- (void)drawPvocControls:(const s3g::clap_gui::Style&)style
+{
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* values = s3g::clap_gui::softValueAttrs();
+    [@"PVOC TRANSPORT / PHASE" drawAtPoint:NSMakePoint(28.0, 72.0)
+        withAttributes:values];
+    [@"FREQUENCY / PARTIAL / GESTURE" drawAtPoint:NSMakePoint(324.0, 72.0)
+        withAttributes:values];
+    for (clap_id id : kPvocGuiParams) {
+        uint32_t column = 0u;
+        uint32_t row = 0u;
+        if (!articulatorPvocLocation(id, column, row)) continue;
+        const ParamDef* def = paramDef(id);
+        const double value = loadValue(*_plugin, id);
+        const CGFloat norm = static_cast<CGFloat>(std::clamp(
+            (value - def->minimum) / (def->maximum - def->minimum),
+            0.0, 1.0));
+        char text[64] {};
+        paramsValueToText(&_plugin->plugin, id, value, text, sizeof(text));
+        const CGFloat labelX = column == 0u ? 28.0 : 324.0;
+        const CGFloat trackX = articulatorPvocTrackX(column);
+        const CGFloat valueX = column == 0u ? 230.0 : 526.0;
+        s3g::clap_gui::drawSlider(
+            [NSString stringWithUTF8String:articulatorGuiLabel(id)],
+            [[NSString stringWithUTF8String:text] uppercaseString],
+            norm, articulatorPvocRowY(row), labels, values, style,
+            labelX, trackX, valueX, 108.0, 58.0);
+    }
+
+    [style.strip setFill];
+    NSRectFill(NSMakeRect(28.0, 420.0, 560.0, 2.0));
+    [@"ARTICULATOR  >  PVOC ANALYSIS  >  FRAME FIELD  >  RESYNTHESIS"
+        drawAtPoint:NSMakePoint(28.0, 434.0) withAttributes:values];
+    [@"MAGNITUDE + INSTANTANEOUS FREQUENCY + PHASE  //  PEAK LOCKING"
+        drawAtPoint:NSMakePoint(28.0, 454.0) withAttributes:labels];
+    [@"FFT 1024  //  4X OVERLAP  //  PROCEDURAL FRAME MEMORY"
+        drawAtPoint:NSMakePoint(28.0, 474.0) withAttributes:labels];
+
+    const double amount = loadValue(*_plugin, kPvocAmountParamId);
+    const double mode = loadValue(*_plugin, kPvocModeParamId) / 6.0;
+    const double memory = loadValue(*_plugin, kPvocMemoryParamId) / 10000.0;
+    const double position = loadValue(*_plugin, kPvocPositionParamId);
+    const double spread = loadValue(*_plugin, kPvocTimeSpreadParamId);
+    const double heads = loadValue(*_plugin, kPvocHeadsParamId) / 8.0;
+    const double cloud = loadValue(*_plugin, kPvocPartialCloudParamId);
+    const double drift = loadValue(*_plugin, kPvocPhaseDriftParamId);
+    const bool fieldActive = amount > 0.01;
+    for (uint32_t bin = 0u; bin < 44u; ++bin) {
+        const CGFloat x = 29.0 + static_cast<CGFloat>(bin) * 12.7;
+        const CGFloat phase = static_cast<CGFloat>(bin) * 0.43f
+            + static_cast<CGFloat>(mode * 3.0 + position * 1.7);
+        const CGFloat height = 10.0 + 38.0
+            * static_cast<CGFloat>(0.15 + 0.85
+                * std::abs(std::sin(phase) * std::cos(phase * 0.37)))
+            * static_cast<CGFloat>(0.48 + amount * 0.25
+                + cloud * 0.14 + heads * 0.13);
+        const CGFloat trail = static_cast<CGFloat>(
+            memory * 8.0 + spread * 9.0 + drift * 6.0);
+        [s3g::clap_gui::color(fieldActive
+            ? (bin % 5u == 0u ? 0x8c765f : 0x5d5147)
+            : (bin % 5u == 0u ? 0x71777a : 0x3f4548))
+            setFill];
+        NSRectFill(NSMakeRect(x, 530.0 - height - trail,
+            3.0, height + trail));
+    }
+    [fieldActive ? @"STREAMING PHASE-VOCODER FIELD ACTIVE"
+        : @"PVOC BYPASSED // LATENCY-ALIGNED LIVE RAIL"
+        drawAtPoint:NSMakePoint(28.0, 548.0)
+        withAttributes:values];
+}
+
 - (void)drawOpenMenu:(const s3g::clap_gui::Style&)style
 {
     const ParamDef* def = paramDef(static_cast<clap_id>(_openMenu));
@@ -2004,13 +2478,21 @@ NSRect articulatorProcessorMenuRect(
         s3g::clap_gui::softLabelAttrs(),
         s3g::clap_gui::softValueAttrs(), style);
 
-    [self drawPanel:@"PHONEME SCORE" panel:kArticulatorPhrasePanel
-        style:style];
-    [self drawScoreGrid:style];
-    [self drawScoreControls:style];
+    [self drawPanel:_pvocPage ? @"PHASE-VOCODER FIELD" : @"PHONEME SCORE"
+        panel:kArticulatorPhrasePanel style:style];
+    if (_pvocPage) {
+        [self drawPvocControls:style];
+    } else {
+        [self drawScoreGrid:style];
+        [self drawScoreControls:style];
+        s3g::clap_gui::drawHeaderActionButton(
+            articulatorCompileRect(), articulatorCompileRect(),
+            @"COMPILE", s3g::clap_gui::softLabelAttrs(), style);
+    }
     s3g::clap_gui::drawHeaderActionButton(
-        articulatorCompileRect(), articulatorCompileRect(),
-        @"COMPILE", s3g::clap_gui::softLabelAttrs(), style);
+        articulatorPageRect(), articulatorPageRect(),
+        _pvocPage ? @"SCORE" : @"PVOC",
+        s3g::clap_gui::softLabelAttrs(), style);
 
     for (const auto& group : kArticulatorGuiGroups) {
         [self drawPanel:[NSString stringWithUTF8String:group.title]
@@ -2088,6 +2570,14 @@ NSRect articulatorProcessorMenuRect(
         || id == kIntelligibilityParamId) {
         trackX = 414.0;
         trackWidth = 140.0;
+    } else if (id >= kPvocAmountParamId
+        && id <= kPvocGestureFollowParamId) {
+        uint32_t column = 0u;
+        uint32_t row = 0u;
+        if (!articulatorPvocLocation(id, column, row)) return;
+        (void)row;
+        trackX = articulatorPvocTrackX(column);
+        trackWidth = 108.0;
     } else {
         const s3g::gui_layout::Panel* panel = nullptr;
         uint32_t row = 0u;
@@ -2135,7 +2625,7 @@ NSRect articulatorProcessorMenuRect(
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
-        [_phraseField setHidden:NO];
+        [_phraseField setHidden:_pvocPage];
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2153,9 +2643,35 @@ NSRect articulatorProcessorMenuRect(
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, articulatorCompileRect())) {
+    if (NSPointInRect(point, articulatorPageRect())) {
+        if (!_pvocPage && [self phraseIsEditing]) {
+            [self commitPhrase:_phraseField];
+            [[self window] makeFirstResponder:self];
+        }
+        _pvocPage = !_pvocPage;
+        [_phraseField setHidden:_pvocPage];
+        _openMenu = 0;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (!_pvocPage && NSPointInRect(point, articulatorCompileRect())) {
         [self commitPhrase:self];
         return;
+    }
+
+    if (_pvocPage) {
+        for (clap_id id : kPvocGuiParams) {
+            if (NSPointInRect(point, articulatorPvocHitRect(id))) {
+                const ParamDef* def = paramDef(id);
+                if (def && def->stepped) {
+                    [self openMenuForParam:id
+                        box:articulatorPvocHitRect(id)];
+                } else {
+                    [self beginSlider:id event:event point:point];
+                }
+                return;
+            }
+        }
     }
 
     constexpr clap_id scoreMenus[] {
@@ -2418,6 +2934,7 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
+    if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &latencyExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
@@ -2440,8 +2957,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "1.4.0",
-    "Sample-free polyphonic articulatory synthesizer with text-to-phoneme scoring, continuous tract motion, procedural doubling, shape processing, and synchronized multi-head tape echo.",
+    "3.1.0",
+    "Sample-free polyphonic articulatory synthesizer with text-to-phoneme scoring, unified phase-vocoder transport and resynthesis, procedural doubling, and synchronized multi-head tape echo.",
     features
 };
 

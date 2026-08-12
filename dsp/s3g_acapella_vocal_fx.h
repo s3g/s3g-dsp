@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_acapella_source_synth.h"
+#include "s3g_acapella_pvoc_field.h"
 #include "s3g_drum_echo.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -32,6 +33,7 @@ struct AcapellaVocalFxParams {
     float echoMix = 0.0f;
     float width = 0.0f;
     float intelligibility = 0.78f;
+    AcapellaPvocParams pvoc;
 };
 
 struct AcapellaStereoFrame {
@@ -78,6 +80,7 @@ inline AcapellaVocalFxParams sanitizeAcapellaVocalFxParams(
     params.width = clamp(acapellaFiniteOr(params.width, 0.0f), 0.0f, 1.0f);
     params.intelligibility = clamp(acapellaFiniteOr(
         params.intelligibility, 0.78f), 0.0f, 1.0f);
+    params.pvoc = sanitizeAcapellaPvocParams(params.pvoc);
     return params;
 }
 
@@ -92,11 +95,20 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.deEss = 0.24f;
         params.fuzzDriveDb = 6.0f;
         params.fuzzMix = 0.06f;
+        params.pvoc.mode = AcapellaPvocMode::Live;
+        params.pvoc.amount = 0.08f;
+        params.pvoc.harmonicLock = 0.18f;
+        params.pvoc.transientPreserve = 0.95f;
         break;
     case AcapellaSourcePreset::AirySung:
         params.compression = 0.18f;
         params.deEss = 0.28f;
         params.width = 0.10f;
+        params.pvoc.mode = AcapellaPvocMode::Live;
+        params.pvoc.amount = 0.10f;
+        params.pvoc.formantSemitones = 1.5f;
+        params.pvoc.coherence = 0.74f;
+        params.pvoc.phaseDrift = 0.06f;
         break;
     case AcapellaSourcePreset::PressedLead:
         params.compression = 0.50f;
@@ -105,6 +117,10 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.fuzzDriveDb = 9.0f;
         params.fuzzMix = 0.13f;
         params.fuzzToneHz = 7200.0f;
+        params.pvoc.mode = AcapellaPvocMode::Live;
+        params.pvoc.amount = 0.10f;
+        params.pvoc.harmonicLock = 0.34f;
+        params.pvoc.coherence = 0.94f;
         break;
     case AcapellaSourcePreset::HarshScream:
         params.octaveDown = 0.07f;
@@ -120,6 +136,12 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.echoFeedback = 0.25f;
         params.echoMix = 0.08f;
         params.width = 0.20f;
+        params.pvoc.mode = AcapellaPvocMode::Live;
+        params.pvoc.amount = 0.18f;
+        params.pvoc.warp = 0.18f;
+        params.pvoc.harmonicLock = 0.38f;
+        params.pvoc.phaseDrift = 0.14f;
+        params.pvoc.transientPreserve = 0.90f;
         break;
     case AcapellaSourcePreset::DeathGrowl:
         params.octaveDown = 0.34f;
@@ -136,12 +158,182 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.echoTone = -0.42f;
         params.echoMix = 0.17f;
         params.width = 0.16f;
+        params.pvoc.mode = AcapellaPvocMode::Live;
+        params.pvoc.amount = 0.22f;
+        params.pvoc.formantSemitones = -7.0f;
+        params.pvoc.warp = -0.16f;
+        params.pvoc.feedback = 0.18f;
+        params.pvoc.coherence = 0.76f;
+        params.pvoc.phaseDrift = 0.18f;
         break;
     case AcapellaSourcePreset::NeutralSung:
     default:
         break;
     }
     return sanitizeAcapellaVocalFxParams(params);
+}
+
+constexpr uint32_t kAcapellaPvocProfileFirst = 6u;
+constexpr uint32_t kAcapellaPvocProfileCount = 8u;
+
+inline AcapellaSourcePreset acapellaPvocProfileBase(uint32_t index)
+{
+    switch (index) {
+    case 6u:
+    case 7u:
+    case 9u:
+        return AcapellaSourcePreset::AirySung;
+    case 10u:
+    case 11u:
+        return AcapellaSourcePreset::RhythmicRap;
+    case 12u:
+        return AcapellaSourcePreset::PressedLead;
+    default:
+        return AcapellaSourcePreset::NeutralSung;
+    }
+}
+
+// Shared by the plug-in, renderer, and regressions so factory profiles cannot
+// drift away from what is actually tested. Every profile starts from a fresh
+// spectral state; voice presets may colour the source but never silently
+// contribute inherited PVOC controls.
+inline AcapellaVocalFxParams acapellaPvocProfileEffects(uint32_t index,
+    AcapellaVocalFxParams effects)
+{
+    effects.pvoc = AcapellaPvocParams {};
+    switch (index) {
+    case 6u: // Vowel Suspension
+        effects.pvoc.amount = 0.96f;
+        effects.pvoc.mode = AcapellaPvocMode::Freeze;
+        effects.pvoc.memoryMs = 1800.0f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
+        effects.pvoc.coherence = 0.96f;
+        effects.pvoc.transientPreserve = 0.46f;
+        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
+        effects.pvoc.captureReleaseMs = 900.0f;
+        effects.pvoc.gestureFollow = 0.90f;
+        break;
+    case 7u: // Reverse Breath
+        effects.pvoc.amount = 0.94f;
+        effects.pvoc.mode = AcapellaPvocMode::Reverse;
+        effects.pvoc.memoryMs = 1900.0f;
+        effects.pvoc.position = 0.24f;
+        effects.pvoc.speed = -0.62f;
+        effects.pvoc.timeSpread = 0.24f;
+        effects.pvoc.heads = 2u;
+        effects.pvoc.peakResidue = -0.48f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
+        effects.pvoc.coherence = 0.54f;
+        effects.pvoc.transientPreserve = 0.24f;
+        break;
+    case 8u: // Formant Loom
+        effects.pvoc.amount = 0.95f;
+        effects.pvoc.mode = AcapellaPvocMode::Stretch;
+        effects.pvoc.memoryMs = 2600.0f;
+        effects.pvoc.position = 0.20f;
+        effects.pvoc.speed = 0.38f;
+        effects.pvoc.loopLengthMs = 760.0f;
+        effects.pvoc.heads = 2u;
+        effects.pvoc.formantSemitones = 8.0f;
+        effects.pvoc.warp = -0.20f;
+        effects.pvoc.harmonicLock = 0.60f;
+        effects.pvoc.peakResidue = 0.24f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
+        effects.pvoc.coherence = 0.92f;
+        effects.pvoc.transientPreserve = 0.25f;
+        break;
+    case 9u: // Partial Rain
+        effects.pvoc.amount = 1.0f;
+        effects.pvoc.mode = AcapellaPvocMode::Cloud;
+        effects.pvoc.memoryMs = 3600.0f;
+        effects.pvoc.position = 0.36f;
+        effects.pvoc.speed = 0.66f;
+        effects.pvoc.timeSpread = 0.82f;
+        effects.pvoc.heads = 5u;
+        effects.pvoc.feedback = 0.24f;
+        effects.pvoc.formantSemitones = 3.0f;
+        effects.pvoc.peakResidue = 0.62f;
+        effects.pvoc.partialCloud = 0.70f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
+        effects.pvoc.coherence = 0.40f;
+        effects.pvoc.phaseDrift = 0.25f;
+        effects.pvoc.transientPreserve = 0.16f;
+        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Syllable;
+        break;
+    case 10u: // Phase Choir
+        effects.pvoc.amount = 0.98f;
+        effects.pvoc.mode = AcapellaPvocMode::Cloud;
+        effects.pvoc.memoryMs = 3200.0f;
+        effects.pvoc.position = 0.22f;
+        effects.pvoc.speed = 0.82f;
+        effects.pvoc.timeSpread = 0.52f;
+        effects.pvoc.heads = 5u;
+        effects.pvoc.partialCloud = 0.44f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Diffuse;
+        effects.pvoc.coherence = 0.24f;
+        effects.pvoc.phaseDrift = 0.58f;
+        effects.pvoc.transientPreserve = 0.14f;
+        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
+        break;
+    case 11u: // Consonant Shadow
+        effects.pvoc.amount = 0.88f;
+        effects.pvoc.mode = AcapellaPvocMode::Loop;
+        effects.pvoc.memoryMs = 1500.0f;
+        effects.pvoc.position = 0.18f;
+        effects.pvoc.speed = -0.70f;
+        effects.pvoc.loopLengthMs = 170.0f;
+        effects.pvoc.timeSpread = 0.30f;
+        effects.pvoc.heads = 3u;
+        effects.pvoc.peakResidue = -0.68f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
+        effects.pvoc.coherence = 0.48f;
+        effects.pvoc.transientPreserve = 0.62f;
+        effects.pvoc.captureReleaseMs = 180.0f;
+        break;
+    case 12u: // Time Scar
+        effects.pvoc.amount = 1.0f;
+        effects.pvoc.mode = AcapellaPvocMode::Scrub;
+        effects.pvoc.memoryMs = 2800.0f;
+        effects.pvoc.position = 0.56f;
+        effects.pvoc.speed = 0.74f;
+        effects.pvoc.timeSpread = 0.84f;
+        effects.pvoc.heads = 3u;
+        effects.pvoc.feedback = 0.36f;
+        effects.pvoc.pitchSemitones = -5.0f;
+        effects.pvoc.formantSemitones = 6.0f;
+        effects.pvoc.warp = 0.26f;
+        effects.pvoc.partialCloud = 0.52f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Diffuse;
+        effects.pvoc.coherence = 0.30f;
+        effects.pvoc.phaseDrift = 0.64f;
+        effects.pvoc.transientPreserve = 0.14f;
+        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
+        effects.pvoc.captureReleaseMs = 720.0f;
+        break;
+    case 13u: // Chord Glass
+        effects.pvoc.amount = 0.97f;
+        effects.pvoc.mode = AcapellaPvocMode::Stretch;
+        effects.pvoc.memoryMs = 3400.0f;
+        effects.pvoc.position = 0.16f;
+        effects.pvoc.speed = 0.48f;
+        effects.pvoc.loopLengthMs = 980.0f;
+        effects.pvoc.timeSpread = 0.26f;
+        effects.pvoc.heads = 4u;
+        effects.pvoc.feedback = 0.28f;
+        effects.pvoc.pitchSemitones = 7.0f;
+        effects.pvoc.formantSemitones = 3.0f;
+        effects.pvoc.harmonicLock = 0.78f;
+        effects.pvoc.peakResidue = 0.56f;
+        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
+        effects.pvoc.coherence = 0.96f;
+        effects.pvoc.phaseDrift = 0.05f;
+        effects.pvoc.transientPreserve = 0.30f;
+        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Syllable;
+        break;
+    default:
+        break;
+    }
+    return sanitizeAcapellaVocalFxParams(effects);
 }
 
 // A bounded, allocation-free post chain tailored to the synthesized vocal.
@@ -181,6 +373,8 @@ public:
         deEssGainReleaseCoefficient_ = coefficient(65.0f);
         limiterReleaseCoefficient_ = coefficient(70.0f);
         activityReleaseCoefficient_ = coefficient(180.0f);
+        pvocField_.setParams(params_.pvoc);
+        (void)pvocField_.prepare(sampleRate_);
         tapeEcho_.prepare(sampleRate_, 12.0);
         reset();
     }
@@ -199,6 +393,9 @@ public:
         fuzzTone_ = 0.0f;
         fuzzDcInput_ = 0.0f;
         fuzzDcOutput_ = 0.0f;
+        pvocField_.setParams(params_.pvoc);
+        pvocField_.reset();
+        pvocOutputSide_ = 0.0f;
         fastEnvelope_ = 0.0f;
         fastGain_ = 1.0f;
         slowEnvelope_ = 0.0f;
@@ -223,6 +420,12 @@ public:
     void setParams(AcapellaVocalFxParams params)
     {
         params_ = sanitizeAcapellaVocalFxParams(params);
+        pvocField_.setParams(params_.pvoc);
+    }
+
+    void setPvocGesture(AcapellaPvocGesture gesture)
+    {
+        pvocField_.setGesture(gesture);
     }
 
     void setTempo(double beatsPerMinute, bool valid = true)
@@ -230,20 +433,33 @@ public:
         tapeEcho_.setTempo(beatsPerMinute, valid);
     }
 
-    uint32_t tailSamples() const { return tapeEcho_.tailSamples(); }
+    uint32_t latencySamples() const { return pvocField_.latencySamples(); }
+
+    uint32_t tailSamples() const
+    {
+        const uint64_t pvoc = pvocField_.tailSamples();
+        const uint64_t echo = params_.echoMix > 1.0e-4f
+            ? tapeEcho_.tailSamples() : 0u;
+        return static_cast<uint32_t>(std::min<uint64_t>(
+            0xfffffffeu, pvoc + echo));
+    }
 
     const AcapellaVocalFxParams& params() const { return params_; }
+    const AcapellaPvocDiagnostics& pvocDiagnostics() const
+    {
+        return pvocField_.diagnostics();
+    }
 
     bool active() const
     {
-        return smoothed_.echoMix > 1.0e-4f
-            && activityEnvelope_ > 1.0e-4f;
+        return pvocField_.active()
+            || (smoothed_.echoMix > 1.0e-4f
+                && activityEnvelope_ > 1.0e-4f);
     }
 
     AcapellaStereoFrame processFrame(float input)
     {
         input = std::isfinite(input) ? clamp(input, -2.0f, 2.0f) : 0.0f;
-        const float cleanInput = input;
         smoothParams();
         if ((coefficientCounter_++ & 15u) == 0u) {
             updateToneCoefficient();
@@ -289,6 +505,15 @@ public:
         fuzzDcOutput_ = flushDenormal(fuzzDc);
         float signal = lerp(octaveSignal, fuzzDcOutput_, smoothed_.fuzzMix);
 
+        // Process the complete stereo field with one linked STFT. Previously
+        // only the mid channel entered PVOC while an undelayed, unprocessed
+        // side rail could mask the effect and violate reported latency.
+        const auto pvoc = pvocField_.processFrameStereo(
+            signal + stereoInputSide_, signal - stereoInputSide_);
+        signal = 0.5f * (pvoc.left + pvoc.right);
+        pvocOutputSide_ = 0.5f * (pvoc.left - pvoc.right);
+        const float cleanInput = 0.5f * (pvoc.dryLeft + pvoc.dryRight);
+
         signal = compressorStage(signal, fastEnvelope_, fastGain_,
             -18.0f, 8.0f, fastAttackCoefficient_, fastReleaseCoefficient_,
             fastGainAttackCoefficient_, fastReleaseCoefficient_,
@@ -326,8 +551,8 @@ public:
         signal = deEssLow_ + deEssHigh * deEssGain_;
 
         // Keep a phase-aligned clean articulation rail under nonlinear
-        // processing. The amount follows actual effect intensity, so the
-        // control is essentially transparent on an already-clean voice.
+        // waveshaping. PVOC has its own bin-level transient side rail; adding
+        // another clean voice here would mask its transport and phase motion.
         const float destructiveAmount = std::max({
             smoothed_.fuzzMix,
             smoothed_.parallelCrush * 0.82f,
@@ -344,8 +569,8 @@ public:
         allpassOutput_ = flushDenormal(decorrelated);
         const float side = (decorrelated - signal)
             * smoothed_.width * 0.34f;
-        float left = signal + side + stereoInputSide_;
-        float right = signal - side - stereoInputSide_;
+        float left = signal + side + pvocOutputSide_;
+        float right = signal - side - pvocOutputSide_;
         tapeEcho_.processFrame(left, right);
 
         const float peak = std::max(std::abs(left), std::abs(right));
@@ -488,6 +713,8 @@ private:
             * smoothingCoefficient_;
         smoothed_.intelligibility += (params_.intelligibility
             - smoothed_.intelligibility) * smoothingCoefficient_;
+        smoothed_.pvoc.amount += (params_.pvoc.amount - smoothed_.pvoc.amount)
+            * smoothingCoefficient_;
     }
 
     void updateToneCoefficient()
@@ -555,6 +782,8 @@ private:
     float fuzzTone_ = 0.0f;
     float fuzzDcInput_ = 0.0f;
     float fuzzDcOutput_ = 0.0f;
+    AcapellaPvocField pvocField_ {};
+    float pvocOutputSide_ = 0.0f;
     float fastEnvelope_ = 0.0f;
     float fastGain_ = 1.0f;
     float slowEnvelope_ = 0.0f;

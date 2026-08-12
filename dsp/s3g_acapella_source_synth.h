@@ -1117,6 +1117,7 @@ public:
         syllableAgeSamples_ = 0u;
         gestureAgeSamples_ = 0u;
         sequenceSamplesRemaining_ = 0u;
+        sequenceStepTotalSamples_ = 0u;
         sequenceStepIndex_ = 0u;
         activeSequence_ = AcapellaGestureSequence::Off;
         activeGestureSync_ = AcapellaGestureSync::Free;
@@ -1168,6 +1169,8 @@ public:
         segmentVoicing_ = 1.0f;
         segmentVoicingTarget_ = 1.0f;
         activePhoneme_ = AcapellaPhoneme::AX;
+        activePhonemeStress_ = 0u;
+        activePhonemeFlags_ = 0u;
         smoothedVoice_ = params_.voice;
         smoothedHybridBlend_ = params_.hybridBlend;
         smoothedWaveguideBlend_ = params_.waveguideBlend;
@@ -1218,7 +1221,19 @@ public:
     }
 
     uint32_t gestureStepIndex() const { return sequenceStepIndex_; }
+    float gestureStepProgress() const
+    {
+        if (!sequenceActive_ || sequenceStepTotalSamples_ == 0u) return 0.0f;
+        return clamp(1.0f
+            - static_cast<float>(sequenceSamplesRemaining_)
+                / static_cast<float>(sequenceStepTotalSamples_),
+            0.0f, 1.0f);
+    }
     bool gestureSequenceActive() const { return sequenceActive_; }
+    AcapellaPhoneme activePhoneme() const { return activePhoneme_; }
+    uint8_t activePhonemeStress() const { return activePhonemeStress_; }
+    uint8_t activePhonemeFlags() const { return activePhonemeFlags_; }
+    float currentFrequencyHz() const { return currentFrequencyHz_; }
 
     bool trigger(AcapellaSyllable syllable)
     {
@@ -1275,6 +1290,9 @@ public:
         baseVowel_ = vowel;
         if (sequenceActive_) return;
         vowel_ = vowel;
+        activePhoneme_ = AcapellaPhoneme::AX;
+        activePhonemeStress_ = 0u;
+        activePhonemeFlags_ = 0u;
         const auto shape = acapella_source_detail::vowelShape(vowel);
         targetFormants_ = shape.frequency;
         formantBandwidths_ = shape.bandwidth;
@@ -1986,6 +2004,8 @@ private:
         }
         sequenceStepIndex_ = std::min(index, view.count - 1u);
         const auto& step = view.steps[sequenceStepIndex_];
+        activePhonemeStress_ = step.stress;
+        activePhonemeFlags_ = step.flags;
         const bool previousSequenceWasAudible = activeGestureDepth_ > 1.0e-5f;
         activeGestureDepth_ = params_.gestureDepth;
         if (activeGestureDepth_ <= 1.0e-5f) {
@@ -2003,7 +2023,8 @@ private:
         const float amplitude = step.phoneme == AcapellaPhoneme::Silence
             ? 0.0f : step.amplitude;
         targetGestureGain_ = lerp(1.0f, amplitude, activeGestureDepth_);
-        sequenceSamplesRemaining_ = sequenceStepSamples(step);
+        sequenceStepTotalSamples_ = sequenceStepSamples(step);
+        sequenceSamplesRemaining_ = sequenceStepTotalSamples_;
         sequenceFinished_ = false;
     }
 
@@ -2018,6 +2039,7 @@ private:
         sequenceActive_ = view.steps && view.count > 0u;
         sequenceStepIndex_ = 0u;
         sequenceSamplesRemaining_ = 0u;
+        sequenceStepTotalSamples_ = 0u;
         sequenceFinished_ = false;
         activeGestureDepth_ = params_.gestureDepth;
         if (sequenceActive_) {
@@ -2057,6 +2079,7 @@ private:
         }
         const double duration = std::clamp(static_cast<double>(
             view.steps[index].durationScale), 0.10, 8.0);
+        sequenceStepTotalSamples_ = sequenceStepSamples(view.steps[index]);
         if (index != sequenceStepIndex_) {
             applySequenceStep(index, false, true);
         }
@@ -2068,7 +2091,10 @@ private:
     void finishOneShotSequence()
     {
         sequenceSamplesRemaining_ = 0u;
+        sequenceStepTotalSamples_ = 0u;
         sequenceFinished_ = true;
+        activePhonemeStress_ = 0u;
+        activePhonemeFlags_ = 0u;
         activeGestureDepth_ = params_.gestureDepth;
         if (activeGestureDepth_ <= 1.0e-5f) {
             configureGesture(baseVowel_, AcapellaOnset::None,
@@ -2206,6 +2232,8 @@ private:
     AcapellaOnset onset_ = AcapellaOnset::None;
     AcapellaVowel vowel_ = AcapellaVowel::Schwa;
     AcapellaPhoneme activePhoneme_ = AcapellaPhoneme::AX;
+    uint8_t activePhonemeStress_ = 0u;
+    uint8_t activePhonemeFlags_ = 0u;
     AcapellaOnset baseOnset_ = AcapellaOnset::None;
     AcapellaVowel baseVowel_ = AcapellaVowel::Schwa;
     AcapellaGestureSequence activeSequence_ = AcapellaGestureSequence::Off;
@@ -2270,6 +2298,7 @@ private:
     uint32_t syllableAgeSamples_ = 0u;
     uint32_t gestureAgeSamples_ = 0u;
     uint32_t sequenceSamplesRemaining_ = 0u;
+    uint32_t sequenceStepTotalSamples_ = 0u;
     uint32_t sequenceStepIndex_ = 0u;
     uint32_t activeTextProgramRevision_ = 0u;
     uint32_t coefficientCounter_ = 0u;
