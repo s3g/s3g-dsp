@@ -26,13 +26,6 @@ struct InputCouplingStats {
     double maximumCorrelation = 0.0;
 };
 
-struct RepeatContrastStats {
-    double liveEnergy = 0.0;
-    double repeatEnergy = 0.0;
-    double differenceEnergy = 0.0;
-    double correlation = 0.0;
-};
-
 RenderStats render(s3g::ProcessorFissure& processor, uint32_t channels,
     uint32_t frames, bool useInput)
 {
@@ -121,32 +114,6 @@ InputCouplingStats measureInputCoupling(s3g::ProcessorFissure& dry,
             }
         }
     }
-    return stats;
-}
-
-RepeatContrastStats measureRepeatContrast(s3g::ProcessorFissure& live,
-    s3g::ProcessorFissure& repeated, uint32_t frames)
-{
-    RepeatContrastStats stats;
-    std::array<float, s3g::kProcessorFissureMaxOutputs> liveOutput {};
-    std::array<float, s3g::kProcessorFissureMaxOutputs> repeatOutput {};
-    double dot = 0.0;
-    for (uint32_t frame = 0u; frame < frames; ++frame) {
-        live.processFrame(nullptr, liveOutput.data(), 8u);
-        repeated.processFrame(nullptr, repeatOutput.data(), 8u);
-        for (uint32_t channel = 0u; channel < 8u; ++channel) {
-            const double a = liveOutput[channel];
-            const double b = repeatOutput[channel];
-            const double difference = b - a;
-            stats.liveEnergy += a * a;
-            stats.repeatEnergy += b * b;
-            stats.differenceEnergy += difference * difference;
-            dot += a * b;
-        }
-    }
-    const double denominator = std::sqrt(
-        stats.liveEnergy * stats.repeatEnergy);
-    stats.correlation = denominator > 0.0 ? dot / denominator : 1.0;
     return stats;
 }
 
@@ -451,39 +418,71 @@ int main()
         "the spring fracture pad did not create a dense temporary cut field");
     padCuts.setFracturePerformance(0.0f, 0.0f);
 
-    padCuts.grabHistory();
-    const uint32_t grabRevision = padCuts.grabRevision();
-    padCuts.setRepeat(true);
-    const auto repeatStats = render(padCuts, 8u, 4096u, false);
-    ok &= check(padCuts.grabbed() && grabRevision > 0u
-            && padCuts.repeatMix() > 0.8f && repeatStats.energy > 0.0001,
-        "Grab/Repeat did not revisit ecological history while audio continued");
-    padCuts.setRepeat(false);
-    render(padCuts, 8u, 16384u, false);
-    ok &= check(padCuts.repeatMix() < 0.05f,
-        "momentary Repeat did not crossfade back to the live ecology");
+    s3g::ProcessorFissure performanceLoop;
+    performanceLoop.prepare(48000.0, 8u);
+    auto loopParams = performanceLoop.params();
+    loopParams.edge = 0.08f;
+    loopParams.voidAmount = 0.04f;
+    loopParams.memory = 0.28f;
+    loopParams.shaker = 0.05f;
+    performanceLoop.setParams(loopParams);
+    performanceLoop.reset();
+    performanceLoop.setGrab(true);
+    ok &= check(performanceLoop.grabbing() && !performanceLoop.grabbed(),
+        "the first Grab toggle did not start a fresh performance capture");
+    render(performanceLoop, 8u, 4800u, false);
+    loopParams.edge = 0.94f;
+    loopParams.voidAmount = 0.78f;
+    loopParams.memory = 0.86f;
+    loopParams.shaker = 0.82f;
+    performanceLoop.setParams(loopParams);
+    performanceLoop.setCutVariation(0.91f);
+    performanceLoop.setFracturePerformance(0.88f, 0.92f);
+    performanceLoop.trigger(s3g::ProcessorFissureAction::Cut);
+    render(performanceLoop, 8u, 4800u, false);
+    performanceLoop.setGrab(false);
+    const uint32_t capturedCutRevision = performanceLoop.cutRevision();
+    ok &= check(!performanceLoop.grabbing() && performanceLoop.grabbed()
+            && performanceLoop.grabRevision() > 0u
+            && performanceLoop.performanceFrameCount() >= 39u
+            && performanceLoop.grabDurationSeconds() >= 0.19f
+            && performanceLoop.grabDurationSeconds() <= 0.22f,
+        "the second Grab toggle did not close the performed duration");
 
-    s3g::ProcessorFissure liveEcology;
-    s3g::ProcessorFissure repeatedEcology;
-    liveEcology.prepare(48000.0, 8u);
-    repeatedEcology.prepare(48000.0, 8u);
-    auto repeatParams = liveEcology.params();
-    repeatParams.memory = 0.78f;
-    repeatParams.edge = 0.56f;
-    repeatParams.voidAmount = 0.22f;
-    liveEcology.setParams(repeatParams);
-    repeatedEcology.setParams(repeatParams);
-    render(liveEcology, 8u, 36000u, false);
-    render(repeatedEcology, 8u, 36000u, false);
-    repeatedEcology.grabHistory();
-    repeatedEcology.setRepeat(true);
-    const auto repeatContrast = measureRepeatContrast(
-        liveEcology, repeatedEcology, 16000u);
-    ok &= check(repeatContrast.repeatEnergy > 0.0001
-            && repeatContrast.differenceEnergy
-                > repeatContrast.liveEnergy * 0.75
-            && repeatContrast.correlation < 0.85,
-        "Grab/Repeat remained perceptually buried beneath the live ecology");
+    loopParams.edge = 0.02f;
+    loopParams.voidAmount = 0.02f;
+    loopParams.memory = 0.12f;
+    loopParams.shaker = 0.0f;
+    performanceLoop.setParams(loopParams);
+    performanceLoop.setCutVariation(0.02f);
+    performanceLoop.setFracturePerformance(0.0f, 0.0f);
+    render(performanceLoop, 8u, 4096u, false);
+    performanceLoop.setRepeat(true);
+    std::array<float, s3g::kProcessorFissureMaxOutputs> loopOutput {};
+    float minimumLoopEdge = 1.0f;
+    float maximumLoopEdge = 0.0f;
+    float previousPhase = 0.0f;
+    uint32_t phaseWraps = 0u;
+    const uint32_t repeatFrames = static_cast<uint32_t>(
+        performanceLoop.grabDurationSeconds() * 48000.0f * 3.2f);
+    for (uint32_t frame = 0u; frame < repeatFrames; ++frame) {
+        performanceLoop.processFrame(nullptr, loopOutput.data(), 8u);
+        const float edge = performanceLoop.performanceParams().edge;
+        minimumLoopEdge = std::min(minimumLoopEdge, edge);
+        maximumLoopEdge = std::max(maximumLoopEdge, edge);
+        const float phase = performanceLoop.repeatPhase();
+        if (phase + 0.5f < previousPhase) ++phaseWraps;
+        previousPhase = phase;
+    }
+    ok &= check(performanceLoop.repeatMix() > 0.8f
+            && phaseWraps >= 2u
+            && minimumLoopEdge < 0.20f && maximumLoopEdge > 0.78f
+            && performanceLoop.cutRevision() >= capturedCutRevision + 16u,
+        "Repeat did not replay the captured parameter and cut-event phrase");
+    performanceLoop.setRepeat(false);
+    render(performanceLoop, 8u, 16384u, false);
+    ok &= check(performanceLoop.repeatMix() < 0.05f,
+        "momentary Repeat did not crossfade back to the live ecology");
     actions.trigger(s3g::ProcessorFissureAction::Breach);
     const auto breachStats = render(actions, 4u, frames / 4u, false);
     ok &= check(breachStats.energy > 0.001,

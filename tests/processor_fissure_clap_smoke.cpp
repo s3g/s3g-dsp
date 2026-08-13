@@ -325,7 +325,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, pluginId) == 0
             && std::strcmp(descriptor->name, "s3g Processor Fissure") == 0
-            && std::strcmp(descriptor->version, "0.7.2") == 0,
+            && std::strcmp(descriptor->version, "0.8.0") == 0,
         "descriptor identity, host name, or version is wrong");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_MULTI_EFFECTS)
@@ -413,8 +413,9 @@ int main(int argc, char** argv)
     info = {};
     ok &= check(params && params->get_info(plugin, 43u, &info)
             && info.id == 44u
-            && std::strcmp(info.name, "Grab Ecology") == 0,
-        "the ecological Grab action is missing");
+            && std::strcmp(info.name, "Grab Performance") == 0
+            && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u,
+        "the latching performance Grab control is missing");
     info = {};
     ok &= check(params && params->get_info(plugin, 45u, &info)
             && info.id == 100u && info.min_value == -1.0
@@ -610,11 +611,29 @@ int main(int argc, char** argv)
         "Cut + Links did not restrict authored mutation to masked cells");
 
     ok &= check(flush(plugin, params, {
-            { 42u, 0.92 }, { 43u, 0.88 }, { 44u, 1.0 }, { 45u, 1.0 } }),
-        "the fracture pad and Grab/Repeat controls could not be flushed");
+            { 42u, 0.12 }, { 43u, 0.18 }, { 44u, 1.0 } }),
+        "the fracture pad and latching Grab control could not be flushed");
     double fractureDistance = 0.0;
     double fractureForce = 0.0;
+    double grab = 0.0;
     double repeat = 0.0;
+    for (uint32_t block = 0u; block < 12u; ++block) {
+        processBlock(plugin, audio, false);
+    }
+    ok &= check(params->get_value(plugin, 44u, &grab) && grab == 1.0,
+        "Grab did not remain latched after its initiating flush");
+    ok &= check(flush(plugin, params, {
+            { 1u, 0.91 }, { 3u, 0.86 },
+            { 42u, 0.92 }, { 43u, 0.88 }, { 15u, 1.0 } }),
+        "the captured parameter and Cut gesture could not be changed");
+    for (uint32_t block = 0u; block < 12u; ++block) {
+        processBlock(plugin, audio, false);
+    }
+    ok &= check(flush(plugin, params, { { 44u, 0.0 } })
+            && params->get_value(plugin, 44u, &grab) && grab == 0.0,
+        "the second Grab toggle did not close the captured duration");
+    ok &= check(flush(plugin, params, { { 45u, 1.0 } }),
+        "the momentary Repeat control could not start playback");
     ok &= check(processBlock(plugin, audio, false) == CLAP_PROCESS_CONTINUE
             && energy(audio) >= 0.0
             && params->get_value(plugin, 42u, &fractureDistance)
@@ -623,10 +642,10 @@ int main(int argc, char** argv)
             && std::abs(fractureDistance - 0.92) < 0.0001
             && std::abs(fractureForce - 0.88) < 0.0001
             && repeat == 1.0,
-        "Fracture/Grab/Repeat did not reach the processing engine");
+        "the captured performance did not reach the Repeat engine");
     ok &= check(flush(plugin, params, {
             { 42u, 0.0 }, { 43u, 0.0 }, { 45u, 0.0 } }),
-        "the momentary fracture performance did not return to rest");
+        "the momentary Repeat and fracture performance did not return to rest");
 
     Events panicEvent;
     panicEvent.addParam(19u, 1.0);

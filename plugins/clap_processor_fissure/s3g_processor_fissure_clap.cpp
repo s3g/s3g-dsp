@@ -154,7 +154,7 @@ constexpr std::array<ParamDef, kBaseParamCount> kBaseParamDefs {{
     { kCutMaskParamBase + 7u, "Cell 8 Cut Enabled", "Cut Mask", 0.0, 1.0, 1.0, true, false },
     { kFractureDistanceParamId, "Fracture Distance", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
     { kFractureForceParamId, "Fracture Force", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
-    { kGrabParamId, "Grab Ecology", "Fracture Pad", 0.0, 1.0, 0.0, true, true },
+    { kGrabParamId, "Grab Performance", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
     { kRepeatParamId, "Repeat Ecology", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
 }};
 
@@ -385,6 +385,7 @@ struct Plugin {
     }};
     float fractureDistance = 0.0f;
     float fractureForce = 0.0f;
+    bool grabbing = false;
     bool repeat = false;
     uint32_t variationSerial = 0u;
     uint32_t presetIndex = 0u;
@@ -393,12 +394,15 @@ struct Plugin {
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<uint32_t> pendingActions { 0u };
     std::atomic<bool> pendingRescan { false };
-    std::array<bool, 9u> actionGates {};
+    std::array<bool, 8u> actionGates {};
     std::array<std::atomic<float>, 8u> activity {};
     std::array<std::atomic<float>, 8u> cutActivity {};
     std::array<std::atomic<float>, 8u> cutPolarity {};
     std::array<std::atomic<float>, 8u> cutFragmentAge {};
+    std::atomic<bool> grabbingStatus { false };
     std::atomic<bool> grabbed { false };
+    std::atomic<float> grabDuration { 0.0f };
+    std::atomic<float> repeatPhase { 0.0f };
     std::atomic<float> repeatMix { 0.0f };
     std::atomic<float> minimumGovernor { 1.0f };
     std::atomic<float> inputActivity { 0.0f };
@@ -481,6 +485,7 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kPresetParamId: return p.presetIndex;
     case kFractureDistanceParamId: return p.fractureDistance;
     case kFractureForceParamId: return p.fractureForce;
+    case kGrabParamId: return p.grabbing ? 1.0 : 0.0;
     case kRepeatParamId: return p.repeat ? 1.0 : 0.0;
     default: return 0.0;
     }
@@ -838,7 +843,9 @@ void applySceneToEngine(Plugin& p)
     }
     p.engine.setFracturePerformance(
         p.fractureDistance, p.fractureForce);
+    p.engine.setGrab(p.grabbing);
     p.engine.setRepeat(p.repeat);
+    p.repeat = p.engine.repeat();
     p.engine.setParams(p.params);
     p.engine.setMatrix(p.matrix);
     for (uint32_t cell = 0u; cell < 8u; ++cell) {
@@ -930,6 +937,7 @@ void applyFactoryPreset(Plugin& p, uint32_t presetIndex)
 {
     presetIndex = std::min<uint32_t>(presetIndex,
         kFactoryPresetCount - 1u);
+    if (p.prepared) p.engine.clearPerformanceLoop();
     const auto& spec = kFactoryPresets[presetIndex];
     for (uint32_t scene = 0u; scene < p.scenes.size(); ++scene) {
         p.scenes[scene] = factoryPresetScene(presetIndex, scene);
@@ -952,6 +960,7 @@ void applyFactoryPreset(Plugin& p, uint32_t presetIndex)
     p.cutMask.fill(true);
     p.fractureDistance = 0.0f;
     p.fractureForce = 0.0f;
+    p.grabbing = false;
     p.repeat = false;
     p.variationSerial = 0u;
     p.presetIndex = presetIndex;
@@ -1092,7 +1101,7 @@ int32_t actionIndex(clap_id id)
     }
     if (id == kStrikeParamId) return 6;
     if (id == kApplyTopologyParamId) return 7;
-    return id == kGrabParamId ? 8 : -1;
+    return -1;
 }
 
 uint32_t actionBit(clap_id id)
@@ -1127,7 +1136,9 @@ void performAction(Plugin& p, clap_id id)
     }
     case kPanicParamId:
         p.engine.trigger(s3g::ProcessorFissureAction::Panic);
+        p.grabbing = false;
         p.repeat = false;
+        publishParam(p, kGrabParamId, 0.0);
         publishParam(p, kRepeatParamId, 0.0);
         break;
     case kStrikeParamId:
@@ -1135,9 +1146,6 @@ void performAction(Plugin& p, clap_id id)
         break;
     case kApplyTopologyParamId:
         applyTopology(p);
-        break;
-    case kGrabParamId:
-        p.engine.grabHistory();
         break;
     default: break;
     }
@@ -1265,9 +1273,21 @@ void applyParam(Plugin& p, clap_id id, double value,
             p.fractureDistance, p.fractureForce);
         updateEngine = false;
         break;
+    case kGrabParamId:
+        p.grabbing = value >= 0.5;
+        if (p.prepared) {
+            p.engine.setGrab(p.grabbing);
+            p.repeat = p.engine.repeat();
+            publishParam(p, kRepeatParamId, p.repeat ? 1.0 : 0.0);
+        }
+        updateEngine = false;
+        break;
     case kRepeatParamId:
         p.repeat = value >= 0.5;
-        if (p.prepared) p.engine.setRepeat(p.repeat);
+        if (p.prepared) {
+            p.engine.setRepeat(p.repeat);
+            p.repeat = p.engine.repeat();
+        }
         updateEngine = false;
         break;
     default: return;
@@ -1288,7 +1308,6 @@ void releaseActionGates(Plugin& p)
     }
     publishParam(p, kStrikeParamId, 0.0);
     publishParam(p, kApplyTopologyParamId, 0.0);
-    publishParam(p, kGrabParamId, 0.0);
 }
 
 void servicePendingActions(Plugin& p)
@@ -1303,9 +1322,6 @@ void servicePendingActions(Plugin& p)
     }
     if ((pending & actionBit(kApplyTopologyParamId)) != 0u) {
         performAction(p, kApplyTopologyParamId);
-    }
-    if ((pending & actionBit(kGrabParamId)) != 0u) {
-        performAction(p, kGrabParamId);
     }
 }
 
@@ -1487,6 +1503,8 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
+    p->grabbing = false;
+    p->repeat = false;
     p->engine.reset();
     applySceneToEngine(*p);
     p->pendingActions.store(0u, std::memory_order_relaxed);
@@ -1498,7 +1516,10 @@ void reset(const clap_plugin_t* plugin)
     p->pitchConfidence.store(0.0f, std::memory_order_relaxed);
     p->sustainedPitchDrive.store(0.0f, std::memory_order_relaxed);
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
+    p->grabbingStatus.store(false, std::memory_order_relaxed);
     p->grabbed.store(false, std::memory_order_relaxed);
+    p->grabDuration.store(0.0f, std::memory_order_relaxed);
+    p->repeatPhase.store(0.0f, std::memory_order_relaxed);
     p->repeatMix.store(0.0f, std::memory_order_relaxed);
     for (uint32_t cell = 0u; cell < 8u; ++cell) {
         p->cutActivity[cell].store(0.0f, std::memory_order_relaxed);
@@ -1506,6 +1527,8 @@ void reset(const clap_plugin_t* plugin)
         p->cutFragmentAge[cell].store(0.0f, std::memory_order_relaxed);
     }
     releaseActionGates(*p);
+    publishParam(*p, kGrabParamId, 0.0);
+    publishParam(*p, kRepeatParamId, 0.0);
 }
 
 clap_process_status process(const clap_plugin_t* plugin,
@@ -1584,7 +1607,13 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->cutFragmentAge[cell].store(p->engine.cutFragmentAge(cell),
             std::memory_order_relaxed);
     }
+    p->grabbingStatus.store(p->engine.grabbing(),
+        std::memory_order_relaxed);
     p->grabbed.store(p->engine.grabbed(), std::memory_order_relaxed);
+    p->grabDuration.store(p->engine.grabDurationSeconds(),
+        std::memory_order_relaxed);
+    p->repeatPhase.store(p->engine.repeatPhase(),
+        std::memory_order_relaxed);
     p->repeatMix.store(p->engine.repeatMix(), std::memory_order_relaxed);
     p->minimumGovernor.store(p->engine.minimumGovernor(),
         std::memory_order_relaxed);
@@ -1786,7 +1815,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "CELL %u",
             static_cast<uint32_t>(std::round(value)));
     } else if (id == kHoldParamId || id == kRunParamId
-        || id == kRepeatParamId || isCutMaskParam(id)) {
+        || id == kGrabParamId || id == kRepeatParamId
+        || isCutMaskParam(id)) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "ON" : "OFF");
     } else if (momentaryParam(id)) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "FIRE" : "READY");
@@ -1958,7 +1988,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     publishParam(*p, kSceneParamId, p->selectedScene + 1u);
     publishParam(*p, kSceneMorphParamId, p->sceneMorph);
     p->pendingActions.store(0u, std::memory_order_relaxed);
+    p->grabbing = false;
+    p->repeat = false;
+    if (p->prepared) {
+        p->engine.clearPerformanceLoop();
+    }
     releaseActionGates(*p);
+    publishParam(*p, kGrabParamId, 0.0);
+    publishParam(*p, kRepeatParamId, 0.0);
     requestValueRescan(*p);
     if (p->host && p->hostParams && p->hostParams->request_flush) {
         p->hostParams->request_flush(p->host);
@@ -2004,8 +2041,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.7.2",
-    "Eight-object physical noise instrument with masked fracture performance, ecological Grab/Repeat, sustained mic pitch coupling, and Stereo, Quad, or direct-eight rendering.",
+    "0.8.0",
+    "Eight-object physical noise instrument with a performed control-loop Grab/Repeat, sustained mic pitch coupling, and Stereo, Quad, or direct-eight rendering.",
     features
 };
 

@@ -1040,7 +1040,7 @@ int main(int argc, char** argv)
                 plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
             clap_note_port_info_t noteInputInfo {};
             ok = requestedDescriptor->version
-                && std::strcmp(requestedDescriptor->version, "5.2.5") == 0
+                && std::strcmp(requestedDescriptor->version, "5.4.0") == 0
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
@@ -1148,16 +1148,24 @@ int main(int argc, char** argv)
                         && info.max_value == 24.0
                         && info.default_value == 0.0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
-                    if (info.id == 1u && info.max_value == 15.0
+                    if (info.id == 1u && info.max_value == 24.0
                         && info.default_value == 14.0) {
                         char classicMic[64] {};
+                        char formantGlide[64] {};
+                        char vocalAlloy[64] {};
                         char custom[64] {};
                         hasClassicMicProfile = params->value_to_text
                             && params->value_to_text(plugin, 1u, 14.0,
                                 classicMic, sizeof(classicMic))
                             && params->value_to_text(plugin, 1u, 15.0,
+                                formantGlide, sizeof(formantGlide))
+                            && params->value_to_text(plugin, 1u, 23.0,
+                                vocalAlloy, sizeof(vocalAlloy))
+                            && params->value_to_text(plugin, 1u, 24.0,
                                 custom, sizeof(custom))
                             && std::strcmp(classicMic, "Classic Mic") == 0
+                            && std::strcmp(formantGlide, "Formant Glide") == 0
+                            && std::strcmp(vocalAlloy, "Vocal Alloy") == 0
                             && std::strcmp(custom, "Custom") == 0;
                     }
                     if (info.id >= 65u && info.id <= 86u) {
@@ -1271,7 +1279,7 @@ int main(int argc, char** argv)
                             0.0, 0.0, 0.0, 0.0, 20.0
                         };
                         constexpr double maxima[] {
-                            1.0, 1.0, 11.0, 7.0, 2000.0
+                            1.0, 1.0, 11.0, 101.0, 2000.0
                         };
                         constexpr bool stepped[] {
                             true, true, true, true, false
@@ -1450,7 +1458,7 @@ int main(int argc, char** argv)
                                 plugin, 66u, &migratedMode)
                             && params->get_value(
                                 plugin, 67u, &migratedCarrier)
-                            && migratedProfile == 15.0
+                            && migratedProfile == 24.0
                             && std::fabs(migratedAmount - 1.0) < 1.0e-6
                             && migratedMode == 0.0
                             && migratedCarrier == 1.0;
@@ -1499,7 +1507,7 @@ int main(int argc, char** argv)
                                 plugin, 98u, &migratedModulator)
                             && params->get_value(
                                 plugin, 99u, &migratedMicGain)
-                            && migratedProfile == 15.0
+                            && migratedProfile == 24.0
                             && migratedModulator == 1.0
                             && migratedMicGain == 0.0;
                     }
@@ -1861,6 +1869,20 @@ int main(int argc, char** argv)
                             plugin, 1099u, &guiPitchSource)
                         && guiPitchSource == 1.0
                         && hostContext.processRequested;
+                    // Pitch Scale uses the shared 102-entry multi-column
+                    // menu. Select WHOLE TONE at canonical menu index 12;
+                    // Continuous occupies index zero.
+                    const NSPoint pitchScaleMenu = NSMakePoint(200.0, 233.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, pitchScaleMenu)];
+                    const NSPoint wholeToneItem = NSMakePoint(
+                        300.0, 238.0 + 12.0 * 18.0 + 9.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, wholeToneItem)];
+                    double guiPitchScale = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 1101u, &guiPitchScale)
+                        && guiPitchScale == 8.0;
                     const NSPoint phrasePage = NSMakePoint(342.0, 54.0);
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, phrasePage)];

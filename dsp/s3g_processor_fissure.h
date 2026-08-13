@@ -111,6 +111,7 @@ public:
     {
         rng_ = target_.seed ? target_.seed : 1u;
         smoothed_ = target_;
+        performed_ = target_;
         previousReturns_.fill(0.0f);
         nextReturns_.fill(0.0f);
         gate_.fill(1.0f);
@@ -123,12 +124,18 @@ public:
         cutSeamTarget_.fill(1.0f);
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
-        grabbedStart_.fill(0u);
-        grabbedLength_.fill(1u);
-        repeatPhase_.fill(0u);
-        repeatCellMix_.fill(0.0f);
-        grabbedPolarity_.fill(1.0f);
         grabbedValid_ = false;
+        performanceCaptureActive_ = false;
+        performanceFrameCount_ = 0u;
+        performanceCaptureCountdown_ = 0u;
+        performancePlaybackIndex_ = 0u;
+        performancePlaybackCountdown_ = 0u;
+        capturedCutMask_ = 0u;
+        capturedStrikeMask_ = 0u;
+        repeatedFrame_ = PerformanceFrame {};
+        performanceFrameApplied_ = false;
+        performanceControlFrames_ = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(sampleRate_ / 200.0));
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
         fractureXSmoothed_ = fractureXTarget_;
@@ -337,44 +344,79 @@ public:
     float fractureDistance() const { return fractureXTarget_; }
     float fractureForce() const { return fractureYTarget_; }
 
-    void grabHistory()
+    void setGrab(bool enabled)
     {
-        if (historyFrames_ <= 2u) return;
-        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
-            const uint32_t delay = cutDelayFrames_[cell] > 0u
-                ? cutDelayFrames_[cell] : historyDelayFrames(cell);
-            const uint32_t end = historyWrite_ >= delay
-                ? historyWrite_ - delay
-                : historyFrames_ - (delay - historyWrite_);
-            const float cellScale = 0.76f
-                + static_cast<float>((cell * 5u) % 7u) * 0.065f;
-            const uint32_t length = std::clamp<uint32_t>(
-                static_cast<uint32_t>(sampleRate_
-                    * (0.014f + target_.memory * target_.memory * 0.42f)
-                    * cellScale),
-                8u, historyFrames_ - 1u);
-            grabbedLength_[cell] = length;
-            grabbedStart_[cell] = end >= length
-                ? end - length : historyFrames_ - (length - end);
-            grabbedPolarity_[cell] = cutPolarity_[cell];
-            repeatPhase_[cell] = 0u;
+        if (enabled == performanceCaptureActive_) return;
+        if (enabled) {
+            repeatTarget_ = false;
+            performanceCaptureActive_ = true;
+            performanceFrameCount_ = 0u;
+            performanceCaptureCountdown_ = 0u;
+            capturedCutMask_ = 0u;
+            capturedStrikeMask_ = 0u;
+            grabbedValid_ = false;
+            return;
         }
-        grabbedValid_ = true;
-        ++grabRevision_;
+        capturePerformanceFrame();
+        performanceCaptureActive_ = false;
+        grabbedValid_ = performanceFrameCount_ > 0u;
+        performancePlaybackIndex_ = 0u;
+        performancePlaybackCountdown_ = 0u;
+        if (grabbedValid_) ++grabRevision_;
     }
 
     void setRepeat(bool enabled)
     {
         if (enabled && !repeatTarget_) {
-            if (!grabbedValid_) grabHistory();
-            repeatPhase_.fill(0u);
+            if (!grabbedValid_ || performanceCaptureActive_) return;
+            performancePlaybackIndex_ = 0u;
+            performancePlaybackCountdown_ = 0u;
+        }
+        if (!enabled && repeatTarget_) {
+            updateCellProcessors();
+            updatePhysicalModel();
+            performanceFrameApplied_ = false;
         }
         repeatTarget_ = enabled;
     }
 
+    void clearPerformanceLoop()
+    {
+        performanceCaptureActive_ = false;
+        performanceFrameCount_ = 0u;
+        performanceCaptureCountdown_ = 0u;
+        performancePlaybackIndex_ = 0u;
+        performancePlaybackCountdown_ = 0u;
+        capturedCutMask_ = 0u;
+        capturedStrikeMask_ = 0u;
+        grabbedValid_ = false;
+        repeatTarget_ = false;
+        repeatMix_ = 0.0f;
+        performanceFrameApplied_ = false;
+        repeatedFrame_ = PerformanceFrame {};
+        updateCellProcessors();
+        updatePhysicalModel();
+    }
+
     bool repeat() const { return repeatTarget_; }
+    bool grabbing() const { return performanceCaptureActive_; }
     bool grabbed() const { return grabbedValid_; }
     float repeatMix() const { return repeatMix_; }
+    float grabDurationSeconds() const
+    {
+        return static_cast<float>(performanceFrameCount_
+            * performanceControlFrames_) / static_cast<float>(sampleRate_);
+    }
+    float repeatPhase() const
+    {
+        return performanceFrameCount_ > 0u
+            ? static_cast<float>(performancePlaybackIndex_)
+                / static_cast<float>(performanceFrameCount_)
+            : 0.0f;
+    }
+
+    uint32_t performanceFrameCount() const { return performanceFrameCount_; }
+    ProcessorFissureParams performanceParams() const { return performed_; }
 
     void rearm(float strength = 0.62f)
     {
@@ -390,7 +432,6 @@ public:
         fractureYTarget_ = 0.0f;
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
-        repeatCellMix_.fill(0.0f);
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             gate_[cell] = std::max(gate_[cell], 0.18f);
             gateTarget_[cell] = 1.0f;
@@ -411,6 +452,9 @@ public:
             return;
         }
         velocity = clamp(velocity, 0.0f, 1.0f);
+        if (performanceCaptureActive_) {
+            capturedStrikeMask_ |= static_cast<uint8_t>(1u << cell);
+        }
         if (silenced_) {
             withdrawGain_ = 1.0f;
             withdrawTarget_ = 1.0f;
@@ -493,10 +537,13 @@ public:
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
         grabbedValid_ = false;
+        performanceCaptureActive_ = false;
+        performanceFrameCount_ = 0u;
+        performanceCaptureCountdown_ = 0u;
+        performancePlaybackIndex_ = 0u;
+        performancePlaybackCountdown_ = 0u;
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
-        repeatPhase_.fill(0u);
-        repeatCellMix_.fill(0.0f);
         regenerateMatrix(0.24f);
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             gate_[cell] = 1.0f;
@@ -524,10 +571,13 @@ public:
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
         grabbedValid_ = false;
+        performanceCaptureActive_ = false;
+        performanceFrameCount_ = 0u;
+        performanceCaptureCountdown_ = 0u;
+        performancePlaybackIndex_ = 0u;
+        performancePlaybackCountdown_ = 0u;
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
-        repeatPhase_.fill(0u);
-        repeatCellMix_.fill(0.0f);
         energy_.fill(0.0f);
         activity_.fill(0.0f);
         burstEnvelope_.fill(0.0f);
@@ -590,16 +640,16 @@ public:
             * fractureXCoefficient;
         fractureYSmoothed_ += (fractureYTarget_ - fractureYSmoothed_)
             * fractureYCoefficient;
+        advancePerformanceTape();
         repeatMix_ += ((repeatTarget_ ? 1.0f : 0.0f) - repeatMix_)
             * repeatCoefficient_;
-        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
-            const float cellRepeatTarget = repeatTarget_ && grabbedValid_
-                    && cutMask_[cell]
-                ? 1.0f : 0.0f;
-            repeatCellMix_[cell] += (cellRepeatTarget
-                    - repeatCellMix_[cell]) * repeatCoefficient_;
+        updatePerformedParams();
+        if (performanceFrameApplied_) {
+            updateCellProcessors(performed_);
+            updatePhysicalModel(performed_);
+            performanceFrameApplied_ = false;
         }
-        runGain_ += ((smoothed_.run ? 1.0f : 0.0f) - runGain_)
+        runGain_ += ((performed_.run ? 1.0f : 0.0f) - runGain_)
             * runCoefficient_;
         if (silenced_) return;
 
@@ -617,7 +667,7 @@ public:
             ? stereoInput[0] : 0.0f;
         const float inputRight = stereoInput && std::isfinite(stereoInput[1])
             ? stereoInput[1] : 0.0f;
-        const float inputGain = dbToGain(smoothed_.inputGainDb);
+        const float inputGain = dbToGain(performed_.inputGainDb);
         const float contactInput = 0.5f * (inputLeft + inputRight)
             * inputGain;
         advancePitchTracker(contactInput);
@@ -626,8 +676,8 @@ public:
         const float contactDerivative = contactInput - previousContactInput_;
         previousContactInput_ = contactInput;
         const float contactSignal = std::tanh((contactHigh * 2.4f
-                + contactDerivative * (5.0f + smoothed_.edge * 13.0f))
-            * smoothed_.contact);
+                + contactDerivative * (5.0f + performed_.edge * 13.0f))
+            * performed_.contact);
         const float contactMagnitude = std::abs(contactSignal);
         contactActivity_ += (contactMagnitude - contactActivity_)
             * (contactMagnitude > contactActivity_
@@ -650,7 +700,7 @@ public:
         voiceEnvelope_ = flushDenormal(std::max(0.0f, voiceEnvelope_));
         const float pitchLock = clamp((pitchConfidence_ - 0.08f) / 0.72f,
             0.0f, 1.0f);
-        const float sustainedPitchTarget = smoothed_.voice * pitchLock
+        const float sustainedPitchTarget = performed_.voice * pitchLock
             * clamp(inputRms * 6.2f, 0.0f, 1.0f);
         sustainedPitchDrive_ += (sustainedPitchTarget
                 - sustainedPitchDrive_)
@@ -664,11 +714,11 @@ public:
         // matrix returns, and feedback pressure. Every audible contribution
         // therefore crosses the physical/network processors first.
         const float couplingSignal = std::tanh(contactHigh * 1.8f
-            + contactDerivative * (2.0f + smoothed_.edge * 5.0f));
-        const float couplingEnergy = smoothed_.voice * clamp(
+            + contactDerivative * (2.0f + performed_.edge * 5.0f));
+        const float couplingEnergy = performed_.voice * clamp(
             voiceEnvelope_ * 3.2f + inputOnset * 1.4f, 0.0f, 1.0f);
         const float transferMagnitude = std::max(contactMagnitude,
-            std::max(std::abs(couplingSignal) * smoothed_.voice * 0.72f,
+            std::max(std::abs(couplingSignal) * performed_.voice * 0.72f,
                 std::max(couplingEnergy * 0.54f,
                     sustainedPitchDrive_ * 0.78f)));
         inputTransferActivity_ += (transferMagnitude
@@ -679,7 +729,7 @@ public:
             std::max(0.0f, inputTransferActivity_));
 
         rotationPhase_ = wrapPhase(rotationPhase_
-            + (0.003f + smoothed_.motion * smoothed_.motion * 0.31f)
+            + (0.003f + performed_.motion * performed_.motion * 0.31f)
                 / static_cast<float>(sampleRate_));
 
         advanceShaker();
@@ -692,7 +742,7 @@ public:
                 * parameterCoefficient_;
         }
 
-        if (!smoothed_.hold) {
+        if (!performed_.hold) {
             float activeGate = 0.0f;
             float activeMass = 0.0f;
             for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
@@ -726,19 +776,19 @@ public:
 
         const float internalBlend = 1.0f - couplingEnergy * 0.16f;
         const float feedbackGain = 0.34f
-            + smoothed_.pressure * 0.78f
-            + couplingEnergy * (0.04f + smoothed_.voice * 0.12f);
-        const float historyGain = smoothed_.memory * 0.58f
-            + couplingEnergy * smoothed_.memory * 0.08f;
+            + performed_.pressure * 0.78f
+            + couplingEnergy * (0.04f + performed_.voice * 0.12f);
+        const float historyGain = performed_.memory * 0.58f
+            + couplingEnergy * performed_.memory * 0.08f;
         const float sourceGain = 0.055f
-            + smoothed_.mass * 0.22f;
+            + performed_.mass * 0.22f;
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             const float active = cellActiveAmount(cell);
             const float white = randomSigned();
             const float lowFrequency = 35.0f
                 * std::pow(34.0f, (static_cast<float>(cell) + 0.5f)
                         / static_cast<float>(kProcessorFissureCells)
-                    * (0.42f + smoothed_.body * 0.58f));
+                    * (0.42f + performed_.body * 0.58f));
             lowNoise_[cell] += (white - lowNoise_[cell])
                 * frequencyCoefficient(lowFrequency,
                     static_cast<float>(sampleRate_));
@@ -750,40 +800,40 @@ public:
                     223.0f, 389.0f, 947.0f, 2269.0f,
                 }};
             const float oscillatorFrequency = baseFrequencies[cell]
-                * std::exp2((smoothed_.body - 0.5f) * 1.25f
+                * std::exp2((performed_.body - 0.5f) * 1.25f
                     + (0.5f - objectTarget_[cell].size) * 2.25f);
             oscillatorPhase_[cell] = wrapPhase(oscillatorPhase_[cell]
                 + oscillatorFrequency / static_cast<float>(sampleRate_));
             const float sine = std::sin(
                 oscillatorPhase_[cell] * 2.0f * kPi);
             const float pulse = std::tanh(sine
-                * (1.2f + smoothed_.edge * 7.0f));
-            const float tonal = lerp(sine, pulse, smoothed_.edge * 0.74f);
+                * (1.2f + performed_.edge * 7.0f));
+            const float tonal = lerp(sine, pulse, performed_.edge * 0.74f);
             const float noise = lerp(lowNoise_[cell], brightNoise,
-                clamp(0.18f + smoothed_.edge * 0.72f
+                clamp(0.18f + performed_.edge * 0.72f
                         + static_cast<float>(cell) * 0.025f,
                     0.0f, 1.0f));
 
             StructuralFailureParams failureParams;
             failureParams.drive = clamp(0.025f
-                + smoothed_.mass * 0.10f
+                + performed_.mass * 0.10f
                 + breachEnvelope_ * 0.72f, 0.0f, 1.0f);
-            failureParams.motion = smoothed_.edge;
+            failureParams.motion = performed_.edge;
             failureParams.hierarchy = static_cast<float>(cell)
                 / static_cast<float>(kProcessorFissureCells - 1u);
             failureParams.stiffness = clamp(0.18f
                     + objectTarget_[cell].hardness * 0.76f
-                    - smoothed_.body * 0.24f,
+                    - performed_.body * 0.24f,
                 0.0f, 1.0f);
             failureParams.toughness = clamp(0.18f
-                    + smoothed_.memory * 0.48f
+                    + performed_.memory * 0.48f
                     + objectTarget_[cell].decay * 0.30f,
                 0.0f, 1.0f);
-            failureParams.damage = clamp(smoothed_.pressure * 0.72f
+            failureParams.damage = clamp(performed_.pressure * 0.72f
                 + breachEnvelope_ * 0.45f, 0.0f, 1.0f);
-            failureParams.highDetail = smoothed_.edge;
+            failureParams.highDetail = performed_.edge;
             failureParams.consequence = breachEnvelope_;
-            failureParams.mass = smoothed_.body;
+            failureParams.mass = performed_.body;
             failureParams.mode = (cell & 1u) == 0u
                 ? StructuralConsequence::PlateRupture
                 : StructuralConsequence::HingeFall;
@@ -822,15 +872,15 @@ public:
                         - modalB_[cell][mode])
                     * modalCoefficientSmoothing_;
                 const float contactDrive = contactSignal
-                    * (0.004f + smoothed_.contact * 0.018f)
+                    * (0.004f + performed_.contact * 0.018f)
                     * (0.18f + objectTarget_[cell].sensitivity * 1.36f)
                     * (1.0f + static_cast<float>(
                         (cell * 5u + mode * 3u) % 7u) * 0.045f);
                 const float couplingDrive = embeddedExcitation
-                    * smoothed_.voice
+                    * performed_.voice
                     * (0.0012f + static_cast<float>(mode) * 0.0007f)
                     * (0.20f + objectTarget_[cell].sensitivity * 1.10f)
-                    * (mode == 2u ? 1.0f + smoothed_.spring * 0.7f : 1.0f);
+                    * (mode == 2u ? 1.0f + performed_.spring * 0.7f : 1.0f);
                 float state = modalA_[cell][mode] * modalY1_[cell][mode]
                     + modalB_[cell][mode] * modalY2_[cell][mode]
                     + modalImpulse_[cell][mode] + contactDrive
@@ -841,7 +891,7 @@ public:
                 modalY2_[cell][mode] = modalY1_[cell][mode];
                 modalY1_[cell][mode] = state;
                 const float modeMix = mode == 2u
-                    ? (0.10f + smoothed_.spring * 0.40f)
+                    ? (0.10f + performed_.spring * 0.40f)
                         * (0.28f + objectTarget_[cell].hardness * 1.10f)
                     : (0.26f - static_cast<float>(mode) * 0.045f)
                         * (1.18f - objectTarget_[cell].hardness * 0.36f);
@@ -853,12 +903,12 @@ public:
             for (uint32_t source = 0u;
                  source < kProcessorFissureCells; ++source) {
                 float route = matrix_[cell * kProcessorFissureCells + source];
-                if (smoothed_.motion > 1.0e-5f) {
+                if (performed_.motion > 1.0e-5f) {
                     const float routePhase = rotationPhase_
                         + static_cast<float>(cell * 7u + source * 3u)
                             / 29.0f;
                     route *= 1.0f + std::sin(routePhase * 2.0f * kPi)
-                        * smoothed_.motion * 0.32f;
+                        * performed_.motion * 0.32f;
                 }
                 feedback += previousReturns_[source] * route;
                 routeWeight += std::abs(route);
@@ -874,54 +924,18 @@ public:
                     static_cast<std::size_t>(cell)
                     * historyFrames_ + read]
                 * cutPolarity_[cell] * cutSeam_[cell];
-            const float repeatPresence = repeatCellMix_[cell];
-            float repeated = 0.0f;
-            float remembered = ordinaryRemembered;
-            if (grabbedValid_ && repeatPresence > 1.0e-5f) {
-                const uint32_t repeatRead = (grabbedStart_[cell]
-                    + repeatPhase_[cell]) % historyFrames_;
-                repeated = history_[
-                        static_cast<std::size_t>(cell) * historyFrames_
-                        + repeatRead] * grabbedPolarity_[cell];
-                const uint32_t seamFrames = std::min<uint32_t>({
-                    std::max<uint32_t>(8u, static_cast<uint32_t>(
-                        sampleRate_ * 0.002)),
-                    std::max<uint32_t>(1u, grabbedLength_[cell] / 8u),
-                    grabbedLength_[cell] / 2u,
-                });
-                const uint32_t phase = repeatPhase_[cell];
-                float loopEnvelope = 1.0f;
-                if (phase < seamFrames) {
-                    loopEnvelope = std::sin((static_cast<float>(phase)
-                            + 0.5f) / static_cast<float>(seamFrames)
-                        * kPi * 0.5f);
-                } else if (phase + seamFrames >= grabbedLength_[cell]) {
-                    const uint32_t remaining = grabbedLength_[cell] - phase;
-                    loopEnvelope = std::sin((static_cast<float>(remaining)
-                            - 0.5f) / static_cast<float>(seamFrames)
-                        * kPi * 0.5f);
-                }
-                repeated *= clamp(loopEnvelope, 0.0f, 1.0f);
-                remembered = lerp(ordinaryRemembered,
-                    repeated * (1.18f + cutVariation_ * 0.42f),
-                    repeatPresence);
-            }
-
-            const float livePresence = 1.0f - repeatPresence * 0.68f;
-            const float fresh = active * gate_[cell] * livePresence * (
-                ((noise * (0.72f - smoothed_.body * 0.24f)
-                    + tonal * (0.08f + smoothed_.body * 0.34f))
+            const float fresh = active * gate_[cell] * (
+                ((noise * (0.72f - performed_.body * 0.24f)
+                    + tonal * (0.08f + performed_.body * 0.34f))
                         * sourceGain * internalBlend)
-                + material * (0.20f + smoothed_.edge * 0.30f
+                + material * (0.20f + performed_.edge * 0.30f
                     + objectTarget_[cell].hardness * 0.34f)
                 + white * burstEnvelope_[cell]
-                    * (0.18f + smoothed_.pressure * 0.44f)
-                + modal * (0.20f + smoothed_.body * 0.42f));
+                    * (0.18f + performed_.pressure * 0.44f)
+                + modal * (0.20f + performed_.body * 0.42f));
             float networkInput = fresh
                 + feedback * feedbackGain
-                    * (1.0f - repeatPresence * 0.28f)
-                + remembered * (historyGain + repeatPresence
-                    * (0.62f + cutVariation_ * 0.32f));
+                + ordinaryRemembered * historyGain;
             networkInput *= 0.48f + objectTarget_[cell].drive * 1.34f;
             networkInput *= 1.0f + breachEnvelope_ * 1.8f;
             networkInput = clamp(networkInput, -6.0f, 6.0f);
@@ -938,7 +952,7 @@ public:
                     ? energyAttackCoefficient_ : energyReleaseCoefficient_);
             const float rms = std::sqrt(std::max(0.0f, energy_[cell]));
             const float threshold = 0.32f
-                - smoothed_.pressure * 0.10f;
+                - performed_.pressure * 0.10f;
             const float excess = std::max(0.0f, rms - threshold);
             const float targetGovernor = 1.0f
                 / (1.0f + excess * 1.8f + excess * excess * 8.0f);
@@ -952,24 +966,15 @@ public:
                     * cellLevelSmoothed_[cell]);
             const float couplingPolarity = (cell & 1u) == 0u ? 1.0f : -1.0f;
             const float couplingSeed = embeddedExcitation * couplingPolarity
-                * smoothed_.voice
+                * performed_.voice
                 * (0.0015f + objectTarget_[cell].sensitivity * 0.0055f)
                 * (0.28f + couplingEnergy * 0.72f);
-            const float repeatedAudition = repeated * repeatPresence
-                * gate_[cell] * cellLevelSmoothed_[cell]
-                * (0.42f + cutVariation_ * 0.30f);
             nextReturns_[cell] = flushDenormal(clamp(
-                returned + couplingSeed + repeatedAudition * 0.24f,
-                -1.0f, 1.0f));
+                returned + couplingSeed, -1.0f, 1.0f));
             history_[static_cast<std::size_t>(cell) * historyFrames_
                 + historyWrite_] = nextReturns_[cell];
-            if (grabbedValid_ && repeatCellMix_[cell] > 1.0e-5f) {
-                repeatPhase_[cell] = (repeatPhase_[cell] + 1u)
-                    % std::max<uint32_t>(1u, grabbedLength_[cell]);
-            }
             activity_[cell] += (rms - activity_[cell]) * 0.0025f;
-            renderCell(clamp(returned + repeatedAudition, -1.4f, 1.4f),
-                angle, output, outputChannels);
+            renderCell(returned, angle, output, outputChannels);
             burstEnvelope_[cell] = flushDenormal(
                 burstEnvelope_[cell] * burstDecay_);
         }
@@ -981,7 +986,7 @@ public:
         // diagnostic: no live input may emerge from this processor when OUT
         // is parked at its minimum.
         const float outputGain = (target_.outputGainDb <= -59.5f
-                ? 0.0f : dbToGain(smoothed_.outputGainDb))
+                ? 0.0f : dbToGain(performed_.outputGainDb))
             * runGain_ * withdrawGain_
             / std::sqrt(static_cast<float>(kProcessorFissureCells) * 0.62f);
         for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
@@ -1070,6 +1075,137 @@ public:
     }
 
 private:
+    struct PerformanceFrame {
+        float pressure = 0.62f;
+        float mass = 0.78f;
+        float edge = 0.46f;
+        float voidAmount = 0.18f;
+        float memory = 0.48f;
+        float body = 0.56f;
+        float voice = 0.50f;
+        float motion = 0.32f;
+        float contact = 0.48f;
+        float shaker = 0.26f;
+        float rattle = 0.42f;
+        float spring = 0.34f;
+        float variation = 0.46f;
+        float fractureX = 0.0f;
+        float fractureY = 0.0f;
+        uint8_t enabledMask = 0xffu;
+        uint8_t gateMask = 0xffu;
+        uint8_t cutEventMask = 0u;
+        uint8_t strikeEventMask = 0u;
+    };
+
+    static constexpr uint32_t kPerformanceFrameCapacity = 1600u;
+
+    uint8_t currentEnabledMask() const
+    {
+        uint8_t result = 0u;
+        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
+            if (cutMask_[cell]) result |= static_cast<uint8_t>(1u << cell);
+        }
+        return result;
+    }
+
+    uint8_t currentGateMask() const
+    {
+        uint8_t result = 0u;
+        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
+            if (gateTarget_[cell] >= 0.5f) {
+                result |= static_cast<uint8_t>(1u << cell);
+            }
+        }
+        return result;
+    }
+
+    void capturePerformanceFrame()
+    {
+        if (!performanceCaptureActive_
+            || performanceFrameCount_ >= kPerformanceFrameCapacity) return;
+        auto& frame = performanceFrames_[performanceFrameCount_++];
+        frame.pressure = target_.pressure;
+        frame.mass = target_.mass;
+        frame.edge = target_.edge;
+        frame.voidAmount = target_.voidAmount;
+        frame.memory = target_.memory;
+        frame.body = target_.body;
+        frame.voice = target_.voice;
+        frame.motion = target_.motion;
+        frame.contact = target_.contact;
+        frame.shaker = target_.shaker;
+        frame.rattle = target_.rattle;
+        frame.spring = target_.spring;
+        frame.variation = cutVariation_;
+        frame.fractureX = fractureXTarget_;
+        frame.fractureY = fractureYTarget_;
+        frame.enabledMask = currentEnabledMask();
+        frame.gateMask = currentGateMask();
+        frame.cutEventMask = capturedCutMask_;
+        frame.strikeEventMask = capturedStrikeMask_;
+        capturedCutMask_ = 0u;
+        capturedStrikeMask_ = 0u;
+    }
+
+    void applyPerformanceFrame(const PerformanceFrame& frame)
+    {
+        repeatedFrame_ = frame;
+        performanceFrameApplied_ = true;
+        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
+            const uint8_t bit = static_cast<uint8_t>(1u << cell);
+            if (!cutMask_[cell] || (frame.enabledMask & bit) == 0u) continue;
+            gateTarget_[cell] = (frame.gateMask & bit) != 0u ? 1.0f : 0.0f;
+            if ((frame.cutEventMask & bit) != 0u) {
+                requestCutSplice(cell, 0.76f);
+            }
+            if ((frame.strikeEventMask & bit) != 0u) strikeCell(cell, 0.72f);
+        }
+    }
+
+    void advancePerformanceTape()
+    {
+        if (performanceCaptureActive_) {
+            if (performanceCaptureCountdown_ == 0u) {
+                capturePerformanceFrame();
+                performanceCaptureCountdown_ = performanceControlFrames_;
+            }
+            --performanceCaptureCountdown_;
+        }
+        if (!repeatTarget_ || !grabbedValid_
+            || performanceFrameCount_ == 0u) return;
+        if (performancePlaybackCountdown_ == 0u) {
+            applyPerformanceFrame(
+                performanceFrames_[performancePlaybackIndex_]);
+            performancePlaybackIndex_ = (performancePlaybackIndex_ + 1u)
+                % performanceFrameCount_;
+            performancePlaybackCountdown_ = performanceControlFrames_;
+        }
+        --performancePlaybackCountdown_;
+    }
+
+    void updatePerformedParams()
+    {
+        performed_ = smoothed_;
+        if (!grabbedValid_ || repeatMix_ <= 1.0e-5f) return;
+        const auto blend = [this](float live, float looped) {
+            return lerp(live, looped, repeatMix_);
+        };
+        performed_.pressure = blend(smoothed_.pressure,
+            repeatedFrame_.pressure);
+        performed_.mass = blend(smoothed_.mass, repeatedFrame_.mass);
+        performed_.edge = blend(smoothed_.edge, repeatedFrame_.edge);
+        performed_.voidAmount = blend(smoothed_.voidAmount,
+            repeatedFrame_.voidAmount);
+        performed_.memory = blend(smoothed_.memory, repeatedFrame_.memory);
+        performed_.body = blend(smoothed_.body, repeatedFrame_.body);
+        performed_.voice = blend(smoothed_.voice, repeatedFrame_.voice);
+        performed_.motion = blend(smoothed_.motion, repeatedFrame_.motion);
+        performed_.contact = blend(smoothed_.contact, repeatedFrame_.contact);
+        performed_.shaker = blend(smoothed_.shaker, repeatedFrame_.shaker);
+        performed_.rattle = blend(smoothed_.rattle, repeatedFrame_.rattle);
+        performed_.spring = blend(smoothed_.spring, repeatedFrame_.spring);
+    }
+
     static ProcessorFissureParams sanitize(ProcessorFissureParams params)
     {
         params.pressure = finiteUnit(params.pressure, 0.62f);
@@ -1104,7 +1240,7 @@ private:
                 0u, 4u, 2u, 6u, 1u, 5u, 3u, 7u,
             }};
         return cell < kProcessorFissureCells
-            ? clamp(smoothed_.mass
+            ? clamp(performed_.mass
                     * static_cast<float>(kProcessorFissureCells) + 0.45f
                     - static_cast<float>(massOrder[cell]),
                 0.0f, 1.0f)
@@ -1201,47 +1337,58 @@ private:
 
     void updateCellProcessors()
     {
+        updateCellProcessors(target_);
+    }
+
+    void updateCellProcessors(const ProcessorFissureParams& controls)
+    {
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
-            updateCellProcessor(cell);
+            updateCellProcessor(cell, controls);
         }
     }
 
     void updateCellProcessor(uint32_t cell)
     {
+        updateCellProcessor(cell, target_);
+    }
+
+    void updateCellProcessor(uint32_t cell,
+        const ProcessorFissureParams& controls)
+    {
         if (cell >= kProcessorFissureCells) return;
         const auto& object = objectTarget_[cell];
         MacroShredCoreParams params;
-        params.inputGainDb = -7.0f + target_.pressure * 7.0f
+        params.inputGainDb = -7.0f + controls.pressure * 7.0f
             + object.drive * 12.0f;
-        params.pressure = clamp(0.10f + target_.pressure * 0.62f
+        params.pressure = clamp(0.10f + controls.pressure * 0.62f
                 + object.drive * 0.22f,
             0.0f, 1.0f);
-        params.shred = clamp(0.06f + target_.edge * 0.52f
+        params.shred = clamp(0.06f + controls.edge * 0.52f
                 + object.hardness * 0.34f
                 + static_cast<float>(cell & 1u) * 0.04f,
             0.0f, 1.0f);
-        params.feedback = clamp(target_.memory * 0.24f
-                + target_.pressure * 0.20f + object.decay * 0.12f,
+        params.feedback = clamp(controls.memory * 0.24f
+                + controls.pressure * 0.20f + object.decay * 0.12f,
             0.0f, 0.72f);
         params.color = clamp(0.08f
                 + static_cast<float>(cell) * 0.095f
-                + (target_.edge - 0.5f) * 0.18f
+                + (controls.edge - 0.5f) * 0.18f
                 + (object.hardness - 0.5f) * 0.30f,
             0.0f, 1.0f);
-        params.react = clamp(0.12f + target_.edge * 0.42f
+        params.react = clamp(0.12f + controls.edge * 0.42f
                 + object.sensitivity * 0.34f,
             0.0f, 1.0f);
-        params.tune = clamp(0.10f + target_.body * 0.54f
+        params.tune = clamp(0.10f + controls.body * 0.54f
                 + (1.0f - object.size) * 0.27f
                 + static_cast<float>(cell) * 0.012f,
             0.0f, 1.0f);
-        params.body = clamp(0.18f + target_.body * 0.48f
+        params.body = clamp(0.18f + controls.body * 0.48f
                 + object.size * 0.28f,
             0.0f, 1.0f);
         params.mix = 0.72f + object.drive * 0.22f;
         params.outputGainDb = -6.0f + object.level * 2.0f;
         params.colorShiftOctaves = (static_cast<float>(cell) - 3.5f)
-            * target_.motion * 0.10f
+            * controls.motion * 0.10f
             + (0.5f - object.size) * 0.42f;
         params.intensityTrim = (object.hardness - 0.5f) * 0.12f;
         static constexpr std::array<MacroShredCircuit,
@@ -1381,7 +1528,7 @@ private:
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             for (uint32_t mode = 0u; mode < kModalCount; ++mode) {
                 const float chaosBlend = 0.06f
-                    + target_.motion * 0.28f + target_.edge * 0.06f;
+                    + performed_.motion * 0.28f + performed_.edge * 0.06f;
                 pitchChaos_[cell][mode] = lerp(
                     pitchChaos_[cell][mode], pitchRandomSigned(),
                     chaosBlend);
@@ -1442,12 +1589,23 @@ private:
 
     void updatePhysicalModel()
     {
+        updatePhysicalModel(target_);
+    }
+
+    void updatePhysicalModel(const ProcessorFissureParams& controls)
+    {
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
-            updatePhysicalCell(cell);
+            updatePhysicalCell(cell, controls);
         }
     }
 
     void updatePhysicalCell(uint32_t cell)
+    {
+        updatePhysicalCell(cell, target_);
+    }
+
+    void updatePhysicalCell(uint32_t cell,
+        const ProcessorFissureParams& controls)
     {
         if (cell >= kProcessorFissureCells) return;
         static constexpr std::array<float, kProcessorFissureCells> roots {{
@@ -1465,17 +1623,17 @@ private:
         static constexpr std::array<float, kModalCount>
             pitchModeRelations {{ 1.0f, 2.0f, 4.0f }};
         const auto& object = objectTarget_[cell];
-        const float bodyScale = std::exp2((target_.body - 0.5f) * 1.20f
+        const float bodyScale = std::exp2((controls.body - 0.5f) * 1.20f
             + (0.5f - object.size) * 3.15f);
         for (uint32_t mode = 0u; mode < kModalCount; ++mode) {
             const float baseFrequency = roots[cell] * ratios[mode]
                 * bodyScale;
             float frequency = baseFrequency;
             if (mode == 2u) {
-                frequency *= 1.0f + target_.spring
+                frequency *= 1.0f + controls.spring
                     * (0.8f + object.hardness * 2.6f);
             }
-            const float pitchGate = target_.voice
+            const float pitchGate = controls.voice
                 * clamp((pitchConfidence_ - 0.10f) / 0.70f,
                     0.0f, 1.0f);
             if (trackedPitchHz_ > 0.0f && pitchGate > 0.0f) {
@@ -1491,9 +1649,9 @@ private:
                         * (static_cast<float>(source) - 3.5f) / 3.5f;
                 }
                 const float chaosSemitones = pitchChaos_[cell][mode]
-                        * (0.45f + target_.motion * 6.0f
-                            + target_.edge * 1.7f)
-                    + routeTension * target_.motion * 2.4f;
+                        * (0.45f + controls.motion * 6.0f
+                            + controls.edge * 1.7f)
+                    + routeTension * controls.motion * 2.4f;
                 attracted *= std::exp2(chaosSemitones / 12.0f);
                 const float attraction = pitchGate
                     * (0.24f + object.sensitivity * 0.58f);
@@ -1504,10 +1662,10 @@ private:
             frequency = std::min(frequency,
                 static_cast<float>(sampleRate_) * 0.43f);
             const float decaySeconds = mode == 2u
-                ? 0.025f + target_.spring * 0.52f
+                ? 0.025f + controls.spring * 0.52f
                     + object.decay * 1.35f
-                : 0.035f + target_.body * 0.42f
-                    + target_.memory * 0.34f
+                : 0.035f + controls.body * 0.42f
+                    + controls.memory * 0.34f
                     + object.decay * 2.1f;
             const float radius = std::exp(-1.0f
                 / std::max(1.0f, static_cast<float>(sampleRate_)
@@ -1532,7 +1690,7 @@ private:
         strength = clamp(strength, 0.0f, 1.5f);
         for (uint32_t mode = 0u; mode < kModalCount; ++mode) {
             const float hardness = mode == 2u
-                ? (0.18f + target_.spring * 0.54f)
+                ? (0.18f + performed_.spring * 0.54f)
                     * (0.25f + objectTarget_[cell].hardness * 1.15f)
                 : (0.58f - static_cast<float>(mode) * 0.11f)
                     * (1.20f - objectTarget_[cell].hardness * 0.32f);
@@ -1544,15 +1702,15 @@ private:
 
     void advanceShaker()
     {
-        if (smoothed_.hold || smoothed_.shaker <= 1.0e-4f) return;
+        if (performed_.hold || performed_.shaker <= 1.0e-4f) return;
         if (shakerCountdown_ > 0u) --shakerCountdown_;
         if (shakerCountdown_ > 0u) return;
         const uint32_t cell = nextRandom() % kProcessorFissureCells;
-        const float impact = smoothed_.shaker
+        const float impact = performed_.shaker
             * (0.12f + randomUnit() * 0.88f)
-            * (0.42f + smoothed_.rattle * 0.78f);
+            * (0.42f + performed_.rattle * 0.78f);
         excitePhysical(cell, impact);
-        if (randomUnit() < 0.28f + smoothed_.rattle * 0.62f) {
+        if (randomUnit() < 0.28f + performed_.rattle * 0.62f) {
             const uint32_t neighbour = (cell + 1u
                 + nextRandom() % (kProcessorFissureCells - 1u))
                 % kProcessorFissureCells;
@@ -1560,11 +1718,11 @@ private:
                 * (0.18f + randomUnit() * 0.42f));
         }
         burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
-            impact * (0.12f + smoothed_.rattle * 0.28f));
+            impact * (0.12f + performed_.rattle * 0.28f));
         const float impactsPerSecond = 0.45f
-            + smoothed_.shaker * smoothed_.shaker * 19.0f
-            + smoothed_.motion * 7.0f
-            + smoothed_.rattle * 14.0f;
+            + performed_.shaker * performed_.shaker * 19.0f
+            + performed_.motion * 7.0f
+            + performed_.rattle * 14.0f;
         const float scatter = 0.18f + randomUnit() * 1.64f;
         shakerCountdown_ = std::max<uint32_t>(1u,
             static_cast<uint32_t>(sampleRate_ * scatter
@@ -1616,10 +1774,12 @@ private:
         if (cell >= kProcessorFissureCells || !cutMask_[cell]
             || historyFrames_ <= 2u) return;
         strength = clamp(strength, 0.0f, 1.0f);
+        const float fractureX = performedFractureDistance();
+        const float variation = performedCutVariation();
         const float effectiveContrast = 1.0f
-            - (1.0f - cutVariation_) * (1.0f - fractureXSmoothed_);
-        const float fragmentReach = std::max(target_.memory,
-            fractureXSmoothed_ * (0.52f + target_.memory * 0.48f));
+            - (1.0f - variation) * (1.0f - fractureX);
+        const float fragmentReach = std::max(performed_.memory,
+            fractureX * (0.52f + performed_.memory * 0.48f));
         const float maximumSeconds = 0.028f
             + fragmentReach * fragmentReach
                 * (0.16f + effectiveContrast * 1.84f);
@@ -1633,13 +1793,16 @@ private:
             static_cast<uint32_t>(seconds * sampleRate_),
             1u, historyFrames_ - 1u);
         const float inversionProbability = 0.06f
-            + target_.motion * 0.34f
+            + performed_.motion * 0.34f
             + effectiveContrast * strength * 0.28f;
         pendingCutPolarity_[cell] = randomUnit() < inversionProbability
             ? -1.0f : 1.0f;
         cutSwapPending_[cell] = true;
         cutSeamTarget_[cell] = 0.0f;
         cutVisual_[cell] = 1.0f;
+        if (performanceCaptureActive_) {
+            capturedCutMask_ |= static_cast<uint8_t>(1u << cell);
+        }
         ++cutRevision_;
     }
 
@@ -1660,16 +1823,37 @@ private:
         cutVisual_[cell] = flushDenormal(cutVisual_[cell] * cutVisualDecay_);
     }
 
+    float performedCutVariation() const
+    {
+        return grabbedValid_ && repeatMix_ > 1.0e-5f
+            ? lerp(cutVariation_, repeatedFrame_.variation, repeatMix_)
+            : cutVariation_;
+    }
+
+    float performedFractureDistance() const
+    {
+        return grabbedValid_ && repeatMix_ > 1.0e-5f
+            ? lerp(fractureXSmoothed_, repeatedFrame_.fractureX, repeatMix_)
+            : fractureXSmoothed_;
+    }
+
+    float performedFractureForce() const
+    {
+        return grabbedValid_ && repeatMix_ > 1.0e-5f
+            ? lerp(fractureYSmoothed_, repeatedFrame_.fractureY, repeatMix_)
+            : fractureYSmoothed_;
+    }
+
     float effectiveCutEdge() const
     {
-        return 1.0f - (1.0f - target_.edge)
-            * (1.0f - fractureYSmoothed_ * 0.98f);
+        return 1.0f - (1.0f - performed_.edge)
+            * (1.0f - performedFractureForce() * 0.98f);
     }
 
     float effectiveCutVoid() const
     {
-        return 1.0f - (1.0f - target_.voidAmount)
-            * (1.0f - fractureYSmoothed_ * 0.88f);
+        return 1.0f - (1.0f - performed_.voidAmount)
+            * (1.0f - performedFractureForce() * 0.88f);
     }
 
     void scheduleNextEvent(uint32_t cell, bool startup)
@@ -1688,7 +1872,7 @@ private:
 
     void advanceEvents(uint32_t cell)
     {
-        if (!smoothed_.hold) {
+        if (!performed_.hold && !repeatTarget_) {
             if (eventCountdown_[cell] > 0u) --eventCountdown_[cell];
             if (eventCountdown_[cell] == 0u) {
                 const float effectiveEdge = effectiveCutEdge();
@@ -1696,8 +1880,10 @@ private:
                 const float spliceProbability = clamp(
                     effectiveEdge * effectiveEdge
                         * (0.14f + effectiveVoid * 0.86f)
-                        * (0.22f + (1.0f - (1.0f - cutVariation_)
-                            * (1.0f - fractureXSmoothed_)) * 0.78f),
+                        * (0.22f + (1.0f
+                            - (1.0f - performedCutVariation())
+                                * (1.0f - performedFractureDistance()))
+                            * 0.78f),
                     0.0f, 1.0f);
                 if (cutMask_[cell]) {
                     if (randomUnit() < spliceProbability) {
@@ -1720,7 +1906,7 @@ private:
                 scheduleNextEvent(cell, false);
             }
         }
-        const float coefficient = smoothed_.edge > 0.56f
+        const float coefficient = performed_.edge > 0.56f
             ? gateFastCoefficient_ : gateSlowCoefficient_;
         gate_[cell] += (gateTarget_[cell] - gate_[cell]) * coefficient;
         gate_[cell] = flushDenormal(clamp(gate_[cell], 0.0f, 1.0f));
@@ -1748,7 +1934,7 @@ private:
         const float cellOffset = static_cast<float>(
             (cell * 37u + target_.seed * 13u) % 101u) / 100.0f;
         const float seconds = 0.024f
-            + smoothed_.memory * smoothed_.memory
+            + performed_.memory * performed_.memory
                 * (0.18f + cellOffset * 2.62f);
         return std::clamp<uint32_t>(
             static_cast<uint32_t>(seconds * sampleRate_),
@@ -1763,8 +1949,8 @@ private:
             ^ target_.seed * 0x85ebca6bu;
         const float jitter = (static_cast<float>(hash & 0xffffu)
                 / 32767.5f - 1.0f)
-            * smoothed_.motion * 0.055f;
-        return wrapPhase(base + rotationPhase_ * smoothed_.motion + jitter)
+            * performed_.motion * 0.055f;
+        return wrapPhase(base + rotationPhase_ * performed_.motion + jitter)
             * 2.0f * kPi;
     }
 
@@ -1793,6 +1979,10 @@ private:
     uint32_t rng_ = 1979u;
     ProcessorFissureParams target_ {};
     ProcessorFissureParams smoothed_ {};
+    ProcessorFissureParams performed_ {};
+    std::array<PerformanceFrame, kPerformanceFrameCapacity>
+        performanceFrames_ {};
+    PerformanceFrame repeatedFrame_ {};
     std::array<MacroShredCore, kProcessorFissureCells> shred_ {};
     std::array<StructuralFailureModel, kProcessorFissureCells> failure_ {};
     ProcessorFissureMatrix matrix_ {};
@@ -1812,15 +2002,6 @@ private:
         true, true, true, true, true, true, true, true,
     }};
     std::array<float, kProcessorFissureCells> cutVisual_ {};
-    std::array<uint32_t, kProcessorFissureCells> grabbedStart_ {};
-    std::array<uint32_t, kProcessorFissureCells> grabbedLength_ {{
-        1u, 1u, 1u, 1u, 1u, 1u, 1u, 1u,
-    }};
-    std::array<uint32_t, kProcessorFissureCells> repeatPhase_ {};
-    std::array<float, kProcessorFissureCells> repeatCellMix_ {};
-    std::array<float, kProcessorFissureCells> grabbedPolarity_ {{
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-    }};
     std::array<uint32_t, kProcessorFissureCells> eventCountdown_ {};
     std::array<float, kProcessorFissureCells> oscillatorPhase_ {};
     std::array<float, kProcessorFissureCells> lowNoise_ {};
@@ -1929,6 +2110,15 @@ private:
     float fractureXSmoothed_ = 0.0f;
     float fractureYSmoothed_ = 0.0f;
     float repeatMix_ = 0.0f;
+    uint32_t performanceFrameCount_ = 0u;
+    uint32_t performanceCaptureCountdown_ = 0u;
+    uint32_t performancePlaybackIndex_ = 0u;
+    uint32_t performancePlaybackCountdown_ = 0u;
+    uint32_t performanceControlFrames_ = 240u;
+    uint8_t capturedCutMask_ = 0u;
+    uint8_t capturedStrikeMask_ = 0u;
+    bool performanceCaptureActive_ = false;
+    bool performanceFrameApplied_ = false;
     bool repeatTarget_ = false;
     bool grabbedValid_ = false;
     bool silenced_ = false;

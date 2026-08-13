@@ -100,6 +100,7 @@ constexpr CGFloat kFormantMatrixFirstX = 146.0;
 constexpr CGFloat kFormantMatrixFirstY = 178.0;
 constexpr CGFloat kFormantMatrixPitch = 25.0;
 constexpr CGFloat kFormantMenuItemHeight = 18.0;
+constexpr uint32_t kFormantScaleMenuColumns = 4u;
 
 constexpr clap_id kFormantRouteMatrixParams[]{
     kMatrixModeParamId, kMatrixMorphParamId, kCustomMatrixMorphParamId,
@@ -173,13 +174,14 @@ constexpr clap_id kFormantPhraseParams[]{
 };
 
 constexpr clap_id kFormantFxParams[]{
-    kOutputParamId,     kCompressionParamId, kParallelCrushParamId,
-    kDeEssParamId,      kWidthParamId,       kEchoHeadsParamId,
-    kEchoClockParamId,  kEchoTimeParamId,    kEchoFeedbackParamId,
-    kEchoWearParamId,   kEchoFlutterParamId, kEchoToneParamId,
-    kEchoSpreadParamId, kEchoMixParamId,     kOctaveDownParamId,
-    kOctaveUpParamId,   kFuzzDriveParamId,   kFuzzMixParamId,
-    kFuzzToneParamId,
+    // Left: output and post-bank character. Right: the complete tape path.
+    kOutputParamId,        kCompressionParamId, kParallelCrushParamId,
+    kDeEssParamId,         kWidthParamId,       kOctaveDownParamId,
+    kOctaveUpParamId,      kFuzzDriveParamId,   kFuzzMixParamId,
+    kFuzzToneParamId,      kEchoHeadsParamId,   kEchoClockParamId,
+    kEchoTimeParamId,      kEchoFeedbackParamId, kEchoWearParamId,
+    kEchoFlutterParamId,   kEchoToneParamId,    kEchoSpreadParamId,
+    kEchoMixParamId,
 };
 
 struct FormantParamSpan {
@@ -244,6 +246,57 @@ NSRect formantCrosspointActionRect(uint32_t action) {
 }
 
 NSRect formantCompileRect() { return NSMakeRect(1234.0, 106.0, 92.0, 24.0); }
+
+NSRect formantScaleMenuRect() {
+  const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+      s3g::kAcapellaResonatorPitchScaleCount, kFormantScaleMenuColumns);
+  return NSMakeRect(218.0, 238.0, 920.0,
+                    kFormantMenuItemHeight * static_cast<CGFloat>(rows));
+}
+
+NSString *const *formantScaleMenuItems() {
+  static const std::array<NSString *,
+                          s3g::kAcapellaResonatorPitchScaleCount>
+      items = [] {
+        std::array<NSString *, s3g::kAcapellaResonatorPitchScaleCount>
+            result{};
+        result[0] = @"CONTINUOUS";
+        for (uint32_t menuIndex = 0u;
+             menuIndex < s3g::kMusicalScaleCount; ++menuIndex) {
+          const uint32_t sharedScale =
+              s3g::musicalScaleValueForMenuIndex(menuIndex);
+          result[menuIndex + 1u] = [[NSString alloc]
+              initWithUTF8String:
+                  s3g::musicalScaleDefinition(sharedScale).name];
+        }
+        return result;
+      }();
+  return items.data();
+}
+
+int formantScaleMenuSelectedIndex(double value) {
+  const uint32_t scaleValue = std::min<uint32_t>(
+      static_cast<uint32_t>(std::lround(value)),
+      s3g::kAcapellaResonatorPitchScaleCount - 1u);
+  if (scaleValue == 0u)
+    return 0;
+  const auto scale =
+      static_cast<s3g::AcapellaResonatorPitchScale>(scaleValue);
+  return static_cast<int>(
+      s3g::musicalScaleMenuIndexForValue(
+          s3g::acapellaResonatorSharedScale(scale)) +
+      1u);
+}
+
+double formantScaleValueForMenuIndex(uint32_t menuIndex) {
+  if (menuIndex == 0u)
+    return 0.0;
+  const uint32_t sharedScale = s3g::musicalScaleValueForMenuIndex(
+      std::min<uint32_t>(menuIndex - 1u,
+                         s3g::kMusicalScaleCount - 1u));
+  return static_cast<double>(
+      s3g::acapellaResonatorPitchScaleValue(sharedScale));
+}
 
 NSString *formantShortLabel(clap_id id) {
   switch (id) {
@@ -337,10 +390,60 @@ NSString *formantShortLabel(clap_id id) {
     return @"DIV";
   case kOutputParamId:
     return @"OUT";
+  case kCompressionParamId:
+    return @"COMP";
+  case kParallelCrushParamId:
+    return @"CRUSH";
+  case kDeEssParamId:
+    return @"DE-ESS";
+  case kWidthParamId:
+    return @"WIDTH";
+  case kOctaveDownParamId:
+    return @"OCT DOWN";
+  case kOctaveUpParamId:
+    return @"OCT UP";
+  case kFuzzDriveParamId:
+    return @"FUZZ DRV";
+  case kFuzzMixParamId:
+    return @"FUZZ MIX";
+  case kFuzzToneParamId:
+    return @"FUZZ TONE";
+  case kEchoHeadsParamId:
+    return @"HEADS";
+  case kEchoClockParamId:
+    return @"CLOCK";
+  case kEchoTimeParamId:
+    return @"TIME";
+  case kEchoFeedbackParamId:
+    return @"FEEDBACK";
+  case kEchoWearParamId:
+    return @"WEAR";
+  case kEchoFlutterParamId:
+    return @"FLUTTER";
+  case kEchoToneParamId:
+    return @"TONE";
+  case kEchoSpreadParamId:
+    return @"SPREAD";
+  case kEchoMixParamId:
+    return @"MIX";
+  case kCarrierShapeParamId:
+    return @"SHAPE";
+  case kCarrierHarmonicsParamId:
+    return @"HARMONICS";
+  case kCarrierColorParamId:
+    return @"COLOR";
+  case kCarrierNoiseParamId:
+    return @"NOISE";
   default: {
     const ParamDef *def = paramDef(id);
-    return def ? [[NSString stringWithUTF8String:def->name] uppercaseString]
-               : @"";
+    if (!def)
+      return @"";
+    NSString *label =
+        [[NSString stringWithUTF8String:def->name] uppercaseString];
+    // The processor row reserves a compact label lane before the slider.
+    // Bound every fallback label so a future long host name cannot overlap
+    // the track or value readout.
+    return [label length] > 10u ? [label substringToIndex:10u] : label;
   }
   }
 }
@@ -962,6 +1065,16 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   const ParamDef *def = paramDef(_openMenu);
   if (!def || !def->stepped)
     return;
+  if (_openMenu == kPitchScaleParamId) {
+    s3g::clap_gui::drawMultiColumnDropdownMenu(
+        formantScaleMenuRect(), kFormantMenuItemHeight,
+        formantScaleMenuItems(), s3g::kAcapellaResonatorPitchScaleCount,
+        kFormantScaleMenuColumns,
+        formantScaleMenuSelectedIndex(
+            loadValue(*_plugin, kPitchScaleParamId)),
+        _hoverMenuItem, s3g::clap_gui::softValueAttrs(), style);
+    return;
+  }
   const uint32_t count = std::min<uint32_t>(
       32u,
       static_cast<uint32_t>(std::lround(def->maximum - def->minimum)) + 1u);
@@ -1016,6 +1129,8 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 
 - (uint32_t)openMenuItemCount {
   const ParamDef *def = paramDef(_openMenu);
+  if (def && def->id == kPitchScaleParamId)
+    return s3g::kAcapellaResonatorPitchScaleCount;
   return def && def->stepped
              ? std::min<uint32_t>(32u, static_cast<uint32_t>(std::lround(
                                            def->maximum - def->minimum)) +
@@ -1024,6 +1139,8 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 }
 
 - (NSRect)openMenuRect {
+  if (_openMenu == kPitchScaleParamId)
+    return formantScaleMenuRect();
   return NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth,
                     kFormantMenuItemHeight *
                         static_cast<CGFloat>([self openMenuItemCount]));
@@ -1044,6 +1161,13 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   const CGFloat below = NSMaxY(box) + 3.0;
   _openMenu = id;
   _hoverMenuItem = -1;
+  if (id == kPitchScaleParamId) {
+    _menuOrigin = formantScaleMenuRect().origin;
+    _menuWidth = formantScaleMenuRect().size.width;
+    [self syncPhraseFieldVisibility];
+    [self setNeedsDisplay:YES];
+    return;
+  }
   _menuOrigin = NSMakePoint(
       box.origin.x, below + height <= static_cast<CGFloat>(kGuiHeight) - 8.0
                         ? below
@@ -1056,9 +1180,14 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 - (void)updateMenuHover:(NSPoint)point {
   if (_openMenu == CLAP_INVALID_ID)
     return;
-  const int hover = s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect],
-                                                    kFormantMenuItemHeight,
-                                                    [self openMenuItemCount]);
+  const int hover = _openMenu == kPitchScaleParamId
+      ? s3g::clap_gui::multiColumnDropdownHitIndex(
+            point, formantScaleMenuRect(), kFormantMenuItemHeight,
+            s3g::kAcapellaResonatorPitchScaleCount,
+            kFormantScaleMenuColumns)
+      : s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect],
+                                        kFormantMenuItemHeight,
+                                        [self openMenuItemCount]);
   if (hover == _hoverMenuItem)
     return;
   _hoverMenuItem = hover;
@@ -1187,6 +1316,7 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
         kBankModeParamId,
         kModulatorSourceParamId,
         kMicGainParamId,
+        kCarrierPitchSourceParamId,
         kBankAmountParamId,
         kArticulationThruParamId,
         kAnalysisBlendParamId,
@@ -1255,13 +1385,21 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
       [self convertPoint:[event locationInWindow] fromView:nil];
   if (_openMenu != CLAP_INVALID_ID) {
     const ParamDef *def = paramDef(_openMenu);
-    const int hit = s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect],
-                                                    kFormantMenuItemHeight,
-                                                    [self openMenuItemCount]);
+    const int hit = _openMenu == kPitchScaleParamId
+        ? s3g::clap_gui::multiColumnDropdownHitIndex(
+              point, formantScaleMenuRect(), kFormantMenuItemHeight,
+              s3g::kAcapellaResonatorPitchScaleCount,
+              kFormantScaleMenuColumns)
+        : s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect],
+                                          kFormantMenuItemHeight,
+                                          [self openMenuItemCount]);
     if (hit >= 0 && def) {
       if (!queueFormantParamValue(
               *_plugin, def->id,
-              def->minimum + static_cast<double>(hit)))
+              def->id == kPitchScaleParamId
+                  ? formantScaleValueForMenuIndex(
+                        static_cast<uint32_t>(hit))
+                  : def->minimum + static_cast<double>(hit)))
         NSBeep();
     }
     _openMenu = CLAP_INVALID_ID;

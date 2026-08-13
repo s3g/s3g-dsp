@@ -791,7 +791,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, kPluginId) == 0
             && std::strcmp(descriptor->name, kPluginName) == 0
-            && std::strcmp(descriptor->version, "5.2.5") == 0,
+            && std::strcmp(descriptor->version, "5.4.0") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FILTER)
@@ -868,7 +868,7 @@ int main(int argc, char** argv)
                 && info.min_value == 0.0 && info.max_value == 11.0;
             hasPitchScale |= info.id == 1101u
                 && std::strcmp(info.name, "Pitch Scale") == 0
-                && info.min_value == 0.0 && info.max_value == 7.0
+                && info.min_value == 0.0 && info.max_value == 101.0
                 && info.default_value == 1.0;
             hasPitchHold |= info.id == 1102u
                 && std::strcmp(info.name, "Pitch Hold") == 0
@@ -910,8 +910,16 @@ int main(int argc, char** argv)
                 && std::strcmp(display, "A") == 0
                 && params->value_to_text(metadataPlugin, 1101u, 2.0,
                     display, sizeof(display))
-                && std::strcmp(display, "Major") == 0,
+                && std::strcmp(display, "MAJOR") == 0,
             "analysis/pitch menu text conversion failed");
+        parsed = -1.0;
+        ok &= check(params->text_to_value(metadataPlugin, 1101u,
+                    "WHOLE TONE", &parsed)
+                && parsed == 8.0
+                && params->value_to_text(metadataPlugin, 1101u, parsed,
+                    display, sizeof(display))
+                && std::strcmp(display, "WHOLE TONE") == 0,
+            "expanded musical-scale conversion failed");
         parsed = -1.0;
         ok &= check(params->value_to_text(metadataPlugin, 1102u, 2000.0,
                     display, sizeof(display))
@@ -925,8 +933,14 @@ int main(int argc, char** argv)
                 && std::strcmp(display, "Classic Mic") == 0
                 && params->value_to_text(metadataPlugin, 1u, 15.0,
                     display, sizeof(display))
+                && std::strcmp(display, "Formant Glide") == 0
+                && params->value_to_text(metadataPlugin, 1u, 23.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Vocal Alloy") == 0
+                && params->value_to_text(metadataPlugin, 1u, 24.0,
+                    display, sizeof(display))
                 && std::strcmp(display, "Custom") == 0,
-            "Classic Mic/Custom profile labels failed");
+            "matrix-first profile labels failed");
         double initialProfile = -1.0;
         double initialSource = -1.0;
         double initialAmount = -1.0;
@@ -986,7 +1000,7 @@ int main(int argc, char** argv)
         ok &= expectValuesRescan(callbackBefore, rescanBefore,
             "implicit Custom profile did not request a value rescan");
         ok &= check(params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 15.0,
+                && profile == 24.0,
             "scalar edit did not publish the Custom profile");
 
         callbackBefore = metadataHost.callbackRequests;
@@ -1000,6 +1014,25 @@ int main(int argc, char** argv)
         ok &= check(params->get_value(metadataPlugin, 1u, &profile)
                 && profile == 6.0,
             "state load did not restore the factory profile value");
+
+        // Version 20 used slot 15 for Custom. Version 21 appends matrix-first
+        // profiles at 15--23 and moves Custom to 24 without changing payload
+        // width or any routing value.
+        MemoryState version20State;
+        version20State.bytes = savedState.bytes;
+        const uint32_t version20 = 20u;
+        const double version20Custom = 15.0;
+        if (version20State.bytes.size() >= 8u + sizeof(double)) {
+            std::memcpy(version20State.bytes.data(), &version20,
+                sizeof(version20));
+            std::memcpy(version20State.bytes.data() + 8u,
+                &version20Custom, sizeof(version20Custom));
+        }
+        version20State.readOffset = 0u;
+        ok &= check(state->load(metadataPlugin, &version20State.input)
+                && params->get_value(metadataPlugin, 1u, &profile)
+                && profile == 24.0,
+            "v20 Custom profile slot migration failed");
 
         // Version 18 used IDs 98/99 for external-carrier mix/gain and slot
         // 14 for Custom. Exercise the binary-compatible payload migration so
@@ -1053,7 +1086,7 @@ int main(int argc, char** argv)
                 && params->get_value(metadataPlugin, 98u,
                     &modulatorSource)
                 && params->get_value(metadataPlugin, 99u, &micGain)
-                && profile == 15.0 && modulatorSource == 1.0
+                && profile == 24.0 && modulatorSource == 1.0
                 && micGain == 0.0,
             "v18 carrier controls were reinterpreted as mic routing");
 

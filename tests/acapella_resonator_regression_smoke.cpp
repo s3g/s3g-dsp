@@ -453,6 +453,39 @@ bool measuredConsonantTransferProbe()
 
 bool voicePitchCarrierProbe()
 {
+    if (s3g::kAcapellaResonatorPitchScaleCount
+            != s3g::kMusicalScaleCount + 1u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::Chromatic) != 0u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::Major) != 1u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::NaturalMinor) != 2u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::HarmonicMinor) != 5u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::Dorian) != 6u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::MajorPentatonic) != 3u
+        || s3g::acapellaResonatorSharedScale(
+            s3g::AcapellaResonatorPitchScale::MinorPentatonic) != 31u) {
+        std::cerr << "legacy pitch-scale values were not preserved\n";
+        return false;
+    }
+    std::array<bool, s3g::kMusicalScaleCount> sharedScales {};
+    for (uint32_t value = 1u;
+         value < s3g::kAcapellaResonatorPitchScaleCount; ++value) {
+        const auto scale = static_cast<s3g::AcapellaResonatorPitchScale>(
+            value);
+        const uint32_t shared = s3g::acapellaResonatorSharedScale(scale);
+        if (shared >= sharedScales.size() || sharedScales[shared]
+            || s3g::acapellaResonatorPitchScaleValue(shared) != value) {
+            std::cerr << "expanded pitch-scale map is not a permutation\n";
+            return false;
+        }
+        sharedScales[shared] = true;
+    }
+
     const auto renderPitch = [](s3g::AcapellaResonatorPitchScale scale,
                                 bool finishWithSilence) {
         s3g::AcapellaResonatorParams params;
@@ -2983,6 +3016,7 @@ bool formantCarrierLfoAndAutomationProbe()
 
 bool profileAndStressProbe()
 {
+    std::array<double, 9u> matrixFingerprints {};
     for (uint32_t profile = 0u;
          profile < s3g::kAcapellaResonatorProfileFirst; ++profile) {
         const auto preset = static_cast<s3g::AcapellaSourcePreset>(profile);
@@ -3009,6 +3043,54 @@ bool profileAndStressProbe()
         const auto base = s3g::acapellaResonatorProfileBase(profile);
         const auto wetParams = s3g::acapellaResonatorProfileEffects(
             profile, s3g::acapellaVocalFxPreset(base));
+        if (profile >= 15u) {
+            const auto& bank = wetParams.resonator;
+            uint32_t offDiagonalA = 0u;
+            uint32_t offDiagonalB = 0u;
+            double sceneDifference = 0.0;
+            double fingerprint = 0.0;
+            for (uint32_t destination = 0u;
+                 destination < s3g::kAcapellaResonatorBands;
+                 ++destination) {
+                for (uint32_t source = 0u;
+                     source < s3g::kAcapellaResonatorBands; ++source) {
+                    const size_t cell = destination
+                            * s3g::kAcapellaResonatorBands
+                        + source;
+                    const float a = bank.customMatrixA[cell];
+                    const float b = bank.customMatrixB[cell];
+                    if (destination != source && std::abs(a) > 1.0e-5f) {
+                        ++offDiagonalA;
+                    }
+                    if (destination != source && std::abs(b) > 1.0e-5f) {
+                        ++offDiagonalB;
+                    }
+                    sceneDifference += std::abs(a - b);
+                    fingerprint += static_cast<double>(a) * (cell + 3u)
+                        + static_cast<double>(b) * (cell + 11u) * 1.731;
+                }
+            }
+            const size_t fingerprintIndex = profile - 15u;
+            matrixFingerprints[fingerprintIndex] = fingerprint;
+            bool unique = true;
+            for (size_t earlier = 0u; earlier < fingerprintIndex; ++earlier) {
+                unique = unique
+                    && std::abs(fingerprint - matrixFingerprints[earlier])
+                        > 1.0e-3;
+            }
+            if (bank.matrixMode != s3g::AcapellaResonatorMatrixMode::Custom
+                || bank.matrixMorph < 0.999f
+                || bank.modulatorSource
+                    != s3g::AcapellaResonatorModulatorSource::ExternalMic
+                || offDiagonalA < 10u || offDiagonalB < 10u
+                || sceneDifference < 4.0 || !unique) {
+                std::cerr << "matrix-first profile contract failed: "
+                          << profile << ", off-diagonal " << offDiagonalA
+                          << '/' << offDiagonalB << ", scene delta "
+                          << sceneDifference << ", unique " << unique << '\n';
+                return false;
+            }
+        }
         auto dryParams = wetParams;
         dryParams.resonator.amount = 0.0f;
         s3g::AcapellaVocalEffects wet;

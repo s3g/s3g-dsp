@@ -95,6 +95,16 @@ bool parseResonatorProfile(const std::string& name, uint32_t& profile)
     else if (name == "consonant-shadow") profile = 11u;
     else if (name == "moving-scar") profile = 12u;
     else if (name == "chord-glass") profile = 13u;
+    else if (name == "classic-mic") profile = 14u;
+    else if (name == "formant-glide") profile = 15u;
+    else if (name == "fixed-circuit") profile = 16u;
+    else if (name == "glass-harmony") profile = 17u;
+    else if (name == "public-address") profile = 18u;
+    else if (name == "pocket-radio") profile = 19u;
+    else if (name == "low-persona") profile = 20u;
+    else if (name == "bright-persona") profile = 21u;
+    else if (name == "broken-relay") profile = 22u;
+    else if (name == "vocal-alloy") profile = 23u;
     else return false;
     return true;
 }

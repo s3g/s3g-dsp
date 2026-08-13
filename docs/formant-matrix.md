@@ -36,7 +36,7 @@ replayed.
 
 - Host name: `s3g Processor Formant Matrix`
 - CLAP ID: `org.s3g.s3g-dsp.formant-matrix`
-- Version: `5.2.5`
+- Version: `5.4.0`
 - Installed bundle: `s3g_processor_formant_matrix.clap`
 - Main input: stereo `Modulator In`
 - Main output: stereo `Formant Matrix Out`
@@ -265,6 +265,37 @@ several synthesis channels or collect several analysis bands into one
 destination. Routing gains and morph movement are bounded so dense patches
 cannot create an uncontrolled feedback path.
 
+### Matrix-first profiles
+
+The profiles after Classic Mic are complete custom-routing patches. Each owns
+two signed 22 by 22 scenes; **Matrix A / B** exposes the most important motion
+inside the sound instead of merely decorating a fixed diagonal vocoder.
+
+- **Formant Glide** moves continuously between a downward and upward formant
+  translation while retaining neighboring-band articulation.
+- **Fixed Circuit** collects analysis into stepped three-band blocks for a
+  stable, quantized character. Voice pitch is chromatic and Pitch Hold is
+  Infinite.
+- **Glass Harmony** fans each analysis band into several higher and lower
+  synthesis bands, with an odd/even stereo pattern and a tuned carrier.
+- **Public Address** limits routing to the speech midrange and uses signed
+  adjacent-band cancellation before its compressed, driven post chain.
+- **Pocket Radio** collects the upper speech bands into a small changing set
+  of narrow destinations, with noise-carrier articulation and a short echo.
+- **Low Persona** morphs between moderate and deep downward formant maps.
+- **Bright Persona** morphs between two upward formant maps while preserving
+  sibilant detail.
+- **Broken Relay** uses deterministic sparse, signed cross-wiring in two
+  unrelated scenes, plus synchronized carrier motion and multi-head echo.
+- **Vocal Alloy** is a MIDI-played polyphonic matrix that combines diagonal,
+  shifted, mirrored, and signed cross-routes across its two scenes.
+
+These profiles start from External Mic and eight-pole Speech 22 analysis.
+Formant Glide through Broken Relay use Voice Pitch so the carrier follows a
+sung note; Vocal Alloy deliberately uses MIDI Pitch for polyphonic playing.
+They remain starting points: editing any control or crosspoint moves the
+profile display to Custom without discarding the routing.
+
 **Band Trim 1** through **Band Trim 22** scale the corresponding signed
 synthesis gain from 0 to 200 percent after routing and tilt. They do not trim
 the analysis followers. Each channel displays both the measured level of the
@@ -297,9 +328,13 @@ introduce hard discontinuities.
 In Voice Pitch mode, a bounded monophonic periodicity tracker estimates roughly
 48–2000 Hz from the selected modulator. Its tracking-only high-pass and
 anti-alias low-pass do not filter the audible microphone or the 22-band
-vocoder analysis. **Scale Root** and **Pitch Scale** can
-leave the result Continuous or quantize it to Chromatic, Major, Natural Minor,
-Harmonic Minor, Dorian, Major Pentatonic, or Minor Pentatonic. Pitch Hold ranges
+vocoder analysis. **Scale Root** and **Pitch Scale** can leave the result
+Continuous or quantize it through the shared s3g-dsp catalog of 101 musical
+scales. The four-column menu begins with the core chromatic, major/minor,
+pentatonic, whole-tone, blues, modal, and bebop families, then continues through
+regional, modern, and limited-transposition collections. The original eight
+Formant Matrix scale values remain stable for existing projects and automation.
+Pitch Hold ranges
 from 20 to 1999 ms, with the maximum control position selecting **Infinite**.
 Infinite retains the last confident pitch across consonants and arbitrarily
 long silences. It never overrides the External Mic silence gate: the carrier is
@@ -379,7 +414,10 @@ The logical pages are:
   waveform, and carrier LFO.
 - **PHRASE** — text entry, compiled phoneme score, timing, audition, voice, and
   polyphony.
-- **FX** — octave/fuzz, dynamics, de-essing, stereo width, and tape echo.
+- **FX** — the left column contains output, dynamics, stereo width, octave, and
+  fuzz shaping; the right column contains the complete multi-head tape path.
+  Compact labels remain inside the label lane instead of overlapping slider
+  tracks or value readouts.
 
 The phrase text field is page-owned and hidden whenever another page or an
 overlapping menu is active. Matrix cells, meters, trims, and their hit regions
@@ -387,11 +425,13 @@ share the same geometry so visual and mouse locations remain aligned.
 
 ## State and compatibility
 
-Version 5 uses state format 19. The IDs formerly assigned to the external
+Version 5.3 uses state format 21. The IDs formerly assigned to the external
 carrier mix and gain now represent Modulator Source and Mic Gain. A format-18
 state is therefore migrated deliberately rather than reinterpreted: its source
 becomes Internal Speech and its mic gain becomes 0 dB, while the former Custom
-profile moves from slot 14 to slot 15. Existing phrase, synthesis, ensemble,
+profile moves from slot 14 to the current Custom slot. Format-20 state used
+slot 15 for Custom; format 21 moves that value to slot 24 so nine matrix-first
+factory profiles can occupy slots 15 through 23. Existing phrase, synthesis, ensemble,
 echo, matrix, and post-effect settings are preserved where they retain the same
 meaning.
 

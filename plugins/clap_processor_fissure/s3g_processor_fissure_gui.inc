@@ -733,19 +733,26 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         withAttributes:tiny];
     [@"RATE / SPACE ↑" drawAtPoint:NSMakePoint(662.0, 566.0)
         withAttributes:tiny];
+    const bool grabbing = p->grabbingStatus.load(std::memory_order_relaxed);
+    const bool grabbed = p->grabbed.load(std::memory_order_relaxed);
+    const float grabDuration = p->grabDuration.load(
+        std::memory_order_relaxed);
     s3g::clap_gui::drawHeaderButton(grabButtonRect(),
-        s3g::clap_gui::cocoaRect(kFracturePanel.frame), @"GRAB",
-        p->grabbed.load(std::memory_order_relaxed), values, style);
+        s3g::clap_gui::cocoaRect(kFracturePanel.frame),
+        grabbing ? @"STOP GRAB" : @"GRAB", grabbing, values, style);
     s3g::clap_gui::drawHeaderButton(repeatButtonRect(),
         s3g::clap_gui::cocoaRect(kFracturePanel.frame), @"REPEAT",
         p->repeatMix.load(std::memory_order_relaxed) > .08f,
         values, style);
-    [[NSString stringWithFormat:@"X %02.0f  Y %02.0f · RPT %02.0f",
-        fractureX * 99.0, fractureY * 99.0,
-        p->repeatMix.load(std::memory_order_relaxed) * 99.0f]
+    NSString* loopStatus = grabbing
+        ? [NSString stringWithFormat:@"REC %.1fs", grabDuration]
+        : (grabbed ? [NSString stringWithFormat:@"LOOP %.1fs", grabDuration]
+                   : @"LOOP EMPTY");
+    [loopStatus
         drawAtPoint:NSMakePoint(888.0, 674.0) withAttributes:tiny];
-    [@"PRESS + DRAG\nRELEASE = RETURN" drawInRect:NSMakeRect(
-        888.0, 690.0, 84.0, 32.0) withAttributes:tiny];
+    [[NSString stringWithFormat:@"RPT %02.0f%%",
+        p->repeatPhase.load(std::memory_order_relaxed) * 100.0f]
+        drawAtPoint:NSMakePoint(888.0, 690.0) withAttributes:tiny];
 
     if (_presetMenuOpen) {
         NSString* presetItems[kFactoryPresetCount] {};
@@ -963,7 +970,8 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         return;
     }
     if (NSPointInRect(point, grabButtonRect())) {
-        queueGuiPulse(*p, kGrabParamId);
+        queueGuiParamGesture(*p, kGrabParamId,
+            paramValue(*p, kGrabParamId) >= .5 ? 0.0 : 1.0);
         return;
     }
     if (NSPointInRect(point, repeatButtonRect())) {

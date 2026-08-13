@@ -2,6 +2,7 @@
 
 #include "s3g_acapella_source_synth.h"
 #include "s3g_math.h"
+#include "s3g_musical_scales.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -59,7 +60,64 @@ enum class AcapellaResonatorPitchScale : uint32_t {
     MinorPentatonic,
 };
 
-constexpr uint32_t kAcapellaResonatorPitchScaleCount = 8u;
+// Values 0--7 are kept stable for existing projects and host automation.
+// Remaining values expose every shared s3g-dsp musical scale without
+// reinterpreting the original Natural/Harmonic Minor, Dorian, or pentatonic
+// slots. Continuous is the one Formant Matrix-only entry.
+constexpr uint32_t kAcapellaResonatorPitchScaleCount
+    = kMusicalScaleCount + 1u;
+
+inline constexpr std::array<uint8_t, kAcapellaResonatorPitchScaleCount>
+    kAcapellaResonatorSharedScaleByValue = [] {
+        std::array<uint8_t, kAcapellaResonatorPitchScaleCount> result {};
+        result[0] = 0u; // Continuous has no shared-scale counterpart.
+        result[1] = 0u; // Chromatic
+        result[2] = 1u; // Major
+        result[3] = 2u; // Natural Minor
+        result[4] = 5u; // Harmonic Minor
+        result[5] = 6u; // Dorian
+        result[6] = 3u; // Major Pentatonic
+        result[7] = 31u; // Minor Pentatonic
+        uint32_t write = 8u;
+        for (uint32_t scale = 0u; scale < kMusicalScaleCount; ++scale) {
+            if (scale == 0u || scale == 1u || scale == 2u || scale == 5u
+                || scale == 6u || scale == 3u || scale == 31u) {
+                continue;
+            }
+            result[write++] = static_cast<uint8_t>(scale);
+        }
+        return result;
+    }();
+
+inline constexpr uint32_t acapellaResonatorSharedScale(
+    AcapellaResonatorPitchScale scale)
+{
+    return kAcapellaResonatorSharedScaleByValue[std::min<uint32_t>(
+        static_cast<uint32_t>(scale),
+        kAcapellaResonatorPitchScaleCount - 1u)];
+}
+
+inline constexpr uint32_t acapellaResonatorPitchScaleValue(
+    uint32_t sharedScale)
+{
+    sharedScale = std::min<uint32_t>(sharedScale,
+        kMusicalScaleCount - 1u);
+    for (uint32_t value = 1u;
+         value < kAcapellaResonatorPitchScaleCount; ++value) {
+        if (kAcapellaResonatorSharedScaleByValue[value] == sharedScale) {
+            return value;
+        }
+    }
+    return 1u;
+}
+
+inline constexpr const char* acapellaResonatorPitchScaleName(
+    AcapellaResonatorPitchScale scale)
+{
+    return static_cast<uint32_t>(scale) == 0u
+        ? "CONTINUOUS"
+        : musicalScaleDefinition(acapellaResonatorSharedScale(scale)).name;
+}
 
 constexpr uint32_t kAcapellaResonatorBandLayoutCount = 2u;
 
@@ -1841,37 +1899,19 @@ private:
     static bool pitchClassInScale(uint32_t pitchClass,
         uint32_t root, AcapellaResonatorPitchScale scale)
     {
-        if (scale == AcapellaResonatorPitchScale::Continuous
-            || scale == AcapellaResonatorPitchScale::Chromatic) {
+        if (scale == AcapellaResonatorPitchScale::Continuous) {
             return true;
         }
         const uint32_t interval = (pitchClass + 12u - root) % 12u;
-        switch (scale) {
-        case AcapellaResonatorPitchScale::Major:
-            return interval == 0u || interval == 2u || interval == 4u
-                || interval == 5u || interval == 7u || interval == 9u
-                || interval == 11u;
-        case AcapellaResonatorPitchScale::NaturalMinor:
-            return interval == 0u || interval == 2u || interval == 3u
-                || interval == 5u || interval == 7u || interval == 8u
-                || interval == 10u;
-        case AcapellaResonatorPitchScale::HarmonicMinor:
-            return interval == 0u || interval == 2u || interval == 3u
-                || interval == 5u || interval == 7u || interval == 8u
-                || interval == 11u;
-        case AcapellaResonatorPitchScale::Dorian:
-            return interval == 0u || interval == 2u || interval == 3u
-                || interval == 5u || interval == 7u || interval == 9u
-                || interval == 10u;
-        case AcapellaResonatorPitchScale::MajorPentatonic:
-            return interval == 0u || interval == 2u || interval == 4u
-                || interval == 7u || interval == 9u;
-        case AcapellaResonatorPitchScale::MinorPentatonic:
-            return interval == 0u || interval == 3u || interval == 5u
-                || interval == 7u || interval == 10u;
-        default:
-            return true;
+        const auto& definition = musicalScaleDefinition(
+            acapellaResonatorSharedScale(scale));
+        for (uint32_t degree = 0u; degree < definition.size; ++degree) {
+            if (static_cast<uint32_t>(definition.semitones[degree])
+                == interval) {
+                return true;
+            }
         }
+        return false;
     }
 
     float quantizedPitch(float frequencyHz) const

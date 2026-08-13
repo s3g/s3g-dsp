@@ -34,7 +34,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 20u;
+constexpr uint32_t kStateVersion = 21u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 968u;
@@ -171,7 +171,7 @@ constexpr clap_id kPitchHoldParamId = 1102u;
 constexpr uint32_t kScalarParamCount = 112u;
 constexpr uint32_t kParamCount = kPitchHoldParamId;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
-constexpr double kCustomPreset = 15.0;
+constexpr double kCustomPreset = 24.0;
 
 struct ParamDef {
     clap_id id;
@@ -184,7 +184,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
-    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 15.0, 14.0, true },
+    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 24.0, 14.0, true },
     { kDeliveryParamId, "Phrasing", "Performance", 0.0, 1.0, 0.0, true },
     { kVowelParamId, "Vowel", "Syllable", 0.0, 5.0, 5.0, true },
     { kOnsetParamId, "Onset", "Syllable", 0.0, 24.0, 0.0, true },
@@ -294,7 +294,9 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
     { kAnalysisSlopeParamId, "Analysis Slope", "Analysis", 0.0, 1.0, 1.0, true },
     { kCarrierPitchSourceParamId, "Carrier Pitch Source", "Pitch Tracking", 0.0, 1.0, 0.0, true },
     { kPitchScaleRootParamId, "Scale Root", "Pitch Tracking", 0.0, 11.0, 0.0, true },
-    { kPitchScaleParamId, "Pitch Scale", "Pitch Tracking", 0.0, 7.0, 1.0, true },
+    { kPitchScaleParamId, "Pitch Scale", "Pitch Tracking", 0.0,
+        static_cast<double>(s3g::kAcapellaResonatorPitchScaleCount - 1u),
+        1.0, true },
     { kPitchHoldParamId, "Pitch Hold", "Pitch Tracking", 20.0,
         s3g::kAcapellaResonatorInfinitePitchHoldMs, 350.0, false },
 }};
@@ -995,10 +997,7 @@ void selectPreset(Plugin& plugin, uint32_t index)
     // Voice-bank profiles are designed around phoneme, syllable, and word
     // boundaries. Point them at the compiled phrase by default so their
     // freeze triggers and gesture-follow controls are immediately operative.
-    if (index >= s3g::kAcapellaResonatorProfileFirst
-        && index < s3g::kAcapellaResonatorProfileFirst
-            + s3g::kAcapellaResonatorProfileCount
-        && index != 14u) {
+    if (index >= s3g::kAcapellaResonatorProfileFirst && index <= 13u) {
         params.gestureSequence = s3g::AcapellaGestureSequence::Text;
         params.gestureDepth = 1.0f;
         params.gestureLoop = true;
@@ -1007,11 +1006,14 @@ void selectPreset(Plugin& plugin, uint32_t index)
     storeEffectsParams(plugin, resonatorProfileEffects(index,
         s3g::acapellaVocalFxPreset(sourcePreset)));
     auto ensemble = s3g::acapellaEnsemblePreset(sourcePreset);
-    if (index == 10u || index == 13u) {
-        ensemble.polyphony = index == 13u ? 8u : 6u;
-        ensemble.doubleAmount = index == 13u ? 0.32f : 0.48f;
-        ensemble.doubleDetuneCents = index == 13u ? 7.0f : 13.0f;
-        ensemble.doubleTimingMs = index == 13u ? 18.0f : 29.0f;
+    if (index == 10u || index == 13u || index == 23u) {
+        ensemble.polyphony = index == 10u ? 6u : 8u;
+        ensemble.doubleAmount = index == 10u ? 0.48f
+                                             : (index == 13u ? 0.32f : 0.24f);
+        ensemble.doubleDetuneCents = index == 10u ? 13.0f
+                                                  : (index == 13u ? 7.0f : 5.0f);
+        ensemble.doubleTimingMs = index == 10u ? 29.0f
+                                               : (index == 13u ? 18.0f : 12.0f);
         ensemble.doubleWidth = 0.94f;
     }
     storeEnsembleParams(plugin, ensemble);
@@ -1913,9 +1915,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             "Folded Formant", "Sub Coupling", "Vowel Suspension",
             "Breath Mirror", "Formant Loom", "Resonant Rain",
             "Carrier Choir", "Consonant Shadow", "Moving Scar",
-            "Chord Glass", "Classic Mic", "Custom"
+            "Chord Glass", "Classic Mic", "Formant Glide",
+            "Fixed Circuit", "Glass Harmony", "Public Address",
+            "Pocket Radio", "Low Persona", "Bright Persona",
+            "Broken Relay", "Vocal Alloy", "Custom"
         };
-        const uint32_t index = std::min<uint32_t>(15u,
+        const uint32_t index = std::min<uint32_t>(24u,
             static_cast<uint32_t>(std::round(value)));
         std::snprintf(display, size, "%s", names[index]);
     } else if (id == kDeliveryParamId) {
@@ -2019,14 +2024,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<uint32_t>(std::round(value)));
         std::snprintf(display, size, "%s", names[index]);
     } else if (id == kPitchScaleParamId) {
-        constexpr const char* names[] {
-            "Continuous", "Chromatic", "Major", "Natural Minor",
-            "Harmonic Minor", "Dorian", "Major Pentatonic",
-            "Minor Pentatonic"
-        };
-        const uint32_t index = std::min<uint32_t>(7u,
-            static_cast<uint32_t>(std::round(value)));
-        std::snprintf(display, size, "%s", names[index]);
+        const auto scale = static_cast<s3g::AcapellaResonatorPitchScale>(
+            std::min<uint32_t>(
+                static_cast<uint32_t>(std::round(value)),
+                s3g::kAcapellaResonatorPitchScaleCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::acapellaResonatorPitchScaleName(scale));
     } else if (id == kVoicingModeParamId) {
         constexpr const char* names[] { "Tonal", "Noise", "Blend", "Detect" };
         const uint32_t index = std::min<uint32_t>(3u,
@@ -2125,9 +2128,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             "Folded Formant", "Sub Coupling", "Vowel Suspension",
             "Breath Mirror", "Formant Loom", "Resonant Rain",
             "Carrier Choir", "Consonant Shadow", "Moving Scar",
-            "Chord Glass", "Classic Mic", "Custom"
+            "Chord Glass", "Classic Mic", "Formant Glide",
+            "Fixed Circuit", "Glass Harmony", "Public Address",
+            "Pocket Radio", "Low Persona", "Bright Persona",
+            "Broken Relay", "Vocal Alloy", "Custom"
         };
-        for (uint32_t index = 0u; index < 16u; ++index) {
+        for (uint32_t index = 0u; index < 25u; ++index) {
             if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
@@ -2310,16 +2316,22 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     } else if (id == kPitchScaleParamId) {
-        constexpr const char* names[] {
-            "Continuous", "Chromatic", "Major", "Natural Minor",
-            "Harmonic Minor", "Dorian", "Major Pentatonic",
-            "Minor Pentatonic"
-        };
-        for (uint32_t index = 0u; index < 8u; ++index) {
-            if (std::strcmp(display, names[index]) == 0) {
-                *value = static_cast<double>(index);
-                return true;
-            }
+        if (std::strcmp(display, "Continuous") == 0
+            || std::strcmp(display, "CONTINUOUS") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        if (std::strcmp(display, "Natural Minor") == 0
+            || std::strcmp(display, "NATURAL MINOR") == 0) {
+            *value = static_cast<double>(
+                s3g::AcapellaResonatorPitchScale::NaturalMinor);
+            return true;
+        }
+        uint32_t sharedScale = 0u;
+        if (s3g::musicalScaleValueFromText(display, sharedScale)) {
+            *value = static_cast<double>(
+                s3g::acapellaResonatorPitchScaleValue(sharedScale));
+            return true;
         }
     } else if (id == kVoicingModeParamId) {
         constexpr const char* names[] { "Tonal", "Noise", "Blend", "Detect" };
@@ -2696,7 +2708,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             kPhraseCapacity - 1u);
         phrase.text[phrase.length] = '\0';
         if (!publishTextPhrase(*instance, phrase.text.data())) return false;
-    } else if (header.version == kStateVersion) {
+    } else if (header.version == 20u || header.version == kStateVersion) {
         std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(stream, values.data(),
                 sizeof(values))) return false;
@@ -2757,6 +2769,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 storeValue(*instance, id, def->defaultValue);
             }
         }
+    }
+    // Version 20 used profile slot 15 for Custom. Version 21 appends nine
+    // matrix-first factory profiles before Custom without reinterpreting any
+    // existing routing or effect parameter.
+    if (header.version == 20u
+        && std::fabs(loadValue(*instance, kPresetParamId) - 15.0) < 0.5) {
+        storeValue(*instance, kPresetParamId, kCustomPreset);
     }
     storeValue(*instance, kAuditionParamId, 0.0);
     instance->controlAuditionGate.store(false, std::memory_order_release);
@@ -3967,7 +3986,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "5.2.5",
+    "5.4.0",
     "Stereo vocoder and resonant filter matrix with external mic or built-in sample-free speech modulation, procedural MIDI carriers, polyphony, and text-to-phoneme scoring.",
     features
 };

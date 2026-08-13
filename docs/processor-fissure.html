@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Processor Fissure - s3g-dsp</title>
-    <meta name="description" content="s3g Processor Fissure eight-cell physical noise instrument with a cut mask, spring-return fracture pad, ecological Grab/Repeat, metered mic excitation, an editable 8 by 8 matrix, and Stereo, Quad, or direct-eight rendering.">
+    <meta name="description" content="s3g Processor Fissure eight-cell physical noise instrument with a cut mask, spring-return fracture pad, performed control-loop Grab/Repeat, metered mic excitation, an editable 8 by 8 matrix, and Stereo, Quad, or direct-eight rendering.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -49,7 +49,7 @@
           <li>Paint detailed paths in the dominant left-hand matrix by clicking or dragging across crosspoints: each click cycles off, positive, negative, then off. Use the bipolar route strip, <code>FLIP ±</code>, and <code>CLEAR</code> for exact editing.</li>
           <li>Use the eight <code>CUT MASK</code> cells immediately below the matrix to choose which objects may fracture. Click to toggle one or drag across several to paint a group. The mask governs autonomous cuts, the fracture pad, Repeat, and the destination rows changed by <code>CUT + LINKS</code>.</li>
           <li>Press and drag the <code>FRACTURE PAD</code>: horizontal movement raises fragment distance and contrast; vertical movement raises cut rate and empty space. Release anywhere to return smoothly to the stored Edge, Void, Memory, and Cut Contrast behavior.</li>
-          <li>Press <code>GRAB</code> to mark a short region in every cell's current causal history, then hold <code>REPEAT</code> to revisit those fragments. The remembered layer loops while fresh impacts, modal bodies, matrix feedback, and new history continue evolving around it.</li>
+          <li>Click <code>GRAB</code> once to begin recording a performance phrase; the button stays lit. Move macros and the fracture pad or trigger Cut and cell strikes, then click <code>STOP GRAB</code> to close the duration. Hold <code>REPEAT</code> to replay that control-and-event trajectory while the live audio ecology keeps evolving.</li>
           <li><code>CUT + LINKS</code> performs an immediate guarded splice in eligible cells while mutating their authored destination rows. <code>IMPACT ALL</code> adds energy without replacing structure; <code>DROP OUT</code>, <code>HOLD</code>, and <code>PANIC</code> control longer interruption.</li>
           <li>Select Scene A–D and press <code>STORE</code> to capture the twelve field macros, all 64 signed routes, and all 48 object controls. MIDI notes 36–43 strike objects 1–8; later octaves repeat that mapping.</li>
         </ol>
@@ -58,7 +58,7 @@
 
         <p>The twelve factory presets are complete instruments rather than aliases for a few macro values. Recall changes the twelve field and exciter macros, all eight object profiles, signed topology, input/output gain, Seed, Variation, and the complete A–D scene bank. <code>OUTPUT MODE</code> is deliberately preserved so browsing instruments never reroutes a Stereo, Quad, or 8 Direct performance. Editing a structural value changes the title readout to <code>CUSTOM</code>; <code>LOAD</code> and <code>SAVE</code> still operate on the complete plug-in state.</p>
 
-        <p>Factory recall is also a performance rearm: it cancels Repeat and temporary fracture-pad pressure, releases inherited dropouts, returns every cut read toward live causal history, opens the cell gates, and strikes two separated objects. Every factory scene retains a small autonomous excitation floor, and its output trim is matched for useful no-input auditioning. A preset can therefore recover directly from Panic or a depleted feedback state without clearing the whole three-second history allocation on the audio thread.</p>
+        <p>Factory recall is also a performance rearm: it clears the temporary Grab phrase, cancels Repeat and fracture-pad pressure, releases inherited dropouts, returns every cut read toward live causal history, opens the cell gates, and strikes two separated objects. Every factory scene retains a small autonomous excitation floor, and its output trim is matched for useful no-input auditioning. A preset can therefore recover directly from Panic or a depleted feedback state without clearing the whole three-second history allocation on the audio thread.</p>
 
         <table class="readout-table">
           <thead><tr><th>Preset</th><th>Starting behavior</th></tr></thead>
@@ -91,7 +91,7 @@
           <li>Three resonant modes per cell act as attached metal sheets and springs. Physical impacts, cell strikes, and the contact path drive those same states before nonlinear processing and feedback.</li>
           <li>The editable signed 8-by-8 matrix couples self, neighboring, and distant returns. Structure buttons author recognizable global grammars; matrix painting and <code>CUT + LINKS</code> create local deviations.</li>
           <li>Each cell writes a private causal history of up to three seconds. <code>MEMORY / FRAG</code> changes both return depth and the available splice distance. Eight asynchronous event clocks can jump eligible cells to different causal fragments and polarities. Every jump is committed at the bottom of a 0.22 ms down / 1.15 ms up seam, so dense cut-up remains decisive without raw discontinuities.</li>
-          <li><code>GRAB</code> stores a start and loop length for each private history. <code>REPEAT</code> crossfades only the remembered contribution toward those loops; it never freezes object excitation or the live feedback network.</li>
+          <li><code>GRAB</code> records as much as eight seconds of the twelve composition macros, Cut Contrast, fracture-pad position, eligible gate states, cuts, and cell strikes at a 200 Hz control rate. <code>REPEAT</code> re-performs that trajectory; it does not read a captured audio buffer.</li>
           <li>Eight Macro Shred circuit types form the nonlinear bodies. Object hardness participates in circuit assignment and distortion character, independently of matrix topology.</li>
           <li>Per-cell energy observers reduce persistent excess inside the network. A final transparent ceiling is reserved for last-stage protection.</li>
           <li>The renderer places every cell on a ring. Stereo uses equal-power left/right projection; Quad and 8 Direct use equal-power interpolation between adjacent ring outputs.</li>
@@ -109,9 +109,9 @@
 
         <p>The spring-return <code>FRACTURE PAD</code> is a temporary override rather than another scene macro. Moving right increases causal distance, contrast, and inversion potential. Moving upward accelerates the eight private clocks and raises interruption probability. Releasing the pad applies a 72 ms return to the stored ecology. Use a narrow mask for solos and call-and-response, an alternating mask for interleaved rhythm, or all eight cells for a full-field rupture.</p>
 
-        <p><code>GRAB</code> marks the active history region for all cells. Hold <code>REPEAT</code> to foreground those regions in eligible cells: fresh excitation is reduced, captured memory is driven harder through the cell processors, and a parallel post-cell history contribution makes the loop identity immediately audible. Each private loop receives a short fade-to-zero seam at its boundary, producing a guarded rhythmic articulation instead of an uncontrolled discontinuity. The <code>RPT</code> readout beside the pad shows the engagement crossfade. Release Repeat to return to current causal reads.</p>
+        <p><code>GRAB</code> is a latch. Its first click clears the old phrase and starts recording; the lit <code>STOP GRAB</code> button and <code>REC</code> timer show that capture is active. Perform the macros, Cut Contrast, fracture pad, Cut action, and cell strikes, then click it again to set the loop length. Capture is quantized to a 200 Hz control tape and is bounded at eight seconds. The authored object definitions and 8-by-8 matrix remain the live foundation rather than being overwritten by playback.</p>
 
-        <p>Repeat still does not stop the history writer, modal bodies, impacts, or matrix circulation. New activity continues behind and around the repeated layer, and some of the captured contribution re-enters cell memory and feedback. It is therefore a prominent performance state while held, but not a conventional dry-input looper.</p>
+        <p>Hold <code>REPEAT</code> to replay the complete duration. The recorded macro path continuously retunes the physical/nonlinear ecology, recorded gate states restore its rhythm, and recorded cut and strike events fire again on each pass. The <code>RPT</code> percentage shows position in the phrase. Release Repeat to crossfade control back to the current live surface. Audio history, modal bodies, incoming-mic analysis, and matrix circulation never stop, so each pass has recognizable timing without becoming a sampled-audio loop.</p>
 
         <p>Start with <code>SCRAP CASCADE</code> for the clearest demonstration. For articulate voice-controlled cuts, lower <code>CONTACT</code>, raise <code>INPUT COUPLE</code>, use moderate <code>MEMORY / FRAG</code>, and move <code>EDGE / RATE</code> upward until syllables break into object-specific returns. For sparse tape-like interruptions, keep Edge below halfway, raise Memory, and use <code>CUT + LINKS</code> manually.</p>
 
@@ -161,7 +161,7 @@
             <tr><td>DRIVE</td><td>Changes the selected object's pre-nonlinear level, shred pressure, and fresh-to-processed balance.</td></tr>
             <tr><td>LEVEL</td><td>Changes the selected object's contribution to feedback, private memory, activity, and output.</td></tr>
             <tr><td>SEED</td><td>Defines event timings, source randomness, cell placement offsets, Scatter structure, and repeatable mutation choices. It does not replace an authored matrix by itself.</td></tr>
-            <tr><td>CUT MASK 1–8</td><td>Determines which cells can receive autonomous memory cuts, fracture-pad events, repeated captures, and the destination-row mutations made by Cut + Links.</td></tr>
+            <tr><td>CUT MASK 1–8</td><td>Determines which cells can receive autonomous memory cuts, fracture-pad events, replayed gate/cut gestures, and the destination-row mutations made by Cut + Links.</td></tr>
           </tbody>
         </table>
 
@@ -173,8 +173,8 @@
             <tr><td>HOLD</td><td>Stops autonomous opening, closing, and burst decisions while leaving the current gates, oscillators, histories, and feedback circulation running.</td></tr>
             <tr><td>CUT CONTRAST</td><td>Sets autonomous splice departure and how far either mutation gesture moves from the current state. It changes fragment offsets and inversion probability without replacing the visible matrix.</td></tr>
             <tr><td>FRACTURE PAD</td><td>A spring-return XY gesture: X raises fragment distance and contrast; Y raises event rate and empty space. Release crossfades back to the stored composition.</td></tr>
-            <tr><td>GRAB</td><td>Marks object-specific regions in the current private histories without stopping the ecology.</td></tr>
-            <tr><td>REPEAT</td><td>While held, foregrounds grabbed history in cut-enabled cells, reduces competing fresh excitation, and adds guarded loop-boundary articulation. Release crossfades their memory and excitation balance back to the live ecology.</td></tr>
+            <tr><td>GRAB</td><td>Latching two-click capture: click once to start recording a control/event phrase and again to close its duration. The maximum phrase is eight seconds; no audio is sampled.</td></tr>
+            <tr><td>REPEAT</td><td>While held, replays the captured macro, fracture-pad, gate, cut, and strike trajectory over the still-running ecology. Release crossfades control back to the live surface.</td></tr>
             <tr><td>MUTATE OBJECT</td><td>Changes Size, Decay, Hardness, Sensitivity, and Drive only for the selected object, then strikes it so the result is immediately audible. Level is preserved.</td></tr>
             <tr><td>CUT + LINKS</td><td>Commits a guarded memory splice in every cut-enabled cell and mutates only their signed destination rows toward the selected structure grammar. Protected cells, object character, scenes, and global field controls are preserved.</td></tr>
             <tr><td>IMPACT ALL</td><td>Sends a moving structural-failure and modal-impact cascade through all eight objects without replacing the matrix or object definitions.</td></tr>
@@ -192,7 +192,7 @@
 
         <p><code>MORPH</code> travels continuously A→B→C→D. It interpolates the global field, signed routes, and every object's physical character and level. Selecting a scene also moves Morph exactly to that scene. Editing after a morph changes the live instrument; it does not modify either endpoint until <code>STORE</code> is pressed.</p>
 
-        <p>Input gain, output gain, seed, Hold, Run, selected cell, output mode, and the eight-cell Cut Mask remain outside the scene so routing, safety, and performance eligibility do not jump during scene recall. Factory preset recall supplies its authored gain/seed values and rearms the field but preserves Output Mode. Fracture-pad position and Repeat are temporary and are not saved as held states. Actions alter the live field but do not overwrite a scene until <code>STORE</code> is pressed. Scene recall publishes all changed macros, routes, and levels to the host, and project state stores the live surface plus all four scenes. Version 0.7 state loading also accepts version 0.6 projects and initializes their new Cut Mask with all cells enabled.</p>
+        <p>Input gain, output gain, seed, Hold, Run, selected cell, output mode, and the eight-cell Cut Mask remain outside the scene so routing, safety, and performance eligibility do not jump during scene recall. Factory preset recall supplies its authored gain/seed values and rearms the field but preserves Output Mode. Fracture-pad position, the Grab latch, Repeat, and the recorded performance tape are temporary and are not restored as held project state. Actions alter the live field but do not overwrite a scene until <code>STORE</code> is pressed. Scene recall publishes all changed macros, routes, and levels to the host, and project state stores the live surface plus all four scenes. Version 0.8 state loading accepts version 0.7 and 0.6-era projects; projects without the Cut Mask initialize all eight cells as eligible.</p>
 
         <p>The CLAP note input accepts CLAP notes and ordinary MIDI. Notes 36–43 strike cells 1–8; other notes wrap through the same eight-cell order. Velocity controls the cell impulse. Notes do not impose equal-tempered pitch because this interface treats the keyboard as a bank of structural exciters.</p>
 
