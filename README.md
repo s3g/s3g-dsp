@@ -98,7 +98,7 @@ describe the shared four-break stereo/16-channel sampler CLAP that pairs with
 Tracker through ordinary MIDI. Its stereo and fixed 16-channel variants share
 the same overview/editor and real-time engine.
 
-The [s3g Processor Formant Matrix notes](docs/formant-matrix.md) describe the
+The [s3g Processor Formant Matrix documentation](https://s3g.github.io/s3g-dsp/formant-matrix.html) describes the
 22-band CLAP effect vocoder and resonant routing matrix, selectable external
 mic/internal speech modulators, four/eight-pole analysis, and a sample-free
 carrier driven either by polyphonic MIDI or monophonic scale-quantized voice

@@ -35,6 +35,15 @@
 
         <p>Processor Fissure is advertised to hosts as a CLAP audio effect, not a <code>CLAPi</code> instrument. Its internal generators and MIDI strikes remain available, but this classification makes the optional live input follow the ordinary track-FX signal path. The minimum <code>OUT</code> position is an exact mute: neither generated nor incoming audio can leave the plug-in at that setting.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/processor-fissure.png" aria-label="Open the high-resolution Processor Fissure interface screenshot">
+              <img src="assets/plugin-guis/processor-fissure.png" alt="Processor Fissure interface showing its eight by eight signed energy matrix, physical object controls, scenes, structure actions, performance gestures, and input meters" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The complete Fissure performance surface: eight physical objects feed a signed coupling matrix, while scenes, structure grammars, input excitation, and performed fracture gestures remain visible together.</figcaption>
+        </figure>
+
         <h2 id="workflow">Workflow</h2>
 
         <ol>
@@ -275,5 +284,6 @@ ctest --test-dir build-clap --output-on-failure \
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

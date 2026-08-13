@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Formant Matrix - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Formant Matrix 22-band stereo vocoder, signed routing matrix, external-mic and internal-speech modulators, voice-pitch tracking, MIDI carrier, and integrated effects documentation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Formant Matrix</h1>
+
+        <p><code>s3g Processor Formant Matrix</code> is a stereo channel-vocoder and resonant filter-bank audio effect. A live microphone, another audio signal, or the integrated sample-free speech generator supplies the articulation. A procedural carrier follows polyphonic MIDI notes or the estimated pitch of the selected modulator.</p>
+
+        <p>The 22-by-22 signed routing matrix is the instrument's center. A diagonal patch behaves like a classic matched-band vocoder; shifted, mirrored, sparse, chordal, and custom routes can move one articulation band to another synthesis band without changing the words' timing. Four-pole and eight-pole analysis responses trade broad blending for stronger adjacent-formant separation.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/formant-matrix.png" aria-label="Open the high-resolution Processor Formant Matrix routing-page screenshot">
+              <img src="assets/plugin-guis/formant-matrix.png" alt="Processor Formant Matrix ROUTE page showing its 22 by 22 signed formant-routing grid, source and synthesis band meters, selected crosspoint, modulator controls, envelope controls, and output" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The primary <code>ROUTE</code> page combines the signed 22-by-22 map with source and destination meters, per-band trims, modulator selection, envelope behavior, and output.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Processor Formant Matrix</code> as a normal stereo CLAP effect. Route a microphone or vocal track to <code>Modulator In</code>, then keep the track's host wet/dry control at 100% wet.</li>
+          <li>Monitor <code>Formant Matrix Out</code> through the track's normal stereo speaker or headphone path. Select <code>CLASSIC MIC</code>, confirm <code>MOD SOURCE</code> is <code>EXTERNAL MIC</code>, and verify that the orange analysis meters follow the incoming voice.</li>
+          <li>Hold a MIDI note or chord. The oscillator supplies the carrier; the microphone opens and shapes the filter bank. Silence at the microphone closes the pre-echo bank even while MIDI remains held.</li>
+          <li>For keyboard-free use, select <code>VOICE PITCH</code>, choose a scale and root, then sing. Set <code>PITCH HOLD</code> to <code>INFINITE</code> when the last confident pitch should survive consonants and silence.</li>
+          <li>Start with <code>IDENTITY</code> routing. Change to <code>ROTATE</code>, <code>MIRROR</code>, <code>CHORD</code>, or <code>SPARSE</code>, then raise <code>MATRIX DEPTH</code> gradually.</li>
+          <li>Choose <code>CUSTOM</code> for detailed work. Edit Routing A and B, use <code>MATRIX A / B</code> to travel between them, and watch the synthesis meters to verify the mapped result.</li>
+          <li>Use the BANK page to refine analysis slope, attack, release, voiced/unvoiced behavior, and stereo placement. Add carrier movement on SOURCES, text articulation on PHRASE, and output processing on FX only after the words read clearly.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow and Roles</h2>
+
+        <pre><code>microphone / audio ---------+
+                            +--&gt; modulator selector --&gt; analysis filters
+typed text --&gt; speech synth+
+
+MIDI notes -------+
+                  +--&gt; pitch source --&gt; oscillator carrier --&gt; synthesis filters
+voice pitch track-+
+
+analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis VCAs
+                   --&gt; articulation support --&gt; post effects --&gt; stereo output</code></pre>
+
+        <ol>
+          <li>The selected external mic, generated speech, or blend enters the analysis filters.</li>
+          <li>Per-band followers extract articulation energy and the voiced/unvoiced detector selects tonal or noise excitation.</li>
+          <li>The signed matrix, coupling, tilt, and trims map analysis channels onto synthesis destinations.</li>
+          <li>MIDI notes or tracked voice pitch drive the procedural oscillator carrier through those synthesis filters and VCAs.</li>
+          <li>Articulation support, dynamics, octave/fuzz shaping, stereo placement, tape echo, and output gain form the final stereo result.</li>
+        </ol>
+
+        <p><code>MOD SOURCE</code> selects <code>EXTERNAL MIC</code>, <code>INTERNAL SPEECH</code>, or <code>BLEND</code>. External Mic never silently falls back to generated speech when its input disappears. Internal Speech compiles typed English into phoneme gestures and measures the procedural result through the same bank. Blend combines both sources before analysis.</p>
+
+        <p><code>MIC GAIN</code> is pre-analysis gain, not a direct monitor. The only deliberate dry-articulation path is <code>ART THRU</code>; leave it at zero for a carrier-only vocoder. In External Mic mode a hysteretic, click-smoothed presence gate prevents Bank Mix, Open Level, or a frozen envelope from turning a held carrier into an indefinite drone. Tape echoes already in motion remain free to decay.</p>
+
+        <p>The plug-in is advertised as a CLAP audio effect, filter, and stereo processor rather than a CLAP instrument. Its CLAP and MIDI note input remains available, so an effect-classified instance can still play its carrier from a keyboard or routed MIDI track.</p>
+
+        <h2 id="analysis-bank">Analysis and Synthesis Banks</h2>
+
+        <p><code>SPEECH 22</code> surrounds twenty approximately quarter-octave band-pass channels with low-pass and high-pass endpoints. Its nominal centers are LP 185, 220, 262, 311, 370, 440, 523, 622, 740, 880, 1047, 1245, 1480, 1760, 2093, 2489, 2960, 3520, 4186, 4978, 5920, and HP 7040 Hz. <code>WIDE 16</code> spreads sixteen active band-pass channels from 90 Hz toward 9 kHz for non-speech and abstract routing.</p>
+
+        <p><code>ANALYSIS SLOPE</code> selects <code>FOUR POLE</code> or <code>EIGHT POLE</code>. Four Pole gives broader overlap and is forgiving on noisy sources. Eight Pole provides stronger vowel and consonant separation and is the Classic Mic default. The slope changes detector selectivity; it does not insert an audible tracking filter into the microphone path.</p>
+
+        <p>Attack and Release set directional envelope timing. Blur smooths changes after detection, while Analysis / Phoneme balances measured energy against phrase-derived targets when Internal Speech contributes. For a live microphone, shorter Blur and moderate Release preserve the mouth movement that distinguishes words; long values intentionally turn the result toward a smooth vocal-controlled resonator.</p>
+
+        <p><code>BANK MODE</code> offers three relationships:</p>
+
+        <ul>
+          <li><code>VOCODER</code> follows measured band envelopes and ignores Open Level.</li>
+          <li><code>HYBRID</code> can combine measured and score-derived envelopes, using Open Level as a minimum bank opening.</li>
+          <li><code>FILTER BANK</code> emphasizes the fixed opening while retaining restrained articulation.</li>
+        </ul>
+
+        <p>The voiced/unvoiced stage can force tonal excitation, force noise, blend both, or detect the appropriate balance. Detect uses measured low/mid periodic energy against upper-band noise, with the speech score only as a bias when generated speech is active. Directional transition controls keep fricatives and stop releases attached to the surrounding vowel instead of sounding like separate percussion.</p>
+
+        <h2 id="routing">22-by-22 Routing</h2>
+
+        <p>Matrix columns are analysis sources and rows are synthesis destinations. <code>IDENTITY</code> connects matching channels. <code>ROTATE</code>, <code>MIRROR</code>, <code>CHORD</code>, and <code>SPARSE</code> provide bounded structural maps; <code>MATRIX DEPTH</code> interpolates from identity toward the selected transformation.</p>
+
+        <p><code>CUSTOM</code> stores two complete signed scenes. Every crosspoint ranges from -1 to +1, and destination rows are normalized by total absolute gain. Negative routes invert envelope contribution before the row is bounded. <code>MATRIX A / B</code> morphs continuously between the scenes, while Identity, Copy, Random, and Clear operations establish useful starting structures. <code>BAND COUPLING</code> supplies a quick non-wrapping shift of -3 to +3 bands without rewriting either scene.</p>
+
+        <p>The vertical orange meters report the selected modulator's analyzed bands. The horizontal destination meters report the mapped synthesis activity after matrix, coupling, tilt, and per-band trim. Their logarithmic display scaling makes speech-level movement visible without changing the linear DSP data. Band Trim 1–22 scales the corresponding mapped destination from 0 to 200%.</p>
+
+        <h2 id="pitch">Carrier Pitch, Scales, and Hold</h2>
+
+        <p><code>PITCH SOURCE</code> selects polyphonic <code>MIDI</code> or monophonic <code>VOICE PITCH</code>. The tracker estimates approximately 48–2000 Hz from the selected modulator. Its tracking-only conditioning does not remove low or high frequencies from the audible microphone or the analysis bank.</p>
+
+        <p><code>SCALE</code> provides Continuous plus the shared s3g-dsp catalog of 101 musical scales. <code>ROOT</code> transposes the selected collection. The catalog begins with chromatic, major/minor, pentatonic, whole-tone, blues, modal, and bebop families and continues through regional, modern, and limited-transposition collections.</p>
+
+        <p><code>PITCH HOLD</code> bridges unvoiced consonants and temporary detector loss. Values from 20 to 1999 ms time out normally; the maximum position reads <code>INFINITE</code> and retains the last confident pitch until Voice Pitch is disabled or the plug-in is reset. Infinite Hold remembers pitch but does not defeat the External Mic silence gate: the carrier becomes audible again only when new mic articulation opens the bank.</p>
+
+        <p>The carrier offers glottal, saw, pulse, folded, and noise shapes. Harmonics, Color, Noise, Pulse Width, and its tempo-syncable triangle/square LFO determine the spectrum presented to the synthesis filters. MIDI remains the correct pitch source for chords and independent note lifetimes.</p>
+
+        <h2 id="profiles">Matrix-first Profiles</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Profile</th><th>Routing behavior</th></tr></thead>
+          <tbody>
+            <tr><td>CLASSIC MIC</td><td>Silence-safe external-mic vocoder with eight-pole Speech 22 analysis, identity routing, no Open floor, and no direct articulation rail.</td></tr>
+            <tr><td>FORMANT GLIDE</td><td>Morphs between downward and upward formant translations while retaining neighboring-band speech movement.</td></tr>
+            <tr><td>FIXED CIRCUIT</td><td>Collects analysis into stepped three-band blocks; Voice Pitch is chromatic and Pitch Hold is Infinite.</td></tr>
+            <tr><td>GLASS HARMONY</td><td>Fans bands into higher and lower destinations with an odd/even stereo pattern.</td></tr>
+            <tr><td>PUBLIC ADDRESS</td><td>Concentrates the speech midrange and uses signed adjacent-band cancellation before a compressed, driven output chain.</td></tr>
+            <tr><td>POCKET RADIO</td><td>Collects upper speech bands into a moving set of narrow destinations with noise articulation and short echo.</td></tr>
+            <tr><td>LOW PERSONA</td><td>Morphs between moderate and deep downward maps.</td></tr>
+            <tr><td>BRIGHT PERSONA</td><td>Morphs between upward maps while preserving sibilant destinations.</td></tr>
+            <tr><td>BROKEN RELAY</td><td>Crossfades deterministic sparse signed wiring with synchronized carrier motion and multi-head echo.</td></tr>
+            <tr><td>VOCAL ALLOY</td><td>Uses MIDI polyphony with diagonal, shifted, mirrored, and signed cross-routes.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Profiles are starting points, not hidden algorithms. Editing any matrix cell or structural control changes the profile display to <code>CUSTOM</code> while leaving the complete patch available for state save and host automation.</p>
+
+        <h2 id="pages">Editor Pages</h2>
+
+        <ul>
+          <li><code>ROUTE</code> — matrix scenes, selected crosspoint, source/destination meters, trims, modulator choice, envelope behavior, and output.</li>
+          <li><code>BANK</code> — layout, analysis response, tuning, voiced/unvoiced behavior, stereo pattern, and fixed-bank controls.</li>
+          <li><code>SOURCES</code> — modulator source and gain, carrier waveform and color, voice-pitch controls, scale, and carrier LFO.</li>
+          <li><code>PHRASE</code> — text entry, compiled phoneme score, forced rests, timing, audition, voice, and polyphony.</li>
+          <li><code>FX</code> — output, dynamics, width, octave and fuzz shaping in the left column; the complete multi-head tape echo in the right column.</li>
+        </ul>
+
+        <p>On PHRASE, a vertical bar inserts a rhythmically stable rest: <code>hello | worlds</code>. Repeated bars extend the rest. Phrase playback can run one-shot or loop while a note is held, and timing can be free, note-relative, or transport-synchronized.</p>
+
+        <p>The octave layers, fold/fuzz, compression, de-essing, width, and intelligibility stages process the articulated bank rather than the raw microphone. The tape section supplies three virtual heads, seven combinations, free or synchronized timing, feedback, wear, flutter, tone, and spread. Keep this chain restrained until the analysis meters and identity route already produce intelligible words.</p>
+
+        <h2 id="state-build">State, Build, and Identity</h2>
+
+        <ul>
+          <li>Host name: <code>s3g Processor Formant Matrix</code></li>
+          <li>CLAP ID: <code>org.s3g.s3g-dsp.formant-matrix</code></li>
+          <li>Version: <code>5.4.0</code></li>
+          <li>Input: stereo <code>Modulator In</code></li>
+          <li>Output: stereo <code>Formant Matrix Out</code></li>
+          <li>Note input: CLAP notes and MIDI</li>
+        </ul>
+
+        <p>All matrix, filter, envelope, carrier, and phrase storage is fixed-capacity. Activation prepares working memory; the audio callback performs no file access or dynamic allocation. The internal speech path is procedural and does not replay recorded voices, grains, impulse responses, or learned reconstruction data.</p>
+
+        <pre><code>cmake --preset clap
+cmake --build build-clap --target s3g_acapella_source_synth_clap
+ctest --test-dir build-clap --output-on-failure \
+  -R 's3g_formant_matrix'</code></pre>
+
+        <p>The development bundle is written to <code>build-clap/plugins/clap_acapella_source_synth/s3g_formant_matrix.clap</code>. Release packaging installs the canonical <code>s3g_processor_formant_matrix.clap</code> bundle.</p>
+
+        <p>Repository-level implementation and migration details remain in <a href="https://github.com/s3g/s3g-dsp/blob/main/docs/formant-matrix.md" target="_blank" rel="noopener noreferrer">the Formant Matrix engineering notes</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="voice-instruments.html">
+            <span>Previous</span>
+            Voice / Language Instruments
+          </a>
+          <a class="page-nav-link next" href="vox-builder.html">
+            <span>Next</span>
+            Vox Builder
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>Voice / Language Pages</h2>
+          <a href="formant-matrix.html">Processor Formant Matrix</a>
+          <a href="ambi-encoder-vox.html">Encoder Vox</a>
+          <a href="vox-builder.html">Vox Builder</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow and Roles</a>
+          <a href="#analysis-bank">Analysis and Synthesis Banks</a>
+          <a href="#routing">22-by-22 Routing</a>
+          <a href="#pitch">Carrier Pitch, Scales, and Hold</a>
+          <a href="#profiles">Matrix-first Profiles</a>
+          <a href="#pages">Editor Pages</a>
+          <a href="#state-build">State, Build, and Identity</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

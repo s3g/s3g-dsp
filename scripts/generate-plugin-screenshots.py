@@ -47,7 +47,7 @@ TARGET_FILE_RE = re.compile(r"^\$<TARGET_FILE:([A-Za-z0-9_]+)>$")
 OUTPUT_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 GUI_COMMAND_START_RE = re.compile(
     r"^[ \t]*COMMAND[ \t]+"
-    r"\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke)>(?=[ \t])"
+    r"\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke)>(?=[ \t]|$)"
 )
 GUI_COMMAND_RE = re.compile(
     r"""
@@ -164,42 +164,92 @@ def read_active_manifest(path: Path) -> dict[str, Bundle]:
     return bundles
 
 
-def read_gui_inventory(
-    path: Path, bundles: dict[str, Bundle], manifest_path: Path
-) -> list[Capture]:
+def cmake_inventory_paths(path: Path) -> list[Path]:
+    if path.resolve() != DEFAULT_CMAKE_FILE.resolve():
+        return [path]
+    return [
+        DEFAULT_CMAKE_FILE,
+        *sorted((ROOT / "plugins").glob("*/CMakeLists.txt")),
+    ]
+
+
+def logical_gui_commands(path: Path) -> list[tuple[int, str]]:
     try:
-        source = path.read_text(encoding="utf-8")
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise UsageError(f"cannot read CMake GUI audit inventory {path}: {exc}") from exc
 
-    captures: list[Capture] = []
-    seen_ids: set[str] = set()
-    for line, command in enumerate(source.splitlines(), start=1):
-        if not GUI_COMMAND_START_RE.match(command):
+    commands: list[tuple[int, str]] = []
+    index = 0
+    while index < len(lines):
+        first = lines[index]
+        if not GUI_COMMAND_START_RE.match(first):
+            index += 1
             continue
-        context = f"{display_path(path)}:{line}"
-        match = GUI_COMMAND_RE.fullmatch(command)
-        if match is None:
-            raise UsageError(
-                f"{context}: unsupported GUI smoke command syntax or trailing "
-                "arguments"
+
+        start_line = index + 1
+        parts: list[str] = []
+        matched = False
+        while index < len(lines):
+            part = lines[index].strip()
+            if part:
+                parts.append(part)
+            candidate = " ".join(parts)
+            candidates = [candidate]
+            if candidate.endswith(")"):
+                candidates.append(candidate[:-1].rstrip())
+            command = next(
+                (value for value in candidates if GUI_COMMAND_RE.fullmatch(value)),
+                None,
             )
-        harness = target_name(match.group("harness"), context=context)
-        plugin_target = target_name(match.group("plugin"), context=context)
-        plugin_id = match.group("plugin_id")
-        if plugin_id in seen_ids:
-            raise UsageError(f"{context}: duplicate GUI audit CLAP ID {plugin_id!r}")
-        bundle = bundles.get(plugin_id)
-        if bundle is None:
+            if command is not None:
+                commands.append((start_line, command))
+                matched = True
+                index += 1
+                break
+            index += 1
+            if index >= len(lines) or len(parts) >= 8:
+                break
+            if re.match(
+                r"^(?:DEPENDS|COMMENT|WORKING_DIRECTORY)\b", lines[index].strip()
+            ):
+                break
+
+        if not matched and any(PLUGIN_ID_PREFIX in part for part in parts):
             raise UsageError(
-                f"{context}: GUI audit CLAP ID {plugin_id!r} is absent from "
-                f"{display_path(manifest_path)}"
+                f"{display_path(path)}:{start_line}: unsupported GUI smoke "
+                "command syntax or trailing arguments"
             )
-        prefix = match.group("prefix")
-        mode = match.group("mode")
-        extra_arguments = (prefix, mode) if prefix is not None and mode is not None else ()
-        captures.append(
-            Capture(
+    return commands
+
+
+def read_gui_inventory(
+    paths: list[Path], bundles: dict[str, Bundle], manifest_path: Path
+) -> list[Capture]:
+    captures: list[Capture] = []
+    seen: dict[str, Capture] = {}
+    for path in paths:
+        for line, command in logical_gui_commands(path):
+            context = f"{display_path(path)}:{line}"
+            match = GUI_COMMAND_RE.fullmatch(command)
+            assert match is not None
+            harness = target_name(match.group("harness"), context=context)
+            plugin_target = target_name(match.group("plugin"), context=context)
+            plugin_id = match.group("plugin_id")
+            bundle = bundles.get(plugin_id)
+            if bundle is None:
+                raise UsageError(
+                    f"{context}: GUI audit CLAP ID {plugin_id!r} is absent from "
+                    f"{display_path(manifest_path)}"
+                )
+            prefix = match.group("prefix")
+            mode = match.group("mode")
+            extra_arguments = (
+                (prefix, mode)
+                if prefix is not None and mode is not None
+                else ()
+            )
+            capture = Capture(
                 harness,
                 plugin_target,
                 plugin_id,
@@ -208,11 +258,15 @@ def read_gui_inventory(
                 extra_arguments,
                 bundle,
             )
-        )
-        seen_ids.add(plugin_id)
+            previous = seen.get(plugin_id)
+            if previous is not None:
+                continue
+            captures.append(capture)
+            seen[plugin_id] = capture
 
     if not captures:
-        raise UsageError(f"no family GUI smoke commands found in {path}")
+        joined = ", ".join(display_path(path) for path in paths)
+        raise UsageError(f"no family GUI smoke commands found in {joined}")
     return captures
 
 
@@ -913,7 +967,7 @@ def main() -> int:
         manifest_path = args.active_manifest.resolve()
         bundles = read_active_manifest(manifest_path)
         captures = read_gui_inventory(
-            args.cmake_file.resolve(), bundles, manifest_path
+            cmake_inventory_paths(args.cmake_file.resolve()), bundles, manifest_path
         )
         inventory = {capture.plugin_id: capture for capture in captures}
         name_map = (

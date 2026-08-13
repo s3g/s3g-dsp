@@ -381,6 +381,7 @@ DOC_SEQUENCE = [
     "processor-loop.html",
     "processor-multi-loop.html",
     "voice-instruments.html",
+    "formant-matrix.html",
     "vox-builder.html",
     "references.html",
 ]

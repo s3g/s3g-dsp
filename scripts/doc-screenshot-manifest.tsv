@@ -61,6 +61,8 @@ ambisonic-order-band-tool-64	ambisonic-order-band-tool
 ambisonic-energy-visualizer-64	ambisonic-energy-visualizer
 no-input-mixer-8ch	no-input-mixer
 feedback-shift	feedback-shift
+formant-matrix	formant-matrix
+processor-fissure	processor-fissure
 nim-gesture	nim-gesture
 fault	fault
 tracker	s3g-tracker
