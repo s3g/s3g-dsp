@@ -126,6 +126,7 @@ public:
     void reset()
     {
         ageCounter_ = 0u;
+        textWordCursor_ = 0u;
         smoothedDoubleAmount_ = params_.doubleAmount;
         smoothedDoubleDirt_ = params_.doubleDirt;
         smoothedDoubleWidth_ = params_.doubleWidth;
@@ -137,6 +138,9 @@ public:
     {
         params = sanitizeAcapellaSourceParams(params);
         if (sameSourceParams(sourceParams_, params)) return;
+        if (sourceParams_.gestureSequence != params.gestureSequence) {
+            textWordCursor_ = 0u;
+        }
         sourceParams_ = params;
         updateVoiceParams();
     }
@@ -151,11 +155,8 @@ public:
         if (program.revision == textProgram_.revision
             && program.count == textProgram_.count) return;
         textProgram_ = program;
-        for (auto& voice : voices_) {
-            voice.lead.setTextGestureProgram(textProgram_);
-            voice.doubleLeft.setTextGestureProgram(textProgram_);
-            voice.doubleRight.setTextGestureProgram(textProgram_);
-        }
+        textWordCursor_ = 0u;
+        updateVoiceParams();
     }
 
     void setGestureTransport(double tempoBpm, double songBeat,
@@ -198,8 +199,20 @@ public:
             voice.doubleRight.release();
         }
 
+        const bool wordStepping = sourceParams_.gestureSequence
+                == AcapellaGestureSequence::Text
+            && textProgram_.wordCount > 0u;
+        voice.textWordStep = wordStepping;
+        voice.textWordIndex = wordStepping
+            ? textWordCursor_ % textProgram_.wordCount : 0u;
+        setVoiceTextProgram(voice);
+
         setVoiceTransport(voice.lead);
         if (!voice.lead.trigger(note.syllable)) return false;
+        if (wordStepping) {
+            textWordCursor_ = (voice.textWordIndex + 1u)
+                % textProgram_.wordCount;
+        }
         if (params_.doubleAmount > 1.0e-4f) {
             const float detuneRatio = std::exp2(
                 params_.doubleDetuneCents / 1200.0f);
@@ -438,6 +451,8 @@ private:
         bool pendingLeft = false;
         bool pendingRight = false;
         bool held = false;
+        uint32_t textWordIndex = 0u;
+        bool textWordStep = false;
     };
 
     float timeCoefficient(float milliseconds) const
@@ -521,6 +536,8 @@ private:
         voice.leadEnvelope = {};
         voice.leftEnvelope = {};
         voice.rightEnvelope = {};
+        voice.textWordIndex = 0u;
+        voice.textWordStep = false;
         clearIdentity(voice);
     }
 
@@ -613,8 +630,13 @@ private:
     {
         for (uint32_t index = 0u; index < voices_.size(); ++index) {
             auto lead = sourceParams_;
+            const bool wordSteppedText = lead.gestureSequence
+                    == AcapellaGestureSequence::Text
+                && textProgram_.wordCount > 0u;
+            if (wordSteppedText) lead.gestureLoop = false;
             lead.randomSeed ^= 0x9e3779b9u * (index + 1u);
             auto left = sourceParams_;
+            if (wordSteppedText) left.gestureLoop = false;
             left.randomSeed ^= 0x85ebca6bu * (index + 3u);
             left.voice.tractScale = clamp(left.voice.tractScale
                 * (0.986f - static_cast<float>(index % 3u) * 0.002f),
@@ -622,6 +644,7 @@ private:
             left.voice.roughness = clamp(left.voice.roughness + 0.035f,
                 0.0f, 1.0f);
             auto right = sourceParams_;
+            if (wordSteppedText) right.gestureLoop = false;
             right.randomSeed ^= 0xc2b2ae35u * (index + 5u);
             right.voice.tractScale = clamp(right.voice.tractScale
                 * (1.014f + static_cast<float>(index % 3u) * 0.002f),
@@ -631,10 +654,26 @@ private:
             voices_[index].lead.setParams(lead);
             voices_[index].doubleLeft.setParams(left);
             voices_[index].doubleRight.setParams(right);
-            voices_[index].lead.setTextGestureProgram(textProgram_);
-            voices_[index].doubleLeft.setTextGestureProgram(textProgram_);
-            voices_[index].doubleRight.setTextGestureProgram(textProgram_);
+            setVoiceTextProgram(voices_[index]);
         }
+    }
+
+    void setVoiceTextProgram(Voice& voice)
+    {
+        AcapellaGestureProgram program = textProgram_;
+        if (voice.textWordStep
+            && sourceParams_.gestureSequence == AcapellaGestureSequence::Text
+            && textProgram_.wordCount > 0u) {
+            const uint32_t word = voice.textWordIndex
+                % textProgram_.wordCount;
+            if (!acapellaGestureWordProgram(textProgram_, word, program)) {
+                voice.textWordStep = false;
+                program = textProgram_;
+            }
+        }
+        voice.lead.setTextGestureProgram(program);
+        voice.doubleLeft.setTextGestureProgram(program);
+        voice.doubleRight.setTextGestureProgram(program);
     }
 
     float sampleRate_ = 48000.0f;
@@ -643,6 +682,7 @@ private:
     AcapellaEnsembleParams params_ {};
     std::array<Voice, kAcapellaMaxPolyphony> voices_ {};
     uint64_t ageCounter_ = 0u;
+    uint32_t textWordCursor_ = 0u;
     float smoothingCoefficient_ = 0.001f;
     float trackAttackCoefficient_ = 0.02f;
     float trackReleaseCoefficient_ = 0.0004f;

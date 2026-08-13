@@ -183,6 +183,53 @@ struct AcapellaGestureProgram {
     bool truncated = false;
 };
 
+// Extract one compiled word plus the separator/rest that follows it. Keeping
+// the boundary silence with the preceding word lets a note own a complete
+// rhythmic gesture: `hello || worlds` assigns HELLO + the two-division rest
+// to one note, then WORLDS to the next. The source program remains unchanged,
+// so a shared note-trigger cursor may wrap through it without recompilation or
+// allocation on the audio thread.
+inline bool acapellaGestureWordProgram(const AcapellaGestureProgram& source,
+    uint32_t wordIndex, AcapellaGestureProgram& output)
+{
+    output = {};
+    if (source.wordCount == 0u || wordIndex >= source.wordCount
+        || source.count == 0u) {
+        return false;
+    }
+
+    uint32_t currentWord = 0u;
+    uint32_t begin = source.count;
+    for (uint32_t index = 0u; index < source.count; ++index) {
+        if ((source.steps[index].flags & kAcapellaWordStart) == 0u) continue;
+        if (currentWord == wordIndex) {
+            begin = index;
+            break;
+        }
+        ++currentWord;
+    }
+    if (begin >= source.count) return false;
+
+    uint32_t end = source.count;
+    for (uint32_t index = begin + 1u; index < source.count; ++index) {
+        if ((source.steps[index].flags & kAcapellaWordStart) != 0u) {
+            end = index;
+            break;
+        }
+    }
+    output.count = std::min<uint32_t>(end - begin,
+        kAcapellaTextGestureCapacity);
+    for (uint32_t index = 0u; index < output.count; ++index) {
+        output.steps[index] = source.steps[begin + index];
+    }
+    output.wordCount = 1u;
+    output.truncated = source.truncated && end == source.count;
+    output.revision = source.revision
+        ^ (0x9e3779b9u * (wordIndex + 1u));
+    if (output.revision == 0u) output.revision = wordIndex + 1u;
+    return output.count > 0u;
+}
+
 struct AcapellaVoiceProfile {
     // Values above 1.0 model a longer tract and therefore lower formants.
     float tractScale = 1.0f;

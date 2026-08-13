@@ -1169,7 +1169,7 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
                        compiled.program.truncated ? @" // TRUNCATED" : @""]
          drawAtPoint:NSMakePoint(28.0, 142.0)
       withAttributes:values];
-  [@"| REST // || 2X // LOOP AND SYNC BELOW"
+  [@"TEXT: NOTE / WORD + REST // WRAPS"
          drawAtPoint:NSMakePoint(1032.0, 142.0)
       withAttributes:labels];
   constexpr uint32_t visibleSteps = 24u;

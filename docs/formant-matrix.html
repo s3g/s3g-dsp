@@ -87,6 +87,8 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
 
         <p><code>ANALYSIS WIDTH</code> sets detector bandwidth independently of pole count. Narrow values emphasize separation; broad values keep vowels continuous between fixed centers. On-center calibration keeps 4 Pole and 8 Pole comparable in level while their skirt rejection remains different.</p>
 
+        <p>Every active analysis channel has an envelope follower. Those 22 signals are internal controls, not CLAP audio, CV, or modulation outputs: the matrix applies them directly to synthesis-band VCAs. <code>IDENTITY</code> matches analysis channel <em>n</em> to synthesis channel <em>n</em>; custom routing can fan one follower into several destinations, collect several followers into one destination, invert contributions, or morph between two maps. This remaps spectral transfer inside the bank. An exposed envelope-follower output would instead let a band control parameters or devices outside this fixed analysis-to-synthesis path.</p>
+
         <p><code>TRANSFER</code> selects <code>PRECISION</code> or <code>EXPRESSIVE</code>. Precision uses a more literal energy transfer, faster routing control, stronger carrier-band reconstruction, and a linear zero-drive bank. Expressive retains the expanded contrast and saturation used by the earlier creative profiles. Before either analyzer, Low/Mid/Air EQ, Analysis Compression, <code>VOICE FOCUS</code>, and <code>LEVELER</code> condition the detector input. Per-band <code>NOISE REJ</code> learns a slow floor and <code>SPEC BAL</code> reinforces weak valid formants without flattening the word shape. These controls neither change the anti-drone threshold nor create a dry path.</p>
 
         <p><code>HF DETAIL</code> restores fricative timing above the fixed bank. <code>SYNTHETIC</code> uses only the carrier reconstruction, <code>SWITCHED</code> admits the high-passed residual only for noise-like articulation, and <code>DIRECT</code> keeps it ready whenever a carrier is active. Level and Cutoff set the amount and lower edge. The residual remains carrier- and anti-drone-gated, so it is not microphone monitoring.</p>
@@ -141,10 +143,16 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
             <tr><td>BROKEN RELAY</td><td>Crossfades deterministic sparse signed wiring with synchronized carrier motion and multi-head echo.</td></tr>
             <tr><td>VOCAL ALLOY</td><td>Uses MIDI polyphony with diagonal, shifted, mirrored, and signed cross-routes.</td></tr>
             <tr><td>MOUTH CIRCUIT</td><td>Separates mouth shape from source pitch with LPC analysis and a restrained MIDI-carrier formant lift.</td></tr>
+            <tr><td>IMPULSE MATRIX</td><td>Turns short external transients into long, high-resonance Wide-16 noise-bank decays.</td></tr>
+            <tr><td>GATED BANK</td><td>Uses external program energy as a fast broadband gate around an open, MIDI-pitched pulse filter bank.</td></tr>
+            <tr><td>PULSE BANK</td><td>Runs a Wide-16 MIDI pulse carrier with slow pulse-width animation and no external modulator requirement.</td></tr>
+            <tr><td>RHYTHM TRANSFER</td><td>Maps the band envelopes of drums or loops onto a bright polyphonic MIDI carrier.</td></tr>
+            <tr><td>SHIFT MORPH</td><td>Crossfades Speech-22 scenes offset below and above the diagonal for manual or host-automated formant movement.</td></tr>
+            <tr><td>SPECTRAL DRONE</td><td>Holds open a sparse Wide-16 matrix with slow carrier animation, broad stereo placement, and restrained tape echo.</td></tr>
           </tbody>
         </table>
 
-        <p>Profiles are starting points, not hidden algorithms. Editing any matrix cell or structural control changes the profile display to <code>CUSTOM</code> while leaving the complete patch available for state save and host automation.</p>
+        <p>Impulse Matrix, Gated Bank, Rhythm Transfer, and Shift Morph need external audio plus a held MIDI note. Pulse Bank and Spectral Drone need only MIDI. Profiles are starting points, not hidden algorithms. Editing any matrix cell or structural control changes the profile display to <code>CUSTOM</code> while leaving the complete patch available for state save and host automation.</p>
 
         <h2 id="pages">Editor Pages</h2>
 
@@ -158,7 +166,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
 
         <p>Each adjustable parameter has one page owner. Live signal meters may be mirrored on ROUTE for routing feedback, but sliders and menus are not duplicated between pages.</p>
 
-        <p>On PHRASE, a vertical bar inserts a rhythmically stable rest: <code>hello | worlds</code>. Repeated bars extend the rest. Phrase playback can run one-shot or loop while a note is held, and timing can be free, note-relative, or transport-synchronized.</p>
+        <p>On PHRASE, a vertical bar inserts a rhythmically stable rest: <code>hello | worlds</code>. Repeated bars extend the rest. Text advances one word per MIDI note and wraps after the last word; the pause or scored rest following a word belongs to that note, so holding it never reads into the next word. One-shot and loop-while-held remain available for the non-text phoneme patterns, and timing can be free, note-relative, or transport-synchronized.</p>
 
         <p>The octave layers, fold/fuzz, compression, de-essing, width, and Definition stages process the articulated bank rather than the raw microphone. The tape section supplies three virtual heads, seven combinations, free or synchronized timing, feedback, wear, flutter, tone, and spread. Keep this chain restrained until the analysis meters and identity route already produce intelligible words.</p>
 
@@ -167,7 +175,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         <ul>
           <li>Host name: <code>s3g Processor Formant Matrix</code></li>
           <li>CLAP ID: <code>org.s3g.s3g-dsp.formant-matrix</code></li>
-          <li>Version: <code>5.8.0</code></li>
+          <li>Version: <code>5.9.0</code></li>
           <li>Input: stereo <code>Modulator In</code></li>
           <li>Output: stereo <code>Formant Matrix Out</code></li>
           <li>Note input: CLAP notes and MIDI</li>

@@ -36,7 +36,7 @@ replayed.
 
 - Host name: `s3g Processor Formant Matrix`
 - CLAP ID: `org.s3g.s3g-dsp.formant-matrix`
-- Version: `5.8.0`
+- Version: `5.9.0`
 - Installed bundle: `s3g_processor_formant_matrix.clap`
 - Main input: stereo `Modulator In`
 - Main output: stereo `Formant Matrix Out`
@@ -272,7 +272,13 @@ measured selected modulator against the score-derived target. The score term is
 available when Internal Speech contributes to the source; it can keep a quiet
 or heavily transformed phoneme structurally useful without replacing measured
 dynamics. With External Mic selected, the live analysis remains the defining
-gesture.
+gesture. These 22 envelope signals are internal control paths, not CLAP audio,
+CV, or modulation outputs: the matrix remaps them directly onto synthesis-band
+VCAs. Identity sends follower 1 to synthesis band 1, follower 2 to band 2, and
+so on; a custom matrix can fan, collect, invert, or morph those relationships.
+It therefore changes spectral transfer inside the bank, whereas an exposed
+envelope-follower output would let a band control parameters or devices outside
+that fixed analysis-to-synthesis path.
 
 Eight-pole analysis is deliberately selectable rather than universal: narrow
 bands improve vowel identity and consonant localization, while four-pole bands
@@ -405,10 +411,24 @@ inside the sound instead of merely decorating a fixed diagonal vocoder.
 - **Mouth Circuit** uses MIDI pitch, a bright saw carrier, the LPC mouth
   response, fast consonant support, and a restrained scene that morphs from
   direct articulation to a two-channel formant lift.
+- **Impulse Matrix** turns short external transients into long, high-resonance
+  Wide-16 noise-bank decays.
+- **Gated Bank** uses external program energy as a fast broadband gate around
+  an open, MIDI-pitched pulse filter bank.
+- **Pulse Bank** is a self-running Wide-16 MIDI carrier with slow pulse-width
+  animation and no external modulator requirement.
+- **Rhythm Transfer** maps the band envelopes of drums or loops onto a bright,
+  polyphonic MIDI carrier with fast envelope timing.
+- **Shift Morph** crossfades two Speech-22 scenes offset below and above the
+  diagonal for manual or host-automated formant movement.
+- **Spectral Drone** holds open a sparse Wide-16 matrix with slow carrier
+  animation, broad stereo placement, and restrained tape echo.
 
-These profiles start from External Mic and eight-pole Speech 22 analysis.
-Formant Glide through Broken Relay use Voice Pitch so the carrier follows a
-sung note; Vocal Alloy and Mouth Circuit deliberately use MIDI Pitch.
+Formant Glide through Mouth Circuit start from External Mic and Speech-22
+analysis. Formant Glide through Broken Relay use Voice Pitch so the carrier
+follows a sung note; Vocal Alloy and Mouth Circuit deliberately use MIDI Pitch.
+Impulse Matrix, Gated Bank, Rhythm Transfer, and Shift Morph need external
+audio plus a held MIDI note. Pulse Bank and Spectral Drone need only MIDI.
 They remain starting points: editing any control or crosspoint moves the
 profile display to Custom without discarding the routing.
 
@@ -488,7 +508,13 @@ hold || the ||| space
 ```
 
 Repeated bars extend the rest by the corresponding number of timing units.
-Phrase Mode selects one-shot or loop-while-held playback. Phrase Sync can be
+Text phrases are played one word per MIDI note. The first note speaks the first
+word, the next note speaks the next word, and the cursor wraps to the beginning
+after the last word. Any automatic boundary, punctuation pause, or `|` rest
+following a word belongs to that note, so a long-held note reaches silence
+instead of continuing into the next word. Recompiling the text or reloading the
+plug-in resets the cursor to word one. Phrase Mode still selects one-shot or
+loop-while-held playback for the non-text phoneme patterns. Phrase Sync can be
 note-relative or transport-relative, and Phrase Division supplies the host
 rhythmic unit. Free timing follows the compiled durations.
 
@@ -551,7 +577,7 @@ share the same geometry so visual and mouse locations remain aligned.
 
 ## State and compatibility
 
-Version 5.8 uses state format 25. The IDs formerly assigned to the external
+Version 5.9 uses state format 26. The IDs formerly assigned to the external
 carrier mix and gain now represent Modulator Source and Mic Gain. A format-18
 state is therefore migrated deliberately rather than reinterpreted: its source
 becomes Internal Speech and its mic gain becomes 0 dB, while the former Custom
@@ -573,7 +599,10 @@ Spectral Balance at IDs 1110 through 1119. Format-24 and older states map their
 fixed analyzer Q onto the equivalent Width for the saved pole response and
 initialize every new conditioning/residual path neutrally. This preserves the
 previous sound while new instances and revised microphone profiles opt into
-the clearer front end.
+the clearer front end. Format 26 appends Impulse Matrix, Gated Bank, Pulse
+Bank, Rhythm Transfer, Shift Morph, and Spectral Drone at profile slots 25
+through 30, moving Custom to slot 31. A format-25 Custom selection migrates to
+the new Custom slot without changing its stored matrix or controls.
 Existing phrase, synthesis, ensemble, echo, matrix, and post-effect settings
 are preserved where they retain the same meaning.
 

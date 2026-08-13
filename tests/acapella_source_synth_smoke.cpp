@@ -952,6 +952,106 @@ bool textCompilerAndTempoSyncProbe()
     return true;
 }
 
+bool noteSteppedTextWordProbe()
+{
+    const auto compiled = s3g::compileAcapellaText("hello || worlds");
+    s3g::AcapellaGestureProgram hello;
+    s3g::AcapellaGestureProgram worlds;
+    if (compiled.program.wordCount != 2u
+        || !s3g::acapellaGestureWordProgram(compiled.program, 0u, hello)
+        || !s3g::acapellaGestureWordProgram(compiled.program, 1u, worlds)
+        || hello.wordCount != 1u || worlds.wordCount != 1u
+        || hello.steps[0].phoneme != s3g::AcapellaPhoneme::HH
+        || worlds.steps[0].phoneme != s3g::AcapellaPhoneme::W
+        || (hello.steps[hello.count - 1u].flags
+            & s3g::kAcapellaForcedRest) == 0u
+        || std::fabs(hello.steps[hello.count - 1u].durationScale - 2.0f)
+            > 1.0e-6f) {
+        std::cerr << "text word slicing lost a word boundary or scored rest\n";
+        return false;
+    }
+
+    auto source = s3g::acapellaSourcePreset(
+        s3g::AcapellaSourcePreset::NeutralSung);
+    source.gestureSequence = s3g::AcapellaGestureSequence::Text;
+    source.gestureRateHz = 20.0f;
+    source.gestureDepth = 1.0f;
+    // Text words must remain one-shot even when the legacy phrase control is
+    // set to loop; wrapping now happens across note-ons, not inside one note.
+    source.gestureLoop = true;
+    source.attackMs = 2.0f;
+    source.releaseMs = 8.0f;
+
+    s3g::AcapellaEnsembleParams ensembleParams;
+    ensembleParams.polyphony = 1u;
+    ensembleParams.doubleAmount = 0.0f;
+    s3g::AcapellaEnsembleSynth ensemble;
+    ensemble.setSourceParams(source);
+    ensemble.setParams(ensembleParams);
+    ensemble.setTextGestureProgram(compiled.program);
+    ensemble.prepare(kSampleRate);
+
+    const auto trigger = [&](int32_t id, int16_t key) {
+        return ensemble.trigger({
+            { s3g::AcapellaVowel::Schwa, s3g::AcapellaOnset::None,
+                110.0f, 0.85f, 1000.0f },
+            id, 0, key,
+        });
+    };
+    const auto drain = [&]() {
+        ensemble.releaseAll();
+        for (uint32_t frame = 0u; frame < kSampleRate
+             && ensemble.active(); ++frame) {
+            (void)ensemble.processFrame();
+        }
+        return !ensemble.active();
+    };
+    const auto firstActiveGesture = [&]() {
+        s3g::AcapellaResonatorGesture result;
+        for (uint32_t frame = 0u; frame < 256u && !result.active; ++frame) {
+            (void)ensemble.processFrame();
+            result = ensemble.resonatorGesture();
+        }
+        return result;
+    };
+
+    if (!trigger(1, 48)) return false;
+    auto gesture = firstActiveGesture();
+    if (gesture.phoneme != s3g::AcapellaPhoneme::HH
+        || (gesture.flags & s3g::kAcapellaWordStart) == 0u) {
+        std::cerr << "first phrase note did not begin the first word\n";
+        return false;
+    }
+    bool sawScoredRest = false;
+    bool firstWordFinished = false;
+    bool leakedSecondWord = false;
+    for (uint32_t frame = 0u; frame < kSampleRate; ++frame) {
+        (void)ensemble.processFrame();
+        gesture = ensemble.resonatorGesture();
+        sawScoredRest |= (gesture.flags & s3g::kAcapellaForcedRest) != 0u;
+        leakedSecondWord |= gesture.phoneme == s3g::AcapellaPhoneme::W;
+        firstWordFinished |= sawScoredRest
+            && gesture.phoneme == s3g::AcapellaPhoneme::Silence
+            && gesture.flags == 0u;
+    }
+    if (!sawScoredRest || !firstWordFinished || leakedSecondWord || !drain()) {
+        std::cerr << "one note read beyond its word: rest "
+                  << sawScoredRest << ", finished " << firstWordFinished
+                  << ", leaked " << leakedSecondWord << '\n';
+        return false;
+    }
+
+    if (!trigger(2, 50)
+        || firstActiveGesture().phoneme != s3g::AcapellaPhoneme::W
+        || !drain()
+        || !trigger(3, 52)
+        || firstActiveGesture().phoneme != s3g::AcapellaPhoneme::HH) {
+        std::cerr << "phrase note cursor did not advance and wrap by word\n";
+        return false;
+    }
+    return true;
+}
+
 bool extremeVoiceProbe()
 {
     const auto neutralParams = s3g::acapellaSourcePreset(
@@ -1320,6 +1420,7 @@ int main()
         || !articulatoryWaveguideProbe()
         || !phonemeGestureSequencerProbe()
         || !textCompilerAndTempoSyncProbe()
+        || !noteSteppedTextWordProbe()
         || !extremeVoiceProbe()
         || !vocalEffectsProbe()
         || !ensemblePolyphonyAndDoublingProbe()) {

@@ -219,7 +219,7 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
 }
 
 constexpr uint32_t kAcapellaResonatorProfileFirst = 6u;
-constexpr uint32_t kAcapellaResonatorProfileCount = 19u;
+constexpr uint32_t kAcapellaResonatorProfileCount = 25u;
 
 inline AcapellaSourcePreset acapellaResonatorProfileBase(uint32_t index)
 {
@@ -788,6 +788,218 @@ inline AcapellaVocalFxParams acapellaResonatorProfileEffects(uint32_t index,
         effects.compression = 0.44f;
         effects.deEss = 0.18f;
         effects.intelligibility = 0.94f;
+        break;
+    }
+    case 25u: { // Impulse Matrix
+        auto& bank = effects.resonator;
+        configureMicMatrix(bank);
+        bank.bandLayout = AcapellaResonatorBandLayout::Wide16;
+        bank.analysisSlope = AcapellaResonatorAnalysisSlope::FourPole;
+        bank.analysisWidth = 0.30f;
+        bank.transferMode = AcapellaResonatorTransferMode::Expressive;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Noise;
+        bank.carrierHarmonics = 0.52f;
+        bank.carrierNoise = 0.90f;
+        bank.carrierDensity = 0.42f;
+        bank.voicingMode = AcapellaResonatorVoicingMode::Noise;
+        bank.attackMs = 0.5f;
+        bank.releaseMs = 330.0f;
+        bank.blurMs = 0.0f;
+        bank.resonance = 0.92f;
+        bank.driveDb = 1.0f;
+        bank.sibilance = 0.32f;
+        bank.customMatrixMorph = 0.0f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t band = 0; band < 16; ++band) {
+            addRoute(bank.customMatrixA, band, band, 1.0f);
+            addRoute(bank.customMatrixB, band, band, 0.78f);
+            addRoute(bank.customMatrixB,
+                band + (band % 2 == 0 ? 2 : -2), band, 0.38f);
+        }
+        bank.stereoMode = AcapellaResonatorStereoMode::OddEven;
+        bank.stereoSpread = 0.72f;
+        effects.compression = 0.30f;
+        effects.intelligibility = 0.62f;
+        break;
+    }
+    case 26u: { // Gated Bank
+        auto& bank = effects.resonator;
+        configureMicMatrix(bank);
+        bank.bandLayout = AcapellaResonatorBandLayout::Wide16;
+        bank.analysisSlope = AcapellaResonatorAnalysisSlope::FourPole;
+        bank.analysisWidth = 0.62f;
+        bank.mode = AcapellaResonatorMode::FilterBank;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Pulse;
+        bank.pulseWidth = 0.40f;
+        bank.carrierHarmonics = 0.94f;
+        bank.carrierColor = 0.22f;
+        bank.carrierNoise = 0.12f;
+        bank.openLevel = 0.76f;
+        bank.attackMs = 0.5f;
+        bank.releaseMs = 38.0f;
+        bank.blurMs = 1.0f;
+        bank.resonance = 0.70f;
+        bank.driveDb = 3.5f;
+        bank.bandShiftSemitones = -2.0f;
+        bank.bandStretch = 0.18f;
+        bank.customMatrixMorph = 0.0f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t band = 0; band < 16; ++band) {
+            addRoute(bank.customMatrixA, band, band, 1.0f);
+            addRoute(bank.customMatrixB, band, band, 1.0f);
+            if (band % 3 == 0) {
+                addRoute(bank.customMatrixB, band + 1, band, 0.34f);
+            }
+        }
+        bank.stereoMode = AcapellaResonatorStereoMode::Spread;
+        bank.stereoSpread = 0.48f;
+        effects.compression = 0.44f;
+        effects.intelligibility = 0.68f;
+        break;
+    }
+    case 27u: { // Pulse Bank
+        auto& bank = effects.resonator;
+        bank.amount = 1.0f;
+        bank.bandLayout = AcapellaResonatorBandLayout::Wide16;
+        bank.mode = AcapellaResonatorMode::FilterBank;
+        bank.modulatorSource =
+            AcapellaResonatorModulatorSource::InternalSpeech;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Pulse;
+        bank.pulseWidth = 0.34f;
+        bank.carrierHarmonics = 0.96f;
+        bank.carrierColor = 0.20f;
+        bank.carrierNoise = 0.08f;
+        bank.carrierDensity = 0.48f;
+        bank.carrierLfoShape = AcapellaResonatorCarrierLfoShape::Triangle;
+        bank.carrierLfoRateHz = 0.34f;
+        bank.carrierLfoDepthSemitones = 0.12f;
+        bank.carrierLfoPwmDepth = 0.72f;
+        bank.openLevel = 0.74f;
+        bank.resonance = 0.68f;
+        bank.driveDb = 3.0f;
+        bank.bandStretch = 0.16f;
+        bank.tilt = -0.10f;
+        bank.matrixMode = AcapellaResonatorMatrixMode::Custom;
+        bank.matrixMorph = 1.0f;
+        bank.customMatrixMorph = 0.0f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t band = 0; band < 16; ++band) {
+            addRoute(bank.customMatrixA, band, band, 1.0f);
+            addRoute(bank.customMatrixB, band, band, 0.82f);
+            addRoute(bank.customMatrixB, band + 2, band, 0.30f);
+        }
+        bank.stereoMode = AcapellaResonatorStereoMode::OddEven;
+        bank.stereoSpread = 0.56f;
+        effects.compression = 0.38f;
+        effects.intelligibility = 0.64f;
+        break;
+    }
+    case 28u: { // Rhythm Transfer
+        auto& bank = effects.resonator;
+        configureMicMatrix(bank);
+        bank.bandLayout = AcapellaResonatorBandLayout::Wide16;
+        bank.analysisSlope = AcapellaResonatorAnalysisSlope::FourPole;
+        bank.analysisWidth = 0.56f;
+        bank.transferMode = AcapellaResonatorTransferMode::Expressive;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        bank.carrierHarmonics = 0.98f;
+        bank.carrierColor = 0.28f;
+        bank.carrierNoise = 0.18f;
+        bank.carrierDensity = 0.62f;
+        bank.attackMs = 0.5f;
+        bank.releaseMs = 48.0f;
+        bank.blurMs = 1.0f;
+        bank.resonance = 0.66f;
+        bank.driveDb = 3.0f;
+        bank.customMatrixMorph = 0.0f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t band = 0; band < 16; ++band) {
+            addRoute(bank.customMatrixA, band, band, 1.0f);
+            addRoute(bank.customMatrixB, band, band, 0.72f);
+            addRoute(bank.customMatrixB, band + 1, band, 0.42f);
+        }
+        bank.stereoMode = AcapellaResonatorStereoMode::Spread;
+        bank.stereoSpread = 0.52f;
+        effects.compression = 0.48f;
+        effects.intelligibility = 0.72f;
+        break;
+    }
+    case 29u: { // Shift Morph
+        auto& bank = effects.resonator;
+        configureMicMatrix(bank);
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        bank.carrierHarmonics = 0.96f;
+        bank.carrierColor = 0.34f;
+        bank.carrierNoise = 0.10f;
+        bank.resonance = 0.72f;
+        bank.driveDb = 2.0f;
+        bank.customMatrixMorph = 0.50f;
+        shiftedScene(bank.customMatrixA, -3, 0.14f);
+        shiftedScene(bank.customMatrixB, 4, 0.14f);
+        bank.stereoMode = AcapellaResonatorStereoMode::OddEven;
+        bank.stereoSpread = 0.62f;
+        effects.compression = 0.40f;
+        effects.intelligibility = 0.82f;
+        break;
+    }
+    case 30u: { // Spectral Drone
+        auto& bank = effects.resonator;
+        bank.amount = 1.0f;
+        bank.bandLayout = AcapellaResonatorBandLayout::Wide16;
+        bank.mode = AcapellaResonatorMode::FilterBank;
+        bank.modulatorSource =
+            AcapellaResonatorModulatorSource::InternalSpeech;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        bank.carrierHarmonics = 0.98f;
+        bank.carrierColor = 0.40f;
+        bank.carrierNoise = 0.34f;
+        bank.carrierDensity = 0.70f;
+        bank.carrierLfoShape = AcapellaResonatorCarrierLfoShape::Triangle;
+        bank.carrierLfoRateHz = 0.11f;
+        bank.carrierLfoDepthSemitones = 0.26f;
+        bank.carrierLfoPwmDepth = 0.18f;
+        bank.openLevel = 0.66f;
+        bank.resonance = 0.82f;
+        bank.driveDb = 5.0f;
+        bank.bandShiftSemitones = -4.0f;
+        bank.bandStretch = 0.42f;
+        bank.tilt = -0.16f;
+        bank.matrixMode = AcapellaResonatorMatrixMode::Custom;
+        bank.matrixMorph = 1.0f;
+        bank.customMatrixMorph = 0.46f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t source = 0; source < 16; ++source) {
+            if (source % 3 != 1) {
+                addRoute(bank.customMatrixA, source, source, 1.0f);
+                addRoute(bank.customMatrixA, source + 3, source, 0.34f);
+            }
+            if (source % 4 != 2) {
+                addRoute(bank.customMatrixB, 15 - source, source, 0.72f);
+                addRoute(bank.customMatrixB, source - 2, source, 0.28f);
+            }
+        }
+        bank.stereoMode = AcapellaResonatorStereoMode::Spread;
+        bank.stereoSpread = 0.92f;
+        effects.compression = 0.46f;
+        effects.echoHeads = DrumEchoHeadMode::Head13;
+        effects.echoClock = DrumEchoClock::Quarter;
+        effects.echoFeedback = 0.32f;
+        effects.echoWear = 0.26f;
+        effects.echoFlutter = 0.18f;
+        effects.echoSpread = 0.80f;
+        effects.echoMix = 0.16f;
+        effects.intelligibility = 0.58f;
         break;
     }
     default:

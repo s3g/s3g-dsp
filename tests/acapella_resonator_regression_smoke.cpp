@@ -3878,7 +3878,7 @@ bool profileAndStressProbe()
         const auto base = s3g::acapellaResonatorProfileBase(profile);
         const auto wetParams = s3g::acapellaResonatorProfileEffects(
             profile, s3g::acapellaVocalFxPreset(base));
-        if (profile >= 15u) {
+        if (profile >= 15u && profile <= 24u) {
             const auto& bank = wetParams.resonator;
             uint32_t offDiagonalA = 0u;
             uint32_t offDiagonalB = 0u;
@@ -3923,6 +3923,78 @@ bool profileAndStressProbe()
                           << profile << ", off-diagonal " << offDiagonalA
                           << '/' << offDiagonalB << ", scene delta "
                           << sceneDifference << ", unique " << unique << '\n';
+                return false;
+            }
+        }
+        if (profile >= 25u) {
+            const auto& bank = wetParams.resonator;
+            bool valid = false;
+            switch (profile) {
+            case 25u: // Impulse Matrix
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Wide16
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::ExternalMic
+                    && bank.mode == s3g::AcapellaResonatorMode::Vocoder
+                    && bank.carrierShape
+                        == s3g::AcapellaResonatorCarrierShape::Noise
+                    && bank.resonance >= 0.90f
+                    && bank.attackMs <= 0.51f
+                    && bank.releaseMs >= 300.0f;
+                break;
+            case 26u: // Gated Bank
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Wide16
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::ExternalMic
+                    && bank.mode == s3g::AcapellaResonatorMode::FilterBank
+                    && bank.openLevel >= 0.70f
+                    && bank.attackMs <= 0.51f;
+                break;
+            case 27u: // Pulse Bank
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Wide16
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::InternalSpeech
+                    && bank.mode == s3g::AcapellaResonatorMode::FilterBank
+                    && bank.carrierShape
+                        == s3g::AcapellaResonatorCarrierShape::Pulse
+                    && bank.carrierLfoPwmDepth >= 0.70f;
+                break;
+            case 28u: // Rhythm Transfer
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Wide16
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::ExternalMic
+                    && bank.mode == s3g::AcapellaResonatorMode::Vocoder
+                    && bank.carrierPitchSource
+                        == s3g::AcapellaResonatorCarrierPitchSource::Midi
+                    && bank.attackMs <= 0.51f;
+                break;
+            case 29u: // Shift Morph
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Speech22
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::ExternalMic
+                    && bank.matrixMode
+                        == s3g::AcapellaResonatorMatrixMode::Custom
+                    && std::abs(bank.customMatrixMorph - 0.50f) < 1.0e-6f;
+                break;
+            case 30u: // Spectral Drone
+                valid = bank.bandLayout
+                        == s3g::AcapellaResonatorBandLayout::Wide16
+                    && bank.modulatorSource
+                        == s3g::AcapellaResonatorModulatorSource::InternalSpeech
+                    && bank.mode == s3g::AcapellaResonatorMode::FilterBank
+                    && bank.openLevel >= 0.60f
+                    && bank.resonance >= 0.80f;
+                break;
+            default:
+                break;
+            }
+            if (!valid) {
+                std::cerr << "Spectravox-informed profile contract failed: "
+                          << profile << '\n';
                 return false;
             }
         }

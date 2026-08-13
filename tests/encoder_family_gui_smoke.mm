@@ -1040,7 +1040,7 @@ int main(int argc, char** argv)
                 plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
             clap_note_port_info_t noteInputInfo {};
             ok = requestedDescriptor->version
-                && std::strcmp(requestedDescriptor->version, "5.8.0") == 0
+                && std::strcmp(requestedDescriptor->version, "5.9.0") == 0
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
@@ -1152,12 +1152,13 @@ int main(int argc, char** argv)
                         && info.max_value == 24.0
                         && info.default_value == 0.0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
-                    if (info.id == 1u && info.max_value == 25.0
+                    if (info.id == 1u && info.max_value == 31.0
                         && info.default_value == 14.0) {
                         char classicMic[64] {};
                         char formantGlide[64] {};
                         char vocalAlloy[64] {};
                         char mouthCircuit[64] {};
+                        char impulseMatrix[64] {};
                         char custom[64] {};
                         hasClassicMicProfile = params->value_to_text
                             && params->value_to_text(plugin, 1u, 14.0,
@@ -1169,12 +1170,16 @@ int main(int argc, char** argv)
                             && params->value_to_text(plugin, 1u, 24.0,
                                 mouthCircuit, sizeof(mouthCircuit))
                             && params->value_to_text(plugin, 1u, 25.0,
+                                impulseMatrix, sizeof(impulseMatrix))
+                            && params->value_to_text(plugin, 1u, 31.0,
                                 custom, sizeof(custom))
                             && std::strcmp(classicMic, "Classic Mic") == 0
                             && std::strcmp(formantGlide, "Formant Glide") == 0
                             && std::strcmp(vocalAlloy, "Vocal Alloy") == 0
                             && std::strcmp(mouthCircuit,
                                 "Mouth Circuit") == 0
+                            && std::strcmp(impulseMatrix,
+                                "Impulse Matrix") == 0
                             && std::strcmp(custom, "Custom") == 0;
                     }
                     if (info.id >= 65u && info.id <= 86u) {
@@ -1485,7 +1490,7 @@ int main(int argc, char** argv)
                                 plugin, 66u, &migratedMode)
                             && params->get_value(
                                 plugin, 67u, &migratedCarrier)
-                            && migratedProfile == 25.0
+                            && migratedProfile == 31.0
                             && std::fabs(migratedAmount - 1.0) < 1.0e-6
                             && migratedMode == 0.0
                             && migratedCarrier == 1.0;
@@ -1534,7 +1539,7 @@ int main(int argc, char** argv)
                                 plugin, 98u, &migratedModulator)
                             && params->get_value(
                                 plugin, 99u, &migratedMicGain)
-                            && migratedProfile == 25.0
+                            && migratedProfile == 31.0
                             && migratedModulator == 1.0
                             && migratedMicGain == 0.0;
                     }

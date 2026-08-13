@@ -799,7 +799,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, kPluginId) == 0
             && std::strcmp(descriptor->name, kPluginName) == 0
-            && std::strcmp(descriptor->version, "5.8.0") == 0,
+            && std::strcmp(descriptor->version, "5.9.0") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FILTER)
@@ -1060,6 +1060,15 @@ int main(int argc, char** argv)
                 && std::strcmp(display, "Mouth Circuit") == 0
                 && params->value_to_text(metadataPlugin, 1u, 25.0,
                     display, sizeof(display))
+                && std::strcmp(display, "Impulse Matrix") == 0
+                && params->value_to_text(metadataPlugin, 1u, 28.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Rhythm Transfer") == 0
+                && params->value_to_text(metadataPlugin, 1u, 30.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Spectral Drone") == 0
+                && params->value_to_text(metadataPlugin, 1u, 31.0,
+                    display, sizeof(display))
                 && std::strcmp(display, "Custom") == 0,
             "matrix-first profile labels failed");
         double initialProfile = -1.0;
@@ -1121,7 +1130,7 @@ int main(int argc, char** argv)
         ok &= expectValuesRescan(callbackBefore, rescanBefore,
             "implicit Custom profile did not request a value rescan");
         ok &= check(params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 25.0,
+                && profile == 31.0,
             "scalar edit did not publish the Custom profile");
 
         callbackBefore = metadataHost.callbackRequests;
@@ -1138,7 +1147,8 @@ int main(int argc, char** argv)
 
         // Version 20 used slot 15 for Custom. Version 21 appends matrix-first
         // profiles at 15--23 and moves Custom to 24. Version 22 adds Mouth
-        // Circuit at 24 and moves Custom once more to 25.
+        // Circuit at 24 and moves Custom to 25. Version 26 appends the six
+        // bank-technique profiles at 25--30 and moves Custom to 31.
         MemoryState version22State;
         version22State.bytes = savedState.bytes;
         constexpr uint32_t version22SavedParamCount = 1101u;
@@ -1231,6 +1241,22 @@ int main(int argc, char** argv)
                 && migratedBalance == 0.0,
             "v24 did not preserve the fixed analyzer and neutral front end");
 
+        MemoryState version25State;
+        version25State.bytes = savedState.bytes;
+        const uint32_t version25 = 25u;
+        const double version25Custom = 25.0;
+        if (version25State.bytes.size() >= 8u + sizeof(double)) {
+            std::memcpy(version25State.bytes.data(), &version25,
+                sizeof(version25));
+            std::memcpy(version25State.bytes.data() + 8u,
+                &version25Custom, sizeof(version25Custom));
+        }
+        version25State.readOffset = 0u;
+        ok &= check(state->load(metadataPlugin, &version25State.input)
+                && params->get_value(metadataPlugin, 1u, &profile)
+                && profile == 31.0,
+            "v25 Custom profile slot migration failed");
+
         MemoryState version20State;
         version20State.bytes = version22State.bytes;
         const uint32_t version20 = 20u;
@@ -1244,7 +1270,7 @@ int main(int argc, char** argv)
         version20State.readOffset = 0u;
         ok &= check(state->load(metadataPlugin, &version20State.input)
                 && params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 25.0,
+                && profile == 31.0,
             "v20 Custom profile slot migration failed");
 
         MemoryState version21State;
@@ -1260,7 +1286,7 @@ int main(int argc, char** argv)
         version21State.readOffset = 0u;
         ok &= check(state->load(metadataPlugin, &version21State.input)
                 && params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 25.0,
+                && profile == 31.0,
             "v21 Custom profile slot migration failed");
 
         // Version 18 used IDs 98/99 for external-carrier mix/gain and slot
@@ -1316,7 +1342,7 @@ int main(int argc, char** argv)
                 && params->get_value(metadataPlugin, 98u,
                     &modulatorSource)
                 && params->get_value(metadataPlugin, 99u, &micGain)
-                && profile == 25.0 && modulatorSource == 1.0
+                && profile == 31.0 && modulatorSource == 1.0
                 && micGain == 0.0,
             "v18 carrier controls were reinterpreted as mic routing");
 
@@ -1491,6 +1517,13 @@ int main(int argc, char** argv)
         factory, SampleFormat::Float32, false, false);
     const RenderResult internalConnected = render(
         factory, SampleFormat::Float32, true, false);
+    // The default text is "hello worlds". One held note must render only
+    // HELLO and its following boundary, then remain silent rather than
+    // continuing into WORLDS or looping the complete phrase.
+    const RenderResult internalWordOneShot = render(
+        factory, SampleFormat::Float32, false, false, 0u,
+        ModulatorSource::InternalSpeech, false, 0.0, true, false, true,
+        1.0f, false, RenderSetup::ControlledVocoder, 1400u);
     const RenderResult micAbsent = render(
         factory, SampleFormat::Float32, false, false, 0u,
         ModulatorSource::ExternalMic);
@@ -1601,6 +1634,10 @@ int main(int argc, char** argv)
     ok &= check(internalConnected.ok
             && rmsDifference(internalAbsent, internalConnected) < 1.0e-6,
         "Internal Speech mode was contaminated by the mic input");
+    ok &= check(internalWordOneShot.ok
+            && onsetRms(internalWordOneShot) > 1.0e-3
+            && lateRms(internalWordOneShot) < 1.0e-5,
+        "one held note continued beyond its assigned text word");
     ok &= check(micAbsent.ok && mic32.ok && mic32.energy > 1.0e-8
             && rmsDifference(micAbsent, mic32) > 1.0e-4,
         "External Mic mode did not analyze the audio input");

@@ -34,7 +34,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 25u;
+constexpr uint32_t kStateVersion = 26u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 968u;
@@ -195,7 +195,7 @@ constexpr clap_id kAnalysisSpectralBalanceParamId = 1119u;
 constexpr uint32_t kScalarParamCount = 129u;
 constexpr uint32_t kParamCount = kAnalysisSpectralBalanceParamId;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
-constexpr double kCustomPreset = 25.0;
+constexpr double kCustomPreset = 31.0;
 
 struct ParamDef {
     clap_id id;
@@ -208,7 +208,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
-    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 25.0, 14.0, true },
+    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 31.0, 14.0, true },
     { kDeliveryParamId, "Phrasing", "Performance", 0.0, 1.0, 0.0, true },
     { kVowelParamId, "Vowel", "Syllable", 0.0, 5.0, 5.0, true },
     { kOnsetParamId, "Onset", "Syllable", 0.0, 24.0, 0.0, true },
@@ -1091,6 +1091,13 @@ void selectPreset(Plugin& plugin, uint32_t index)
         ensemble.doubleTimingMs = index == 10u ? 29.0f
                                                : (index == 13u ? 18.0f : 12.0f);
         ensemble.doubleWidth = 0.94f;
+    }
+    if (index == 26u || index == 28u || index == 29u) {
+        ensemble.polyphony = index == 26u ? 6u : 8u;
+        ensemble.doubleAmount = index == 28u ? 0.12f : 0.08f;
+        ensemble.doubleDetuneCents = index == 28u ? 4.0f : 2.5f;
+        ensemble.doubleTimingMs = index == 28u ? 8.0f : 5.0f;
+        ensemble.doubleWidth = index == 29u ? 0.86f : 0.72f;
     }
     storeEnsembleParams(plugin, ensemble);
     storeValue(plugin, kPresetParamId, static_cast<double>(index));
@@ -2033,9 +2040,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             "Chord Glass", "Classic Mic", "Formant Glide",
             "Fixed Circuit", "Glass Harmony", "Public Address",
             "Pocket Radio", "Low Persona", "Bright Persona",
-            "Broken Relay", "Vocal Alloy", "Mouth Circuit", "Custom"
+            "Broken Relay", "Vocal Alloy", "Mouth Circuit",
+            "Impulse Matrix", "Gated Bank", "Pulse Bank",
+            "Rhythm Transfer", "Shift Morph", "Spectral Drone", "Custom"
         };
-        const uint32_t index = std::min<uint32_t>(25u,
+        const uint32_t index = std::min<uint32_t>(31u,
             static_cast<uint32_t>(std::round(value)));
         std::snprintf(display, size, "%s", names[index]);
     } else if (id == kDeliveryParamId) {
@@ -2260,9 +2269,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             "Chord Glass", "Classic Mic", "Formant Glide",
             "Fixed Circuit", "Glass Harmony", "Public Address",
             "Pocket Radio", "Low Persona", "Bright Persona",
-            "Broken Relay", "Vocal Alloy", "Mouth Circuit", "Custom"
+            "Broken Relay", "Vocal Alloy", "Mouth Circuit",
+            "Impulse Matrix", "Gated Bank", "Pulse Bank",
+            "Rhythm Transfer", "Shift Morph", "Spectral Drone", "Custom"
         };
-        for (uint32_t index = 0u; index < 26u; ++index) {
+        for (uint32_t index = 0u; index < 32u; ++index) {
             if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
@@ -2922,7 +2933,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             kPhraseCapacity - 1u);
         phrase.text[phrase.length] = '\0';
         if (!publishTextPhrase(*instance, phrase.text.data())) return false;
-    } else if (header.version == kStateVersion) {
+    } else if (header.version == 25u
+        || header.version == kStateVersion) {
         std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(stream, values.data(),
                 sizeof(values))) return false;
@@ -3033,6 +3045,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     // immediately before it without reinterpreting a saved custom patch.
     if (header.version == 21u
         && std::fabs(loadValue(*instance, kPresetParamId) - 24.0) < 0.5) {
+        storeValue(*instance, kPresetParamId, kCustomPreset);
+    }
+    // Version 25 used slot 25 for Custom. Version 26 appends six
+    // Spectravox-informed bank profiles without turning a saved custom patch
+    // into the first new factory profile.
+    if (header.version <= 25u
+        && std::fabs(loadValue(*instance, kPresetParamId) - 25.0) < 0.5) {
         storeValue(*instance, kPresetParamId, kCustomPreset);
     }
     storeValue(*instance, kAuditionParamId, 0.0);
@@ -4244,7 +4263,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "5.8.0",
+    "5.9.0",
     "Stereo vocoder and resonant filter matrix with external mic or built-in sample-free speech modulation, procedural MIDI carriers, polyphony, and text-to-phoneme scoring.",
     features
 };
