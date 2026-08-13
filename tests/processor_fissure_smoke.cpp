@@ -117,12 +117,78 @@ InputCouplingStats measureInputCoupling(s3g::ProcessorFissure& dry,
     return stats;
 }
 
+double measureProcessorDifference(s3g::ProcessorFissure& first,
+    s3g::ProcessorFissure& second, uint32_t channels, uint32_t frames)
+{
+    std::array<float, s3g::kProcessorFissureMaxOutputs> firstOutput {};
+    std::array<float, s3g::kProcessorFissureMaxOutputs> secondOutput {};
+    double difference = 0.0;
+    for (uint32_t frame = 0u; frame < frames; ++frame) {
+        first.processFrame(nullptr, firstOutput.data(), channels);
+        second.processFrame(nullptr, secondOutput.data(), channels);
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            difference += std::abs(static_cast<double>(
+                firstOutput[channel] - secondOutput[channel]));
+        }
+    }
+    return difference;
+}
+
 } // namespace
 
 int main()
 {
     bool ok = true;
     constexpr uint32_t frames = 48000u;
+
+    ok &= check(std::abs(s3g::processorFissureLowEnergyCurve(.20f)
+                    - .04f) < 1.0e-7f
+            && std::abs(s3g::processorFissureLowEnergyCurve(.50f)
+                    - .25f) < 1.0e-7f,
+        "the expanded low-energy control curve changed unexpectedly");
+    ok &= check(s3g::processorFissureEventRateHz(0.0f) < .002f
+            && s3g::processorFissureEventRateHz(.50f) > .5f
+            && s3g::processorFissureEventRateHz(.50f) < 3.0f
+            && s3g::processorFissureEventRateHz(1.0f) > 150.0f,
+        "Rate no longer spans drone clocks through extreme cut-up rates");
+    ok &= check(std::abs(s3g::processorFissureSpaceSeconds(0.0f)
+                    - .008f) < 1.0e-7f
+            && s3g::processorFissureSpaceSeconds(1.0f) > 3.9f,
+        "Space no longer spans click gaps through multi-second absence");
+
+    s3g::ProcessorFissure mappedControls;
+    mappedControls.prepare(48000.0, 2u);
+    auto mappedParams = mappedControls.params();
+    mappedParams.pressure = .20f;
+    mappedParams.mass = .20f;
+    mappedParams.memory = .20f;
+    mappedParams.body = .20f;
+    mappedParams.voidAmount = .20f;
+    mappedParams.space = .20f;
+    mappedControls.setParams(mappedParams);
+    mappedControls.reset();
+    const auto performedMapped = mappedControls.performanceParams();
+    ok &= check(std::abs(performedMapped.pressure - .04f) < 1.0e-7f
+            && std::abs(performedMapped.mass - .04f) < 1.0e-7f
+            && std::abs(performedMapped.memory - .04f) < 1.0e-7f
+            && std::abs(performedMapped.body - .04f) < 1.0e-7f
+            && std::abs(performedMapped.voidAmount - .104f) < 1.0e-6f
+            && std::abs(performedMapped.space - .104f) < 1.0e-6f,
+        "field controls did not enter the expanded low-energy mapping");
+
+    auto splitParams = mappedControls.params();
+    splitParams.edge = 1.0f;
+    splitParams.rate = 0.0f;
+    mappedControls.setParams(splitParams);
+    mappedControls.reset();
+    const float hardDroneRate = mappedControls.eventRateHz();
+    splitParams.edge = 0.0f;
+    splitParams.rate = 1.0f;
+    mappedControls.setParams(splitParams);
+    mappedControls.reset();
+    ok &= check(hardDroneRate < .002f
+            && mappedControls.eventRateHz() > 150.0f,
+        "Edge and Rate remained coupled after the four-axis split");
 
     std::array<s3g::ProcessorFissure, 3> widthProcessors;
     std::array<RenderStats, 3> widthStats;
@@ -296,26 +362,47 @@ int main()
     ok &= check(unpitchedInput.pitchConfidence() < 0.20f,
         "unpitched mic noise produced a confident modal pitch target");
 
-    s3g::ProcessorFissure quietShaker;
-    s3g::ProcessorFissure activeShaker;
-    quietShaker.prepare(48000.0, 8u);
-    activeShaker.prepare(48000.0, 8u);
-    auto quietPhysical = quietShaker.params();
-    quietPhysical.shaker = 0.0f;
-    quietPhysical.contact = 0.0f;
-    quietShaker.setParams(quietPhysical);
-    auto activePhysical = quietPhysical;
-    activePhysical.shaker = 1.0f;
-    activePhysical.rattle = 0.85f;
-    activePhysical.spring = 0.78f;
-    activeShaker.setParams(activePhysical);
-    const auto quietPhysicalStats = render(
-        quietShaker, 8u, frames / 2u, false);
-    const auto activePhysicalStats = render(
-        activeShaker, 8u, frames / 2u, false);
-    ok &= check(std::abs(activePhysicalStats.checksum
-                - quietPhysicalStats.checksum) > 0.1,
-        "Shaker/rattle modal excitation did not change the performance");
+    s3g::ProcessorFissure boxIdentity;
+    s3g::ProcessorFissure rattleIdentity;
+    s3g::ProcessorFissure springIdentity;
+    boxIdentity.prepare(48000.0, 8u);
+    rattleIdentity.prepare(48000.0, 8u);
+    springIdentity.prepare(48000.0, 8u);
+    auto attachedParams = boxIdentity.params();
+    attachedParams.contact = 0.0f;
+    attachedParams.voice = 0.0f;
+    attachedParams.shaker = 0.0f;
+    attachedParams.rattle = 0.0f;
+    attachedParams.spring = 0.0f;
+    auto boxParams = attachedParams;
+    boxParams.shaker = 1.0f;
+    auto rattleParams = attachedParams;
+    rattleParams.rattle = 1.0f;
+    auto springParams = attachedParams;
+    springParams.spring = 1.0f;
+    boxIdentity.setParams(boxParams);
+    rattleIdentity.setParams(rattleParams);
+    springIdentity.setParams(springParams);
+    boxIdentity.reset();
+    rattleIdentity.reset();
+    springIdentity.reset();
+    const float dryHighMode = boxIdentity.modalTargetFrequencyHz(3u, 2u);
+    const float springHighMode = springIdentity.modalTargetFrequencyHz(3u, 2u);
+    const double boxRattleDifference = measureProcessorDifference(
+        boxIdentity, rattleIdentity, 8u, frames / 2u);
+    boxIdentity.reset();
+    springIdentity.reset();
+    const double boxSpringDifference = measureProcessorDifference(
+        boxIdentity, springIdentity, 8u, frames / 2u);
+    rattleIdentity.reset();
+    springIdentity.reset();
+    const double rattleSpringDifference = measureProcessorDifference(
+        rattleIdentity, springIdentity, 8u, frames / 2u);
+    ok &= check(boxRattleDifference > 0.1
+            && boxSpringDifference > 0.1
+            && rattleSpringDifference > 0.1
+            && springHighMode > dryHighMode * 1.6f,
+        "attached-object controls did not retain distinct sonic identities");
 
     s3g::ProcessorFissure authored;
     authored.prepare(48000.0, 8u);
@@ -382,13 +469,17 @@ int main()
     denseCuts.prepare(48000.0, 2u);
     auto sparseCutParams = sparseCuts.params();
     sparseCutParams.edge = 0.10f;
+    sparseCutParams.rate = 0.10f;
     sparseCutParams.voidAmount = 0.08f;
+    sparseCutParams.space = 0.08f;
     sparseCuts.setCutVariation(0.12f);
     sparseCuts.setParams(sparseCutParams);
     sparseCuts.reset();
     auto denseCutParams = sparseCutParams;
     denseCutParams.edge = 0.96f;
+    denseCutParams.rate = 0.96f;
     denseCutParams.voidAmount = 0.82f;
+    denseCutParams.space = 0.42f;
     denseCutParams.memory = 0.88f;
     denseCutParams.motion = 0.74f;
     denseCuts.setCutVariation(0.94f);
@@ -399,7 +490,32 @@ int main()
         denseCuts, 2u, frames / 2u, false);
     ok &= check(denseCuts.cutRevision() > sparseCuts.cutRevision() + 8u
             && denseCutStats.energy > 0.0001,
-        "Edge/Void did not span sparse motion through dense cut-up splices");
+        "Rate/Void did not span sparse motion through dense cut-up splices");
+
+    s3g::ProcessorFissure rateGesture;
+    rateGesture.prepare(48000.0, 2u);
+    auto rateGestureParams = rateGesture.params();
+    rateGestureParams.edge = 0.80f;
+    rateGestureParams.rate = 0.0f;
+    rateGestureParams.voidAmount = 0.0f;
+    rateGesture.setParams(rateGestureParams);
+    rateGesture.reset();
+    for (uint32_t cell = 0u; cell < s3g::kProcessorFissureCells; ++cell) {
+        rateGesture.setCutMask(cell, false);
+    }
+    render(rateGesture, 2u, 24000u, false);
+    const uint32_t droneCuts = rateGesture.cutRevision();
+    rateGestureParams.rate = .80f;
+    rateGestureParams.voidAmount = .50f;
+    for (uint32_t cell = 0u; cell < s3g::kProcessorFissureCells; ++cell) {
+        rateGesture.setCutMask(cell, true);
+    }
+    rateGesture.setCutVariation(1.0f);
+    rateGesture.setParams(rateGestureParams);
+    render(rateGesture, 2u, 12000u, false);
+    ok &= check(droneCuts == 0u
+            && rateGesture.cutRevision() > droneCuts + 4u,
+        "a rapid Rate gesture did not wake clocks scheduled in drone time");
 
     s3g::ProcessorFissure padCuts;
     padCuts.prepare(48000.0, 8u);
@@ -418,11 +534,56 @@ int main()
         "the spring fracture pad did not create a dense temporary cut field");
     padCuts.setFracturePerformance(0.0f, 0.0f);
 
+    s3g::ProcessorFissure performedPucks;
+    performedPucks.prepare(48000.0, 8u);
+    auto performedPuckParams = performedPucks.params();
+    performedPuckParams.edge = 0.16f;
+    performedPuckParams.rate = 0.12f;
+    performedPuckParams.voidAmount = 0.06f;
+    performedPuckParams.space = 0.08f;
+    performedPucks.setParams(performedPuckParams);
+    performedPucks.reset();
+    performedPucks.setFracturePerformance(0.24f, 0.72f, 0.66f, 0.58f);
+    const uint32_t beforeFlick = performedPucks.cutRevision();
+    performedPucks.pushFractureGesture(0u, 1.0f, 0.0f, 1.0f);
+    render(performedPucks, 8u, 128u, false);
+    float horizontalTraversal = 0.0f;
+    for (uint32_t cell = 0u; cell < 8u; ++cell) {
+        horizontalTraversal += performedPucks.fractureGestureActivity(
+            0u, cell);
+    }
+    ok &= check(horizontalTraversal > 1.2f
+            && performedPucks.cutRevision() > beforeFlick
+            && performedPucks.fractureGestureEnergy(0u) > 0.25f,
+        "a fast Cut Density flick did not traverse and cut multiple cells");
+
+    performedPucks.pushFractureGesture(0u, -1.0f, 0.0f, 0.92f);
+    render(performedPucks, 8u, 32u, false);
+    ok &= check(performedPucks.fractureScarActivity() > 0.05f,
+        "a fast directional reversal did not leave a temporary route scar");
+
+    performedPucks.pushFractureGesture(1u, 0.0f, 1.0f, 0.88f);
+    render(performedPucks, 8u, 64u, false);
+    float linkedTraversal = 0.0f;
+    for (uint32_t cell = 0u; cell < 8u; ++cell) {
+        linkedTraversal += performedPucks.fractureGestureActivity(1u, cell);
+    }
+    ok &= check(linkedTraversal > 0.9f,
+        "a vertical Rupture Shape gesture did not spread through links");
+    render(performedPucks, 8u, 24000u, false);
+    ok &= check(performedPucks.fractureGestureEnergy(0u) < 0.08f
+            && performedPucks.fractureGestureEnergy(1u) < 0.08f
+            && std::abs(performedPucks.fractureForce() - 0.72f) < 0.0001f
+            && std::abs(performedPucks.fractureSpace() - 0.58f) < 0.0001f,
+        "held puck position incorrectly retained gesture velocity");
+
     s3g::ProcessorFissure performanceLoop;
     performanceLoop.prepare(48000.0, 8u);
     auto loopParams = performanceLoop.params();
     loopParams.edge = 0.08f;
+    loopParams.rate = 0.08f;
     loopParams.voidAmount = 0.04f;
+    loopParams.space = 0.04f;
     loopParams.memory = 0.28f;
     loopParams.shaker = 0.05f;
     performanceLoop.setParams(loopParams);
@@ -432,7 +593,9 @@ int main()
         "the first Grab toggle did not start a fresh performance capture");
     render(performanceLoop, 8u, 4800u, false);
     loopParams.edge = 0.94f;
+    loopParams.rate = 0.94f;
     loopParams.voidAmount = 0.78f;
+    loopParams.space = 0.72f;
     loopParams.memory = 0.86f;
     loopParams.shaker = 0.82f;
     performanceLoop.setParams(loopParams);
@@ -450,7 +613,9 @@ int main()
         "the second Grab toggle did not close the performed duration");
 
     loopParams.edge = 0.02f;
+    loopParams.rate = 0.02f;
     loopParams.voidAmount = 0.02f;
+    loopParams.space = 0.02f;
     loopParams.memory = 0.12f;
     loopParams.shaker = 0.0f;
     performanceLoop.setParams(loopParams);

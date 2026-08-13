@@ -36,7 +36,7 @@ replayed.
 
 - Host name: `s3g Processor Formant Matrix`
 - CLAP ID: `org.s3g.s3g-dsp.formant-matrix`
-- Version: `5.4.0`
+- Version: `5.8.0`
 - Installed bundle: `s3g_processor_formant_matrix.clap`
 - Main input: stereo `Modulator In`
 - Main output: stereo `Formant Matrix Out`
@@ -125,6 +125,28 @@ If the host has no input connected, select **Internal Speech**, enter text on
 the PHRASE page, and play MIDI in the same way. Blend is useful for reinforcing
 a live mic with the generated articulation rather than for automatic fallback.
 
+### Mouth Circuit quick start
+
+**Mouth Circuit** is the focused mouth-model profile. It keeps the carrier
+bright and monophonic, removes the microphone waveform from the output, and
+uses a 16-coefficient all-pole estimate of the vocal tract to separate mouth
+shape from the sung fundamental.
+
+1. Select **Mouth Circuit** and hold one MIDI note.
+2. Speak slowly while exaggerating `ee`, `ah`, `oh`, and `oo`; keep the mouth
+   close to the microphone and use Mic Gain to place room noise below the
+   anti-drone gate.
+3. Leave Routing A selected for the direct mouth shape. Move Matrix A / B
+   toward B to lift each analyzed resonance by two synthesis channels.
+4. Use **Mouth Focus** around 85–95% for a strongly pitch-independent tract.
+   Reduce it when a noisy microphone or very sharp consonants need more of the
+   immediate fixed-bank response.
+5. Add octave, fuzz, or echo only after the vowels and consonants read clearly.
+
+Unlike Voice Pitch, Mouth Model does not control oscillator pitch. It estimates
+the resonant envelope of the mouth while MIDI remains the excitation, which is
+the defining signal relationship for this style of playing.
+
 ## Filter-bank layouts
 
 Two layouts cover complementary uses.
@@ -142,22 +164,101 @@ LP 185, 220, 262, 311, 370, 440, 523, 622, 740, 880,
 ```
 
 The dense midrange spacing gives consonant transitions and adjacent vowel
-formants independent control. **Analysis Slope** selects a four-pole or
-eight-pole response per channel. Four Pole is broader and smoother; Eight Pole
-is the Classic Mic default and provides stronger adjacent-formant separation.
-Matched gain compensation keeps the choice about selectivity rather than
-loudness. Modest high-frequency pre-emphasis and contrast expansion follow the
-filters, so the synthesis VCAs receive the shape of the word—not merely the
-overall microphone amplitude.
+formants independent control. **Analysis Response** offers three analyzers:
+
+- **4 Pole** uses broad, forgiving channels for noisy or abstract sources.
+- **8 Pole** is the Classic Mic default and provides stronger adjacent-formant
+  separation.
+- **Mouth Model** estimates a 16th-order all-pole vocal-tract envelope from a
+  causal 24 ms microphone window every 5 ms. This reduces imprint from the
+  singer's fundamental while retaining the slowly moving mouth resonances.
+
+The Mouth Model crossfades to its estimate only after the first valid window.
+Vowels and sonorants use the pitch-resistant tract shape; fricatives and stops
+remain on the faster measured-band path so consonants do not smear. It adds no
+declared plug-in latency, dynamic allocation, dry microphone path, or recorded
+material. Matched gain compensation keeps 4 Pole and 8 Pole about selectivity
+rather than loudness. **Analysis Width** is calibrated independently of that
+pole choice: low values use narrow, selective bands; high values broaden their
+overlap so speech remains continuous between fixed centers. Changing 4 Pole to
+8 Pole therefore changes skirt rejection without a hidden center-frequency
+level jump. Narrow settings suit clean close microphones; broader settings are
+often clearer for sung vowels and pitch movement.
+
+**Definition** adds an energy-domain observer, local spectral
+contrast, transient-sensitive consonant tracking, band-local tonal/noise
+excitation, and carrier-band compensation. At zero it preserves the legacy
+envelope and voicing response; increasing it makes the synthesis VCAs follow
+the shape and timing of the word rather than merely the microphone's overall
+amplitude.
+It never passes the dry microphone waveform.
+
+Before those analyzers, the analysis conditioner remains separate from the
+output effects:
+
+- **Analysis Low EQ**, **Mid EQ**, and **Air EQ** form a
+  reconstruction-preserving three-band input contour.
+- **Analysis Compression** reduces phrase-level variation before the band
+  detectors, keeping quiet syllables comparable to loud vowels.
+- **Voice Focus** removes rumble and contours the speech-presence region.
+- **Analysis Leveler** continuously normalizes phrases into a bounded detector
+  range, with slow recovery so breaths do not surge.
+- **Analysis Noise Reject** learns a slow floor independently in each band and
+  applies click-safe downward expansion. **Analysis Spectral Balance** lifts
+  weak but valid formant bands relative to a dominant band without flattening
+  the envelope into a fixed spectrum.
+
+The anti-drone input gate is independent of these analysis controls, and none
+of them changes the optional Articulation Thru waveform.
+
+**HF Detail** restores fricatives above the useful resolution of the fixed
+bank through a two-pole high-frequency residual. It remains carrier- and
+anti-drone-gated, so it is not dry microphone monitoring:
+
+- **Synthetic** uses only the carrier bank's voiced/unvoiced reconstruction.
+- **Switched** admits the residual only for strong high-frequency, noise-like
+  articulation. This is the normal starting point for clearer `s`, `sh`, `f`,
+  and stop releases.
+- **Direct** keeps the residual ready whenever a carrier is active, for the
+  most literal consonant timing and greatest microphone-tone imprint.
+
+**HF Detail Level** sets its amount and **HF Detail Cutoff** its lower edge.
+Start near 4.2 kHz; raise it if vowels become airy, or lower it if a dark
+microphone loses consonants.
+
+**Transfer Mode** selects the envelope-transfer philosophy:
+
+- **Precision** uses the energy observer directly, shortens matrix-control
+  slewing, speeds carrier-band compensation, and remains linear when Bank
+  Drive is zero. It is the default for Classic Mic and the matrix-first mic
+  profiles.
+- **Expressive** retains the expanded spectral contrast and saturating bank
+  response used by older creative profiles and migrated projects.
+
+Definition is deliberately one macro across the instrument. With External Mic
+it controls measured analysis precision and band-local carrier reconstruction.
+With Internal Speech it also tightens generated phoneme articulation. After
+the octave/fuzz stages it preserves a bounded amount of the clean articulated
+bank, never the microphone input itself.
+
+**Mouth Focus** is active only for Mouth Model. At 0% the output follows the
+fast measured bank, retaining more pitch imprint and immediate consonant
+movement. At 100% voiced/periodic regions use the LPC vocal-tract estimate as
+strongly as its confidence permits. Fricative/noise evidence automatically
+reduces the LPC contribution even at 100%, keeping S, F, SH, T, and stop edges
+on the faster articulation path. The control is smoothed for live performance.
 
 ### Wide 16
 
 Wide 16 uses sixteen logarithmically spaced band-pass channels from 90 Hz to
 the lower of 9 kHz or 43 percent of the current sample rate. The remaining six
-matrix channels are inactive. It is useful for non-vocal carriers, large
-spectral shifts, sparse resonances, and deliberately abstract articulation.
-The routing page keeps the same conceptual workflow while showing which
-channels are active in the selected layout.
+matrix channels are inactive. The ROUTE editor therefore becomes a full-size
+16 by 16 matrix with sixteen meters, labels, trims, and hit regions. Its hidden
+Speech-22 cells remain stored, and return unchanged when Speech 22 is selected
+again. Identity, Random, Clear, and scene Copy likewise affect only the visible
+16 by 16 area while Wide 16 is active. It is useful for non-vocal carriers,
+large spectral shifts, sparse resonances, and deliberately abstract
+articulation.
 
 Shift, Stretch, Tilt, Resonance, and Drive reshape either layout without
 changing the stored routing patch. Filter coefficients and envelope timing are
@@ -175,13 +276,15 @@ gesture.
 
 Eight-pole analysis is deliberately selectable rather than universal: narrow
 bands improve vowel identity and consonant localization, while four-pole bands
-can sound more forgiving on noisy sources and abstract material. Neither mode
-passes the dry microphone waveform.
+can sound more forgiving on noisy sources and abstract material. Mouth Model
+is the pitch-resistant option for talk-box-style articulation. None of the
+three responses passes the dry microphone waveform.
 
-Classic Mic uses a 2 ms nominal attack, 65 ms nominal release, and 4 ms Blur.
-These settings preserve vowel transitions and stop/fricative edges; longer
-Release or Blur values intentionally move back toward a smooth, sustained
-vocal-driven filter sound.
+Classic Mic uses a 2 ms nominal attack, 65 ms nominal release, 4 ms Blur,
+Precision transfer, moderate Voice Focus/Leveler, and Carrier Density. It also
+starts Definition at 78%. These settings preserve vowel transitions
+and stop/fricative edges; longer Release or Blur values, or lower Definition,
+intentionally move back toward a smooth, sustained vocal-driven filter sound.
 
 **Bank Mode** defines how that control signal opens the synthesis bank:
 
@@ -216,6 +319,16 @@ hysteresis prevents repeated switching around consonant boundaries.
 This transition is deliberately continuous. Fricatives and stop releases join
 the same resonant gesture as the surrounding vowel instead of appearing as
 separate snare-like transients.
+
+The measured consonant path is divided into three overlapping speech zones
+centered in the low, middle, and upper fricative regions. Each zone tracks its
+own energy and positive spectral flux, then excites only the corresponding
+synthesis channels. **Consonant Level** sets the amount, **Consonant Color**
+moves from periodic buzz to generated hiss, and **Consonant Speed** moves from
+immediate stop/fricative timing toward a smoother response. This keeps `s`,
+`sh`, `f`, and plosive releases from collapsing into one global noise burst.
+The hiss is synthesized carrier energy; no microphone waveform is copied
+unless Articulation Thru is explicitly raised.
 
 Three related controls extend the classic envelope-following behavior:
 
@@ -289,10 +402,13 @@ inside the sound instead of merely decorating a fixed diagonal vocoder.
   unrelated scenes, plus synchronized carrier motion and multi-head echo.
 - **Vocal Alloy** is a MIDI-played polyphonic matrix that combines diagonal,
   shifted, mirrored, and signed cross-routes across its two scenes.
+- **Mouth Circuit** uses MIDI pitch, a bright saw carrier, the LPC mouth
+  response, fast consonant support, and a restrained scene that morphs from
+  direct articulation to a two-channel formant lift.
 
 These profiles start from External Mic and eight-pole Speech 22 analysis.
 Formant Glide through Broken Relay use Voice Pitch so the carrier follows a
-sung note; Vocal Alloy deliberately uses MIDI Pitch for polyphonic playing.
+sung note; Vocal Alloy and Mouth Circuit deliberately use MIDI Pitch.
 They remain starting points: editing any control or crosspoint moves the
 profile display to Custom without discarding the routing.
 
@@ -320,8 +436,12 @@ timing or matrix routing.
 ## Internal carrier and LFO
 
 The sample-free carrier provides glottal, saw, pulse, folded, and noise shapes.
-Harmonics, Color, Noise, and **Pulse Width** determine how much usable energy
-reaches the synthesis filters. Its oscillator slots use stable note identities,
+Harmonics, Color, Noise, and **Pulse Width** determine its base spectrum.
+**Carrier Density** adds a restrained subharmonic excitation and a low-level
+broadband generated carrier floor. This supplies energy between widely spaced
+harmonics at high notes, allowing narrow speech bands to articulate rather
+than vanish, while the main oscillator preserves the played pitch. Its
+oscillator slots use stable note identities,
 so note stealing and polyphonic compaction do not reset surviving phases or
 introduce hard discontinuities.
 
@@ -403,19 +523,25 @@ Processor grammar: a common title band, an output control reachable from the
 primary page, a large process-specific view, compact grayscale toolboxes, and
 color reserved for live signal meaning.
 
-The logical pages are:
+Each adjustable parameter has one page owner; the live meters may mirror signal
+state on ROUTE, but controls are never duplicated between pages:
 
 - **ROUTE** — 22 by 22 matrix, band meters and trims, selected crosspoint,
-  MIC and INTERNAL SPEECH source rails, selected-modulator analysis, envelope
-  behavior, and output.
-- **BANK** — filter layout, tuning, response, voiced/unvoiced behavior, stereo
-  pattern, and fixed-bank behavior.
-- **SOURCES** — modulator selection and mic gain, procedural MIDI-carrier
-  waveform, and carrier LFO.
+  matrix topology and layout, Bank Mode/Mix, Articulation Thru, Definition,
+  Mouth Focus, performance envelopes, and output. MIC and INTERNAL SPEECH rails
+  are visual signal-flow monitors here; their source controls live on SOURCES.
+- **BANK** — Transfer Mode, analysis response and calibrated Width; input
+  Low/Mid/Air EQ, Compression, Voice Focus, Leveler, per-band Noise Reject and
+  Spectral Balance; phoneme blend, resonance, drive, spectral tuning,
+  three-zone consonant level/color/speed, HF Detail mode/level/cutoff, stereo
+  pattern, freeze/blur, gesture follow, and voiced/unvoiced transition timing.
+- **SOURCES** — modulator selection and mic gain, pitch source, root, scale and
+  hold, procedural carrier waveform/color/density, and carrier LFO.
 - **PHRASE** — text entry, compiled phoneme score, timing, audition, voice, and
   polyphony.
-- **FX** — the left column contains output, dynamics, stereo width, octave, and
-  fuzz shaping; the right column contains the complete multi-head tape path.
+- **FX** — the left column contains post-bank dynamics, stereo width, octave,
+  and fuzz shaping; the right column contains the complete multi-head tape
+  path. Final Output remains on ROUTE.
   Compact labels remain inside the label lane instead of overlapping slider
   tracks or value readouts.
 
@@ -425,15 +551,31 @@ share the same geometry so visual and mouse locations remain aligned.
 
 ## State and compatibility
 
-Version 5.3 uses state format 21. The IDs formerly assigned to the external
+Version 5.8 uses state format 25. The IDs formerly assigned to the external
 carrier mix and gain now represent Modulator Source and Mic Gain. A format-18
 state is therefore migrated deliberately rather than reinterpreted: its source
 becomes Internal Speech and its mic gain becomes 0 dB, while the former Custom
 profile moves from slot 14 to the current Custom slot. Format-20 state used
-slot 15 for Custom; format 21 moves that value to slot 24 so nine matrix-first
-factory profiles can occupy slots 15 through 23. Existing phrase, synthesis, ensemble,
-echo, matrix, and post-effect settings are preserved where they retain the same
-meaning.
+slot 15 for Custom; format 21 moved that value to slot 24 so nine matrix-first
+factory profiles could occupy slots 15 through 23. Format 22 inserts Mouth
+Circuit at slot 24 and migrates the former format-21 Custom value to slot 25.
+Format 23 appends Mouth Focus at stable automation ID 1103. Formats 22 and
+earlier migrate it to 100%, reproducing the implicit fully focused behavior of
+the original Mouth Model; new instances use a gentler 80% default.
+Format 24 appends Transfer Mode, Voice Focus, Analysis Leveler, Consonant
+Color, Consonant Speed, and Carrier Density at IDs 1104 through 1109. Format-23
+and older states migrate those controls to neutral Expressive values so their
+sound is not silently reinterpreted; the revised Classic Mic, Mouth Circuit,
+and matrix-first factory profiles opt into Precision explicitly.
+Format 25 appends Analysis Width, HF Detail Mode/Level/Cutoff, Analysis
+Low/Mid/Air EQ, Analysis Compression, Analysis Noise Reject, and Analysis
+Spectral Balance at IDs 1110 through 1119. Format-24 and older states map their
+fixed analyzer Q onto the equivalent Width for the saved pole response and
+initialize every new conditioning/residual path neutrally. This preserves the
+previous sound while new instances and revised microphone profiles opt into
+the clearer front end.
+Existing phrase, synthesis, ensemble, echo, matrix, and post-effect settings
+are preserved where they retain the same meaning.
 
 The public CLAP ID and bundle identity changed for version 4. A host project
 that refers only to the former plug-in ID may therefore require manual

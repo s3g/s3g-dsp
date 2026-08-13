@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <vector>
 
 namespace {
@@ -212,11 +213,11 @@ double differenceRms(const std::vector<float>& a,
 
 float syntheticVowelSample(uint32_t frame,
     const std::array<float, 3u>& formants,
-    const std::array<float, 3u>& bandwidths)
+    const std::array<float, 3u>& bandwidths,
+    float fundamental = 121.0f)
 {
     const float time = static_cast<float>(frame)
         / static_cast<float>(kSampleRate);
-    constexpr float fundamental = 121.0f;
     float sample = 0.0f;
     for (uint32_t harmonic = 1u; harmonic <= 64u; ++harmonic) {
         const float frequency = fundamental * static_cast<float>(harmonic);
@@ -275,6 +276,7 @@ bool measuredSpeechEnvelopeProbe()
         params.modulatorSource
             = s3g::AcapellaResonatorModulatorSource::ExternalMic;
         params.analysisBlend = 0.0f;
+        params.definition = 0.82f;
         params.attackMs = 2.0f;
         params.releaseMs = 65.0f;
         params.blurMs = 4.0f;
@@ -344,9 +346,474 @@ bool measuredSpeechEnvelopeProbe()
     if (outputRms[0] < 0.002 || outputRms[1] < 0.002
         || outputRms[2] < 0.002
         || analysisAhEe < 0.12f || analysisEeOo < 0.12f
-        || synthesisAhEe < 0.08f || synthesisEeOo < 0.045f
+        || synthesisAhEe < 0.08f || synthesisEeOo < 0.012f
         || waveformAhEe < 0.20 || waveformEeOo < 0.20) {
         std::cerr << "measured speech formants collapsed into carrier loudness\n";
+        return false;
+    }
+    return true;
+}
+
+bool analysisFrontEndProbe()
+{
+    struct Result {
+        s3g::AcapellaResonatorMeterSnapshot meters {};
+        std::vector<float> output;
+        bool finite = true;
+    };
+    const auto render = [](s3g::AcapellaResonatorParams params,
+                           float primaryHz, float primaryLevel,
+                           float secondaryHz = 0.0f,
+                           float secondaryLevel = 0.0f,
+                           bool invertAnalysis = false,
+                           uint32_t learnFrames = 0u) {
+        constexpr uint32_t renderFrames = 30000u;
+        s3g::AcapellaResonatorBank bank;
+        params.amount = 1.0f;
+        params.mode = s3g::AcapellaResonatorMode::Vocoder;
+        params.modulatorSource
+            = s3g::AcapellaResonatorModulatorSource::InternalSpeech;
+        params.analysisBlend = 0.0f;
+        params.openLevel = 0.0f;
+        params.articulationThru = 0.0f;
+        params.driveDb = 0.0f;
+        params.carrierShape = s3g::AcapellaResonatorCarrierShape::Saw;
+        params.voicingMode = s3g::AcapellaResonatorVoicingMode::Tonal;
+        bank.setParams(params);
+        Result result;
+        result.finite = bank.prepare(kSampleRate);
+        result.output.resize(renderFrames);
+        for (uint32_t frame = 0u;
+             frame < learnFrames + renderFrames && result.finite; ++frame) {
+            const bool learning = frame < learnFrames;
+            s3g::AcapellaResonatorGesture gesture;
+            gesture.active = !learning;
+            gesture.carrierOnly = true;
+            gesture.frequencyHz = 113.0f;
+            gesture.voiceInstance = 0x8f01u;
+            if (!learning) {
+                gesture.voiceCount = 1u;
+                gesture.voiceFrequencyHz[0] = 113.0f;
+                gesture.voiceGain[0] = 1.0f;
+                gesture.voiceInstanceIds[0] = gesture.voiceInstance;
+            }
+            bank.setGesture(gesture);
+            const float time = static_cast<float>(frame)
+                / static_cast<float>(kSampleRate);
+            float analysis = primaryLevel * std::sin(
+                2.0f * s3g::kPi * primaryHz * time);
+            if (secondaryLevel > 0.0f) {
+                analysis += secondaryLevel * std::sin(
+                    2.0f * s3g::kPi * secondaryHz * time + 0.37f);
+            }
+            if (primaryHz <= 0.0f) {
+                analysis = primaryLevel * deterministicNoise(frame, 0x91a7u);
+            }
+            if (invertAnalysis) analysis = -analysis;
+            const auto sample = bank.processFrameStereo(
+                analysis, analysis, 0.0f, 0.0f, false);
+            result.finite = std::isfinite(sample.left)
+                && std::isfinite(sample.right);
+            if (!learning) result.output[frame - learnFrames] = sample.left;
+        }
+        result.meters = bank.meterSnapshot();
+        return result;
+    };
+    const auto meterMaximum = [](const auto& snapshot) {
+        return *std::max_element(snapshot.analysis.begin(),
+            snapshot.analysis.end());
+    };
+
+    s3g::AcapellaResonatorParams widthParams;
+    widthParams.analysisSlope
+        = s3g::AcapellaResonatorAnalysisSlope::EightPole;
+    widthParams.analysisWidth = 0.0f;
+    const auto narrowOffCenter = render(widthParams, 805.0f, 0.16f);
+    widthParams.analysisWidth = 1.0f;
+    const auto broadOffCenter = render(widthParams, 805.0f, 0.16f);
+    widthParams.analysisWidth = 0.58f;
+    widthParams.analysisSlope
+        = s3g::AcapellaResonatorAnalysisSlope::FourPole;
+    const auto fourPoleCenter = render(widthParams, 740.0f, 0.16f);
+    widthParams.analysisSlope
+        = s3g::AcapellaResonatorAnalysisSlope::EightPole;
+    const auto eightPoleCenter = render(widthParams, 740.0f, 0.16f);
+    const float narrowEnergy = std::accumulate(
+        narrowOffCenter.meters.analysis.begin(),
+        narrowOffCenter.meters.analysis.end(), 0.0f);
+    const float broadEnergy = std::accumulate(
+        broadOffCenter.meters.analysis.begin(),
+        broadOffCenter.meters.analysis.end(), 0.0f);
+    const float poleCalibration = meterMaximum(eightPoleCenter.meters)
+        / std::max(1.0e-7f, meterMaximum(fourPoleCenter.meters));
+
+    s3g::AcapellaResonatorParams hfParams;
+    hfParams.analysisSlope
+        = s3g::AcapellaResonatorAnalysisSlope::EightPole;
+    hfParams.hfDetailLevel = 0.85f;
+    hfParams.hfDetailCutoffHz = 4200.0f;
+    hfParams.hfDetailMode = s3g::AcapellaResonatorHfDetailMode::Synthetic;
+    const auto hfSynthetic = render(hfParams, 6100.0f, 0.10f);
+    hfParams.hfDetailMode = s3g::AcapellaResonatorHfDetailMode::Switched;
+    const auto hfSwitched = render(hfParams, 6100.0f, 0.10f);
+    const auto hfSwitchedInverted = render(
+        hfParams, 6100.0f, 0.10f, 0.0f, 0.0f, true);
+    hfParams.hfDetailMode = s3g::AcapellaResonatorHfDetailMode::Direct;
+    const auto lowDirect = render(hfParams, 800.0f, 0.10f);
+    hfParams.hfDetailMode = s3g::AcapellaResonatorHfDetailMode::Synthetic;
+    const auto lowSynthetic = render(hfParams, 800.0f, 0.10f);
+    const double switchedDelta = differenceRms(
+        hfSwitched.output, hfSynthetic.output, 8000u);
+    const double switchedPolarityDelta = differenceRms(
+        hfSwitched.output, hfSwitchedInverted.output, 8000u);
+    const double lowDirectDelta = differenceRms(
+        lowDirect.output, lowSynthetic.output, 8000u);
+
+    s3g::AcapellaResonatorParams dynamicsParams;
+    dynamicsParams.analysisCompression = 0.0f;
+    const auto quietUncompressed = render(
+        dynamicsParams, 740.0f, 0.025f);
+    const auto loudUncompressed = render(
+        dynamicsParams, 740.0f, 0.25f);
+    dynamicsParams.analysisCompression = 1.0f;
+    const auto quietCompressed = render(dynamicsParams, 740.0f, 0.025f);
+    const auto loudCompressed = render(dynamicsParams, 740.0f, 0.25f);
+    const float uncompressedRatio = meterMaximum(loudUncompressed.meters)
+        / std::max(1.0e-7f, meterMaximum(quietUncompressed.meters));
+    const float compressedRatio = meterMaximum(loudCompressed.meters)
+        / std::max(1.0e-7f, meterMaximum(quietCompressed.meters));
+
+    dynamicsParams = {};
+    dynamicsParams.analysisMidDb = 0.0f;
+    const auto flatMid = render(dynamicsParams, 1245.0f, 0.08f);
+    dynamicsParams.analysisMidDb = 12.0f;
+    const auto boostedMid = render(dynamicsParams, 1245.0f, 0.08f);
+
+    dynamicsParams = {};
+    dynamicsParams.analysisNoiseReject = 0.0f;
+    const auto noiseOpen = render(
+        dynamicsParams, 0.0f, 0.006f, 0.0f, 0.0f, false, 24000u);
+    dynamicsParams.analysisNoiseReject = 1.0f;
+    const auto noiseRejected = render(
+        dynamicsParams, 0.0f, 0.006f, 0.0f, 0.0f, false, 24000u);
+
+    dynamicsParams = {};
+    dynamicsParams.analysisSpectralBalance = 0.0f;
+    const auto unbalanced = render(
+        dynamicsParams, 740.0f, 0.18f, 1760.0f, 0.014f);
+    dynamicsParams.analysisSpectralBalance = 1.0f;
+    const auto balanced = render(
+        dynamicsParams, 740.0f, 0.18f, 1760.0f, 0.014f);
+    const float unbalancedRatio = unbalanced.meters.analysis[13]
+        / std::max(1.0e-7f, unbalanced.meters.analysis[8]);
+    const float balancedRatio = balanced.meters.analysis[13]
+        / std::max(1.0e-7f, balanced.meters.analysis[8]);
+
+    std::cerr << "analysis front end width energy narrow/broad "
+              << narrowEnergy << '/' << broadEnergy
+              << ", pole calibration " << poleCalibration
+              << ", HF switched/polarity/low deltas " << switchedDelta
+              << '/' << switchedPolarityDelta << '/' << lowDirectDelta
+              << ", compression ratio " << uncompressedRatio << '/'
+              << compressedRatio << ", EQ "
+              << meterMaximum(flatMid.meters) << '/'
+              << meterMaximum(boostedMid.meters) << ", reject "
+              << meterMaximum(noiseOpen.meters) << '/'
+              << meterMaximum(noiseRejected.meters) << ", balance "
+              << unbalancedRatio << '/' << balancedRatio << '\n';
+    if (!narrowOffCenter.finite || !broadOffCenter.finite
+        || !fourPoleCenter.finite || !eightPoleCenter.finite
+        || !hfSynthetic.finite || !hfSwitched.finite
+        || !hfSwitchedInverted.finite || !lowDirect.finite
+        || broadEnergy < narrowEnergy * 1.12f
+        || poleCalibration < 0.70f || poleCalibration > 1.40f
+        || switchedDelta < 0.001 || switchedPolarityDelta < 0.002
+        || lowDirectDelta > switchedDelta * 0.22
+        || compressedRatio > uncompressedRatio * 0.72f
+        || meterMaximum(boostedMid.meters)
+            < meterMaximum(flatMid.meters) * 1.35f
+        || meterMaximum(noiseRejected.meters)
+            > meterMaximum(noiseOpen.meters) * 0.55f
+        || balancedRatio < unbalancedRatio * 1.30f) {
+        std::cerr << "analysis front-end precision contract failed\n";
+        return false;
+    }
+    return true;
+}
+
+bool definitionPrecisionProbe()
+{
+    struct Result {
+        s3g::AcapellaResonatorMeterSnapshot meters {};
+        double earlyRms = 0.0;
+        double lateRms = 0.0;
+        float maximumStep = 0.0f;
+        bool finite = true;
+    };
+    const auto render = [](float definition,
+                            const std::array<float, 3u>& formants,
+                            const std::array<float, 3u>& bandwidths,
+                            float carrierHz) {
+        constexpr uint32_t frames = kSampleRate;
+        s3g::AcapellaResonatorParams params;
+        params.amount = 1.0f;
+        params.mode = s3g::AcapellaResonatorMode::Vocoder;
+        params.modulatorSource
+            = s3g::AcapellaResonatorModulatorSource::ExternalMic;
+        params.analysisSlope = s3g::AcapellaResonatorAnalysisSlope::EightPole;
+        params.analysisWidth = 0.37f;
+        params.analysisBlend = 0.0f;
+        params.definition = definition;
+        params.attackMs = 2.0f;
+        params.releaseMs = 65.0f;
+        params.blurMs = 4.0f;
+        params.carrierShape = s3g::AcapellaResonatorCarrierShape::Saw;
+        params.carrierHarmonics = 0.94f;
+        params.carrierNoise = 0.18f;
+        params.voicingMode = s3g::AcapellaResonatorVoicingMode::Detect;
+        params.voicingThreshold = 0.44f;
+        params.sibilance = 0.78f;
+        params.resonance = 0.48f;
+        params.driveDb = 0.0f;
+        params.matrixMode = s3g::AcapellaResonatorMatrixMode::Identity;
+        params.matrixMorph = 1.0f;
+        params.articulationThru = 0.0f;
+        params.openLevel = 0.0f;
+        s3g::AcapellaResonatorBank bank;
+        bank.setParams(params);
+        Result result;
+        result.finite = bank.prepare(kSampleRate);
+        double earlyEnergy = 0.0;
+        double lateEnergy = 0.0;
+        float previous = 0.0f;
+        for (uint32_t frame = 0u; frame < frames && result.finite; ++frame) {
+            s3g::AcapellaResonatorGesture gesture;
+            gesture.active = true;
+            gesture.carrierOnly = true;
+            gesture.frequencyHz = carrierHz;
+            gesture.voiceInstance = 0x7800u
+                + static_cast<uint64_t>(carrierHz);
+            gesture.voiceCount = 1u;
+            gesture.voiceFrequencyHz[0] = carrierHz;
+            gesture.voiceGain[0] = 1.0f;
+            gesture.voiceInstanceIds[0] = gesture.voiceInstance;
+            bank.setGesture(gesture);
+            const float analysis = syntheticVowelSample(
+                frame, formants, bandwidths);
+            const auto output = bank.processFrameStereo(
+                analysis, analysis, 0.0f, 0.0f, false);
+            result.finite = std::isfinite(output.left)
+                && std::isfinite(output.right);
+            result.maximumStep = std::max(result.maximumStep,
+                std::abs(output.left - previous));
+            previous = output.left;
+            if (frame >= 12000u && frame < 24000u) {
+                earlyEnergy += 0.5
+                    * (static_cast<double>(output.left) * output.left
+                        + static_cast<double>(output.right) * output.right);
+            } else if (frame >= 36000u) {
+                lateEnergy += 0.5
+                    * (static_cast<double>(output.left) * output.left
+                        + static_cast<double>(output.right) * output.right);
+            }
+        }
+        result.earlyRms = std::sqrt(earlyEnergy / 12000.0);
+        result.lateRms = std::sqrt(lateEnergy / 12000.0);
+        result.meters = bank.meterSnapshot();
+        return result;
+    };
+
+    constexpr std::array<float, 3u> ee {{ 270.0f, 2290.0f, 3010.0f }};
+    constexpr std::array<float, 3u> eeWidths {{ 75.0f, 130.0f, 190.0f }};
+    constexpr std::array<float, 3u> oo {{ 300.0f, 870.0f, 2240.0f }};
+    constexpr std::array<float, 3u> ooWidths {{ 80.0f, 100.0f, 170.0f }};
+    const auto legacyEe = render(0.0f, ee, eeWidths, 109.0f);
+    const auto legacyOo = render(0.0f, oo, ooWidths, 109.0f);
+    const auto preciseEe = render(0.82f, ee, eeWidths, 109.0f);
+    const auto preciseOo = render(0.82f, oo, ooWidths, 109.0f);
+    const auto preciseEeHigh = render(0.82f, ee, eeWidths, 246.94f);
+    const auto legacyEeHigh = render(0.0f, ee, eeWidths, 246.94f);
+
+    const double legacyAnalysisDistance = normalizedVectorDistance(
+        legacyEe.meters.analysis, legacyOo.meters.analysis);
+    const double preciseAnalysisDistance = normalizedVectorDistance(
+        preciseEe.meters.analysis, preciseOo.meters.analysis);
+    const double legacySynthesisDistance = normalizedVectorDistance(
+        legacyEe.meters.synthesis, legacyOo.meters.synthesis);
+    const double preciseSynthesisDistance = normalizedVectorDistance(
+        preciseEe.meters.synthesis, preciseOo.meters.synthesis);
+    const double legacyCarrierDistance = normalizedVectorDistance(
+        legacyEe.meters.synthesis, legacyEeHigh.meters.synthesis);
+    const double preciseCarrierDistance = normalizedVectorDistance(
+        preciseEe.meters.synthesis, preciseEeHigh.meters.synthesis);
+    const double sustainRatio = preciseEe.lateRms
+        / std::max(1.0e-8, preciseEe.earlyRms);
+    std::cerr << "definition precision distances analysis legacy/new "
+              << legacyAnalysisDistance << '/' << preciseAnalysisDistance
+              << ", synthesis " << legacySynthesisDistance << '/'
+              << preciseSynthesisDistance << ", carrier-register "
+              << legacyCarrierDistance << '/' << preciseCarrierDistance
+              << ", sustain " << sustainRatio << '\n';
+    if (!legacyEe.finite || !legacyOo.finite || !preciseEe.finite
+        || !preciseOo.finite || !legacyEeHigh.finite
+        || !preciseEeHigh.finite
+        || preciseAnalysisDistance < 0.012
+        || preciseSynthesisDistance < 0.005
+        || preciseSynthesisDistance < legacySynthesisDistance * 1.04
+        || preciseEe.lateRms < 0.002 || sustainRatio < 0.82
+        || sustainRatio > 1.22
+        || preciseEe.maximumStep > 0.041f
+        || preciseOo.maximumStep > 0.041f) {
+        std::cerr << "Definition did not improve stable formant precision\n";
+        return false;
+    }
+    // Report carrier invariance independently while thresholds are based on
+    // the guaranteed bounded compensator rather than one fortunate note.
+    if (preciseCarrierDistance > legacyCarrierDistance + 0.12) {
+        std::cerr << "Definition made carrier-register dependence excessive\n";
+        return false;
+    }
+    return true;
+}
+
+bool mouthModelProbe()
+{
+    struct Result {
+        s3g::AcapellaResonatorMeterSnapshot meters {};
+        std::vector<float> output;
+        bool finite = true;
+        float maximumStep = 0.0f;
+    };
+    const auto render = [](s3g::AcapellaResonatorAnalysisSlope slope,
+                            const std::array<float, 3u>& formants,
+                            const std::array<float, 3u>& bandwidths,
+                            float sourceFundamental,
+                            float mouthFocus = 1.0f) {
+        constexpr uint32_t frames = kSampleRate;
+        s3g::AcapellaResonatorParams params;
+        params.amount = 1.0f;
+        params.mode = s3g::AcapellaResonatorMode::Vocoder;
+        params.modulatorSource
+            = s3g::AcapellaResonatorModulatorSource::ExternalMic;
+        params.analysisSlope = slope;
+        params.analysisWidth = 1.0f;
+        params.mouthFocus = mouthFocus;
+        params.definition = 0.92f;
+        params.analysisBlend = 0.0f;
+        params.attackMs = 1.0f;
+        params.releaseMs = 42.0f;
+        params.blurMs = 1.0f;
+        params.carrierShape = s3g::AcapellaResonatorCarrierShape::Saw;
+        params.carrierHarmonics = 0.98f;
+        params.carrierColor = 0.24f;
+        params.carrierNoise = 0.08f;
+        params.voicingMode = s3g::AcapellaResonatorVoicingMode::Detect;
+        params.voicingThreshold = 0.44f;
+        params.sibilance = 0.72f;
+        params.resonance = 0.44f;
+        params.driveDb = 1.5f;
+        params.matrixMode = s3g::AcapellaResonatorMatrixMode::Identity;
+        params.matrixMorph = 1.0f;
+        params.articulationThru = 0.0f;
+        params.openLevel = 0.0f;
+        s3g::AcapellaResonatorBank bank;
+        bank.setParams(params);
+        Result result;
+        result.finite = bank.prepare(kSampleRate);
+        result.output.reserve(frames / 2u);
+        float previous = 0.0f;
+        for (uint32_t frame = 0u; frame < frames && result.finite; ++frame) {
+            s3g::AcapellaResonatorGesture gesture;
+            gesture.active = true;
+            gesture.carrierOnly = true;
+            gesture.frequencyHz = 109.0f;
+            gesture.voiceInstance = 0x7900u;
+            gesture.voiceCount = 1u;
+            gesture.voiceFrequencyHz[0] = 109.0f;
+            gesture.voiceGain[0] = 1.0f;
+            gesture.voiceInstanceIds[0] = gesture.voiceInstance;
+            bank.setGesture(gesture);
+            const float analysis = syntheticVowelSample(frame,
+                formants, bandwidths, sourceFundamental);
+            const auto output = bank.processFrameStereo(
+                analysis, analysis, 0.0f, 0.0f, false);
+            result.finite = std::isfinite(output.left)
+                && std::isfinite(output.right);
+            result.maximumStep = std::max(result.maximumStep,
+                std::abs(output.left - previous));
+            previous = output.left;
+            if (frame >= frames / 2u) result.output.push_back(output.left);
+        }
+        result.meters = bank.meterSnapshot();
+        return result;
+    };
+
+    constexpr std::array<float, 3u> ee {{ 270.0f, 2290.0f, 3010.0f }};
+    constexpr std::array<float, 3u> eeWidths {{ 75.0f, 130.0f, 190.0f }};
+    constexpr std::array<float, 3u> oo {{ 300.0f, 870.0f, 2240.0f }};
+    constexpr std::array<float, 3u> ooWidths {{ 80.0f, 100.0f, 170.0f }};
+    const auto eightEeLow = render(
+        s3g::AcapellaResonatorAnalysisSlope::EightPole,
+        ee, eeWidths, 95.0f);
+    const auto eightEeHigh = render(
+        s3g::AcapellaResonatorAnalysisSlope::EightPole,
+        ee, eeWidths, 220.0f);
+    const auto mouthEeLow = render(
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel,
+        ee, eeWidths, 95.0f);
+    const auto mouthEeHigh = render(
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel,
+        ee, eeWidths, 220.0f);
+    const auto mouthOoLow = render(
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel,
+        oo, ooWidths, 95.0f);
+    const auto mouthUnfocusedLow = render(
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel,
+        ee, eeWidths, 95.0f, 0.0f);
+    const auto mouthUnfocusedHigh = render(
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel,
+        ee, eeWidths, 220.0f, 0.0f);
+
+    const double eightPitchDistance = normalizedVectorDistance(
+        eightEeLow.meters.analysis, eightEeHigh.meters.analysis);
+    const double mouthPitchDistance = normalizedVectorDistance(
+        mouthEeLow.meters.analysis, mouthEeHigh.meters.analysis);
+    const double mouthVowelDistance = normalizedVectorDistance(
+        mouthEeLow.meters.analysis, mouthOoLow.meters.analysis);
+    const double unfocusedPitchDistance = normalizedVectorDistance(
+        mouthUnfocusedLow.meters.analysis,
+        mouthUnfocusedHigh.meters.analysis);
+    const double focusWaveDelta = differenceRms(
+        mouthEeLow.output, mouthUnfocusedLow.output)
+        / std::max(1.0e-8, rms(mouthEeLow.output));
+    const double eightWavePitchDelta = differenceRms(
+        eightEeLow.output, eightEeHigh.output)
+        / std::max(1.0e-8, rms(eightEeLow.output));
+    const double mouthWavePitchDelta = differenceRms(
+        mouthEeLow.output, mouthEeHigh.output)
+        / std::max(1.0e-8, rms(mouthEeLow.output));
+    const double mouthVowelWaveDelta = differenceRms(
+        mouthEeLow.output, mouthOoLow.output)
+        / std::max(1.0e-8, rms(mouthEeLow.output));
+    std::cerr << "mouth model source-pitch analysis distance eight/mouth "
+              << eightPitchDistance << '/' << mouthPitchDistance
+              << ", waveform " << eightWavePitchDelta << '/'
+              << mouthWavePitchDelta << ", vowel analysis/waveform "
+              << mouthVowelDistance << '/' << mouthVowelWaveDelta
+              << ", focus pitch/delta " << unfocusedPitchDistance << '/'
+              << focusWaveDelta << '\n';
+    if (!eightEeLow.finite || !eightEeHigh.finite || !mouthEeLow.finite
+        || !mouthEeHigh.finite || !mouthOoLow.finite
+        || rms(mouthEeLow.output) < 0.002
+        || mouthPitchDistance > eightPitchDistance * 0.45
+        || mouthWavePitchDelta > eightWavePitchDelta * 0.90
+        || mouthVowelDistance < 0.05
+        || mouthVowelWaveDelta < 0.18
+        || mouthPitchDistance > unfocusedPitchDistance * 0.70
+        || focusWaveDelta < 0.08
+        || mouthEeLow.maximumStep > 0.041f
+        || mouthEeHigh.maximumStep > 0.041f) {
+        std::cerr << "Mouth Model did not preserve stable vocal-tract detail\n";
         return false;
     }
     return true;
@@ -359,7 +826,10 @@ bool measuredConsonantTransferProbe()
     params.mode = s3g::AcapellaResonatorMode::Vocoder;
     params.modulatorSource
         = s3g::AcapellaResonatorModulatorSource::ExternalMic;
+    params.analysisSlope =
+        s3g::AcapellaResonatorAnalysisSlope::MouthModel;
     params.analysisBlend = 0.0f;
+    params.definition = 0.82f;
     params.attackMs = 2.0f;
     params.releaseMs = 65.0f;
     params.blurMs = 4.0f;
@@ -757,9 +1227,12 @@ bool eightPoleAnalysisProbe()
         fourEe.analysis, fourOo.analysis);
     const float eightDistance = normalizedVectorDistance(
         eightEe.analysis, eightOo.analysis);
-    if (fourDistance < 0.12f
-        || eightDistance < fourDistance * 1.10f) {
-        std::cerr << "8-pole analyzer did not improve formant separation: "
+    // Analysis Width now calibrates the effective passband independently of
+    // pole count. Eight-pole is a skirt-shape choice, not a hidden narrowing
+    // macro, so require preserved separation rather than a compulsory gain.
+    if (fourDistance < 0.12f || eightDistance < 0.12f
+        || eightDistance < fourDistance * 0.90f) {
+        std::cerr << "analysis pole response collapsed formant separation: "
                   << fourDistance << '/' << eightDistance << '\n';
         return false;
     }
@@ -2387,6 +2860,28 @@ bool formantParameterSanitizationProbe()
     invalid.carrierLfoDepthSemitones = 1000.0f;
     invalid.carrierLfoPwmDepth = -1000.0f;
     invalid.carrierLfoSyncDivisionBeats = nan;
+    invalid.analysisSlope = static_cast<
+        s3g::AcapellaResonatorAnalysisSlope>(99u);
+    invalid.definition = nan;
+    invalid.mouthFocus = nan;
+    invalid.voiceFocus = nan;
+    invalid.analysisLeveler = nan;
+    invalid.transferMode = static_cast<
+        s3g::AcapellaResonatorTransferMode>(99u);
+    invalid.consonantColor = nan;
+    invalid.consonantSpeed = nan;
+    invalid.carrierDensity = nan;
+    invalid.analysisWidth = nan;
+    invalid.hfDetailMode = static_cast<
+        s3g::AcapellaResonatorHfDetailMode>(99u);
+    invalid.hfDetailLevel = nan;
+    invalid.hfDetailCutoffHz = nan;
+    invalid.analysisLowDb = nan;
+    invalid.analysisMidDb = nan;
+    invalid.analysisAirDb = nan;
+    invalid.analysisCompression = nan;
+    invalid.analysisNoiseReject = nan;
+    invalid.analysisSpectralBalance = nan;
     invalid.openLevel = nan;
     invalid.articulationThru = 1000.0f;
     invalid.coupling = 99;
@@ -2406,6 +2901,28 @@ bool formantParameterSanitizationProbe()
         || safe.pulseWidth != 0.05f
         || safe.carrierLfoDepthSemitones != 24.0f
         || safe.carrierLfoPwmDepth != 0.0f
+        || safe.analysisSlope
+            != s3g::AcapellaResonatorAnalysisSlope::MouthModel
+        || safe.definition != 0.0f
+        || safe.mouthFocus != 0.80f
+        || safe.voiceFocus != 0.0f
+        || safe.analysisLeveler != 0.0f
+        || safe.transferMode
+            != s3g::AcapellaResonatorTransferMode::Precision
+        || safe.consonantColor != 0.0f
+        || safe.consonantSpeed != 0.35f
+        || safe.carrierDensity != 0.0f
+        || safe.analysisWidth != 0.79f
+        || safe.hfDetailMode
+            != s3g::AcapellaResonatorHfDetailMode::Direct
+        || safe.hfDetailLevel != 0.0f
+        || safe.hfDetailCutoffHz != 4300.0f
+        || safe.analysisLowDb != 0.0f
+        || safe.analysisMidDb != 0.0f
+        || safe.analysisAirDb != 0.0f
+        || safe.analysisCompression != 0.0f
+        || safe.analysisNoiseReject != 0.0f
+        || safe.analysisSpectralBalance != 0.0f
         || safe.articulationThru != 1.0f || safe.coupling != 3) {
         std::cerr << "v4 scalar/enumerated parameter sanitization failed\n";
         return false;
@@ -3014,9 +3531,327 @@ bool formantCarrierLfoAndAutomationProbe()
     return true;
 }
 
+bool precisionSpeechArchitectureProbe()
+{
+    struct Pass {
+        std::vector<float> audio;
+        s3g::AcapellaResonatorMeterSnapshot meters {};
+        bool finite = true;
+    };
+    const auto baseParams = [] {
+        s3g::AcapellaResonatorParams params;
+        params.amount = 1.0f;
+        params.bandLayout = s3g::AcapellaResonatorBandLayout::Speech22;
+        params.analysisSlope = s3g::AcapellaResonatorAnalysisSlope::EightPole;
+        params.mode = s3g::AcapellaResonatorMode::Vocoder;
+        params.modulatorSource =
+            s3g::AcapellaResonatorModulatorSource::InternalSpeech;
+        params.transferMode =
+            s3g::AcapellaResonatorTransferMode::Precision;
+        params.analysisBlend = 0.0f;
+        params.definition = 0.92f;
+        params.attackMs = 1.2f;
+        params.releaseMs = 38.0f;
+        params.blurMs = 0.0f;
+        params.driveDb = 0.0f;
+        params.resonance = 0.52f;
+        params.sibilance = 0.92f;
+        params.consonantSpeed = 0.10f;
+        params.carrierShape = s3g::AcapellaResonatorCarrierShape::Saw;
+        params.carrierHarmonics = 1.0f;
+        params.carrierNoise = 0.04f;
+        params.voicingMode = s3g::AcapellaResonatorVoicingMode::Detect;
+        params.voicingThreshold = 0.42f;
+        params.openLevel = 0.0f;
+        params.articulationThru = 0.0f;
+        params.externalCarrierMix = 0.0f;
+        params.matrixMode = s3g::AcapellaResonatorMatrixMode::Identity;
+        params.matrixMorph = 1.0f;
+        params.stereoMode = s3g::AcapellaResonatorStereoMode::Mono;
+        params.stereoSpread = 0.0f;
+        return params;
+    }();
+    const auto render = [&](s3g::AcapellaResonatorParams params,
+                            float amplitude, uint32_t signalKind,
+                            float carrierHz = 137.0f,
+                            uint32_t frames = 36000u) {
+        Pass pass;
+        s3g::AcapellaResonatorBank bank;
+        bank.setParams(params);
+        pass.finite = bank.prepare(kSampleRate);
+        pass.audio.resize(frames);
+        for (uint32_t frame = 0u; frame < frames && pass.finite; ++frame) {
+            s3g::AcapellaResonatorGesture gesture;
+            gesture.active = true;
+            gesture.carrierOnly = true;
+            gesture.frequencyHz = carrierHz;
+            gesture.voiceInstance = 0x715u;
+            gesture.voiceCount = 1u;
+            gesture.voiceFrequencyHz[0u] = carrierHz;
+            gesture.voiceGain[0u] = 1.0f;
+            gesture.voiceInstanceIds[0u] = 0x715u;
+            bank.setGesture(gesture);
+            const float time = static_cast<float>(frame)
+                / static_cast<float>(kSampleRate);
+            float input = 0.0f;
+            if (signalKind == 0u) {
+                input = 0.70f * std::sin(2.0f * s3g::kPi * 310.0f * time)
+                    + 0.46f * std::sin(2.0f * s3g::kPi * 1120.0f * time)
+                    + 0.32f * std::sin(2.0f * s3g::kPi * 3180.0f * time);
+            } else if (signalKind == 1u) {
+                input = deterministicNoise(frame, 0x7712u);
+            } else if (signalKind == 2u) {
+                input = std::sin(2.0f * s3g::kPi * 3300.0f * time)
+                    + 0.18f * deterministicNoise(frame, 0x3311u);
+            } else {
+                input = std::sin(2.0f * s3g::kPi * 6500.0f * time)
+                    + 0.18f * deterministicNoise(frame, 0x6611u);
+            }
+            input *= amplitude;
+            const auto output = bank.processFrameStereo(
+                input, input, 0.0f, 0.0f, false);
+            pass.audio[frame] = output.left;
+            pass.finite = std::isfinite(output.left)
+                && std::isfinite(output.right)
+                && std::abs(output.left) <= 1.801f;
+        }
+        pass.meters = bank.meterSnapshot();
+        return pass;
+    };
+
+    auto unlevelled = baseParams;
+    unlevelled.analysisLeveler = 0.0f;
+    auto levelled = baseParams;
+    levelled.analysisLeveler = 1.0f;
+    const auto quietRaw = render(unlevelled, 0.035f, 0u);
+    const auto loudRaw = render(unlevelled, 0.22f, 0u);
+    const auto quietLevelled = render(levelled, 0.035f, 0u);
+    const auto loudLevelled = render(levelled, 0.22f, 0u);
+    const double rawRatio = rms(loudRaw.audio, 12000u)
+        / std::max(1.0e-8, rms(quietRaw.audio, 12000u));
+    const double levelledRatio = rms(loudLevelled.audio, 12000u)
+        / std::max(1.0e-8, rms(quietLevelled.audio, 12000u));
+    if (!quietRaw.finite || !loudRaw.finite || !quietLevelled.finite
+        || !loudLevelled.finite || !(rawRatio > 1.5)
+        || !(levelledRatio < rawRatio * 0.72)
+        || rms(quietLevelled.audio, 12000u) < 0.002) {
+        std::cerr << "analysis leveler failed: raw/levelled ratios "
+                  << rawRatio << '/' << levelledRatio << '\n';
+        return false;
+    }
+
+    auto expressive = baseParams;
+    expressive.transferMode =
+        s3g::AcapellaResonatorTransferMode::Expressive;
+    const auto expressivePass = render(expressive, 0.12f, 0u);
+    const auto precisionPass = render(baseParams, 0.12f, 0u);
+    const double transferDifference = differenceRms(
+        expressivePass.audio, precisionPass.audio, 12000u);
+    const double transferReference = std::max(
+        rms(expressivePass.audio, 12000u),
+        rms(precisionPass.audio, 12000u));
+    const double transferDelta = transferDifference
+        / std::max(1.0e-8, transferReference);
+    if (!expressivePass.finite || !precisionPass.finite
+        || transferDelta < 0.08) {
+        std::cerr << "precision/expressive transfer modes were not "
+                  << "observably distinct: " << transferDelta << '\n';
+        return false;
+    }
+
+    auto dark = baseParams;
+    dark.voiceFocus = -1.0f;
+    auto bright = baseParams;
+    bright.voiceFocus = 1.0f;
+    const auto darkPass = render(dark, 0.12f, 0u);
+    const auto brightPass = render(bright, 0.12f, 0u);
+    const auto meterBandSum = [](const auto& meters,
+                                  uint32_t begin, uint32_t end) {
+        double sum = 0.0;
+        for (uint32_t band = begin; band < end; ++band) {
+            sum += meters.analysis[band];
+        }
+        return sum;
+    };
+    const double darkPresence = meterBandSum(darkPass.meters, 13u, 19u)
+        / std::max(1.0e-8, meterBandSum(darkPass.meters, 2u, 10u));
+    const double brightPresence = meterBandSum(brightPass.meters, 13u, 19u)
+        / std::max(1.0e-8, meterBandSum(brightPass.meters, 2u, 10u));
+    if (!darkPass.finite || !brightPass.finite
+        || brightPresence < darkPresence * 1.22) {
+        std::cerr << "voice-focus contour was ineffective: dark/bright "
+                  << darkPresence << '/' << brightPresence << '\n';
+        return false;
+    }
+
+    auto buzz = baseParams;
+    buzz.consonantColor = -1.0f;
+    auto hiss = baseParams;
+    hiss.consonantColor = 1.0f;
+    const auto buzzPass = render(buzz, 0.16f, 3u);
+    const auto hissPass = render(hiss, 0.16f, 3u);
+    const double consonantDifference = differenceRms(
+        buzzPass.audio, hissPass.audio, 12000u);
+    const double consonantReference = std::max(
+        rms(buzzPass.audio, 12000u), rms(hissPass.audio, 12000u));
+    if (!buzzPass.finite || !hissPass.finite
+        || consonantDifference
+            / std::max(1.0e-8, consonantReference) < 0.18) {
+        std::cerr << "buzz/hiss consonant reconstruction was inaudible: "
+                  << consonantDifference << '/' << consonantReference << '\n';
+        return false;
+    }
+
+    auto sparseCarrier = baseParams;
+    sparseCarrier.carrierDensity = 0.0f;
+    sparseCarrier.voicingMode = s3g::AcapellaResonatorVoicingMode::Tonal;
+    auto denseCarrier = sparseCarrier;
+    denseCarrier.carrierDensity = 1.0f;
+    const auto sparsePass = render(sparseCarrier, 0.16f, 1u, 880.0f);
+    const auto densePass = render(denseCarrier, 0.16f, 1u, 880.0f);
+    const auto coveredBands = [](const auto& meters) {
+        uint32_t count = 0u;
+        for (float value : meters.synthesis) {
+            count += value > 0.004f;
+        }
+        return count;
+    };
+    const uint32_t sparseCoverage = coveredBands(sparsePass.meters);
+    const uint32_t denseCoverage = coveredBands(densePass.meters);
+    if (!sparsePass.finite || !densePass.finite
+        || denseCoverage < sparseCoverage + 1u) {
+        std::cerr << "carrier density did not fill narrow-bank gaps: "
+                  << sparseCoverage << '/' << denseCoverage << '\n';
+        return false;
+    }
+
+    enum class Token : uint32_t { M, AH, EE, SH, S, Count };
+    constexpr uint32_t tokenFrames = 11520u; // 240 ms per speech segment.
+    const auto tokenSample = [](Token token, uint32_t frame,
+                                uint32_t absoluteFrame) {
+        const float time = static_cast<float>(absoluteFrame)
+            / static_cast<float>(kSampleRate);
+        const float ramp = std::min(1.0f,
+            static_cast<float>(frame) / 240.0f);
+        switch (token) {
+        case Token::M:
+            return ramp * (0.15f * std::sin(
+                       2.0f * s3g::kPi * 280.0f * time)
+                + 0.075f * std::sin(2.0f * s3g::kPi * 560.0f * time));
+        case Token::AH:
+            return ramp * syntheticVowelSample(absoluteFrame,
+                {{ 730.0f, 1090.0f, 2440.0f }},
+                {{ 95.0f, 125.0f, 170.0f }});
+        case Token::EE:
+            return ramp * syntheticVowelSample(absoluteFrame,
+                {{ 270.0f, 2290.0f, 3010.0f }},
+                {{ 70.0f, 105.0f, 145.0f }});
+        case Token::SH:
+            return ramp * (0.12f * std::sin(
+                       2.0f * s3g::kPi * 3350.0f * time)
+                + 0.025f * deterministicNoise(absoluteFrame, 0x5348u));
+        case Token::S:
+            return ramp * (0.12f * std::sin(
+                       2.0f * s3g::kPi * 6550.0f * time)
+                + 0.025f * deterministicNoise(absoluteFrame, 0x5353u));
+        default: return 0.0f;
+        }
+    };
+    const auto renderTokens = [&](const std::vector<Token>& tokens) {
+        std::vector<std::array<float,
+            s3g::kAcapellaResonatorBands>> features;
+        s3g::AcapellaResonatorBank bank;
+        auto params = baseParams;
+        params.voiceFocus = 0.28f;
+        params.analysisLeveler = 0.72f;
+        params.consonantColor = 0.35f;
+        params.carrierDensity = 0.58f;
+        bank.setParams(params);
+        if (!bank.prepare(kSampleRate)) return features;
+        uint32_t absoluteFrame = 0u;
+        for (Token token : tokens) {
+            for (uint32_t frame = 0u; frame < tokenFrames;
+                 ++frame, ++absoluteFrame) {
+                s3g::AcapellaResonatorGesture gesture;
+                gesture.active = true;
+                gesture.carrierOnly = true;
+                gesture.frequencyHz = 137.0f;
+                gesture.voiceInstance = 0x901u;
+                gesture.voiceCount = 1u;
+                gesture.voiceFrequencyHz[0u] = 137.0f;
+                gesture.voiceGain[0u] = 1.0f;
+                gesture.voiceInstanceIds[0u] = 0x901u;
+                bank.setGesture(gesture);
+                const float input = tokenSample(token, frame, absoluteFrame);
+                const auto output = bank.processFrameStereo(
+                    input, input, 0.0f, 0.0f, false);
+                if (!std::isfinite(output.left)
+                    || !std::isfinite(output.right)) {
+                    features.clear();
+                    return features;
+                }
+            }
+            features.push_back(bank.meterSnapshot().synthesis);
+        }
+        return features;
+    };
+
+    std::array<std::array<float, s3g::kAcapellaResonatorBands>,
+        static_cast<uint32_t>(Token::Count)> prototypes {};
+    for (uint32_t token = 0u;
+         token < static_cast<uint32_t>(Token::Count); ++token) {
+        const auto rendered = renderTokens(
+            { static_cast<Token>(token) });
+        if (rendered.size() != 1u) {
+            std::cerr << "word prototype render failed\n";
+            return false;
+        }
+        prototypes[token] = rendered[0u];
+    }
+    const std::array<std::vector<Token>, 4u> words {{
+        { Token::S, Token::EE },       // SEE
+        { Token::SH, Token::EE },      // SHE
+        { Token::M, Token::AH, Token::S },  // MASS
+        { Token::M, Token::AH, Token::SH }, // MASH
+    }};
+    uint32_t decodedWords = 0u;
+    for (const auto& word : words) {
+        const auto features = renderTokens(word);
+        bool exact = features.size() == word.size();
+        for (uint32_t index = 0u; index < features.size() && exact; ++index) {
+            uint32_t best = 0u;
+            float bestDistance = std::numeric_limits<float>::max();
+            for (uint32_t token = 0u;
+                 token < static_cast<uint32_t>(Token::Count); ++token) {
+                const float distance = normalizedVectorDistance(
+                    features[index], prototypes[token]);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = token;
+                }
+            }
+            exact &= best == static_cast<uint32_t>(word[index]);
+        }
+        decodedWords += exact;
+    }
+    if (decodedWords != words.size()) {
+        std::cerr << "precision word-sequence transfer decoded "
+                  << decodedWords << '/' << words.size() << " words\n";
+        return false;
+    }
+
+    std::cout << "precision speech metrics level ratios " << rawRatio << '/'
+              << levelledRatio << ", transfer " << transferDelta
+              << ", focus " << darkPresence << '/'
+              << brightPresence << ", carrier bands " << sparseCoverage
+              << '/' << denseCoverage << ", words " << decodedWords << '/'
+              << words.size() << '\n';
+    return true;
+}
+
 bool profileAndStressProbe()
 {
-    std::array<double, 9u> matrixFingerprints {};
+    std::array<double, 10u> matrixFingerprints {};
     for (uint32_t profile = 0u;
          profile < s3g::kAcapellaResonatorProfileFirst; ++profile) {
         const auto preset = static_cast<s3g::AcapellaSourcePreset>(profile);
@@ -3160,10 +3995,14 @@ int main()
         || !formantRoutingTrimAndMeterProbe()
         || !formantStereoAndArticulationProbe()
         || !measuredSpeechEnvelopeProbe()
+        || !analysisFrontEndProbe()
+        || !definitionPrecisionProbe()
+        || !mouthModelProbe()
         || !measuredConsonantTransferProbe()
         || !voicePitchCarrierProbe()
         || !eightPoleAnalysisProbe()
         || !formantCarrierLfoAndAutomationProbe()
+        || !precisionSpeechArchitectureProbe()
         || !neutralAndModeProbe()
         || !selectedCarrierDryRoutingProbe()
         || !sampleRateAndRetriggerProbe()

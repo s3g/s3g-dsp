@@ -219,7 +219,7 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
 }
 
 constexpr uint32_t kAcapellaResonatorProfileFirst = 6u;
-constexpr uint32_t kAcapellaResonatorProfileCount = 18u;
+constexpr uint32_t kAcapellaResonatorProfileCount = 19u;
 
 inline AcapellaSourcePreset acapellaResonatorProfileBase(uint32_t index)
 {
@@ -287,6 +287,22 @@ inline AcapellaVocalFxParams acapellaResonatorProfileEffects(uint32_t index,
         bank.pitchScale = AcapellaResonatorPitchScale::Continuous;
         bank.pitchHoldMs = kAcapellaResonatorInfinitePitchHoldMs;
         bank.analysisBlend = 0.0f;
+        bank.transferMode = AcapellaResonatorTransferMode::Precision;
+        bank.voiceFocus = 0.28f;
+        bank.analysisLeveler = 0.72f;
+        bank.consonantColor = 0.35f;
+        bank.consonantSpeed = 0.18f;
+        bank.carrierDensity = 0.58f;
+        bank.analysisWidth = 0.68f;
+        bank.hfDetailMode = AcapellaResonatorHfDetailMode::Switched;
+        bank.hfDetailLevel = 0.16f;
+        bank.hfDetailCutoffHz = 4200.0f;
+        bank.analysisLowDb = -1.5f;
+        bank.analysisMidDb = 2.0f;
+        bank.analysisAirDb = 1.5f;
+        bank.analysisCompression = 0.42f;
+        bank.analysisNoiseReject = 0.46f;
+        bank.analysisSpectralBalance = 0.32f;
         bank.attackMs = 2.0f;
         bank.releaseMs = 78.0f;
         bank.blurMs = 5.0f;
@@ -449,6 +465,24 @@ inline AcapellaVocalFxParams acapellaResonatorProfileEffects(uint32_t index,
         effects.resonator.carrierColor = 0.12f;
         effects.resonator.carrierNoise = 0.18f;
         effects.resonator.analysisBlend = 0.0f;
+        effects.resonator.transferMode =
+            AcapellaResonatorTransferMode::Precision;
+        effects.resonator.voiceFocus = 0.28f;
+        effects.resonator.analysisLeveler = 0.72f;
+        effects.resonator.consonantColor = 0.35f;
+        effects.resonator.consonantSpeed = 0.18f;
+        effects.resonator.carrierDensity = 0.58f;
+        effects.resonator.analysisWidth = 0.68f;
+        effects.resonator.hfDetailMode =
+            AcapellaResonatorHfDetailMode::Switched;
+        effects.resonator.hfDetailLevel = 0.16f;
+        effects.resonator.hfDetailCutoffHz = 4200.0f;
+        effects.resonator.analysisLowDb = -1.5f;
+        effects.resonator.analysisMidDb = 2.0f;
+        effects.resonator.analysisAirDb = 1.5f;
+        effects.resonator.analysisCompression = 0.42f;
+        effects.resonator.analysisNoiseReject = 0.46f;
+        effects.resonator.analysisSpectralBalance = 0.32f;
         // Fast, lightly smoothed followers preserve plosives and transitions
         // between formants. The earlier 6 ms attack + 110 ms release + 70 ms
         // Blur behaved mainly as a broadband loudness follower.
@@ -713,9 +747,56 @@ inline AcapellaVocalFxParams acapellaResonatorProfileEffects(uint32_t index,
         effects.intelligibility = 0.86f;
         break;
     }
+    case 24u: { // Mouth Circuit
+        auto& bank = effects.resonator;
+        configureMicMatrix(bank);
+        bank.analysisSlope = AcapellaResonatorAnalysisSlope::MouthModel;
+        bank.mouthFocus = 0.92f;
+        bank.voiceFocus = 0.34f;
+        bank.analysisLeveler = 0.68f;
+        bank.consonantColor = 0.18f;
+        bank.consonantSpeed = 0.12f;
+        bank.carrierDensity = 0.66f;
+        bank.analysisWidth = 0.62f;
+        bank.hfDetailLevel = 0.12f;
+        bank.hfDetailCutoffHz = 3900.0f;
+        bank.carrierPitchSource = AcapellaResonatorCarrierPitchSource::Midi;
+        bank.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        bank.carrierHarmonics = 0.98f;
+        bank.carrierColor = 0.24f;
+        bank.carrierNoise = 0.08f;
+        bank.voicingMode = AcapellaResonatorVoicingMode::Detect;
+        bank.voicingThreshold = 0.44f;
+        bank.attackMs = 1.0f;
+        bank.releaseMs = 42.0f;
+        bank.blurMs = 1.0f;
+        bank.resonance = 0.44f;
+        bank.driveDb = 1.5f;
+        bank.sibilance = 0.72f;
+        bank.stereoMode = AcapellaResonatorStereoMode::Mono;
+        bank.stereoSpread = 0.0f;
+        clearScene(bank.customMatrixA);
+        clearScene(bank.customMatrixB);
+        for (int32_t band = 0; band < 22; ++band) {
+            addRoute(bank.customMatrixA, band, band, 1.0f);
+            addRoute(bank.customMatrixA,
+                band + (band % 2 == 0 ? 1 : -1), band, 0.055f);
+            addRoute(bank.customMatrixB, band, band, 1.0f);
+            addRoute(bank.customMatrixB, band + 2, band, 0.62f);
+        }
+        bank.customMatrixMorph = 0.0f;
+        effects.compression = 0.44f;
+        effects.deEss = 0.18f;
+        effects.intelligibility = 0.94f;
+        break;
+    }
     default:
         break;
     }
+    // Definition is one macro across the procedural articulation, measured
+    // filter-bank analysis, and post-shape preserve rail. Keep direct DSP
+    // profile users identical to the CLAP parameter bridge.
+    effects.resonator.definition = effects.intelligibility;
     return sanitizeAcapellaVocalFxParams(effects);
 }
 

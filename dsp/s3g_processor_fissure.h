@@ -18,6 +18,33 @@ inline constexpr uint32_t kProcessorFissureMaxOutputs = 8u;
 using ProcessorFissureMatrix = std::array<float,
     kProcessorFissureCells * kProcessorFissureCells>;
 
+// The first half of each field control expands the old 0-20% energy region;
+// the upper half still reaches the original maximum. Form controls use an
+// S-curve so their stable and destructive end-states are both easier to land.
+inline float processorFissureLowEnergyCurve(float value)
+{
+    value = clamp(std::isfinite(value) ? value : 0.0f, 0.0f, 1.0f);
+    return value * value;
+}
+
+inline float processorFissureFormCurve(float value)
+{
+    value = clamp(std::isfinite(value) ? value : 0.0f, 0.0f, 1.0f);
+    return value * value * (3.0f - 2.0f * value);
+}
+
+inline float processorFissureEventRateHz(float edge)
+{
+    edge = clamp(std::isfinite(edge) ? edge : 0.0f, 0.0f, 1.0f);
+    return 0.0012f * std::pow(150000.0f, std::pow(edge, 0.78f));
+}
+
+inline float processorFissureSpaceSeconds(float space)
+{
+    const float shaped = processorFissureFormCurve(space);
+    return 0.008f * std::pow(500.0f, shaped);
+}
+
 enum class ProcessorFissureAction : uint32_t {
     Cut = 0u,
     Breach,
@@ -27,12 +54,14 @@ enum class ProcessorFissureAction : uint32_t {
 };
 
 struct ProcessorFissureParams {
-    float pressure = 0.62f;
-    float mass = 0.78f;
-    float edge = 0.46f;
-    float voidAmount = 0.18f;
-    float memory = 0.48f;
-    float body = 0.56f;
+    float pressure = 0.30f;
+    float mass = 0.40f;
+    float edge = 0.34f;
+    float rate = 0.34f;
+    float voidAmount = 0.10f;
+    float space = 0.10f;
+    float memory = 0.32f;
+    float body = 0.28f;
     float voice = 0.50f;
     float motion = 0.32f;
     float contact = 0.48f;
@@ -67,7 +96,8 @@ public:
             ? std::clamp(sampleRate, 8000.0, 768000.0) : 48000.0;
         outputChannels_ = supportedOutputChannels(outputChannels);
         const float sr = static_cast<float>(sampleRate_);
-        parameterCoefficient_ = onePoleCoefficient(16.0f, sr);
+        parameterCoefficient_ = onePoleCoefficient(18.0f, sr);
+        formCoefficient_ = onePoleCoefficient(4.5f, sr);
         runCoefficient_ = onePoleCoefficient(7.0f, sr);
         voiceAttackCoefficient_ = onePoleCoefficient(2.0f, sr);
         voiceReleaseCoefficient_ = onePoleCoefficient(95.0f, sr);
@@ -82,6 +112,10 @@ public:
         fractureReleaseCoefficient_ = onePoleCoefficient(72.0f, sr);
         repeatCoefficient_ = onePoleCoefficient(2.4f, sr);
         cutVisualDecay_ = std::exp(-1.0f / std::max(1.0f, sr * 0.34f));
+        fractureGestureDecay_ = std::exp(
+            -1.0f / std::max(1.0f, sr * 0.16f));
+        fractureScarDecay_ = std::exp(
+            -1.0f / std::max(1.0f, sr * 0.72f));
         breachDecay_ = std::exp(-1.0f / std::max(1.0f, sr * 0.38f));
         burstDecay_ = std::exp(-1.0f / std::max(1.0f, sr * 0.095f));
         contactLowCoefficient_ = frequencyCoefficient(72.0f, sr);
@@ -111,7 +145,7 @@ public:
     {
         rng_ = target_.seed ? target_.seed : 1u;
         smoothed_ = target_;
-        performed_ = target_;
+        performed_ = mapPerformanceControls(target_);
         previousReturns_.fill(0.0f);
         nextReturns_.fill(0.0f);
         gate_.fill(1.0f);
@@ -124,6 +158,15 @@ public:
         cutSeamTarget_.fill(1.0f);
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
+        for (auto& pad : fractureGestureVisual_) pad.fill(0.0f);
+        fractureGesturePendingEnergy_.fill(0.0f);
+        fractureGestureEnergy_.fill(0.0f);
+        fractureGestureDirectionX_.fill(0.0f);
+        fractureGestureDirectionY_.fill(0.0f);
+        fractureGesturePreviousX_.fill(0.0f);
+        fractureGesturePreviousY_.fill(0.0f);
+        fractureGestureCursor_.fill(0u);
+        fractureRouteScar_.fill(0.0f);
         grabbedValid_ = false;
         performanceCaptureActive_ = false;
         performanceFrameCount_ = 0u;
@@ -138,11 +181,15 @@ public:
             static_cast<uint32_t>(sampleRate_ / 200.0));
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
-        fractureXSmoothed_ = fractureXTarget_;
-        fractureYSmoothed_ = fractureYTarget_;
+        fractureEdgeSmoothed_ = fractureEdgeTarget_;
+        fractureRateSmoothed_ = fractureRateTarget_;
+        fractureVoidSmoothed_ = fractureVoidTarget_;
+        fractureSpaceSmoothed_ = fractureSpaceTarget_;
         cutRevision_ = 0u;
         grabRevision_ = 0u;
         eventCountdown_.fill(1u);
+        spaceCountdown_.fill(0u);
+        eventRateReference_ = performed_.rate;
         oscillatorPhase_.fill(0.0f);
         lowNoise_.fill(0.0f);
         inputCouplingLow_.fill(0.0f);
@@ -190,6 +237,9 @@ public:
         pitchRng_ = (target_.seed ^ 0xa511e9b3u) | 1u;
         for (auto& row : pitchChaos_) row.fill(0.0f);
         shakerCountdown_ = 1u;
+        rattleCountdown_ = 1u;
+        springCountdown_ = 1u;
+        rattleClusterRemaining_ = 0u;
         rotationPhase_ = 0.0f;
         breachEnvelope_ = 0.0f;
         withdrawGain_ = 1.0f;
@@ -299,7 +349,7 @@ public:
 
     void setCutVariation(float amount)
     {
-        cutVariation_ = finiteUnit(amount, 0.46f);
+        cutVariation_ = finiteUnit(amount, 0.40f);
     }
 
     float cutVariation() const { return cutVariation_; }
@@ -325,9 +375,17 @@ public:
 
     void setFracturePerformance(float distance, float force)
     {
-        distance = finiteUnit(distance, 0.0f);
-        force = finiteUnit(force, 0.0f);
-        if (force > fractureYTarget_ + 0.025f) {
+        setFracturePerformance(distance, force, force, force);
+    }
+
+    void setFracturePerformance(float edge, float rate,
+        float voidAmount, float space)
+    {
+        edge = finiteUnit(edge, 0.0f);
+        rate = finiteUnit(rate, 0.0f);
+        voidAmount = finiteUnit(voidAmount, 0.0f);
+        space = finiteUnit(space, 0.0f);
+        if (rate > fractureRateTarget_ + 0.025f) {
             const uint32_t immediate = std::max<uint32_t>(1u,
                 static_cast<uint32_t>(sampleRate_ * 0.006));
             for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
@@ -337,12 +395,35 @@ public:
                 }
             }
         }
-        fractureXTarget_ = distance;
-        fractureYTarget_ = force;
+        fractureEdgeTarget_ = edge;
+        fractureRateTarget_ = rate;
+        fractureVoidTarget_ = voidAmount;
+        fractureSpaceTarget_ = space;
     }
 
-    float fractureDistance() const { return fractureXTarget_; }
-    float fractureForce() const { return fractureYTarget_; }
+    // Motion is supplied separately from puck position so spring return and
+    // latch release cannot be mistaken for a performed flick. Direction is
+    // normalized by the caller; energy represents normalized pointer speed.
+    void pushFractureGesture(uint32_t pad, float directionX,
+        float directionY, float energy)
+    {
+        if (pad >= 2u) return;
+        directionX = std::isfinite(directionX) ? directionX : 0.0f;
+        directionY = std::isfinite(directionY) ? directionY : 0.0f;
+        energy = finiteUnit(energy, 0.0f);
+        const float magnitude = std::sqrt(directionX * directionX
+            + directionY * directionY);
+        if (magnitude <= 1.0e-5f || energy <= 1.0e-5f) return;
+        fractureGestureDirectionX_[pad] = directionX / magnitude;
+        fractureGestureDirectionY_[pad] = directionY / magnitude;
+        fractureGesturePendingEnergy_[pad] = std::max(
+            fractureGesturePendingEnergy_[pad], energy);
+    }
+
+    float fractureDistance() const { return fractureEdgeTarget_; }
+    float fractureForce() const { return fractureRateTarget_; }
+    float fractureVoid() const { return fractureVoidTarget_; }
+    float fractureSpace() const { return fractureSpaceTarget_; }
 
     void setGrab(bool enabled)
     {
@@ -417,6 +498,10 @@ public:
 
     uint32_t performanceFrameCount() const { return performanceFrameCount_; }
     ProcessorFissureParams performanceParams() const { return performed_; }
+    float eventRateHz() const
+    {
+        return processorFissureEventRateHz(effectiveCutRate());
+    }
 
     void rearm(float strength = 0.62f)
     {
@@ -428,13 +513,24 @@ public:
         withdrawTarget_ = 1.0f;
         withdrawHoldRemaining_ = 0u;
         blackoutFrames_ = 0u;
-        fractureXTarget_ = 0.0f;
-        fractureYTarget_ = 0.0f;
+        fractureEdgeTarget_ = 0.0f;
+        fractureRateTarget_ = 0.0f;
+        fractureVoidTarget_ = 0.0f;
+        fractureSpaceTarget_ = 0.0f;
+        fractureGesturePendingEnergy_.fill(0.0f);
+        fractureGestureEnergy_.fill(0.0f);
+        fractureGesturePreviousX_.fill(0.0f);
+        fractureGesturePreviousY_.fill(0.0f);
+        fractureGesturePreviousX_.fill(0.0f);
+        fractureGesturePreviousY_.fill(0.0f);
+        fractureRouteScar_.fill(0.0f);
+        for (auto& pad : fractureGestureVisual_) pad.fill(0.0f);
         repeatTarget_ = false;
         repeatMix_ = 0.0f;
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             gate_[cell] = std::max(gate_[cell], 0.18f);
             gateTarget_[cell] = 1.0f;
+            spaceCountdown_[cell] = 0u;
             pendingCutDelayFrames_[cell] = 0u;
             pendingCutPolarity_[cell] = 1.0f;
             cutSwapPending_[cell] = true;
@@ -463,6 +559,7 @@ public:
         }
         silenced_ = false;
         gateTarget_[cell] = 1.0f;
+        spaceCountdown_[cell] = 0u;
         burstEnvelope_[cell] = std::max(
             burstEnvelope_[cell], 0.18f + velocity * 0.82f);
         excitePhysical(cell, 0.24f + velocity * 0.76f);
@@ -477,14 +574,21 @@ public:
             for (uint32_t cell = 0u;
                  cell < kProcessorFissureCells; ++cell) {
                 if (!cutMask_[cell]) continue;
-                requestCutSplice(cell, 0.55f + cutVariation_ * 0.45f);
+                requestCutSplice(cell,
+                    0.48f + performedCutVariation() * 0.52f);
                 const float emptyProbability = 0.08f
-                    + target_.voidAmount * 0.72f;
-                gateTarget_[cell] = randomUnit() < emptyProbability
-                    ? 0.0f : 1.0f;
+                    + effectiveCutVoid() * 0.82f;
+                if (randomUnit() < emptyProbability) {
+                    closeSpace(cell);
+                } else {
+                    gateTarget_[cell] = 1.0f;
+                    spaceCountdown_[cell] = 0u;
+                }
                 burstEnvelope_[cell] = std::max(
-                    burstEnvelope_[cell], 0.16f + target_.edge * 0.52f);
-                excitePhysical(cell, 0.16f + target_.edge * 0.48f);
+                    burstEnvelope_[cell], 0.12f
+                        + effectiveCutEdge() * 0.62f);
+                excitePhysical(cell, 0.12f
+                    + effectiveCutEdge() * 0.56f);
                 scheduleNextEvent(cell, false);
             }
             break;
@@ -505,7 +609,8 @@ public:
             silenced_ = false;
             withdrawTarget_ = 0.0f;
             withdrawHoldRemaining_ = static_cast<uint32_t>(sampleRate_
-                * (0.16 + target_.voidAmount * target_.voidAmount * 3.8));
+                * (0.08 + effectiveCutSpace()
+                    * effectiveCutSpace() * 6.4));
             break;
         case ProcessorFissureAction::Reseed:
             reseed(seed ? seed : nextRandom());
@@ -536,6 +641,13 @@ public:
         cutSeamTarget_.fill(1.0f);
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
+        fractureRouteScar_.fill(0.0f);
+        for (auto& pad : fractureGestureVisual_) pad.fill(0.0f);
+        fractureGesturePendingEnergy_.fill(0.0f);
+        fractureGestureEnergy_.fill(0.0f);
+        fractureGesturePreviousX_.fill(0.0f);
+        fractureGesturePreviousY_.fill(0.0f);
+        spaceCountdown_.fill(0u);
         grabbedValid_ = false;
         performanceCaptureActive_ = false;
         performanceFrameCount_ = 0u;
@@ -570,6 +682,13 @@ public:
         cutSeamTarget_.fill(1.0f);
         cutSwapPending_.fill(false);
         cutVisual_.fill(0.0f);
+        fractureRouteScar_.fill(0.0f);
+        for (auto& pad : fractureGestureVisual_) pad.fill(0.0f);
+        fractureGesturePendingEnergy_.fill(0.0f);
+        fractureGestureEnergy_.fill(0.0f);
+        fractureGesturePreviousX_.fill(0.0f);
+        fractureGesturePreviousY_.fill(0.0f);
+        spaceCountdown_.fill(0u);
         grabbedValid_ = false;
         performanceCaptureActive_ = false;
         performanceFrameCount_ = 0u;
@@ -630,20 +749,32 @@ public:
         outputChannels = supportedOutputChannels(outputChannels);
         std::fill(output, output + outputChannels, 0.0f);
         smoothParameters();
-        const float fractureXCoefficient = fractureXTarget_
-                > fractureXSmoothed_
+        const float fractureEdgeCoefficient = fractureEdgeTarget_
+                > fractureEdgeSmoothed_
             ? fractureAttackCoefficient_ : fractureReleaseCoefficient_;
-        const float fractureYCoefficient = fractureYTarget_
-                > fractureYSmoothed_
+        const float fractureRateCoefficient = fractureRateTarget_
+                > fractureRateSmoothed_
             ? fractureAttackCoefficient_ : fractureReleaseCoefficient_;
-        fractureXSmoothed_ += (fractureXTarget_ - fractureXSmoothed_)
-            * fractureXCoefficient;
-        fractureYSmoothed_ += (fractureYTarget_ - fractureYSmoothed_)
-            * fractureYCoefficient;
+        const float fractureVoidCoefficient = fractureVoidTarget_
+                > fractureVoidSmoothed_
+            ? fractureAttackCoefficient_ : fractureReleaseCoefficient_;
+        const float fractureSpaceCoefficient = fractureSpaceTarget_
+                > fractureSpaceSmoothed_
+            ? fractureAttackCoefficient_ : fractureReleaseCoefficient_;
+        fractureEdgeSmoothed_ += (fractureEdgeTarget_
+                - fractureEdgeSmoothed_) * fractureEdgeCoefficient;
+        fractureRateSmoothed_ += (fractureRateTarget_
+                - fractureRateSmoothed_) * fractureRateCoefficient;
+        fractureVoidSmoothed_ += (fractureVoidTarget_
+                - fractureVoidSmoothed_) * fractureVoidCoefficient;
+        fractureSpaceSmoothed_ += (fractureSpaceTarget_
+                - fractureSpaceSmoothed_) * fractureSpaceCoefficient;
         advancePerformanceTape();
         repeatMix_ += ((repeatTarget_ ? 1.0f : 0.0f) - repeatMix_)
             * repeatCoefficient_;
         updatePerformedParams();
+        accelerateEventClocks();
+        advanceFractureGestures();
         if (performanceFrameApplied_) {
             updateCellProcessors(performed_);
             updatePhysicalModel(performed_);
@@ -676,7 +807,8 @@ public:
         const float contactDerivative = contactInput - previousContactInput_;
         previousContactInput_ = contactInput;
         const float contactSignal = std::tanh((contactHigh * 2.4f
-                + contactDerivative * (5.0f + performed_.edge * 13.0f))
+                + contactDerivative * (5.0f
+                    + effectiveCutEdge() * 13.0f))
             * performed_.contact);
         const float contactMagnitude = std::abs(contactSignal);
         contactActivity_ += (contactMagnitude - contactActivity_)
@@ -714,7 +846,7 @@ public:
         // matrix returns, and feedback pressure. Every audible contribution
         // therefore crosses the physical/network processors first.
         const float couplingSignal = std::tanh(contactHigh * 1.8f
-            + contactDerivative * (2.0f + performed_.edge * 5.0f));
+            + contactDerivative * (2.0f + effectiveCutEdge() * 5.0f));
         const float couplingEnergy = performed_.voice * clamp(
             voiceEnvelope_ * 3.2f + inputOnset * 1.4f, 0.0f, 1.0f);
         const float transferMagnitude = std::max(contactMagnitude,
@@ -732,7 +864,7 @@ public:
             + (0.003f + performed_.motion * performed_.motion * 0.31f)
                 / static_cast<float>(sampleRate_));
 
-        advanceShaker();
+        advanceAttachedObjects();
 
         for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
             advanceEvents(cell);
@@ -753,7 +885,9 @@ public:
             if (activeMass > 0.0f && activeGate < activeMass * 0.025f) {
                 ++blackoutFrames_;
                 if (blackoutFrames_ >= static_cast<uint32_t>(
-                        sampleRate_ * 0.85)) {
+                        sampleRate_ * (0.85
+                            + effectiveCutSpace() * effectiveCutSpace()
+                                * 4.5))) {
                     for (uint32_t cell = 0u;
                          cell < kProcessorFissureCells; ++cell) {
                         if (cellActiveAmount(cell) <= 0.0f) continue;
@@ -807,10 +941,11 @@ public:
             const float sine = std::sin(
                 oscillatorPhase_[cell] * 2.0f * kPi);
             const float pulse = std::tanh(sine
-                * (1.2f + performed_.edge * 7.0f));
-            const float tonal = lerp(sine, pulse, performed_.edge * 0.74f);
+                * (1.2f + effectiveCutEdge() * 7.0f));
+            const float tonal = lerp(sine, pulse,
+                effectiveCutEdge() * 0.74f);
             const float noise = lerp(lowNoise_[cell], brightNoise,
-                clamp(0.18f + performed_.edge * 0.72f
+                clamp(0.18f + effectiveCutEdge() * 0.72f
                         + static_cast<float>(cell) * 0.025f,
                     0.0f, 1.0f));
 
@@ -818,7 +953,7 @@ public:
             failureParams.drive = clamp(0.025f
                 + performed_.mass * 0.10f
                 + breachEnvelope_ * 0.72f, 0.0f, 1.0f);
-            failureParams.motion = performed_.edge;
+            failureParams.motion = effectiveCutEdge();
             failureParams.hierarchy = static_cast<float>(cell)
                 / static_cast<float>(kProcessorFissureCells - 1u);
             failureParams.stiffness = clamp(0.18f
@@ -831,7 +966,7 @@ public:
                 0.0f, 1.0f);
             failureParams.damage = clamp(performed_.pressure * 0.72f
                 + breachEnvelope_ * 0.45f, 0.0f, 1.0f);
-            failureParams.highDetail = performed_.edge;
+            failureParams.highDetail = effectiveCutEdge();
             failureParams.consequence = breachEnvelope_;
             failureParams.mass = performed_.body;
             failureParams.mode = (cell & 1u) == 0u
@@ -902,7 +1037,12 @@ public:
             float routeWeight = 0.0f;
             for (uint32_t source = 0u;
                  source < kProcessorFissureCells; ++source) {
-                float route = matrix_[cell * kProcessorFissureCells + source];
+                const uint32_t routeIndex = cell
+                    * kProcessorFissureCells + source;
+                float route = matrix_[routeIndex]
+                    + fractureRouteScar_[routeIndex];
+                fractureRouteScar_[routeIndex] = flushDenormal(
+                    fractureRouteScar_[routeIndex] * fractureScarDecay_);
                 if (performed_.motion > 1.0e-5f) {
                     const float routePhase = rotationPhase_
                         + static_cast<float>(cell * 7u + source * 3u)
@@ -928,7 +1068,7 @@ public:
                 ((noise * (0.72f - performed_.body * 0.24f)
                     + tonal * (0.08f + performed_.body * 0.34f))
                         * sourceGain * internalBlend)
-                + material * (0.20f + performed_.edge * 0.30f
+                + material * (0.20f + effectiveCutEdge() * 0.30f
                     + objectTarget_[cell].hardness * 0.34f)
                 + white * burstEnvelope_[cell]
                     * (0.18f + performed_.pressure * 0.44f)
@@ -1058,6 +1198,34 @@ public:
             ? clamp(cutVisual_[cell], 0.0f, 1.0f) : 0.0f;
     }
 
+    float gapActivity(uint32_t cell) const
+    {
+        return cell < kProcessorFissureCells
+            ? clamp(1.0f - gate_[cell], 0.0f, 1.0f) : 0.0f;
+    }
+
+    float fractureGestureActivity(uint32_t pad, uint32_t cell) const
+    {
+        return pad < 2u && cell < kProcessorFissureCells
+            ? clamp(fractureGestureVisual_[pad][cell], 0.0f, 1.0f)
+            : 0.0f;
+    }
+
+    float fractureGestureEnergy(uint32_t pad) const
+    {
+        return pad < 2u
+            ? clamp(fractureGestureEnergy_[pad], 0.0f, 1.0f) : 0.0f;
+    }
+
+    float fractureScarActivity() const
+    {
+        float maximum = 0.0f;
+        for (float scar : fractureRouteScar_) {
+            maximum = std::max(maximum, std::abs(scar));
+        }
+        return clamp(maximum * 3.2f, 0.0f, 1.0f);
+    }
+
     float cutPolarity(uint32_t cell) const
     {
         return cell < kProcessorFissureCells ? cutPolarity_[cell] : 1.0f;
@@ -1076,21 +1244,25 @@ public:
 
 private:
     struct PerformanceFrame {
-        float pressure = 0.62f;
-        float mass = 0.78f;
-        float edge = 0.46f;
-        float voidAmount = 0.18f;
-        float memory = 0.48f;
-        float body = 0.56f;
+        float pressure = 0.30f;
+        float mass = 0.40f;
+        float edge = 0.34f;
+        float rate = 0.34f;
+        float voidAmount = 0.10f;
+        float space = 0.10f;
+        float memory = 0.32f;
+        float body = 0.28f;
         float voice = 0.50f;
         float motion = 0.32f;
         float contact = 0.48f;
         float shaker = 0.26f;
         float rattle = 0.42f;
         float spring = 0.34f;
-        float variation = 0.46f;
-        float fractureX = 0.0f;
-        float fractureY = 0.0f;
+        float variation = 0.40f;
+        float fractureEdge = 0.0f;
+        float fractureRate = 0.0f;
+        float fractureVoid = 0.0f;
+        float fractureSpace = 0.0f;
         uint8_t enabledMask = 0xffu;
         uint8_t gateMask = 0xffu;
         uint8_t cutEventMask = 0u;
@@ -1127,7 +1299,9 @@ private:
         frame.pressure = target_.pressure;
         frame.mass = target_.mass;
         frame.edge = target_.edge;
+        frame.rate = target_.rate;
         frame.voidAmount = target_.voidAmount;
+        frame.space = target_.space;
         frame.memory = target_.memory;
         frame.body = target_.body;
         frame.voice = target_.voice;
@@ -1137,8 +1311,10 @@ private:
         frame.rattle = target_.rattle;
         frame.spring = target_.spring;
         frame.variation = cutVariation_;
-        frame.fractureX = fractureXTarget_;
-        frame.fractureY = fractureYTarget_;
+        frame.fractureEdge = fractureEdgeTarget_;
+        frame.fractureRate = fractureRateTarget_;
+        frame.fractureVoid = fractureVoidTarget_;
+        frame.fractureSpace = fractureSpaceTarget_;
         frame.enabledMask = currentEnabledMask();
         frame.gateMask = currentGateMask();
         frame.cutEventMask = capturedCutMask_;
@@ -1186,34 +1362,60 @@ private:
     void updatePerformedParams()
     {
         performed_ = smoothed_;
-        if (!grabbedValid_ || repeatMix_ <= 1.0e-5f) return;
-        const auto blend = [this](float live, float looped) {
-            return lerp(live, looped, repeatMix_);
-        };
-        performed_.pressure = blend(smoothed_.pressure,
-            repeatedFrame_.pressure);
-        performed_.mass = blend(smoothed_.mass, repeatedFrame_.mass);
-        performed_.edge = blend(smoothed_.edge, repeatedFrame_.edge);
-        performed_.voidAmount = blend(smoothed_.voidAmount,
-            repeatedFrame_.voidAmount);
-        performed_.memory = blend(smoothed_.memory, repeatedFrame_.memory);
-        performed_.body = blend(smoothed_.body, repeatedFrame_.body);
-        performed_.voice = blend(smoothed_.voice, repeatedFrame_.voice);
-        performed_.motion = blend(smoothed_.motion, repeatedFrame_.motion);
-        performed_.contact = blend(smoothed_.contact, repeatedFrame_.contact);
-        performed_.shaker = blend(smoothed_.shaker, repeatedFrame_.shaker);
-        performed_.rattle = blend(smoothed_.rattle, repeatedFrame_.rattle);
-        performed_.spring = blend(smoothed_.spring, repeatedFrame_.spring);
+        if (grabbedValid_ && repeatMix_ > 1.0e-5f) {
+            const auto blend = [this](float live, float looped) {
+                return lerp(live, looped, repeatMix_);
+            };
+            performed_.pressure = blend(smoothed_.pressure,
+                repeatedFrame_.pressure);
+            performed_.mass = blend(smoothed_.mass, repeatedFrame_.mass);
+            performed_.edge = blend(smoothed_.edge, repeatedFrame_.edge);
+            performed_.rate = blend(smoothed_.rate, repeatedFrame_.rate);
+            performed_.voidAmount = blend(smoothed_.voidAmount,
+                repeatedFrame_.voidAmount);
+            performed_.space = blend(smoothed_.space, repeatedFrame_.space);
+            performed_.memory = blend(smoothed_.memory,
+                repeatedFrame_.memory);
+            performed_.body = blend(smoothed_.body, repeatedFrame_.body);
+            performed_.voice = blend(smoothed_.voice, repeatedFrame_.voice);
+            performed_.motion = blend(smoothed_.motion,
+                repeatedFrame_.motion);
+            performed_.contact = blend(smoothed_.contact,
+                repeatedFrame_.contact);
+            performed_.shaker = blend(smoothed_.shaker,
+                repeatedFrame_.shaker);
+            performed_.rattle = blend(smoothed_.rattle,
+                repeatedFrame_.rattle);
+            performed_.spring = blend(smoothed_.spring,
+                repeatedFrame_.spring);
+        }
+        performed_ = mapPerformanceControls(performed_);
+    }
+
+    static ProcessorFissureParams mapPerformanceControls(
+        ProcessorFissureParams controls)
+    {
+        controls.pressure = processorFissureLowEnergyCurve(
+            controls.pressure);
+        controls.mass = processorFissureLowEnergyCurve(controls.mass);
+        controls.memory = processorFissureLowEnergyCurve(controls.memory);
+        controls.body = processorFissureLowEnergyCurve(controls.body);
+        controls.voidAmount = processorFissureFormCurve(
+            controls.voidAmount);
+        controls.space = processorFissureFormCurve(controls.space);
+        return controls;
     }
 
     static ProcessorFissureParams sanitize(ProcessorFissureParams params)
     {
-        params.pressure = finiteUnit(params.pressure, 0.62f);
-        params.mass = finiteUnit(params.mass, 0.78f);
-        params.edge = finiteUnit(params.edge, 0.46f);
-        params.voidAmount = finiteUnit(params.voidAmount, 0.18f);
-        params.memory = finiteUnit(params.memory, 0.48f);
-        params.body = finiteUnit(params.body, 0.56f);
+        params.pressure = finiteUnit(params.pressure, 0.30f);
+        params.mass = finiteUnit(params.mass, 0.40f);
+        params.edge = finiteUnit(params.edge, 0.34f);
+        params.rate = finiteUnit(params.rate, 0.34f);
+        params.voidAmount = finiteUnit(params.voidAmount, 0.10f);
+        params.space = finiteUnit(params.space, 0.10f);
+        params.memory = finiteUnit(params.memory, 0.32f);
+        params.body = finiteUnit(params.body, 0.28f);
         params.voice = finiteUnit(params.voice, 0.50f);
         params.motion = finiteUnit(params.motion, 0.32f);
         params.contact = finiteUnit(params.contact, 0.48f);
@@ -1239,12 +1441,15 @@ private:
             kProcessorFissureCells> massOrder {{
                 0u, 4u, 2u, 6u, 1u, 5u, 3u, 7u,
             }};
-        return cell < kProcessorFissureCells
-            ? clamp(performed_.mass
-                    * static_cast<float>(kProcessorFissureCells) + 0.45f
-                    - static_cast<float>(massOrder[cell]),
-                0.0f, 1.0f)
-            : 0.0f;
+        if (cell >= kProcessorFissureCells) return 0.0f;
+        const float sustained = clamp(performed_.mass
+                * static_cast<float>(kProcessorFissureCells) + 0.45f
+                - static_cast<float>(massOrder[cell]),
+            0.0f, 1.0f);
+        // MASS sets the standing population, but an explicit impact can wake
+        // any object briefly. Low-mass fields therefore keep all eight cells
+        // available to MIDI, Repeat, and performance gestures.
+        return std::max(sustained, clamp(burstEnvelope_[cell], 0.0f, 1.0f));
     }
 
     static float finiteClamp(float value, float minimum, float maximum,
@@ -1313,23 +1518,28 @@ private:
 
     void smoothParameters()
     {
-        const auto smooth = [this](float& current, float target) {
+        const auto smoothField = [this](float& current, float target) {
             current += (target - current) * parameterCoefficient_;
         };
-        smooth(smoothed_.pressure, target_.pressure);
-        smooth(smoothed_.mass, target_.mass);
-        smooth(smoothed_.edge, target_.edge);
-        smooth(smoothed_.voidAmount, target_.voidAmount);
-        smooth(smoothed_.memory, target_.memory);
-        smooth(smoothed_.body, target_.body);
-        smooth(smoothed_.voice, target_.voice);
-        smooth(smoothed_.motion, target_.motion);
-        smooth(smoothed_.contact, target_.contact);
-        smooth(smoothed_.shaker, target_.shaker);
-        smooth(smoothed_.rattle, target_.rattle);
-        smooth(smoothed_.spring, target_.spring);
-        smooth(smoothed_.inputGainDb, target_.inputGainDb);
-        smooth(smoothed_.outputGainDb, target_.outputGainDb);
+        const auto smoothForm = [this](float& current, float target) {
+            current += (target - current) * formCoefficient_;
+        };
+        smoothField(smoothed_.pressure, target_.pressure);
+        smoothField(smoothed_.mass, target_.mass);
+        smoothForm(smoothed_.edge, target_.edge);
+        smoothForm(smoothed_.rate, target_.rate);
+        smoothForm(smoothed_.voidAmount, target_.voidAmount);
+        smoothForm(smoothed_.space, target_.space);
+        smoothField(smoothed_.memory, target_.memory);
+        smoothField(smoothed_.body, target_.body);
+        smoothField(smoothed_.voice, target_.voice);
+        smoothForm(smoothed_.motion, target_.motion);
+        smoothField(smoothed_.contact, target_.contact);
+        smoothField(smoothed_.shaker, target_.shaker);
+        smoothField(smoothed_.rattle, target_.rattle);
+        smoothField(smoothed_.spring, target_.spring);
+        smoothField(smoothed_.inputGainDb, target_.inputGainDb);
+        smoothField(smoothed_.outputGainDb, target_.outputGainDb);
         smoothed_.hold = target_.hold;
         smoothed_.run = target_.run;
         smoothed_.seed = target_.seed;
@@ -1337,7 +1547,7 @@ private:
 
     void updateCellProcessors()
     {
-        updateCellProcessors(target_);
+        updateCellProcessors(mapPerformanceControls(target_));
     }
 
     void updateCellProcessors(const ProcessorFissureParams& controls)
@@ -1349,7 +1559,7 @@ private:
 
     void updateCellProcessor(uint32_t cell)
     {
-        updateCellProcessor(cell, target_);
+        updateCellProcessor(cell, mapPerformanceControls(target_));
     }
 
     void updateCellProcessor(uint32_t cell,
@@ -1455,7 +1665,7 @@ private:
             pitchConfidence_ *= 0.72f;
             if (pitchConfidence_ < 0.01f) trackedPitchHz_ = 0.0f;
             pitchQuietCountdown_ = 128u;
-            updatePhysicalModel();
+            updatePhysicalModel(performed_);
             return;
         }
         pitchAnalysisLag_ = pitchAnalysisMinimumLag_;
@@ -1485,7 +1695,7 @@ private:
         if (selectedLag == 0u) {
             pitchConfidence_ *= 0.72f;
             if (pitchConfidence_ < 0.01f) trackedPitchHz_ = 0.0f;
-            updatePhysicalModel();
+            updatePhysicalModel(performed_);
             return;
         }
 
@@ -1504,7 +1714,7 @@ private:
             || candidate > 4200.0f || confidence < 0.08f) {
             pitchConfidence_ *= 0.72f;
             if (pitchConfidence_ < 0.01f) trackedPitchHz_ = 0.0f;
-            updatePhysicalModel();
+            updatePhysicalModel(performed_);
             return;
         }
 
@@ -1534,7 +1744,7 @@ private:
                     chaosBlend);
             }
         }
-        updatePhysicalModel();
+        updatePhysicalModel(performed_);
     }
 
     void advancePitchAnalysis()
@@ -1589,7 +1799,7 @@ private:
 
     void updatePhysicalModel()
     {
-        updatePhysicalModel(target_);
+        updatePhysicalModel(mapPerformanceControls(target_));
     }
 
     void updatePhysicalModel(const ProcessorFissureParams& controls)
@@ -1601,7 +1811,7 @@ private:
 
     void updatePhysicalCell(uint32_t cell)
     {
-        updatePhysicalCell(cell, target_);
+        updatePhysicalCell(cell, mapPerformanceControls(target_));
     }
 
     void updatePhysicalCell(uint32_t cell,
@@ -1700,33 +1910,99 @@ private:
         }
     }
 
-    void advanceShaker()
+    void exciteAttachedProfile(uint32_t cell, float strength,
+        const std::array<float, kModalCount>& profile)
     {
-        if (performed_.hold || performed_.shaker <= 1.0e-4f) return;
+        if (cell >= kProcessorFissureCells) return;
+        const float sensitivity = 0.16f
+            + objectTarget_[cell].sensitivity * 1.18f;
+        for (uint32_t mode = 0u; mode < kModalCount; ++mode) {
+            modalImpulse_[cell][mode] += strength * profile[mode]
+                * sensitivity * (randomUnit() < 0.5f ? -1.0f : 1.0f);
+        }
+    }
+
+    void advanceShakerObject()
+    {
+        if (performed_.shaker <= 1.0e-4f) return;
         if (shakerCountdown_ > 0u) --shakerCountdown_;
         if (shakerCountdown_ > 0u) return;
         const uint32_t cell = nextRandom() % kProcessorFissureCells;
         const float impact = performed_.shaker
-            * (0.12f + randomUnit() * 0.88f)
-            * (0.42f + performed_.rattle * 0.78f);
-        excitePhysical(cell, impact);
-        if (randomUnit() < 0.28f + performed_.rattle * 0.62f) {
-            const uint32_t neighbour = (cell + 1u
-                + nextRandom() % (kProcessorFissureCells - 1u))
-                % kProcessorFissureCells;
-            excitePhysical(neighbour, impact
-                * (0.18f + randomUnit() * 0.42f));
-        }
+            * (0.18f + randomUnit() * 0.82f);
+        exciteAttachedProfile(cell, impact,
+            {{ 1.00f, 0.42f, 0.06f }});
+        failure_[cell].excite(impact * 0.42f, false);
         burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
-            impact * (0.12f + performed_.rattle * 0.28f));
-        const float impactsPerSecond = 0.45f
-            + performed_.shaker * performed_.shaker * 19.0f
-            + performed_.motion * 7.0f
-            + performed_.rattle * 14.0f;
-        const float scatter = 0.18f + randomUnit() * 1.64f;
+            impact * 0.24f);
+        const float impactsPerSecond = 0.18f
+            + performed_.shaker * performed_.shaker * 12.0f
+            + performed_.motion * 1.2f;
+        const float scatter = 0.48f + randomUnit() * 1.08f;
         shakerCountdown_ = std::max<uint32_t>(1u,
             static_cast<uint32_t>(sampleRate_ * scatter
                 / impactsPerSecond));
+    }
+
+    void advanceRattleObject()
+    {
+        if (performed_.rattle <= 1.0e-4f) return;
+        if (rattleCountdown_ > 0u) --rattleCountdown_;
+        if (rattleCountdown_ > 0u) return;
+        const uint32_t cell = nextRandom() % kProcessorFissureCells;
+        const float impact = performed_.rattle
+            * (0.035f + randomUnit() * 0.24f);
+        exciteAttachedProfile(cell, impact,
+            {{ 0.05f, 0.34f, 1.12f }});
+        burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
+            impact * 0.16f);
+        if (rattleClusterRemaining_ > 0u) {
+            --rattleClusterRemaining_;
+            const float clusterSeconds = 0.0025f
+                + randomUnit() * (0.018f - performed_.rattle * 0.010f);
+            rattleCountdown_ = std::max<uint32_t>(1u,
+                static_cast<uint32_t>(sampleRate_ * clusterSeconds));
+            return;
+        }
+        if (randomUnit() < 0.12f + performed_.rattle * 0.72f) {
+            rattleClusterRemaining_ = 1u + static_cast<uint32_t>(
+                performed_.rattle * (2.0f + randomUnit() * 5.0f));
+        }
+        const float impactsPerSecond = 0.35f
+            + performed_.rattle * performed_.rattle * 34.0f;
+        rattleCountdown_ = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(sampleRate_
+                * (0.35f + randomUnit() * 1.30f) / impactsPerSecond));
+    }
+
+    void advanceSpringObject()
+    {
+        if (performed_.spring <= 1.0e-4f) return;
+        if (springCountdown_ > 0u) --springCountdown_;
+        if (springCountdown_ > 0u) return;
+        const uint32_t cell = nextRandom() % kProcessorFissureCells;
+        const uint32_t coupled = (cell + 3u + nextRandom() % 3u)
+            % kProcessorFissureCells;
+        const float pluck = performed_.spring
+            * (0.12f + randomUnit() * 0.58f);
+        exciteAttachedProfile(cell, pluck,
+            {{ 0.03f, 0.14f, 1.28f }});
+        modalImpulse_[coupled][2u] -= pluck
+            * (0.18f + objectTarget_[coupled].sensitivity * 0.24f);
+        const float plucksPerSecond = 0.06f
+            + performed_.spring * performed_.spring * 2.8f
+            + performed_.motion * 0.35f;
+        springCountdown_ = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(sampleRate_
+                * (0.55f + randomUnit() * 1.20f) / plucksPerSecond));
+    }
+
+    void advanceAttachedObjects()
+    {
+        if (performed_.hold) return;
+        advanceShakerObject();
+        advanceRattleObject();
+        advanceSpringObject();
     }
 
     void regenerateMatrix(float mutation)
@@ -1780,9 +2056,11 @@ private:
             - (1.0f - variation) * (1.0f - fractureX);
         const float fragmentReach = std::max(performed_.memory,
             fractureX * (0.52f + performed_.memory * 0.48f));
-        const float maximumSeconds = 0.028f
+        const float shapeSpan = 0.16f
+            + std::sqrt(effectiveCutSpace()) * 0.84f;
+        const float maximumSeconds = (0.028f
             + fragmentReach * fragmentReach
-                * (0.16f + effectiveContrast * 1.84f);
+                * (0.16f + effectiveContrast * 1.84f)) * shapeSpan;
         const float minimumSeconds = 0.0025f
             + (1.0f - effectiveCutEdge()) * 0.018f;
         const float shapedRandom = std::pow(randomUnit(),
@@ -1808,8 +2086,12 @@ private:
 
     void advanceCutSplice(uint32_t cell)
     {
-        const float coefficient = cutSeamTarget_[cell] < cutSeam_[cell]
+        const float shapeSoftness = effectiveCutSpace()
+            * (1.0f - effectiveCutEdge() * 0.86f);
+        const float baseCoefficient = cutSeamTarget_[cell] < cutSeam_[cell]
             ? cutDownCoefficient_ : cutUpCoefficient_;
+        const float coefficient = lerp(baseCoefficient,
+            gateSlowCoefficient_, shapeSoftness * 0.72f);
         cutSeam_[cell] += (cutSeamTarget_[cell] - cutSeam_[cell])
             * coefficient;
         if (cutSwapPending_[cell] && cutSeam_[cell] <= 0.025f) {
@@ -1825,43 +2107,281 @@ private:
 
     float performedCutVariation() const
     {
-        return grabbedValid_ && repeatMix_ > 1.0e-5f
+        const float raw = grabbedValid_ && repeatMix_ > 1.0e-5f
             ? lerp(cutVariation_, repeatedFrame_.variation, repeatMix_)
             : cutVariation_;
+        return processorFissureFormCurve(raw);
     }
 
     float performedFractureDistance() const
     {
         return grabbedValid_ && repeatMix_ > 1.0e-5f
-            ? lerp(fractureXSmoothed_, repeatedFrame_.fractureX, repeatMix_)
-            : fractureXSmoothed_;
+            ? lerp(fractureEdgeSmoothed_, repeatedFrame_.fractureEdge,
+                repeatMix_)
+            : fractureEdgeSmoothed_;
     }
 
     float performedFractureForce() const
     {
         return grabbedValid_ && repeatMix_ > 1.0e-5f
-            ? lerp(fractureYSmoothed_, repeatedFrame_.fractureY, repeatMix_)
-            : fractureYSmoothed_;
+            ? lerp(fractureRateSmoothed_, repeatedFrame_.fractureRate,
+                repeatMix_)
+            : fractureRateSmoothed_;
+    }
+
+    float performedFractureVoid() const
+    {
+        return grabbedValid_ && repeatMix_ > 1.0e-5f
+            ? lerp(fractureVoidSmoothed_, repeatedFrame_.fractureVoid,
+                repeatMix_)
+            : fractureVoidSmoothed_;
+    }
+
+    float performedFractureSpace() const
+    {
+        return grabbedValid_ && repeatMix_ > 1.0e-5f
+            ? lerp(fractureSpaceSmoothed_, repeatedFrame_.fractureSpace,
+                repeatMix_)
+            : fractureSpaceSmoothed_;
     }
 
     float effectiveCutEdge() const
     {
         return 1.0f - (1.0f - performed_.edge)
+            * (1.0f - performedFractureDistance() * 0.96f);
+    }
+
+    float effectiveCutRate() const
+    {
+        return 1.0f - (1.0f - performed_.rate)
             * (1.0f - performedFractureForce() * 0.98f);
     }
 
     float effectiveCutVoid() const
     {
         return 1.0f - (1.0f - performed_.voidAmount)
-            * (1.0f - performedFractureForce() * 0.88f);
+            * (1.0f - performedFractureVoid() * 0.94f);
+    }
+
+    float effectiveCutSpace() const
+    {
+        return 1.0f - (1.0f - performed_.space)
+            * (1.0f - performedFractureSpace() * 0.96f);
+    }
+
+    float realizedCutDensity() const
+    {
+        return effectiveCutRate() * effectiveCutVoid();
+    }
+
+    float cutChatterAmount() const
+    {
+        return effectiveCutRate() * (1.0f - effectiveCutVoid());
+    }
+
+    float ruptureCrackleAmount() const
+    {
+        return effectiveCutEdge() * (1.0f - effectiveCutSpace());
+    }
+
+    float ruptureBreathAmount() const
+    {
+        return (1.0f - effectiveCutEdge()) * effectiveCutSpace();
+    }
+
+    float ruptureGuillotineAmount() const
+    {
+        return effectiveCutEdge() * effectiveCutSpace();
+    }
+
+    uint32_t nearestEnabledGestureCell(uint32_t cell, int direction) const
+    {
+        cell %= kProcessorFissureCells;
+        for (uint32_t offset = 0u; offset < kProcessorFissureCells;
+             ++offset) {
+            const int candidate = static_cast<int>(cell)
+                + direction * static_cast<int>(offset);
+            const uint32_t wrapped = static_cast<uint32_t>(
+                (candidate % static_cast<int>(kProcessorFissureCells)
+                    + static_cast<int>(kProcessorFissureCells))
+                % static_cast<int>(kProcessorFissureCells));
+            if (cutMask_[wrapped]) return wrapped;
+        }
+        return cell;
+    }
+
+    uint32_t strongestLinkedGestureCell(uint32_t source,
+        uint32_t excluded) const
+    {
+        float strongest = -1.0f;
+        uint32_t result = source;
+        for (uint32_t destination = 0u;
+             destination < kProcessorFissureCells; ++destination) {
+            if (destination == source || destination == excluded
+                || !cutMask_[destination]) continue;
+            const float strength = std::abs(matrix_[destination
+                * kProcessorFissureCells + source]);
+            if (strength > strongest) {
+                strongest = strength;
+                result = destination;
+            }
+        }
+        return result;
+    }
+
+    void affectFractureGestureCell(uint32_t pad, uint32_t cell,
+        float strength)
+    {
+        if (pad >= 2u || cell >= kProcessorFissureCells
+            || !cutMask_[cell]) return;
+        strength = clamp(strength, 0.0f, 1.0f);
+        fractureGestureVisual_[pad][cell] = std::max(
+            fractureGestureVisual_[pad][cell], strength);
+        if (pad == 0u) {
+            const float density = realizedCutDensity();
+            const float chatter = cutChatterAmount();
+            requestCutSplice(cell, clamp(0.32f + strength * 0.58f
+                + chatter * 0.18f, 0.0f, 1.0f));
+            if (randomUnit() < effectiveCutVoid()
+                    * (0.30f + strength * 0.58f)) {
+                closeSpace(cell);
+            } else {
+                burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
+                    0.12f + strength * (0.42f + chatter * 0.28f));
+                excitePhysical(cell, 0.08f + strength * 0.24f);
+            }
+            if (density > 0.62f) {
+                burstEnvelope_[cell] = std::max(
+                    burstEnvelope_[cell], 0.24f + strength * 0.34f);
+            }
+        } else {
+            const float crackle = ruptureCrackleAmount();
+            const float guillotine = ruptureGuillotineAmount();
+            requestCutSplice(cell, clamp(0.26f + strength * 0.54f
+                + crackle * 0.26f + guillotine * 0.18f, 0.0f, 1.0f));
+            if (randomUnit() < effectiveCutSpace()
+                    * (0.22f + strength * 0.54f)) {
+                closeSpace(cell);
+            }
+            burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
+                strength * (0.12f + effectiveCutEdge() * 0.50f));
+            excitePhysical(cell, strength
+                * (0.08f + effectiveCutEdge() * 0.28f));
+        }
+    }
+
+    void createFractureRouteScar(uint32_t cell, float turn,
+        float energy)
+    {
+        const int direction = turn < 0.0f ? -1 : 1;
+        const uint32_t source = nearestEnabledGestureCell(cell, direction);
+        const uint32_t destination = nearestEnabledGestureCell(
+            (source + (direction > 0 ? 1u : 7u))
+                % kProcessorFissureCells,
+            direction);
+        const uint32_t index = destination * kProcessorFissureCells + source;
+        const float polarity = turn < 0.0f ? -1.0f : 1.0f;
+        fractureRouteScar_[index] = clamp(fractureRouteScar_[index]
+            + polarity * (0.045f + energy * 0.22f), -0.38f, 0.38f);
+        fractureGestureVisual_[0u][destination] = std::max(
+            fractureGestureVisual_[0u][destination], energy * 0.72f);
+        fractureGestureVisual_[1u][destination] = std::max(
+            fractureGestureVisual_[1u][destination], energy * 0.72f);
+    }
+
+    void advanceFractureGestures()
+    {
+        for (uint32_t pad = 0u; pad < 2u; ++pad) {
+            fractureGestureEnergy_[pad] = flushDenormal(
+                fractureGestureEnergy_[pad] * fractureGestureDecay_);
+            for (float& visual : fractureGestureVisual_[pad]) {
+                visual = flushDenormal(visual * fractureGestureDecay_);
+            }
+            const float energy = fractureGesturePendingEnergy_[pad];
+            if (energy <= 1.0e-5f) {
+                if (fractureGestureEnergy_[pad] < 0.006f) {
+                    fractureGesturePreviousX_[pad] = 0.0f;
+                    fractureGesturePreviousY_[pad] = 0.0f;
+                }
+                continue;
+            }
+            fractureGesturePendingEnergy_[pad] = 0.0f;
+            fractureGestureEnergy_[pad] = std::max(
+                fractureGestureEnergy_[pad], energy);
+
+            const float directionX = fractureGestureDirectionX_[pad];
+            const float directionY = fractureGestureDirectionY_[pad];
+            const float previousX = fractureGesturePreviousX_[pad];
+            const float previousY = fractureGesturePreviousY_[pad];
+            const float previousMagnitude = std::sqrt(previousX * previousX
+                + previousY * previousY);
+            const float dot = previousMagnitude > 0.01f
+                ? directionX * previousX + directionY * previousY : 1.0f;
+            const float turn = previousMagnitude > 0.01f
+                ? previousX * directionY - previousY * directionX : 0.0f;
+
+            const float position = pad == 0u
+                ? fractureRateTarget_ : fractureEdgeTarget_;
+            uint32_t cell = std::min<uint32_t>(7u,
+                static_cast<uint32_t>(position * 7.999f));
+            const int horizontalDirection = directionX < 0.0f ? -1 : 1;
+            cell = nearestEnabledGestureCell(cell, horizontalDirection);
+
+            // A coherent turn walks the eight-cell ring. A sharp reversal
+            // tears a temporary route instead of rewriting the authored map.
+            const bool circular = std::abs(turn) > 0.24f && dot > -0.35f;
+            if (circular) {
+                const int step = turn < 0.0f ? -1 : 1;
+                const int cursor = static_cast<int>(
+                    fractureGestureCursor_[pad]) + step;
+                fractureGestureCursor_[pad] = static_cast<uint32_t>(
+                    (cursor + static_cast<int>(kProcessorFissureCells))
+                    % static_cast<int>(kProcessorFissureCells));
+                cell = nearestEnabledGestureCell(
+                    fractureGestureCursor_[pad], step);
+            } else {
+                fractureGestureCursor_[pad] = cell;
+            }
+
+            const uint32_t span = 1u + static_cast<uint32_t>(
+                energy * energy * 3.99f);
+            if (std::abs(directionX) >= std::abs(directionY)) {
+                for (uint32_t index = 0u; index < span; ++index) {
+                    const int candidate = static_cast<int>(cell)
+                        + horizontalDirection * static_cast<int>(index);
+                    const uint32_t wrapped = static_cast<uint32_t>(
+                        (candidate + 16) % 8);
+                    affectFractureGestureCell(pad,
+                        nearestEnabledGestureCell(wrapped,
+                            horizontalDirection),
+                        energy * (1.0f - static_cast<float>(index)
+                            / static_cast<float>(span + 1u) * 0.55f));
+                }
+            } else {
+                affectFractureGestureCell(pad, cell, energy);
+                uint32_t linked = strongestLinkedGestureCell(cell, cell);
+                affectFractureGestureCell(pad, linked, energy * 0.76f);
+                if (span >= 3u) {
+                    linked = strongestLinkedGestureCell(cell, linked);
+                    affectFractureGestureCell(pad, linked, energy * 0.52f);
+                }
+            }
+            if (previousMagnitude > 0.01f && dot < 0.20f
+                && energy > 0.34f) {
+                createFractureRouteScar(cell,
+                    std::abs(turn) > 0.04f ? turn : directionX - previousX,
+                    energy);
+            }
+            fractureGesturePreviousX_[pad] = directionX;
+            fractureGesturePreviousY_[pad] = directionY;
+        }
     }
 
     void scheduleNextEvent(uint32_t cell, bool startup)
     {
-        const float rate = 0.018f
-            * std::pow(6666.6665f, effectiveCutEdge());
+        const float rate = processorFissureEventRateHz(effectiveCutRate());
         const float seconds = (0.58f + randomUnit() * 0.94f)
-            / std::max(0.005f, rate);
+            / std::max(0.0012f, rate);
         eventCountdown_[cell] = startup
             ? static_cast<uint32_t>(sampleRate_
                 * std::min(seconds, 0.04f + randomUnit() * 0.28f))
@@ -1870,44 +2390,113 @@ private:
             eventCountdown_[cell]);
     }
 
+    void accelerateEventClocks()
+    {
+        const float rate = effectiveCutRate();
+        if (rate < eventRateReference_) {
+            eventRateReference_ = rate;
+            return;
+        }
+        if (performed_.hold || repeatTarget_
+            || rate < eventRateReference_ + 0.01f) return;
+        eventRateReference_ = rate;
+        const float maximumSeconds = 0.006f
+            + 0.90f * std::pow(1.0f - rate, 3.0f);
+        const uint32_t baseMaximum = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(sampleRate_ * maximumSeconds));
+        for (uint32_t cell = 0u; cell < kProcessorFissureCells; ++cell) {
+            const uint32_t stagger = static_cast<uint32_t>(
+                static_cast<float>(baseMaximum) * (0.72f
+                    + static_cast<float>(cell) * 0.055f));
+            eventCountdown_[cell] = std::min(
+                eventCountdown_[cell], std::max<uint32_t>(1u, stagger));
+        }
+    }
+
+    void closeSpace(uint32_t cell)
+    {
+        if (cell >= kProcessorFissureCells) return;
+        if (realizedCutDensity() > 0.54f) {
+            uint32_t openCells = 0u;
+            for (uint32_t candidate = 0u;
+                 candidate < kProcessorFissureCells; ++candidate) {
+                if (cutMask_[candidate]
+                    && gateTarget_[candidate] > 0.5f) ++openCells;
+            }
+            if (gateTarget_[cell] > 0.5f && openCells <= 1u) {
+                requestCutSplice(cell, 0.84f);
+                burstEnvelope_[cell] = std::max(
+                    burstEnvelope_[cell], 0.34f);
+                excitePhysical(cell, 0.24f);
+                return;
+            }
+        }
+        const float seconds = 0.008f
+            * std::pow(500.0f, effectiveCutSpace())
+            * (0.55f + randomUnit() * 0.90f);
+        spaceCountdown_[cell] = std::max<uint32_t>(1u,
+            static_cast<uint32_t>(sampleRate_ * seconds));
+        gateTarget_[cell] = 0.0f;
+    }
+
     void advanceEvents(uint32_t cell)
     {
+        if (!performed_.hold && !repeatTarget_
+            && spaceCountdown_[cell] > 0u) {
+            --spaceCountdown_[cell];
+            if (spaceCountdown_[cell] == 0u) gateTarget_[cell] = 1.0f;
+        }
         if (!performed_.hold && !repeatTarget_) {
             if (eventCountdown_[cell] > 0u) --eventCountdown_[cell];
             if (eventCountdown_[cell] == 0u) {
                 const float effectiveEdge = effectiveCutEdge();
+                const float effectiveRate = effectiveCutRate();
                 const float effectiveVoid = effectiveCutVoid();
+                const float density = effectiveRate * effectiveVoid;
+                const float chatter = effectiveRate * (1.0f - effectiveVoid);
+                const float crackle = ruptureCrackleAmount();
+                const float breath = ruptureBreathAmount();
+                const float guillotine = ruptureGuillotineAmount();
                 const float spliceProbability = clamp(
                     effectiveEdge * effectiveEdge
                         * (0.14f + effectiveVoid * 0.86f)
                         * (0.22f + (1.0f
                             - (1.0f - performedCutVariation())
                                 * (1.0f - performedFractureDistance()))
-                            * 0.78f),
+                            * 0.78f)
+                        + chatter * (0.12f + crackle * 0.34f)
+                        + density * 0.18f,
                     0.0f, 1.0f);
                 if (cutMask_[cell]) {
                     if (randomUnit() < spliceProbability) {
                         requestCutSplice(cell, spliceProbability);
                     }
-                    const float closeProbability = effectiveVoid
-                        * (0.32f + effectiveEdge * 0.62f);
-                    if (gateTarget_[cell] < 0.5f) {
-                        gateTarget_[cell] = 1.0f;
-                    } else {
-                        gateTarget_[cell] = randomUnit() < closeProbability
-                            ? 0.0f : 1.0f;
-                    }
+                    const float closeProbability = clamp(effectiveVoid
+                        * (0.18f + effectiveRate * 0.48f
+                            + performedCutVariation() * 0.22f
+                            + breath * 0.16f + guillotine * 0.20f),
+                        0.0f, 0.96f);
+                    if (randomUnit() < closeProbability) closeSpace(cell);
                     if (gateTarget_[cell] > 0.5f
-                        && randomUnit() < 0.18f + effectiveEdge * 0.42f) {
+                        && randomUnit() < 0.12f + effectiveEdge * 0.32f
+                            + chatter * 0.42f + crackle * 0.26f) {
                         burstEnvelope_[cell] = std::max(burstEnvelope_[cell],
-                            0.16f + randomUnit() * 0.54f);
+                            0.12f + randomUnit()
+                                * (0.38f + chatter * 0.32f));
+                        if (chatter > 0.42f) excitePhysical(cell,
+                            0.06f + chatter * 0.12f);
                     }
                 }
                 scheduleNextEvent(cell, false);
             }
         }
-        const float coefficient = performed_.edge > 0.56f
-            ? gateFastCoefficient_ : gateSlowCoefficient_;
+        const float edge = effectiveCutEdge();
+        const float space = effectiveCutSpace();
+        const float contour = gateTarget_[cell] < gate_[cell]
+            ? space * (1.0f - edge * 0.88f)
+            : space * (0.44f + (1.0f - edge) * 0.56f);
+        const float coefficient = lerp(gateFastCoefficient_,
+            gateSlowCoefficient_, contour);
         gate_[cell] += (gateTarget_[cell] - gate_[cell]) * coefficient;
         gate_[cell] = flushDenormal(clamp(gate_[cell], 0.0f, 1.0f));
         advanceCutSplice(cell);
@@ -2002,7 +2591,11 @@ private:
         true, true, true, true, true, true, true, true,
     }};
     std::array<float, kProcessorFissureCells> cutVisual_ {};
+    std::array<std::array<float, kProcessorFissureCells>, 2u>
+        fractureGestureVisual_ {};
+    std::array<float, 64u> fractureRouteScar_ {};
     std::array<uint32_t, kProcessorFissureCells> eventCountdown_ {};
+    std::array<uint32_t, kProcessorFissureCells> spaceCountdown_ {};
     std::array<float, kProcessorFissureCells> oscillatorPhase_ {};
     std::array<float, kProcessorFissureCells> lowNoise_ {};
     std::array<float, kProcessorFissureCells> inputCouplingLow_ {};
@@ -2047,6 +2640,7 @@ private:
     uint32_t historyFrames_ = 64u;
     uint32_t historyWrite_ = 0u;
     float parameterCoefficient_ = 0.001f;
+    float formCoefficient_ = 0.004f;
     float runCoefficient_ = 0.001f;
     float voiceAttackCoefficient_ = 0.01f;
     float voiceReleaseCoefficient_ = 0.001f;
@@ -2061,6 +2655,8 @@ private:
     float fractureReleaseCoefficient_ = 0.001f;
     float repeatCoefficient_ = 0.01f;
     float cutVisualDecay_ = 0.9999f;
+    float fractureGestureDecay_ = 0.9999f;
+    float fractureScarDecay_ = 0.9999f;
     float breachDecay_ = 0.9999f;
     float burstDecay_ = 0.999f;
     float contactLowCoefficient_ = 0.01f;
@@ -2097,18 +2693,33 @@ private:
     uint32_t pitchRng_ = 1u;
     bool pitchAnalysisActive_ = false;
     uint32_t shakerCountdown_ = 1u;
+    uint32_t rattleCountdown_ = 1u;
+    uint32_t springCountdown_ = 1u;
+    uint32_t rattleClusterRemaining_ = 0u;
     float rotationPhase_ = 0.0f;
     float breachEnvelope_ = 0.0f;
     float withdrawGain_ = 1.0f;
     float withdrawTarget_ = 1.0f;
     uint32_t withdrawHoldRemaining_ = 0u;
     uint32_t blackoutFrames_ = 0u;
+    float eventRateReference_ = 0.0f;
     float runGain_ = 1.0f;
-    float cutVariation_ = 0.46f;
-    float fractureXTarget_ = 0.0f;
-    float fractureYTarget_ = 0.0f;
-    float fractureXSmoothed_ = 0.0f;
-    float fractureYSmoothed_ = 0.0f;
+    float cutVariation_ = 0.40f;
+    float fractureEdgeTarget_ = 0.0f;
+    float fractureRateTarget_ = 0.0f;
+    float fractureVoidTarget_ = 0.0f;
+    float fractureSpaceTarget_ = 0.0f;
+    float fractureEdgeSmoothed_ = 0.0f;
+    float fractureRateSmoothed_ = 0.0f;
+    float fractureVoidSmoothed_ = 0.0f;
+    float fractureSpaceSmoothed_ = 0.0f;
+    std::array<float, 2u> fractureGesturePendingEnergy_ {};
+    std::array<float, 2u> fractureGestureEnergy_ {};
+    std::array<float, 2u> fractureGestureDirectionX_ {};
+    std::array<float, 2u> fractureGestureDirectionY_ {};
+    std::array<float, 2u> fractureGesturePreviousX_ {};
+    std::array<float, 2u> fractureGesturePreviousY_ {};
+    std::array<uint32_t, 2u> fractureGestureCursor_ {};
     float repeatMix_ = 0.0f;
     uint32_t performanceFrameCount_ = 0u;
     uint32_t performanceCaptureCountdown_ = 0u;

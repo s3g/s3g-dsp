@@ -29,12 +29,12 @@
 
         <p><code>s3g Processor Formant Matrix</code> is a stereo channel-vocoder and resonant filter-bank audio effect. A live microphone, another audio signal, or the integrated sample-free speech generator supplies the articulation. A procedural carrier follows polyphonic MIDI notes or the estimated pitch of the selected modulator.</p>
 
-        <p>The 22-by-22 signed routing matrix is the instrument's center. A diagonal patch behaves like a classic matched-band vocoder; shifted, mirrored, sparse, chordal, and custom routes can move one articulation band to another synthesis band without changing the words' timing. Four-pole and eight-pole analysis responses trade broad blending for stronger adjacent-formant separation.</p>
+        <p>The 22-by-22 signed routing matrix is the instrument's center. A diagonal patch behaves like a classic matched-band vocoder; shifted, mirrored, sparse, chordal, and custom routes can move one articulation band to another synthesis band without changing the words' timing. Four-pole, eight-pole, and vocal-tract analysis responses trade broad blending for stronger adjacent-formant separation. The Precision transfer path adds speech-focused input conditioning, controlled level stabilization, three-zone consonant reconstruction, and denser carrier excitation without passing the microphone waveform.</p>
 
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/formant-matrix.png" aria-label="Open the high-resolution Processor Formant Matrix routing-page screenshot">
-              <img src="assets/plugin-guis/formant-matrix.png" alt="Processor Formant Matrix ROUTE page showing its 22 by 22 signed formant-routing grid, source and synthesis band meters, selected crosspoint, modulator controls, envelope controls, and output" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/formant-matrix.png" alt="Processor Formant Matrix ROUTE page showing its 22 by 22 signed formant-routing grid, analysis and synthesis band meters, selected crosspoint, matrix and bank controls, performance envelopes, and output" loading="lazy" decoding="async">
             </button>
           </div>
           <figcaption>The primary <code>ROUTE</code> page combines the signed 22-by-22 map with source and destination meters, per-band trims, modulator selection, envelope behavior, and output.</figcaption>
@@ -49,7 +49,7 @@
           <li>For keyboard-free use, select <code>VOICE PITCH</code>, choose a scale and root, then sing. Set <code>PITCH HOLD</code> to <code>INFINITE</code> when the last confident pitch should survive consonants and silence.</li>
           <li>Start with <code>IDENTITY</code> routing. Change to <code>ROTATE</code>, <code>MIRROR</code>, <code>CHORD</code>, or <code>SPARSE</code>, then raise <code>MATRIX DEPTH</code> gradually.</li>
           <li>Choose <code>CUSTOM</code> for detailed work. Edit Routing A and B, use <code>MATRIX A / B</code> to travel between them, and watch the synthesis meters to verify the mapped result.</li>
-          <li>Use the BANK page to refine analysis slope, attack, release, voiced/unvoiced behavior, and stereo placement. Add carrier movement on SOURCES, text articulation on PHRASE, and output processing on FX only after the words read clearly.</li>
+          <li>Use ROUTE to set performance attack/release and voiced/unvoiced behavior, then use BANK to refine analysis response, spectral tuning, and stereo placement. Add carrier movement on SOURCES, text articulation on PHRASE, and post-bank processing on FX only after the words read clearly.</li>
         </ol>
 
         <h2 id="signal-flow">Signal Flow and Roles</h2>
@@ -81,11 +81,19 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
 
         <h2 id="analysis-bank">Analysis and Synthesis Banks</h2>
 
-        <p><code>SPEECH 22</code> surrounds twenty approximately quarter-octave band-pass channels with low-pass and high-pass endpoints. Its nominal centers are LP 185, 220, 262, 311, 370, 440, 523, 622, 740, 880, 1047, 1245, 1480, 1760, 2093, 2489, 2960, 3520, 4186, 4978, 5920, and HP 7040 Hz. <code>WIDE 16</code> spreads sixteen active band-pass channels from 90 Hz toward 9 kHz for non-speech and abstract routing.</p>
+        <p><code>SPEECH 22</code> surrounds twenty approximately quarter-octave band-pass channels with low-pass and high-pass endpoints. Its nominal centers are LP 185, 220, 262, 311, 370, 440, 523, 622, 740, 880, 1047, 1245, 1480, 1760, 2093, 2489, 2960, 3520, 4186, 4978, 5920, and HP 7040 Hz. <code>WIDE 16</code> spreads sixteen active band-pass channels from 90 Hz toward 9 kHz for non-speech and abstract routing. In Wide 16 the ROUTE editor expands to a full-size 16-by-16 grid; meters, trims, labels, keyboard navigation, and scene tools follow those active channels. The six hidden Speech-22 rows and columns remain stored and return unchanged when the larger layout is restored.</p>
 
-        <p><code>ANALYSIS SLOPE</code> selects <code>FOUR POLE</code> or <code>EIGHT POLE</code>. Four Pole gives broader overlap and is forgiving on noisy sources. Eight Pole provides stronger vowel and consonant separation and is the Classic Mic default. The slope changes detector selectivity; it does not insert an audible tracking filter into the microphone path.</p>
+        <p><code>ANALYSIS RESPONSE</code> selects <code>4 POLE</code>, <code>8 POLE</code>, or <code>MOUTH MODEL</code>. Four Pole gives broad, forgiving channels; Eight Pole gives stronger adjacent-formant separation and is the Classic Mic default. Mouth Model estimates a 16th-order all-pole vocal-tract envelope from a causal 24 ms window every 5 ms, reducing the imprint of the singer's pitch while the fast measured-band path retains fricatives and stops. <code>MOUTH FOCUS</code> balances that LPC tract estimate against the immediate measured bank: raise it for stable, pitch-independent vowels; lower it for more raw pitch imprint and fast-band articulation. Noise confidence still moves consonants toward the fast path at maximum Focus. <code>DEFINITION</code> progressively adds energy-domain detection, local spectral contrast, transient-sensitive consonant tracking, band-local tonal/noise excitation, and carrier-band compensation. These controls insert neither dry microphone audio nor recorded material.</p>
 
-        <p>Attack and Release set directional envelope timing. Blur smooths changes after detection, while Analysis / Phoneme balances measured energy against phrase-derived targets when Internal Speech contributes. For a live microphone, shorter Blur and moderate Release preserve the mouth movement that distinguishes words; long values intentionally turn the result toward a smooth vocal-controlled resonator.</p>
+        <p><code>ANALYSIS WIDTH</code> sets detector bandwidth independently of pole count. Narrow values emphasize separation; broad values keep vowels continuous between fixed centers. On-center calibration keeps 4 Pole and 8 Pole comparable in level while their skirt rejection remains different.</p>
+
+        <p><code>TRANSFER</code> selects <code>PRECISION</code> or <code>EXPRESSIVE</code>. Precision uses a more literal energy transfer, faster routing control, stronger carrier-band reconstruction, and a linear zero-drive bank. Expressive retains the expanded contrast and saturation used by the earlier creative profiles. Before either analyzer, Low/Mid/Air EQ, Analysis Compression, <code>VOICE FOCUS</code>, and <code>LEVELER</code> condition the detector input. Per-band <code>NOISE REJ</code> learns a slow floor and <code>SPEC BAL</code> reinforces weak valid formants without flattening the word shape. These controls neither change the anti-drone threshold nor create a dry path.</p>
+
+        <p><code>HF DETAIL</code> restores fricative timing above the fixed bank. <code>SYNTHETIC</code> uses only the carrier reconstruction, <code>SWITCHED</code> admits the high-passed residual only for noise-like articulation, and <code>DIRECT</code> keeps it ready whenever a carrier is active. Level and Cutoff set the amount and lower edge. The residual remains carrier- and anti-drone-gated, so it is not microphone monitoring.</p>
+
+        <p><code>MOUTH CIRCUIT</code> is the focused talk-box-style starting point: External Mic articulation, MIDI pitch, a bright saw carrier, Mouth Model analysis, and a custom matrix that morphs from direct articulation to a two-channel formant lift. Hold one MIDI note and exaggerate vowel shapes before adding octave, fuzz, or tape echo.</p>
+
+        <p>Attack and Release set directional envelope timing. Blur smooths changes after detection, while Analysis / Phoneme balances measured energy against phrase-derived targets when Internal Speech contributes. Classic Mic starts Definition at 78%, Precision transfer, moderate Voice Focus and Leveler, and a denser carrier. For a live microphone, shorter Blur, moderate Release, and higher Definition preserve the mouth movement that distinguishes words; long values or low Definition intentionally turn the result toward a smooth vocal-controlled resonator.</p>
 
         <p><code>BANK MODE</code> offers three relationships:</p>
 
@@ -96,6 +104,8 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         </ul>
 
         <p>The voiced/unvoiced stage can force tonal excitation, force noise, blend both, or detect the appropriate balance. Detect uses measured low/mid periodic energy against upper-band noise, with the speech score only as a bias when generated speech is active. Directional transition controls keep fricatives and stop releases attached to the surrounding vowel instead of sounding like separate percussion.</p>
+
+        <p>The consonant reconstructor measures separate low, middle, and upper fricative zones instead of driving one global noise burst. <code>CONS LEVEL</code> sets the reconstruction amount, <code>CONS COLOR</code> moves from periodic buzz toward synthesized hiss, and <code>CONS SPEED</code> controls stop/fricative timing. On SOURCES, <code>DENSITY</code> adds a restrained subharmonic and low-level broadband carrier fill so narrow analysis bands can remain audible even when a simple oscillator has little energy at their centers.</p>
 
         <h2 id="routing">22-by-22 Routing</h2>
 
@@ -130,6 +140,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
             <tr><td>BRIGHT PERSONA</td><td>Morphs between upward maps while preserving sibilant destinations.</td></tr>
             <tr><td>BROKEN RELAY</td><td>Crossfades deterministic sparse signed wiring with synchronized carrier motion and multi-head echo.</td></tr>
             <tr><td>VOCAL ALLOY</td><td>Uses MIDI polyphony with diagonal, shifted, mirrored, and signed cross-routes.</td></tr>
+            <tr><td>MOUTH CIRCUIT</td><td>Separates mouth shape from source pitch with LPC analysis and a restrained MIDI-carrier formant lift.</td></tr>
           </tbody>
         </table>
 
@@ -138,23 +149,25 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         <h2 id="pages">Editor Pages</h2>
 
         <ul>
-          <li><code>ROUTE</code> — matrix scenes, selected crosspoint, source/destination meters, trims, modulator choice, envelope behavior, and output.</li>
-          <li><code>BANK</code> — layout, analysis response, tuning, voiced/unvoiced behavior, stereo pattern, and fixed-bank controls.</li>
-          <li><code>SOURCES</code> — modulator source and gain, carrier waveform and color, voice-pitch controls, scale, and carrier LFO.</li>
+          <li><code>ROUTE</code> — matrix scenes, selected crosspoint, meters and trims, topology and layout, Bank Mode/Mix, Articulation Thru, Definition, Mouth Focus, performance envelopes, and output. The MIC and INTERNAL SPEECH rails are monitors; their controls live on SOURCES.</li>
+          <li><code>BANK</code> — Transfer, analysis response and Width, Low/Mid/Air input EQ, Analysis Compression, Voice Focus, Leveler, per-band Noise Reject and Spectral Balance, phoneme blend, resonance, drive, spectral tuning, three-zone consonant controls, HF Detail, stereo behavior, freeze/blur, gesture follow, and voiced/unvoiced transition timing.</li>
+          <li><code>SOURCES</code> — modulator source and gain, pitch source/root/scale/hold, carrier waveform, color and Density, and carrier LFO.</li>
           <li><code>PHRASE</code> — text entry, compiled phoneme score, forced rests, timing, audition, voice, and polyphony.</li>
-          <li><code>FX</code> — output, dynamics, width, octave and fuzz shaping in the left column; the complete multi-head tape echo in the right column.</li>
+          <li><code>FX</code> — post-bank dynamics, width, octave and fuzz shaping in the left column; the complete multi-head tape echo in the right column. Final Output remains on ROUTE.</li>
         </ul>
+
+        <p>Each adjustable parameter has one page owner. Live signal meters may be mirrored on ROUTE for routing feedback, but sliders and menus are not duplicated between pages.</p>
 
         <p>On PHRASE, a vertical bar inserts a rhythmically stable rest: <code>hello | worlds</code>. Repeated bars extend the rest. Phrase playback can run one-shot or loop while a note is held, and timing can be free, note-relative, or transport-synchronized.</p>
 
-        <p>The octave layers, fold/fuzz, compression, de-essing, width, and intelligibility stages process the articulated bank rather than the raw microphone. The tape section supplies three virtual heads, seven combinations, free or synchronized timing, feedback, wear, flutter, tone, and spread. Keep this chain restrained until the analysis meters and identity route already produce intelligible words.</p>
+        <p>The octave layers, fold/fuzz, compression, de-essing, width, and Definition stages process the articulated bank rather than the raw microphone. The tape section supplies three virtual heads, seven combinations, free or synchronized timing, feedback, wear, flutter, tone, and spread. Keep this chain restrained until the analysis meters and identity route already produce intelligible words.</p>
 
         <h2 id="state-build">State, Build, and Identity</h2>
 
         <ul>
           <li>Host name: <code>s3g Processor Formant Matrix</code></li>
           <li>CLAP ID: <code>org.s3g.s3g-dsp.formant-matrix</code></li>
-          <li>Version: <code>5.4.0</code></li>
+          <li>Version: <code>5.8.0</code></li>
           <li>Input: stereo <code>Modulator In</code></li>
           <li>Output: stereo <code>Formant Matrix Out</code></li>
           <li>Note input: CLAP notes and MIDI</li>

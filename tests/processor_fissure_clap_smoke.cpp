@@ -325,7 +325,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, pluginId) == 0
             && std::strcmp(descriptor->name, "s3g Processor Fissure") == 0
-            && std::strcmp(descriptor->version, "0.8.0") == 0,
+            && std::strcmp(descriptor->version, "0.10.4") == 0,
         "descriptor identity, host name, or version is wrong");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_MULTI_EFFECTS)
@@ -382,8 +382,8 @@ int main(int argc, char** argv)
 
     const auto* params = static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
-    ok &= check(params && params->count(plugin) == 157u,
-        "157-parameter performance/matrix/object surface changed");
+    ok &= check(params && params->count(plugin) == 169u,
+        "169-parameter performance/matrix/object surface changed");
     clap_param_info_t info {};
     ok &= check(params && params->get_info(plugin, 12u, &info)
             && info.id == 13u && info.min_value == 1.0
@@ -408,8 +408,8 @@ int main(int argc, char** argv)
     info = {};
     ok &= check(params && params->get_info(plugin, 41u, &info)
             && info.id == 42u
-            && std::strcmp(info.name, "Fracture Distance") == 0,
-        "the spring-return fracture pad parameters are missing");
+            && std::strcmp(info.name, "Fracture Edge") == 0,
+        "the return-or-latch fracture pad parameters are missing");
     info = {};
     ok &= check(params && params->get_info(plugin, 43u, &info)
             && info.id == 44u
@@ -418,16 +418,47 @@ int main(int argc, char** argv)
         "the latching performance Grab control is missing");
     info = {};
     ok &= check(params && params->get_info(plugin, 45u, &info)
+            && info.id == 46u && std::strcmp(info.name, "Rate") == 0,
+        "the independent event Rate control is missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 46u, &info)
+            && info.id == 47u && std::strcmp(info.name, "Space") == 0,
+        "the independent gap Space control is missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 47u, &info)
+            && info.id == 48u
+            && std::strcmp(info.name, "Fracture Void") == 0,
+        "the second fracture puck parameters are missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 49u, &info)
+            && info.id == 50u
+            && std::strcmp(info.name, "Cut Density Puck Latch") == 0
+            && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u,
+        "the independent cut-density-puck latch is missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 50u, &info)
+            && info.id == 51u
+            && std::strcmp(info.name, "Rupture Shape Puck Latch") == 0
+            && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u,
+        "the independent rupture-shape-puck latch is missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 51u, &info)
+            && info.id == 52u
+            && std::strcmp(info.name, "Cut Density Gesture X") == 0
+            && (info.flags & CLAP_PARAM_IS_HIDDEN) != 0u,
+        "the velocity-sensitive fracture gesture transport is missing");
+    info = {};
+    ok &= check(params && params->get_info(plugin, 57u, &info)
             && info.id == 100u && info.min_value == -1.0
             && info.max_value == 1.0,
         "the first signed matrix route is missing");
     info = {};
-    ok &= check(params && params->get_info(plugin, 109u, &info)
+    ok &= check(params && params->get_info(plugin, 121u, &info)
             && info.id == 200u && info.min_value == 0.0
             && info.max_value == 1.0,
         "the first cell-level parameter is missing");
     info = {};
-    ok &= check(params && params->get_info(plugin, 117u, &info)
+    ok &= check(params && params->get_info(plugin, 129u, &info)
             && info.id == 300u
             && std::strcmp(info.name, "Cell 1 Size") == 0,
         "the per-object character parameters are missing");
@@ -611,10 +642,13 @@ int main(int argc, char** argv)
         "Cut + Links did not restrict authored mutation to masked cells");
 
     ok &= check(flush(plugin, params, {
-            { 42u, 0.12 }, { 43u, 0.18 }, { 44u, 1.0 } }),
+            { 42u, 0.12 }, { 43u, 0.18 },
+            { 48u, 0.14 }, { 49u, 0.20 }, { 44u, 1.0 } }),
         "the fracture pad and latching Grab control could not be flushed");
     double fractureDistance = 0.0;
     double fractureForce = 0.0;
+    double fractureVoid = 0.0;
+    double fractureSpace = 0.0;
     double grab = 0.0;
     double repeat = 0.0;
     for (uint32_t block = 0u; block < 12u; ++block) {
@@ -624,7 +658,9 @@ int main(int argc, char** argv)
         "Grab did not remain latched after its initiating flush");
     ok &= check(flush(plugin, params, {
             { 1u, 0.91 }, { 3u, 0.86 },
-            { 42u, 0.92 }, { 43u, 0.88 }, { 15u, 1.0 } }),
+            { 46u, 0.94 }, { 47u, 0.76 },
+            { 42u, 0.92 }, { 43u, 0.88 },
+            { 48u, 0.82 }, { 49u, 0.78 }, { 15u, 1.0 } }),
         "the captured parameter and Cut gesture could not be changed");
     for (uint32_t block = 0u; block < 12u; ++block) {
         processBlock(plugin, audio, false);
@@ -638,14 +674,52 @@ int main(int argc, char** argv)
             && energy(audio) >= 0.0
             && params->get_value(plugin, 42u, &fractureDistance)
             && params->get_value(plugin, 43u, &fractureForce)
+            && params->get_value(plugin, 48u, &fractureVoid)
+            && params->get_value(plugin, 49u, &fractureSpace)
             && params->get_value(plugin, 45u, &repeat)
             && std::abs(fractureDistance - 0.92) < 0.0001
             && std::abs(fractureForce - 0.88) < 0.0001
+            && std::abs(fractureVoid - 0.82) < 0.0001
+            && std::abs(fractureSpace - 0.78) < 0.0001
             && repeat == 1.0,
         "the captured performance did not reach the Repeat engine");
     ok &= check(flush(plugin, params, {
-            { 42u, 0.0 }, { 43u, 0.0 }, { 45u, 0.0 } }),
+            { 42u, 0.0 }, { 43u, 0.0 },
+            { 48u, 0.0 }, { 49u, 0.0 }, { 45u, 0.0 } }),
         "the momentary Repeat and fracture performance did not return to rest");
+
+    double densityLatch = 0.0;
+    double shapeLatch = 0.0;
+    ok &= check(flush(plugin, params, {
+            { 50u, 1.0 }, { 51u, 1.0 },
+            { 42u, 0.61 }, { 48u, 0.72 },
+            { 43u, 0.53 }, { 49u, 0.84 } })
+            && params->get_value(plugin, 50u, &densityLatch)
+            && params->get_value(plugin, 51u, &shapeLatch)
+            && densityLatch == 1.0 && shapeLatch == 1.0,
+        "the two fracture pucks could not enter independent latch mode");
+    ok &= check(flush(plugin, params, { { 50u, 0.0 } })
+            && params->get_value(plugin, 42u, &fractureDistance)
+            && params->get_value(plugin, 48u, &fractureVoid)
+            && params->get_value(plugin, 43u, &fractureForce)
+            && params->get_value(plugin, 49u, &fractureSpace)
+            && fractureForce == 0.0 && fractureVoid == 0.0
+            && std::abs(fractureDistance - 0.61) < 0.0001
+            && std::abs(fractureSpace - 0.84) < 0.0001,
+        "releasing Cut Latch did not zero only Rate and Void");
+    ok &= check(flush(plugin, params, { { 51u, 0.0 } })
+            && params->get_value(plugin, 42u, &fractureDistance)
+            && params->get_value(plugin, 49u, &fractureSpace)
+            && fractureDistance == 0.0 && fractureSpace == 0.0,
+        "releasing Shape Latch did not zero Edge and Space");
+    double gestureEnergy = 1.0;
+    ok &= check(flush(plugin, params, {
+            { 52u, 1.0 }, { 53u, 0.0 }, { 54u, 0.92 },
+            { 55u, 0.0 }, { 56u, 1.0 }, { 57u, 0.86 } })
+            && processBlock(plugin, audio, false) == CLAP_PROCESS_CONTINUE
+            && params->get_value(plugin, 57u, &gestureEnergy)
+            && gestureEnergy == 0.0,
+        "velocity-sensitive puck gestures did not reach the audio engine");
 
     Events panicEvent;
     panicEvent.addParam(19u, 1.0);
@@ -707,14 +781,16 @@ int main(int argc, char** argv)
 
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
-    ok &= check(flush(plugin, params, { { 34u, 0.0 }, { 35u, 1.0 } }),
+    ok &= check(flush(plugin, params, {
+            { 34u, 0.0 }, { 35u, 1.0 }, { 46u, 0.67 }, { 47u, 0.78 } }),
         "cut mask state could not be prepared for persistence");
     MemoryState memory;
     clap_ostream_t outputStream { &memory, stateWrite };
     ok &= check(state && state->save(plugin, &outputStream)
             && !memory.bytes.empty(),
         "state save failed under partial stream writes");
-    flush(plugin, params, { { 1u, 0.11 }, { 34u, 1.0 } });
+    flush(plugin, params, {
+        { 1u, 0.11 }, { 34u, 1.0 }, { 46u, 0.02 }, { 47u, 0.03 } });
     clap_istream_t inputStream { &memory, stateRead };
     ok &= check(state && state->load(plugin, &inputStream),
         "state load failed under partial stream reads");
@@ -724,10 +800,19 @@ int main(int argc, char** argv)
         "state round trip did not restore the macro surface");
     ok &= check(params->get_value(plugin, 34u, &value) && value == 0.0,
         "state round trip did not restore the eight-cell cut mask");
+    ok &= check(params->get_value(plugin, 46u, &value)
+            && std::abs(value - 0.67) < 0.0001
+            && params->get_value(plugin, 47u, &value)
+            && std::abs(value - 0.78) < 0.0001,
+        "state round trip did not restore independent Rate and Space");
 
-    constexpr uint32_t currentLiveCount = 144u;
-    constexpr uint32_t previousLiveCount = 136u;
-    constexpr uint32_t sceneCount = 124u * 4u;
+    constexpr uint32_t currentLiveCount = 146u;
+    constexpr uint32_t previousLiveCount = 144u;
+    constexpr uint32_t legacyLiveCount = 136u;
+    constexpr uint32_t currentSceneStride = 126u;
+    constexpr uint32_t previousSceneStride = 124u;
+    constexpr uint32_t sceneCount = currentSceneStride * 4u;
+    constexpr uint32_t previousSceneCount = previousSceneStride * 4u;
     const size_t expectedStateBytes = sizeof(FissureStateHeader)
         + sizeof(double) * (currentLiveCount + sceneCount);
     ok &= check(memory.bytes.size() == expectedStateBytes,
@@ -735,33 +820,68 @@ int main(int argc, char** argv)
     if (memory.bytes.size() == expectedStateBytes) {
         std::array<double, currentLiveCount> currentLive {};
         std::array<double, previousLiveCount> previousLive {};
-        std::array<double, sceneCount> sceneValues {};
+        std::array<double, legacyLiveCount> legacyLive {};
+        std::array<double, sceneCount> currentSceneValues {};
+        std::array<double, previousSceneCount> previousSceneValues {};
         std::memcpy(currentLive.data(),
             memory.bytes.data() + sizeof(FissureStateHeader),
             sizeof(currentLive));
-        std::copy_n(currentLive.begin(), 24u, previousLive.begin());
-        std::copy(currentLive.begin() + 32u, currentLive.end(),
-            previousLive.begin() + 24u);
-        std::memcpy(sceneValues.data(), memory.bytes.data()
+        std::copy_n(currentLive.begin(), 32u, previousLive.begin());
+        std::copy(currentLive.begin() + 34u, currentLive.end(),
+            previousLive.begin() + 32u);
+        std::memcpy(currentSceneValues.data(), memory.bytes.data()
                 + sizeof(FissureStateHeader) + sizeof(currentLive),
-            sizeof(sceneValues));
+            sizeof(currentSceneValues));
+        for (uint32_t scene = 0u; scene < 4u; ++scene) {
+            const auto current = currentSceneValues.begin()
+                + scene * currentSceneStride;
+            auto previous = previousSceneValues.begin()
+                + scene * previousSceneStride;
+            std::copy_n(current, 12u, previous);
+            std::copy_n(current + 14u, 112u, previous + 12u);
+        }
         const FissureStateHeader previousHeader {
-            0x53494653u, 4u, previousLiveCount, sceneCount,
+            0x53494653u, 5u, previousLiveCount, previousSceneCount,
         };
         MemoryState previousState;
-        const auto append = [&previousState](const auto& item) {
+        const auto append = [](MemoryState& destination, const auto& item) {
             const auto* first = reinterpret_cast<const uint8_t*>(&item);
-            previousState.bytes.insert(previousState.bytes.end(), first,
+            destination.bytes.insert(destination.bytes.end(), first,
                 first + sizeof(item));
         };
-        append(previousHeader);
-        append(previousLive);
-        append(sceneValues);
+        append(previousState, previousHeader);
+        append(previousState, previousLive);
+        append(previousState, previousSceneValues);
+        clap_istream_t previousInputStream { &previousState, stateRead };
+        ok &= check(state->load(plugin, &previousInputStream),
+            "version 0.9 Processor Fissure state was not accepted");
+        double oldEdge = 0.0;
+        double oldVoid = 0.0;
+        double migratedRate = 0.0;
+        double migratedSpace = 0.0;
+        ok &= check(params->get_value(plugin, 3u, &oldEdge)
+                && params->get_value(plugin, 4u, &oldVoid)
+                && params->get_value(plugin, 46u, &migratedRate)
+                && params->get_value(plugin, 47u, &migratedSpace)
+                && std::abs(migratedRate - oldEdge) < 0.0001
+                && std::abs(migratedSpace - oldVoid) < 0.0001,
+            "version 0.9 state did not migrate coupled Edge/Void timing");
+
+        std::copy_n(previousLive.begin(), 24u, legacyLive.begin());
+        std::copy(previousLive.begin() + 32u, previousLive.end(),
+            legacyLive.begin() + 24u);
+        const FissureStateHeader legacyHeader {
+            0x53494653u, 4u, legacyLiveCount, previousSceneCount,
+        };
+        MemoryState legacyState;
+        append(legacyState, legacyHeader);
+        append(legacyState, legacyLive);
+        append(legacyState, previousSceneValues);
         flush(plugin, params, {
             { 34u, 0.0 }, { 35u, 0.0 }, { 36u, 0.0 }, { 37u, 0.0 },
             { 38u, 0.0 }, { 39u, 0.0 }, { 40u, 0.0 }, { 41u, 0.0 } });
-        clap_istream_t previousInputStream { &previousState, stateRead };
-        ok &= check(state->load(plugin, &previousInputStream),
+        clap_istream_t legacyInputStream { &legacyState, stateRead };
+        ok &= check(state->load(plugin, &legacyInputStream),
             "version 0.6 Processor Fissure state was not accepted");
         for (clap_id id = 34u; id <= 41u; ++id) {
             ok &= check(params->get_value(plugin, id, &value)

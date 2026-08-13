@@ -1040,7 +1040,7 @@ int main(int argc, char** argv)
                 plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
             clap_note_port_info_t noteInputInfo {};
             ok = requestedDescriptor->version
-                && std::strcmp(requestedDescriptor->version, "5.4.0") == 0
+                && std::strcmp(requestedDescriptor->version, "5.8.0") == 0
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
@@ -1108,7 +1108,7 @@ int main(int argc, char** argv)
                 bool hasPhraseMode = false;
                 bool hasEchoHeads = false;
                 bool hasEchoClock = false;
-                bool hasIntelligibility = false;
+                bool hasDefinition = false;
                 bool hasModulatorSource = false;
                 bool hasMicGain = false;
                 bool hasClassicMicProfile = false;
@@ -1126,8 +1126,12 @@ int main(int argc, char** argv)
                     hasPhraseMode |= info.id == 54u
                         && std::strcmp(info.name, "Phrase Mode") == 0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
-                    hasIntelligibility |= info.id == 57u
-                        && std::strcmp(info.name, "Intelligibility") == 0;
+                    hasDefinition |= info.id == 57u
+                        && std::strcmp(info.name, "Definition") == 0
+                        && std::strcmp(info.module, "Analysis") == 0
+                        && info.min_value == 0.0
+                        && info.max_value == 1.0
+                        && info.default_value == 0.78;
                     hasEchoHeads |= info.id == 58u
                         && std::strcmp(info.name, "Echo Heads") == 0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
@@ -1148,11 +1152,12 @@ int main(int argc, char** argv)
                         && info.max_value == 24.0
                         && info.default_value == 0.0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
-                    if (info.id == 1u && info.max_value == 24.0
+                    if (info.id == 1u && info.max_value == 25.0
                         && info.default_value == 14.0) {
                         char classicMic[64] {};
                         char formantGlide[64] {};
                         char vocalAlloy[64] {};
+                        char mouthCircuit[64] {};
                         char custom[64] {};
                         hasClassicMicProfile = params->value_to_text
                             && params->value_to_text(plugin, 1u, 14.0,
@@ -1162,10 +1167,14 @@ int main(int argc, char** argv)
                             && params->value_to_text(plugin, 1u, 23.0,
                                 vocalAlloy, sizeof(vocalAlloy))
                             && params->value_to_text(plugin, 1u, 24.0,
+                                mouthCircuit, sizeof(mouthCircuit))
+                            && params->value_to_text(plugin, 1u, 25.0,
                                 custom, sizeof(custom))
                             && std::strcmp(classicMic, "Classic Mic") == 0
                             && std::strcmp(formantGlide, "Formant Glide") == 0
                             && std::strcmp(vocalAlloy, "Vocal Alloy") == 0
+                            && std::strcmp(mouthCircuit,
+                                "Mouth Circuit") == 0
                             && std::strcmp(custom, "Custom") == 0;
                     }
                     if (info.id >= 65u && info.id <= 86u) {
@@ -1270,19 +1279,37 @@ int main(int argc, char** argv)
                             else ++matrixASurfaceMatches;
                         }
                     }
-                    if (info.id >= 1098u && info.id <= 1102u) {
+                    if (info.id >= 1098u && info.id <= 1119u) {
                         constexpr const char* names[] {
-                            "Analysis Slope", "Carrier Pitch Source",
-                            "Scale Root", "Pitch Scale", "Pitch Hold"
+                            "Analysis Response", "Carrier Pitch Source",
+                            "Scale Root", "Pitch Scale", "Pitch Hold",
+                            "Mouth Focus", "Transfer Mode", "Voice Focus",
+                            "Analysis Leveler", "Consonant Color",
+                            "Consonant Speed", "Carrier Density",
+                            "Analysis Width", "HF Detail Mode",
+                            "HF Detail Level", "HF Detail Cutoff",
+                            "Analysis Low EQ", "Analysis Mid EQ",
+                            "Analysis Air EQ", "Analysis Compression",
+                            "Analysis Noise Reject",
+                            "Analysis Spectral Balance"
                         };
                         constexpr double minima[] {
-                            0.0, 0.0, 0.0, 0.0, 20.0
+                            0.0, 0.0, 0.0, 0.0, 20.0, 0.0,
+                            0.0, -1.0, 0.0, -1.0, 0.0, 0.0,
+                            0.0, 0.0, 0.0, 2200.0, -12.0, -12.0,
+                            -12.0, 0.0, 0.0, 0.0
                         };
                         constexpr double maxima[] {
-                            1.0, 1.0, 11.0, 101.0, 2000.0
+                            2.0, 1.0, 11.0, 101.0, 2000.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 2.0, 1.0, 9000.0, 12.0, 12.0,
+                            12.0, 1.0, 1.0, 1.0
                         };
                         constexpr bool stepped[] {
-                            true, true, true, true, false
+                            true, true, true, true, false, false,
+                            true, false, false, false, false, false,
+                            false, true, false, false, false, false,
+                            false, false, false, false
                         };
                         const uint32_t surfaceIndex = info.id - 1098u;
                         const bool isStepped =
@@ -1323,14 +1350,14 @@ int main(int argc, char** argv)
                         isEqualToString:@"hello worlds"]
                     && [document respondsToSelector:@selector(commitPhrase:)]
                     && params && params->get_value && params->flush
-                    && parameterCount == 1102u
-                    && hasPhraseMode && hasIntelligibility
+                    && parameterCount == 1119u
+                    && hasPhraseMode && hasDefinition
                     && hasEchoHeads && hasEchoClock
                     && hasModulatorSource && hasMicGain
                     && hasClassicMicProfile && modulatorChoices
                     && voiceBankSurfaceMatches == 22u
                     && expandedScalarMatches == 21u
-                    && analysisPitchSurfaceMatches == 5u
+                    && analysisPitchSurfaceMatches == 22u
                     && bandTrimSurfaceMatches == 22u
                     && matrixASurfaceMatches == 484u
                     && matrixBSurfaceMatches == 484u;
@@ -1374,7 +1401,7 @@ int main(int argc, char** argv)
                     };
                     constexpr size_t headerBytes = 2u * sizeof(uint32_t);
                     constexpr size_t oldValueBytes = 76u * sizeof(double);
-                    constexpr size_t currentValueBytes = 1101u * sizeof(double);
+                    constexpr size_t currentValueBytes = 1118u * sizeof(double);
                     constexpr size_t phraseBytes = sizeof(uint32_t) + 256u;
                     ok = articulatorState && articulatorState->save
                         && articulatorState->load
@@ -1458,7 +1485,7 @@ int main(int argc, char** argv)
                                 plugin, 66u, &migratedMode)
                             && params->get_value(
                                 plugin, 67u, &migratedCarrier)
-                            && migratedProfile == 24.0
+                            && migratedProfile == 25.0
                             && std::fabs(migratedAmount - 1.0) < 1.0e-6
                             && migratedMode == 0.0
                             && migratedCarrier == 1.0;
@@ -1507,7 +1534,7 @@ int main(int argc, char** argv)
                                 plugin, 98u, &migratedModulator)
                             && params->get_value(
                                 plugin, 99u, &migratedMicGain)
-                            && migratedProfile == 24.0
+                            && migratedProfile == 25.0
                             && migratedModulator == 1.0
                             && migratedMicGain == 0.0;
                     }
@@ -1595,9 +1622,9 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     failureStage = "Formant Matrix routing and pages";
-                    // Exercise every stepped menu on the compact ROUTE
-                    // column. This catches both stale hit geometry and a
-                    // dropdown hidden behind the adjacent panels.
+                    // Exercise the stepped menus owned by the compact ROUTE
+                    // column. Source and pitch menus are deliberately tested
+                    // on SOURCES below instead of being duplicated here.
                     const auto chooseRouteMenu = [&](NSPoint control,
                                                      NSPoint item,
                                                      clap_id id,
@@ -1607,8 +1634,14 @@ int main(int argc, char** argv)
                         [document mouseDown:formantMouseEvent(
                             NSEventTypeLeftMouseDown, item)];
                         double actual = -99.0;
-                        return params->get_value(plugin, id, &actual)
-                            && actual == expected;
+                        const bool matched = params->get_value(
+                            plugin, id, &actual) && actual == expected;
+                        if (!matched) {
+                            std::cerr << "Formant ROUTE menu " << id
+                                << " expected " << expected << " got "
+                                << actual << "\n";
+                        }
+                        return matched;
                     };
                     ok = chooseRouteMenu(NSMakePoint(1100.0, 316.0),
                              NSMakePoint(1100.0, 432.0), 80u, 5.0)
@@ -1616,20 +1649,34 @@ int main(int argc, char** argv)
                              NSMakePoint(1100.0, 528.0), 95u, 3.0)
                         && chooseRouteMenu(NSMakePoint(1100.0, 420.0),
                              NSMakePoint(1100.0, 465.0), 87u, 1.0)
-                        && chooseRouteMenu(NSMakePoint(1100.0, 446.0),
-                             NSMakePoint(1100.0, 509.0), 66u, 2.0)
-                        && chooseRouteMenu(NSMakePoint(1100.0, 547.0),
-                             NSMakePoint(1100.0, 610.0), 98u, 2.0)
-                        && chooseRouteMenu(NSMakePoint(1100.0, 597.0),
-                             NSMakePoint(1100.0, 640.0), 1099u, 1.0)
-                        && chooseRouteMenu(NSMakePoint(1100.0, 859.0),
-                             NSMakePoint(1100.0, 903.0), 88u, 1.0);
-                    // The ROUTE page is the initial surface. Edit a signed
-                    // off-diagonal crosspoint and a single output trim at the
-                    // exact 22-band grid geometry used by the editor.
+                        && chooseRouteMenu(NSMakePoint(1100.0, 495.0),
+                             NSMakePoint(1100.0, 558.0), 66u, 2.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 848.5),
+                             NSMakePoint(1100.0, 891.5), 88u, 1.0);
+                    // Mouth Focus is directly reachable on ROUTE. Its row is
+                    // a slider rather than an overlapping or inert menu.
+                    const NSPoint mouthFocusControl =
+                        NSMakePoint(1054.0, 730.5);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, mouthFocusControl)];
+                    [document mouseUp:formantMouseEvent(
+                        NSEventTypeLeftMouseUp, mouthFocusControl)];
+                    double routeMouthFocus = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 1103u, &routeMouthFocus)
+                        && routeMouthFocus > 0.20
+                        && routeMouthFocus < 0.30;
+                    if (!ok) {
+                        std::cerr << "Formant ROUTE Mouth Focus got "
+                            << routeMouthFocus << "\n";
+                    }
+                    // Wide 16 expands its sixteen active rows and columns to
+                    // the full ROUTE area. Edit a signed off-diagonal
+                    // crosspoint and its final visible trim at the adapted
+                    // 35-pixel grid pitch.
                     constexpr clap_id routeA0203 = 130u + 2u * 22u + 1u;
                     const NSPoint routeCell = NSMakePoint(
-                        146.0 + 1.0 * 25.0, 178.0 + 2.0 * 25.0);
+                        146.0 + 1.0 * 35.0, 178.0 + 2.0 * 35.0);
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, routeCell,
                         NSEventModifierFlagOption)];
@@ -1639,16 +1686,25 @@ int main(int argc, char** argv)
                         && params->get_value(plugin, 80u, &matrixMode)
                         && std::fabs(routeValue + 0.25) < 1.0e-6
                         && matrixMode == 5.0;
-                    const NSPoint trim22 = NSMakePoint(
-                        146.0 + 21.0 * 25.0, 750.0);
+                    if (!ok) {
+                        std::cerr << "Formant ROUTE cell/mode got "
+                            << routeValue << '/' << matrixMode << "\n";
+                    }
+                    const NSPoint trim16 = NSMakePoint(
+                        146.0 + 15.0 * 35.0, 750.0);
                     [document mouseDown:formantMouseEvent(
-                        NSEventTypeLeftMouseDown, trim22)];
+                        NSEventTypeLeftMouseDown, trim16)];
                     [document mouseUp:formantMouseEvent(
-                        NSEventTypeLeftMouseUp, trim22)];
+                        NSEventTypeLeftMouseUp, trim16)];
                     double trimValue = 0.0;
-                    ok = ok && params->get_value(plugin, 129u, &trimValue)
+                    ok = ok && params->get_value(plugin, 123u, &trimValue)
                         && trimValue > 1.85;
+                    if (!ok) {
+                        std::cerr << "Formant ROUTE trim got " << trimValue
+                            << "\n";
+                    }
 
+                    failureStage = "Formant Matrix scene transaction";
                     // Scene B is independently editable. Copy the currently
                     // selected A scene into B; the operation selects its B
                     // destination after publication. Drain earlier GUI edits
@@ -1719,6 +1775,24 @@ int main(int argc, char** argv)
                                     : CLAP_EVENT_PARAM_GESTURE_END);
                     }
 
+                    // Give an inactive Wide-16 cell a sentinel value. A
+                    // visible-scene operation must preserve all six hidden
+                    // Speech-22 rows and columns so layout switching remains
+                    // lossless.
+                    constexpr clap_id hiddenRouteB =
+                        614u + 21u * 22u + 21u;
+                    SingleParamEventInput hiddenRouteEvent {};
+                    setSingleParamEvent(hiddenRouteEvent, hiddenRouteB, 0.37);
+                    if (ok) {
+                        params->flush(
+                            plugin, &hiddenRouteEvent.events, nullptr);
+                    }
+                    std::array<double, 484u> destinationBeforeCopy {};
+                    for (uint32_t cell = 0u; ok && cell < 484u; ++cell) {
+                        ok = params->get_value(plugin, 614u + cell,
+                            &destinationBeforeCopy[cell]);
+                    }
+
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, NSMakePoint(1066.0, 54.0))];
                     std::vector<CapturedParamEvent> copiedMatrixValues;
@@ -1770,22 +1844,61 @@ int main(int argc, char** argv)
                         && copiedMatrixValues.back().paramId == 80u;
                     for (uint32_t cell = 0u;
                          copiedTransactionMatches && cell < 484u; ++cell) {
-                        double sourceValue = 0.0;
                         const auto& event = copiedMatrixValues[2u + cell];
+                        const uint32_t destination = cell / 22u;
+                        const uint32_t source = cell % 22u;
+                        double expectedValue = destinationBeforeCopy[cell];
+                        if (destination < 16u && source < 16u) {
+                            copiedTransactionMatches = params->get_value(
+                                plugin, 130u + cell, &expectedValue);
+                        }
                         copiedTransactionMatches = event.type
                                 == CLAP_EVENT_PARAM_VALUE
                             && event.paramId == 614u + cell
-                            && params->get_value(
-                                plugin, 130u + cell, &sourceValue)
-                            && std::fabs(event.value - sourceValue) < 1.0e-6;
+                            && copiedTransactionMatches
+                            && std::fabs(event.value - expectedValue) < 1.0e-6;
                     }
+                    double preservedHiddenRoute = -2.0;
                     ok = ok && params->get_value(
                             plugin, routeB0203, &copiedRouteValue)
-                        && std::fabs(copiedRouteValue + 0.25) < 1.0e-6;
+                        && params->get_value(
+                            plugin, hiddenRouteB, &preservedHiddenRoute)
+                        && std::fabs(copiedRouteValue + 0.25) < 1.0e-6
+                        && std::fabs(preservedHiddenRoute - 0.37) < 1.0e-6;
                     ok = ok && continuationMatches
                         && copiedTransactionMatches
                         && [document acceptsFirstResponder];
 
+                    failureStage = "Formant Matrix layout restore";
+                    // Switch back without recreating the editor. The six
+                    // Speech-22-only rows and columns must immediately regain
+                    // their 25-pixel hit geometry and stored values.
+                    SingleParamEventInput speech22LayoutEvent {};
+                    setSingleParamEvent(speech22LayoutEvent, 87u, 0.0);
+                    constexpr clap_id routeB2221 =
+                        614u + 21u * 22u + 20u;
+                    SingleParamEventInput speech22RouteEvent {};
+                    setSingleParamEvent(
+                        speech22RouteEvent, routeB2221, 0.37);
+                    if (ok) {
+                        params->flush(plugin,
+                            &speech22LayoutEvent.events, nullptr);
+                        params->flush(plugin,
+                            &speech22RouteEvent.events, nullptr);
+                    }
+                    const NSPoint speech22OnlyCell = NSMakePoint(
+                        146.0 + 20.0 * 25.0,
+                        178.0 + 21.0 * 25.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, speech22OnlyCell)];
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, speech22OnlyCell)];
+                    double restoredSpeech22Cell = -2.0;
+                    ok = ok && params->get_value(
+                            plugin, routeB2221, &restoredSpeech22Cell)
+                        && std::fabs(restoredSpeech22Cell) < 1.0e-6;
+
+                    failureStage = "Formant Matrix BANK ownership";
                     // Page ownership is functional, not only visual. BANK
                     // controls respond on BANK while PHRASE controls remain
                     // inert there and the native phrase field stays hidden.
@@ -1793,13 +1906,16 @@ int main(int argc, char** argv)
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, bankPage)];
                     ok = ok && [phraseField isHidden];
-                    const NSPoint bankAmount = NSMakePoint(620.0, 113.0);
+                    // Analysis / Phoneme is BANK-owned; Bank Mix is tested on
+                    // ROUTE so it cannot silently return here as a duplicate.
+                    const NSPoint bankAnalysisBlend =
+                        NSMakePoint(620.0, 443.0);
                     [document mouseDown:formantMouseEvent(
-                        NSEventTypeLeftMouseDown, bankAmount)];
+                        NSEventTypeLeftMouseDown, bankAnalysisBlend)];
                     [document mouseUp:formantMouseEvent(
-                        NSEventTypeLeftMouseUp, bankAmount)];
+                        NSEventTypeLeftMouseUp, bankAnalysisBlend)];
                     double bankValue = 0.0;
-                    ok = ok && params->get_value(plugin, 65u, &bankValue)
+                    ok = ok && params->get_value(plugin, 71u, &bankValue)
                         && bankValue > 0.85;
                     double hiddenRateBefore = -1.0;
                     double hiddenAuditionBefore = -1.0;
@@ -1834,6 +1950,7 @@ int main(int argc, char** argv)
                         ? articulatorTail->get(plugin) : 0u;
                     ok = ok && articulatorTail && bankTail > 1024u
                         && bankTail < 0xffffffffu;
+                    failureStage = "Formant Matrix SOURCES ownership";
                     // SOURCES owns the explicit modulator selector. Exercise
                     // its stepped menu so the editor cannot regress to an
                     // input-on-carrier topology while the parameter surface
@@ -1852,6 +1969,10 @@ int main(int argc, char** argv)
                     ok = ok && params->get_value(
                             plugin, 98u, &guiModulatorSource)
                         && guiModulatorSource == 2.0;
+                    if (!ok) {
+                        std::cerr << "Formant SOURCES modulator got "
+                            << guiModulatorSource << "\n";
+                    }
                     // Pitch Source is the third SOURCES-row menu. Select its
                     // Voice Pitch item through the actual native dropdown,
                     // not by writing the CLAP parameter directly.
@@ -1869,6 +1990,11 @@ int main(int argc, char** argv)
                             plugin, 1099u, &guiPitchSource)
                         && guiPitchSource == 1.0
                         && hostContext.processRequested;
+                    if (!ok) {
+                        std::cerr << "Formant SOURCES pitch got "
+                            << guiPitchSource << " request="
+                            << hostContext.processRequested << "\n";
+                    }
                     // Pitch Scale uses the shared 102-entry multi-column
                     // menu. Select WHOLE TONE at canonical menu index 12;
                     // Continuous occupies index zero.
@@ -1883,10 +2009,18 @@ int main(int argc, char** argv)
                     ok = ok && params->get_value(
                             plugin, 1101u, &guiPitchScale)
                         && guiPitchScale == 8.0;
+                    if (!ok) {
+                        std::cerr << "Formant SOURCES scale got "
+                            << guiPitchScale << "\n";
+                    }
                     const NSPoint phrasePage = NSMakePoint(342.0, 54.0);
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, phrasePage)];
                     ok = ok && ![phraseField isHidden];
+                    if (!ok) {
+                        std::cerr << "Formant PHRASE field hidden="
+                            << [phraseField isHidden] << "\n";
+                    }
                 }
                 if (ok) {
                     failureStage = "Formant Matrix phrase commit";

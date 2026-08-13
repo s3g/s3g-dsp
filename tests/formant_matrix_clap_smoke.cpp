@@ -238,6 +238,7 @@ enum class RenderSetup {
     ControlledVocoder,
     CreativeExternalMic,
     ClassicMic,
+    MouthCircuit,
     SourceAutomation,
 };
 
@@ -353,6 +354,8 @@ RenderResult render(const clap_plugin_factory_t* factory,
         // Exercise the actual quick-start profile, including its routing and
         // bank topology, rather than restating those controls in the test.
         firstEvents.addParam(1u, 14.0); // Profile: Classic Mic
+    } else if (setup == RenderSetup::MouthCircuit) {
+        firstEvents.addParam(1u, 24.0); // Profile: Mouth Circuit
     } else if (setup == RenderSetup::CreativeExternalMic) {
         // Pin the former default-like creative topology independently of the
         // startup profile: a partially dry Hybrid bank with an open floor is
@@ -393,6 +396,11 @@ RenderResult render(const clap_plugin_factory_t* factory,
         firstEvents.addParam(96u, 0.0); // No articulation dry path
         firstEvents.addParam(98u, static_cast<uint32_t>(source));
         firstEvents.addParam(99u, micGainDb);
+        // The isolation/null tests below exercise envelope vocoding. HF
+        // residual transfer has its own DSP regression and would correctly
+        // retain source polarity by design.
+        firstEvents.addParam(1111u, 0.0); // HF Detail: Synthetic
+        firstEvents.addParam(1112u, 0.0); // No residual level
         if (forceNoiseCarrier) {
             firstEvents.addParam(67u, 4.0); // Carrier Shape: Noise
             firstEvents.addParam(88u, 1.0); // Voiced / Unvoiced: Noise
@@ -791,7 +799,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, kPluginId) == 0
             && std::strcmp(descriptor->name, kPluginName) == 0
-            && std::strcmp(descriptor->version, "5.4.0") == 0,
+            && std::strcmp(descriptor->version, "5.8.0") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FILTER)
@@ -817,10 +825,28 @@ int main(int argc, char** argv)
         bool hasMicGain = false;
         bool hasMatrixMorph = false;
         bool hasAnalysisSlope = false;
+        bool hasDefinition = false;
         bool hasPitchSource = false;
         bool hasPitchScaleRoot = false;
         bool hasPitchScale = false;
         bool hasPitchHold = false;
+        bool hasMouthFocus = false;
+        bool hasTransferMode = false;
+        bool hasVoiceFocus = false;
+        bool hasAnalysisLeveler = false;
+        bool hasConsonantColor = false;
+        bool hasConsonantSpeed = false;
+        bool hasCarrierDensity = false;
+        bool hasAnalysisWidth = false;
+        bool hasHfDetailMode = false;
+        bool hasHfDetailLevel = false;
+        bool hasHfDetailCutoff = false;
+        bool hasAnalysisLowEq = false;
+        bool hasAnalysisMidEq = false;
+        bool hasAnalysisAirEq = false;
+        bool hasAnalysisCompression = false;
+        bool hasAnalysisNoiseReject = false;
+        bool hasAnalysisSpectralBalance = false;
         bool stableIdOrder = true;
         bool defaultsMatchInitialState = true;
         const uint32_t parameterCount = params && params->count
@@ -856,9 +882,14 @@ int main(int argc, char** argv)
             hasMatrixMorph |= info.id == 107u
                 && std::strcmp(info.name, "Matrix A / B") == 0;
             hasAnalysisSlope |= info.id == 1098u
-                && std::strcmp(info.name, "Analysis Slope") == 0
-                && info.min_value == 0.0 && info.max_value == 1.0
+                && std::strcmp(info.name, "Analysis Response") == 0
+                && info.min_value == 0.0 && info.max_value == 2.0
                 && info.default_value == 1.0;
+            hasDefinition |= info.id == 57u
+                && std::strcmp(info.name, "Definition") == 0
+                && std::strcmp(info.module, "Analysis") == 0
+                && info.min_value == 0.0 && info.max_value == 1.0
+                && info.default_value == 0.78;
             hasPitchSource |= info.id == 1099u
                 && std::strcmp(info.name, "Carrier Pitch Source") == 0
                 && info.min_value == 0.0 && info.max_value == 1.0
@@ -874,12 +905,81 @@ int main(int argc, char** argv)
                 && std::strcmp(info.name, "Pitch Hold") == 0
                 && info.min_value == 20.0 && info.max_value == 2000.0
                 && info.default_value == 350.0;
+            hasMouthFocus |= info.id == 1103u
+                && std::strcmp(info.name, "Mouth Focus") == 0
+                && std::strcmp(info.module, "Analysis") == 0
+                && info.min_value == 0.0 && info.max_value == 1.0
+                && info.default_value == 0.80;
+            hasTransferMode |= info.id == 1104u
+                && std::strcmp(info.name, "Transfer Mode") == 0
+                && info.min_value == 0.0 && info.max_value == 1.0
+                && info.default_value == 1.0
+                && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+            hasVoiceFocus |= info.id == 1105u
+                && std::strcmp(info.name, "Voice Focus") == 0
+                && info.min_value == -1.0 && info.max_value == 1.0
+                && info.default_value == 0.28;
+            hasAnalysisLeveler |= info.id == 1106u
+                && std::strcmp(info.name, "Analysis Leveler") == 0
+                && info.default_value == 0.72;
+            hasConsonantColor |= info.id == 1107u
+                && std::strcmp(info.name, "Consonant Color") == 0
+                && info.min_value == -1.0 && info.max_value == 1.0
+                && info.default_value == 0.35;
+            hasConsonantSpeed |= info.id == 1108u
+                && std::strcmp(info.name, "Consonant Speed") == 0
+                && info.default_value == 0.18;
+            hasCarrierDensity |= info.id == 1109u
+                && std::strcmp(info.name, "Carrier Density") == 0
+                && info.default_value == 0.58;
+            hasAnalysisWidth |= info.id == 1110u
+                && std::strcmp(info.name, "Analysis Width") == 0
+                && info.min_value == 0.0 && info.max_value == 1.0
+                && info.default_value == 0.68;
+            hasHfDetailMode |= info.id == 1111u
+                && std::strcmp(info.name, "HF Detail Mode") == 0
+                && info.min_value == 0.0 && info.max_value == 2.0
+                && info.default_value == 1.0
+                && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+            hasHfDetailLevel |= info.id == 1112u
+                && std::strcmp(info.name, "HF Detail Level") == 0
+                && info.default_value == 0.16;
+            hasHfDetailCutoff |= info.id == 1113u
+                && std::strcmp(info.name, "HF Detail Cutoff") == 0
+                && info.min_value == 2200.0 && info.max_value == 9000.0
+                && info.default_value == 4200.0;
+            hasAnalysisLowEq |= info.id == 1114u
+                && std::strcmp(info.name, "Analysis Low EQ") == 0
+                && info.default_value == -1.5;
+            hasAnalysisMidEq |= info.id == 1115u
+                && std::strcmp(info.name, "Analysis Mid EQ") == 0
+                && info.default_value == 2.0;
+            hasAnalysisAirEq |= info.id == 1116u
+                && std::strcmp(info.name, "Analysis Air EQ") == 0
+                && info.default_value == 1.5;
+            hasAnalysisCompression |= info.id == 1117u
+                && std::strcmp(info.name, "Analysis Compression") == 0
+                && info.default_value == 0.42;
+            hasAnalysisNoiseReject |= info.id == 1118u
+                && std::strcmp(info.name, "Analysis Noise Reject") == 0
+                && info.default_value == 0.46;
+            hasAnalysisSpectralBalance |= info.id == 1119u
+                && std::strcmp(info.name, "Analysis Spectral Balance") == 0
+                && info.default_value == 0.32;
         }
-        ok &= check(parameterCount == 1102u && trimCount == 22u
+        ok &= check(parameterCount == 1119u && trimCount == 22u
                 && routeCount == 968u && hasLayout && hasModulatorSource
                 && hasMicGain && hasMatrixMorph && hasAnalysisSlope
+                && hasDefinition
                 && hasPitchSource && hasPitchScaleRoot && hasPitchScale
-                && hasPitchHold && stableIdOrder
+                && hasPitchHold && hasMouthFocus && hasTransferMode
+                && hasVoiceFocus && hasAnalysisLeveler && hasConsonantColor
+                && hasConsonantSpeed && hasCarrierDensity
+                && hasAnalysisWidth && hasHfDetailMode && hasHfDetailLevel
+                && hasHfDetailCutoff && hasAnalysisLowEq && hasAnalysisMidEq
+                && hasAnalysisAirEq && hasAnalysisCompression
+                && hasAnalysisNoiseReject && hasAnalysisSpectralBalance
+                && stableIdOrder
                 && defaultsMatchInitialState,
             "expanded 22-band parameter surface failed");
         char display[64] {};
@@ -902,6 +1002,9 @@ int main(int argc, char** argv)
         ok &= check(params->value_to_text(metadataPlugin, 1098u, 1.0,
                     display, sizeof(display))
                 && std::strcmp(display, "8 Pole") == 0
+                && params->value_to_text(metadataPlugin, 1098u, 2.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Mouth Model") == 0
                 && params->value_to_text(metadataPlugin, 1099u, 1.0,
                     display, sizeof(display))
                 && std::strcmp(display, "Voice Pitch") == 0
@@ -912,6 +1015,21 @@ int main(int argc, char** argv)
                     display, sizeof(display))
                 && std::strcmp(display, "MAJOR") == 0,
             "analysis/pitch menu text conversion failed");
+        ok &= check(params->value_to_text(metadataPlugin, 1104u, 1.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Precision") == 0
+                && params->text_to_value(metadataPlugin, 1104u,
+                    "Expressive", &parsed)
+                && parsed == 0.0,
+            "transfer-mode text conversion failed");
+        parsed = -1.0;
+        ok &= check(params->value_to_text(metadataPlugin, 1111u, 1.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Switched") == 0
+                && params->text_to_value(metadataPlugin, 1111u,
+                    "Direct", &parsed)
+                && parsed == 2.0,
+            "HF-detail mode text conversion failed");
         parsed = -1.0;
         ok &= check(params->text_to_value(metadataPlugin, 1101u,
                     "WHOLE TONE", &parsed)
@@ -938,6 +1056,9 @@ int main(int argc, char** argv)
                     display, sizeof(display))
                 && std::strcmp(display, "Vocal Alloy") == 0
                 && params->value_to_text(metadataPlugin, 1u, 24.0,
+                    display, sizeof(display))
+                && std::strcmp(display, "Mouth Circuit") == 0
+                && params->value_to_text(metadataPlugin, 1u, 25.0,
                     display, sizeof(display))
                 && std::strcmp(display, "Custom") == 0,
             "matrix-first profile labels failed");
@@ -1000,7 +1121,7 @@ int main(int argc, char** argv)
         ok &= expectValuesRescan(callbackBefore, rescanBefore,
             "implicit Custom profile did not request a value rescan");
         ok &= check(params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 24.0,
+                && profile == 25.0,
             "scalar edit did not publish the Custom profile");
 
         callbackBefore = metadataHost.callbackRequests;
@@ -1016,10 +1137,102 @@ int main(int argc, char** argv)
             "state load did not restore the factory profile value");
 
         // Version 20 used slot 15 for Custom. Version 21 appends matrix-first
-        // profiles at 15--23 and moves Custom to 24 without changing payload
-        // width or any routing value.
+        // profiles at 15--23 and moves Custom to 24. Version 22 adds Mouth
+        // Circuit at 24 and moves Custom once more to 25.
+        MemoryState version22State;
+        version22State.bytes = savedState.bytes;
+        constexpr uint32_t version22SavedParamCount = 1101u;
+        constexpr uint32_t currentSavedParamCount = 1118u;
+        const size_t version22ParamEnd = 8u
+            + static_cast<size_t>(version22SavedParamCount) * sizeof(double);
+        const size_t currentParamEnd = 8u
+            + static_cast<size_t>(currentSavedParamCount) * sizeof(double);
+        if (version22State.bytes.size() >= currentParamEnd) {
+            version22State.bytes.erase(
+                version22State.bytes.begin() + version22ParamEnd,
+                version22State.bytes.begin() + currentParamEnd);
+        }
+        const uint32_t version22 = 22u;
+        std::memcpy(version22State.bytes.data(), &version22,
+            sizeof(version22));
+        version22State.readOffset = 0u;
+        double migratedMouthFocus = -1.0;
+        ok &= check(state->load(metadataPlugin, &version22State.input)
+                && params->get_value(metadataPlugin, 1103u,
+                    &migratedMouthFocus)
+                && migratedMouthFocus == 1.0,
+            "v22 did not preserve the implicit fully focused Mouth Model");
+
+        MemoryState version23State;
+        version23State.bytes = savedState.bytes;
+        constexpr uint32_t version23SavedParamCount = 1102u;
+        const size_t version23ParamEnd = 8u
+            + static_cast<size_t>(version23SavedParamCount) * sizeof(double);
+        if (version23State.bytes.size() >= currentParamEnd) {
+            version23State.bytes.erase(
+                version23State.bytes.begin() + version23ParamEnd,
+                version23State.bytes.begin() + currentParamEnd);
+        }
+        const uint32_t version23 = 23u;
+        std::memcpy(version23State.bytes.data(), &version23,
+            sizeof(version23));
+        version23State.readOffset = 0u;
+        double migratedTransfer = -1.0;
+        double migratedFocus = -1.0;
+        double migratedLeveler = -1.0;
+        double migratedDensity = -1.0;
+        ok &= check(state->load(metadataPlugin, &version23State.input)
+                && params->get_value(metadataPlugin, 1104u,
+                    &migratedTransfer)
+                && params->get_value(metadataPlugin, 1105u,
+                    &migratedFocus)
+                && params->get_value(metadataPlugin, 1106u,
+                    &migratedLeveler)
+                && params->get_value(metadataPlugin, 1109u,
+                    &migratedDensity)
+                && migratedTransfer == 0.0 && migratedFocus == 0.0
+                && migratedLeveler == 0.0 && migratedDensity == 0.0,
+            "v23 did not preserve neutral pre-precision behavior");
+
+        MemoryState version24State;
+        version24State.bytes = savedState.bytes;
+        constexpr uint32_t version24SavedParamCount = 1108u;
+        const size_t version24ParamEnd = 8u
+            + static_cast<size_t>(version24SavedParamCount) * sizeof(double);
+        if (version24State.bytes.size() >= currentParamEnd) {
+            version24State.bytes.erase(
+                version24State.bytes.begin() + version24ParamEnd,
+                version24State.bytes.begin() + currentParamEnd);
+        }
+        const uint32_t version24 = 24u;
+        std::memcpy(version24State.bytes.data(), &version24,
+            sizeof(version24));
+        version24State.readOffset = 0u;
+        double migratedResponse = -1.0;
+        double migratedWidth = -1.0;
+        double migratedHfLevel = -1.0;
+        double migratedCompression = -1.0;
+        double migratedBalance = -1.0;
+        ok &= check(state->load(metadataPlugin, &version24State.input)
+                && params->get_value(metadataPlugin, 1098u,
+                    &migratedResponse)
+                && params->get_value(metadataPlugin, 1110u,
+                    &migratedWidth)
+                && params->get_value(metadataPlugin, 1112u,
+                    &migratedHfLevel)
+                && params->get_value(metadataPlugin, 1117u,
+                    &migratedCompression)
+                && params->get_value(metadataPlugin, 1119u,
+                    &migratedBalance)
+                && std::abs(migratedWidth
+                    - (migratedResponse < 0.5 ? 0.79 : 0.37)) < 1.0e-6
+                && migratedHfLevel == 0.0
+                && migratedCompression == 0.0
+                && migratedBalance == 0.0,
+            "v24 did not preserve the fixed analyzer and neutral front end");
+
         MemoryState version20State;
-        version20State.bytes = savedState.bytes;
+        version20State.bytes = version22State.bytes;
         const uint32_t version20 = 20u;
         const double version20Custom = 15.0;
         if (version20State.bytes.size() >= 8u + sizeof(double)) {
@@ -1031,8 +1244,24 @@ int main(int argc, char** argv)
         version20State.readOffset = 0u;
         ok &= check(state->load(metadataPlugin, &version20State.input)
                 && params->get_value(metadataPlugin, 1u, &profile)
-                && profile == 24.0,
+                && profile == 25.0,
             "v20 Custom profile slot migration failed");
+
+        MemoryState version21State;
+        version21State.bytes = version22State.bytes;
+        const uint32_t version21 = 21u;
+        const double version21Custom = 24.0;
+        if (version21State.bytes.size() >= 8u + sizeof(double)) {
+            std::memcpy(version21State.bytes.data(), &version21,
+                sizeof(version21));
+            std::memcpy(version21State.bytes.data() + 8u,
+                &version21Custom, sizeof(version21Custom));
+        }
+        version21State.readOffset = 0u;
+        ok &= check(state->load(metadataPlugin, &version21State.input)
+                && params->get_value(metadataPlugin, 1u, &profile)
+                && profile == 25.0,
+            "v21 Custom profile slot migration failed");
 
         // Version 18 used IDs 98/99 for external-carrier mix/gain and slot
         // 14 for Custom. Exercise the binary-compatible payload migration so
@@ -1040,15 +1269,16 @@ int main(int argc, char** argv)
         MemoryState legacyState;
         legacyState.bytes = savedState.bytes;
         constexpr uint32_t legacySavedParamCount = 1096u;
-        constexpr uint32_t currentSavedParamCount = 1101u;
+        constexpr uint32_t currentSavedParamCountForLegacy = 1118u;
         const size_t legacyParamEnd = 8u
             + static_cast<size_t>(legacySavedParamCount) * sizeof(double);
-        const size_t currentParamEnd = 8u
-            + static_cast<size_t>(currentSavedParamCount) * sizeof(double);
-        if (legacyState.bytes.size() >= currentParamEnd) {
+        const size_t legacyCurrentParamEnd = 8u
+            + static_cast<size_t>(currentSavedParamCountForLegacy)
+                * sizeof(double);
+        if (legacyState.bytes.size() >= legacyCurrentParamEnd) {
             legacyState.bytes.erase(
                 legacyState.bytes.begin() + legacyParamEnd,
-                legacyState.bytes.begin() + currentParamEnd);
+                legacyState.bytes.begin() + legacyCurrentParamEnd);
         }
         const auto writeLegacyParam = [&](clap_id id, double value) {
             const uint32_t savedIndex = id < 25u ? id - 1u : id - 2u;
@@ -1086,7 +1316,7 @@ int main(int argc, char** argv)
                 && params->get_value(metadataPlugin, 98u,
                     &modulatorSource)
                 && params->get_value(metadataPlugin, 99u, &micGain)
-                && profile == 24.0 && modulatorSource == 1.0
+                && profile == 25.0 && modulatorSource == 1.0
                 && micGain == 0.0,
             "v18 carrier controls were reinterpreted as mic routing");
 
@@ -1118,12 +1348,53 @@ int main(int argc, char** argv)
 
         callbackBefore = metadataHost.callbackRequests;
         rescanBefore = metadataHost.paramRescans;
+        flushParam(1u, 24.0);
+        ok &= expectValuesRescan(callbackBefore, rescanBefore,
+            "Mouth Circuit profile did not request a value rescan");
+        double mouthResponse = -1.0;
+        double mouthPitchSource = -1.0;
+        double mouthDefinition = -1.0;
+        double mouthFocus = -1.0;
+        ok &= check(params->get_value(metadataPlugin, 1u, &profile)
+                && params->get_value(metadataPlugin, 1098u,
+                    &mouthResponse)
+                && params->get_value(metadataPlugin, 1099u,
+                    &mouthPitchSource)
+                && params->get_value(metadataPlugin, 57u,
+                    &mouthDefinition)
+                && params->get_value(metadataPlugin, 1103u,
+                    &mouthFocus)
+                && profile == 24.0 && mouthResponse == 2.0
+                && mouthPitchSource == 0.0
+                && std::abs(mouthDefinition - 0.94) < 1.0e-6
+                && std::abs(mouthFocus - 0.92) < 1.0e-6,
+            "Mouth Circuit did not select LPC analysis and MIDI carrier");
+
+        callbackBefore = metadataHost.callbackRequests;
+        rescanBefore = metadataHost.paramRescans;
         flushParam(1u, 14.0);
         ok &= expectValuesRescan(callbackBefore, rescanBefore,
             "Classic Mic profile did not request a value rescan");
         double phraseEngine = -1.0;
         double bankMode = -1.0;
         double articulationThru = -1.0;
+        double definition = -1.0;
+        double transferMode = -1.0;
+        double voiceFocus = -1.0;
+        double leveler = -1.0;
+        double consonantColor = -2.0;
+        double consonantSpeed = -1.0;
+        double carrierDensity = -1.0;
+        double analysisWidth = -1.0;
+        double hfDetailMode = -1.0;
+        double hfDetailLevel = -1.0;
+        double hfDetailCutoff = -1.0;
+        double analysisLowEq = 0.0;
+        double analysisMidEq = 0.0;
+        double analysisAirEq = 0.0;
+        double analysisCompression = -1.0;
+        double analysisNoiseReject = -1.0;
+        double analysisSpectralBalance = -1.0;
         ok &= check(params->get_value(metadataPlugin, 1u, &profile)
                 && params->get_value(metadataPlugin, 98u,
                     &modulatorSource)
@@ -1132,9 +1403,46 @@ int main(int argc, char** argv)
                 && params->get_value(metadataPlugin, 66u, &bankMode)
                 && params->get_value(metadataPlugin, 96u,
                     &articulationThru)
+                && params->get_value(metadataPlugin, 57u, &definition)
+                && params->get_value(metadataPlugin, 1104u, &transferMode)
+                && params->get_value(metadataPlugin, 1105u, &voiceFocus)
+                && params->get_value(metadataPlugin, 1106u, &leveler)
+                && params->get_value(metadataPlugin, 1107u, &consonantColor)
+                && params->get_value(metadataPlugin, 1108u, &consonantSpeed)
+                && params->get_value(metadataPlugin, 1109u, &carrierDensity)
+                && params->get_value(metadataPlugin, 1110u, &analysisWidth)
+                && params->get_value(metadataPlugin, 1111u, &hfDetailMode)
+                && params->get_value(metadataPlugin, 1112u, &hfDetailLevel)
+                && params->get_value(metadataPlugin, 1113u, &hfDetailCutoff)
+                && params->get_value(metadataPlugin, 1114u, &analysisLowEq)
+                && params->get_value(metadataPlugin, 1115u, &analysisMidEq)
+                && params->get_value(metadataPlugin, 1116u, &analysisAirEq)
+                && params->get_value(metadataPlugin, 1117u,
+                    &analysisCompression)
+                && params->get_value(metadataPlugin, 1118u,
+                    &analysisNoiseReject)
+                && params->get_value(metadataPlugin, 1119u,
+                    &analysisSpectralBalance)
                 && profile == 14.0 && modulatorSource == 0.0
                 && micGain == 0.0 && phraseEngine == 0.0
-                && bankMode == 0.0 && articulationThru == 0.0,
+                && bankMode == 0.0 && articulationThru == 0.0
+                && std::abs(definition - 0.78) < 1.0e-6
+                && transferMode == 1.0
+                && std::abs(voiceFocus - 0.28) < 1.0e-6
+                && std::abs(leveler - 0.72) < 1.0e-6
+                && std::abs(consonantColor - 0.35) < 1.0e-6
+                && std::abs(consonantSpeed - 0.18) < 1.0e-6
+                && std::abs(carrierDensity - 0.58) < 1.0e-6
+                && std::abs(analysisWidth - 0.68) < 1.0e-6
+                && hfDetailMode == 1.0
+                && std::abs(hfDetailLevel - 0.16) < 1.0e-6
+                && hfDetailCutoff == 4200.0
+                && std::abs(analysisLowEq + 1.5) < 1.0e-6
+                && std::abs(analysisMidEq - 2.0) < 1.0e-6
+                && std::abs(analysisAirEq - 1.5) < 1.0e-6
+                && std::abs(analysisCompression - 0.42) < 1.0e-6
+                && std::abs(analysisNoiseReject - 0.46) < 1.0e-6
+                && std::abs(analysisSpectralBalance - 0.32) < 1.0e-6,
             "Classic Mic profile did not select the external mic");
 
         const auto* audioPorts =
@@ -1200,6 +1508,10 @@ int main(int argc, char** argv)
         factory, RenderSetup::ClassicMic, false);
     const RenderResult classicMicSilent = renderSilentHeldExternal(
         factory, RenderSetup::ClassicMic, true);
+    const RenderResult mouthCircuitAbsent = renderSilentHeldExternal(
+        factory, RenderSetup::MouthCircuit, false);
+    const RenderResult mouthCircuitSilent = renderSilentHeldExternal(
+        factory, RenderSetup::MouthCircuit, true);
     const RenderResult dynamicMic = renderDynamicHeldExternal(factory, false);
     const RenderResult dynamicFrozenMic = renderDynamicHeldExternal(
         factory, true);
@@ -1303,6 +1615,9 @@ int main(int argc, char** argv)
     ok &= check(inaudible(classicMicAbsent)
             && inaudible(classicMicSilent),
         "Classic Mic leaked its held carrier without mic articulation");
+    ok &= check(inaudible(mouthCircuitAbsent)
+            && inaudible(mouthCircuitSilent),
+        "Mouth Circuit leaked its held carrier without mic articulation");
     ok &= check(dynamic.ok
             && dynamic.firstVoiceRms > 1.0e-3
             && dynamic.silentLateRms < 1.0e-7

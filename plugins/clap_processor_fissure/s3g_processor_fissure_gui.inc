@@ -23,15 +23,15 @@ constexpr auto kMaterialPanel = s3g::gui_layout::Panel {
 constexpr auto kScenePanel = s3g::gui_layout::Panel {
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::Modulation,
-    { 1000.0, 42.0, 344.0, 142.0 }, 32.0, 24.0, 0u };
+    { 1000.0, 42.0, 344.0, 142.0 }, 118.0, 24.0, 1u };
 constexpr auto kObjectPanel = s3g::gui_layout::Panel {
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::SelectedObject,
-    { 1000.0, 196.0, 344.0, 270.0 }, 80.0, 29.0, 6u };
+    { 1000.0, 196.0, 344.0, 246.0 }, 80.0, 29.0, 6u };
 constexpr auto kFormPanel = s3g::gui_layout::Panel {
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::EventTiming,
-    { 1000.0, 478.0, 344.0, 132.0 }, 32.0, 24.0, 4u };
+    { 1000.0, 454.0, 344.0, 156.0 }, 32.0, 24.0, 5u };
 constexpr auto kGesturePanel = s3g::gui_layout::Panel {
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::Modulation,
@@ -54,23 +54,46 @@ struct FissureUiRow {
     uint32_t row;
 };
 
-constexpr std::array<FissureUiRow, 15u> kUiRows {{
+constexpr std::array<FissureUiRow, 17u> kUiRows {{
     { kOutputParamId, "OUT", &kOutputPanel, 0u },
     { kInputParamId, "MIC IN", &kInputPanel, 0u },
     { kContactParamId, "CONTACT", &kInputPanel, 1u },
     { kVoiceParamId, "INPUT COUPLE", &kInputPanel, 2u },
-    { kShakerParamId, "SHAKER", &kExciterPanel, 0u },
-    { kRattleParamId, "RATTLE", &kExciterPanel, 1u },
-    { kSpringParamId, "SPRING", &kExciterPanel, 2u },
+    { kShakerParamId, "BOX IMPACT", &kExciterPanel, 0u },
+    { kRattleParamId, "LOOSE RATTLE", &kExciterPanel, 1u },
+    { kSpringParamId, "SPRING WIRE", &kExciterPanel, 2u },
     { kPressureParamId, "PRESSURE", &kMaterialPanel, 0u },
     { kMassParamId, "MASS", &kMaterialPanel, 1u },
     { kBodyParamId, "BODY", &kMaterialPanel, 2u },
     { kMemoryParamId, "MEMORY / FRAG", &kMaterialPanel, 3u },
-    { kEdgeParamId, "EDGE / RATE", &kFormPanel, 0u },
-    { kVoidParamId, "VOID / SPACE", &kFormPanel, 1u },
-    { kMotionParamId, "MOTION", &kFormPanel, 2u },
-    { kSeedParamId, "SEED", &kFormPanel, 3u },
+    { kEdgeParamId, "EDGE", &kFormPanel, 0u },
+    { kRateParamId, "RATE", &kFormPanel, 1u },
+    { kVoidParamId, "VOID PROBABILITY", &kFormPanel, 2u },
+    { kSpaceParamId, "SPACE", &kFormPanel, 3u },
+    { kMotionParamId, "MOTION", &kFormPanel, 4u },
+    { kSeedParamId, "SEED", &kScenePanel, 0u },
 }};
+
+// The left puck controls realized cut density; the right shapes each rupture.
+constexpr std::array<clap_id, 2u> kFractureXParamIds {{
+    kFractureForceParamId, kFractureDistanceParamId,
+}};
+constexpr std::array<clap_id, 2u> kFractureYParamIds {{
+    kFractureVoidParamId, kFractureSpaceParamId,
+}};
+constexpr std::array<clap_id, 2u> kFractureLatchParamIds {{
+    kFractureDensityLatchParamId, kFractureShapeLatchParamId,
+}};
+constexpr std::array<clap_id, 2u> kFractureMotionXParamIds {{
+    kFractureDensityMotionXParamId, kFractureShapeMotionXParamId,
+}};
+constexpr std::array<clap_id, 2u> kFractureMotionYParamIds {{
+    kFractureDensityMotionYParamId, kFractureShapeMotionYParamId,
+}};
+constexpr std::array<clap_id, 2u> kFractureMotionEnergyParamIds {{
+    kFractureDensityEnergyParamId, kFractureShapeEnergyParamId,
+}};
+constexpr uint32_t kFractureTrailCapacity = 18u;
 
 struct ObjectUiRow {
     clap_id base;
@@ -95,6 +118,48 @@ double uiNormalizedValue(clap_id id, double value)
     }
     if (isMatrixParam(id)) return std::clamp((value + 1.0) * 0.5, 0.0, 1.0);
     return std::clamp(value, 0.0, 1.0);
+}
+
+NSString* fissureUiValueText(clap_id id, double value,
+    const char* fallback)
+{
+    if (id == kPressureParamId || id == kMassParamId
+        || id == kMemoryParamId || id == kBodyParamId) {
+        const float energy = s3g::processorFissureLowEnergyCurve(
+            static_cast<float>(value));
+        return [NSString stringWithFormat:@"E %.1f%%", energy * 100.0f];
+    }
+    if (id == kEdgeParamId) {
+        return [NSString stringWithFormat:@"HARD %.0f%%", value * 100.0];
+    }
+    if (id == kRateParamId) {
+        const float rate = s3g::processorFissureEventRateHz(
+            static_cast<float>(value));
+        if (rate < 0.01f) {
+            return [NSString stringWithFormat:@"DRONE %.0fs",
+                1.0f / std::max(rate, 1.0e-6f)];
+        }
+        if (rate < 1.0f) {
+            return [NSString stringWithFormat:@"%.2f/s ×8", rate];
+        }
+        return [NSString stringWithFormat:@"%.0f/s ×8", rate];
+    }
+    if (id == kVoidParamId) {
+        const float chance = s3g::processorFissureFormCurve(
+            static_cast<float>(value));
+        return [NSString stringWithFormat:@"%.0f%% / EVENT",
+            chance * 100.0f];
+    }
+    if (id == kSpaceParamId) {
+        const float seconds = s3g::processorFissureSpaceSeconds(
+            static_cast<float>(value));
+        if (seconds < 1.0f) {
+            return [NSString stringWithFormat:@"GAP %.0fms",
+                seconds * 1000.0f];
+        }
+        return [NSString stringWithFormat:@"GAP %.1fs", seconds];
+    }
+    return [NSString stringWithUTF8String:fallback];
 }
 
 double uiValueFromNormalized(clap_id id, double normalized)
@@ -198,9 +263,16 @@ NSRect actionButtonRect(uint32_t index)
     return rects[index];
 }
 
-NSRect fracturePadRect()
+NSRect fracturePadRect(uint32_t index)
 {
-    return NSMakeRect(660.0, 580.0, 214.0, 132.0);
+    return NSMakeRect(660.0 + static_cast<CGFloat>(index) * 108.0,
+        580.0, 100.0, 132.0);
+}
+
+NSRect fractureLatchButtonRect(uint32_t index)
+{
+    return NSMakeRect(886.0,
+        714.0 + static_cast<CGFloat>(index) * 24.0, 86.0, 20.0);
 }
 
 NSRect grabButtonRect() { return NSMakeRect(886.0, 580.0, 86.0, 30.0); }
@@ -238,7 +310,14 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
     bool _cutMaskPainting;
     double _cutMaskPaintValue;
     int _lastPaintedMask;
-    bool _fractureDragging;
+    int _fracturePad;
+    NSPoint _fractureTrail[2][kFractureTrailCapacity];
+    float _fractureTrailAlpha[2][kFractureTrailCapacity];
+    uint32_t _fractureTrailCount[2];
+    double _fractureLastX[2];
+    double _fractureLastY[2];
+    double _fractureLastTime[2];
+    bool _fractureMotionReady[2];
     bool _repeatPressed;
     bool _presetMenuOpen;
     int _hoverPreset;
@@ -271,7 +350,19 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         _cutMaskPainting = false;
         _cutMaskPaintValue = 1.0;
         _lastPaintedMask = -1;
-        _fractureDragging = false;
+        _fracturePad = -1;
+        for (uint32_t pad = 0u; pad < 2u; ++pad) {
+            _fractureTrailCount[pad] = 0u;
+            _fractureLastX[pad] = 0.0;
+            _fractureLastY[pad] = 0.0;
+            _fractureLastTime[pad] = 0.0;
+            _fractureMotionReady[pad] = false;
+            for (uint32_t point = 0u; point < kFractureTrailCapacity;
+                 ++point) {
+                _fractureTrail[pad][point] = NSZeroPoint;
+                _fractureTrailAlpha[pad][point] = 0.0f;
+            }
+        }
         _repeatPressed = false;
         _presetMenuOpen = false;
         _hoverPreset = -1;
@@ -324,6 +415,12 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
 - (void)refresh:(NSTimer*)timer
 {
     (void)timer;
+    for (uint32_t pad = 0u; pad < 2u; ++pad) {
+        for (uint32_t point = 0u; point < _fractureTrailCount[pad];
+             ++point) {
+            _fractureTrailAlpha[pad][point] *= 0.88f;
+        }
+    }
     if (![self isHidden] && _plugin
         && s3g::clap_support::hostAppIsActive()) {
         [self setNeedsDisplay:YES];
@@ -369,13 +466,13 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         kMatrixPanel);
     drawPanel(@"OUTPUT", kOutputPanel);
     drawPanel(@"EXTERNAL MIC / CONTACT", kInputPanel);
-    drawPanel(@"SHAKER BOX / ATTACHED OBJECTS", kExciterPanel);
-    drawPanel(@"FIELD ENERGY", kMaterialPanel);
+    drawPanel(@"ATTACHED OBJECT IDENTITIES", kExciterPanel);
+    drawPanel(@"FIELD ENERGY  ·  EXPANDED LOW RANGE", kMaterialPanel);
     drawPanel(@"SCENES", kScenePanel);
     drawPanel(@"PHYSICAL OBJECT  ·  SELECT + STRIKE", kObjectPanel);
-    drawPanel(@"FORM / INTERRUPTION", kFormPanel);
+    drawPanel(@"FORM / INTERRUPTION  ·  FOUR AXES", kFormPanel);
     drawPanel(@"PERFORMANCE GESTURES", kGesturePanel);
-    drawPanel(@"FRACTURE PAD  ·  SPRING RETURN", kFracturePanel);
+    drawPanel(@"FRACTURE  ·  CUT DENSITY / RUPTURE SHAPE", kFracturePanel);
 
     for (const auto& row : kUiRows) {
         const double value = paramValue(*p, row.id);
@@ -383,7 +480,7 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         paramsValueToText(&p->plugin, row.id, value, text, sizeof(text));
         s3g::clap_gui::drawProcessorSlider(
             [NSString stringWithUTF8String:row.label],
-            [NSString stringWithUTF8String:text],
+            fissureUiValueText(row.id, value, text),
             uiNormalizedValue(row.id, value),
             s3g::gui_layout::rowY(*row.panel, row.row),
             row.panel->frame.x, row.panel->frame.width,
@@ -688,8 +785,11 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
     }
 
     const double variation = paramValue(*p, kVariationParamId);
+    const float performedVariation = s3g::processorFissureFormCurve(
+        static_cast<float>(variation));
     s3g::clap_gui::drawProcessorSlider(@"CUT CONTRAST",
-        [NSString stringWithFormat:@"%.0f%%", variation * 100.0],
+        [NSString stringWithFormat:@"Δ %.0f%%",
+            performedVariation * 100.0f],
         variation, s3g::gui_layout::rowY(kGesturePanel, 0u),
         kGesturePanel.frame.x, kGesturePanel.frame.width,
         labels, values, style);
@@ -703,36 +803,116 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
             paramValue(*p, kCutParamId + action) >= .5, values, style);
     }
 
-    const NSRect pad = fracturePadRect();
-    [s3g::clap_gui::color(0x111111) setFill];
-    NSRectFill(pad);
-    [s3g::clap_gui::color(0x555555) setStroke];
-    NSFrameRect(pad);
-    for (uint32_t division = 1u; division < 4u; ++division) {
-        const CGFloat x = pad.origin.x + pad.size.width * division / 4.0;
-        const CGFloat y = pad.origin.y + pad.size.height * division / 4.0;
-        [s3g::clap_gui::color(0x292929) setStroke];
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(x, pad.origin.y)
-            toPoint:NSMakePoint(x, NSMaxY(pad))];
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(pad.origin.x, y)
-            toPoint:NSMakePoint(NSMaxX(pad), y)];
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        const NSRect pad = fracturePadRect(index);
+        [s3g::clap_gui::color(0x111111) setFill];
+        NSRectFill(pad);
+        [s3g::clap_gui::color(index == 0u ? 0x6f4a3a : 0x355b68)
+            setStroke];
+        NSFrameRect(pad);
+        for (uint32_t division = 1u; division < 4u; ++division) {
+            const CGFloat x = pad.origin.x
+                + pad.size.width * division / 4.0;
+            const CGFloat y = pad.origin.y
+                + pad.size.height * division / 4.0;
+            [s3g::clap_gui::color(0x292929) setStroke];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(x, pad.origin.y)
+                toPoint:NSMakePoint(x, NSMaxY(pad))];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(pad.origin.x, y)
+                toPoint:NSMakePoint(NSMaxX(pad), y)];
+        }
+        if (_fractureTrailCount[index] > 1u) {
+            for (uint32_t item = 1u;
+                 item < _fractureTrailCount[index]; ++item) {
+                const NSPoint previous = _fractureTrail[index][item - 1u];
+                const NSPoint current = _fractureTrail[index][item];
+                const NSPoint from = NSMakePoint(
+                    pad.origin.x + 6.0
+                        + previous.x * (pad.size.width - 12.0),
+                    NSMaxY(pad) - 6.0
+                        - previous.y * (pad.size.height - 12.0));
+                const NSPoint to = NSMakePoint(
+                    pad.origin.x + 6.0
+                        + current.x * (pad.size.width - 12.0),
+                    NSMaxY(pad) - 6.0
+                        - current.y * (pad.size.height - 12.0));
+                const float trailAlpha = std::clamp(std::min(
+                    _fractureTrailAlpha[index][item - 1u],
+                    _fractureTrailAlpha[index][item]), 0.0f, 1.0f);
+                [[NSColor colorWithCalibratedRed:(index == 0u ? .92 : .28)
+                    green:(index == 0u ? .42 : .70)
+                    blue:(index == 0u ? .16 : .88)
+                    alpha:trailAlpha * .76] setStroke];
+                [NSBezierPath strokeLineFromPoint:from toPoint:to];
+            }
+        }
+
+        // Eight small telemetry cells show causal traversal (outline),
+        // realized splices (bright cap), and current hole occupancy (fill).
+        for (uint32_t cell = 0u; cell < 8u; ++cell) {
+            const float affected = p->fractureGestureActivity[index][cell]
+                .load(std::memory_order_relaxed);
+            const float gap = p->gapActivity[cell].load(
+                std::memory_order_relaxed);
+            const float cut = p->cutActivity[cell].load(
+                std::memory_order_relaxed);
+            const NSRect marker = NSMakeRect(pad.origin.x + 4.0
+                    + static_cast<CGFloat>(cell) * 11.5,
+                pad.origin.y + 4.0, 9.0, 7.0);
+            [[NSColor colorWithCalibratedRed:.08 + gap * .10
+                green:.08 + gap * .23 blue:.08 + gap * .30 alpha:1.0]
+                setFill];
+            NSRectFill(marker);
+            [[NSColor colorWithCalibratedRed:(index == 0u ? .86 : .22)
+                green:(index == 0u ? .34 : .62)
+                blue:(index == 0u ? .12 : .82)
+                alpha:.16 + affected * .84] setStroke];
+            NSFrameRect(marker);
+            if (cut > .04f) {
+                [[NSColor colorWithCalibratedWhite:.88
+                    alpha:std::min(1.0f, cut)] setFill];
+                NSRectFill(NSMakeRect(marker.origin.x + 1.0,
+                    marker.origin.y + 1.0,
+                    (marker.size.width - 2.0) * cut, 1.5));
+            }
+        }
+        const double xValue = paramValue(*p, kFractureXParamIds[index]);
+        const double yValue = paramValue(*p, kFractureYParamIds[index]);
+        const NSPoint point = NSMakePoint(
+            pad.origin.x + 6.0 + xValue * (pad.size.width - 12.0),
+            NSMaxY(pad) - 6.0 - yValue * (pad.size.height - 12.0));
+        const float gestureEnergy = p->fractureGestureEnergy[index].load(
+            std::memory_order_relaxed);
+        const CGFloat halo = 10.0 + gestureEnergy * 7.0;
+        [[NSColor colorWithCalibratedRed:(index == 0u ? .86 : .20)
+            green:(index == 0u ? .31 : .62)
+            blue:(index == 0u ? .12 : .78)
+            alpha:.26 + gestureEnergy * .54] setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            point.x - halo, point.y - halo, halo * 2.0, halo * 2.0)] fill];
+        [s3g::clap_gui::color(index == 0u ? 0xe0a07d : 0x8ac9dc)
+            setStroke];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            point.x - 4.0, point.y - 4.0, 8.0, 8.0)] stroke];
     }
-    const double fractureX = paramValue(*p, kFractureDistanceParamId);
-    const double fractureY = paramValue(*p, kFractureForceParamId);
-    const NSPoint fracturePoint = NSMakePoint(
-        pad.origin.x + fractureX * pad.size.width,
-        NSMaxY(pad) - fractureY * pad.size.height);
-    [[NSColor colorWithCalibratedRed:.86 green:.31 blue:.12 alpha:.36]
-        setFill];
-    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-        fracturePoint.x - 12.0, fracturePoint.y - 12.0, 24.0, 24.0)] fill];
-    [s3g::clap_gui::color(0xe0a07d) setStroke];
-    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-        fracturePoint.x - 4.0, fracturePoint.y - 4.0, 8.0, 8.0)] stroke];
-    [@"DISTANCE / CONTRAST →" drawAtPoint:NSMakePoint(704.0, 716.0)
+    [@"CUT · RATE →" drawAtPoint:NSMakePoint(664.0, 716.0)
         withAttributes:tiny];
-    [@"RATE / SPACE ↑" drawAtPoint:NSMakePoint(662.0, 566.0)
+    [@"VOID ↑" drawAtPoint:NSMakePoint(662.0, 566.0)
         withAttributes:tiny];
+    [@"SHAPE · EDGE →" drawAtPoint:NSMakePoint(772.0, 716.0)
+        withAttributes:tiny];
+    [@"SPACE ↑" drawAtPoint:NSMakePoint(770.0, 566.0)
+        withAttributes:tiny];
+    static constexpr const char* latchLabels[] {
+        "CUT LATCH", "SHAPE LATCH"
+    };
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        s3g::clap_gui::drawHeaderButton(fractureLatchButtonRect(index),
+            s3g::clap_gui::cocoaRect(kFracturePanel.frame),
+            [NSString stringWithUTF8String:latchLabels[index]],
+            paramValue(*p, kFractureLatchParamIds[index]) >= .5,
+            values, style);
+    }
     const bool grabbing = p->grabbingStatus.load(std::memory_order_relaxed);
     const bool grabbed = p->grabbed.load(std::memory_order_relaxed);
     const float grabDuration = p->grabDuration.load(
@@ -753,6 +933,21 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
     [[NSString stringWithFormat:@"RPT %02.0f%%",
         p->repeatPhase.load(std::memory_order_relaxed) * 100.0f]
         drawAtPoint:NSMakePoint(888.0, 690.0) withAttributes:tiny];
+    uint32_t occupiedGaps = 0u;
+    for (uint32_t cell = 0u; cell < 8u; ++cell) {
+        if (p->gapActivity[cell].load(std::memory_order_relaxed) > .55f) {
+            ++occupiedGaps;
+        }
+    }
+    NSDictionary* gapAttrs = occupiedGaps >= 7u
+        ? s3g::clap_gui::textAttrs(
+            [NSColor colorWithCalibratedRed:.95 green:.31 blue:.16 alpha:1.0],
+            8.0)
+        : tiny;
+    [[NSString stringWithFormat:occupiedGaps >= 7u
+            ? @"SILENCE GUARD %u/8" : @"REALIZED GAPS %u/8",
+        occupiedGaps] drawAtPoint:NSMakePoint(888.0, 700.0)
+        withAttributes:gapAttrs];
 
     if (_presetMenuOpen) {
         NSString* presetItems[kFactoryPresetCount] {};
@@ -848,15 +1043,61 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
 
 - (void)updateFracturePad:(NSPoint)point
 {
-    if (!_fractureDragging) return;
+    if (_fracturePad < 0 || _fracturePad > 1) return;
     auto* p = static_cast<Plugin*>(_plugin);
-    const NSRect rect = fracturePadRect();
+    const uint32_t index = static_cast<uint32_t>(_fracturePad);
+    const NSRect rect = fracturePadRect(index);
     const double x = std::clamp((point.x - rect.origin.x)
         / rect.size.width, 0.0, 1.0);
     const double y = std::clamp((NSMaxY(rect) - point.y)
         / rect.size.height, 0.0, 1.0);
-    queueGuiParamValue(*p, kFractureDistanceParamId, x);
-    queueGuiParamValue(*p, kFractureForceParamId, y);
+    const clap_id xId = kFractureXParamIds[index];
+    const clap_id yId = kFractureYParamIds[index];
+    queueGuiParamValue(*p, xId, x);
+    queueGuiParamValue(*p, yId, y);
+
+    const double now = [NSDate timeIntervalSinceReferenceDate];
+    if (_fractureMotionReady[index]) {
+        const double deltaX = x - _fractureLastX[index];
+        const double deltaY = y - _fractureLastY[index];
+        const double distance = std::sqrt(
+            deltaX * deltaX + deltaY * deltaY);
+        const double elapsed = std::clamp(
+            now - _fractureLastTime[index], 1.0 / 240.0, 0.12);
+        if (distance > 0.001) {
+            if (_fractureTrailCount[index] == kFractureTrailCapacity) {
+                for (uint32_t item = 1u;
+                     item < kFractureTrailCapacity; ++item) {
+                    _fractureTrail[index][item - 1u]
+                        = _fractureTrail[index][item];
+                    _fractureTrailAlpha[index][item - 1u]
+                        = _fractureTrailAlpha[index][item];
+                }
+                --_fractureTrailCount[index];
+            }
+            const uint32_t trailIndex = _fractureTrailCount[index]++;
+            _fractureTrail[index][trailIndex] = NSMakePoint(x, y);
+            _fractureTrailAlpha[index][trailIndex] = 1.0f;
+
+            const double speed = distance / elapsed;
+            const double energy = std::clamp(
+                (speed - 0.18) / 5.2, 0.0, 1.0);
+            if (energy > 0.005) {
+                queueGuiParamValue(*p, kFractureMotionXParamIds[index],
+                    deltaX / distance);
+                queueGuiParamValue(*p, kFractureMotionYParamIds[index],
+                    deltaY / distance);
+                // Energy is queued last: it commits the already-published
+                // vector as one audio-thread gesture impulse.
+                queueGuiParamValue(*p,
+                    kFractureMotionEnergyParamIds[index], energy);
+            }
+        }
+    }
+    _fractureLastX[index] = x;
+    _fractureLastY[index] = y;
+    _fractureLastTime[index] = now;
+    _fractureMotionReady[index] = true;
     [self setNeedsDisplay:YES];
 }
 
@@ -962,10 +1203,25 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
             return;
         }
     }
-    if (NSPointInRect(point, fracturePadRect())) {
-        _fractureDragging = true;
-        queueGuiParamGestureBegin(*p, kFractureDistanceParamId);
-        queueGuiParamGestureBegin(*p, kFractureForceParamId);
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point, fractureLatchButtonRect(index))) continue;
+        const clap_id id = kFractureLatchParamIds[index];
+        queueGuiParamGesture(*p, id,
+            paramValue(*p, id) >= .5 ? 0.0 : 1.0);
+        return;
+    }
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point, fracturePadRect(index))) continue;
+        _fracturePad = static_cast<int>(index);
+        const clap_id xId = kFractureXParamIds[index];
+        const clap_id yId = kFractureYParamIds[index];
+        _fractureLastX[index] = paramValue(*p, xId);
+        _fractureLastY[index] = paramValue(*p, yId);
+        _fractureLastTime[index]
+            = [NSDate timeIntervalSinceReferenceDate] - 1.0 / 60.0;
+        _fractureMotionReady[index] = true;
+        queueGuiParamGestureBegin(*p, xId);
+        queueGuiParamGestureBegin(*p, yId);
         [self updateFracturePad:point];
         return;
     }
@@ -1086,7 +1342,7 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
         [event locationInWindow] fromView:nil];
     if (_matrixPainting) [self paintMatrixAt:point];
     else if (_cutMaskPainting) [self paintCutMaskAt:point];
-    else if (_fractureDragging) [self updateFracturePad:point];
+    else if (_fracturePad >= 0) [self updateFracturePad:point];
     else if (_dragParam > 0) [self updateDraggedParam:point];
 }
 
@@ -1098,11 +1354,17 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
             static_cast<clap_id>(_dragParam));
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    if (_fractureDragging && p) {
-        queueGuiParamValue(*p, kFractureDistanceParamId, 0.0);
-        queueGuiParamValue(*p, kFractureForceParamId, 0.0);
-        queueGuiParamGestureEnd(*p, kFractureDistanceParamId);
-        queueGuiParamGestureEnd(*p, kFractureForceParamId);
+    if (_fracturePad >= 0 && p) {
+        const uint32_t index = static_cast<uint32_t>(_fracturePad);
+        const clap_id xId = kFractureXParamIds[index];
+        const clap_id yId = kFractureYParamIds[index];
+        if (paramValue(*p, kFractureLatchParamIds[index]) < .5) {
+            queueGuiParamValue(*p, xId, 0.0);
+            queueGuiParamValue(*p, yId, 0.0);
+        }
+        queueGuiParamGestureEnd(*p, xId);
+        queueGuiParamGestureEnd(*p, yId);
+        _fractureMotionReady[index] = false;
     }
     if (_repeatPressed && p) {
         queueGuiParamValue(*p, kRepeatParamId, 0.0);
@@ -1111,7 +1373,7 @@ void drawMeterBar(NSRect rect, float amount, NSColor* fill)
     _dragParam = -1;
     _matrixPainting = false;
     _cutMaskPainting = false;
-    _fractureDragging = false;
+    _fracturePad = -1;
     _repeatPressed = false;
     _lastPaintedRoute = -1;
     _lastPaintedMask = -1;

@@ -29,8 +29,9 @@ namespace {
 
 constexpr uint32_t kOutputChannels = 8u;
 constexpr uint32_t kStateMagic = 0x53494653u; // "SFIS"
-constexpr uint32_t kStateVersion = 5u;
-constexpr uint32_t kPreviousStateVersion = 4u;
+constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kPreviousStateVersion = 5u;
+constexpr uint32_t kLegacyStateVersion = 4u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 770u;
 
@@ -72,6 +73,18 @@ constexpr clap_id kFractureDistanceParamId = 42u;
 constexpr clap_id kFractureForceParamId = 43u;
 constexpr clap_id kGrabParamId = 44u;
 constexpr clap_id kRepeatParamId = 45u;
+constexpr clap_id kRateParamId = 46u;
+constexpr clap_id kSpaceParamId = 47u;
+constexpr clap_id kFractureVoidParamId = 48u;
+constexpr clap_id kFractureSpaceParamId = 49u;
+constexpr clap_id kFractureDensityLatchParamId = 50u;
+constexpr clap_id kFractureShapeLatchParamId = 51u;
+constexpr clap_id kFractureDensityMotionXParamId = 52u;
+constexpr clap_id kFractureDensityMotionYParamId = 53u;
+constexpr clap_id kFractureDensityEnergyParamId = 54u;
+constexpr clap_id kFractureShapeMotionXParamId = 55u;
+constexpr clap_id kFractureShapeMotionYParamId = 56u;
+constexpr clap_id kFractureShapeEnergyParamId = 57u;
 constexpr clap_id kMatrixParamBase = 100u;
 constexpr clap_id kCellLevelParamBase = 200u;
 constexpr clap_id kObjectSizeParamBase = 300u;
@@ -81,16 +94,18 @@ constexpr clap_id kObjectSensitivityParamBase = 360u;
 constexpr clap_id kObjectDriveParamBase = 380u;
 constexpr uint32_t kFactoryPresetCount = 12u;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
-constexpr uint32_t kBaseParamCount = 45u;
+constexpr uint32_t kBaseParamCount = 57u;
 constexpr uint32_t kMatrixParamCount = 64u;
 constexpr uint32_t kCellLevelParamCount = 8u;
 constexpr uint32_t kObjectBankCount = 5u;
 constexpr uint32_t kObjectParamCount = kObjectBankCount * 8u;
 constexpr uint32_t kParamCount = kBaseParamCount
     + kMatrixParamCount + kCellLevelParamCount + kObjectParamCount;
-constexpr uint32_t kPersistentParamCount = 144u;
-constexpr uint32_t kPreviousPersistentParamCount = 136u;
-constexpr uint32_t kSceneValueCount = 124u;
+constexpr uint32_t kPersistentParamCount = 146u;
+constexpr uint32_t kPreviousPersistentParamCount = 144u;
+constexpr uint32_t kLegacyPersistentParamCount = 136u;
+constexpr uint32_t kSceneValueCount = 126u;
+constexpr uint32_t kPreviousSceneValueCount = 124u;
 
 enum class OutputMode : uint32_t {
     Stereo = 0u,
@@ -110,12 +125,12 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kBaseParamCount> kBaseParamDefs {{
-    { kPressureParamId, "Pressure", "Material", 0.0, 1.0, 0.62, false, false },
-    { kMassParamId, "Mass", "Material", 0.0, 1.0, 0.78, false, false },
-    { kEdgeParamId, "Edge", "Form", 0.0, 1.0, 0.46, false, false },
-    { kVoidParamId, "Void", "Form", 0.0, 1.0, 0.18, false, false },
-    { kMemoryParamId, "Memory", "Material", 0.0, 1.0, 0.48, false, false },
-    { kBodyParamId, "Body", "Material", 0.0, 1.0, 0.56, false, false },
+    { kPressureParamId, "Pressure", "Material", 0.0, 1.0, 0.30, false, false },
+    { kMassParamId, "Mass", "Material", 0.0, 1.0, 0.40, false, false },
+    { kEdgeParamId, "Edge", "Form", 0.0, 1.0, 0.34, false, false },
+    { kVoidParamId, "Void", "Form", 0.0, 1.0, 0.10, false, false },
+    { kMemoryParamId, "Memory", "Material", 0.0, 1.0, 0.32, false, false },
+    { kBodyParamId, "Body", "Material", 0.0, 1.0, 0.28, false, false },
     { kVoiceParamId, "Input Coupling", "Physical Exciter", 0.0, 1.0, 0.50, false, false },
     { kMotionParamId, "Motion", "Form", 0.0, 1.0, 0.32, false, false },
     { kInputParamId, "Input Gain", "I/O", -60.0, 24.0, 0.0, false, false },
@@ -141,7 +156,7 @@ constexpr std::array<ParamDef, kBaseParamCount> kBaseParamDefs {{
     { kTopologyShapeParamId, "Topology Shape", "Topology", 0.0, 5.0, 1.0, true, false },
     { kTopologyMixParamId, "Topology Mix", "Topology", 0.0, 1.0, 1.0, false, false },
     { kApplyTopologyParamId, "Apply Topology", "Topology", 0.0, 1.0, 0.0, true, true },
-    { kVariationParamId, "Cut Contrast", "Gestures", 0.0, 1.0, 0.46, false, false },
+    { kVariationParamId, "Cut Contrast", "Gestures", 0.0, 1.0, 0.40, false, false },
     { kPresetParamId, "Instrument Preset", "Preset", 0.0,
         static_cast<double>(kCustomPresetIndex), 0.0, true, false },
     { kCutMaskParamBase + 0u, "Cell 1 Cut Enabled", "Cut Mask", 0.0, 1.0, 1.0, true, false },
@@ -152,10 +167,22 @@ constexpr std::array<ParamDef, kBaseParamCount> kBaseParamDefs {{
     { kCutMaskParamBase + 5u, "Cell 6 Cut Enabled", "Cut Mask", 0.0, 1.0, 1.0, true, false },
     { kCutMaskParamBase + 6u, "Cell 7 Cut Enabled", "Cut Mask", 0.0, 1.0, 1.0, true, false },
     { kCutMaskParamBase + 7u, "Cell 8 Cut Enabled", "Cut Mask", 0.0, 1.0, 1.0, true, false },
-    { kFractureDistanceParamId, "Fracture Distance", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
-    { kFractureForceParamId, "Fracture Force", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
+    { kFractureDistanceParamId, "Fracture Edge", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
+    { kFractureForceParamId, "Fracture Rate", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
     { kGrabParamId, "Grab Performance", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
     { kRepeatParamId, "Repeat Ecology", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
+    { kRateParamId, "Rate", "Form", 0.0, 1.0, 0.34, false, false },
+    { kSpaceParamId, "Space", "Form", 0.0, 1.0, 0.10, false, false },
+    { kFractureVoidParamId, "Fracture Void", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
+    { kFractureSpaceParamId, "Fracture Space", "Fracture Pad", 0.0, 1.0, 0.0, false, false },
+    { kFractureDensityLatchParamId, "Cut Density Puck Latch", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
+    { kFractureShapeLatchParamId, "Rupture Shape Puck Latch", "Fracture Pad", 0.0, 1.0, 0.0, true, false },
+    { kFractureDensityMotionXParamId, "Cut Density Gesture X", "Fracture Motion", -1.0, 1.0, 0.0, false, false },
+    { kFractureDensityMotionYParamId, "Cut Density Gesture Y", "Fracture Motion", -1.0, 1.0, 0.0, false, false },
+    { kFractureDensityEnergyParamId, "Cut Density Gesture Energy", "Fracture Motion", 0.0, 1.0, 0.0, false, false },
+    { kFractureShapeMotionXParamId, "Rupture Shape Gesture X", "Fracture Motion", -1.0, 1.0, 0.0, false, false },
+    { kFractureShapeMotionYParamId, "Rupture Shape Gesture Y", "Fracture Motion", -1.0, 1.0, 0.0, false, false },
+    { kFractureShapeEnergyParamId, "Rupture Shape Gesture Energy", "Fracture Motion", 0.0, 1.0, 0.0, false, false },
 }};
 
 constexpr std::array<clap_id, kObjectBankCount> kObjectParamBases {{
@@ -184,6 +211,12 @@ bool isMatrixParam(clap_id id)
 {
     return id >= kMatrixParamBase
         && id < kMatrixParamBase + kMatrixParamCount;
+}
+
+bool isFractureMotionParam(clap_id id)
+{
+    return id >= kFractureDensityMotionXParamId
+        && id <= kFractureShapeEnergyParamId;
 }
 
 bool isCutMaskParam(clap_id id)
@@ -297,7 +330,9 @@ clap_id persistentParamIdAt(uint32_t index)
     if (index >= 24u && index < 32u) {
         return kCutMaskParamBase + index - 24u;
     }
-    index -= 32u;
+    if (index == 32u) return kRateParamId;
+    if (index == 33u) return kSpaceParamId;
+    index -= 34u;
     if (index < kMatrixParamCount) return kMatrixParamBase + index;
     index -= kMatrixParamCount;
     if (index < kCellLevelParamCount) return kCellLevelParamBase + index;
@@ -309,6 +344,30 @@ clap_id persistentParamIdAt(uint32_t index)
 }
 
 clap_id previousPersistentParamIdAt(uint32_t index)
+{
+    if (index < 13u) return index + 1u;
+    if (index == 13u) return kRunParamId;
+    if (index == 14u) return kOutputModeParamId;
+    if (index == 15u) return kSelectedCellParamId;
+    if (index >= 16u && index < 23u) {
+        return kContactParamId + index - 16u;
+    }
+    if (index == 23u) return kVariationParamId;
+    if (index >= 24u && index < 32u) {
+        return kCutMaskParamBase + index - 24u;
+    }
+    index -= 32u;
+    if (index < kMatrixParamCount) return kMatrixParamBase + index;
+    index -= kMatrixParamCount;
+    if (index < kCellLevelParamCount) return kCellLevelParamBase + index;
+    index -= kCellLevelParamCount;
+    if (index < kObjectParamCount) {
+        return kObjectParamBases[index / 8u] + index % 8u;
+    }
+    return CLAP_INVALID_ID;
+}
+
+clap_id legacyPersistentParamIdAt(uint32_t index)
 {
     if (index < 13u) return index + 1u;
     if (index == 13u) return kRunParamId;
@@ -340,7 +399,7 @@ uint32_t renderChannels(OutputMode mode)
 }
 
 struct SceneSnapshot {
-    std::array<float, 12u> macros {};
+    std::array<float, 14u> macros {};
     s3g::ProcessorFissureMatrix matrix {};
     std::array<s3g::ProcessorFissureObject, 8u> objects {};
 };
@@ -359,7 +418,12 @@ struct SavedStatePayload {
 
 struct PreviousSavedStatePayload {
     std::array<double, kPreviousPersistentParamCount> live {};
-    std::array<double, kSceneValueCount * 4u> scenes {};
+    std::array<double, kPreviousSceneValueCount * 4u> scenes {};
+};
+
+struct LegacySavedStatePayload {
+    std::array<double, kLegacyPersistentParamCount> live {};
+    std::array<double, kPreviousSceneValueCount * 4u> scenes {};
 };
 
 struct Plugin {
@@ -379,12 +443,19 @@ struct Plugin {
     uint32_t topologyShape = 1u;
     float topologyMix = 1.0f;
     float sceneMorph = 0.0f;
-    float variation = 0.46f;
+    float variation = 0.40f;
     std::array<bool, 8u> cutMask {{
         true, true, true, true, true, true, true, true,
     }};
     float fractureDistance = 0.0f;
     float fractureForce = 0.0f;
+    float fractureVoid = 0.0f;
+    float fractureSpace = 0.0f;
+    bool fractureDensityLatch = false;
+    bool fractureShapeLatch = false;
+    std::array<float, 2u> fractureMotionX {};
+    std::array<float, 2u> fractureMotionY {};
+    std::array<float, 2u> fractureMotionEnergy {};
     bool grabbing = false;
     bool repeat = false;
     uint32_t variationSerial = 0u;
@@ -399,6 +470,11 @@ struct Plugin {
     std::array<std::atomic<float>, 8u> cutActivity {};
     std::array<std::atomic<float>, 8u> cutPolarity {};
     std::array<std::atomic<float>, 8u> cutFragmentAge {};
+    std::array<std::atomic<float>, 8u> gapActivity {};
+    std::array<std::array<std::atomic<float>, 8u>, 2u>
+        fractureGestureActivity {};
+    std::array<std::atomic<float>, 2u> fractureGestureEnergy {};
+    std::atomic<float> fractureScarActivity { 0.0f };
     std::atomic<bool> grabbingStatus { false };
     std::atomic<bool> grabbed { false };
     std::atomic<float> grabDuration { 0.0f };
@@ -462,7 +538,9 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kPressureParamId: return p.params.pressure;
     case kMassParamId: return p.params.mass;
     case kEdgeParamId: return p.params.edge;
+    case kRateParamId: return p.params.rate;
     case kVoidParamId: return p.params.voidAmount;
+    case kSpaceParamId: return p.params.space;
     case kMemoryParamId: return p.params.memory;
     case kBodyParamId: return p.params.body;
     case kVoiceParamId: return p.params.voice;
@@ -485,6 +563,18 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kPresetParamId: return p.presetIndex;
     case kFractureDistanceParamId: return p.fractureDistance;
     case kFractureForceParamId: return p.fractureForce;
+    case kFractureVoidParamId: return p.fractureVoid;
+    case kFractureSpaceParamId: return p.fractureSpace;
+    case kFractureDensityLatchParamId:
+        return p.fractureDensityLatch ? 1.0 : 0.0;
+    case kFractureShapeLatchParamId:
+        return p.fractureShapeLatch ? 1.0 : 0.0;
+    case kFractureDensityMotionXParamId: return p.fractureMotionX[0u];
+    case kFractureDensityMotionYParamId: return p.fractureMotionY[0u];
+    case kFractureDensityEnergyParamId: return p.fractureMotionEnergy[0u];
+    case kFractureShapeMotionXParamId: return p.fractureMotionX[1u];
+    case kFractureShapeMotionYParamId: return p.fractureMotionY[1u];
+    case kFractureShapeEnergyParamId: return p.fractureMotionEnergy[1u];
     case kGrabParamId: return p.grabbing ? 1.0 : 0.0;
     case kRepeatParamId: return p.repeat ? 1.0 : 0.0;
     default: return 0.0;
@@ -500,6 +590,7 @@ SceneSnapshot snapshotFromPlugin(const Plugin& p)
         p.params.voice, p.params.motion,
         p.params.contact, p.params.shaker,
         p.params.rattle, p.params.spring,
+        p.params.rate, p.params.space,
     }};
     scene.matrix = p.matrix;
     scene.objects = p.objects;
@@ -584,7 +675,7 @@ s3g::ProcessorFissureMatrix topologyMatrix(uint32_t shape,
 
 struct FactoryPresetSpec {
     const char* name;
-    std::array<float, 12u> macros;
+    std::array<float, 14u> macros;
     uint32_t topology;
     float topologyMix;
     OutputMode outputMode;
@@ -598,64 +689,64 @@ struct FactoryPresetSpec {
 constexpr std::array<FactoryPresetSpec, kFactoryPresetCount>
     kFactoryPresets {{
         { "INIT / PLATE RING",
-            {{ .62f, .78f, .46f, .18f, .48f, .56f,
-               .50f, .32f, .48f, .26f, .42f, .34f }},
-            1u, 1.00f, OutputMode::Direct8, 0.0f, -10.0f, 1979u, .46f,
+            {{ .30f, .40f, .34f, .10f, .32f, .28f,
+               .50f, .32f, .48f, .26f, .42f, .34f, .25f, .44f }},
+            1u, 1.00f, OutputMode::Direct8, 0.0f, -7.0f, 1979u, .40f,
             {{ .50f, .58f, .52f, .66f, .48f }} },
         { "SHAKER BOX",
-            {{ .48f, .54f, .76f, .24f, .28f, .34f,
-               .18f, .68f, .34f, .91f, .94f, .22f }},
-            2u, .92f, OutputMode::Stereo, 4.0f, -10.0f, 4307u, .74f,
+            {{ .24f, .32f, .68f, .20f, .22f, .18f,
+               .18f, .68f, .34f, .91f, .94f, .22f, .76f, .12f }},
+            2u, .92f, OutputMode::Stereo, 4.0f, -7.0f, 4307u, .76f,
             {{ .25f, .31f, .84f, .88f, .69f }} },
         { "SPRING NEST",
-            {{ .48f, .63f, .57f, .11f, .82f, .72f,
-               .36f, .44f, .79f, .28f, .37f, .98f }},
-            3u, .78f, OutputMode::Quad, 2.0f, -11.0f, 991u, .53f,
+            {{ .22f, .34f, .48f, .08f, .46f, .36f,
+               .36f, .44f, .79f, .28f, .37f, .98f, .26f, .34f }},
+            3u, .78f, OutputMode::Quad, 2.0f, -8.0f, 991u, .52f,
             {{ .63f, .86f, .39f, .82f, .58f }} },
         { "CONTACT SHEET",
-            {{ .62f, .81f, .72f, .08f, .69f, .91f,
-               .74f, .21f, .96f, .10f, .16f, .51f }},
-            0u, 1.00f, OutputMode::Direct8, 8.0f, -11.0f, 2719u, .32f,
+            {{ .28f, .42f, .58f, .06f, .38f, .44f,
+               .74f, .21f, .96f, .10f, .16f, .51f, .45f, .22f }},
+            0u, 1.00f, OutputMode::Direct8, 8.0f, -8.0f, 2719u, .30f,
             {{ .82f, .73f, .71f, .96f, .54f }} },
         { "TIN PAIRS",
-            {{ .69f, .46f, .88f, .36f, .31f, .43f,
-               .20f, .67f, .40f, .72f, .86f, .28f }},
-            2u, 1.00f, OutputMode::Quad, 1.0f, -10.0f, 6607u, .81f,
+            {{ .30f, .28f, .80f, .28f, .22f, .20f,
+               .20f, .67f, .40f, .72f, .86f, .28f, .82f, .10f }},
+            2u, 1.00f, OutputMode::Quad, 1.0f, -7.0f, 6607u, .84f,
             {{ .34f, .38f, .92f, .73f, .76f }} },
         { "BROKEN HUB",
-            {{ .84f, .88f, .64f, .47f, .72f, .65f,
-               .28f, .35f, .52f, .38f, .56f, .62f }},
-            3u, .96f, OutputMode::Direct8, 0.0f, -12.0f, 8123u, .68f,
+            {{ .38f, .46f, .58f, .42f, .42f, .32f,
+               .28f, .35f, .52f, .38f, .56f, .62f, .56f, .38f }},
+            3u, .96f, OutputMode::Direct8, 0.0f, -9.0f, 8123u, .70f,
             {{ .57f, .66f, .62f, .59f, .83f }} },
         { "RUST CLUSTERS",
-            {{ .71f, .73f, .81f, .31f, .86f, .58f,
-               .13f, .49f, .31f, .58f, .78f, .71f }},
-            4u, .88f, OutputMode::Quad, -2.0f, -11.0f, 12011u, .72f,
+            {{ .28f, .38f, .72f, .24f, .48f, .30f,
+               .13f, .49f, .31f, .58f, .78f, .71f, .66f, .26f }},
+            4u, .88f, OutputMode::Quad, -2.0f, -8.0f, 12011u, .74f,
             {{ .48f, .75f, .78f, .68f, .71f }} },
         { "EMPTY ISLANDS",
-            {{ .36f, .45f, .34f, .62f, .91f, .77f,
-               .62f, .16f, .72f, .16f, .15f, .43f }},
-            0u, 1.00f, OutputMode::Stereo, 6.0f, -8.0f, 15217u, .24f,
+            {{ .14f, .22f, .18f, .54f, .52f, .38f,
+               .62f, .16f, .72f, .16f, .15f, .43f, .10f, .82f }},
+            0u, 1.00f, OutputMode::Stereo, 6.0f, -5.0f, 15217u, .22f,
             {{ .72f, .93f, .27f, .91f, .33f }} },
         { "SCRAP CASCADE",
-            {{ .77f, .59f, .93f, .68f, .72f, .39f,
-               .21f, .92f, .27f, .76f, .92f, .84f }},
-            5u, .94f, OutputMode::Direct8, 0.0f, -12.0f, 18433u, .93f,
+            {{ .30f, .34f, .94f, .72f, .44f, .18f,
+               .21f, .92f, .27f, .76f, .92f, .84f, .94f, .20f }},
+            5u, .94f, OutputMode::Direct8, 0.0f, -9.0f, 18433u, .96f,
             {{ .39f, .44f, .89f, .72f, .91f }} },
         { "NEGATIVE WEB",
-            {{ .70f, .88f, .58f, .48f, .83f, .63f,
-               .08f, .56f, .38f, .25f, .48f, .47f }},
-            5u, .83f, OutputMode::Direct8, -4.0f, -12.0f, 22147u, .61f,
+            {{ .32f, .45f, .50f, .40f, .48f, .30f,
+               .08f, .56f, .38f, .25f, .48f, .47f, .42f, .56f }},
+            5u, .83f, OutputMode::Direct8, -4.0f, -9.0f, 22147u, .62f,
             {{ .58f, .81f, .48f, .57f, .79f }} },
         { "SLOW PRESS",
-            {{ .88f, .91f, .22f, .06f, .95f, .88f,
-               .42f, .09f, .61f, .10f, .14f, .79f }},
-            4u, .72f, OutputMode::Stereo, 3.0f, -10.0f, 25793u, .18f,
+            {{ .42f, .48f, .08f, .03f, .56f, .46f,
+               .42f, .09f, .61f, .10f, .14f, .79f, .04f, .70f }},
+            4u, .72f, OutputMode::Stereo, 3.0f, -6.0f, 25793u, .16f,
             {{ .86f, .96f, .24f, .78f, .67f }} },
         { "MIC RESONATOR",
-            {{ .42f, .58f, .44f, .13f, .79f, .83f,
-               .96f, .29f, 1.00f, .08f, .12f, .68f }},
-            1u, .68f, OutputMode::Quad, 12.0f, -9.0f, 30469u, .39f,
+            {{ .18f, .28f, .32f, .08f, .42f, .40f,
+               .96f, .29f, 1.00f, .08f, .12f, .68f, .22f, .46f }},
+            1u, .68f, OutputMode::Quad, 12.0f, -5.0f, 30469u, .36f,
             {{ .69f, .89f, .36f, 1.00f, .46f }} },
     }};
 
@@ -685,16 +776,15 @@ SceneSnapshot factoryPresetScene(uint32_t presetIndex, uint32_t sceneIndex)
                 + direction * scale * sceneAmount, 0.0f, 1.0f);
         }
     }
-    // Every factory scene retains enough internal energy to audition and
-    // recover without requiring a microphone, while preserving the relative
-    // sparsity and input sensitivity of its preset family.
-    scene.macros[0u] = std::max(scene.macros[0u], .34f); // pressure
-    scene.macros[1u] = std::max(scene.macros[1u], .40f); // mass
-    scene.macros[2u] = std::max(scene.macros[2u], .16f); // edge / event rate
-    scene.macros[3u] = std::min(scene.macros[3u], .76f); // bounded blackout
-    scene.macros[9u] = std::max(scene.macros[9u], .08f); // idle impacts
-    if (scene.macros[9u] + scene.macros[10u] < .22f) {
-        scene.macros[10u] = .22f - scene.macros[9u];
+    // Keep one material voice and a small impact floor alive without pushing
+    // every authored scene out of the expanded low-energy / drone region.
+    scene.macros[0u] = std::max(scene.macros[0u], .10f); // pressure
+    scene.macros[1u] = std::max(scene.macros[1u], .18f); // mass / one cell
+    scene.macros[3u] = std::min(scene.macros[3u], .88f); // bounded blackout
+    scene.macros[13u] = std::min(scene.macros[13u], .92f); // gap length
+    scene.macros[9u] = std::max(scene.macros[9u], .025f); // idle impacts
+    if (scene.macros[9u] + scene.macros[10u] < .14f) {
+        scene.macros[10u] = .14f - scene.macros[9u];
     }
     const auto baseMatrix = topologyMatrix(spec.topology,
         presetIndex % 8u, spec.seed);
@@ -743,8 +833,9 @@ SceneSnapshot factoryScene(uint32_t sceneIndex)
 {
     SceneSnapshot scene;
     scene.macros = {{
-        0.62f, 0.78f, 0.46f, 0.18f, 0.48f, 0.56f,
+        0.30f, 0.40f, 0.34f, 0.10f, 0.32f, 0.28f,
         0.50f, 0.32f, 0.48f, 0.26f, 0.42f, 0.34f,
+        0.25f, 0.44f,
     }};
     scene.matrix = topologyMatrix(1u, 0u, 1979u);
     for (uint32_t cell = 0u; cell < 8u; ++cell) {
@@ -820,6 +911,8 @@ void publishSceneSurface(Plugin& p)
     for (clap_id id = kContactParamId; id <= kSpringParamId; ++id) {
         publishParam(p, id, rawParamValue(p, id));
     }
+    publishParam(p, kRateParamId, p.params.rate);
+    publishParam(p, kSpaceParamId, p.params.space);
     for (uint32_t index = 0u; index < 64u; ++index) {
         publishParam(p, kMatrixParamBase + index, p.matrix[index]);
     }
@@ -842,7 +935,8 @@ void applySceneToEngine(Plugin& p)
         p.engine.setCutMask(cell, p.cutMask[cell]);
     }
     p.engine.setFracturePerformance(
-        p.fractureDistance, p.fractureForce);
+        p.fractureDistance, p.fractureForce,
+        p.fractureVoid, p.fractureSpace);
     p.engine.setGrab(p.grabbing);
     p.engine.setRepeat(p.repeat);
     p.repeat = p.engine.repeat();
@@ -869,6 +963,8 @@ void loadSnapshotSurface(Plugin& p, const SceneSnapshot& scene)
     p.params.shaker = scene.macros[9u];
     p.params.rattle = scene.macros[10u];
     p.params.spring = scene.macros[11u];
+    p.params.rate = scene.macros[12u];
+    p.params.space = scene.macros[13u];
     p.matrix = scene.matrix;
     p.objects = scene.objects;
     for (uint32_t cell = 0u; cell < 8u; ++cell) {
@@ -960,6 +1056,13 @@ void applyFactoryPreset(Plugin& p, uint32_t presetIndex)
     p.cutMask.fill(true);
     p.fractureDistance = 0.0f;
     p.fractureForce = 0.0f;
+    p.fractureVoid = 0.0f;
+    p.fractureSpace = 0.0f;
+    p.fractureDensityLatch = false;
+    p.fractureShapeLatch = false;
+    p.fractureMotionX.fill(0.0f);
+    p.fractureMotionY.fill(0.0f);
+    p.fractureMotionEnergy.fill(0.0f);
     p.grabbing = false;
     p.repeat = false;
     p.variationSerial = 0u;
@@ -984,6 +1087,14 @@ void applyFactoryPreset(Plugin& p, uint32_t presetIndex)
     }
     publishParam(p, kFractureDistanceParamId, 0.0);
     publishParam(p, kFractureForceParamId, 0.0);
+    publishParam(p, kFractureVoidParamId, 0.0);
+    publishParam(p, kFractureSpaceParamId, 0.0);
+    publishParam(p, kFractureDensityLatchParamId, 0.0);
+    publishParam(p, kFractureShapeLatchParamId, 0.0);
+    for (clap_id id = kFractureDensityMotionXParamId;
+         id <= kFractureShapeEnergyParamId; ++id) {
+        publishParam(p, id, 0.0);
+    }
     publishParam(p, kGrabParamId, 0.0);
     publishParam(p, kRepeatParamId, 0.0);
     publishParam(p, kPresetParamId, presetIndex);
@@ -1008,6 +1119,7 @@ bool changesPresetSurface(clap_id id)
     if (id >= kPressureParamId && id <= kInputParamId) return true;
     if (id == kSeedParamId || id == kOutputModeParamId) return true;
     if (id >= kContactParamId && id <= kSpringParamId) return true;
+    if (id == kRateParamId || id == kSpaceParamId) return true;
     return id == kTopologyShapeParamId || id == kTopologyMixParamId
         || isCutMaskParam(id)
         || id == kVariationParamId;
@@ -1220,7 +1332,9 @@ void applyParam(Plugin& p, clap_id id, double value,
     case kPressureParamId: p.params.pressure = v; break;
     case kMassParamId: p.params.mass = v; break;
     case kEdgeParamId: p.params.edge = v; break;
+    case kRateParamId: p.params.rate = v; break;
     case kVoidParamId: p.params.voidAmount = v; break;
+    case kSpaceParamId: p.params.space = v; break;
     case kMemoryParamId: p.params.memory = v; break;
     case kBodyParamId: p.params.body = v; break;
     case kVoiceParamId: p.params.voice = v; break;
@@ -1264,13 +1378,85 @@ void applyParam(Plugin& p, clap_id id, double value,
     case kFractureDistanceParamId:
         p.fractureDistance = v;
         if (p.prepared) p.engine.setFracturePerformance(
-            p.fractureDistance, p.fractureForce);
+            p.fractureDistance, p.fractureForce,
+            p.fractureVoid, p.fractureSpace);
         updateEngine = false;
         break;
     case kFractureForceParamId:
         p.fractureForce = v;
         if (p.prepared) p.engine.setFracturePerformance(
-            p.fractureDistance, p.fractureForce);
+            p.fractureDistance, p.fractureForce,
+            p.fractureVoid, p.fractureSpace);
+        updateEngine = false;
+        break;
+    case kFractureVoidParamId:
+        p.fractureVoid = v;
+        if (p.prepared) p.engine.setFracturePerformance(
+            p.fractureDistance, p.fractureForce,
+            p.fractureVoid, p.fractureSpace);
+        updateEngine = false;
+        break;
+    case kFractureSpaceParamId:
+        p.fractureSpace = v;
+        if (p.prepared) p.engine.setFracturePerformance(
+            p.fractureDistance, p.fractureForce,
+            p.fractureVoid, p.fractureSpace);
+        updateEngine = false;
+        break;
+    case kFractureDensityLatchParamId:
+        p.fractureDensityLatch = value >= 0.5;
+        if (!p.fractureDensityLatch) {
+            p.fractureForce = 0.0f;
+            p.fractureVoid = 0.0f;
+            if (p.prepared) p.engine.setFracturePerformance(
+                p.fractureDistance, p.fractureForce,
+                p.fractureVoid, p.fractureSpace);
+            publishParam(p, kFractureForceParamId, 0.0);
+            publishParam(p, kFractureVoidParamId, 0.0);
+        }
+        updateEngine = false;
+        break;
+    case kFractureShapeLatchParamId:
+        p.fractureShapeLatch = value >= 0.5;
+        if (!p.fractureShapeLatch) {
+            p.fractureDistance = 0.0f;
+            p.fractureSpace = 0.0f;
+            if (p.prepared) p.engine.setFracturePerformance(
+                p.fractureDistance, p.fractureForce,
+                p.fractureVoid, p.fractureSpace);
+            publishParam(p, kFractureDistanceParamId, 0.0);
+            publishParam(p, kFractureSpaceParamId, 0.0);
+        }
+        updateEngine = false;
+        break;
+    case kFractureDensityMotionXParamId:
+        p.fractureMotionX[0u] = v;
+        updateEngine = false;
+        break;
+    case kFractureDensityMotionYParamId:
+        p.fractureMotionY[0u] = v;
+        updateEngine = false;
+        break;
+    case kFractureDensityEnergyParamId:
+        p.fractureMotionEnergy[0u] = v;
+        if (p.prepared) p.engine.pushFractureGesture(0u,
+            p.fractureMotionX[0u], p.fractureMotionY[0u], v);
+        p.fractureMotionEnergy[0u] = 0.0f;
+        updateEngine = false;
+        break;
+    case kFractureShapeMotionXParamId:
+        p.fractureMotionX[1u] = v;
+        updateEngine = false;
+        break;
+    case kFractureShapeMotionYParamId:
+        p.fractureMotionY[1u] = v;
+        updateEngine = false;
+        break;
+    case kFractureShapeEnergyParamId:
+        p.fractureMotionEnergy[1u] = v;
+        if (p.prepared) p.engine.pushFractureGesture(1u,
+            p.fractureMotionX[1u], p.fractureMotionY[1u], v);
+        p.fractureMotionEnergy[1u] = 0.0f;
         updateEngine = false;
         break;
     case kGrabParamId:
@@ -1525,7 +1711,16 @@ void reset(const clap_plugin_t* plugin)
         p->cutActivity[cell].store(0.0f, std::memory_order_relaxed);
         p->cutPolarity[cell].store(1.0f, std::memory_order_relaxed);
         p->cutFragmentAge[cell].store(0.0f, std::memory_order_relaxed);
+        p->gapActivity[cell].store(0.0f, std::memory_order_relaxed);
+        for (uint32_t pad = 0u; pad < 2u; ++pad) {
+            p->fractureGestureActivity[pad][cell].store(
+                0.0f, std::memory_order_relaxed);
+        }
     }
+    for (auto& energy : p->fractureGestureEnergy) {
+        energy.store(0.0f, std::memory_order_relaxed);
+    }
+    p->fractureScarActivity.store(0.0f, std::memory_order_relaxed);
     releaseActionGates(*p);
     publishParam(*p, kGrabParamId, 0.0);
     publishParam(*p, kRepeatParamId, 0.0);
@@ -1606,7 +1801,21 @@ clap_process_status process(const clap_plugin_t* plugin,
             std::memory_order_relaxed);
         p->cutFragmentAge[cell].store(p->engine.cutFragmentAge(cell),
             std::memory_order_relaxed);
+        p->gapActivity[cell].store(p->engine.gapActivity(cell),
+            std::memory_order_relaxed);
+        for (uint32_t pad = 0u; pad < 2u; ++pad) {
+            p->fractureGestureActivity[pad][cell].store(
+                p->engine.fractureGestureActivity(pad, cell),
+                std::memory_order_relaxed);
+        }
     }
+    for (uint32_t pad = 0u; pad < 2u; ++pad) {
+        p->fractureGestureEnergy[pad].store(
+            p->engine.fractureGestureEnergy(pad),
+            std::memory_order_relaxed);
+    }
+    p->fractureScarActivity.store(p->engine.fractureScarActivity(),
+        std::memory_order_relaxed);
     p->grabbingStatus.store(p->engine.grabbing(),
         std::memory_order_relaxed);
     p->grabbed.store(p->engine.grabbed(), std::memory_order_relaxed);
@@ -1708,6 +1917,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     if (const auto* def = baseParamDef(id)) {
         if (def->stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
+        if (isFractureMotionParam(id)) info->flags |= CLAP_PARAM_IS_HIDDEN;
         std::strncpy(info->name, def->name, sizeof(info->name) - 1u);
         std::strncpy(info->module, def->module, sizeof(info->module) - 1u);
         info->min_value = def->minimum;
@@ -1788,6 +1998,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", factoryPresetName(
             static_cast<uint32_t>(std::clamp(std::round(value), 0.0,
                 static_cast<double>(kCustomPresetIndex)))));
+    } else if (id == kRateParamId) {
+        std::snprintf(display, size, "%.3g /s",
+            s3g::processorFissureEventRateHz(static_cast<float>(value)));
+    } else if (id == kSpaceParamId) {
+        std::snprintf(display, size, "%.3g s",
+            s3g::processorFissureSpaceSeconds(static_cast<float>(value)));
     } else if ((id >= kPressureParamId && id <= kMotionParamId)
         || (id >= kContactParamId && id <= kSpringParamId)) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
@@ -1816,6 +2032,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<uint32_t>(std::round(value)));
     } else if (id == kHoldParamId || id == kRunParamId
         || id == kGrabParamId || id == kRepeatParamId
+        || id == kFractureDensityLatchParamId
+        || id == kFractureShapeLatchParamId
         || isCutMaskParam(id)) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "ON" : "OFF");
     } else if (momentaryParam(id)) {
@@ -1825,7 +2043,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (isCellLevelParam(id) || isObjectParam(id)
         || id == kTopologyMixParamId || id == kVariationParamId
         || id == kFractureDistanceParamId
-        || id == kFractureForceParamId) {
+        || id == kFractureForceParamId
+        || id == kFractureVoidParamId
+        || id == kFractureSpaceParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.3f", value);
@@ -1848,8 +2068,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             || isCellLevelParam(id) || isObjectParam(id)
             || id == kTopologyMixParamId
             || id == kVariationParamId
+            || id == kRateParamId || id == kSpaceParamId
             || id == kFractureDistanceParamId
-            || id == kFractureForceParamId)) parsed *= 0.01;
+            || id == kFractureForceParamId
+            || id == kFractureVoidParamId
+            || id == kFractureSpaceParamId)) parsed *= 0.01;
     *value = clampParamValue(id, parsed);
     return true;
 }
@@ -1917,6 +2140,37 @@ void readSceneValues(SceneSnapshot& scene, const double* source)
     }
 }
 
+void readPreviousSceneValues(SceneSnapshot& scene, const double* source)
+{
+    uint32_t cursor = 0u;
+    for (uint32_t index = 0u; index < 12u; ++index) {
+        scene.macros[index] = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+    }
+    // Before the four-axis split, Edge also scheduled clocks and Void also
+    // determined gap duration. Copy those positions into the new axes so an
+    // older project initially retains its timing character.
+    scene.macros[12u] = scene.macros[2u];
+    scene.macros[13u] = scene.macros[3u];
+    for (float& value : scene.matrix) {
+        value = static_cast<float>(std::clamp(source[cursor++], -1.0, 1.0));
+    }
+    for (auto& object : scene.objects) {
+        object.size = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+        object.decay = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+        object.hardness = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+        object.sensitivity = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+        object.drive = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+        object.level = static_cast<float>(
+            std::clamp(source[cursor++], 0.0, 1.0));
+    }
+}
+
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
@@ -1939,63 +2193,112 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     SavedStateHeader header {};
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
-        || header.magic != kStateMagic
-        || header.sceneValueCount != kSceneValueCount * 4u) {
+        || header.magic != kStateMagic) {
         return false;
     }
     auto* p = self(plugin);
-    SavedStatePayload state {};
+    double selectedSceneValue = 1.0;
+    double sceneMorphValue = 0.0;
     if (header.version == kStateVersion
-        && header.liveValueCount == state.live.size()) {
+        && header.liveValueCount == kPersistentParamCount
+        && header.sceneValueCount == kSceneValueCount * 4u) {
+        SavedStatePayload state {};
         if (!s3g::clap_state::readAll(stream, &state, sizeof(state))) {
             return false;
         }
-    } else if (header.version == kPreviousStateVersion
-        && header.liveValueCount == kPreviousPersistentParamCount) {
-        PreviousSavedStatePayload previous {};
-        if (!s3g::clap_state::readAll(stream, &previous, sizeof(previous))) {
-            return false;
+        for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
+            readSceneValues(p->scenes[scene],
+                state.scenes.data() + scene * kSceneValueCount);
         }
-        for (uint32_t cell = 0u; cell < 8u; ++cell) {
-            applyParam(*p, kCutMaskParamBase + cell, 1.0, false);
-        }
-        state.scenes = previous.scenes;
-        for (uint32_t index = 0u; index < previous.live.size(); ++index) {
-            const clap_id id = previousPersistentParamIdAt(index);
-            if (id == kSceneParamId || id == kSceneMorphParamId) continue;
-            applyParam(*p, id, previous.live[index], false);
-        }
-        state.live[12u] = previous.live[12u];
-        state.live[20u] = previous.live[20u];
-    } else {
-        return false;
-    }
-    for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
-        readSceneValues(p->scenes[scene],
-            state.scenes.data() + scene * kSceneValueCount);
-    }
-    if (header.version == kStateVersion) {
         for (uint32_t index = 0u; index < state.live.size(); ++index) {
             const clap_id id = persistentParamIdAt(index);
             if (id == kSceneParamId || id == kSceneMorphParamId) continue;
             applyParam(*p, id, state.live[index], false);
         }
+        selectedSceneValue = state.live[12u];
+        sceneMorphValue = state.live[20u];
+    } else if (header.version == kPreviousStateVersion
+        && header.liveValueCount == kPreviousPersistentParamCount
+        && header.sceneValueCount == kPreviousSceneValueCount * 4u) {
+        PreviousSavedStatePayload previous {};
+        if (!s3g::clap_state::readAll(stream, &previous, sizeof(previous))) {
+            return false;
+        }
+        for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
+            readPreviousSceneValues(p->scenes[scene],
+                previous.scenes.data()
+                    + scene * kPreviousSceneValueCount);
+        }
+        for (uint32_t index = 0u; index < previous.live.size(); ++index) {
+            const clap_id id = previousPersistentParamIdAt(index);
+            if (id == kSceneParamId || id == kSceneMorphParamId) continue;
+            applyParam(*p, id, previous.live[index], false);
+        }
+        applyParam(*p, kRateParamId, p->params.edge, false);
+        applyParam(*p, kSpaceParamId, p->params.voidAmount, false);
+        selectedSceneValue = previous.live[12u];
+        sceneMorphValue = previous.live[20u];
+    } else if (header.version == kLegacyStateVersion
+        && header.liveValueCount == kLegacyPersistentParamCount
+        && header.sceneValueCount == kPreviousSceneValueCount * 4u) {
+        LegacySavedStatePayload legacy {};
+        if (!s3g::clap_state::readAll(stream, &legacy, sizeof(legacy))) {
+            return false;
+        }
+        for (uint32_t cell = 0u; cell < 8u; ++cell) {
+            applyParam(*p, kCutMaskParamBase + cell, 1.0, false);
+        }
+        for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
+            readPreviousSceneValues(p->scenes[scene],
+                legacy.scenes.data() + scene * kPreviousSceneValueCount);
+        }
+        for (uint32_t index = 0u; index < legacy.live.size(); ++index) {
+            const clap_id id = legacyPersistentParamIdAt(index);
+            if (id == kSceneParamId || id == kSceneMorphParamId) continue;
+            applyParam(*p, id, legacy.live[index], false);
+        }
+        applyParam(*p, kRateParamId, p->params.edge, false);
+        applyParam(*p, kSpaceParamId, p->params.voidAmount, false);
+        selectedSceneValue = legacy.live[12u];
+        sceneMorphValue = legacy.live[20u];
+    } else {
+        return false;
     }
     p->selectedScene = static_cast<uint32_t>(std::clamp(
-        std::round(state.live[12u]), 1.0, 4.0)) - 1u;
+        std::round(selectedSceneValue), 1.0, 4.0)) - 1u;
     p->sceneMorph = static_cast<float>(std::clamp(
-        state.live[20u], 0.0, 3.0));
+        sceneMorphValue, 0.0, 3.0));
     publishParam(*p, kSceneParamId, p->selectedScene + 1u);
     publishParam(*p, kSceneMorphParamId, p->sceneMorph);
     p->pendingActions.store(0u, std::memory_order_relaxed);
     p->grabbing = false;
     p->repeat = false;
+    p->fractureDistance = 0.0f;
+    p->fractureForce = 0.0f;
+    p->fractureVoid = 0.0f;
+    p->fractureSpace = 0.0f;
+    p->fractureDensityLatch = false;
+    p->fractureShapeLatch = false;
+    p->fractureMotionX.fill(0.0f);
+    p->fractureMotionY.fill(0.0f);
+    p->fractureMotionEnergy.fill(0.0f);
     if (p->prepared) {
         p->engine.clearPerformanceLoop();
+        p->engine.setFracturePerformance(0.0f, 0.0f, 0.0f, 0.0f);
     }
     releaseActionGates(*p);
     publishParam(*p, kGrabParamId, 0.0);
     publishParam(*p, kRepeatParamId, 0.0);
+    publishParam(*p, kFractureDistanceParamId, 0.0);
+    publishParam(*p, kFractureForceParamId, 0.0);
+    publishParam(*p, kFractureVoidParamId, 0.0);
+    publishParam(*p, kFractureSpaceParamId, 0.0);
+    publishParam(*p, kFractureDensityLatchParamId, 0.0);
+    publishParam(*p, kFractureShapeLatchParamId, 0.0);
+    for (clap_id id = kFractureDensityMotionXParamId;
+         id <= kFractureShapeEnergyParamId; ++id) {
+        publishParam(*p, id, 0.0);
+    }
     requestValueRescan(*p);
     if (p->host && p->hostParams && p->hostParams->request_flush) {
         p->hostParams->request_flush(p->host);
@@ -2041,8 +2344,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.8.0",
-    "Eight-object physical noise instrument with a performed control-loop Grab/Repeat, sustained mic pitch coupling, and Stereo, Quad, or direct-eight rendering.",
+    "0.10.4",
+    "Eight-object physical noise instrument with velocity-sensitive, cell-traversing Rate-Void cut-density and Edge-Space rupture-shape pucks, distinct attached-object exciters, performed Grab/Repeat, and Stereo, Quad, or direct-eight rendering.",
     features
 };
 

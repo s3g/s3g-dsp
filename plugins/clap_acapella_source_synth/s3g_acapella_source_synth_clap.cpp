@@ -34,7 +34,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 21u;
+constexpr uint32_t kStateVersion = 25u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 968u;
@@ -168,10 +168,34 @@ constexpr clap_id kCarrierPitchSourceParamId = 1099u;
 constexpr clap_id kPitchScaleRootParamId = 1100u;
 constexpr clap_id kPitchScaleParamId = 1101u;
 constexpr clap_id kPitchHoldParamId = 1102u;
-constexpr uint32_t kScalarParamCount = 112u;
-constexpr uint32_t kParamCount = kPitchHoldParamId;
+// Version 23 appends the Mouth Model's fast-bank/LPC balance after every
+// established analysis, pitch, trim, and routing automation ID.
+constexpr clap_id kMouthFocusParamId = 1103u;
+// Version 24 adds the literal speech-transfer path after all established
+// routing and analysis IDs. These are deliberately independent controls rather
+// than another macro so precision presets remain completely inspectable.
+constexpr clap_id kTransferModeParamId = 1104u;
+constexpr clap_id kVoiceFocusParamId = 1105u;
+constexpr clap_id kAnalysisLevelerParamId = 1106u;
+constexpr clap_id kConsonantColorParamId = 1107u;
+constexpr clap_id kConsonantSpeedParamId = 1108u;
+constexpr clap_id kCarrierDensityParamId = 1109u;
+// Version 25 separates analyzer bandwidth from synthesis resonance and adds
+// high-frequency residual plus input spectral-dynamics controls.
+constexpr clap_id kAnalysisWidthParamId = 1110u;
+constexpr clap_id kHfDetailModeParamId = 1111u;
+constexpr clap_id kHfDetailLevelParamId = 1112u;
+constexpr clap_id kHfDetailCutoffParamId = 1113u;
+constexpr clap_id kAnalysisLowEqParamId = 1114u;
+constexpr clap_id kAnalysisMidEqParamId = 1115u;
+constexpr clap_id kAnalysisAirEqParamId = 1116u;
+constexpr clap_id kAnalysisCompressionParamId = 1117u;
+constexpr clap_id kAnalysisNoiseRejectParamId = 1118u;
+constexpr clap_id kAnalysisSpectralBalanceParamId = 1119u;
+constexpr uint32_t kScalarParamCount = 129u;
+constexpr uint32_t kParamCount = kAnalysisSpectralBalanceParamId;
 constexpr uint32_t kSavedParamCount = kParamCount - 1u;
-constexpr double kCustomPreset = 24.0;
+constexpr double kCustomPreset = 25.0;
 
 struct ParamDef {
     clap_id id;
@@ -184,7 +208,7 @@ struct ParamDef {
 };
 
 constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
-    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 24.0, 14.0, true },
+    { kPresetParamId, "Matrix Profile", "Formant Matrix", 0.0, 25.0, 14.0, true },
     { kDeliveryParamId, "Phrasing", "Performance", 0.0, 1.0, 0.0, true },
     { kVowelParamId, "Vowel", "Syllable", 0.0, 5.0, 5.0, true },
     { kOnsetParamId, "Onset", "Syllable", 0.0, 24.0, 0.0, true },
@@ -240,7 +264,7 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
     { kDeclinationParamId, "Phrase Decline", "Pitch", -4.0, 6.0, 1.15, false },
     { kOutputParamId, "Output Gain", "Output", -24.0, 12.0, -3.0, false },
     { kAuditionParamId, "Audition", "Performance", 0.0, 1.0, 0.0, true },
-    { kIntelligibilityParamId, "Intelligibility", "Phoneme Engine", 0.0, 1.0, 0.78, false },
+    { kIntelligibilityParamId, "Definition", "Analysis", 0.0, 1.0, 0.78, false },
     { kEchoHeadsParamId, "Echo Heads", "Tape Echo", 0.0, 6.0, 6.0, true },
     { kEchoClockParamId, "Echo Clock", "Tape Echo", 0.0, 9.0, 5.0, true },
     { kEchoFeedbackParamId, "Echo Feedback", "Tape Echo", 0.0, 0.92, 0.34, false },
@@ -291,7 +315,7 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
     { kCarrierLfoSyncParamId, "Carrier LFO Sync", "Carrier LFO", 0.0, 1.0, 0.0, true },
     { kCarrierLfoDivisionParamId, "Carrier LFO Division", "Carrier LFO", 0.0, 11.0, 8.0, true },
     { kCustomMatrixMorphParamId, "Matrix A / B", "Routing", 0.0, 1.0, 0.0, false },
-    { kAnalysisSlopeParamId, "Analysis Slope", "Analysis", 0.0, 1.0, 1.0, true },
+    { kAnalysisSlopeParamId, "Analysis Response", "Analysis", 0.0, 2.0, 1.0, true },
     { kCarrierPitchSourceParamId, "Carrier Pitch Source", "Pitch Tracking", 0.0, 1.0, 0.0, true },
     { kPitchScaleRootParamId, "Scale Root", "Pitch Tracking", 0.0, 11.0, 0.0, true },
     { kPitchScaleParamId, "Pitch Scale", "Pitch Tracking", 0.0,
@@ -299,6 +323,23 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
         1.0, true },
     { kPitchHoldParamId, "Pitch Hold", "Pitch Tracking", 20.0,
         s3g::kAcapellaResonatorInfinitePitchHoldMs, 350.0, false },
+    { kMouthFocusParamId, "Mouth Focus", "Analysis", 0.0, 1.0, 0.80, false },
+    { kTransferModeParamId, "Transfer Mode", "Analysis", 0.0, 1.0, 1.0, true },
+    { kVoiceFocusParamId, "Voice Focus", "Analysis Input", -1.0, 1.0, 0.28, false },
+    { kAnalysisLevelerParamId, "Analysis Leveler", "Analysis Input", 0.0, 1.0, 0.72, false },
+    { kConsonantColorParamId, "Consonant Color", "Consonants", -1.0, 1.0, 0.35, false },
+    { kConsonantSpeedParamId, "Consonant Speed", "Consonants", 0.0, 1.0, 0.18, false },
+    { kCarrierDensityParamId, "Carrier Density", "Carrier", 0.0, 1.0, 0.58, false },
+    { kAnalysisWidthParamId, "Analysis Width", "Analysis", 0.0, 1.0, 0.68, false },
+    { kHfDetailModeParamId, "HF Detail Mode", "HF Detail", 0.0, 2.0, 1.0, true },
+    { kHfDetailLevelParamId, "HF Detail Level", "HF Detail", 0.0, 1.0, 0.16, false },
+    { kHfDetailCutoffParamId, "HF Detail Cutoff", "HF Detail", 2200.0, 9000.0, 4200.0, false },
+    { kAnalysisLowEqParamId, "Analysis Low EQ", "Analysis Input", -12.0, 12.0, -1.5, false },
+    { kAnalysisMidEqParamId, "Analysis Mid EQ", "Analysis Input", -12.0, 12.0, 2.0, false },
+    { kAnalysisAirEqParamId, "Analysis Air EQ", "Analysis Input", -12.0, 12.0, 1.5, false },
+    { kAnalysisCompressionParamId, "Analysis Compression", "Analysis Input", 0.0, 1.0, 0.42, false },
+    { kAnalysisNoiseRejectParamId, "Analysis Noise Reject", "Analysis Input", 0.0, 1.0, 0.46, false },
+    { kAnalysisSpectralBalanceParamId, "Analysis Spectral Balance", "Analysis Input", 0.0, 1.0, 0.32, false },
 }};
 
 const std::array<ParamDef, kParamCount> kParamDefs = [] {
@@ -849,6 +890,9 @@ void storeHybridUpgradeDefaults(Plugin& plugin,
 void storeEffectsParams(Plugin& plugin,
     const s3g::AcapellaVocalFxParams& params)
 {
+    // Definition is deliberately one macro across generated articulation,
+    // live filter-bank analysis, and the clean post-shape preserve rail.
+    storeValue(plugin, kIntelligibilityParamId, params.intelligibility);
     storeValue(plugin, kOctaveDownParamId, params.octaveDown);
     storeValue(plugin, kOctaveUpParamId, params.octaveUp);
     storeValue(plugin, kFuzzDriveParamId, params.fuzzDriveDb);
@@ -903,6 +947,38 @@ void storeEffectsParams(Plugin& plugin,
         static_cast<uint32_t>(params.resonator.bandLayout));
     storeValue(plugin, kAnalysisSlopeParamId,
         static_cast<uint32_t>(params.resonator.analysisSlope));
+    storeValue(plugin, kMouthFocusParamId, params.resonator.mouthFocus);
+    storeValue(plugin, kTransferModeParamId,
+        static_cast<uint32_t>(params.resonator.transferMode));
+    storeValue(plugin, kVoiceFocusParamId, params.resonator.voiceFocus);
+    storeValue(plugin, kAnalysisLevelerParamId,
+        params.resonator.analysisLeveler);
+    storeValue(plugin, kConsonantColorParamId,
+        params.resonator.consonantColor);
+    storeValue(plugin, kConsonantSpeedParamId,
+        params.resonator.consonantSpeed);
+    storeValue(plugin, kCarrierDensityParamId,
+        params.resonator.carrierDensity);
+    storeValue(plugin, kAnalysisWidthParamId,
+        params.resonator.analysisWidth);
+    storeValue(plugin, kHfDetailModeParamId,
+        static_cast<uint32_t>(params.resonator.hfDetailMode));
+    storeValue(plugin, kHfDetailLevelParamId,
+        params.resonator.hfDetailLevel);
+    storeValue(plugin, kHfDetailCutoffParamId,
+        params.resonator.hfDetailCutoffHz);
+    storeValue(plugin, kAnalysisLowEqParamId,
+        params.resonator.analysisLowDb);
+    storeValue(plugin, kAnalysisMidEqParamId,
+        params.resonator.analysisMidDb);
+    storeValue(plugin, kAnalysisAirEqParamId,
+        params.resonator.analysisAirDb);
+    storeValue(plugin, kAnalysisCompressionParamId,
+        params.resonator.analysisCompression);
+    storeValue(plugin, kAnalysisNoiseRejectParamId,
+        params.resonator.analysisNoiseReject);
+    storeValue(plugin, kAnalysisSpectralBalanceParamId,
+        params.resonator.analysisSpectralBalance);
     storeValue(plugin, kVoicingModeParamId,
         static_cast<uint32_t>(params.resonator.voicingMode));
     storeValue(plugin, kVoicingThresholdParamId,
@@ -1037,7 +1113,8 @@ bool customisingParam(clap_id id)
         || (id >= kEchoHeadsParamId && id <= kEchoSpreadParamId)
         || (id >= kBankAmountParamId && id <= kBankGestureFollowParamId)
         || (id >= kBandLayoutParamId && id <= kCustomMatrixMorphParamId)
-        || (id >= kAnalysisSlopeParamId && id <= kPitchHoldParamId)
+        || (id >= kAnalysisSlopeParamId
+            && id <= kAnalysisSpectralBalanceParamId)
         || (id >= kBandTrimParamBase
             && id < kMatrixBParamBase + kMatrixCells)
         || (id >= kGestureSequenceParamId && id <= kGestureDivisionParamId);
@@ -1171,6 +1248,8 @@ void syncAudioParams(Plugin& plugin, bool loadRouting = true)
         kCarrierNoiseParamId));
     effects.resonator.analysisBlend = static_cast<float>(loadValue(plugin,
         kAnalysisBlendParamId));
+    effects.resonator.definition = static_cast<float>(loadValue(plugin,
+        kIntelligibilityParamId));
     effects.resonator.attackMs = static_cast<float>(loadValue(plugin,
         kBankAttackParamId));
     effects.resonator.releaseMs = static_cast<float>(loadValue(plugin,
@@ -1209,6 +1288,42 @@ void syncAudioParams(Plugin& plugin, bool loadRouting = true)
     effects.resonator.analysisSlope = static_cast<
         decltype(effects.resonator.analysisSlope)>(static_cast<uint32_t>(
             loadValue(plugin, kAnalysisSlopeParamId)));
+    effects.resonator.mouthFocus = static_cast<float>(loadValue(plugin,
+        kMouthFocusParamId));
+    effects.resonator.transferMode = static_cast<
+        decltype(effects.resonator.transferMode)>(static_cast<uint32_t>(
+            loadValue(plugin, kTransferModeParamId)));
+    effects.resonator.voiceFocus = static_cast<float>(loadValue(plugin,
+        kVoiceFocusParamId));
+    effects.resonator.analysisLeveler = static_cast<float>(loadValue(plugin,
+        kAnalysisLevelerParamId));
+    effects.resonator.consonantColor = static_cast<float>(loadValue(plugin,
+        kConsonantColorParamId));
+    effects.resonator.consonantSpeed = static_cast<float>(loadValue(plugin,
+        kConsonantSpeedParamId));
+    effects.resonator.carrierDensity = static_cast<float>(loadValue(plugin,
+        kCarrierDensityParamId));
+    effects.resonator.analysisWidth = static_cast<float>(loadValue(plugin,
+        kAnalysisWidthParamId));
+    effects.resonator.hfDetailMode = static_cast<
+        decltype(effects.resonator.hfDetailMode)>(static_cast<uint32_t>(
+            loadValue(plugin, kHfDetailModeParamId)));
+    effects.resonator.hfDetailLevel = static_cast<float>(loadValue(plugin,
+        kHfDetailLevelParamId));
+    effects.resonator.hfDetailCutoffHz = static_cast<float>(loadValue(plugin,
+        kHfDetailCutoffParamId));
+    effects.resonator.analysisLowDb = static_cast<float>(loadValue(plugin,
+        kAnalysisLowEqParamId));
+    effects.resonator.analysisMidDb = static_cast<float>(loadValue(plugin,
+        kAnalysisMidEqParamId));
+    effects.resonator.analysisAirDb = static_cast<float>(loadValue(plugin,
+        kAnalysisAirEqParamId));
+    effects.resonator.analysisCompression = static_cast<float>(loadValue(
+        plugin, kAnalysisCompressionParamId));
+    effects.resonator.analysisNoiseReject = static_cast<float>(loadValue(
+        plugin, kAnalysisNoiseRejectParamId));
+    effects.resonator.analysisSpectralBalance = static_cast<float>(loadValue(
+        plugin, kAnalysisSpectralBalanceParamId));
     effects.resonator.voicingMode = static_cast<
         decltype(effects.resonator.voicingMode)>(static_cast<uint32_t>(
             loadValue(plugin, kVoicingModeParamId)));
@@ -1918,9 +2033,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             "Chord Glass", "Classic Mic", "Formant Glide",
             "Fixed Circuit", "Glass Harmony", "Public Address",
             "Pocket Radio", "Low Persona", "Bright Persona",
-            "Broken Relay", "Vocal Alloy", "Custom"
+            "Broken Relay", "Vocal Alloy", "Mouth Circuit", "Custom"
         };
-        const uint32_t index = std::min<uint32_t>(24u,
+        const uint32_t index = std::min<uint32_t>(25u,
             static_cast<uint32_t>(std::round(value)));
         std::snprintf(display, size, "%s", names[index]);
     } else if (id == kDeliveryParamId) {
@@ -2010,8 +2125,22 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s",
             value >= 0.5 ? "Wide 16" : "Speech 22");
     } else if (id == kAnalysisSlopeParamId) {
+        constexpr const char* names[] {
+            "4 Pole", "8 Pole", "Mouth Model"
+        };
+        const uint32_t index = std::min<uint32_t>(2u,
+            static_cast<uint32_t>(std::round(value)));
+        std::snprintf(display, size, "%s", names[index]);
+    } else if (id == kTransferModeParamId) {
         std::snprintf(display, size, "%s",
-            value >= 0.5 ? "8 Pole" : "4 Pole");
+            value >= 0.5 ? "Precision" : "Expressive");
+    } else if (id == kHfDetailModeParamId) {
+        constexpr const char* names[] {
+            "Synthetic", "Switched", "Direct"
+        };
+        const uint32_t index = std::min<uint32_t>(2u,
+            static_cast<uint32_t>(std::round(value)));
+        std::snprintf(display, size, "%s", names[index]);
     } else if (id == kCarrierPitchSourceParamId) {
         std::snprintf(display, size, "%s",
             value >= 0.5 ? "Voice Pitch" : "MIDI");
@@ -2131,9 +2260,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             "Chord Glass", "Classic Mic", "Formant Glide",
             "Fixed Circuit", "Glass Harmony", "Public Address",
             "Pocket Radio", "Low Persona", "Bright Persona",
-            "Broken Relay", "Vocal Alloy", "Custom"
+            "Broken Relay", "Vocal Alloy", "Mouth Circuit", "Custom"
         };
-        for (uint32_t index = 0u; index < 25u; ++index) {
+        for (uint32_t index = 0u; index < 26u; ++index) {
             if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
@@ -2294,6 +2423,29 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         if (std::strcmp(display, "8 Pole") == 0) {
             *value = 1.0;
             return true;
+        }
+        if (std::strcmp(display, "Mouth Model") == 0) {
+            *value = 2.0;
+            return true;
+        }
+    } else if (id == kTransferModeParamId) {
+        if (std::strcmp(display, "Expressive") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        if (std::strcmp(display, "Precision") == 0) {
+            *value = 1.0;
+            return true;
+        }
+    } else if (id == kHfDetailModeParamId) {
+        constexpr const char* names[] {
+            "Synthetic", "Switched", "Direct"
+        };
+        for (uint32_t index = 0u; index < 3u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
         }
     } else if (id == kCarrierPitchSourceParamId) {
         if (std::strcmp(display, "MIDI") == 0) {
@@ -2708,7 +2860,69 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             kPhraseCapacity - 1u);
         phrase.text[phrase.length] = '\0';
         if (!publishTextPhrase(*instance, phrase.text.data())) return false;
-    } else if (header.version == 20u || header.version == kStateVersion) {
+    } else if (header.version >= 20u && header.version <= 22u) {
+        // Versions 20--22 ended at Pitch Hold (ID 1102). Version 23 appends
+        // Mouth Focus, so retain the exact old width and do not consume the
+        // first eight bytes of PhraseState as a parameter.
+        constexpr uint32_t oldSavedParamCount = 1101u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 23u) {
+        // Version 23 ended at Mouth Focus (ID 1103). Version 24 appends the
+        // precision-transfer controls without consuming PhraseState bytes.
+        constexpr uint32_t oldSavedParamCount = 1102u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == 24u) {
+        // Version 24 ended at Carrier Density (ID 1109). Version 25 appends
+        // calibrated analyzer-width, HF-detail, and input-conditioning
+        // controls without consuming the following PhraseState bytes.
+        constexpr uint32_t oldSavedParamCount = 1108u;
+        std::array<double, oldSavedParamCount> values {};
+        if (!s3g::clap_state::readAll(stream, values.data(),
+                sizeof(values))) return false;
+        for (uint32_t index = 0u; index < values.size(); ++index) {
+            const clap_id id = kSavedParamIds[index];
+            const auto* def = paramDef(id);
+            if (def) storeValue(*instance, id,
+                clampValue(*def, values[index]));
+        }
+        PhraseState phrase;
+        if (!s3g::clap_state::readAll(stream, &phrase,
+                sizeof(phrase))) return false;
+        phrase.length = std::min<uint32_t>(phrase.length,
+            kPhraseCapacity - 1u);
+        phrase.text[phrase.length] = '\0';
+        if (!publishTextPhrase(*instance, phrase.text.data())) return false;
+    } else if (header.version == kStateVersion) {
         std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(stream, values.data(),
                 sizeof(values))) return false;
@@ -2770,11 +2984,55 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             }
         }
     }
+    // Mouth Focus did not exist before format 23. Its implicit old behavior
+    // was fully focused LPC, so use 100% for migration rather than the gentler
+    // 80% new-instance default.
+    if (header.version <= 22u) {
+        storeValue(*instance, kMouthFocusParamId, 1.0);
+    }
+    // Format 23 predates the literal transfer path. Preserve its sound by
+    // migrating to neutral conditioning/density and Expressive transfer; new
+    // factory profiles deliberately opt into the clearer behavior.
+    if (header.version <= 23u) {
+        storeValue(*instance, kTransferModeParamId, 0.0);
+        storeValue(*instance, kVoiceFocusParamId, 0.0);
+        storeValue(*instance, kAnalysisLevelerParamId, 0.0);
+        storeValue(*instance, kConsonantColorParamId, 0.0);
+        storeValue(*instance, kConsonantSpeedParamId, 0.35);
+        storeValue(*instance, kCarrierDensityParamId, 0.0);
+    }
+    // Format 24 used a fixed per-stage analysis Q. Map it onto the new Width
+    // control so each saved pole topology retains that calibration, and keep
+    // every genuinely new conditioning path neutral. New instances and new
+    // factory profiles deliberately use the clearer non-neutral front end.
+    if (header.version <= 24u) {
+        const uint32_t response = static_cast<uint32_t>(std::lround(
+            loadValue(*instance, kAnalysisSlopeParamId)));
+        storeValue(*instance, kAnalysisWidthParamId,
+            response == 0u ? 0.79 : 0.37);
+        storeValue(*instance, kHfDetailModeParamId,
+            static_cast<uint32_t>(
+                s3g::AcapellaResonatorHfDetailMode::Synthetic));
+        storeValue(*instance, kHfDetailLevelParamId, 0.0);
+        storeValue(*instance, kHfDetailCutoffParamId, 4300.0);
+        storeValue(*instance, kAnalysisLowEqParamId, 0.0);
+        storeValue(*instance, kAnalysisMidEqParamId, 0.0);
+        storeValue(*instance, kAnalysisAirEqParamId, 0.0);
+        storeValue(*instance, kAnalysisCompressionParamId, 0.0);
+        storeValue(*instance, kAnalysisNoiseRejectParamId, 0.0);
+        storeValue(*instance, kAnalysisSpectralBalanceParamId, 0.0);
+    }
     // Version 20 used profile slot 15 for Custom. Version 21 appends nine
     // matrix-first factory profiles before Custom without reinterpreting any
     // existing routing or effect parameter.
     if (header.version == 20u
         && std::fabs(loadValue(*instance, kPresetParamId) - 15.0) < 0.5) {
+        storeValue(*instance, kPresetParamId, kCustomPreset);
+    }
+    // Version 21 used slot 24 for Custom. Version 22 inserts Mouth Circuit
+    // immediately before it without reinterpreting a saved custom patch.
+    if (header.version == 21u
+        && std::fabs(loadValue(*instance, kPresetParamId) - 24.0) < 0.5) {
         storeValue(*instance, kPresetParamId, kCustomPreset);
     }
     storeValue(*instance, kAuditionParamId, 0.0);
@@ -3986,7 +4244,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "5.4.0",
+    "5.8.0",
     "Stereo vocoder and resonant filter matrix with external mic or built-in sample-free speech modulation, procedural MIDI carriers, polyphony, and text-to-phoneme scoring.",
     features
 };

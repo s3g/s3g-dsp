@@ -176,6 +176,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/ambi_acid_encoder_smoke.cpp)
   target_link_libraries(s3g_ambi_acid_encoder_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_low_frequency_synth_smoke
+    tests/low_frequency_synth_smoke.cpp)
+  target_link_libraries(s3g_low_frequency_synth_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_ambi_acid_encoder_render
     tools/render_ambi_acid_encoder.cpp)
   target_link_libraries(s3g_ambi_acid_encoder_render PRIVATE s3g_dsp)
@@ -447,6 +451,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_ambi_acid_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_acid_encoder_smoke>)
     set_tests_properties(s3g_ambi_acid_encoder_smoke PROPERTIES
+      LABELS "non_nim;smoke" TIMEOUT 300)
+    add_test(NAME s3g_low_frequency_synth_smoke
+      COMMAND $<TARGET_FILE:s3g_low_frequency_synth_smoke>)
+    set_tests_properties(s3g_low_frequency_synth_smoke PROPERTIES
       LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
@@ -864,6 +872,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
       PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_ambi_acid_encoder_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_low_frequency_synth_clap_smoke
+      tests/low_frequency_synth_clap_smoke.cpp)
+    target_include_directories(s3g_low_frequency_synth_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_low_frequency_synth_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
   endif()
 
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
@@ -987,6 +1002,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_acid_encoder)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_low_frequency_synth)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
@@ -1753,6 +1771,36 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMENT "Validating the responsive Ambi Encoder Acid dual-view path editor")
       add_dependencies(audit_ambi_acid_encoder
         audit_ambi_acid_encoder_gui)
+    endif()
+
+    add_custom_target(audit_low_frequency_synth
+      COMMAND $<TARGET_FILE:s3g_low_frequency_synth_smoke>
+      COMMAND $<TARGET_FILE:s3g_low_frequency_synth_clap_smoke>
+        $<TARGET_FILE:s3g_low_frequency_synth_clap>
+        org.s3g.s3g-dsp.low-frequency-synth
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 44100,48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_low_frequency_synth_clap>
+        org.s3g.s3g-dsp.low-frequency-synth
+      DEPENDS
+        s3g_low_frequency_synth_smoke
+        s3g_low_frequency_synth_clap_smoke
+        s3g_low_frequency_synth_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating composite-membrane bass synthesis, stereo Shred regeneration, MIDI, state, realtime safety, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_low_frequency_synth_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_low_frequency_synth_clap>
+          org.s3g.s3g-dsp.low-frequency-synth
+          980 646 "s3g Low Frequency Synth" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_low_frequency_synth_clap
+        COMMENT "Validating the responsive Low Frequency Synth editor")
+      add_dependencies(audit_low_frequency_synth
+        audit_low_frequency_synth_gui)
     endif()
   endif()
 

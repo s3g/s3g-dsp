@@ -41,24 +41,24 @@ constexpr s3g::gui_layout::Panel kFormantCrosspointPanel{
 constexpr s3g::gui_layout::Panel kFormantMatrixControlPanel{
     s3g::gui_layout::PluginClass::MixerMatrixLane,
     s3g::gui_layout::PanelRole::Routing,
-    {908.0, 284.0, 436.0, 220.0},
+    {908.0, 284.0, 436.0, 168.0},
     32.0,
     26.0,
-    6u};
+    5u};
 constexpr s3g::gui_layout::Panel kFormantSignalPanel{
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::Source,
-    {908.0, 516.0, 436.0, 216.0},
+    {908.0, 464.0, 436.0, 194.0},
     31.0,
     25.0,
-    5u};
+    3u};
 constexpr s3g::gui_layout::Panel kFormantEnvelopePanel{
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::Envelope,
-    {908.0, 744.0, 436.0, 212.0},
+    {908.0, 670.0, 436.0, 286.0},
     31.0,
-    21.0,
-    8u};
+    29.5,
+    11u};
 
 constexpr s3g::gui_layout::Panel kFormantGenericLeftPanel{
     s3g::gui_layout::PluginClass::EffectProcessor,
@@ -66,14 +66,14 @@ constexpr s3g::gui_layout::Panel kFormantGenericLeftPanel{
     {12.0, 74.0, 660.0, 882.0},
     39.0,
     30.0,
-    28u};
+    16u};
 constexpr s3g::gui_layout::Panel kFormantGenericRightPanel{
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::ToneShape,
     {684.0, 74.0, 660.0, 882.0},
     39.0,
     30.0,
-    28u};
+    15u};
 constexpr s3g::gui_layout::Panel kFormantPhraseInputPanel{
     s3g::gui_layout::PluginClass::EffectProcessor,
     s3g::gui_layout::PanelRole::EventTiming,
@@ -98,36 +98,42 @@ constexpr s3g::gui_layout::Panel kFormantPhraseRightPanel{
 
 constexpr CGFloat kFormantMatrixFirstX = 146.0;
 constexpr CGFloat kFormantMatrixFirstY = 178.0;
-constexpr CGFloat kFormantMatrixPitch = 25.0;
+constexpr CGFloat kFormantMatrixExtent = 525.0;
 constexpr CGFloat kFormantMenuItemHeight = 18.0;
 constexpr uint32_t kFormantScaleMenuColumns = 4u;
 
 constexpr clap_id kFormantRouteMatrixParams[]{
     kMatrixModeParamId, kMatrixMorphParamId, kCustomMatrixMorphParamId,
-    kCouplingParamId,   kBandLayoutParamId,  kBankModeParamId,
+    kCouplingParamId,   kBandLayoutParamId,
 };
 constexpr clap_id kFormantRouteSignalParams[]{
-    kModulatorSourceParamId, kMicGainParamId, kCarrierPitchSourceParamId,
-    kBankAmountParamId,      kArticulationThruParamId,
+    kBankModeParamId, kBankAmountParamId, kArticulationThruParamId,
 };
 constexpr clap_id kFormantRouteEnvelopeParams[]{
-    kAnalysisBlendParamId, kBankAttackParamId,    kBankReleaseParamId,
-    kOpenLevelParamId,     kVoicingModeParamId,   kVoicingThresholdParamId,
-    kVoicedLevelParamId,   kUnvoicedLevelParamId,
+    kIntelligibilityParamId, kMouthFocusParamId,  kBankAttackParamId,
+    kBankReleaseParamId,     kOpenLevelParamId,    kVoicingModeParamId,
+    kVoicingThresholdParamId, kVoicedLevelParamId, kUnvoicedLevelParamId,
 };
 
 constexpr clap_id kFormantBankParams[]{
-    kBankAmountParamId,    kBankModeParamId,         kBandLayoutParamId,
-    kAnalysisSlopeParamId, kAnalysisBlendParamId,    kBankAttackParamId,
-    kBankReleaseParamId,
-    kBankResonanceParamId, kBankDriveParamId,        kBandShiftParamId,
-    kBandStretchParamId,   kBandTiltParamId,         kSibilanceParamId,
-    kOpenLevelParamId,     kCouplingParamId,         kArticulationThruParamId,
-    kStereoModeParamId,    kBankStereoSpreadParamId, kBankFreezeParamId,
-    kFreezeTriggerParamId, kBankBlurParamId,         kBankGestureFollowParamId,
-    kVoicingModeParamId,   kVoicingThresholdParamId, kVoicedLevelParamId,
-    kUnvoicedLevelParamId, kVoicedTransitionParamId, kUnvoicedTransitionParamId,
-    kMatrixModeParamId,    kMatrixMorphParamId,
+    // Analysis and filter-bank behavior live here; ROUTE owns topology,
+    // global mix, and performance envelopes.
+    kTransferModeParamId,           kAnalysisSlopeParamId,
+    kAnalysisWidthParamId,          kVoiceFocusParamId,
+    kAnalysisLevelerParamId,        kAnalysisLowEqParamId,
+    kAnalysisMidEqParamId,          kAnalysisAirEqParamId,
+    kAnalysisCompressionParamId,    kAnalysisNoiseRejectParamId,
+    kAnalysisSpectralBalanceParamId, kAnalysisBlendParamId,
+    kBankResonanceParamId,          kBankDriveParamId,
+    kBandShiftParamId,              kBandStretchParamId,
+    kBandTiltParamId,               kSibilanceParamId,
+    kConsonantColorParamId,         kConsonantSpeedParamId,
+    kHfDetailModeParamId,           kHfDetailLevelParamId,
+    kHfDetailCutoffParamId,         kStereoModeParamId,
+    kBankStereoSpreadParamId,       kBankFreezeParamId,
+    kFreezeTriggerParamId,          kBankBlurParamId,
+    kBankGestureFollowParamId,      kVoicedTransitionParamId,
+    kUnvoicedTransitionParamId,
 };
 
 constexpr clap_id kFormantCarrierParams[]{
@@ -139,6 +145,7 @@ constexpr clap_id kFormantCarrierParams[]{
     kPitchHoldParamId,
     kCarrierShapeParamId,
     kCarrierHarmonicsParamId,
+    kCarrierDensityParamId,
     kCarrierColorParamId,
     kCarrierNoiseParamId,
     kCarrierPulseWidthParamId,
@@ -148,17 +155,12 @@ constexpr clap_id kFormantCarrierParams[]{
     kCarrierPwmDepthParamId,
     kCarrierLfoSyncParamId,
     kCarrierLfoDivisionParamId,
-    kOctaveDownParamId,
-    kOctaveUpParamId,
-    kFuzzDriveParamId,
-    kFuzzMixParamId,
-    kFuzzToneParamId,
 };
 
 constexpr clap_id kFormantPhraseParams[]{
     kGestureSequenceParamId, kGestureRateParamId,    kGestureDepthParamId,
     kGestureLoopParamId,     kGestureSyncParamId,    kGestureDivisionParamId,
-    kIntelligibilityParamId, kAuditionParamId,       kDeliveryParamId,
+    kAuditionParamId,        kDeliveryParamId,
     kVowelParamId,           kOnsetParamId,          kDurationParamId,
     kArticulationParamId,    kConsonantParamId,      kIntensityParamId,
     kWaveguideBlendParamId,  kCoarticulationParamId, kHybridBlendParamId,
@@ -174,15 +176,93 @@ constexpr clap_id kFormantPhraseParams[]{
 };
 
 constexpr clap_id kFormantFxParams[]{
-    // Left: output and post-bank character. Right: the complete tape path.
-    kOutputParamId,        kCompressionParamId, kParallelCrushParamId,
-    kDeEssParamId,         kWidthParamId,       kOctaveDownParamId,
-    kOctaveUpParamId,      kFuzzDriveParamId,   kFuzzMixParamId,
-    kFuzzToneParamId,      kEchoHeadsParamId,   kEchoClockParamId,
-    kEchoTimeParamId,      kEchoFeedbackParamId, kEchoWearParamId,
-    kEchoFlutterParamId,   kEchoToneParamId,    kEchoSpreadParamId,
-    kEchoMixParamId,
+    // Left: post-bank character. Right: the complete tape path. Output is
+    // primary-page-only so it stays reachable without appearing twice.
+    kCompressionParamId,  kParallelCrushParamId, kDeEssParamId,
+    kWidthParamId,        kOctaveDownParamId,     kOctaveUpParamId,
+    kFuzzDriveParamId,    kFuzzMixParamId,        kFuzzToneParamId,
+    kEchoHeadsParamId,    kEchoClockParamId,      kEchoTimeParamId,
+    kEchoFeedbackParamId, kEchoWearParamId,       kEchoFlutterParamId,
+    kEchoToneParamId,     kEchoSpreadParamId,     kEchoMixParamId,
 };
+
+template <size_t N>
+constexpr bool formantUniquePageParams(const clap_id (&params)[N]) {
+  for (size_t first = 0u; first < N; ++first) {
+    for (size_t second = first + 1u; second < N; ++second) {
+      if (params[first] == params[second])
+        return false;
+    }
+  }
+  return true;
+}
+
+template <size_t N, size_t M>
+constexpr bool formantDisjointPageParams(const clap_id (&left)[N],
+                                         const clap_id (&right)[M]) {
+  for (clap_id leftId : left) {
+    for (clap_id rightId : right) {
+      if (leftId == rightId)
+        return false;
+    }
+  }
+  return true;
+}
+
+template <size_t N>
+constexpr bool formantPageContains(const clap_id (&params)[N], clap_id id) {
+  for (clap_id candidate : params) {
+    if (candidate == id)
+      return true;
+  }
+  return false;
+}
+
+#define S3G_ASSERT_FORMANT_DISJOINT(left, right)                               \
+  static_assert(formantDisjointPageParams(left, right),                       \
+                "Formant Matrix parameter appears on multiple pages")
+
+static_assert(formantUniquePageParams(kFormantRouteMatrixParams));
+static_assert(formantUniquePageParams(kFormantRouteSignalParams));
+static_assert(formantUniquePageParams(kFormantRouteEnvelopeParams));
+static_assert(formantUniquePageParams(kFormantBankParams));
+static_assert(formantUniquePageParams(kFormantCarrierParams));
+static_assert(formantUniquePageParams(kFormantPhraseParams));
+static_assert(formantUniquePageParams(kFormantFxParams));
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams,
+                            kFormantRouteSignalParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams,
+                            kFormantRouteEnvelopeParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteSignalParams,
+                            kFormantRouteEnvelopeParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams, kFormantBankParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams, kFormantCarrierParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams, kFormantPhraseParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteMatrixParams, kFormantFxParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteSignalParams, kFormantBankParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteSignalParams, kFormantCarrierParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteSignalParams, kFormantPhraseParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteSignalParams, kFormantFxParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteEnvelopeParams, kFormantBankParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteEnvelopeParams,
+                            kFormantCarrierParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteEnvelopeParams, kFormantPhraseParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantRouteEnvelopeParams, kFormantFxParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantBankParams, kFormantCarrierParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantBankParams, kFormantPhraseParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantBankParams, kFormantFxParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantCarrierParams, kFormantPhraseParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantCarrierParams, kFormantFxParams);
+S3G_ASSERT_FORMANT_DISJOINT(kFormantPhraseParams, kFormantFxParams);
+static_assert(!formantPageContains(kFormantRouteMatrixParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantRouteSignalParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantRouteEnvelopeParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantBankParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantCarrierParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantPhraseParams, kOutputParamId));
+static_assert(!formantPageContains(kFormantFxParams, kOutputParamId));
+
+#undef S3G_ASSERT_FORMANT_DISJOINT
 
 struct FormantParamSpan {
   const clap_id *data = nullptr;
@@ -225,18 +305,26 @@ NSRect formantSceneOperationRect(uint32_t operation) {
   return NSMakeRect(x, 44.0, widths[operation], 20.0);
 }
 
-NSRect formantMatrixCellRect(uint32_t destination, uint32_t source) {
+CGFloat formantMatrixPitch(uint32_t activeBands) {
+  return kFormantMatrixExtent /
+         static_cast<CGFloat>(std::max<uint32_t>(1u, activeBands - 1u));
+}
+
+NSRect formantMatrixCellRect(uint32_t activeBands, uint32_t destination,
+                             uint32_t source) {
+  const CGFloat pitch = formantMatrixPitch(activeBands);
   return NSMakeRect(
       kFormantMatrixFirstX +
-          static_cast<CGFloat>(source) * kFormantMatrixPitch - 10.0,
+          static_cast<CGFloat>(source) * pitch - 10.0,
       kFormantMatrixFirstY +
-          static_cast<CGFloat>(destination) * kFormantMatrixPitch - 10.0,
+          static_cast<CGFloat>(destination) * pitch - 10.0,
       20.0, 20.0);
 }
 
-NSRect formantBandTrimHitRect(uint32_t band) {
+NSRect formantBandTrimHitRect(uint32_t activeBands, uint32_t band) {
+  const CGFloat pitch = formantMatrixPitch(activeBands);
   return NSMakeRect(kFormantMatrixFirstX +
-                        static_cast<CGFloat>(band) * kFormantMatrixPitch - 10.0,
+                        static_cast<CGFloat>(band) * pitch - 10.0,
                     738.0, 20.0, 108.0);
 }
 
@@ -307,7 +395,27 @@ NSString *formantShortLabel(clap_id id) {
   case kBandLayoutParamId:
     return @"LAYOUT";
   case kAnalysisSlopeParamId:
-    return @"AN SLOPE";
+    return @"RESPONSE";
+  case kAnalysisWidthParamId:
+    return @"AN WIDTH";
+  case kTransferModeParamId:
+    return @"TRANSFER";
+  case kVoiceFocusParamId:
+    return @"VOICE FOCUS";
+  case kAnalysisLevelerParamId:
+    return @"LEVELER";
+  case kAnalysisLowEqParamId:
+    return @"LOW EQ";
+  case kAnalysisMidEqParamId:
+    return @"MID EQ";
+  case kAnalysisAirEqParamId:
+    return @"AIR EQ";
+  case kAnalysisCompressionParamId:
+    return @"AN COMP";
+  case kAnalysisNoiseRejectParamId:
+    return @"NOISE REJ";
+  case kAnalysisSpectralBalanceParamId:
+    return @"SPEC BAL";
   case kAnalysisBlendParamId:
     return @"AN / PH";
   case kBankAttackParamId:
@@ -325,7 +433,17 @@ NSString *formantShortLabel(clap_id id) {
   case kBandTiltParamId:
     return @"TILT";
   case kSibilanceParamId:
-    return @"SIBIL";
+    return @"CONS LEVEL";
+  case kConsonantColorParamId:
+    return @"CONS COLOR";
+  case kConsonantSpeedParamId:
+    return @"CONS SPEED";
+  case kHfDetailModeParamId:
+    return @"HF MODE";
+  case kHfDetailLevelParamId:
+    return @"HF LEVEL";
+  case kHfDetailCutoffParamId:
+    return @"HF CUTOFF";
   case kMatrixModeParamId:
     return @"MAP";
   case kMatrixMorphParamId:
@@ -430,10 +548,16 @@ NSString *formantShortLabel(clap_id id) {
     return @"SHAPE";
   case kCarrierHarmonicsParamId:
     return @"HARMONICS";
+  case kCarrierDensityParamId:
+    return @"DENSITY";
   case kCarrierColorParamId:
     return @"COLOR";
   case kCarrierNoiseParamId:
     return @"NOISE";
+  case kIntelligibilityParamId:
+    return @"DEFINITION";
+  case kMouthFocusParamId:
+    return @"MOUTH FOCUS";
   default: {
     const ParamDef *def = paramDef(id);
     if (!def)
@@ -675,6 +799,16 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
       setHidden:!(_page == kFormantPagePhrase && _openMenu == CLAP_INVALID_ID)];
 }
 
+- (uint32_t)activeMatrixBands {
+  return loadValue(*_plugin, kBandLayoutParamId) >= 0.5 ? 16u : kMatrixBands;
+}
+
+- (void)clampMatrixSelection {
+  const uint32_t activeBands = [self activeMatrixBands];
+  _selectedSource = std::min(_selectedSource, activeBands - 1u);
+  _selectedDestination = std::min(_selectedDestination, activeBands - 1u);
+}
+
 - (void)finishDrag {
   if (_dragParam != CLAP_INVALID_ID && _plugin) {
     endGuiParamGesture(*_plugin, _dragParam);
@@ -771,11 +905,15 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 - (void)drawRoutePage:(const s3g::clap_gui::Style &)style {
   NSDictionary *labels = s3g::clap_gui::softLabelAttrs();
   NSDictionary *values = s3g::clap_gui::softValueAttrs();
+  [self clampMatrixSelection];
+  const uint32_t activeBands = [self activeMatrixBands];
+  const CGFloat matrixPitch = formantMatrixPitch(activeBands);
   const bool voicePitch =
       loadValue(*_plugin, kCarrierPitchSourceParamId) >= 0.5;
   [self drawPanel:[NSString
-                      stringWithFormat:@"ROUTING %c // MODULATOR ANALYSIS > %@ CARRIER",
+                      stringWithFormat:@"ROUTING %c // %u BAND // MODULATOR ANALYSIS > %@ CARRIER",
                                        _editingSceneB ? 'B' : 'A',
+                                       activeBands,
                                        voicePitch ? @"VOICE-PITCH" : @"MIDI"]
             panel:kFormantRoutePanel
             style:style];
@@ -824,7 +962,6 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   drawFormantActionButton(formantCrosspointActionRect(1u), @"CLEAR", false,
                           style);
 
-  const bool wide16 = loadValue(*_plugin, kBandLayoutParamId) >= 0.5;
   const int modulatorSource = static_cast<int>(std::lround(
       loadValue(*_plugin, kModulatorSourceParamId)));
   NSString *selectedAnalysisLabel =
@@ -843,28 +980,23 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   [style.grid setStroke];
   const CGFloat lastX =
       kFormantMatrixFirstX +
-      static_cast<CGFloat>(kMatrixBands - 1u) * kFormantMatrixPitch;
+      static_cast<CGFloat>(activeBands - 1u) * matrixPitch;
   const CGFloat lastY =
       kFormantMatrixFirstY +
-      static_cast<CGFloat>(kMatrixBands - 1u) * kFormantMatrixPitch;
-  for (uint32_t band = 0u; band < kMatrixBands; ++band) {
+      static_cast<CGFloat>(activeBands - 1u) * matrixPitch;
+  for (uint32_t band = 0u; band < activeBands; ++band) {
     const CGFloat x =
-        kFormantMatrixFirstX + static_cast<CGFloat>(band) * kFormantMatrixPitch;
+        kFormantMatrixFirstX + static_cast<CGFloat>(band) * matrixPitch;
     const CGFloat y =
-        kFormantMatrixFirstY + static_cast<CGFloat>(band) * kFormantMatrixPitch;
+        kFormantMatrixFirstY + static_cast<CGFloat>(band) * matrixPitch;
     [NSBezierPath strokeLineFromPoint:NSMakePoint(x, kFormantMatrixFirstY)
                               toPoint:NSMakePoint(x, lastY)];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(kFormantMatrixFirstX, y)
                               toPoint:NSMakePoint(lastX, y)];
-    const bool activeBand = !wide16 || band < 16u;
     const CGFloat analysisLinear =
-        activeBand
-            ? _plugin->analysisBandMeters[band].load(std::memory_order_relaxed)
-            : 0.0;
+        _plugin->analysisBandMeters[band].load(std::memory_order_relaxed);
     const CGFloat synthesisLinear =
-        activeBand
-            ? _plugin->synthesisBandMeters[band].load(std::memory_order_relaxed)
-            : 0.0;
+        _plugin->synthesisBandMeters[band].load(std::memory_order_relaxed);
     const CGFloat analysis =
         s3g::acapellaResonatorMeterDisplayLevel(analysisLinear);
     const CGFloat synthesis =
@@ -884,17 +1016,18 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
     [number drawAtPoint:NSMakePoint(112.0, y - 6.0) withAttributes:values];
   }
 
-  for (uint32_t destination = 0u; destination < kMatrixBands; ++destination) {
+  for (uint32_t destination = 0u; destination < activeBands; ++destination) {
     const CGFloat synthesis = s3g::acapellaResonatorMeterDisplayLevel(
         _plugin->synthesisBandMeters[destination].load(
             std::memory_order_relaxed));
-    for (uint32_t source = 0u; source < kMatrixBands; ++source) {
+    for (uint32_t source = 0u; source < activeBands; ++source) {
       const double route = loadValue(
           *_plugin, matrixParamId(_editingSceneB, destination, source));
       const CGFloat analysis = s3g::acapellaResonatorMeterDisplayLevel(
           _plugin->analysisBandMeters[source].load(
               std::memory_order_relaxed));
-      const NSRect hit = formantMatrixCellRect(destination, source);
+      const NSRect hit = formantMatrixCellRect(
+          activeBands, destination, source);
       const NSRect node =
           NSMakeRect(NSMidX(hit) - 5.0, NSMidY(hit) - 5.0, 10.0, 10.0);
       const bool selectedCell =
@@ -918,9 +1051,9 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   }
 
   [@"OUTPUT TRIM" drawAtPoint:NSMakePoint(94.0, 718.0) withAttributes:labels];
-  for (uint32_t band = 0u; band < kMatrixBands; ++band) {
+  for (uint32_t band = 0u; band < activeBands; ++band) {
     const CGFloat x =
-        kFormantMatrixFirstX + static_cast<CGFloat>(band) * kFormantMatrixPitch;
+        kFormantMatrixFirstX + static_cast<CGFloat>(band) * matrixPitch;
     const double trim = loadValue(*_plugin, bandTrimParamId(band));
     const CGFloat norm = static_cast<CGFloat>(trim * 0.5);
     const NSRect track = NSMakeRect(x - 3.0, 748.0, 6.0, 82.0);
@@ -951,15 +1084,18 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
           ? @"INTERNAL SPEECH [SELECTED]"
           : modulatorSource == 2 ? @"INTERNAL SPEECH [BLEND]"
                                  : @"INTERNAL SPEECH";
-  [micLabel drawAtPoint:NSMakePoint(924.0, 674.0) withAttributes:labels];
-  [self drawMeter:NSMakeRect(1072.0, 676.0, 252.0, 8.0)
+  const CGFloat sourceMeterY =
+      s3g::gui_layout::rowY(kFormantSignalPanel, 2u) + 39.0;
+  [micLabel drawAtPoint:NSMakePoint(924.0, sourceMeterY)
+         withAttributes:labels];
+  [self drawMeter:NSMakeRect(1072.0, sourceMeterY + 2.0, 252.0, 8.0)
             level:micPeak
             color:s3g::clap_gui::color(0x87ad91)
             style:style
          vertical:NO];
-  [speechLabel drawAtPoint:NSMakePoint(924.0, 692.0)
+  [speechLabel drawAtPoint:NSMakePoint(924.0, sourceMeterY + 18.0)
             withAttributes:labels];
-  [self drawMeter:NSMakeRect(1072.0, 694.0, 252.0, 8.0)
+  [self drawMeter:NSMakeRect(1072.0, sourceMeterY + 20.0, 252.0, 8.0)
             level:speechPeak
             color:s3g::clap_gui::color(0xc67b52)
             style:style
@@ -975,7 +1111,7 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
         ? [NSString stringWithFormat:@"VOICE PITCH  %.1f Hz  //  %.0f%%",
                                       pitchHz, confidence * 100.0f]
         : @"VOICE PITCH  LISTENING";
-    [pitchText drawAtPoint:NSMakePoint(924.0, 710.0)
+    [pitchText drawAtPoint:NSMakePoint(924.0, sourceMeterY + 36.0)
             withAttributes:values];
   }
 }
@@ -992,19 +1128,19 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
                                             ? kFormantPhraseRightPanel
                                             : kFormantGenericRightPanel;
   NSString *leftTitle = _page == kFormantPageBank
-                            ? @"FILTER BANK"
+                            ? @"ANALYSIS / FILTER BANK"
                             : _page == kFormantPageCarrier
-                                  ? @"MODULATOR / CARRIER"
+                                  ? @"MODULATOR / PITCH / CARRIER"
                                   : _page == kFormantPagePhrase
                                         ? @"PHRASE / PERFORMANCE"
-                                        : @"DYNAMICS / OUTPUT";
+                                        : @"DYNAMICS / CHARACTER";
   const bool voicePitch =
       loadValue(*_plugin, kCarrierPitchSourceParamId) >= 0.5;
   NSString *rightTitle = _page == kFormantPageBank
-                             ? @"ENVELOPES / SPACE"
+                             ? @"STEREO / HOLD / TRANSITIONS"
                              : _page == kFormantPageCarrier
-                                   ? (voicePitch ? @"VOICE-PITCH CARRIER / LFO"
-                                                 : @"MIDI CARRIER / LFO")
+                                   ? (voicePitch ? @"CARRIER DETAIL / VOICE-PITCH LFO"
+                                                 : @"CARRIER DETAIL / MIDI LFO")
                                    : _page == kFormantPagePhrase
                                          ? @"VOICE / ENSEMBLE"
                                          : @"MULTI-HEAD TAPE";
@@ -1263,24 +1399,41 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 
 - (void)applySceneOperation:(uint32_t)operation {
   std::array<float, kMatrixCells> values{};
+  const uint32_t activeBands = [self activeMatrixBands];
   bool targetSceneB = _editingSceneB;
   if (operation == 3u)
     targetSceneB = !_editingSceneB;
+
+  // A Wide 16 operation edits only its visible 16 x 16 submatrix. Preserve
+  // the six hidden Speech 22 rows and columns verbatim so changing layouts is
+  // always reversible and never destroys a larger routing scene.
+  for (uint32_t destination = 0u; destination < kMatrixBands; ++destination) {
+    for (uint32_t source = 0u; source < kMatrixBands; ++source) {
+      const uint32_t cell = destination * kMatrixBands + source;
+      values[cell] = static_cast<float>(loadValue(
+          *_plugin, matrixParamId(targetSceneB, destination, source)));
+    }
+  }
   if (operation == 3u) {
-    for (uint32_t destination = 0u; destination < kMatrixBands; ++destination) {
-      for (uint32_t source = 0u; source < kMatrixBands; ++source) {
+    for (uint32_t destination = 0u; destination < activeBands; ++destination) {
+      for (uint32_t source = 0u; source < activeBands; ++source) {
         const uint32_t cell = destination * kMatrixBands + source;
         values[cell] = static_cast<float>(loadValue(
             *_plugin, matrixParamId(_editingSceneB, destination, source)));
       }
     }
   } else if (operation == 0u) {
-    for (uint32_t band = 0u; band < kMatrixBands; ++band) {
+    for (uint32_t destination = 0u; destination < activeBands; ++destination) {
+      for (uint32_t source = 0u; source < activeBands; ++source) {
+        values[destination * kMatrixBands + source] = 0.0f;
+      }
+    }
+    for (uint32_t band = 0u; band < activeBands; ++band) {
       values[band * kMatrixBands + band] = 1.0f;
     }
   } else if (operation == 1u) {
-    for (uint32_t destination = 0u; destination < kMatrixBands; ++destination) {
-      for (uint32_t source = 0u; source < kMatrixBands; ++source) {
+    for (uint32_t destination = 0u; destination < activeBands; ++destination) {
+      for (uint32_t source = 0u; source < activeBands; ++source) {
         _randomSeed = _randomSeed * 1664525u + 1013904223u;
         const uint32_t cell = destination * kMatrixBands + source;
         const float unit =
@@ -1290,7 +1443,15 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
         if (keep) {
           const float gain = 0.15f + unit * 0.70f;
           values[cell] = ((_randomSeed >> 1u) & 1u) != 0u ? -gain : gain;
+        } else {
+          values[cell] = 0.0f;
         }
+      }
+    }
+  } else if (operation == 2u) {
+    for (uint32_t destination = 0u; destination < activeBands; ++destination) {
+      for (uint32_t source = 0u; source < activeBands; ++source) {
+        values[destination * kMatrixBands + source] = 0.0f;
       }
     }
   }
@@ -1314,12 +1475,10 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
         kCouplingParamId,
         kBandLayoutParamId,
         kBankModeParamId,
-        kModulatorSourceParamId,
-        kMicGainParamId,
-        kCarrierPitchSourceParamId,
         kBankAmountParamId,
         kArticulationThruParamId,
-        kAnalysisBlendParamId,
+        kIntelligibilityParamId,
+        kMouthFocusParamId,
         kBankAttackParamId,
         kBankReleaseParamId,
         kOpenLevelParamId,
@@ -1436,6 +1595,8 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
   }
 
   if (_page == kFormantPageRoute) {
+    [self clampMatrixSelection];
+    const uint32_t activeBands = [self activeMatrixBands];
     if (NSPointInRect(point, formantSceneButtonRect(false)) ||
         NSPointInRect(point, formantSceneButtonRect(true))) {
       _editingSceneB = NSPointInRect(point, formantSceneButtonRect(true));
@@ -1448,9 +1609,10 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
       [self applySceneOperation:operation];
       return;
     }
-    for (uint32_t destination = 0u; destination < kMatrixBands; ++destination) {
-      for (uint32_t source = 0u; source < kMatrixBands; ++source) {
-        if (!NSPointInRect(point, formantMatrixCellRect(destination, source)))
+    for (uint32_t destination = 0u; destination < activeBands; ++destination) {
+      for (uint32_t source = 0u; source < activeBands; ++source) {
+        if (!NSPointInRect(point,
+                formantMatrixCellRect(activeBands, destination, source)))
           continue;
         const clap_id id = matrixParamId(_editingSceneB, destination, source);
         const double current = loadValue(*_plugin, id);
@@ -1474,8 +1636,8 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
         return;
       }
     }
-    for (uint32_t band = 0u; band < kMatrixBands; ++band) {
-      if (!NSPointInRect(point, formantBandTrimHitRect(band)))
+    for (uint32_t band = 0u; band < activeBands; ++band) {
+      if (!NSPointInRect(point, formantBandTrimHitRect(activeBands, band)))
         continue;
       [self beginDrag:bandTrimParamId(band)
            trackStart:748.0
@@ -1555,19 +1717,21 @@ NSRect formantParamHitRect(const s3g::gui_layout::Panel &panel, uint32_t row,
 
 - (void)keyDown:(NSEvent *)event {
   if (_page == kFormantPageRoute) {
+    [self clampMatrixSelection];
+    const uint32_t activeBands = [self activeMatrixBands];
     NSString *key = [event charactersIgnoringModifiers];
     if ([key length] > 0u) {
       const unichar character = [key characterAtIndex:0u];
       if (character == NSLeftArrowFunctionKey && _selectedSource > 0u) {
         --_selectedSource;
       } else if (character == NSRightArrowFunctionKey &&
-                 _selectedSource + 1u < kMatrixBands) {
+                 _selectedSource + 1u < activeBands) {
         ++_selectedSource;
       } else if (character == NSUpArrowFunctionKey &&
                  _selectedDestination > 0u) {
         --_selectedDestination;
       } else if (character == NSDownArrowFunctionKey &&
-                 _selectedDestination + 1u < kMatrixBands) {
+                 _selectedDestination + 1u < activeBands) {
         ++_selectedDestination;
       } else if (character == NSDeleteCharacter ||
                  character == NSBackspaceCharacter) {

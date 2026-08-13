@@ -38,9 +38,25 @@ enum class AcapellaResonatorBandLayout : uint32_t {
 enum class AcapellaResonatorAnalysisSlope : uint32_t {
     FourPole = 0u,
     EightPole,
+    MouthModel,
 };
 
-constexpr uint32_t kAcapellaResonatorAnalysisSlopeCount = 2u;
+constexpr uint32_t kAcapellaResonatorAnalysisSlopeCount = 3u;
+
+enum class AcapellaResonatorTransferMode : uint32_t {
+    Expressive = 0u,
+    Precision,
+};
+
+constexpr uint32_t kAcapellaResonatorTransferModeCount = 2u;
+
+enum class AcapellaResonatorHfDetailMode : uint32_t {
+    Synthetic = 0u,
+    Switched,
+    Direct,
+};
+
+constexpr uint32_t kAcapellaResonatorHfDetailModeCount = 3u;
 
 enum class AcapellaResonatorCarrierPitchSource : uint32_t {
     Midi = 0u,
@@ -239,6 +255,50 @@ struct AcapellaResonatorParams {
     float carrierLfoSyncDivisionBeats = 1.0f;
     // Zero is measured analysis; one is the score-derived phoneme envelope.
     float analysisBlend = 0.72f;
+    // One perceptual control for the speech-precision path. Zero preserves
+    // the original absolute envelope/global V-U behavior; one enables
+    // band-energy detection, spectral contrast, local consonant excitation,
+    // and bounded carrier-band compensation.
+    float definition = 0.0f;
+    // Balance the Mouth Model between the fast measured band envelopes and
+    // its pitch-resistant LPC vocal-tract estimate. Other analysis responses
+    // ignore this control.
+    float mouthFocus = 0.80f;
+    // Pre-analysis conditioning. Voice Focus is a broad presence contour;
+    // Leveler stabilizes the analysis-bank drive without changing the
+    // External Mic anti-drone detector or passing any microphone waveform.
+    float voiceFocus = 0.0f;
+    float analysisLeveler = 0.0f;
+    // Precision preserves a more literal, faster envelope transfer and avoids
+    // the creative contrast expansion/output saturation used by Expressive.
+    AcapellaResonatorTransferMode transferMode
+        = AcapellaResonatorTransferMode::Expressive;
+    // Reconstructed consonants remain generated carrier energy. Color moves
+    // between periodic buzz and shaped hiss; Speed controls the three-zone
+    // consonant followers independently of the vowel release.
+    float consonantColor = 0.0f;
+    float consonantSpeed = 0.35f;
+    // Adds a restrained secondary/subharmonic excitation and a broadband
+    // carrier floor so high notes still illuminate narrow synthesis bands.
+    float carrierDensity = 0.0f;
+    // Analysis Width controls the composite analyzer bandwidth independently
+    // of synthesis resonance. Zero is narrow; one is broad/natural.
+    float analysisWidth = 0.79f;
+    // High-frequency detail is either fully reconstructed, a consonant-gated
+    // residual, or a continuous residual. Both residual modes remain steeply
+    // high-passed and never copy the vowel/body of the modulator.
+    AcapellaResonatorHfDetailMode hfDetailMode
+        = AcapellaResonatorHfDetailMode::Synthetic;
+    float hfDetailLevel = 0.0f;
+    float hfDetailCutoffHz = 4300.0f;
+    // Three-band pre-analysis tone controls, speech compression with bounded
+    // makeup, adaptive per-band expansion, and spectral dynamic balancing.
+    float analysisLowDb = 0.0f;
+    float analysisMidDb = 0.0f;
+    float analysisAirDb = 0.0f;
+    float analysisCompression = 0.0f;
+    float analysisNoiseReject = 0.0f;
+    float analysisSpectralBalance = 0.0f;
     float attackMs = 8.0f;
     float releaseMs = 120.0f;
     float resonance = 0.48f;
@@ -318,6 +378,24 @@ inline void copyAcapellaResonatorControlParams(
     target.carrierLfoSync = source.carrierLfoSync;
     target.carrierLfoSyncDivisionBeats = source.carrierLfoSyncDivisionBeats;
     target.analysisBlend = source.analysisBlend;
+    target.definition = source.definition;
+    target.mouthFocus = source.mouthFocus;
+    target.voiceFocus = source.voiceFocus;
+    target.analysisLeveler = source.analysisLeveler;
+    target.transferMode = source.transferMode;
+    target.consonantColor = source.consonantColor;
+    target.consonantSpeed = source.consonantSpeed;
+    target.carrierDensity = source.carrierDensity;
+    target.analysisWidth = source.analysisWidth;
+    target.hfDetailMode = source.hfDetailMode;
+    target.hfDetailLevel = source.hfDetailLevel;
+    target.hfDetailCutoffHz = source.hfDetailCutoffHz;
+    target.analysisLowDb = source.analysisLowDb;
+    target.analysisMidDb = source.analysisMidDb;
+    target.analysisAirDb = source.analysisAirDb;
+    target.analysisCompression = source.analysisCompression;
+    target.analysisNoiseReject = source.analysisNoiseReject;
+    target.analysisSpectralBalance = source.analysisSpectralBalance;
     target.attackMs = source.attackMs;
     target.releaseMs = source.releaseMs;
     target.resonance = source.resonance;
@@ -412,6 +490,44 @@ inline AcapellaResonatorParams sanitizeAcapellaResonatorParams(
         params.carrierLfoSyncDivisionBeats, 1.0f), 0.0625f, 16.0f);
     params.analysisBlend = clamp(acapellaFiniteOr(
         params.analysisBlend, 0.72f), 0.0f, 1.0f);
+    params.definition = clamp(acapellaFiniteOr(
+        params.definition, 0.0f), 0.0f, 1.0f);
+    params.mouthFocus = clamp(acapellaFiniteOr(
+        params.mouthFocus, 0.80f), 0.0f, 1.0f);
+    params.voiceFocus = clamp(acapellaFiniteOr(
+        params.voiceFocus, 0.0f), -1.0f, 1.0f);
+    params.analysisLeveler = clamp(acapellaFiniteOr(
+        params.analysisLeveler, 0.0f), 0.0f, 1.0f);
+    params.transferMode = static_cast<AcapellaResonatorTransferMode>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.transferMode),
+            kAcapellaResonatorTransferModeCount - 1u));
+    params.consonantColor = clamp(acapellaFiniteOr(
+        params.consonantColor, 0.0f), -1.0f, 1.0f);
+    params.consonantSpeed = clamp(acapellaFiniteOr(
+        params.consonantSpeed, 0.35f), 0.0f, 1.0f);
+    params.carrierDensity = clamp(acapellaFiniteOr(
+        params.carrierDensity, 0.0f), 0.0f, 1.0f);
+    params.analysisWidth = clamp(acapellaFiniteOr(
+        params.analysisWidth, 0.79f), 0.0f, 1.0f);
+    params.hfDetailMode = static_cast<AcapellaResonatorHfDetailMode>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.hfDetailMode),
+            kAcapellaResonatorHfDetailModeCount - 1u));
+    params.hfDetailLevel = clamp(acapellaFiniteOr(
+        params.hfDetailLevel, 0.0f), 0.0f, 1.0f);
+    params.hfDetailCutoffHz = clamp(acapellaFiniteOr(
+        params.hfDetailCutoffHz, 4300.0f), 2200.0f, 9000.0f);
+    params.analysisLowDb = clamp(acapellaFiniteOr(
+        params.analysisLowDb, 0.0f), -12.0f, 12.0f);
+    params.analysisMidDb = clamp(acapellaFiniteOr(
+        params.analysisMidDb, 0.0f), -12.0f, 12.0f);
+    params.analysisAirDb = clamp(acapellaFiniteOr(
+        params.analysisAirDb, 0.0f), -12.0f, 12.0f);
+    params.analysisCompression = clamp(acapellaFiniteOr(
+        params.analysisCompression, 0.0f), 0.0f, 1.0f);
+    params.analysisNoiseReject = clamp(acapellaFiniteOr(
+        params.analysisNoiseReject, 0.0f), 0.0f, 1.0f);
+    params.analysisSpectralBalance = clamp(acapellaFiniteOr(
+        params.analysisSpectralBalance, 0.0f), 0.0f, 1.0f);
     params.attackMs = clamp(acapellaFiniteOr(params.attackMs, 8.0f),
         0.5f, 120.0f);
     params.releaseMs = clamp(acapellaFiniteOr(params.releaseMs, 120.0f),
@@ -562,22 +678,39 @@ struct TptBandpass {
     }
 
     void configure(float frequencyHz, float q, float sampleRate,
-        bool immediate = false)
+        bool immediate = false, bool unityBandGain = false)
     {
         const float nyquistBound = std::max(24.0f, sampleRate * 0.43f);
         const float frequency = clamp(frequencyHz, 18.0f, nyquistBound);
         const float boundedQ = clamp(q, 0.45f, 10.0f);
         const float g = std::tan(kPi * frequency / sampleRate);
         targetDamping = 1.0f / boundedQ;
+        // Analysis cascades require unity centre gain at every stage. The
+        // synthesis bank deliberately retains a restrained Q-dependent peak.
+        targetBandNormalization = unityBandGain
+            ? targetDamping : std::sqrt(targetDamping);
         targetA1 = 1.0f / (1.0f + g * (g + targetDamping));
         targetA2 = g * targetA1;
         targetA3 = g * targetA2;
-        // This retains an audible resonance increase without exposing the
-        // raw Q-fold peak gain of an unnormalised bandpass.
-        targetBandNormalization = std::sqrt(targetDamping);
         coefficientSlew = onePoleMilliseconds(1.5f, sampleRate);
         if (!configured || immediate) snapCoefficients();
         configured = true;
+    }
+
+    void setQ(float q, bool unityBandGain, bool immediate = false)
+    {
+        const float boundedQ = clamp(q, 0.45f, 10.0f);
+        targetDamping = 1.0f / boundedQ;
+        targetBandNormalization = unityBandGain
+            ? targetDamping : std::sqrt(targetDamping);
+        // a1/a2/a3 depend on damping too. Recover g from a2/a1, avoiding a
+        // tan() per filter during width automation.
+        const float g = targetA1 > 1.0e-12f
+            ? targetA2 / targetA1 : 0.0f;
+        targetA1 = 1.0f / (1.0f + g * (g + targetDamping));
+        targetA2 = g * targetA1;
+        targetA3 = g * targetA2;
+        if (immediate) snapCoefficients();
     }
 
     void snapCoefficients()
@@ -791,6 +924,51 @@ public:
                 / sampleRate_);
         pitchTrackerChannelCoefficient_ =
             acapella_resonator_detail::onePoleMilliseconds(18.0f, sampleRate_);
+        mouthWindowSamples_ = std::min<uint32_t>(kMouthHistoryMaximumWindow,
+            std::max<uint32_t>(256u,
+                static_cast<uint32_t>(std::lround(sampleRate_ * 0.024f))));
+        mouthHopSamples_ = std::max<uint32_t>(32u,
+            static_cast<uint32_t>(std::lround(sampleRate_ * 0.005f)));
+        mouthShapeCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(7.0f, sampleRate_);
+        mouthConfidenceCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(12.0f, sampleRate_);
+        conditionerRumbleCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * std::min(72.0f, sampleRate_ * 0.02f)
+                / sampleRate_);
+        conditionerFocusCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * std::min(1050.0f, sampleRate_ * 0.18f)
+                / sampleRate_);
+        levelerAttackCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(4.0f, sampleRate_);
+        levelerReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(180.0f, sampleRate_);
+        levelerGainCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(95.0f, sampleRate_);
+        analysisEqLowCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * std::min(360.0f, sampleRate_ * 0.08f)
+                / sampleRate_);
+        analysisEqHighCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * std::min(2850.0f, sampleRate_ * 0.24f)
+                / sampleRate_);
+        analysisCompressorAttackCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(3.0f, sampleRate_);
+        analysisCompressorReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(105.0f, sampleRate_);
+        analysisCompressorGainCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(28.0f, sampleRate_);
+        noiseFloorRiseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(1400.0f, sampleRate_);
+        noiseFloorFallCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(140.0f, sampleRate_);
+        spectralGateAttackCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(1.5f, sampleRate_);
+        spectralGateReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(26.0f, sampleRate_);
+        hfDetailAttackCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(0.8f, sampleRate_);
+        hfDetailReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(34.0f, sampleRate_);
         prepared_ = true;
         reset();
         return true;
@@ -810,6 +988,17 @@ public:
         for (auto& filter : synthesisLeft_) filter.reset();
         for (auto& filter : synthesisRight_) filter.reset();
         analysisEnvelope_.fill(0.0f);
+        analysisPower_.fill(0.0f);
+        precisionEnvelope_.fill(0.0f);
+        previousPrecisionEnvelope_.fill(0.0f);
+        definitionEnvelope_.fill(0.0f);
+        bandTransient_.fill(0.0f);
+        bandNoiseMix_.fill(0.0f);
+        consonantZoneEnvelope_.fill(0.0f);
+        carrierBandEnergy_.fill(0.0f);
+        analysisNoiseFloor_.fill(0.0f);
+        spectralGateGain_.fill(1.0f);
+        spectralDynamicsGain_.fill(1.0f);
         liveEnvelope_.fill(0.0f);
         blurredEnvelope_.fill(0.0f);
         frozenEnvelope_.fill(0.0f);
@@ -845,14 +1034,41 @@ public:
         noiseLowLeft_ = 0.0f;
         noiseLowRight_ = 0.0f;
         sibilanceEnvelope_ = 0.0f;
+        carrierEnergyMean_ = 0.0f;
+        precisionTonalLeft_ = 0.0f;
+        precisionTonalRight_ = 0.0f;
+        precisionNoiseLeft_ = 0.0f;
+        precisionNoiseRight_ = 0.0f;
         analysisLevel_ = 0.0f;
+        conditionerRumbleLeft_ = 0.0f;
+        conditionerRumbleRight_ = 0.0f;
+        conditionerFocusLeft_ = 0.0f;
+        conditionerFocusRight_ = 0.0f;
+        levelerEnvelope_ = 0.0f;
+        levelerGain_ = 1.0f;
+        analysisEqLowLeft_ = 0.0f;
+        analysisEqLowRight_ = 0.0f;
+        analysisEqHighLeft_ = 0.0f;
+        analysisEqHighRight_ = 0.0f;
+        analysisCompressorEnvelope_ = 0.0f;
+        analysisCompressorGain_ = 1.0f;
+        hfDetailLowOneLeft_ = 0.0f;
+        hfDetailLowOneRight_ = 0.0f;
+        hfDetailLowTwoLeft_ = 0.0f;
+        hfDetailLowTwoRight_ = 0.0f;
+        hfDetailEnvelope_ = 0.0f;
+        hfDetailGateGain_ = 0.0f;
         modulatorDetector_ = 0.0f;
         modulatorGateTarget_ = 0.0f;
         modulatorGateGain_ = 0.0f;
         modulatorGateOpen_ = false;
         analysisSlopeMix_ = params_.analysisSlope
-                == AcapellaResonatorAnalysisSlope::EightPole
+                == AcapellaResonatorAnalysisSlope::FourPole
+            ? 0.0f : 1.0f;
+        mouthModelMix_ = params_.analysisSlope
+                == AcapellaResonatorAnalysisSlope::MouthModel
             ? 1.0f : 0.0f;
+        resetMouthModelState();
         pitchTrackerBuffer_.fill(0.0f);
         pitchDifference_.fill(1.0f);
         pitchTrackerWrite_ = 0u;
@@ -892,6 +1108,7 @@ public:
         activityEnvelope_ = 0.0f;
         updatePhonemeTarget(AcapellaPhoneme::AX);
         updateSynthesisCoefficients();
+        updateAnalysisCoefficients(true);
         for (auto& filter : synthesisLeft_) filter.snapCoefficients();
         for (auto& filter : synthesisRight_) filter.snapCoefficients();
         updateRuntimeCoefficients();
@@ -1133,6 +1350,8 @@ public:
     {
         analysisLeft = finiteInput(analysisLeft);
         analysisRight = finiteInput(analysisRight);
+        const float unconditionedAnalysisLeft = analysisLeft;
+        const float unconditionedAnalysisRight = analysisRight;
         externalCarrierLeft = finiteInput(externalCarrierLeft);
         externalCarrierRight = finiteInput(externalCarrierRight);
         if (!prepared_) {
@@ -1150,6 +1369,7 @@ public:
                 layoutChangePending_ = false;
             }
             updateSynthesisCoefficients();
+            updateAnalysisCoefficients(false);
             updateRuntimeCoefficients();
         }
         const float detectorInput = std::max(
@@ -1202,14 +1422,63 @@ public:
             ? 1.0f : 0.0f;
         externalMicModeGain_ += (externalMicModeTarget
             - externalMicModeGain_) * parameterCoefficient_;
+        conditionAnalysis(analysisLeft, analysisRight);
+        // Two cascaded one-pole high-passes form the optional residual path.
+        // The conditioned signal includes the analysis EQ/compressor, but the
+        // residual remains entirely separate from envelope measurement.
+        hfDetailLowOneLeft_ += (analysisLeft - hfDetailLowOneLeft_)
+            * hfDetailCutoffCoefficient_;
+        hfDetailLowOneRight_ += (analysisRight - hfDetailLowOneRight_)
+            * hfDetailCutoffCoefficient_;
+        const float hfFirstLeft = analysisLeft - hfDetailLowOneLeft_;
+        const float hfFirstRight = analysisRight - hfDetailLowOneRight_;
+        hfDetailLowTwoLeft_ += (hfFirstLeft - hfDetailLowTwoLeft_)
+            * hfDetailCutoffCoefficient_;
+        hfDetailLowTwoRight_ += (hfFirstRight - hfDetailLowTwoRight_)
+            * hfDetailCutoffCoefficient_;
+        const float hfDetailLeft = hfFirstLeft - hfDetailLowTwoLeft_;
+        const float hfDetailRight = hfFirstRight - hfDetailLowTwoRight_;
+        const float hfDetailDetector = std::max(
+            std::abs(hfDetailLeft), std::abs(hfDetailRight));
+        const float hfEnvelopeCoefficient =
+            hfDetailDetector > hfDetailEnvelope_
+            ? hfDetailAttackCoefficient_ : hfDetailReleaseCoefficient_;
+        hfDetailEnvelope_ += (hfDetailDetector - hfDetailEnvelope_)
+            * hfEnvelopeCoefficient;
         const float levelCoefficient = detectorInput > analysisLevel_
             ? analysisLevelAttackCoefficient_
             : analysisLevelReleaseCoefficient_;
         analysisLevel_ += (detectorInput - analysisLevel_) * levelCoefficient;
+        float hfGateTarget = 0.0f;
+        if (smoothed_.hfDetailMode
+                == AcapellaResonatorHfDetailMode::Direct) {
+            hfGateTarget = 1.0f;
+        } else if (smoothed_.hfDetailMode
+                == AcapellaResonatorHfDetailMode::Switched) {
+            const float ratio = hfDetailEnvelope_
+                / (analysisLevel_ + hfDetailEnvelope_ + 1.0e-4f);
+            const float relative = clamp((ratio - 0.075f) / 0.24f,
+                0.0f, 1.0f);
+            const float absolute = clamp((hfDetailEnvelope_ - 0.0007f)
+                    / 0.0055f,
+                0.0f, 1.0f);
+            hfGateTarget = relative * relative
+                * (3.0f - 2.0f * relative)
+                * absolute * absolute * (3.0f - 2.0f * absolute);
+        }
+        const float hfGateCoefficient = hfGateTarget > hfDetailGateGain_
+            ? hfDetailAttackCoefficient_ : hfDetailReleaseCoefficient_;
+        hfDetailGateGain_ += (hfGateTarget - hfDetailGateGain_)
+            * hfGateCoefficient;
         const float analysisSlopeTarget = smoothed_.analysisSlope
-                == AcapellaResonatorAnalysisSlope::EightPole
-            ? 1.0f : 0.0f;
+                == AcapellaResonatorAnalysisSlope::FourPole
+            ? 0.0f : 1.0f;
         analysisSlopeMix_ += (analysisSlopeTarget - analysisSlopeMix_)
+            * parameterCoefficient_;
+        const float mouthModelTarget = smoothed_.analysisSlope
+                == AcapellaResonatorAnalysisSlope::MouthModel
+            ? 1.0f : 0.0f;
+        mouthModelMix_ += (mouthModelTarget - mouthModelMix_)
             * parameterCoefficient_;
         pitchTrackerLeftLevel_ += (std::abs(analysisLeft)
             - pitchTrackerLeftLevel_) * pitchTrackerChannelCoefficient_;
@@ -1270,12 +1539,10 @@ public:
             // upper formants drive the carrier without passing dry mic audio.
             const float preEmphasis = lerp(
                 1.0f, 2.35f, position * position);
-            // The additional resonator pair contributes its own centre gain.
-            // Compensate while morphing so 8 Pole is narrower, not merely a
-            // louder envelope detector.
-            const float slopeGain = lerp(
-                1.0f, 1.0f / 2.70f, analysisSlopeMix_);
-            const float detector = preEmphasis * slopeGain
+            // Every analysis stage is unity-normalized at its center, so pole
+            // count changes rejection without changing on-band detector gain.
+            constexpr float calibratedAnalysisGain = 2.70f;
+            const float detector = preEmphasis * calibratedAnalysisGain
                 * std::sqrt(std::max(0.0f,
                     0.5f * (left * left + right * right)));
             const float coefficient = detector > analysisEnvelope_[band]
@@ -1284,7 +1551,26 @@ public:
             analysisEnvelope_[band] +=
                 (detector - analysisEnvelope_[band]) * coefficient;
             analysisEnvelope_[band] *= activeBandGain_[band];
-            analysisMeters_[band] += (analysisEnvelope_[band]
+
+            // Definition uses an energy observer instead of following the
+            // rectified real-valued filter output directly. This suppresses
+            // carrier-rate ripple and permits substantially faster upper-band
+            // timing without turning S/T/K edges into buzz or clicks.
+            const float detectorPower = detector * detector;
+            const float powerCoefficient = detectorPower > analysisPower_[band]
+                ? definitionAttackCoefficients_[band]
+                : definitionReleaseCoefficients_[band];
+            analysisPower_[band] += (detectorPower - analysisPower_[band])
+                * powerCoefficient;
+            analysisPower_[band] = std::max(0.0f, analysisPower_[band]);
+            precisionEnvelope_[band] = std::sqrt(analysisPower_[band])
+                * activeBandGain_[band];
+        }
+
+        processMouthAnalysis(analysisLeft, analysisRight, activeBands);
+        updateDefinitionEnvelopes(activeBands);
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            analysisMeters_[band] += (analysisControlEnvelope(band)
                 - analysisMeters_[band]) * meterCoefficient_;
         }
 
@@ -1338,6 +1624,7 @@ public:
 
         float wetLeft = 0.0f;
         float wetRight = 0.0f;
+        float carrierEnergySum = 0.0f;
         for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
             const float position = static_cast<float>(band)
                 / static_cast<float>(kAcapellaResonatorBands - 1u);
@@ -1353,36 +1640,93 @@ public:
             const float rightGain = 1.0f + pan * 0.42f;
             const float envelope = mappedEnvelope_[band];
             const auto response = responseForBand(band);
+            const float localNoise = bandNoiseMix_[band];
+            // Equal-power interpolation without two square roots per band.
+            // The bulge is exact at the endpoints and midpoint and stays
+            // within about 0.1 dB of unity power across the full range.
+            const float equalPowerBulge = 0.828427125f * localNoise
+                * (1.0f - localNoise);
+            const float precisionTonalGain = 1.0f - localNoise
+                + equalPowerBulge;
+            const float precisionNoiseGain = localNoise + equalPowerBulge;
+            const float precisionCarrierLeft = precisionTonalLeft_
+                    * precisionTonalGain
+                + precisionNoiseLeft_ * precisionNoiseGain;
+            const float precisionCarrierRight = precisionTonalRight_
+                    * precisionTonalGain
+                + precisionNoiseRight_ * precisionNoiseGain;
+            const float precisionMix = smoothed_.transferMode
+                    == AcapellaResonatorTransferMode::Precision
+                ? std::max(0.88f, smoothed_.definition)
+                : smoothed_.definition;
+            const float bandCarrierLeft = lerp(carrierLeft,
+                precisionCarrierLeft, precisionMix);
+            const float bandCarrierRight = lerp(carrierRight,
+                precisionCarrierRight, precisionMix);
             const float bandLeft = synthesisLeft_[band].process(
-                carrierLeft, response) * activeBandGain_[band];
+                bandCarrierLeft, response) * activeBandGain_[band];
             const float bandRight = synthesisRight_[band].process(
-                carrierRight, response) * activeBandGain_[band];
-            wetLeft += bandLeft
-                * envelope * leftGain;
-            wetRight += bandRight
-                * envelope * rightGain;
+                bandCarrierRight, response) * activeBandGain_[band];
+            const float carrierEnergy = 0.5f
+                * (bandLeft * bandLeft + bandRight * bandRight);
+            carrierBandEnergy_[band] += (carrierEnergy
+                - carrierBandEnergy_[band]) * carrierEnergyCoefficient_;
+            carrierEnergySum += carrierBandEnergy_[band];
+            const float carrierEnergyDelta =
+                (carrierEnergyMean_ - carrierBandEnergy_[band])
+                / (carrierEnergyMean_ + carrierBandEnergy_[band]
+                    + 4.0e-5f);
+            const float compensation = clamp(
+                1.0f + 1.20f * carrierEnergyDelta, 0.72f, 2.20f);
+            const float carrierBalance = lerp(1.0f, compensation,
+                precisionMix * 0.72f);
+            const float balancedLeft = bandLeft * carrierBalance;
+            const float balancedRight = bandRight * carrierBalance;
+            wetLeft += balancedLeft * envelope * leftGain;
+            wetRight += balancedRight * envelope * rightGain;
             const float meterTarget = externalMicGate * 0.5f
-                * (std::abs(bandLeft * envelope)
-                    + std::abs(bandRight * envelope));
+                * (std::abs(balancedLeft * envelope)
+                    + std::abs(balancedRight * envelope));
             synthesisMeters_[band] += (meterTarget
                 - synthesisMeters_[band]) * meterCoefficient_;
         }
+        carrierEnergyMean_ += (carrierEnergySum
+                / static_cast<float>(std::max<uint32_t>(1u, activeBands))
+                - carrierEnergyMean_)
+            * carrierEnergyCoefficient_;
 
         const float wetGain = 2.15f / std::sqrt(
             static_cast<float>(std::max<uint32_t>(1u, activeBands)));
         const float drive = std::exp2(smoothed_.driveDb / 6.020599913f);
-        wetLeft = std::tanh(wetLeft * wetGain * drive)
-            * (0.92f - smoothed_.driveDb * 0.006f);
-        wetRight = std::tanh(wetRight * wetGain * drive)
-            * (0.92f - smoothed_.driveDb * 0.006f);
-        articulationLowLeft_ += (analysisLeft - articulationLowLeft_)
+        if (smoothed_.transferMode == AcapellaResonatorTransferMode::Precision
+            && smoothed_.driveDb < 0.10f) {
+            wetLeft = clamp(wetLeft * wetGain * 0.88f, -1.5f, 1.5f);
+            wetRight = clamp(wetRight * wetGain * 0.88f, -1.5f, 1.5f);
+        } else {
+            wetLeft = std::tanh(wetLeft * wetGain * drive)
+                * (0.92f - smoothed_.driveDb * 0.006f);
+            wetRight = std::tanh(wetRight * wetGain * drive)
+                * (0.92f - smoothed_.driveDb * 0.006f);
+        }
+        articulationLowLeft_ += (unconditionedAnalysisLeft
+                - articulationLowLeft_)
             * articulationHighpassCoefficient_;
-        articulationLowRight_ += (analysisRight - articulationLowRight_)
+        articulationLowRight_ += (unconditionedAnalysisRight
+                - articulationLowRight_)
             * articulationHighpassCoefficient_;
         const float articulationGain = smoothed_.articulationThru
             * (0.16f + 0.84f * voicingNoiseMix_);
-        wetLeft += (analysisLeft - articulationLowLeft_) * articulationGain;
-        wetRight += (analysisRight - articulationLowRight_) * articulationGain;
+        wetLeft += (unconditionedAnalysisLeft - articulationLowLeft_)
+            * articulationGain;
+        wetRight += (unconditionedAnalysisRight - articulationLowRight_)
+            * articulationGain;
+        // Residual detail replaces the carrier's unvoiced high band; it is
+        // not a direct-monitor path. Keep it note/pitch-carrier gated so a
+        // microphone alone cannot leak through this MIDI-controlled effect.
+        const float hfResidualGain = smoothed_.hfDetailLevel
+            * hfDetailGateGain_ * internalCarrierActivity_ * 0.72f;
+        wetLeft += hfDetailLeft * hfResidualGain;
+        wetRight += hfDetailRight * hfResidualGain;
         // A causal output pole suppresses waveform-switch and low-rate fold
         // discontinuities without delaying the exact Amount-zero dry rail.
         wetOutputLeft_ += (wetLeft - wetOutputLeft_) * wetOutputCoefficient_;
@@ -1469,6 +1813,7 @@ private:
     struct CarrierVoice {
         uint64_t id = 0u;
         float phase = 0.0f;
+        float densityPhase = 0.0f;
         float frequencyHz = 146.83f;
         float targetFrequencyHz = 146.83f;
         float level = 0.0f;
@@ -1484,6 +1829,101 @@ private:
 
     using FilterResponse = acapella_resonator_detail::TptBandpass::Response;
 
+    void conditionAnalysis(float& left, float& right)
+    {
+        conditionerRumbleLeft_ += (left - conditionerRumbleLeft_)
+            * conditionerRumbleCoefficient_;
+        conditionerRumbleRight_ += (right - conditionerRumbleRight_)
+            * conditionerRumbleCoefficient_;
+        const float highpassedLeft = left - conditionerRumbleLeft_;
+        const float highpassedRight = right - conditionerRumbleRight_;
+        conditionerFocusLeft_ += (highpassedLeft - conditionerFocusLeft_)
+            * conditionerFocusCoefficient_;
+        conditionerFocusRight_ += (highpassedRight - conditionerFocusRight_)
+            * conditionerFocusCoefficient_;
+
+        const float presenceLeft = highpassedLeft - conditionerFocusLeft_;
+        const float presenceRight = highpassedRight - conditionerFocusRight_;
+        float focusedLeft = highpassedLeft;
+        float focusedRight = highpassedRight;
+        if (smoothed_.voiceFocus >= 0.0f) {
+            focusedLeft += presenceLeft * smoothed_.voiceFocus * 1.25f;
+            focusedRight += presenceRight * smoothed_.voiceFocus * 1.25f;
+        } else {
+            focusedLeft = lerp(highpassedLeft, conditionerFocusLeft_,
+                -smoothed_.voiceFocus * 0.82f);
+            focusedRight = lerp(highpassedRight, conditionerFocusRight_,
+                -smoothed_.voiceFocus * 0.82f);
+        }
+
+        // A reconstruction-preserving three-band split: at unity gains the
+        // low + mid + air paths sum exactly to the focused input. These are
+        // detector EQ controls, not an audible microphone monitor.
+        analysisEqLowLeft_ += (focusedLeft - analysisEqLowLeft_)
+            * analysisEqLowCoefficient_;
+        analysisEqLowRight_ += (focusedRight - analysisEqLowRight_)
+            * analysisEqLowCoefficient_;
+        analysisEqHighLeft_ += (focusedLeft - analysisEqHighLeft_)
+            * analysisEqHighCoefficient_;
+        analysisEqHighRight_ += (focusedRight - analysisEqHighRight_)
+            * analysisEqHighCoefficient_;
+        const float lowLeft = analysisEqLowLeft_;
+        const float lowRight = analysisEqLowRight_;
+        const float midLeft = analysisEqHighLeft_ - lowLeft;
+        const float midRight = analysisEqHighRight_ - lowRight;
+        const float airLeft = focusedLeft - analysisEqHighLeft_;
+        const float airRight = focusedRight - analysisEqHighRight_;
+        const float eqLeft = lowLeft * analysisLowGain_
+            + midLeft * analysisMidGain_ + airLeft * analysisAirGain_;
+        const float eqRight = lowRight * analysisLowGain_
+            + midRight * analysisMidGain_ + airRight * analysisAirGain_;
+
+        const float compressorLevel = std::max(
+            std::abs(eqLeft), std::abs(eqRight));
+        const float compressorCoefficient =
+            compressorLevel > analysisCompressorEnvelope_
+            ? analysisCompressorAttackCoefficient_
+            : analysisCompressorReleaseCoefficient_;
+        analysisCompressorEnvelope_ += (compressorLevel
+            - analysisCompressorEnvelope_) * compressorCoefficient;
+        const float over = std::max(0.0f,
+            analysisCompressorEnvelope_ / 0.095f - 1.0f);
+        const float makeup = lerp(1.0f, 1.72f,
+            smoothed_.analysisCompression);
+        const float compressorTarget = clamp(makeup /
+                (1.0f + over * smoothed_.analysisCompression * 0.72f),
+            0.30f, 2.25f);
+        analysisCompressorGain_ += (compressorTarget
+            - analysisCompressorGain_) * analysisCompressorGainCoefficient_;
+        const float compressedLeft = eqLeft * analysisCompressorGain_;
+        const float compressedRight = eqRight * analysisCompressorGain_;
+
+        const float level = std::max(
+            std::abs(compressedLeft), std::abs(compressedRight));
+        const float envelopeCoefficient = level > levelerEnvelope_
+            ? levelerAttackCoefficient_ : levelerReleaseCoefficient_;
+        levelerEnvelope_ += (level - levelerEnvelope_)
+            * envelopeCoefficient;
+        const float targetGain = levelerEnvelope_ > 1.0e-5f
+            ? clamp(0.135f / (levelerEnvelope_ + 0.010f), 0.48f, 4.5f)
+            : 1.0f;
+        levelerGain_ += (targetGain - levelerGain_)
+            * levelerGainCoefficient_;
+        const float gain = lerp(1.0f, levelerGain_,
+            smoothed_.analysisLeveler);
+        const float eqAmount = std::max(std::abs(smoothed_.analysisLowDb),
+            std::max(std::abs(smoothed_.analysisMidDb),
+                std::abs(smoothed_.analysisAirDb))) / 12.0f;
+        const float conditioningMix = std::max(
+            std::max(smoothed_.analysisLeveler,
+                std::abs(smoothed_.voiceFocus)),
+            std::max(eqAmount, smoothed_.analysisCompression));
+        left = clamp(lerp(left, compressedLeft * gain, conditioningMix),
+            -4.0f, 4.0f);
+        right = clamp(lerp(right, compressedRight * gain, conditioningMix),
+            -4.0f, 4.0f);
+    }
+
     FilterResponse responseForBand(uint32_t band) const
     {
         if (params_.bandLayout != AcapellaResonatorBandLayout::Speech22) {
@@ -1494,6 +1934,37 @@ private:
             return FilterResponse::Highpass;
         }
         return FilterResponse::Bandpass;
+    }
+
+    static float analysisStageQ(const AcapellaResonatorParams& params)
+    {
+        // Width maps to a composite Q for the complete cascade. Correct the
+        // individual stage Q so Four Pole and Eight Pole have approximately
+        // the same -3 dB bandwidth instead of changing width with pole count.
+        const float compositeQ = lerp(8.0f, 3.2f, params.analysisWidth);
+        const bool fourPole = params.analysisSlope
+            == AcapellaResonatorAnalysisSlope::FourPole;
+        constexpr float twoStageCorrection = 0.643594253f;
+        constexpr float fourStageCorrection = 0.434979442f;
+        return compositeQ * (fourPole
+            ? twoStageCorrection : fourStageCorrection);
+    }
+
+    void updateAnalysisCoefficients(bool immediate)
+    {
+        const float q = analysisStageQ(smoothed_);
+        if (!immediate && std::abs(q - lastAnalysisQ_) < 1.0e-5f) return;
+        lastAnalysisQ_ = q;
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            analysisLeft_[band].setQ(q, true, immediate);
+            analysisRight_[band].setQ(q, true, immediate);
+            analysisLeftSecond_[band].setQ(q, true, immediate);
+            analysisRightSecond_[band].setQ(q, true, immediate);
+            analysisLeftThird_[band].setQ(q, true, immediate);
+            analysisRightThird_[band].setQ(q, true, immediate);
+            analysisLeftFourth_[band].setQ(q, true, immediate);
+            analysisRightFourth_[band].setQ(q, true, immediate);
+        }
     }
 
     void configureLayout(bool immediate)
@@ -1515,24 +1986,34 @@ private:
                 centerFrequencies_[band] = top;
             }
         }
+        const float analysisQ = analysisStageQ(params_);
         for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
             analysisLeft_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisRight_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisLeftSecond_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisRightSecond_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisLeftThird_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisRightThird_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisLeftFourth_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
             analysisRightFourth_[band].configure(
-                centerFrequencies_[band], 2.70f, sampleRate_, immediate);
+                centerFrequencies_[band], analysisQ, sampleRate_, immediate,
+                true);
         }
+        updateMouthResponseTable();
     }
 
     void smoothParams()
@@ -1561,6 +2042,23 @@ private:
         smooth(smoothed_.carrierLfoSyncDivisionBeats,
             params_.carrierLfoSyncDivisionBeats);
         smooth(smoothed_.analysisBlend, params_.analysisBlend);
+        smooth(smoothed_.definition, params_.definition);
+        smooth(smoothed_.mouthFocus, params_.mouthFocus);
+        smooth(smoothed_.voiceFocus, params_.voiceFocus);
+        smooth(smoothed_.analysisLeveler, params_.analysisLeveler);
+        smooth(smoothed_.consonantColor, params_.consonantColor);
+        smooth(smoothed_.consonantSpeed, params_.consonantSpeed);
+        smooth(smoothed_.carrierDensity, params_.carrierDensity);
+        smooth(smoothed_.analysisWidth, params_.analysisWidth);
+        smooth(smoothed_.hfDetailLevel, params_.hfDetailLevel);
+        smooth(smoothed_.hfDetailCutoffHz, params_.hfDetailCutoffHz);
+        smooth(smoothed_.analysisLowDb, params_.analysisLowDb);
+        smooth(smoothed_.analysisMidDb, params_.analysisMidDb);
+        smooth(smoothed_.analysisAirDb, params_.analysisAirDb);
+        smooth(smoothed_.analysisCompression, params_.analysisCompression);
+        smooth(smoothed_.analysisNoiseReject, params_.analysisNoiseReject);
+        smooth(smoothed_.analysisSpectralBalance,
+            params_.analysisSpectralBalance);
         smooth(smoothed_.attackMs, params_.attackMs);
         smooth(smoothed_.releaseMs, params_.releaseMs);
         smooth(smoothed_.resonance, params_.resonance);
@@ -1582,6 +2080,8 @@ private:
         smoothed_.modulatorSource = params_.modulatorSource;
         smoothed_.bandLayout = params_.bandLayout;
         smoothed_.analysisSlope = params_.analysisSlope;
+        smoothed_.transferMode = params_.transferMode;
+        smoothed_.hfDetailMode = params_.hfDetailMode;
         smoothed_.carrierShape = params_.carrierShape;
         smoothed_.carrierPitchSource = params_.carrierPitchSource;
         smoothed_.pitchScaleRoot = params_.pitchScaleRoot;
@@ -1638,6 +2138,16 @@ private:
                 acapella_resonator_detail::onePoleMilliseconds(
                     smoothed_.releaseMs * lerp(1.28f, 0.72f, position),
                     sampleRate_);
+            // The precision detector integrates energy, with substantially
+            // faster upper-band timing for stop and fricative articulation.
+            definitionAttackCoefficients_[band] =
+                acapella_resonator_detail::onePoleMilliseconds(
+                    smoothed_.attackMs * lerp(1.55f, 0.38f, position),
+                    sampleRate_);
+            definitionReleaseCoefficients_[band] =
+                acapella_resonator_detail::onePoleMilliseconds(
+                    smoothed_.releaseMs * lerp(1.42f, 0.48f, position),
+                    sampleRate_);
         }
         blurCoefficient_ = smoothed_.blurMs <= 0.01f ? 1.0f
             : acapella_resonator_detail::onePoleMilliseconds(
@@ -1658,8 +2168,42 @@ private:
                 std::max(8.0f, smoothed_.releaseMs * 0.38f), sampleRate_);
         meterCoefficient_ = acapella_resonator_detail::onePoleMilliseconds(
             34.0f, sampleRate_);
+        definitionTransientReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(
+                18.0f, sampleRate_);
+        const float consonantAttackMs = lerp(
+            0.65f, 7.5f, smoothed_.consonantSpeed);
+        const float consonantReleaseMs = lerp(
+            14.0f, 110.0f, smoothed_.consonantSpeed);
+        consonantAttackCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(
+                consonantAttackMs, sampleRate_);
+        consonantReleaseCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(
+                consonantReleaseMs, sampleRate_);
+        carrierEnergyCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(
+                smoothed_.transferMode
+                        == AcapellaResonatorTransferMode::Precision
+                    ? 28.0f : 85.0f,
+                sampleRate_);
+        routeSmoothingCoefficient_ =
+            acapella_resonator_detail::onePoleMilliseconds(
+                smoothed_.transferMode
+                        == AcapellaResonatorTransferMode::Precision
+                    ? 1.5f : 4.0f,
+                sampleRate_);
         externalCarrierGain_ = std::exp2(
             smoothed_.externalCarrierGainDb / 6.020599913f);
+        analysisLowGain_ = std::exp2(
+            smoothed_.analysisLowDb / 6.020599913f);
+        analysisMidGain_ = std::exp2(
+            smoothed_.analysisMidDb / 6.020599913f);
+        analysisAirGain_ = std::exp2(
+            smoothed_.analysisAirDb / 6.020599913f);
+        hfDetailCutoffCoefficient_ = 1.0f - std::exp(
+            -2.0f * kPi * std::min(smoothed_.hfDetailCutoffHz,
+                sampleRate_ * 0.43f) / sampleRate_);
         voicedTransitionCoefficient_ =
             acapella_resonator_detail::onePoleMilliseconds(
                 smoothed_.voicedTransitionMs, sampleRate_);
@@ -1747,8 +2291,468 @@ private:
         }
     }
 
+    float analysisControlEnvelope(uint32_t band) const
+    {
+        const float defined = smoothed_.transferMode
+                == AcapellaResonatorTransferMode::Precision
+            ? lerp(analysisEnvelope_[band], precisionEnvelope_[band],
+                  smoothed_.definition)
+            : lerp(analysisEnvelope_[band], definitionEnvelope_[band],
+                  smoothed_.definition);
+        return lerp(defined, mouthEnvelope_[band],
+                   mouthModelMix_ * mouthValidGain_)
+            * spectralDynamicsGain_[band];
+    }
+
+    static float consonantZoneWeight(uint32_t zone, float frequency)
+    {
+        constexpr std::array<float, 3u> centers {{
+            2450.0f, 4250.0f, 6750.0f,
+        }};
+        constexpr std::array<float, 3u> widths {{
+            1050.0f, 1350.0f, 2050.0f,
+        }};
+        return acapella_resonator_detail::bell(frequency,
+            centers[std::min<uint32_t>(zone, 2u)],
+            widths[std::min<uint32_t>(zone, 2u)]);
+    }
+
+    float consonantEvidenceForBand(uint32_t band) const
+    {
+        float weighted = 0.0f;
+        float weight = 0.0f;
+        for (uint32_t zone = 0u; zone < 3u; ++zone) {
+            const float zoneWeight = consonantZoneWeight(
+                zone, centerFrequencies_[band]);
+            weighted += consonantZoneEnvelope_[zone] * zoneWeight;
+            weight += zoneWeight;
+        }
+        return clamp(weighted / std::max(0.20f, weight), 0.0f, 1.0f);
+    }
+
+    void resetMouthModelState()
+    {
+        mouthHistory_.fill(0.0f);
+        mouthAutocorrelation_.fill(0.0);
+        mouthLpcCoefficients_.fill(0.0);
+        mouthLpcCoefficients_[0u] = 1.0;
+        mouthShape_.fill(1.0f);
+        mouthShapeTarget_.fill(1.0f);
+        mouthEnvelope_.fill(0.0f);
+        mouthHistoryWrite_ = 0u;
+        mouthSamplesSeen_ = 0u;
+        mouthHopCounter_ = 0u;
+        mouthPreviousInput_ = 0.0f;
+        mouthConfidenceTarget_ = 0.0f;
+        mouthConfidence_ = 0.0f;
+        mouthValid_ = false;
+        mouthValidGain_ = 0.0f;
+    }
+
+    float mouthSampleAgo(uint32_t samplesAgo) const
+    {
+        uint32_t index = mouthHistoryWrite_ + kMouthHistorySize - 1u
+            - samplesAgo;
+        if (index >= kMouthHistorySize) index -= kMouthHistorySize;
+        return mouthHistory_[index];
+    }
+
+    void updateMouthResponseTable()
+    {
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            const float frequency = std::min(centerFrequencies_[band],
+                sampleRate_ * 0.45f);
+            const float omega = 2.0f * kPi * frequency / sampleRate_;
+            mouthCosine_[band][0u] = 1.0f;
+            mouthSine_[band][0u] = 0.0f;
+            for (uint32_t order = 1u; order <= kMouthLpcOrder; ++order) {
+                mouthCosine_[band][order] = std::cos(
+                    omega * static_cast<float>(order));
+                mouthSine_[band][order] = std::sin(
+                    omega * static_cast<float>(order));
+            }
+        }
+    }
+
+    void solveMouthModel(uint32_t activeBands)
+    {
+        const double energy = mouthAutocorrelation_[0u];
+        if (!std::isfinite(energy) || energy < 1.0e-8) {
+            mouthValid_ = false;
+            mouthConfidenceTarget_ = 0.0f;
+            return;
+        }
+
+        std::array<double, kMouthLpcOrder + 1u> coefficients {};
+        coefficients[0u] = 1.0;
+        double error = energy;
+        bool finite = true;
+        for (uint32_t order = 1u; order <= kMouthLpcOrder; ++order) {
+            double residual = mouthAutocorrelation_[order];
+            for (uint32_t tap = 1u; tap < order; ++tap) {
+                residual += coefficients[tap]
+                    * mouthAutocorrelation_[order - tap];
+            }
+            double reflection = -residual / std::max(error, energy * 1.0e-8);
+            if (!std::isfinite(reflection)) {
+                finite = false;
+                break;
+            }
+            reflection = std::clamp(reflection, -0.975, 0.975);
+            const auto previous = coefficients;
+            coefficients[order] = reflection;
+            for (uint32_t tap = 1u; tap < order; ++tap) {
+                coefficients[tap] = previous[tap]
+                    + reflection * previous[order - tap];
+            }
+            error *= std::max(1.0e-4, 1.0 - reflection * reflection);
+        }
+        if (!finite || !std::isfinite(error) || error <= 0.0) {
+            mouthValid_ = false;
+            mouthConfidenceTarget_ = 0.0f;
+            return;
+        }
+        mouthLpcCoefficients_ = coefficients;
+
+        std::array<float, kAcapellaResonatorBands> rawShape {};
+        double squareSum = 0.0;
+        for (uint32_t band = 0u; band < activeBands; ++band) {
+            double real = 1.0;
+            double imaginary = 0.0;
+            for (uint32_t order = 1u; order <= kMouthLpcOrder; ++order) {
+                real += coefficients[order] * mouthCosine_[band][order];
+                imaginary -= coefficients[order] * mouthSine_[band][order];
+            }
+            const double denominator = std::sqrt(
+                real * real + imaginary * imaginary + 1.0e-10);
+            const float magnitude = static_cast<float>(
+                1.0 / std::max(1.0e-5, denominator));
+            rawShape[band] = std::min(24.0f, magnitude);
+            squareSum += static_cast<double>(rawShape[band])
+                * rawShape[band];
+        }
+        const float normalization = static_cast<float>(std::sqrt(
+            squareSum / static_cast<double>(std::max<uint32_t>(1u,
+                activeBands))));
+        if (!std::isfinite(normalization) || normalization < 1.0e-5f) {
+            mouthValid_ = false;
+            mouthConfidenceTarget_ = 0.0f;
+            return;
+        }
+        double shapedSquareSum = 0.0;
+        for (uint32_t band = 0u; band < activeBands; ++band) {
+            mouthShapeTarget_[band] = clamp(std::pow(
+                    rawShape[band] / normalization, 1.24f),
+                0.06f, 5.0f);
+            shapedSquareSum += static_cast<double>(mouthShapeTarget_[band])
+                * mouthShapeTarget_[band];
+        }
+        const float shapedNormalization = static_cast<float>(std::sqrt(
+            shapedSquareSum / static_cast<double>(std::max<uint32_t>(1u,
+                activeBands))));
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            mouthShapeTarget_[band] = band < activeBands
+                ? clamp(mouthShapeTarget_[band]
+                        / std::max(1.0e-5f, shapedNormalization),
+                    0.05f, 5.0f)
+                : 0.0f;
+        }
+        // Prediction gain separates a structured vocal tract from turbulent
+        // consonants. The latter remain on the fast measured-band path.
+        const float normalizedError = clamp(static_cast<float>(
+            error / energy), 0.0f, 1.0f);
+        mouthConfidenceTarget_ = clamp(
+            (1.0f - std::sqrt(normalizedError) - 0.02f) / 0.38f,
+            0.0f, 1.0f);
+        mouthValid_ = true;
+    }
+
+    void processMouthAnalysis(float left, float right, uint32_t activeBands)
+    {
+        // Keep the legacy four/eight-pole paths as inexpensive as before.
+        // Once Mouth Model is selected, begin filling its causal window and
+        // crossfade in only after a valid tract estimate is available. While
+        // leaving the mode, continue the analyzer until the audible mode
+        // crossfade has completed so automation cannot expose stale state.
+        if (smoothed_.analysisSlope
+                != AcapellaResonatorAnalysisSlope::MouthModel
+            && mouthModelMix_ < 1.0e-4f) {
+            return;
+        }
+        const float input = 0.5f * (left + right);
+        const float preemphasized = input - 0.94f * mouthPreviousInput_;
+        mouthPreviousInput_ = input;
+        mouthHistory_[mouthHistoryWrite_] = preemphasized;
+        mouthHistoryWrite_ = (mouthHistoryWrite_ + 1u) % kMouthHistorySize;
+        const float outgoing = mouthSampleAgo(mouthWindowSamples_);
+        for (uint32_t lag = 0u; lag <= kMouthLpcOrder; ++lag) {
+            mouthAutocorrelation_[lag] +=
+                static_cast<double>(preemphasized) * mouthSampleAgo(lag)
+                - static_cast<double>(outgoing)
+                    * mouthSampleAgo(mouthWindowSamples_ + lag);
+            if (std::abs(mouthAutocorrelation_[lag]) < 1.0e-24) {
+                mouthAutocorrelation_[lag] = 0.0;
+            }
+        }
+        mouthSamplesSeen_ = std::min<uint32_t>(mouthSamplesSeen_ + 1u,
+            mouthWindowSamples_ + kMouthLpcOrder + 1u);
+        if (mouthSamplesSeen_ >= mouthWindowSamples_
+            && ++mouthHopCounter_ >= mouthHopSamples_) {
+            mouthHopCounter_ = 0u;
+            solveMouthModel(activeBands);
+        }
+    }
+
+    void updateDefinitionEnvelopes(uint32_t activeBands)
+    {
+        const uint32_t count = std::max<uint32_t>(1u, activeBands);
+        float squareSum = 0.0f;
+        for (uint32_t band = 0u; band < activeBands; ++band) {
+            squareSum += precisionEnvelope_[band]
+                * precisionEnvelope_[band];
+        }
+        const float global = std::sqrt(squareSum
+            / static_cast<float>(count));
+
+        // Learn the stationary per-band floor while no articulation/carrier
+        // gesture is active, or while the External Mic squelch is closed.
+        // During speech the estimate is held so vowels cannot redefine
+        // themselves as noise. Downward expansion is then followed by a
+        // bounded cross-band normalization that keeps quiet consonant bands
+        // useful without flattening the formant contour.
+        const bool learnNoise = !gesture_.active
+            || (smoothed_.modulatorSource
+                    == AcapellaResonatorModulatorSource::ExternalMic
+                && !modulatorGateOpen_);
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            if (band >= activeBands) {
+                spectralGateGain_[band] += (0.0f
+                        - spectralGateGain_[band])
+                    * spectralGateReleaseCoefficient_;
+                spectralDynamicsGain_[band] = 0.0f;
+                continue;
+            }
+            const float current = precisionEnvelope_[band];
+            if (learnNoise) {
+                const float coefficient = current > analysisNoiseFloor_[band]
+                    ? noiseFloorRiseCoefficient_ : noiseFloorFallCoefficient_;
+                analysisNoiseFloor_[band] += (current
+                        - analysisNoiseFloor_[band]) * coefficient;
+            }
+            const float reject = smoothed_.analysisNoiseReject;
+            const float threshold = analysisNoiseFloor_[band]
+                    * lerp(1.15f, 3.65f, reject)
+                + 2.0e-5f;
+            const float open = clamp((current - threshold)
+                    / (threshold * 1.65f + 1.5e-4f),
+                0.0f, 1.0f);
+            const float gateTarget = lerp(1.0f,
+                open * open * (3.0f - 2.0f * open), reject);
+            const float gateCoefficient = gateTarget > spectralGateGain_[band]
+                ? spectralGateAttackCoefficient_
+                : spectralGateReleaseCoefficient_;
+            spectralGateGain_[band] += (gateTarget
+                    - spectralGateGain_[band]) * gateCoefficient;
+            const float balanceTarget = clamp(std::sqrt(
+                    (global + 2.0e-4f) / (current + 2.0e-4f)),
+                0.62f, 1.72f);
+            const float balanceGain = lerp(1.0f, balanceTarget,
+                smoothed_.analysisSpectralBalance);
+            spectralDynamicsGain_[band] = spectralGateGain_[band]
+                * balanceGain;
+        }
+
+        // Positive spectral flux is a control signal, not a waveform bypass.
+        // It opens the mapped upper bands briefly and requests shaped carrier
+        // noise for plosive/fricative edges while preserving the bank timbre.
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            const float current = precisionEnvelope_[band];
+            const float delta = std::max(0.0f,
+                current - previousPrecisionEnvelope_[band]);
+            const float fluxTarget = clamp(delta
+                    / (current + global * 0.18f + 1.0e-4f),
+                0.0f, 1.0f);
+            const float coefficient = fluxTarget > bandTransient_[band]
+                ? 1.0f : definitionTransientReleaseCoefficient_;
+            bandTransient_[band] += (fluxTarget - bandTransient_[band])
+                * coefficient;
+            previousPrecisionEnvelope_[band] = current;
+        }
+
+        float voicedSquare = 0.0f;
+        float voicedWeight = 0.0f;
+        for (uint32_t band = 0u; band < activeBands; ++band) {
+            const float frequency = centerFrequencies_[band];
+            if (frequency <= 1850.0f) {
+                const float weight = 1.0f - 0.35f * frequency / 1850.0f;
+                voicedSquare += precisionEnvelope_[band]
+                    * precisionEnvelope_[band] * weight;
+                voicedWeight += weight;
+            }
+        }
+        const float voicedReference = std::sqrt(voicedSquare
+            / std::max(1.0f, voicedWeight));
+        for (uint32_t zone = 0u; zone < 3u; ++zone) {
+            float zoneSquare = 0.0f;
+            float zoneWeightSum = 0.0f;
+            float zoneFlux = 0.0f;
+            for (uint32_t band = 0u; band < activeBands; ++band) {
+                const float weight = consonantZoneWeight(
+                    zone, centerFrequencies_[band]);
+                zoneSquare += precisionEnvelope_[band]
+                    * precisionEnvelope_[band] * weight;
+                zoneFlux += bandTransient_[band] * weight;
+                zoneWeightSum += weight;
+            }
+            const float zoneLevel = std::sqrt(zoneSquare
+                / std::max(1.0f, zoneWeightSum));
+            zoneFlux /= std::max(1.0f, zoneWeightSum);
+            const float ratio = zoneLevel
+                / (zoneLevel + voicedReference * 0.62f + 2.5e-4f);
+            const float target = clamp((ratio - 0.15f) / 0.58f
+                    + zoneFlux * 0.34f,
+                0.0f, 1.0f);
+            const float coefficient = target > consonantZoneEnvelope_[zone]
+                ? consonantAttackCoefficient_ : consonantReleaseCoefficient_;
+            consonantZoneEnvelope_[zone] += (target
+                    - consonantZoneEnvelope_[zone]) * coefficient;
+        }
+
+        const uint32_t last = count - 1u;
+        const uint32_t highBegin = count > 4u ? count - 4u : 0u;
+        float highEnergy = 0.0f;
+        for (uint32_t band = highBegin; band < count; ++band) {
+            highEnergy += precisionEnvelope_[band];
+        }
+        // These fractions reproduce Speech22's 3/5/8/11 low-mid probes and
+        // remain meaningful when Wide16 is selected.
+        const float lowEnergy = precisionEnvelope_[(last * 3u) / 21u]
+            + precisionEnvelope_[(last * 5u) / 21u]
+            + precisionEnvelope_[(last * 8u) / 21u]
+            + precisionEnvelope_[(last * 11u) / 21u] + 1.0e-5f;
+        const float spectralNoise = highEnergy / (highEnergy + lowEnergy);
+        const bool scoreEnabled = !gesture_.carrierOnly
+            && smoothed_.modulatorSource
+                != AcapellaResonatorModulatorSource::ExternalMic;
+        const float phonemeNoise = scoreEnabled
+            ? acapella_resonator_detail::phonemeSibilance(gesture_.phoneme)
+            : 0.0f;
+        const float noiseThreshold = smoothed_.voicingThreshold;
+        const float noiseEvidence = std::max(phonemeNoise,
+            clamp((spectralNoise - (noiseThreshold - 0.14f)) / 0.28f,
+                0.0f, 1.0f));
+
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            if (band >= activeBands) {
+                definitionEnvelope_[band] = 0.0f;
+                bandNoiseMix_[band] += (0.0f - bandNoiseMix_[band])
+                    * voicedTransitionCoefficient_;
+                continue;
+            }
+            const float position = activeBands > 1u
+                ? static_cast<float>(band)
+                    / static_cast<float>(activeBands - 1u)
+                : 0.0f;
+            const float previous = band > 0u
+                ? precisionEnvelope_[band - 1u]
+                : precisionEnvelope_[band];
+            const float next = band + 1u < activeBands
+                ? precisionEnvelope_[band + 1u]
+                : precisionEnvelope_[band];
+            const float neighborhood = 0.50f * precisionEnvelope_[band]
+                + 0.25f * (previous + next);
+            const float reference = 0.48f * global
+                + 0.52f * neighborhood;
+            // A bounded normalized contrast avoids log/exp in the audio-rate
+            // loop.  It emphasizes a local formant peak and attenuates the
+            // adjacent valleys without making quiet bands numerically loud.
+            const float contrastDelta =
+                (precisionEnvelope_[band] - reference)
+                / (precisionEnvelope_[band] + reference + 4.0e-4f);
+            const float contrastGain = clamp(
+                1.0f + 0.88f * contrastDelta, 0.54f, 1.86f);
+            const float transientLift = bandTransient_[band] * global
+                * (0.08f + 0.34f * position * position);
+            definitionEnvelope_[band] = clamp(
+                precisionEnvelope_[band] * contrastGain + transientLift,
+                0.0f, 1.5f);
+
+            float noiseTarget = 0.0f;
+            switch (smoothed_.voicingMode) {
+            case AcapellaResonatorVoicingMode::Tonal:
+                noiseTarget = 0.0f;
+                break;
+            case AcapellaResonatorVoicingMode::Noise:
+                noiseTarget = 1.0f;
+                break;
+            case AcapellaResonatorVoicingMode::Blend:
+                noiseTarget = 0.5f;
+                break;
+            case AcapellaResonatorVoicingMode::Detect:
+            default: {
+                const float localProminence = clamp(
+                    precisionEnvelope_[band] / (global + 1.0e-4f),
+                    0.0f, 2.0f) * 0.5f;
+                const float highBias = 0.10f
+                    + 0.98f * position * (0.35f + 0.65f * position);
+                const float transientNoise = bandTransient_[band]
+                    * localProminence
+                    * (0.14f + 0.62f * position);
+                const float periodicProtection = detectedPitchConfidence_
+                    * (1.0f - position) * 0.30f;
+                noiseTarget = clamp(noiseEvidence * highBias
+                        + transientNoise - periodicProtection,
+                    0.0f, 1.0f);
+                const float hiss = 0.5f
+                    * (smoothed_.consonantColor + 1.0f);
+                const float zonedConsonant = consonantEvidenceForBand(band)
+                    * smoothed_.sibilance
+                    * lerp(0.18f, 1.18f, hiss);
+                noiseTarget = std::max(noiseTarget, zonedConsonant);
+                break;
+            }
+            }
+            const float coefficient = noiseTarget > bandNoiseMix_[band]
+                ? unvoicedTransitionCoefficient_
+                : voicedTransitionCoefficient_;
+            bandNoiseMix_[band] += (noiseTarget - bandNoiseMix_[band])
+                * coefficient;
+        }
+
+        mouthConfidence_ += (mouthConfidenceTarget_ - mouthConfidence_)
+            * mouthConfidenceCoefficient_;
+        mouthValidGain_ += ((mouthValid_ ? 1.0f : 0.0f)
+                - mouthValidGain_) * mouthConfidenceCoefficient_;
+        for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
+            mouthShape_[band] += (mouthShapeTarget_[band]
+                    - mouthShape_[band]) * mouthShapeCoefficient_;
+            if (band >= activeBands) {
+                mouthEnvelope_[band] += (0.0f - mouthEnvelope_[band])
+                    * definitionReleaseCoefficients_[band];
+                continue;
+            }
+            const float measured = lerp(analysisEnvelope_[band],
+                definitionEnvelope_[band], smoothed_.definition);
+            const float tract = global * mouthShape_[band];
+            // LPC is strongest on vowels and sonorants. Turbulent bands keep
+            // the fast measured envelope so S/F/SH and stop edges do not
+            // smear into a slowly moving all-pole estimate.
+            const float tractMix = mouthConfidence_ * smoothed_.mouthFocus
+                * (1.0f - 0.88f * bandNoiseMix_[band]);
+            const float target = lerp(measured, tract,
+                clamp(tractMix, 0.0f, 1.0f));
+            const float coefficient = target > mouthEnvelope_[band]
+                ? definitionAttackCoefficients_[band]
+                : definitionReleaseCoefficients_[band];
+            mouthEnvelope_[band] += (target - mouthEnvelope_[band])
+                * coefficient;
+        }
+    }
+
     void buildLiveEnvelope()
     {
+        const bool precisionTransfer = smoothed_.transferMode
+            == AcapellaResonatorTransferMode::Precision;
         const bool scoreEnabled = !gesture_.carrierOnly
             && smoothed_.modulatorSource
                 != AcapellaResonatorModulatorSource::ExternalMic;
@@ -1769,14 +2773,22 @@ private:
             // contrast in the VCA controls instead of turning the result
             // back into a broadband amplitude follower.
             const float normalized = clamp(
-                analysisEnvelope_[band] * 2.55f, 0.0f, 1.25f);
-            const float measured = std::pow(normalized, 1.35f);
+                analysisControlEnvelope(band)
+                    * (precisionTransfer ? 2.82f : 2.55f),
+                0.0f, 1.25f);
+            const float measured = precisionTransfer
+                ? normalized : std::pow(normalized, 1.35f);
             const float score = smoothedPhonemeTarget_[band] * scoreScale
                 * (0.78f + 0.30f * static_cast<float>(gesture_.stress > 0u));
             float value = 0.0f;
             switch (smoothed_.mode) {
             case AcapellaResonatorMode::Vocoder:
-                value = measured;
+                // Precision remains a measured vocoder. Internal Speech may
+                // contribute a restrained categorical correction so adjacent
+                // synthesized consonants do not collapse into one gesture.
+                value = precisionTransfer && scoreEnabled
+                    ? lerp(measured, score, scoreMix * 0.24f)
+                    : measured;
                 break;
             case AcapellaResonatorMode::Hybrid:
                 value = std::max(smoothed_.openLevel,
@@ -1791,6 +2803,15 @@ private:
             const float highBand = position * position;
             value += consonant * smoothed_.sibilance * highBand
                 * (0.070f + analysisScale * 0.42f) * gate;
+            // Preserve a short bank-domain consonant edge even when a longer
+            // release is selected. This never passes the microphone waveform.
+            value += bandTransient_[band] * smoothed_.definition
+                * (0.018f + 0.095f * highBand)
+                * clamp(analysisLevel_ * 3.0f, 0.0f, 1.0f);
+            const float consonantShape = consonantEvidenceForBand(band)
+                * smoothed_.sibilance;
+            value += consonantShape * (0.010f + 0.105f * highBand)
+                * clamp(analysisLevel_ * 4.0f, 0.0f, 1.0f);
             liveEnvelope_[band] = clamp(value, 0.0f, 1.25f);
         }
     }
@@ -2227,6 +3248,7 @@ private:
             if (!destination->active || destination->id != id) {
                 destination->id = id;
                 destination->phase = 0.0f;
+                destination->densityPhase = 0.0f;
                 destination->frequencyHz = frequency;
                 destination->level = 0.0f;
                 const uint32_t hash = static_cast<uint32_t>(
@@ -2298,11 +3320,25 @@ private:
             const float increment = clamp(
                 voice.frequencyHz * pitchModulation / sampleRate_,
                 1.0e-6f, 0.45f);
-            const float oscillator =
+            float oscillator =
                 acapella_resonator_detail::shapedOscillator(
                     smoothed_.carrierShape, voice.phase, increment,
                     smoothed_.carrierHarmonics, smoothed_.carrierColor,
                     pulseWidth);
+            if (smoothed_.carrierDensity > 1.0e-5f) {
+                const float densityIncrement = clamp(
+                    increment * 0.5f, 1.0e-6f, 0.45f);
+                const float densityOscillator =
+                    acapella_resonator_detail::shapedOscillator(
+                        AcapellaResonatorCarrierShape::Saw,
+                        voice.densityPhase, densityIncrement, 1.0f,
+                        smoothed_.carrierColor * 0.35f, 0.5f);
+                oscillator = (oscillator + densityOscillator
+                        * smoothed_.carrierDensity * 0.34f)
+                    / (1.0f + smoothed_.carrierDensity * 0.18f);
+                voice.densityPhase += densityIncrement;
+                voice.densityPhase -= std::floor(voice.densityPhase);
+            }
             const float carrierSpread = smoothed_.stereoMode
                     == AcapellaResonatorStereoMode::Spread
                 ? smoothed_.stereoSpread : 0.0f;
@@ -2321,6 +3357,8 @@ private:
         const float highNoiseRight = noiseRight - noiseLowRight_;
         const float commonNoise = (highNoiseLeft + highNoiseRight)
             * 0.70710678f;
+        const float commonDensityNoise = (noiseLeft + noiseRight)
+            * 0.70710678f;
         const float carrierSpread = smoothed_.stereoMode
                 == AcapellaResonatorStereoMode::Spread
             ? smoothed_.stereoSpread : 0.0f;
@@ -2328,6 +3366,10 @@ private:
             commonNoise, highNoiseLeft, carrierSpread);
         const float spreadNoiseRight = lerp(
             commonNoise, highNoiseRight, carrierSpread);
+        const float densityNoiseLeft = lerp(
+            commonDensityNoise, noiseLeft, carrierSpread);
+        const float densityNoiseRight = lerp(
+            commonDensityNoise, noiseRight, carrierSpread);
         const bool scoreEnabled = !gesture_.carrierOnly
             && smoothed_.modulatorSource
                 != AcapellaResonatorModulatorSource::ExternalMic;
@@ -2352,12 +3394,14 @@ private:
                 ? acapella_resonator_detail::phonemeSibilance(
                     gesture_.phoneme)
                 : 0.0f;
-            const float highEnergy = analysisEnvelope_[18u]
-                + analysisEnvelope_[19u] + analysisEnvelope_[20u]
-                + analysisEnvelope_[21u];
-            const float lowEnergy = analysisEnvelope_[3u]
-                + analysisEnvelope_[5u] + analysisEnvelope_[8u]
-                + analysisEnvelope_[11u] + 1.0e-5f;
+            const float highEnergy = analysisControlEnvelope(18u)
+                + analysisControlEnvelope(19u)
+                + analysisControlEnvelope(20u)
+                + analysisControlEnvelope(21u);
+            const float lowEnergy = analysisControlEnvelope(3u)
+                + analysisControlEnvelope(5u)
+                + analysisControlEnvelope(8u)
+                + analysisControlEnvelope(11u) + 1.0e-5f;
             const float spectralNoise = highEnergy
                 / (highEnergy + lowEnergy);
             // Internal Speech can use its phoneme classification as a strong
@@ -2387,8 +3431,15 @@ private:
         const float measuredSibilance = scoreEnabled
             ? sibilanceEnvelope_
             : voicingNoiseMix_ * smoothed_.sibilance;
+        const float consonantPeak = std::max(consonantZoneEnvelope_[0u],
+            std::max(consonantZoneEnvelope_[1u],
+                consonantZoneEnvelope_[2u]));
+        const float hiss = 0.5f * (smoothed_.consonantColor + 1.0f);
         const float noiseAmount = smoothed_.carrierNoise * 0.65f
-            + pureNoise + measuredSibilance * 0.58f;
+            + pureNoise + measuredSibilance * 0.58f
+            + consonantPeak * smoothed_.sibilance
+                * lerp(0.03f, 0.34f, hiss)
+            + smoothed_.carrierDensity * 0.12f;
         float carrierActivity = 0.0f;
         for (const auto& voice : carrierVoices_) {
             carrierActivity = std::max(carrierActivity, voice.level);
@@ -2423,13 +3474,26 @@ private:
         const float noiseActivity = externalCarrierAvailable
             ? std::max(carrierActivity, externalActivity)
             : carrierActivity;
+        const float denseTonalLeft = tonalLeft + densityNoiseLeft
+            * smoothed_.carrierDensity * 0.15f * carrierActivity;
+        const float denseTonalRight = tonalRight + densityNoiseRight
+            * smoothed_.carrierDensity * 0.15f * carrierActivity;
+        // Preserve separate tonal and aperiodic rails for Definition's
+        // destination-local excitation mask. The legacy/global carrier below
+        // remains bit-for-bit selected when Definition is zero.
+        precisionTonalLeft_ = denseTonalLeft * smoothed_.voicedLevel;
+        precisionTonalRight_ = denseTonalRight * smoothed_.voicedLevel;
+        precisionNoiseLeft_ = spreadNoiseLeft * noiseAmount
+            * smoothed_.unvoicedLevel * noiseActivity;
+        precisionNoiseRight_ = spreadNoiseRight * noiseAmount
+            * smoothed_.unvoicedLevel * noiseActivity;
         const float tonalGain = smoothed_.voicedLevel
             * std::sqrt(std::max(0.0f, 1.0f - voicingNoiseMix_));
         const float noiseGain = smoothed_.unvoicedLevel
             * std::sqrt(std::max(0.0f, voicingNoiseMix_));
-        left = tonalLeft * tonalGain
+        left = denseTonalLeft * tonalGain
             + spreadNoiseLeft * noiseAmount * noiseGain * noiseActivity;
-        right = tonalRight * tonalGain
+        right = denseTonalRight * tonalGain
             + spreadNoiseRight * noiseAmount * noiseGain * noiseActivity;
 
         carrierLowLeft_ += (left - carrierLowLeft_) * carrierToneCoefficient_;
@@ -2466,6 +3530,18 @@ private:
         for (auto& filter : synthesisLeft_) filter.reset();
         for (auto& filter : synthesisRight_) filter.reset();
         analysisEnvelope_.fill(0.0f);
+        analysisPower_.fill(0.0f);
+        precisionEnvelope_.fill(0.0f);
+        previousPrecisionEnvelope_.fill(0.0f);
+        definitionEnvelope_.fill(0.0f);
+        bandTransient_.fill(0.0f);
+        bandNoiseMix_.fill(0.0f);
+        consonantZoneEnvelope_.fill(0.0f);
+        carrierBandEnergy_.fill(0.0f);
+        analysisNoiseFloor_.fill(0.0f);
+        spectralGateGain_.fill(1.0f);
+        spectralDynamicsGain_.fill(1.0f);
+        resetMouthModelState();
         liveEnvelope_.fill(0.0f);
         blurredEnvelope_.fill(0.0f);
         frozenEnvelope_.fill(0.0f);
@@ -2476,7 +3552,30 @@ private:
         carrierLowRight_ = 0.0f;
         noiseLowLeft_ = 0.0f;
         noiseLowRight_ = 0.0f;
+        carrierEnergyMean_ = 0.0f;
+        precisionTonalLeft_ = 0.0f;
+        precisionTonalRight_ = 0.0f;
+        precisionNoiseLeft_ = 0.0f;
+        precisionNoiseRight_ = 0.0f;
         analysisLevel_ = 0.0f;
+        conditionerRumbleLeft_ = 0.0f;
+        conditionerRumbleRight_ = 0.0f;
+        conditionerFocusLeft_ = 0.0f;
+        conditionerFocusRight_ = 0.0f;
+        levelerEnvelope_ = 0.0f;
+        levelerGain_ = 1.0f;
+        analysisEqLowLeft_ = 0.0f;
+        analysisEqLowRight_ = 0.0f;
+        analysisEqHighLeft_ = 0.0f;
+        analysisEqHighRight_ = 0.0f;
+        analysisCompressorEnvelope_ = 0.0f;
+        analysisCompressorGain_ = 1.0f;
+        hfDetailLowOneLeft_ = 0.0f;
+        hfDetailLowOneRight_ = 0.0f;
+        hfDetailLowTwoLeft_ = 0.0f;
+        hfDetailLowTwoRight_ = 0.0f;
+        hfDetailEnvelope_ = 0.0f;
+        hfDetailGateGain_ = 0.0f;
         modulatorDetector_ = 0.0f;
         modulatorGateTarget_ = 0.0f;
         modulatorGateGain_ = 0.0f;
@@ -2542,6 +3641,31 @@ private:
     std::array<acapella_resonator_detail::TptBandpass,
         kAcapellaResonatorBands> synthesisRight_ {};
     std::array<float, kAcapellaResonatorBands> analysisEnvelope_ {};
+    std::array<float, kAcapellaResonatorBands> analysisPower_ {};
+    std::array<float, kAcapellaResonatorBands> precisionEnvelope_ {};
+    std::array<float, kAcapellaResonatorBands> previousPrecisionEnvelope_ {};
+    std::array<float, kAcapellaResonatorBands> definitionEnvelope_ {};
+    std::array<float, kAcapellaResonatorBands> bandTransient_ {};
+    std::array<float, kAcapellaResonatorBands> bandNoiseMix_ {};
+    std::array<float, 3u> consonantZoneEnvelope_ {};
+    std::array<float, kAcapellaResonatorBands> carrierBandEnergy_ {};
+    std::array<float, kAcapellaResonatorBands> analysisNoiseFloor_ {};
+    std::array<float, kAcapellaResonatorBands> spectralGateGain_ {};
+    std::array<float, kAcapellaResonatorBands> spectralDynamicsGain_ {};
+    static constexpr uint32_t kMouthLpcOrder = 16u;
+    static constexpr uint32_t kMouthHistoryMaximumWindow = 4096u;
+    static constexpr uint32_t kMouthHistorySize =
+        kMouthHistoryMaximumWindow + kMouthLpcOrder + 1u;
+    std::array<float, kMouthHistorySize> mouthHistory_ {};
+    std::array<double, kMouthLpcOrder + 1u> mouthAutocorrelation_ {};
+    std::array<double, kMouthLpcOrder + 1u> mouthLpcCoefficients_ {};
+    std::array<std::array<float, kMouthLpcOrder + 1u>,
+        kAcapellaResonatorBands> mouthCosine_ {};
+    std::array<std::array<float, kMouthLpcOrder + 1u>,
+        kAcapellaResonatorBands> mouthSine_ {};
+    std::array<float, kAcapellaResonatorBands> mouthShape_ {};
+    std::array<float, kAcapellaResonatorBands> mouthShapeTarget_ {};
+    std::array<float, kAcapellaResonatorBands> mouthEnvelope_ {};
     std::array<float, kAcapellaResonatorBands> liveEnvelope_ {};
     std::array<float, kAcapellaResonatorBands> blurredEnvelope_ {};
     std::array<float, kAcapellaResonatorBands> frozenEnvelope_ {};
@@ -2556,6 +3680,10 @@ private:
     std::array<float, kAcapellaResonatorBands> smoothedPhonemeTarget_ {};
     std::array<float, kAcapellaResonatorBands> bandAttackCoefficients_ {};
     std::array<float, kAcapellaResonatorBands> bandReleaseCoefficients_ {};
+    std::array<float, kAcapellaResonatorBands>
+        definitionAttackCoefficients_ {};
+    std::array<float, kAcapellaResonatorBands>
+        definitionReleaseCoefficients_ {};
     static constexpr uint32_t kPitchTrackerBufferSize = 1024u;
     static constexpr uint32_t kPitchTrackerWindow = 512u;
     static constexpr uint32_t kPitchTrackerDifferenceSize = 256u;
@@ -2589,6 +3717,12 @@ private:
     float layoutSmoothingCoefficient_ = 0.01f;
     float articulationHighpassCoefficient_ = 0.25f;
     float meterCoefficient_ = 0.001f;
+    float definitionTransientReleaseCoefficient_ = 0.001f;
+    float consonantAttackCoefficient_ = 0.01f;
+    float consonantReleaseCoefficient_ = 0.001f;
+    float carrierEnergyCoefficient_ = 0.001f;
+    float mouthShapeCoefficient_ = 0.001f;
+    float mouthConfidenceCoefficient_ = 0.001f;
     float voicedTransitionCoefficient_ = 0.001f;
     float unvoicedTransitionCoefficient_ = 0.001f;
     float externalCarrierGain_ = 1.0f;
@@ -2597,12 +3731,67 @@ private:
     float noiseLowLeft_ = 0.0f;
     float noiseLowRight_ = 0.0f;
     float sibilanceEnvelope_ = 0.0f;
+    float carrierEnergyMean_ = 0.0f;
+    float precisionTonalLeft_ = 0.0f;
+    float precisionTonalRight_ = 0.0f;
+    float precisionNoiseLeft_ = 0.0f;
+    float precisionNoiseRight_ = 0.0f;
     float analysisLevel_ = 0.0f;
+    float conditionerRumbleCoefficient_ = 0.01f;
+    float conditionerFocusCoefficient_ = 0.10f;
+    float levelerAttackCoefficient_ = 0.01f;
+    float levelerReleaseCoefficient_ = 0.001f;
+    float levelerGainCoefficient_ = 0.001f;
+    float analysisEqLowCoefficient_ = 0.02f;
+    float analysisEqHighCoefficient_ = 0.20f;
+    float analysisCompressorAttackCoefficient_ = 0.01f;
+    float analysisCompressorReleaseCoefficient_ = 0.001f;
+    float analysisCompressorGainCoefficient_ = 0.001f;
+    float noiseFloorRiseCoefficient_ = 0.0001f;
+    float noiseFloorFallCoefficient_ = 0.001f;
+    float spectralGateAttackCoefficient_ = 0.01f;
+    float spectralGateReleaseCoefficient_ = 0.001f;
+    float hfDetailAttackCoefficient_ = 0.01f;
+    float hfDetailReleaseCoefficient_ = 0.001f;
+    float hfDetailCutoffCoefficient_ = 0.25f;
+    float analysisLowGain_ = 1.0f;
+    float analysisMidGain_ = 1.0f;
+    float analysisAirGain_ = 1.0f;
+    float conditionerRumbleLeft_ = 0.0f;
+    float conditionerRumbleRight_ = 0.0f;
+    float conditionerFocusLeft_ = 0.0f;
+    float conditionerFocusRight_ = 0.0f;
+    float levelerEnvelope_ = 0.0f;
+    float levelerGain_ = 1.0f;
+    float analysisEqLowLeft_ = 0.0f;
+    float analysisEqLowRight_ = 0.0f;
+    float analysisEqHighLeft_ = 0.0f;
+    float analysisEqHighRight_ = 0.0f;
+    float analysisCompressorEnvelope_ = 0.0f;
+    float analysisCompressorGain_ = 1.0f;
+    float hfDetailLowOneLeft_ = 0.0f;
+    float hfDetailLowOneRight_ = 0.0f;
+    float hfDetailLowTwoLeft_ = 0.0f;
+    float hfDetailLowTwoRight_ = 0.0f;
+    float hfDetailEnvelope_ = 0.0f;
+    float hfDetailGateGain_ = 0.0f;
+    float lastAnalysisQ_ = -1.0f;
     float modulatorDetector_ = 0.0f;
     float modulatorGateTarget_ = 0.0f;
     float modulatorGateGain_ = 0.0f;
     float externalMicModeGain_ = 0.0f;
     float analysisSlopeMix_ = 0.0f;
+    float mouthModelMix_ = 0.0f;
+    float mouthPreviousInput_ = 0.0f;
+    float mouthConfidenceTarget_ = 0.0f;
+    float mouthConfidence_ = 0.0f;
+    float mouthValidGain_ = 0.0f;
+    uint32_t mouthWindowSamples_ = 1152u;
+    uint32_t mouthHopSamples_ = 240u;
+    uint32_t mouthHistoryWrite_ = 0u;
+    uint32_t mouthSamplesSeen_ = 0u;
+    uint32_t mouthHopCounter_ = 0u;
+    bool mouthValid_ = false;
     float pitchTrackerRate_ = 12000.0f;
     float pitchTrackerDcCoefficient_ = 0.01f;
     float pitchTrackerLowCoefficient_ = 0.1f;
