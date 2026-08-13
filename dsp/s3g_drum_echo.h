@@ -138,11 +138,20 @@ public:
 
     uint32_t tailSamples() const
     {
+        return tailSamplesForParams(params_);
+    }
+
+    uint32_t tailSamplesForParams(const DrumEchoParams& requested) const
+    {
+        const auto params = sanitize(requested);
+        const double availableDelaySeconds = bufferSize_ > 4u
+            ? static_cast<double>(bufferSize_ - 4u) / sampleRate_
+            : 12.0;
         const double longestDelaySeconds = std::min(
-            static_cast<double>(bufferSize_ - 4u) / sampleRate_,
-            static_cast<double>(targetBaseDelayMs()) * 0.003);
+            availableDelaySeconds,
+            static_cast<double>(targetBaseDelayMs(params)) * 0.003);
         const double feedback = std::clamp(
-            static_cast<double>(params_.feedback), 0.0, 0.92);
+            static_cast<double>(params.feedback), 0.0, 0.92);
         const double repeats = feedback > 0.001
             ? std::ceil(std::log(0.001) / std::log(feedback)) : 1.0;
         return static_cast<uint32_t>(std::ceil(std::clamp(
@@ -315,14 +324,16 @@ private:
         return 0.0f;
     }
 
-    float targetBaseDelayMs() const
+    float targetBaseDelayMs(const DrumEchoParams& params) const
     {
-        if (params_.clock == DrumEchoClock::Free) return params_.timeMs;
+        if (params.clock == DrumEchoClock::Free) return params.timeMs;
         const float tempo = static_cast<float>(
             tempoValid_ ? tempoBpm_ : 120.0);
-        return clamp(60000.0f / tempo * clockBeats(params_.clock),
+        return clamp(60000.0f / tempo * clockBeats(params.clock),
             20.0f, 4000.0f);
     }
+
+    float targetBaseDelayMs() const { return targetBaseDelayMs(params_); }
 
     void updateSmoothing()
     {

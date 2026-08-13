@@ -15,7 +15,7 @@ endif()
 
 set_target_properties(s3g_acapella_source_synth_clap PROPERTIES
   PREFIX ""
-  OUTPUT_NAME "s3g_processor_articulator"
+  OUTPUT_NAME "s3g_formant_matrix"
 )
 
 if(APPLE)
@@ -26,9 +26,9 @@ if(APPLE)
   set_target_properties(s3g_acapella_source_synth_clap PROPERTIES
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.processor-articulator"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Articulator"
-    MACOSX_BUNDLE_BUNDLE_VERSION "3.1.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "3.1.0"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.formant-matrix"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Formant Matrix"
+    MACOSX_BUNDLE_BUNDLE_VERSION "5.2.5"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "5.2.5"
   )
 endif()

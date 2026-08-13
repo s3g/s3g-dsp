@@ -13,7 +13,7 @@ clap_ambi_membrane_kick/s3g_ambi_encoder_membrane_kick.clap	s3g_ambi_encoder_mem
 clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap	s3g_ambi_encoder_surface_terrain.clap	org.s3g.s3g-dsp.ambi-terrain-navigator-64	s3g Ambi Encoder Surface Terrain
 clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap	s3g_ambi_encoder_vot.clap	org.s3g.s3g-dsp.ambi-vot-encoder-64	s3g Ambi Encoder VOT
 clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap	s3g_ambi_encoder_vox.clap	org.s3g.s3g-dsp.ambi-vox-encoder-64	s3g Ambi Encoder Vox
-clap_acapella_source_synth/s3g_processor_articulator.clap	s3g_processor_articulator.clap	org.s3g.s3g-dsp.processor-articulator	s3g Processor Articulator
+clap_acapella_source_synth/s3g_formant_matrix.clap	s3g_processor_formant_matrix.clap	org.s3g.s3g-dsp.formant-matrix	s3g Processor Formant Matrix
 clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap	s3g_ambi_encoder_wave_terrain.clap	org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64	s3g Ambi Encoder Wave Terrain
 clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap	s3g_ambi_encoder_pulsar.clap	org.s3g.s3g-dsp.ambi-pulsar-encoder-64	s3g Ambi Encoder Pulsar
 clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap	s3g_ambi_encoder_neural_ecology.clap	org.s3g.s3g-dsp.ambi-neural-ecology-64	s3g Ambi Encoder Neural Ecology
@@ -40,6 +40,7 @@ clap_loop_processor/s3g_loop_processor.clap	s3g_processor_loop_8ch.clap	org.s3g.
 clap_multi_loop_processor/s3g_multi_loop_processor.clap	s3g_processor_multi_loop_8ch.clap	org.s3g.s3g-dsp.multi-loop-processor-8ch	s3g Processor Multi Loop 8ch
 clap_processor_errant/s3g_processor_errant.clap	s3g_processor_errant.clap	org.s3g.s3g-dsp.processor-errant	s3g Processor Errant
 clap_feedback_shift/s3g_feedback_shift.clap	s3g_processor_feedback_shift.clap	org.s3g.s3g-dsp.feedback-shift	s3g Processor Feedback Shift
+clap_processor_fissure/s3g_processor_fissure.clap	s3g_processor_fissure.clap	org.s3g.s3g-dsp.processor-fissure	s3g Processor Fissure
 clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8ch.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8ch
 clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8ch.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8ch
 clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture

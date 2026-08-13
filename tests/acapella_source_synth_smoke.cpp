@@ -1,6 +1,6 @@
 #include "s3g_acapella_source_synth.h"
 #include "s3g_acapella_ensemble_synth.h"
-#include "s3g_acapella_pvoc_field.h"
+#include "s3g_acapella_resonator_bank.h"
 #include "s3g_acapella_text_compiler.h"
 #include "s3g_acapella_vocal_fx.h"
 #include "s3g_vox_builder.h"
@@ -1001,17 +1001,24 @@ bool vocalEffectsProbe()
     invalid.echoTimeMs = -20.0f;
     invalid.echoFeedback = 4.0f;
     invalid.echoTone = -8.0f;
-    invalid.pvoc.amount = 3.0f;
-    invalid.pvoc.mode = static_cast<s3g::AcapellaPvocMode>(99u);
-    invalid.pvoc.memoryMs = -20.0f;
-    invalid.pvoc.speed = 9.0f;
-    invalid.pvoc.heads = 99u;
-    invalid.pvoc.pitchSemitones = -90.0f;
-    invalid.pvoc.peakResidue = -8.0f;
-    invalid.pvoc.phaseMode = static_cast<s3g::AcapellaPvocPhaseMode>(99u);
-    invalid.pvoc.captureTrigger = static_cast<
-        s3g::AcapellaPvocCaptureTrigger>(99u);
-    invalid.pvoc.captureReleaseMs = 9000.0f;
+    invalid.resonator.amount = 3.0f;
+    invalid.resonator.mode = static_cast<s3g::AcapellaResonatorMode>(99u);
+    invalid.resonator.carrierShape = static_cast<
+        s3g::AcapellaResonatorCarrierShape>(99u);
+    invalid.resonator.carrierHarmonics = 8.0f;
+    invalid.resonator.carrierColor = -2.0f;
+    invalid.resonator.resonance = std::numeric_limits<float>::infinity();
+    invalid.resonator.driveDb = -5.0f;
+    invalid.resonator.attackMs = -20.0f;
+    invalid.resonator.releaseMs = 9000.0f;
+    invalid.resonator.analysisBlend = 3.0f;
+    invalid.resonator.bandShiftSemitones = -90.0f;
+    invalid.resonator.bandStretch = 9.0f;
+    invalid.resonator.matrixMode = static_cast<
+        s3g::AcapellaResonatorMatrixMode>(99u);
+    invalid.resonator.freeze = -4.0f;
+    invalid.resonator.freezeTrigger = static_cast<
+        s3g::AcapellaResonatorFreezeTrigger>(99u);
     const auto sanitized = s3g::sanitizeAcapellaVocalFxParams(invalid);
     if (sanitized.octaveDown != 0.0f || sanitized.octaveUp != 1.0f
         || sanitized.fuzzDriveDb != 30.0f
@@ -1022,18 +1029,48 @@ bool vocalEffectsProbe()
         || sanitized.echoTimeMs != 20.0f
         || sanitized.echoFeedback != 0.92f
         || sanitized.echoTone != -1.0f
-        || sanitized.pvoc.amount != 1.0f
-        || sanitized.pvoc.mode != s3g::AcapellaPvocMode::Cloud
-        || sanitized.pvoc.memoryMs != 20.0f
-        || sanitized.pvoc.speed != 2.0f
-        || sanitized.pvoc.heads != 8u
-        || sanitized.pvoc.pitchSemitones != -24.0f
-        || sanitized.pvoc.peakResidue != -1.0f
-        || sanitized.pvoc.phaseMode != s3g::AcapellaPvocPhaseMode::Diffuse
-        || sanitized.pvoc.captureTrigger
-            != s3g::AcapellaPvocCaptureTrigger::Rest
-        || sanitized.pvoc.captureReleaseMs != 5000.0f) {
+        || sanitized.resonator.amount != 1.0f
+        || sanitized.resonator.mode != s3g::AcapellaResonatorMode::Resonator
+        || sanitized.resonator.carrierShape
+            != s3g::AcapellaResonatorCarrierShape::Noise
+        || sanitized.resonator.carrierHarmonics != 1.0f
+        || sanitized.resonator.carrierColor != -1.0f
+        || sanitized.resonator.resonance != 0.48f
+        || sanitized.resonator.driveDb != 0.0f
+        || sanitized.resonator.attackMs != 0.5f
+        || sanitized.resonator.releaseMs != 1500.0f
+        || sanitized.resonator.analysisBlend != 1.0f
+        || sanitized.resonator.bandShiftSemitones != -24.0f
+        || sanitized.resonator.bandStretch != 1.0f
+        || sanitized.resonator.matrixMode
+            != s3g::AcapellaResonatorMatrixMode::Custom
+        || sanitized.resonator.freeze != 0.0f
+        || sanitized.resonator.freezeTrigger
+            != s3g::AcapellaResonatorFreezeTrigger::Rest) {
         std::cerr << "acapella vocal effects sanitation failed\n";
+        return false;
+    }
+
+    s3g::AcapellaVocalFxParams routedControls;
+    routedControls.resonator.bandTrims[21u] = 1.70f;
+    routedControls.resonator.customMatrixA[1u] = -0.75f;
+    routedControls.resonator.customMatrixB[1u] = 0.45f;
+    s3g::AcapellaVocalEffects realtimeControls;
+    realtimeControls.setParams(routedControls);
+    auto scalarUpdate = routedControls;
+    scalarUpdate.echoMix = 0.31f;
+    scalarUpdate.resonator.amount = 0.37f;
+    scalarUpdate.resonator.customMatrixA[1u] = 0.10f;
+    scalarUpdate.resonator.customMatrixB[1u] = -0.10f;
+    scalarUpdate.resonator.bandTrims[21u] = 0.20f;
+    realtimeControls.setRealtimeControlParams(scalarUpdate);
+    const auto& retained = realtimeControls.params();
+    if (retained.echoMix != 0.31f
+        || retained.resonator.amount != 0.37f
+        || retained.resonator.bandTrims[21u] != 1.70f
+        || retained.resonator.customMatrixA[1u] != -0.75f
+        || retained.resonator.customMatrixB[1u] != 0.45f) {
+        std::cerr << "realtime scalar update replaced stored matrix routing\n";
         return false;
     }
 
@@ -1059,6 +1096,9 @@ bool vocalEffectsProbe()
     echoParams.echoTone = 1.0f;
     echoParams.echoSpread = 0.0f;
     echoParams.echoMix = 1.0f;
+    // Isolate the tape-delay timing contract from the now-default-on
+    // Formant Matrix path.
+    echoParams.resonator.amount = 0.0f;
     s3g::AcapellaVocalEffects echo;
     echo.setParams(echoParams);
     echo.prepare(8000.0);
@@ -1143,220 +1183,6 @@ bool vocalEffectsProbe()
     return true;
 }
 
-bool pvocFieldProbe()
-{
-    s3g::AcapellaPvocParams invalid;
-    invalid.amount = -2.0f;
-    invalid.mode = static_cast<s3g::AcapellaPvocMode>(99u);
-    invalid.memoryMs = -1.0f;
-    invalid.position = 4.0f;
-    invalid.speed = -9.0f;
-    invalid.loopLengthMs = 9000.0f;
-    invalid.timeSpread = std::numeric_limits<float>::infinity();
-    invalid.heads = 99u;
-    invalid.feedback = 2.0f;
-    invalid.pitchSemitones = 90.0f;
-    invalid.formantSemitones = -90.0f;
-    invalid.warp = 3.0f;
-    invalid.harmonicLock = -2.0f;
-    invalid.peakResidue = -4.0f;
-    invalid.partialCloud = 3.0f;
-    invalid.phaseMode = static_cast<s3g::AcapellaPvocPhaseMode>(99u);
-    invalid.coherence = -1.0f;
-    invalid.phaseDrift = 2.0f;
-    invalid.transientPreserve = 3.0f;
-    invalid.captureTrigger = static_cast<
-        s3g::AcapellaPvocCaptureTrigger>(99u);
-    invalid.captureReleaseMs = 9000.0f;
-    invalid.gestureFollow = std::numeric_limits<float>::quiet_NaN();
-    const auto sanitized = s3g::sanitizeAcapellaPvocParams(invalid);
-    if (sanitized.amount != 0.0f
-        || sanitized.mode != s3g::AcapellaPvocMode::Cloud
-        || sanitized.memoryMs != 20.0f || sanitized.position != 1.0f
-        || sanitized.speed != -2.0f || sanitized.loopLengthMs != 5000.0f
-        || sanitized.timeSpread != 0.0f
-        || sanitized.heads != s3g::kAcapellaPvocMaxHeads
-        || sanitized.feedback != 0.94f
-        || sanitized.pitchSemitones != 24.0f
-        || sanitized.formantSemitones != -24.0f
-        || sanitized.warp != 1.0f || sanitized.harmonicLock != 0.0f
-        || sanitized.peakResidue != -1.0f
-        || sanitized.partialCloud != 1.0f
-        || sanitized.phaseMode != s3g::AcapellaPvocPhaseMode::Diffuse
-        || sanitized.coherence != 0.0f || sanitized.phaseDrift != 1.0f
-        || sanitized.transientPreserve != 1.0f
-        || sanitized.captureTrigger
-            != s3g::AcapellaPvocCaptureTrigger::Rest
-        || sanitized.captureReleaseMs != 5000.0f
-        || sanitized.gestureFollow != 0.55f) {
-        std::cerr << "PVOC sanitation failed\n";
-        return false;
-    }
-
-    constexpr uint32_t totalFrames = 28000u;
-    constexpr uint32_t inputFrames = 14500u;
-    std::vector<float> input(totalFrames, 0.0f);
-    for (uint32_t frame = 0u; frame < inputFrames; ++frame) {
-        const float time = static_cast<float>(frame)
-            / static_cast<float>(kSampleRate);
-        const float sweep = 112.0f + 28.0f
-            * std::sin(2.0f * s3g::kPi * 0.83f * time);
-        const float envelope = std::min(1.0f,
-            static_cast<float>(frame) / 700.0f);
-        input[frame] = envelope * (0.17f * std::sin(
-            2.0f * s3g::kPi * sweep * time)
-            + 0.075f * std::sin(2.0f * s3g::kPi * sweep * 3.02f * time)
-            + 0.044f * std::sin(2.0f * s3g::kPi * sweep * 7.11f * time)
-            + 0.018f * std::sin(2.0f * s3g::kPi * 2317.0f * time));
-    }
-
-    const auto renderPvoc = [&](s3g::AcapellaPvocParams params,
-                                bool compareDry = false) {
-        s3g::AcapellaPvocField field;
-        field.setParams(params);
-        if (!field.prepare(kSampleRate)) return std::vector<float> {};
-        s3g::AcapellaPvocGesture gesture;
-        gesture.phoneme = s3g::AcapellaPhoneme::AA;
-        gesture.frequencyHz = 112.0f;
-        gesture.stepIndex = 1u;
-        gesture.stress = 1u;
-        gesture.flags = s3g::kAcapellaWordStart
-            | s3g::kAcapellaSyllableStart;
-        gesture.active = true;
-        gesture.voiceInstance = 1u;
-        field.setGesture(gesture);
-        std::vector<float> output(totalFrames, 0.0f);
-        for (uint32_t frame = 0u; frame < totalFrames; ++frame) {
-            if (frame == 5200u) {
-                gesture.stepIndex = 2u;
-                gesture.flags = s3g::kAcapellaSyllableStart;
-                field.setGesture(gesture);
-            }
-            const auto value = field.processFrame(input[frame]);
-            output[frame] = value.output;
-            if (!std::isfinite(value.output)
-                || std::abs(value.output) > 1.501f) {
-                output.clear();
-                return output;
-            }
-            if (compareDry && frame >= field.latencySamples()
-                && std::abs(value.output - value.dry) > 2.0e-5f) {
-                std::cerr << "PVOC dry mismatch at " << frame << ": "
-                          << value.output << " / " << value.dry << " ("
-                          << std::abs(value.output - value.dry) << ")\n";
-                output.clear();
-                return output;
-            }
-        }
-        return output;
-    };
-
-    s3g::AcapellaPvocParams live;
-    live.amount = 1.0f;
-    live.mode = s3g::AcapellaPvocMode::Live;
-    live.gestureFollow = 0.0f;
-    const auto transparent = renderPvoc(live, true);
-    if (transparent.empty()) {
-        std::cerr << "neutral PVOC Live mode was not transparent\n";
-        return false;
-    }
-    s3g::AcapellaPvocParams audibleDefault;
-    audibleDefault.amount = 1.0f;
-    audibleDefault.gestureFollow = 0.0f;
-    const auto defaultWet = renderPvoc(audibleDefault);
-    if (defaultWet.empty()
-        || !(difference(defaultWet, transparent) > 2.0)) {
-        std::cerr << "default PVOC Amount did not reveal an effect\n";
-        return false;
-    }
-
-    s3g::AcapellaPvocParams base = live;
-    base.memoryMs = 720.0f;
-    base.position = 0.38f;
-    base.speed = 0.57f;
-    base.loopLengthMs = 210.0f;
-    base.timeSpread = 0.62f;
-    base.heads = 2u;
-    base.transientPreserve = 0.0f;
-    base.captureTrigger = s3g::AcapellaPvocCaptureTrigger::Phoneme;
-    base.captureReleaseMs = 600.0f;
-    constexpr std::array<s3g::AcapellaPvocMode, 6u> modes {{
-        s3g::AcapellaPvocMode::Freeze,
-        s3g::AcapellaPvocMode::Stretch,
-        s3g::AcapellaPvocMode::Scrub,
-        s3g::AcapellaPvocMode::Reverse,
-        s3g::AcapellaPvocMode::Loop,
-        s3g::AcapellaPvocMode::Cloud,
-    }};
-    std::array<std::vector<float>, modes.size()> modeOutputs;
-    for (uint32_t index = 0u; index < modes.size(); ++index) {
-        auto params = base;
-        params.mode = modes[index];
-        if (params.mode == s3g::AcapellaPvocMode::Cloud) {
-            params.heads = 5u;
-            params.partialCloud = 0.55f;
-            params.phaseDrift = 0.32f;
-        }
-        modeOutputs[index] = renderPvoc(params);
-        if (modeOutputs[index].empty()
-            || !(difference(modeOutputs[index], transparent) > 1.0)
-            || !(maximumStep(modeOutputs[index], totalFrames) < 1.1)) {
-            std::cerr << "PVOC transport contract failed for mode "
-                      << index + 1u << '\n';
-            return false;
-        }
-    }
-    if (!(energy(modeOutputs[0], inputFrames + 2048u) > 1.0e-4)
-        || !(difference(modeOutputs[1], modeOutputs[2]) > 1.0)
-        || !(difference(modeOutputs[3], modeOutputs[4]) > 1.0)) {
-        std::cerr << "PVOC history transports collapsed onto one behavior\n";
-        return false;
-    }
-
-    auto pitchParams = base;
-    pitchParams.mode = s3g::AcapellaPvocMode::Loop;
-    pitchParams.pitchSemitones = 7.0f;
-    auto formantParams = pitchParams;
-    formantParams.pitchSemitones = 0.0f;
-    formantParams.formantSemitones = 7.0f;
-    auto peakParams = base;
-    peakParams.mode = s3g::AcapellaPvocMode::Cloud;
-    peakParams.peakResidue = 0.82f;
-    auto residueParams = peakParams;
-    residueParams.peakResidue = -0.82f;
-    auto lockedParams = peakParams;
-    lockedParams.phaseMode = s3g::AcapellaPvocPhaseMode::PeakLocked;
-    lockedParams.coherence = 0.96f;
-    auto diffuseParams = lockedParams;
-    diffuseParams.phaseMode = s3g::AcapellaPvocPhaseMode::Diffuse;
-    diffuseParams.coherence = 0.08f;
-    diffuseParams.phaseDrift = 0.78f;
-    const auto pitched = renderPvoc(pitchParams);
-    const auto formanted = renderPvoc(formantParams);
-    const auto peaks = renderPvoc(peakParams);
-    const auto residue = renderPvoc(residueParams);
-    const auto locked = renderPvoc(lockedParams);
-    const auto diffuse = renderPvoc(diffuseParams);
-    if (pitched.empty() || formanted.empty() || peaks.empty()
-        || residue.empty() || locked.empty() || diffuse.empty()
-        || !(difference(pitched, formanted) > 2.0)
-        || !(difference(peaks, residue) > 2.0)
-        || !(difference(locked, diffuse) > 2.0)) {
-        std::cerr << "PVOC frequency, partial, or phase axes collapsed\n";
-        return false;
-    }
-
-    s3g::AcapellaPvocField tailField;
-    auto tailParams = base;
-    tailParams.feedback = 0.82f;
-    tailField.setParams(tailParams);
-    if (!tailField.prepare(kSampleRate)
-        || tailField.tailSamples() <= tailField.latencySamples()) {
-        std::cerr << "PVOC tail reporting failed\n";
-        return false;
-    }
-    return true;
-}
 
 bool ensemblePolyphonyAndDoublingProbe()
 {
@@ -1496,7 +1322,6 @@ int main()
         || !textCompilerAndTempoSyncProbe()
         || !extremeVoiceProbe()
         || !vocalEffectsProbe()
-        || !pvocFieldProbe()
         || !ensemblePolyphonyAndDoublingProbe()) {
         return 1;
     }

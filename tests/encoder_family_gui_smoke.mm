@@ -3,6 +3,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
@@ -50,6 +51,7 @@ struct HostContext {
     bool deferParamFlush = false;
     bool paramFlushRequested = false;
     bool callbackRequested = false;
+    bool processRequested = false;
     uint32_t paramRescanCount = 0u;
 };
 
@@ -91,6 +93,13 @@ const void* hostGetExtension(const clap_host_t*, const char* id)
 }
 void hostRequest(const clap_host_t*) {}
 
+void hostRequestProcess(const clap_host_t* host)
+{
+    auto* context = host
+        ? static_cast<HostContext*>(host->host_data) : nullptr;
+    if (context) context->processRequested = true;
+}
+
 void hostRequestCallback(const clap_host_t* host)
 {
     auto* context = host
@@ -107,6 +116,7 @@ struct CapturedParamEvent {
 struct CapturedOutputEvents {
     clap_output_events_t events {};
     std::vector<CapturedParamEvent> values;
+    size_t capacity = std::numeric_limits<size_t>::max();
 };
 
 bool captureOutputEvent(const clap_output_events_t* events,
@@ -116,6 +126,7 @@ bool captureOutputEvent(const clap_output_events_t* events,
         || header->space_id != CLAP_CORE_EVENT_SPACE_ID) return false;
     auto* capture = static_cast<CapturedOutputEvents*>(events->ctx);
     if (!capture) return false;
+    if (capture->values.size() >= capture->capacity) return false;
     CapturedParamEvent result {};
     result.type = header->type;
     if (header->type == CLAP_EVENT_PARAM_VALUE) {
@@ -506,7 +517,7 @@ int main(int argc, char** argv)
         host.version = "1";
         host.get_extension = hostGetExtension;
         host.request_restart = hostRequest;
-        host.request_process = hostRequest;
+        host.request_process = hostRequestProcess;
         host.request_callback = hostRequestCallback;
 
         const auto* factory = static_cast<const clap_plugin_factory_t*>(
@@ -1010,19 +1021,70 @@ int main(int argc, char** argv)
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
         }
-        const bool processorArticulator = std::strcmp(
+        const bool formantMatrix = std::strcmp(
             pluginId,
-            "org.s3g.s3g-dsp.processor-articulator") == 0;
-        if (ok && processorArticulator && !documentationCapture) {
-            failureStage = "Processor Articulator text and audition handoff";
+            "org.s3g.s3g-dsp.formant-matrix") == 0;
+        if (ok && formantMatrix && !documentationCapture) {
+            failureStage = "Formant Matrix effect identity and MIDI note input";
+            const auto hasDescriptorFeature = [&](const char* expectedFeature) {
+                if (!requestedDescriptor->features || !expectedFeature) {
+                    return false;
+                }
+                for (const char* const* feature = requestedDescriptor->features;
+                     *feature; ++feature) {
+                    if (std::strcmp(*feature, expectedFeature) == 0) return true;
+                }
+                return false;
+            };
+            const auto* notePorts = static_cast<const clap_plugin_note_ports_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
+            clap_note_port_info_t noteInputInfo {};
+            ok = requestedDescriptor->version
+                && std::strcmp(requestedDescriptor->version, "5.2.5") == 0
+                && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
+                && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
+                && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
+                && !hasDescriptorFeature(CLAP_PLUGIN_FEATURE_INSTRUMENT)
+                && !hasDescriptorFeature(CLAP_PLUGIN_FEATURE_SYNTHESIZER)
+                && notePorts && notePorts->count && notePorts->get
+                && notePorts->count(plugin, true) == 1u
+                && notePorts->count(plugin, false) == 0u
+                && notePorts->get(plugin, 0u, true, &noteInputInfo)
+                && std::strcmp(noteInputInfo.name, "MIDI In") == 0
+                && (noteInputInfo.supported_dialects
+                    & CLAP_NOTE_DIALECT_CLAP) != 0u
+                && (noteInputInfo.supported_dialects
+                    & CLAP_NOTE_DIALECT_MIDI) != 0u;
+            if (!ok) {
+                std::cerr << "Formant Matrix descriptor/note details: version="
+                    << (requestedDescriptor->version
+                        ? requestedDescriptor->version : "(missing)")
+                    << " effect="
+                    << hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
+                    << " filter="
+                    << hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
+                    << " stereo="
+                    << hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
+                    << " instrument="
+                    << hasDescriptorFeature(CLAP_PLUGIN_FEATURE_INSTRUMENT)
+                    << " synth="
+                    << hasDescriptorFeature(CLAP_PLUGIN_FEATURE_SYNTHESIZER)
+                    << " noteIn=" << (notePorts && notePorts->count
+                        ? notePorts->count(plugin, true) : 0u)
+                    << " noteOut=" << (notePorts && notePorts->count
+                        ? notePorts->count(plugin, false) : 0u) << "\n";
+            }
+            if (ok) failureStage =
+                "Formant Matrix text, routing, and audition handoff";
             @try {
-                const auto articulatorMouseEvent =
-                    [&](NSEventType type, NSPoint documentPoint) {
+                const auto formantMouseEvent =
+                    [&](NSEventType type, NSPoint documentPoint,
+                        NSEventModifierFlags flags = 0u) {
                         return [NSEvent
                             mouseEventWithType:type
                             location:[document convertPoint:
                                 documentPoint toView:nil]
-                            modifierFlags:0
+                            modifierFlags:flags
                             timestamp:0.0
                             windowNumber:0
                             context:nil
@@ -1047,7 +1109,15 @@ int main(int argc, char** argv)
                 bool hasEchoHeads = false;
                 bool hasEchoClock = false;
                 bool hasIntelligibility = false;
-                uint32_t pvocSurfaceMatches = 0u;
+                bool hasModulatorSource = false;
+                bool hasMicGain = false;
+                bool hasClassicMicProfile = false;
+                uint32_t voiceBankSurfaceMatches = 0u;
+                uint32_t expandedScalarMatches = 0u;
+                uint32_t analysisPitchSurfaceMatches = 0u;
+                uint32_t bandTrimSurfaceMatches = 0u;
+                uint32_t matrixASurfaceMatches = 0u;
+                uint32_t matrixBSurfaceMatches = 0u;
                 const uint32_t parameterCount = params
                     ? params->count(plugin) : 0u;
                 for (uint32_t index = 0u; index < parameterCount; ++index) {
@@ -1064,20 +1134,47 @@ int main(int argc, char** argv)
                     hasEchoClock |= info.id == 59u
                         && std::strcmp(info.name, "Echo Clock") == 0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                    hasModulatorSource |= info.id == 98u
+                        && std::strcmp(info.name, "Modulator Source") == 0
+                        && std::strcmp(info.module, "Modulator") == 0
+                        && info.min_value == 0.0
+                        && info.max_value == 2.0
+                        && info.default_value == 0.0
+                        && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                    hasMicGain |= info.id == 99u
+                        && std::strcmp(info.name, "Mic Gain") == 0
+                        && std::strcmp(info.module, "Modulator") == 0
+                        && info.min_value == -24.0
+                        && info.max_value == 24.0
+                        && info.default_value == 0.0
+                        && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
+                    if (info.id == 1u && info.max_value == 15.0
+                        && info.default_value == 14.0) {
+                        char classicMic[64] {};
+                        char custom[64] {};
+                        hasClassicMicProfile = params->value_to_text
+                            && params->value_to_text(plugin, 1u, 14.0,
+                                classicMic, sizeof(classicMic))
+                            && params->value_to_text(plugin, 1u, 15.0,
+                                custom, sizeof(custom))
+                            && std::strcmp(classicMic, "Classic Mic") == 0
+                            && std::strcmp(custom, "Custom") == 0;
+                    }
                     if (info.id >= 65u && info.id <= 86u) {
                         constexpr const char* names[] {
-                            "PVOC Amount", "PVOC Mode", "PVOC Memory",
-                            "PVOC Position", "PVOC Speed", "PVOC Loop Length",
-                            "Time Spread", "PVOC Heads", "PVOC Feedback",
-                            "PVOC Pitch", "PVOC Formant", "Frequency Warp",
-                            "Harmonic Lock", "Peak / Residue", "Partial Cloud",
-                            "Phase Mode", "Coherence", "Phase Drift",
-                            "Transient Preserve", "Capture Trigger",
-                            "Capture Release", "Gesture Follow"
+                            "Bank Mix", "Bank Mode",
+                            "Carrier Shape", "Carrier Harmonics",
+                            "Carrier Color", "Carrier Noise",
+                            "Analysis / Phoneme", "Band Attack",
+                            "Band Release", "Bank Resonance", "Bank Drive",
+                            "Band Shift", "Band Stretch", "Band Tilt",
+                            "Sibilance", "Matrix Mode", "Matrix Depth",
+                            "Bank Stereo Spread", "Envelope Freeze",
+                            "Freeze Trigger", "Envelope Blur", "Gesture Follow"
                         };
                         constexpr bool stepped[] {
-                            false, true, false, false, false, false,
-                            false, true, false, false, false, false,
+                            false, true, true, false, false, false,
+                            false, false, false, false, false, false,
                             false, false, false, true, false, false,
                             false, true, false, false
                         };
@@ -1086,28 +1183,180 @@ int main(int argc, char** argv)
                             (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
                         if (std::strcmp(info.name, names[surfaceIndex]) == 0
                             && isStepped == stepped[surfaceIndex]) {
-                            ++pvocSurfaceMatches;
+                            ++voiceBankSurfaceMatches;
+                        }
+                    }
+                    if (info.id >= 87u && info.id <= 107u) {
+                        constexpr const char* names[] {
+                            "Band Layout", "Voiced / Unvoiced Mode",
+                            "Voicing Threshold", "Voiced Level",
+                            "Unvoiced Level", "To Voiced", "To Unvoiced",
+                            "Open Level", "Band Coupling",
+                            "Articulation Thru", "Stereo Pattern",
+                            "Modulator Source", "Mic Gain",
+                            "Pulse Width", "Carrier LFO Shape",
+                            "Carrier LFO Rate", "Carrier FM", "Carrier PWM",
+                            "Carrier LFO Sync", "Carrier LFO Division",
+                            "Matrix A / B"
+                        };
+                        constexpr double minima[] {
+                            0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 10.0,
+                            0.0, -3.0, 0.0, 0.0, 0.0, -24.0,
+                            0.05, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0
+                        };
+                        constexpr double maxima[] {
+                            1.0, 3.0, 1.0, 1.0, 1.0, 250.0, 250.0,
+                            1.0, 3.0, 1.0, 2.0, 2.0, 24.0,
+                            0.95, 1.0, 13.0, 24.0, 1.0, 1.0, 11.0, 1.0
+                        };
+                        constexpr bool stepped[] {
+                            true, true, false, false, false, false, false,
+                            false, true, false, true, true, false,
+                            false, true, false, false, false, true, true, false
+                        };
+                        const uint32_t surfaceIndex = info.id - 87u;
+                        const bool isStepped =
+                            (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                        if (std::strcmp(info.name, names[surfaceIndex]) == 0
+                            && std::fabs(info.min_value
+                                - minima[surfaceIndex]) < 1.0e-9
+                            && std::fabs(info.max_value
+                                - maxima[surfaceIndex]) < 1.0e-9
+                            && isStepped == stepped[surfaceIndex]) {
+                            ++expandedScalarMatches;
+                        }
+                    } else if (info.id >= 108u && info.id <= 129u) {
+                        const uint32_t band = info.id - 108u;
+                        char expected[64] {};
+                        std::snprintf(expected, sizeof(expected),
+                            "Band %02u Trim", band + 1u);
+                        if (std::strcmp(info.name, expected) == 0
+                            && std::strcmp(info.module, "Band Levels") == 0
+                            && info.min_value == 0.0
+                            && info.max_value == 2.0
+                            && info.default_value == 1.0
+                            && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u) {
+                            ++bandTrimSurfaceMatches;
+                        }
+                    } else if (info.id >= 130u && info.id <= 1097u) {
+                        const bool sceneB = info.id >= 614u;
+                        const uint32_t cell = info.id
+                            - (sceneB ? 614u : 130u);
+                        const uint32_t destination = cell / 22u;
+                        const uint32_t source = cell % 22u;
+                        char expected[64] {};
+                        std::snprintf(expected, sizeof(expected),
+                            "%c B%02u to B%02u", sceneB ? 'B' : 'A',
+                            source + 1u, destination + 1u);
+                        const bool match = std::strcmp(
+                                info.name, expected) == 0
+                            && std::strcmp(info.module,
+                                sceneB ? "Routing B" : "Routing A") == 0
+                            && info.min_value == -1.0
+                            && info.max_value == 1.0
+                            && info.default_value
+                                == (source == destination ? 1.0 : 0.0)
+                            && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
+                        if (match) {
+                            if (sceneB) ++matrixBSurfaceMatches;
+                            else ++matrixASurfaceMatches;
+                        }
+                    }
+                    if (info.id >= 1098u && info.id <= 1102u) {
+                        constexpr const char* names[] {
+                            "Analysis Slope", "Carrier Pitch Source",
+                            "Scale Root", "Pitch Scale", "Pitch Hold"
+                        };
+                        constexpr double minima[] {
+                            0.0, 0.0, 0.0, 0.0, 20.0
+                        };
+                        constexpr double maxima[] {
+                            1.0, 1.0, 11.0, 7.0, 2000.0
+                        };
+                        constexpr bool stepped[] {
+                            true, true, true, true, false
+                        };
+                        const uint32_t surfaceIndex = info.id - 1098u;
+                        const bool isStepped =
+                            (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                        if (std::strcmp(info.name, names[surfaceIndex]) == 0
+                            && info.min_value == minima[surfaceIndex]
+                            && info.max_value == maxima[surfaceIndex]
+                            && isStepped == stepped[surfaceIndex]) {
+                            ++analysisPitchSurfaceMatches;
                         }
                     }
                 }
 
-                // Model a sleeping instrument. The editor's Compile action
+                // Model a sleeping effect. The editor's Compile action
                 // must still publish the phrase and select Text Phrase before
                 // the host services the outbound gesture queue.
                 hostContext.deferParamFlush = true;
                 hostContext.paramFlushRequested = false;
+                char externalMicChoice[64] {};
+                char internalSpeechChoice[64] {};
+                char blendChoice[64] {};
+                const bool modulatorChoices = params && params->value_to_text
+                    && params->value_to_text(plugin, 98u, 0.0,
+                        externalMicChoice, sizeof(externalMicChoice))
+                    && params->value_to_text(plugin, 98u, 1.0,
+                        internalSpeechChoice, sizeof(internalSpeechChoice))
+                    && params->value_to_text(plugin, 98u, 2.0,
+                        blendChoice, sizeof(blendChoice))
+                    && std::strcmp(externalMicChoice, "External Mic") == 0
+                    && std::strcmp(internalSpeechChoice,
+                        "Internal Speech") == 0
+                    && std::strcmp(blendChoice, "Blend") == 0;
                 ok = phraseField && !legacySystemControls
                     && [phraseField isEditable]
                     && [phraseField focusRingType] == NSFocusRingTypeNone
+                    && [phraseField isHidden]
                     && [[phraseField stringValue]
                         isEqualToString:@"hello worlds"]
                     && [document respondsToSelector:@selector(commitPhrase:)]
                     && params && params->get_value && params->flush
-                    && parameterCount == 86u
+                    && parameterCount == 1102u
                     && hasPhraseMode && hasIntelligibility
                     && hasEchoHeads && hasEchoClock
-                    && pvocSurfaceMatches == 22u;
+                    && hasModulatorSource && hasMicGain
+                    && hasClassicMicProfile && modulatorChoices
+                    && voiceBankSurfaceMatches == 22u
+                    && expandedScalarMatches == 21u
+                    && analysisPitchSurfaceMatches == 5u
+                    && bandTrimSurfaceMatches == 22u
+                    && matrixASurfaceMatches == 484u
+                    && matrixBSurfaceMatches == 484u;
+                if (!ok) {
+                    std::cerr << "Formant Matrix surface details: params="
+                        << parameterCount << " old="
+                        << voiceBankSurfaceMatches << " expanded="
+                        << expandedScalarMatches << " trims="
+                        << " pitch=" << analysisPitchSurfaceMatches
+                        << bandTrimSurfaceMatches << " matrix="
+                        << matrixASurfaceMatches << "/"
+                        << matrixBSurfaceMatches << " field="
+                        << (phraseField != nil) << " hidden="
+                        << (phraseField && [phraseField isHidden])
+                        << " modulator=" << hasModulatorSource
+                        << " micGain=" << hasMicGain
+                        << " classicMic=" << hasClassicMicProfile
+                        << " choices=" << modulatorChoices << "\n";
+                }
                 if (ok) {
+                    [phraseField setStringValue:@"red violence rising"];
+                    [phraseField sendAction:[phraseField action]
+                        to:[phraseField target]];
+                    double immediateSequence = -1.0;
+                    ok = params->get_value(
+                            plugin, 51u, &immediateSequence)
+                        && immediateSequence == 5.0;
+                    if (!ok) {
+                        std::cerr << "Immediate phrase sequence="
+                            << immediateSequence << "\n";
+                    }
+                }
+                if (ok) {
+                    failureStage = "Formant Matrix state migration";
                     const auto* articulatorState =
                         static_cast<const clap_plugin_state_t*>(
                             plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -1117,7 +1366,7 @@ int main(int argc, char** argv)
                     };
                     constexpr size_t headerBytes = 2u * sizeof(uint32_t);
                     constexpr size_t oldValueBytes = 76u * sizeof(double);
-                    constexpr size_t currentValueBytes = 85u * sizeof(double);
+                    constexpr size_t currentValueBytes = 1101u * sizeof(double);
                     constexpr size_t phraseBytes = sizeof(uint32_t) + 256u;
                     ok = articulatorState && articulatorState->save
                         && articulatorState->load
@@ -1142,28 +1391,39 @@ int main(int argc, char** argv)
                         clap_istream_t stateInput {
                             &versionEleven, stateReadWhole
                         };
-                        double migratedPvocAmount = -1.0;
+                        double migratedBankAmount = -1.0;
                         ok = articulatorState->load(plugin, &stateInput)
                             && versionEleven.offset
                                 == versionEleven.bytes.size()
                             && params->get_value(
-                                plugin, 65u, &migratedPvocAmount)
-                            && migratedPvocAmount == 0.0;
+                                plugin, 65u, &migratedBankAmount)
+                            && std::fabs(migratedBankAmount - 1.0) < 1.0e-6;
                     }
                     if (ok) {
-                        // Version 15 used the same IDs for the retired first
-                        // PVOC engine. Ensure those values are reset while an
-                        // old effect-led profile becomes Custom.
-                        MemoryPluginState versionFourteen;
-                        versionFourteen.bytes = currentState.bytes;
-                        constexpr uint32_t oldVersion = 15u;
-                        std::memcpy(versionFourteen.bytes.data(),
+                        // Version 16 used the same IDs for the retired FFT
+                        // engine. Ensure those values are reset while an old
+                        // effect-led profile becomes Custom.
+                        MemoryPluginState versionSixteen;
+                        constexpr size_t versionSixteenValueBytes =
+                            85u * sizeof(double);
+                        versionSixteen.bytes.reserve(headerBytes
+                            + versionSixteenValueBytes + phraseBytes);
+                        versionSixteen.bytes.insert(versionSixteen.bytes.end(),
+                            currentState.bytes.begin(),
+                            currentState.bytes.begin() + headerBytes
+                                + versionSixteenValueBytes);
+                        versionSixteen.bytes.insert(versionSixteen.bytes.end(),
+                            currentState.bytes.begin() + headerBytes
+                                + currentValueBytes,
+                            currentState.bytes.end());
+                        constexpr uint32_t oldVersion = 16u;
+                        std::memcpy(versionSixteen.bytes.data(),
                             &oldVersion, sizeof(oldVersion));
                         const auto setOldValue = [&](uint32_t id,
                                                      double value) {
                             const size_t savedIndex = id <= 24u
                                 ? id - 1u : id - 2u;
-                            std::memcpy(versionFourteen.bytes.data()
+                            std::memcpy(versionSixteen.bytes.data()
                                     + headerBytes
                                     + savedIndex * sizeof(double),
                                 &value, sizeof(value));
@@ -1173,15 +1433,15 @@ int main(int argc, char** argv)
                         setOldValue(66u, 5.0);
                         setOldValue(67u, 8000.0);
                         clap_istream_t stateInput {
-                            &versionFourteen, stateReadWhole
+                            &versionSixteen, stateReadWhole
                         };
                         double migratedProfile = -1.0;
                         double migratedAmount = -1.0;
                         double migratedMode = -1.0;
-                        double migratedMemory = -1.0;
+                        double migratedCarrier = -1.0;
                         ok = articulatorState->load(plugin, &stateInput)
-                            && versionFourteen.offset
-                                == versionFourteen.bytes.size()
+                            && versionSixteen.offset
+                                == versionSixteen.bytes.size()
                             && params->get_value(
                                 plugin, 1u, &migratedProfile)
                             && params->get_value(
@@ -1189,93 +1449,456 @@ int main(int argc, char** argv)
                             && params->get_value(
                                 plugin, 66u, &migratedMode)
                             && params->get_value(
-                                plugin, 67u, &migratedMemory)
-                            && migratedProfile == 14.0
-                            && migratedAmount == 0.0
-                            && migratedMode == 1.0
-                            && migratedMemory == 1200.0;
+                                plugin, 67u, &migratedCarrier)
+                            && migratedProfile == 15.0
+                            && std::fabs(migratedAmount - 1.0) < 1.0e-6
+                            && migratedMode == 0.0
+                            && migratedCarrier == 1.0;
+                    }
+                    if (ok) {
+                        // Version 18 treated the host input as a carrier and
+                        // used slot 14 for Custom. Version 19 reverses that
+                        // bus into a mic/modulator, so those values must not
+                        // be silently reinterpreted as source selection/gain.
+                        MemoryPluginState versionEighteen;
+                        versionEighteen.bytes = currentState.bytes;
+                        constexpr size_t versionEighteenValueBytes =
+                            1096u * sizeof(double);
+                        versionEighteen.bytes.erase(
+                            versionEighteen.bytes.begin() + headerBytes
+                                + versionEighteenValueBytes,
+                            versionEighteen.bytes.begin() + headerBytes
+                                + currentValueBytes);
+                        constexpr uint32_t oldVersion = 18u;
+                        std::memcpy(versionEighteen.bytes.data(),
+                            &oldVersion, sizeof(oldVersion));
+                        const auto setVersionEighteenValue =
+                            [&](uint32_t id, double value) {
+                                const size_t savedIndex = id <= 24u
+                                    ? id - 1u : id - 2u;
+                                std::memcpy(versionEighteen.bytes.data()
+                                        + headerBytes
+                                        + savedIndex * sizeof(double),
+                                    &value, sizeof(value));
+                            };
+                        setVersionEighteenValue(1u, 14.0);
+                        setVersionEighteenValue(98u, 0.72);
+                        setVersionEighteenValue(99u, 12.0);
+                        clap_istream_t stateInput {
+                            &versionEighteen, stateReadWhole
+                        };
+                        double migratedProfile = -1.0;
+                        double migratedModulator = -1.0;
+                        double migratedMicGain = -99.0;
+                        ok = articulatorState->load(plugin, &stateInput)
+                            && versionEighteen.offset
+                                == versionEighteen.bytes.size()
+                            && params->get_value(
+                                plugin, 1u, &migratedProfile)
+                            && params->get_value(
+                                plugin, 98u, &migratedModulator)
+                            && params->get_value(
+                                plugin, 99u, &migratedMicGain)
+                            && migratedProfile == 15.0
+                            && migratedModulator == 1.0
+                            && migratedMicGain == 0.0;
                     }
                 }
                 if (ok) {
-                    SingleParamEventInput spectralProfile {};
-                    constexpr double expectedPvocModes[] {
-                        1.0, 4.0, 2.0, 6.0, 6.0, 5.0, 3.0, 2.0
+                    failureStage = "Formant Matrix profiles";
+                    SingleParamEventInput bankProfile {};
+                    constexpr double expectedBankModes[] {
+                        1.0, 0.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0
                     };
                     for (uint32_t index = 0u;
-                         ok && index < std::size(expectedPvocModes);
+                         ok && index < std::size(expectedBankModes);
                          ++index) {
                         const double profile = 6.0
                             + static_cast<double>(index);
-                        setSingleParamEvent(spectralProfile, 1u, profile);
+                        setSingleParamEvent(bankProfile, 1u, profile);
                         params->flush(plugin,
-                            &spectralProfile.events, nullptr);
+                            &bankProfile.events, nullptr);
                         double profileValue = -1.0;
-                        double pvocMode = -1.0;
-                        double pvocAmount = 0.0;
+                        double bankMode = -1.0;
+                        double bankAmount = 0.0;
+                        double gestureSequence = -1.0;
                         ok = params->get_value(plugin, 1u, &profileValue)
-                            && params->get_value(plugin, 66u, &pvocMode)
-                            && params->get_value(plugin, 65u, &pvocAmount)
+                            && params->get_value(plugin, 66u, &bankMode)
+                            && params->get_value(plugin, 65u, &bankAmount)
+                            && params->get_value(
+                                plugin, 51u, &gestureSequence)
                             && profileValue == profile
-                            && pvocMode == expectedPvocModes[index]
-                            && pvocAmount > 0.80;
+                            && bankMode == expectedBankModes[index]
+                            && bankAmount > 0.80
+                            && gestureSequence == 5.0;
+                        if (!ok) {
+                            std::cerr << "Formant profile " << profile
+                                << ": value=" << profileValue << " mode="
+                                << bankMode << " amount=" << bankAmount
+                                << " gesture=" << gestureSequence << "\n";
+                        }
                     }
-                    setSingleParamEvent(spectralProfile, 1u, 0.0);
-                    params->flush(plugin, &spectralProfile.events, nullptr);
+                    if (ok) {
+                        setSingleParamEvent(bankProfile, 1u, 14.0);
+                        params->flush(plugin, &bankProfile.events, nullptr);
+                        double profileValue = -1.0;
+                        double modulatorSource = -1.0;
+                        double micGain = -99.0;
+                        double bankMode = -1.0;
+                        double articulationThru = -1.0;
+                        ok = params->get_value(plugin, 1u, &profileValue)
+                            && params->get_value(
+                                plugin, 98u, &modulatorSource)
+                            && params->get_value(plugin, 99u, &micGain)
+                            && params->get_value(plugin, 66u, &bankMode)
+                            && params->get_value(
+                                plugin, 96u, &articulationThru)
+                            && profileValue == 14.0
+                            && modulatorSource == 0.0
+                            && micGain == 0.0
+                            && bankMode == 0.0
+                            && articulationThru == 0.0;
+                        if (!ok) {
+                            std::cerr << "Classic Mic profile values: profile="
+                                << profileValue << " source="
+                                << modulatorSource << " gain=" << micGain
+                                << " mode=" << bankMode << " thru="
+                                << articulationThru << "\n";
+                        }
+                    }
+                    setSingleParamEvent(bankProfile, 1u, 0.0);
+                    params->flush(plugin, &bankProfile.events, nullptr);
                 }
                 if (ok) {
+                    failureStage = "Formant Matrix preset overlay";
                     const auto titleBand =
                         s3g::clap_gui::encoderTitleBand(
                             static_cast<double>(nativeWidth),
                             static_cast<double>(nativeHeight));
                     const NSRect preset =
                         s3g::clap_gui::cocoaRect(titleBand.presetMenu);
-                    [document mouseDown:articulatorMouseEvent(
+                    [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown,
                         NSMakePoint(NSMidX(preset), NSMidY(preset)))];
                     ok = [phraseField isHidden];
-                    [document mouseDown:articulatorMouseEvent(
+                    [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, NSMakePoint(700.0, 300.0))];
-                    ok = ok && ![phraseField isHidden];
+                    ok = ok && [phraseField isHidden];
                 }
                 if (ok) {
-                    const NSPoint pageButton = NSMakePoint(571.0, 55.0);
-                    [document mouseDown:articulatorMouseEvent(
-                        NSEventTypeLeftMouseDown, pageButton)];
-                    ok = [phraseField isHidden];
-                    const NSPoint spectralMix = NSMakePoint(209.0, 92.0);
-                    [document mouseDown:articulatorMouseEvent(
-                        NSEventTypeLeftMouseDown, spectralMix)];
-                    [document mouseUp:articulatorMouseEvent(
-                        NSEventTypeLeftMouseUp, spectralMix)];
-                    double spectralValue = 0.0;
-                    ok = ok && params->get_value(plugin, 65u, &spectralValue)
-                        && spectralValue > 0.85;
-                    const NSPoint partialCloud = NSMakePoint(505.0, 152.0);
-                    [document mouseDown:articulatorMouseEvent(
-                        NSEventTypeLeftMouseDown, partialCloud)];
-                    [document mouseUp:articulatorMouseEvent(
-                        NSEventTypeLeftMouseUp, partialCloud)];
-                    double cloudValue = 0.0;
-                    ok = ok && params->get_value(plugin, 79u, &cloudValue)
-                        && cloudValue > 0.85;
+                    failureStage = "Formant Matrix routing and pages";
+                    // Exercise every stepped menu on the compact ROUTE
+                    // column. This catches both stale hit geometry and a
+                    // dropdown hidden behind the adjacent panels.
+                    const auto chooseRouteMenu = [&](NSPoint control,
+                                                     NSPoint item,
+                                                     clap_id id,
+                                                     double expected) {
+                        [document mouseDown:formantMouseEvent(
+                            NSEventTypeLeftMouseDown, control)];
+                        [document mouseDown:formantMouseEvent(
+                            NSEventTypeLeftMouseDown, item)];
+                        double actual = -99.0;
+                        return params->get_value(plugin, id, &actual)
+                            && actual == expected;
+                    };
+                    ok = chooseRouteMenu(NSMakePoint(1100.0, 316.0),
+                             NSMakePoint(1100.0, 432.0), 80u, 5.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 394.0),
+                             NSMakePoint(1100.0, 528.0), 95u, 3.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 420.0),
+                             NSMakePoint(1100.0, 465.0), 87u, 1.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 446.0),
+                             NSMakePoint(1100.0, 509.0), 66u, 2.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 547.0),
+                             NSMakePoint(1100.0, 610.0), 98u, 2.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 597.0),
+                             NSMakePoint(1100.0, 640.0), 1099u, 1.0)
+                        && chooseRouteMenu(NSMakePoint(1100.0, 859.0),
+                             NSMakePoint(1100.0, 903.0), 88u, 1.0);
+                    // The ROUTE page is the initial surface. Edit a signed
+                    // off-diagonal crosspoint and a single output trim at the
+                    // exact 22-band grid geometry used by the editor.
+                    constexpr clap_id routeA0203 = 130u + 2u * 22u + 1u;
+                    const NSPoint routeCell = NSMakePoint(
+                        146.0 + 1.0 * 25.0, 178.0 + 2.0 * 25.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, routeCell,
+                        NSEventModifierFlagOption)];
+                    double routeValue = 0.0;
+                    double matrixMode = 0.0;
+                    ok = params->get_value(plugin, routeA0203, &routeValue)
+                        && params->get_value(plugin, 80u, &matrixMode)
+                        && std::fabs(routeValue + 0.25) < 1.0e-6
+                        && matrixMode == 5.0;
+                    const NSPoint trim22 = NSMakePoint(
+                        146.0 + 21.0 * 25.0, 750.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, trim22)];
+                    [document mouseUp:formantMouseEvent(
+                        NSEventTypeLeftMouseUp, trim22)];
+                    double trimValue = 0.0;
+                    ok = ok && params->get_value(plugin, 129u, &trimValue)
+                        && trimValue > 1.85;
+
+                    // Scene B is independently editable. Copy the currently
+                    // selected A scene into B; the operation selects its B
+                    // destination after publication. Drain earlier GUI edits
+                    // so the full scene transaction starts at an empty bounded
+                    // queue, then require Mode=Custom and every route value to
+                    // reach the host as one complete ordered batch.
+                    CapturedOutputEvents precedingRouteEvents {};
+                    precedingRouteEvents.events.ctx = &precedingRouteEvents;
+                    precedingRouteEvents.events.try_push = captureOutputEvent;
+                    if (ok) {
+                        params->flush(plugin, nullptr,
+                            &precedingRouteEvents.events);
+                        hostContext.paramFlushRequested = false;
+                    }
+
+                    // Leave only 484 queue slots available, three fewer than
+                    // the complete scene transaction. The rejected operation
+                    // must change neither Mode nor any B route locally.
+                    SingleParamEventInput identityModeEvent {};
+                    setSingleParamEvent(identityModeEvent, 80u, 0.0);
+                    if (ok) {
+                        params->flush(
+                            plugin, &identityModeEvent.events, nullptr);
+                    }
+                    double modeBeforeRejectedCopy = -1.0;
+                    double routeBeforeRejectedCopy = -2.0;
+                    ok = ok && params->get_value(
+                            plugin, 80u, &modeBeforeRejectedCopy)
+                        && params->get_value(
+                            plugin, 614u + 2u * 22u + 1u,
+                            &routeBeforeRejectedCopy)
+                        && modeBeforeRejectedCopy == 0.0;
+                    const NSPoint queuePressurePoint =
+                        NSMakePoint(1100.0, 100.0);
+                    for (uint32_t edit = 0u; ok && edit < 9u; ++edit) {
+                        [document mouseDown:formantMouseEvent(
+                            NSEventTypeLeftMouseDown, queuePressurePoint)];
+                        [document mouseUp:formantMouseEvent(
+                            NSEventTypeLeftMouseUp, queuePressurePoint)];
+                    }
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(1066.0, 54.0))];
+                    double modeAfterRejectedCopy = -1.0;
+                    double routeAfterRejectedCopy = -2.0;
+                    ok = ok && params->get_value(
+                            plugin, 80u, &modeAfterRejectedCopy)
+                        && params->get_value(
+                            plugin, 614u + 2u * 22u + 1u,
+                            &routeAfterRejectedCopy)
+                        && modeAfterRejectedCopy == modeBeforeRejectedCopy
+                        && routeAfterRejectedCopy == routeBeforeRejectedCopy;
+                    CapturedOutputEvents pressureEvents {};
+                    pressureEvents.events.ctx = &pressureEvents;
+                    pressureEvents.events.try_push = captureOutputEvent;
+                    if (ok) {
+                        params->flush(plugin, nullptr, &pressureEvents.events);
+                        hostContext.paramFlushRequested = false;
+                    }
+                    ok = ok && pressureEvents.values.size() == 27u;
+                    for (uint32_t event = 0u; ok && event < 27u; ++event) {
+                        const uint32_t phase = event % 3u;
+                        ok = pressureEvents.values[event].paramId == 24u
+                            && pressureEvents.values[event].type
+                                == (phase == 0u
+                                    ? CLAP_EVENT_PARAM_GESTURE_BEGIN
+                                    : phase == 1u
+                                    ? CLAP_EVENT_PARAM_VALUE
+                                    : CLAP_EVENT_PARAM_GESTURE_END);
+                    }
+
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(1066.0, 54.0))];
+                    std::vector<CapturedParamEvent> copiedMatrixValues;
+                    bool continuationMatches = true;
+                    for (uint32_t chunkIndex = 0u;
+                         ok && copiedMatrixValues.size() < 487u
+                             && chunkIndex < 16u;
+                         ++chunkIndex) {
+                        CapturedOutputEvents chunk {};
+                        chunk.capacity = 61u;
+                        chunk.events.ctx = &chunk;
+                        chunk.events.try_push = captureOutputEvent;
+                        hostContext.callbackRequested = false;
+                        params->flush(plugin, nullptr, &chunk.events);
+                        copiedMatrixValues.insert(copiedMatrixValues.end(),
+                            chunk.values.begin(), chunk.values.end());
+                        const bool complete =
+                            copiedMatrixValues.size() == 487u;
+                        if (complete) {
+                            continuationMatches = continuationMatches
+                                && !hostContext.callbackRequested;
+                        } else {
+                            continuationMatches = continuationMatches
+                                && chunk.values.size() == chunk.capacity
+                                && hostContext.callbackRequested;
+                            hostContext.callbackRequested = false;
+                            hostContext.paramFlushRequested = false;
+                            if (plugin->on_main_thread) {
+                                plugin->on_main_thread(plugin);
+                            }
+                            continuationMatches = continuationMatches
+                                && hostContext.paramFlushRequested;
+                        }
+                        hostContext.paramFlushRequested = false;
+                    }
+                    constexpr clap_id routeB0203 = 614u + 2u * 22u + 1u;
+                    double copiedRouteValue = 0.0;
+                    bool copiedTransactionMatches =
+                        copiedMatrixValues.size() == 487u
+                        && copiedMatrixValues.front().type
+                            == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                        && copiedMatrixValues.front().paramId == 80u
+                        && copiedMatrixValues[1u].type
+                            == CLAP_EVENT_PARAM_VALUE
+                        && copiedMatrixValues[1u].paramId == 80u
+                        && copiedMatrixValues[1u].value == 5.0
+                        && copiedMatrixValues.back().type
+                            == CLAP_EVENT_PARAM_GESTURE_END
+                        && copiedMatrixValues.back().paramId == 80u;
+                    for (uint32_t cell = 0u;
+                         copiedTransactionMatches && cell < 484u; ++cell) {
+                        double sourceValue = 0.0;
+                        const auto& event = copiedMatrixValues[2u + cell];
+                        copiedTransactionMatches = event.type
+                                == CLAP_EVENT_PARAM_VALUE
+                            && event.paramId == 614u + cell
+                            && params->get_value(
+                                plugin, 130u + cell, &sourceValue)
+                            && std::fabs(event.value - sourceValue) < 1.0e-6;
+                    }
+                    ok = ok && params->get_value(
+                            plugin, routeB0203, &copiedRouteValue)
+                        && std::fabs(copiedRouteValue + 0.25) < 1.0e-6;
+                    ok = ok && continuationMatches
+                        && copiedTransactionMatches
+                        && [document acceptsFirstResponder];
+
+                    // Page ownership is functional, not only visual. BANK
+                    // controls respond on BANK while PHRASE controls remain
+                    // inert there and the native phrase field stays hidden.
+                    const NSPoint bankPage = NSMakePoint(158.0, 54.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, bankPage)];
+                    ok = ok && [phraseField isHidden];
+                    const NSPoint bankAmount = NSMakePoint(620.0, 113.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, bankAmount)];
+                    [document mouseUp:formantMouseEvent(
+                        NSEventTypeLeftMouseUp, bankAmount)];
+                    double bankValue = 0.0;
+                    ok = ok && params->get_value(plugin, 65u, &bankValue)
+                        && bankValue > 0.85;
+                    double hiddenRateBefore = -1.0;
+                    double hiddenAuditionBefore = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 52u, &hiddenRateBefore)
+                        && params->get_value(
+                            plugin, 25u, &hiddenAuditionBefore);
+                    const NSPoint hiddenRate = NSMakePoint(540.0, 736.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, hiddenRate)];
+                    [document mouseUp:formantMouseEvent(
+                        NSEventTypeLeftMouseUp, hiddenRate)];
+                    const NSPoint hiddenAudition = NSMakePoint(500.0, 814.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, hiddenAudition)];
+                    [document mouseUp:formantMouseEvent(
+                        NSEventTypeLeftMouseUp, hiddenAudition)];
+                    double hiddenRateAfter = -1.0;
+                    double hiddenAuditionAfter = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 52u, &hiddenRateAfter)
+                        && params->get_value(
+                            plugin, 25u, &hiddenAuditionAfter)
+                        && std::fabs(hiddenRateAfter
+                            - hiddenRateBefore) < 1.0e-9
+                        && std::fabs(hiddenAuditionAfter
+                            - hiddenAuditionBefore) < 1.0e-9;
                     const auto* articulatorTail =
                         static_cast<const clap_plugin_tail_t*>(
                             plugin->get_extension(plugin, CLAP_EXT_TAIL));
-                    const uint32_t pvocTail = articulatorTail
+                    const uint32_t bankTail = articulatorTail
                         ? articulatorTail->get(plugin) : 0u;
-                    ok = ok && articulatorTail && pvocTail > 1024u
-                        && pvocTail < 0xffffffffu;
-                    SingleParamEventInput clearCloud {};
-                    setSingleParamEvent(clearCloud, 79u, 0.0);
-                    params->flush(plugin, &clearCloud.events, nullptr);
-                    [document mouseDown:articulatorMouseEvent(
-                        NSEventTypeLeftMouseDown, pageButton)];
+                    ok = ok && articulatorTail && bankTail > 1024u
+                        && bankTail < 0xffffffffu;
+                    // SOURCES owns the explicit modulator selector. Exercise
+                    // its stepped menu so the editor cannot regress to an
+                    // input-on-carrier topology while the parameter surface
+                    // still happens to pass.
+                    const NSPoint sourcesPage = NSMakePoint(250.0, 54.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, sourcesPage)];
+                    ok = ok && [phraseField isHidden];
+                    const NSPoint modulatorMenu = NSMakePoint(200.0, 113.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, modulatorMenu)];
+                    const NSPoint blendItem = NSMakePoint(200.0, 175.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, blendItem)];
+                    double guiModulatorSource = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 98u, &guiModulatorSource)
+                        && guiModulatorSource == 2.0;
+                    // Pitch Source is the third SOURCES-row menu. Select its
+                    // Voice Pitch item through the actual native dropdown,
+                    // not by writing the CLAP parameter directly.
+                    const NSPoint pitchSourceMenu =
+                        NSMakePoint(200.0, 173.0);
+                    hostContext.processRequested = false;
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, pitchSourceMenu)];
+                    const NSPoint voicePitchItem =
+                        NSMakePoint(200.0, 217.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, voicePitchItem)];
+                    double guiPitchSource = -1.0;
+                    ok = ok && params->get_value(
+                            plugin, 1099u, &guiPitchSource)
+                        && guiPitchSource == 1.0
+                        && hostContext.processRequested;
+                    const NSPoint phrasePage = NSMakePoint(342.0, 54.0);
+                    [document mouseDown:formantMouseEvent(
+                        NSEventTypeLeftMouseDown, phrasePage)];
                     ok = ok && ![phraseField isHidden];
                 }
                 if (ok) {
+                    failureStage = "Formant Matrix phrase commit";
+                    // Earlier migration cases legitimately queue several text
+                    // programs while the synthetic host is sleeping. Run one
+                    // short block so this GUI check begins with the same
+                    // available handoff capacity as a host entering playback.
+                    constexpr uint32_t kDrainFrames = 32u;
+                    std::array<float, kDrainFrames> drainLeft {};
+                    std::array<float, kDrainFrames> drainRight {};
+                    std::array<float*, 2u> drainChannels {{
+                        drainLeft.data(), drainRight.data(),
+                    }};
+                    clap_audio_buffer_t drainOutput {};
+                    drainOutput.data32 = drainChannels.data();
+                    drainOutput.channel_count = 2u;
+                    clap_process_t drainBlock {};
+                    drainBlock.frames_count = kDrainFrames;
+                    drainBlock.audio_outputs = &drainOutput;
+                    drainBlock.audio_outputs_count = 1u;
+                    const bool drainActivated = plugin->activate(
+                        plugin, 48000.0, 1u, kDrainFrames);
+                    const bool drainProcessing = drainActivated
+                        && plugin->start_processing(plugin);
+                    ok = drainProcessing
+                        && plugin->process(plugin, &drainBlock)
+                            != CLAP_PROCESS_ERROR;
+                    if (drainProcessing) plugin->stop_processing(plugin);
+                    if (drainActivated) plugin->deactivate(plugin);
+                }
+                if (ok) {
                     [phraseField setStringValue:@"red violence rising"];
-                    [document performSelector:@selector(commitPhrase:)
-                        withObject:document];
+                    [phraseField sendAction:[phraseField action]
+                        to:[phraseField target]];
                 }
                 double sequence = -1.0;
                 ok = ok && params->get_value(plugin, 51u, &sequence)
@@ -1365,20 +1988,97 @@ int main(int argc, char** argv)
                     plugin->stop_processing(plugin);
                 }
                 if (activated) plugin->deactivate(plugin);
+
+                double silentMicEnergy = 0.0;
+                double drivenMicEnergy = 0.0;
+                if (ok) {
+                    failureStage = "Formant Matrix classic mic topology";
+                    ok = flushValue(1u, 14.0)
+                        && flushValue(98u, 0.0)
+                        && flushValue(99u, 0.0)
+                        && flushValue(66u, 0.0)
+                        && flushValue(65u, 1.0)
+                        && flushValue(94u, 0.0)
+                        && flushValue(96u, 0.0)
+                        && flushValue(37u, 0.0)
+                        && flushValue(25u, 1.0);
+                }
+                std::array<float, kFrames> micLeft {};
+                std::array<float, kFrames> micRight {};
+                std::array<float*, 2u> micChannels {{
+                    micLeft.data(), micRight.data(),
+                }};
+                clap_audio_buffer_t micInputBuffer {};
+                micInputBuffer.data32 = micChannels.data();
+                micInputBuffer.channel_count = 2u;
+                clap_process_t micProcessBlock = processBlock;
+                micProcessBlock.audio_inputs = nullptr;
+                micProcessBlock.audio_inputs_count = 0u;
+                bool micActivated = false;
+                bool micProcessing = false;
+                if (ok) {
+                    micActivated = plugin->activate(
+                        plugin, 48000.0, 1u, kFrames);
+                    micProcessing = micActivated
+                        && plugin->start_processing(plugin);
+                    ok = micProcessing;
+                }
+                for (uint32_t block = 0u;
+                     ok && block < 4u; ++block) {
+                    std::fill(left.begin(), left.end(), 0.0f);
+                    std::fill(right.begin(), right.end(), 0.0f);
+                    ok = plugin->process(plugin, &micProcessBlock)
+                        != CLAP_PROCESS_ERROR;
+                    for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                        silentMicEnergy += std::fabs(left[frame])
+                            + std::fabs(right[frame]);
+                    }
+                }
+                micProcessBlock.audio_inputs = &micInputBuffer;
+                micProcessBlock.audio_inputs_count = 1u;
+                uint32_t micNoise = 0x6d2b79f5u;
+                for (uint32_t block = 0u;
+                     ok && block < 8u; ++block) {
+                    for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                        micNoise = micNoise * 1664525u + 1013904223u;
+                        const float noise = static_cast<float>(
+                            static_cast<int32_t>(micNoise))
+                            / 2147483648.0f;
+                        const float gate = ((block + frame / 48u) & 1u)
+                            ? 0.24f : 0.08f;
+                        micLeft[frame] = noise * gate;
+                        micRight[frame] = micLeft[frame] * 0.92f;
+                    }
+                    std::fill(left.begin(), left.end(), 0.0f);
+                    std::fill(right.begin(), right.end(), 0.0f);
+                    ok = plugin->process(plugin, &micProcessBlock)
+                        != CLAP_PROCESS_ERROR;
+                    for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                        drivenMicEnergy += std::fabs(left[frame])
+                            + std::fabs(right[frame]);
+                    }
+                }
+                ok = ok && drivenMicEnergy > 1.0e-4
+                    && drivenMicEnergy > silentMicEnergy * 2.0 + 1.0e-5;
+                if (micProcessing) plugin->stop_processing(plugin);
+                if (micActivated) plugin->deactivate(plugin);
+                if (params) (void)flushValue(25u, 0.0);
                 hostContext.deferParamFlush = false;
                 hostContext.paramFlushRequested = false;
                 if (!ok) {
-                    std::cerr << "Processor Articulator GUI details: sequence="
+                    std::cerr << "Formant Matrix GUI details: sequence="
                         << sequence << " mode=" << phraseMode
                         << " heads=" << echoHeads << " clock=" << echoClock
                         << " mix=" << echoMix << " audition=" << audition
                         << " energy=" << energy << " events="
-                        << captured.values.size() << "\n";
+                        << captured.values.size() << " mic="
+                        << drivenMicEnergy << " silentMic="
+                        << silentMicEnergy << "\n";
                 }
             } @catch (NSException* exception) {
                 hostContext.deferParamFlush = false;
                 hostContext.paramFlushRequested = false;
-                std::cerr << "Processor Articulator GUI exception: "
+                std::cerr << "Formant Matrix GUI exception: "
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }

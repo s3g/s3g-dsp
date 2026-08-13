@@ -80,7 +80,11 @@ s3g_3oafx_spectral_smear.clap	org.s3g.s3g-dsp.3oafx-spectral-smear	retired
 s3g_3oafx_spectral_spray.clap	org.s3g.s3g-dsp.3oafx-spectral-spray	retired
 s3g_8ch_filter_processor.clap	org.s3g.s3g-dsp.filter-processor-8ch	retired
 s3g_8ch_spectral_field.clap	org.s3g.s3g-dsp.spectral-field-8ch	retired
-s3g_acapella_source_synth.clap	org.s3g.s3g-dsp.acapella-source-synth	s3g_processor_articulator.clap
+s3g_acapella_source_synth.clap	org.s3g.s3g-dsp.acapella-source-synth	s3g_processor_formant_matrix.clap
+s3g_processor_articulator.clap	org.s3g.s3g-dsp.processor-articulator	s3g_processor_formant_matrix.clap
+s3g_processor_fissure_stereo.clap	org.s3g.s3g-dsp.processor-fissure-stereo	retired
+s3g_processor_fissure_quad.clap	org.s3g.s3g-dsp.processor-fissure-quad	retired
+s3g_processor_fissure_8ch.clap	org.s3g.s3g-dsp.processor-fissure-8ch	retired
 s3g_accelerometer_field_encoder.clap	org.s3g.s3g-dsp.accelerometer-field-encoder-16	s3g_ambi_encoder_modal_16.clap
 s3g_ambi_environment_generator.clap	org.s3g.s3g-dsp.ambi-environment-generator-64	s3g_ambi_encoder_stochastic.clap
 s3g_ambi_fire_encoder.clap	org.s3g.s3g-dsp.ambi-fire-encoder-64	s3g_ambi_encoder_pyrosphere.clap

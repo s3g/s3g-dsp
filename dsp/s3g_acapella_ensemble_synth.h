@@ -1,7 +1,7 @@
 #pragma once
 
 #include "s3g_acapella_source_synth.h"
-#include "s3g_acapella_pvoc_field.h"
+#include "s3g_acapella_resonator_bank.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -255,16 +255,19 @@ public:
         return count;
     }
 
-    AcapellaPvocGesture pvocGesture() const
+    AcapellaResonatorGesture resonatorGesture() const
     {
         const Voice* dominant = nullptr;
         for (const auto& voice : voices_) {
-            if (!voiceActive(voice)) continue;
+            if (!voiceActive(voice)
+                || voice.lead.carrierNoteGain() <= 1.0e-5f) {
+                continue;
+            }
             if (!dominant || voice.age > dominant->age) dominant = &voice;
         }
         if (!dominant) return {};
         const auto& source = dominant->lead;
-        AcapellaPvocGesture gesture;
+        AcapellaResonatorGesture gesture;
         gesture.phoneme = source.activePhoneme();
         gesture.frequencyHz = source.currentFrequencyHz();
         gesture.stepProgress = source.gestureStepProgress();
@@ -273,6 +276,89 @@ public:
         gesture.stress = source.activePhonemeStress();
         gesture.flags = source.activePhonemeFlags();
         gesture.active = true;
+
+        // The dominant voice supplies phoneme/word/rest metadata, while the
+        // carrier follows every held MIDI voice independently of a text
+        // articulation gate. This keeps oscillator phase and chord identity
+        // intact through scored rests; the analysis envelope still closes the
+        // vocoder audibly.
+        uint32_t soundingVoices = 0u;
+        for (const auto& voice : voices_) {
+            if (voiceActive(voice)
+                && voice.lead.carrierNoteGain() > 1.0e-5f) {
+                ++soundingVoices;
+            }
+        }
+        gesture.voiceCount = std::min<uint32_t>(
+            soundingVoices, kAcapellaMaxPolyphony);
+        const float chordNormalization = gesture.voiceCount > 0u
+            ? 1.0f / std::sqrt(static_cast<float>(gesture.voiceCount))
+            : 0.0f;
+        uint32_t gestureVoice = 0u;
+        for (const auto& voice : voices_) {
+            if (!voiceActive(voice)
+                || voice.lead.carrierNoteGain() <= 1.0e-5f
+                || gestureVoice >= gesture.voiceCount) {
+                continue;
+            }
+            gesture.voiceFrequencyHz[gestureVoice]
+                = voice.lead.currentFrequencyHz();
+            gesture.voiceGain[gestureVoice]
+                = voice.lead.carrierNoteGain() * chordNormalization;
+            gesture.voiceInstanceIds[gestureVoice] = voice.age;
+            ++gestureVoice;
+        }
+        return gesture;
+    }
+
+    // Carrier-only gesture for an external microphone modulator. It retains
+    // MIDI pitch, velocity, release, and stable voice IDs, but deliberately
+    // excludes the internal text engine's rests and consonant metadata.
+    AcapellaResonatorGesture midiCarrierGesture() const
+    {
+        const Voice* dominant = nullptr;
+        for (const auto& voice : voices_) {
+            if (!voiceActive(voice)
+                || voice.lead.carrierNoteGain() <= 1.0e-5f) {
+                continue;
+            }
+            if (!dominant || voice.age > dominant->age) dominant = &voice;
+        }
+        if (!dominant) return {};
+
+        AcapellaResonatorGesture gesture;
+        gesture.phoneme = AcapellaPhoneme::AX;
+        gesture.carrierOnly = true;
+        gesture.frequencyHz = dominant->lead.currentFrequencyHz();
+        gesture.voiceInstance = dominant->age;
+        gesture.active = true;
+
+        uint32_t soundingVoices = 0u;
+        for (const auto& voice : voices_) {
+            if (voiceActive(voice)
+                && voice.lead.carrierNoteGain() > 1.0e-5f) {
+                ++soundingVoices;
+            }
+        }
+        gesture.voiceCount = std::min<uint32_t>(
+            soundingVoices, kAcapellaMaxPolyphony);
+        const float chordNormalization = gesture.voiceCount > 0u
+            ? 1.0f / std::sqrt(static_cast<float>(gesture.voiceCount))
+            : 0.0f;
+        uint32_t gestureVoice = 0u;
+        for (const auto& voice : voices_) {
+            if (!voiceActive(voice)
+                || voice.lead.carrierNoteGain() <= 1.0e-5f
+                || gestureVoice >= gesture.voiceCount) {
+                continue;
+            }
+            gesture.voiceFrequencyHz[gestureVoice]
+                = voice.lead.currentFrequencyHz();
+            gesture.voiceGain[gestureVoice]
+                = voice.lead.carrierNoteGain() * chordNormalization;
+            gesture.voiceInstanceIds[gestureVoice] = voice.age;
+            ++gestureVoice;
+        }
         return gesture;
     }
 

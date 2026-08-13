@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Fissure - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Fissure eight-cell physical noise instrument with a cut mask, spring-return fracture pad, ecological Grab/Repeat, metered mic excitation, an editable 8 by 8 matrix, and Stereo, Quad, or direct-eight rendering.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Fissure</h1>
+
+        <p><code>s3g Processor Fissure</code> is an internally excited noise instrument and optional-input audio processor built from eight configurable physical objects. Filtered noise, pressured oscillation, structural failure events, contact-mic transduction, shaker-box impacts, modal metal bodies, cell-specific distortion circuits, signed feedback, and causal delay memory remain inside the same network.</p>
+
+        <p>The instrument separates authorship into three layers. <strong>Objects</strong> determine what the eight things are. <strong>Energy Paths</strong> determine how they couple. <strong>Performance Gestures</strong> decide what changes or receives an impact now. This separation makes broad variation possible without requiring 64 individual matrix edits or allowing one random action to replace the whole instrument.</p>
+
+        <p>There is one plug-in and one fixed eight-channel output bus. Its <code>OUTPUT MODE</code> selects <code>STEREO</code>, <code>QUAD</code>, or <code>8 DIRECT</code> projection; inactive bus channels are explicitly silent. All three modes run the same eight cells, random decisions, authored 8-by-8 matrix, and saved performance state. Choosing fewer speakers therefore changes projection without reducing the composition to fewer voices.</p>
+
+        <p>Processor Fissure is advertised to hosts as a CLAP audio effect, not a <code>CLAPi</code> instrument. Its internal generators and MIDI strikes remain available, but this classification makes the optional live input follow the ordinary track-FX signal path. The minimum <code>OUT</code> position is an exact mute: neither generated nor incoming audio can leave the plug-in at that setting.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the REAPER track to eight channels and insert <code>s3g Processor Fissure</code>. Its stereo input can receive audio but may remain silent.</li>
+          <li>Select <code>STEREO</code>, <code>QUAD</code>, or <code>8 DIRECT</code>. Route channels 1–2, 1–4, or 1–8 respectively to the matching speakers or monitor path; unused channels on the fixed bus remain silent.</li>
+          <li>Open the title-band <code>PRESET</code> menu and choose one of twelve complete instruments. Each preset supplies its own four related scenes, then <code>MORPH</code> travels continuously between them.</li>
+          <li>Click one of the six structure buttons to apply <code>ISLANDS</code>, <code>RING</code>, <code>PAIRS</code>, <code>HUB</code>, <code>CLUSTERS</code>, or <code>SCATTER</code>. <code>BLEND</code> controls how strongly it replaces the current matrix.</li>
+          <li>Select and strike an object. Change its <code>SIZE</code>, <code>DECAY</code>, <code>HARDNESS</code>, <code>SENSITIVITY</code>, <code>DRIVE</code>, and <code>LEVEL</code> to make it physically distinct from its neighbors.</li>
+          <li>Use <code>MASS</code>, <code>PRESSURE</code>, <code>BODY</code>, <code>EDGE</code>, <code>VOID</code>, <code>MEMORY</code>, and <code>MOTION</code> only after the objects and path grammar establish a useful contrast.</li>
+          <li>Raise <code>SHAKER</code> for autonomous impacts, use <code>RATTLE</code> to cluster loose-object collisions, and raise <code>SPRING</code> for high modal chatter. Feed the optional stereo input and raise <code>CONTACT</code> for piezo-like excitation or <code>INPUT COUPLE</code> to let its envelope and spectral motion disturb the wider ecology.</li>
+          <li>Read <code>MIC POST IN · RMS</code> to verify the continuous post-gain level reaching the plug-in. The filled bar is a 72 ms RMS average; its thin marker retains short peaks separately. <code>ECOLOGY XFER</code> shows how much input energy is reaching either excitation path. The <code>F0</code> readout separates pitch <code>LOCK</code> confidence from continuous <code>HOLD</code> drive; the numbered responders show which objects the input is disturbing.</li>
+          <li>Paint detailed paths in the dominant left-hand matrix by clicking or dragging across crosspoints: each click cycles off, positive, negative, then off. Use the bipolar route strip, <code>FLIP ±</code>, and <code>CLEAR</code> for exact editing.</li>
+          <li>Use the eight <code>CUT MASK</code> cells immediately below the matrix to choose which objects may fracture. Click to toggle one or drag across several to paint a group. The mask governs autonomous cuts, the fracture pad, Repeat, and the destination rows changed by <code>CUT + LINKS</code>.</li>
+          <li>Press and drag the <code>FRACTURE PAD</code>: horizontal movement raises fragment distance and contrast; vertical movement raises cut rate and empty space. Release anywhere to return smoothly to the stored Edge, Void, Memory, and Cut Contrast behavior.</li>
+          <li>Press <code>GRAB</code> to mark a short region in every cell's current causal history, then hold <code>REPEAT</code> to revisit those fragments. The remembered layer loops while fresh impacts, modal bodies, matrix feedback, and new history continue evolving around it.</li>
+          <li><code>CUT + LINKS</code> performs an immediate guarded splice in eligible cells while mutating their authored destination rows. <code>IMPACT ALL</code> adds energy without replacing structure; <code>DROP OUT</code>, <code>HOLD</code>, and <code>PANIC</code> control longer interruption.</li>
+          <li>Select Scene A–D and press <code>STORE</code> to capture the twelve field macros, all 64 signed routes, and all 48 object controls. MIDI notes 36–43 strike objects 1–8; later octaves repeat that mapping.</li>
+        </ol>
+
+        <h2 id="presets">Instrument Presets</h2>
+
+        <p>The twelve factory presets are complete instruments rather than aliases for a few macro values. Recall changes the twelve field and exciter macros, all eight object profiles, signed topology, input/output gain, Seed, Variation, and the complete A–D scene bank. <code>OUTPUT MODE</code> is deliberately preserved so browsing instruments never reroutes a Stereo, Quad, or 8 Direct performance. Editing a structural value changes the title readout to <code>CUSTOM</code>; <code>LOAD</code> and <code>SAVE</code> still operate on the complete plug-in state.</p>
+
+        <p>Factory recall is also a performance rearm: it cancels Repeat and temporary fracture-pad pressure, releases inherited dropouts, returns every cut read toward live causal history, opens the cell gates, and strikes two separated objects. Every factory scene retains a small autonomous excitation floor, and its output trim is matched for useful no-input auditioning. A preset can therefore recover directly from Panic or a depleted feedback state without clearing the whole three-second history allocation on the audio thread.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Starting behavior</th></tr></thead>
+          <tbody>
+            <tr><td>INIT / PLATE RING</td><td>Balanced eight-plate circulation and the neutral point for learning the matrix.</td></tr>
+            <tr><td>SHAKER BOX</td><td>Small hard objects, paired collisions, dense autonomous rattling, and stereo projection.</td></tr>
+            <tr><td>SPRING NEST</td><td>Long high modes around a contact-sensitive hub, projected to Quad.</td></tr>
+            <tr><td>CONTACT SHEET</td><td>Large metal surfaces with high mic sensitivity and isolated self-resonance.</td></tr>
+            <tr><td>TIN PAIRS</td><td>Four bright coupled pairs with rapid collisions and strong object drive.</td></tr>
+            <tr><td>BROKEN HUB</td><td>A high-pressure direct-eight network organized around one unstable object.</td></tr>
+            <tr><td>RUST CLUSTERS</td><td>Two aging four-object neighborhoods with persistent memory and spring chatter.</td></tr>
+            <tr><td>EMPTY ISLANDS</td><td>Sparse, slowly decaying isolated bodies designed for external mic excitation.</td></tr>
+            <tr><td>SCRAP CASCADE</td><td>Fast, hard, high-contrast memory splices, scattered impacts, and asynchronous holes across all eight outputs.</td></tr>
+            <tr><td>NEGATIVE WEB</td><td>Inverted off-diagonal relationships and slow high-mass feedback tension.</td></tr>
+            <tr><td>SLOW PRESS</td><td>Heavy low bodies, long memory, little autonomous motion, and stereo projection.</td></tr>
+            <tr><td>MIC RESONATOR</td><td>High input gain and object sensitivity; the external mic is the primary driver.</td></tr>
+          </tbody>
+        </table>
+
+        <p>For a microphone that influences the performance without sitting in front of it, keep <code>CONTACT</code> low and raise <code>INPUT COUPLE</code>. <code>CONTACT</code> is intentionally the more literal piezo/transducer path. <code>INPUT COUPLE</code> discards the incoming waveform's polarity and fine structure, transfers its timing and energy onto each object's own material noise, and uses a confident pitch estimate as harmonic gravity for the modal ecology. A held sung note maintains a confidence-and-loudness-derived noise carrier for as long as the pitch remains present; it does not collapse back to onset-only excitation.</p>
+
+        <h2 id="architecture">Eight-cell Architecture</h2>
+
+        <ol>
+          <li>Every object combines low noise, bright noise, saturated oscillation, burst excitation, modeled failure, three resonant modes, and a dedicated nonlinear circuit.</li>
+          <li>Each object's six authored controls change modal register and decay, transient spectral balance, contact and impact response, nonlinear drive, and network participation. Variation is therefore structural rather than a set of hidden random offsets.</li>
+          <li><code>MASS</code> admits the cells in a distributed order rather than merely multiplying master gain. Sparse settings therefore expose a structurally varied subset.</li>
+          <li>A contact stage emphasizes fast surface vibration and input transients. An autonomous shaker places irregular impacts across the cells; <code>RATTLE</code> adds secondary loose-object collisions.</li>
+          <li>A confidence-gated periodicity tracker follows monophonic input between roughly 45 Hz and 4 kHz, including held voice, high spring, scrape, whistle, and feedback tones. Stable loudness multiplied by pitch confidence supplies continuous modal pressure. The eight objects approach different harmonic or subharmonic relatives of that estimate; signed-route tension, <code>MOTION</code>, and <code>EDGE</code> introduce independent detuning and wandering. With uncertain or unpitched input, pitch attraction and held drive recede while transient energy coupling continues.</li>
+          <li>Three resonant modes per cell act as attached metal sheets and springs. Physical impacts, cell strikes, and the contact path drive those same states before nonlinear processing and feedback.</li>
+          <li>The editable signed 8-by-8 matrix couples self, neighboring, and distant returns. Structure buttons author recognizable global grammars; matrix painting and <code>CUT + LINKS</code> create local deviations.</li>
+          <li>Each cell writes a private causal history of up to three seconds. <code>MEMORY / FRAG</code> changes both return depth and the available splice distance. Eight asynchronous event clocks can jump eligible cells to different causal fragments and polarities. Every jump is committed at the bottom of a 0.22 ms down / 1.15 ms up seam, so dense cut-up remains decisive without raw discontinuities.</li>
+          <li><code>GRAB</code> stores a start and loop length for each private history. <code>REPEAT</code> crossfades only the remembered contribution toward those loops; it never freezes object excitation or the live feedback network.</li>
+          <li>Eight Macro Shred circuit types form the nonlinear bodies. Object hardness participates in circuit assignment and distortion character, independently of matrix topology.</li>
+          <li>Per-cell energy observers reduce persistent excess inside the network. A final transparent ceiling is reserved for last-stage protection.</li>
+          <li>The renderer places every cell on a ring. Stereo uses equal-power left/right projection; Quad and 8 Direct use equal-power interpolation between adjacent ring outputs.</li>
+        </ol>
+
+        <p>The renderer does not feed back into the ecology. With the same seed, automation, MIDI, and action sequence, switching output mode therefore preserves the internal composition before projection.</p>
+
+        <h2 id="cut-up">Cut-up Ecology</h2>
+
+        <p>Feedback Shift creates cut-up by inventing temporary virtual patches above its two authored scenes. Fissure now applies the same compositional principle to physical objects and causal memory rather than copying Feedback Shift's frequency-shift lanes. Each object has an independent clock. A cut can move its memory read to another past fragment, invert that fragment, close the object's gate, or reopen it with a fresh impact while the visible 8-by-8 matrix remains the authored foundation.</p>
+
+        <p><code>EDGE / RATE</code> is the stored density control and reaches micro-cut territory near its upper end. <code>VOID / SPACE</code> raises the likelihood that a cut becomes an actual hole. <code>MEMORY / FRAG</code> increases both fragment audibility and how far into the past a splice may jump. <code>MOTION</code> raises polarity and offset instability. <code>CUT CONTRAST</code> scales autonomous splice departures and also determines how radically <code>CUT + LINKS</code> mutates eligible destination rows. <code>HOLD</code> stops new autonomous cut decisions while preserving the currently selected fragments.</p>
+
+        <p>The eight numbered cells directly below the matrix are the <code>CUT MASK</code>. Dark cells are protected; lit cells may receive autonomous or manual cuts. A fading outline around a destination row records recent cut order, the mask cell flashes <code>+</code> or <code>−</code> for fragment polarity, and its small colored underline shows fragment age. These overlays describe temporary performance state without changing the route values drawn inside the matrix.</p>
+
+        <p>The spring-return <code>FRACTURE PAD</code> is a temporary override rather than another scene macro. Moving right increases causal distance, contrast, and inversion potential. Moving upward accelerates the eight private clocks and raises interruption probability. Releasing the pad applies a 72 ms return to the stored ecology. Use a narrow mask for solos and call-and-response, an alternating mask for interleaved rhythm, or all eight cells for a full-field rupture.</p>
+
+        <p><code>GRAB</code> marks the active history region for all cells. Hold <code>REPEAT</code> to foreground those regions in eligible cells: fresh excitation is reduced, captured memory is driven harder through the cell processors, and a parallel post-cell history contribution makes the loop identity immediately audible. Each private loop receives a short fade-to-zero seam at its boundary, producing a guarded rhythmic articulation instead of an uncontrolled discontinuity. The <code>RPT</code> readout beside the pad shows the engagement crossfade. Release Repeat to return to current causal reads.</p>
+
+        <p>Repeat still does not stop the history writer, modal bodies, impacts, or matrix circulation. New activity continues behind and around the repeated layer, and some of the captured contribution re-enters cell memory and feedback. It is therefore a prominent performance state while held, but not a conventional dry-input looper.</p>
+
+        <p>Start with <code>SCRAP CASCADE</code> for the clearest demonstration. For articulate voice-controlled cuts, lower <code>CONTACT</code>, raise <code>INPUT COUPLE</code>, use moderate <code>MEMORY / FRAG</code>, and move <code>EDGE / RATE</code> upward until syllables break into object-specific returns. For sparse tape-like interruptions, keep Edge below halfway, raise Memory, and use <code>CUT + LINKS</code> manually.</p>
+
+        <p>The physical-exciter metaphor follows the contact-microphone practice exemplified by Crank Sturgeon: use a piezo as an “electric stethoscope,” amplify ordinary resonant objects, and treat springs, metal containers, loose parts, and imperfect mechanics as performable sources. See Crank Sturgeon's <a href="https://cranksturgeon.bigcartel.com/contact-mics" target="_blank" rel="noopener noreferrer">contact microphone overview</a> and Perfect Circuit's <a href="https://www.perfectcircuit.com/signal/crank-sturgeon-event" target="_blank" rel="noopener noreferrer">demonstration of contact and lo-fi instruments</a>. Processor Fissure is a synthetic interpretation of those processes, not a model of a particular artist's device or sound.</p>
+
+        <h2 id="matrix">Matrix and Cells</h2>
+
+        <p>Matrix columns are sources and rows are destinations. A positive route returns a source with its original polarity; a negative route returns it inverted. Click an empty crosspoint to paint a positive route; click again for negative; click again to erase it. Continue dragging to paint the same value across several routes. The bipolar route strip provides exact gain, while <code>FLIP ±</code> and <code>CLEAR</code> handle polarity and removal.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Structure</th><th>Routing grammar</th></tr></thead>
+          <tbody>
+            <tr><td>ISLANDS</td><td>Self-routes only; eight parallel objects with no cross-coupling.</td></tr>
+            <tr><td>RING</td><td>Forward circulation, weaker inverted reverse paths, and moderate self-return.</td></tr>
+            <tr><td>PAIRS</td><td>Four strongly coupled object pairs with no default connection between pairs.</td></tr>
+            <tr><td>HUB</td><td>The selected object sends to and receives from every other object with alternating return polarity.</td></tr>
+            <tr><td>CLUSTERS</td><td>Two four-object neighborhoods with weak, occasional bridges.</td></tr>
+            <tr><td>SCATTER</td><td>A deterministic sparse topology derived from Seed.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>BLEND</code> interpolates from the current matrix toward the clicked structure; it is not an ongoing macro. The eight object buttons select and strike physical objects. CLAP automation exposes every route as <code>D# from S#</code> and all six controls for every object.</p>
+
+        <h2 id="controls">Composition Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Function</th></tr></thead>
+          <tbody>
+            <tr><td>PRESSURE</td><td>Raises cell drive, shared return gain, failure load, and burst intensity. High settings approach a governed supercritical field rather than an unrestricted digital loop.</td></tr>
+            <tr><td>MASS</td><td>Admits more of the eight material cells and increases the fresh-source body inside each active cell.</td></tr>
+            <tr><td>EDGE / RATE</td><td>Raises spectral hardness, nonlinear shred, autonomous event density, guarded memory-splice rate, burst probability, and gate-transition speed.</td></tr>
+            <tr><td>VOID / SPACE</td><td>Raises the probability and duration of asynchronous cell holes and makes autonomous events more likely to become memory cuts. It also lengthens a performed withdrawal.</td></tr>
+            <tr><td>MEMORY / FRAG</td><td>Raises delayed causal return, feedback persistence, material toughness, and the maximum past-fragment distance available to cut-up splices.</td></tr>
+            <tr><td>BODY</td><td>Moves the balance toward tonal and low material, changes cell oscillator register, and alters the resonant distortion body.</td></tr>
+            <tr><td>INPUT COUPLE</td><td>Extracts stable level, onset, spectrally separated motion, and confident pitch from the optional stereo input. Onsets strike the ecology; a held note continuously supplies modal pressure; pitch attracts each object toward a different unstable harmonic relation. It does not mix a sample-aligned dry copy into the output.</td></tr>
+            <tr><td>MOTION</td><td>Continuously perturbs matrix routes, rotates the cell ring, spreads breach arrivals, and introduces small cell-position irregularity.</td></tr>
+            <tr><td>CONTACT</td><td>Turns the optional stereo input into a piezo-like surface signal by emphasizing high-frequency vibration and fast changes, then drives every cell's modal body.</td></tr>
+            <tr><td>SHAKER</td><td>Raises the autonomous impact rate and strength, allowing Processor Fissure to behave like an amplified metal shaker box without external input.</td></tr>
+            <tr><td>RATTLE</td><td>Raises impact density and the probability of secondary collisions, modeling loose objects bouncing among coupled surfaces.</td></tr>
+            <tr><td>SPRING</td><td>Raises the pitch, persistence, and contribution of each cell's high spring-like modal family.</td></tr>
+            <tr><td>INPUT</td><td>Applies −60 to +24 dB before the stereo excitation reaches the cell network.</td></tr>
+            <tr><td>OUTPUT</td><td>Applies −60 to +6 dB after ring projection and before the final transparent ceiling.</td></tr>
+            <tr><td>SIZE</td><td>Moves the selected object's oscillator and modal register. Larger objects are lower and heavier; smaller objects are higher and tighter.</td></tr>
+            <tr><td>DECAY</td><td>Changes the selected object's modal ring time, remembered toughness, and nonlinear feedback persistence.</td></tr>
+            <tr><td>HARDNESS</td><td>Moves impact energy toward upper modes and changes failure stiffness, spectral edge, and nonlinear circuit character.</td></tr>
+            <tr><td>SENSITIVITY</td><td>Controls how strongly contact input, shaker collisions, MIDI strikes, and performed impacts excite the selected object.</td></tr>
+            <tr><td>DRIVE</td><td>Changes the selected object's pre-nonlinear level, shred pressure, and fresh-to-processed balance.</td></tr>
+            <tr><td>LEVEL</td><td>Changes the selected object's contribution to feedback, private memory, activity, and output.</td></tr>
+            <tr><td>SEED</td><td>Defines event timings, source randomness, cell placement offsets, Scatter structure, and repeatable mutation choices. It does not replace an authored matrix by itself.</td></tr>
+            <tr><td>CUT MASK 1–8</td><td>Determines which cells can receive autonomous memory cuts, fracture-pad events, repeated captures, and the destination-row mutations made by Cut + Links.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="verbs">Performance Gestures</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Action</th><th>Performance behavior</th></tr></thead>
+          <tbody>
+            <tr><td>HOLD</td><td>Stops autonomous opening, closing, and burst decisions while leaving the current gates, oscillators, histories, and feedback circulation running.</td></tr>
+            <tr><td>CUT CONTRAST</td><td>Sets autonomous splice departure and how far either mutation gesture moves from the current state. It changes fragment offsets and inversion probability without replacing the visible matrix.</td></tr>
+            <tr><td>FRACTURE PAD</td><td>A spring-return XY gesture: X raises fragment distance and contrast; Y raises event rate and empty space. Release crossfades back to the stored composition.</td></tr>
+            <tr><td>GRAB</td><td>Marks object-specific regions in the current private histories without stopping the ecology.</td></tr>
+            <tr><td>REPEAT</td><td>While held, foregrounds grabbed history in cut-enabled cells, reduces competing fresh excitation, and adds guarded loop-boundary articulation. Release crossfades their memory and excitation balance back to the live ecology.</td></tr>
+            <tr><td>MUTATE OBJECT</td><td>Changes Size, Decay, Hardness, Sensitivity, and Drive only for the selected object, then strikes it so the result is immediately audible. Level is preserved.</td></tr>
+            <tr><td>CUT + LINKS</td><td>Commits a guarded memory splice in every cut-enabled cell and mutates only their signed destination rows toward the selected structure grammar. Protected cells, object character, scenes, and global field controls are preserved.</td></tr>
+            <tr><td>IMPACT ALL</td><td>Sends a moving structural-failure and modal-impact cascade through all eight objects without replacing the matrix or object definitions.</td></tr>
+            <tr><td>DROP OUT</td><td>Closes the post-network audition envelope while the object ecology continues evolving. The field returns after a duration controlled by <code>VOID</code>.</td></tr>
+            <tr><td>PANIC</td><td>Immediately clears feedback, causal histories, bursts, physical modes, cell processors, and output. The field remains silent until an object strike or <code>MUTATE OBJECT</code> rearms it.</td></tr>
+            <tr><td>RUN</td><td>Ramps the final performance output on or off without clearing the network. It is suitable for automation when the same ecology should remain available behind silence.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>DROP OUT</code> and <code>RUN</code> are intentionally different. Drop Out is a finite compositional absence that returns by itself. Run is a persistent transport-like output gate. Panic destroys the current audible memory and requires an explicit new excitation or factory-preset recall. Outside <code>HOLD</code>, an accidental all-cell gate blackout lasting more than about 850 ms reopens one active cell with a guarded impact; deliberate held silences remain untouched.</p>
+
+        <h2 id="scenes-midi">Scenes, MIDI, and State</h2>
+
+        <p>Scenes are complete instruments stored in neutral slots A–D; they are not actions. Every factory preset initializes its own coherent four-scene trajectory, so scene morphing explores variations of the selected instrument rather than returning to a shared generic bank. Select a scene, establish a field, and press <code>STORE</code> to replace that slot. Each scene stores the twelve composition macros from <code>PRESSURE</code> through <code>SPRING</code>, all 64 matrix routes, and the six controls for all eight objects.</p>
+
+        <p><code>MORPH</code> travels continuously A→B→C→D. It interpolates the global field, signed routes, and every object's physical character and level. Selecting a scene also moves Morph exactly to that scene. Editing after a morph changes the live instrument; it does not modify either endpoint until <code>STORE</code> is pressed.</p>
+
+        <p>Input gain, output gain, seed, Hold, Run, selected cell, output mode, and the eight-cell Cut Mask remain outside the scene so routing, safety, and performance eligibility do not jump during scene recall. Factory preset recall supplies its authored gain/seed values and rearms the field but preserves Output Mode. Fracture-pad position and Repeat are temporary and are not saved as held states. Actions alter the live field but do not overwrite a scene until <code>STORE</code> is pressed. Scene recall publishes all changed macros, routes, and levels to the host, and project state stores the live surface plus all four scenes. Version 0.7 state loading also accepts version 0.6 projects and initializes their new Cut Mask with all cells enabled.</p>
+
+        <p>The CLAP note input accepts CLAP notes and ordinary MIDI. Notes 36–43 strike cells 1–8; other notes wrap through the same eight-cell order. Velocity controls the cell impulse. Notes do not impose equal-tempered pitch because this interface treats the keyboard as a bank of structural exciters.</p>
+
+        <h2 id="width-routing">Output Width and Routing</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Active channels on 8-channel bus</th><th>Use</th></tr></thead>
+          <tbody>
+            <tr><td>STEREO</td><td>1–2; channels 3–8 silent</td><td>Two-speaker work, headphones, recording, and compact downstream processing.</td></tr>
+            <tr><td>QUAD</td><td>1–4; channels 5–8 silent</td><td>Direct quad performance while keeping one stable plug-in and project bus.</td></tr>
+            <tr><td>8 DIRECT</td><td>1–8</td><td>One ordinary output lane per nominal cell position, with adjacent interpolation during movement.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Processor Fissure always advertises one eight-channel ordinary-audio bus, not an ambisonic signal. Output Mode changes how many leading channels are active and never changes the host port layout. This makes scenes, automation, and saved projects portable among Stereo, Quad, and eight-channel listening without replacing the plug-in.</p>
+
+        <h2 id="safety">Safety and Reproducibility</h2>
+
+        <p>Feedback is bounded at several levels: routed returns are scaled against aggregate route magnitude, cell input and processor output are clamped, cell energy governors recover slowly from persistent excess, and the renderer uses energy-normalized projection. A soft ceiling bounds final samples to ±1. The left field reports the minimum current governor value so sustained containment is visible; the title's <code>PK</code> readout reports actual output peak.</p>
+
+        <p>The audio callback performs no allocation after activation. Identical seeds and event streams are deterministic, and regression tests compare the eight internal cell activities across Stereo, Quad, and 8 Direct runs to prevent output projection from entering the composition process.</p>
+
+        <h2 id="build">Build and Test</h2>
+
+        <p>Build the single plug-in and run its focused DSP, CLAP, and GUI checks from the repository root:</p>
+
+        <pre><code>cmake -S . -B build-clap \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_BUILD_FUTURE_COMPONENTS=ON
+cmake --build build-clap --target \
+  s3g_processor_fissure_clap
+ctest --test-dir build-clap --output-on-failure \
+  -R 's3g_processor_fissure'</code></pre>
+
+        <p>The bundle is written as <code>build-clap/plugins/clap_processor_fissure/s3g_processor_fissure.clap</code>. Its stable identifier is <code>org.s3g.s3g-dsp.processor-fissure</code>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="processor-feedback-shift.html">
+            <span>Previous</span>
+            Processor Feedback Shift
+          </a>
+          <a class="page-nav-link next" href="processor-no-input-mixer.html">
+            <span>Next</span>
+            Processor No Input Mixer
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>Generative Pages</h2>
+          <a href="processor-feedback-shift.html">Processor Feedback Shift</a>
+          <a href="processor-fissure.html">Processor Fissure</a>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="no-input-mixer-control.html">No Input Mixer Control</a>
+          <a href="processor-fault.html">Processor Fault</a>
+          <a href="processor-errant.html">Processor Errant</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#presets">Instrument Presets</a>
+          <a href="#architecture">Eight-cell Architecture</a>
+          <a href="#cut-up">Cut-up Ecology</a>
+          <a href="#matrix">Matrix and Cells</a>
+          <a href="#controls">Composition Controls</a>
+          <a href="#verbs">Structural Verbs</a>
+          <a href="#scenes-midi">Scenes, MIDI, and State</a>
+          <a href="#width-routing">Output Width and Routing</a>
+          <a href="#safety">Safety and Reproducibility</a>
+          <a href="#build">Build and Test</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

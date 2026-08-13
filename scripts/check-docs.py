@@ -372,6 +372,7 @@ DOC_SEQUENCE = [
     "drum-mixer.html",
     "generative-instruments.html",
     "processor-feedback-shift.html",
+    "processor-fissure.html",
     "processor-no-input-mixer.html",
     "no-input-mixer-control.html",
     "processor-fault.html",

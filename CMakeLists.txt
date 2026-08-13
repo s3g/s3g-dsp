@@ -63,6 +63,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
+add_executable(s3g_processor_fissure_smoke
+  tests/processor_fissure_smoke.cpp)
+target_link_libraries(s3g_processor_fissure_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_processor_fissure_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
 add_executable(s3g_crcltr_external_memory_smoke
   tests/crcltr_external_memory_smoke.cpp)
 target_link_libraries(s3g_crcltr_external_memory_smoke PRIVATE s3g_dsp)
@@ -251,22 +259,13 @@ add_executable(s3g_acapella_source_synth_smoke
   tests/acapella_source_synth_smoke.cpp)
 target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE s3g_dsp)
 
-add_executable(s3g_acapella_pvoc_regression_smoke
-  tests/acapella_pvoc_regression_smoke.cpp)
-target_link_libraries(s3g_acapella_pvoc_regression_smoke PRIVATE s3g_dsp)
+add_executable(s3g_acapella_resonator_regression_smoke
+  tests/acapella_resonator_regression_smoke.cpp)
+target_link_libraries(s3g_acapella_resonator_regression_smoke PRIVATE s3g_dsp)
 
 add_executable(s3g_acapella_source_synth_render
   tools/render_acapella_source_synth.cpp)
 target_link_libraries(s3g_acapella_source_synth_render PRIVATE s3g_dsp)
-
-if(APPLE)
-  target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE
-    "-framework Accelerate")
-  target_link_libraries(s3g_acapella_pvoc_regression_smoke PRIVATE
-    "-framework Accelerate")
-  target_link_libraries(s3g_acapella_source_synth_render PRIVATE
-    "-framework Accelerate")
-endif()
 
 add_executable(s3g_psd_raw_field_smoke tests/psd_raw_field_smoke.cpp)
 target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
@@ -340,6 +339,7 @@ if(BUILD_TESTING)
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
     s3g_feedback_shift_smoke
+    s3g_processor_fissure_smoke
     s3g_crcltr_external_memory_smoke
     s3g_ambi_effect_displacement_smoke
     s3g_ambi_imprint_safety_smoke
@@ -362,7 +362,7 @@ if(BUILD_TESTING)
     s3g_environmental_encoder_smoke
     s3g_vox_builder_smoke
     s3g_acapella_source_synth_smoke
-    s3g_acapella_pvoc_regression_smoke
+    s3g_acapella_resonator_regression_smoke
     s3g_psd_raw_field_smoke
     s3g_psd_raw_field_parameter_audit
     s3g_gui_layout_contract_smoke
@@ -617,6 +617,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_executable(s3g_parameter_surface_clap_smoke tests/parameter_surface_clap_smoke.cpp)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_formant_matrix_clap_smoke
+    tests/formant_matrix_clap_smoke.cpp)
+  target_include_directories(s3g_formant_matrix_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_formant_matrix_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_formant_matrix_clap_smoke PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
 
   add_executable(s3g_ambi_cartography_encoder_clap_smoke
     tests/ambi_cartography_encoder_clap_smoke.cpp)
@@ -903,6 +914,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_vot_encoder)
   add_subdirectory(plugins/clap_ambi_vox_encoder)
   add_subdirectory(plugins/clap_acapella_source_synth)
+  if(BUILD_TESTING)
+    add_test(NAME s3g_formant_matrix_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_formant_matrix_clap_smoke>
+        $<TARGET_FILE:s3g_acapella_source_synth_clap>)
+    set_tests_properties(s3g_formant_matrix_clap_smoke PROPERTIES
+      LABELS "non_nim;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_formant_matrix_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_acapella_source_synth_clap>
+          org.s3g.s3g-dsp.formant-matrix
+          1356 968 "s3g Processor Formant Matrix" responsive)
+      set_tests_properties(s3g_formant_matrix_gui_smoke PROPERTIES
+        LABELS "non_nim;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
   add_subdirectory(plugins/clap_ambi_wave_terrain_encoder)
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
@@ -969,6 +996,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_feedback_shift)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_processor_fissure)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS AND BUILD_TESTING)
     add_test(NAME s3g_feedback_shift_clap_smoke

@@ -267,7 +267,7 @@ python3 scripts/check-docs.py
   build-clap/plugins/clap_macro_shred/s3g_24ch_macro_shred.clap \
   build-clap/plugins/clap_psd_raw_field/s3g_fault.clap</code></pre>
 
-        <p>On a quiet macOS release machine, the following target first runs the allocation-hook self-test and known-bad positive-control CLAP, then builds the complete manifest and runs the non-NIM CTest label, manifest and Objective-C audits, an isolated exact-inventory validator sweep, an exact 117-plugin non-NIM allocation gate, all strict realtime profiles with allocation evidence, and the 96 kHz environmental advisory sequentially. It refuses empty CTest selections and stale, malformed, partial, or mismatched JSON evidence. Each phase keeps its own log and the summary is written to <code>build-clap-release/non-nim-release-checks.json</code>:</p>
+        <p>On a quiet macOS release machine, the following target first runs the allocation-hook self-test and known-bad positive-control CLAP, then builds the complete manifest and runs the non-NIM CTest label, manifest and Objective-C audits, an isolated exact-inventory validator sweep, an inventory-derived non-NIM allocation gate, all strict realtime profiles with allocation evidence, and the 96 kHz environmental advisory sequentially. It refuses empty CTest selections and stale, malformed, partial, or mismatched JSON evidence. Each phase keeps its own log and the summary is written to <code>build-clap-release/non-nim-release-checks.json</code>:</p>
 
         <pre><code>cmake --build --preset clap-release \
   --target release_checks_non_nim</code></pre>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "s3g_acapella_source_synth.h"
-#include "s3g_acapella_pvoc_field.h"
+#include "s3g_acapella_resonator_bank.h"
 #include "s3g_drum_echo.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -33,7 +33,15 @@ struct AcapellaVocalFxParams {
     float echoMix = 0.0f;
     float width = 0.0f;
     float intelligibility = 0.78f;
-    AcapellaPvocParams pvoc;
+    AcapellaResonatorParams resonator = [] {
+        AcapellaResonatorParams bank;
+        bank.amount = 0.90f;
+        bank.mode = AcapellaResonatorMode::Hybrid;
+        bank.analysisBlend = 0.72f;
+        bank.gestureFollow = 0.82f;
+        bank.externalCarrierMix = 0.55f;
+        return bank;
+    }();
 };
 
 struct AcapellaStereoFrame {
@@ -80,7 +88,7 @@ inline AcapellaVocalFxParams sanitizeAcapellaVocalFxParams(
     params.width = clamp(acapellaFiniteOr(params.width, 0.0f), 0.0f, 1.0f);
     params.intelligibility = clamp(acapellaFiniteOr(
         params.intelligibility, 0.78f), 0.0f, 1.0f);
-    params.pvoc = sanitizeAcapellaPvocParams(params.pvoc);
+    params.resonator = sanitizeAcapellaResonatorParams(params.resonator);
     return params;
 }
 
@@ -95,20 +103,32 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.deEss = 0.24f;
         params.fuzzDriveDb = 6.0f;
         params.fuzzMix = 0.06f;
-        params.pvoc.mode = AcapellaPvocMode::Live;
-        params.pvoc.amount = 0.08f;
-        params.pvoc.harmonicLock = 0.18f;
-        params.pvoc.transientPreserve = 0.95f;
+        params.resonator.amount = 0.92f;
+        params.resonator.mode = AcapellaResonatorMode::Hybrid;
+        params.resonator.analysisBlend = 0.62f;
+        params.resonator.gestureFollow = 0.90f;
+        params.resonator.sibilance = 0.72f;
+        params.resonator.attackMs = 2.5f;
+        params.resonator.releaseMs = 82.0f;
+        params.resonator.coupling = 1;
+        params.resonator.externalCarrierMix = 0.64f;
+        params.resonator.stereoMode = AcapellaResonatorStereoMode::OddEven;
+        params.resonator.stereoSpread = 0.42f;
         break;
     case AcapellaSourcePreset::AirySung:
         params.compression = 0.18f;
         params.deEss = 0.28f;
         params.width = 0.10f;
-        params.pvoc.mode = AcapellaPvocMode::Live;
-        params.pvoc.amount = 0.10f;
-        params.pvoc.formantSemitones = 1.5f;
-        params.pvoc.coherence = 0.74f;
-        params.pvoc.phaseDrift = 0.06f;
+        params.resonator.amount = 0.90f;
+        params.resonator.mode = AcapellaResonatorMode::Hybrid;
+        params.resonator.voicingMode =
+            AcapellaResonatorVoicingMode::Blend;
+        params.resonator.carrierNoise = 0.34f;
+        params.resonator.releaseMs = 115.0f;
+        params.resonator.blurMs = 24.0f;
+        params.resonator.externalCarrierMix = 0.42f;
+        params.resonator.stereoMode = AcapellaResonatorStereoMode::Spread;
+        params.resonator.stereoSpread = 0.68f;
         break;
     case AcapellaSourcePreset::PressedLead:
         params.compression = 0.50f;
@@ -117,10 +137,13 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.fuzzDriveDb = 9.0f;
         params.fuzzMix = 0.13f;
         params.fuzzToneHz = 7200.0f;
-        params.pvoc.mode = AcapellaPvocMode::Live;
-        params.pvoc.amount = 0.10f;
-        params.pvoc.harmonicLock = 0.34f;
-        params.pvoc.coherence = 0.94f;
+        params.resonator.amount = 0.95f;
+        params.resonator.mode = AcapellaResonatorMode::Vocoder;
+        params.resonator.resonance = 0.48f;
+        params.resonator.driveDb = 5.0f;
+        params.resonator.gestureFollow = 0.84f;
+        params.resonator.externalCarrierMix = 0.76f;
+        params.resonator.openLevel = 0.025f;
         break;
     case AcapellaSourcePreset::HarshScream:
         params.octaveDown = 0.07f;
@@ -136,12 +159,19 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.echoFeedback = 0.25f;
         params.echoMix = 0.08f;
         params.width = 0.20f;
-        params.pvoc.mode = AcapellaPvocMode::Live;
-        params.pvoc.amount = 0.18f;
-        params.pvoc.warp = 0.18f;
-        params.pvoc.harmonicLock = 0.38f;
-        params.pvoc.phaseDrift = 0.14f;
-        params.pvoc.transientPreserve = 0.90f;
+        params.resonator.amount = 0.96f;
+        params.resonator.mode = AcapellaResonatorMode::Hybrid;
+        params.resonator.carrierHarmonics = 0.84f;
+        params.resonator.carrierColor = 0.68f;
+        params.resonator.resonance = 0.56f;
+        params.resonator.driveDb = 11.0f;
+        params.resonator.analysisBlend = 0.70f;
+        params.resonator.sibilance = 0.72f;
+        params.resonator.externalCarrierMix = 0.58f;
+        params.resonator.carrierLfoRateHz = 0.31f;
+        params.resonator.carrierLfoDepthSemitones = 0.45f;
+        params.resonator.stereoMode = AcapellaResonatorStereoMode::OddEven;
+        params.resonator.stereoSpread = 0.58f;
         break;
     case AcapellaSourcePreset::DeathGrowl:
         params.octaveDown = 0.34f;
@@ -158,25 +188,40 @@ inline AcapellaVocalFxParams acapellaVocalFxPreset(
         params.echoTone = -0.42f;
         params.echoMix = 0.17f;
         params.width = 0.16f;
-        params.pvoc.mode = AcapellaPvocMode::Live;
-        params.pvoc.amount = 0.22f;
-        params.pvoc.formantSemitones = -7.0f;
-        params.pvoc.warp = -0.16f;
-        params.pvoc.feedback = 0.18f;
-        params.pvoc.coherence = 0.76f;
-        params.pvoc.phaseDrift = 0.18f;
+        params.resonator.amount = 0.98f;
+        params.resonator.mode = AcapellaResonatorMode::FilterBank;
+        params.resonator.carrierHarmonics = 0.92f;
+        params.resonator.carrierColor = 0.38f;
+        params.resonator.resonance = 0.68f;
+        params.resonator.driveDb = 15.0f;
+        params.resonator.bandShiftSemitones = -2.4f;
+        params.resonator.tilt = -0.32f;
+        params.resonator.openLevel = 0.26f;
+        params.resonator.coupling = -2;
+        params.resonator.externalCarrierMix = 0.48f;
         break;
     case AcapellaSourcePreset::NeutralSung:
     default:
+        params.resonator.amount = 0.90f;
+        params.resonator.mode = AcapellaResonatorMode::Hybrid;
+        params.resonator.bandLayout =
+            AcapellaResonatorBandLayout::Speech22;
+        params.resonator.voicingMode =
+            AcapellaResonatorVoicingMode::Detect;
+        params.resonator.matrixMode =
+            AcapellaResonatorMatrixMode::Custom;
+        params.resonator.matrixMorph = 1.0f;
+        params.resonator.externalCarrierMix = 0.55f;
+        params.resonator.stereoMode = AcapellaResonatorStereoMode::OddEven;
         break;
     }
     return sanitizeAcapellaVocalFxParams(params);
 }
 
-constexpr uint32_t kAcapellaPvocProfileFirst = 6u;
-constexpr uint32_t kAcapellaPvocProfileCount = 8u;
+constexpr uint32_t kAcapellaResonatorProfileFirst = 6u;
+constexpr uint32_t kAcapellaResonatorProfileCount = 9u;
 
-inline AcapellaSourcePreset acapellaPvocProfileBase(uint32_t index)
+inline AcapellaSourcePreset acapellaResonatorProfileBase(uint32_t index)
 {
     switch (index) {
     case 6u:
@@ -194,141 +239,192 @@ inline AcapellaSourcePreset acapellaPvocProfileBase(uint32_t index)
 }
 
 // Shared by the plug-in, renderer, and regressions so factory profiles cannot
-// drift away from what is actually tested. Every profile starts from a fresh
-// spectral state; voice presets may colour the source but never silently
-// contribute inherited PVOC controls.
-inline AcapellaVocalFxParams acapellaPvocProfileEffects(uint32_t index,
+// drift away from what is actually tested. Each profile starts from a neutral
+// bank while the source preset supplies its underlying articulation colour.
+inline AcapellaVocalFxParams acapellaResonatorProfileEffects(uint32_t index,
     AcapellaVocalFxParams effects)
 {
-    effects.pvoc = AcapellaPvocParams {};
+    if (index < kAcapellaResonatorProfileFirst
+        || index >= kAcapellaResonatorProfileFirst
+            + kAcapellaResonatorProfileCount) {
+        return sanitizeAcapellaVocalFxParams(effects);
+    }
+    effects.resonator = AcapellaResonatorParams {};
     switch (index) {
     case 6u: // Vowel Suspension
-        effects.pvoc.amount = 0.96f;
-        effects.pvoc.mode = AcapellaPvocMode::Freeze;
-        effects.pvoc.memoryMs = 1800.0f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
-        effects.pvoc.coherence = 0.96f;
-        effects.pvoc.transientPreserve = 0.46f;
-        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
-        effects.pvoc.captureReleaseMs = 900.0f;
-        effects.pvoc.gestureFollow = 0.90f;
+        effects.resonator.amount = 0.94f;
+        effects.resonator.mode = AcapellaResonatorMode::Hybrid;
+        effects.resonator.carrierShape =
+            AcapellaResonatorCarrierShape::Glottal;
+        effects.resonator.carrierHarmonics = 0.78f;
+        effects.resonator.carrierColor = 0.48f;
+        effects.resonator.resonance = 0.66f;
+        effects.resonator.attackMs = 18.0f;
+        effects.resonator.releaseMs = 360.0f;
+        effects.resonator.analysisBlend = 0.88f;
+        effects.resonator.gestureFollow = 0.92f;
+        effects.resonator.freeze = 0.86f;
+        effects.resonator.freezeTrigger =
+            AcapellaResonatorFreezeTrigger::Word;
+        effects.resonator.blurMs = 280.0f;
         break;
-    case 7u: // Reverse Breath
-        effects.pvoc.amount = 0.94f;
-        effects.pvoc.mode = AcapellaPvocMode::Reverse;
-        effects.pvoc.memoryMs = 1900.0f;
-        effects.pvoc.position = 0.24f;
-        effects.pvoc.speed = -0.62f;
-        effects.pvoc.timeSpread = 0.24f;
-        effects.pvoc.heads = 2u;
-        effects.pvoc.peakResidue = -0.48f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
-        effects.pvoc.coherence = 0.54f;
-        effects.pvoc.transientPreserve = 0.24f;
+    case 7u: // Breath Mirror
+        effects.resonator.amount = 0.92f;
+        effects.resonator.mode = AcapellaResonatorMode::Vocoder;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Noise;
+        effects.resonator.carrierHarmonics = 0.38f;
+        effects.resonator.carrierColor = 0.78f;
+        effects.resonator.carrierNoise = 0.78f;
+        effects.resonator.resonance = 0.54f;
+        effects.resonator.releaseMs = 210.0f;
+        effects.resonator.sibilance = 0.88f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Mirror;
+        effects.resonator.matrixMorph = 0.76f;
+        effects.resonator.tilt = 0.34f;
+        effects.resonator.stereoSpread = 0.72f;
         break;
     case 8u: // Formant Loom
-        effects.pvoc.amount = 0.95f;
-        effects.pvoc.mode = AcapellaPvocMode::Stretch;
-        effects.pvoc.memoryMs = 2600.0f;
-        effects.pvoc.position = 0.20f;
-        effects.pvoc.speed = 0.38f;
-        effects.pvoc.loopLengthMs = 760.0f;
-        effects.pvoc.heads = 2u;
-        effects.pvoc.formantSemitones = 8.0f;
-        effects.pvoc.warp = -0.20f;
-        effects.pvoc.harmonicLock = 0.60f;
-        effects.pvoc.peakResidue = 0.24f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
-        effects.pvoc.coherence = 0.92f;
-        effects.pvoc.transientPreserve = 0.25f;
+        effects.resonator.amount = 0.96f;
+        effects.resonator.mode = AcapellaResonatorMode::Hybrid;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Fold;
+        effects.resonator.carrierHarmonics = 0.88f;
+        effects.resonator.carrierColor = 0.64f;
+        effects.resonator.resonance = 0.72f;
+        effects.resonator.driveDb = 7.0f;
+        effects.resonator.analysisBlend = 0.78f;
+        effects.resonator.bandShiftSemitones = 3.2f;
+        effects.resonator.bandStretch = 0.36f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Rotate;
+        effects.resonator.matrixMorph = 0.42f;
+        effects.resonator.gestureFollow = 0.82f;
         break;
-    case 9u: // Partial Rain
-        effects.pvoc.amount = 1.0f;
-        effects.pvoc.mode = AcapellaPvocMode::Cloud;
-        effects.pvoc.memoryMs = 3600.0f;
-        effects.pvoc.position = 0.36f;
-        effects.pvoc.speed = 0.66f;
-        effects.pvoc.timeSpread = 0.82f;
-        effects.pvoc.heads = 5u;
-        effects.pvoc.feedback = 0.24f;
-        effects.pvoc.formantSemitones = 3.0f;
-        effects.pvoc.peakResidue = 0.62f;
-        effects.pvoc.partialCloud = 0.70f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
-        effects.pvoc.coherence = 0.40f;
-        effects.pvoc.phaseDrift = 0.25f;
-        effects.pvoc.transientPreserve = 0.16f;
-        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Syllable;
+    case 9u: // Resonant Rain
+        effects.resonator.amount = 1.0f;
+        effects.resonator.mode = AcapellaResonatorMode::Resonator;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Pulse;
+        effects.resonator.carrierHarmonics = 0.86f;
+        effects.resonator.carrierColor = 0.72f;
+        effects.resonator.carrierNoise = 0.46f;
+        effects.resonator.resonance = 0.88f;
+        effects.resonator.driveDb = 10.0f;
+        effects.resonator.releaseMs = 520.0f;
+        effects.resonator.bandStretch = 0.58f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Sparse;
+        effects.resonator.matrixMorph = 0.68f;
+        effects.resonator.blurMs = 120.0f;
+        effects.resonator.gestureFollow = 0.34f;
+        effects.resonator.stereoSpread = 0.88f;
         break;
-    case 10u: // Phase Choir
-        effects.pvoc.amount = 0.98f;
-        effects.pvoc.mode = AcapellaPvocMode::Cloud;
-        effects.pvoc.memoryMs = 3200.0f;
-        effects.pvoc.position = 0.22f;
-        effects.pvoc.speed = 0.82f;
-        effects.pvoc.timeSpread = 0.52f;
-        effects.pvoc.heads = 5u;
-        effects.pvoc.partialCloud = 0.44f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Diffuse;
-        effects.pvoc.coherence = 0.24f;
-        effects.pvoc.phaseDrift = 0.58f;
-        effects.pvoc.transientPreserve = 0.14f;
-        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
+    case 10u: // Carrier Choir
+        effects.resonator.amount = 0.96f;
+        effects.resonator.mode = AcapellaResonatorMode::Hybrid;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        effects.resonator.carrierHarmonics = 0.92f;
+        effects.resonator.carrierColor = 0.56f;
+        effects.resonator.carrierNoise = 0.16f;
+        effects.resonator.resonance = 0.62f;
+        effects.resonator.releaseMs = 260.0f;
+        effects.resonator.analysisBlend = 0.84f;
+        effects.resonator.gestureFollow = 0.90f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Chord;
+        effects.resonator.matrixMorph = 0.36f;
+        effects.resonator.blurMs = 72.0f;
+        effects.resonator.stereoSpread = 0.94f;
         break;
     case 11u: // Consonant Shadow
-        effects.pvoc.amount = 0.88f;
-        effects.pvoc.mode = AcapellaPvocMode::Loop;
-        effects.pvoc.memoryMs = 1500.0f;
-        effects.pvoc.position = 0.18f;
-        effects.pvoc.speed = -0.70f;
-        effects.pvoc.loopLengthMs = 170.0f;
-        effects.pvoc.timeSpread = 0.30f;
-        effects.pvoc.heads = 3u;
-        effects.pvoc.peakResidue = -0.68f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Loose;
-        effects.pvoc.coherence = 0.48f;
-        effects.pvoc.transientPreserve = 0.62f;
-        effects.pvoc.captureReleaseMs = 180.0f;
+        effects.resonator.amount = 0.90f;
+        effects.resonator.mode = AcapellaResonatorMode::Hybrid;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Noise;
+        effects.resonator.carrierNoise = 0.58f;
+        effects.resonator.resonance = 0.48f;
+        effects.resonator.attackMs = 0.8f;
+        effects.resonator.releaseMs = 95.0f;
+        effects.resonator.analysisBlend = 0.92f;
+        effects.resonator.gestureFollow = 1.0f;
+        effects.resonator.sibilance = 1.0f;
+        effects.resonator.tilt = 0.42f;
+        effects.resonator.matrixMorph = 0.22f;
         break;
-    case 12u: // Time Scar
-        effects.pvoc.amount = 1.0f;
-        effects.pvoc.mode = AcapellaPvocMode::Scrub;
-        effects.pvoc.memoryMs = 2800.0f;
-        effects.pvoc.position = 0.56f;
-        effects.pvoc.speed = 0.74f;
-        effects.pvoc.timeSpread = 0.84f;
-        effects.pvoc.heads = 3u;
-        effects.pvoc.feedback = 0.36f;
-        effects.pvoc.pitchSemitones = -5.0f;
-        effects.pvoc.formantSemitones = 6.0f;
-        effects.pvoc.warp = 0.26f;
-        effects.pvoc.partialCloud = 0.52f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::Diffuse;
-        effects.pvoc.coherence = 0.30f;
-        effects.pvoc.phaseDrift = 0.64f;
-        effects.pvoc.transientPreserve = 0.14f;
-        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Word;
-        effects.pvoc.captureReleaseMs = 720.0f;
+    case 12u: // Moving Scar
+        effects.resonator.amount = 1.0f;
+        effects.resonator.mode = AcapellaResonatorMode::Resonator;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Fold;
+        effects.resonator.carrierHarmonics = 1.0f;
+        effects.resonator.carrierColor = 0.34f;
+        effects.resonator.carrierNoise = 0.24f;
+        effects.resonator.resonance = 0.92f;
+        effects.resonator.driveDb = 18.0f;
+        effects.resonator.releaseMs = 680.0f;
+        effects.resonator.bandShiftSemitones = -4.0f;
+        effects.resonator.bandStretch = -0.38f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Rotate;
+        effects.resonator.matrixMorph = 0.78f;
+        effects.resonator.freeze = 0.36f;
+        effects.resonator.freezeTrigger =
+            AcapellaResonatorFreezeTrigger::Word;
+        effects.resonator.blurMs = 190.0f;
+        effects.resonator.gestureFollow = 0.22f;
+        effects.resonator.stereoSpread = 0.80f;
         break;
     case 13u: // Chord Glass
-        effects.pvoc.amount = 0.97f;
-        effects.pvoc.mode = AcapellaPvocMode::Stretch;
-        effects.pvoc.memoryMs = 3400.0f;
-        effects.pvoc.position = 0.16f;
-        effects.pvoc.speed = 0.48f;
-        effects.pvoc.loopLengthMs = 980.0f;
-        effects.pvoc.timeSpread = 0.26f;
-        effects.pvoc.heads = 4u;
-        effects.pvoc.feedback = 0.28f;
-        effects.pvoc.pitchSemitones = 7.0f;
-        effects.pvoc.formantSemitones = 3.0f;
-        effects.pvoc.harmonicLock = 0.78f;
-        effects.pvoc.peakResidue = 0.56f;
-        effects.pvoc.phaseMode = AcapellaPvocPhaseMode::PeakLocked;
-        effects.pvoc.coherence = 0.96f;
-        effects.pvoc.phaseDrift = 0.05f;
-        effects.pvoc.transientPreserve = 0.30f;
-        effects.pvoc.captureTrigger = AcapellaPvocCaptureTrigger::Syllable;
+        effects.resonator.amount = 0.98f;
+        effects.resonator.mode = AcapellaResonatorMode::Hybrid;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        effects.resonator.carrierHarmonics = 0.96f;
+        effects.resonator.carrierColor = 0.62f;
+        effects.resonator.resonance = 0.86f;
+        effects.resonator.driveDb = 5.0f;
+        effects.resonator.releaseMs = 820.0f;
+        effects.resonator.analysisBlend = 0.74f;
+        effects.resonator.gestureFollow = 0.76f;
+        effects.resonator.bandShiftSemitones = 2.0f;
+        effects.resonator.bandStretch = 0.24f;
+        effects.resonator.matrixMode = AcapellaResonatorMatrixMode::Chord;
+        effects.resonator.matrixMorph = 0.86f;
+        effects.resonator.freeze = 0.22f;
+        effects.resonator.freezeTrigger =
+            AcapellaResonatorFreezeTrigger::Syllable;
+        effects.resonator.blurMs = 240.0f;
+        effects.resonator.stereoSpread = 1.0f;
+        break;
+    case 14u: // Classic Mic
+        effects.resonator.amount = 1.0f;
+        effects.resonator.bandLayout =
+            AcapellaResonatorBandLayout::Speech22;
+        effects.resonator.analysisSlope =
+            AcapellaResonatorAnalysisSlope::EightPole;
+        effects.resonator.mode = AcapellaResonatorMode::Vocoder;
+        effects.resonator.modulatorSource =
+            AcapellaResonatorModulatorSource::ExternalMic;
+        effects.resonator.micGainDb = 0.0f;
+        effects.resonator.carrierShape = AcapellaResonatorCarrierShape::Saw;
+        effects.resonator.carrierHarmonics = 0.94f;
+        effects.resonator.carrierColor = 0.12f;
+        effects.resonator.carrierNoise = 0.18f;
+        effects.resonator.analysisBlend = 0.0f;
+        // Fast, lightly smoothed followers preserve plosives and transitions
+        // between formants. The earlier 6 ms attack + 110 ms release + 70 ms
+        // Blur behaved mainly as a broadband loudness follower.
+        effects.resonator.attackMs = 2.0f;
+        effects.resonator.releaseMs = 65.0f;
+        effects.resonator.blurMs = 4.0f;
+        effects.resonator.voicingThreshold = 0.44f;
+        effects.resonator.sibilance = 0.78f;
+        effects.resonator.openLevel = 0.0f;
+        // A classic fully-wet vocoder must not monitor the microphone itself.
+        // Articulation Thru remains available as an explicit creative option,
+        // but the quick-start profile keeps that direct high-pass rail closed.
+        effects.resonator.articulationThru = 0.0f;
+        effects.resonator.voicingMode =
+            AcapellaResonatorVoicingMode::Detect;
+        effects.resonator.bandShiftSemitones = 0.0f;
+        effects.resonator.bandStretch = 0.0f;
+        effects.resonator.coupling = 0;
+        effects.resonator.matrixMode =
+            AcapellaResonatorMatrixMode::Identity;
+        effects.resonator.matrixMorph = 1.0f;
+        effects.resonator.stereoMode = AcapellaResonatorStereoMode::Mono;
+        effects.resonator.stereoSpread = 0.0f;
         break;
     default:
         break;
@@ -373,8 +469,8 @@ public:
         deEssGainReleaseCoefficient_ = coefficient(65.0f);
         limiterReleaseCoefficient_ = coefficient(70.0f);
         activityReleaseCoefficient_ = coefficient(180.0f);
-        pvocField_.setParams(params_.pvoc);
-        (void)pvocField_.prepare(sampleRate_);
+        resonatorBank_.setParams(params_.resonator);
+        (void)resonatorBank_.prepare(sampleRate_);
         tapeEcho_.prepare(sampleRate_, 12.0);
         reset();
     }
@@ -393,9 +489,9 @@ public:
         fuzzTone_ = 0.0f;
         fuzzDcInput_ = 0.0f;
         fuzzDcOutput_ = 0.0f;
-        pvocField_.setParams(params_.pvoc);
-        pvocField_.reset();
-        pvocOutputSide_ = 0.0f;
+        resonatorBank_.setParams(params_.resonator);
+        resonatorBank_.reset();
+        resonatorOutputSide_ = 0.0f;
         fastEnvelope_ = 0.0f;
         fastGain_ = 1.0f;
         slowEnvelope_ = 0.0f;
@@ -409,9 +505,22 @@ public:
         deEssGain_ = 1.0f;
         updateTapeEchoParams();
         tapeEcho_.reset();
+        stereoInputSide_ = 0.0f;
+        externalCarrierLeft_ = 0.0f;
+        externalCarrierRight_ = 0.0f;
+        separateCarrierInput_ = false;
+        externalCarrierAvailable_ = false;
+        targetMicInputGain_ = dbToGain(params_.resonator.micGainDb);
+        // Reset has no host-buffer availability information. Initialize from
+        // the same safe no-input topology used by an idle source change;
+        // Blend will fade a connected mic toward its normalized gain instead
+        // of beginning 3 dB hot on the first frame.
+        snapModulatorRouting();
         allpassInput_ = 0.0f;
         allpassOutput_ = 0.0f;
         limiterGain_ = 1.0f;
+        previousOutputLeft_ = 0.0f;
+        previousOutputRight_ = 0.0f;
         activityEnvelope_ = 0.0f;
         coefficientCounter_ = 0u;
         updateToneCoefficient();
@@ -419,40 +528,103 @@ public:
 
     void setParams(AcapellaVocalFxParams params)
     {
+        const auto previousModulatorSource
+            = params_.resonator.modulatorSource;
         params_ = sanitizeAcapellaVocalFxParams(params);
-        pvocField_.setParams(params_.pvoc);
+        targetMicInputGain_ = dbToGain(params_.resonator.micGainDb);
+        resonatorBank_.setParams(params_.resonator);
+        if (previousModulatorSource != params_.resonator.modulatorSource
+            && !resonatorBank_.active()) {
+            snapModulatorRouting();
+        }
     }
 
-    void setPvocGesture(AcapellaPvocGesture gesture)
+    void setRealtimeControlParams(const AcapellaVocalFxParams& next)
     {
-        pvocField_.setGesture(gesture);
+        const auto previousModulatorSource
+            = params_.resonator.modulatorSource;
+        params_.octaveDown = next.octaveDown;
+        params_.octaveUp = next.octaveUp;
+        params_.fuzzDriveDb = next.fuzzDriveDb;
+        params_.fuzzMix = next.fuzzMix;
+        params_.fuzzToneHz = next.fuzzToneHz;
+        params_.compression = next.compression;
+        params_.parallelCrush = next.parallelCrush;
+        params_.deEss = next.deEss;
+        params_.echoHeads = next.echoHeads;
+        params_.echoClock = next.echoClock;
+        params_.echoTimeMs = next.echoTimeMs;
+        params_.echoFeedback = next.echoFeedback;
+        params_.echoWear = next.echoWear;
+        params_.echoFlutter = next.echoFlutter;
+        params_.echoTone = next.echoTone;
+        params_.echoSpread = next.echoSpread;
+        params_.echoMix = next.echoMix;
+        params_.width = next.width;
+        params_.intelligibility = next.intelligibility;
+        copyAcapellaResonatorControlParams(
+            params_.resonator, next.resonator);
+        targetMicInputGain_ = dbToGain(params_.resonator.micGainDb);
+        resonatorBank_.setRealtimeControlParams(next.resonator);
+        if (previousModulatorSource != params_.resonator.modulatorSource
+            && !resonatorBank_.active()) {
+            snapModulatorRouting();
+        }
+    }
+
+    void setResonatorGesture(AcapellaResonatorGesture gesture)
+    {
+        resonatorBank_.setGesture(gesture);
+    }
+
+    void setResonatorBandTrim(uint32_t band, float value)
+    {
+        if (band >= kAcapellaResonatorBands) return;
+        params_.resonator.bandTrims[band] = clamp(
+            acapellaFiniteOr(value, 1.0f), 0.0f, 2.0f);
+        resonatorBank_.setBandTrim(band, value);
+    }
+
+    void setResonatorCustomMatrixCell(bool sceneB, uint32_t destination,
+        uint32_t source, float value)
+    {
+        if (destination >= kAcapellaResonatorBands
+            || source >= kAcapellaResonatorBands) return;
+        auto& scene = sceneB ? params_.resonator.customMatrixB
+                             : params_.resonator.customMatrixA;
+        scene[destination * kAcapellaResonatorBands + source] = clamp(
+            acapellaFiniteOr(value, 0.0f), -1.0f, 1.0f);
+        resonatorBank_.setCustomMatrixCell(
+            sceneB, destination, source, value);
+    }
+
+    AcapellaResonatorMeterSnapshot resonatorMeterSnapshot() const
+    {
+        return resonatorBank_.meterSnapshot();
     }
 
     void setTempo(double beatsPerMinute, bool valid = true)
     {
+        resonatorBank_.setTempo(beatsPerMinute, valid);
         tapeEcho_.setTempo(beatsPerMinute, valid);
     }
 
-    uint32_t latencySamples() const { return pvocField_.latencySamples(); }
+    uint32_t latencySamples() const { return resonatorBank_.latencySamples(); }
 
     uint32_t tailSamples() const
     {
-        const uint64_t pvoc = pvocField_.tailSamples();
-        const uint64_t echo = params_.echoMix > 1.0e-4f
-            ? tapeEcho_.tailSamples() : 0u;
+        const uint64_t resonator = resonatorBank_.tailSamples();
+        const uint64_t echo = (params_.echoMix > 1.0e-4f
+                || smoothed_.echoMix > 1.0e-4f)
+            ? tapeEcho_.tailSamplesForParams(tapeEchoParams(params_)) : 0u;
         return static_cast<uint32_t>(std::min<uint64_t>(
-            0xfffffffeu, pvoc + echo));
+            0xfffffffeu, resonator + echo));
     }
 
     const AcapellaVocalFxParams& params() const { return params_; }
-    const AcapellaPvocDiagnostics& pvocDiagnostics() const
-    {
-        return pvocField_.diagnostics();
-    }
-
     bool active() const
     {
-        return pvocField_.active()
+        return resonatorBank_.active()
             || (smoothed_.echoMix > 1.0e-4f
                 && activityEnvelope_ > 1.0e-4f);
     }
@@ -460,69 +632,82 @@ public:
     AcapellaStereoFrame processFrame(float input)
     {
         input = std::isfinite(input) ? clamp(input, -2.0f, 2.0f) : 0.0f;
+        // The legacy self-carrier path shapes its input before the bank. The
+        // v5 mic/speech-modulator path uses the bank's MIDI oscillator and
+        // applies the same octave/fuzz stage after the bank so these exposed
+        // controls remain musically active.
+        const float carrierInput = separateCarrierInput_
+            ? 0.5f * (externalCarrierLeft_ + externalCarrierRight_)
+            : input;
+        const float carrierSide = separateCarrierInput_
+            ? 0.5f * (externalCarrierLeft_ - externalCarrierRight_)
+            : stereoInputSide_;
         smoothParams();
         if ((coefficientCounter_++ & 15u) == 0u) {
             updateToneCoefficient();
             updateTapeEchoParams();
         }
 
-        pitchLow1_ += pitchLowCoefficient_ * (input - pitchLow1_);
-        pitchLow2_ += pitchLowCoefficient_ * (pitchLow1_ - pitchLow2_);
-        const float hysteresis = 0.0025f;
-        if (pitchLow2_ <= -hysteresis) pitchDividerArmed_ = true;
-        if (pitchDividerArmed_ && pitchLow2_ >= hysteresis) {
-            subPolarity_ = -subPolarity_;
-            pitchDividerArmed_ = false;
-        }
-        const float absoluteInput = std::abs(input);
-        const float subEnvelopeCoefficient = absoluteInput > subEnvelope_
-            ? subAttackCoefficient_ : subReleaseCoefficient_;
-        subEnvelope_ += (absoluteInput - subEnvelope_)
-            * subEnvelopeCoefficient;
-        subLow_ += subLowCoefficient_
-            * (subPolarity_ * subEnvelope_ - subLow_);
+        float signal = separateCarrierInput_ ? 0.0f
+                                             : shapeSignal(carrierInput);
 
-        const float rectified = std::abs(input);
-        rectifiedDc_ += rectifiedDcCoefficient_
-            * (rectified - rectifiedDc_);
-        const float octaveUp = (rectified - rectifiedDc_) * 1.55f;
-        const float octaveNormalization = 1.0f
-            + 0.28f * (smoothed_.octaveDown + smoothed_.octaveUp);
-        const float octaveSignal = (input
-            + subLow_ * smoothed_.octaveDown * 0.72f
-            + octaveUp * smoothed_.octaveUp * 0.58f)
-            / octaveNormalization;
+        // In the dedicated v5 route, `input` is the selected external-mic /
+        // internal-speech modulator and the bank's stable-ID oscillator set is
+        // always the carrier. The legacy route remains a self-carrier API for
+        // standalone DSP users and older source-engine tests.
+        // The legacy one-/two-channel API is a self-carrier path: its input
+        // feeds both analysis and carrier processing.  The explicit v4 API
+        // keeps an absent host carrier distinct so the procedural carrier can
+        // take over.  Track the routing form separately from buffer
+        // availability; otherwise an explicitly absent carrier accidentally
+        // falls back to the analysis voice, while the legacy path goes mute.
+        const bool bankCarrierAvailable = separateCarrierInput_
+            ? externalCarrierAvailable_ : true;
+        const float bankCarrierLeft = bankCarrierAvailable
+            ? signal + carrierSide : 0.0f;
+        const float bankCarrierRight = bankCarrierAvailable
+            ? signal - carrierSide : 0.0f;
+        const auto resonated = resonatorBank_.processFrameStereo(
+            input + stereoInputSide_, input - stereoInputSide_,
+            bankCarrierLeft, bankCarrierRight,
+            bankCarrierAvailable);
+        const float bankOutputMid
+            = 0.5f * (resonated.left + resonated.right);
+        const float bankOutputSide
+            = 0.5f * (resonated.left - resonated.right);
+        signal = bankOutputMid;
+        resonatorOutputSide_ = bankOutputSide;
+        if (separateCarrierInput_) signal = shapeSignal(signal);
+        // In the dedicated vocoder route the intelligibility rail must remain
+        // inside the analyzed/VCA-controlled bank. Pulling the dry oscillator
+        // back in here makes a silent microphone audible whenever a
+        // destructive shape effect is enabled. The legacy self-carrier API
+        // retains its original dry-input preservation behavior.
+        const float cleanInput = separateCarrierInput_
+            ? bankOutputMid
+            : 0.5f * (resonated.dryLeft + resonated.dryRight);
+        const float cleanInputSide = separateCarrierInput_
+            ? bankOutputSide
+            : 0.5f * (resonated.dryLeft - resonated.dryRight);
 
-        const float drive = std::exp2(smoothed_.fuzzDriveDb / 6.020599913f);
-        const float midpoint = 0.5f * (previousInput_ + octaveSignal);
-        const float fuzz = 0.5f * (fuzzShape(midpoint, drive)
-            + fuzzShape(octaveSignal, drive));
-        previousInput_ = octaveSignal;
-        fuzzTone_ += fuzzToneCoefficient_ * (fuzz - fuzzTone_);
-        const float fuzzDc = fuzzTone_ - fuzzDcInput_
-            + 0.997f * fuzzDcOutput_;
-        fuzzDcInput_ = fuzzTone_;
-        fuzzDcOutput_ = flushDenormal(fuzzDc);
-        float signal = lerp(octaveSignal, fuzzDcOutput_, smoothed_.fuzzMix);
-
-        // Process the complete stereo field with one linked STFT. Previously
-        // only the mid channel entered PVOC while an undelayed, unprocessed
-        // side rail could mask the effect and violate reported latency.
-        const auto pvoc = pvocField_.processFrameStereo(
-            signal + stereoInputSide_, signal - stereoInputSide_);
-        signal = 0.5f * (pvoc.left + pvoc.right);
-        pvocOutputSide_ = 0.5f * (pvoc.left - pvoc.right);
-        const float cleanInput = 0.5f * (pvoc.dryLeft + pvoc.dryRight);
-
-        signal = compressorStage(signal, fastEnvelope_, fastGain_,
+        const float linkedDynamicsLevel = std::max(
+            std::abs(signal), std::abs(resonatorOutputSide_));
+        signal = compressorStage(signal, linkedDynamicsLevel,
+            fastEnvelope_, fastGain_,
             -18.0f, 8.0f, fastAttackCoefficient_, fastReleaseCoefficient_,
             fastGainAttackCoefficient_, fastReleaseCoefficient_,
             smoothed_.compression);
-        signal = compressorStage(signal, slowEnvelope_, slowGain_,
+        signal = compressorStage(signal, linkedDynamicsLevel,
+            slowEnvelope_, slowGain_,
             -14.0f, 3.2f, slowAttackCoefficient_, slowReleaseCoefficient_,
             slowGainAttackCoefficient_, slowReleaseCoefficient_,
             smoothed_.compression * 0.78f);
-        signal *= std::exp2(smoothed_.compression * 4.5f / 6.020599913f);
+        const float compressorMakeup = std::exp2(
+            smoothed_.compression * 4.5f / 6.020599913f);
+        signal *= compressorMakeup;
+        // Use the same linked gain detector for mid and side. Letting a wide
+        // bank side rail skip dynamics reintroduced harsh consonant splats.
+        resonatorOutputSide_ *= fastGain_ * slowGain_ * compressorMakeup;
 
         crushLow_ += crushLowCoefficient_ * (signal - crushLow_);
         crushHighLow_ += crushHighCoefficient_ * (signal - crushHighLow_);
@@ -534,10 +719,15 @@ public:
             + crushBand(highBand, 2u, 0.030f, 7.0f, 0.24f);
         const float parallel = signal * 0.60f + crushed;
         signal = lerp(signal, parallel, smoothed_.parallelCrush);
+        const float sideCrushed = std::tanh(resonatorOutputSide_ * 4.2f)
+            * 0.32f;
+        resonatorOutputSide_ = lerp(resonatorOutputSide_, sideCrushed,
+            smoothed_.parallelCrush);
 
         deEssLow_ += deEssCoefficient_ * (signal - deEssLow_);
         const float deEssHigh = signal - deEssLow_;
-        const float highLevel = std::abs(deEssHigh);
+        const float highLevel = std::max(
+            std::abs(deEssHigh), std::abs(resonatorOutputSide_));
         deEssEnvelope_ += (highLevel - deEssEnvelope_)
             * (highLevel > deEssEnvelope_ ? deEssAttackCoefficient_
                                           : deEssReleaseCoefficient_);
@@ -549,10 +739,12 @@ public:
             * (targetDeEss < deEssGain_ ? deEssGainAttackCoefficient_
                                         : deEssGainReleaseCoefficient_);
         signal = deEssLow_ + deEssHigh * deEssGain_;
+        resonatorOutputSide_ *= deEssGain_;
 
         // Keep a phase-aligned clean articulation rail under nonlinear
-        // waveshaping. PVOC has its own bin-level transient side rail; adding
-        // another clean voice here would mask its transport and phase motion.
+        // waveshaping. The bank already integrates consonant energy into its
+        // upper resonators, so this rail only compensates destructive legacy
+        // effects and never scales with the resonator amount.
         const float destructiveAmount = std::max({
             smoothed_.fuzzMix,
             smoothed_.parallelCrush * 0.82f,
@@ -561,6 +753,8 @@ public:
         const float cleanPreserve = smoothed_.intelligibility
             * destructiveAmount * 0.36f;
         signal = lerp(signal, cleanInput, cleanPreserve);
+        resonatorOutputSide_ = lerp(resonatorOutputSide_, cleanInputSide,
+            cleanPreserve);
 
         constexpr float allpassCoefficient = 0.71f;
         const float decorrelated = -allpassCoefficient * signal
@@ -569,8 +763,8 @@ public:
         allpassOutput_ = flushDenormal(decorrelated);
         const float side = (decorrelated - signal)
             * smoothed_.width * 0.34f;
-        float left = signal + side + pvocOutputSide_;
-        float right = signal - side - pvocOutputSide_;
+        float left = signal + side + resonatorOutputSide_;
+        float right = signal - side - resonatorOutputSide_;
         tapeEcho_.processFrame(left, right);
 
         const float peak = std::max(std::abs(left), std::abs(right));
@@ -583,6 +777,13 @@ public:
         }
         left = clamp(left * limiterGain_, -0.98f, 0.98f);
         right = clamp(right * limiterGain_, -0.98f, 0.98f);
+        constexpr float maximumFrameStep = 0.18f;
+        left = previousOutputLeft_ + clamp(left - previousOutputLeft_,
+            -maximumFrameStep, maximumFrameStep);
+        right = previousOutputRight_ + clamp(right - previousOutputRight_,
+            -maximumFrameStep, maximumFrameStep);
+        previousOutputLeft_ = left;
+        previousOutputRight_ = right;
         if (!std::isfinite(left) || !std::isfinite(right)) {
             reset();
             return {};
@@ -616,7 +817,107 @@ public:
         return output;
     }
 
+    // Dedicated v5 route. The first stereo pair is procedurally synthesized
+    // speech, the second is the host microphone, and the bank's stable-ID MIDI
+    // oscillators are the carrier. Source selection is explicit: External Mic
+    // never starts the internal voice during a pause, while Blend falls back
+    // to full internal speech only when no host input buffer exists.
+    AcapellaStereoFrame processFrameStereo(float internalSpeechLeft,
+        float internalSpeechRight, float micLeft, float micRight)
+    {
+        return processFrameStereo(internalSpeechLeft, internalSpeechRight,
+            micLeft, micRight, true);
+    }
+
+    AcapellaStereoFrame processFrameStereo(float internalSpeechLeft,
+        float internalSpeechRight, float micLeft, float micRight,
+        bool micAvailable)
+    {
+        internalSpeechLeft = std::isfinite(internalSpeechLeft)
+            ? clamp(internalSpeechLeft, -4.0f, 4.0f) : 0.0f;
+        internalSpeechRight = std::isfinite(internalSpeechRight)
+            ? clamp(internalSpeechRight, -4.0f, 4.0f) : 0.0f;
+        micLeft = std::isfinite(micLeft) ? clamp(micLeft, -4.0f, 4.0f)
+                                         : 0.0f;
+        micRight = std::isfinite(micRight) ? clamp(micRight, -4.0f, 4.0f)
+                                           : 0.0f;
+
+        const auto source = params_.resonator.modulatorSource;
+        float speechTarget = source == AcapellaResonatorModulatorSource::ExternalMic
+            ? 0.0f : 1.0f;
+        float micTarget = source == AcapellaResonatorModulatorSource::InternalSpeech
+            ? 0.0f : 1.0f;
+        if (source == AcapellaResonatorModulatorSource::Blend && micAvailable) {
+            constexpr float normalizedBlendGain = 0.70710678118f;
+            speechTarget = normalizedBlendGain;
+            micTarget = normalizedBlendGain;
+        } else if (!micAvailable) {
+            micTarget = 0.0f;
+            if (source == AcapellaResonatorModulatorSource::Blend) {
+                speechTarget = 1.0f;
+            }
+        }
+        smoothedInternalSpeechGain_ += (speechTarget
+            - smoothedInternalSpeechGain_) * smoothingCoefficient_;
+        smoothedMicGain_ += (micTarget - smoothedMicGain_)
+            * smoothingCoefficient_;
+        smoothedMicInputGain_ += (targetMicInputGain_
+            - smoothedMicInputGain_)
+            * smoothingCoefficient_;
+        const float selectedLeft = internalSpeechLeft
+                * smoothedInternalSpeechGain_
+            + micLeft * smoothedMicGain_ * smoothedMicInputGain_;
+        const float selectedRight = internalSpeechRight
+                * smoothedInternalSpeechGain_
+            + micRight * smoothedMicGain_ * smoothedMicInputGain_;
+
+        // A false carrier-availability flag forces the bank to use only its
+        // internal stable-ID oscillator set. No mic waveform can leak onto the
+        // carrier rail.
+        externalCarrierLeft_ = 0.0f;
+        externalCarrierRight_ = 0.0f;
+        separateCarrierInput_ = true;
+        externalCarrierAvailable_ = false;
+        const float mid = 0.5f * (selectedLeft + selectedRight);
+        stereoInputSide_ = 0.5f * (selectedLeft - selectedRight) * 0.82f;
+        auto output = processFrame(mid);
+        stereoInputSide_ = 0.0f;
+        separateCarrierInput_ = false;
+        externalCarrierAvailable_ = false;
+        const float peak = std::max(std::abs(output.left),
+            std::abs(output.right));
+        if (peak > 0.98f) {
+            const float gain = 0.98f / peak;
+            output.left *= gain;
+            output.right *= gain;
+        }
+        return output;
+    }
+
 private:
+
+    void snapModulatorRouting()
+    {
+        switch (params_.resonator.modulatorSource) {
+        case AcapellaResonatorModulatorSource::ExternalMic:
+            smoothedInternalSpeechGain_ = 0.0f;
+            smoothedMicGain_ = 1.0f;
+            break;
+        case AcapellaResonatorModulatorSource::Blend:
+            // Buffer availability is a per-process fact. Start from the
+            // documented no-input fallback and let the click-safe smoother
+            // introduce a connected microphone on the audio path.
+            smoothedInternalSpeechGain_ = 1.0f;
+            smoothedMicGain_ = 0.0f;
+            break;
+        case AcapellaResonatorModulatorSource::InternalSpeech:
+        default:
+            smoothedInternalSpeechGain_ = 1.0f;
+            smoothedMicGain_ = 0.0f;
+            break;
+        }
+        smoothedMicInputGain_ = targetMicInputGain_;
+    }
 
     float coefficient(float milliseconds) const
     {
@@ -638,12 +939,56 @@ private:
             - std::tanh(bias * drive)) * 0.72f;
     }
 
-    float compressorStage(float input, float& envelope, float& gain,
+    float shapeSignal(float input)
+    {
+        pitchLow1_ += pitchLowCoefficient_ * (input - pitchLow1_);
+        pitchLow2_ += pitchLowCoefficient_ * (pitchLow1_ - pitchLow2_);
+        constexpr float hysteresis = 0.0025f;
+        if (pitchLow2_ <= -hysteresis) pitchDividerArmed_ = true;
+        if (pitchDividerArmed_ && pitchLow2_ >= hysteresis) {
+            subPolarity_ = -subPolarity_;
+            pitchDividerArmed_ = false;
+        }
+        const float absoluteInput = std::abs(input);
+        const float subEnvelopeCoefficient = absoluteInput > subEnvelope_
+            ? subAttackCoefficient_ : subReleaseCoefficient_;
+        subEnvelope_ += (absoluteInput - subEnvelope_)
+            * subEnvelopeCoefficient;
+        subLow_ += subLowCoefficient_
+            * (subPolarity_ * subEnvelope_ - subLow_);
+
+        const float rectified = std::abs(input);
+        rectifiedDc_ += rectifiedDcCoefficient_
+            * (rectified - rectifiedDc_);
+        const float octaveUp = (rectified - rectifiedDc_) * 1.55f;
+        const float octaveNormalization = 1.0f
+            + 0.28f * (smoothed_.octaveDown + smoothed_.octaveUp);
+        const float octaveSignal = (input
+            + subLow_ * smoothed_.octaveDown * 0.72f
+            + octaveUp * smoothed_.octaveUp * 0.58f)
+            / octaveNormalization;
+
+        const float drive = std::exp2(
+            smoothed_.fuzzDriveDb / 6.020599913f);
+        const float midpoint = 0.5f * (previousInput_ + octaveSignal);
+        const float fuzz = 0.5f * (fuzzShape(midpoint, drive)
+            + fuzzShape(octaveSignal, drive));
+        previousInput_ = octaveSignal;
+        fuzzTone_ += fuzzToneCoefficient_ * (fuzz - fuzzTone_);
+        const float fuzzDc = fuzzTone_ - fuzzDcInput_
+            + 0.997f * fuzzDcOutput_;
+        fuzzDcInput_ = fuzzTone_;
+        fuzzDcOutput_ = flushDenormal(fuzzDc);
+        return lerp(octaveSignal, fuzzDcOutput_, smoothed_.fuzzMix);
+    }
+
+    float compressorStage(float input, float detectorLevel,
+        float& envelope, float& gain,
         float thresholdDb, float ratio, float envelopeAttackCoefficient,
         float envelopeReleaseCoefficient, float gainAttackCoefficient,
         float gainReleaseCoefficient, float amount)
     {
-        const float level = std::abs(input);
+        const float level = std::max(std::abs(input), detectorLevel);
         envelope += (level - envelope)
             * (level > envelope ? envelopeAttackCoefficient
                                 : envelopeReleaseCoefficient);
@@ -713,8 +1058,6 @@ private:
             * smoothingCoefficient_;
         smoothed_.intelligibility += (params_.intelligibility
             - smoothed_.intelligibility) * smoothingCoefficient_;
-        smoothed_.pvoc.amount += (params_.pvoc.amount - smoothed_.pvoc.amount)
-            * smoothingCoefficient_;
     }
 
     void updateToneCoefficient()
@@ -724,22 +1067,28 @@ private:
 
     void updateTapeEchoParams()
     {
+        tapeEcho_.setParams(tapeEchoParams(smoothed_));
+    }
+
+    static DrumEchoParams tapeEchoParams(
+        const AcapellaVocalFxParams& source)
+    {
         DrumEchoParams echo;
-        echo.headMode = smoothed_.echoHeads;
-        echo.clock = smoothed_.echoClock;
-        echo.timeMs = smoothed_.echoTimeMs;
-        echo.feedback = smoothed_.echoFeedback;
-        echo.wear = smoothed_.echoWear;
-        echo.flutter = smoothed_.echoFlutter;
+        echo.headMode = source.echoHeads;
+        echo.clock = source.echoClock;
+        echo.timeMs = source.echoTimeMs;
+        echo.feedback = source.echoFeedback;
+        echo.wear = source.echoWear;
+        echo.flutter = source.echoFlutter;
         echo.transient = 0.0f;
         echo.sensitivity = 0.0f;
         echo.duck = 0.0f;
-        echo.tone = smoothed_.echoTone;
-        echo.spread = smoothed_.echoSpread;
-        echo.mix = smoothed_.echoMix;
+        echo.tone = source.echoTone;
+        echo.spread = source.echoSpread;
+        echo.mix = source.echoMix;
         echo.outputGainDb = 0.0f;
         echo.bypass = false;
-        tapeEcho_.setParams(echo);
+        return echo;
     }
 
     float sampleRate_ = 48000.0f;
@@ -782,8 +1131,8 @@ private:
     float fuzzTone_ = 0.0f;
     float fuzzDcInput_ = 0.0f;
     float fuzzDcOutput_ = 0.0f;
-    AcapellaPvocField pvocField_ {};
-    float pvocOutputSide_ = 0.0f;
+    AcapellaResonatorBank resonatorBank_ {};
+    float resonatorOutputSide_ = 0.0f;
     float fastEnvelope_ = 0.0f;
     float fastGain_ = 1.0f;
     float slowEnvelope_ = 0.0f;
@@ -797,9 +1146,19 @@ private:
     float deEssGain_ = 1.0f;
     DrumEcho tapeEcho_ {};
     float stereoInputSide_ = 0.0f;
+    float externalCarrierLeft_ = 0.0f;
+    float externalCarrierRight_ = 0.0f;
+    bool separateCarrierInput_ = false;
+    bool externalCarrierAvailable_ = false;
+    float smoothedInternalSpeechGain_ = 1.0f;
+    float smoothedMicGain_ = 0.0f;
+    float smoothedMicInputGain_ = 1.0f;
+    float targetMicInputGain_ = 1.0f;
     float allpassInput_ = 0.0f;
     float allpassOutput_ = 0.0f;
     float limiterGain_ = 1.0f;
+    float previousOutputLeft_ = 0.0f;
+    float previousOutputRight_ = 0.0f;
     float activityEnvelope_ = 0.0f;
     uint32_t coefficientCounter_ = 0u;
 };

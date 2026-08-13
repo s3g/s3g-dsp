@@ -71,6 +71,11 @@ enum class AcapellaPhoneme : uint8_t {
 };
 
 constexpr uint32_t kAcapellaPhonemeCount = 36u;
+constexpr float kAcapellaEnvelopeSixtyDb = 6.90775527898f;
+constexpr float kAcapellaEnvelopeRetireLevel = 1.0e-5f;
+// ln(1e5) / ln(1e3): a -60 dB labelled release reaches the -100 dB
+// retirement threshold in five thirds of the displayed time.
+constexpr float kAcapellaEnvelopeTailScale = 5.0f / 3.0f;
 
 inline bool acapellaPhonemeIsVowel(AcapellaPhoneme phoneme)
 {
@@ -462,7 +467,7 @@ inline float envelopeCoefficient(float milliseconds, float sampleRate)
 {
     const float samples = std::max(1.0f, milliseconds * 0.001f * sampleRate);
     // Reach -60 dB of the remaining distance in the labelled envelope time.
-    return 1.0f - std::exp(-6.90775527898f / samples);
+    return 1.0f - std::exp(-kAcapellaEnvelopeSixtyDb / samples);
 }
 
 struct Random {
@@ -1234,6 +1239,18 @@ public:
     uint8_t activePhonemeStress() const { return activePhonemeStress_; }
     uint8_t activePhonemeFlags() const { return activePhonemeFlags_; }
     float currentFrequencyHz() const { return currentFrequencyHz_; }
+    float carrierGestureGain() const
+    {
+        return clamp(amplitudeEnvelope_ * velocityGain_ * gestureGain_,
+            0.0f, 1.25f);
+    }
+    // MIDI carrier level independent of the text/phoneme gesture gate. A
+    // classic microphone vocoder must keep a held carrier sounding through
+    // rests in the optional internal speech score.
+    float carrierNoteGain() const
+    {
+        return clamp(amplitudeEnvelope_ * velocityGain_, 0.0f, 1.25f);
+    }
 
     bool trigger(AcapellaSyllable syllable)
     {
@@ -1744,7 +1761,7 @@ public:
         }
         outputSample = clamp(outputSample, -0.98f, 0.98f);
         lastOutput_ = outputSample;
-        if (!gate_ && amplitudeEnvelope_ < 1.0e-5f) {
+        if (!gate_ && amplitudeEnvelope_ < kAcapellaEnvelopeRetireLevel) {
             active_ = false;
             amplitudeEnvelope_ = 0.0f;
             dcInput_ = 0.0f;

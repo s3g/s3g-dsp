@@ -98,16 +98,26 @@ describe the shared four-break stereo/16-channel sampler CLAP that pairs with
 Tracker through ordinary MIDI. Its stereo and fixed 16-channel variants share
 the same overview/editor and real-time engine.
 
-The [s3g Processor Articulator notes](docs/processor-articulator.md) describe
-the sample-free hybrid articulatory instrument, natural-text phoneme score,
-one-shot and held-loop phrase modes, procedural doubling/polyphony, and
-host-synchronized three-head tape echo.
+The [s3g Processor Formant Matrix notes](docs/formant-matrix.md) describe the
+22-band CLAP effect vocoder and resonant routing matrix, selectable external
+mic/internal speech modulators, four/eight-pole analysis, and a sample-free
+carrier driven either by polyphonic MIDI or monophonic scale-quantized voice
+pitch. It is advertised to hosts as a stereo audio effect/filter while
+retaining MIDI note input.
 
 The included [Processor Feedback Shift 0.18.1](https://s3g.github.io/s3g-dsp/processor-feedback-shift.html)
 is an eight-channel CLAP audio effect built around paired feedback scenes,
 high-density virtual patch splicing, ecology-responsive governors, per-node
 processor inserts, an in-network aux return, and post-network granulation. It
 ships in the 0.7 CLAP archive.
+
+[Processor Fissure](https://s3g.github.io/s3g-dsp/processor-fissure.html) is a
+physical compositional noise instrument and optional-input processor. One fixed
+eight-channel CLAP hosts its contact/shaker excitation, eight independently
+authored physical objects, metered mic-to-contact transfer, twelve complete
+factory instruments, a paintable signed 8-by-8 matrix, six topology grammars,
+full-instrument scene morphing, scoped performance gestures, MIDI strikes, and
+switchable Stereo, Quad, or 8 Direct projection.
 
 ## Related Projects
 
