@@ -47,7 +47,7 @@
         <ol>
           <li>Set the track to 16 channels, insert <code>s3g Ambi Encoder Membrane Kick 16</code>, and choose <code>1OA</code>, <code>2OA</code>, <code>3OA</code>, <code>16 PICKUPS</code>, or <code>STEREO DOWNMIX</code> from <code>FORMAT</code>.</li>
           <li>Follow an <code>ACN/SN3D</code> format with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Route <code>16 PICKUPS</code> as ordinary lanes instead. <code>STEREO DOWNMIX</code> is ready for an ordinary stereo path on channels 1–2.</li>
-          <li>Send MIDI notes, press <code>STRIKE</code>, or click the membrane display. Open the membrane <code>STRIKE</code> page to automate <code>X</code> and <code>Y</code>, or choose a randomized placement mode.</li>
+          <li>Send MIDI notes, press <code>STRIKE</code>, or click the membrane display. Leave <code>MIDI RECEIVE</code> on <code>OMNI</code>, or choose <code>CH 1</code> through <code>CH 16</code> when several instruments share a MIDI stream. Open the membrane <code>STRIKE</code> page to automate <code>X</code> and <code>Y</code>, or choose a randomized placement mode.</li>
           <li>Set <code>TUNE</code> for the settled low frequency, then balance <code>DROP</code>, <code>TIME</code>, and <code>PUNCH</code> for the attack trajectory.</li>
           <li>Choose a membrane <code>SHAPE</code> and raise <code>AMOUNT</code>. Shape changes the modal tuning and the distributed surface coordinates together.</li>
           <li>Use <code>SPREAD</code>, <code>DEPTH</code>, and <code>ROTATE</code> to place the complete membrane in the ambisonic field.</li>
@@ -79,13 +79,15 @@
 
         <h2 id="midi">MIDI Behavior</h2>
 
-        <p>Every note-on strikes the shared membrane; note-off is ignored because the body rings naturally. <code>TRACK</code> defaults to <code>100%</code>, so MIDI note 36 plays the frequency set by <code>TUNE</code> and every semitone transposes the complete membrane chromatically. Lower <code>TRACK</code> for partial tracking, or set it to <code>0%</code> when every key should play the same kick pitch.</p>
+        <p>Every accepted note-on strikes the shared membrane; note-off is ignored because the body rings naturally. <code>MIDI RECEIVE</code> defaults to <code>OMNI</code>. Choose <code>CH 1</code> through <code>CH 16</code> to accept only that channel from either CLAP note events or ordinary MIDI note-on messages. Editor strikes remain available regardless of this setting.</p>
+
+        <p><code>TRACK</code> defaults to <code>100%</code>, so MIDI note 36 plays the frequency set by <code>TUNE</code> and every semitone transposes the complete membrane chromatically. Lower <code>TRACK</code> for partial tracking, or set it to <code>0%</code> when every key should play the same kick pitch.</p>
 
         <p><code>VELOCITY</code> also defaults to <code>100%</code>. Note-on velocity scales the modal force, fundamental punch, and localized click together, so soft notes produce genuinely softer membrane motion rather than only turning down the output afterward. Lower <code>VELOCITY</code> to compress the performance dynamics. The instrument is one shared physical body rather than a polyphonic bank, so a new hit adds energy and restarts the global pitch trajectory.</p>
 
         <h2 id="presets">Factory Presets</h2>
 
-        <p>Click the title-band <code>PRESET</code> field to open the fourteen-voice factory bank. A factory choice changes the membrane voice and spatial radiation while preserving the current <code>FORMAT</code> and <code>OUT</code> trim. <code>RANDOM</code> chooses another factory voice; <code>LOAD</code> and <code>SAVE</code> continue to use complete user-state preset files.</p>
+        <p>Click the title-band <code>PRESET</code> field to open the fourteen-voice factory bank. A factory choice changes the membrane voice and spatial radiation while preserving the current <code>FORMAT</code>, <code>OUT</code> trim, and <code>MIDI RECEIVE</code> routing. <code>RANDOM</code> chooses another factory voice; <code>LOAD</code> and <code>SAVE</code> continue to use complete user-state preset files.</p>
 
         <table class="readout-table">
           <thead><tr><th>Preset</th><th>Character</th></tr></thead>
@@ -117,6 +119,7 @@
             <tr><td>Output / Strike</td><td>Format / Out / Strike</td><td>Selects an ambisonic order, sixteen direct pickups, or stereo downmix; sets linked output gain; and manually excites the body.</td></tr>
             <tr><td>Membrane: Body</td><td>Shape / Amount / Velocity</td><td>Changes boundary geometry, modal ratios, surface placement, and MIDI dynamics.</td></tr>
             <tr><td>Membrane: Strike</td><td>Mode / X / Y</td><td>Selects fixed, randomized-area, or randomized-rim placement and exposes the fixed coordinates to host automation.</td></tr>
+            <tr><td>Membrane: MIDI</td><td>MIDI Receive</td><td>Selects OMNI or one of MIDI channels 1–16 for incoming note-on events.</td></tr>
             <tr><td>Low Body</td><td>Tune / Decay / Damp / Drive / Track</td><td>Sets the settled bass pitch, ringing time, overtone loss, local saturation, and note tracking.</td></tr>
             <tr><td>Impact</td><td>Drop / Time / Punch / Click</td><td>Shapes the downward attack trajectory, fundamental force, and localized beater transient.</td></tr>
             <tr><td>Ambisonic Space</td><td>Spread / Depth / Rotate</td><td>Opens, curves, and rotates the sixteen-patch membrane field.</td></tr>

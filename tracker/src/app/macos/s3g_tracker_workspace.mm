@@ -424,6 +424,18 @@ std::size_t gridSequencePair(std::size_t field) noexcept
         s3g::tracker::kFxPairCount - 1u);
 }
 
+std::size_t gridPlaybackRow(const TrackerViewState* state,
+    std::size_t lane, std::size_t field) noexcept
+{
+    if (!state || lane >= s3g::tracker::kMaximumTrackCount) return 0u;
+    if (field == 0u) return state->notePlayheads[lane];
+    if (field == 1u) return state->velocityPlayheads[lane];
+    const auto pair = gridSequencePair(field);
+    return gridFieldIsSequenceAction(field)
+        ? state->fxActionPlayheads[lane][pair]
+        : state->fxValuePlayheads[lane][pair];
+}
+
 constexpr std::array<double, 7u> kTempoScales {
     0.25, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 4.0,
 };
@@ -483,6 +495,12 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             result.indices[result.count++] = lane;
     }
     return result;
+}
+
+bool viewCanPresentPlayback(NSView* view)
+{
+    return view && view.window && view.window.visible
+        && ![view isHiddenOrHasHiddenAncestor] && !view.window.miniaturized;
 }
 
 } // namespace
@@ -553,11 +571,16 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
 @interface S3GTrackerGridView : NSView <NSTextFieldDelegate> {
     s3g::tracker::app::GridSelection _gridSelection;
+    std::array<std::array<std::size_t, 6u>,
+        s3g::tracker::kMaximumTrackCount> _presentedPlayheads;
+    BOOL _playbackPresentationPrimed;
+    BOOL _presentedPlaying;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
 - (void)scrollSelectionToVisible;
 - (void)refreshAccessibilityValue;
+- (void)refreshPlaybackDisplay;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic, strong) NSTextField* cellEditor;
@@ -2306,9 +2329,49 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [super flagsChanged:event];
 }
 
+- (void)refreshPlaybackDisplay
+{
+    auto* model = self.trackerState;
+    if (!model || model->session.pattern.tracks.empty()) {
+        _playbackPresentationPrimed = NO;
+        _presentedPlaying = NO;
+        return;
+    }
+    const auto laneCount = std::min<std::size_t>(
+        s3g::tracker::kMaximumTrackCount,
+        model->session.pattern.tracks.size());
+    const auto rows = visibleRows(model);
+    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat fieldWidth = gridLaneFieldWidth(laneWidth);
+    const BOOL playing = model->playing;
+    for (std::size_t lane = 0u; lane < laneCount; ++lane) {
+        const CGFloat x = gridLaneFieldX(lane, laneWidth);
+        for (std::size_t field = 0u; field < gridFieldCount(0u); ++field) {
+            const auto previous = _presentedPlayheads[lane][field];
+            const auto current = gridPlaybackRow(model, lane, field);
+            if (!_playbackPresentationPrimed
+                || _presentedPlaying != playing || previous != current) {
+                const auto invalidateRow = [&](std::size_t row) {
+                    if (row >= rows) return;
+                    const NSRect cell = gridFieldRect(x,
+                        kGridHeaderHeight
+                            + static_cast<CGFloat>(row) * kGridRowHeight,
+                        fieldWidth, kGridRowHeight, 0u, field);
+                    [self setNeedsDisplayInRect:NSInsetRect(cell, -1.0, -1.0)];
+                };
+                if (_playbackPresentationPrimed && _presentedPlaying)
+                    invalidateRow(previous);
+                if (playing) invalidateRow(current);
+            }
+            _presentedPlayheads[lane][field] = current;
+        }
+    }
+    _playbackPresentationPrimed = YES;
+    _presentedPlaying = playing;
+}
+
 - (void)drawRect:(NSRect)dirtyRect
 {
-    (void)dirtyRect;
     auto* model = self.trackerState;
     fillRect(self.bounds, S3GTrackerThemeColor(
         S3GTrackerThemeRole::Workspace));
@@ -2341,6 +2404,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     for (std::size_t row = 0u; row < rows; ++row) {
         const CGFloat y = kGridHeaderHeight
             + static_cast<CGFloat>(row) * kGridRowHeight;
+        if (!NSIntersectsRect(dirtyRect, NSMakeRect(
+                0.0, y, NSWidth(self.bounds), kGridRowHeight))) continue;
         fillRect(NSMakeRect(0.0, y, NSWidth(self.bounds), kGridRowHeight),
             (row % 4u) == 0u
                 ? S3GTrackerThemeColor(S3GTrackerThemeRole::Raised)
@@ -2417,6 +2482,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         }};
         const CGFloat laneX = gridLaneX(lane, laneWidth);
         const CGFloat x = gridLaneFieldX(lane, laneWidth);
+        if (!NSIntersectsRect(dirtyRect, NSMakeRect(
+                laneX, 0.0, laneWidth, laneHeight))) continue;
         const auto identityColor = trackerColor(
             kLaneColors[lane % kLaneColors.size()],
             track.noteColumn.muted ? 0.35
@@ -2543,6 +2610,8 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         for (std::size_t row = 0u; row < rows; ++row) {
             const CGFloat y = kGridHeaderHeight
                 + static_cast<CGFloat>(row) * kGridRowHeight;
+            if (!NSIntersectsRect(dirtyRect, NSMakeRect(
+                    laneX, y, laneWidth, kGridRowHeight))) continue;
             const bool selected = lane == session.selectedTrack
                 && row == session.selectedRow;
             for (std::size_t field = 0u; field < fieldCount; ++field) {
@@ -2939,6 +3008,12 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
 @end
 
+@class S3GTrackerGeometryView;
+
+@interface S3GTrackerGeometryPlaybackOverlayView : NSView
+@property(nonatomic, weak) S3GTrackerGeometryView* geometryView;
+@end
+
 @interface S3GTrackerGeometryView : NSView {
     std::array<CGFloat, s3g::tracker::kMaximumTrackCount>
         _readHeadHaloStrength;
@@ -2952,10 +3027,14 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
 - (void)advancePlaybackAnimation;
+- (void)refreshPlaybackDisplay;
+- (void)drawPlaybackOverlay;
 - (NSInteger)prepareDocumentationPlaybackSnapshot;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
+@property(nonatomic, strong) S3GTrackerGeometryPlaybackOverlayView*
+    playbackOverlay;
 @end
 
 @implementation S3GTrackerGeometryView
@@ -2968,6 +3047,14 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.trackerState = state;
         self.owner = owner;
         self.geometryZoom = 1.0;
+        self.playbackOverlay = [[S3GTrackerGeometryPlaybackOverlayView alloc]
+            initWithFrame:self.bounds];
+        self.playbackOverlay.geometryView = self;
+        self.playbackOverlay.autoresizingMask = NSViewWidthSizable
+            | NSViewHeightSizable;
+        self.playbackOverlay.accessibilityHidden = YES;
+        self.playbackOverlay.wantsLayer = YES;
+        [self addSubview:self.playbackOverlay];
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
@@ -3001,6 +3088,12 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             _readHeadHaloStrength[lane] = 1.0;
         }
     }
+}
+
+- (void)refreshPlaybackDisplay
+{
+    [self advancePlaybackAnimation];
+    [self.playbackOverlay setNeedsDisplay:YES];
 }
 
 - (NSInteger)prepareDocumentationPlaybackSnapshot
@@ -3074,6 +3167,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         ++activeHits;
     }
     [self setNeedsDisplay:YES];
+    [self.playbackOverlay setNeedsDisplay:YES];
     return static_cast<NSInteger>(activeHits);
 }
 
@@ -3099,6 +3193,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 {
     self.geometryZoom = std::clamp(value, 0.65, 1.8);
     [self setNeedsDisplay:YES];
+    [self.playbackOverlay setNeedsDisplay:YES];
 }
 
 - (void)selectLane:(std::size_t)lane
@@ -3286,10 +3381,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         const CGFloat radius = spacing
             * static_cast<CGFloat>(ordinal + 2u);
         const bool selected = lane == model->session.selectedTrack;
-        const bool documentationHit = _documentationPlaybackSnapshot
-            && _documentationHitLanes[lane];
-        const bool currentHit = documentationHit
-            || (model->playing && model->noteHits[lane]);
         const CGFloat alpha = selected ? 1.0 : 0.76;
         NSColor* laneColor = trackerColor(
             kGeometryLaneColors[lane % kGeometryLaneColors.size()], alpha);
@@ -3319,26 +3410,6 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             [polygon stroke];
         }
 
-        // The polygon shows authored pulse structure without vertex dots. A
-        // compact solid yellow point exists only when this NOTE position
-        // emitted an onset.
-        const CGFloat haloStrength = currentHit
-            ? 1.0 : _readHeadHaloStrength[lane];
-        if (haloStrength > 0.0) {
-            const auto position = (documentationHit
-                    ? _readHeadHaloRows[lane]
-                    : currentHit ? model->noteHitRows[lane]
-                                 : _readHeadHaloRows[lane]) % length;
-            const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
-                + static_cast<CGFloat>(position) * 2.0
-                    * static_cast<CGFloat>(M_PI)
-                    / static_cast<CGFloat>(length);
-            const NSPoint point = NSMakePoint(
-                cx + std::cos(angle) * radius,
-                cy + std::sin(angle) * radius);
-            drawGeometryReadHead(point, haloStrength * alpha,
-                currentHit, selected);
-        }
         const CGFloat legendY = 32.0
             + static_cast<CGFloat>(ordinal) * 18.0;
         drawText(nsString(track.name), NSMakeRect(NSWidth(self.bounds) - 108.0,
@@ -3357,6 +3428,67 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
             NSMakeRect(NSWidth(self.bounds) - 42.0, legendY, 36.0, 14.0),
             laneColor, 7.5, NSFontWeightRegular, NSTextAlignmentRight);
     }
+}
+
+- (void)drawPlaybackOverlay
+{
+    auto* model = self.trackerState;
+    if (!model || model->session.pattern.tracks.empty()) return;
+    const auto visible = visibleGeometryLanes(model);
+    if (visible.count == 0u) return;
+    const CGFloat cx = std::min(NSWidth(self.bounds) * 0.39,
+        NSHeight(self.bounds) * 0.5);
+    const CGFloat cy = NSHeight(self.bounds) * 0.55;
+    const CGFloat maximum = std::max<CGFloat>(30.0,
+        std::min(cx - 8.0, NSHeight(self.bounds) * 0.42))
+        * self.geometryZoom;
+    const CGFloat spacing = maximum
+        / static_cast<CGFloat>(visible.count + 1u);
+    for (std::size_t ordinal = visible.count; ordinal-- > 0u;) {
+        const auto lane = visible.indices[ordinal];
+        const auto& track = model->session.pattern.tracks[lane];
+        const auto length = std::clamp<std::size_t>(
+            track.noteColumn.length, 1u, 256u);
+        const CGFloat radius = spacing
+            * static_cast<CGFloat>(ordinal + 2u);
+        const bool selected = lane == model->session.selectedTrack;
+        const bool documentationHit = _documentationPlaybackSnapshot
+            && _documentationHitLanes[lane];
+        const bool currentHit = documentationHit
+            || (model->playing && model->noteHits[lane]);
+        const CGFloat haloStrength = currentHit
+            ? 1.0 : _readHeadHaloStrength[lane];
+        if (haloStrength <= 0.0) continue;
+        const auto position = (documentationHit
+                ? _readHeadHaloRows[lane]
+                : currentHit ? model->noteHitRows[lane]
+                             : _readHeadHaloRows[lane]) % length;
+        const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+            + static_cast<CGFloat>(position) * 2.0
+                * static_cast<CGFloat>(M_PI)
+                / static_cast<CGFloat>(length);
+        const NSPoint point = NSMakePoint(
+            cx + std::cos(angle) * radius,
+            cy + std::sin(angle) * radius);
+        const CGFloat alpha = selected ? 1.0 : 0.76;
+        drawGeometryReadHead(point, haloStrength * alpha,
+            currentHit, selected);
+    }
+}
+
+@end
+
+@implementation S3GTrackerGeometryPlaybackOverlayView
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return NO; }
+- (NSView*)hitTest:(NSPoint)point { (void)point; return nil; }
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
+        NSRectToCGRect(dirtyRect));
+    [self.geometryView drawPlaybackOverlay];
 }
 
 @end
@@ -3408,11 +3540,21 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 
 @end
 
+@class S3GTrackerEnvelopeView;
+
+@interface S3GTrackerEnvelopePlaybackOverlayView : NSView
+@property(nonatomic, weak) S3GTrackerEnvelopeView* envelopeView;
+@end
+
 @interface S3GTrackerEnvelopeView : NSView
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
+- (void)refreshPlaybackDisplay;
+- (void)drawPlaybackOverlay;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
+@property(nonatomic, strong) S3GTrackerEnvelopePlaybackOverlayView*
+    playbackOverlay;
 @property(nonatomic) NSInteger lastPaintedRow;
 @property(nonatomic) BOOL paintingEnvelope;
 @end
@@ -3427,6 +3569,14 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         self.trackerState = state;
         self.owner = owner;
         self.lastPaintedRow = -1;
+        self.playbackOverlay = [[S3GTrackerEnvelopePlaybackOverlayView alloc]
+            initWithFrame:self.bounds];
+        self.playbackOverlay.envelopeView = self;
+        self.playbackOverlay.autoresizingMask = NSViewWidthSizable
+            | NSViewHeightSizable;
+        self.playbackOverlay.accessibilityHidden = YES;
+        self.playbackOverlay.wantsLayer = YES;
+        [self addSubview:self.playbackOverlay];
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Volume envelope";
@@ -3517,6 +3667,11 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 }
 
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)refreshPlaybackDisplay
+{
+    [self.playbackOverlay setNeedsDisplay:YES];
+}
 
 - (void)drawRect:(NSRect)dirtyRect
 {
@@ -3611,17 +3766,54 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         [pointColor setFill];
         [point fill];
     }
-    const auto playhead = (!sequenceValue ? model->velocityPlayheads[lane]
-        : model->fxValuePlayheads[lane][pairIndex]) % rows;
-    if (model->playing) {
-        const CGFloat x = left + (static_cast<CGFloat>(playhead) + 0.5)
-            * width / static_cast<CGFloat>(rows);
-        fillRect(NSMakeRect(x - 1.0, top, 2.0, height),
-            trackerColor(0xb8b8b8, 0.7));
-    }
     drawText(@"BRIGHT CYAN: NOTE HIT   DARK GRAY: NO NOTE   CLICK/DRAG: PAINT   OPTION: PREVIOUS",
         NSMakeRect(left, NSHeight(self.bounds) - 17.0, width, 12.0),
         trackerColor(0x737a80), 7.0);
+}
+
+- (void)drawPlaybackOverlay
+{
+    auto* model = self.trackerState;
+    if (!model || !model->playing
+        || model->session.pattern.tracks.empty()) return;
+    const auto lane = std::min(model->session.selectedTrack,
+        model->session.pattern.tracks.size() - 1u);
+    const auto& track = model->session.pattern.tracks[lane];
+    const auto field = std::min<std::size_t>(
+        model->session.selectedField, 5u);
+    const bool sequenceValue = gridFieldIsSequence(field)
+        && !gridFieldIsSequenceAction(field);
+    const auto pairIndex = sequenceValue ? gridSequencePair(field) : 0u;
+    const auto rows = std::max<std::size_t>(16u,
+        std::min<std::size_t>(256u, !sequenceValue
+                ? track.velocityColumn.length
+                : track.fxPairs[pairIndex].valueColumn.length));
+    const CGFloat left = 30.0, right = 10.0, top = 34.0, bottom = 22.0;
+    const CGFloat width = std::max<CGFloat>(1.0,
+        NSWidth(self.bounds) - left - right);
+    const CGFloat height = std::max<CGFloat>(1.0,
+        NSHeight(self.bounds) - top - bottom);
+    const auto playhead = (!sequenceValue ? model->velocityPlayheads[lane]
+        : model->fxValuePlayheads[lane][pairIndex]) % rows;
+    const CGFloat x = left + (static_cast<CGFloat>(playhead) + 0.5)
+        * width / static_cast<CGFloat>(rows);
+    fillRect(NSMakeRect(x - 1.0, top, 2.0, height),
+        trackerColor(0xb8b8b8, 0.7));
+}
+
+@end
+
+@implementation S3GTrackerEnvelopePlaybackOverlayView
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return NO; }
+- (NSView*)hitTest:(NSPoint)point { (void)point; return nil; }
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
+        NSRectToCGRect(dirtyRect));
+    [self.envelopeView drawPlaybackOverlay];
 }
 
 @end
@@ -4176,8 +4368,10 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.gridView refreshAccessibilityValue];
     [self applyWorkspaceMode];
     [self.geometryView setNeedsDisplay:YES];
+    [self.geometryView.playbackOverlay setNeedsDisplay:YES];
     [self.warpWindowController reloadModel];
     [self.envelopeView setNeedsDisplay:YES];
+    [self.envelopeView.playbackOverlay setNeedsDisplay:YES];
     [self.view setNeedsLayout:YES];
     [self.gridView scrollSelectionToVisible];
 }
@@ -4185,30 +4379,33 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
 - (void)refreshPlaybackDisplay
 {
     if (!self.isViewLoaded || !self.trackerState) return;
-    self.playButton.state = self.trackerState->playing
-        ? NSControlStateValueOn : NSControlStateValueOff;
-    [self.playButton setNeedsDisplay:YES];
-    self.loopButton.state = self.trackerState->session.transport.loopEnabled
-        ? NSControlStateValueOn : NSControlStateValueOff;
-    [self.loopButton setNeedsDisplay:YES];
-    self.routeStatus.stringValue = [NSString stringWithFormat:
-        @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
-        nsString(self.trackerState->midiRoute),
-        static_cast<unsigned long>(
-            self.trackerState->session.transport.timingWarp.size()),
-        self.trackerState->session.transport.warpCycleTicks,
-        nsString(self.trackerState->status)];
-    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
-        nsString(self.trackerState->lastEvent),
-        self.trackerState->sentEventCount,
-        self.trackerState->droppedEventCount,
-        self.trackerState->audioLateEventCount,
-        self.trackerState->audioClockFaultCount];
-    [self refreshStatusMetadata];
-    [self.gridView setNeedsDisplay:YES];
-    [self.geometryView advancePlaybackAnimation];
-    [self.geometryView setNeedsDisplay:YES];
-    [self.envelopeView setNeedsDisplay:YES];
+    if (viewCanPresentPlayback(self.view)) {
+        self.playButton.state = self.trackerState->playing
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        [self.playButton setNeedsDisplay:YES];
+        self.loopButton.state
+            = self.trackerState->session.transport.loopEnabled
+                ? NSControlStateValueOn : NSControlStateValueOff;
+        [self.loopButton setNeedsDisplay:YES];
+        self.routeStatus.stringValue = [NSString stringWithFormat:
+            @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
+            nsString(self.trackerState->midiRoute),
+            static_cast<unsigned long>(
+                self.trackerState->session.transport.timingWarp.size()),
+            self.trackerState->session.transport.warpCycleTicks,
+            nsString(self.trackerState->status)];
+        self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
+            nsString(self.trackerState->lastEvent),
+            self.trackerState->sentEventCount,
+            self.trackerState->droppedEventCount,
+            self.trackerState->audioLateEventCount,
+            self.trackerState->audioClockFaultCount];
+        [self refreshStatusMetadata];
+        [self.gridView refreshPlaybackDisplay];
+        [self.envelopeView refreshPlaybackDisplay];
+    }
+    if (viewCanPresentPlayback(self.geometryView))
+        [self.geometryView refreshPlaybackDisplay];
 }
 
 - (void)setMidiDestinations:
@@ -4276,6 +4473,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     }
     [self.geometryWindowController showWindow:sender];
     [self.geometryView setNeedsDisplay:YES];
+    [self.geometryView.playbackOverlay setNeedsDisplay:YES];
 }
 
 - (void)showWarpWindow:(id)sender
@@ -4359,7 +4557,9 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     [self.gridView refreshAccessibilityValue];
     [self.gridView setNeedsDisplay:YES];
     [self.geometryView setNeedsDisplay:YES];
+    [self.geometryView.playbackOverlay setNeedsDisplay:YES];
     [self.envelopeView setNeedsDisplay:YES];
+    [self.envelopeView.playbackOverlay setNeedsDisplay:YES];
     [self.gridView scrollSelectionToVisible];
 }
 

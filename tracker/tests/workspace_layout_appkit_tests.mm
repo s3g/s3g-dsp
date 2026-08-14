@@ -165,6 +165,33 @@ int main()
                 && consoleOutput != geometryPage
                 && geometryPage != warpPage,
             "console, geometry, and warp modules should expose distinct pages");
+        NSView* envelopePlaybackOverlay = [envelope
+            valueForKey:@"playbackOverlay"];
+        NSView* geometryPlaybackOverlay = [geometryPage
+            valueForKey:@"playbackOverlay"];
+        check(envelopePlaybackOverlay.wantsLayer
+                && geometryPlaybackOverlay.wantsLayer,
+            "animated envelope and geometry marks should use isolated overlays");
+        [window displayIfNeeded];
+        grid.documentView.needsDisplay = NO;
+        envelope.needsDisplay = NO;
+        envelopePlaybackOverlay.needsDisplay = NO;
+        geometryPlaybackOverlay.needsDisplay = NO;
+        const double hiddenGeometryAnimationTime = [[geometryPage
+            valueForKey:@"lastReadHeadAnimationTime"] doubleValue];
+        state.playing = true;
+        state.notePlayheads[0u] = 3u;
+        state.velocityPlayheads[0u] = 4u;
+        [controller refreshPlaybackDisplay];
+        check([[grid.documentView
+                    valueForKey:@"playbackPresentationPrimed"] boolValue],
+            "visible tracker playback should advance its incremental grid presentation state");
+        check(near([[geometryPage valueForKey:
+                    @"lastReadHeadAnimationTime"] doubleValue],
+                hiddenGeometryAnimationTime),
+            "hidden geometry should not advance its playback animation");
+        state.playing = false;
+        [controller refreshPlaybackDisplay];
         check([columnSummary.stringValue containsString:@"SEQ2"]
                 && ![columnSummary.stringValue containsString:@"BUS"],
             "tracker should expose one unified sequencing grid without INS/BUS cells");

@@ -30,6 +30,7 @@ constexpr clap_id kVelocityParamId = 17u;
 constexpr clap_id kNoteTrackingParamId = 18u;
 constexpr clap_id kTriggerParamId = 20u;
 constexpr clap_id kStrikeModeParamId = 21u;
+constexpr clap_id kMidiReceiveParamId = 22u;
 
 struct HostContext {
     clap_host_t host {};
@@ -79,8 +80,10 @@ struct EventList {
     };
     std::array<clap_event_param_value_t, 8u> params {};
     std::array<clap_event_note_t, 4u> notes {};
+    std::array<clap_event_midi_t, 4u> midis {};
     uint32_t paramCount = 0u;
     uint32_t noteCount = 0u;
+    uint32_t midiCount = 0u;
 
     void addParam(clap_id id, double value, uint32_t time = 0u)
     {
@@ -99,7 +102,8 @@ struct EventList {
         events.push_back(&event.header);
     }
 
-    void addNote(int16_t key, double velocity, uint32_t time)
+    void addNote(int16_t key, double velocity, uint32_t time,
+        int16_t channel = 0)
     {
         auto& event = notes[noteCount++];
         event.header.size = sizeof(event);
@@ -109,9 +113,25 @@ struct EventList {
         event.header.flags = CLAP_EVENT_IS_LIVE;
         event.note_id = key;
         event.port_index = 0;
-        event.channel = 0;
+        event.channel = channel;
         event.key = key;
         event.velocity = velocity;
+        events.push_back(&event.header);
+    }
+
+    void addMidi(uint8_t key, uint8_t velocity, uint8_t channel,
+        uint32_t time = 0u)
+    {
+        auto& event = midis[midiCount++];
+        event.header.size = sizeof(event);
+        event.header.time = time;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.port_index = 0u;
+        event.data[0u] = static_cast<uint8_t>(0x90u | (channel & 0x0fu));
+        event.data[1u] = key;
+        event.data[2u] = velocity;
         events.push_back(&event.header);
     }
 };
@@ -192,6 +212,15 @@ clap_process_status runBlock(const clap_plugin_t* plugin,
     process.audio_outputs_count = 1u;
     process.in_events = events;
     return plugin->process(plugin, &process);
+}
+
+double blockMagnitude(const AudioBlock& audio)
+{
+    double magnitude = 0.0;
+    for (const auto& channel : audio.storage) {
+        for (const float value : channel) magnitude += std::fabs(value);
+    }
+    return magnitude;
 }
 
 bool getParam(const clap_plugin_t* plugin,
@@ -347,15 +376,17 @@ int main(int argc, char** argv)
         && std::strcmp(audioInfo.port_type, CLAP_PORT_SURROUND) == 0
         && notePorts->count(plugin, true) == 1u
         && notePorts->get(plugin, 0u, true, &noteInfo)
-        && params->count(plugin) == 21u
+        && params->count(plugin) == 22u
         && getParam(plugin, params, kTuneParamId, 43.0)
         && getParam(plugin, params, kShapeParamId, 0.0)
         && getParam(plugin, params, kVelocityParamId, 1.0)
         && getParam(plugin, params, kNoteTrackingParamId, 1.0)
         && getParam(plugin, params, kStrikeModeParamId, 0.0)
+        && getParam(plugin, params, kMidiReceiveParamId, 0.0)
         && hasAutomatableParam(plugin, params, kStrikeXParamId, false)
         && hasAutomatableParam(plugin, params, kStrikeYParamId, false)
-        && hasAutomatableParam(plugin, params, kStrikeModeParamId, true);
+        && hasAutomatableParam(plugin, params, kStrikeModeParamId, true)
+        && hasAutomatableParam(plugin, params, kMidiReceiveParamId, true);
     char shapeText[32] {};
     ok = ok && params->value_to_text(plugin, kShapeParamId, 3.0,
         shapeText, sizeof(shapeText))
@@ -376,6 +407,17 @@ int main(int argc, char** argv)
         && params->text_to_value(plugin, kOrderParamId,
             "STEREO DOWNMIX", &stereoValue)
         && stereoValue == 5.0;
+    char midiReceiveText[32] {};
+    double midiReceiveValue = -1.0;
+    ok = ok && params->value_to_text(plugin, kMidiReceiveParamId, 0.0,
+        midiReceiveText, sizeof(midiReceiveText))
+        && std::strcmp(midiReceiveText, "OMNI") == 0
+        && params->value_to_text(plugin, kMidiReceiveParamId, 16.0,
+            midiReceiveText, sizeof(midiReceiveText))
+        && std::strcmp(midiReceiveText, "CH 16") == 0
+        && params->text_to_value(plugin, kMidiReceiveParamId,
+            "CH 16", &midiReceiveValue)
+        && midiReceiveValue == 16.0;
     if (!ok || !plugin->activate(plugin, 48000.0, 1u, kFrames)
         || !plugin->start_processing(plugin)) {
         std::cerr << "membrane kick CLAP contract failed\n";
@@ -405,6 +447,42 @@ int main(int argc, char** argv)
         }
     }
     ok = ok && silence == 0.0 && before == 0.0 && after > 0.01;
+
+    // MIDI Receive is 1-based in the UI: value 2 accepts only channel index 1.
+    plugin->reset(plugin);
+    EventList routeChannelTwo;
+    routeChannelTwo.addParam(kMidiReceiveParamId, 2.0);
+    params->flush(plugin, &routeChannelTwo.input, nullptr);
+    EventList rejectedClapNote;
+    rejectedClapNote.addNote(36, 1.0, 0u, 0);
+    audio.clear();
+    runBlock(plugin, audio, &rejectedClapNote.input);
+    const double rejectedClapMagnitude = blockMagnitude(audio);
+    plugin->reset(plugin);
+    EventList acceptedClapNote;
+    acceptedClapNote.addNote(36, 1.0, 0u, 1);
+    audio.clear();
+    runBlock(plugin, audio, &acceptedClapNote.input);
+    const double acceptedClapMagnitude = blockMagnitude(audio);
+    plugin->reset(plugin);
+    EventList rejectedMidiNote;
+    rejectedMidiNote.addMidi(36u, 127u, 0u);
+    audio.clear();
+    runBlock(plugin, audio, &rejectedMidiNote.input);
+    const double rejectedMidiMagnitude = blockMagnitude(audio);
+    plugin->reset(plugin);
+    EventList acceptedMidiNote;
+    acceptedMidiNote.addMidi(36u, 127u, 1u);
+    audio.clear();
+    runBlock(plugin, audio, &acceptedMidiNote.input);
+    const double acceptedMidiMagnitude = blockMagnitude(audio);
+    ok = ok && rejectedClapMagnitude == 0.0
+        && acceptedClapMagnitude > 0.01
+        && rejectedMidiMagnitude == 0.0
+        && acceptedMidiMagnitude > 0.01;
+    EventList restoreOmni;
+    restoreOmni.addParam(kMidiReceiveParamId, 0.0);
+    params->flush(plugin, &restoreOmni.input, nullptr);
 
     plugin->reset(plugin);
     EventList directSelect;
@@ -502,6 +580,7 @@ int main(int argc, char** argv)
 
     EventList saveStereoFormat;
     saveStereoFormat.addParam(kOrderParamId, 5.0);
+    saveStereoFormat.addParam(kMidiReceiveParamId, 7.0);
     params->flush(plugin, &saveStereoFormat.input, nullptr);
     MemoryState memory;
     clap_ostream_t ostream { &memory, stateWrite };
@@ -511,6 +590,7 @@ int main(int argc, char** argv)
     change.addParam(kTuneParamId, 70.0);
     change.addParam(kDecayParamId, 2.5);
     change.addParam(kStrikeModeParamId, 2.0);
+    change.addParam(kMidiReceiveParamId, 0.0);
     params->flush(plugin, &change.input, nullptr);
     ok = ok && getParam(plugin, params, kTuneParamId, 70.0)
         && getParam(plugin, params, kStrikeModeParamId, 2.0)
@@ -521,7 +601,27 @@ int main(int argc, char** argv)
         && getParam(plugin, params, kOrderParamId, 5.0)
         && getParam(plugin, params, kTuneParamId, 43.0)
         && getParam(plugin, params, kStrikeModeParamId, 0.0)
+        && getParam(plugin, params, kMidiReceiveParamId, 7.0)
         && tail->get(plugin) > 48000u;
+
+    struct PreviousState {
+        uint32_t version = 2u;
+        uint32_t reserved = 0u;
+        std::array<double, 20u> values {};
+    } previousState;
+    for (clap_id id = 1u; id <= 19u; ++id) {
+        params->get_value(plugin, id, &previousState.values[id - 1u]);
+    }
+    params->get_value(plugin, kStrikeModeParamId,
+        &previousState.values.back());
+    PreviousState previousStateCopy = previousState;
+    MemoryState previousMemory;
+    previousMemory.bytes.resize(sizeof(previousStateCopy));
+    std::memcpy(previousMemory.bytes.data(), &previousStateCopy,
+        sizeof(previousStateCopy));
+    clap_istream_t previousStream { &previousMemory, stateRead };
+    ok = ok && state->load(plugin, &previousStream)
+        && getParam(plugin, params, kMidiReceiveParamId, 0.0);
 
     struct LegacyState {
         uint32_t version = 1u;
@@ -540,7 +640,8 @@ int main(int argc, char** argv)
     clap_istream_t legacyStream { &legacyMemory, stateRead };
     ok = ok && state->load(plugin, &legacyStream)
         && getParam(plugin, params, kTuneParamId, 55.0)
-        && getParam(plugin, params, kStrikeModeParamId, 0.0);
+        && getParam(plugin, params, kStrikeModeParamId, 0.0)
+        && getParam(plugin, params, kMidiReceiveParamId, 0.0);
 
     EventList triggerOn;
     triggerOn.addParam(kTriggerParamId, 1.0);

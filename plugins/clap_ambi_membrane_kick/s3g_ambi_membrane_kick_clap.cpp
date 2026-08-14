@@ -2,6 +2,7 @@
 #include "s3g_ambi_membrane_kick_presets.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_drum_midi_receive.h"
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -29,7 +30,8 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kPreviousStateVersion = 2u;
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kOutputChannels = s3g::kAmbiMembraneKickChannels;
 constexpr uint32_t kGuiWidth = 920u;
@@ -56,7 +58,9 @@ constexpr clap_id kNoteTrackingParamId = 18u;
 constexpr clap_id kOutputParamId = 19u;
 constexpr clap_id kTriggerParamId = 20u;
 constexpr clap_id kStrikeModeParamId = 21u;
-constexpr uint32_t kParamCount = 21u;
+constexpr clap_id kMidiReceiveParamId = 22u;
+constexpr uint32_t kParamCount = 22u;
+constexpr uint32_t kSavedParamCount = kParamCount - 1u;
 
 struct ParamDef {
     clap_id id;
@@ -89,6 +93,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kNoteTrackingParamId, "Note Tracking", "MIDI", 0.0, 1.0, 1.0, false },
     { kOutputParamId, "Output Gain", "Output", -60.0, 6.0, -8.0, false },
     { kStrikeModeParamId, "Strike Placement", "Membrane / Strike", 0.0, 2.0, 0.0, true },
+    { kMidiReceiveParamId, "MIDI Receive", "MIDI / Routing", 0.0, 16.0, 0.0, true },
     { kTriggerParamId, "Trigger", "Performance", 0.0, 1.0, 0.0, true },
 }};
 
@@ -99,7 +104,11 @@ struct SavedStateHeader {
 
 struct SavedState {
     SavedStateHeader header {};
-    std::array<double, kParamCount - 1u> values {};
+    std::array<double, kSavedParamCount> values {};
+};
+
+struct PreviousSavedStateValues {
+    std::array<double, 20u> values {};
 };
 
 struct LegacySavedStateValues {
@@ -113,6 +122,7 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::AmbiMembraneKickParams params {};
     s3g::AmbiMembraneKick kick;
+    double midiReceive = 0.0;
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<uint32_t> pendingTriggers { 0u };
@@ -152,14 +162,14 @@ double rawParamValue(const Plugin& p, clap_id id);
 
 void publishParam(Plugin& p, clap_id id, double value)
 {
-    if (id < kOrderParamId || id > kStrikeModeParamId) return;
+    if (id < kOrderParamId || id > kMidiReceiveParamId) return;
     p.publishedParams[id - kOrderParamId].store(
         value, std::memory_order_release);
 }
 
 double paramValue(const Plugin& p, clap_id id)
 {
-    if (id < kOrderParamId || id > kStrikeModeParamId) return 0.0;
+    if (id < kOrderParamId || id > kMidiReceiveParamId) return 0.0;
     return p.publishedParams[id - kOrderParamId].load(
         std::memory_order_acquire);
 }
@@ -192,6 +202,11 @@ void applyParam(Plugin& p, clap_id id, double value,
     const auto* def = paramDef(id);
     if (!def) return;
     value = clampValue(*def, value);
+    if (id == kMidiReceiveParamId) {
+        p.midiReceive = value;
+        publishParam(p, id, value);
+        return;
+    }
     if (id == kTriggerParamId) {
         const bool gate = value >= 0.5;
         if (gate && !p.triggerGate) {
@@ -281,6 +296,7 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kOutputParamId: return p.params.outputGainDb;
     case kStrikeModeParamId:
         return static_cast<uint32_t>(p.params.strikeMode);
+    case kMidiReceiveParamId: return p.midiReceive;
     case kTriggerParamId: return p.triggerGate ? 1.0 : 0.0;
     default: return 0.0;
     }
@@ -297,13 +313,16 @@ void applyEvent(Plugin& p, const clap_event_header_t* event)
     } else if (event->type == CLAP_EVENT_NOTE_ON
         && event->size >= sizeof(clap_event_note_t)) {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
-        if (note->velocity > 0.0) {
+        if (note->velocity > 0.0
+            && s3g::drum_midi::accepts(p.midiReceive, note->channel)) {
             triggerKick(p, static_cast<float>(note->velocity), note->key);
         }
     } else if (event->type == CLAP_EVENT_MIDI
         && event->size >= sizeof(clap_event_midi_t)) {
         const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
-        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u) {
+        if ((midi->data[0] & 0xf0u) == 0x90u && midi->data[2] > 0u
+            && s3g::drum_midi::accepts(
+                p.midiReceive, midi->data[0] & 0x0fu)) {
             triggerKick(p, static_cast<float>(midi->data[2]) / 127.0f,
                 midi->data[1]);
         }
@@ -628,6 +647,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (id == kStrikeXParamId || id == kStrikeYParamId) {
         std::snprintf(display, size, "%+.2f", value);
+    } else if (id == kMidiReceiveParamId) {
+        s3g::drum_midi::valueToText(value, display, size);
     } else if (id == kTriggerParamId) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "Strike" : "Ready");
     } else {
@@ -641,6 +662,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 {
     const auto* def = paramDef(id);
     if (!display || !value || !def) return false;
+    if (id == kMidiReceiveParamId) {
+        return s3g::drum_midi::textToValue(display, value);
+    }
     if (id == kOrderParamId
         && (std::strstr(display, "stereo")
             || std::strstr(display, "Stereo")
@@ -752,12 +776,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     if (header.version == kStateVersion) {
-        std::array<double, kParamCount - 1u> values {};
+        std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(
                 stream, values.data(), sizeof(values))) return false;
         for (uint32_t index = 0u; index < values.size(); ++index) {
             applyParam(*p, kParamDefs[index].id, values[index]);
         }
+    } else if (header.version == kPreviousStateVersion) {
+        PreviousSavedStateValues previous {};
+        if (!s3g::clap_state::readAll(
+                stream, &previous, sizeof(previous))) return false;
+        for (uint32_t index = 0u; index < previous.values.size(); ++index) {
+            applyParam(*p, kParamDefs[index].id, previous.values[index]);
+        }
+        applyParam(*p, kMidiReceiveParamId, 0.0);
     } else if (header.version == kLegacyStateVersion) {
         LegacySavedStateValues legacy {};
         if (!s3g::clap_state::readAll(
@@ -766,6 +798,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             applyParam(*p, kParamDefs[index].id, legacy.values[index]);
         }
         applyParam(*p, kStrikeModeParamId, 0.0);
+        applyParam(*p, kMidiReceiveParamId, 0.0);
     } else {
         return false;
     }
@@ -802,7 +835,7 @@ struct MembraneUiRow {
 
 constexpr CGFloat kUiPanelX = 580.0;
 constexpr CGFloat kUiPanelWidth = 324.0;
-constexpr std::array<MembraneUiRow, 20u> kUiRows {{
+constexpr std::array<MembraneUiRow, 21u> kUiRows {{
     { kOrderParamId, "FORMAT", 80.0, -1 },
     { kOutputParamId, "OUT", 104.0, -1 },
     { kShapeParamId, "SHAPE", 184.0, 0 },
@@ -811,6 +844,7 @@ constexpr std::array<MembraneUiRow, 20u> kUiRows {{
     { kStrikeModeParamId, "MODE", 184.0, 1 },
     { kStrikeXParamId, "X", 208.0, 1 },
     { kStrikeYParamId, "Y", 232.0, 1 },
+    { kMidiReceiveParamId, "MIDI RECEIVE", 256.0, -1 },
     { kTuneParamId, "TUNE", 314.0, -1 },
     { kDecayParamId, "DECAY", 338.0, -1 },
     { kDampingParamId, "DAMP", 362.0, -1 },
@@ -833,7 +867,7 @@ bool uiRowVisible(const MembraneUiRow& row, int membranePage)
 bool isUiMenuParam(clap_id id)
 {
     return id == kOrderParamId || id == kShapeParamId
-        || id == kStrikeModeParamId;
+        || id == kStrikeModeParamId || id == kMidiReceiveParamId;
 }
 
 NSRect membranePageButtonRect(uint32_t index)
@@ -1082,6 +1116,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
     if (_openMenu == kOrderParamId) y = 80.0;
     else if (_openMenu == kShapeParamId
         || _openMenu == kStrikeModeParamId) y = 184.0;
+    else if (_openMenu == kMidiReceiveParamId) y = 256.0;
     else return NSZeroRect;
     const NSRect anchor = NSMakeRect(
         s3g::gui_layout::processorControlX(kUiPanelX), y - 1.0,
@@ -1094,7 +1129,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
     style:(const s3g::clap_gui::Style&)style
 {
     if (_openMenu == CLAP_INVALID_ID || _menuItemCount == 0u) return;
-    NSString* items[s3g::kAmbiMembraneKickFactoryPresetCount] {};
+    NSString* items[17u] {};
     if (_openMenu == kFactoryPresetMenuId) {
         for (uint32_t index = 0u;
              index < s3g::kAmbiMembraneKickFactoryPresetCount; ++index) {
@@ -1117,6 +1152,11 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         items[0u] = @"FIXED";
         items[1u] = @"RANDOM AREA";
         items[2u] = @"RANDOM RIM";
+    } else if (_openMenu == kMidiReceiveParamId) {
+        items[0u] = @"OMNI";
+        for (uint32_t channel = 1u; channel <= 16u; ++channel) {
+            items[channel] = [NSString stringWithFormat:@"CH %u", channel];
+        }
     }
     const int selected = _openMenu == kFactoryPresetMenuId
         ? _factoryPresetIndex
@@ -1328,7 +1368,10 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
                 const double value = hit
                     + (menuParam == kOrderParamId ? 1.0 : 0.0);
                 queueGuiParamGesture(*p, menuParam, value);
-                if (menuParam != kOrderParamId) [self markCustomPreset];
+                if (menuParam != kOrderParamId
+                    && menuParam != kMidiReceiveParamId) {
+                    [self markCustomPreset];
+                }
             }
         }
         _openMenu = CLAP_INVALID_ID;
@@ -1426,8 +1469,9 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         if (isUiMenuParam(row.id)) {
             _openMenu = row.id;
             _hoverMenuItem = -1;
-            _menuItemCount = row.id == kShapeParamId ? 5u
-                : (row.id == kOrderParamId ? 5u : 3u);
+            _menuItemCount = row.id == kMidiReceiveParamId ? 17u
+                : (row.id == kShapeParamId ? 5u
+                    : (row.id == kOrderParamId ? 5u : 3u));
             [self setNeedsDisplay:YES];
             return;
         }
