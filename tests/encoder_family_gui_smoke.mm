@@ -35,11 +35,15 @@
 - (void)loadAtlasAtIndex:(NSUInteger)index;
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
+- (BOOL)loadDocumentationBreaks;
+- (void)setDocumentationPage:(NSUInteger)page;
 - (void)setViewPreset:(int)mode;
 - (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 - (NSPoint)projectGroundPointX:(double)x y:(double)y;
 - (void)setDocumentationViewAzimuth:(double)azimuth elevation:(double)elevation;
 - (void)textDidChange:(NSNotification*)notification;
+- (void)refresh:(NSTimer*)timer;
+- (void)captureDocumentationHistorySample;
 @end
 
 namespace {
@@ -302,6 +306,41 @@ void setSingleParamEvent(
     input.value.value = value;
 }
 
+struct SingleNoteEventInput {
+    clap_input_events_t events {};
+    clap_event_note_t value {};
+};
+
+uint32_t singleNoteEventSize(const clap_input_events_t*)
+{
+    return 1u;
+}
+
+const clap_event_header_t* singleNoteEventGet(
+    const clap_input_events_t* events, uint32_t index)
+{
+    if (!events || index != 0u) return nullptr;
+    const auto* input = static_cast<const SingleNoteEventInput*>(events->ctx);
+    return input ? &input->value.header : nullptr;
+}
+
+void setSingleNoteOnEvent(SingleNoteEventInput& input, int16_t key)
+{
+    input.events.ctx = &input;
+    input.events.size = singleNoteEventSize;
+    input.events.get = singleNoteEventGet;
+    input.value = {};
+    input.value.header.size = sizeof(input.value);
+    input.value.header.time = 0u;
+    input.value.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    input.value.header.type = CLAP_EVENT_NOTE_ON;
+    input.value.note_id = -1;
+    input.value.port_index = 0;
+    input.value.channel = 0;
+    input.value.key = key;
+    input.value.velocity = 0.78;
+}
+
 // Frozen public-state fixture for Delay Processor v10. Keeping the previous
 // payload here makes migration coverage independent of the plug-in's current
 // C++ type and exercises the same byte stream a host session provides.
@@ -430,6 +469,8 @@ int main(int argc, char** argv)
     const bool documentationCapture = documentationCaptureValue
         && documentationCaptureValue[0]
         && std::strcmp(documentationCaptureValue, "0") != 0;
+    const bool breakbeatSlicer = std::strcmp(
+        pluginId, "org.s3g.s3g-dsp.breakbeat-slicer") == 0;
     if ((!responsive && !dynamic && !fixed)
         || nativeWidth < 320u
         || nativeHeight < ((responsive || dynamic) ? 360u : 240u)) {
@@ -944,11 +985,14 @@ int main(int argc, char** argv)
         uint32_t height = 0u;
         if (ok) failureStage = "resize contract";
         if (responsive || dynamic) {
-            const uint32_t expectedMinimumWidth = responsiveWide
+            const uint32_t expectedMinimumWidth = breakbeatSlicer
+                ? 620u
+                : responsiveWide
                 ? nativeWidth
                 : std::min(dynamic ? 720u : 480u, nativeWidth);
-            const uint32_t expectedMinimumHeight = std::min(
-                dynamic ? 430u : 360u, nativeHeight);
+            const uint32_t expectedMinimumHeight = breakbeatSlicer
+                ? 420u
+                : std::min(dynamic ? 430u : 360u, nativeHeight);
             clap_gui_resize_hints_t hints {};
             ok = ok && gui->can_resize(plugin)
                 && gui->get_resize_hints(plugin, &hints)
@@ -1024,6 +1068,18 @@ int main(int argc, char** argv)
         const bool formantMatrix = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.formant-matrix") == 0;
+        const bool documentationBreakbeatSlicer = documentationCapture
+            && breakbeatSlicer;
+        if (ok && documentationBreakbeatSlicer) {
+            failureStage = "documentation Slicer break bank";
+            @try {
+                ok = [document respondsToSelector:
+                        @selector(loadDocumentationBreaks)]
+                    && [document loadDocumentationBreaks];
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         if (ok && formantMatrix && !documentationCapture) {
             failureStage = "Formant Matrix effect identity and MIDI note input";
             const auto hasDescriptorFeature = [&](const char* expectedFeature) {
@@ -2326,6 +2382,9 @@ int main(int argc, char** argv)
         const bool faultProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.fault") == 0;
+        const bool errantProcessor = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.processor-errant") == 0;
         const bool noInputMixer = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
@@ -7696,7 +7755,10 @@ int main(int argc, char** argv)
                 return false;
             };
 
-            if (documentationSpeakerDecoder) {
+            if (formantMatrix) {
+                failureStage = "documentation Formant Matrix live articulation";
+                ok = setDocumentationSceneParam("Articulation Level", 0.22);
+            } else if (documentationSpeakerDecoder) {
                 failureStage = "documentation Speaker Decoder Dome 25 top view";
                 ok = setDocumentationSceneParam("Layout", 5.0)
                     && setDocumentationSceneParam("Mode", 1.0)
@@ -8044,6 +8106,12 @@ int main(int argc, char** argv)
             if (activated) plugin->deactivate(plugin);
             if (ok) [document setNeedsDisplay:YES];
         }
+        const bool documentationMidiInstrument = documentationCapture
+            && (formantMatrix
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.low-frequency-synth") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.processor-stack") == 0);
         const bool documentationLiveSignal = documentationCapture
             && (documentationObjectDecoder
                 || documentationAdaptiveDecoder
@@ -8056,6 +8124,18 @@ int main(int argc, char** argv)
                 || partialTrace
                 || responseTrace
                 || faultProcessor
+                || errantProcessor
+                || formantMatrix
+                || documentationMidiInstrument
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-shred-8ch") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.processor-conduit") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.processor-fissure") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.drum-echo") == 0
+                || feedbackShift
                 || documentationAmbiGroupMatrix);
         if (ok && documentationLiveSignal) {
             failureStage = "documentation live signal";
@@ -8111,11 +8191,22 @@ int main(int argc, char** argv)
                 s3g::directionFromAed(76.0f, -18.0f));
             const auto sourceC = s3g::acnSn3dBasis7(
                 s3g::directionFromAed(146.0f, 38.0f));
-            const uint32_t audioBlocks = documentationAmbiGroupMatrix
+            const bool documentationHistorySignal = formantMatrix
+                || feedbackShift
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.macro-shred-8ch") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.processor-conduit") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.processor-fissure") == 0;
+            const uint32_t audioBlocks = documentationHistorySignal
+                ? 1200u : (documentationAmbiGroupMatrix
                 ? 180u : (responseTrace ? 320u
                     : (documentationResonancePrint ? 180u
                         : (partialTrace ? 120u
-                        : (faultProcessor ? 36u : 28u))));
+                        : (documentationMidiInstrument ? 320u
+                            : (errantProcessor ? 600u
+                            : (faultProcessor ? 36u : 28u)))))));
             bool activated = false;
             bool processing = false;
             if (ok) {
@@ -8127,6 +8218,7 @@ int main(int argc, char** argv)
             }
             clap_id captureEffectParam = CLAP_INVALID_ID;
             clap_id applyEffectParam = CLAP_INVALID_ID;
+            clap_id documentationTriggerParam = CLAP_INVALID_ID;
             if (ok && (responseTrace || documentationResonancePrint)) {
                 const char* captureName = responseTrace
                     ? "Capture response" : "Capture print";
@@ -8157,6 +8249,34 @@ int main(int argc, char** argv)
                     params->flush(plugin, &event.events, nullptr);
                 }
             }
+            if (ok && errantProcessor) {
+                const uint32_t parameterCount = params->count(plugin);
+                for (uint32_t index = 0u;
+                     index < parameterCount; ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) {
+                        ok = false;
+                        break;
+                    }
+                    if (std::strcmp(info.name, "Trigger") == 0) {
+                        documentationTriggerParam = info.id;
+                        break;
+                    }
+                }
+                ok = ok && documentationTriggerParam != CLAP_INVALID_ID;
+            }
+            SingleParamEventInput documentationTrigger {};
+            if (documentationTriggerParam != CLAP_INVALID_ID) {
+                setSingleParamEvent(
+                    documentationTrigger, documentationTriggerParam, 1.0);
+            }
+            SingleNoteEventInput documentationNote {};
+            if (documentationMidiInstrument) {
+                setSingleNoteOnEvent(documentationNote,
+                    std::strcmp(pluginId,
+                        "org.s3g.s3g-dsp.low-frequency-synth") == 0
+                        ? 36 : 48);
+            }
             uint64_t sampleCursor = 0u;
             for (uint32_t block = 0u;
                  ok && block < audioBlocks; ++block) {
@@ -8173,11 +8293,18 @@ int main(int argc, char** argv)
                             static_cast<double>(sampleCursor++) / 48000.0;
                         const float inputScale = documentationResonancePrint
                             ? 0.45f : 1.0f;
-                        const float a = inputScale * 0.30f * static_cast<float>(
+                        const float historyMotion = documentationHistorySignal
+                            ? 0.18f + 0.82f * std::fabs(static_cast<float>(
+                                std::sin(2.0 * s3g::kPi * 0.63 * time)))
+                            : 1.0f;
+                        const float a = inputScale * historyMotion * 0.30f
+                            * static_cast<float>(
                             std::sin(2.0 * s3g::kPi * 197.0 * time));
-                        const float b = inputScale * 0.21f * static_cast<float>(
+                        const float b = inputScale * historyMotion * 0.21f
+                            * static_cast<float>(
                             std::sin(2.0 * s3g::kPi * 431.0 * time + 0.61));
-                        const float c = inputScale * 0.14f * static_cast<float>(
+                        const float c = inputScale * historyMotion * 0.14f
+                            * static_cast<float>(
                             std::sin(2.0 * s3g::kPi * 733.0 * time + 1.37));
                         for (uint32_t channel = 0u;
                              channel < inputInfo.channel_count; ++channel) {
@@ -8195,12 +8322,84 @@ int main(int argc, char** argv)
                 for (auto& channel : audioOutput) channel.fill(0.0f);
                 processBlock.steady_time =
                     static_cast<int64_t>(block) * audioFrames;
+                processBlock.in_events = errantProcessor
+                        && (block == 0u || block == 300u)
+                    ? &documentationTrigger.events
+                    : (documentationMidiInstrument && block == 0u
+                        ? &documentationNote.events : nullptr);
                 ok = plugin->process(plugin, &processBlock)
                     != CLAP_PROCESS_ERROR;
+                if (ok && documentationHistorySignal
+                    && (block % 7u) == 6u) {
+                    if ([document respondsToSelector:
+                            @selector(captureDocumentationHistorySample)]) {
+                        [document captureDocumentationHistorySample];
+                    } else if ([document respondsToSelector:
+                            @selector(refresh:)]) {
+                        [document refresh:nil];
+                    }
+                }
+                if (ok && documentationHistorySignal
+                    && (block % 64u) == 63u) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
             if (ok) [document setNeedsDisplay:YES];
+        }
+        if (ok && documentationCapture && feedbackShift) {
+            // The initial page-navigation pass validates the controls before
+            // audio starts. Re-capture the auxiliary pages after the live
+            // documentation run so their activity and governor meters retain
+            // the same audible state as the main PATCH-page image.
+            failureStage = "active Feedback Shift documentation pages";
+            const char* captureDirectory = std::getenv(
+                "S3G_GUI_SMOKE_PDF_DIR");
+            const auto clickFeedbackPage = [&](NSPoint point) {
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+            };
+            @try {
+                for (uint32_t page = 1u; ok && page < 4u; ++page) {
+                    clickFeedbackPage(NSMakePoint(71.0 + page * 92.0, 54.0));
+                    ok = [[document valueForKey:@"page"] unsignedIntValue]
+                        == page;
+                    if (ok && [document respondsToSelector:
+                            @selector(refresh:)]) {
+                        [document refresh:nil];
+                    }
+                    if (ok) {
+                        [document setNeedsDisplay:YES];
+                        [document displayIfNeeded];
+                        NSData* pageRender = [document dataWithPDFInsideRect:
+                            [document bounds]];
+                        ok = pageRender && [pageRender length] > 0u;
+                        if (ok && captureDirectory && captureDirectory[0]) {
+                            NSString* directory = [NSString
+                                stringWithUTF8String:captureDirectory];
+                            [[NSFileManager defaultManager]
+                                createDirectoryAtPath:directory
+                                withIntermediateDirectories:YES
+                                attributes:nil error:nil];
+                            NSString* pageName = [[NSString stringWithFormat:
+                                @"%s.page%u", pluginId, page + 1u]
+                                stringByAppendingPathExtension:@"pdf"];
+                            ok = [pageRender writeToFile:[directory
+                                    stringByAppendingPathComponent:pageName]
+                                atomically:YES];
+                        }
+                    }
+                }
+                clickFeedbackPage(NSMakePoint(71.0, 54.0));
+                ok = ok && [[document valueForKey:@"page"] unsignedIntValue]
+                    == 0u;
+            } @catch (NSException*) {
+                ok = false;
+            }
         }
         if (ok && documentationCapture && analyzer) {
             failureStage = "documentation analyzer signal";
@@ -8275,6 +8474,55 @@ int main(int argc, char** argv)
             }
             plugin->stop_processing(plugin);
             plugin->deactivate(plugin);
+        }
+        if (ok && documentationBreakbeatSlicer) {
+            failureStage = "documentation Slicer Break Edit page";
+            @try {
+                [document setDocumentationPage:1u];
+                NSData* breakEdit = [document dataWithPDFInsideRect:
+                    [document bounds]];
+                ok = breakEdit && [breakEdit length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil error:nil];
+                    NSString* fileName = [[NSString stringWithFormat:
+                        @"%s.break-edit", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [breakEdit writeToFile:
+                        [directory stringByAppendingPathComponent:fileName]
+                        atomically:YES];
+                }
+                if (ok) {
+                    failureStage = "documentation Slicer Mixer page";
+                    [document setDocumentationPage:2u];
+                    NSData* mixer = [document dataWithPDFInsideRect:
+                        [document bounds]];
+                    ok = mixer && [mixer length] > 0u;
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        [[NSFileManager defaultManager]
+                            createDirectoryAtPath:directory
+                            withIntermediateDirectories:YES
+                            attributes:nil error:nil];
+                        NSString* fileName = [[NSString stringWithFormat:
+                            @"%s.mixer", pluginId]
+                            stringByAppendingPathExtension:@"pdf"];
+                        ok = [mixer writeToFile:
+                            [directory stringByAppendingPathComponent:fileName]
+                            atomically:YES];
+                    }
+                }
+                [document setDocumentationPage:0u];
+            } @catch (NSException*) {
+                ok = false;
+            }
         }
         if (ok) failureStage = "render";
         if (ok) {

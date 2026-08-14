@@ -72,6 +72,55 @@ enum ParamId : clap_id {
     kDecay,
     kSustain,
     kRelease,
+    kPairAmount,
+    kPairRelation,
+    kPairLoose,
+    kPairSpread,
+    kNeckA,
+    kBodyA,
+    kNeckB,
+    kBodyB,
+    kArpBRelation,
+    kArpPatternB,
+    kScaleB,
+    kArpRateB,
+    kArpOctavesB,
+    kArpGateB,
+    kArpPhaseB,
+    kCustomLengthB,
+    kCustomStepB1,
+    kCustomStepB2,
+    kCustomStepB3,
+    kCustomStepB4,
+    kCustomStepB5,
+    kCustomStepB6,
+    kCustomStepB7,
+    kCustomStepB8,
+    kLinkPedal,
+    kLinkAmplifier,
+    kLinkFeedback,
+    kCircuitB,
+    kBiteB,
+    kPedalToneB,
+    kBiasB,
+    kStackB,
+    kSagB,
+    kFocusB,
+    kConeB,
+    kCabinetB,
+    kMicB,
+    kFeedbackB,
+    kProximityB,
+    kHarmonicB,
+    kTrackingB,
+    kPolarityB,
+    kRootB,
+    kChaosB,
+    kPierceB,
+    kSelfListenB,
+    kTargetGlitchB,
+    kGlitchRatchetB,
+    kOverloadMaskB,
 };
 
 struct ParamSpec {
@@ -83,7 +132,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 50u> kParamSpecs {{
+constexpr std::array<ParamSpec, 99u> kParamSpecs {{
     { kMode, "Mode", 0.0, 2.0, 0.0, true },
     { kShape, "Shape", 0.0, 1.0, 0.58, false },
     { kWire, "String", 0.0, 1.0, 0.56, false },
@@ -134,6 +183,55 @@ constexpr std::array<ParamSpec, 50u> kParamSpecs {{
     { kDecay, "Decay", 5.0, 8000.0, 180.0, false },
     { kSustain, "Sustain", 0.0, 1.0, 0.78, false },
     { kRelease, "Release", 5.0, 20000.0, 90.0, false },
+    { kPairAmount, "Dual", 0.0, 1.0, 0.0, false },
+    { kPairRelation, "Relation", 0.0, 4.0, 0.0, true },
+    { kPairLoose, "Loose", 0.0, 1.0, 0.24, false },
+    { kPairSpread, "Spread", 0.0, 1.0, 0.72, false },
+    { kNeckA, "Neck A", 0.0, 3.0, 0.0, true },
+    { kBodyA, "Body A", 0.0, 3.0, 0.0, true },
+    { kNeckB, "Neck B", 0.0, 3.0, 2.0, true },
+    { kBodyB, "Body B", 0.0, 3.0, 1.0, true },
+    { kArpBRelation, "Arp B Relation", 0.0, 2.0, 0.0, true },
+    { kArpPatternB, "Arp Pattern B", 0.0, 6.0, 0.0, true },
+    { kScaleB, "Scale Rule B", 0.0, 4.0, 1.0, true },
+    { kArpRateB, "Arp Rate B", 0.0, 8.0, 2.0, true },
+    { kArpOctavesB, "Arp Octaves B", 1.0, 4.0, 2.0, true },
+    { kArpGateB, "Arp Gate B", 0.05, 1.0, 0.62, false },
+    { kArpPhaseB, "Arp Phase B", 0.0, 1.0, 0.50, false },
+    { kCustomLengthB, "Pattern Length B", 1.0, 8.0, 8.0, true },
+    { kCustomStepB1, "Pattern B Step 1", -8.0, 15.0, 0.0, true },
+    { kCustomStepB2, "Pattern B Step 2", -8.0, 15.0, 4.0, true },
+    { kCustomStepB3, "Pattern B Step 3", -8.0, 15.0, 2.0, true },
+    { kCustomStepB4, "Pattern B Step 4", -8.0, 15.0, 6.0, true },
+    { kCustomStepB5, "Pattern B Step 5", -8.0, 15.0, 1.0, true },
+    { kCustomStepB6, "Pattern B Step 6", -8.0, 15.0, 5.0, true },
+    { kCustomStepB7, "Pattern B Step 7", -8.0, 15.0, 3.0, true },
+    { kCustomStepB8, "Pattern B Step 8", -8.0, 15.0, 7.0, true },
+    { kLinkPedal, "Link Pedals", 0.0, 1.0, 1.0, true },
+    { kLinkAmplifier, "Link Amplifiers", 0.0, 1.0, 1.0, true },
+    { kLinkFeedback, "Link Feedback", 0.0, 1.0, 1.0, true },
+    { kCircuitB, "Circuit B", 0.0, 7.0, 2.0, true },
+    { kBiteB, "Bite B", 0.0, 1.0, 0.56, false },
+    { kPedalToneB, "Tone B", 0.0, 1.0, 0.54, false },
+    { kBiasB, "Bias B", 0.0, 1.0, 0.52, false },
+    { kStackB, "Stack B", 0.0, 1.0, 0.62, false },
+    { kSagB, "Sag B", 0.0, 1.0, 0.46, false },
+    { kFocusB, "Focus B", 0.0, 1.0, 0.55, false },
+    { kConeB, "Cone B", 0.0, 1.0, 0.64, false },
+    { kCabinetB, "Cab B", 0.0, 1.0, 0.52, false },
+    { kMicB, "Mic B", 0.0, 1.0, 0.34, false },
+    { kFeedbackB, "Feedback B", 0.0, 1.0, 0.56, false },
+    { kProximityB, "Proximity B", 0.0, 1.0, 0.58, false },
+    { kHarmonicB, "Harmonic B", 0.0, 1.0, 0.42, false },
+    { kTrackingB, "Track B", 0.0, 1.0, 0.72, false },
+    { kPolarityB, "Polarity B", 0.0, 1.0, 0.78, false },
+    { kRootB, "Root B", 0.0, 1.0, 0.28, false },
+    { kChaosB, "Chaos B", 0.0, 1.0, 0.32, false },
+    { kPierceB, "Pierce B", 0.0, 1.0, 0.68, false },
+    { kSelfListenB, "Self Listen B", 0.0, 1.0, 0.72, false },
+    { kTargetGlitchB, "Target Glitch B", 0.0, 1.0, 0.0, false },
+    { kGlitchRatchetB, "Glitch Ratchet B", 0.0, 1.0, 0.46, false },
+    { kOverloadMaskB, "Overload Mask B", 0.0, 1.0, 0.76, false },
 }};
 
 struct HostContext {
@@ -574,6 +672,14 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kDecay, 420.0);
     events.addParam(kSustain, 0.36);
     events.addParam(kRelease, 1250.0);
+    events.addParam(kPairAmount, 0.82);
+    events.addParam(kPairRelation, 4.0);
+    events.addParam(kPairLoose, 0.37);
+    events.addParam(kPairSpread, 0.91);
+    events.addParam(kNeckA, 1.0);
+    events.addParam(kBodyA, 2.0);
+    events.addParam(kNeckB, 2.0);
+    events.addParam(kBodyB, 3.0);
     AudioBlock block(&events);
     if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR
         || host.tailChanges == 0u
@@ -583,9 +689,36 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         return false;
     }
 
+    events.clear();
+    events.addParam(kArpBRelation, 2.0);
+    events.addParam(kArpPatternB, 6.0);
+    events.addParam(kScaleB, 3.0);
+    events.addParam(kArpRateB, 4.0);
+    events.addParam(kArpOctavesB, 4.0);
+    events.addParam(kArpGateB, 0.52);
+    events.addParam(kArpPhaseB, 0.33);
+    events.addParam(kCustomLengthB, 5.0);
+    events.addParam(kCustomStepB3, -2.0);
+    events.addParam(kLinkPedal, 0.0);
+    events.addParam(kLinkAmplifier, 0.0);
+    events.addParam(kLinkFeedback, 0.0);
+    events.addParam(kCircuitB, 7.0);
+    events.addParam(kBiteB, 0.31);
+    events.addParam(kStackB, 0.79);
+    events.addParam(kSagB, 0.22);
+    events.addParam(kFeedbackB, 0.83);
+    events.addParam(kPolarityB, 0.26);
+    events.addParam(kPierceB, 0.96);
+    events.addParam(kTargetGlitchB, 0.72);
+    events.addParam(kOverloadMaskB, 0.98);
+    block.clear();
+    if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR) {
+        return false;
+    }
+
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
-    if (!state->save(plugin, &output) || memory.bytes.size() != 416u) {
+    if (!state->save(plugin, &output) || memory.bytes.size() != 808u) {
         std::cerr << "Processor Stack state size mismatch: "
                   << memory.bytes.size() << "\n";
         return false;
@@ -630,8 +763,34 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kSustain, &value)
         || std::abs(value - 0.36) > 1.0e-6
         || !params->get_value(plugin, kRelease, &value)
-        || std::abs(value - 1250.0) > 1.0e-6) {
-        std::cerr << "Processor Stack arpeggiator state mismatch\n";
+        || std::abs(value - 1250.0) > 1.0e-6
+        || !params->get_value(plugin, kPairAmount, &value)
+        || std::abs(value - 0.82) > 1.0e-6
+        || !params->get_value(plugin, kPairRelation, &value) || value != 4.0
+        || !params->get_value(plugin, kPairLoose, &value)
+        || std::abs(value - 0.37) > 1.0e-6
+        || !params->get_value(plugin, kPairSpread, &value)
+        || std::abs(value - 0.91) > 1.0e-6
+        || !params->get_value(plugin, kNeckA, &value) || value != 1.0
+        || !params->get_value(plugin, kBodyA, &value) || value != 2.0
+        || !params->get_value(plugin, kNeckB, &value) || value != 2.0
+        || !params->get_value(plugin, kBodyB, &value) || value != 3.0
+        || !params->get_value(plugin, kArpBRelation, &value) || value != 2.0
+        || !params->get_value(plugin, kArpPatternB, &value) || value != 6.0
+        || !params->get_value(plugin, kArpPhaseB, &value)
+        || std::abs(value - 0.33) > 1.0e-6
+        || !params->get_value(plugin, kCustomStepB3, &value) || value != -2.0
+        || !params->get_value(plugin, kLinkPedal, &value) || value != 0.0
+        || !params->get_value(plugin, kLinkAmplifier, &value) || value != 0.0
+        || !params->get_value(plugin, kLinkFeedback, &value) || value != 0.0
+        || !params->get_value(plugin, kCircuitB, &value) || value != 7.0
+        || !params->get_value(plugin, kFeedbackB, &value)
+        || std::abs(value - 0.83) > 1.0e-6
+        || !params->get_value(plugin, kPierceB, &value)
+        || std::abs(value - 0.96) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMaskB, &value)
+        || std::abs(value - 0.98) > 1.0e-6) {
+        std::cerr << "Processor Stack extended state mismatch\n";
         return false;
     }
 
@@ -641,6 +800,67 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         uint32_t valueCount;
         uint32_t reserved;
     };
+    LegacyHeader versionSevenHeader { 0x31545350u, 7u, 58u, 0u };
+    std::array<double, 58u> versionSevenValues {};
+    for (uint32_t index = 0u; index < versionSevenValues.size(); ++index) {
+        versionSevenValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionSevenValues[static_cast<size_t>(kPairAmount - 1u)] = 0.74;
+    versionSevenValues[static_cast<size_t>(kBodyB - 1u)] = 3.0;
+    MemoryState versionSeven;
+    clap_ostream_t versionSevenOutput { &versionSeven, stateWrite };
+    if (stateWrite(&versionSevenOutput, &versionSevenHeader,
+            sizeof(versionSevenHeader)) < 0
+        || stateWrite(&versionSevenOutput, versionSevenValues.data(),
+            sizeof(versionSevenValues)) < 0) {
+        return false;
+    }
+    versionSeven.offset = 0u;
+    clap_istream_t versionSevenInput { &versionSeven, stateRead };
+    if (!state->load(plugin, &versionSevenInput)
+        || !params->get_value(plugin, kPairAmount, &value)
+        || std::abs(value - 0.74) > 1.0e-6
+        || !params->get_value(plugin, kBodyB, &value) || value != 3.0
+        || !params->get_value(plugin, kLinkPedal, &value) || value != 1.0
+        || !params->get_value(plugin, kLinkAmplifier, &value) || value != 1.0
+        || !params->get_value(plugin, kLinkFeedback, &value) || value != 1.0
+        || !params->get_value(plugin, kArpBRelation, &value) || value != 0.0
+        || !params->get_value(plugin, kCircuitB, &value) || value != 2.0) {
+        std::cerr << "version 7 Processor Stack state did not migrate\n";
+        return false;
+    }
+
+    LegacyHeader versionSixHeader { 0x31545350u, 6u, 50u, 0u };
+    std::array<double, 50u> versionSixValues {};
+    for (uint32_t index = 0u; index < versionSixValues.size(); ++index) {
+        versionSixValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionSixValues[static_cast<size_t>(kRelease - 1u)] = 840.0;
+    MemoryState versionSix;
+    clap_ostream_t versionSixOutput { &versionSix, stateWrite };
+    if (stateWrite(&versionSixOutput, &versionSixHeader,
+            sizeof(versionSixHeader)) < 0
+        || stateWrite(&versionSixOutput, versionSixValues.data(),
+            sizeof(versionSixValues)) < 0) {
+        return false;
+    }
+    versionSix.offset = 0u;
+    clap_istream_t versionSixInput { &versionSix, stateRead };
+    if (!state->load(plugin, &versionSixInput)
+        || !params->get_value(plugin, kRelease, &value)
+        || std::abs(value - 840.0) > 1.0e-6
+        || !params->get_value(plugin, kPairAmount, &value)
+        || std::abs(value) > 1.0e-6
+        || !params->get_value(plugin, kPairRelation, &value)
+        || value != 0.0
+        || !params->get_value(plugin, kNeckB, &value)
+        || value != 2.0
+        || !params->get_value(plugin, kBodyB, &value)
+        || value != 1.0) {
+        std::cerr << "version 6 Processor Stack state did not migrate\n";
+        return false;
+    }
+
     LegacyHeader versionFiveHeader { 0x31545350u, 5u, 46u, 0u };
     std::array<double, 46u> versionFiveValues {};
     for (uint32_t index = 0u; index < versionFiveValues.size(); ++index) {

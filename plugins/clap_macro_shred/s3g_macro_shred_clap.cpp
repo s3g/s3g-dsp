@@ -101,6 +101,7 @@ struct Plugin {
     std::array<float, kChannelCount> frameOut {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<float> loopActivity { 0.0f };
+    std::atomic<float> governorReduction { 0.0f };
     std::atomic<float> loopFrequencyHz { 900.0f };
     std::atomic<bool> panicRequested { false };
 #if defined(__APPLE__)
@@ -187,6 +188,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->shred.setParams(p->params);
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
     p->loopActivity.store(0.0f, std::memory_order_relaxed);
+    p->governorReduction.store(0.0f, std::memory_order_relaxed);
     p->loopFrequencyHz.store(900.0f, std::memory_order_relaxed);
     p->panicRequested.store(false, std::memory_order_relaxed);
     return true;
@@ -201,6 +203,7 @@ void reset(const clap_plugin_t* plugin)
     p->shred.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
     p->loopActivity.store(0.0f, std::memory_order_relaxed);
+    p->governorReduction.store(0.0f, std::memory_order_relaxed);
     p->loopFrequencyHz.store(900.0f, std::memory_order_relaxed);
 }
 
@@ -259,6 +262,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     readParamEvents(*p, proc->in_events);
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
         p->shred.panic();
+        p->loopActivity.store(0.0f, std::memory_order_relaxed);
+        p->governorReduction.store(0.0f, std::memory_order_relaxed);
     }
 
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) {
@@ -303,6 +308,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
     const float loop = p->shred.feedbackActivity();
     p->loopActivity.store(std::max(p->loopActivity.load(std::memory_order_relaxed) * 0.92f, loop), std::memory_order_relaxed);
+    p->governorReduction.store(
+        p->shred.governorReduction(), std::memory_order_relaxed);
     p->loopFrequencyHz.store(p->shred.feedbackFrequencyHz(), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
@@ -537,12 +544,23 @@ const clap_plugin_tail_t tailExt { tailGet };
 #else
 #define S3GMacroShredView S3GMacroShred24View
 #endif
-@interface S3GMacroShredView : NSView { void* _plugin; int _dragSlider; int _openMenu; NSTimer* _timer; char _titlePresetName[64]; }
+constexpr uint32_t kFeedbackHistorySize = 160u;
+@interface S3GMacroShredView : NSView {
+    void* _plugin;
+    int _dragSlider;
+    int _openMenu;
+    NSTimer* _timer;
+    char _titlePresetName[64];
+    float _loopHistory[kFeedbackHistorySize];
+    float _reductionHistory[kFeedbackHistorySize];
+    uint32_t _historyWrite;
+}
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs;
 - (void)drawRelationshipPreview:(const s3g::MacroShredParams&)params rect:(NSRect)rect attrs:(NSDictionary*)attrs;
+- (void)drawFeedbackHistory:(NSRect)field attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)updateSlider:(NSPoint)point;
 @end
 
@@ -557,6 +575,9 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         _dragSlider = -1;
         _openMenu = 0;
         _timer = nil;
+        std::fill_n(_loopHistory, kFeedbackHistorySize, 0.0f);
+        std::fill_n(_reductionHistory, kFeedbackHistorySize, 0.0f);
+        _historyWrite = 0u;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
@@ -579,7 +600,36 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
 - (void)refresh:(NSTimer*)timer
 {
     (void)timer;
-    if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES];
+    if (![self isHidden] && _plugin
+        && s3g::clap_support::hostAppIsActive()) {
+        auto* p = static_cast<Plugin*>(_plugin);
+        const float activity = std::clamp(
+            p->loopActivity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float activityDb = 20.0f * std::log10(
+            std::max(activity, 0.000001f));
+        _loopHistory[_historyWrite] = std::clamp(
+            (activityDb + 60.0f) / 60.0f, 0.0f, 1.0f);
+        _reductionHistory[_historyWrite] = std::clamp(
+            p->governorReduction.load(std::memory_order_relaxed),
+            0.0f, 1.0f);
+        _historyWrite = (_historyWrite + 1u) % kFeedbackHistorySize;
+        [self setNeedsDisplay:YES];
+    }
+}
+- (void)captureDocumentationHistorySample
+{
+    if (!_plugin) return;
+    auto* p = static_cast<Plugin*>(_plugin);
+    const float activity = std::clamp(
+        p->loopActivity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const float activityDb = 20.0f * std::log10(
+        std::max(activity, 0.000001f));
+    _loopHistory[_historyWrite] = std::clamp(
+        (activityDb + 60.0f) / 60.0f, 0.0f, 1.0f);
+    _reductionHistory[_historyWrite] = std::clamp(
+        p->governorReduction.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    _historyWrite = (_historyWrite + 1u) % kFeedbackHistorySize;
+    [self setNeedsDisplay:YES];
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs
 {
@@ -622,6 +672,98 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         NSRectFill(NSMakeRect(markerX - 2.0, track.origin.y - 2.0, 4.0, 10.0));
     }
 }
+- (void)drawFeedbackHistory:(NSRect)field
+    attrs:(NSDictionary*)attrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    [style.strip setFill];
+    NSRectFill(field);
+    [style.grid setStroke];
+    NSFrameRect(field);
+
+    const float activity = std::clamp(
+        p->loopActivity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const float activityDb = 20.0f * std::log10(
+        std::max(activity, 0.000001f));
+    const float reduction = std::clamp(
+        p->governorReduction.load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    NSString* summary = activity > 0.000001f
+        ? [NSString stringWithFormat:@"LOOP %+.0f DB   CUT %.0f%%",
+            activityDb, reduction * 100.0f]
+        : [NSString stringWithFormat:@"LOOP -INF DB   CUT %.0f%%",
+            reduction * 100.0f];
+    [summary drawAtPoint:NSMakePoint(field.origin.x + 10.0,
+        field.origin.y + 7.0) withAttributes:attrs];
+
+    const CGFloat labelWidth = 38.0;
+    const NSRect loopPlot = NSMakeRect(
+        field.origin.x + labelWidth, field.origin.y + 29.0,
+        field.size.width - labelWidth - 10.0, 55.0);
+    const NSRect reductionPlot = NSMakeRect(
+        loopPlot.origin.x, field.origin.y + 95.0,
+        loopPlot.size.width, 55.0);
+    const auto drawPlotFrame = [&](NSRect plot) {
+        [style.bg setFill];
+        NSRectFill(plot);
+        [style.grid setStroke];
+        NSFrameRect(plot);
+        [style.grid setFill];
+        NSRectFill(NSMakeRect(plot.origin.x,
+            std::floor(NSMidY(plot)), plot.size.width, 1.0));
+        for (uint32_t division = 1u; division < 4u; ++division) {
+            const CGFloat x = plot.origin.x + plot.size.width
+                * static_cast<CGFloat>(division) / 4.0;
+            NSRectFill(NSMakeRect(std::floor(x), plot.origin.y,
+                1.0, plot.size.height));
+        }
+    };
+    drawPlotFrame(loopPlot);
+    drawPlotFrame(reductionPlot);
+
+    [@"LOOP" drawAtPoint:NSMakePoint(field.origin.x + 7.0,
+        loopPlot.origin.y + 20.0) withAttributes:attrs];
+    [@"CUT" drawAtPoint:NSMakePoint(field.origin.x + 10.0,
+        reductionPlot.origin.y + 20.0) withAttributes:attrs];
+
+    const auto drawHistory = [&](NSRect plot, const float* history,
+        NSColor* color, CGFloat width) {
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        [path setLineWidth:width];
+        for (uint32_t sample = 0u;
+             sample < kFeedbackHistorySize; ++sample) {
+            const uint32_t index = (_historyWrite + sample)
+                % kFeedbackHistorySize;
+            const CGFloat normalized = std::clamp<CGFloat>(
+                history[index], 0.0, 1.0);
+            const CGFloat x = plot.origin.x + 2.0
+                + (plot.size.width - 4.0)
+                    * static_cast<CGFloat>(sample)
+                    / static_cast<CGFloat>(kFeedbackHistorySize - 1u);
+            const CGFloat y = NSMaxY(plot) - 2.0
+                - normalized * (plot.size.height - 4.0);
+            if (sample == 0u) {
+                [path moveToPoint:NSMakePoint(x, y)];
+            } else {
+                [path lineToPoint:NSMakePoint(x, y)];
+            }
+        }
+        [color setStroke];
+        [path stroke];
+    };
+    drawHistory(loopPlot, _loopHistory, style.text, 1.5);
+    drawHistory(reductionPlot, _reductionHistory, style.fill, 2.0);
+
+    NSString* state = activityDb < -54.0f && reduction < 0.01f
+        ? @"QUIET" : (reduction >= 0.20f
+            ? @"GOVERNING" : (reduction >= 0.01f ? @"TRIMMING" : @"OPEN"));
+    NSString* footer = [NSString stringWithFormat:
+        @"8S HISTORY   %@   LOOP %.0f HZ", state,
+        p->loopFrequencyHz.load(std::memory_order_relaxed)];
+    [footer drawAtPoint:NSMakePoint(field.origin.x + 10.0,
+        NSMaxY(field) - 24.0) withAttributes:attrs];
+}
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
@@ -653,7 +795,8 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     };
     drawPanel(@"OUTPUT", family.output);
     drawPanel(@"ENGINE", family.engine);
-    drawPanel(@"CONTAINMENT", family.containment);
+    drawPanel(kChannelCount > 1u ? @"FEEDBACK HISTORY" : @"CONTAINMENT",
+        family.containment);
     if constexpr (kChannelCount > 1u) {
         drawPanel(@"RELATIONSHIPS", family.relationships);
         drawPanel(@"LANE COLOR REL", family.preview);
@@ -701,22 +844,9 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
             family.preview.frame.width - 24.0, family.preview.frame.height - 44.0)
             attrs:small];
 
-        NSRect containmentField =
-            s3g::clap_gui::cocoaRect(family.containmentField);
-        [shredColor(0x111111) setFill]; NSRectFill(containmentField);
-        [shredColor(0x444444) setStroke]; NSFrameRect(containmentField);
-        const CGFloat activity = std::clamp<CGFloat>(
-            p->loopActivity.load(std::memory_order_relaxed), 0.0, 1.0);
-        for (int ring = 0; ring < 5; ++ring) {
-            const CGFloat inset = 18.0 + static_cast<CGFloat>(ring) * 18.0;
-            [s3g::clap_gui::color(0x333333 + ring * 0x080808,
-                0.35 + activity * 0.45) setStroke];
-            NSFrameRect(NSInsetRect(containmentField, inset, inset * 0.55));
-        }
-        [@"FEEDBACK CONTAINMENT" drawAtPoint:NSMakePoint(
-            containmentField.origin.x + 12.0,
-            NSMaxY(containmentField) - 26.0)
-            withAttributes:small];
+        [self drawFeedbackHistory:
+            s3g::clap_gui::cocoaRect(family.containmentField)
+            attrs:small style:style];
     }
     [shredColor(0x111111) setFill]; NSRectFill(loopTrack);
     [shredColor(0x444444) setStroke]; NSFrameRect(loopTrack);

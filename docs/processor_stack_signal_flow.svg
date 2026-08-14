@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Processor Stack top-down dual-rig signal flow</title>
+  <desc id="desc">MIDI and held notes feed two related player and arpeggiator paths. Each path flows downward through plucked strings, a sum of fresh excitation and governed feedback return, a pedal, amplifier, speaker, and microphones. Microphone signals cross-listen before entering each rig's loop history, body and stab return, target glitch, and governor. The governed return loops back to the pre-pedal sum. Complete microphone outputs continue to equal-power stereo spread and linked output containment.</desc>
+  <rect width="1100" height="1080" fill="#0d0f0f"/>
+  <defs>
+    <style>
+      text{font-family:Menlo,Monaco,'Courier New',monospace;fill:#c6cdc8}.h{fill:#d8ddd8;font-size:13px;font-weight:700}.s{fill:#939d98;font-size:10px}.tag{fill:#b4bcb7;font-size:10px}.box{fill:#111313;stroke:#303636;stroke-width:1}.a{fill:#1d1713;stroke:#d97845;stroke-width:1}.b{fill:#132024;stroke:#76c6cf;stroke-width:1}.govern{fill:#171b19;stroke:#65d07d;stroke-width:1}.audio{stroke:#c6cdc8;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.wirea{stroke:#d97845;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.wireb{stroke:#76c6cf;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.feedback{stroke:#65d07d;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:5 4}.control{stroke:#65d07d;stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2 5}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#c6cdc8"/></marker>
+    <marker id="arrow-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#d97845"/></marker>
+    <marker id="arrow-b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#76c6cf"/></marker>
+    <marker id="arrow-fb" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#65d07d"/></marker>
+  </defs>
+
+  <rect class="box" x="390" y="34" width="320" height="70"/>
+  <text class="h" x="412" y="63">MIDI / HELD NOTES</text>
+  <text class="s" x="412" y="85">POWER · HAND · LEAD · DUAL relation</text>
+  <path class="wirea" d="M500 104 V126 H260 V146" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M600 104 V126 H840 V146" marker-end="url(#arrow-b)"/>
+
+  <text class="tag" x="100" y="138">RIG A</text>
+  <text class="tag" x="680" y="138">RIG B</text>
+  <rect class="a" x="100" y="148" width="320" height="66"/>
+  <text class="h" x="122" y="175">PLAYER + ARPEGGIATOR A</text>
+  <text class="s" x="122" y="196">pattern · scale · rate · articulation</text>
+  <rect class="b" x="680" y="148" width="320" height="66"/>
+  <text class="h" x="702" y="175">PLAYER + ARPEGGIATOR B</text>
+  <text class="s" x="702" y="196">follow · counter · free · loose</text>
+  <path class="wirea" d="M260 214 V240" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 214 V240" marker-end="url(#arrow-b)"/>
+
+  <rect class="a" x="100" y="242" width="320" height="66"/>
+  <text class="h" x="122" y="269">PLUCKED STRINGS A</text>
+  <text class="s" x="122" y="290">neck · body · pick · damp · ADSR</text>
+  <rect class="b" x="680" y="242" width="320" height="66"/>
+  <text class="h" x="702" y="269">PLUCKED STRINGS B</text>
+  <text class="s" x="702" y="290">relation · material · pick · damp · ADSR</text>
+  <path class="wirea" d="M260 308 V334" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 308 V334" marker-end="url(#arrow-b)"/>
+
+  <rect class="govern" x="100" y="336" width="320" height="58"/>
+  <text class="h" x="122" y="361">Σ STRING + GOVERNED RETURN A</text>
+  <text class="s" x="122" y="379">return enters before the pedal</text>
+  <rect class="govern" x="680" y="336" width="320" height="58"/>
+  <text class="h" x="702" y="361">Σ STRING + GOVERNED RETURN B</text>
+  <text class="s" x="702" y="379">return enters before the pedal</text>
+  <path class="wirea" d="M260 394 V420" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 394 V420" marker-end="url(#arrow-b)"/>
+
+  <rect class="a" x="100" y="422" width="320" height="58"/>
+  <text class="h" x="122" y="447">DISTORTION PEDAL A</text>
+  <text class="s" x="122" y="465">circuit · bite · tone · bias</text>
+  <rect class="b" x="680" y="422" width="320" height="58"/>
+  <text class="h" x="702" y="447">DISTORTION PEDAL B</text>
+  <text class="s" x="702" y="465">linked or independent circuit</text>
+  <path class="wirea" d="M260 480 V506" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 480 V506" marker-end="url(#arrow-b)"/>
+
+  <rect class="a" x="100" y="508" width="320" height="58"/>
+  <text class="h" x="122" y="533">AMPLIFIER A</text>
+  <text class="s" x="122" y="551">preamp · power transfer · supply sag</text>
+  <rect class="b" x="680" y="508" width="320" height="58"/>
+  <text class="h" x="702" y="533">AMPLIFIER B</text>
+  <text class="s" x="702" y="551">preamp · power transfer · supply sag</text>
+  <path class="wirea" d="M260 566 V592" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 566 V592" marker-end="url(#arrow-b)"/>
+
+  <rect class="a" x="100" y="594" width="320" height="68"/>
+  <text class="h" x="122" y="621">SPEAKER + MICROPHONES A</text>
+  <text class="s" x="122" y="642">cone · cabinet modes · near / side / room</text>
+  <rect class="b" x="680" y="594" width="320" height="68"/>
+  <text class="h" x="702" y="621">SPEAKER + MICROPHONES B</text>
+  <text class="s" x="702" y="642">cone · cabinet modes · near / side / room</text>
+
+  <path class="feedback" d="M420 628 H458 V700 H492" marker-end="url(#arrow-fb)"/>
+  <path class="feedback" d="M680 628 H642 V700 H608" marker-end="url(#arrow-fb)"/>
+  <rect class="govern" x="460" y="674" width="180" height="82"/>
+  <text class="h" x="480" y="703">MIC CROSS-LISTEN</text>
+  <text class="s" x="480" y="724">local + restrained</text>
+  <text class="s" x="480" y="741">opposite-rig witness</text>
+  <path class="feedback" d="M492 756 V776 H260 V790" marker-end="url(#arrow-fb)"/>
+  <path class="feedback" d="M608 756 V776 H840 V790" marker-end="url(#arrow-fb)"/>
+
+  <rect class="govern" x="100" y="792" width="320" height="72"/>
+  <text class="h" x="122" y="819">LOOP HISTORY + RETURN A</text>
+  <text class="s" x="122" y="840">body · stab · target glitch · delay tuning</text>
+  <rect class="govern" x="680" y="792" width="320" height="72"/>
+  <text class="h" x="702" y="819">LOOP HISTORY + RETURN B</text>
+  <text class="s" x="702" y="840">body · stab · target glitch · delay tuning</text>
+  <path class="feedback" d="M260 864 V886" marker-end="url(#arrow-fb)"/>
+  <path class="feedback" d="M840 864 V886" marker-end="url(#arrow-fb)"/>
+
+  <rect class="govern" x="100" y="888" width="320" height="64"/>
+  <text class="h" x="122" y="915">RETURN GOVERNOR A</text>
+  <text class="s" x="122" y="936">spectral share · overload mask · key gate</text>
+  <rect class="govern" x="680" y="888" width="320" height="64"/>
+  <text class="h" x="702" y="915">RETURN GOVERNOR B</text>
+  <text class="s" x="702" y="936">spectral share · overload mask · key gate</text>
+
+  <path class="feedback" d="M100 920 H52 V365 H98" marker-end="url(#arrow-fb)"/>
+  <path class="feedback" d="M1000 920 H1048 V365 H1002" marker-end="url(#arrow-fb)"/>
+  <path class="control" d="M460 724 H438 V912 H422" marker-end="url(#arrow-fb)"/>
+  <path class="control" d="M640 724 H662 V912 H678" marker-end="url(#arrow-fb)"/>
+  <text class="tag" x="445" y="906">linked stress</text>
+
+  <path class="wirea" d="M260 662 V766 H440 V996 H458" marker-end="url(#arrow-a)"/>
+  <path class="wireb" d="M840 662 V766 H660 V996 H642" marker-end="url(#arrow-b)"/>
+  <rect class="box" x="460" y="960" width="180" height="72"/>
+  <text class="h" x="482" y="988">STEREO SPREAD</text>
+  <text class="s" x="482" y="1008">equal power · room crossfeed</text>
+  <text class="s" x="482" y="1022">linked peak containment</text>
+  <path class="audio" d="M550 1032 V1044" marker-end="url(#arrow)"/>
+  <rect class="box" x="460" y="1046" width="180" height="28"/>
+  <text class="h" x="492" y="1065">STEREO OUTPUT</text>
+
+  <path class="feedback" d="M100 1020 H146"/>
+  <text class="tag" x="156" y="1024">governed microphone return</text>
+</svg>

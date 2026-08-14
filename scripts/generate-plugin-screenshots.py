@@ -41,7 +41,19 @@ DOCUMENTATION_SAMPLE_RECIPES = {
     f"{PLUGIN_ID_PREFIX}ambi-grain-processor": (
         ("ambi-field-16ch.wav", 16, 3.2, 6),
     ),
+    f"{PLUGIN_ID_PREFIX}breakbeat-slicer": (
+        ("break-a.wav", 1, 2.4, 7),
+        ("break-b.wav", 1, 2.8, 8),
+        ("break-c.wav", 1, 3.2, 9),
+        ("break-d.wav", 1, 3.6, 10),
+    ),
 }
+PREFERRED_SLICER_SAMPLES = (
+    "Angles Break.wav",
+    "Atlantis Amen.wav",
+    "Control Vocal Break.wav",
+    "Futureproof Amen.wav",
+)
 
 TARGET_FILE_RE = re.compile(r"^\$<TARGET_FILE:([A-Za-z0-9_]+)>$")
 OUTPUT_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -531,8 +543,33 @@ def write_documentation_wave(
 
 
 def documentation_sample_environment(
-    capture_dir: Path, plugin_id: str
+    capture_dir: Path, plugin_id: str, sample_dir: Path | None = None
 ) -> dict[str, str]:
+    if plugin_id == f"{PLUGIN_ID_PREFIX}breakbeat-slicer" \
+            and sample_dir is not None:
+        if not sample_dir.is_dir():
+            raise UsageError(
+                f"documentation sample directory is unavailable: {sample_dir}"
+            )
+        preferred = [sample_dir / name for name in PREFERRED_SLICER_SAMPLES]
+        if not all(path.is_file() for path in preferred):
+            supported = sorted(
+                path for path in sample_dir.iterdir()
+                if path.is_file()
+                and path.suffix.casefold() in {".wav", ".aif", ".aiff", ".flac"}
+            )
+            if len(supported) < 4:
+                raise UsageError(
+                    f"documentation sample directory needs at least four audio files: "
+                    f"{sample_dir}"
+                )
+            preferred = supported[:4]
+        return {
+            "S3G_GUI_DOCUMENTATION_SAMPLE_PATH"
+                + (f"_{index + 1}" if index > 0 else ""): str(path)
+            for index, path in enumerate(preferred)
+        }
+
     recipes = DOCUMENTATION_SAMPLE_RECIPES.get(plugin_id, ())
     environment: dict[str, str] = {}
     for index, (name, channels, duration, scene) in enumerate(recipes):
@@ -735,6 +772,7 @@ def capture_selected(
     selected: list[Capture],
     names: dict[str, str],
     dpi: int,
+    sample_dir: Path | None,
 ) -> int:
     try:
         output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -766,7 +804,7 @@ def capture_selected(
                 environment["S3G_GUI_DOCUMENTATION_CAPTURE"] = "1"
                 environment.update(
                     documentation_sample_environment(
-                        capture_dir, capture.plugin_id
+                        capture_dir, capture.plugin_id, sample_dir
                     )
                 )
                 run(
@@ -822,6 +860,7 @@ def print_dry_run(
     names: dict[str, str],
     dpi: int,
     no_build: bool,
+    sample_dir: Path | None,
 ) -> None:
     if not no_build:
         targets = list(
@@ -838,16 +877,26 @@ def print_dry_run(
             build_dir, capture, capture_placeholder, dry_run=True
         )
         fixture_environment = []
-        for index, recipe in enumerate(
-            DOCUMENTATION_SAMPLE_RECIPES.get(capture.plugin_id, ())
-        ):
-            variable = "S3G_GUI_DOCUMENTATION_SAMPLE_PATH"
-            if index > 0:
-                variable = f"{variable}_{index + 1}"
-            fixture_environment.append(
-                f"{variable}="
-                f"{shlex.quote(str(capture_placeholder / recipe[0]))}"
+        if capture.plugin_id == f"{PLUGIN_ID_PREFIX}breakbeat-slicer" \
+                and sample_dir is not None:
+            sample_environment = documentation_sample_environment(
+                capture_placeholder, capture.plugin_id, sample_dir
             )
+            fixture_environment.extend(
+                f"{name}={shlex.quote(value)}"
+                for name, value in sample_environment.items()
+            )
+        else:
+            for index, recipe in enumerate(
+                DOCUMENTATION_SAMPLE_RECIPES.get(capture.plugin_id, ())
+            ):
+                variable = "S3G_GUI_DOCUMENTATION_SAMPLE_PATH"
+                if index > 0:
+                    variable = f"{variable}_{index + 1}"
+                fixture_environment.append(
+                    f"{variable}="
+                    f"{shlex.quote(str(capture_placeholder / recipe[0]))}"
+                )
         fixture_prefix = " ".join(fixture_environment)
         if fixture_prefix:
             fixture_prefix += " "
@@ -944,6 +993,14 @@ def parse_args() -> argparse.Namespace:
         help="override the output filename stem for one selected plugin",
     )
     parser.add_argument(
+        "--sample-dir",
+        type=Path,
+        help=(
+            "optional external audio directory for sample-based documentation "
+            "captures; Slicer uses four supported files from this directory"
+        ),
+    )
+    parser.add_argument(
         "--name-map",
         type=Path,
         metavar="TSV",
@@ -1001,6 +1058,7 @@ def main() -> int:
                 names,
                 dpi,
                 args.no_build,
+                args.sample_dir.resolve() if args.sample_dir else None,
             )
             return 0
 
@@ -1015,6 +1073,7 @@ def main() -> int:
             selected,
             names,
             dpi,
+            args.sample_dir.resolve() if args.sample_dir else None,
         )
         print(
             f"Wrote {written} PNG asset(s) to {display_path(output_dir)} and "

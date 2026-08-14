@@ -188,9 +188,14 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
       -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
   endif()
 
-  add_executable(s3g_ambi_acid_encoder_render
-    tools/render_ambi_acid_encoder.cpp)
-  target_link_libraries(s3g_ambi_acid_encoder_render PRIVATE s3g_dsp)
+  add_executable(s3g_processor_conduit_smoke
+    tests/processor_conduit_smoke.cpp)
+  target_link_libraries(s3g_processor_conduit_smoke PRIVATE s3g_dsp)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_processor_conduit_smoke PRIVATE
+      -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+  endif()
+
 endif()
 
 if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
@@ -218,9 +223,6 @@ target_compile_definitions(s3g_ambi_insect_encoder_smoke PRIVATE
 
 add_executable(s3g_accelerometer_field_encoder_smoke tests/accelerometer_field_encoder_smoke.cpp)
 target_link_libraries(s3g_accelerometer_field_encoder_smoke PRIVATE s3g_dsp)
-
-add_executable(s3g_accelerometer_field_encoder_render tools/render_accelerometer_field_encoder.cpp)
-target_link_libraries(s3g_accelerometer_field_encoder_render PRIVATE s3g_dsp)
 
 add_executable(s3g_ambi_field_listener_generators_smoke tests/ambi_field_listener_generators_smoke.cpp)
 target_link_libraries(s3g_ambi_field_listener_generators_smoke PRIVATE s3g_dsp)
@@ -274,10 +276,6 @@ target_link_libraries(s3g_acapella_source_synth_smoke PRIVATE s3g_dsp)
 add_executable(s3g_acapella_resonator_regression_smoke
   tests/acapella_resonator_regression_smoke.cpp)
 target_link_libraries(s3g_acapella_resonator_regression_smoke PRIVATE s3g_dsp)
-
-add_executable(s3g_acapella_source_synth_render
-  tools/render_acapella_source_synth.cpp)
-target_link_libraries(s3g_acapella_source_synth_render PRIVATE s3g_dsp)
 
 add_executable(s3g_psd_raw_field_smoke tests/psd_raw_field_smoke.cpp)
 target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
@@ -467,6 +465,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_processor_stack_smoke
       COMMAND $<TARGET_FILE:s3g_processor_stack_smoke>)
     set_tests_properties(s3g_processor_stack_smoke PROPERTIES
+      LABELS "non_nim;smoke" TIMEOUT 300)
+    add_test(NAME s3g_processor_conduit_smoke
+      COMMAND $<TARGET_FILE:s3g_processor_conduit_smoke>)
+    set_tests_properties(s3g_processor_conduit_smoke PROPERTIES
       LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
@@ -902,6 +904,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
       target_compile_options(s3g_processor_stack_clap_smoke PRIVATE
         -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     endif()
+
+    add_executable(s3g_processor_conduit_clap_smoke
+      tests/processor_conduit_clap_smoke.cpp)
+    target_include_directories(s3g_processor_conduit_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_processor_conduit_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+      target_compile_options(s3g_processor_conduit_clap_smoke PRIVATE
+        -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
   endif()
 
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
@@ -1031,6 +1044,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_processor_stack)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_processor_conduit)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
@@ -1843,19 +1859,48 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_processor_stack_clap_smoke
         s3g_processor_stack_clap
         s3g_clap_realtime_audit
-      COMMENT "Validating shared-stack synthesis, governed speaker feedback, MIDI, state, realtime safety, and CLAP contract")
+      COMMENT "Validating dual-rig synthesis, governed speaker cross-feedback, MIDI, state, realtime safety, and CLAP contract")
     if(APPLE)
       add_custom_target(audit_processor_stack_gui
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_stack_clap>
           org.s3g.s3g-dsp.processor-stack
-          980 1080 "s3g Processor Stack" responsive
+          980 774 "s3g Processor Stack" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_stack_clap
         COMMENT "Validating the responsive Processor Stack editor")
       add_dependencies(audit_processor_stack
         audit_processor_stack_gui)
+    endif()
+
+    add_custom_target(audit_processor_conduit
+      COMMAND $<TARGET_FILE:s3g_processor_conduit_smoke>
+      COMMAND $<TARGET_FILE:s3g_processor_conduit_clap_smoke>
+        $<TARGET_FILE:s3g_processor_conduit_clap>
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 44100,48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_processor_conduit_clap>
+        org.s3g.s3g-dsp.processor-conduit
+      DEPENDS
+        s3g_processor_conduit_smoke
+        s3g_processor_conduit_clap_smoke
+        s3g_processor_conduit_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating moving-PA feedback, 26 materials, three pedal insertion points, gain-safe presets/randomization, vessel chambers, stereo I/O, octave-down DSP, state migration, realtime safety, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_processor_conduit_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_processor_conduit_clap>
+          org.s3g.s3g-dsp.processor-conduit
+          760 620 "s3g Processor Conduit" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_processor_conduit_clap
+        COMMENT "Validating the responsive Processor Conduit editor")
+      add_dependencies(audit_processor_conduit
+        audit_processor_conduit_gui)
     endif()
   endif()
 
@@ -2472,6 +2517,18 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_tracker_clap_smoke
           s3g_tracker_clap
         COMMENT "Rendering and validating the s3g Tracker GUI")
+    endif()
+
+    if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
+      add_custom_target(audit_gui_breakbeat_slicer
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_breakbeat_slicer_clap>
+          org.s3g.s3g-dsp.breakbeat-slicer
+          1080 800 "s3g Slicer" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_breakbeat_slicer_clap
+        COMMENT "Rendering and validating the s3g Slicer GUI")
     endif()
   endif()
 

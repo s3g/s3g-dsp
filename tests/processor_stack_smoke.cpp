@@ -21,6 +21,10 @@ struct RenderStats {
     double earlyEnergy = 0.0;
     double tailEnergy = 0.0;
     double differenceEnergy = 0.0;
+    double sideEnergy = 0.0;
+    double leftEnergy = 0.0;
+    double rightEnergy = 0.0;
+    double channelCrossEnergy = 0.0;
     double feedbackBodyEnergy = 0.0;
     double feedbackStabEnergy = 0.0;
     double targetGlitchEnergy = 0.0;
@@ -32,6 +36,7 @@ struct RenderStats {
     float maximumSpeakerProtection = 0.0f;
     float maximumSpeakerModePreLimit = 0.0f;
     float maximumLimiterGainStep = 0.0f;
+    float maximumPairSideActivity = 0.0f;
     uint32_t onsetMaximumDeltaFrame = 0u;
     float maximumOverloadMask = 0.0f;
     float finalActivity = 0.0f;
@@ -88,11 +93,16 @@ RenderStats render(s3g::ProcessorStackParams params,
         const double frameEnergy = static_cast<double>(left) * left
             + static_cast<double>(right) * right;
         stats.energy += frameEnergy;
+        stats.leftEnergy += static_cast<double>(left) * left;
+        stats.rightEnergy += static_cast<double>(right) * right;
+        stats.channelCrossEnergy += static_cast<double>(left) * right;
         const float mono = (left + right) * 0.5f;
         const float difference = mono - previousMono;
         stats.maximumDelta = std::max(stats.maximumDelta,
             std::abs(difference));
         stats.differenceEnergy += static_cast<double>(difference) * difference;
+        const float side = (left - right) * 0.5f;
+        stats.sideEnergy += static_cast<double>(side) * side;
         if (frame < onsetEnd) {
             stats.onsetEnergy += frameEnergy;
             stats.onsetDifferenceEnergy += static_cast<double>(difference)
@@ -128,6 +138,8 @@ RenderStats render(s3g::ProcessorStackParams params,
         stats.maximumLimiterGainStep = std::max(
             stats.maximumLimiterGainStep,
             stack.maximumLimiterGainStep());
+        stats.maximumPairSideActivity = std::max(
+            stats.maximumPairSideActivity, stack.pairSideActivity());
         stats.speakerSoftLimitCount = std::max(
             stats.speakerSoftLimitCount, stack.speakerSoftLimitCount());
         stats.micSoftLimitCount = std::max(stats.micSoftLimitCount,
@@ -159,6 +171,41 @@ std::vector<float> renderSignature(s3g::ProcessorStackParams params)
         result[frame] = left + right * 0.37f;
     }
     return result;
+}
+
+struct StereoDifference {
+    double left = 0.0;
+    double right = 0.0;
+};
+
+StereoDifference compareStereoSignatures(
+    s3g::ProcessorStackParams firstParams,
+    s3g::ProcessorStackParams secondParams)
+{
+    s3g::ProcessorStack first;
+    s3g::ProcessorStack second;
+    first.prepare(48000.0);
+    second.prepare(48000.0);
+    first.setParams(firstParams);
+    second.setParams(secondParams);
+    first.noteOn(43, 0.84f);
+    second.noteOn(43, 0.84f);
+    StereoDifference difference;
+    for (uint32_t frame = 0u; frame < 12000u; ++frame) {
+        float firstLeft = 0.0f;
+        float firstRight = 0.0f;
+        float secondLeft = 0.0f;
+        float secondRight = 0.0f;
+        first.processFrame(firstLeft, firstRight);
+        second.processFrame(secondLeft, secondRight);
+        const double leftDelta = static_cast<double>(
+            firstLeft - secondLeft);
+        const double rightDelta = static_cast<double>(
+            firstRight - secondRight);
+        difference.left += leftDelta * leftDelta;
+        difference.right += rightDelta * rightDelta;
+    }
+    return difference;
 }
 
 bool near(float first, float second, float tolerance = 1.0e-6f)
@@ -194,6 +241,15 @@ int main()
     invalid.decayMs = 90000.0f;
     invalid.sustain = -3.0f;
     invalid.releaseMs = 90000.0f;
+    invalid.pairAmount = 9.0f;
+    invalid.pairRelation =
+        static_cast<s3g::ProcessorStackPairRelation>(99u);
+    invalid.pairLoose = -2.0f;
+    invalid.pairSpread = std::numeric_limits<float>::quiet_NaN();
+    invalid.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(99u);
+    invalid.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(99u);
+    invalid.neckB = static_cast<s3g::ProcessorStackNeckMaterial>(99u);
+    invalid.bodyB = static_cast<s3g::ProcessorStackBodyMaterial>(99u);
     invalid.feedback = 5.0f;
     invalid.polarity = -5.0f;
     invalid.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(99u);
@@ -204,6 +260,22 @@ int main()
     invalid.customPatternLength = 99u;
     invalid.customPattern[0u] = -99;
     invalid.customPattern[1u] = 99;
+    invalid.arpBRelation = static_cast<s3g::ProcessorStackArpRelation>(99u);
+    invalid.arpPatternB = static_cast<s3g::ProcessorStackArpPattern>(99u);
+    invalid.scaleB = static_cast<s3g::ProcessorStackScale>(99u);
+    invalid.arpRateB = static_cast<s3g::ProcessorStackArpRate>(99u);
+    invalid.arpOctavesB = 99u;
+    invalid.arpGateB = -1.0f;
+    invalid.arpPhaseB = 4.0f;
+    invalid.customPatternLengthB = 99u;
+    invalid.customPatternB[0u] = -99;
+    invalid.customPatternB[1u] = 99;
+    invalid.circuitB = static_cast<s3g::ProcessorStackCircuit>(99u);
+    invalid.biteB = -2.0f;
+    invalid.stackB = 7.0f;
+    invalid.feedbackB = 4.0f;
+    invalid.polarityB = -3.0f;
+    invalid.overloadMaskB = 8.0f;
     invalid.pierce = -3.0f;
     invalid.selfListen = 4.0f;
     invalid.targetGlitch = 8.0f;
@@ -217,6 +289,13 @@ int main()
         || sanitized.pick != 0.72f || sanitized.glideMs != 2000.0f
         || sanitized.attackMs != 0.0f || sanitized.decayMs != 8000.0f
         || sanitized.sustain != 0.0f || sanitized.releaseMs != 20000.0f
+        || sanitized.pairAmount != 1.0f
+        || sanitized.pairRelation != s3g::ProcessorStackPairRelation::Contrary
+        || sanitized.pairLoose != 0.0f || sanitized.pairSpread != 0.72f
+        || sanitized.neckA != s3g::ProcessorStackNeckMaterial::Composite
+        || sanitized.bodyA != s3g::ProcessorStackBodyMaterial::Aluminum
+        || sanitized.neckB != s3g::ProcessorStackNeckMaterial::Composite
+        || sanitized.bodyB != s3g::ProcessorStackBodyMaterial::Aluminum
         || sanitized.feedback != 1.0f || sanitized.polarity != 0.0f
         || sanitized.arpPattern != s3g::ProcessorStackArpPattern::Custom
         || sanitized.scale != s3g::ProcessorStackScale::Tritone
@@ -225,6 +304,19 @@ int main()
         || sanitized.customPatternLength != 8u
         || sanitized.customPattern[0u] != -8
         || sanitized.customPattern[1u] != 15
+        || sanitized.arpBRelation != s3g::ProcessorStackArpRelation::Free
+        || sanitized.arpPatternB != s3g::ProcessorStackArpPattern::Custom
+        || sanitized.scaleB != s3g::ProcessorStackScale::Tritone
+        || sanitized.arpRateB != s3g::ProcessorStackArpRate::Whole
+        || sanitized.arpOctavesB != 4u || sanitized.arpGateB != 0.05f
+        || sanitized.arpPhaseB != 1.0f
+        || sanitized.customPatternLengthB != 8u
+        || sanitized.customPatternB[0u] != -8
+        || sanitized.customPatternB[1u] != 15
+        || sanitized.circuitB != s3g::ProcessorStackCircuit::Diode
+        || sanitized.biteB != 0.0f || sanitized.stackB != 1.0f
+        || sanitized.feedbackB != 1.0f || sanitized.polarityB != 0.0f
+        || sanitized.overloadMaskB != 1.0f
         || sanitized.pierce != 0.0f || sanitized.selfListen != 1.0f
         || sanitized.targetGlitch != 1.0f
         || sanitized.glitchRatchet != 0.0f
@@ -442,6 +534,122 @@ int main()
                   << pluckedStringStats.tailEnergy << "\n";
         return 1;
     }
+
+    auto oneGuitar = reference;
+    oneGuitar.mode = s3g::ProcessorStackMode::Lead;
+    oneGuitar.feedback = 0.0f;
+    oneGuitar.targetGlitch = 0.0f;
+    oneGuitar.outputGainDb = -18.0f;
+    oneGuitar.pairAmount = 0.0f;
+    oneGuitar.neckA = s3g::ProcessorStackNeckMaterial::Maple;
+    oneGuitar.bodyA = s3g::ProcessorStackBodyMaterial::SolidWood;
+    auto twoGuitars = oneGuitar;
+    twoGuitars.pairAmount = 1.0f;
+    twoGuitars.pairRelation = s3g::ProcessorStackPairRelation::FifthUp;
+    twoGuitars.pairLoose = 0.48f;
+    twoGuitars.pairSpread = 1.0f;
+    twoGuitars.neckB = s3g::ProcessorStackNeckMaterial::Aluminum;
+    twoGuitars.bodyB = s3g::ProcessorStackBodyMaterial::HollowWood;
+    auto collapsedTwoGuitars = twoGuitars;
+    collapsedTwoGuitars.pairSpread = 0.0f;
+    const auto collapsedTwoGuitarStats = render(collapsedTwoGuitars,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    const auto twoGuitarStats = render(twoGuitars,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    const double channelCorrelation = std::abs(
+        twoGuitarStats.channelCrossEnergy)
+        / std::sqrt(std::max(1.0e-18,
+            twoGuitarStats.leftEnergy * twoGuitarStats.rightEnergy));
+    if (!twoGuitarStats.finite
+        || twoGuitarStats.maximumPairSideActivity < 1.0e-4f
+        || twoGuitarStats.sideEnergy
+            <= collapsedTwoGuitarStats.sideEnergy * 4.0 + 1.0e-8
+        || twoGuitarStats.sideEnergy <= twoGuitarStats.energy * 0.08
+        || channelCorrelation >= 0.96) {
+        std::cerr << "two independent rigs did not create a true stereo image: "
+                  << collapsedTwoGuitarStats.sideEnergy << " -> "
+                  << twoGuitarStats.sideEnergy << " activity="
+                  << twoGuitarStats.maximumPairSideActivity
+                  << " ratio="
+                  << twoGuitarStats.sideEnergy / twoGuitarStats.energy
+                  << " corr=" << channelCorrelation << "\n";
+        return 1;
+    }
+
+    auto alternatePartnerMaterial = twoGuitars;
+    alternatePartnerMaterial.neckB =
+        s3g::ProcessorStackNeckMaterial::Mahogany;
+    alternatePartnerMaterial.bodyB =
+        s3g::ProcessorStackBodyMaterial::SolidWood;
+    const auto partnerMaterialDifference = compareStereoSignatures(
+        twoGuitars, alternatePartnerMaterial);
+    if (partnerMaterialDifference.right
+            <= partnerMaterialDifference.left * 1.5 + 1.0e-12) {
+        std::cerr << "guitar B material did not remain localized to its rig: "
+                  << partnerMaterialDifference.left << " / "
+                  << partnerMaterialDifference.right << "\n";
+        return 1;
+    }
+
+    auto splitRigA = twoGuitars;
+    splitRigA.linkPedal = false;
+    splitRigA.linkAmplifier = false;
+    splitRigA.linkFeedback = false;
+    splitRigA.circuitB = s3g::ProcessorStackCircuit::ZoneA;
+    splitRigA.stackB = 0.28f;
+    splitRigA.sagB = 0.18f;
+    splitRigA.feedbackB = 0.16f;
+    splitRigA.pierceB = 0.34f;
+    auto splitRigB = splitRigA;
+    splitRigB.circuitB = s3g::ProcessorStackCircuit::Shred;
+    splitRigB.stackB = 0.94f;
+    splitRigB.sagB = 0.82f;
+    splitRigB.feedbackB = 0.78f;
+    splitRigB.pierceB = 0.96f;
+    const auto partnerRigDifference = compareStereoSignatures(
+        splitRigA, splitRigB);
+    if (partnerRigDifference.right
+            <= partnerRigDifference.left * 1.5 + 1.0e-12) {
+        std::cerr << "guitar B amp/effects did not remain localized: "
+                  << partnerRigDifference.left << " / "
+                  << partnerRigDifference.right << "\n";
+        return 1;
+    }
+
+    auto metalHollow = oneGuitar;
+    metalHollow.neckA = s3g::ProcessorStackNeckMaterial::Aluminum;
+    metalHollow.bodyA = s3g::ProcessorStackBodyMaterial::HollowWood;
+    const auto woodSignature = renderSignature(oneGuitar);
+    const auto metalHollowSignature = renderSignature(metalHollow);
+    if (woodSignature == metalHollowSignature) {
+        std::cerr << "neck/body construction did not alter the guitar voice\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack relatedGuitars;
+    relatedGuitars.prepare(48000.0);
+    relatedGuitars.setParams(twoGuitars);
+    relatedGuitars.noteOn(40, 0.86f);
+    if (relatedGuitars.partnerRootNote() != 47) {
+        std::cerr << "fifth-related guitar did not select the upper fifth\n";
+        return 1;
+    }
+    auto contraryGuitars = twoGuitars;
+    contraryGuitars.pairRelation =
+        s3g::ProcessorStackPairRelation::Contrary;
+    relatedGuitars.reset();
+    relatedGuitars.setParams(contraryGuitars);
+    relatedGuitars.noteOn(40, 0.86f);
+    const int firstCounterNote = relatedGuitars.partnerRootNote();
+    relatedGuitars.noteOn(43, 0.86f);
+    if (firstCounterNote != 47
+        || relatedGuitars.partnerRootNote() != 44) {
+        std::cerr << "contrary guitar did not invert primary motion: "
+                  << firstCounterNote << " -> "
+                  << relatedGuitars.partnerRootNote() << "\n";
+        return 1;
+    }
+
     auto drain = regenerated;
     drain.feedback = 0.78f;
     drain.spill = 0.58f;
@@ -798,6 +1006,57 @@ int main()
     if (arpeggiator.arpCurrentNote() != 43
         || arpeggiator.arpStepCount() != 3u) {
         std::cerr << "tempo-synced Phrygian rule missed its minor third\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack dualArpeggiator;
+    dualArpeggiator.prepare(48000.0);
+    auto dualArpParams = arpParams;
+    dualArpParams.pairAmount = 1.0f;
+    dualArpParams.pairSpread = 1.0f;
+    dualArpParams.arpBRelation = s3g::ProcessorStackArpRelation::Free;
+    dualArpParams.arpPatternB = s3g::ProcessorStackArpPattern::Custom;
+    dualArpParams.scaleB = s3g::ProcessorStackScale::Phrygian;
+    dualArpParams.arpRateB = s3g::ProcessorStackArpRate::Eighth;
+    dualArpParams.arpOctavesB = 1u;
+    dualArpParams.arpGateB = 0.68f;
+    dualArpParams.arpPhaseB = 0.0f;
+    dualArpParams.customPatternLengthB = 2u;
+    dualArpParams.customPatternB = {{ 0, 4, 0, 0, 0, 0, 0, 0 }};
+    dualArpeggiator.setParams(dualArpParams);
+    dualArpeggiator.setTempoBpm(120.0f);
+    dualArpeggiator.noteOn(40, 0.9f);
+    if (dualArpeggiator.arpStepCount() != 1u
+        || dualArpeggiator.partnerArpStepCount() != 1u
+        || dualArpeggiator.partnerArpCurrentNote() != 40) {
+        std::cerr << "independent B arpeggiator did not attack immediately\n";
+        return 1;
+    }
+    for (uint32_t frame = 0u; frame < 12000u; ++frame) {
+        float left = 0.0f;
+        float right = 0.0f;
+        dualArpeggiator.processFrame(left, right);
+    }
+    if (dualArpeggiator.arpStepCount() != 3u
+        || dualArpeggiator.partnerArpStepCount() != 2u
+        || dualArpeggiator.partnerArpCurrentNote() != 47) {
+        std::cerr << "A/B arpeggiator clocks or custom B rule were not independent: "
+                  << dualArpeggiator.arpStepCount() << " / "
+                  << dualArpeggiator.partnerArpStepCount() << " note="
+                  << dualArpeggiator.partnerArpCurrentNote() << "\n";
+        return 1;
+    }
+    auto followArpParams = dualArpParams;
+    followArpParams.arpBRelation = s3g::ProcessorStackArpRelation::Follow;
+    s3g::ProcessorStack followingArpeggiator;
+    followingArpeggiator.prepare(48000.0);
+    followingArpeggiator.setParams(followArpParams);
+    followingArpeggiator.noteOn(40, 0.9f);
+    if (followingArpeggiator.partnerArpStepCount() != 0u
+        || followingArpeggiator.partnerRootNote() != 40
+        || std::strcmp(s3g::processorStackArpRelationName(
+                s3g::ProcessorStackArpRelation::Counter), "COUNTER") != 0) {
+        std::cerr << "FOLLOW arpeggiator did not defer to A's clock\n";
         return 1;
     }
 

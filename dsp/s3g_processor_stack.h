@@ -148,6 +148,102 @@ inline const char* processorStackCircuitName(ProcessorStackCircuit circuit)
     return "SHRED";
 }
 
+enum class ProcessorStackPairRelation : uint32_t {
+    Unison = 0u,
+    FourthDown,
+    FifthUp,
+    OctaveUp,
+    Contrary,
+    Count,
+};
+
+inline constexpr uint32_t kProcessorStackPairRelationCount =
+    static_cast<uint32_t>(ProcessorStackPairRelation::Count);
+
+inline const char* processorStackPairRelationName(
+    ProcessorStackPairRelation relation)
+{
+    switch (relation) {
+    case ProcessorStackPairRelation::Unison: return "UNISON";
+    case ProcessorStackPairRelation::FourthDown: return "4TH DOWN";
+    case ProcessorStackPairRelation::FifthUp: return "5TH UP";
+    case ProcessorStackPairRelation::OctaveUp: return "OCTAVE UP";
+    case ProcessorStackPairRelation::Contrary: return "CONTRARY";
+    case ProcessorStackPairRelation::Count: break;
+    }
+    return "UNISON";
+}
+
+enum class ProcessorStackArpRelation : uint32_t {
+    Follow = 0u,
+    Counter,
+    Free,
+    Count,
+};
+
+inline constexpr uint32_t kProcessorStackArpRelationCount =
+    static_cast<uint32_t>(ProcessorStackArpRelation::Count);
+
+inline const char* processorStackArpRelationName(
+    ProcessorStackArpRelation relation)
+{
+    switch (relation) {
+    case ProcessorStackArpRelation::Follow: return "FOLLOW";
+    case ProcessorStackArpRelation::Counter: return "COUNTER";
+    case ProcessorStackArpRelation::Free: return "FREE";
+    case ProcessorStackArpRelation::Count: break;
+    }
+    return "FOLLOW";
+}
+
+enum class ProcessorStackNeckMaterial : uint32_t {
+    Maple = 0u,
+    Mahogany,
+    Aluminum,
+    Composite,
+    Count,
+};
+
+inline constexpr uint32_t kProcessorStackNeckMaterialCount =
+    static_cast<uint32_t>(ProcessorStackNeckMaterial::Count);
+
+inline const char* processorStackNeckMaterialName(
+    ProcessorStackNeckMaterial material)
+{
+    switch (material) {
+    case ProcessorStackNeckMaterial::Maple: return "MAPLE";
+    case ProcessorStackNeckMaterial::Mahogany: return "MAHOGANY";
+    case ProcessorStackNeckMaterial::Aluminum: return "ALUMINUM";
+    case ProcessorStackNeckMaterial::Composite: return "COMPOSITE";
+    case ProcessorStackNeckMaterial::Count: break;
+    }
+    return "MAPLE";
+}
+
+enum class ProcessorStackBodyMaterial : uint32_t {
+    SolidWood = 0u,
+    HollowWood,
+    SemiHollow,
+    Aluminum,
+    Count,
+};
+
+inline constexpr uint32_t kProcessorStackBodyMaterialCount =
+    static_cast<uint32_t>(ProcessorStackBodyMaterial::Count);
+
+inline const char* processorStackBodyMaterialName(
+    ProcessorStackBodyMaterial material)
+{
+    switch (material) {
+    case ProcessorStackBodyMaterial::SolidWood: return "SOLID WOOD";
+    case ProcessorStackBodyMaterial::HollowWood: return "HOLLOW WOOD";
+    case ProcessorStackBodyMaterial::SemiHollow: return "SEMI-HOLLOW";
+    case ProcessorStackBodyMaterial::Aluminum: return "ALUMINUM";
+    case ProcessorStackBodyMaterial::Count: break;
+    }
+    return "SOLID WOOD";
+}
+
 struct ProcessorStackParams {
     ProcessorStackMode mode = ProcessorStackMode::Power;
     float shape = 0.58f;
@@ -162,6 +258,18 @@ struct ProcessorStackParams {
     float sustain = 0.78f;
     float releaseMs = 90.0f;
 
+    float pairAmount = 0.0f;
+    ProcessorStackPairRelation pairRelation =
+        ProcessorStackPairRelation::Unison;
+    float pairLoose = 0.24f;
+    float pairSpread = 0.72f;
+    ProcessorStackNeckMaterial neckA = ProcessorStackNeckMaterial::Maple;
+    ProcessorStackBodyMaterial bodyA = ProcessorStackBodyMaterial::SolidWood;
+    ProcessorStackNeckMaterial neckB =
+        ProcessorStackNeckMaterial::Aluminum;
+    ProcessorStackBodyMaterial bodyB =
+        ProcessorStackBodyMaterial::HollowWood;
+
     ProcessorStackArpPattern arpPattern = ProcessorStackArpPattern::Off;
     ProcessorStackScale scale = ProcessorStackScale::Phrygian;
     ProcessorStackArpRate arpRate = ProcessorStackArpRate::Sixteenth;
@@ -170,6 +278,18 @@ struct ProcessorStackParams {
     uint32_t customPatternLength = 8u;
     std::array<int32_t, 8u> customPattern {{
         0, 1, 2, 4, 3, 6, 5, 1,
+    }};
+    ProcessorStackArpRelation arpBRelation =
+        ProcessorStackArpRelation::Follow;
+    ProcessorStackArpPattern arpPatternB = ProcessorStackArpPattern::Off;
+    ProcessorStackScale scaleB = ProcessorStackScale::Phrygian;
+    ProcessorStackArpRate arpRateB = ProcessorStackArpRate::Sixteenth;
+    uint32_t arpOctavesB = 2u;
+    float arpGateB = 0.62f;
+    float arpPhaseB = 0.50f;
+    uint32_t customPatternLengthB = 8u;
+    std::array<int32_t, 8u> customPatternB {{
+        0, 4, 2, 6, 1, 5, 3, 7,
     }};
 
     ProcessorStackCircuit circuit = ProcessorStackCircuit::Rat;
@@ -196,6 +316,32 @@ struct ProcessorStackParams {
     float targetGlitch = 0.0f;
     float glitchRatchet = 0.46f;
     float overloadMask = 0.76f;
+
+    bool linkPedal = true;
+    bool linkAmplifier = true;
+    bool linkFeedback = true;
+    ProcessorStackCircuit circuitB = ProcessorStackCircuit::Rat;
+    float biteB = 0.56f;
+    float pedalToneB = 0.54f;
+    float biasB = 0.52f;
+    float stackB = 0.62f;
+    float sagB = 0.46f;
+    float focusB = 0.55f;
+    float coneB = 0.64f;
+    float cabinetB = 0.52f;
+    float micB = 0.34f;
+    float feedbackB = 0.56f;
+    float proximityB = 0.58f;
+    float harmonicB = 0.42f;
+    float trackingB = 0.72f;
+    float polarityB = 0.78f;
+    float rootB = 0.28f;
+    float chaosB = 0.32f;
+    float pierceB = 0.68f;
+    float selfListenB = 0.72f;
+    float targetGlitchB = 0.0f;
+    float glitchRatchetB = 0.46f;
+    float overloadMaskB = 0.76f;
     float outputGainDb = -12.0f;
 };
 
@@ -220,6 +366,24 @@ inline ProcessorStackParams sanitizeProcessorStackParams(
     params.decayMs = finite(params.decayMs, 180.0f, 5.0f, 8000.0f);
     params.sustain = finite(params.sustain, 0.78f, 0.0f, 1.0f);
     params.releaseMs = finite(params.releaseMs, 90.0f, 5.0f, 20000.0f);
+    params.pairAmount = finite(params.pairAmount, 0.0f, 0.0f, 1.0f);
+    params.pairRelation = static_cast<ProcessorStackPairRelation>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.pairRelation),
+            kProcessorStackPairRelationCount - 1u));
+    params.pairLoose = finite(params.pairLoose, 0.24f, 0.0f, 1.0f);
+    params.pairSpread = finite(params.pairSpread, 0.72f, 0.0f, 1.0f);
+    params.neckA = static_cast<ProcessorStackNeckMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.neckA),
+            kProcessorStackNeckMaterialCount - 1u));
+    params.bodyA = static_cast<ProcessorStackBodyMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.bodyA),
+            kProcessorStackBodyMaterialCount - 1u));
+    params.neckB = static_cast<ProcessorStackNeckMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.neckB),
+            kProcessorStackNeckMaterialCount - 1u));
+    params.bodyB = static_cast<ProcessorStackBodyMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.bodyB),
+            kProcessorStackBodyMaterialCount - 1u));
     params.arpPattern = static_cast<ProcessorStackArpPattern>(
         std::min<uint32_t>(static_cast<uint32_t>(params.arpPattern),
             kProcessorStackArpPatternCount - 1u));
@@ -235,6 +399,27 @@ inline ProcessorStackParams sanitizeProcessorStackParams(
         params.customPatternLength, 1u,
         static_cast<uint32_t>(params.customPattern.size()));
     for (auto& step : params.customPattern) {
+        step = std::clamp(step, -8, 15);
+    }
+    params.arpBRelation = static_cast<ProcessorStackArpRelation>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.arpBRelation),
+            kProcessorStackArpRelationCount - 1u));
+    params.arpPatternB = static_cast<ProcessorStackArpPattern>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.arpPatternB),
+            kProcessorStackArpPatternCount - 1u));
+    params.scaleB = static_cast<ProcessorStackScale>(std::min<uint32_t>(
+        static_cast<uint32_t>(params.scaleB),
+        kProcessorStackScaleCount - 1u));
+    params.arpRateB = static_cast<ProcessorStackArpRate>(std::min<uint32_t>(
+        static_cast<uint32_t>(params.arpRateB),
+        kProcessorStackArpRateCount - 1u));
+    params.arpOctavesB = std::clamp(params.arpOctavesB, 1u, 4u);
+    params.arpGateB = finite(params.arpGateB, 0.62f, 0.05f, 1.0f);
+    params.arpPhaseB = finite(params.arpPhaseB, 0.50f, 0.0f, 1.0f);
+    params.customPatternLengthB = std::clamp(
+        params.customPatternLengthB, 1u,
+        static_cast<uint32_t>(params.customPatternB.size()));
+    for (auto& step : params.customPatternB) {
         step = std::clamp(step, -8, 15);
     }
     params.circuit = static_cast<ProcessorStackCircuit>(std::min<uint32_t>(
@@ -261,15 +446,42 @@ inline ProcessorStackParams sanitizeProcessorStackParams(
     params.targetGlitch = finite(params.targetGlitch, 0.0f, 0.0f, 1.0f);
     params.glitchRatchet = finite(params.glitchRatchet, 0.46f, 0.0f, 1.0f);
     params.overloadMask = finite(params.overloadMask, 0.76f, 0.0f, 1.0f);
+    params.circuitB = static_cast<ProcessorStackCircuit>(std::min<uint32_t>(
+        static_cast<uint32_t>(params.circuitB),
+        kProcessorStackCircuitCount - 1u));
+    params.biteB = finite(params.biteB, 0.56f, 0.0f, 1.0f);
+    params.pedalToneB = finite(params.pedalToneB, 0.54f, 0.0f, 1.0f);
+    params.biasB = finite(params.biasB, 0.52f, 0.0f, 1.0f);
+    params.stackB = finite(params.stackB, 0.62f, 0.0f, 1.0f);
+    params.sagB = finite(params.sagB, 0.46f, 0.0f, 1.0f);
+    params.focusB = finite(params.focusB, 0.55f, 0.0f, 1.0f);
+    params.coneB = finite(params.coneB, 0.64f, 0.0f, 1.0f);
+    params.cabinetB = finite(params.cabinetB, 0.52f, 0.0f, 1.0f);
+    params.micB = finite(params.micB, 0.34f, 0.0f, 1.0f);
+    params.feedbackB = finite(params.feedbackB, 0.56f, 0.0f, 1.0f);
+    params.proximityB = finite(params.proximityB, 0.58f, 0.0f, 1.0f);
+    params.harmonicB = finite(params.harmonicB, 0.42f, 0.0f, 1.0f);
+    params.trackingB = finite(params.trackingB, 0.72f, 0.0f, 1.0f);
+    params.polarityB = finite(params.polarityB, 0.78f, 0.0f, 1.0f);
+    params.rootB = finite(params.rootB, 0.28f, 0.0f, 1.0f);
+    params.chaosB = finite(params.chaosB, 0.32f, 0.0f, 1.0f);
+    params.pierceB = finite(params.pierceB, 0.68f, 0.0f, 1.0f);
+    params.selfListenB = finite(params.selfListenB, 0.72f, 0.0f, 1.0f);
+    params.targetGlitchB = finite(params.targetGlitchB, 0.0f, 0.0f, 1.0f);
+    params.glitchRatchetB = finite(params.glitchRatchetB,
+        0.46f, 0.0f, 1.0f);
+    params.overloadMaskB = finite(params.overloadMaskB,
+        0.76f, 0.0f, 1.0f);
     params.outputGainDb = finite(
         params.outputGainDb, -12.0f, -36.0f, 6.0f);
     return params;
 }
 
-// A shared amp/speaker feedback instrument. Four deliberately sparse exciter
-// lanes enter one pedal, one supply envelope, and one nonlinear speaker. The
-// speaker microphones, rather than a sustained oscillator bank, close the
-// governed pitch-related loop. Storage is allocated only by prepare().
+// A dual-rig amp/speaker feedback instrument. Each four-lane guitar player
+// owns a pedal, supply envelope, nonlinear speaker, room, and microphone
+// feedback history. The two governed rigs can cross-listen, but they are not
+// summed before their nonlinear stages. Storage is allocated only by
+// prepare().
 class ProcessorStack {
 public:
     static constexpr uint32_t kExciterCount = 4u;
@@ -284,13 +496,19 @@ public:
         for (auto& lane : lanes_) {
             lane.delay.assign(std::max<size_t>(wireSize, 16u), 0.0f);
         }
+        for (auto& lane : partnerLanes_) {
+            lane.delay.assign(std::max<size_t>(wireSize, 16u), 0.0f);
+        }
         const size_t loopSize = static_cast<size_t>(
             std::ceil(sampleRate_ * 0.032)) + 8u;
-        loopDelay_.assign(std::max<size_t>(loopSize, 16u), 0.0f);
-        roomDelay_.assign(std::max<size_t>(loopSize, 16u), 0.0f);
         const size_t glitchSize = static_cast<size_t>(
             std::ceil(sampleRate_ * 0.050)) + 8u;
-        glitchHistory_.assign(std::max<size_t>(glitchSize, 32u), 0.0f);
+        for (auto& rig : rigs_) {
+            rig.loopDelay.assign(std::max<size_t>(loopSize, 16u), 0.0f);
+            rig.roomDelay.assign(std::max<size_t>(loopSize, 16u), 0.0f);
+            rig.glitchHistory.assign(
+                std::max<size_t>(glitchSize, 32u), 0.0f);
+        }
         reset();
     }
 
@@ -304,49 +522,13 @@ public:
             std::fill(lane.delay.begin(), lane.delay.end(), 0.0f);
             lane = resetLanePreservingDelay(std::move(lane.delay));
         }
-        std::fill(loopDelay_.begin(), loopDelay_.end(), 0.0f);
-        std::fill(roomDelay_.begin(), roomDelay_.end(), 0.0f);
-        std::fill(glitchHistory_.begin(), glitchHistory_.end(), 0.0f);
-        loopWriteIndex_ = 0u;
-        roomWriteIndex_ = 0u;
-        glitchWriteIndex_ = 0u;
-        loopDelaySamples_ = static_cast<float>(sampleRate_ * 0.0025);
-        stabDelaySamples_ = static_cast<float>(sampleRate_ * 0.0008);
-        loopDcInput_ = 0.0f;
-        loopDcOutput_ = 0.0f;
-        loopLow_ = 0.0f;
-        loopHighLow_ = 0.0f;
-        stabDcInput_ = 0.0f;
-        stabDcOutput_ = 0.0f;
-        stabLow_ = 0.0f;
-        stabBand_ = 0.0f;
-        bodyEnvelope_ = 0.0f;
-        stabEnvelope_ = 0.0f;
-        selfFocus_ = 0.0f;
-        glitchEnvelope_ = 0.0f;
-        glitchActivity_ = 0.0f;
-        glitchPhase_ = 0.0f;
-        glitchCellSamples_ = 16u;
-        glitchRepeatIndex_ = 0u;
-        glitchRepeatCount_ = 0u;
-        glitchArmAgeSamples_ = 0u;
-        glitchTriggerCount_ = 0u;
-        glitchCaptureStart_ = 0u;
-        glitchArmed_ = false;
-        glitchPlaying_ = false;
-        overloadLevel_ = 0.0f;
-        overloadRoughness_ = 0.0f;
-        overloadMaskAmount_ = 0.0f;
-        overloadPreviousMic_ = 0.0f;
-        overloadLowLeft_ = 0.0f;
-        overloadLowRight_ = 0.0f;
-        speakerProtection_ = 0.0f;
-        speakerProtectionPeak_ = 0.0f;
-        speakerModePreLimitPeak_ = 0.0f;
-        speakerSoftLimitCount_ = 0u;
-        micSoftLimitCount_ = 0u;
-        loopEnvelope_ = 0.0f;
-        loopActivity_ = 0.0f;
+        for (auto& lane : partnerLanes_) {
+            std::fill(lane.delay.begin(), lane.delay.end(), 0.0f);
+            lane = resetLanePreservingDelay(std::move(lane.delay));
+        }
+        for (uint32_t index = 0u; index < rigs_.size(); ++index) {
+            resetRig(rigs_[index], index);
+        }
         keyGate_ = 0.0f;
         crookedHarmonicSkew_ = 0.0f;
         speakerChoke_ = 1.0f;
@@ -354,33 +536,16 @@ public:
         pressure_ = 0.0f;
         pitchBendSemitones_ = 0.0f;
         tempoBpm_ = 120.0f;
-        arpPhaseSamples_ = 0.0;
-        arpStepIndex_ = 0u;
-        arpStepCount_ = 0u;
-        arpCurrentNote_ = -1;
-        arpGateOpen_ = false;
+        arpeggiators_.fill(ArpState {});
         lastPlayedNote_ = -1;
         lastRootNote_ = 45;
+        partnerRootNote_ = -1;
+        partnerPrimaryRoot_ = -1;
         ageCounter_ = 1u;
-        pedalStates_.fill({});
-        pedalIdleStates_.fill({});
-        activeCircuit_ = params_.circuit;
-        previousCircuit_ = activeCircuit_;
-        circuitFade_ = 1.0f;
-        pedalDcInput_ = 0.0f;
-        pedalDcOutput_ = 0.0f;
-        preampPreviousInput_ = 0.0f;
-        preampMemory_ = 0.0f;
-        toneLow_ = 0.0f;
-        toneMidLow_ = 0.0f;
-        toneHighLow_ = 0.0f;
-        sagEnvelope_ = 0.0f;
-        transformerLow_ = 0.0f;
-        coilEnvelope_ = 0.0f;
-        speakerDc_ = 0.0f;
+        stereoSeparationActivity_ = 0.0f;
+        linkedRigStress_ = 0.0f;
         outputDcLeft_ = 0.0f;
         outputDcRight_ = 0.0f;
-        speakerModes_.fill({});
         limiterGain_ = 1.0f;
         limiterWasAttacking_ = false;
         limiterAttackEventCount_ = 0u;
@@ -396,14 +561,29 @@ public:
     void setParams(ProcessorStackParams params)
     {
         const bool silentlyIdle = !signalActive_ && noteOrderSize_ == 0u
-            && !anyLaneActive() && loopActivity_ <= 1.0e-7f;
+            && !anyLaneActive() && rigs_[0u].loopActivity <= 1.0e-7f
+            && rigs_[1u].loopActivity <= 1.0e-7f;
         const ProcessorStackMode previousMode = params_.mode;
         const float previousShape = params_.shape;
+        const float previousPairAmount = params_.pairAmount;
+        const ProcessorStackPairRelation previousPairRelation =
+            params_.pairRelation;
         const ProcessorStackArpPattern previousPattern = params_.arpPattern;
         const ProcessorStackScale previousScale = params_.scale;
+        const ProcessorStackArpRate previousRate = params_.arpRate;
         const uint32_t previousOctaves = params_.arpOctaves;
         const uint32_t previousPatternLength = params_.customPatternLength;
         const auto previousCustomPattern = params_.customPattern;
+        const ProcessorStackArpRelation previousArpBRelation =
+            params_.arpBRelation;
+        const ProcessorStackArpPattern previousPatternB =
+            params_.arpPatternB;
+        const ProcessorStackScale previousScaleB = params_.scaleB;
+        const ProcessorStackArpRate previousRateB = params_.arpRateB;
+        const uint32_t previousOctavesB = params_.arpOctavesB;
+        const uint32_t previousPatternLengthB =
+            params_.customPatternLengthB;
+        const auto previousCustomPatternB = params_.customPatternB;
         params_ = sanitizeProcessorStackParams(params);
         if (silentlyIdle) {
             // Controls edited during silence must describe the very next
@@ -411,19 +591,52 @@ public:
             // old PICK/SHAPE values leak into the excitation front.
             smoothed_ = params_;
             outputGainSmoothed_ = dbToGain(params_.outputGainDb);
-            activeCircuit_ = params_.circuit;
-            previousCircuit_ = activeCircuit_;
-            circuitFade_ = 1.0f;
+            for (uint32_t index = 0u; index < rigs_.size(); ++index) {
+                auto& rig = rigs_[index];
+                const ProcessorStackCircuit circuit = index == 1u
+                        && !params_.linkPedal
+                    ? params_.circuitB : params_.circuit;
+                rig.activeCircuit = circuit;
+                rig.previousCircuit = circuit;
+                rig.circuitFade = 1.0f;
+            }
         }
-        const bool arpChanged = params_.arpPattern != previousPattern
+        const bool arpChangedA = params_.arpPattern != previousPattern
             || params_.scale != previousScale
+            || params_.arpRate != previousRate
             || params_.arpOctaves != previousOctaves
             || params_.customPatternLength != previousPatternLength
             || params_.customPattern != previousCustomPattern;
-        if (arpChanged) resetArpeggiator(noteOrderSize_ > 0u);
-        if (params_.mode != previousMode && !arpChanged) {
+        const bool arpChangedB = params_.arpBRelation != previousArpBRelation
+            || params_.arpPatternB != previousPatternB
+            || params_.scaleB != previousScaleB
+            || params_.arpRateB != previousRateB
+            || params_.arpOctavesB != previousOctavesB
+            || params_.customPatternLengthB != previousPatternLengthB
+            || params_.customPatternB != previousCustomPatternB;
+        const bool pairChanged = params_.pairRelation != previousPairRelation
+            || (params_.pairAmount > 1.0e-4f)
+                != (previousPairAmount > 1.0e-4f);
+        if (params_.pairRelation != previousPairRelation) {
+            partnerRootNote_ = -1;
+            partnerPrimaryRoot_ = -1;
+        }
+        if (arpChangedA) resetArpeggiator(0u, noteOrderSize_ > 0u);
+        if (arpChangedB) {
+            partnerRootNote_ = -1;
+            partnerPrimaryRoot_ = -1;
+            if (params_.arpBRelation == ProcessorStackArpRelation::Follow) {
+                arpeggiators_[1u] = ArpState {};
+                rebuildPartnerVoicing(false);
+            } else {
+                resetArpeggiator(1u, noteOrderSize_ > 0u);
+            }
+        }
+        if ((params_.mode != previousMode || pairChanged)
+            && !arpChangedA && !arpChangedB) {
             rebuildVoicing(false);
-        } else if (!arpChanged && params_.mode == ProcessorStackMode::Power
+        } else if (!arpChangedA && !arpChangedB
+            && params_.mode == ProcessorStackMode::Power
             && params_.shape != previousShape && noteOrderSize_ > 0u) {
             rebuildVoicing(false);
         }
@@ -444,18 +657,34 @@ public:
             noteOrder_[noteOrderSize_++] = static_cast<int16_t>(midiNote);
         }
 
-        if (params_.arpPattern != ProcessorStackArpPattern::Off) {
-            resetArpeggiator(true);
+        const bool arpA = params_.arpPattern
+            != ProcessorStackArpPattern::Off;
+        const bool arpBIndependent = params_.arpBRelation
+            != ProcessorStackArpRelation::Follow;
+        const bool arpB = arpBIndependent && params_.arpPatternB
+            != ProcessorStackArpPattern::Off;
+        if (arpA) {
+            resetArpeggiator(0u, true);
         } else {
             applyCrookedGesture(midiNote, repeated);
             lastPlayedNote_ = midiNote;
+            if (params_.mode == ProcessorStackMode::Hand) {
+                triggerHandLane(midiNote, velocity);
+            } else {
+                rebuildPrimaryVoicing(true);
+            }
         }
-        if (params_.arpPattern != ProcessorStackArpPattern::Off) {
-            // resetArpeggiator() performs the first generated attack.
-        } else if (params_.mode == ProcessorStackMode::Hand) {
-            triggerHandLane(midiNote, velocity);
-        } else {
-            rebuildVoicing(true);
+        if (arpB) {
+            resetArpeggiator(1u, true);
+        } else if (params_.arpBRelation
+                == ProcessorStackArpRelation::Follow) {
+            // A's arpeggiator configures the following player. With no A
+            // arpeggiator, HAND mirrors the selected lane and the other
+            // modes rebuild the partner bank here.
+            if (!arpA && params_.mode != ProcessorStackMode::Hand)
+                rebuildPartnerVoicing(true);
+        } else if (params_.mode != ProcessorStackMode::Hand || arpA) {
+            rebuildPartnerVoicing(true);
         }
         signalActive_ = true;
     }
@@ -465,19 +694,40 @@ public:
         midiNote = std::clamp(midiNote, 0, 127);
         heldNotes_[static_cast<size_t>(midiNote)] = false;
         removeNoteFromOrder(midiNote);
-        if (params_.arpPattern != ProcessorStackArpPattern::Off) {
-            if (noteOrderSize_ > 0u) resetArpeggiator(true);
+        const bool arpA = params_.arpPattern
+            != ProcessorStackArpPattern::Off;
+        const bool arpBIndependent = params_.arpBRelation
+            != ProcessorStackArpRelation::Follow;
+        const bool arpB = arpBIndependent && params_.arpPatternB
+            != ProcessorStackArpPattern::Off;
+        if (arpA) {
+            if (noteOrderSize_ > 0u) resetArpeggiator(0u, true);
             else {
-                arpCurrentNote_ = -1;
-                arpGateOpen_ = false;
-                for (auto& lane : lanes_) lane.held = false;
+                arpeggiators_[0u].currentNote = -1;
+                closeArpeggiatorGate(0u);
             }
         } else if (params_.mode == ProcessorStackMode::Hand) {
-            for (auto& lane : lanes_) {
-                if (lane.sourceNote == midiNote) lane.held = false;
+            for (uint32_t index = 0u; index < lanes_.size(); ++index) {
+                if (lanes_[index].sourceNote == midiNote) {
+                    lanes_[index].held = false;
+                    if (!arpB) partnerLanes_[index].held = false;
+                }
             }
         } else {
-            rebuildVoicing(false);
+            rebuildPrimaryVoicing(false);
+        }
+        if (arpB) {
+            if (noteOrderSize_ > 0u) resetArpeggiator(1u, true);
+            else {
+                arpeggiators_[1u].currentNote = -1;
+                closeArpeggiatorGate(1u);
+            }
+        } else if (params_.arpBRelation
+                == ProcessorStackArpRelation::Follow) {
+            if (!arpA && params_.mode != ProcessorStackMode::Hand)
+                rebuildPartnerVoicing(false);
+        } else if (params_.mode != ProcessorStackMode::Hand || arpA) {
+            rebuildPartnerVoicing(false);
         }
     }
 
@@ -487,9 +737,12 @@ public:
         noteOrderSize_ = 0u;
         noteOrder_.fill(-1);
         for (auto& lane : lanes_) lane.held = false;
-        arpCurrentNote_ = -1;
-        arpGateOpen_ = false;
-        arpPhaseSamples_ = 0.0;
+        for (auto& lane : partnerLanes_) lane.held = false;
+        for (auto& arp : arpeggiators_) {
+            arp.currentNote = -1;
+            arp.gateOpen = false;
+            arp.phaseSamples = 0.0;
+        }
     }
 
     void setPressure(float pressure)
@@ -513,13 +766,14 @@ public:
     void processFrame(float& left, float& right)
     {
         if (!signalActive_ && noteOrderSize_ == 0u && !anyLaneActive()
-            && loopActivity_ <= 1.0e-7f) {
+            && rigs_[0u].loopActivity <= 1.0e-7f
+            && rigs_[1u].loopActivity <= 1.0e-7f) {
             left = 0.0f;
             right = 0.0f;
             return;
         }
         smoothParams();
-        processArpeggiator();
+        processArpeggiators();
         const bool keysHeld = noteOrderSize_ > 0u;
         const float gateTarget = keysHeld ? 1.0f : 0.0f;
         const float gateCoefficient = keysHeld
@@ -536,84 +790,209 @@ public:
         crookedHarmonicSkew_ *= crookedSkewDecay_;
         crookedHarmonicSkew_ = flushDenormal(crookedHarmonicSkew_);
 
-        float excitation = 0.0f;
-        float rootWitness = 0.0f;
-        float activeWeight = 0.0f;
-        for (auto& lane : lanes_) {
-            if (!lane.active) continue;
-            const float gainCoefficient = std::abs(lane.noteOffset) > 0.5f
-                ? chordBloomCoefficient_ : voicingGainCoefficient_;
-            lane.gain += (lane.targetGain - lane.gain)
-                * gainCoefficient;
-            lane.gain = flushDenormal(lane.gain);
-            lane.attackGain += (lane.targetAttackGain - lane.attackGain)
-                * attackGainCoefficient_;
-            lane.attackGain = flushDenormal(lane.attackGain);
-            float laneRoot = 0.0f;
-            const float sample = processExciter(lane, laneRoot);
-            excitation += sample * lane.gain;
-            rootWitness += laneRoot * lane.gain;
-            activeWeight += lane.gain * lane.gain;
-        }
-        if (activeWeight > 1.0f) {
-            const float normalization = 1.0f / std::sqrt(activeWeight);
-            excitation *= normalization;
-            rootWitness *= normalization;
-        }
+        const auto renderGuitar = [&](auto& guitarLanes,
+                                      ProcessorStackNeckMaterial neck,
+                                      ProcessorStackBodyMaterial body,
+                                      float& guitarRoot) {
+            float guitar = 0.0f;
+            float activeWeight = 0.0f;
+            const MaterialProfile material = materialProfile(neck, body);
+            for (auto& lane : guitarLanes) {
+                if (!lane.active) continue;
+                const float gainCoefficient = std::abs(lane.noteOffset) > 0.5f
+                    ? chordBloomCoefficient_ : voicingGainCoefficient_;
+                lane.gain += (lane.targetGain - lane.gain)
+                    * gainCoefficient;
+                lane.gain = flushDenormal(lane.gain);
+                lane.attackGain += (lane.targetAttackGain - lane.attackGain)
+                    * attackGainCoefficient_;
+                lane.attackGain = flushDenormal(lane.attackGain);
+                float laneRoot = 0.0f;
+                const float sample = processExciter(lane, laneRoot, material);
+                guitar += sample * lane.gain;
+                guitarRoot += laneRoot * lane.gain;
+                activeWeight += lane.gain * lane.gain;
+            }
+            if (activeWeight > 1.0f) {
+                const float normalization = 1.0f / std::sqrt(activeWeight);
+                guitar *= normalization;
+                guitarRoot *= normalization;
+            }
+            return guitar;
+        };
+        float rootA = 0.0f;
+        float rootB = 0.0f;
+        const float guitarA = renderGuitar(lanes_, smoothed_.neckA,
+            smoothed_.bodyA, rootA);
+        const float guitarB = renderGuitar(partnerLanes_, smoothed_.neckB,
+            smoothed_.bodyB, rootB);
+        const float pairGain = smoothed_.pairAmount;
+        const float pairNormalization = 1.0f
+            / std::sqrt(1.0f + pairGain * pairGain);
+        float excitationA = guitarA;
+        float excitationB = guitarB;
+        float rootWitnessA = rootA;
+        float rootWitnessB = rootB;
         const float calmAttackDepth = (1.0f - smoothed_.pick)
             * (1.0f - smoothed_.pick);
         const float excitationGate = lerp(1.0f, keyGate_, calmAttackDepth);
-        excitation *= excitationGate;
-        rootWitness *= excitationGate;
+        excitationA *= excitationGate;
+        excitationB *= excitationGate;
+        rootWitnessA *= excitationGate;
+        rootWitnessB *= excitationGate;
 
-        const float feedbackReturn = readFeedbackReturn();
+        const RigControls controlsA = rigControls(0u);
+        const RigControls controlsB = rigControls(1u);
+
+        const int activeRootA = params_.arpPattern
+                    != ProcessorStackArpPattern::Off
+                && arpeggiators_[0u].currentNote >= 0
+            ? arpeggiators_[0u].currentNote : latestHeldNote();
+        const int activeRootB = params_.arpBRelation
+                    != ProcessorStackArpRelation::Follow
+                && params_.arpPatternB != ProcessorStackArpPattern::Off
+                && arpeggiators_[1u].currentNote >= 0
+            ? arpeggiators_[1u].currentNote
+            : partnerRootNote_ >= 0 ? partnerRootNote_
+            : std::clamp((activeRootA >= 0 ? activeRootA : lastRootNote_) + 7,
+                0, 127);
+        const float feedbackReturnA = readFeedbackReturn(rigs_[0u],
+            controlsA, activeRootA);
+        const float feedbackReturnB = readFeedbackReturn(rigs_[1u],
+            controlsB, activeRootB);
         // SPILL lengthens the release of this gate; loop activity must not
         // reopen it, otherwise a hot speaker state can become a permanent
         // no-input oscillator after the final key release.
         const float sourceGate = !keysHeld && keyGate_ < 2.0e-4f
             ? 0.0f : keyGate_;
-        const float excess = std::max(0.0f, loopEnvelope_ - 0.52f);
-        const float governor = 1.0f / (1.0f + excess * 13.0f);
-        const float requestedFeedback = smoothed_.feedback
-            * (0.42f + smoothed_.feedback * 0.67f)
-            * lerp(0.74f, 1.18f, smoothed_.proximity)
-            * (1.0f + pressure_ * 0.24f)
-            * lerp(1.0f, 0.18f, overloadMaskAmount_);
-        const float signedPolarity = (smoothed_.polarity - 0.5f) * 2.0f;
-        const float loopInput = feedbackReturn * requestedFeedback
-            * signedPolarity * governor * sourceGate;
-        const float combined = smoothLimit(excitation + loopInput, 4.0f);
+        const auto renderRig = [&](RigState& rig, float excitation,
+                                   float rootWitness, float feedbackReturn,
+                                   float rigGate,
+                                   const RigControls& controls) {
+            const float governingEnvelope = std::max(rig.loopEnvelope,
+                linkedRigStress_ * pairGain * 0.78f);
+            const float excess = std::max(0.0f,
+                governingEnvelope - 0.52f);
+            const float governor = 1.0f / (1.0f + excess * 13.0f);
+            const float linkedMask = std::max(rig.overloadMaskAmount,
+                linkedRigStress_ * pairGain * 0.72f);
+            const float requestedFeedback = controls.feedback
+                * (0.42f + controls.feedback * 0.67f)
+                * lerp(0.74f, 1.18f, controls.proximity)
+                * (1.0f + pressure_ * 0.24f)
+                * lerp(1.0f, 0.18f, linkedMask);
+            const float signedPolarity = (controls.polarity - 0.5f) * 2.0f;
+            const float loopInput = feedbackReturn * requestedFeedback
+                * signedPolarity * governor * sourceGate * rigGate;
+            const float combined = smoothLimit(excitation + loopInput, 4.0f);
+            const float pedal = processPedal(rig, controls, combined);
+            const float rootAmount = controls.root
+                * (1.0f - controls.chaos * 0.72f);
+            const float ampInput = pedal
+                + rootWitness * rootAmount * 0.38f;
+            const float power = processAmplifier(rig, controls, ampInput);
+            RigFrame frame;
+            processSpeaker(rig, controls, power * speakerChoke_,
+                frame.nearMic, frame.farMic);
+            processOverloadMask(rig, controls,
+                frame.nearMic, frame.farMic);
+            const float roomSamples = clamp(static_cast<float>(sampleRate_)
+                    * lerp(0.0065f, 0.00065f, controls.proximity),
+                2.0f, static_cast<float>(rig.roomDelay.size() - 2u));
+            frame.room = readDelay(rig.roomDelay, rig.roomWriteIndex,
+                roomSamples);
+            frame.sideMic = frame.farMic * 0.72f + frame.room * 0.28f;
+            frame.feedbackMic = lerp(frame.nearMic, frame.sideMic,
+                    controls.mic)
+                + (frame.sideMic - frame.nearMic)
+                    * controls.chaos * 0.32f;
+            frame.mono = frame.nearMic + (frame.sideMic - frame.nearMic)
+                * (0.08f + controls.mic * 0.24f);
+            return frame;
+        };
+        const float partnerGate = smoothStep(0.0f, 0.025f, pairGain);
+        RigFrame frameA = renderRig(rigs_[0u], excitationA, rootWitnessA,
+            feedbackReturnA, 1.0f, controlsA);
+        RigFrame frameB = renderRig(rigs_[1u], excitationB, rootWitnessB,
+            feedbackReturnB, partnerGate, controlsB);
 
-        const float pedal = processPedal(combined);
-        const float rootAmount = smoothed_.root
-            * (1.0f - smoothed_.chaos * 0.72f);
-        const float ampInput = pedal + rootWitness * rootAmount * 0.38f;
-        const float power = processAmplifier(ampInput);
-        float micA = 0.0f;
-        float micB = 0.0f;
-        processSpeaker(power * speakerChoke_, micA, micB);
-        processOverloadMask(micA, micB);
+        const float crossListen = pairGain
+            * (0.045f + smoothed_.pairLoose * 0.10f
+                + (controlsA.selfListen + controlsB.selfListen)
+                    * 0.0375f)
+            * lerp(1.0f, 0.36f, linkedRigStress_);
+        const float loopWitnessA = lerp(frameA.feedbackMic,
+            frameB.feedbackMic, crossListen);
+        const float loopWitnessB = lerp(frameB.feedbackMic,
+            frameA.feedbackMic, crossListen);
+        const auto writeRigHistory = [&](RigState& rig,
+                                         const RigFrame& frame,
+                                         float loopWitness,
+                                         const RigControls& controls) {
+            // Both histories receive smooth microphone signals only. This
+            // keeps the two feedback systems independent without creating a
+            // discontinuity when cross-listen changes.
+            rig.roomDelay[rig.roomWriteIndex] = flushDenormal(
+                frame.farMic * 0.82f + frame.nearMic * 0.18f);
+            rig.roomWriteIndex = (rig.roomWriteIndex + 1u)
+                % rig.roomDelay.size();
+            rig.loopDelay[rig.loopWriteIndex] = flushDenormal(
+                std::tanh(loopWitness
+                    * (0.86f + controls.cone * 0.42f)));
+            rig.loopWriteIndex = (rig.loopWriteIndex + 1u)
+                % rig.loopDelay.size();
+        };
+        writeRigHistory(rigs_[0u], frameA, loopWitnessA, controlsA);
+        writeRigHistory(rigs_[1u], frameB, loopWitnessB, controlsB);
 
-        const float roomSamples = clamp(static_cast<float>(sampleRate_)
-                * lerp(0.0065f, 0.00065f, smoothed_.proximity),
-            2.0f, static_cast<float>(roomDelay_.size() - 2u));
-        const float room = readDelay(roomDelay_, roomWriteIndex_, roomSamples);
-        // The microphones have already passed through one linked soft bound.
-        // Do not introduce another hard corner in the room history that will
-        // return later as an apparently unrelated feedback click.
-        roomDelay_[roomWriteIndex_] = flushDenormal(
-            micB * 0.82f + micA * 0.18f);
-        roomWriteIndex_ = (roomWriteIndex_ + 1u) % roomDelay_.size();
-        const float sideMic = micB * 0.72f + room * 0.28f;
-        const float feedbackMic = lerp(micA, sideMic, smoothed_.mic)
-            + (sideMic - micA) * smoothed_.chaos * 0.32f;
-        loopDelay_[loopWriteIndex_] = flushDenormal(
-            std::tanh(feedbackMic * (0.86f + smoothed_.cone * 0.42f)));
-        loopWriteIndex_ = (loopWriteIndex_ + 1u) % loopDelay_.size();
+        const float localStressA = std::max(rigs_[0u].overloadMaskAmount,
+            std::max(rigs_[0u].speakerProtection,
+                smoothStep(0.42f, 1.08f, rigs_[0u].loopEnvelope)));
+        const float localStressB = std::max(rigs_[1u].overloadMaskAmount,
+            std::max(rigs_[1u].speakerProtection,
+                smoothStep(0.42f, 1.08f, rigs_[1u].loopEnvelope)));
+        const float linkedStressTarget = pairGain
+            * std::max(localStressA, localStressB);
+        linkedRigStress_ += (linkedStressTarget - linkedRigStress_)
+            * (linkedStressTarget > linkedRigStress_
+                ? speakerProtectionAttackCoefficient_
+                : speakerProtectionReleaseCoefficient_);
+        linkedRigStress_ = flushDenormal(linkedRigStress_);
 
-        const float width = 0.08f + smoothed_.mic * 0.62f;
-        float frameLeft = micA + (micA - sideMic) * width;
-        float frameRight = micA - (micA - sideMic) * width;
+        const float width = 0.08f + controlsA.mic * 0.62f;
+        const float legacyLeft = frameA.nearMic
+            + (frameA.nearMic - frameA.sideMic) * width;
+        const float legacyRight = frameA.nearMic
+            - (frameA.nearMic - frameA.sideMic) * width;
+        const float spread = smoothed_.pairSpread;
+        const float panAngleA = (1.0f - spread) * kPi * 0.25f;
+        const float panAngleB = (1.0f + spread) * kPi * 0.25f;
+        constexpr float kCenterCompensation = 1.41421356237f;
+        const float panALeft = std::cos(panAngleA) * kCenterCompensation;
+        const float panARight = std::sin(panAngleA) * kCenterCompensation;
+        const float panBLeft = std::cos(panAngleB) * kCenterCompensation;
+        const float panBRight = std::sin(panAngleB) * kCenterCompensation;
+        const float roomCrossfeed = pairGain * spread * 0.075f
+            * lerp(0.72f, 1.0f,
+                (controlsA.proximity + controlsB.proximity) * 0.5f);
+        const float voiceA = frameA.mono + frameB.room * roomCrossfeed;
+        const float voiceB = frameB.mono + frameA.room * roomCrossfeed;
+        const float dualLeft = (voiceA * panALeft
+                + voiceB * pairGain * panBLeft)
+            * pairNormalization;
+        const float dualRight = (voiceA * panARight
+                + voiceB * pairGain * panBRight)
+            * pairNormalization;
+        const float topologyBlend = smoothStep(0.0f, 0.08f, pairGain);
+        float frameLeft = lerp(legacyLeft, dualLeft, topologyBlend);
+        float frameRight = lerp(legacyRight, dualRight, topologyBlend);
+        const float separation = std::abs(frameLeft - frameRight) * 0.5f;
+        stereoSeparationActivity_ += (separation
+                - stereoSeparationActivity_)
+            * (separation > stereoSeparationActivity_
+                ? meterAttackCoefficient_ : meterReleaseCoefficient_);
+        stereoSeparationActivity_ = flushDenormal(
+            stereoSeparationActivity_);
         const float dcCoefficient = outputDcCoefficient_;
         outputDcLeft_ += (frameLeft - outputDcLeft_) * dcCoefficient;
         outputDcRight_ += (frameRight - outputDcRight_) * dcCoefficient;
@@ -655,7 +1034,9 @@ public:
 
         const bool laneActive = anyLaneActive();
         signalActive_ = keysHeld || laneActive || keyGate_ > 1.0e-5f
-            || loopActivity_ > 1.0e-5f || outputPeak_ > 1.0e-5f;
+            || rigs_[0u].loopActivity > 1.0e-5f
+            || rigs_[1u].loopActivity > 1.0e-5f
+            || outputPeak_ > 1.0e-5f;
         if (!signalActive_) clearSignalState();
     }
 
@@ -672,27 +1053,79 @@ public:
 
     bool active() const { return signalActive_; }
     uint32_t heldNoteCount() const { return noteOrderSize_; }
-    float feedbackActivity() const { return loopActivity_; }
+    float feedbackActivity() const
+    {
+        return std::max(rigs_[0u].loopActivity, rigs_[1u].loopActivity);
+    }
     float outputPeak() const { return outputPeak_; }
-    float loopDelaySamples() const { return loopDelaySamples_; }
-    float sagEnvelope() const { return sagEnvelope_; }
-    float feedbackBodyActivity() const { return bodyEnvelope_; }
-    float feedbackStabActivity() const { return stabEnvelope_; }
-    float targetGlitchActivity() const { return glitchActivity_; }
-    uint64_t targetGlitchTriggerCount() const { return glitchTriggerCount_; }
-    float overloadMaskActivity() const { return overloadMaskAmount_; }
-    float speakerProtectionActivity() const { return speakerProtection_; }
-    float speakerProtectionPeak() const { return speakerProtectionPeak_; }
-    float speakerModePreLimitPeak() const { return speakerModePreLimitPeak_; }
-    uint64_t speakerSoftLimitCount() const { return speakerSoftLimitCount_; }
-    uint64_t micSoftLimitCount() const { return micSoftLimitCount_; }
+    float loopDelaySamples() const { return rigs_[0u].loopDelaySamples; }
+    float sagEnvelope() const
+    {
+        return std::max(rigs_[0u].sagEnvelope, rigs_[1u].sagEnvelope);
+    }
+    float feedbackBodyActivity() const
+    {
+        return std::max(rigs_[0u].bodyEnvelope, rigs_[1u].bodyEnvelope);
+    }
+    float feedbackStabActivity() const
+    {
+        return std::max(rigs_[0u].stabEnvelope, rigs_[1u].stabEnvelope);
+    }
+    float targetGlitchActivity() const
+    {
+        return std::max(rigs_[0u].glitchActivity,
+            rigs_[1u].glitchActivity);
+    }
+    uint64_t targetGlitchTriggerCount() const
+    {
+        return rigs_[0u].glitchTriggerCount + rigs_[1u].glitchTriggerCount;
+    }
+    float overloadMaskActivity() const
+    {
+        return std::max(rigs_[0u].overloadMaskAmount,
+            rigs_[1u].overloadMaskAmount);
+    }
+    float speakerProtectionActivity() const
+    {
+        return std::max(rigs_[0u].speakerProtection,
+            rigs_[1u].speakerProtection);
+    }
+    float speakerProtectionPeak() const
+    {
+        return std::max(rigs_[0u].speakerProtectionPeak,
+            rigs_[1u].speakerProtectionPeak);
+    }
+    float speakerModePreLimitPeak() const
+    {
+        return std::max(rigs_[0u].speakerModePreLimitPeak,
+            rigs_[1u].speakerModePreLimitPeak);
+    }
+    uint64_t speakerSoftLimitCount() const
+    {
+        return rigs_[0u].speakerSoftLimitCount
+            + rigs_[1u].speakerSoftLimitCount;
+    }
+    uint64_t micSoftLimitCount() const
+    {
+        return rigs_[0u].micSoftLimitCount + rigs_[1u].micSoftLimitCount;
+    }
     uint64_t limiterAttackEventCount() const
     {
         return limiterAttackEventCount_;
     }
     float maximumLimiterGainStep() const { return maximumLimiterGainStep_; }
-    uint64_t arpStepCount() const { return arpStepCount_; }
-    int arpCurrentNote() const { return arpCurrentNote_; }
+    float pairSideActivity() const { return stereoSeparationActivity_; }
+    int partnerRootNote() const { return partnerRootNote_; }
+    uint64_t arpStepCount() const { return arpeggiators_[0u].stepCount; }
+    int arpCurrentNote() const { return arpeggiators_[0u].currentNote; }
+    uint64_t partnerArpStepCount() const
+    {
+        return arpeggiators_[1u].stepCount;
+    }
+    int partnerArpCurrentNote() const
+    {
+        return arpeggiators_[1u].currentNote;
+    }
 
 private:
     enum class EnvelopeStage : uint8_t {
@@ -729,10 +1162,14 @@ private:
         float pickupLow = 0.0f;
         float rootLow = 0.0f;
         float outputSmoothed = 0.0f;
+        float materialLow = 0.0f;
+        float materialBodyLow = 0.0f;
         float dispersionInput = 0.0f;
         float dispersionOutput = 0.0f;
         float articulationEnvelope = 0.0f;
         float pickDirection = 1.0f;
+        float detuneSemitones = 0.0f;
+        uint32_t startDelaySamples = 0u;
         uint32_t samplesSinceAttack = 0xffffffffu;
         uint32_t random = 1u;
         uint64_t age = 0u;
@@ -754,11 +1191,239 @@ private:
         float second = 0.0f;
     };
 
+    struct MaterialProfile {
+        float brightness = 0.0f;
+        float sustain = 0.0f;
+        float dispersion = 0.0f;
+        float pickupShift = 0.0f;
+        float bodyFrequency = 220.0f;
+        float bodyAmount = 0.0f;
+        float metallic = 0.0f;
+    };
+
+    struct RigState {
+        std::vector<float> loopDelay;
+        std::vector<float> roomDelay;
+        std::vector<float> glitchHistory;
+        size_t loopWriteIndex = 0u;
+        size_t roomWriteIndex = 0u;
+        size_t glitchWriteIndex = 0u;
+        float loopDelaySamples = 120.0f;
+        float stabDelaySamples = 38.0f;
+        float loopDcInput = 0.0f;
+        float loopDcOutput = 0.0f;
+        float loopLow = 0.0f;
+        float loopHighLow = 0.0f;
+        float stabDcInput = 0.0f;
+        float stabDcOutput = 0.0f;
+        float stabLow = 0.0f;
+        float stabBand = 0.0f;
+        float bodyEnvelope = 0.0f;
+        float stabEnvelope = 0.0f;
+        float selfFocus = 0.0f;
+        float glitchEnvelope = 0.0f;
+        float glitchActivity = 0.0f;
+        float glitchPhase = 0.0f;
+        size_t glitchCaptureStart = 0u;
+        uint32_t glitchCellSamples = 16u;
+        uint32_t glitchRepeatIndex = 0u;
+        uint32_t glitchRepeatCount = 0u;
+        uint32_t glitchArmAgeSamples = 0u;
+        uint64_t glitchTriggerCount = 0u;
+        bool glitchArmed = false;
+        bool glitchPlaying = false;
+        float overloadLevel = 0.0f;
+        float overloadRoughness = 0.0f;
+        float overloadMaskAmount = 0.0f;
+        float overloadPreviousMic = 0.0f;
+        float overloadLowNear = 0.0f;
+        float overloadLowFar = 0.0f;
+        float speakerProtection = 0.0f;
+        float speakerProtectionPeak = 0.0f;
+        float speakerModePreLimitPeak = 0.0f;
+        uint64_t speakerSoftLimitCount = 0u;
+        uint64_t micSoftLimitCount = 0u;
+        float loopEnvelope = 0.0f;
+        float loopActivity = 0.0f;
+        std::array<DriveState, kProcessorStackCircuitCount> pedalStates {};
+        std::array<DriveState, kProcessorStackCircuitCount> pedalIdleStates {};
+        ProcessorStackCircuit activeCircuit = ProcessorStackCircuit::Rat;
+        ProcessorStackCircuit previousCircuit = ProcessorStackCircuit::Rat;
+        float circuitFade = 1.0f;
+        float pedalDcInput = 0.0f;
+        float pedalDcOutput = 0.0f;
+        float preampPreviousInput = 0.0f;
+        float amplifierPreviousInput = 0.0f;
+        float preampMemory = 0.0f;
+        float toneLow = 0.0f;
+        float toneMidLow = 0.0f;
+        float toneHighLow = 0.0f;
+        float sagEnvelope = 0.0f;
+        float transformerLow = 0.0f;
+        float coilEnvelope = 0.0f;
+        float speakerDc = 0.0f;
+        std::array<SpeakerModeState, kSpeakerModeCount> speakerModes {};
+    };
+
+    struct RigFrame {
+        float nearMic = 0.0f;
+        float farMic = 0.0f;
+        float sideMic = 0.0f;
+        float room = 0.0f;
+        float feedbackMic = 0.0f;
+        float mono = 0.0f;
+    };
+
+    struct RigControls {
+        ProcessorStackCircuit circuit = ProcessorStackCircuit::Rat;
+        float bite = 0.0f;
+        float pedalTone = 0.0f;
+        float bias = 0.0f;
+        float stack = 0.0f;
+        float sag = 0.0f;
+        float focus = 0.0f;
+        float cone = 0.0f;
+        float cabinet = 0.0f;
+        float mic = 0.0f;
+        float feedback = 0.0f;
+        float proximity = 0.0f;
+        float harmonic = 0.0f;
+        float tracking = 0.0f;
+        float polarity = 0.0f;
+        float root = 0.0f;
+        float chaos = 0.0f;
+        float pierce = 0.0f;
+        float selfListen = 0.0f;
+        float targetGlitch = 0.0f;
+        float glitchRatchet = 0.0f;
+        float overloadMask = 0.0f;
+    };
+
+    struct ArpControls {
+        ProcessorStackArpPattern pattern = ProcessorStackArpPattern::Off;
+        ProcessorStackScale scale = ProcessorStackScale::Phrygian;
+        ProcessorStackArpRate rate = ProcessorStackArpRate::Sixteenth;
+        uint32_t octaves = 2u;
+        float gate = 0.62f;
+        uint32_t length = 8u;
+        std::array<int32_t, 8u> steps {};
+    };
+
+    struct ArpState {
+        double phaseSamples = 0.0;
+        uint64_t stepIndex = 0u;
+        uint64_t stepCount = 0u;
+        int currentNote = -1;
+        bool gateOpen = false;
+    };
+
     static ExciterLane resetLanePreservingDelay(std::vector<float> delay)
     {
         ExciterLane lane;
         lane.delay = std::move(delay);
         return lane;
+    }
+
+    void resetRig(RigState& rig, uint32_t player)
+    {
+        auto loopDelay = std::move(rig.loopDelay);
+        auto roomDelay = std::move(rig.roomDelay);
+        auto glitchHistory = std::move(rig.glitchHistory);
+        rig = RigState {};
+        rig.loopDelay = std::move(loopDelay);
+        rig.roomDelay = std::move(roomDelay);
+        rig.glitchHistory = std::move(glitchHistory);
+        std::fill(rig.loopDelay.begin(), rig.loopDelay.end(), 0.0f);
+        std::fill(rig.roomDelay.begin(), rig.roomDelay.end(), 0.0f);
+        std::fill(rig.glitchHistory.begin(), rig.glitchHistory.end(), 0.0f);
+        rig.loopDelaySamples = static_cast<float>(sampleRate_ * 0.0025);
+        rig.stabDelaySamples = static_cast<float>(sampleRate_ * 0.0008);
+        const ProcessorStackCircuit circuit = player == 1u
+                && !params_.linkPedal
+            ? params_.circuitB : params_.circuit;
+        rig.activeCircuit = circuit;
+        rig.previousCircuit = circuit;
+    }
+
+    void clearRigSignalState(RigState& rig, uint32_t player)
+    {
+        const float protectionPeak = rig.speakerProtectionPeak;
+        const float modePeak = rig.speakerModePreLimitPeak;
+        const uint64_t speakerLimits = rig.speakerSoftLimitCount;
+        const uint64_t microphoneLimits = rig.micSoftLimitCount;
+        const uint64_t glitchTriggers = rig.glitchTriggerCount;
+        resetRig(rig, player);
+        rig.speakerProtectionPeak = protectionPeak;
+        rig.speakerModePreLimitPeak = modePeak;
+        rig.speakerSoftLimitCount = speakerLimits;
+        rig.micSoftLimitCount = microphoneLimits;
+        rig.glitchTriggerCount = glitchTriggers;
+    }
+
+    RigControls rigControls(uint32_t player) const
+    {
+        const bool partner = player == 1u;
+        const bool ownPedal = partner && !smoothed_.linkPedal;
+        const bool ownAmplifier = partner && !smoothed_.linkAmplifier;
+        const bool ownFeedback = partner && !smoothed_.linkFeedback;
+        RigControls controls;
+        controls.circuit = ownPedal ? smoothed_.circuitB : smoothed_.circuit;
+        controls.bite = ownPedal ? smoothed_.biteB : smoothed_.bite;
+        controls.pedalTone = ownPedal
+            ? smoothed_.pedalToneB : smoothed_.pedalTone;
+        controls.bias = ownPedal ? smoothed_.biasB : smoothed_.bias;
+        controls.stack = ownAmplifier ? smoothed_.stackB : smoothed_.stack;
+        controls.sag = ownAmplifier ? smoothed_.sagB : smoothed_.sag;
+        controls.focus = ownAmplifier ? smoothed_.focusB : smoothed_.focus;
+        controls.cone = ownAmplifier ? smoothed_.coneB : smoothed_.cone;
+        controls.cabinet = ownAmplifier
+            ? smoothed_.cabinetB : smoothed_.cabinet;
+        controls.mic = ownAmplifier ? smoothed_.micB : smoothed_.mic;
+        controls.feedback = ownFeedback
+            ? smoothed_.feedbackB : smoothed_.feedback;
+        controls.proximity = ownFeedback
+            ? smoothed_.proximityB : smoothed_.proximity;
+        controls.harmonic = ownFeedback
+            ? smoothed_.harmonicB : smoothed_.harmonic;
+        controls.tracking = ownFeedback
+            ? smoothed_.trackingB : smoothed_.tracking;
+        controls.polarity = ownFeedback
+            ? smoothed_.polarityB : smoothed_.polarity;
+        controls.root = ownFeedback ? smoothed_.rootB : smoothed_.root;
+        controls.chaos = ownFeedback ? smoothed_.chaosB : smoothed_.chaos;
+        controls.pierce = ownFeedback ? smoothed_.pierceB : smoothed_.pierce;
+        controls.selfListen = ownFeedback
+            ? smoothed_.selfListenB : smoothed_.selfListen;
+        controls.targetGlitch = ownFeedback
+            ? smoothed_.targetGlitchB : smoothed_.targetGlitch;
+        controls.glitchRatchet = ownFeedback
+            ? smoothed_.glitchRatchetB : smoothed_.glitchRatchet;
+        controls.overloadMask = ownFeedback
+            ? smoothed_.overloadMaskB : smoothed_.overloadMask;
+        return controls;
+    }
+
+    ArpControls arpControls(uint32_t player) const
+    {
+        ArpControls controls;
+        if (player == 0u) {
+            controls.pattern = params_.arpPattern;
+            controls.scale = params_.scale;
+            controls.rate = params_.arpRate;
+            controls.octaves = params_.arpOctaves;
+            controls.gate = smoothed_.arpGate;
+            controls.length = params_.customPatternLength;
+            controls.steps = params_.customPattern;
+        } else {
+            controls.pattern = params_.arpPatternB;
+            controls.scale = params_.scaleB;
+            controls.rate = params_.arpRateB;
+            controls.octaves = params_.arpOctavesB;
+            controls.gate = smoothed_.arpGateB;
+            controls.length = params_.customPatternLengthB;
+            controls.steps = params_.customPatternB;
+        }
+        return controls;
     }
 
     static float dbToGain(float db)
@@ -827,6 +1492,64 @@ private:
         if (!std::isfinite(value)) return 0.0f;
         return std::copysign(softCeiling(std::abs(value), knee, ceiling),
             value);
+    }
+
+    static MaterialProfile materialProfile(
+        ProcessorStackNeckMaterial neck,
+        ProcessorStackBodyMaterial body)
+    {
+        MaterialProfile profile;
+        switch (neck) {
+        case ProcessorStackNeckMaterial::Maple:
+            break;
+        case ProcessorStackNeckMaterial::Mahogany:
+            profile.brightness -= 0.18f;
+            profile.sustain -= 0.00055f;
+            profile.bodyAmount += 0.055f;
+            break;
+        case ProcessorStackNeckMaterial::Aluminum:
+            profile.brightness += 0.34f;
+            profile.sustain += 0.0010f;
+            profile.dispersion += 0.038f;
+            profile.pickupShift -= 0.025f;
+            profile.metallic += 0.15f;
+            break;
+        case ProcessorStackNeckMaterial::Composite:
+            profile.brightness += 0.12f;
+            profile.sustain += 0.00045f;
+            profile.dispersion += 0.014f;
+            profile.metallic += 0.035f;
+            break;
+        case ProcessorStackNeckMaterial::Count:
+            break;
+        }
+        switch (body) {
+        case ProcessorStackBodyMaterial::SolidWood:
+            profile.bodyFrequency = 235.0f;
+            break;
+        case ProcessorStackBodyMaterial::HollowWood:
+            profile.brightness -= 0.12f;
+            profile.sustain -= 0.00035f;
+            profile.bodyFrequency = 155.0f;
+            profile.bodyAmount += 0.34f;
+            break;
+        case ProcessorStackBodyMaterial::SemiHollow:
+            profile.brightness -= 0.04f;
+            profile.bodyFrequency = 205.0f;
+            profile.bodyAmount += 0.20f;
+            break;
+        case ProcessorStackBodyMaterial::Aluminum:
+            profile.brightness += 0.25f;
+            profile.sustain += 0.00085f;
+            profile.dispersion += 0.026f;
+            profile.bodyFrequency = 465.0f;
+            profile.bodyAmount += 0.12f;
+            profile.metallic += 0.12f;
+            break;
+        case ProcessorStackBodyMaterial::Count:
+            break;
+        }
+        return profile;
     }
 
     static float fold(float value)
@@ -961,13 +1684,14 @@ private:
         return 0.25f;
     }
 
-    uint32_t arpSequencePosition(uint64_t step) const
+    uint32_t arpSequencePosition(uint64_t step,
+        const ArpControls& controls) const
     {
-        const uint32_t degrees = scaleDegreeCount(params_.scale);
-        const uint32_t length = std::max(1u, degrees * params_.arpOctaves);
+        const uint32_t degrees = scaleDegreeCount(controls.scale);
+        const uint32_t length = std::max(1u, degrees * controls.octaves);
         const uint32_t position = static_cast<uint32_t>(
             step % static_cast<uint64_t>(length));
-        switch (params_.arpPattern) {
+        switch (controls.pattern) {
         case ProcessorStackArpPattern::Down:
             return length - 1u - position;
         case ProcessorStackArpPattern::Pendulum: {
@@ -996,80 +1720,127 @@ private:
         return position;
     }
 
-    int arpeggiatedNote(uint64_t step) const
+    int arpeggiatedNote(uint64_t step, const ArpControls& controls,
+        int root) const
     {
-        const int root = latestHeldNote();
         if (root < 0) return -1;
-        if (params_.arpPattern == ProcessorStackArpPattern::Custom) {
-            const uint32_t length = params_.customPatternLength;
+        if (controls.pattern == ProcessorStackArpPattern::Custom) {
+            const uint32_t length = controls.length;
             const uint32_t index = static_cast<uint32_t>(step
                 % static_cast<uint64_t>(length));
             int result = root + signedScaleSemitone(
-                params_.scale, params_.customPattern[index]);
+                controls.scale, controls.steps[index]);
             while (result > 127) result -= 12;
             while (result < 0) result += 12;
             return std::clamp(result, 0, 127);
         }
-        const uint32_t degrees = scaleDegreeCount(params_.scale);
-        const uint32_t position = arpSequencePosition(step);
-        const int offset = scaleSemitone(params_.scale, position % degrees)
+        const uint32_t degrees = scaleDegreeCount(controls.scale);
+        const uint32_t position = arpSequencePosition(step, controls);
+        const int offset = scaleSemitone(controls.scale, position % degrees)
             + 12 * static_cast<int>(position / degrees);
         int result = root + offset;
         while (result > 127) result -= 12;
         return std::clamp(result, 0, 127);
     }
 
-    void advanceArpeggiator()
+    void advanceArpeggiator(uint32_t player)
     {
-        const int note = arpeggiatedNote(arpStepIndex_);
+        auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
+        const ArpControls controls = arpControls(player);
+        int root = latestHeldNote();
+        if (player == 1u
+            && params_.arpBRelation == ProcessorStackArpRelation::Counter
+            && root >= 0) {
+            root = partnerRootFor(root, true);
+        }
+        const int note = arpeggiatedNote(state.stepIndex, controls, root);
         if (note < 0) return;
         applyCrookedGesture(note, note == lastPlayedNote_);
         lastPlayedNote_ = note;
-        arpCurrentNote_ = note;
-        arpGateOpen_ = true;
-        rebuildVoicing(true);
-        ++arpStepIndex_;
-        ++arpStepCount_;
+        state.currentNote = note;
+        state.gateOpen = true;
+        if (player == 0u) {
+            rebuildPrimaryVoicing(true);
+            if (params_.arpBRelation == ProcessorStackArpRelation::Follow) {
+                configurePartnerVoicing(note, true);
+            }
+        } else {
+            partnerRootNote_ = note;
+            configureIndependentPartnerVoicing(note, true, true);
+        }
+        ++state.stepIndex;
+        ++state.stepCount;
     }
 
-    void resetArpeggiator(bool trigger)
+    void resetArpeggiator(uint32_t player, bool trigger)
     {
-        arpPhaseSamples_ = 0.0;
-        arpStepIndex_ = 0u;
-        arpCurrentNote_ = -1;
-        arpGateOpen_ = false;
-        if (trigger && params_.arpPattern != ProcessorStackArpPattern::Off
+        auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
+        const ArpControls controls = arpControls(player);
+        state.phaseSamples = 0.0;
+        state.stepIndex = 0u;
+        state.currentNote = -1;
+        state.gateOpen = false;
+        if (trigger && controls.pattern != ProcessorStackArpPattern::Off
             && noteOrderSize_ > 0u) {
-            advanceArpeggiator();
-        } else if (params_.arpPattern == ProcessorStackArpPattern::Off
+            if (player == 1u && params_.arpPhaseB > 1.0e-4f) {
+                const double stepSamples = std::max(1.0,
+                    static_cast<double>(sampleRate_) * 60.0
+                        / static_cast<double>(tempoBpm_)
+                        * static_cast<double>(arpStepBeats(controls.rate)));
+                state.phaseSamples = stepSamples
+                    * (1.0 - static_cast<double>(params_.arpPhaseB));
+            } else {
+                advanceArpeggiator(player);
+            }
+        } else if (controls.pattern == ProcessorStackArpPattern::Off
             && noteOrderSize_ > 0u) {
-            rebuildVoicing(false);
+            if (player == 0u) rebuildPrimaryVoicing(false);
+            else rebuildPartnerVoicing(false);
         }
     }
 
-    void closeArpeggiatorGate()
+    void closeArpeggiatorGate(uint32_t player)
     {
-        arpGateOpen_ = false;
-        for (auto& lane : lanes_) lane.held = false;
+        auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
+        state.gateOpen = false;
+        if (player == 0u) {
+            for (auto& lane : lanes_) lane.held = false;
+            if (params_.arpBRelation == ProcessorStackArpRelation::Follow) {
+                for (auto& lane : partnerLanes_) lane.held = false;
+            }
+        } else {
+            for (auto& lane : partnerLanes_) lane.held = false;
+        }
     }
 
-    void processArpeggiator()
+    void processArpeggiator(uint32_t player)
     {
-        if (params_.arpPattern == ProcessorStackArpPattern::Off
+        const ArpControls controls = arpControls(player);
+        if (controls.pattern == ProcessorStackArpPattern::Off
             || noteOrderSize_ == 0u) return;
+        auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
         const double stepSamples = std::max(1.0,
             static_cast<double>(sampleRate_) * 60.0
                 / static_cast<double>(tempoBpm_)
-                * static_cast<double>(arpStepBeats(params_.arpRate)));
-        arpPhaseSamples_ += 1.0;
+                * static_cast<double>(arpStepBeats(controls.rate)));
+        state.phaseSamples += 1.0;
         const double gateSamples = stepSamples
-            * static_cast<double>(smoothed_.arpGate);
-        if (arpGateOpen_ && arpPhaseSamples_ >= gateSamples) {
-            closeArpeggiatorGate();
+            * static_cast<double>(controls.gate);
+        if (state.gateOpen && state.phaseSamples >= gateSamples) {
+            closeArpeggiatorGate(player);
         }
-        if (arpPhaseSamples_ >= stepSamples) {
-            arpPhaseSamples_ -= stepSamples;
-            advanceArpeggiator();
+        if (state.phaseSamples >= stepSamples) {
+            state.phaseSamples -= stepSamples;
+            advanceArpeggiator(player);
+        }
+    }
+
+    void processArpeggiators()
+    {
+        processArpeggiator(0u);
+        if (params_.pairAmount > 1.0e-4f
+            && params_.arpBRelation != ProcessorStackArpRelation::Follow) {
+            processArpeggiator(1u);
         }
     }
 
@@ -1097,7 +1868,7 @@ private:
 
     void configureLane(ExciterLane& lane, int sourceNote, float noteOffset,
         float gain, float attackGainTarget, float velocity, bool retrigger,
-        bool held)
+        bool held, uint32_t player)
     {
         const float target = noteFrequency(
             static_cast<float>(sourceNote) + noteOffset);
@@ -1119,8 +1890,11 @@ private:
         lane.active = true;
         if (!wasActive || retrigger) lane.age = ageCounter_++;
         if (retrigger) {
-            glitchArmed_ = params_.targetGlitch > 1.0e-4f;
-            glitchArmAgeSamples_ = 0u;
+            const uint32_t rigIndex = std::min<uint32_t>(player, 1u);
+            const RigControls controls = rigControls(rigIndex);
+            rigs_[rigIndex].glitchArmed =
+                controls.targetGlitch > 1.0e-4f;
+            rigs_[rigIndex].glitchArmAgeSamples = 0u;
             const float pickCurve = params_.pick * params_.pick;
             const float recoverySamples = static_cast<float>(sampleRate_)
                 * lerp(0.004f, 0.032f, pickCurve);
@@ -1130,10 +1904,14 @@ private:
                 0.0f, 1.0f);
             float attackDensity = lerp(1.0f, std::max(0.38f, recovered),
                 pickCurve);
-            if (params_.arpPattern != ProcessorStackArpPattern::Off) {
+            const ArpControls arp = player == 1u
+                    && params_.arpBRelation
+                        != ProcessorStackArpRelation::Follow
+                ? arpControls(1u) : arpControls(0u);
+            if (arp.pattern != ProcessorStackArpPattern::Off) {
                 const float stepSeconds = 60.0f
                     / std::max(20.0f, tempoBpm_)
-                    * arpStepBeats(params_.arpRate);
+                    * arpStepBeats(arp.rate);
                 const float tempoDensity = clamp(stepSeconds / 0.045f,
                     0.38f, 1.0f);
                 attackDensity = std::min(attackDensity,
@@ -1153,36 +1931,77 @@ private:
             lane.random ^= static_cast<uint32_t>(
                 static_cast<uint32_t>(sourceNote + 1) * 0x9e3779b9u
                     + static_cast<uint32_t>(lane.age));
-            const int interval = lastRootNote_ >= 0
-                ? sourceNote - lastRootNote_ : 0;
+            const int previousRoot = player == 1u
+                ? partnerRootNote_ : lastRootNote_;
+            const int interval = previousRoot >= 0
+                ? sourceNote - previousRoot : 0;
             if (std::abs(interval) >= 7) {
                 lane.overshootSemitones = std::copysign(
                     params_.crooked * std::min(2.8f,
                         0.13f * static_cast<float>(std::abs(interval))),
                     static_cast<float>(interval));
             }
+            if (player == 1u) {
+                const float delayScatter = 0.5f
+                    + nextNoise(lane.random) * 0.5f;
+                const float delayMs = params_.pairLoose
+                    * (1.2f + delayScatter * 10.0f);
+                lane.startDelaySamples = static_cast<uint32_t>(
+                    delayMs * 0.001f * static_cast<float>(sampleRate_));
+                lane.detuneSemitones = params_.pairLoose
+                    * nextNoise(lane.random) * 0.065f;
+            }
         }
     }
 
-    void rebuildVoicing(bool retrigger)
+    int partnerRootFor(int primaryRoot, bool retrigger)
     {
-        const bool arpeggiating =
-            params_.arpPattern != ProcessorStackArpPattern::Off;
-        const int rootNote = arpeggiating ? arpCurrentNote_ : latestHeldNote();
+        int partnerRoot = primaryRoot;
+        switch (params_.pairRelation) {
+        case ProcessorStackPairRelation::Unison:
+            break;
+        case ProcessorStackPairRelation::FourthDown:
+            partnerRoot -= 5;
+            break;
+        case ProcessorStackPairRelation::FifthUp:
+            partnerRoot += 7;
+            break;
+        case ProcessorStackPairRelation::OctaveUp:
+            partnerRoot += 12;
+            break;
+        case ProcessorStackPairRelation::Contrary:
+            if (partnerRootNote_ < 0 || partnerPrimaryRoot_ < 0) {
+                partnerRootNote_ = primaryRoot + 7;
+            } else if (retrigger && primaryRoot != partnerPrimaryRoot_) {
+                partnerRootNote_ -= primaryRoot - partnerPrimaryRoot_;
+            }
+            partnerRoot = partnerRootNote_;
+            break;
+        case ProcessorStackPairRelation::Count:
+            break;
+        }
+        partnerRoot = std::clamp(partnerRoot, 12, 115);
+        partnerRootNote_ = partnerRoot;
+        partnerPrimaryRoot_ = primaryRoot;
+        return partnerRoot;
+    }
+
+    void configureBankVoicing(std::array<ExciterLane, kExciterCount>& bank,
+        int rootNote, float velocity, bool retrigger, bool arpeggiating,
+        bool gateOpen, uint32_t player)
+    {
         if (rootNote < 0) {
-            for (auto& lane : lanes_) lane.held = false;
+            for (auto& lane : bank) lane.held = false;
             return;
         }
-        const int heldRoot = latestHeldNote();
-        const float velocity = heldRoot >= 0
-            ? heldVelocities_[static_cast<size_t>(heldRoot)] : 0.8f;
         if (params_.mode == ProcessorStackMode::Lead
-            || (arpeggiating && params_.mode == ProcessorStackMode::Hand)) {
-            configureLane(lanes_[0u], rootNote, 0.0f, 1.0f,
+            || (params_.mode == ProcessorStackMode::Hand
+                && (arpeggiating || player == 1u))) {
+            configureLane(bank[0u], rootNote, 0.0f, 1.0f,
                 1.0f, velocity, retrigger,
-                !arpeggiating || arpGateOpen_);
-            for (uint32_t lane = 1u; lane < lanes_.size(); ++lane) {
-                lanes_[lane].held = false;
+                !arpeggiating || gateOpen, player);
+            for (uint32_t lane = 1u; lane < bank.size(); ++lane) {
+                bank[lane].held = false;
             }
         } else if (params_.mode == ProcessorStackMode::Power) {
             const float shape = params_.shape;
@@ -1196,7 +2015,7 @@ private:
             // SHAPE owns the sustained chord balance, not the number or
             // intensity of coincident pick transients. Keep one normalized
             // attack budget and let the upper tones grow through their
-            // strings and the shared stack.
+            // strings and their player's shared stack.
             // Root attack stays invariant across SHAPE; only its sustained
             // balance falls as the upper chord tones bloom in.
             const float rawRootAttack = 1.0f;
@@ -1206,19 +2025,97 @@ private:
                 std::sqrt(rawRootAttack * rawRootAttack
                     + rawFifthAttack * rawFifthAttack
                     + rawOctaveAttack * rawOctaveAttack));
-            configureLane(lanes_[0u], rootNote, 0.0f, rootGain,
+            configureLane(bank[0u], rootNote, 0.0f, rootGain,
                 rawRootAttack * attackNorm, velocity, retrigger,
-                !arpeggiating || arpGateOpen_);
-            configureLane(lanes_[1u], rootNote, 7.0f, fifthGain,
+                !arpeggiating || gateOpen, player);
+            configureLane(bank[1u], rootNote, 7.0f, fifthGain,
                 rawFifthAttack * attackNorm, velocity * 0.94f, retrigger,
-                !arpeggiating || arpGateOpen_);
-            configureLane(lanes_[2u], rootNote, 12.0f, octaveGain,
+                !arpeggiating || gateOpen, player);
+            configureLane(bank[2u], rootNote, 12.0f, octaveGain,
                 rawOctaveAttack * attackNorm, velocity * 0.88f, retrigger,
                 octaveGain > 1.0e-4f
-                    && (!arpeggiating || arpGateOpen_));
-            lanes_[3u].held = false;
+                    && (!arpeggiating || gateOpen), player);
+            bank[3u].held = false;
         }
-        lastRootNote_ = rootNote;
+    }
+
+    float heldRootVelocity() const
+    {
+        const int heldRoot = latestHeldNote();
+        return heldRoot >= 0
+            ? heldVelocities_[static_cast<size_t>(heldRoot)] : 0.8f;
+    }
+
+    void rebuildPrimaryVoicing(bool retrigger)
+    {
+        const bool arpeggiating =
+            params_.arpPattern != ProcessorStackArpPattern::Off;
+        const int rootNote = arpeggiating
+            ? arpeggiators_[0u].currentNote : latestHeldNote();
+        configureBankVoicing(lanes_, rootNote, heldRootVelocity(), retrigger,
+            arpeggiating, arpeggiators_[0u].gateOpen, 0u);
+        if (rootNote >= 0) lastRootNote_ = rootNote;
+    }
+
+    void configurePartnerVoicing(int primaryRoot, bool retrigger)
+    {
+        if (params_.pairAmount <= 1.0e-4f) {
+            for (auto& lane : partnerLanes_) lane.held = false;
+            return;
+        }
+        const int rootNote = partnerRootFor(primaryRoot, retrigger);
+        const bool arpeggiating =
+            params_.arpPattern != ProcessorStackArpPattern::Off;
+        configureBankVoicing(partnerLanes_, rootNote,
+            heldRootVelocity() * 0.94f, retrigger, arpeggiating,
+            arpeggiators_[0u].gateOpen, 1u);
+        partnerRootNote_ = rootNote;
+    }
+
+    void configureIndependentPartnerVoicing(int rootNote, bool retrigger,
+        bool arpeggiating)
+    {
+        if (params_.pairAmount <= 1.0e-4f) {
+            for (auto& lane : partnerLanes_) lane.held = false;
+            return;
+        }
+        configureBankVoicing(partnerLanes_, rootNote,
+            heldRootVelocity() * 0.94f, retrigger, arpeggiating,
+            arpeggiators_[1u].gateOpen, 1u);
+        partnerRootNote_ = rootNote;
+    }
+
+    void rebuildPartnerVoicing(bool retrigger)
+    {
+        if (params_.pairAmount <= 1.0e-4f) {
+            for (auto& lane : partnerLanes_) lane.held = false;
+            return;
+        }
+        if (params_.arpBRelation == ProcessorStackArpRelation::Follow) {
+            const int primaryRoot = params_.arpPattern
+                    != ProcessorStackArpPattern::Off
+                ? arpeggiators_[0u].currentNote : latestHeldNote();
+            if (primaryRoot >= 0) configurePartnerVoicing(
+                primaryRoot, retrigger);
+            return;
+        }
+        const bool arpeggiating =
+            params_.arpPatternB != ProcessorStackArpPattern::Off;
+        int rootNote = arpeggiating
+            ? arpeggiators_[1u].currentNote : latestHeldNote();
+        if (!arpeggiating
+            && params_.arpBRelation == ProcessorStackArpRelation::Counter
+            && rootNote >= 0) {
+            rootNote = partnerRootFor(rootNote, retrigger);
+        }
+        configureIndependentPartnerVoicing(rootNote, retrigger,
+            arpeggiating);
+    }
+
+    void rebuildVoicing(bool retrigger)
+    {
+        rebuildPrimaryVoicing(retrigger);
+        rebuildPartnerVoicing(retrigger);
     }
 
     void triggerHandLane(int note, float velocity)
@@ -1239,7 +2136,20 @@ private:
                 });
         }
         configureLane(*selected, note, 0.0f, 1.0f,
-            1.0f, velocity, true, true);
+            1.0f, velocity, true, true, 0u);
+        const uint32_t selectedIndex = static_cast<uint32_t>(
+            selected - lanes_.data());
+        if (params_.pairAmount > 1.0e-4f
+            && (params_.arpBRelation == ProcessorStackArpRelation::Follow
+                || params_.arpPatternB == ProcessorStackArpPattern::Off)) {
+            const int partnerRoot = params_.arpBRelation
+                    == ProcessorStackArpRelation::Free
+                ? note : partnerRootFor(note, true);
+            configureLane(partnerLanes_[selectedIndex], partnerRoot,
+                0.0f, 1.0f, 1.0f, velocity * 0.94f,
+                true, true, 1u);
+            partnerRootNote_ = partnerRoot;
+        }
         lastRootNote_ = note;
     }
 
@@ -1299,14 +2209,21 @@ private:
         return lane.articulationEnvelope;
     }
 
-    float processExciter(ExciterLane& lane, float& rootWitness)
+    float processExciter(ExciterLane& lane, float& rootWitness,
+        const MaterialProfile& material)
     {
+        if (lane.startDelaySamples > 0u) {
+            --lane.startDelaySamples;
+            rootWitness = 0.0f;
+            return 0.0f;
+        }
         if (lane.samplesSinceAttack < 0xffffffffu) {
             ++lane.samplesSinceAttack;
         }
         const float articulation = processArticulationEnvelope(lane);
         lane.targetFrequency = noteFrequency(
-            static_cast<float>(lane.sourceNote) + lane.noteOffset);
+            static_cast<float>(lane.sourceNote) + lane.noteOffset
+                + lane.detuneSemitones);
         const float glideSeconds = smoothed_.glideMs * 0.001f;
         float pitchCoefficient = glideSeconds <= 1.0e-6f
             ? 1.0f : onePoleSeconds(glideSeconds);
@@ -1379,13 +2296,16 @@ private:
             2.0f, maximumDelay);
         const float delayed = readDelay(lane.delay, lane.writeIndex,
             delaySamples);
-        const float pickupPosition = lerp(0.11f, 0.31f,
-            1.0f - smoothed_.pick);
+        const float pickupPosition = clamp(lerp(0.11f, 0.31f,
+                1.0f - smoothed_.pick) + material.pickupShift,
+            0.06f, 0.38f);
         const float pickupTap = readDelay(lane.delay, lane.writeIndex,
             clamp(delaySamples * pickupPosition, 1.0f, maximumDelay));
-        const float wireCutoff = lerp(720.0f, 7600.0f,
-            1.0f - smoothed_.damping);
+        const float wireCutoff = clamp(lerp(720.0f, 7600.0f,
+                1.0f - smoothed_.damping) * std::exp2(material.brightness),
+            320.0f, static_cast<float>(sampleRate_ * 0.36));
         const float dispersion = 0.04f + smoothed_.wire * 0.18f
+            + material.dispersion
             + clamp(lane.currentFrequency / 4200.0f, 0.0f, 0.12f);
         const float dispersed = -dispersion * delayed
             + lane.dispersionInput + dispersion * lane.dispersionOutput;
@@ -1393,8 +2313,10 @@ private:
         lane.dispersionOutput = flushDenormal(dispersed);
         lane.wireLow += (lane.dispersionOutput - lane.wireLow)
             * onePoleHz(wireCutoff);
-        const float wireDecay = 0.985f
-            + (1.0f - smoothed_.damping) * 0.0138f;
+        const float wireDecay = clamp(0.985f
+                + (1.0f - smoothed_.damping) * 0.0138f
+                + material.sustain,
+            0.960f, 0.99945f);
         const float injection = pickPacket
             * (0.54f + smoothed_.wire * 0.54f);
         lane.delay[lane.writeIndex] = flushDenormal(std::tanh(
@@ -1430,7 +2352,23 @@ private:
         const float output = lerp(pickPacket + transientTonal,
             lane.pickupLow * stringRelease + pickPacket * 0.18f,
             smoothed_.wire);
-        lane.outputSmoothed += (output - lane.outputSmoothed)
+        lane.materialLow += (output - lane.materialLow)
+            * onePoleHz(clamp(material.bodyFrequency * 1.8f,
+                90.0f, 2200.0f));
+        lane.materialBodyLow += (output - lane.materialBodyLow)
+            * onePoleHz(clamp(material.bodyFrequency * 0.62f,
+                45.0f, 900.0f));
+        lane.materialLow = flushDenormal(lane.materialLow);
+        lane.materialBodyLow = flushDenormal(lane.materialBodyLow);
+        const float bodyBand = lane.materialLow - lane.materialBodyLow;
+        const float neckEdge = output - lane.materialLow;
+        const float metallicPartial = std::sin(lane.phase * 2.031f)
+            * material.metallic * lane.amplitude * articulation * 0.075f;
+        const float materialOutput = output
+            + bodyBand * material.bodyAmount * 1.35f
+            + neckEdge * material.brightness * 0.34f
+            + metallicPartial;
+        lane.outputSmoothed += (materialOutput - lane.outputSmoothed)
             * onePoleHz(9800.0f);
         lane.outputSmoothed = flushDenormal(lane.outputSmoothed);
         rootWitness = lane.rootLow * lane.amplitude
@@ -1449,13 +2387,13 @@ private:
         return lane.outputSmoothed * articulation * 0.34f;
     }
 
-    float processSelectedCircuit(ProcessorStackCircuit circuit,
-        float input, float rateScale)
+    float processSelectedCircuit(RigState& rig, const RigControls& controls,
+        ProcessorStackCircuit circuit, float input, float rateScale)
     {
         const uint32_t index = std::min<uint32_t>(
             static_cast<uint32_t>(circuit), kProcessorStackCircuitCount - 1u);
-        const float drive = smoothed_.bite;
-        const float bias = (smoothed_.bias - 0.5f) * 0.18f;
+        const float drive = controls.bite;
+        const float bias = (controls.bias - 0.5f) * 0.18f;
         if (circuit == ProcessorStackCircuit::Shred) {
             const float pressured = std::tanh(input * (1.0f + drive * 9.0f));
             return lerp(pressured,
@@ -1464,75 +2402,77 @@ private:
         }
         const float driven = processAnalogDriveCircuit(
             static_cast<AnalogDriveCircuit>(index - 1u),
-            pedalStates_[index], input, drive, smoothed_.pedalTone,
+            rig.pedalStates[index], input, drive, controls.pedalTone,
             bias, static_cast<float>(sampleRate_) * rateScale);
         const float idle = processAnalogDriveCircuit(
             static_cast<AnalogDriveCircuit>(index - 1u),
-            pedalIdleStates_[index], 0.0f, drive, smoothed_.pedalTone,
+            rig.pedalIdleStates[index], 0.0f, drive, controls.pedalTone,
             bias, static_cast<float>(sampleRate_) * rateScale);
         return driven - idle;
     }
 
-    float processPedal(float input)
+    float processPedal(RigState& rig, const RigControls& controls, float input)
     {
-        if (params_.circuit != activeCircuit_) {
-            previousCircuit_ = activeCircuit_;
-            activeCircuit_ = params_.circuit;
-            circuitFade_ = 0.0f;
+        if (controls.circuit != rig.activeCircuit) {
+            rig.previousCircuit = rig.activeCircuit;
+            rig.activeCircuit = controls.circuit;
+            rig.circuitFade = 0.0f;
         }
         const auto render = [&](ProcessorStackCircuit circuit, float sample) {
-            return processSelectedCircuit(circuit, sample, 2.0f);
+            return processSelectedCircuit(rig, controls,
+                circuit, sample, 2.0f);
         };
-        const float midpoint = 0.5f * (preampPreviousInput_ + input);
-        float active = 0.5f * (render(activeCircuit_, midpoint)
-            + render(activeCircuit_, input));
-        if (circuitFade_ < 1.0f) {
-            const float previous = 0.5f * (render(previousCircuit_, midpoint)
-                + render(previousCircuit_, input));
-            active = lerp(previous, active, circuitFade_);
-            circuitFade_ = std::min(1.0f,
-                circuitFade_ + circuitFadeCoefficient_);
+        const float midpoint = 0.5f * (rig.preampPreviousInput + input);
+        float active = 0.5f * (render(rig.activeCircuit, midpoint)
+            + render(rig.activeCircuit, input));
+        if (rig.circuitFade < 1.0f) {
+            const float previous = 0.5f * (render(rig.previousCircuit, midpoint)
+                + render(rig.previousCircuit, input));
+            active = lerp(previous, active, rig.circuitFade);
+            rig.circuitFade = std::min(1.0f,
+                rig.circuitFade + circuitFadeCoefficient_);
         }
-        preampPreviousInput_ = input;
-        const float starvation = lerp(0.62f, 1.0f, smoothed_.bias);
+        rig.preampPreviousInput = input;
+        const float starvation = lerp(0.62f, 1.0f, controls.bias);
         const float raw = softClip(active * starvation, 2.10f, 2.5f);
-        const float dcBlocked = raw - pedalDcInput_
-            + pedalDcPole_ * pedalDcOutput_;
-        pedalDcInput_ = raw;
-        pedalDcOutput_ = flushDenormal(dcBlocked);
-        return pedalDcOutput_;
+        const float dcBlocked = raw - rig.pedalDcInput
+            + pedalDcPole_ * rig.pedalDcOutput;
+        rig.pedalDcInput = raw;
+        rig.pedalDcOutput = flushDenormal(dcBlocked);
+        return rig.pedalDcOutput;
     }
 
-    float processAmplifier(float input)
+    float processAmplifier(RigState& rig, const RigControls& controls,
+        float input)
     {
         const auto oversampledStage = [&](float sample) {
-            const float stack = smoothed_.stack;
-            const float focus = smoothed_.focus;
+            const float stack = controls.stack;
+            const float focus = controls.focus;
             const float bias = 0.018f + stack * 0.042f;
             float first = asymmetric(sample,
                 1.0f + stack * stack * 13.0f, bias);
-            preampMemory_ += (first - preampMemory_)
+            rig.preampMemory += (first - rig.preampMemory)
                 * onePoleHz(lerp(2600.0f, 10500.0f, focus), 2.0f);
-            float second = asymmetric(preampMemory_,
+            float second = asymmetric(rig.preampMemory,
                 1.0f + stack * 6.4f, -bias * 0.64f);
 
-            toneLow_ += (second - toneLow_)
+            rig.toneLow += (second - rig.toneLow)
                 * onePoleHz(lerp(110.0f, 240.0f, focus), 2.0f);
-            toneMidLow_ += (second - toneMidLow_)
+            rig.toneMidLow += (second - rig.toneMidLow)
                 * onePoleHz(lerp(520.0f, 1700.0f, focus), 2.0f);
-            toneHighLow_ += (second - toneHighLow_)
+            rig.toneHighLow += (second - rig.toneHighLow)
                 * onePoleHz(lerp(2600.0f, 7200.0f, focus), 2.0f);
-            const float low = toneLow_;
-            const float middle = toneMidLow_ - toneLow_;
-            const float high = toneHighLow_ - toneMidLow_;
+            const float low = rig.toneLow;
+            const float middle = rig.toneMidLow - rig.toneLow;
+            const float high = rig.toneHighLow - rig.toneMidLow;
             const float voiced = low * lerp(1.18f, 0.76f, focus)
                 + middle * lerp(0.72f, 1.72f, focus)
                 + high * lerp(0.48f, 1.34f, focus);
-            sagEnvelope_ += (std::abs(voiced) - sagEnvelope_)
-                * (std::abs(voiced) > sagEnvelope_
+            rig.sagEnvelope += (std::abs(voiced) - rig.sagEnvelope)
+                * (std::abs(voiced) > rig.sagEnvelope
                     ? sagAttackCoefficient_ : sagReleaseCoefficient_);
-            const float rail = 1.0f / (1.0f + sagEnvelope_
-                * smoothed_.sag * 3.4f);
+            const float rail = 1.0f / (1.0f + rig.sagEnvelope
+                * controls.sag * 3.4f);
             const float positive = std::tanh(voiced
                 * (1.2f + stack * 5.6f) * rail);
             const float negative = std::tanh(voiced
@@ -1543,28 +2483,29 @@ private:
             const float polarityBlend = 0.5f
                 + std::tanh(voiced * 42.0f) * 0.5f;
             const float crossover = lerp(negative, positive, polarityBlend);
-            transformerLow_ += (crossover - transformerLow_)
+            rig.transformerLow += (crossover - rig.transformerLow)
                 * onePoleHz(82.0f, 2.0f);
-            return crossover + transformerLow_ * 0.12f;
+            return crossover + rig.transformerLow * 0.12f;
         };
-        const float midpoint = 0.5f * (amplifierPreviousInput_ + input);
+        const float midpoint = 0.5f * (rig.amplifierPreviousInput + input);
         const float first = oversampledStage(midpoint);
         const float second = oversampledStage(input);
-        amplifierPreviousInput_ = input;
+        rig.amplifierPreviousInput = input;
         return flushDenormal(0.5f * (first + second));
     }
 
-    void processSpeaker(float input, float& micA, float& micB)
+    void processSpeaker(RigState& rig, const RigControls& controls, float input,
+        float& micA, float& micB)
     {
-        const float cone = smoothed_.cone;
-        const float cabinet = smoothed_.cabinet;
-        coilEnvelope_ += (std::abs(input) - coilEnvelope_)
-            * (std::abs(input) > coilEnvelope_
+        const float cone = controls.cone;
+        const float cabinet = controls.cabinet;
+        rig.coilEnvelope += (std::abs(input) - rig.coilEnvelope)
+            * (std::abs(input) > rig.coilEnvelope
                 ? coilAttackCoefficient_ : coilReleaseCoefficient_);
         const float compression = 1.0f
-            / (1.0f + coilEnvelope_ * cone * 1.9f);
+            / (1.0f + rig.coilEnvelope * cone * 1.9f);
         const float displacementShift = 1.0f
-            + smoothLimit(speakerModes_[0u].first, 1.0f)
+            + smoothLimit(rig.speakerModes[0u].first, 1.0f)
                 * cone * 0.035f;
 
         // Govern the source of overload, rather than only filtering its
@@ -1573,28 +2514,30 @@ private:
         // resonator coefficient.
         const float inputStress = smoothStep(0.72f, 1.10f,
             std::abs(input));
-        const float coilStress = smoothStep(0.58f, 1.06f, coilEnvelope_);
-        const float loopStress = smoothStep(0.42f, 1.08f, loopEnvelope_);
+        const float coilStress = smoothStep(0.58f, 1.06f,
+            rig.coilEnvelope);
+        const float loopStress = smoothStep(0.42f, 1.08f,
+            rig.loopEnvelope);
         const float intrinsicStress = std::max(inputStress * 0.36f,
             std::max(coilStress * 0.46f,
-                loopStress * smoothed_.feedback * 0.92f));
+                loopStress * controls.feedback * 0.92f));
         const float detectedProtection = smoothStep(0.0f, 0.40f,
-            overloadMaskAmount_);
-        const float protectionTarget = std::max(detectedProtection,
-            intrinsicStress * lerp(0.52f, 1.0f,
-                smoothed_.overloadMask));
-        speakerProtection_ += (protectionTarget - speakerProtection_)
-            * (protectionTarget > speakerProtection_
+            rig.overloadMaskAmount);
+        const float protectionTarget = std::max(linkedRigStress_ * 0.68f,
+            std::max(detectedProtection, intrinsicStress
+                * lerp(0.52f, 1.0f, controls.overloadMask)));
+        rig.speakerProtection += (protectionTarget - rig.speakerProtection)
+            * (protectionTarget > rig.speakerProtection
                 ? speakerProtectionAttackCoefficient_
                 : speakerProtectionReleaseCoefficient_);
-        speakerProtection_ = flushDenormal(speakerProtection_);
-        speakerProtectionPeak_ = std::max(speakerProtectionPeak_,
-            speakerProtection_);
+        rig.speakerProtection = flushDenormal(rig.speakerProtection);
+        rig.speakerProtectionPeak = std::max(rig.speakerProtectionPeak,
+            rig.speakerProtection);
         const std::array<float, kSpeakerModeCount> baseFrequencies {{
             lerp(78.0f, 132.0f, 1.0f - cabinet),
             lerp(310.0f, 560.0f, 1.0f - cabinet),
-            lerp(760.0f, 1480.0f, smoothed_.focus),
-            lerp(2200.0f, 4300.0f, smoothed_.focus),
+            lerp(760.0f, 1480.0f, controls.focus),
+            lerp(2200.0f, 4300.0f, controls.focus),
         }};
         const std::array<float, kSpeakerModeCount> radii {{
             0.992f, 0.976f, 0.958f, 0.925f,
@@ -1603,14 +2546,14 @@ private:
             0.24f, 0.20f, 0.15f, 0.09f,
         }};
         std::array<float, kSpeakerModeCount> modes {};
-        const float protectionSquared = speakerProtection_
-            * speakerProtection_;
+        const float protectionSquared = rig.speakerProtection
+            * rig.speakerProtection;
         const float protectionCurve = protectionSquared * protectionSquared;
         const float dampingExponent = 1.0f + protectionCurve
             * (1.30f + cone * 1.10f);
         const float modeDrive = lerp(1.0f, 0.54f, protectionCurve);
         constexpr float kSpeakerStateLimit = 3.0f;
-        for (uint32_t index = 0u; index < speakerModes_.size(); ++index) {
+        for (uint32_t index = 0u; index < rig.speakerModes.size(); ++index) {
             const float frequency = clamp(baseFrequencies[index]
                     * (index == 0u ? displacementShift : 1.0f),
                 18.0f, static_cast<float>(sampleRate_ * 0.42));
@@ -1622,22 +2565,23 @@ private:
                     / static_cast<float>(sampleRate_));
             const float resonant = input * (1.0f - radius) * gains[index]
                     * modeDrive
-                + coefficient * speakerModes_[index].first
-                - radius * radius * speakerModes_[index].second;
-            speakerModes_[index].second = speakerModes_[index].first;
-            speakerModePreLimitPeak_ = std::max(speakerModePreLimitPeak_,
+                + coefficient * rig.speakerModes[index].first
+                - radius * radius * rig.speakerModes[index].second;
+            rig.speakerModes[index].second = rig.speakerModes[index].first;
+            rig.speakerModePreLimitPeak = std::max(
+                rig.speakerModePreLimitPeak,
                 std::abs(resonant));
             if (std::abs(resonant) > kSpeakerStateLimit * 0.84f)
-                ++speakerSoftLimitCount_;
-            speakerModes_[index].first = flushDenormal(
+                ++rig.speakerSoftLimitCount;
+            rig.speakerModes[index].first = flushDenormal(
                 softClip(resonant, kSpeakerStateLimit * 0.84f,
                     kSpeakerStateLimit));
-            modes[index] = speakerModes_[index].first;
+            modes[index] = rig.speakerModes[index].first;
         }
         const float modal = modes[0u] * 1.24f + modes[1u] * 1.08f
             + modes[2u] * 0.92f + modes[3u] * 0.72f;
-        speakerDc_ += (modal - speakerDc_) * speakerDcCoefficient_;
-        const float displacement = modal - speakerDc_;
+        rig.speakerDc += (modal - rig.speakerDc) * speakerDcCoefficient_;
+        const float displacement = modal - rig.speakerDc;
         const float breakupGovernor = lerp(1.0f, 0.56f,
             protectionCurve);
         const float breakup = std::tanh((input - modes[0u] * 0.34f)
@@ -1659,7 +2603,7 @@ private:
         // paths both receive this same bounded signal.
         constexpr float kMicrophoneLimit = 3.0f;
         const float micPeak = std::max(std::abs(micA), std::abs(micB));
-        if (micPeak > kMicrophoneLimit * 0.84f) ++micSoftLimitCount_;
+        if (micPeak > kMicrophoneLimit * 0.84f) ++rig.micSoftLimitCount;
         const float boundedMicPeak = softCeiling(micPeak,
             kMicrophoneLimit * 0.84f, kMicrophoneLimit);
         const float microphoneGain = micPeak > 1.0e-9f
@@ -1668,35 +2612,36 @@ private:
         micB *= microphoneGain;
     }
 
-    void processOverloadMask(float& micA, float& micB)
+    void processOverloadMask(RigState& rig, const RigControls& controls,
+        float& micA, float& micB)
     {
         const float rawLeft = micA;
         const float rawRight = micB;
         const float mono = (rawLeft + rawRight) * 0.5f;
         const float magnitude = std::max(std::abs(rawLeft),
             std::abs(rawRight));
-        const float roughness = std::abs(mono - overloadPreviousMic_);
-        overloadPreviousMic_ = mono;
-        overloadLevel_ += (magnitude - overloadLevel_)
-            * (magnitude > overloadLevel_
+        const float roughness = std::abs(mono - rig.overloadPreviousMic);
+        rig.overloadPreviousMic = mono;
+        rig.overloadLevel += (magnitude - rig.overloadLevel)
+            * (magnitude > rig.overloadLevel
                 ? overloadLevelAttackCoefficient_
                 : overloadLevelReleaseCoefficient_);
-        overloadRoughness_ += (roughness - overloadRoughness_)
-            * (roughness > overloadRoughness_
+        rig.overloadRoughness += (roughness - rig.overloadRoughness)
+            * (roughness > rig.overloadRoughness
                 ? overloadRoughnessAttackCoefficient_
                 : overloadRoughnessReleaseCoefficient_);
-        overloadLevel_ = flushDenormal(overloadLevel_);
-        overloadRoughness_ = flushDenormal(overloadRoughness_);
+        rig.overloadLevel = flushDenormal(rig.overloadLevel);
+        rig.overloadRoughness = flushDenormal(rig.overloadRoughness);
 
-        const float normalizedRoughness = overloadRoughness_
-            / std::max(0.035f, overloadLevel_);
-        const float levelStress = clamp((overloadLevel_ - 0.58f)
+        const float normalizedRoughness = rig.overloadRoughness
+            / std::max(0.035f, rig.overloadLevel);
+        const float levelStress = clamp((rig.overloadLevel - 0.58f)
                 / 0.62f,
             0.0f, 1.0f);
-        const float loopStress = clamp((loopEnvelope_ - 0.44f)
+        const float loopStress = clamp((rig.loopEnvelope - 0.44f)
                 / 0.62f,
             0.0f, 1.0f);
-        const float coilStress = clamp((coilEnvelope_ - 0.64f)
+        const float coilStress = clamp((rig.coilEnvelope - 0.64f)
                 / 0.76f,
             0.0f, 1.0f);
         const float roughStress = clamp((normalizedRoughness - 0.34f)
@@ -1704,120 +2649,122 @@ private:
             0.0f, 1.0f);
         const float sustainedStress = std::max(loopStress,
             levelStress * 0.72f + coilStress * 0.28f);
-        const float maskTarget = smoothed_.overloadMask
+        const float localMaskTarget = controls.overloadMask
             * sustainedStress * (0.28f + roughStress * 0.72f);
-        overloadMaskAmount_ += (maskTarget - overloadMaskAmount_)
-            * (maskTarget > overloadMaskAmount_
+        const float maskTarget = std::max(localMaskTarget,
+            linkedRigStress_ * controls.overloadMask * 0.72f);
+        rig.overloadMaskAmount += (maskTarget - rig.overloadMaskAmount)
+            * (maskTarget > rig.overloadMaskAmount
                 ? overloadMaskAttackCoefficient_
                 : overloadMaskReleaseCoefficient_);
-        overloadMaskAmount_ = flushDenormal(clamp(
-            overloadMaskAmount_, 0.0f, 1.0f));
+        rig.overloadMaskAmount = flushDenormal(clamp(
+            rig.overloadMaskAmount, 0.0f, 1.0f));
 
         const float maskCutoff = lerp(1550.0f, 2900.0f,
-            smoothed_.focus);
+            controls.focus);
         const float maskLowCoefficient = onePoleHz(maskCutoff);
-        overloadLowLeft_ += (rawLeft - overloadLowLeft_)
+        rig.overloadLowNear += (rawLeft - rig.overloadLowNear)
             * maskLowCoefficient;
-        overloadLowRight_ += (rawRight - overloadLowRight_)
+        rig.overloadLowFar += (rawRight - rig.overloadLowFar)
             * maskLowCoefficient;
-        overloadLowLeft_ = flushDenormal(overloadLowLeft_);
-        overloadLowRight_ = flushDenormal(overloadLowRight_);
+        rig.overloadLowNear = flushDenormal(rig.overloadLowNear);
+        rig.overloadLowFar = flushDenormal(rig.overloadLowFar);
         const float fullMaskStrength = smoothStep(0.90f, 1.0f,
-            smoothed_.overloadMask);
-        const float spectralMask = overloadMaskAmount_
+            controls.overloadMask);
+        const float spectralMask = rig.overloadMaskAmount
             * (0.78f + fullMaskStrength * 0.10f);
         const float energyMask = lerp(1.0f, 0.72f,
-            overloadMaskAmount_);
-        micA = lerp(rawLeft, overloadLowLeft_ * 0.86f, spectralMask)
+            rig.overloadMaskAmount);
+        micA = lerp(rawLeft, rig.overloadLowNear * 0.86f, spectralMask)
             * energyMask;
-        micB = lerp(rawRight, overloadLowRight_ * 0.86f, spectralMask)
+        micB = lerp(rawRight, rig.overloadLowFar * 0.86f, spectralMask)
             * energyMask;
     }
 
-    float readGlitchHistory(float position) const
+    float readGlitchHistory(const RigState& rig, float position) const
     {
-        if (glitchHistory_.size() < 4u) return 0.0f;
-        const float size = static_cast<float>(glitchHistory_.size());
+        if (rig.glitchHistory.size() < 4u) return 0.0f;
+        const float size = static_cast<float>(rig.glitchHistory.size());
         while (position < 0.0f) position += size;
         while (position >= size) position -= size;
         const auto first = static_cast<size_t>(position);
-        const auto second = (first + 1u) % glitchHistory_.size();
+        const auto second = (first + 1u) % rig.glitchHistory.size();
         const float fraction = position - static_cast<float>(first);
-        return glitchHistory_[first]
-            + (glitchHistory_[second] - glitchHistory_[first]) * fraction;
+        return rig.glitchHistory[first]
+            + (rig.glitchHistory[second] - rig.glitchHistory[first])
+                * fraction;
     }
 
-    void beginTargetGlitch(float targetFrequency)
+    void beginTargetGlitch(RigState& rig, const RigControls& controls,
+        float targetFrequency)
     {
-        if (glitchHistory_.size() < 32u) return;
+        if (rig.glitchHistory.size() < 32u) return;
         const float periodSamples = static_cast<float>(sampleRate_)
             / std::max(80.0f, targetFrequency);
         const float capturedCycles = lerp(6.0f, 1.25f,
-            smoothed_.glitchRatchet);
+            controls.glitchRatchet);
         const uint32_t maximumCell = static_cast<uint32_t>(std::min(
-            static_cast<float>(glitchHistory_.size() - 4u),
+            static_cast<float>(rig.glitchHistory.size() - 4u),
             static_cast<float>(sampleRate_) * 0.018f));
-        glitchCellSamples_ = std::clamp(
+        rig.glitchCellSamples = std::clamp(
             static_cast<uint32_t>(std::lround(periodSamples * capturedCycles)),
             12u, std::max(12u, maximumCell));
-        glitchCaptureStart_ = (glitchWriteIndex_ + glitchHistory_.size()
-            - glitchCellSamples_) % glitchHistory_.size();
-        glitchRepeatCount_ = std::clamp(2u + static_cast<uint32_t>(
-            std::lround(smoothed_.glitchRatchet * 5.0f
-                + smoothed_.targetGlitch * 2.0f)), 2u, 9u);
-        glitchRepeatIndex_ = 0u;
-        glitchPhase_ = 0.0f;
-        glitchPlaying_ = true;
-        glitchArmed_ = false;
-        ++glitchTriggerCount_;
+        rig.glitchCaptureStart = (rig.glitchWriteIndex
+            + rig.glitchHistory.size() - rig.glitchCellSamples)
+            % rig.glitchHistory.size();
+        rig.glitchRepeatCount = std::clamp(2u + static_cast<uint32_t>(
+            std::lround(controls.glitchRatchet * 5.0f
+                + controls.targetGlitch * 2.0f)), 2u, 9u);
+        rig.glitchRepeatIndex = 0u;
+        rig.glitchPhase = 0.0f;
+        rig.glitchPlaying = true;
+        rig.glitchArmed = false;
+        ++rig.glitchTriggerCount;
     }
 
-    float processTargetGlitch()
+    float processTargetGlitch(RigState& rig, const RigControls& controls)
     {
-        if (!glitchPlaying_ || glitchCellSamples_ < 2u) return 0.0f;
-        const float amount = smoothed_.targetGlitch;
+        if (!rig.glitchPlaying || rig.glitchCellSamples < 2u) return 0.0f;
+        const float amount = controls.targetGlitch;
         const bool reverse = amount > 0.76f
-            && (glitchRepeatIndex_ % 4u) == 3u;
-        const float phase = clamp(glitchPhase_, 0.0f,
-            static_cast<float>(glitchCellSamples_ - 1u));
+            && (rig.glitchRepeatIndex % 4u) == 3u;
+        const float phase = clamp(rig.glitchPhase, 0.0f,
+            static_cast<float>(rig.glitchCellSamples - 1u));
         const float local = reverse
-            ? static_cast<float>(glitchCellSamples_ - 1u) - phase : phase;
-        const float readPosition = static_cast<float>(glitchCaptureStart_)
+            ? static_cast<float>(rig.glitchCellSamples - 1u) - phase : phase;
+        const float readPosition = static_cast<float>(rig.glitchCaptureStart)
             + local;
         const float normalized = phase
-            / static_cast<float>(std::max(1u, glitchCellSamples_ - 1u));
+            / static_cast<float>(std::max(1u, rig.glitchCellSamples - 1u));
         const float window = 0.5f - 0.5f
             * std::cos(2.0f * kPi * normalized);
-        const float result = readGlitchHistory(readPosition) * window;
+        const float result = readGlitchHistory(rig, readPosition) * window;
 
         float playbackRate = 1.0f;
-        if (amount > 0.42f && (glitchRepeatIndex_ % 3u) == 1u) {
+        if (amount > 0.42f && (rig.glitchRepeatIndex % 3u) == 1u) {
             playbackRate = lerp(1.0f, 2.0f,
                 (amount - 0.42f) / 0.58f);
         }
-        glitchPhase_ += playbackRate;
-        if (glitchPhase_ >= static_cast<float>(glitchCellSamples_)) {
-            glitchPhase_ = 0.0f;
-            if (++glitchRepeatIndex_ >= glitchRepeatCount_) {
-                glitchPlaying_ = false;
+        rig.glitchPhase += playbackRate;
+        if (rig.glitchPhase >= static_cast<float>(rig.glitchCellSamples)) {
+            rig.glitchPhase = 0.0f;
+            if (++rig.glitchRepeatIndex >= rig.glitchRepeatCount) {
+                rig.glitchPlaying = false;
             }
         }
         return flushDenormal(result);
     }
 
-    float readFeedbackReturn()
+    float readFeedbackReturn(RigState& rig, const RigControls& controls,
+        int activeRoot)
     {
-        const int activeRoot = params_.arpPattern
-                != ProcessorStackArpPattern::Off
-            && arpCurrentNote_ >= 0
-            ? arpCurrentNote_ : latestHeldNote();
         const float rootFrequency = noteFrequency(
             static_cast<float>(activeRoot >= 0 ? activeRoot : lastRootNote_));
         const float bodyHarmonic = clamp(lerp(1.5f, 6.0f,
-                smoothed_.harmonic) + crookedHarmonicSkew_ * 0.35f,
+                controls.harmonic) + crookedHarmonicSkew_ * 0.35f,
             1.0f, 7.0f);
         const float stabHarmonic = clamp(std::round(lerp(5.0f, 24.0f,
-                smoothed_.harmonic) + crookedHarmonicSkew_ * 1.6f),
+                controls.harmonic) + crookedHarmonicSkew_ * 1.6f),
             3.0f, 28.0f);
         const float bodyNoteDelay = static_cast<float>(sampleRate_)
             / (rootFrequency * bodyHarmonic);
@@ -1826,58 +2773,59 @@ private:
         const float stabNoteDelay = static_cast<float>(sampleRate_)
             / stabFrequency;
         const float roomDelay = static_cast<float>(sampleRate_)
-            * lerp(0.0080f, 0.00055f, smoothed_.proximity);
+            * lerp(0.0080f, 0.00055f, controls.proximity);
         const float target = clamp(lerp(roomDelay, bodyNoteDelay,
-                smoothed_.tracking),
-            2.0f, static_cast<float>(loopDelay_.size() - 2u));
+                controls.tracking),
+            2.0f, static_cast<float>(rig.loopDelay.size() - 2u));
         const float stabRoomDelay = static_cast<float>(sampleRate_)
-            * lerp(0.0016f, 0.00035f, smoothed_.proximity);
+            * lerp(0.0016f, 0.00035f, controls.proximity);
         const float stabTarget = clamp(lerp(stabRoomDelay, stabNoteDelay,
-                0.55f + smoothed_.tracking * 0.45f),
-            2.0f, static_cast<float>(loopDelay_.size() - 2u));
-        loopDelaySamples_ += (target - loopDelaySamples_)
+                0.55f + controls.tracking * 0.45f),
+            2.0f, static_cast<float>(rig.loopDelay.size() - 2u));
+        rig.loopDelaySamples += (target - rig.loopDelaySamples)
             * loopDelaySmoothingCoefficient_;
-        stabDelaySamples_ += (stabTarget - stabDelaySamples_)
+        rig.stabDelaySamples += (stabTarget - rig.stabDelaySamples)
             * stabDelaySmoothingCoefficient_;
-        const float delayed = readDelay(loopDelay_, loopWriteIndex_,
-            loopDelaySamples_);
-        const float stabDelayed = readDelay(loopDelay_, loopWriteIndex_,
-            stabDelaySamples_);
-        const float dc = delayed - loopDcInput_ + loopDcPole_ * loopDcOutput_;
-        loopDcInput_ = delayed;
-        loopDcOutput_ = flushDenormal(dc);
-        const float stabDc = stabDelayed - stabDcInput_
-            + loopDcPole_ * stabDcOutput_;
-        stabDcInput_ = stabDelayed;
-        stabDcOutput_ = flushDenormal(stabDc);
-        loopLow_ += (loopDcOutput_ - loopLow_)
-            * onePoleHz(lerp(1400.0f, 6200.0f, smoothed_.proximity)
-                * lerp(1.0f, 0.64f, smoothed_.pierce));
-        loopHighLow_ += (loopLow_ - loopHighLow_)
-            * onePoleHz(lerp(105.0f, 430.0f, smoothed_.chaos));
-        const float bodyBand = loopLow_ - loopHighLow_;
+        const float delayed = readDelay(rig.loopDelay, rig.loopWriteIndex,
+            rig.loopDelaySamples);
+        const float stabDelayed = readDelay(rig.loopDelay,
+            rig.loopWriteIndex, rig.stabDelaySamples);
+        const float dc = delayed - rig.loopDcInput
+            + loopDcPole_ * rig.loopDcOutput;
+        rig.loopDcInput = delayed;
+        rig.loopDcOutput = flushDenormal(dc);
+        const float stabDc = stabDelayed - rig.stabDcInput
+            + loopDcPole_ * rig.stabDcOutput;
+        rig.stabDcInput = stabDelayed;
+        rig.stabDcOutput = flushDenormal(stabDc);
+        rig.loopLow += (rig.loopDcOutput - rig.loopLow)
+            * onePoleHz(lerp(1400.0f, 6200.0f, controls.proximity)
+                * lerp(1.0f, 0.64f, controls.pierce));
+        rig.loopHighLow += (rig.loopLow - rig.loopHighLow)
+            * onePoleHz(lerp(105.0f, 430.0f, controls.chaos));
+        const float bodyBand = rig.loopLow - rig.loopHighLow;
 
         const float svfFrequency = clamp(stabFrequency,
             80.0f, static_cast<float>(sampleRate_ * 0.18));
         const float svfG = std::tan(kPi * svfFrequency
             / static_cast<float>(sampleRate_));
-        const float svfDamping = lerp(1.05f, 0.20f, smoothed_.pierce);
+        const float svfDamping = lerp(1.05f, 0.20f, controls.pierce);
         const float svfA1 = 1.0f
             / (1.0f + svfG * (svfG + svfDamping));
-        const float svfV3 = stabDcOutput_ - stabLow_;
+        const float svfV3 = rig.stabDcOutput - rig.stabLow;
         const float stabBandSignal = svfA1
-            * (stabBand_ + svfG * svfV3);
-        const float stabLowSignal = stabLow_ + svfG * stabBandSignal;
-        stabBand_ = flushDenormal(smoothLimit(
-            2.0f * stabBandSignal - stabBand_, 3.0f));
-        stabLow_ = flushDenormal(smoothLimit(
-            2.0f * stabLowSignal - stabLow_, 3.0f));
+            * (rig.stabBand + svfG * svfV3);
+        const float stabLowSignal = rig.stabLow + svfG * stabBandSignal;
+        rig.stabBand = flushDenormal(smoothLimit(
+            2.0f * stabBandSignal - rig.stabBand, 3.0f));
+        rig.stabLow = flushDenormal(smoothLimit(
+            2.0f * stabLowSignal - rig.stabLow, 3.0f));
 
-        if (!glitchPlaying_ && !glitchHistory_.empty()) {
-            glitchHistory_[glitchWriteIndex_] = stabBandSignal;
-            glitchWriteIndex_ = (glitchWriteIndex_ + 1u)
-                % glitchHistory_.size();
-            if (glitchArmed_) ++glitchArmAgeSamples_;
+        if (!rig.glitchPlaying && !rig.glitchHistory.empty()) {
+            rig.glitchHistory[rig.glitchWriteIndex] = stabBandSignal;
+            rig.glitchWriteIndex = (rig.glitchWriteIndex + 1u)
+                % rig.glitchHistory.size();
+            if (rig.glitchArmed) ++rig.glitchArmAgeSamples;
         }
 
         const auto followEnergy = [&](float signal, float& envelope) {
@@ -1887,75 +2835,76 @@ private:
             envelope += (std::abs(signal) - envelope) * coefficient;
             envelope = flushDenormal(envelope);
         };
-        followEnergy(bodyBand, bodyEnvelope_);
-        followEnergy(stabBandSignal, stabEnvelope_);
-        float spectralShare = stabEnvelope_
-            / std::max(1.0e-5f, bodyEnvelope_ + stabEnvelope_);
-        const float desiredShare = 0.22f + smoothed_.pierce * 0.48f;
+        followEnergy(bodyBand, rig.bodyEnvelope);
+        followEnergy(stabBandSignal, rig.stabEnvelope);
+        float spectralShare = rig.stabEnvelope
+            / std::max(1.0e-5f, rig.bodyEnvelope + rig.stabEnvelope);
+        const float desiredShare = 0.22f + controls.pierce * 0.48f;
         const uint32_t minimumCaptureAge = static_cast<uint32_t>(
             sampleRate_ * 0.0025);
         const bool coherentUpper = spectralShare
-            > 0.12f + smoothed_.pierce * 0.08f;
-        const bool captureFallback = glitchArmAgeSamples_
+            > 0.12f + controls.pierce * 0.08f;
+        const bool captureFallback = rig.glitchArmAgeSamples
                 > static_cast<uint32_t>(sampleRate_ * 0.030)
-            && stabEnvelope_ > 8.0e-4f;
-        if (glitchArmed_ && !glitchPlaying_
-            && smoothed_.targetGlitch > 1.0e-4f
-            && glitchArmAgeSamples_ >= minimumCaptureAge
-            && stabEnvelope_ > 1.5e-3f
+            && rig.stabEnvelope > 8.0e-4f;
+        if (rig.glitchArmed && !rig.glitchPlaying
+            && controls.targetGlitch > 1.0e-4f
+            && rig.glitchArmAgeSamples >= minimumCaptureAge
+            && rig.stabEnvelope > 1.5e-3f
             && (coherentUpper || captureFallback)) {
-            beginTargetGlitch(stabFrequency);
+            beginTargetGlitch(rig, controls, stabFrequency);
         }
 
-        const float glitchSample = processTargetGlitch();
-        const float glitchExcess = std::max(0.0f, glitchEnvelope_ - 0.24f);
+        const float glitchSample = processTargetGlitch(rig, controls);
+        const float glitchExcess = std::max(0.0f,
+            rig.glitchEnvelope - 0.24f);
         const float glitchGovernor = 1.0f / (1.0f + glitchExcess * 14.0f);
-        const float glitchGain = smoothed_.targetGlitch
-            * (0.30f + smoothed_.pierce * 1.08f) * glitchGovernor
-            * lerp(1.0f, 0.08f, overloadMaskAmount_);
+        const float glitchGain = controls.targetGlitch
+            * (0.30f + controls.pierce * 1.08f) * glitchGovernor
+            * lerp(1.0f, 0.08f, rig.overloadMaskAmount);
         const float stabReturn = smoothLimit(stabBandSignal
-                * (1.0f - smoothed_.targetGlitch * 0.14f)
+                * (1.0f - controls.targetGlitch * 0.14f)
                 + glitchSample * glitchGain,
             2.2f);
-        followEnergy(glitchSample, glitchEnvelope_);
-        followEnergy(stabReturn, stabEnvelope_);
-        glitchActivity_ += (std::abs(glitchSample * glitchGain)
-                - glitchActivity_)
-            * (std::abs(glitchSample * glitchGain) > glitchActivity_
+        followEnergy(glitchSample, rig.glitchEnvelope);
+        followEnergy(stabReturn, rig.stabEnvelope);
+        rig.glitchActivity += (std::abs(glitchSample * glitchGain)
+                - rig.glitchActivity)
+            * (std::abs(glitchSample * glitchGain) > rig.glitchActivity
                 ? feedbackEnergyAttackCoefficient_
                 : feedbackEnergyReleaseCoefficient_);
-        glitchActivity_ = flushDenormal(glitchActivity_);
-        spectralShare = stabEnvelope_
-            / std::max(1.0e-5f, bodyEnvelope_ + stabEnvelope_);
+        rig.glitchActivity = flushDenormal(rig.glitchActivity);
+        spectralShare = rig.stabEnvelope
+            / std::max(1.0e-5f, rig.bodyEnvelope + rig.stabEnvelope);
         const float focusTarget = clamp((desiredShare - spectralShare)
-                * smoothed_.selfListen * 2.4f,
+                * controls.selfListen * 2.4f,
             0.0f, 1.0f);
-        const float focusCoefficient = focusTarget > selfFocus_
+        const float focusCoefficient = focusTarget > rig.selfFocus
             ? selfFocusAttackCoefficient_ : selfFocusReleaseCoefficient_;
-        selfFocus_ += (focusTarget - selfFocus_) * focusCoefficient;
-        selfFocus_ = flushDenormal(selfFocus_);
+        rig.selfFocus += (focusTarget - rig.selfFocus) * focusCoefficient;
+        rig.selfFocus = flushDenormal(rig.selfFocus);
 
-        const float bodyExcess = std::max(0.0f, bodyEnvelope_ - 0.34f);
-        const float stabExcess = std::max(0.0f, stabEnvelope_ - 0.30f);
+        const float bodyExcess = std::max(0.0f, rig.bodyEnvelope - 0.34f);
+        const float stabExcess = std::max(0.0f, rig.stabEnvelope - 0.30f);
         const float bodyGovernor = 1.0f / (1.0f + bodyExcess * 15.0f);
         const float stabGovernor = 1.0f / (1.0f + stabExcess * 11.0f);
         const float bodyGain = lerp(0.92f, 0.42f,
-                smoothed_.pierce * smoothed_.selfListen)
-            * lerp(1.0f, 0.48f, selfFocus_) * bodyGovernor
-            * lerp(1.0f, 0.62f, overloadMaskAmount_);
-        const float stabGain = (0.12f + smoothed_.pierce * 1.22f)
-            * (1.0f + selfFocus_ * 1.15f) * stabGovernor
-            * lerp(1.0f, 0.16f, overloadMaskAmount_);
+                controls.pierce * controls.selfListen)
+            * lerp(1.0f, 0.48f, rig.selfFocus) * bodyGovernor
+            * lerp(1.0f, 0.62f, rig.overloadMaskAmount);
+        const float stabGain = (0.12f + controls.pierce * 1.22f)
+            * (1.0f + rig.selfFocus * 1.15f) * stabGovernor
+            * lerp(1.0f, 0.16f, rig.overloadMaskAmount);
         const float governedReturn = smoothLimit(bodyBand * bodyGain
                 + stabReturn * stabGain,
             2.5f);
-        loopEnvelope_ += (std::abs(governedReturn) - loopEnvelope_)
+        rig.loopEnvelope += (std::abs(governedReturn) - rig.loopEnvelope)
             * loopEnvelopeCoefficient_;
-        loopActivity_ += (std::max(std::abs(bodyBand), std::abs(stabReturn))
-                - loopActivity_)
+        rig.loopActivity += (std::max(std::abs(bodyBand),
+                std::abs(stabReturn)) - rig.loopActivity)
             * loopActivityCoefficient_;
-        loopEnvelope_ = flushDenormal(loopEnvelope_);
-        loopActivity_ = flushDenormal(loopActivity_);
+        rig.loopEnvelope = flushDenormal(rig.loopEnvelope);
+        rig.loopActivity = flushDenormal(rig.loopActivity);
         return governedReturn;
     }
 
@@ -1964,55 +2913,48 @@ private:
         for (const auto& lane : lanes_) {
             if (lane.active) return true;
         }
+        for (const auto& lane : partnerLanes_) {
+            if (lane.active) return true;
+        }
         return false;
     }
 
     void clearSignalState()
     {
-        for (auto& lane : lanes_) {
-            std::fill(lane.delay.begin(), lane.delay.end(), 0.0f);
-            lane.active = false;
-            lane.held = false;
-            lane.wireLow = 0.0f;
-            lane.pickNoiseLow = 0.0f;
-            lane.pickNoiseBody = 0.0f;
-            lane.pickupPrevious = 0.0f;
-            lane.pickupVelocity = 0.0f;
-            lane.pickupLow = 0.0f;
-            lane.rootLow = 0.0f;
-            lane.outputSmoothed = 0.0f;
-            lane.pickSmoothed = 0.0f;
-            lane.pickPacketLow = 0.0f;
-            lane.dispersionInput = 0.0f;
-            lane.dispersionOutput = 0.0f;
+        const auto clearLanes = [](auto& guitarLanes) {
+            for (auto& lane : guitarLanes) {
+                std::fill(lane.delay.begin(), lane.delay.end(), 0.0f);
+                lane.active = false;
+                lane.held = false;
+                lane.wireLow = 0.0f;
+                lane.pickNoiseLow = 0.0f;
+                lane.pickNoiseBody = 0.0f;
+                lane.pickupPrevious = 0.0f;
+                lane.pickupVelocity = 0.0f;
+                lane.pickupLow = 0.0f;
+                lane.rootLow = 0.0f;
+                lane.outputSmoothed = 0.0f;
+                lane.materialLow = 0.0f;
+                lane.materialBodyLow = 0.0f;
+                lane.pickSmoothed = 0.0f;
+                lane.pickPacketLow = 0.0f;
+                lane.dispersionInput = 0.0f;
+                lane.dispersionOutput = 0.0f;
+                lane.startDelaySamples = 0u;
+            }
+        };
+        clearLanes(lanes_);
+        clearLanes(partnerLanes_);
+        for (uint32_t index = 0u; index < rigs_.size(); ++index) {
+            clearRigSignalState(rigs_[index], index);
         }
-        std::fill(loopDelay_.begin(), loopDelay_.end(), 0.0f);
-        std::fill(roomDelay_.begin(), roomDelay_.end(), 0.0f);
-        std::fill(glitchHistory_.begin(), glitchHistory_.end(), 0.0f);
-        glitchWriteIndex_ = 0u;
-        glitchPhase_ = 0.0f;
-        glitchRepeatIndex_ = 0u;
-        glitchRepeatCount_ = 0u;
-        glitchArmAgeSamples_ = 0u;
-        glitchArmed_ = false;
-        glitchPlaying_ = false;
-        glitchEnvelope_ = glitchActivity_ = 0.0f;
-        overloadLevel_ = overloadRoughness_ = overloadMaskAmount_ = 0.0f;
-        overloadPreviousMic_ = 0.0f;
-        overloadLowLeft_ = overloadLowRight_ = 0.0f;
-        speakerProtection_ = 0.0f;
-        loopDcInput_ = loopDcOutput_ = loopLow_ = loopHighLow_ = 0.0f;
-        stabDcInput_ = stabDcOutput_ = stabLow_ = stabBand_ = 0.0f;
-        bodyEnvelope_ = stabEnvelope_ = selfFocus_ = 0.0f;
-        loopEnvelope_ = loopActivity_ = 0.0f;
-        pedalDcInput_ = pedalDcOutput_ = 0.0f;
-        preampMemory_ = toneLow_ = toneMidLow_ = toneHighLow_ = 0.0f;
-        sagEnvelope_ = transformerLow_ = coilEnvelope_ = speakerDc_ = 0.0f;
-        speakerModes_.fill({});
+        stereoSeparationActivity_ = 0.0f;
+        linkedRigStress_ = 0.0f;
+        partnerRootNote_ = -1;
+        partnerPrimaryRoot_ = -1;
         outputDcLeft_ = outputDcRight_ = outputPeak_ = 0.0f;
         limiterGain_ = 1.0f;
         limiterWasAttacking_ = false;
-        amplifierPreviousInput_ = preampPreviousInput_ = 0.0f;
         signalActive_ = false;
     }
 
@@ -2033,7 +2975,12 @@ private:
         smooth(smoothed_.decayMs, params_.decayMs);
         smooth(smoothed_.sustain, params_.sustain);
         smooth(smoothed_.releaseMs, params_.releaseMs);
+        smooth(smoothed_.pairAmount, params_.pairAmount);
+        smooth(smoothed_.pairLoose, params_.pairLoose);
+        smooth(smoothed_.pairSpread, params_.pairSpread);
         smooth(smoothed_.arpGate, params_.arpGate);
+        smooth(smoothed_.arpGateB, params_.arpGateB);
+        smooth(smoothed_.arpPhaseB, params_.arpPhaseB);
         smooth(smoothed_.bite, params_.bite);
         smooth(smoothed_.pedalTone, params_.pedalTone);
         smooth(smoothed_.bias, params_.bias);
@@ -2055,13 +3002,50 @@ private:
         smooth(smoothed_.targetGlitch, params_.targetGlitch);
         smooth(smoothed_.glitchRatchet, params_.glitchRatchet);
         smooth(smoothed_.overloadMask, params_.overloadMask);
+        smooth(smoothed_.biteB, params_.biteB);
+        smooth(smoothed_.pedalToneB, params_.pedalToneB);
+        smooth(smoothed_.biasB, params_.biasB);
+        smooth(smoothed_.stackB, params_.stackB);
+        smooth(smoothed_.sagB, params_.sagB);
+        smooth(smoothed_.focusB, params_.focusB);
+        smooth(smoothed_.coneB, params_.coneB);
+        smooth(smoothed_.cabinetB, params_.cabinetB);
+        smooth(smoothed_.micB, params_.micB);
+        smooth(smoothed_.feedbackB, params_.feedbackB);
+        smooth(smoothed_.proximityB, params_.proximityB);
+        smooth(smoothed_.harmonicB, params_.harmonicB);
+        smooth(smoothed_.trackingB, params_.trackingB);
+        smooth(smoothed_.polarityB, params_.polarityB);
+        smooth(smoothed_.rootB, params_.rootB);
+        smooth(smoothed_.chaosB, params_.chaosB);
+        smooth(smoothed_.pierceB, params_.pierceB);
+        smooth(smoothed_.selfListenB, params_.selfListenB);
+        smooth(smoothed_.targetGlitchB, params_.targetGlitchB);
+        smooth(smoothed_.glitchRatchetB, params_.glitchRatchetB);
+        smooth(smoothed_.overloadMaskB, params_.overloadMaskB);
         smooth(smoothed_.outputGainDb, params_.outputGainDb);
         smoothed_.mode = params_.mode;
         smoothed_.arpPattern = params_.arpPattern;
         smoothed_.scale = params_.scale;
         smoothed_.arpRate = params_.arpRate;
         smoothed_.arpOctaves = params_.arpOctaves;
+        smoothed_.arpBRelation = params_.arpBRelation;
+        smoothed_.arpPatternB = params_.arpPatternB;
+        smoothed_.scaleB = params_.scaleB;
+        smoothed_.arpRateB = params_.arpRateB;
+        smoothed_.arpOctavesB = params_.arpOctavesB;
+        smoothed_.customPatternLengthB = params_.customPatternLengthB;
+        smoothed_.customPatternB = params_.customPatternB;
         smoothed_.circuit = params_.circuit;
+        smoothed_.linkPedal = params_.linkPedal;
+        smoothed_.linkAmplifier = params_.linkAmplifier;
+        smoothed_.linkFeedback = params_.linkFeedback;
+        smoothed_.circuitB = params_.circuitB;
+        smoothed_.pairRelation = params_.pairRelation;
+        smoothed_.neckA = params_.neckA;
+        smoothed_.bodyA = params_.bodyA;
+        smoothed_.neckB = params_.neckB;
+        smoothed_.bodyB = params_.bodyB;
     }
 
     void updateCoefficients()
@@ -2114,6 +3098,7 @@ private:
     ProcessorStackParams params_ {};
     ProcessorStackParams smoothed_ {};
     std::array<ExciterLane, kExciterCount> lanes_ {};
+    std::array<ExciterLane, kExciterCount> partnerLanes_ {};
     std::array<bool, 128u> heldNotes_ {};
     std::array<float, 128u> heldVelocities_ {};
     std::array<int16_t, 128u> noteOrder_ {};
@@ -2121,50 +3106,12 @@ private:
     uint64_t ageCounter_ = 1u;
     int lastPlayedNote_ = -1;
     int lastRootNote_ = 45;
+    int partnerRootNote_ = -1;
+    int partnerPrimaryRoot_ = -1;
 
-    std::vector<float> loopDelay_;
-    std::vector<float> roomDelay_;
-    std::vector<float> glitchHistory_;
-    size_t loopWriteIndex_ = 0u;
-    size_t roomWriteIndex_ = 0u;
-    size_t glitchWriteIndex_ = 0u;
-    float loopDelaySamples_ = 120.0f;
-    float stabDelaySamples_ = 38.0f;
-    float loopDcInput_ = 0.0f;
-    float loopDcOutput_ = 0.0f;
-    float loopLow_ = 0.0f;
-    float loopHighLow_ = 0.0f;
-    float stabDcInput_ = 0.0f;
-    float stabDcOutput_ = 0.0f;
-    float stabLow_ = 0.0f;
-    float stabBand_ = 0.0f;
-    float bodyEnvelope_ = 0.0f;
-    float stabEnvelope_ = 0.0f;
-    float selfFocus_ = 0.0f;
-    float glitchEnvelope_ = 0.0f;
-    float glitchActivity_ = 0.0f;
-    float glitchPhase_ = 0.0f;
-    size_t glitchCaptureStart_ = 0u;
-    uint32_t glitchCellSamples_ = 16u;
-    uint32_t glitchRepeatIndex_ = 0u;
-    uint32_t glitchRepeatCount_ = 0u;
-    uint32_t glitchArmAgeSamples_ = 0u;
-    uint64_t glitchTriggerCount_ = 0u;
-    bool glitchArmed_ = false;
-    bool glitchPlaying_ = false;
-    float overloadLevel_ = 0.0f;
-    float overloadRoughness_ = 0.0f;
-    float overloadMaskAmount_ = 0.0f;
-    float overloadPreviousMic_ = 0.0f;
-    float overloadLowLeft_ = 0.0f;
-    float overloadLowRight_ = 0.0f;
-    float speakerProtection_ = 0.0f;
-    float speakerProtectionPeak_ = 0.0f;
-    float speakerModePreLimitPeak_ = 0.0f;
-    uint64_t speakerSoftLimitCount_ = 0u;
-    uint64_t micSoftLimitCount_ = 0u;
-    float loopEnvelope_ = 0.0f;
-    float loopActivity_ = 0.0f;
+    std::array<RigState, 2u> rigs_ {};
+    float stereoSeparationActivity_ = 0.0f;
+    float linkedRigStress_ = 0.0f;
     float keyGate_ = 0.0f;
     float crookedHarmonicSkew_ = 0.0f;
     float speakerChoke_ = 1.0f;
@@ -2172,30 +3119,8 @@ private:
     float pressure_ = 0.0f;
     float pitchBendSemitones_ = 0.0f;
     float tempoBpm_ = 120.0f;
-    double arpPhaseSamples_ = 0.0;
-    uint64_t arpStepIndex_ = 0u;
-    uint64_t arpStepCount_ = 0u;
-    int arpCurrentNote_ = -1;
-    bool arpGateOpen_ = false;
+    std::array<ArpState, 2u> arpeggiators_ {};
 
-    std::array<DriveState, kProcessorStackCircuitCount> pedalStates_ {};
-    std::array<DriveState, kProcessorStackCircuitCount> pedalIdleStates_ {};
-    ProcessorStackCircuit activeCircuit_ = ProcessorStackCircuit::Rat;
-    ProcessorStackCircuit previousCircuit_ = ProcessorStackCircuit::Rat;
-    float circuitFade_ = 1.0f;
-    float pedalDcInput_ = 0.0f;
-    float pedalDcOutput_ = 0.0f;
-    float preampPreviousInput_ = 0.0f;
-    float amplifierPreviousInput_ = 0.0f;
-    float preampMemory_ = 0.0f;
-    float toneLow_ = 0.0f;
-    float toneMidLow_ = 0.0f;
-    float toneHighLow_ = 0.0f;
-    float sagEnvelope_ = 0.0f;
-    float transformerLow_ = 0.0f;
-    float coilEnvelope_ = 0.0f;
-    float speakerDc_ = 0.0f;
-    std::array<SpeakerModeState, kSpeakerModeCount> speakerModes_ {};
     float outputDcLeft_ = 0.0f;
     float outputDcRight_ = 0.0f;
     float limiterGain_ = 1.0f;

@@ -81,6 +81,7 @@ public:
         outputDcOutput_ = 0.0f;
         previousExcitation_ = 0.0f;
         safetyEnvelope_ = 0.0f;
+        governorReduction_ = 0.0f;
         feedbackActivity_ = 0.0f;
         centroidLowpass_.fill(0.0f);
         centroidEnergy_.fill(0.0f);
@@ -153,6 +154,7 @@ public:
         safetyEnvelope_ += (std::abs(loopLowpass_) - safetyEnvelope_) * safetyCoeff_;
         const float excess = std::max(0.0f, safetyEnvelope_ - 0.55f);
         const float governor = 1.0f / (1.0f + excess * 10.0f);
+        governorReduction_ = 1.0f - governor;
         const float feedbackGain = std::min(0.965f,
             smoothed_.feedback * 0.94f + smoothed_.react * activity * 0.025f) * governor;
 
@@ -200,6 +202,10 @@ public:
     }
 
     float feedbackActivity() const { return clamp(feedbackActivity_, 0.0f, 1.0f); }
+    float governorReduction() const
+    {
+        return clamp(governorReduction_, 0.0f, 1.0f);
+    }
     float centroidHz() const { return centroidHz_; }
     float feedbackFrequencyHz() const { return feedbackFrequencyHz_; }
 
@@ -419,6 +425,7 @@ private:
     float outputDcOutput_ = 0.0f;
     float previousExcitation_ = 0.0f;
     float safetyEnvelope_ = 0.0f;
+    float governorReduction_ = 0.0f;
     float feedbackActivity_ = 0.0f;
     static constexpr uint32_t kCentroidUpdateInterval = 16u;
     std::array<float, 3> centroidLowpass_ {};
@@ -564,6 +571,16 @@ public:
             activity = std::max(activity, cores_[ch].feedbackActivity());
         }
         return activity;
+    }
+
+    float governorReduction() const
+    {
+        float reduction = 0.0f;
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            reduction = std::max(
+                reduction, cores_[ch].governorReduction());
+        }
+        return reduction;
     }
 
     float centroidHz() const

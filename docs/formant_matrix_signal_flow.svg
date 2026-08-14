@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1040" role="img" aria-labelledby="title desc">
+  <title id="title">Processor Formant Matrix top-down signal flow</title>
+  <desc id="desc">External audio or generated speech flows downward through modulator selection, analysis filters, envelope followers, and the signed routing matrix. MIDI or tracked voice pitch drives a procedural carrier in a parallel branch. Matrix control and carrier audio meet at the synthesis filters and VCAs. The synthesized bank and direct articulation rail then enter their level mixer, post effects, and stereo output.</desc>
+  <rect width="960" height="1040" fill="#0d0f0f"/>
+  <defs>
+    <style>
+      text{font-family:Menlo,Monaco,'Courier New',monospace;fill:#c6cdc8}.h{fill:#d8ddd8;font-size:14px;font-weight:700}.s{fill:#939d98;font-size:11px}.tag{fill:#b4bcb7;font-size:10px}.box{fill:#111313;stroke:#303636;stroke-width:1}.analysis{fill:#1d1713;stroke:#d97845;stroke-width:1}.carrier{fill:#132024;stroke:#76c6cf;stroke-width:1}.matrix{fill:#171b19;stroke:#65d07d;stroke-width:1}.audio{stroke:#c6cdc8;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.control{stroke:#d97845;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.pitch{stroke:#76c6cf;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}.direct{stroke:#aeb5b0;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:5 4}
+    </style>
+    <marker id="arrow-audio" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#c6cdc8"/></marker>
+    <marker id="arrow-control" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#d97845"/></marker>
+    <marker id="arrow-pitch" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#76c6cf"/></marker>
+    <marker id="arrow-direct" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#aeb5b0"/></marker>
+  </defs>
+
+  <text class="tag" x="90" y="34">ARTICULATION SOURCES</text>
+  <rect class="box" x="90" y="52" width="300" height="72"/>
+  <text class="h" x="112" y="81">MIC / ROUTED AUDIO</text>
+  <text class="s" x="112" y="103">live stereo modulator</text>
+  <rect class="box" x="570" y="52" width="300" height="72"/>
+  <text class="h" x="592" y="81">GENERATED SPEECH</text>
+  <text class="s" x="592" y="103">typed text → phoneme gestures</text>
+  <path class="audio" d="M240 124 V154 H430" marker-end="url(#arrow-audio)"/>
+  <path class="audio" d="M720 124 V154 H530" marker-end="url(#arrow-audio)"/>
+
+  <rect class="analysis" x="330" y="156" width="300" height="78"/>
+  <text class="h" x="352" y="187">MODULATOR SELECTOR</text>
+  <text class="s" x="352" y="210">external · speech · blend</text>
+  <path class="audio" d="M480 234 V266" marker-end="url(#arrow-audio)"/>
+
+  <rect class="analysis" x="330" y="268" width="300" height="78"/>
+  <text class="h" x="352" y="299">ANALYSIS FILTERS</text>
+  <text class="s" x="352" y="322">Speech 22 or Wide 16</text>
+  <path class="control" d="M480 346 V378" marker-end="url(#arrow-control)"/>
+
+  <rect class="analysis" x="330" y="380" width="300" height="88"/>
+  <text class="h" x="352" y="411">ENVELOPE FOLLOWERS</text>
+  <text class="s" x="352" y="434">band energy · attack · release</text>
+  <text class="s" x="352" y="452">voiced / unvoiced decision</text>
+  <path class="control" d="M480 468 V500" marker-end="url(#arrow-control)"/>
+
+  <rect class="matrix" x="330" y="502" width="300" height="92"/>
+  <text class="h" x="352" y="534">SIGNED ROUTING MATRIX</text>
+  <text class="s" x="352" y="557">22 × 22 or 16 × 16</text>
+  <text class="s" x="352" y="576">scenes · coupling · trims</text>
+
+  <text class="tag" x="54" y="502">PITCH / CARRIER</text>
+  <rect class="box" x="54" y="520" width="220" height="68"/>
+  <text class="h" x="74" y="548">MIDI NOTES</text>
+  <text class="s" x="74" y="570">polyphonic pitch</text>
+  <rect class="box" x="54" y="614" width="220" height="68"/>
+  <text class="h" x="74" y="642">TRACKED VOICE PITCH</text>
+  <text class="s" x="74" y="664">scale · root · hold</text>
+  <path class="pitch" d="M274 554 H294 V628 H316" marker-end="url(#arrow-pitch)"/>
+  <path class="pitch" d="M274 648 H316" marker-end="url(#arrow-pitch)"/>
+  <rect class="carrier" x="318" y="606" width="244" height="84"/>
+  <text class="h" x="340" y="638">PITCH SOURCE</text>
+  <text class="s" x="340" y="662">MIDI or voice tracking</text>
+  <path class="pitch" d="M562 648 H600" marker-end="url(#arrow-pitch)"/>
+  <rect class="carrier" x="602" y="606" width="304" height="84"/>
+  <text class="h" x="624" y="638">PROCEDURAL CARRIER</text>
+  <text class="s" x="624" y="662">oscillator + noise excitation</text>
+
+  <path class="control" d="M480 594 V722 H520" marker-end="url(#arrow-control)"/>
+  <path class="pitch" d="M754 690 V722 H654" marker-end="url(#arrow-pitch)"/>
+  <rect class="matrix" x="330" y="724" width="300" height="92"/>
+  <text class="h" x="352" y="756">SYNTHESIS FILTERS + VCAs</text>
+  <text class="s" x="352" y="779">carrier audio shaped by mapped</text>
+  <text class="s" x="352" y="797">analysis envelopes</text>
+
+  <path class="audio" d="M480 816 V854" marker-end="url(#arrow-audio)"/>
+  <path class="direct" d="M630 195 H846 V884 H632" marker-end="url(#arrow-direct)"/>
+  <text class="tag" x="692" y="214">DIRECT ARTICULATION RAIL</text>
+  <rect class="box" x="330" y="856" width="300" height="78"/>
+  <text class="h" x="352" y="887">BANK + ART LEVEL MIX</text>
+  <text class="s" x="352" y="910">synthesis bank + selected modulator</text>
+  <path class="audio" d="M480 934 V956" marker-end="url(#arrow-audio)"/>
+
+  <rect class="box" x="330" y="958" width="300" height="52"/>
+  <text class="h" x="352" y="981">POST EFFECTS → STEREO OUTPUT</text>
+  <text class="s" x="352" y="999">dynamics · color · tape · gain</text>
+
+  <path class="control" d="M54 744 H100"/>
+  <text class="tag" x="110" y="748">articulation control</text>
+  <path class="pitch" d="M54 768 H100"/>
+  <text class="tag" x="110" y="772">pitch / carrier audio</text>
+  <path class="direct" d="M54 792 H100"/>
+  <text class="tag" x="110" y="796">direct articulation audio</text>
+</svg>

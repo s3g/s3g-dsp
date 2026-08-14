@@ -86,7 +86,6 @@ if(BUILD_TESTING)
       tests/workspace_layout_appkit_tests.mm
       src/app/macos/s3g_tracker_workspace.mm
       src/app/macos/s3g_tracker_controls.mm
-      src/app/macos/s3g_tracker_mixer_view.mm
       src/app/macos/s3g_tracker_warp_window.mm)
     target_include_directories(s3g_tracker_workspace_layout_appkit_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos)

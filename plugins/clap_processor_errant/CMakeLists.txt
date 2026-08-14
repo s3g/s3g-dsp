@@ -21,6 +21,16 @@ if(BUILD_TESTING)
       $<TARGET_FILE:s3g_processor_errant_clap>)
   set_tests_properties(s3g_processor_errant_clap_smoke PROPERTIES
     LABELS "non_nim;clap;smoke" TIMEOUT 120)
+
+  if(APPLE AND TARGET s3g_encoder_family_gui_smoke)
+    add_test(NAME s3g_processor_errant_gui_smoke
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_processor_errant_clap>
+        org.s3g.s3g-dsp.processor-errant
+        920 582 "s3g Processor Errant" responsive)
+    set_tests_properties(s3g_processor_errant_gui_smoke PROPERTIES
+      LABELS "non_nim;clap;gui" TIMEOUT 120)
+  endif()
 endif()
 
 set_target_properties(s3g_processor_errant_clap PROPERTIES

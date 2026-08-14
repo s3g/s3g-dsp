@@ -27,17 +27,21 @@
       <main class="content" id="content">
         <h1>Sample / Loop Instruments</h1>
 
-        <p>Sample and loop instruments load audio files as their source. The Processor Loop family creates discrete eight-channel playback structures; Processor Ambi Grain treats a loaded ambisonic file as one locked encoded field.</p>
+        <p>Sample and loop instruments load audio files as their source. s3g Slicer turns as many as four breaks into mapped stereo or 16-channel voices; the Processor Loop family creates discrete eight-channel playback structures; Processor Ambi Grain treats a loaded ambisonic file as one locked encoded field.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose an instrument and, for Processor Ambi Grain, select the source order. Set the REAPER track to the required channel count, then insert the plugin.</li>
+          <li>Choose an instrument and set the REAPER track to its required channel count. The 16-channel s3g Slicer and Processor Loop family use discrete lanes; Processor Ambi Grain also requires the source ambisonic order.</li>
           <li>For Processor Loop or Processor Multi Loop, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Load the source file or files and confirm that the expected channels appear.</li>
           <li>For a loop instrument, set the source assignment, loop region, playback, and lane relationships. For Processor Ambi Grain, set the shared grain controls.</li>
           <li>Audition the result through the established output path, then keep the source files with the project or in a stable media location.</li>
         </ol>
+
+        <h2 id="slicer">Break Slicing</h2>
+
+        <p><a href="s3g-slicer.html">s3g Slicer</a> loads four breaks, derives equal or transient slices, and maps each break to a consecutive MIDI range. Its stereo and fixed 16-channel variants share the same editor, project-audio embedding, proportional envelopes, two inserts per break, four-strip mixer, and processed AUX return.</p>
 
         <h2 id="loop-family">Loop Family</h2>
 
@@ -78,6 +82,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#slicer">Break Slicing</a>
           <a href="#loop-family">Loop Family</a>
           <a href="#ambisonic-grain">Ambisonic Granulation</a>
           <a href="#state">Files and Project State</a>

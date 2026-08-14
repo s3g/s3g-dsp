@@ -29,6 +29,8 @@
 
         <p>Parameter Surface turns several complete instrument states into a playable two-dimensional space. Each cell holds a preset or captured state. Moving the <code>X/Y</code> cursor blends the continuous synthesis controls of nearby cells and selects discrete controls from the nearest cell.</p>
 
+        <p>The performance concept is explicitly inspired by AudioMulch's <a href="http://www.audiomulch.com/help/metasurface" target="_blank" rel="noopener noreferrer">MetaSurface</a>: a two-dimensional plane for moving among stored parameter states. This implementation uses Voronoi cells, distance-weighted interpolation, nearest-cell discrete choices, host-automatable X/Y coordinates, and synchronized main and detached views. The historical reference is listed under <a href="references.html#generative-instruments">Generative and Instrument Design</a>.</p>
+
         <p>Parameter Surface is available in <a href="ambi-encoder-stochastic.html">Ambi Encoder Stochastic</a>, <a href="ambi-encoder-wrangler.html">Ambi Encoder Wrangler</a>, <a href="ambi-encoder-water.html">Ambi Encoder Water</a>, <a href="ambi-encoder-wind.html">Ambi Encoder Wind</a>, <a href="ambi-encoder-pyrosphere.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-encoder-cryosphere.html">Ambi Encoder Cryosphere</a>, and <a href="ambi-encoder-insect.html">Ambi Encoder Insect</a>. Each provides a <code>SURF</code> page plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters. <a href="processor-no-input-mixer.html">Processor No Input Mixer</a> does not provide a Parameter Surface or preset interpolation; complete recalls replace and reseed its single regenerative engine directly.</p>
 
         <h2 id="workflow">Workflow</h2>
@@ -43,7 +45,7 @@
 
         <p>A surface supports up to 24 cells. It remains bypassed until at least two cells exist. Cell positions, assignments, curve, focus, glide, enabled state, and cursor position are stored with the host project.</p>
 
-        <p>The display follows the visual language of s3g-mc Snapshot Surface: smoothly clipped Voronoi regions use a restrained color sequence, outlined boundaries, circular cell nodes, and distance-sensitive influence halos. Cell hue is stable identity, not an ordered parameter value; see <a href="interpreting-color.html#identity">Interpreting Color</a>. In <code>PLAY</code> with the surface enabled, participating toolbox sliders and menus visibly follow the effective interpolated state as the cursor moves; <code>EDIT</code> returns those controls to the base state used for capture.</p>
+        <p>The display uses smoothly clipped Voronoi regions, a restrained color sequence, outlined boundaries, circular cell nodes, and distance-sensitive influence halos. Cell hue is stable identity, not an ordered parameter value; see <a href="interpreting-color.html#identity">Interpreting Color</a>. In <code>PLAY</code> with the surface enabled, participating toolbox sliders and menus visibly follow the effective interpolated state as the cursor moves; <code>EDIT</code> returns those controls to the base state used for capture.</p>
 
         <p>The macOS <code>POP</code> panel is another view of the same surface, not a copy. Cell edits, play/edit mode, cursor movement, host automation, and interpolated toolbox feedback remain synchronized with the main editor. The panel follows the plugin window and is automatically hidden or destroyed with the CLAP GUI.</p>
 

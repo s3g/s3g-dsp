@@ -325,7 +325,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, pluginId) == 0
             && std::strcmp(descriptor->name, "s3g Processor Fissure") == 0
-            && std::strcmp(descriptor->version, "0.10.4") == 0,
+            && std::strcmp(descriptor->version, "0.10.5") == 0,
         "descriptor identity, host name, or version is wrong");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_MULTI_EFFECTS)
@@ -782,7 +782,12 @@ int main(int argc, char** argv)
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
     ok &= check(flush(plugin, params, {
-            { 34u, 0.0 }, { 35u, 1.0 }, { 46u, 0.67 }, { 47u, 0.78 } }),
+            { 34u, 0.0 }, { 35u, 1.0 }, { 46u, 0.67 }, { 47u, 0.78 },
+            { 50u, 1.0 }, { 51u, 1.0 },
+            { 42u, 0.62 }, { 43u, 0.71 },
+            { 48u, 0.54 }, { 49u, 0.83 },
+            { 52u, 0.25 }, { 53u, -0.49 },
+            { 55u, -0.86 }, { 56u, -0.88 } }),
         "cut mask state could not be prepared for persistence");
     MemoryState memory;
     clap_ostream_t outputStream { &memory, stateWrite };
@@ -790,7 +795,9 @@ int main(int argc, char** argv)
             && !memory.bytes.empty(),
         "state save failed under partial stream writes");
     flush(plugin, params, {
-        { 1u, 0.11 }, { 34u, 1.0 }, { 46u, 0.02 }, { 47u, 0.03 } });
+        { 1u, 0.11 }, { 34u, 1.0 }, { 46u, 0.02 }, { 47u, 0.03 },
+        { 50u, 0.0 }, { 51u, 0.0 },
+        { 52u, 0.0 }, { 53u, 0.0 }, { 55u, 0.0 }, { 56u, 0.0 } });
     clap_istream_t inputStream { &memory, stateRead };
     ok &= check(state && state->load(plugin, &inputStream),
         "state load failed under partial stream reads");
@@ -805,10 +812,34 @@ int main(int argc, char** argv)
             && params->get_value(plugin, 47u, &value)
             && std::abs(value - 0.78) < 0.0001,
         "state round trip did not restore independent Rate and Space");
+    ok &= check(params->get_value(plugin, 42u, &fractureDistance)
+            && std::abs(fractureDistance - 0.62) < 0.0001
+            && params->get_value(plugin, 43u, &fractureForce)
+            && std::abs(fractureForce - 0.71) < 0.0001
+            && params->get_value(plugin, 48u, &fractureVoid)
+            && std::abs(fractureVoid - 0.54) < 0.0001
+            && params->get_value(plugin, 49u, &fractureSpace)
+            && std::abs(fractureSpace - 0.83) < 0.0001
+            && params->get_value(plugin, 50u, &densityLatch)
+            && densityLatch == 1.0
+            && params->get_value(plugin, 51u, &shapeLatch)
+            && shapeLatch == 1.0,
+        "state round trip did not restore the fracture puck surface");
+    double motionValue = 0.0;
+    ok &= check(params->get_value(plugin, 52u, &motionValue)
+            && std::abs(motionValue - 0.25) < 0.0001
+            && params->get_value(plugin, 53u, &motionValue)
+            && std::abs(motionValue + 0.49) < 0.0001
+            && params->get_value(plugin, 55u, &motionValue)
+            && std::abs(motionValue + 0.86) < 0.0001
+            && params->get_value(plugin, 56u, &motionValue)
+            && std::abs(motionValue + 0.88) < 0.0001,
+        "state round trip did not restore fracture gesture coordinates");
 
-    constexpr uint32_t currentLiveCount = 146u;
-    constexpr uint32_t previousLiveCount = 144u;
-    constexpr uint32_t legacyLiveCount = 136u;
+    constexpr uint32_t currentLiveCount = 160u;
+    constexpr uint32_t previousLiveCount = 146u;
+    constexpr uint32_t legacyLiveCount = 144u;
+    constexpr uint32_t olderLiveCount = 136u;
     constexpr uint32_t currentSceneStride = 126u;
     constexpr uint32_t previousSceneStride = 124u;
     constexpr uint32_t sceneCount = currentSceneStride * 4u;
@@ -821,27 +852,19 @@ int main(int argc, char** argv)
         std::array<double, currentLiveCount> currentLive {};
         std::array<double, previousLiveCount> previousLive {};
         std::array<double, legacyLiveCount> legacyLive {};
+        std::array<double, olderLiveCount> olderLive {};
         std::array<double, sceneCount> currentSceneValues {};
         std::array<double, previousSceneCount> previousSceneValues {};
         std::memcpy(currentLive.data(),
             memory.bytes.data() + sizeof(FissureStateHeader),
             sizeof(currentLive));
-        std::copy_n(currentLive.begin(), 32u, previousLive.begin());
-        std::copy(currentLive.begin() + 34u, currentLive.end(),
-            previousLive.begin() + 32u);
+        std::copy_n(currentLive.begin(), previousLiveCount,
+            previousLive.begin());
         std::memcpy(currentSceneValues.data(), memory.bytes.data()
                 + sizeof(FissureStateHeader) + sizeof(currentLive),
             sizeof(currentSceneValues));
-        for (uint32_t scene = 0u; scene < 4u; ++scene) {
-            const auto current = currentSceneValues.begin()
-                + scene * currentSceneStride;
-            auto previous = previousSceneValues.begin()
-                + scene * previousSceneStride;
-            std::copy_n(current, 12u, previous);
-            std::copy_n(current + 14u, 112u, previous + 12u);
-        }
         const FissureStateHeader previousHeader {
-            0x53494653u, 5u, previousLiveCount, previousSceneCount,
+            0x53494653u, 6u, previousLiveCount, sceneCount,
         };
         MemoryState previousState;
         const auto append = [](MemoryState& destination, const auto& item) {
@@ -851,9 +874,31 @@ int main(int argc, char** argv)
         };
         append(previousState, previousHeader);
         append(previousState, previousLive);
-        append(previousState, previousSceneValues);
+        append(previousState, currentSceneValues);
         clap_istream_t previousInputStream { &previousState, stateRead };
         ok &= check(state->load(plugin, &previousInputStream),
+            "version 0.10 Processor Fissure state was not accepted");
+
+        std::copy_n(previousLive.begin(), 32u, legacyLive.begin());
+        std::copy(previousLive.begin() + 34u, previousLive.end(),
+            legacyLive.begin() + 32u);
+        for (uint32_t scene = 0u; scene < 4u; ++scene) {
+            const auto current = currentSceneValues.begin()
+                + scene * currentSceneStride;
+            auto legacy = previousSceneValues.begin()
+                + scene * previousSceneStride;
+            std::copy_n(current, 12u, legacy);
+            std::copy_n(current + 14u, 112u, legacy + 12u);
+        }
+        const FissureStateHeader legacyHeader {
+            0x53494653u, 5u, legacyLiveCount, previousSceneCount,
+        };
+        MemoryState legacyState;
+        append(legacyState, legacyHeader);
+        append(legacyState, legacyLive);
+        append(legacyState, previousSceneValues);
+        clap_istream_t legacyInputStream { &legacyState, stateRead };
+        ok &= check(state->load(plugin, &legacyInputStream),
             "version 0.9 Processor Fissure state was not accepted");
         double oldEdge = 0.0;
         double oldVoid = 0.0;
@@ -867,21 +912,21 @@ int main(int argc, char** argv)
                 && std::abs(migratedSpace - oldVoid) < 0.0001,
             "version 0.9 state did not migrate coupled Edge/Void timing");
 
-        std::copy_n(previousLive.begin(), 24u, legacyLive.begin());
-        std::copy(previousLive.begin() + 32u, previousLive.end(),
-            legacyLive.begin() + 24u);
-        const FissureStateHeader legacyHeader {
-            0x53494653u, 4u, legacyLiveCount, previousSceneCount,
+        std::copy_n(legacyLive.begin(), 24u, olderLive.begin());
+        std::copy(legacyLive.begin() + 32u, legacyLive.end(),
+            olderLive.begin() + 24u);
+        const FissureStateHeader olderHeader {
+            0x53494653u, 4u, olderLiveCount, previousSceneCount,
         };
-        MemoryState legacyState;
-        append(legacyState, legacyHeader);
-        append(legacyState, legacyLive);
-        append(legacyState, previousSceneValues);
+        MemoryState olderState;
+        append(olderState, olderHeader);
+        append(olderState, olderLive);
+        append(olderState, previousSceneValues);
         flush(plugin, params, {
             { 34u, 0.0 }, { 35u, 0.0 }, { 36u, 0.0 }, { 37u, 0.0 },
             { 38u, 0.0 }, { 39u, 0.0 }, { 40u, 0.0 }, { 41u, 0.0 } });
-        clap_istream_t legacyInputStream { &legacyState, stateRead };
-        ok &= check(state->load(plugin, &legacyInputStream),
+        clap_istream_t olderInputStream { &olderState, stateRead };
+        ok &= check(state->load(plugin, &olderInputStream),
             "version 0.6 Processor Fissure state was not accepted");
         for (clap_id id = 34u; id <= 41u; ++id) {
             ok &= check(params->get_value(plugin, id, &value)

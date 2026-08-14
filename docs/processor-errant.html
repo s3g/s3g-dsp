@@ -31,6 +31,15 @@
 
         <p>Errant sits near <a href="processor-fault.html">Processor Fault</a> and Ambi Encoder Stochastic in the instrument family, but it gives their unstable processes a different performance grammar. Fault continuously interprets bytes, waveforms, codecs, and transmission processes. Stochastic evolves breakpoint-waveform populations. Errant makes the MIDI sequence itself a mutation program: repeated notes recall a lineage, intervals transform it, and simultaneous notes branch as siblings from the same archive snapshot.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/processor-errant.png" aria-label="Open the high-resolution Processor Errant interface screenshot">
+              <img src="assets/plugin-guis/processor-errant.png" alt="Processor Errant interface showing genealogy, mutation, bass-circuit, stereo-topology, output, trigger, and MIDI controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Errant keeps its mutation grammar and protected bass circuit on one performance surface, with direct triggering available for auditioning without a MIDI controller.</figcaption>
+        </figure>
+
         <h2 id="workflow">Workflow</h2>
 
         <ol>
@@ -123,7 +132,7 @@
 
         <p>The instrument accepts CLAP note events and ordinary MIDI note-on and note-off messages, with a selectable omni or single-channel receive filter. MIDI CC 120 and CC 123 release all active voices. Eight voices are available; when all are occupied, the oldest is replaced. <code>CELL</code> behaves as a one-shot, <code>PHRASE</code> runs a finite genealogy that note-off may close early, and <code>FIELD</code> evolves until its note is released.</p>
 
-        <p><code>SEED</code> is stored with every host parameter, including the complete bass circuit, MIDI receive, topology, and output gain. The momentary <code>TRIGGER</code> action is intentionally excluded from saved state so loading a project cannot generate a surprise note. Version 0.1 and 0.2 project states migrate to the new bass circuit with safe defaults. Audio is DC-blocked and passes through a final bounded knee.</p>
+        <p><code>SEED</code> is stored with every host parameter, including the complete bass circuit, MIDI receive, topology, and output gain. The momentary <code>TRIGGER</code> action is intentionally excluded from saved state so loading a project cannot generate a surprise note. Earlier project states migrate to the current bass circuit with safe defaults. Audio is DC-blocked and passes through a final bounded knee.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-fault.html">
@@ -148,7 +157,11 @@
         </div>
         <div class="toc-section">
           <h2>Generative Pages</h2>
+          <a href="low-frequency-synth.html">Processor LF Synth</a>
+          <a href="processor-stack.html">Processor Stack</a>
+          <a href="processor-conduit.html">Processor Conduit</a>
           <a href="processor-feedback-shift.html">Processor Feedback Shift</a>
+          <a href="processor-fissure.html">Processor Fissure</a>
           <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
           <a href="no-input-mixer-control.html">No Input Mixer Control</a>
           <a href="processor-fault.html">Processor Fault</a>
@@ -165,5 +178,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

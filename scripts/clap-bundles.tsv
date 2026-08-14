@@ -48,6 +48,7 @@ clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Track
 clap_breakbeat_slicer/s3g_slicer.clap	s3g_slicer.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Slicer
 clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth
 clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack
+clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit
 clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick
 clap_drum_snare/s3g_drum_snare.clap	s3g_drum_snare.clap	org.s3g.s3g-dsp.drum-snare	s3g Drum Snare
 clap_drum_floor_tom/s3g_drum_floor_tom.clap	s3g_drum_floor_tom.clap	org.s3g.s3g-dsp.drum-floor-tom	s3g Drum Floor Tom

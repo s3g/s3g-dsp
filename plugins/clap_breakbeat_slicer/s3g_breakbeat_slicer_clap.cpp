@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -797,10 +798,16 @@ bool pluginInit(const clap_plugin_t* plugin)
     return true;
 }
 
+#if defined(__APPLE__)
+void destroyGui(Plugin& instance);
+#endif
+
 void pluginDestroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
-    stopSampleLoader(*self(plugin));
+    auto& instance = *self(plugin);
+    destroyGui(instance);
+    stopSampleLoader(instance);
 #endif
     delete self(plugin);
 }
@@ -2205,6 +2212,8 @@ double gainDb(float gain)
 - (instancetype)initWithPlugin:(Plugin*)instance;
 - (void)startTimer;
 - (void)stopTimer;
+- (BOOL)loadDocumentationBreaks;
+- (void)setDocumentationPage:(NSUInteger)page;
 - (void)selectMidiChannel:(NSMenuItem*)sender;
 - (void)selectTransientPreRoll:(NSMenuItem*)sender;
 @end
@@ -2327,6 +2336,114 @@ double gainDb(float gain)
 {
     [_timer invalidate];
     _timer = nil;
+}
+
+- (BOOL)loadDocumentationBreaks
+{
+    constexpr const char* environmentNames[] {
+        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH",
+        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_2",
+        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_3",
+        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_4",
+    };
+    for (uint32_t index = 0u; index < std::size(environmentNames); ++index) {
+        const char* path = std::getenv(environmentNames[index]);
+        if (!path || !path[0]) return NO;
+        queueSampleLoad(*_instance, index, path);
+    }
+
+    bool loaded = false;
+    for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
+        serviceSampleLoads(*_instance);
+        loaded = _instance->controlBank != nullptr;
+        for (uint32_t index = 0u; loaded && index < 4u; ++index) {
+            loaded = _instance->controlBank->slots[index].asset != nullptr;
+        }
+        if (loaded) break;
+        [NSThread sleepForTimeInterval:0.002];
+    }
+    if (!loaded) return NO;
+
+    for (uint32_t index = 0u; index < 4u; ++index) {
+        const auto& slot = _instance->controlBank->slots[index];
+        const auto analysis = _instance->analyses[index];
+        if (!slot.asset || !analysis) return NO;
+        const uint32_t zeroRadius = static_cast<uint32_t>(std::lround(
+            slot.asset->sampleRate * 0.004));
+        const auto slices = s3g::breakbeat::makeTransientSlices(
+            *slot.asset, *analysis, 32u, zeroRadius,
+            _instance->transientPreRollMicroseconds);
+        if (slices.empty()
+            || !replaceSlotSlices(*_instance, index, slices)
+            || !automapSlot(*_instance, index)) return NO;
+    }
+
+    auto mixerBank = editableBank(*_instance);
+    if (!mixerBank) return NO;
+    constexpr std::array<float, 4u> gains {{ 1.00f, 0.88f, 1.08f, 0.94f }};
+    constexpr std::array<float, 4u> pans {{ -0.42f, 0.36f, -0.18f, 0.24f }};
+    constexpr std::array<float, 4u> sends {{ 0.46f, 0.31f, 0.58f, 0.39f }};
+    constexpr std::array<s3g::breakbeat::InsertType, 4u> firstInserts {{
+        s3g::breakbeat::InsertType::Filter,
+        s3g::breakbeat::InsertType::Transient,
+        s3g::breakbeat::InsertType::Degrade,
+        s3g::breakbeat::InsertType::Resonator,
+    }};
+    constexpr std::array<s3g::breakbeat::InsertType, 4u> secondInserts {{
+        s3g::breakbeat::InsertType::Wavefolder,
+        s3g::breakbeat::InsertType::Off,
+        s3g::breakbeat::InsertType::Repeater,
+        s3g::breakbeat::InsertType::Erosion,
+    }};
+    for (uint32_t index = 0u; index < 4u; ++index) {
+        auto& slot = mixerBank->slots[index];
+        slot.mixerGain = gains[index];
+        slot.mixerPan = pans[index];
+        slot.mixerLowEqDb = index % 2u == 0u ? 1.8f : -1.2f;
+        slot.mixerMidEqDb = index < 2u ? -1.5f : 1.1f;
+        slot.mixerHighEqDb = index % 2u == 0u ? 0.9f : 1.6f;
+        slot.mixerMidFrequencyHz = 520.0f + 410.0f * index;
+        slot.mixerAuxSend = sends[index];
+        slot.inserts[0] = s3g::breakbeat::defaultInsertSettings(
+            firstInserts[index]);
+        slot.inserts[1] = s3g::breakbeat::defaultInsertSettings(
+            secondInserts[index]);
+    }
+    mixerBank->auxEnabled = true;
+    mixerBank->auxPress = 0.52f;
+    mixerBank->auxSnap = 0.24f;
+    mixerBank->auxRecovery = 0.41f;
+    mixerBank->auxSaturation = 0.28f;
+    mixerBank->auxBite = 0.17f;
+    mixerBank->auxClip = 0.08f;
+    mixerBank->auxTilt = -0.12f;
+    mixerBank->auxReturnDb = -7.5f;
+    mixerBank->auxLinkMode = s3g::BreakBusLinkMode::Pair;
+    if (!publishBank(*_instance, std::move(mixerBank), false)) return NO;
+
+    constexpr std::array<float, 4u> peaks {{ 0.78f, 0.57f, 0.69f, 0.49f }};
+    for (std::size_t index = 0u; index < peaks.size(); ++index)
+        _instance->slotPeaks[index].store(peaks[index],
+            std::memory_order_relaxed);
+    _instance->auxActivity.store(0.61f, std::memory_order_relaxed);
+    _instance->auxGainReductionDb.store(-3.8f, std::memory_order_relaxed);
+    _instance->outputPeak.store(0.82f, std::memory_order_relaxed);
+    _instance->selectedSlot = 0u;
+    _selectedSlice = 0;
+    _zoom = 1.0;
+    _visibleStart = 0u;
+    _page = 0u;
+    _instance->status = "DOCUMENTATION BREAK BANK READY";
+    [self setNeedsDisplay:YES];
+    [self displayIfNeeded];
+    return YES;
+}
+
+- (void)setDocumentationPage:(NSUInteger)page
+{
+    _page = static_cast<uint32_t>(std::min<NSUInteger>(page, 2u));
+    [self setNeedsDisplay:YES];
+    [self displayIfNeeded];
 }
 
 - (const BankSnapshot*)displayBank
@@ -3212,7 +3329,7 @@ double gainDb(float gain)
                 static_cast<unsigned>(slot.asset->channelCount), seconds,
                 slot.asset->sampleRate, slot.sliceCount,
                 noteText(slot.rootNote), _zoom];
-            [details drawAtPoint:NSMakePoint(292.0, 620.0)
+            [details drawAtPoint:NSMakePoint(292.0, 616.0)
                 withAttributes:value];
             const std::size_t selected = static_cast<std::size_t>(
                 std::clamp<NSInteger>(_selectedSlice, 0,
@@ -3257,7 +3374,7 @@ double gainDb(float gain)
                 launchModeText(slice.launchMode),
                 static_cast<unsigned>(slice.chokeGroup),
                 slice.reverse ? @"   REVERSE" : @""];
-            [sliceDetails drawAtPoint:NSMakePoint(292.0, 619.0)
+            [sliceDetails drawAtPoint:NSMakePoint(292.0, 631.0)
                 withAttributes:value];
             drawButton(sliceControlButtonRect(0u), @"GAIN -");
             drawButton(sliceControlButtonRect(1u), @"GAIN +");
@@ -4164,14 +4281,18 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     return true;
 }
 
-void guiDestroy(const clap_plugin_t* plugin)
+void destroyGui(Plugin& instance)
 {
-    auto& instance = *self(plugin);
     if (instance.guiView) {
         [(__bridge S3GBreakbeatSlicerView*)instance.guiView stopTimer];
         s3g::clap_gui::destroyResponsiveViewport(instance.guiViewport,
             instance.guiView);
     }
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    destroyGui(*self(plugin));
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }

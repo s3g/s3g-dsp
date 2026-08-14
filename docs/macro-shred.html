@@ -122,7 +122,11 @@
 
         <p>The internal loop caps its feedback gain, removes DC, monitors its own energy, and reduces regeneration when the loop becomes too dense. A final limiter keeps output finite at extreme settings. <code>PANIC</code> clears the loop immediately without changing the current parameter values.</p>
 
+        <p>On the multichannel versions, <code>FEEDBACK HISTORY</code> shows eight seconds of real loop behavior. The upper <code>LOOP</code> trace is logarithmic feedback energy, while <code>CUT</code> is the gain reduction applied by the safety governor. Live dB, reduction, tuning-frequency, and <code>QUIET</code>, <code>OPEN</code>, <code>TRIMMING</code>, or <code>GOVERNING</code> state readouts distinguish healthy resonance from active containment.</p>
+
         <p>These safeguards constrain digital output, but high monitoring gain can still be hazardous. Begin with low monitor level and raise <code>FEEDBACK</code> deliberately when using a live microphone.</p>
+
+        <p>For a voice processor in which the filter and distortion arise from an entirely virtual actuator, resonant object, and contact pickup, see <a href="processor-conduit.html">Processor Conduit</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="macro-processors.html">

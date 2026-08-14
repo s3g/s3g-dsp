@@ -171,10 +171,4 @@ The bundle is written to:
 build-clap/plugins/clap_breakbeat_slicer/s3g_slicer.clap
 ```
 
-Both variants are part of the 0.7 release bundle manifest. See
-[`docs/s3g-breakbeat-slicer-design.md`](../../docs/s3g-breakbeat-slicer-design.md)
-for the product boundary, architecture, state model, and implementation
-sequence.
-
-The research and signal-path rationale behind Break Bus is documented in
-[`docs/s3g-breakbeat-aux-research.md`](../../docs/s3g-breakbeat-aux-research.md).
+Both variants are part of the release bundle manifest.

@@ -34,7 +34,11 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x31545350u; // "PST1" little endian.
-constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kVersionSevenStateVersion = 7u;
+constexpr uint32_t kVersionSevenParamCount = 58u;
+constexpr uint32_t kVersionSixStateVersion = 6u;
+constexpr uint32_t kVersionSixParamCount = 50u;
 constexpr uint32_t kVersionFiveStateVersion = 5u;
 constexpr uint32_t kVersionFiveParamCount = 46u;
 constexpr uint32_t kVersionFourStateVersion = 4u;
@@ -47,7 +51,7 @@ constexpr uint32_t kVersionOneStateVersion = 1u;
 constexpr uint32_t kVersionOneParamCount = 27u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 980u;
-constexpr uint32_t kGuiHeight = 1080u;
+constexpr uint32_t kGuiHeight = 774u;
 
 enum ParamId : clap_id {
     kModeParamId = 1u,
@@ -100,6 +104,55 @@ enum ParamId : clap_id {
     kDecayParamId,
     kSustainParamId,
     kReleaseParamId,
+    kPairAmountParamId,
+    kPairRelationParamId,
+    kPairLooseParamId,
+    kPairSpreadParamId,
+    kNeckAParamId,
+    kBodyAParamId,
+    kNeckBParamId,
+    kBodyBParamId,
+    kArpBRelationParamId,
+    kArpPatternBParamId,
+    kScaleBParamId,
+    kArpRateBParamId,
+    kArpOctavesBParamId,
+    kArpGateBParamId,
+    kArpPhaseBParamId,
+    kCustomLengthBParamId,
+    kCustomStepB1ParamId,
+    kCustomStepB2ParamId,
+    kCustomStepB3ParamId,
+    kCustomStepB4ParamId,
+    kCustomStepB5ParamId,
+    kCustomStepB6ParamId,
+    kCustomStepB7ParamId,
+    kCustomStepB8ParamId,
+    kLinkPedalParamId,
+    kLinkAmplifierParamId,
+    kLinkFeedbackParamId,
+    kCircuitBParamId,
+    kBiteBParamId,
+    kPedalToneBParamId,
+    kBiasBParamId,
+    kStackBParamId,
+    kSagBParamId,
+    kFocusBParamId,
+    kConeBParamId,
+    kCabinetBParamId,
+    kMicBParamId,
+    kFeedbackBParamId,
+    kProximityBParamId,
+    kHarmonicBParamId,
+    kTrackingBParamId,
+    kPolarityBParamId,
+    kRootBParamId,
+    kChaosBParamId,
+    kPierceBParamId,
+    kSelfListenBParamId,
+    kTargetGlitchBParamId,
+    kGlitchRatchetBParamId,
+    kOverloadMaskBParamId,
 };
 
 struct ParamDef {
@@ -112,7 +165,7 @@ struct ParamDef {
     bool stepped;
 };
 
-constexpr std::array<ParamDef, 50u> kParamDefs {{
+constexpr std::array<ParamDef, 99u> kParamDefs {{
     { kModeParamId, "Mode", "Play", 0.0, 2.0, 0.0, true },
     { kShapeParamId, "Shape", "Play", 0.0, 1.0, 0.58, false },
     { kWireParamId, "String", "Play", 0.0, 1.0, 0.56, false },
@@ -163,11 +216,60 @@ constexpr std::array<ParamDef, 50u> kParamDefs {{
     { kDecayParamId, "Decay", "Play", 5.0, 8000.0, 180.0, false },
     { kSustainParamId, "Sustain", "Play", 0.0, 1.0, 0.78, false },
     { kReleaseParamId, "Release", "Play", 5.0, 20000.0, 90.0, false },
+    { kPairAmountParamId, "Dual", "Two Guitars", 0.0, 1.0, 0.0, false },
+    { kPairRelationParamId, "Relation", "Two Guitars", 0.0, 4.0, 0.0, true },
+    { kPairLooseParamId, "Loose", "Two Guitars", 0.0, 1.0, 0.24, false },
+    { kPairSpreadParamId, "Spread", "Two Guitars", 0.0, 1.0, 0.72, false },
+    { kNeckAParamId, "Neck A", "Two Guitars", 0.0, 3.0, 0.0, true },
+    { kBodyAParamId, "Body A", "Two Guitars", 0.0, 3.0, 0.0, true },
+    { kNeckBParamId, "Neck B", "Two Guitars", 0.0, 3.0, 2.0, true },
+    { kBodyBParamId, "Body B", "Two Guitars", 0.0, 3.0, 1.0, true },
+    { kArpBRelationParamId, "Arp B Relation", "Arpeggiator B", 0.0, 2.0, 0.0, true },
+    { kArpPatternBParamId, "Arp Pattern B", "Arpeggiator B", 0.0, 6.0, 0.0, true },
+    { kScaleBParamId, "Scale Rule B", "Arpeggiator B", 0.0, 4.0, 1.0, true },
+    { kArpRateBParamId, "Arp Rate B", "Arpeggiator B", 0.0, 8.0, 2.0, true },
+    { kArpOctavesBParamId, "Arp Octaves B", "Arpeggiator B", 1.0, 4.0, 2.0, true },
+    { kArpGateBParamId, "Arp Gate B", "Arpeggiator B", 0.05, 1.0, 0.62, false },
+    { kArpPhaseBParamId, "Arp Phase B", "Arpeggiator B", 0.0, 1.0, 0.50, false },
+    { kCustomLengthBParamId, "Pattern Length B", "Arpeggiator B", 1.0, 8.0, 8.0, true },
+    { kCustomStepB1ParamId, "Pattern B Step 1", "Arpeggiator B", -8.0, 15.0, 0.0, true },
+    { kCustomStepB2ParamId, "Pattern B Step 2", "Arpeggiator B", -8.0, 15.0, 4.0, true },
+    { kCustomStepB3ParamId, "Pattern B Step 3", "Arpeggiator B", -8.0, 15.0, 2.0, true },
+    { kCustomStepB4ParamId, "Pattern B Step 4", "Arpeggiator B", -8.0, 15.0, 6.0, true },
+    { kCustomStepB5ParamId, "Pattern B Step 5", "Arpeggiator B", -8.0, 15.0, 1.0, true },
+    { kCustomStepB6ParamId, "Pattern B Step 6", "Arpeggiator B", -8.0, 15.0, 5.0, true },
+    { kCustomStepB7ParamId, "Pattern B Step 7", "Arpeggiator B", -8.0, 15.0, 3.0, true },
+    { kCustomStepB8ParamId, "Pattern B Step 8", "Arpeggiator B", -8.0, 15.0, 7.0, true },
+    { kLinkPedalParamId, "Link Pedals", "Links", 0.0, 1.0, 1.0, true },
+    { kLinkAmplifierParamId, "Link Amplifiers", "Links", 0.0, 1.0, 1.0, true },
+    { kLinkFeedbackParamId, "Link Feedback", "Links", 0.0, 1.0, 1.0, true },
+    { kCircuitBParamId, "Circuit B", "Pedal B", 0.0, 7.0, 2.0, true },
+    { kBiteBParamId, "Bite B", "Pedal B", 0.0, 1.0, 0.56, false },
+    { kPedalToneBParamId, "Tone B", "Pedal B", 0.0, 1.0, 0.54, false },
+    { kBiasBParamId, "Bias B", "Pedal B", 0.0, 1.0, 0.52, false },
+    { kStackBParamId, "Stack B", "Amplifier B", 0.0, 1.0, 0.62, false },
+    { kSagBParamId, "Sag B", "Amplifier B", 0.0, 1.0, 0.46, false },
+    { kFocusBParamId, "Focus B", "Amplifier B", 0.0, 1.0, 0.55, false },
+    { kConeBParamId, "Cone B", "Amplifier B", 0.0, 1.0, 0.64, false },
+    { kCabinetBParamId, "Cab B", "Amplifier B", 0.0, 1.0, 0.52, false },
+    { kMicBParamId, "Mic B", "Amplifier B", 0.0, 1.0, 0.34, false },
+    { kFeedbackBParamId, "Feedback B", "Loop B", 0.0, 1.0, 0.56, false },
+    { kProximityBParamId, "Proximity B", "Loop B", 0.0, 1.0, 0.58, false },
+    { kHarmonicBParamId, "Harmonic B", "Loop B", 0.0, 1.0, 0.42, false },
+    { kTrackingBParamId, "Track B", "Loop B", 0.0, 1.0, 0.72, false },
+    { kPolarityBParamId, "Polarity B", "Loop B", 0.0, 1.0, 0.78, false },
+    { kRootBParamId, "Root B", "Loop B", 0.0, 1.0, 0.28, false },
+    { kChaosBParamId, "Chaos B", "Loop B", 0.0, 1.0, 0.32, false },
+    { kPierceBParamId, "Pierce B", "Loop B", 0.0, 1.0, 0.68, false },
+    { kSelfListenBParamId, "Self Listen B", "Loop B", 0.0, 1.0, 0.72, false },
+    { kTargetGlitchBParamId, "Target Glitch B", "Loop B", 0.0, 1.0, 0.0, false },
+    { kGlitchRatchetBParamId, "Glitch Ratchet B", "Loop B", 0.0, 1.0, 0.46, false },
+    { kOverloadMaskBParamId, "Overload Mask B", "Loop B", 0.0, 1.0, 0.76, false },
 }};
 
-constexpr uint32_t kSynthParamCount = 49u;
+constexpr uint32_t kSynthParamCount = 98u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kReleaseParamId) + 1u;
+    static_cast<uint32_t>(kOverloadMaskBParamId) + 1u;
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kModeParamId, kShapeParamId, kWireParamId, kPickParamId,
@@ -186,6 +288,23 @@ constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kTargetGlitchParamId, kGlitchRatchetParamId,
     kOverloadMaskParamId,
     kAttackParamId, kDecayParamId, kSustainParamId, kReleaseParamId,
+    kPairAmountParamId, kPairRelationParamId,
+    kPairLooseParamId, kPairSpreadParamId,
+    kNeckAParamId, kBodyAParamId, kNeckBParamId, kBodyBParamId,
+    kArpBRelationParamId, kArpPatternBParamId, kScaleBParamId,
+    kArpRateBParamId, kArpOctavesBParamId, kArpGateBParamId,
+    kArpPhaseBParamId, kCustomLengthBParamId,
+    kCustomStepB1ParamId, kCustomStepB2ParamId, kCustomStepB3ParamId,
+    kCustomStepB4ParamId, kCustomStepB5ParamId, kCustomStepB6ParamId,
+    kCustomStepB7ParamId, kCustomStepB8ParamId,
+    kLinkPedalParamId, kLinkAmplifierParamId, kLinkFeedbackParamId,
+    kCircuitBParamId, kBiteBParamId, kPedalToneBParamId, kBiasBParamId,
+    kStackBParamId, kSagBParamId, kFocusBParamId, kConeBParamId,
+    kCabinetBParamId, kMicBParamId,
+    kFeedbackBParamId, kProximityBParamId, kHarmonicBParamId,
+    kTrackingBParamId, kPolarityBParamId, kRootBParamId, kChaosBParamId,
+    kPierceBParamId, kSelfListenBParamId, kTargetGlitchBParamId,
+    kGlitchRatchetBParamId, kOverloadMaskBParamId,
 }};
 
 struct SavedStateHeader {
@@ -269,6 +388,15 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kDecayParamId: return params.decayMs;
     case kSustainParamId: return params.sustain;
     case kReleaseParamId: return params.releaseMs;
+    case kPairAmountParamId: return params.pairAmount;
+    case kPairRelationParamId:
+        return static_cast<double>(params.pairRelation);
+    case kPairLooseParamId: return params.pairLoose;
+    case kPairSpreadParamId: return params.pairSpread;
+    case kNeckAParamId: return static_cast<double>(params.neckA);
+    case kBodyAParamId: return static_cast<double>(params.bodyA);
+    case kNeckBParamId: return static_cast<double>(params.neckB);
+    case kBodyBParamId: return static_cast<double>(params.bodyB);
     case kCircuitParamId: return static_cast<double>(params.circuit);
     case kBiteParamId: return params.bite;
     case kPedalToneParamId: return params.pedalTone;
@@ -307,6 +435,49 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kTargetGlitchParamId: return params.targetGlitch;
     case kGlitchRatchetParamId: return params.glitchRatchet;
     case kOverloadMaskParamId: return params.overloadMask;
+    case kArpBRelationParamId:
+        return static_cast<double>(params.arpBRelation);
+    case kArpPatternBParamId:
+        return static_cast<double>(params.arpPatternB);
+    case kScaleBParamId: return static_cast<double>(params.scaleB);
+    case kArpRateBParamId: return static_cast<double>(params.arpRateB);
+    case kArpOctavesBParamId: return params.arpOctavesB;
+    case kArpGateBParamId: return params.arpGateB;
+    case kArpPhaseBParamId: return params.arpPhaseB;
+    case kCustomLengthBParamId: return params.customPatternLengthB;
+    case kCustomStepB1ParamId: return params.customPatternB[0u];
+    case kCustomStepB2ParamId: return params.customPatternB[1u];
+    case kCustomStepB3ParamId: return params.customPatternB[2u];
+    case kCustomStepB4ParamId: return params.customPatternB[3u];
+    case kCustomStepB5ParamId: return params.customPatternB[4u];
+    case kCustomStepB6ParamId: return params.customPatternB[5u];
+    case kCustomStepB7ParamId: return params.customPatternB[6u];
+    case kCustomStepB8ParamId: return params.customPatternB[7u];
+    case kLinkPedalParamId: return params.linkPedal ? 1.0 : 0.0;
+    case kLinkAmplifierParamId: return params.linkAmplifier ? 1.0 : 0.0;
+    case kLinkFeedbackParamId: return params.linkFeedback ? 1.0 : 0.0;
+    case kCircuitBParamId: return static_cast<double>(params.circuitB);
+    case kBiteBParamId: return params.biteB;
+    case kPedalToneBParamId: return params.pedalToneB;
+    case kBiasBParamId: return params.biasB;
+    case kStackBParamId: return params.stackB;
+    case kSagBParamId: return params.sagB;
+    case kFocusBParamId: return params.focusB;
+    case kConeBParamId: return params.coneB;
+    case kCabinetBParamId: return params.cabinetB;
+    case kMicBParamId: return params.micB;
+    case kFeedbackBParamId: return params.feedbackB;
+    case kProximityBParamId: return params.proximityB;
+    case kHarmonicBParamId: return params.harmonicB;
+    case kTrackingBParamId: return params.trackingB;
+    case kPolarityBParamId: return params.polarityB;
+    case kRootBParamId: return params.rootB;
+    case kChaosBParamId: return params.chaosB;
+    case kPierceBParamId: return params.pierceB;
+    case kSelfListenBParamId: return params.selfListenB;
+    case kTargetGlitchBParamId: return params.targetGlitchB;
+    case kGlitchRatchetBParamId: return params.glitchRatchetB;
+    case kOverloadMaskBParamId: return params.overloadMaskB;
     default: return 0.0;
     }
 }
@@ -324,8 +495,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
 
     const float normalized = static_cast<float>(value);
-    const bool tailChanged = id == kFeedbackParamId || id == kSpillParamId
-        || id == kReleaseParamId;
+    const bool tailChanged = id == kFeedbackParamId
+        || id == kFeedbackBParamId || id == kSpillParamId
+        || id == kReleaseParamId || id == kLinkFeedbackParamId;
     switch (id) {
     case kModeParamId:
         plugin.params.mode = static_cast<s3g::ProcessorStackMode>(
@@ -342,6 +514,30 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kDecayParamId: plugin.params.decayMs = normalized; break;
     case kSustainParamId: plugin.params.sustain = normalized; break;
     case kReleaseParamId: plugin.params.releaseMs = normalized; break;
+    case kPairAmountParamId: plugin.params.pairAmount = normalized; break;
+    case kPairRelationParamId:
+        plugin.params.pairRelation =
+            static_cast<s3g::ProcessorStackPairRelation>(
+                static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kPairLooseParamId: plugin.params.pairLoose = normalized; break;
+    case kPairSpreadParamId: plugin.params.pairSpread = normalized; break;
+    case kNeckAParamId:
+        plugin.params.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kBodyAParamId:
+        plugin.params.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kNeckBParamId:
+        plugin.params.neckB = static_cast<s3g::ProcessorStackNeckMaterial>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kBodyBParamId:
+        plugin.params.bodyB = static_cast<s3g::ProcessorStackBodyMaterial>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
     case kCircuitParamId:
         plugin.params.circuit = static_cast<s3g::ProcessorStackCircuit>(
             static_cast<uint32_t>(std::lround(value)));
@@ -420,6 +616,104 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kTargetGlitchParamId: plugin.params.targetGlitch = normalized; break;
     case kGlitchRatchetParamId: plugin.params.glitchRatchet = normalized; break;
     case kOverloadMaskParamId: plugin.params.overloadMask = normalized; break;
+    case kArpBRelationParamId:
+        plugin.params.arpBRelation = static_cast<
+            s3g::ProcessorStackArpRelation>(
+                static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kArpPatternBParamId:
+        plugin.params.arpPatternB = static_cast<
+            s3g::ProcessorStackArpPattern>(
+                static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kScaleBParamId:
+        plugin.params.scaleB = static_cast<s3g::ProcessorStackScale>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kArpRateBParamId:
+        plugin.params.arpRateB = static_cast<s3g::ProcessorStackArpRate>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kArpOctavesBParamId:
+        plugin.params.arpOctavesB = static_cast<uint32_t>(
+            std::lround(value));
+        break;
+    case kArpGateBParamId: plugin.params.arpGateB = normalized; break;
+    case kArpPhaseBParamId: plugin.params.arpPhaseB = normalized; break;
+    case kCustomLengthBParamId:
+        plugin.params.customPatternLengthB = static_cast<uint32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB1ParamId:
+        plugin.params.customPatternB[0u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB2ParamId:
+        plugin.params.customPatternB[1u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB3ParamId:
+        plugin.params.customPatternB[2u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB4ParamId:
+        plugin.params.customPatternB[3u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB5ParamId:
+        plugin.params.customPatternB[4u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB6ParamId:
+        plugin.params.customPatternB[5u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB7ParamId:
+        plugin.params.customPatternB[6u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kCustomStepB8ParamId:
+        plugin.params.customPatternB[7u] = static_cast<int32_t>(
+            std::lround(value));
+        break;
+    case kLinkPedalParamId: plugin.params.linkPedal = value >= 0.5; break;
+    case kLinkAmplifierParamId:
+        plugin.params.linkAmplifier = value >= 0.5;
+        break;
+    case kLinkFeedbackParamId:
+        plugin.params.linkFeedback = value >= 0.5;
+        break;
+    case kCircuitBParamId:
+        plugin.params.circuitB = static_cast<s3g::ProcessorStackCircuit>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kBiteBParamId: plugin.params.biteB = normalized; break;
+    case kPedalToneBParamId: plugin.params.pedalToneB = normalized; break;
+    case kBiasBParamId: plugin.params.biasB = normalized; break;
+    case kStackBParamId: plugin.params.stackB = normalized; break;
+    case kSagBParamId: plugin.params.sagB = normalized; break;
+    case kFocusBParamId: plugin.params.focusB = normalized; break;
+    case kConeBParamId: plugin.params.coneB = normalized; break;
+    case kCabinetBParamId: plugin.params.cabinetB = normalized; break;
+    case kMicBParamId: plugin.params.micB = normalized; break;
+    case kFeedbackBParamId: plugin.params.feedbackB = normalized; break;
+    case kProximityBParamId: plugin.params.proximityB = normalized; break;
+    case kHarmonicBParamId: plugin.params.harmonicB = normalized; break;
+    case kTrackingBParamId: plugin.params.trackingB = normalized; break;
+    case kPolarityBParamId: plugin.params.polarityB = normalized; break;
+    case kRootBParamId: plugin.params.rootB = normalized; break;
+    case kChaosBParamId: plugin.params.chaosB = normalized; break;
+    case kPierceBParamId: plugin.params.pierceB = normalized; break;
+    case kSelfListenBParamId: plugin.params.selfListenB = normalized; break;
+    case kTargetGlitchBParamId:
+        plugin.params.targetGlitchB = normalized;
+        break;
+    case kGlitchRatchetBParamId:
+        plugin.params.glitchRatchetB = normalized;
+        break;
+    case kOverloadMaskBParamId:
+        plugin.params.overloadMaskB = normalized;
+        break;
     default: return;
     }
     plugin.engine.setParams(plugin.params);
@@ -606,6 +900,37 @@ std::array<double, kSynthParamCount> paramValues(
         params.targetGlitch, params.glitchRatchet,
         params.overloadMask,
         params.attackMs, params.decayMs, params.sustain, params.releaseMs,
+        params.pairAmount, static_cast<double>(params.pairRelation),
+        params.pairLoose, params.pairSpread,
+        static_cast<double>(params.neckA),
+        static_cast<double>(params.bodyA),
+        static_cast<double>(params.neckB),
+        static_cast<double>(params.bodyB),
+        static_cast<double>(params.arpBRelation),
+        static_cast<double>(params.arpPatternB),
+        static_cast<double>(params.scaleB),
+        static_cast<double>(params.arpRateB),
+        static_cast<double>(params.arpOctavesB), params.arpGateB,
+        params.arpPhaseB,
+        static_cast<double>(params.customPatternLengthB),
+        static_cast<double>(params.customPatternB[0u]),
+        static_cast<double>(params.customPatternB[1u]),
+        static_cast<double>(params.customPatternB[2u]),
+        static_cast<double>(params.customPatternB[3u]),
+        static_cast<double>(params.customPatternB[4u]),
+        static_cast<double>(params.customPatternB[5u]),
+        static_cast<double>(params.customPatternB[6u]),
+        static_cast<double>(params.customPatternB[7u]),
+        params.linkPedal ? 1.0 : 0.0,
+        params.linkAmplifier ? 1.0 : 0.0,
+        params.linkFeedback ? 1.0 : 0.0,
+        static_cast<double>(params.circuitB), params.biteB,
+        params.pedalToneB, params.biasB, params.stackB, params.sagB,
+        params.focusB, params.coneB, params.cabinetB, params.micB,
+        params.feedbackB, params.proximityB, params.harmonicB,
+        params.trackingB, params.polarityB, params.rootB, params.chaosB,
+        params.pierceB, params.selfListenB, params.targetGlitchB,
+        params.glitchRatchetB, params.overloadMaskB,
     }};
 }
 
@@ -875,42 +1200,72 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
                 s3g::kProcessorStackModeCount - 1u));
         std::snprintf(display, size, "%s", s3g::processorStackModeName(mode));
-    } else if (id == kCircuitParamId) {
+    } else if (id == kCircuitParamId || id == kCircuitBParamId) {
         const auto circuit = static_cast<s3g::ProcessorStackCircuit>(
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
                 s3g::kProcessorStackCircuitCount - 1u));
         std::snprintf(display, size, "%s",
             s3g::processorStackCircuitName(circuit));
-    } else if (id == kArpPatternParamId) {
+    } else if (id == kArpBRelationParamId) {
+        const auto relation = static_cast<s3g::ProcessorStackArpRelation>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackArpRelationCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackArpRelationName(relation));
+    } else if (id == kArpPatternParamId || id == kArpPatternBParamId) {
         const auto pattern = static_cast<s3g::ProcessorStackArpPattern>(
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
                 s3g::kProcessorStackArpPatternCount - 1u));
         std::snprintf(display, size, "%s",
             s3g::processorStackArpPatternName(pattern));
-    } else if (id == kScaleParamId) {
+    } else if (id == kScaleParamId || id == kScaleBParamId) {
         const auto scale = static_cast<s3g::ProcessorStackScale>(
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
                 s3g::kProcessorStackScaleCount - 1u));
         std::snprintf(display, size, "%s",
             s3g::processorStackScaleName(scale));
-    } else if (id == kArpRateParamId) {
+    } else if (id == kArpRateParamId || id == kArpRateBParamId) {
         const auto rate = static_cast<s3g::ProcessorStackArpRate>(
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
                 s3g::kProcessorStackArpRateCount - 1u));
         std::snprintf(display, size, "%s",
             s3g::processorStackArpRateName(rate));
+    } else if (id == kPairRelationParamId) {
+        const auto relation = static_cast<s3g::ProcessorStackPairRelation>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackPairRelationCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackPairRelationName(relation));
+    } else if (id == kNeckAParamId || id == kNeckBParamId) {
+        const auto material = static_cast<s3g::ProcessorStackNeckMaterial>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackNeckMaterialCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackNeckMaterialName(material));
+    } else if (id == kBodyAParamId || id == kBodyBParamId) {
+        const auto material = static_cast<s3g::ProcessorStackBodyMaterial>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackBodyMaterialCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackBodyMaterialName(material));
     } else if (id == kMidiReceiveParamId) {
         s3g::drum_midi::valueToText(value, display, size);
+    } else if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
+        || id == kLinkFeedbackParamId) {
+        std::snprintf(display, size, "%s", value >= 0.5 ? "LINK" : "OWN");
     } else if (id == kGlideParamId || id == kAttackParamId
         || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%.1f ms", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
-    } else if (id == kArpOctavesParamId || id == kCustomLengthParamId) {
+    } else if (id == kArpOctavesParamId || id == kCustomLengthParamId
+        || id == kArpOctavesBParamId || id == kCustomLengthBParamId) {
         std::snprintf(display, size, "%.0f", value);
     } else if (id >= kCustomStep1ParamId && id <= kCustomStep8ParamId) {
         std::snprintf(display, size, "%+.0f", value);
-    } else if (id == kPolarityParamId) {
+    } else if (id >= kCustomStepB1ParamId && id <= kCustomStepB8ParamId) {
+        std::snprintf(display, size, "%+.0f", value);
+    } else if (id == kPolarityParamId || id == kPolarityBParamId) {
         std::snprintf(display, size, "%+.0f%%", (value - 0.5) * 200.0);
     } else {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
@@ -926,6 +1281,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     if (id == kMidiReceiveParamId) {
         return s3g::drum_midi::textToValue(display, value);
     }
+    if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
+        || id == kLinkFeedbackParamId) {
+        if (std::strcmp(display, "LINK") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "OWN") == 0) {
+            *value = 0.0;
+            return true;
+        }
+    }
     if (id == kModeParamId) {
         for (uint32_t index = 0u; index < s3g::kProcessorStackModeCount;
              ++index) {
@@ -936,7 +1302,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
-    if (id == kCircuitParamId) {
+    if (id == kCircuitParamId || id == kCircuitBParamId) {
         for (uint32_t index = 0u; index < s3g::kProcessorStackCircuitCount;
              ++index) {
             const auto circuit = static_cast<s3g::ProcessorStackCircuit>(index);
@@ -947,7 +1313,19 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
-    if (id == kArpPatternParamId) {
+    if (id == kArpBRelationParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackArpRelationCount; ++index) {
+            const auto relation = static_cast<
+                s3g::ProcessorStackArpRelation>(index);
+            if (std::strcmp(display,
+                    s3g::processorStackArpRelationName(relation)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
+    if (id == kArpPatternParamId || id == kArpPatternBParamId) {
         for (uint32_t index = 0u;
              index < s3g::kProcessorStackArpPatternCount; ++index) {
             const auto pattern = static_cast<
@@ -959,7 +1337,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
-    if (id == kScaleParamId) {
+    if (id == kScaleParamId || id == kScaleBParamId) {
         for (uint32_t index = 0u;
              index < s3g::kProcessorStackScaleCount; ++index) {
             const auto scale = static_cast<s3g::ProcessorStackScale>(index);
@@ -970,12 +1348,48 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
-    if (id == kArpRateParamId) {
+    if (id == kArpRateParamId || id == kArpRateBParamId) {
         for (uint32_t index = 0u;
              index < s3g::kProcessorStackArpRateCount; ++index) {
             const auto rate = static_cast<s3g::ProcessorStackArpRate>(index);
             if (std::strcmp(display, s3g::processorStackArpRateName(rate))
                 == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
+    if (id == kPairRelationParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackPairRelationCount; ++index) {
+            const auto relation = static_cast<
+                s3g::ProcessorStackPairRelation>(index);
+            if (std::strcmp(display,
+                    s3g::processorStackPairRelationName(relation)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
+    if (id == kNeckAParamId || id == kNeckBParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackNeckMaterialCount; ++index) {
+            const auto material = static_cast<
+                s3g::ProcessorStackNeckMaterial>(index);
+            if (std::strcmp(display,
+                    s3g::processorStackNeckMaterialName(material)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
+    if (id == kBodyAParamId || id == kBodyBParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackBodyMaterialCount; ++index) {
+            const auto material = static_cast<
+                s3g::ProcessorStackBodyMaterial>(index);
+            if (std::strcmp(display,
+                    s3g::processorStackBodyMaterialName(material)) == 0) {
                 *value = static_cast<double>(index);
                 return true;
             }
@@ -1009,10 +1423,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             && id != kAttackParamId && id != kDecayParamId
             && id != kReleaseParamId
             && id != kOutputParamId && id != kArpOctavesParamId
-            && id != kCustomLengthParamId
+            && id != kCustomLengthParamId && id != kArpOctavesBParamId
+            && id != kCustomLengthBParamId
             && !(id >= kCustomStep1ParamId
-                && id <= kCustomStep8ParamId)) {
-            converted = id == kPolarityParamId
+                && id <= kCustomStep8ParamId)
+            && !(id >= kCustomStepB1ParamId
+                && id <= kCustomStepB8ParamId)) {
+            converted = id == kPolarityParamId || id == kPolarityBParamId
                 ? converted * 0.005 + 0.5 : converted * 0.01;
         } else {
             return false;
@@ -1064,6 +1481,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool current = header.magic == kStateMagic
         && header.version == kStateVersion
         && header.valueCount == kParamDefs.size();
+    const bool versionSeven = header.magic == kStateMagic
+        && header.version == kVersionSevenStateVersion
+        && header.valueCount == kVersionSevenParamCount;
+    const bool versionSix = header.magic == kStateMagic
+        && header.version == kVersionSixStateVersion
+        && header.valueCount == kVersionSixParamCount;
     const bool versionFive = header.magic == kStateMagic
         && header.version == kVersionFiveStateVersion
         && header.valueCount == kVersionFiveParamCount;
@@ -1079,8 +1502,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool versionOne = header.magic == kStateMagic
         && header.version == kVersionOneStateVersion
         && header.valueCount == kVersionOneParamCount;
-    if (!current && !versionFive && !versionFour && !versionThree
-        && !versionTwo && !versionOne) return false;
+    if (!current && !versionSeven && !versionSix && !versionFive
+        && !versionFour && !versionThree && !versionTwo && !versionOne) {
+        return false;
+    }
     if (!s3g::clap_state::readAll(stream, values.data(),
             static_cast<size_t>(header.valueCount) * sizeof(double))) {
         return false;
@@ -1108,9 +1533,16 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 uint32_t tailGet(const clap_plugin_t* plugin)
 {
     const auto* instance = self(plugin);
+    const double feedbackA = paramValue(*instance, kFeedbackParamId);
+    const bool ownFeedbackB = paramValue(*instance, kPairAmountParamId)
+            > 1.0e-4
+        && paramValue(*instance, kLinkFeedbackParamId) < 0.5;
+    const double feedback = ownFeedbackB
+        ? std::max(feedbackA, paramValue(*instance, kFeedbackBParamId))
+        : feedbackA;
     const double seconds = 0.25
         + paramValue(*instance, kSpillParamId) * 15.0
-        + paramValue(*instance, kFeedbackParamId) * 1.0
+        + feedback * 1.0
         + paramValue(*instance, kReleaseParamId) * 0.001;
     return static_cast<uint32_t>(std::min<double>(
         std::numeric_limits<uint32_t>::max() - 1u,
@@ -1129,6 +1561,13 @@ struct StackUiRow {
     CGFloat panelX;
     CGFloat panelWidth;
     CGFloat y;
+    uint8_t page;
+};
+
+struct StackUiPanel {
+    const char* name;
+    uint8_t page;
+    s3g::gui_layout::Panel panel;
 };
 
 namespace layout = s3g::gui_layout;
@@ -1136,171 +1575,329 @@ namespace layout = s3g::gui_layout;
 constexpr CGFloat kLeftPanelX = 16.0;
 constexpr CGFloat kRightPanelX = 506.0;
 constexpr CGFloat kPanelWidth = 458.0;
+constexpr uint8_t kAllPages = 0xffu;
+constexpr CGFloat kContentTop =
+    s3g::gui_layout::kStandardMetrics.contentTop;
+constexpr CGFloat kPageLeftTop = kContentTop
+    + s3g::gui_layout::toolboxHeightForRows(1u)
+    + s3g::gui_layout::kStandardMetrics.panelGap;
+constexpr CGFloat kPatternPanelHeight = 132.0;
 constexpr layout::Canvas kStackCanvas {
     static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight)
 };
+constexpr layout::Column kOutputColumn {
+    kLeftPanelX, kPanelWidth, kContentTop
+};
 constexpr layout::Column kLeftColumn {
-    kLeftPanelX, kPanelWidth, layout::kStandardMetrics.contentTop
+    kLeftPanelX, kPanelWidth, kPageLeftTop
 };
 constexpr layout::Column kRightColumn {
-    kRightPanelX, kPanelWidth, layout::kStandardMetrics.contentTop
+    kRightPanelX, kPanelWidth, kContentTop
 };
-
-constexpr auto kPlayPanel = layout::fittedPanel(
-    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Engine,
-    kLeftColumn, layout::kStandardMetrics.contentTop, 12u);
-constexpr auto kArpPanel = layout::fittedStackPanel(
-    layout::PanelRole::EventTiming, kPlayPanel, 14u);
-constexpr auto kPedalPanel = layout::fittedStackPanel(
-    layout::PanelRole::Projection, kArpPanel, 4u);
 
 constexpr auto kOutputPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Output,
-    kRightColumn, layout::kStandardMetrics.contentTop, 1u);
-constexpr auto kAmplifierPanel = layout::fittedStackPanel(
-    layout::PanelRole::Topology, kOutputPanel, 6u);
-constexpr auto kLoopPanel = layout::fittedStackPanel(
-    layout::PanelRole::Motion, kAmplifierPanel, 12u);
+    kOutputColumn, kContentTop, 1u);
+constexpr auto kPlayPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Engine,
+    kLeftColumn, kPageLeftTop, 12u);
+constexpr auto kPairPanel = layout::fittedStackPanel(
+    layout::PanelRole::Engine, kPlayPanel, 4u);
 constexpr auto kRoutingPanel = layout::fittedStackPanel(
-    layout::PanelRole::Utility, kLoopPanel, 1u);
+    layout::PanelRole::Utility, kPairPanel, 1u);
+constexpr auto kArpAPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::EventTiming,
+    kRightColumn, kContentTop, 6u);
+constexpr auto kPatternAPanel = layout::stackPanel(
+    layout::PanelRole::EventTiming, kArpAPanel,
+    kPatternPanelHeight, 0u);
+constexpr auto kArpBPanel = layout::fittedStackPanel(
+    layout::PanelRole::EventTiming, kPatternAPanel, 8u);
+constexpr auto kPatternBPanel = layout::stackPanel(
+    layout::PanelRole::EventTiming, kArpBPanel,
+    kPatternPanelHeight, 0u);
 
-constexpr std::array kLeftPanels {
-    kPlayPanel, kArpPanel, kPedalPanel,
+constexpr auto kMaterialAPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Engine,
+    kLeftColumn, kPageLeftTop, 2u);
+constexpr auto kPedalAPanel = layout::fittedStackPanel(
+    layout::PanelRole::Projection, kMaterialAPanel, 4u);
+constexpr auto kAmplifierAPanel = layout::fittedStackPanel(
+    layout::PanelRole::Topology, kPedalAPanel, 6u);
+constexpr auto kLoopAPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Output,
+    kRightColumn, kContentTop, 12u);
+
+constexpr auto kLinksPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Utility,
+    kLeftColumn, kPageLeftTop, 3u);
+constexpr auto kMaterialBPanel = layout::fittedStackPanel(
+    layout::PanelRole::Engine, kLinksPanel, 2u);
+constexpr auto kPedalBPanel = layout::fittedStackPanel(
+    layout::PanelRole::Projection, kMaterialBPanel, 4u);
+constexpr auto kAmplifierBPanel = layout::fittedStackPanel(
+    layout::PanelRole::Topology, kPedalBPanel, 6u);
+constexpr auto kLoopBPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Motion,
+    kRightColumn, kContentTop, 12u);
+
+constexpr std::array kOutputPanels { kOutputPanel };
+constexpr std::array kPlayLeftPanels {
+    kPlayPanel, kPairPanel, kRoutingPanel,
 };
-constexpr std::array kRightPanels {
-    kOutputPanel, kAmplifierPanel, kLoopPanel, kRoutingPanel,
+constexpr std::array kPlayRightPanels {
+    kArpAPanel, kPatternAPanel, kArpBPanel, kPatternBPanel,
 };
+constexpr std::array kRigALeftPanels {
+    kMaterialAPanel, kPedalAPanel, kAmplifierAPanel,
+};
+constexpr std::array kRigARightPanels { kLoopAPanel };
+constexpr std::array kRigBLeftPanels {
+    kLinksPanel, kMaterialBPanel, kPedalBPanel, kAmplifierBPanel,
+};
+constexpr std::array kRigBRightPanels { kLoopBPanel };
 
-static_assert(layout::validateColumn(kLeftPanels, kStackCanvas, false));
-static_assert(layout::validateColumn(kRightPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kOutputPanels, kStackCanvas));
+static_assert(layout::validateColumn(kPlayLeftPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kPlayRightPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kRigALeftPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kRigARightPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kRigBLeftPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kRigBRightPanels, kStackCanvas, false));
 
-constexpr std::array<StackUiRow, 50u> kUiRows {{
+constexpr std::array<StackUiPanel, 17u> kUiPanels {{
+    { "OUTPUT", kAllPages, kOutputPanel },
+    { "PLAY / ENVELOPE", 0u, kPlayPanel },
+    { "PAIR / STEREO", 0u, kPairPanel },
+    { "ROUTING", 0u, kRoutingPanel },
+    { "ARPEGGIATOR A", 0u, kArpAPanel },
+    { "PATTERN A POSITIONS", 0u, kPatternAPanel },
+    { "ARPEGGIATOR B", 0u, kArpBPanel },
+    { "PATTERN B POSITIONS", 0u, kPatternBPanel },
+    { "MATERIAL A", 1u, kMaterialAPanel },
+    { "PEDAL A", 1u, kPedalAPanel },
+    { "AMPLIFIER / SPEAKER A", 1u, kAmplifierAPanel },
+    { "MIC FEEDBACK LOOP A", 1u, kLoopAPanel },
+    { "LINKS", 2u, kLinksPanel },
+    { "MATERIAL B", 2u, kMaterialBPanel },
+    { "PEDAL B", 2u, kPedalBPanel },
+    { "AMPLIFIER / SPEAKER B", 2u, kAmplifierBPanel },
+    { "MIC FEEDBACK LOOP B", 2u, kLoopBPanel },
+}};
+
+constexpr std::array<StackUiRow, 83u> kUiRows {{
+    { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
+        layout::rowY(kOutputPanel, 0u), kAllPages },
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 0u) },
+        layout::rowY(kPlayPanel, 0u), 0u },
     { kShapeParamId, "SHAPE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 1u) },
+        layout::rowY(kPlayPanel, 1u), 0u },
     { kWireParamId, "STRING", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 2u) },
+        layout::rowY(kPlayPanel, 2u), 0u },
     { kPickParamId, "PICK", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 3u) },
+        layout::rowY(kPlayPanel, 3u), 0u },
     { kDampingParamId, "DAMP", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 4u) },
+        layout::rowY(kPlayPanel, 4u), 0u },
     { kGlideParamId, "GLIDE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 5u) },
+        layout::rowY(kPlayPanel, 5u), 0u },
     { kCrookedParamId, "CROOKED", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 6u) },
+        layout::rowY(kPlayPanel, 6u), 0u },
     { kSpillParamId, "SPILL", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 7u) },
+        layout::rowY(kPlayPanel, 7u), 0u },
     { kAttackParamId, "ATTACK", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 8u) },
+        layout::rowY(kPlayPanel, 8u), 0u },
     { kDecayParamId, "DECAY", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 9u) },
+        layout::rowY(kPlayPanel, 9u), 0u },
     { kSustainParamId, "SUSTAIN", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 10u) },
+        layout::rowY(kPlayPanel, 10u), 0u },
     { kReleaseParamId, "RELEASE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPlayPanel, 11u) },
+        layout::rowY(kPlayPanel, 11u), 0u },
 
-    { kArpPatternParamId, "PATTERN", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 0u) },
-    { kScaleParamId, "SCALE RULE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 1u) },
-    { kArpRateParamId, "RATE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 2u) },
-    { kArpOctavesParamId, "OCTAVES", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 3u) },
-    { kArpGateParamId, "GATE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 4u) },
-    { kCustomLengthParamId, "LENGTH", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 5u) },
-    { kCustomStep1ParamId, "STEP 1", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 6u) },
-    { kCustomStep2ParamId, "STEP 2", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 7u) },
-    { kCustomStep3ParamId, "STEP 3", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 8u) },
-    { kCustomStep4ParamId, "STEP 4", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 9u) },
-    { kCustomStep5ParamId, "STEP 5", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 10u) },
-    { kCustomStep6ParamId, "STEP 6", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 11u) },
-    { kCustomStep7ParamId, "STEP 7", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 12u) },
-    { kCustomStep8ParamId, "STEP 8", kLeftPanelX, kPanelWidth,
-        layout::rowY(kArpPanel, 13u) },
+    { kPairAmountParamId, "DUAL", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPairPanel, 0u), 0u },
+    { kPairRelationParamId, "RELATION", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPairPanel, 1u), 0u },
+    { kPairLooseParamId, "LOOSE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPairPanel, 2u), 0u },
+    { kPairSpreadParamId, "SPREAD", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPairPanel, 3u), 0u },
+    { kMidiReceiveParamId, "MIDI RECEIVE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kRoutingPanel, 0u), 0u },
 
+    { kArpPatternParamId, "PATTERN", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 0u), 0u },
+    { kScaleParamId, "SCALE RULE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 1u), 0u },
+    { kArpRateParamId, "RATE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 2u), 0u },
+    { kArpOctavesParamId, "OCTAVES", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 3u), 0u },
+    { kArpGateParamId, "GATE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 4u), 0u },
+    { kCustomLengthParamId, "LENGTH", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpAPanel, 5u), 0u },
+    { kArpBRelationParamId, "RELATION", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 0u), 0u },
+    { kArpPatternBParamId, "PATTERN", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 1u), 0u },
+    { kScaleBParamId, "SCALE RULE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 2u), 0u },
+    { kArpRateBParamId, "RATE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 3u), 0u },
+    { kArpOctavesBParamId, "OCTAVES", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 4u), 0u },
+    { kArpGateBParamId, "GATE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 5u), 0u },
+    { kArpPhaseBParamId, "PHASE", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 6u), 0u },
+    { kCustomLengthBParamId, "LENGTH", kRightPanelX, kPanelWidth,
+        layout::rowY(kArpBPanel, 7u), 0u },
+    { kNeckAParamId, "NECK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kMaterialAPanel, 0u), 1u },
+    { kBodyAParamId, "BODY", kLeftPanelX, kPanelWidth,
+        layout::rowY(kMaterialAPanel, 1u), 1u },
     { kCircuitParamId, "CIRCUIT", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPedalPanel, 0u) },
+        layout::rowY(kPedalAPanel, 0u), 1u },
     { kBiteParamId, "BITE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPedalPanel, 1u) },
+        layout::rowY(kPedalAPanel, 1u), 1u },
     { kPedalToneParamId, "TONE", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPedalPanel, 2u) },
+        layout::rowY(kPedalAPanel, 2u), 1u },
     { kBiasParamId, "BIAS", kLeftPanelX, kPanelWidth,
-        layout::rowY(kPedalPanel, 3u) },
-
-    { kMidiReceiveParamId, "MIDI RECEIVE", kRightPanelX, kPanelWidth,
-        layout::rowY(kRoutingPanel, 0u) },
-
-    { kOutputParamId, "OUT", kRightPanelX, kPanelWidth,
-        layout::rowY(kOutputPanel, 0u) },
-
-    { kStackParamId, "STACK", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 0u) },
-    { kSagParamId, "SAG", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 1u) },
-    { kFocusParamId, "FOCUS", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 2u) },
-    { kConeParamId, "CONE", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 3u) },
-    { kCabinetParamId, "CAB", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 4u) },
-    { kMicParamId, "MIC", kRightPanelX, kPanelWidth,
-        layout::rowY(kAmplifierPanel, 5u) },
-
+        layout::rowY(kPedalAPanel, 3u), 1u },
+    { kStackParamId, "STACK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 0u), 1u },
+    { kSagParamId, "SAG", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 1u), 1u },
+    { kFocusParamId, "FOCUS", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 2u), 1u },
+    { kConeParamId, "CONE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 3u), 1u },
+    { kCabinetParamId, "CAB", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 4u), 1u },
+    { kMicParamId, "MIC", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 5u), 1u },
     { kFeedbackParamId, "FEEDBACK", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 0u) },
+        layout::rowY(kLoopAPanel, 0u), 1u },
     { kProximityParamId, "PROXIMITY", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 1u) },
+        layout::rowY(kLoopAPanel, 1u), 1u },
     { kHarmonicParamId, "HARMONIC", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 2u) },
+        layout::rowY(kLoopAPanel, 2u), 1u },
     { kTrackingParamId, "TRACK", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 3u) },
+        layout::rowY(kLoopAPanel, 3u), 1u },
     { kPolarityParamId, "POLARITY", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 4u) },
+        layout::rowY(kLoopAPanel, 4u), 1u },
     { kRootParamId, "ROOT", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 5u) },
+        layout::rowY(kLoopAPanel, 5u), 1u },
     { kChaosParamId, "CHAOS", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 6u) },
+        layout::rowY(kLoopAPanel, 6u), 1u },
     { kPierceParamId, "PIERCE", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 7u) },
+        layout::rowY(kLoopAPanel, 7u), 1u },
     { kSelfListenParamId, "SELF LISTEN", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 8u) },
+        layout::rowY(kLoopAPanel, 8u), 1u },
     { kTargetGlitchParamId, "TARGET GLITCH", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 9u) },
+        layout::rowY(kLoopAPanel, 9u), 1u },
     { kGlitchRatchetParamId, "RATCHET", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 10u) },
+        layout::rowY(kLoopAPanel, 10u), 1u },
     { kOverloadMaskParamId, "OVERLOAD MASK", kRightPanelX, kPanelWidth,
-        layout::rowY(kLoopPanel, 11u) },
+        layout::rowY(kLoopAPanel, 11u), 1u },
+
+    { kLinkPedalParamId, "PEDALS", kLeftPanelX, kPanelWidth,
+        layout::rowY(kLinksPanel, 0u), 2u },
+    { kLinkAmplifierParamId, "AMPLIFIERS", kLeftPanelX, kPanelWidth,
+        layout::rowY(kLinksPanel, 1u), 2u },
+    { kLinkFeedbackParamId, "FEEDBACK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kLinksPanel, 2u), 2u },
+    { kNeckBParamId, "NECK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kMaterialBPanel, 0u), 2u },
+    { kBodyBParamId, "BODY", kLeftPanelX, kPanelWidth,
+        layout::rowY(kMaterialBPanel, 1u), 2u },
+    { kCircuitBParamId, "CIRCUIT", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPedalBPanel, 0u), 2u },
+    { kBiteBParamId, "BITE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPedalBPanel, 1u), 2u },
+    { kPedalToneBParamId, "TONE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPedalBPanel, 2u), 2u },
+    { kBiasBParamId, "BIAS", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPedalBPanel, 3u), 2u },
+    { kStackBParamId, "STACK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 0u), 2u },
+    { kSagBParamId, "SAG", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 1u), 2u },
+    { kFocusBParamId, "FOCUS", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 2u), 2u },
+    { kConeBParamId, "CONE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 3u), 2u },
+    { kCabinetBParamId, "CAB", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 4u), 2u },
+    { kMicBParamId, "MIC", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 5u), 2u },
+    { kFeedbackBParamId, "FEEDBACK", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 0u), 2u },
+    { kProximityBParamId, "PROXIMITY", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 1u), 2u },
+    { kHarmonicBParamId, "HARMONIC", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 2u), 2u },
+    { kTrackingBParamId, "TRACK", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 3u), 2u },
+    { kPolarityBParamId, "POLARITY", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 4u), 2u },
+    { kRootBParamId, "ROOT", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 5u), 2u },
+    { kChaosBParamId, "CHAOS", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 6u), 2u },
+    { kPierceBParamId, "PIERCE", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 7u), 2u },
+    { kSelfListenBParamId, "SELF LISTEN", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 8u), 2u },
+    { kTargetGlitchBParamId, "TARGET GLITCH", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 9u), 2u },
+    { kGlitchRatchetBParamId, "RATCHET", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 10u), 2u },
+    { kOverloadMaskBParamId, "OVERLOAD MASK", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopBPanel, 11u), 2u },
 }};
 
 bool isUiMenuParam(clap_id id)
 {
     return id == kModeParamId || id == kCircuitParamId
+        || id == kCircuitBParamId
         || id == kMidiReceiveParamId || id == kArpPatternParamId
-        || id == kScaleParamId || id == kArpRateParamId
-        || id == kArpOctavesParamId || id == kCustomLengthParamId;
+        || id == kArpPatternBParamId || id == kArpBRelationParamId
+        || id == kScaleParamId || id == kScaleBParamId
+        || id == kArpRateParamId || id == kArpRateBParamId
+        || id == kArpOctavesParamId || id == kCustomLengthParamId
+        || id == kArpOctavesBParamId || id == kCustomLengthBParamId
+        || id == kPairRelationParamId
+        || id == kNeckAParamId || id == kNeckBParamId
+        || id == kBodyAParamId || id == kBodyBParamId
+        || id == kLinkPedalParamId || id == kLinkAmplifierParamId
+        || id == kLinkFeedbackParamId;
 }
 
 uint32_t uiMenuItemCount(clap_id id)
 {
     if (id == kModeParamId) return s3g::kProcessorStackModeCount;
-    if (id == kCircuitParamId) return s3g::kProcessorStackCircuitCount;
+    if (id == kCircuitParamId || id == kCircuitBParamId)
+        return s3g::kProcessorStackCircuitCount;
     if (id == kMidiReceiveParamId) return 17u;
-    if (id == kArpPatternParamId) return s3g::kProcessorStackArpPatternCount;
-    if (id == kScaleParamId) return s3g::kProcessorStackScaleCount;
-    if (id == kArpRateParamId) return s3g::kProcessorStackArpRateCount;
-    if (id == kArpOctavesParamId) return 4u;
-    if (id == kCustomLengthParamId) return 8u;
+    if (id == kArpBRelationParamId)
+        return s3g::kProcessorStackArpRelationCount;
+    if (id == kArpPatternParamId || id == kArpPatternBParamId)
+        return s3g::kProcessorStackArpPatternCount;
+    if (id == kScaleParamId || id == kScaleBParamId)
+        return s3g::kProcessorStackScaleCount;
+    if (id == kArpRateParamId || id == kArpRateBParamId)
+        return s3g::kProcessorStackArpRateCount;
+    if (id == kArpOctavesParamId || id == kArpOctavesBParamId) return 4u;
+    if (id == kCustomLengthParamId || id == kCustomLengthBParamId) return 8u;
+    if (id == kPairRelationParamId)
+        return s3g::kProcessorStackPairRelationCount;
+    if (id == kNeckAParamId || id == kNeckBParamId)
+        return s3g::kProcessorStackNeckMaterialCount;
+    if (id == kBodyAParamId || id == kBodyBParamId)
+        return s3g::kProcessorStackBodyMaterialCount;
+    if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
+        || id == kLinkFeedbackParamId) return 2u;
     return 0u;
 }
 
@@ -1350,6 +1947,23 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
     params.decayMs = static_cast<float>(paramValue(plugin, kDecayParamId));
     params.sustain = static_cast<float>(paramValue(plugin, kSustainParamId));
     params.releaseMs = static_cast<float>(paramValue(plugin, kReleaseParamId));
+    params.pairAmount = static_cast<float>(
+        paramValue(plugin, kPairAmountParamId));
+    params.pairRelation = static_cast<s3g::ProcessorStackPairRelation>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kPairRelationParamId))));
+    params.pairLoose = static_cast<float>(
+        paramValue(plugin, kPairLooseParamId));
+    params.pairSpread = static_cast<float>(
+        paramValue(plugin, kPairSpreadParamId));
+    params.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(
+        static_cast<uint32_t>(std::lround(paramValue(plugin, kNeckAParamId))));
+    params.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(
+        static_cast<uint32_t>(std::lround(paramValue(plugin, kBodyAParamId))));
+    params.neckB = static_cast<s3g::ProcessorStackNeckMaterial>(
+        static_cast<uint32_t>(std::lround(paramValue(plugin, kNeckBParamId))));
+    params.bodyB = static_cast<s3g::ProcessorStackBodyMaterial>(
+        static_cast<uint32_t>(std::lround(paramValue(plugin, kBodyBParamId))));
     params.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(
         static_cast<uint32_t>(std::lround(
             paramValue(plugin, kArpPatternParamId))));
@@ -1399,6 +2013,68 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
     params.polarity = static_cast<float>(paramValue(plugin, kPolarityParamId));
     params.root = static_cast<float>(paramValue(plugin, kRootParamId));
     params.chaos = static_cast<float>(paramValue(plugin, kChaosParamId));
+    params.arpBRelation = static_cast<s3g::ProcessorStackArpRelation>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kArpBRelationParamId))));
+    params.arpPatternB = static_cast<s3g::ProcessorStackArpPattern>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kArpPatternBParamId))));
+    params.scaleB = static_cast<s3g::ProcessorStackScale>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kScaleBParamId))));
+    params.arpRateB = static_cast<s3g::ProcessorStackArpRate>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kArpRateBParamId))));
+    params.arpOctavesB = static_cast<uint32_t>(std::lround(
+        paramValue(plugin, kArpOctavesBParamId)));
+    params.arpGateB = static_cast<float>(
+        paramValue(plugin, kArpGateBParamId));
+    params.arpPhaseB = static_cast<float>(
+        paramValue(plugin, kArpPhaseBParamId));
+    params.customPatternLengthB = static_cast<uint32_t>(std::lround(
+        paramValue(plugin, kCustomLengthBParamId)));
+    for (uint32_t index = 0u; index < params.customPatternB.size(); ++index) {
+        params.customPatternB[index] = static_cast<int32_t>(std::lround(
+            paramValue(plugin, kCustomStepB1ParamId + index)));
+    }
+    params.linkPedal = paramValue(plugin, kLinkPedalParamId) >= 0.5;
+    params.linkAmplifier = paramValue(plugin, kLinkAmplifierParamId) >= 0.5;
+    params.linkFeedback = paramValue(plugin, kLinkFeedbackParamId) >= 0.5;
+    params.circuitB = static_cast<s3g::ProcessorStackCircuit>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kCircuitBParamId))));
+    params.biteB = static_cast<float>(paramValue(plugin, kBiteBParamId));
+    params.pedalToneB = static_cast<float>(
+        paramValue(plugin, kPedalToneBParamId));
+    params.biasB = static_cast<float>(paramValue(plugin, kBiasBParamId));
+    params.stackB = static_cast<float>(paramValue(plugin, kStackBParamId));
+    params.sagB = static_cast<float>(paramValue(plugin, kSagBParamId));
+    params.focusB = static_cast<float>(paramValue(plugin, kFocusBParamId));
+    params.coneB = static_cast<float>(paramValue(plugin, kConeBParamId));
+    params.cabinetB = static_cast<float>(
+        paramValue(plugin, kCabinetBParamId));
+    params.micB = static_cast<float>(paramValue(plugin, kMicBParamId));
+    params.feedbackB = static_cast<float>(
+        paramValue(plugin, kFeedbackBParamId));
+    params.proximityB = static_cast<float>(
+        paramValue(plugin, kProximityBParamId));
+    params.harmonicB = static_cast<float>(
+        paramValue(plugin, kHarmonicBParamId));
+    params.trackingB = static_cast<float>(
+        paramValue(plugin, kTrackingBParamId));
+    params.polarityB = static_cast<float>(
+        paramValue(plugin, kPolarityBParamId));
+    params.rootB = static_cast<float>(paramValue(plugin, kRootBParamId));
+    params.chaosB = static_cast<float>(paramValue(plugin, kChaosBParamId));
+    params.pierceB = static_cast<float>(paramValue(plugin, kPierceBParamId));
+    params.selfListenB = static_cast<float>(
+        paramValue(plugin, kSelfListenBParamId));
+    params.targetGlitchB = static_cast<float>(
+        paramValue(plugin, kTargetGlitchBParamId));
+    params.glitchRatchetB = static_cast<float>(
+        paramValue(plugin, kGlitchRatchetBParamId));
+    params.overloadMaskB = static_cast<float>(
+        paramValue(plugin, kOverloadMaskBParamId));
     params.outputGainDb = static_cast<float>(
         paramValue(plugin, kOutputParamId));
     return s3g::sanitizeProcessorStackParams(params);
@@ -1416,6 +2092,8 @@ s3g::ProcessorStackParams safeRandomParams(
     const Plugin& plugin, uint32_t seed)
 {
     auto params = publishedParamsSnapshot(plugin);
+    // Preserve the performer's audition level and established two-guitar frame.
+    // RANDOM varies what the rigs play and how they sound, not their pairing.
     params.mode = static_cast<s3g::ProcessorStackMode>(
         std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed) * 3.0f), 2u));
     params.shape = randomUnit(seed);
@@ -1430,6 +2108,22 @@ s3g::ProcessorStackParams safeRandomParams(
     params.sustain = 0.04f + randomUnit(seed) * 0.94f;
     params.releaseMs = 18.0f
         + randomUnit(seed) * randomUnit(seed) * 5200.0f;
+    params.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackNeckMaterialCount)),
+            s3g::kProcessorStackNeckMaterialCount - 1u));
+    params.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackBodyMaterialCount)),
+            s3g::kProcessorStackBodyMaterialCount - 1u));
+    params.neckB = static_cast<s3g::ProcessorStackNeckMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackNeckMaterialCount)),
+            s3g::kProcessorStackNeckMaterialCount - 1u));
+    params.bodyB = static_cast<s3g::ProcessorStackBodyMaterial>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackBodyMaterialCount)),
+            s3g::kProcessorStackBodyMaterialCount - 1u));
     params.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(
         std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
             * static_cast<float>(s3g::kProcessorStackArpPatternCount)),
@@ -1475,8 +2169,216 @@ s3g::ProcessorStackParams safeRandomParams(
     params.polarity = 0.12f + randomUnit(seed) * 0.76f;
     params.root = randomUnit(seed) * 0.58f;
     params.chaos = randomUnit(seed) * 0.84f;
-    params.outputGainDb = -18.0f + randomUnit(seed) * 7.0f;
+    params.arpBRelation = static_cast<s3g::ProcessorStackArpRelation>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackArpRelationCount)),
+            s3g::kProcessorStackArpRelationCount - 1u));
+    params.arpPatternB = static_cast<s3g::ProcessorStackArpPattern>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackArpPatternCount)),
+            s3g::kProcessorStackArpPatternCount - 1u));
+    params.scaleB = static_cast<s3g::ProcessorStackScale>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackScaleCount)),
+            s3g::kProcessorStackScaleCount - 1u));
+    params.arpRateB = static_cast<s3g::ProcessorStackArpRate>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackArpRateCount)),
+            s3g::kProcessorStackArpRateCount - 1u));
+    params.arpOctavesB = 1u + std::min<uint32_t>(3u,
+        static_cast<uint32_t>(randomUnit(seed) * 4.0f));
+    params.arpGateB = 0.22f + randomUnit(seed) * 0.68f;
+    params.arpPhaseB = randomUnit(seed);
+    params.customPatternLengthB = 3u + std::min<uint32_t>(5u,
+        static_cast<uint32_t>(randomUnit(seed) * 6.0f));
+    for (auto& step : params.customPatternB) {
+        step = -4 + static_cast<int32_t>(randomUnit(seed) * 16.0f);
+    }
+    params.linkPedal = randomUnit(seed) > 0.62f;
+    params.linkAmplifier = randomUnit(seed) > 0.62f;
+    params.linkFeedback = randomUnit(seed) > 0.62f;
+    params.circuitB = static_cast<s3g::ProcessorStackCircuit>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackCircuitCount)),
+            s3g::kProcessorStackCircuitCount - 1u));
+    params.biteB = 0.22f + randomUnit(seed) * 0.70f;
+    params.pedalToneB = 0.20f + randomUnit(seed) * 0.68f;
+    params.biasB = 0.16f + randomUnit(seed) * 0.72f;
+    params.stackB = 0.34f + randomUnit(seed) * 0.58f;
+    params.sagB = randomUnit(seed) * 0.88f;
+    params.focusB = 0.16f + randomUnit(seed) * 0.76f;
+    params.coneB = 0.28f + randomUnit(seed) * 0.68f;
+    params.cabinetB = randomUnit(seed);
+    params.micB = randomUnit(seed) * 0.88f;
+    params.feedbackB = 0.18f + randomUnit(seed) * 0.70f;
+    params.proximityB = 0.18f + randomUnit(seed) * 0.72f;
+    params.harmonicB = randomUnit(seed);
+    params.trackingB = 0.18f + randomUnit(seed) * 0.78f;
+    params.polarityB = 0.12f + randomUnit(seed) * 0.76f;
+    params.rootB = randomUnit(seed) * 0.58f;
+    params.chaosB = randomUnit(seed) * 0.84f;
+    params.pierceB = 0.34f + randomUnit(seed) * 0.66f;
+    params.selfListenB = 0.42f + randomUnit(seed) * 0.58f;
+    params.targetGlitchB = randomUnit(seed) * 0.88f;
+    params.glitchRatchetB = 0.16f + randomUnit(seed) * 0.76f;
+    params.overloadMaskB = 0.58f + randomUnit(seed) * 0.42f;
     return s3g::sanitizeProcessorStackParams(params);
+}
+
+NSRect stackPageButtonRect(uint8_t page)
+{
+    const NSRect panel = s3g::clap_gui::cocoaRect(kOutputPanel.frame);
+    constexpr CGFloat width = 64.0;
+    constexpr CGFloat height = 15.0;
+    constexpr CGFloat gap = 4.0;
+    constexpr CGFloat totalWidth = width * 3.0 + gap * 2.0;
+    return NSMakeRect(NSMaxX(panel) - 8.0 - totalWidth
+            + static_cast<CGFloat>(page) * (width + gap),
+        panel.origin.y + 3.0, width, height);
+}
+
+NSRect stackCopyButtonRect(uint8_t index)
+{
+    const NSRect panel = s3g::clap_gui::cocoaRect(kLinksPanel.frame);
+    constexpr CGFloat width = 88.0;
+    constexpr CGFloat height = 15.0;
+    constexpr CGFloat gap = 4.0;
+    constexpr CGFloat totalWidth = width * 2.0 + gap;
+    return NSMakeRect(NSMaxX(panel) - 8.0 - totalWidth
+            + static_cast<CGFloat>(index) * (width + gap),
+        panel.origin.y + 3.0, width, height);
+}
+
+const layout::Panel& stackPatternPanel(uint8_t player)
+{
+    return player == 0u ? kPatternAPanel : kPatternBPanel;
+}
+
+NSRect stackPatternFieldRect(uint8_t player)
+{
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        stackPatternPanel(player).frame);
+    return NSMakeRect(panel.origin.x + 16.0, panel.origin.y + 31.0,
+        panel.size.width - 32.0, 72.0);
+}
+
+NSRect stackPatternStepRect(uint8_t player, uint32_t step)
+{
+    const NSRect field = stackPatternFieldRect(player);
+    const CGFloat stepWidth = field.size.width / 8.0;
+    return NSMakeRect(field.origin.x + stepWidth
+            * static_cast<CGFloat>(std::min<uint32_t>(step, 7u)),
+        field.origin.y, stepWidth, field.size.height);
+}
+
+clap_id stackPatternStepParam(uint8_t player, uint32_t step)
+{
+    return (player == 0u ? kCustomStep1ParamId : kCustomStepB1ParamId)
+        + std::min<uint32_t>(step, 7u);
+}
+
+clap_id stackPatternLengthParam(uint8_t player)
+{
+    return player == 0u ? kCustomLengthParamId : kCustomLengthBParamId;
+}
+
+int stackPatternStepAtX(uint8_t player, CGFloat x)
+{
+    const NSRect field = stackPatternFieldRect(player);
+    if (x < NSMinX(field) || x > NSMaxX(field)) return -1;
+    const CGFloat normalized = std::clamp(
+        (x - NSMinX(field)) / field.size.width,
+        static_cast<CGFloat>(0.0), static_cast<CGFloat>(0.999999));
+    return static_cast<int>(std::floor(normalized * 8.0));
+}
+
+void drawStackPatternMultislider(uint8_t player,
+                                 const Plugin& plugin,
+                                 int dragPlayer,
+                                 int dragStep,
+                                 NSDictionary* valueAttrs,
+                                 const s3g::clap_gui::Style& style)
+{
+    const NSRect field = stackPatternFieldRect(player);
+    [style.strip setFill];
+    NSRectFill(field);
+    [style.grid setStroke];
+    NSFrameRect(field);
+
+    const uint32_t length = std::clamp<uint32_t>(static_cast<uint32_t>(
+        std::lround(paramValue(plugin, stackPatternLengthParam(player)))),
+        1u, 8u);
+
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        stackPatternPanel(player).frame);
+    for (uint32_t step = 0u; step < 8u; ++step) {
+        const NSRect cell = stackPatternStepRect(player, step);
+        const clap_id id = stackPatternStepParam(player, step);
+        const double value = paramValue(plugin, id);
+        const CGFloat rawValueY = NSMaxY(field) - static_cast<CGFloat>(
+            uiNormalizedValue(id, value)) * field.size.height;
+        const CGFloat valueY = std::clamp(rawValueY,
+            NSMinY(field) + 1.0, NSMaxY(field) - 1.0);
+        const bool selected = dragPlayer == static_cast<int>(player)
+            && dragStep == static_cast<int>(step);
+        NSColor* lineColor = selected ? style.text
+            : (step < length ? style.accent : style.grid);
+        [lineColor setFill];
+        NSRectFill(NSMakeRect(cell.origin.x + 5.0,
+            std::floor(valueY), cell.size.width - 10.0, 2.0));
+
+        NSString* stepText = [NSString stringWithFormat:@"%u %+d",
+            step + 1u, static_cast<int>(std::lround(value))];
+        s3g::clap_gui::drawCenteredTextToFit(stepText,
+            NSMakeRect(cell.origin.x + 2.0, panel.origin.y + 108.0,
+                cell.size.width - 4.0, 14.0), valueAttrs);
+    }
+}
+
+bool queueRigCopy(Plugin& plugin, bool aToB)
+{
+    static constexpr std::array<clap_id, 24u> rigA {{
+        kNeckAParamId, kBodyAParamId,
+        kCircuitParamId, kBiteParamId, kPedalToneParamId, kBiasParamId,
+        kStackParamId, kSagParamId, kFocusParamId, kConeParamId,
+        kCabinetParamId, kMicParamId,
+        kFeedbackParamId, kProximityParamId, kHarmonicParamId,
+        kTrackingParamId, kPolarityParamId, kRootParamId, kChaosParamId,
+        kPierceParamId, kSelfListenParamId, kTargetGlitchParamId,
+        kGlitchRatchetParamId, kOverloadMaskParamId,
+    }};
+    static constexpr std::array<clap_id, 24u> rigB {{
+        kNeckBParamId, kBodyBParamId,
+        kCircuitBParamId, kBiteBParamId, kPedalToneBParamId, kBiasBParamId,
+        kStackBParamId, kSagBParamId, kFocusBParamId, kConeBParamId,
+        kCabinetBParamId, kMicBParamId,
+        kFeedbackBParamId, kProximityBParamId, kHarmonicBParamId,
+        kTrackingBParamId, kPolarityBParamId, kRootBParamId, kChaosBParamId,
+        kPierceBParamId, kSelfListenBParamId, kTargetGlitchBParamId,
+        kGlitchRatchetBParamId, kOverloadMaskBParamId,
+    }};
+    using Kind = s3g::clap_gui::ParamEventKind;
+    std::array<s3g::clap_gui::ParamEvent, rigA.size() * 3u> events {};
+    const auto& source = aToB ? rigA : rigB;
+    const auto& destination = aToB ? rigB : rigA;
+    for (uint32_t index = 0u; index < source.size(); ++index) {
+        const double value = paramValue(plugin, source[index]);
+        events[index * 3u] = {
+            Kind::GestureBegin, destination[index], 0.0 };
+        events[index * 3u + 1u] = {
+            Kind::Value, destination[index], value };
+        events[index * 3u + 2u] = {
+            Kind::GestureEnd, destination[index], 0.0 };
+    }
+    if (!plugin.guiParamEvents.pushBatch(events.data(), events.size())) {
+        return false;
+    }
+    for (uint32_t index = 0u; index < source.size(); ++index) {
+        publishParam(plugin, destination[index],
+            paramValue(plugin, source[index]));
+    }
+    requestGuiParamService(plugin);
+    return true;
 }
 
 } // namespace
@@ -1484,7 +2386,10 @@ s3g::ProcessorStackParams safeRandomParams(
 @interface S3GProcessorStackView : NSView {
     void* _plugin;
     int _dragParam;
+    int _dragPatternPlayer;
+    int _dragPatternStep;
     int _factoryPresetIndex;
+    uint8_t _page;
     clap_id _openMenu;
     int _hoverMenuItem;
     uint32_t _menuItemCount;
@@ -1510,6 +2415,9 @@ s3g::ProcessorStackParams safeRandomParams(
     if (!self) return nil;
     _plugin = plugin;
     _dragParam = -1;
+    _dragPatternPlayer = -1;
+    _dragPatternStep = -1;
+    _page = 0u;
     _openMenu = CLAP_INVALID_ID;
     _hoverMenuItem = -1;
     _menuItemCount = 0u;
@@ -1693,15 +2601,32 @@ s3g::ProcessorStackParams safeRandomParams(
             s3g::gui_layout::kStandardMetrics.headerHeight,
             labelAttrs, style);
     };
-    drawPanel(@"PLAY", kPlayPanel);
-    drawPanel(@"ARPEGGIATOR", kArpPanel);
-    drawPanel(@"PEDAL", kPedalPanel);
-    drawPanel(@"OUTPUT", kOutputPanel);
-    drawPanel(@"AMPLIFIER / SPEAKER", kAmplifierPanel);
-    drawPanel(@"MIC FEEDBACK LOOP", kLoopPanel);
-    drawPanel(@"ROUTING", kRoutingPanel);
+    for (const auto& panel : kUiPanels) {
+        if (panel.page != _page && panel.page != kAllPages) continue;
+        drawPanel([NSString stringWithUTF8String:panel.name], panel.panel);
+    }
+
+    static NSString* const pageLabels[3] {
+        @"PLAY", @"RIG A", @"RIG B",
+    };
+    const NSRect outputHeader = s3g::clap_gui::cocoaRect(
+        kOutputPanel.frame);
+    for (uint8_t page = 0u; page < 3u; ++page) {
+        s3g::clap_gui::drawHeaderButton(stackPageButtonRect(page),
+            outputHeader, pageLabels[page], page == _page,
+            valueAttrs, style);
+    }
+    if (_page == 2u) {
+        const NSRect linksHeader = s3g::clap_gui::cocoaRect(
+            kLinksPanel.frame);
+        s3g::clap_gui::drawHeaderActionButton(stackCopyButtonRect(0u),
+            linksHeader, @"COPY A > B", valueAttrs, style);
+        s3g::clap_gui::drawHeaderActionButton(stackCopyButtonRect(1u),
+            linksHeader, @"COPY B > A", valueAttrs, style);
+    }
 
     for (const auto& row : kUiRows) {
+        if (row.page != _page && row.page != kAllPages) continue;
         const double value = paramValue(*instance, row.id);
         char text[64] {};
         paramsValueToText(&instance->plugin,
@@ -1718,6 +2643,12 @@ s3g::ProcessorStackParams safeRandomParams(
                 row.y, row.panelX, row.panelWidth,
                 labelAttrs, valueAttrs, style);
         }
+    }
+    if (_page == 0u) {
+        drawStackPatternMultislider(0u, *instance,
+            _dragPatternPlayer, _dragPatternStep, valueAttrs, style);
+        drawStackPatternMultislider(1u, *instance,
+            _dragPatternPlayer, _dragPatternStep, valueAttrs, style);
     }
     [self drawOpenMenu:valueAttrs style:style];
 }
@@ -1737,6 +2668,34 @@ s3g::ProcessorStackParams safeRandomParams(
     auto* instance = static_cast<Plugin*>(_plugin);
     queueGuiParamValue(*instance, id,
         uiValueFromNormalized(id, normalized));
+    [self setNeedsDisplay:YES];
+}
+
+- (void)updateDraggedPattern:(NSPoint)point
+{
+    if (_dragPatternPlayer < 0 || _dragPatternPlayer > 1) return;
+    const uint8_t player = static_cast<uint8_t>(_dragPatternPlayer);
+    const int nextStep = stackPatternStepAtX(player, point.x);
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return;
+    if (nextStep >= 0 && nextStep != _dragPatternStep) {
+        if (_dragPatternStep >= 0) {
+            queueGuiParamGestureEnd(*instance, stackPatternStepParam(
+                player, static_cast<uint32_t>(_dragPatternStep)));
+        }
+        _dragPatternStep = nextStep;
+        queueGuiParamGestureBegin(*instance, stackPatternStepParam(
+            player, static_cast<uint32_t>(_dragPatternStep)));
+    }
+    if (_dragPatternStep < 0) return;
+    const NSRect field = stackPatternFieldRect(player);
+    const double normalized = std::clamp(
+        (NSMaxY(field) - point.y) / field.size.height, 0.0, 1.0);
+    const clap_id id = stackPatternStepParam(
+        player, static_cast<uint32_t>(_dragPatternStep));
+    queueGuiParamValue(*instance, id,
+        uiValueFromNormalized(id, normalized));
+    [self markCustomPreset];
     [self setNeedsDisplay:YES];
 }
 
@@ -1818,7 +2777,57 @@ s3g::ProcessorStackParams safeRandomParams(
         return;
     }
 
+    for (uint8_t page = 0u; page < 3u; ++page) {
+        if (!NSPointInRect(point, stackPageButtonRect(page))) continue;
+        _page = page;
+        _dragParam = -1;
+        _dragPatternPlayer = -1;
+        _dragPatternStep = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (_page == 2u) {
+        for (uint8_t copy = 0u; copy < 2u; ++copy) {
+            if (!NSPointInRect(point, stackCopyButtonRect(copy))) continue;
+            if (queueRigCopy(*instance, copy == 0u)) {
+                [self markCustomPreset];
+            } else {
+                NSBeep();
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
+    if (_page == 0u) {
+        for (uint8_t player = 0u; player < 2u; ++player) {
+            if (!NSPointInRect(point, stackPatternFieldRect(player))) {
+                continue;
+            }
+            const int step = stackPatternStepAtX(player, point.x);
+            if (step < 0) return;
+            const clap_id id = stackPatternStepParam(
+                player, static_cast<uint32_t>(step));
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &instance->plugin, id, &defaultValue)) {
+                queueGuiParamGesture(*instance, id, defaultValue);
+                _dragPatternPlayer = -1;
+                _dragPatternStep = -1;
+            } else {
+                _dragPatternPlayer = static_cast<int>(player);
+                _dragPatternStep = step;
+                queueGuiParamGestureBegin(*instance, id);
+                [self updateDraggedPattern:point];
+            }
+            [self markCustomPreset];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
     for (const auto& row : kUiRows) {
+        if (row.page != _page && row.page != kAllPages) continue;
         const NSRect hit = NSMakeRect(
             row.panelX + s3g::gui_layout::kStandardMetrics.hitInset,
             row.y - 9.0,
@@ -1852,9 +2861,12 @@ s3g::ProcessorStackParams safeRandomParams(
 
 - (void)mouseDragged:(NSEvent*)event
 {
-    if (_dragParam > 0) {
-        [self updateDraggedParam:[self convertPoint:
-            [event locationInWindow] fromView:nil]];
+    const NSPoint point = [self convertPoint:
+        [event locationInWindow] fromView:nil];
+    if (_dragPatternPlayer >= 0) {
+        [self updateDraggedPattern:point];
+    } else if (_dragParam > 0) {
+        [self updateDraggedParam:point];
     }
 }
 
@@ -1865,7 +2877,14 @@ s3g::ProcessorStackParams safeRandomParams(
         queueGuiParamGestureEnd(*static_cast<Plugin*>(_plugin),
             static_cast<clap_id>(_dragParam));
     }
+    if (_dragPatternPlayer >= 0 && _dragPatternStep >= 0) {
+        queueGuiParamGestureEnd(*static_cast<Plugin*>(_plugin),
+            stackPatternStepParam(static_cast<uint8_t>(_dragPatternPlayer),
+                static_cast<uint32_t>(_dragPatternStep)));
+    }
     _dragParam = -1;
+    _dragPatternPlayer = -1;
+    _dragPatternStep = -1;
 }
 
 - (void)viewDidMoveToWindow
@@ -2032,8 +3051,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.1",
-    "A plucked-string, programmable scale-arpeggio, shared amplifier, nonlinear speaker, and self-listening microphone-feedback instrument for power chords and crooked leads.",
+    "0.9.0",
+    "A dual-guitar string synthesizer with independent arpeggiators, distortion pedals, amplifiers, speakers, and governed microphone-feedback loops.",
     features
 };
 

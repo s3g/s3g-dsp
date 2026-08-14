@@ -29,6 +29,8 @@
 
         <p><code>s3g Processor Formant Matrix</code> is a stereo channel-vocoder and resonant filter-bank audio effect. A live microphone, another audio signal, or the integrated sample-free speech generator supplies the articulation. A procedural carrier follows polyphonic MIDI notes or the estimated pitch of the selected modulator.</p>
 
+        <p>The intention is not to mimic an analog vocoder precisely. Formant Matrix is a synthesis instrument that responds to vocal input: speech energy, consonants, pitch, and timing become controls for a procedural carrier and a routable resonant bank.</p>
+
         <p>The 22-by-22 signed routing matrix is the instrument's center. A diagonal patch behaves like a classic matched-band vocoder; shifted, mirrored, sparse, chordal, and custom routes can move one articulation band to another synthesis band without changing the words' timing. Four-pole, eight-pole, and vocal-tract analysis responses trade broad blending for stronger adjacent-formant separation. The Precision transfer path adds speech-focused input conditioning, controlled level stabilization, three-zone consonant reconstruction, and denser carrier excitation without passing the microphone waveform.</p>
 
         <figure>
@@ -54,16 +56,12 @@
 
         <h2 id="signal-flow">Signal Flow and Roles</h2>
 
-        <pre><code>microphone / audio ---------+
-                            +--&gt; modulator selector --&gt; analysis filters
-typed text --&gt; speech synth+
-
-MIDI notes -------+
-                  +--&gt; pitch source --&gt; oscillator carrier --&gt; synthesis filters
-voice pitch track-+
-
-analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis VCAs
-                   --&gt; BANK level + ART level --&gt; post effects --&gt; stereo output</code></pre>
+        <figure>
+          <div class="doc-graphic">
+            <img src="formant_matrix_signal_flow.svg" alt="Top-down signal flow showing microphone or generated speech entering modulator selection, analysis filters, envelope detection, and the signed routing matrix; MIDI or tracked voice pitch drives a parallel procedural carrier that meets the mapped envelopes at the synthesis bank before level mixing, effects, and stereo output" loading="lazy" decoding="async">
+          </div>
+          <figcaption>Articulation and pitch remain separate until the routing matrix controls the carrier-driven synthesis bank.</figcaption>
+        </figure>
 
         <ol>
           <li>The selected external mic, generated speech, or blend enters the analysis filters.</li>
@@ -172,27 +170,15 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
 
         <p>The octave layers, fold/fuzz, compression, de-essing, width, and Definition stages process the articulated bank rather than the raw microphone. The tape section supplies three virtual heads, seven combinations, free or synchronized timing, feedback, wear, flutter, tone, and spread. Keep this chain restrained until the analysis meters and identity route already produce intelligible words.</p>
 
-        <h2 id="state-build">State, Build, and Identity</h2>
+        <h2 id="state-routing">Routing and Project State</h2>
 
         <ul>
-          <li>Host name: <code>s3g Processor Formant Matrix</code></li>
-          <li>CLAP ID: <code>org.s3g.s3g-dsp.formant-matrix</code></li>
-          <li>Version: <code>5.10.0</code></li>
           <li>Input: stereo <code>Modulator In</code></li>
           <li>Output: stereo <code>Formant Matrix Out</code></li>
           <li>Note input: CLAP notes and MIDI</li>
         </ul>
 
-        <p>All matrix, filter, envelope, carrier, and phrase storage is fixed-capacity. Activation prepares working memory; the audio callback performs no file access or dynamic allocation. The internal speech path is procedural and does not replay recorded voices, grains, impulse responses, or learned reconstruction data.</p>
-
-        <pre><code>cmake --preset clap
-cmake --build build-clap --target s3g_acapella_source_synth_clap
-ctest --test-dir build-clap --output-on-failure \
-  -R 's3g_formant_matrix'</code></pre>
-
-        <p>The development bundle is written to <code>build-clap/plugins/clap_acapella_source_synth/s3g_formant_matrix.clap</code>. Release packaging installs the canonical <code>s3g_processor_formant_matrix.clap</code> bundle.</p>
-
-        <p>Repository-level implementation and migration details remain in <a href="https://github.com/s3g/s3g-dsp/blob/main/docs/formant-matrix.md" target="_blank" rel="noopener noreferrer">the Formant Matrix engineering notes</a>.</p>
+        <p>Project state stores the full signed matrix, both scenes, filter and envelope settings, carrier behavior, phrase text and compiled score, and the post-bank effect chain. The internal speech path is procedural and does not replay recorded voices, grains, impulse responses, or learned reconstruction data.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="voice-instruments.html">
@@ -230,7 +216,7 @@ ctest --test-dir build-clap --output-on-failure \
           <a href="#pitch">Carrier Pitch, Scales, and Hold</a>
           <a href="#profiles">Matrix-first Profiles</a>
           <a href="#pages">Editor Pages</a>
-          <a href="#state-build">State, Build, and Identity</a>
+          <a href="#state-routing">Routing and Project State</a>
         </div>
       </aside>
     </div>

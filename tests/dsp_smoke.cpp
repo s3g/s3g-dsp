@@ -3139,12 +3139,52 @@ int main()
         return 1;
     }
     macroShredCore.reset();
+    if (macroShredCore.governorReduction() != 0.0f) {
+        std::cerr << "Macro Shred governor telemetry did not reset\n";
+        return 1;
+    }
     for (int i = 0; i < 4096; ++i) {
         const float value = macroShredCore.processSample(0.0f);
         if (!std::isfinite(value) || std::abs(value) > 0.000001f) {
             std::cerr << "Macro Shred mono core panic reset did not clear the loop\n";
             return 1;
         }
+    }
+
+    s3g::MacroShredCore governedMacroShredCore;
+    governedMacroShredCore.prepare(48000.0);
+    s3g::MacroShredCoreParams governedMacroShredParams;
+    governedMacroShredParams.inputGainDb = 36.0f;
+    governedMacroShredParams.pressure = 1.0f;
+    governedMacroShredParams.shred = 1.0f;
+    governedMacroShredParams.feedback = 1.0f;
+    governedMacroShredParams.color = 0.0f;
+    governedMacroShredParams.react = 1.0f;
+    governedMacroShredParams.tune = 1.0f;
+    governedMacroShredParams.body = 0.0f;
+    governedMacroShredParams.mix = 1.0f;
+    governedMacroShredParams.outputGainDb = 6.0f;
+    governedMacroShredParams.circuit = s3g::MacroShredCircuit::Rat;
+    governedMacroShredCore.setParams(governedMacroShredParams);
+    float macroShredGovernorReduction = 0.0f;
+    for (int i = 0; i < 48000; ++i) {
+        governedMacroShredCore.processSample(
+            std::sin(6.28318530718f * 110.0f
+                * static_cast<float>(i) / 48000.0f));
+        macroShredGovernorReduction = std::max(
+            macroShredGovernorReduction,
+            governedMacroShredCore.governorReduction());
+    }
+    if (macroShredGovernorReduction <= 0.05f
+        || macroShredGovernorReduction > 1.0f) {
+        std::cerr << "Macro Shred governor telemetry was inactive or invalid: "
+                  << macroShredGovernorReduction << "\n";
+        return 1;
+    }
+    governedMacroShredCore.reset();
+    if (governedMacroShredCore.governorReduction() != 0.0f) {
+        std::cerr << "Macro Shred governor telemetry did not reset\n";
+        return 1;
     }
 
     std::array<float, s3g::kMacroShredCircuitCount>

@@ -17,6 +17,9 @@ __pycache__/
 # Generated development reports.
 /reports/*.pdf
 
+# Local engineering, design, and research notes kept outside published docs.
+/.notes/
+
 # Local high-resolution GUI sources; docs use the rendered PNGs.
 docs/assets/**/masters/*.pdf
 

@@ -63,9 +63,14 @@ no-input-mixer-8ch	no-input-mixer
 feedback-shift	feedback-shift
 formant-matrix	formant-matrix
 processor-fissure	processor-fissure
+low-frequency-synth	processor-lf-synth
+processor-stack	processor-stack
+processor-conduit	processor-conduit
+processor-errant	processor-errant
 nim-gesture	nim-gesture
 fault	fault
 tracker	s3g-tracker
+breakbeat-slicer	s3g-slicer
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
 crcltr	crcltr
@@ -82,6 +87,7 @@ drum-cowbell	drum-cowbell
 drum-crash	drum-crash
 drum-break	drum-break
 drum-overload	drum-overload
+drum-echo	drum-echo
 drum-mixer-16	drum-mixer
 
 # Products documented only on family pages.

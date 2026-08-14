@@ -29,9 +29,10 @@ namespace {
 
 constexpr uint32_t kOutputChannels = 8u;
 constexpr uint32_t kStateMagic = 0x53494653u; // "SFIS"
-constexpr uint32_t kStateVersion = 6u;
-constexpr uint32_t kPreviousStateVersion = 5u;
-constexpr uint32_t kLegacyStateVersion = 4u;
+constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kPreviousStateVersion = 6u;
+constexpr uint32_t kLegacyStateVersion = 5u;
+constexpr uint32_t kOlderStateVersion = 4u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 770u;
 
@@ -101,9 +102,10 @@ constexpr uint32_t kObjectBankCount = 5u;
 constexpr uint32_t kObjectParamCount = kObjectBankCount * 8u;
 constexpr uint32_t kParamCount = kBaseParamCount
     + kMatrixParamCount + kCellLevelParamCount + kObjectParamCount;
-constexpr uint32_t kPersistentParamCount = 146u;
-constexpr uint32_t kPreviousPersistentParamCount = 144u;
-constexpr uint32_t kLegacyPersistentParamCount = 136u;
+constexpr uint32_t kPersistentParamCount = 160u;
+constexpr uint32_t kPreviousPersistentParamCount = 146u;
+constexpr uint32_t kLegacyPersistentParamCount = 144u;
+constexpr uint32_t kOlderPersistentParamCount = 136u;
 constexpr uint32_t kSceneValueCount = 126u;
 constexpr uint32_t kPreviousSceneValueCount = 124u;
 
@@ -317,7 +319,7 @@ clap_id paramIdAt(uint32_t index)
     return CLAP_INVALID_ID;
 }
 
-clap_id persistentParamIdAt(uint32_t index)
+clap_id previousPersistentParamIdAt(uint32_t index)
 {
     if (index < 13u) return index + 1u;
     if (index == 13u) return kRunParamId;
@@ -343,7 +345,7 @@ clap_id persistentParamIdAt(uint32_t index)
     return CLAP_INVALID_ID;
 }
 
-clap_id previousPersistentParamIdAt(uint32_t index)
+clap_id legacyPersistentParamIdAt(uint32_t index)
 {
     if (index < 13u) return index + 1u;
     if (index == 13u) return kRunParamId;
@@ -367,7 +369,7 @@ clap_id previousPersistentParamIdAt(uint32_t index)
     return CLAP_INVALID_ID;
 }
 
-clap_id legacyPersistentParamIdAt(uint32_t index)
+clap_id olderPersistentParamIdAt(uint32_t index)
 {
     if (index < 13u) return index + 1u;
     if (index == 13u) return kRunParamId;
@@ -386,6 +388,32 @@ clap_id legacyPersistentParamIdAt(uint32_t index)
         return kObjectParamBases[index / 8u] + index % 8u;
     }
     return CLAP_INVALID_ID;
+}
+
+clap_id persistentParamIdAt(uint32_t index)
+{
+    if (index < kPreviousPersistentParamCount) {
+        return previousPersistentParamIdAt(index);
+    }
+    static constexpr std::array<clap_id, 14u> performanceParams {{
+        kFractureDistanceParamId,
+        kFractureForceParamId,
+        kGrabParamId,
+        kRepeatParamId,
+        kFractureVoidParamId,
+        kFractureSpaceParamId,
+        kFractureDensityLatchParamId,
+        kFractureShapeLatchParamId,
+        kFractureDensityMotionXParamId,
+        kFractureDensityMotionYParamId,
+        kFractureDensityEnergyParamId,
+        kFractureShapeMotionXParamId,
+        kFractureShapeMotionYParamId,
+        kFractureShapeEnergyParamId,
+    }};
+    index -= kPreviousPersistentParamCount;
+    return index < performanceParams.size()
+        ? performanceParams[index] : CLAP_INVALID_ID;
 }
 
 uint32_t renderChannels(OutputMode mode)
@@ -418,11 +446,16 @@ struct SavedStatePayload {
 
 struct PreviousSavedStatePayload {
     std::array<double, kPreviousPersistentParamCount> live {};
-    std::array<double, kPreviousSceneValueCount * 4u> scenes {};
+    std::array<double, kSceneValueCount * 4u> scenes {};
 };
 
 struct LegacySavedStatePayload {
     std::array<double, kLegacyPersistentParamCount> live {};
+    std::array<double, kPreviousSceneValueCount * 4u> scenes {};
+};
+
+struct OlderSavedStatePayload {
+    std::array<double, kOlderPersistentParamCount> live {};
     std::array<double, kPreviousSceneValueCount * 4u> scenes {};
 };
 
@@ -1472,7 +1505,6 @@ void applyParam(Plugin& p, clap_id id, double value,
         p.repeat = value >= 0.5;
         if (p.prepared) {
             p.engine.setRepeat(p.repeat);
-            p.repeat = p.engine.repeat();
         }
         updateEngine = false;
         break;
@@ -2053,17 +2085,126 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     return true;
 }
 
+double eventRateValueFromHz(double hz)
+{
+    if (!std::isfinite(hz) || hz <= 0.0012) return 0.0;
+    const double shaped = std::clamp(
+        std::log(hz / 0.0012) / std::log(150000.0), 0.0, 1.0);
+    return std::pow(shaped, 1.0 / 0.78);
+}
+
+double spaceValueFromSeconds(double seconds)
+{
+    if (!std::isfinite(seconds) || seconds <= 0.008) return 0.0;
+    const double target = std::clamp(
+        std::log(seconds / 0.008) / std::log(500.0), 0.0, 1.0);
+    double low = 0.0;
+    double high = 1.0;
+    for (uint32_t iteration = 0u; iteration < 40u; ++iteration) {
+        const double middle = (low + high) * 0.5;
+        const double shaped = middle * middle * (3.0 - 2.0 * middle);
+        if (shaped < target) low = middle;
+        else high = middle;
+    }
+    return (low + high) * 0.5;
+}
+
 bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     const char* display, double* value)
 {
     if (!validParamId(id) || !display || !value) return false;
+    const auto parseSwitch = [display, value](const char* off,
+                                              const char* on) {
+        if (std::strcmp(display, off) == 0) {
+            *value = 0.0;
+            return true;
+        }
+        if (std::strcmp(display, on) == 0) {
+            *value = 1.0;
+            return true;
+        }
+        return false;
+    };
+    if (id == kHoldParamId || id == kRunParamId
+        || id == kGrabParamId || id == kRepeatParamId
+        || id == kFractureDensityLatchParamId
+        || id == kFractureShapeLatchParamId
+        || isCutMaskParam(id)) {
+        return parseSwitch("OFF", "ON");
+    }
+    if (momentaryParam(id)) return parseSwitch("READY", "FIRE");
+    if (id == kSceneParamId) {
+        if (std::strncmp(display, "SCENE ", 6u) != 0
+            || display[6] < 'A' || display[6] > 'D'
+            || display[7] != '\0') return false;
+        *value = static_cast<double>(display[6] - 'A' + 1);
+        return true;
+    }
+    if (id == kOutputModeParamId) {
+        static constexpr const char* names[] {
+            "STEREO", "QUAD", "8 DIRECT"
+        };
+        for (uint32_t index = 0u; index < 3u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = index;
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kTopologyShapeParamId) {
+        static constexpr const char* names[] {
+            "ISLANDS", "RING", "PAIRS", "HUB", "CLUSTERS", "SCATTER"
+        };
+        for (uint32_t index = 0u; index < 6u; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = index;
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kSelectedCellParamId) {
+        unsigned cell = 0u;
+        char trailing = '\0';
+        if (std::sscanf(display, "CELL %u%c", &cell, &trailing) != 1
+            || cell < 1u || cell > 8u) return false;
+        *value = cell;
+        return true;
+    }
+    if (id == kPresetParamId) {
+        for (uint32_t index = 0u; index <= kCustomPresetIndex; ++index) {
+            if (std::strcmp(display, factoryPresetName(index)) == 0) {
+                *value = index;
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kSceneMorphParamId) {
+        if (display[0] < 'A' || display[0] > 'D') return false;
+        const char* amountText = std::strrchr(display, ' ');
+        if (!amountText) return false;
+        char* amountEnd = nullptr;
+        const double amount = std::strtod(amountText + 1, &amountEnd);
+        if (amountEnd == amountText + 1 || *amountEnd != '%'
+            || amountEnd[1] != '\0' || !std::isfinite(amount)) return false;
+        *value = std::clamp(
+            static_cast<double>(display[0] - 'A') + amount * 0.01,
+            0.0, 3.0);
+        return true;
+    }
     char* end = nullptr;
     errno = 0;
     double parsed = std::strtod(display, &end);
     if (end == display || errno == ERANGE || !std::isfinite(parsed)) {
         return false;
     }
-    if (*end == '%' && ((id >= kPressureParamId && id <= kMotionParamId)
+    if (id == kRateParamId && std::strstr(end, "/s")) {
+        parsed = eventRateValueFromHz(parsed);
+    } else if (id == kSpaceParamId && std::strchr(end, 's')) {
+        parsed = spaceValueFromSeconds(parsed);
+    } else if (*end == '%' && ((id >= kPressureParamId && id <= kMotionParamId)
             || (id >= kContactParamId && id <= kSpringParamId)
             || isCellLevelParam(id) || isObjectParam(id)
             || id == kTopologyMixParamId
@@ -2197,8 +2338,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     auto* p = self(plugin);
+    p->pendingActions.store(0u, std::memory_order_relaxed);
+    if (p->prepared) p->engine.clearPerformanceLoop();
     double selectedSceneValue = 1.0;
     double sceneMorphValue = 0.0;
+    bool restoredPerformanceParams = false;
     if (header.version == kStateVersion
         && header.liveValueCount == kPersistentParamCount
         && header.sceneValueCount == kSceneValueCount * 4u) {
@@ -2217,25 +2361,23 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         }
         selectedSceneValue = state.live[12u];
         sceneMorphValue = state.live[20u];
+        restoredPerformanceParams = true;
     } else if (header.version == kPreviousStateVersion
         && header.liveValueCount == kPreviousPersistentParamCount
-        && header.sceneValueCount == kPreviousSceneValueCount * 4u) {
+        && header.sceneValueCount == kSceneValueCount * 4u) {
         PreviousSavedStatePayload previous {};
         if (!s3g::clap_state::readAll(stream, &previous, sizeof(previous))) {
             return false;
         }
         for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
-            readPreviousSceneValues(p->scenes[scene],
-                previous.scenes.data()
-                    + scene * kPreviousSceneValueCount);
+            readSceneValues(p->scenes[scene],
+                previous.scenes.data() + scene * kSceneValueCount);
         }
         for (uint32_t index = 0u; index < previous.live.size(); ++index) {
             const clap_id id = previousPersistentParamIdAt(index);
             if (id == kSceneParamId || id == kSceneMorphParamId) continue;
             applyParam(*p, id, previous.live[index], false);
         }
-        applyParam(*p, kRateParamId, p->params.edge, false);
-        applyParam(*p, kSpaceParamId, p->params.voidAmount, false);
         selectedSceneValue = previous.live[12u];
         sceneMorphValue = previous.live[20u];
     } else if (header.version == kLegacyStateVersion
@@ -2261,6 +2403,29 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         applyParam(*p, kSpaceParamId, p->params.voidAmount, false);
         selectedSceneValue = legacy.live[12u];
         sceneMorphValue = legacy.live[20u];
+    } else if (header.version == kOlderStateVersion
+        && header.liveValueCount == kOlderPersistentParamCount
+        && header.sceneValueCount == kPreviousSceneValueCount * 4u) {
+        OlderSavedStatePayload older {};
+        if (!s3g::clap_state::readAll(stream, &older, sizeof(older))) {
+            return false;
+        }
+        for (uint32_t cell = 0u; cell < 8u; ++cell) {
+            applyParam(*p, kCutMaskParamBase + cell, 1.0, false);
+        }
+        for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
+            readPreviousSceneValues(p->scenes[scene],
+                older.scenes.data() + scene * kPreviousSceneValueCount);
+        }
+        for (uint32_t index = 0u; index < older.live.size(); ++index) {
+            const clap_id id = olderPersistentParamIdAt(index);
+            if (id == kSceneParamId || id == kSceneMorphParamId) continue;
+            applyParam(*p, id, older.live[index], false);
+        }
+        applyParam(*p, kRateParamId, p->params.edge, false);
+        applyParam(*p, kSpaceParamId, p->params.voidAmount, false);
+        selectedSceneValue = older.live[12u];
+        sceneMorphValue = older.live[20u];
     } else {
         return false;
     }
@@ -2270,34 +2435,34 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         sceneMorphValue, 0.0, 3.0));
     publishParam(*p, kSceneParamId, p->selectedScene + 1u);
     publishParam(*p, kSceneMorphParamId, p->sceneMorph);
-    p->pendingActions.store(0u, std::memory_order_relaxed);
-    p->grabbing = false;
-    p->repeat = false;
-    p->fractureDistance = 0.0f;
-    p->fractureForce = 0.0f;
-    p->fractureVoid = 0.0f;
-    p->fractureSpace = 0.0f;
-    p->fractureDensityLatch = false;
-    p->fractureShapeLatch = false;
-    p->fractureMotionX.fill(0.0f);
-    p->fractureMotionY.fill(0.0f);
-    p->fractureMotionEnergy.fill(0.0f);
-    if (p->prepared) {
-        p->engine.clearPerformanceLoop();
-        p->engine.setFracturePerformance(0.0f, 0.0f, 0.0f, 0.0f);
-    }
     releaseActionGates(*p);
-    publishParam(*p, kGrabParamId, 0.0);
-    publishParam(*p, kRepeatParamId, 0.0);
-    publishParam(*p, kFractureDistanceParamId, 0.0);
-    publishParam(*p, kFractureForceParamId, 0.0);
-    publishParam(*p, kFractureVoidParamId, 0.0);
-    publishParam(*p, kFractureSpaceParamId, 0.0);
-    publishParam(*p, kFractureDensityLatchParamId, 0.0);
-    publishParam(*p, kFractureShapeLatchParamId, 0.0);
-    for (clap_id id = kFractureDensityMotionXParamId;
-         id <= kFractureShapeEnergyParamId; ++id) {
-        publishParam(*p, id, 0.0);
+    if (!restoredPerformanceParams) {
+        p->grabbing = false;
+        p->repeat = false;
+        p->fractureDistance = 0.0f;
+        p->fractureForce = 0.0f;
+        p->fractureVoid = 0.0f;
+        p->fractureSpace = 0.0f;
+        p->fractureDensityLatch = false;
+        p->fractureShapeLatch = false;
+        p->fractureMotionX.fill(0.0f);
+        p->fractureMotionY.fill(0.0f);
+        p->fractureMotionEnergy.fill(0.0f);
+        if (p->prepared) {
+            p->engine.setFracturePerformance(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+        publishParam(*p, kGrabParamId, 0.0);
+        publishParam(*p, kRepeatParamId, 0.0);
+        publishParam(*p, kFractureDistanceParamId, 0.0);
+        publishParam(*p, kFractureForceParamId, 0.0);
+        publishParam(*p, kFractureVoidParamId, 0.0);
+        publishParam(*p, kFractureSpaceParamId, 0.0);
+        publishParam(*p, kFractureDensityLatchParamId, 0.0);
+        publishParam(*p, kFractureShapeLatchParamId, 0.0);
+        for (clap_id id = kFractureDensityMotionXParamId;
+             id <= kFractureShapeEnergyParamId; ++id) {
+            publishParam(*p, id, 0.0);
+        }
     }
     requestValueRescan(*p);
     if (p->host && p->hostParams && p->hostParams->request_flush) {
@@ -2344,7 +2509,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.10.4",
+    "0.10.5",
     "Eight-object physical noise instrument with velocity-sensitive, cell-traversing Rate-Void cut-density and Edge-Space rupture-shape pucks, distinct attached-object exciters, performed Grab/Repeat, and Stereo, Quad, or direct-eight rendering.",
     features
 };

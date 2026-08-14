@@ -14,7 +14,7 @@ struct ProcessorStackFactoryPresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kProcessorStackFactoryPresetCount = 22u;
+inline constexpr uint32_t kProcessorStackFactoryPresetCount = 24u;
 
 inline const ProcessorStackFactoryPresetInfo&
 processorStackFactoryPresetInfo(uint32_t index)
@@ -43,6 +43,8 @@ processorStackFactoryPresetInfo(uint32_t index)
         { "CHUG CHUG CHUG", "Three declared palm-muted power attacks with a piercing answer." },
         { "POLY SHRAPNEL", "Four played strings fuse into one glitch-targeted speaker return." },
         { "SLOW MONOLITH", "Whole-note low power movement with calm energy masking." },
+        { "ALUMINUM ARGUMENT", "Contrary metal-neck replies split away from a wooden lead." },
+        { "HOLLOW FIFTHS", "A hollow partner answers solid power chords a fifth above." },
     }};
     return info[std::min<uint32_t>(
         index, kProcessorStackFactoryPresetCount - 1u)];
@@ -605,6 +607,123 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.overloadMask = 1.0f;
         params.outputGainDb = -18.0f;
         break;
+    case 22u: // ALUMINUM ARGUMENT
+        params.mode = ProcessorStackMode::Lead;
+        params.wire = 0.82f;
+        params.pick = 0.86f;
+        params.damping = 0.46f;
+        params.glideMs = 26.0f;
+        params.crooked = 0.86f;
+        params.spill = 0.20f;
+        params.pairAmount = 0.88f;
+        params.pairRelation = ProcessorStackPairRelation::Contrary;
+        params.pairLoose = 0.44f;
+        params.pairSpread = 0.94f;
+        params.neckA = ProcessorStackNeckMaterial::Mahogany;
+        params.bodyA = ProcessorStackBodyMaterial::SolidWood;
+        params.neckB = ProcessorStackNeckMaterial::Aluminum;
+        params.bodyB = ProcessorStackBodyMaterial::Aluminum;
+        params.circuit = ProcessorStackCircuit::Shred;
+        params.bite = 0.76f;
+        params.pedalTone = 0.80f;
+        params.stack = 0.72f;
+        params.sag = 0.48f;
+        params.focus = 0.86f;
+        params.cone = 0.68f;
+        params.feedback = 0.58f;
+        params.pierce = 0.86f;
+        params.selfListen = 0.88f;
+        params.arpBRelation = ProcessorStackArpRelation::Counter;
+        params.arpPatternB = ProcessorStackArpPattern::Scramble;
+        params.scaleB = ProcessorStackScale::Diminished;
+        params.arpRateB = ProcessorStackArpRate::SixteenthTriplet;
+        params.arpOctavesB = 2u;
+        params.arpGateB = 0.48f;
+        params.arpPhaseB = 0.50f;
+        params.linkPedal = false;
+        params.linkAmplifier = false;
+        params.linkFeedback = false;
+        params.circuitB = ProcessorStackCircuit::ZoneB;
+        params.biteB = 0.64f;
+        params.pedalToneB = 0.62f;
+        params.biasB = 0.40f;
+        params.stackB = 0.66f;
+        params.sagB = 0.28f;
+        params.focusB = 0.94f;
+        params.coneB = 0.54f;
+        params.cabinetB = 0.32f;
+        params.micB = 0.18f;
+        params.feedbackB = 0.68f;
+        params.proximityB = 0.76f;
+        params.harmonicB = 0.78f;
+        params.trackingB = 0.92f;
+        params.polarityB = 0.70f;
+        params.rootB = 0.16f;
+        params.chaosB = 0.22f;
+        params.pierceB = 0.98f;
+        params.selfListenB = 0.94f;
+        params.targetGlitchB = 0.28f;
+        params.glitchRatchetB = 0.64f;
+        params.overloadMaskB = 0.90f;
+        params.outputGainDb = -18.0f;
+        break;
+    case 23u: // HOLLOW FIFTHS
+        params.mode = ProcessorStackMode::Power;
+        params.shape = 0.70f;
+        params.wire = 0.74f;
+        params.pick = 0.72f;
+        params.damping = 0.52f;
+        params.spill = 0.34f;
+        params.pairAmount = 0.76f;
+        params.pairRelation = ProcessorStackPairRelation::FifthUp;
+        params.pairLoose = 0.30f;
+        params.pairSpread = 0.82f;
+        params.neckA = ProcessorStackNeckMaterial::Maple;
+        params.bodyA = ProcessorStackBodyMaterial::SolidWood;
+        params.neckB = ProcessorStackNeckMaterial::Mahogany;
+        params.bodyB = ProcessorStackBodyMaterial::HollowWood;
+        params.circuit = ProcessorStackCircuit::Rat;
+        params.bite = 0.68f;
+        params.stack = 0.78f;
+        params.sag = 0.62f;
+        params.focus = 0.48f;
+        params.cone = 0.74f;
+        params.feedback = 0.52f;
+        params.root = 0.36f;
+        params.arpBRelation = ProcessorStackArpRelation::Free;
+        params.arpPatternB = ProcessorStackArpPattern::Pedal;
+        params.scaleB = ProcessorStackScale::Phrygian;
+        params.arpRateB = ProcessorStackArpRate::Half;
+        params.arpOctavesB = 1u;
+        params.arpGateB = 0.78f;
+        params.arpPhaseB = 0.50f;
+        params.linkPedal = false;
+        params.linkAmplifier = false;
+        params.linkFeedback = false;
+        params.circuitB = ProcessorStackCircuit::Wool;
+        params.biteB = 0.52f;
+        params.pedalToneB = 0.34f;
+        params.biasB = 0.58f;
+        params.stackB = 0.68f;
+        params.sagB = 0.82f;
+        params.focusB = 0.26f;
+        params.coneB = 0.88f;
+        params.cabinetB = 0.92f;
+        params.micB = 0.62f;
+        params.feedbackB = 0.42f;
+        params.proximityB = 0.32f;
+        params.harmonicB = 0.24f;
+        params.trackingB = 0.58f;
+        params.polarityB = 0.82f;
+        params.rootB = 0.48f;
+        params.chaosB = 0.10f;
+        params.pierceB = 0.30f;
+        params.selfListenB = 0.64f;
+        params.targetGlitchB = 0.08f;
+        params.glitchRatchetB = 0.24f;
+        params.overloadMaskB = 0.98f;
+        params.outputGainDb = -18.0f;
+        break;
     default:
         break;
     }
@@ -618,8 +737,22 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         || first.arpPattern != second.arpPattern
         || first.scale != second.scale || first.arpRate != second.arpRate
         || first.arpOctaves != second.arpOctaves
+        || first.pairRelation != second.pairRelation
+        || first.neckA != second.neckA || first.bodyA != second.bodyA
+        || first.neckB != second.neckB || first.bodyB != second.bodyB
         || first.customPatternLength != second.customPatternLength
-        || first.customPattern != second.customPattern) {
+        || first.customPattern != second.customPattern
+        || first.arpBRelation != second.arpBRelation
+        || first.arpPatternB != second.arpPatternB
+        || first.scaleB != second.scaleB
+        || first.arpRateB != second.arpRateB
+        || first.arpOctavesB != second.arpOctavesB
+        || first.customPatternLengthB != second.customPatternLengthB
+        || first.customPatternB != second.customPatternB
+        || first.linkPedal != second.linkPedal
+        || first.linkAmplifier != second.linkAmplifier
+        || first.linkFeedback != second.linkFeedback
+        || first.circuitB != second.circuitB) {
         return false;
     }
     const auto near = [tolerance](float a, float b) {
@@ -636,7 +769,12 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         && near(first.decayMs, second.decayMs)
         && near(first.sustain, second.sustain)
         && near(first.releaseMs, second.releaseMs)
+        && near(first.pairAmount, second.pairAmount)
+        && near(first.pairLoose, second.pairLoose)
+        && near(first.pairSpread, second.pairSpread)
         && near(first.arpGate, second.arpGate)
+        && near(first.arpGateB, second.arpGateB)
+        && near(first.arpPhaseB, second.arpPhaseB)
         && near(first.bite, second.bite)
         && near(first.pedalTone, second.pedalTone)
         && near(first.bias, second.bias)
@@ -658,6 +796,27 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         && near(first.targetGlitch, second.targetGlitch)
         && near(first.glitchRatchet, second.glitchRatchet)
         && near(first.overloadMask, second.overloadMask)
+        && near(first.biteB, second.biteB)
+        && near(first.pedalToneB, second.pedalToneB)
+        && near(first.biasB, second.biasB)
+        && near(first.stackB, second.stackB)
+        && near(first.sagB, second.sagB)
+        && near(first.focusB, second.focusB)
+        && near(first.coneB, second.coneB)
+        && near(first.cabinetB, second.cabinetB)
+        && near(first.micB, second.micB)
+        && near(first.feedbackB, second.feedbackB)
+        && near(first.proximityB, second.proximityB)
+        && near(first.harmonicB, second.harmonicB)
+        && near(first.trackingB, second.trackingB)
+        && near(first.polarityB, second.polarityB)
+        && near(first.rootB, second.rootB)
+        && near(first.chaosB, second.chaosB)
+        && near(first.pierceB, second.pierceB)
+        && near(first.selfListenB, second.selfListenB)
+        && near(first.targetGlitchB, second.targetGlitchB)
+        && near(first.glitchRatchetB, second.glitchRatchetB)
+        && near(first.overloadMaskB, second.overloadMaskB)
         && near(first.outputGainDb, second.outputGainDb);
 }
 

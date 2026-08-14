@@ -39,7 +39,7 @@
         </figure>
 
         <div class="callout">
-          <p>The tracker is included in the 0.7 s3g-dsp CLAP archive for Apple-silicon macOS. It is a MIDI-only companion to the drum and sampler instruments in the same release.</p>
+          <p>The tracker is a MIDI-only companion to the drum and sampler instruments in the collection.</p>
         </div>
 
         <h2 id="workflow">Workflow</h2>
@@ -198,7 +198,7 @@ warp exp 2.0 mix .5</code></pre>
 
         <p>Geometry, Warps, and Console can remain embedded pages or detach into independent windows while viewing the same live tracker state. The lower value-envelope editor distinguishes large saturated-cyan note-hit breakpoints from smaller dark-gray points without notes.</p>
 
-        <h2 id="boundaries">Current Boundaries and Build</h2>
+        <h2 id="boundaries">Current Boundaries</h2>
 
         <ul>
           <li>MIDI output only; the plug-in has no audio ports or internal instruments.</li>
@@ -207,21 +207,23 @@ warp exp 2.0 mix .5</code></pre>
           <li>Project state uses the current native tracker schema and does not import Max tracker files or abandoned standalone formats.</li>
         </ul>
 
-        <p>Build the tracker and its focused test targets from the repository root:</p>
-
-        <pre><code>cmake --preset clap-tracker
-cmake --build --preset clap-tracker
-ctest --test-dir build-tracker -L tracker --output-on-failure</code></pre>
-
-        <p>The bundle is written to <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. Copy the complete bundle to <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>, then rescan CLAP plug-ins or restart REAPER.</p>
-
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="instruments.html"><span>Previous</span>Instruments Overview</a>
-          <a class="page-nav-link next" href="drums.html"><span>Next</span>Drums</a>
+          <a class="page-nav-link next" href="s3g-slicer.html"><span>Next</span>s3g Slicer</a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="s3g-tracker.html">s3g Tracker</a>
+          <a href="s3g-slicer.html">s3g Slicer</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
@@ -233,7 +235,7 @@ ctest --test-dir build-tracker -L tracker --output-on-failure</code></pre>
           <a href="#patterns-song">Patterns and Song</a>
           <a href="#live-code">Live Code</a>
           <a href="#tool-pages">Tool Pages</a>
-          <a href="#boundaries">Boundaries and Build</a>
+          <a href="#boundaries">Current Boundaries</a>
         </div>
       </aside>
     </div>
