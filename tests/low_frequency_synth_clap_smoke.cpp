@@ -83,6 +83,7 @@ enum ParamId : clap_id {
     kShredColor,
     kDriveDensityMacro,
     kAmplitudeMotionPosition,
+    kShredFeedbackToneLevel,
 };
 
 struct ParamSpec {
@@ -94,7 +95,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 31u> kParamSpecs {{
+constexpr std::array<ParamSpec, 32u> kParamSpecs {{
     { kOutput, "Output", -36.0, 6.0, -8.0, false },
     { kFundamental, "Sub", 0.0, 1.0, 0.96, false },
     { kBody, "Modal Body", 0.0, 1.0, 0.70, false },
@@ -126,6 +127,7 @@ constexpr std::array<ParamSpec, 31u> kParamSpecs {{
     { kShredCircuit, "Circuit", 0.0, 7.0, 0.0, true },
     { kShredColor, "Color", 0.0, 1.0, 0.55, false },
     { kAmplitudeMotionPosition, "Position", 0.0, 1.0, 1.0, true },
+    { kShredFeedbackToneLevel, "Feedback Tone Level", 0.0, 1.0, 1.0, false },
 }};
 
 struct HostContext {
@@ -379,7 +381,8 @@ bool loadPlugin(const char* argument, HostContext& host, LoadedPlugin& loaded)
     const auto* descriptor = loaded.factory->get_plugin_descriptor(
         loaded.factory, 0u);
     if (!descriptor || std::strcmp(descriptor->id, kPluginId) != 0
-        || std::strcmp(descriptor->name, "s3g Low Frequency Synth") != 0) {
+        || std::strcmp(descriptor->name, "s3g Processor LF Synth") != 0
+        || std::strcmp(descriptor->version, "1.3.6") != 0) {
         std::cerr << "descriptor mismatch\n";
         return false;
     }
@@ -908,6 +911,91 @@ bool monophonicPriorityProbe(const clap_plugin_t* plugin)
     return true;
 }
 
+bool releaseRetriggerContinuityProbe(const clap_plugin_t* plugin)
+{
+    EventList events;
+    AudioBlock audio;
+    events.addParam(kMidiReceive, 0.0);
+    events.addParam(kFundamental, 1.0);
+    events.addParam(kBody, 0.86);
+    events.addParam(kHarmonics, 0.72);
+    events.addParam(kAttack, 0.0005);
+    events.addParam(kDecay, 0.01);
+    events.addParam(kSustain, 1.0);
+    events.addParam(kRelease, 0.65);
+    events.addParam(kGlide, 0.0);
+    events.addParam(kFilterCutoff, 5200.0);
+    events.addParam(kFilterResonance, 0.72);
+    events.addParam(kDrive, 0.88);
+    events.addParam(kProcessedMix, 0.82);
+    events.addParam(kValvePreamp, 0.86);
+    events.addParam(kShred, 0.82);
+    events.addParam(kShredFeedback, 0.68);
+    events.addParam(kShredMix, 0.76);
+    events.addParam(kShredCircuit, 1.0);
+    events.addParam(kOutput, -6.0);
+    events.addNote(CLAP_EVENT_NOTE_ON, 29, 1.0);
+    if (runBlock(plugin, events, audio) != CLAP_PROCESS_CONTINUE) {
+        return false;
+    }
+    events.clear();
+    for (uint32_t block = 0u; block < 40u; ++block) {
+        if (runBlock(plugin, events, audio) != CLAP_PROCESS_CONTINUE) {
+            return false;
+        }
+    }
+
+    // Release at one arbitrary phase and interrupt it later in the same host
+    // block, verifying sample-offset event handling as well as the DSP lane.
+    events.addNote(CLAP_EVENT_NOTE_OFF, 29, 0.0, 37u);
+    events.addNote(CLAP_EVENT_NOTE_ON, 46, 0.23, 171u);
+    if (runBlock(plugin, events, audio) != CLAP_PROCESS_CONTINUE) {
+        return false;
+    }
+    const float boundaryStep = std::fabs(audio.storage[0u][171u]
+        - audio.storage[0u][170u]);
+    if (boundaryStep > 1.0e-5f) {
+        std::cerr << "CLAP interrupted-release boundary clicked: "
+                  << boundaryStep << "\n";
+        return false;
+    }
+    for (uint32_t sample = 0u; sample < kFrames; ++sample) {
+        if (!std::isfinite(audio.storage[0u][sample])
+            || !std::isfinite(audio.storage[1u][sample])) return false;
+    }
+
+    events.clear();
+    int currentKey = 46;
+    for (uint32_t event = 0u; event < 8u; ++event) {
+        const uint32_t time = 8u + event * 30u;
+        const int nextKey = 25 + static_cast<int>((event * 11u) % 31u);
+        events.addNote(CLAP_EVENT_NOTE_OFF, currentKey, 0.0, time);
+        events.addNote(CLAP_EVENT_NOTE_ON, nextKey,
+            (event & 1u) != 0u ? 0.18 : 1.0, time);
+        currentKey = nextKey;
+    }
+    if (runBlock(plugin, events, audio) != CLAP_PROCESS_CONTINUE) {
+        return false;
+    }
+    float maximumStep = 0.0f;
+    float previous = audio.storage[0u][0u];
+    for (uint32_t sample = 1u; sample < kFrames; ++sample) {
+        const float value = audio.storage[0u][sample];
+        if (!std::isfinite(value)) return false;
+        maximumStep = std::max(maximumStep, std::fabs(value - previous));
+        previous = value;
+    }
+    if (maximumStep > 0.0401f) {
+        std::cerr << "CLAP rapid retrigger handoff clicked: "
+                  << maximumStep << "\n";
+        return false;
+    }
+    events.clear();
+    events.addNote(CLAP_EVENT_NOTE_OFF, currentKey, 0.0);
+    runBlock(plugin, events, audio);
+    return true;
+}
+
 bool tubeAudibilityProbe(const clap_plugin_t* plugin)
 {
     std::array<double, 2u> energy {};
@@ -967,7 +1055,8 @@ bool stereoShredProbe(const clap_plugin_t* plugin)
 {
     using StereoFrame = std::array<float, 2u>;
     const auto render = [plugin](double shred, double feedback, double mix,
-                            double circuit = 0.0, double color = 0.55) {
+                            double circuit = 0.0, double color = 0.55,
+                            double feedbackToneLevel = 1.0) {
         plugin->reset(plugin);
         EventList events;
         AudioBlock audio;
@@ -983,6 +1072,7 @@ bool stereoShredProbe(const clap_plugin_t* plugin)
         events.addParam(kOutput, -18.0);
         events.addParam(kShred, shred);
         events.addParam(kShredFeedback, feedback);
+        events.addParam(kShredFeedbackToneLevel, feedbackToneLevel);
         events.addParam(kShredMix, mix);
         events.addParam(kShredCircuit, circuit);
         events.addParam(kShredColor, color);
@@ -1014,14 +1104,19 @@ bool stereoShredProbe(const clap_plugin_t* plugin)
     const auto wet = render(0.74, 0.72, 1.0);
     const auto rat = render(0.68, 0.36, 0.72, 2.0, 0.38);
     const auto wool = render(0.68, 0.36, 0.72, 1.0, 0.68);
+    const auto mutedReturn = render(0.74, 0.72, 1.0, 0.0, 0.55, 0.0);
+    const auto sourceOnly = render(0.74, 0.0, 1.0, 0.0, 0.55, 0.0);
     if (clean.empty() || clean.size() != zeroMix.size()
         || clean.size() != wet.size() || clean.size() != rat.size()
-        || clean.size() != wool.size()) return false;
+        || clean.size() != wool.size() || clean.size() != mutedReturn.size()
+        || clean.size() != sourceOnly.size()) return false;
 
     double difference = 0.0;
     double sideEnergy = 0.0;
     double circuitDifference = 0.0;
+    double feedbackToneDifference = 0.0;
     float maximumZeroMixError = 0.0f;
+    float feedbackIsolationError = 0.0f;
     for (size_t sample = 0u; sample < clean.size(); ++sample) {
         maximumZeroMixError = std::max(maximumZeroMixError,
             std::max(std::fabs(clean[sample][0u] - zeroMix[sample][0u]),
@@ -1035,14 +1130,24 @@ bool stereoShredProbe(const clap_plugin_t* plugin)
         sideEnergy += side * side;
         circuitDifference += std::fabs(rat[sample][0u] - wool[sample][0u])
             + std::fabs(rat[sample][1u] - wool[sample][1u]);
+        feedbackToneDifference += std::fabs(wet[sample][0u]
+                - mutedReturn[sample][0u])
+            + std::fabs(wet[sample][1u] - mutedReturn[sample][1u]);
+        feedbackIsolationError = std::max(feedbackIsolationError,
+            std::max(std::fabs(mutedReturn[sample][0u]
+                    - sourceOnly[sample][0u]),
+                std::fabs(mutedReturn[sample][1u]
+                    - sourceOnly[sample][1u])));
     }
     if (maximumZeroMixError > 1.0e-6f
         || difference < 5.0 || sideEnergy < 1.0e-7
-        || circuitDifference < 5.0) {
+        || circuitDifference < 5.0 || feedbackToneDifference < 1.0
+        || feedbackIsolationError > 1.0e-4f) {
         std::cerr << "CLAP stereo Shred lacked audible independent lanes: "
                   << maximumZeroMixError << " / " << difference
                   << " / " << sideEnergy << " / "
-                  << circuitDifference << "\n";
+                  << circuitDifference << " / " << feedbackToneDifference
+                  << " / " << feedbackIsolationError << "\n";
         return false;
     }
     return true;
@@ -1071,6 +1176,7 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
     events.addParam(kFilterMotionDivision, 10.0);
     events.addParam(kShred, 0.64);
     events.addParam(kShredFeedback, 0.48);
+    events.addParam(kShredFeedbackToneLevel, 0.67);
     events.addParam(kShredMix, 0.52);
     events.addParam(kShredCircuit, 2.0);
     events.addParam(kShredColor, 0.38);
@@ -1080,7 +1186,7 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
     events.clear();
     runBlock(plugin, events, audio);
     if (host.tailChanges == 0u || host.invalidTailCalls != 0u
-        || tail->get(plugin) < 35000u || tail->get(plugin) > 35100u) {
+        || tail->get(plugin) < 27090u || tail->get(plugin) > 27100u) {
         std::cerr << "tail contract mismatch\n";
         return false;
     }
@@ -1088,7 +1194,7 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
     if (!state->save(plugin, &output)
-        || memory.bytes.size() != 16u + 31u * sizeof(double)) {
+        || memory.bytes.size() != 16u + 32u * sizeof(double)) {
         std::cerr << "simplified state size mismatch\n";
         return false;
     }
@@ -1111,12 +1217,31 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
         || !valueIs(kFilterMotionDivision, 10.0)
         || !valueIs(kShred, 0.64)
         || !valueIs(kShredFeedback, 0.48)
+        || !valueIs(kShredFeedbackToneLevel, 0.67)
         || !valueIs(kShredMix, 0.52)
         || !valueIs(kShredCircuit, 2.0)
         || !valueIs(kShredColor, 0.38)
         || !valueIs(kAmplitudeMotionPosition, 0.0)
         || host.rescans == 0u) {
         std::cerr << "simplified state roundtrip mismatch\n";
+        return false;
+    }
+
+    MemoryState versionSix = memory;
+    versionSix.bytes.resize(16u + 31u * sizeof(double));
+    versionSix.offset = 0u;
+    const uint32_t versionSixNumber = 6u;
+    const uint32_t versionSixValueCount = 31u;
+    std::memcpy(versionSix.bytes.data() + sizeof(uint32_t),
+        &versionSixNumber, sizeof(versionSixNumber));
+    std::memcpy(versionSix.bytes.data() + 2u * sizeof(uint32_t),
+        &versionSixValueCount, sizeof(versionSixValueCount));
+    clap_istream_t versionSixInput { &versionSix, stateRead };
+    if (!state->load(plugin, &versionSixInput)
+        || !valueIs(kShredFeedback, 0.48)
+        || !valueIs(kAmplitudeMotionPosition, 0.0)
+        || !valueIs(kShredFeedbackToneLevel, 1.0)) {
+        std::cerr << "v1.3 state did not acquire unity feedback tone level\n";
         return false;
     }
 
@@ -1133,7 +1258,8 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
     if (!state->load(plugin, &versionFiveInput)
         || !valueIs(kShredCircuit, 2.0)
         || !valueIs(kShredColor, 0.38)
-        || !valueIs(kAmplitudeMotionPosition, 1.0)) {
+        || !valueIs(kAmplitudeMotionPosition, 1.0)
+        || !valueIs(kShredFeedbackToneLevel, 1.0)) {
         std::cerr << "v1.2 state did not acquire POST SHRED default\n";
         return false;
     }
@@ -1154,7 +1280,8 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
         || !valueIs(kShredMix, 0.52)
         || !valueIs(kShredCircuit, 0.0)
         || !valueIs(kShredColor, 0.55)
-        || !valueIs(kAmplitudeMotionPosition, 1.0)) {
+        || !valueIs(kAmplitudeMotionPosition, 1.0)
+        || !valueIs(kShredFeedbackToneLevel, 1.0)) {
         std::cerr << "v1.1 state did not acquire safe circuit defaults\n";
         return false;
     }
@@ -1173,7 +1300,8 @@ bool simplifiedStateAndTailProbe(const clap_plugin_t* plugin,
         || !valueIs(kFilterMotionDepth, 0.72)
         || !valueIs(kShred, 0.0)
         || !valueIs(kShredFeedback, 0.0)
-        || !valueIs(kShredMix, 0.0)) {
+        || !valueIs(kShredMix, 0.0)
+        || !valueIs(kShredFeedbackToneLevel, 1.0)) {
         std::cerr << "v0.9 state was not accepted by the membrane engine\n";
         return false;
     }
@@ -1276,6 +1404,8 @@ int main(int argc, char** argv)
     loaded.plugin->reset(loaded.plugin);
     ok = ok && monophonicPriorityProbe(loaded.plugin);
     loaded.plugin->reset(loaded.plugin);
+    ok = ok && releaseRetriggerContinuityProbe(loaded.plugin);
+    loaded.plugin->reset(loaded.plugin);
     ok = ok && tubeAudibilityProbe(loaded.plugin);
     loaded.plugin->reset(loaded.plugin);
     ok = ok && stereoShredProbe(loaded.plugin);
@@ -1286,6 +1416,6 @@ int main(int argc, char** argv)
     loaded.plugin->deactivate(loaded.plugin);
     unloadPlugin(loaded);
     if (!ok) return 1;
-    std::cout << "low frequency synth CLAP smoke passed\n";
+    std::cout << "Processor LF Synth CLAP smoke passed\n";
     return 0;
 }

@@ -1040,7 +1040,7 @@ int main(int argc, char** argv)
                 plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
             clap_note_port_info_t noteInputInfo {};
             ok = requestedDescriptor->version
-                && std::strcmp(requestedDescriptor->version, "5.9.0") == 0
+                && std::strcmp(requestedDescriptor->version, "5.10.0") == 0
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_FILTER)
                 && hasDescriptorFeature(CLAP_PLUGIN_FEATURE_STEREO)
@@ -1112,6 +1112,7 @@ int main(int argc, char** argv)
                 bool hasModulatorSource = false;
                 bool hasMicGain = false;
                 bool hasClassicMicProfile = false;
+                uint32_t hiddenAnalysisPitchParams = 0u;
                 uint32_t voiceBankSurfaceMatches = 0u;
                 uint32_t expandedScalarMatches = 0u;
                 uint32_t analysisPitchSurfaceMatches = 0u;
@@ -1152,6 +1153,11 @@ int main(int argc, char** argv)
                         && info.max_value == 24.0
                         && info.default_value == 0.0
                         && (info.flags & CLAP_PARAM_IS_STEPPED) == 0u;
+                    if ((info.id >= 16u && info.id <= 19u)
+                        || info.id == 22u || info.id == 23u) {
+                        hiddenAnalysisPitchParams +=
+                            (info.flags & CLAP_PARAM_IS_HIDDEN) != 0u;
+                    }
                     if (info.id == 1u && info.max_value == 31.0
                         && info.default_value == 14.0) {
                         char classicMic[64] {};
@@ -1184,7 +1190,7 @@ int main(int argc, char** argv)
                     }
                     if (info.id >= 65u && info.id <= 86u) {
                         constexpr const char* names[] {
-                            "Bank Mix", "Bank Mode",
+                            "Bank Level", "Bank Mode",
                             "Carrier Shape", "Carrier Harmonics",
                             "Carrier Color", "Carrier Noise",
                             "Analysis / Phoneme", "Band Attack",
@@ -1214,7 +1220,7 @@ int main(int argc, char** argv)
                             "Voicing Threshold", "Voiced Level",
                             "Unvoiced Level", "To Voiced", "To Unvoiced",
                             "Open Level", "Band Coupling",
-                            "Articulation Thru", "Stereo Pattern",
+                            "Articulation Level", "Stereo Pattern",
                             "Modulator Source", "Mic Gain",
                             "Pulse Width", "Carrier LFO Shape",
                             "Carrier LFO Rate", "Carrier FM", "Carrier PWM",
@@ -1360,6 +1366,7 @@ int main(int argc, char** argv)
                     && hasEchoHeads && hasEchoClock
                     && hasModulatorSource && hasMicGain
                     && hasClassicMicProfile && modulatorChoices
+                    && hiddenAnalysisPitchParams == 6u
                     && voiceBankSurfaceMatches == 22u
                     && expandedScalarMatches == 21u
                     && analysisPitchSurfaceMatches == 22u
@@ -1380,6 +1387,7 @@ int main(int argc, char** argv)
                         << " modulator=" << hasModulatorSource
                         << " micGain=" << hasMicGain
                         << " classicMic=" << hasClassicMicProfile
+                        << " hiddenPitch=" << hiddenAnalysisPitchParams
                         << " choices=" << modulatorChoices << "\n";
                 }
                 if (ok) {
@@ -1911,7 +1919,7 @@ int main(int argc, char** argv)
                     [document mouseDown:formantMouseEvent(
                         NSEventTypeLeftMouseDown, bankPage)];
                     ok = ok && [phraseField isHidden];
-                    // Analysis / Phoneme is BANK-owned; Bank Mix is tested on
+                    // Analysis / Phoneme is BANK-owned; Bank Level is tested on
                     // ROUTE so it cannot silently return here as a duplicate.
                     const NSPoint bankAnalysisBlend =
                         NSMakePoint(620.0, 443.0);

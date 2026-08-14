@@ -180,6 +180,14 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/low_frequency_synth_smoke.cpp)
   target_link_libraries(s3g_low_frequency_synth_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_processor_stack_smoke
+    tests/processor_stack_smoke.cpp)
+  target_link_libraries(s3g_processor_stack_smoke PRIVATE s3g_dsp)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_processor_stack_smoke PRIVATE
+      -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+  endif()
+
   add_executable(s3g_ambi_acid_encoder_render
     tools/render_ambi_acid_encoder.cpp)
   target_link_libraries(s3g_ambi_acid_encoder_render PRIVATE s3g_dsp)
@@ -455,6 +463,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_low_frequency_synth_smoke
       COMMAND $<TARGET_FILE:s3g_low_frequency_synth_smoke>)
     set_tests_properties(s3g_low_frequency_synth_smoke PROPERTIES
+      LABELS "non_nim;smoke" TIMEOUT 300)
+    add_test(NAME s3g_processor_stack_smoke
+      COMMAND $<TARGET_FILE:s3g_processor_stack_smoke>)
+    set_tests_properties(s3g_processor_stack_smoke PROPERTIES
       LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_ambi_horizon_encoder_smoke
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>)
@@ -879,6 +891,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
       PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_low_frequency_synth_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_processor_stack_clap_smoke
+      tests/processor_stack_clap_smoke.cpp)
+    target_include_directories(s3g_processor_stack_clap_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_processor_stack_clap_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+      target_compile_options(s3g_processor_stack_clap_smoke PRIVATE
+        -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
   endif()
 
   if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
@@ -1005,6 +1028,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_low_frequency_synth)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_processor_stack)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
@@ -1794,13 +1820,42 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_low_frequency_synth_clap>
           org.s3g.s3g-dsp.low-frequency-synth
-          980 646 "s3g Low Frequency Synth" responsive
+          980 672 "s3g Processor LF Synth" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_low_frequency_synth_clap
-        COMMENT "Validating the responsive Low Frequency Synth editor")
+        COMMENT "Validating the responsive Processor LF Synth editor")
       add_dependencies(audit_low_frequency_synth
         audit_low_frequency_synth_gui)
+    endif()
+
+    add_custom_target(audit_processor_stack
+      COMMAND $<TARGET_FILE:s3g_processor_stack_smoke>
+      COMMAND $<TARGET_FILE:s3g_processor_stack_clap_smoke>
+        $<TARGET_FILE:s3g_processor_stack_clap>
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 44100,48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_processor_stack_clap>
+        org.s3g.s3g-dsp.processor-stack
+      DEPENDS
+        s3g_processor_stack_smoke
+        s3g_processor_stack_clap_smoke
+        s3g_processor_stack_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating shared-stack synthesis, governed speaker feedback, MIDI, state, realtime safety, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_processor_stack_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_processor_stack_clap>
+          org.s3g.s3g-dsp.processor-stack
+          980 856 "s3g Processor Stack" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_processor_stack_clap
+        COMMENT "Validating the responsive Processor Stack editor")
+      add_dependencies(audit_processor_stack
+        audit_processor_stack_gui)
     endif()
   endif()
 

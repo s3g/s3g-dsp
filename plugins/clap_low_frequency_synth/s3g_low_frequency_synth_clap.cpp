@@ -34,10 +34,10 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x32464c53u; // "SLF2" little endian.
-constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kStateVersion = 7u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 980u;
-constexpr uint32_t kGuiHeight = 646u;
+constexpr uint32_t kGuiHeight = 672u;
 
 enum ParamId : clap_id {
     kTransposeParamId = 1u,
@@ -71,15 +71,17 @@ enum ParamId : clap_id {
     kShredCircuitParamId = 55u,
     kShredColorParamId = 56u,
     kAmplitudeMotionPositionParamId = 58u,
+    kShredFeedbackToneLevelParamId = 59u,
 };
 
 constexpr uint32_t kLegacyParamCount = 25u;
 constexpr uint32_t kVersionFourParamCount = 28u;
 constexpr uint32_t kVersionFiveParamCount = 30u;
-constexpr uint32_t kParamCount = 31u;
-constexpr uint32_t kSynthParamCount = 30u;
+constexpr uint32_t kVersionSixParamCount = 31u;
+constexpr uint32_t kParamCount = 32u;
+constexpr uint32_t kSynthParamCount = 31u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kAmplitudeMotionPositionParamId) + 1u;
+    static_cast<uint32_t>(kShredFeedbackToneLevelParamId) + 1u;
 
 struct ParamDef {
     clap_id id;
@@ -124,6 +126,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kShredCircuitParamId, "Circuit", "Stereo Shred", 0.0, 7.0, 0.0, true },
     { kShredColorParamId, "Color", "Stereo Shred", 0.0, 1.0, 0.55, false },
     { kAmplitudeMotionPositionParamId, "Position", "Amplitude LFO", 0.0, 1.0, 1.0, true },
+    { kShredFeedbackToneLevelParamId, "Feedback Tone Level", "Stereo Shred", 0.0, 1.0, 1.0, false },
 }};
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
@@ -138,6 +141,7 @@ constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kShredParamId, kShredFeedbackParamId, kShredMixParamId,
     kShredCircuitParamId, kShredColorParamId,
     kAmplitudeMotionPositionParamId,
+    kShredFeedbackToneLevelParamId,
 }};
 
 struct SavedStateHeader {
@@ -246,6 +250,8 @@ double rawParamValue(const Plugin& p, clap_id id)
     case kFilterMotionDivisionParamId: return p.params.amplitudeMotionDivision;
     case kShredParamId: return p.params.shred;
     case kShredFeedbackParamId: return p.params.shredFeedback;
+    case kShredFeedbackToneLevelParamId:
+        return p.params.shredFeedbackToneLevel;
     case kShredMixParamId: return p.params.shredMix;
     case kShredCircuitParamId: return p.params.shredCircuit;
     case kShredColorParamId: return p.params.shredColor;
@@ -279,6 +285,8 @@ void applyParam(Plugin& p, clap_id id, double value)
             && std::fabs(p.params.releaseSeconds - v) > 1.0e-6f)
         || (id == kShredFeedbackParamId
             && std::fabs(p.params.shredFeedback - v) > 1.0e-6f)
+        || (id == kShredFeedbackToneLevelParamId
+            && std::fabs(p.params.shredFeedbackToneLevel - v) > 1.0e-6f)
         || (id == kShredMixParamId
             && std::fabs(p.params.shredMix - v) > 1.0e-6f);
     switch (id) {
@@ -308,6 +316,9 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kFilterMotionDivisionParamId: p.params.amplitudeMotionDivision = v; break;
     case kShredParamId: p.params.shred = v; break;
     case kShredFeedbackParamId: p.params.shredFeedback = v; break;
+    case kShredFeedbackToneLevelParamId:
+        p.params.shredFeedbackToneLevel = v;
+        break;
     case kShredMixParamId: p.params.shredMix = v; break;
     case kShredCircuitParamId: p.params.shredCircuit = v; break;
     case kShredColorParamId: p.params.shredColor = v; break;
@@ -571,6 +582,7 @@ bool queueGuiParams(Plugin& p, const s3g::LowFrequencySynthParams& params)
         params.shred, params.shredFeedback, params.shredMix,
         params.shredCircuit, params.shredColor,
         params.amplitudeMotionPosition,
+        params.shredFeedbackToneLevel,
     }};
     std::array<s3g::clap_gui::ParamEvent, kSynthParamCount * 3u> events {};
     std::array<double, kSynthParamCount> clamped {};
@@ -872,7 +884,8 @@ bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     info->supported_dialects = CLAP_NOTE_DIALECT_CLAP
         | CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
-    std::strncpy(info->name, "LF Synth MIDI In", sizeof(info->name) - 1u);
+    std::strncpy(info->name, "Processor LF Synth MIDI In",
+        sizeof(info->name) - 1u);
     return true;
 }
 
@@ -1041,6 +1054,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         || id == kValvePreampParamId
         || id == kFilterMotionDepthParamId
         || id == kShredParamId || id == kShredFeedbackParamId
+        || id == kShredFeedbackToneLevelParamId
         || id == kShredMixParamId || id == kShredColorParamId;
     if (suffixLength > 0u) {
         if (normalized && suffixIs("%")) converted *= 0.01;
@@ -1112,6 +1126,17 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         for (uint32_t index = 0u; index < kParamCount; ++index) {
             applyParam(*p, kParamDefs[index].id, values[index]);
         }
+    } else if (header.version == 6u
+        && header.valueCount == kVersionSixParamCount) {
+        std::array<double, kVersionSixParamCount> values {};
+        if (!s3g::clap_state::readAll(
+                stream, values.data(), sizeof(values))) return false;
+        for (uint32_t index = 0u;
+             index < kVersionSixParamCount; ++index) {
+            applyParam(*p, kParamDefs[index].id, values[index]);
+        }
+        applyParam(*p, kShredFeedbackToneLevelParamId,
+            paramDef(kShredFeedbackToneLevelParamId)->defaultValue);
     } else if (header.version == 5u
         && header.valueCount == kVersionFiveParamCount) {
         std::array<double, kVersionFiveParamCount> values {};
@@ -1123,6 +1148,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         }
         applyParam(*p, kAmplitudeMotionPositionParamId,
             paramDef(kAmplitudeMotionPositionParamId)->defaultValue);
+        applyParam(*p, kShredFeedbackToneLevelParamId,
+            paramDef(kShredFeedbackToneLevelParamId)->defaultValue);
     } else if (header.version == 4u
         && header.valueCount == kVersionFourParamCount) {
         std::array<double, kVersionFourParamCount> values {};
@@ -1138,6 +1165,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             paramDef(kShredColorParamId)->defaultValue);
         applyParam(*p, kAmplitudeMotionPositionParamId,
             paramDef(kAmplitudeMotionPositionParamId)->defaultValue);
+        applyParam(*p, kShredFeedbackToneLevelParamId,
+            paramDef(kShredFeedbackToneLevelParamId)->defaultValue);
     } else if ((header.version == 1u || header.version == 2u
             || header.version == 3u)
         && header.valueCount == kLegacyParamCount) {
@@ -1164,6 +1193,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             paramDef(kShredColorParamId)->defaultValue);
         applyParam(*p, kAmplitudeMotionPositionParamId,
             paramDef(kAmplitudeMotionPositionParamId)->defaultValue);
+        applyParam(*p, kShredFeedbackToneLevelParamId,
+            paramDef(kShredFeedbackToneLevelParamId)->defaultValue);
     } else {
         return false;
     }
@@ -1189,6 +1220,7 @@ uint32_t tailGet(const clap_plugin_t* plugin)
     const double samples = std::ceil(
         (paramValue(*p, kReleaseParamId) + 0.030
             + paramValue(*p, kShredFeedbackParamId)
+                * paramValue(*p, kShredFeedbackToneLevelParamId)
                 * paramValue(*p, kShredMixParamId) * 2.0)
             * p->sampleRate);
     return static_cast<uint32_t>(std::min<double>(
@@ -1238,7 +1270,7 @@ constexpr auto kTonePanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Topology,
     kRightColumn, layout::kStandardMetrics.contentTop, 6u);
 constexpr auto kShredPanel = layout::fittedStackPanel(
-    layout::PanelRole::Projection, kTonePanel, 5u);
+    layout::PanelRole::Projection, kTonePanel, 6u);
 constexpr auto kMotionPanel = layout::fittedStackPanel(
     layout::PanelRole::Motion, kShredPanel, 5u);
 constexpr auto kRoutingPanel = layout::fittedStackPanel(
@@ -1261,7 +1293,7 @@ static_assert(layout::rowY(kOutputPanel, 0u) == 78.0);
 static_assert(kEnvelopePanel.frame.y + kEnvelopePanel.frame.height
     + 12.0 <= kGuiHeight);
 
-constexpr std::array<SynthUiRow, 31u> kUiRows {{
+constexpr std::array<SynthUiRow, 32u> kUiRows {{
     { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
         layout::rowY(kOutputPanel, 0u) },
 
@@ -1313,10 +1345,12 @@ constexpr std::array<SynthUiRow, 31u> kUiRows {{
         layout::rowY(kShredPanel, 1u) },
     { kShredFeedbackParamId, "FEEDBACK", kRightPanelX, kPanelWidth,
         layout::rowY(kShredPanel, 2u) },
+    { kShredFeedbackToneLevelParamId, "FB TONE LEVEL", kRightPanelX,
+        kPanelWidth, layout::rowY(kShredPanel, 3u) },
     { kShredColorParamId, "COLOR", kRightPanelX, kPanelWidth,
-        layout::rowY(kShredPanel, 3u) },
-    { kShredMixParamId, "MIX", kRightPanelX, kPanelWidth,
         layout::rowY(kShredPanel, 4u) },
+    { kShredMixParamId, "MIX", kRightPanelX, kPanelWidth,
+        layout::rowY(kShredPanel, 5u) },
 
     { kFilterMotionClockParamId, "CLOCK", kRightPanelX, kPanelWidth,
         layout::rowY(kMotionPanel, 0u) },
@@ -1422,6 +1456,8 @@ s3g::LowFrequencySynthParams publishedParamsSnapshot(const Plugin& p)
         paramValue(p, kAmplitudeMotionPositionParamId));
     params.shred = static_cast<float>(paramValue(p, kShredParamId));
     params.shredFeedback = static_cast<float>(paramValue(p, kShredFeedbackParamId));
+    params.shredFeedbackToneLevel = static_cast<float>(
+        paramValue(p, kShredFeedbackToneLevelParamId));
     params.shredMix = static_cast<float>(paramValue(p, kShredMixParamId));
     params.shredCircuit = static_cast<float>(paramValue(p, kShredCircuitParamId));
     params.shredColor = static_cast<float>(paramValue(p, kShredColorParamId));
@@ -1478,6 +1514,8 @@ s3g::LowFrequencySynthParams safeRandomParams(const Plugin& p, uint32_t seed)
         ? 0.0f : 0.12f + randomUnit(seed) * 0.58f;
     result.shredFeedback = result.shred > 0.0f
         ? randomUnit(seed) * 0.52f : 0.0f;
+    result.shredFeedbackToneLevel = result.shredFeedback > 0.0f
+        ? 0.35f + randomUnit(seed) * 0.65f : 1.0f;
     result.shredMix = result.shred > 0.0f
         ? 0.12f + randomUnit(seed) * 0.50f : 0.0f;
     result.shredCircuit = result.shred > 0.0f
@@ -1680,7 +1718,7 @@ s3g::LowFrequencySynthParams safeRandomParams(const Plugin& p, uint32_t seed)
     const auto titleBand = s3g::clap_gui::encoderTitleBand(
         kGuiWidth, kGuiHeight);
     s3g::clap_gui::drawEncoderTitleBand(
-        @"s3g LOW FREQUENCY SYNTH",
+        @"s3g PROCESSOR LF SYNTH",
         [NSString stringWithUTF8String:_presetName],
         s3g::clap_gui::peakDbText(
             p->outputPeak.load(std::memory_order_relaxed)),
@@ -1782,7 +1820,7 @@ s3g::LowFrequencySynthParams safeRandomParams(const Plugin& p, uint32_t seed)
             s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
         NSString* name = nil;
         if (s3g::clap_gui::loadPluginStatePresetPreservingParam(
-                &p->plugin, @"Low Frequency Synth", kOutputParamId, &name)) {
+                &p->plugin, @"Processor LF Synth", kOutputParamId, &name)) {
             [self markCustomPreset];
             std::snprintf(_presetName, sizeof(_presetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
@@ -1796,7 +1834,7 @@ s3g::LowFrequencySynthParams safeRandomParams(const Plugin& p, uint32_t seed)
             s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
         NSString* name = nil;
         if (s3g::clap_gui::savePluginStatePreset(
-                &p->plugin, @"Low Frequency Synth", &name)) {
+                &p->plugin, @"Processor LF Synth", &name)) {
             std::snprintf(_presetName, sizeof(_presetName), "%s",
                 name ? [name UTF8String] : "CUSTOM");
         } else {
@@ -2022,12 +2060,12 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.low-frequency-synth",
-    "s3g Low Frequency Synth",
+    "s3g Processor LF Synth",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "1.3.2",
+    "1.3.6",
     "A monophonic modal sub-bass engine with a protected membrane foundation, coordinated tube weight, and selectable bass-tuned stereo Shred circuits.",
     features
 };

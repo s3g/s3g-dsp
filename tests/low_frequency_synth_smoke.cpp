@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 namespace {
 
@@ -38,6 +39,8 @@ bool silenceAndSanitizationProbe()
     invalid.amplitudeMotionDivision = 99.0f;
     invalid.amplitudeMotionPosition =
         std::numeric_limits<float>::quiet_NaN();
+    invalid.shredFeedbackToneLevel =
+        std::numeric_limits<float>::quiet_NaN();
     invalid.shredCircuit = 99.0f;
     invalid.shredColor = std::numeric_limits<float>::quiet_NaN();
     synth.setParams(invalid);
@@ -53,6 +56,7 @@ bool silenceAndSanitizationProbe()
         && sanitized.amplitudeMotionPosition == 1.0f
         && sanitized.shred == 0.0f
         && sanitized.shredFeedback == 0.0f
+        && sanitized.shredFeedbackToneLevel == 1.0f
         && sanitized.shredCircuit == 7.0f
         && sanitized.shredColor == 0.55f
         && sanitized.shredMix == 0.0f;
@@ -956,6 +960,102 @@ bool stereoShredProbe()
     return true;
 }
 
+bool stereoShredFeedbackToneLevelProbe()
+{
+    using Frame = std::array<float, 2u>;
+    const auto render = [](float feedback, float feedbackToneLevel) {
+        s3g::BassShredStereo processor;
+        processor.prepare(kSampleRate);
+        s3g::BassShredParams params;
+        params.shred = 0.76f;
+        params.feedback = feedback;
+        params.feedbackToneLevel = feedbackToneLevel;
+        params.color = 0.58f;
+        params.mix = 1.0f;
+        params.circuit = s3g::BassShredCircuit::Rat;
+        processor.setParams(params);
+        std::vector<Frame> result;
+        result.reserve(24000u);
+        for (uint32_t sample = 0u; sample < 48000u; ++sample) {
+            const float phase = 2.0f * s3g::kPi
+                * static_cast<float>(sample) / static_cast<float>(kSampleRate);
+            float left = 0.28f * std::sin(phase * 55.0f)
+                + 0.12f * std::sin(phase * 330.0f);
+            float right = left;
+            processor.processStereo(left, right, 55.0f);
+            if (!std::isfinite(left) || !std::isfinite(right)) {
+                result.clear();
+                return result;
+            }
+            if (sample >= 24000u) result.push_back({ left, right });
+        }
+        return result;
+    };
+
+    const auto audible = render(0.88f, 1.0f);
+    const auto muted = render(0.88f, 0.0f);
+    const auto sourceOnly = render(0.0f, 0.0f);
+    if (audible.empty() || audible.size() != muted.size()
+        || audible.size() != sourceOnly.size()) return false;
+    double audibleDifference = 0.0;
+    float isolatedError = 0.0f;
+    for (size_t sample = 0u; sample < audible.size(); ++sample) {
+        audibleDifference += std::fabs(audible[sample][0u]
+                - muted[sample][0u])
+            + std::fabs(audible[sample][1u] - muted[sample][1u]);
+        isolatedError = std::max(isolatedError,
+            std::max(std::fabs(muted[sample][0u]
+                    - sourceOnly[sample][0u]),
+                std::fabs(muted[sample][1u]
+                    - sourceOnly[sample][1u])));
+    }
+    if (audibleDifference < 1.0 || isolatedError > 1.0e-4f) {
+        std::cerr << "feedback tone level was not isolated from regeneration: "
+                  << audibleDifference << " / " << isolatedError << "\n";
+        return false;
+    }
+
+    s3g::BassShredStereo governed;
+    governed.prepare(kSampleRate);
+    s3g::BassShredParams params;
+    params.shred = 0.82f;
+    params.feedback = 0.92f;
+    params.feedbackToneLevel = 1.0f;
+    params.color = 0.62f;
+    params.mix = 1.0f;
+    params.circuit = s3g::BassShredCircuit::ZoneB;
+    governed.setParams(params);
+    float previous = 0.0f;
+    float steadyStep = 0.0f;
+    float interruptionStep = 0.0f;
+    for (uint32_t sample = 0u; sample < 32000u; ++sample) {
+        if (sample == 24000u) {
+            params.feedbackToneLevel = 0.0f;
+            governed.setParams(params);
+        }
+        const float phase = 2.0f * s3g::kPi
+            * static_cast<float>(sample) / static_cast<float>(kSampleRate);
+        float left = 0.24f * std::sin(phase * 55.0f)
+            + 0.10f * std::sin(phase * 440.0f);
+        float right = left;
+        governed.processStereo(left, right, 55.0f);
+        const float step = std::fabs(left - previous);
+        if (sample >= 20000u && sample < 24000u) {
+            steadyStep = std::max(steadyStep, step);
+        } else if (sample >= 24000u) {
+            interruptionStep = std::max(interruptionStep, step);
+        }
+        previous = left;
+    }
+    if (!std::isfinite(interruptionStep)
+        || interruptionStep > steadyStep * 1.35f + 0.02f) {
+        std::cerr << "feedback interruption governor allowed a click: "
+                  << interruptionStep << " / " << steadyStep << "\n";
+        return false;
+    }
+    return true;
+}
+
 bool amplitudeMotionPositionProbe()
 {
     s3g::LowFrequencySynth pre;
@@ -1223,6 +1323,209 @@ bool onsetReleaseAndHeadroomProbe()
     return true;
 }
 
+bool interruptedReleaseOverlapProbe()
+{
+    for (uint32_t circuit = 0u;
+         circuit < s3g::kBassShredCircuitCount; ++circuit) {
+        s3g::LowFrequencySynth synth;
+        synth.prepare(kSampleRate);
+        auto params = synth.params();
+        params.fundamental = 1.0f;
+        params.body = 0.86f;
+        params.upperModeLevel = 0.72f;
+        params.attackSeconds = 0.0005f;
+        params.decaySeconds = 0.01f;
+        params.sustain = 1.0f;
+        params.releaseSeconds = 0.65f;
+        params.glideMs = 0.0f;
+        params.filterCutoffHz = 5200.0f;
+        params.filterResonance = 0.72f;
+        params.membraneDrive = 0.88f;
+        params.processedMix = 0.82f;
+        params.valvePreamp = 0.86f;
+        params.shred = 0.82f;
+        params.shredFeedback = 0.68f;
+        params.shredMix = 0.76f;
+        params.shredCircuit = static_cast<float>(circuit);
+        params.outputGainDb = -6.0f;
+        synth.setParams(params);
+        synth.noteOn(29, 1.0f, false);
+
+        float previous = 0.0f;
+        float steadyStep = 0.0f;
+        for (uint32_t sample = 0u; sample < 9000u; ++sample) {
+            float left = 0.0f;
+            float right = 0.0f;
+            synth.processFrame(left, right);
+            if (sample >= 7000u) {
+                steadyStep = std::max(
+                    steadyStep, std::fabs(left - previous));
+            }
+            previous = left;
+        }
+
+        synth.noteOff();
+        for (uint32_t sample = 0u; sample < 137u; ++sample) {
+            float left = 0.0f;
+            float right = 0.0f;
+            synth.processFrame(left, right);
+            previous = left;
+        }
+        synth.noteOn(46, 0.23f, false);
+        float boundaryStep = 0.0f;
+        float transitionStep = 0.0f;
+        float peak = 0.0f;
+        for (uint32_t sample = 0u; sample < 2400u; ++sample) {
+            float left = 0.0f;
+            float right = 0.0f;
+            synth.processFrame(left, right);
+            if (!std::isfinite(left) || !std::isfinite(right)) {
+                std::cerr << "release overlap produced non-finite audio: "
+                          << circuit << "\n";
+                return false;
+            }
+            const float step = std::fabs(left - previous);
+            if (sample == 0u) boundaryStep = step;
+            if (sample < 1024u) {
+                transitionStep = std::max(transitionStep, step);
+            } else {
+                steadyStep = std::max(steadyStep, step);
+            }
+            peak = std::max(peak,
+                std::max(std::fabs(left), std::fabs(right)));
+            previous = left;
+        }
+        if (boundaryStep > 1.0e-5f
+            || transitionStep > steadyStep * 1.55f + 0.025f
+            || peak > 0.941f) {
+            std::cerr << "release overlap discontinuity: circuit/boundary/"
+                         "transition/steady/peak "
+                      << circuit << " / " << boundaryStep << " / "
+                      << transitionStep << " / " << steadyStep << " / "
+                      << peak << "\n";
+            return false;
+        }
+
+        // Retrigger faster than the eight-millisecond overlap to exercise the
+        // bounded lane-steal continuity residual.
+        float rapidStep = 0.0f;
+        for (uint32_t sample = 0u; sample < 4096u; ++sample) {
+            if ((sample % 67u) == 0u) {
+                const uint32_t event = sample / 67u;
+                synth.noteOn(25 + static_cast<int>((event * 11u) % 31u),
+                    (event & 1u) != 0u ? 0.18f : 1.0f, false);
+            }
+            float left = 0.0f;
+            float right = 0.0f;
+            synth.processFrame(left, right);
+            if (!std::isfinite(left) || !std::isfinite(right)) {
+                std::cerr << "rapid release overlap was non-finite: "
+                          << circuit << "\n";
+                return false;
+            }
+            rapidStep = std::max(rapidStep, std::fabs(left - previous));
+            peak = std::max(peak,
+                std::max(std::fabs(left), std::fabs(right)));
+            previous = left;
+        }
+        if (rapidStep > 0.0401f || peak > 0.941f) {
+            std::cerr << "rapid release overlap discontinuity: "
+                      << circuit << " / " << rapidStep << " / "
+                      << peak << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool attackSoftensMembraneStrikeProbe()
+{
+    struct Metrics {
+        double onsetDifferenceEnergy = 0.0;
+        double sustainEnergy = 0.0;
+        float onsetStep = 0.0f;
+    };
+    const auto render = [](float attackSeconds, float velocity = 1.0f) {
+        s3g::LowFrequencySynth synth;
+        synth.prepare(kSampleRate);
+        auto params = synth.params();
+        params.fundamental = 0.92f;
+        params.body = 1.0f;
+        params.upperModeLevel = 1.0f;
+        // Fast modal decay keeps the late comparison focused on the
+        // continuous membrane drive rather than the deliberately persistent
+        // strike tail.
+        params.damping = 0.90f;
+        params.attackSeconds = attackSeconds;
+        params.decaySeconds = 0.01f;
+        params.sustain = 1.0f;
+        params.glideMs = 0.0f;
+        params.filterCutoffHz = 12000.0f;
+        params.filterResonance = 0.0f;
+        params.membraneDrive = 0.18f;
+        params.processedMix = 0.0f;
+        params.valvePreamp = 0.0f;
+        params.shredMix = 0.0f;
+        params.outputGainDb = -12.0f;
+        synth.setParams(params);
+        synth.noteOn(33, velocity, false);
+
+        Metrics metrics;
+        float previous = 0.0f;
+        constexpr uint32_t onsetEnd = 4800u;
+        constexpr uint32_t sustainStart = 72000u;
+        constexpr uint32_t renderEnd = 96000u;
+        for (uint32_t sample = 0u; sample < renderEnd; ++sample) {
+            float left = 0.0f;
+            float right = 0.0f;
+            synth.processFrame(left, right);
+            const float difference = left - previous;
+            if (sample < onsetEnd) {
+                metrics.onsetDifferenceEnergy +=
+                    static_cast<double>(difference) * difference;
+                metrics.onsetStep = std::max(
+                    metrics.onsetStep, std::fabs(difference));
+            }
+            if (sample >= sustainStart) {
+                metrics.sustainEnergy += static_cast<double>(left) * left;
+            }
+            previous = left;
+        }
+        metrics.onsetDifferenceEnergy /= static_cast<double>(onsetEnd);
+        metrics.sustainEnergy /= static_cast<double>(
+            renderEnd - sustainStart);
+        return metrics;
+    };
+
+    const Metrics fast = render(0.0005f);
+    const Metrics normal = render(0.008f);
+    const Metrics soft = render(0.040f);
+    const Metrics quiet = render(0.0005f, 0.20f);
+    const double sustainRatio = soft.sustainEnergy
+        / std::max(1.0e-12, fast.sustainEnergy);
+    if (normal.onsetDifferenceEnergy
+            > fast.onsetDifferenceEnergy * 0.70
+        || soft.onsetDifferenceEnergy
+            > normal.onsetDifferenceEnergy * 0.45
+        || normal.onsetStep > fast.onsetStep * 0.78f
+        || soft.onsetStep > normal.onsetStep * 0.75f
+        || quiet.onsetDifferenceEnergy
+            > fast.onsetDifferenceEnergy * 0.08
+        || sustainRatio < 0.72 || sustainRatio > 1.28) {
+        std::cerr << "Attack did not soften the membrane strike while "
+                     "preserving sustain: diff fast/normal/soft "
+                  << fast.onsetDifferenceEnergy << " / "
+                  << normal.onsetDifferenceEnergy << " / "
+                  << soft.onsetDifferenceEnergy << ", step "
+                  << fast.onsetStep << " / " << normal.onsetStep << " / "
+                  << soft.onsetStep << ", quiet diff "
+                  << quiet.onsetDifferenceEnergy << ", sustain ratio "
+                  << sustainRatio << "\n";
+        return false;
+    }
+    return true;
+}
+
 bool factoryPresetProbe()
 {
     for (uint32_t index = 0u;
@@ -1312,12 +1615,15 @@ int main()
         || !tubeAudibilityProbe()
         || !tubeAutomationContinuityProbe()
         || !stereoShredProbe()
+        || !stereoShredFeedbackToneLevelProbe()
         || !amplitudeMotionPositionProbe()
         || !selectableShredStressProbe()
         || !onsetReleaseAndHeadroomProbe()
+        || !interruptedReleaseOverlapProbe()
+        || !attackSoftensMembraneStrikeProbe()
         || !factoryPresetProbe()) {
         return 1;
     }
-    std::cout << "low frequency synth smoke passed\n";
+    std::cout << "Processor LF Synth smoke passed\n";
     return 0;
 }

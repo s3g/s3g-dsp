@@ -3304,6 +3304,7 @@ bool formantRoutingTrimAndMeterProbe()
 bool formantStereoAndArticulationProbe()
 {
     s3g::AcapellaResonatorParams base;
+    base.independentOutputLevels = true;
     base.amount = 1.0f;
     base.mode = s3g::AcapellaResonatorMode::FilterBank;
     base.openLevel = 0.75f;
@@ -3346,6 +3347,7 @@ bool formantStereoAndArticulationProbe()
     }
 
     auto dryArticulation = base;
+    dryArticulation.amount = 0.0f;
     dryArticulation.openLevel = 0.0f;
     dryArticulation.mode = s3g::AcapellaResonatorMode::Vocoder;
     dryArticulation.externalCarrierMix = 0.0f;
@@ -3353,20 +3355,22 @@ bool formantStereoAndArticulationProbe()
     dryArticulation.sibilance = 0.0f;
     dryArticulation.articulationThru = 0.0f;
     const auto noThru = renderFormantMatrix(dryArticulation, 36000u,
-        false, false, FormantAnalysisSignal::Sibilant, 5920.0f,
-        s3g::AcapellaPhoneme::S);
+        false, false, FormantAnalysisSignal::Tone, 740.0f,
+        s3g::AcapellaPhoneme::AA);
     dryArticulation.articulationThru = 1.0f;
     const auto fullThru = renderFormantMatrix(dryArticulation, 36000u,
-        false, false, FormantAnalysisSignal::Sibilant, 5920.0f,
-        s3g::AcapellaPhoneme::S);
-    const double highNoThru = bandpassRms(noThru.left,
-        5920.0f, 2.0f, 4096u, 36000u);
-    const double highFullThru = bandpassRms(fullThru.left,
-        5920.0f, 2.0f, 4096u, 36000u);
+        false, false, FormantAnalysisSignal::Tone, 740.0f,
+        s3g::AcapellaPhoneme::AA);
+    const double noThruRms = rms(noThru.left, 4096u);
+    const double fullThruRms = rms(fullThru.left, 4096u);
+    const double fullThruLow = bandpassRms(fullThru.left,
+        740.0f, 2.0f, 4096u, 36000u);
     if (!noThru.finite || !fullThru.finite
-        || highFullThru < highNoThru * 1.5 || highFullThru < 0.001) {
-        std::cerr << "articulation-thru highpass was inaudible: "
-                  << highNoThru << '/' << highFullThru << '\n';
+        || noThruRms > 1.0e-7 || fullThruRms < 0.10
+        || fullThruLow < 0.05) {
+        std::cerr << "independent BANK/ART routing failed: "
+                  << noThruRms << '/' << fullThruRms
+                  << ", low band " << fullThruLow << '\n';
         return false;
     }
     return true;

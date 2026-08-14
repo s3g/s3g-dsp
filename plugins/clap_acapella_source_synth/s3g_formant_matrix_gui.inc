@@ -169,9 +169,7 @@ constexpr clap_id kFormantPhraseParams[]{
     kThroatParamId,          kRoughnessParamId,      kBrightnessParamId,
     kChestParamId,           kNasalParamId,          kPolyphonyParamId,
     kDoubleAmountParamId,    kDoubleDetuneParamId,   kDoubleTimingParamId,
-    kDoubleDirtParamId,      kDoubleWidthParamId,    kVibratoRateParamId,
-    kVibratoDepthParamId,    kPitchDriftParamId,     kGlideParamId,
-    kScoopParamId,           kDeclinationParamId,    kAttackParamId,
+    kDoubleDirtParamId,      kDoubleWidthParamId,    kAttackParamId,
     kReleaseParamId,         kRetriggerParamId,
 };
 
@@ -389,7 +387,7 @@ double formantScaleValueForMenuIndex(uint32_t menuIndex) {
 NSString *formantShortLabel(clap_id id) {
   switch (id) {
   case kBankAmountParamId:
-    return @"BANK MIX";
+    return @"BANK";
   case kBankModeParamId:
     return @"MODE";
   case kBandLayoutParamId:
@@ -477,7 +475,7 @@ NSString *formantShortLabel(clap_id id) {
   case kCouplingParamId:
     return @"COUPLE";
   case kArticulationThruParamId:
-    return @"ART THRU";
+    return @"ART";
   case kStereoModeParamId:
     return @"STEREO";
   case kModulatorSourceParamId:

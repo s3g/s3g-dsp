@@ -34,11 +34,12 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 26u;
+constexpr uint32_t kStateVersion = 27u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 1356u;
 constexpr uint32_t kGuiHeight = 968u;
 constexpr uint32_t kPhraseCapacity = 256u;
+constexpr float kAnalysisVoiceFrequencyHz = 146.83f;
 
 constexpr clap_id kPresetParamId = 1u;
 constexpr clap_id kDeliveryParamId = 2u;
@@ -272,7 +273,7 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
     { kEchoFlutterParamId, "Tape Flutter", "Tape Echo", 0.0, 1.0, 0.10, false },
     { kEchoToneParamId, "Echo Tone", "Tape Echo", -1.0, 1.0, -0.12, false },
     { kEchoSpreadParamId, "Head Spread", "Tape Echo", 0.0, 1.0, 0.58, false },
-    { kBankAmountParamId, "Bank Mix", "Filter Bank", 0.0, 1.0, 1.0, false },
+    { kBankAmountParamId, "Bank Level", "Output", 0.0, 1.0, 1.0, false },
     { kBankModeParamId, "Bank Mode", "Filter Bank", 0.0, 2.0, 0.0, true },
     { kCarrierShapeParamId, "Carrier Shape", "Carrier", 0.0, 4.0, 1.0, true },
     { kCarrierHarmonicsParamId, "Carrier Harmonics", "Carrier", 0.0, 1.0, 0.94, false },
@@ -303,7 +304,7 @@ constexpr std::array<ParamDef, kScalarParamCount> kScalarParamDefs {{
     { kUnvoicedTransitionParamId, "To Unvoiced", "Voiced / Unvoiced", 10.0, 250.0, 16.0, false },
     { kOpenLevelParamId, "Open Level", "Filter Bank", 0.0, 1.0, 0.0, false },
     { kCouplingParamId, "Band Coupling", "Routing", -3.0, 3.0, 0.0, true },
-    { kArticulationThruParamId, "Articulation Thru", "Analysis", 0.0, 1.0, 0.0, false },
+    { kArticulationThruParamId, "Articulation Level", "Output", 0.0, 1.0, 0.0, false },
     { kStereoModeParamId, "Stereo Pattern", "Filter Bank", 0.0, 2.0, 0.0, true },
     { kModulatorSourceParamId, "Modulator Source", "Modulator", 0.0, 2.0, 0.0, true },
     { kMicGainParamId, "Mic Gain", "Modulator", -24.0, 24.0, 0.0, false },
@@ -1180,10 +1181,14 @@ void syncAudioParams(Plugin& plugin, bool loadRouting = true)
     params.articulation = static_cast<float>(loadValue(plugin, kArticulationParamId));
     params.consonantStrength = static_cast<float>(loadValue(plugin, kConsonantParamId));
     params.intensity = static_cast<float>(loadValue(plugin, kIntensityParamId));
-    params.vibratoRateHz = static_cast<float>(loadValue(plugin, kVibratoRateParamId));
-    params.vibratoDepthCents = static_cast<float>(loadValue(plugin, kVibratoDepthParamId));
-    params.pitchDriftCents = static_cast<float>(loadValue(plugin, kPitchDriftParamId));
-    params.glideMs = static_cast<float>(loadValue(plugin, kGlideParamId));
+    // Formant Matrix uses the speech engine only as an analysis modulator.
+    // Keep its excitation at a stable neutral F0; the carrier has the sole
+    // audible pitch role. The retained parameter IDs remain state-compatible
+    // but are hidden and deliberately inert in this product.
+    params.vibratoRateHz = 5.2f;
+    params.vibratoDepthCents = 0.0f;
+    params.pitchDriftCents = 0.0f;
+    params.glideMs = 0.0f;
     params.attackMs = static_cast<float>(loadValue(plugin, kAttackParamId));
     params.releaseMs = static_cast<float>(loadValue(plugin, kReleaseParamId));
     params.hybridBlend = static_cast<float>(loadValue(plugin, kHybridBlendParamId));
@@ -1202,8 +1207,8 @@ void syncAudioParams(Plugin& plugin, bool loadRouting = true)
     params.gestureDivision = static_cast<s3g::AcapellaGestureDivision>(
         static_cast<uint32_t>(loadValue(plugin, kGestureDivisionParamId)));
     params.retriggerMs = static_cast<float>(loadValue(plugin, kRetriggerParamId));
-    params.onsetScoopSemitones = static_cast<float>(loadValue(plugin, kScoopParamId));
-    params.rapDeclinationSemitones = static_cast<float>(loadValue(plugin, kDeclinationParamId));
+    params.onsetScoopSemitones = 0.0f;
+    params.rapDeclinationSemitones = 0.0f;
     plugin.audioParams = s3g::sanitizeAcapellaSourceParams(params);
     plugin.vowel = static_cast<s3g::AcapellaVowel>(
         static_cast<uint32_t>(loadValue(plugin, kVowelParamId)));
@@ -1350,6 +1355,7 @@ void syncAudioParams(Plugin& plugin, bool loadRouting = true)
         plugin, kCouplingParamId)));
     effects.resonator.articulationThru = static_cast<float>(loadValue(plugin,
         kArticulationThruParamId));
+    effects.resonator.independentOutputLevels = true;
     effects.resonator.stereoMode = static_cast<
         decltype(effects.resonator.stereoMode)>(static_cast<uint32_t>(
             loadValue(plugin, kStereoModeParamId)));
@@ -1435,12 +1441,14 @@ void triggerVoice(Plugin& plugin, int16_t key, float velocity,
     // The large routing arrays are synchronized once per dirty process block.
     // A note edge only needs the scalar performance controls refreshed.
     syncAudioParams(plugin, false);
+    const float carrierFrequencyHz = midiFrequency(key);
     plugin.ensemble.trigger({
-        { plugin.vowel, plugin.onset, midiFrequency(key), velocity,
+        { plugin.vowel, plugin.onset, kAnalysisVoiceFrequencyHz, velocity,
             plugin.durationMs },
         audition ? -2 : noteId,
         channel,
         key,
+        carrierFrequencyHz,
     });
     plugin.auditionVoice = audition;
 }
@@ -1999,6 +2007,14 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     if (def.stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
+    if (def.id == kVibratoRateParamId
+        || def.id == kVibratoDepthParamId
+        || def.id == kPitchDriftParamId
+        || def.id == kGlideParamId
+        || def.id == kScoopParamId
+        || def.id == kDeclinationParamId) {
+        info->flags |= CLAP_PARAM_IS_HIDDEN;
+    }
     uint32_t band = 0u;
     bool sceneB = false;
     uint32_t destination = 0u;
@@ -2934,6 +2950,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         phrase.text[phrase.length] = '\0';
         if (!publishTextPhrase(*instance, phrase.text.data())) return false;
     } else if (header.version == 25u
+        || header.version == 26u
         || header.version == kStateVersion) {
         std::array<double, kSavedParamCount> values {};
         if (!s3g::clap_state::readAll(stream, values.data(),
@@ -4263,7 +4280,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "5.9.0",
+    "5.10.0",
     "Stereo vocoder and resonant filter matrix with external mic or built-in sample-free speech modulation, procedural MIDI carriers, polyphony, and text-to-phoneme scoring.",
     features
 };

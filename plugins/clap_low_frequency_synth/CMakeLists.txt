@@ -9,7 +9,7 @@ target_include_directories(s3g_low_frequency_synth_clap PRIVATE
 
 set_target_properties(s3g_low_frequency_synth_clap PROPERTIES
   PREFIX ""
-  OUTPUT_NAME "s3g_low_frequency_synth"
+  OUTPUT_NAME "s3g_processor_lf_synth"
 )
 
 if(APPLE)
@@ -21,8 +21,8 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.low-frequency-synth"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Low Frequency Synth"
-    MACOSX_BUNDLE_BUNDLE_VERSION "1.3.2"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "1.3.2"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor LF Synth"
+    MACOSX_BUNDLE_BUNDLE_VERSION "1.3.6"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "1.3.6"
   )
 endif()

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Stack - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Stack shared pedal, sagging amplifier, nonlinear speaker, microphone-feedback, power-chord, and crooked-lead instrument documentation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Stack</h1>
+
+        <p><code>s3g Processor Stack</code> is a stereo MIDI instrument in which pickup-viewed plucked strings drive one shared distortion pedal, sagging amplifier, nonlinear loudspeaker, two microphones, and a governed acoustic return. The strings supply scrape, twang, palm damping, and pitch articulation; the amp and speaker feedback circuit still supplies the instrument's weight, squelch, harmonic changes, and unstable sustain.</p>
+
+        <p>Version 0.3 adds click-safe arpeggio retriggers, an editable eight-step scale-degree pattern, and a self-listening upper feedback lane for precise piercing stabs. Every generated or played pitch still enters the same pedal and supply envelope before the speaker. Chord tones therefore intermodulate, compress one another, and compete for the loop's active harmonic rather than sounding like separately distorted synthesizer voices.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Processor Stack</code> on a stereo instrument track and send it MIDI notes.</li>
+          <li>Monitor the stereo output through speakers or headphones, begin with the <code>CROOKED STACK</code>, <code>BARE STACK</code>, or <code>ONE FINGER RIFF</code> preset, and keep the host track level conservative.</li>
+          <li>Select <code>POWER</code> for generated root/fifth/octave voicings, <code>HAND</code> for up to four played notes, or <code>LEAD</code> for last-note-priority monophonic lines.</li>
+          <li>Set <code>PICK</code>, <code>STRING</code>, and <code>DAMP</code> for attack hardness, pickup combing, string decay, and palm-like muting. At low String settings, the pick packet and speaker loop dominate.</li>
+          <li>Leave <code>PATTERN</code> at OFF for direct playing, select a built-in traversal rule, or choose CUSTOM and declare one to eight signed scale degrees with LENGTH and STEP 1–8. Try <code>DECLARED RIFF</code> as a starting point.</li>
+          <li>Choose a pedal <code>CIRCUIT</code>, then use <code>BITE</code>, <code>STACK</code>, <code>SAG</code>, and <code>CONE</code> to establish the distortion trajectory.</li>
+          <li>Raise <code>FEEDBACK</code> deliberately. Use <code>PROXIMITY</code>, <code>HARMONIC</code>, <code>TRACK</code>, and signed <code>POLARITY</code> to decide how the microphone return locks. Raise <code>PIERCE</code> and <code>SELF LISTEN</code> when low speaker modes are masking the upper stab; <code>FEEDBACK LANCE</code> demonstrates this regime.</li>
+          <li>Use <code>CROOKED</code> for interval-dependent hesitation, overshoot, repeated-note choke, and squawk. With the arpeggiator off it follows played intervals; with it on, every generated step provokes the same deterministic circuit response.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <pre><code>MIDI -&gt; SCALE / ARP RULE -&gt; PICK + PLUCKED STRING / PICKUP -&gt; SHARED PEDAL
+     -&gt; PREAMP / TONE -&gt; PUSH-PULL POWER + SHARED SAG
+     -&gt; NONLINEAR FOUR-MODE SPEAKER -&gt; MIC A / MIC B + ROOM -&gt; OUTPUT
+                                      |
+                                      +-&gt; DELAY / DC BLOCK / GOVERNOR
+                                          -&gt; PEDAL INPUT</code></pre>
+
+        <ol>
+          <li>The optional tempo arpeggiator maps the latest held key through a scale and movement rule; POWER, HAND, or LEAD allocation then populates as many as four plucked-string lanes.</li>
+          <li>The lanes sum before one stateful pedal, preamp, tone path, push-pull power transfer, and shared supply-sag envelope.</li>
+          <li>The power signal excites four lossy speaker modes plus displacement-dependent cone limiting and breakup.</li>
+          <li>Two microphone views form the stereo output; their selected combination enters a smoothed, DC-blocked, filtered, and governed delay return.</li>
+          <li>The return rejoins the exciter sum before the pedal, while linked peak containment operates only at the final output.</li>
+        </ol>
+
+        <p>The feedback tap follows speaker distortion. Speaker displacement, breakup, voice-coil compression, cabinet modes, and microphone phase therefore change the regenerated signal itself. Moving the return ahead of the speaker would reduce the design to a distortion pedal followed by a resonant delay and is intentionally not offered.</p>
+
+        <p>The pedal, amplifier, sag envelope, and main speaker displacement are shared and centered. Stereo begins with two meaningful microphone views: a stable central tap and an off-axis tap mixed with a short room reflection. Difference energy is restrained at low frequencies so power-chord roots remain useful in mono.</p>
+
+        <h2 id="performance">MIDI and Performance</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>POWER</td><td>One MIDI note populates root, fifth, and octave exciters. Shape moves from root/fifth toward a denser and more inverted voicing.</td></tr>
+            <tr><td>HAND</td><td>Up to four played notes enter the same stack. Voice stealing damps the oldest available exciter without resetting pedal, amp, speaker, or feedback state.</td></tr>
+            <tr><td>LEAD</td><td>Monophonic last-note priority with held-note restoration and legato retuning of the existing circuit.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>CROOKED</code> responds to played intervals. Repeated notes choke and re-strike the speaker; seconds and tritones disturb the preferred loop harmonic; fourths, fifths, and octaves acquire it more directly; wide leaps overshoot before settling; and descending legato motion retains the previous attraction longer than ascending motion. The response is deterministic from the note sequence and velocity.</p>
+
+        <p>The arpeggiator is deterministic. <code>UP</code>, <code>DOWN</code>, and <code>PENDULUM</code> traverse the selected scale; <code>PEDAL</code> alternates the root with a rising scale position; <code>SCRAMBLE</code> uses a fixed irregular stride. <code>CUSTOM</code> reads STEP 1–8 up to LENGTH. These are signed scale degrees, not semitones: zero is the played root, positive values ascend through the chosen rule, and negative values address degrees below it. Scale rules are CHROMATIC, PHRYGIAN, HARM MIN, DIMINISHED, and TRITONE. Rates run from 1/8 through 1/64, including eighth- and sixteenth-note triplets, using host tempo when supplied and 120 BPM otherwise. OCTAVES applies to built-in traversals and GATE controls how much of each step holds the string against the still-shared feedback circuit.</p>
+
+        <p>Pick attacks now rise through a short sub-millisecond slew, pickup velocity is bounded and band-limited while a string retunes, and repeated-note speaker choking follows a smoothed target. These transitions preserve hard articulation without one-sample discontinuities that read as digital clicks.</p>
+
+        <p>Pitch bend moves the exciters before the microphone loop completely catches up, so bends pull against feedback. CLAP pressure, MIDI channel pressure, and polyphonic aftertouch increase speaker stress and microphone return. <code>MIDI RECEIVE</code> selects OMNI or channels 1–16.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Play</td><td>Mode / Shape / String / Pick / Damp / Glide / Crooked / Spill</td><td>Defines voicing, pickup-viewed plucked-string amount, attack, pitch gesture, interval response, and release inheritance.</td></tr>
+            <tr><td>Arpeggiator</td><td>Pattern / Scale Rule / Rate / Octaves / Gate / Length / Step 1–8</td><td>Generates built-in or explicitly declared host-tempo scale-degree cells before POWER, HAND, or LEAD voicing enters the shared stack.</td></tr>
+            <tr><td>Pedal</td><td>Circuit / Bite / Tone / Bias</td><td>Selects SHRED, WOOL, RAT, ZONE A/B, FUZZ I/II, or DIODE and controls how that transfer provokes the shared stack.</td></tr>
+            <tr><td>Amplifier / Speaker</td><td>Stack / Sag / Focus / Cone / Cab / Mic</td><td>Controls preamp and power arrival, shared supply recovery, tone emphasis, speaker displacement and breakup, cabinet modes, and the two-mic view.</td></tr>
+            <tr><td>Mic Feedback Loop</td><td>Feedback / Proximity / Harmonic / Track / Polarity / Root / Chaos / Pierce / Self Listen</td><td>Sets return gain and tuning, signed reinforcement, root witness, speaker competition, the upper-stab share, and adaptive spectral self-governance.</td></tr>
+            <tr><td>Output</td><td>Out</td><td>Final stereo trim after linked peak containment.</td></tr>
+            <tr><td>Routing</td><td>MIDI Receive</td><td>Selects OMNI or a specific MIDI channel.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>CROOKED</code> and <code>CHAOS</code> have separate jobs. Crooked changes how performed intervals retune and strike the system. Chaos increases competition among speaker modes and microphone paths; it does not randomize pitch or compose phrases.</p>
+
+        <h2 id="feedback-safety">Feedback and Safety</h2>
+
+        <p>The microphone return uses fractional delay interpolation, smoothed delay retuning, DC blocking, nonlinear storage, and two bounded lanes. BODY is a broad high-passed speaker return. STAB uses a shorter note-related delay and a narrow state-variable band around a selected upper partial. Independent energy followers and governors keep either lane from monopolizing the loop. <code>SELF LISTEN</code> compares their measured spectral share with the target established by <code>PIERCE</code>; when the upper lane is masked it attenuates BODY and raises STAB inside their separate limits. A final whole-loop governor remains after this spectral negotiation.</p>
+
+        <p><code>SPILL</code> lengthens the held-note gate's release so a new note can inherit the previous speaker state. Measured loop activity cannot reopen that gate. After the final note, the requested return must fall below unity and drain to numerical silence; version 0.2 has no indefinite hold mode.</p>
+
+        <p>A linked stereo ceiling catches pathological current-sample peaks. It is a final safeguard rather than the source of feedback regulation. The circuit remains active internally while an audible tail exists and reports a parameter-dependent CLAP tail to the host.</p>
+
+        <h2 id="presets">Factory Presets and State</h2>
+
+        <p>The eighteen presets are Crooked Stack, Bare Stack, One Finger Riff, Janky Jab, Speaker Cough, Pinched Wire, Brownout Fifth, Room Fight, Welded Chord, Howl on Pressure, Amp Left On, Broken Combo, Phrygian Barrage, Diminished Rake, Pedal Tone Panic, Tritone Scramble, Declared Riff, and Feedback Lance. Presets use only the public parameter surface; MIDI Receive is left unchanged. Randomization keeps gain, feedback, spill, gate, spectral focus, and output inside deliberately bounded ranges.</p>
+
+        <p>Version 0.3 stores 43 CLAP parameters. Version 0.2's 32-parameter and version 0.1's 27-parameter states load with safe defaults for the newly introduced controls. Circuit, voicing, and arpeggiator selections are stepped; continuous controls are smoothed. Circuit changes crossfade stateful transfers over 20 ms. Storage is allocated during prepare, with no allocation, locking, file access, or unbounded iteration in audio processing.</p>
+
+        <h2 id="implementation">Implementation Notes</h2>
+
+        <p>Four exciter lanes provide an alternating-direction, velocity-shaped pick packet into a fractional-delay string with damping, slight dispersion, nonlinear bridge loss, and a position-dependent pickup comb. A weak transient pitch witness helps the attack, but held tone and decay come from the recirculating string rather than a sustained oscillator bank. The lane sum enters one pedal and amplifier. The power stage is evaluated at 2x rate around its nonlinear path. Four lossy speaker modes cover low resonance through breakup; displacement moves the lowest mode slightly, while cone limiting and a shared voice-coil envelope provide dynamic compression.</p>
+
+        <p>The eight pedal families reuse the repository's clean-room analog-drive transfers. The return's delay/governor grammar is derived from the bounded feedback work in Processor LF Synth, but its protected low crossover and two independent loops are not reused. Processor Stack instead puts the shared nonlinear speaker and microphone signal inside one central feedback system.</p>
+
+        <p>The complete design rationale, product boundary, prototype order, and listening tests remain in <a href="processor-stack-concept.md">Processor Stack design and implementation notes</a>.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>Processor Stack is a reduced-order musical circuit, not a component-exact model of a named pedal, amplifier, driver, cabinet, microphone, room, guitar, or guitarist. Its string branch is a compact waveguide rather than a six-string physical reconstruction, and its cabinet modes are not an impulse response. The instrument draws on general power-chord, angular-interval, extreme-metal scalar, feedback-riding, and damaged-amplifier practices without containing recorded material, transcribed phrases, or a replica of a particular performer's tone.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="low-frequency-synth.html"><span>Previous</span>Processor LF Synth</a>
+          <a class="page-nav-link next" href="processor-feedback-shift.html"><span>Next</span>Processor Feedback Shift</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="low-frequency-synth.html">Processor LF Synth</a>
+          <a href="processor-stack.html">Processor Stack</a>
+          <a href="s3g-tracker.html">s3g Tracker</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#performance">MIDI and Performance</a>
+          <a href="#controls">Controls</a>
+          <a href="#feedback-safety">Feedback and Safety</a>
+          <a href="#presets">Factory Presets and State</a>
+          <a href="#implementation">Implementation Notes</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

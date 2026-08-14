@@ -123,6 +123,7 @@ struct LowFrequencySynthParams {
     float amplitudeMotionPosition = 1.0f;
     float shred = 0.0f;
     float shredFeedback = 0.0f;
+    float shredFeedbackToneLevel = 1.0f;
     float shredCircuit = 0.0f;
     float shredColor = 0.55f;
     float shredMix = 0.0f;
@@ -159,23 +160,25 @@ public:
 
     void reset()
     {
-        modes_.fill({});
-        currentFrequencyHz_ = 55.0f;
-        targetFrequencyHz_ = 55.0f;
-        envelope_ = 0.0f;
-        releaseStep_ = 0.0f;
-        pitchTransientEnvelope_ = 0.0f;
-        pendingExcitation_ = 0.0f;
+        for (auto& lane : lanes_) resetLane(lane);
+        activeLaneIndex_ = 0u;
+        fadingLaneIndex_ = 1u;
+        handoffActive_ = false;
+        handoffPosition_ = 0u;
+        handoffFrames_ = 1u;
+        continuityPending_ = false;
+        continuityPosition_ = 0u;
+        continuityFrames_ = 1u;
+        continuityLeft_ = 0.0f;
+        continuityRight_ = 0.0f;
+        lastOutputLeft_ = 0.0f;
+        lastOutputRight_ = 0.0f;
         declickGain_ = 0.0f;
         signalStateCleared_ = true;
         pressure_ = 0.0f;
-        noteVelocity_ = 1.0f;
-        sideLow_ = 0.0f;
         dcLowLeft_ = 0.0f;
         dcLowRight_ = 0.0f;
         limiterGain_ = 1.0f;
-        filterStages_.fill(0.0f);
-        sideFilterStages_.fill(0.0f);
         filterCutoffLog2_ = std::log2(params_.filterCutoffHz);
         effectiveFilterCutoffHz_ = params_.filterCutoffHz;
         resonanceSmoothed_ = params_.filterResonance;
@@ -188,11 +191,7 @@ public:
         amplitudeMotionPostMixSmoothed_ = params_.amplitudeMotionPosition;
         externalAmplitudeMotionActive_ = false;
         externalAmplitudeMotionPhase_ = 0.0f;
-        previousFilterInput_ = 0.0f;
-        previousFilterSideInput_ = 0.0f;
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
-        stage_ = EnvelopeStage::Idle;
-        gate_ = false;
         amplifier_.reset();
         bassShred_.setParams(bassShredParams());
         bassShred_.reset();
@@ -204,9 +203,13 @@ public:
         params_ = sanitize(params);
         amplifier_.setParams(amplifierParams());
         bassShred_.setParams(bassShredParams());
-        targetFrequencyHz_ = midiFrequency(currentMidiNote_);
-        if (stage_ == EnvelopeStage::Idle) {
-            currentFrequencyHz_ = targetFrequencyHz_;
+        for (auto& lane : lanes_) {
+            lane.targetFrequencyHz = midiFrequency(lane.midiNote);
+            if (lane.stage == EnvelopeStage::Idle) {
+                lane.currentFrequencyHz = lane.targetFrequencyHz;
+            }
+        }
+        if (!lanesActive()) {
             smoothedOutputGain_ = dbToGain(params_.outputGainDb);
             filterCutoffLog2_ = std::log2(params_.filterCutoffHz);
             effectiveFilterCutoffHz_ = params_.filterCutoffHz;
@@ -226,40 +229,22 @@ public:
     {
         midiNote = std::clamp(midiNote, 0, 127);
         velocity = finiteClamp(velocity, 1.0f, 0.0f, 1.0f);
-        const bool wasActive = stage_ != EnvelopeStage::Idle;
-        currentMidiNote_ = midiNote;
-        targetFrequencyHz_ = midiFrequency(midiNote);
-        if (!wasActive || params_.glideMs <= 0.01f) {
-            currentFrequencyHz_ = targetFrequencyHz_;
+        auto& current = lanes_[activeLaneIndex_];
+        const bool wasActive = current.stage != EnvelopeStage::Idle;
+        if (wasActive || bassShred_.feedbackActivity() > 2.0e-4f) {
+            bassShred_.interruptFeedback();
         }
-        noteVelocity_ = velocity;
-        gate_ = true;
-        if (!legato || !wasActive) {
-            stage_ = EnvelopeStage::Attack;
-            pitchTransientEnvelope_ = 1.0f;
-            pendingExcitation_ = std::max(pendingExcitation_,
-                lerp(0.22f, velocity * velocity, 0.82f));
-            if (!wasActive) {
-                for (auto& mode : modes_) mode.phase = 0.0;
-            }
-            if (!externalAmplitudeMotionActive_) {
-                amplitudeMotionPhase_ = 0.0f;
-            }
-        } else if (stage_ == EnvelopeStage::Release) {
-            stage_ = EnvelopeStage::Attack;
+        if (!legato && wasActive) {
+            beginHandoff(midiNote, velocity);
+        } else {
+            triggerLane(current, midiNote, velocity, legato);
         }
         signalStateCleared_ = false;
     }
 
     void noteOff()
     {
-        if (!gate_ && stage_ == EnvelopeStage::Idle) return;
-        gate_ = false;
-        if (stage_ != EnvelopeStage::Idle) {
-            stage_ = EnvelopeStage::Release;
-            releaseStep_ = envelope_ / static_cast<float>(std::max(
-                1.0, params_.releaseSeconds * sampleRate_));
-        }
+        releaseLane(lanes_[activeLaneIndex_]);
     }
 
     void setPressure(float pressure)
@@ -282,10 +267,11 @@ public:
 
     void processFrame(float& left, float& right)
     {
-        updateEnvelope();
-        const bool envelopeActive = stage_ != EnvelopeStage::Idle;
+        for (auto& lane : lanes_) updateEnvelope(lane);
+        const bool envelopeActive = lanesActive();
         const bool shredTailActive = params_.shredMix > 1.0e-5f
             && params_.shredFeedback > 1.0e-5f
+            && params_.shredFeedbackToneLevel > 1.0e-5f
             && bassShred_.feedbackActivity() > 2.0e-4f;
         const float declickTarget = envelopeActive || shredTailActive
             ? 1.0f : 0.0f;
@@ -301,137 +287,39 @@ public:
             }
             left = 0.0f;
             right = 0.0f;
+            lastOutputLeft_ = 0.0f;
+            lastOutputRight_ = 0.0f;
             return;
         }
         signalStateCleared_ = false;
-        updateFrequency();
-        const float frequency = effectiveFundamentalFrequency();
-        const float pressureInfluence = pressure_
-            * params_.pressureSensitivity;
-        const float driveEnergy = std::clamp(noteVelocity_
-            + pressureInfluence * 0.55f, 0.0f, 1.35f);
-        // Preserve Membrane Kick's one-point force law, but distribute the
-        // strike over a short packet so a keyboard retrigger remains clean.
-        const float excitation = pendingExcitation_
-            * onsetExcitationCoefficient_;
-        pendingExcitation_ = std::max(0.0f,
-            pendingExcitation_ - excitation);
-        if (pendingExcitation_ < 1.0e-7f) pendingExcitation_ = 0.0f;
-
-        std::array<float, kModeCount> modalSamples {};
-        for (uint32_t index = 0u; index < kModeCount; ++index) {
-            auto& mode = modes_[index];
-            const float ratio = modeRatio(index);
-            const float modeFrequency = std::clamp(frequency * ratio,
-                8.0f, static_cast<float>(sampleRate_ * 0.43));
-            mode.phase += 2.0 * static_cast<double>(kPi)
-                * static_cast<double>(modeFrequency) / sampleRate_;
-            if (mode.phase >= 2.0 * static_cast<double>(kPi)) {
-                mode.phase -= 2.0 * static_cast<double>(kPi)
-                    * std::floor(mode.phase
-                        / (2.0 * static_cast<double>(kPi)));
+        updateSynthesisSmoothing();
+        float frameLeft = 0.0f;
+        float frameRight = 0.0f;
+        float frequency = renderModalLane(lanes_[activeLaneIndex_],
+            frameLeft, frameRight);
+        if (handoffActive_) {
+            float fadingLeft = 0.0f;
+            float fadingRight = 0.0f;
+            (void)renderModalLane(lanes_[fadingLaneIndex_],
+                fadingLeft, fadingRight);
+            const float progress = static_cast<float>(handoffPosition_)
+                / static_cast<float>(std::max<uint32_t>(1u,
+                    handoffFrames_));
+            const float newGain = 0.5f - 0.5f
+                * std::cos(std::clamp(progress, 0.0f, 1.0f) * kPi);
+            const float oldGain = 1.0f - newGain;
+            frameLeft = fadingLeft * oldGain + frameLeft * newGain;
+            frameRight = fadingRight * oldGain + frameRight * newGain;
+            if (++handoffPosition_ >= handoffFrames_) {
+                resetLane(lanes_[fadingLaneIndex_]);
+                handoffActive_ = false;
+                handoffPosition_ = 0u;
             }
-
-            const float highMode = std::max(0.0f, ratio - 1.0f);
-            const float shape = excitationShape(index,
-                params_.excitationPosition);
-            const float spectralFalloff = 1.0f / std::pow(
-                std::max(1.0f, ratio), 1.12f + params_.damping * 0.72f);
-            const float upperLevel = index == 0u ? 1.0f
-                : lerp(0.14f, 1.0f, params_.upperModeLevel);
-            const float centerWeight = index == 0u
-                ? 1.0f + params_.fundamental * 0.86f
-                : 0.42f + std::fabs(shape) * 0.72f;
-            const float signedShape = index == 0u ? 1.0f : shape;
-            mode.strikeAmplitude = std::clamp(mode.strikeAmplitude
-                + excitation * spectralFalloff * centerWeight
-                    * signedShape * upperLevel * 0.92f, -2.0f, 2.0f);
-
-            const float decaySeconds = lerp(3.2f, 0.20f, params_.damping)
-                / (1.0f + highMode
-                    * (0.10f + params_.damping * 1.34f));
-            mode.strikeAmplitude *= static_cast<float>(std::exp(-1.0
-                / std::max(1.0, decaySeconds * sampleRate_)));
-            if (std::fabs(mode.strikeAmplitude) < 1.0e-9f) {
-                mode.strikeAmplitude = 0.0f;
-            }
-
-            const float sustainTarget = gate_
-                ? driveEnergy * spectralFalloff * signedShape
-                    * upperLevel * (index == 0u ? 0.74f : 0.52f)
-                : 0.0f;
-            const float sustainSeconds = std::fabs(sustainTarget)
-                    > std::fabs(mode.sustainAmplitude)
-                ? 0.018f : 0.095f;
-            mode.sustainAmplitude += (sustainTarget
-                - mode.sustainAmplitude) * onePoleCoefficient(sustainSeconds);
-            const float amplitude = std::clamp(mode.strikeAmplitude
-                + mode.sustainAmplitude, -2.2f, 2.2f);
-            modalSamples[index] = std::sin(mode.phase) * amplitude;
         }
 
-        // Fold the same sixteen physical surface pickups used by Membrane
-        // Kick. Saturation is local to each patch, before stereo summation.
-        float rawLeft = 0.0f;
-        float rawRight = 0.0f;
-        const float localDrive = 1.0f + driveSmoothed_ * 7.0f;
-        const float driveNormalization = std::max(0.25f,
-            std::tanh(localDrive));
-        constexpr float pickupNormalization = 0.055f;
-        for (uint32_t patch = 0u; patch < kSurfacePatchCount; ++patch) {
-            float patchSample = modalSamples[0u] * 0.18f;
-            for (uint32_t mode = 1u; mode < kModeCount; ++mode) {
-                patchSample += modalSamples[mode]
-                    * surfaceModeShapes_[patch][mode];
-            }
-            patchSample = std::tanh(patchSample * localDrive)
-                / driveNormalization;
-            rawLeft += patchSample * surfacePanGains_[patch][0u]
-                * pickupNormalization;
-            rawRight += patchSample * surfacePanGains_[patch][1u]
-                * pickupNormalization;
-        }
-
-        const float bodyMid = (rawLeft + rawRight) * 0.5f
-            * params_.body;
-        const float bodySide = (rawLeft - rawRight) * 0.5f
-            * params_.body;
-        const float dryMid = bodyMid;
-        float processedMid = dryMid;
-        float processedSide = bodySide;
-        processFilterAndDrive(processedMid, processedSide);
-        const float mixedMid = lerp(dryMid, processedMid,
-            processedMixSmoothed_);
-        const float mixedSide = lerp(bodySide, processedSide,
-            processedMixSmoothed_);
-        sideLow_ += (mixedSide - sideLow_) * sideLowCoefficient_;
-        const float protectedSide = mixedSide - sideLow_;
-        const float velocityGain = lerp(1.0f,
-            0.28f + noteVelocity_ * 0.72f, params_.velocitySensitivity);
-        // The protected foundation is the first membrane mode itself. A small
-        // waveform reinforcement follows that mode's phase and amplitude only
-        // below the most audible bass range; there is no separate oscillator.
-        const float bassSupport = std::clamp(
-            std::log2(150.0f / std::max(20.0f, frequency)) * 0.55f,
-            0.0f, 1.0f);
-        const float membranePhase = static_cast<float>(modes_[0u].phase);
-        const float membraneAmplitude = std::clamp(
-            modes_[0u].strikeAmplitude + modes_[0u].sustainAmplitude,
-            -2.2f, 2.2f);
-        const float fundamentalWave = std::sin(membranePhase);
-        const float secondHarmonic = std::sin(membranePhase * 2.0f);
-        const float thirdHarmonic = std::sin(membranePhase * 3.0f);
-        const float sub = params_.fundamental * membraneAmplitude
-            * (fundamentalWave + bassSupport
-                * (secondHarmonic * 0.11f
-                    * partialBandLimit(frequency, 2.0f)
-                    + thirdHarmonic * 0.040f
-                    * partialBandLimit(frequency, 3.0f))) * 0.72f;
-        const float side = protectedSide * params_.stereoWidth;
-        float frameLeft = (sub + mixedMid + side)
-            * envelope_ * velocityGain;
-        float frameRight = (sub + mixedMid - side)
-            * envelope_ * velocityGain;
+        // Both modal lanes meet before the stateful post chain. The amp and
+        // Shred feedback therefore remain one continuous circuit instead of
+        // becoming a temporarily polyphonic pair of nonlinear processors.
         amplifier_.processStereo(frameLeft, frameRight);
         const float amplitudeGain = updateAmplitudeMotion();
         amplitudeMotionPostMixSmoothed_ +=
@@ -477,6 +365,42 @@ public:
         left = safeOutput(frameLeft * limiterGain_);
         right = safeOutput(frameRight * limiterGain_);
 
+        // Extremely dense retriggers can reuse the fading lane before its
+        // window finishes. Preserve exact output continuity in that bounded
+        // case, then remove the residual with a short raised-cosine ramp.
+        const bool transitionGuardActive = handoffActive_
+            || continuityPending_
+            || continuityPosition_ < continuityFrames_;
+        if (continuityPending_) {
+            continuityFrames_ = std::max<uint32_t>(16u,
+                static_cast<uint32_t>(sampleRate_ * 0.0025));
+            continuityPosition_ = 0u;
+            continuityLeft_ = lastOutputLeft_ - left;
+            continuityRight_ = lastOutputRight_ - right;
+            continuityPending_ = false;
+        }
+        if (continuityPosition_ < continuityFrames_) {
+            const float progress = static_cast<float>(continuityPosition_)
+                / static_cast<float>(std::max<uint32_t>(1u,
+                    continuityFrames_ - 1u));
+            const float correctionGain = 0.5f + 0.5f
+                * std::cos(std::clamp(progress, 0.0f, 1.0f) * kPi);
+            left = safeOutput(left + continuityLeft_ * correctionGain);
+            right = safeOutput(right + continuityRight_ * correctionGain);
+            ++continuityPosition_;
+        }
+        if (transitionGuardActive) {
+            constexpr float maximumHandoffStep = 0.040f;
+            left = lastOutputLeft_ + std::clamp(left - lastOutputLeft_,
+                -maximumHandoffStep, maximumHandoffStep);
+            right = lastOutputRight_ + std::clamp(right - lastOutputRight_,
+                -maximumHandoffStep, maximumHandoffStep);
+        }
+        left = std::clamp(left, -0.94f, 0.94f);
+        right = std::clamp(right, -0.94f, 0.94f);
+        lastOutputLeft_ = left;
+        lastOutputRight_ = right;
+
     }
 
     void processBlock(float* left, float* right, uint32_t frames)
@@ -492,11 +416,14 @@ public:
 
     bool active() const
     {
-        return stage_ != EnvelopeStage::Idle || declickGain_ > 1.0e-4f;
+        return lanesActive() || declickGain_ > 1.0e-4f;
     }
-    bool gate() const { return gate_; }
-    float envelope() const { return envelope_; }
-    float currentFrequencyHz() const { return currentFrequencyHz_; }
+    bool gate() const { return lanes_[activeLaneIndex_].gate; }
+    float envelope() const { return lanes_[activeLaneIndex_].envelope; }
+    float currentFrequencyHz() const
+    {
+        return lanes_[activeLaneIndex_].currentFrequencyHz;
+    }
     float effectiveFilterCutoffHz() const
     {
         return effectiveFilterCutoffHz_;
@@ -539,6 +466,26 @@ private:
         double phase = 0.0;
         float strikeAmplitude = 0.0f;
         float sustainAmplitude = 0.0f;
+    };
+
+    struct ModalLane {
+        std::array<ModeState, kModeCount> modes {};
+        std::array<float, 2u> filterStages {};
+        std::array<float, 2u> sideFilterStages {};
+        float currentFrequencyHz = 55.0f;
+        float targetFrequencyHz = 55.0f;
+        float envelope = 0.0f;
+        float releaseStep = 0.0f;
+        float pitchTransientEnvelope = 0.0f;
+        float pendingExcitation = 0.0f;
+        float velocity = 1.0f;
+        float velocityTarget = 1.0f;
+        float sideLow = 0.0f;
+        float previousFilterInput = 0.0f;
+        float previousFilterSideInput = 0.0f;
+        int midiNote = 33;
+        EnvelopeStage stage = EnvelopeStage::Idle;
+        bool gate = false;
     };
 
     static float finiteClamp(float value, float fallback,
@@ -612,6 +559,8 @@ private:
         p.shred = finiteClamp(p.shred, 0.0f, 0.0f, 1.0f);
         p.shredFeedback = finiteClamp(
             p.shredFeedback, 0.0f, 0.0f, 1.0f);
+        p.shredFeedbackToneLevel = finiteClamp(
+            p.shredFeedbackToneLevel, 1.0f, 0.0f, 1.0f);
         p.shredCircuit = std::round(finiteClamp(
             p.shredCircuit, 0.0f, 0.0f,
             static_cast<float>(kBassShredCircuitCount - 1u)));
@@ -640,6 +589,7 @@ private:
         BassShredParams p;
         p.shred = params_.shred;
         p.feedback = params_.shredFeedback;
+        p.feedbackToneLevel = params_.shredFeedbackToneLevel;
         p.color = params_.shredColor;
         p.mix = params_.shredMix;
         p.circuit = static_cast<BassShredCircuit>(
@@ -682,19 +632,100 @@ private:
             1.0, static_cast<double>(seconds) * sampleRate_)));
     }
 
-    void updateEnvelope()
+    bool lanesActive() const
     {
-        switch (stage_) {
+        return lanes_[0u].stage != EnvelopeStage::Idle
+            || lanes_[1u].stage != EnvelopeStage::Idle;
+    }
+
+    void resetLane(ModalLane& lane)
+    {
+        lane = {};
+        lane.midiNote = 33;
+        lane.currentFrequencyHz = midiFrequency(lane.midiNote);
+        lane.targetFrequencyHz = lane.currentFrequencyHz;
+    }
+
+    void releaseLane(ModalLane& lane)
+    {
+        if (!lane.gate && lane.stage == EnvelopeStage::Idle) return;
+        lane.gate = false;
+        if (lane.stage != EnvelopeStage::Idle) {
+            lane.stage = EnvelopeStage::Release;
+            lane.releaseStep = lane.envelope
+                / static_cast<float>(std::max(
+                    1.0, params_.releaseSeconds * sampleRate_));
+        }
+    }
+
+    void triggerLane(ModalLane& lane, int midiNote, float velocity,
+        bool legato)
+    {
+        const bool wasActive = lane.stage != EnvelopeStage::Idle;
+        lane.midiNote = midiNote;
+        lane.targetFrequencyHz = midiFrequency(midiNote);
+        if (!wasActive || params_.glideMs <= 0.01f) {
+            lane.currentFrequencyHz = lane.targetFrequencyHz;
+        }
+        lane.velocityTarget = velocity;
+        if (!wasActive) lane.velocity = velocity;
+        lane.gate = true;
+        if (!legato || !wasActive) {
+            lane.stage = EnvelopeStage::Attack;
+            lane.pitchTransientEnvelope = 1.0f;
+            // ATTACK shapes the physical gesture as well as the output VCA.
+            // Without this coupling a slow VCA merely concealed the 1.5 ms
+            // force packet while it loaded the membrane, then revealed the
+            // stored impact as the envelope opened. Keep sub-millisecond
+            // plucks intact and progressively replace the impulse with the
+            // continuous modal drive as Attack becomes slower.
+            const float velocityStrike = velocity
+                * lerp(0.20f, velocity, 0.80f);
+            lane.pendingExcitation = std::max(lane.pendingExcitation,
+                velocityStrike * membraneStrikeGainForAttack());
+            if (!wasActive) {
+                for (auto& mode : lane.modes) mode.phase = 0.0;
+            }
+            if (!externalAmplitudeMotionActive_) {
+                amplitudeMotionPhase_ = 0.0f;
+            }
+        } else if (lane.stage == EnvelopeStage::Release) {
+            lane.stage = EnvelopeStage::Attack;
+        }
+    }
+
+    void beginHandoff(int midiNote, float velocity)
+    {
+        const uint32_t oldLane = activeLaneIndex_;
+        const uint32_t newLane = 1u - oldLane;
+        // If another event arrives inside the short overlap, reusing the older
+        // fading lane is unavoidable with two fixed lanes. The post-output
+        // continuity residual below makes that bounded steal click-free.
+        continuityPending_ = true;
+        releaseLane(lanes_[oldLane]);
+        resetLane(lanes_[newLane]);
+        activeLaneIndex_ = newLane;
+        fadingLaneIndex_ = oldLane;
+        handoffFrames_ = std::max<uint32_t>(32u,
+            static_cast<uint32_t>(sampleRate_ * 0.008));
+        handoffPosition_ = 0u;
+        handoffActive_ = true;
+        triggerLane(lanes_[activeLaneIndex_], midiNote, velocity, false);
+    }
+
+    void updateEnvelope(ModalLane& lane)
+    {
+        switch (lane.stage) {
         case EnvelopeStage::Idle:
-            envelope_ = 0.0f;
+            lane.envelope = 0.0f;
             break;
         case EnvelopeStage::Attack: {
             const float step = 1.0f / static_cast<float>(std::max(
                 1.0, params_.attackSeconds * sampleRate_));
-            envelope_ += step;
-            if (envelope_ >= 1.0f) {
-                envelope_ = 1.0f;
-                stage_ = EnvelopeStage::Decay;
+            lane.envelope += step;
+            if (lane.envelope >= 1.0f) {
+                lane.envelope = 1.0f;
+                lane.stage = EnvelopeStage::Decay;
             }
             break;
         }
@@ -702,51 +733,60 @@ private:
             const float step = (1.0f - params_.sustain)
                 / static_cast<float>(std::max(
                     1.0, params_.decaySeconds * sampleRate_));
-            envelope_ -= step;
-            if (envelope_ <= params_.sustain) {
-                envelope_ = params_.sustain;
-                stage_ = EnvelopeStage::Sustain;
+            lane.envelope -= step;
+            if (lane.envelope <= params_.sustain) {
+                lane.envelope = params_.sustain;
+                lane.stage = EnvelopeStage::Sustain;
             }
             break;
         }
         case EnvelopeStage::Sustain:
-            envelope_ = params_.sustain;
-            if (!gate_) stage_ = EnvelopeStage::Release;
+            lane.envelope = params_.sustain;
+            if (!lane.gate) lane.stage = EnvelopeStage::Release;
             break;
         case EnvelopeStage::Release:
-            envelope_ = std::max(0.0f, envelope_ - releaseStep_);
-            if (envelope_ <= 1.0e-5f) {
-                envelope_ = 0.0f;
-                stage_ = EnvelopeStage::Idle;
+            lane.envelope = std::max(
+                0.0f, lane.envelope - lane.releaseStep);
+            if (lane.envelope <= 1.0e-5f) {
+                lane.envelope = 0.0f;
+                lane.stage = EnvelopeStage::Idle;
             }
             break;
         }
     }
 
-    void updateFrequency()
+    void updateFrequency(ModalLane& lane)
     {
-        if (params_.glideMs <= 0.01f || stage_ == EnvelopeStage::Idle) {
-            currentFrequencyHz_ = targetFrequencyHz_;
+        if (params_.glideMs <= 0.01f
+            || lane.stage == EnvelopeStage::Idle) {
+            lane.currentFrequencyHz = lane.targetFrequencyHz;
         } else {
             const float coefficient = 1.0f - static_cast<float>(std::exp(
                 -1.0 / std::max(1.0,
                     params_.glideMs * 0.001 * sampleRate_)));
-            currentFrequencyHz_ += (targetFrequencyHz_ - currentFrequencyHz_)
-                * coefficient;
+            lane.currentFrequencyHz += (lane.targetFrequencyHz
+                - lane.currentFrequencyHz) * coefficient;
         }
-        pitchTransientEnvelope_ *= static_cast<float>(std::exp(
+        lane.pitchTransientEnvelope *= static_cast<float>(std::exp(
             -1.0 / std::max(1.0,
                 params_.pitchTransientMs * 0.001 * sampleRate_)));
-        if (pitchTransientEnvelope_ < 1.0e-7f) {
-            pitchTransientEnvelope_ = 0.0f;
+        if (lane.pitchTransientEnvelope < 1.0e-7f) {
+            lane.pitchTransientEnvelope = 0.0f;
         }
     }
 
-    float effectiveFundamentalFrequency() const
+    float effectiveFundamentalFrequency(const ModalLane& lane) const
     {
-        return currentFrequencyHz_ * std::exp2(
+        return lane.currentFrequencyHz * std::exp2(
             params_.pitchTransientSemitones
-                * pitchTransientEnvelope_ / 12.0f);
+                * lane.pitchTransientEnvelope / 12.0f);
+    }
+
+    float membraneStrikeGainForAttack() const
+    {
+        const float attackMilliseconds = params_.attackSeconds * 1000.0f;
+        return std::exp(-std::max(0.0f,
+            attackMilliseconds - 1.0f) / 6.0f);
     }
 
     void updateModeCoefficients()
@@ -758,6 +798,7 @@ private:
         outputSmoothingCoefficient_ = onePoleCoefficient(0.012f);
         limiterReleaseCoefficient_ = onePoleCoefficient(0.080f);
         onsetExcitationCoefficient_ = onePoleCoefficient(0.0015f);
+        velocitySmoothingCoefficient_ = onePoleCoefficient(0.004f);
         declickAttackCoefficient_ = onePoleCoefficient(0.0012f);
         declickReleaseCoefficient_ = onePoleCoefficient(0.0025f);
     }
@@ -827,7 +868,7 @@ private:
         return std::clamp(amplitudeMotionGain_, 0.0f, 1.0f);
     }
 
-    void processFilterAndDrive(float& mid, float& side)
+    void updateSynthesisSmoothing()
     {
         const float smoothing = onePoleCoefficient(0.006f);
         resonanceSmoothed_ += (params_.filterResonance
@@ -845,7 +886,10 @@ private:
         filterCutoffLog2_ += (targetCutoffLog2 - filterCutoffLog2_)
             * onePoleCoefficient(cutoffSeconds);
         effectiveFilterCutoffHz_ = std::exp2(filterCutoffLog2_);
+    }
 
+    void processFilterAndDrive(ModalLane& lane, float& mid, float& side)
+    {
         const float filterInput = mid;
 
         const float substepRate = static_cast<float>(sampleRate_ * 2.0);
@@ -861,21 +905,159 @@ private:
             const float interpolation = static_cast<float>(substep + 1u)
                 * 0.5f;
             const float interpolatedInput = lerp(
-                previousFilterInput_, filterInput, interpolation);
+                lane.previousFilterInput, filterInput, interpolation);
             const float interpolatedSide = lerp(
-                previousFilterSideInput_, side, interpolation);
+                lane.previousFilterSideInput, side, interpolation);
             const float midLow = processTptSection(interpolatedInput, g,
-                1.0f / midQ, filterStages_[0u], filterStages_[1u]);
+                1.0f / midQ, lane.filterStages[0u],
+                lane.filterStages[1u]);
             const float sideLow = processTptSection(interpolatedSide, g,
-                1.0f / sideQ, sideFilterStages_[0u],
-                sideFilterStages_[1u]);
+                1.0f / sideQ, lane.sideFilterStages[0u],
+                lane.sideFilterStages[1u]);
             filteredMid += midLow * 0.5f;
             filteredSide += sideLow * 0.5f;
         }
-        previousFilterInput_ = filterInput;
-        previousFilterSideInput_ = side;
+        lane.previousFilterInput = filterInput;
+        lane.previousFilterSideInput = side;
         mid = filteredMid;
         side = filteredSide;
+    }
+
+    float renderModalLane(ModalLane& lane, float& left, float& right)
+    {
+        updateFrequency(lane);
+        lane.velocity += (lane.velocityTarget - lane.velocity)
+            * velocitySmoothingCoefficient_;
+        const float frequency = effectiveFundamentalFrequency(lane);
+        const float pressureInfluence = pressure_
+            * params_.pressureSensitivity;
+        const float driveEnergy = std::clamp(lane.velocity
+            + pressureInfluence * 0.55f, 0.0f, 1.35f);
+
+        // Preserve Membrane Kick's one-point force law, but distribute each
+        // lane's strike over a short packet. The outgoing lane keeps its own
+        // decaying packet while the incoming note starts independently.
+        const float excitation = lane.pendingExcitation
+            * onsetExcitationCoefficient_;
+        lane.pendingExcitation = std::max(0.0f,
+            lane.pendingExcitation - excitation);
+        if (lane.pendingExcitation < 1.0e-7f) {
+            lane.pendingExcitation = 0.0f;
+        }
+
+        std::array<float, kModeCount> modalSamples {};
+        for (uint32_t index = 0u; index < kModeCount; ++index) {
+            auto& mode = lane.modes[index];
+            const float ratio = modeRatio(index);
+            const float modeFrequency = std::clamp(frequency * ratio,
+                8.0f, static_cast<float>(sampleRate_ * 0.43));
+            mode.phase += 2.0 * static_cast<double>(kPi)
+                * static_cast<double>(modeFrequency) / sampleRate_;
+            if (mode.phase >= 2.0 * static_cast<double>(kPi)) {
+                mode.phase -= 2.0 * static_cast<double>(kPi)
+                    * std::floor(mode.phase
+                        / (2.0 * static_cast<double>(kPi)));
+            }
+
+            const float highMode = std::max(0.0f, ratio - 1.0f);
+            const float shape = excitationShape(index,
+                params_.excitationPosition);
+            const float spectralFalloff = 1.0f / std::pow(
+                std::max(1.0f, ratio), 1.12f + params_.damping * 0.72f);
+            const float upperLevel = index == 0u ? 1.0f
+                : lerp(0.14f, 1.0f, params_.upperModeLevel);
+            const float centerWeight = index == 0u
+                ? 1.0f + params_.fundamental * 0.86f
+                : 0.42f + std::fabs(shape) * 0.72f;
+            const float signedShape = index == 0u ? 1.0f : shape;
+            mode.strikeAmplitude = std::clamp(mode.strikeAmplitude
+                + excitation * spectralFalloff * centerWeight
+                    * signedShape * upperLevel * 0.92f, -2.0f, 2.0f);
+
+            const float decaySeconds = lerp(3.2f, 0.20f, params_.damping)
+                / (1.0f + highMode
+                    * (0.10f + params_.damping * 1.34f));
+            mode.strikeAmplitude *= static_cast<float>(std::exp(-1.0
+                / std::max(1.0, decaySeconds * sampleRate_)));
+            if (std::fabs(mode.strikeAmplitude) < 1.0e-9f) {
+                mode.strikeAmplitude = 0.0f;
+            }
+
+            const float sustainTarget = lane.gate
+                ? driveEnergy * spectralFalloff * signedShape
+                    * upperLevel * (index == 0u ? 0.74f : 0.52f)
+                : 0.0f;
+            const float sustainSeconds = std::fabs(sustainTarget)
+                    > std::fabs(mode.sustainAmplitude)
+                ? 0.018f : 0.095f;
+            mode.sustainAmplitude += (sustainTarget
+                - mode.sustainAmplitude) * onePoleCoefficient(sustainSeconds);
+            const float amplitude = std::clamp(mode.strikeAmplitude
+                + mode.sustainAmplitude, -2.2f, 2.2f);
+            modalSamples[index] = std::sin(mode.phase) * amplitude;
+        }
+
+        // Each lane retains its own membrane pickups and filter memory. Only
+        // the already-rendered lane signals overlap before the shared amp.
+        float rawLeft = 0.0f;
+        float rawRight = 0.0f;
+        const float localDrive = 1.0f + driveSmoothed_ * 7.0f;
+        const float driveNormalization = std::max(0.25f,
+            std::tanh(localDrive));
+        constexpr float pickupNormalization = 0.055f;
+        for (uint32_t patch = 0u; patch < kSurfacePatchCount; ++patch) {
+            float patchSample = modalSamples[0u] * 0.18f;
+            for (uint32_t mode = 1u; mode < kModeCount; ++mode) {
+                patchSample += modalSamples[mode]
+                    * surfaceModeShapes_[patch][mode];
+            }
+            patchSample = std::tanh(patchSample * localDrive)
+                / driveNormalization;
+            rawLeft += patchSample * surfacePanGains_[patch][0u]
+                * pickupNormalization;
+            rawRight += patchSample * surfacePanGains_[patch][1u]
+                * pickupNormalization;
+        }
+
+        const float bodyMid = (rawLeft + rawRight) * 0.5f
+            * params_.body;
+        const float bodySide = (rawLeft - rawRight) * 0.5f
+            * params_.body;
+        const float dryMid = bodyMid;
+        float processedMid = dryMid;
+        float processedSide = bodySide;
+        processFilterAndDrive(lane, processedMid, processedSide);
+        const float mixedMid = lerp(dryMid, processedMid,
+            processedMixSmoothed_);
+        const float mixedSide = lerp(bodySide, processedSide,
+            processedMixSmoothed_);
+        lane.sideLow += (mixedSide - lane.sideLow) * sideLowCoefficient_;
+        const float protectedSide = mixedSide - lane.sideLow;
+        const float velocityGain = lerp(1.0f,
+            0.28f + lane.velocity * 0.72f, params_.velocitySensitivity);
+
+        const float bassSupport = std::clamp(
+            std::log2(150.0f / std::max(20.0f, frequency)) * 0.55f,
+            0.0f, 1.0f);
+        const float membranePhase = static_cast<float>(
+            lane.modes[0u].phase);
+        const float membraneAmplitude = std::clamp(
+            lane.modes[0u].strikeAmplitude
+                + lane.modes[0u].sustainAmplitude,
+            -2.2f, 2.2f);
+        const float fundamentalWave = std::sin(membranePhase);
+        const float secondHarmonic = std::sin(membranePhase * 2.0f);
+        const float thirdHarmonic = std::sin(membranePhase * 3.0f);
+        const float sub = params_.fundamental * membraneAmplitude
+            * (fundamentalWave + bassSupport
+                * (secondHarmonic * 0.11f
+                    * partialBandLimit(frequency, 2.0f)
+                    + thirdHarmonic * 0.040f
+                    * partialBandLimit(frequency, 3.0f))) * 0.72f;
+        const float side = protectedSide * params_.stereoWidth;
+        left = (sub + mixedMid + side) * lane.envelope * velocityGain;
+        right = (sub + mixedMid - side) * lane.envelope * velocityGain;
+        return frequency;
     }
 
     static std::array<uint32_t, 3u> modeIdentity(uint32_t mode)
@@ -950,40 +1132,43 @@ private:
 
     void clearSignalState()
     {
-        modes_.fill({});
-        pendingExcitation_ = 0.0f;
-        sideLow_ = 0.0f;
+        for (auto& lane : lanes_) {
+            lane.modes.fill({});
+            lane.filterStages.fill(0.0f);
+            lane.sideFilterStages.fill(0.0f);
+            lane.pendingExcitation = 0.0f;
+            lane.sideLow = 0.0f;
+            lane.previousFilterInput = 0.0f;
+            lane.previousFilterSideInput = 0.0f;
+        }
+        handoffActive_ = false;
+        handoffPosition_ = 0u;
+        continuityPending_ = false;
+        continuityPosition_ = continuityFrames_;
+        continuityLeft_ = 0.0f;
+        continuityRight_ = 0.0f;
+        lastOutputLeft_ = 0.0f;
+        lastOutputRight_ = 0.0f;
         dcLowLeft_ = 0.0f;
         dcLowRight_ = 0.0f;
         limiterGain_ = 1.0f;
-        filterStages_.fill(0.0f);
-        sideFilterStages_.fill(0.0f);
-        previousFilterInput_ = 0.0f;
-        previousFilterSideInput_ = 0.0f;
         amplifier_.reset();
         bassShred_.reset();
     }
 
     double sampleRate_ = 48000.0;
     LowFrequencySynthParams params_ {};
-    std::array<ModeState, kModeCount> modes_ {};
+    std::array<ModalLane, 2u> lanes_ {};
     std::array<std::array<float, kModeCount>, kSurfacePatchCount>
         surfaceModeShapes_ {};
     std::array<std::array<float, 2u>, kSurfacePatchCount>
         surfacePanGains_ {};
-    float currentFrequencyHz_ = 55.0f;
-    float targetFrequencyHz_ = 55.0f;
-    float envelope_ = 0.0f;
-    float releaseStep_ = 0.0f;
-    float pitchTransientEnvelope_ = 0.0f;
-    float pendingExcitation_ = 0.0f;
     float onsetExcitationCoefficient_ = 0.014f;
+    float velocitySmoothingCoefficient_ = 0.005f;
     float declickGain_ = 0.0f;
     float declickAttackCoefficient_ = 0.017f;
     float declickReleaseCoefficient_ = 0.008f;
     float pressure_ = 0.0f;
-    float noteVelocity_ = 1.0f;
-    float sideLow_ = 0.0f;
     float sideLowCoefficient_ = 0.012f;
     float dcLowLeft_ = 0.0f;
     float dcLowRight_ = 0.0f;
@@ -992,8 +1177,6 @@ private:
     float outputSmoothingCoefficient_ = 0.002f;
     float limiterGain_ = 1.0f;
     float limiterReleaseCoefficient_ = 0.0002f;
-    std::array<float, 2u> filterStages_ {};
-    std::array<float, 2u> sideFilterStages_ {};
     float filterCutoffLog2_ = std::log2(1200.0f);
     float effectiveFilterCutoffHz_ = 1200.0f;
     float resonanceSmoothed_ = 0.18f;
@@ -1006,13 +1189,20 @@ private:
     float amplitudeMotionPostMixSmoothed_ = 1.0f;
     bool externalAmplitudeMotionActive_ = false;
     float externalAmplitudeMotionPhase_ = 0.0f;
-    float previousFilterInput_ = 0.0f;
-    float previousFilterSideInput_ = 0.0f;
     BassAmplifierCircuit amplifier_ {};
     BassShredStereo bassShred_ {};
-    int currentMidiNote_ = 33;
-    EnvelopeStage stage_ = EnvelopeStage::Idle;
-    bool gate_ = false;
+    uint32_t activeLaneIndex_ = 0u;
+    uint32_t fadingLaneIndex_ = 1u;
+    uint32_t handoffPosition_ = 0u;
+    uint32_t handoffFrames_ = 1u;
+    uint32_t continuityPosition_ = 0u;
+    uint32_t continuityFrames_ = 1u;
+    float continuityLeft_ = 0.0f;
+    float continuityRight_ = 0.0f;
+    float lastOutputLeft_ = 0.0f;
+    float lastOutputRight_ = 0.0f;
+    bool handoffActive_ = false;
+    bool continuityPending_ = false;
     bool signalStateCleared_ = true;
 };
 

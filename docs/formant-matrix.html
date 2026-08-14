@@ -63,7 +63,7 @@ MIDI notes -------+
 voice pitch track-+
 
 analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis VCAs
-                   --&gt; articulation support --&gt; post effects --&gt; stereo output</code></pre>
+                   --&gt; BANK level + ART level --&gt; post effects --&gt; stereo output</code></pre>
 
         <ol>
           <li>The selected external mic, generated speech, or blend enters the analysis filters.</li>
@@ -75,7 +75,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
 
         <p><code>MOD SOURCE</code> selects <code>EXTERNAL MIC</code>, <code>INTERNAL SPEECH</code>, or <code>BLEND</code>. External Mic never silently falls back to generated speech when its input disappears. Internal Speech compiles typed English into phoneme gestures and measures the procedural result through the same bank. Blend combines both sources before analysis.</p>
 
-        <p><code>MIC GAIN</code> is pre-analysis gain, not a direct monitor. The only deliberate dry-articulation path is <code>ART THRU</code>; leave it at zero for a carrier-only vocoder. In External Mic mode a hysteretic, click-smoothed presence gate prevents Bank Mix, Open Level, or a frozen envelope from turning a held carrier into an indefinite drone. Tape echoes already in motion remain free to decay.</p>
+        <p><code>MIC GAIN</code> is pre-analysis gain. <code>BANK</code> independently levels the envelope-controlled synthesis bank; it never exposes a raw-carrier bypass. <code>ART</code> independently levels the complete selected modulator. BANK 0% / ART 100% therefore directly auditions Internal Speech, External Mic, or Blend, while BANK 0% / ART 0% is silent. In External Mic mode a hysteretic, click-smoothed presence gate prevents Open Level or a frozen envelope from turning a held carrier into an indefinite drone. Tape echoes already in motion remain free to decay.</p>
 
         <p>The plug-in is advertised as a CLAP audio effect, filter, and stereo processor rather than a CLAP instrument. Its CLAP and MIDI note input remains available, so an effect-classified instance can still play its carrier from a keyboard or routed MIDI track.</p>
 
@@ -94,6 +94,8 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         <p><code>HF DETAIL</code> restores fricative timing above the fixed bank. <code>SYNTHETIC</code> uses only the carrier reconstruction, <code>SWITCHED</code> admits the high-passed residual only for noise-like articulation, and <code>DIRECT</code> keeps it ready whenever a carrier is active. Level and Cutoff set the amount and lower edge. The residual remains carrier- and anti-drone-gated, so it is not microphone monitoring.</p>
 
         <p><code>MOUTH CIRCUIT</code> is the focused talk-box-style starting point: External Mic articulation, MIDI pitch, a bright saw carrier, Mouth Model analysis, and a custom matrix that morphs from direct articulation to a two-channel formant lift. Hold one MIDI note and exaggerate vowel shapes before adding octave, fuzz, or tape echo.</p>
+
+        <p>The generated speech source and carrier have separate pitch roles. Internal Speech uses a fixed neutral excitation frequency for stable analysis; MIDI or Voice Pitch is carried separately to the oscillator bank and exclusively determines the synthesized pitch. The former source Vibrato, Drift, Glide, Scoop, and Decline controls remain state-compatible but are hidden and inert. ART can still expose the neutral-pitch internal voice for direct audition.</p>
 
         <p>Attack and Release set directional envelope timing. Blur smooths changes after detection, while Analysis / Phoneme balances measured energy against phrase-derived targets when Internal Speech contributes. Classic Mic starts Definition at 78%, Precision transfer, moderate Voice Focus and Leveler, and a denser carrier. For a live microphone, shorter Blur, moderate Release, and higher Definition preserve the mouth movement that distinguishes words; long values or low Definition intentionally turn the result toward a smooth vocal-controlled resonator.</p>
 
@@ -157,7 +159,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         <h2 id="pages">Editor Pages</h2>
 
         <ul>
-          <li><code>ROUTE</code> — matrix scenes, selected crosspoint, meters and trims, topology and layout, Bank Mode/Mix, Articulation Thru, Definition, Mouth Focus, performance envelopes, and output. The MIC and INTERNAL SPEECH rails are monitors; their controls live on SOURCES.</li>
+          <li><code>ROUTE</code> — matrix scenes, selected crosspoint, meters and trims, topology and layout, Bank Mode, independent BANK and ART levels, Definition, Mouth Focus, performance envelopes, and output. The MIC and INTERNAL SPEECH rails are monitors; their controls live on SOURCES.</li>
           <li><code>BANK</code> — Transfer, analysis response and Width, Low/Mid/Air input EQ, Analysis Compression, Voice Focus, Leveler, per-band Noise Reject and Spectral Balance, phoneme blend, resonance, drive, spectral tuning, three-zone consonant controls, HF Detail, stereo behavior, freeze/blur, gesture follow, and voiced/unvoiced transition timing.</li>
           <li><code>SOURCES</code> — modulator source and gain, pitch source/root/scale/hold, carrier waveform, color and Density, and carrier LFO.</li>
           <li><code>PHRASE</code> — text entry, compiled phoneme score, forced rests, timing, audition, voice, and polyphony.</li>
@@ -175,7 +177,7 @@ analysis envelopes --&gt; voiced/unvoiced --&gt; routing matrix --&gt; synthesis
         <ul>
           <li>Host name: <code>s3g Processor Formant Matrix</code></li>
           <li>CLAP ID: <code>org.s3g.s3g-dsp.formant-matrix</code></li>
-          <li>Version: <code>5.9.0</code></li>
+          <li>Version: <code>5.10.0</code></li>
           <li>Input: stereo <code>Modulator In</code></li>
           <li>Output: stereo <code>Formant Matrix Out</code></li>
           <li>Note input: CLAP notes and MIDI</li>

@@ -46,7 +46,8 @@ clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8ch.cla
 clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
 clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Tracker
 clap_breakbeat_slicer/s3g_slicer.clap	s3g_slicer.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Slicer
-clap_low_frequency_synth/s3g_low_frequency_synth.clap	s3g_low_frequency_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Low Frequency Synth
+clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth
+clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack
 clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick
 clap_drum_snare/s3g_drum_snare.clap	s3g_drum_snare.clap	org.s3g.s3g-dsp.drum-snare	s3g Drum Snare
 clap_drum_floor_tom/s3g_drum_floor_tom.clap	s3g_drum_floor_tom.clap	org.s3g.s3g-dsp.drum-floor-tom	s3g Drum Floor Tom

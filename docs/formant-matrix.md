@@ -20,7 +20,7 @@ analysis envelopes
   -> voiced/unvoiced control
   -> coupling or 22 x 22 routing matrix
   -> synthesis VCAs
-  -> articulation thru + post effects
+  -> BANK level + ART level + post effects
   -> stereo output
 ```
 
@@ -36,7 +36,7 @@ replayed.
 
 - Host name: `s3g Processor Formant Matrix`
 - CLAP ID: `org.s3g.s3g-dsp.formant-matrix`
-- Version: `5.9.0`
+- Version: `5.10.0`
 - Installed bundle: `s3g_processor_formant_matrix.clap`
 - Main input: stereo `Modulator In`
 - Main output: stereo `Formant Matrix Out`
@@ -72,11 +72,11 @@ when a self-contained modulator is wanted.
 
 External Mic also places the complete bank output behind a click-safe microphone
 presence gate. A held MIDI note therefore remains silent when the microphone is
-silent, even when Bank Mix exposes some raw carrier, Open Level holds the bank
-partly open, or Envelope Freeze contains a captured shape. Those controls retain
-their normal sound while microphone articulation is present. The gate is before
-the tape echo, so echoes already in motion decay naturally after the live bank
-closes.
+silent, even when Open Level holds the bank partly open or Envelope Freeze
+contains a captured shape. BANK never exposes a raw-carrier bypass. Those
+controls retain their normal sound while microphone articulation is present.
+The gate is before the tape echo, so echoes already in motion decay naturally
+after the live bank closes.
 
 This anti-drone close also bounds unusually long Bank Release, Blur, and
 Freeze tails in External Mic mode. They still shape the spoken gesture, but
@@ -92,6 +92,14 @@ passes through the synthesis filters and VCAs under control of the selected
 analysis envelopes. This separation is what produces the classic talk-box-like
 vocoder relationship: the analyzer supplies articulation while either the
 keyboard or the tracked voice supplies carrier pitch.
+
+The generated speech voice and the carrier have deliberately separate pitch
+roles. Formant Matrix renders the internal speech source at a fixed neutral
+excitation frequency so its changing vocal-tract spectrum can be analyzed
+reliably; MIDI or Voice Pitch is carried separately into the oscillator bank
+and exclusively determines the synthesized result's pitch. The former source
+Vibrato, Drift, Glide, Scoop, and Decline controls remain load-compatible but
+are hidden and inert in this product.
 
 ### Classic mic quick start
 
@@ -115,11 +123,10 @@ bridges brief unvoiced consonants and detector dropouts. Move it fully right to
 disabled or the plug-in is reset. Microphone silence still closes the
 anti-drone gate, so the latch remembers pitch without producing a drone.
 
-Classic Mic sets Bank Mix to 100%, removing the raw MIDI-carrier side of the
-bank crossfade, and Articulation Thru to 0%, removing the direct high-passed
-microphone rail. Raise Articulation Thru only when a deliberate consonant feed
-is wanted alongside the carrier. The External Mic presence gate remains active
-for this profile and for custom External Mic patches.
+Classic Mic sets BANK to 100% and ART to 0%, producing only the
+envelope-controlled carrier bank. Raise ART when a deliberate amount of the
+complete selected modulator is wanted alongside it. The External Mic presence
+gate remains active for this profile and for custom External Mic patches.
 
 If the host has no input connected, select **Internal Speech**, enter text on
 the PHRASE page, and play MIDI in the same way. Blend is useful for reinforcing
@@ -209,7 +216,7 @@ output effects:
   the envelope into a fixed spectrum.
 
 The anti-drone input gate is independent of these analysis controls, and none
-of them changes the optional Articulation Thru waveform.
+of them changes the optional full-band ART waveform.
 
 **HF Detail** restores fricatives above the useful resolution of the fixed
 bank through a two-pole high-frequency residual. It remains carrier- and
@@ -301,10 +308,10 @@ intentionally move back toward a smooth, sustained vocal-driven filter sound.
 - **Filter Bank** is driven primarily by Open Level while retaining a
   restrained contribution from the current measured and scored articulation.
 
-**Bank Mix** crossfades between the procedural MIDI carrier and the
-envelope-controlled bank. In External Mic mode both sides of that crossfade are
-inside the microphone presence gate; reducing Bank Mix does not turn the held
-carrier into an always-on monitor.
+**BANK** is the level of the envelope-controlled synthesis bank. It is not a
+dry/wet crossfade: at zero the raw procedural carrier does not bypass the
+synthesis filters or VCAs. To audition a continuously opened carrier, select
+Filter Bank mode and raise Open Level.
 
 Modulator selection is independent of Bank Mode. All three modes use the same
 MIDI carrier, so changing External Mic, Internal Speech, or Blend changes the
@@ -334,7 +341,7 @@ moves from periodic buzz to generated hiss, and **Consonant Speed** moves from
 immediate stop/fricative timing toward a smoother response. This keeps `s`,
 `sh`, `f`, and plosive releases from collapsing into one global noise burst.
 The hiss is synthesized carrier energy; no microphone waveform is copied
-unless Articulation Thru is explicitly raised.
+unless ART is explicitly raised.
 
 Three related controls extend the classic envelope-following behavior:
 
@@ -344,11 +351,12 @@ Three related controls extend the classic envelope-following behavior:
 - **Band Coupling** shifts every analysis envelope from -3 to +3 synthesis bands
   without wrapping at the endpoints. It is the fast, musically readable
   alternative to editing hundreds of matrix cells.
-- **Articulation Thru** adds a controlled high-passed path from the selected
-  modulator. It follows unvoiced energy and shares the bank's dynamics shaping
-  so clarity can be restored without detaching consonants from the carrier.
-  For a pure mic vocoder, keep it low and use the bank's unvoiced-noise path
-  for most consonant energy.
+- **ART** is the independent full-band level of the selected modulator. At
+  BANK 0% / ART 100%, Internal Speech directly auditions the generated voice;
+  External Mic directly monitors the gated input; Blend auditions their mix.
+  BANK 0% / ART 0% is silent rather than exposing the carrier. For a pure
+  vocoder, keep ART at zero and use the bank's generated unvoiced-noise path
+  for consonant energy.
 
 Envelope Freeze holds a band-energy vector rather than waveform or phase data.
 It can capture continuously or at note, phoneme, syllable, word, or rest
@@ -537,10 +545,9 @@ multi-head tape echo. The integrated echo offers three virtual heads, seven
 combinations, free or host-synchronized timing, feedback, wear, flutter, tone,
 spread, and a bounded tail.
 
-Articulation Thru joins the bank before final dynamics so consonant support
-receives the same level control as the carrier. The final output guard and
-click-safe parameter smoothing remain active in mic, speech, and blended
-operation.
+ART joins BANK before final dynamics, so the direct modulator and articulated
+carrier share the same post processing. The final output guard and click-safe
+parameter smoothing remain active in mic, speech, and blended operation.
 
 ## Editor organization
 
@@ -553,7 +560,7 @@ Each adjustable parameter has one page owner; the live meters may mirror signal
 state on ROUTE, but controls are never duplicated between pages:
 
 - **ROUTE** — 22 by 22 matrix, band meters and trims, selected crosspoint,
-  matrix topology and layout, Bank Mode/Mix, Articulation Thru, Definition,
+  matrix topology and layout, Bank Mode, BANK and ART levels, Definition,
   Mouth Focus, performance envelopes, and output. MIC and INTERNAL SPEECH rails
   are visual signal-flow monitors here; their source controls live on SOURCES.
 - **BANK** — Transfer Mode, analysis response and calibrated Width; input
@@ -577,7 +584,7 @@ share the same geometry so visual and mouse locations remain aligned.
 
 ## State and compatibility
 
-Version 5.9 uses state format 26. The IDs formerly assigned to the external
+Version 5.10 uses state format 27. The IDs formerly assigned to the external
 carrier mix and gain now represent Modulator Source and Mic Gain. A format-18
 state is therefore migrated deliberately rather than reinterpreted: its source
 becomes Internal Speech and its mic gain becomes 0 dB, while the former Custom
@@ -603,8 +610,13 @@ the clearer front end. Format 26 appends Impulse Matrix, Gated Bank, Pulse
 Bank, Rhythm Transfer, Shift Morph, and Spectral Drone at profile slots 25
 through 30, moving Custom to slot 31. A format-25 Custom selection migrates to
 the new Custom slot without changing its stored matrix or controls.
-Existing phrase, synthesis, ensemble, echo, matrix, and post-effect settings
-are preserved where they retain the same meaning.
+Format 27 changes BANK from a raw-carrier/bank crossfade to a synthesis-bank
+level and changes ART from a consonant-weighted high-pass feed to a full-band
+selected-modulator level. It also separates the internal analysis voice's
+fixed neutral excitation from MIDI/Voice Pitch carrier frequency. The former
+source pitch-performance IDs remain stored for older projects but are hidden
+and do not affect audio. Existing phrase, ensemble, echo, matrix, and
+post-effect settings are preserved where they retain the same meaning.
 
 The public CLAP ID and bundle identity changed for version 4. A host project
 that refers only to the former plug-in ID may therefore require manual

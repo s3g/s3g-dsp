@@ -236,6 +236,8 @@ struct RenderResult {
 
 enum class RenderSetup {
     ControlledVocoder,
+    DirectInternalSpeech,
+    MutedOutputLevels,
     CreativeExternalMic,
     ClassicMic,
     MouthCircuit,
@@ -350,7 +352,17 @@ RenderResult render(const clap_plugin_factory_t* factory,
     }
 
     InputEvents firstEvents;
-    if (setup == RenderSetup::ClassicMic) {
+    if (setup == RenderSetup::DirectInternalSpeech
+        || setup == RenderSetup::MutedOutputLevels) {
+        firstEvents.addParam(51u, 5.0); // Natural Text
+        firstEvents.addParam(54u, 1.0); // Loop
+        firstEvents.addParam(65u, 0.0); // BANK fully down
+        firstEvents.addParam(96u,
+            setup == RenderSetup::DirectInternalSpeech ? 1.0 : 0.0);
+        firstEvents.addParam(98u,
+            static_cast<uint32_t>(ModulatorSource::InternalSpeech));
+        firstEvents.addParam(37u, 0.0); // No echo tail
+    } else if (setup == RenderSetup::ClassicMic) {
         // Exercise the actual quick-start profile, including its routing and
         // bank topology, rather than restating those controls in the test.
         firstEvents.addParam(1u, 14.0); // Profile: Classic Mic
@@ -358,9 +370,9 @@ RenderResult render(const clap_plugin_factory_t* factory,
         firstEvents.addParam(1u, 24.0); // Profile: Mouth Circuit
     } else if (setup == RenderSetup::CreativeExternalMic) {
         // Pin the former default-like creative topology independently of the
-        // startup profile: a partially dry Hybrid bank with an open floor is
-        // the important worst case for carrier leakage and gate hysteresis.
-        firstEvents.addParam(65u, 0.90); // Bank Mix
+        // startup profile: a Hybrid bank with an open floor is the important
+        // worst case for carrier leakage and gate hysteresis.
+        firstEvents.addParam(65u, 0.90); // Bank Level
         firstEvents.addParam(66u, 1.0); // Bank Mode: Hybrid
         firstEvents.addParam(94u, 0.08); // Open Level
         firstEvents.addParam(37u, 0.0); // Echo mix
@@ -371,7 +383,7 @@ RenderResult render(const clap_plugin_factory_t* factory,
         // Keep the default Hybrid/Amount/Open bank, but make the internal side
         // use the natural-text phrase so both source-switch endpoints have a
         // stable, intentionally audible articulation.
-        firstEvents.addParam(65u, 0.90); // Bank Mix
+        firstEvents.addParam(65u, 0.90); // Bank Level
         firstEvents.addParam(66u, 1.0); // Bank Mode: Hybrid
         firstEvents.addParam(94u, 0.08); // Open Level
         firstEvents.addParam(37u, 0.0); // Echo mix
@@ -421,7 +433,9 @@ RenderResult render(const clap_plugin_factory_t* factory,
             // Isolate carrier lifetime from the intentionally level-following
             // wet vocoder VCAs. The External Mic gate still surrounds this
             // rail, so a timeout or host sleep remains directly observable.
-            firstEvents.addParam(65u, 0.0); // Bank Mix: carrier monitor
+            firstEvents.addParam(65u, 1.0); // Bank level
+            firstEvents.addParam(66u, 2.0); // Open filter bank
+            firstEvents.addParam(94u, 0.85); // Stable carrier opening
         }
     }
     if (sendHeldNote) firstEvents.addHeldNote();
@@ -799,7 +813,7 @@ int main(int argc, char** argv)
     ok &= check(descriptor
             && std::strcmp(descriptor->id, kPluginId) == 0
             && std::strcmp(descriptor->name, kPluginName) == 0
-            && std::strcmp(descriptor->version, "5.9.0") == 0,
+            && std::strcmp(descriptor->version, "5.10.0") == 0,
         "plugin identity failed");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
             && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_FILTER)
@@ -1517,6 +1531,14 @@ int main(int argc, char** argv)
         factory, SampleFormat::Float32, false, false);
     const RenderResult internalConnected = render(
         factory, SampleFormat::Float32, true, false);
+    const RenderResult directInternalSpeech = render(
+        factory, SampleFormat::Float32, false, false, 0u,
+        ModulatorSource::InternalSpeech, false, 0.0, true, false, true,
+        1.0f, false, RenderSetup::DirectInternalSpeech);
+    const RenderResult mutedOutputLevels = render(
+        factory, SampleFormat::Float32, false, false, 0u,
+        ModulatorSource::InternalSpeech, false, 0.0, true, false, true,
+        1.0f, false, RenderSetup::MutedOutputLevels);
     // The default text is "hello worlds". One held note must render only
     // HELLO and its following boundary, then remain silent rather than
     // continuing into WORLDS or looping the complete phrase.
@@ -1634,6 +1656,14 @@ int main(int argc, char** argv)
     ok &= check(internalConnected.ok
             && rmsDifference(internalAbsent, internalConnected) < 1.0e-6,
         "Internal Speech mode was contaminated by the mic input");
+    ok &= check(directInternalSpeech.ok
+            && directInternalSpeech.energy > 1.0e-6
+            && onsetRms(directInternalSpeech) > 1.0e-3,
+        "ART 100% / BANK 0% did not audition Internal Speech");
+    ok &= check(mutedOutputLevels.ok
+            && mutedOutputLevels.energy < 1.0e-10
+            && mutedOutputLevels.peak < 1.0e-6,
+        "BANK 0% / ART 0% leaked the raw carrier");
     ok &= check(internalWordOneShot.ok
             && onsetRms(internalWordOneShot) > 1.0e-3
             && lateRms(internalWordOneShot) < 1.0e-5,
@@ -1648,7 +1678,7 @@ int main(int argc, char** argv)
         "fully wet Vocoder leaked its held carrier without mic articulation");
     ok &= check(inaudible(creativeMicAbsent)
             && inaudible(creativeMicSilent),
-        "External Mic leaked its held carrier with creative Bank Mix/Open/Mode");
+        "External Mic leaked its held carrier with creative BANK/Open/Mode");
     ok &= check(inaudible(classicMicAbsent)
             && inaudible(classicMicSilent),
         "Classic Mic leaked its held carrier without mic articulation");
@@ -1693,9 +1723,8 @@ int main(int argc, char** argv)
             && sourceToExternalStep < 0.045
             && sourceToInternalStep < 0.045,
         "Modulator Source automation clicked or failed Internal/External gating");
-    // Bank Mix itself is smoothed from the creative topology's 0.90 value when this
-    // test automates it at the note boundary, so assess the settled vocoder
-    // rather than mistaking that intentional dry/wet transition for leakage.
+    // Bank Level is smoothed from the creative topology's 0.90 value when this
+    // test automates it at the note boundary, so assess the settled vocoder.
     ok &= check(micSilentFuzz.ok && micSilentFuzz.lateEnergy < 1.0e-10,
         "post-bank shape effects leaked the carrier under a silent mic");
     ok &= check(micNoMidi.ok && micNoMidi.energy < 1.0e-10

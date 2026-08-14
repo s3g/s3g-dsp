@@ -214,6 +214,9 @@ constexpr uint32_t kAcapellaResonatorFreezeTriggerCount = 6u;
 // intentionally control-domain rather than FFT-domain: it stores filter and
 // envelope state, never waveform samples or spectral frames.
 struct AcapellaResonatorParams {
+    // Output amount. Products using independentOutputLevels interpret this as
+    // the synthesis-bank level; the default retains the shared legacy
+    // carrier-to-bank crossfade.
     float amount = 0.90f;
     AcapellaResonatorBandLayout bandLayout
         = AcapellaResonatorBandLayout::Speech22;
@@ -308,7 +311,13 @@ struct AcapellaResonatorParams {
     float tilt = 0.0f;
     float sibilance = 0.55f;
     float openLevel = 0.08f;
+    // Level of the selected modulator at the bank output. It is full-band
+    // when independentOutputLevels is enabled; the shared legacy topology
+    // retains its consonant-weighted high-pass articulation rail.
     float articulationThru = 0.0f;
+    // Formant Matrix product topology: BANK and ART become independent output
+    // levels and the raw carrier cannot bypass the synthesis VCAs.
+    bool independentOutputLevels = false;
     int32_t coupling = 0;
     std::array<float, kAcapellaResonatorBands> bandTrims = [] {
         std::array<float, kAcapellaResonatorBands> values {};
@@ -406,6 +415,7 @@ inline void copyAcapellaResonatorControlParams(
     target.sibilance = source.sibilance;
     target.openLevel = source.openLevel;
     target.articulationThru = source.articulationThru;
+    target.independentOutputLevels = source.independentOutputLevels;
     target.coupling = source.coupling;
     target.matrixMode = source.matrixMode;
     target.matrixMorph = source.matrixMorph;
@@ -1099,8 +1109,6 @@ public:
         previousExternalOutputRight_ = 0.0f;
         articulationLowLeft_ = 0.0f;
         articulationLowRight_ = 0.0f;
-        articulationLowLeft_ = 0.0f;
-        articulationLowRight_ = 0.0f;
         voicingNoiseMix_ = 0.0f;
         carrierLfoPhase_ = 0.0f;
         carrierLfoValue_ = 0.0f;
@@ -1337,9 +1345,8 @@ public:
 
     bool active() const
     {
-        // Bank Mix zero still exposes the selected carrier. Activity therefore
-        // follows the audible output rail rather than treating Amount as a
-        // bypass switch.
+        // BANK and ART are independent output levels, so activity follows the
+        // combined audible rail rather than either control in isolation.
         return activityEnvelope_ > 1.0e-5f;
     }
 
@@ -1714,12 +1721,14 @@ public:
         articulationLowRight_ += (unconditionedAnalysisRight
                 - articulationLowRight_)
             * articulationHighpassCoefficient_;
-        const float articulationGain = smoothed_.articulationThru
-            * (0.16f + 0.84f * voicingNoiseMix_);
-        wetLeft += (unconditionedAnalysisLeft - articulationLowLeft_)
-            * articulationGain;
-        wetRight += (unconditionedAnalysisRight - articulationLowRight_)
-            * articulationGain;
+        if (!smoothed_.independentOutputLevels) {
+            const float legacyArticulationGain = smoothed_.articulationThru
+                * (0.16f + 0.84f * voicingNoiseMix_);
+            wetLeft += (unconditionedAnalysisLeft - articulationLowLeft_)
+                * legacyArticulationGain;
+            wetRight += (unconditionedAnalysisRight - articulationLowRight_)
+                * legacyArticulationGain;
+        }
         // Residual detail replaces the carrier's unvoiced high band; it is
         // not a direct-monitor path. Keep it note/pitch-carrier gated so a
         // microphone alone cannot leak through this MIDI-controlled effect.
@@ -1741,34 +1750,38 @@ public:
         previousWetLeft_ = wetLeft;
         previousWetRight_ = wetRight;
 
-        // Bank Mix is a true dry/wet parameter. Scaling it by the carrier's
-        // attack envelope briefly exposed the dry oscillator at a nominally
-        // fully-wet note onset (most obvious as a click under a silent mic),
-        // and scaling it down on release could truncate a resonator tail.
-        const float amount = smoothed_.amount;
-        // Bank Mix crossfades against the selected carrier, not the raw host
-        // input. External/Internal blend and External Gain therefore retain
-        // their meaning across the full wet/dry range.
+        // BANK and ART are independent output levels. The carrier is audible
+        // only after the synthesis filters/VCAs; Filter Bank mode plus Open
+        // Level provides the intentional carrier-monitor topology. ART is the
+        // complete selected modulator, so Internal Speech can be auditioned
+        // directly without changing the analysis source.
+        const float bankLevel = smoothed_.amount;
+        const float articulationLevel = smoothed_.articulationThru;
         const float dryLeft = dryCarrierLeft;
         const float dryRight = dryCarrierRight;
-        float outputLeft = lerp(dryLeft, wetLeft, amount);
-        float outputRight = lerp(dryRight, wetRight, amount);
+        float outputLeft = smoothed_.independentOutputLevels
+            ? wetLeft * bankLevel
+                + unconditionedAnalysisLeft * articulationLevel
+            : lerp(dryLeft, wetLeft, bankLevel);
+        float outputRight = smoothed_.independentOutputLevels
+            ? wetRight * bankLevel
+                + unconditionedAnalysisRight * articulationLevel
+            : lerp(dryRight, wetRight, bankLevel);
         if (!std::isfinite(outputLeft) || !std::isfinite(outputRight)) {
             resetSignalState();
-            outputLeft = dryLeft;
-            outputRight = dryRight;
+            outputLeft = smoothed_.independentOutputLevels ? 0.0f : dryLeft;
+            outputRight = smoothed_.independentOutputLevels ? 0.0f : dryRight;
         }
         // Gate the complete pre-echo bank result. This closes every
-        // unmodulated carrier escape path (dry Bank Mix, Open Level, and a
-        // held Freeze vector) while downstream echo remains free to decay.
+        // unmodulated carrier escape path (Open Level and a held Freeze
+        // vector) while downstream echo remains free to decay.
         // Crossfading the source-mode weight prevents Modulator Source
         // automation from hard-switching a full-scale carrier in one sample.
         outputLeft *= externalMicGate;
         outputRight *= externalMicGate;
-        // Noise substitution and a partially dry Bank Mix are legitimate
-        // broadband signals, but neither may turn a mic-gate edge into a
-        // discontinuity. Limit the complete External Mic result, leaving the
-        // Internal Speech and compatibility dry-carrier paths unchanged.
+        // Noise substitution and direct ART are legitimate broadband signals,
+        // but neither may turn a mic-gate edge into a discontinuity. Limit the
+        // complete External Mic result while leaving Internal Speech unchanged.
         constexpr float maximumExternalOutputStep = 0.040f;
         const float limitedExternalLeft = previousExternalOutputLeft_ + clamp(
             outputLeft - previousExternalOutputLeft_,
@@ -2089,6 +2102,8 @@ private:
         smoothed_.voicingMode = params_.voicingMode;
         smoothed_.carrierLfoShape = params_.carrierLfoShape;
         smoothed_.carrierLfoSync = params_.carrierLfoSync;
+        smoothed_.independentOutputLevels
+            = params_.independentOutputLevels;
         smoothed_.coupling = params_.coupling;
         smoothed_.matrixMode = params_.matrixMode;
         smoothed_.stereoMode = params_.stereoMode;
@@ -3509,10 +3524,9 @@ private:
         }
         left = clamp(left, -2.0f, 2.0f);
         right = clamp(right, -2.0f, 2.0f);
-        // Bank Mix=0 exposes the carrier that actually excites the synthesis
-        // filters, including voiced/unvoiced balance, noise texture, and
-        // color. Returning the pre-texture tonal oscillator here made the dry
-        // side disagree with every visible carrier control.
+        // Retain the fully textured carrier as a diagnostic/legacy return
+        // value. It no longer bypasses the synthesis bank in the Formant
+        // Matrix output topology.
         dryCarrierLeft = left;
         dryCarrierRight = right;
     }

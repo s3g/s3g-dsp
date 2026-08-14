@@ -28,6 +28,10 @@ struct AcapellaEnsembleNote {
     int32_t noteId = -1;
     int16_t channel = -1;
     int16_t key = -1;
+    // Optional pitch for a downstream carrier that is independent of the
+    // analyzed speech excitation. Zero preserves the historical behavior and
+    // uses syllable.frequencyHz for both roles.
+    float carrierFrequencyHz = 0.0f;
 };
 
 struct AcapellaEnsembleFrame {
@@ -186,6 +190,9 @@ public:
         voice.noteId = note.noteId;
         voice.channel = note.channel;
         voice.key = note.key;
+        voice.carrierFrequencyHz = note.carrierFrequencyHz > 0.0f
+            && std::isfinite(note.carrierFrequencyHz)
+            ? note.carrierFrequencyHz : note.syllable.frequencyHz;
         voice.age = ++ageCounter_;
         voice.held = true;
         voice.pendingLeft = false;
@@ -282,7 +289,7 @@ public:
         const auto& source = dominant->lead;
         AcapellaResonatorGesture gesture;
         gesture.phoneme = source.activePhoneme();
-        gesture.frequencyHz = source.currentFrequencyHz();
+        gesture.frequencyHz = dominant->carrierFrequencyHz;
         gesture.stepProgress = source.gestureStepProgress();
         gesture.stepIndex = source.gestureStepIndex();
         gesture.voiceInstance = dominant->age;
@@ -315,7 +322,7 @@ public:
                 continue;
             }
             gesture.voiceFrequencyHz[gestureVoice]
-                = voice.lead.currentFrequencyHz();
+                = voice.carrierFrequencyHz;
             gesture.voiceGain[gestureVoice]
                 = voice.lead.carrierNoteGain() * chordNormalization;
             gesture.voiceInstanceIds[gestureVoice] = voice.age;
@@ -342,7 +349,7 @@ public:
         AcapellaResonatorGesture gesture;
         gesture.phoneme = AcapellaPhoneme::AX;
         gesture.carrierOnly = true;
-        gesture.frequencyHz = dominant->lead.currentFrequencyHz();
+        gesture.frequencyHz = dominant->carrierFrequencyHz;
         gesture.voiceInstance = dominant->age;
         gesture.active = true;
 
@@ -366,7 +373,7 @@ public:
                 continue;
             }
             gesture.voiceFrequencyHz[gestureVoice]
-                = voice.lead.currentFrequencyHz();
+                = voice.carrierFrequencyHz;
             gesture.voiceGain[gestureVoice]
                 = voice.lead.carrierNoteGain() * chordNormalization;
             gesture.voiceInstanceIds[gestureVoice] = voice.age;
@@ -445,6 +452,7 @@ private:
         int32_t noteId = -1;
         int16_t channel = -1;
         int16_t key = -1;
+        float carrierFrequencyHz = 146.83f;
         uint64_t age = 0u;
         uint32_t leftDelay = 0u;
         uint32_t rightDelay = 0u;
@@ -514,6 +522,7 @@ private:
         voice.noteId = -1;
         voice.channel = -1;
         voice.key = -1;
+        voice.carrierFrequencyHz = 146.83f;
         voice.held = false;
     }
 

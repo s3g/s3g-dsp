@@ -76,6 +76,7 @@ inline LowFrequencySynthParams lowFrequencySynthFromExposedControls(
     p.amplitudeMotionPosition = exposed.amplitudeMotionPosition;
     p.shred = exposed.shred;
     p.shredFeedback = exposed.shredFeedback;
+    p.shredFeedbackToneLevel = exposed.shredFeedbackToneLevel;
     p.shredCircuit = exposed.shredCircuit;
     p.shredColor = exposed.shredColor;
     p.shredMix = exposed.shredMix;
@@ -278,6 +279,7 @@ inline LowFrequencySynthParams lowFrequencySynthFactoryPreset(uint32_t index)
         p.valvePreamp = 0.62f;
         p.shred = 0.74f;
         p.shredFeedback = 0.58f;
+        p.shredFeedbackToneLevel = 0.82f;
         p.shredCircuit = static_cast<float>(BassShredCircuit::ZoneB);
         p.shredColor = 0.54f;
         p.shredMix = 0.62f;
@@ -323,6 +325,7 @@ inline bool lowFrequencySynthParamsEqual(const LowFrequencySynthParams& a,
         && close(a.amplitudeMotionPosition, b.amplitudeMotionPosition)
         && close(a.shred, b.shred)
         && close(a.shredFeedback, b.shredFeedback)
+        && close(a.shredFeedbackToneLevel, b.shredFeedbackToneLevel)
         && close(a.shredCircuit, b.shredCircuit)
         && close(a.shredColor, b.shredColor)
         && close(a.shredMix, b.shredMix);

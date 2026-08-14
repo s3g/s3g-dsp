@@ -1302,6 +1302,29 @@ bool ensemblePolyphonyAndDoublingProbe()
         return false;
     }
 
+    s3g::AcapellaEnsembleParams splitParams;
+    splitParams.polyphony = 1u;
+    splitParams.doubleAmount = 0.0f;
+    s3g::AcapellaEnsembleSynth splitPitch;
+    splitPitch.setParams(splitParams);
+    splitPitch.prepare(kSampleRate);
+    if (!splitPitch.trigger({
+            { s3g::AcapellaVowel::A, s3g::AcapellaOnset::None,
+                146.83f, 0.8f, 500.0f },
+            91, 0, 69, 440.0f })) {
+        std::cerr << "split analysis/carrier pitch note did not trigger\n";
+        return false;
+    }
+    (void)splitPitch.processFrame();
+    const auto splitGesture = splitPitch.resonatorGesture();
+    const auto splitCarrier = splitPitch.midiCarrierGesture();
+    if (!splitGesture.active || splitGesture.voiceCount != 1u
+        || std::abs(splitGesture.voiceFrequencyHz[0] - 440.0f) > 1.0e-4f
+        || std::abs(splitCarrier.frequencyHz - 440.0f) > 1.0e-4f) {
+        std::cerr << "analysis voice pitch leaked into carrier metadata\n";
+        return false;
+    }
+
     auto source = s3g::acapellaSourcePreset(
         s3g::AcapellaSourcePreset::DeathGrowl);
     source.retriggerMs = 8.0f;

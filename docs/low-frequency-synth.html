@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Low Frequency Synth - s3g-dsp</title>
+    <title>Processor LF Synth - s3g-dsp</title>
     <meta name="description" content="User guide for the s3g monophonic Membrane Kick-derived bass synthesizer with a sustained twelve-mode body, protected low foundation, coordinated tube weight, and bass-tuned stereo Shred regeneration.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -25,22 +25,22 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Low Frequency Synth</h1>
+        <h1>Processor LF Synth</h1>
 
-        <p>Low Frequency Synth is a monophonic stereo adaptation of <a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a> optimized as a bass synthesizer. Each note strikes one shared twelve-mode membrane at a surface coordinate, while a continuous modal-energy term lets that same body sustain under ADSR. The complete membrane tracks chromatically, glides between held notes, follows a common pitch transient, and restores the previous held note with last-note-priority allocation.</p>
+        <p>Processor LF Synth is a monophonic stereo adaptation of <a href="ambi-encoder-membrane-kick.html">Ambi Encoder Membrane Kick</a> optimized as a bass synthesizer. Each note strikes one shared twelve-mode membrane at a surface coordinate, while a continuous modal-energy term lets that same body sustain under ADSR. The complete membrane tracks chromatically, glides between held notes, follows a common pitch transient, and restores the previous held note with last-note-priority allocation.</p>
 
-        <p>The public surface is deliberately direct. Sub, Modal Body, Mass Load, Coupling, Damping, and Excitation expose the membrane core. Upper Modes, Cutoff, Resonance, Membrane Drive, Filter Mix, and Tube shape the direct result. Stereo Shred adds a compact Macro Shred-derived circuit selector, upper-band distortion, governed feedback, loop Color, and an explicit dry/wet mix without placing the bass fundamental inside its nonlinear loop.</p>
+        <p>The public surface is deliberately direct. Sub, Modal Body, Mass Load, Coupling, Damping, and Excitation expose the membrane core. Upper Modes, Cutoff, Resonance, Membrane Drive, Filter Mix, and Tube shape the direct result. Stereo Shred adds a compact Macro Shred-derived circuit selector, upper-band distortion, governed feedback with a separate return level, loop Color, and an explicit dry/wet mix without placing the bass fundamental inside its nonlinear loop.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Low Frequency Synth</code> on a stereo instrument track and send it MIDI notes.</li>
+          <li>Insert <code>s3g Processor LF Synth</code> on a stereo instrument track and send it MIDI notes.</li>
           <li>Route the stereo output to speakers or headphones, play a low note, then set <code>SUB</code> for the centered first membrane mode and <code>MODAL BODY</code> for the sixteen-pickup surface fold.</li>
           <li>Use <code>MASS LOAD</code> to move Membrane Kick's circular ratios toward a pitch-legible harmonic family. <code>COUPLING</code> introduces a small split between the symmetric modal pairs.</li>
           <li>Set <code>DAMPING</code> for modal duration and <code>EXCITATION</code> for the balance between central low modes and asymmetric upper modes.</li>
           <li>Use <code>UPPER MODES</code> to expose or restrain both the initial strike and sustained energy of the membrane's higher modes. A small physical strike floor remains at 0%, while the protected first mode is unchanged. <code>MEMBRANE DRIVE</code> saturates each physical pickup before stereo summation. <code>CUTOFF</code>, <code>RESONANCE</code>, and <code>FILTER MIX</code> shape the surface body in parallel with the first mode.</li>
           <li>Raise <code>TUBE</code> for one coordinated change through valve gain, push-pull power transfer, supply compression, broad bass emphasis, high-frequency restraint, and cabinet contour.</li>
-          <li>Select a Stereo Shred <code>CIRCUIT</code>, raise <code>SHRED</code> for the post-amplifier nonlinear branch, and introduce <code>FEEDBACK</code> for pitch-related stereo regeneration. <code>COLOR</code> coordinates the circuit tone, feedback ratio, and loop bandwidth. Use <code>MIX</code> to retain as much of the unprocessed amplifier output as required; at 0%, Mix is exactly dry.</li>
+          <li>Select a Stereo Shred <code>CIRCUIT</code>, raise <code>SHRED</code> for the post-amplifier nonlinear branch, and introduce <code>FEEDBACK</code> for pitch-related stereo regeneration. <code>FB TONE LEVEL</code> sets how much of that regenerated circuit tone reaches the wet path without changing the loop's decay setting. <code>COLOR</code> coordinates the circuit tone, feedback ratio, and loop bandwidth. Use <code>MIX</code> to retain as much of the unprocessed amplifier output as required; at 0%, Mix is exactly dry.</li>
           <li>For rhythmic amplitude modulation, select <code>TRANSPORT</code> and a straight, dotted, or triplet <code>DIVISION</code>. Use <code>FREE</code> and <code>FREE RATE</code> for an autonomous sinusoidal LFO. <code>AMOUNT</code> sets the VCA modulation depth; <code>POSITION</code> places it immediately before or after Stereo Shred.</li>
           <li>Finish with ADSR, <code>GLIDE</code>, <code>PITCH TRANSIENT</code>, and the topmost <code>OUTPUT</code> control.</li>
         </ol>
@@ -57,10 +57,10 @@
           <li><code>FILTER MIX</code> blends the processed surface body with its dry form. The first membrane mode bypasses this filter path, preserving low-frequency pitch and weight.</li>
           <li><code>TUBE</code> controls a single coordinated amplifier trajectory. The pedal section is permanently bypassed.</li>
           <li>Stereo Shred follows the amplifier. A note-related crossover keeps a clean 180–500 Hz low branch outside the nonlinear path. The two upper branches use independent folded transfers and bounded delay loops tuned to nearby ratios of the played note. A final low-band replacement prevents nonlinear or crossover phase residue from subtracting the fundamental.</li>
-          <li>The Shred feedback gain is DC-blocked, low-pass contained, energy-governed, and source-envelope gated. It can regenerate after note release, but drains to silence rather than becoming a permanent no-input oscillator.</li>
+          <li>The Shred feedback gain is DC-blocked, low-pass contained, energy-governed, and source-envelope gated. Its audible return has a second energy governor and a smooth interruption envelope: downward control changes and note interruptions duck the return without clearing the delay memory, then recover gradually. It can regenerate after note release, but drains to silence rather than becoming a permanent no-input oscillator.</li>
           <li>The sinusoidal amplitude LFO is a smoothed stereo VCA with selectable placement. <code>PRE SHRED</code> modulates the post-Tube signal entering Shred, changing how each cycle excites its nonlinear and feedback paths. <code>POST SHRED</code> modulates the complete Shred output, including regeneration. It never alters cutoff, resonance, pitch, modal ratios, or Membrane Drive.</li>
           <li>Sub-92 Hz stereo difference is removed, and the remaining modal side component is restrained. The fundamental and body mid stay centered.</li>
-          <li>Smoothed onset/release gain, VCA transitions, drained nonlinear state, DC removal, and a linked stereo headroom guard prevent discontinuities and hard clipping before the plug-in sleeps.</li>
+          <li>Smoothed onset/release gain, a windowed two-lane modal handoff for retriggers, drained nonlinear state, DC removal, and a linked stereo headroom guard prevent discontinuities and hard clipping before the plug-in sleeps.</li>
         </ol>
 
         <h2 id="model">Research Translation</h2>
@@ -90,7 +90,7 @@
 
         <h2 id="shred">Stereo Shred</h2>
 
-        <p>Stereo Shred adapts the circuit transfers and bounded delay-feedback idea from <a href="macro-shred.html">Macro Shred</a> to this instrument's lower register. <code>CIRCUIT</code> selects SHRED, WOOL, RAT, ZONE A, ZONE B, FUZZ I, FUZZ II, or DIODE. Circuit changes crossfade over 20 ms. <code>SHRED</code> sets the selected transfer's intensity in two independent channels, <code>FEEDBACK</code> opens their governed regeneration loops, <code>COLOR</code> coordinates circuit voicing with note-related loop frequency and bandwidth, and <code>MIX</code> crossfades from the exact post-Tube dry signal to the bass-specific processed path.</p>
+        <p>Stereo Shred adapts the circuit transfers and bounded delay-feedback idea from <a href="macro-shred.html">Macro Shred</a> to this instrument's lower register. <code>CIRCUIT</code> selects SHRED, WOOL, RAT, ZONE A, ZONE B, FUZZ I, FUZZ II, or DIODE. Circuit changes crossfade over 20 ms. <code>SHRED</code> sets the selected transfer's intensity in two independent channels, <code>FEEDBACK</code> opens their governed regeneration loops, <code>FB TONE LEVEL</code> controls only the audible regenerated contribution, <code>COLOR</code> coordinates circuit voicing with note-related loop frequency and bandwidth, and <code>MIX</code> crossfades from the exact post-Tube dry signal to the bass-specific processed path.</p>
 
         <p>The bass retuning follows a functional pattern visible across manufacturer-published bass distortion designs. Darkglass describes the <a href="https://www.darkglass.com/pages/microtubes-x-manual" target="_blank" rel="noopener noreferrer">Microtubes X</a> as a low-pass branch mixed with a separately distorted high-pass branch; its high-pass range begins at 100 Hz and its low-pass range extends to 500 Hz. Electro-Harmonix documents a corresponding variable dry low-pass, distorted high-pass, and Blend architecture in the <a href="https://www.ehx.com/products/deluxe-bass-big-muff-pi/" target="_blank" rel="noopener noreferrer">Deluxe Bass Big Muff Pi</a>. The <a href="https://ampeg.com/pdf/manuals/Pedals/Scrambler_Overdrive_OM.pdf" target="_blank" rel="noopener noreferrer">Ampeg Scrambler manual</a> and <a href="https://www.boss.info/global/products/odb-3/downloads/" target="_blank" rel="noopener noreferrer">BOSS ODB-3 documentation</a> likewise expose a clean/effected blend as a primary bass-distortion control.</p>
 
@@ -98,7 +98,7 @@
 
         <h2 id="performance">MIDI and Performance</h2>
 
-        <p>The instrument uses last-note-priority monophonic allocation. Playing another note while one is held transfers the existing voice legato and follows <code>GLIDE</code>; releasing the current note restores the most recent still-held note. Repeating the active key retriggers its envelope and distributed membrane force packet.</p>
+        <p>The instrument uses last-note-priority monophonic allocation. Playing another note while one is held transfers the existing voice legato and follows <code>GLIDE</code>; releasing the current note restores the most recent still-held note. Repeating the active key retriggers its envelope and distributed membrane force packet. ATTACK shapes both the output VCA and that physical force packet: sub-millisecond settings retain the struck membrane, while progressively slower values replace the impulse with the continuous modal drive instead of merely revealing stored impact energy later. Strike force also follows velocity without a fixed hard floor. When a non-legato note interrupts an audible release, two internal modal lanes overlap for eight milliseconds under complementary raised-cosine windows. The outgoing membrane retains its pitch, velocity, envelope, and filter state during that handoff, while the amplifier and Shred feedback remain one shared post circuit. This is a de-clicking implementation detail rather than audible polyphony.</p>
 
         <p>CLAP note pressure, MIDI polyphonic aftertouch, and MIDI channel pressure increase the sustained membrane drive. <code>MIDI RECEIVE</code> selects OMNI or channels 1–16. Velocity controls the initial strike force and sustained modal energy rather than merely scaling the final output.</p>
 
@@ -123,7 +123,7 @@
             <tr><td>Pitch</td><td>Transpose / Glide / Pitch Transient</td><td>Sets chromatic range and the two essential pitch gestures.</td></tr>
             <tr><td>Envelope</td><td>Attack / Decay / Sustain / Release</td><td>Defines held-note articulation.</td></tr>
             <tr><td>Tone</td><td>Upper Modes / Cutoff / Resonance / Membrane Drive / Filter Mix / Tube</td><td>Shapes modal balance, local pickup saturation, the stable parallel filter path, and coordinated amplification.</td></tr>
-            <tr><td>Stereo Shred</td><td>Circuit / Shred / Feedback / Color / Mix</td><td>Selects eight nonlinear transfers and shapes bass-separated stereo regeneration after Tube while retaining an exact dry endpoint.</td></tr>
+            <tr><td>Stereo Shred</td><td>Circuit / Shred / Feedback / FB Tone Level / Color / Mix</td><td>Selects eight nonlinear transfers and independently levels smooth, bass-separated stereo regeneration after Tube while retaining an exact dry endpoint.</td></tr>
             <tr><td>Amplitude LFO</td><td>Clock / Division / Free Rate / Amount / Position</td><td>Controls sinusoidal host-synchronized or free amplitude modulation and places its VCA before or after Stereo Shred.</td></tr>
             <tr><td>Routing</td><td>MIDI Receive</td><td>Selects OMNI or a specific MIDI channel.</td></tr>
           </tbody>
@@ -133,17 +133,17 @@
 
         <p>The sixteen factory presets are authored entirely from the exposed controls: Reference, Pure Sub, Mass Loaded, Coupled Body, Dark Membrane, Long Membrane, Short Pluck, Glide Line, Pitch Impulse, Slow AM, Quarter AM, Eighth AM, Free AM, Parallel Shred, Tube Weight, and Regenerated Bass. Parallel Shred now demonstrates RAT, while Regenerated Bass uses ZONE B. MIDI Receive remains unchanged when a preset is selected. Randomization also uses only the exposed synthesis surface and keeps feedback, Color, and wet level inside ranges chosen to preserve low-frequency weight.</p>
 
-        <p>Version 1.3.2 makes Upper Modes govern the initial upper-mode strike as well as sustain and corrects the PRE SHRED / POST SHRED menu display. Version 1.3 adds Amplitude LFO Position as parameter 58 without reordering version 1.2 values or reclaiming a removed identifier. Version 1.2 and earlier states load with <code>POST SHRED</code>, preserving the previous signal flow. Version 1.1 states retain their Shred, Feedback, and Mix settings and acquire SHRED at the neutral Color default. Version 1.0, 0.9, and 0.8 states still load with Stereo Shred safely off; version 0.8's former 0–6 octave motion depth is mapped proportionally to 0–100% amplitude-LFO Amount.</p>
+        <p>Version 1.3.6 renames the instrument and canonical bundle to Processor LF Synth while retaining its stable CLAP identifier, parameters, and state schema. Version 1.3.5 adds Feedback Tone Level as parameter 59 and separates the audible regenerated lane from loop gain. Existing states acquire a unity level, preserving their previous Stereo Shred balance; feedback reductions and note interruptions now use a smooth return governor without clearing loop memory. Version 1.3.4 makes ATTACK progressively soften the physical membrane excitation and removes the disproportionate low-velocity strike floor. Version 1.3.3 adds the internal modal-lane overlap for interrupted releases and non-legato retriggers. Version 1.3.2 makes Upper Modes govern the initial upper-mode strike as well as sustain and corrects the PRE SHRED / POST SHRED menu display. Version 1.3 adds Amplitude LFO Position as parameter 58 without reordering version 1.2 values or reclaiming a removed identifier. Version 1.2 and earlier states load with <code>POST SHRED</code>, preserving the previous signal flow. Version 1.1 states retain their Shred, Feedback, and Mix settings and acquire SHRED at the neutral Color default. Version 1.0, 0.9, and 0.8 states still load with Stereo Shred safely off; version 0.8's former 0–6 octave motion depth is mapped proportionally to 0–100% amplitude-LFO Amount.</p>
 
         <h2 id="limits">Limits</h2>
 
         <p>The implementation is a reduced modal synthesizer rather than a finite-element membrane solver. Its controls do not represent calibrated dimensions, materials, tension, pressure, or mass. The first mode remains phase-continuous and centered, and the continuous-energy term is a musical bass-synth adaptation rather than a literal bowed or externally driven drumhead. Filter, amplifier, transformer, and cabinet stages remain musical approximations.</p>
 
-        <p>Low Frequency Synth is not affiliated with or endorsed by Ampeg, Darkglass Electronics, Electro-Harmonix, or BOSS. Product and company names identify manufacturer-published functional references only. Stereo Shred is an original reduced-order DSP design, not a component-level model of those products.</p>
+        <p>Processor LF Synth is not affiliated with or endorsed by Ampeg, Darkglass Electronics, Electro-Harmonix, or BOSS. Product and company names identify manufacturer-published functional references only. Stereo Shred is an original reduced-order DSP design, not a component-level model of those products.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="generative-instruments.html"><span>Previous</span>Generative Instruments</a>
-          <a class="page-nav-link next" href="processor-feedback-shift.html"><span>Next</span>Processor Feedback Shift</a>
+          <a class="page-nav-link next" href="processor-stack.html"><span>Next</span>Processor Stack</a>
         </nav>
       </main>
 
@@ -151,7 +151,8 @@
         <div class="toc-section">
           <h2>Instruments</h2>
           <a href="instruments.html">Overview</a>
-          <a href="low-frequency-synth.html">Low Frequency Synth</a>
+          <a href="low-frequency-synth.html">Processor LF Synth</a>
+          <a href="processor-stack.html">Processor Stack</a>
           <a href="s3g-tracker.html">s3g Tracker</a>
           <a href="drums.html">Drums</a>
           <a href="generative-instruments.html">Generative</a>

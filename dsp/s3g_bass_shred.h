@@ -42,6 +42,7 @@ inline const char* bassShredCircuitName(BassShredCircuit circuit)
 struct BassShredParams {
     float shred = 0.0f;
     float feedback = 0.0f;
+    float feedbackToneLevel = 1.0f;
     float color = 0.55f;
     float mix = 0.0f;
     BassShredCircuit circuit = BassShredCircuit::Shred;
@@ -78,6 +79,10 @@ public:
             - std::exp(-1.0f / (sr * 0.003f));
         sourceReleaseCoefficient_ = 1.0f
             - std::exp(-1.0f / (sr * 0.180f));
+        feedbackGovernorAttackCoefficient_ = 1.0f
+            - std::exp(-1.0f / (sr * 0.002f));
+        feedbackGovernorReleaseCoefficient_ = 1.0f
+            - std::exp(-1.0f / (sr * 0.045f));
         circuitFadeCoefficient_ = 1.0f
             / std::max(1.0f, sr * 0.020f);
         dcPole_ = std::exp(-2.0f * kPi * 18.0f / sr);
@@ -102,17 +107,21 @@ public:
         loopLowpass_ = 0.0f;
         loopEnvelope_ = 0.0f;
         sourceEnvelope_ = 0.0f;
+        feedbackToneEnvelope_ = 0.0f;
+        feedbackToneGovernor_ = 1.0f;
         postLowpass_ = 0.0f;
         previousExcitation_ = 0.0f;
+        previousSourceExcitation_ = 0.0f;
         activity_ = 0.0f;
         circuitStates_.fill({});
+        sourceCircuitStates_.fill({});
         activeCircuit_ = circuit;
         previousCircuit_ = circuit;
         circuitFade_ = 1.0f;
     }
 
     float processSample(float input, float shred, float feedback,
-        float color, BassShredCircuit circuit,
+        float feedbackToneLevel, float color, BassShredCircuit circuit,
         const BassShredCoefficients& coefficients)
     {
         if (delay_.empty()) return input;
@@ -120,6 +129,9 @@ public:
         shred = clamp(std::isfinite(shred) ? shred : 0.0f,
             0.0f, 1.0f);
         feedback = clamp(std::isfinite(feedback) ? feedback : 0.0f,
+            0.0f, 1.0f);
+        feedbackToneLevel = clamp(std::isfinite(feedbackToneLevel)
+                ? feedbackToneLevel : 1.0f,
             0.0f, 1.0f);
         color = clamp(std::isfinite(color) ? color : 0.55f,
             0.0f, 1.0f);
@@ -165,36 +177,80 @@ public:
             * governor * sourceGate;
 
         const float drive = 1.0f + shred * shred * 11.0f;
-        const float excitation = clamp(
-            upper * (1.0f + shred * 1.8f)
+        const float sourceExcitation = clamp(
+            upper * (1.0f + shred * 1.8f), -6.0f, 6.0f);
+        const float excitation = clamp(sourceExcitation
                 + loopLowpass_ * feedbackGain,
             -6.0f, 6.0f);
-        const float midpoint = 0.5f
-            * (previousExcitation_ + excitation);
+        const float midpoint = 0.5f * (previousExcitation_ + excitation);
+        const float sourceMidpoint = 0.5f
+            * (previousSourceExcitation_ + sourceExcitation);
         if (circuit != activeCircuit_) {
             previousCircuit_ = activeCircuit_;
             activeCircuit_ = circuit;
             circuitFade_ = 0.0f;
         }
         const float circuitBias = (0.5f - color) * 0.10f;
-        const auto shapePair = [&](BassShredCircuit selected) {
+        const auto shapePair = [&](BassShredCircuit selected,
+                                   float pairMidpoint,
+                                   float pairExcitation,
+                                   auto& states) {
             return 0.5f * (
-                processCircuit(selected, midpoint, shred, color,
-                    circuitBias, drive)
-                + processCircuit(selected, excitation, shred, color,
-                    circuitBias, drive));
+                processCircuit(selected, pairMidpoint, shred, color,
+                    circuitBias, drive, states)
+                + processCircuit(selected, pairExcitation, shred, color,
+                    circuitBias, drive, states));
         };
-        const float activeShape = shapePair(activeCircuit_);
-        float shaped = activeShape;
+        const float activeShape = shapePair(activeCircuit_, midpoint,
+            excitation, circuitStates_);
+        const float activeSourceShape = shapePair(activeCircuit_,
+            sourceMidpoint, sourceExcitation, sourceCircuitStates_);
+        float loopShaped = activeShape;
+        float sourceShaped = activeSourceShape;
         if (circuitFade_ < 1.0f) {
-            const float previousShape = shapePair(previousCircuit_);
-            shaped = lerp(previousShape, activeShape, circuitFade_);
+            const float previousShape = shapePair(previousCircuit_, midpoint,
+                excitation, circuitStates_);
+            const float previousSourceShape = shapePair(previousCircuit_,
+                sourceMidpoint, sourceExcitation, sourceCircuitStates_);
+            loopShaped = lerp(previousShape, activeShape, circuitFade_);
+            sourceShaped = lerp(previousSourceShape, activeSourceShape,
+                circuitFade_);
             circuitFade_ = std::min(1.0f,
                 circuitFade_ + circuitFadeCoefficient_);
         }
         previousExcitation_ = excitation;
-        delay_[writeIndex_] = flushDenormal(std::tanh(shaped * 0.90f));
+        previousSourceExcitation_ = sourceExcitation;
+        delay_[writeIndex_] = flushDenormal(std::tanh(loopShaped * 0.90f));
         writeIndex_ = (writeIndex_ + 1u) % delay_.size();
+
+        // Keep regeneration independent from its audible return. The loop is
+        // always written from the fully regenerated circuit path, while this
+        // parallel source-only path lets Feedback Tone Level remove just the
+        // delayed nonlinear contribution. A slow-recovery energy governor
+        // contains interruption transients without shortening the loop.
+        const float feedbackTone = loopShaped - sourceShaped;
+        const float feedbackToneMagnitude = std::fabs(feedbackTone);
+        const float feedbackEnvelopeCoefficient =
+            feedbackToneMagnitude > feedbackToneEnvelope_
+                ? feedbackGovernorAttackCoefficient_
+                : feedbackGovernorReleaseCoefficient_;
+        feedbackToneEnvelope_ += (feedbackToneMagnitude
+                - feedbackToneEnvelope_) * feedbackEnvelopeCoefficient;
+        feedbackToneEnvelope_ = flushDenormal(feedbackToneEnvelope_);
+        const float feedbackExcess = std::max(
+            0.0f, feedbackToneEnvelope_ - 0.82f);
+        const float feedbackGovernorTarget =
+            1.0f / (1.0f + feedbackExcess * 7.0f);
+        const float feedbackGovernorCoefficient =
+            feedbackGovernorTarget < feedbackToneGovernor_
+                ? feedbackGovernorAttackCoefficient_
+                : feedbackGovernorReleaseCoefficient_;
+        feedbackToneGovernor_ += (feedbackGovernorTarget
+                - feedbackToneGovernor_) * feedbackGovernorCoefficient;
+        feedbackToneGovernor_ = clamp(
+            flushDenormal(feedbackToneGovernor_), 0.0f, 1.0f);
+        const float shaped = sourceShaped + feedbackTone
+            * feedbackToneLevel * feedbackToneGovernor_;
 
         postLowpass_ += (shaped - postLowpass_)
             * clamp(coefficients.postLowpass, 0.00001f, 0.95f);
@@ -254,7 +310,8 @@ private:
     };
 
     float processCircuit(BassShredCircuit circuit, float input,
-        float amount, float color, float bias, float shredDrive)
+        float amount, float color, float bias, float shredDrive,
+        std::array<CircuitState, kBassShredCircuitCount>& states)
     {
         if (circuit == BassShredCircuit::Shred) {
             const float pressured = std::tanh(input * shredDrive);
@@ -267,7 +324,7 @@ private:
             static_cast<uint32_t>(circuit), kBassShredCircuitCount - 1u);
         return processAnalogDriveCircuit(
             static_cast<AnalogDriveCircuit>(index - 1u),
-            circuitStates_[index], input, amount, color, bias,
+            states[index], input, amount, color, bias,
             static_cast<float>(sampleRate_ * 2.0));
     }
 
@@ -301,15 +358,21 @@ private:
     float loopLowpass_ = 0.0f;
     float loopEnvelope_ = 0.0f;
     float sourceEnvelope_ = 0.0f;
+    float feedbackToneEnvelope_ = 0.0f;
+    float feedbackToneGovernor_ = 1.0f;
     float postLowpass_ = 0.0f;
     float previousExcitation_ = 0.0f;
+    float previousSourceExcitation_ = 0.0f;
     float activity_ = 0.0f;
     float delaySmoothingCoefficient_ = 0.001f;
     float safetyCoefficient_ = 0.001f;
     float activityCoefficient_ = 0.001f;
     float sourceAttackCoefficient_ = 0.001f;
     float sourceReleaseCoefficient_ = 0.001f;
+    float feedbackGovernorAttackCoefficient_ = 0.001f;
+    float feedbackGovernorReleaseCoefficient_ = 0.001f;
     std::array<CircuitState, kBassShredCircuitCount> circuitStates_ {};
+    std::array<CircuitState, kBassShredCircuitCount> sourceCircuitStates_ {};
     BassShredCircuit activeCircuit_ = BassShredCircuit::Shred;
     BassShredCircuit previousCircuit_ = BassShredCircuit::Shred;
     float circuitFade_ = 1.0f;
@@ -325,6 +388,10 @@ public:
         for (auto& core : cores_) core.prepare(sampleRate_);
         parameterSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / static_cast<float>(sampleRate_ * 0.015));
+        feedbackInterruptionAttackCoefficient_ = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.004));
+        feedbackInterruptionReleaseCoefficient_ = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.040));
         pitchSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / static_cast<float>(sampleRate_ * 0.035));
         reset();
@@ -335,6 +402,9 @@ public:
         for (auto& core : cores_) core.reset(params_.circuit);
         shredSmoothed_ = params_.shred;
         feedbackSmoothed_ = params_.feedback;
+        feedbackToneLevelSmoothed_ = params_.feedbackToneLevel;
+        feedbackContinuityGain_ = 1.0f;
+        feedbackInterruptSamplesRemaining_ = 0u;
         colorSmoothed_ = params_.color;
         mixSmoothed_ = params_.mix;
         pitchSmoothed_ = 55.0f;
@@ -346,6 +416,10 @@ public:
             ? params.shred : 0.0f, 0.0f, 1.0f);
         params.feedback = clamp(std::isfinite(params.feedback)
             ? params.feedback : 0.0f, 0.0f, 1.0f);
+        params.feedbackToneLevel = clamp(
+            std::isfinite(params.feedbackToneLevel)
+                ? params.feedbackToneLevel : 1.0f,
+            0.0f, 1.0f);
         params.color = clamp(std::isfinite(params.color)
             ? params.color : 0.55f, 0.0f, 1.0f);
         params.mix = clamp(std::isfinite(params.mix)
@@ -353,10 +427,22 @@ public:
         params.circuit = static_cast<BassShredCircuit>(
             std::min<uint32_t>(static_cast<uint32_t>(params.circuit),
                 kBassShredCircuitCount - 1u));
+        const bool feedbackInterrupted =
+            params.feedback + 1.0e-5f < params_.feedback
+            || params.feedbackToneLevel + 1.0e-5f
+                < params_.feedbackToneLevel;
         params_ = params;
+        if (feedbackInterrupted) interruptFeedback();
     }
 
     BassShredParams params() const { return params_; }
+
+    void interruptFeedback()
+    {
+        feedbackInterruptSamplesRemaining_ = std::max<uint32_t>(
+            feedbackInterruptSamplesRemaining_,
+            static_cast<uint32_t>(std::ceil(sampleRate_ * 0.010)));
+    }
 
     void processStereo(float& left, float& right, float pitchHz)
     {
@@ -366,6 +452,21 @@ public:
             * parameterSmoothingCoefficient_;
         feedbackSmoothed_ += (params_.feedback - feedbackSmoothed_)
             * parameterSmoothingCoefficient_;
+        feedbackToneLevelSmoothed_ += (params_.feedbackToneLevel
+                - feedbackToneLevelSmoothed_)
+            * parameterSmoothingCoefficient_;
+        const float feedbackContinuityTarget =
+            feedbackInterruptSamplesRemaining_ > 0u ? 0.0f : 1.0f;
+        if (feedbackInterruptSamplesRemaining_ > 0u) {
+            --feedbackInterruptSamplesRemaining_;
+        }
+        const float feedbackContinuityCoefficient =
+            feedbackContinuityTarget < feedbackContinuityGain_
+                ? feedbackInterruptionAttackCoefficient_
+                : feedbackInterruptionReleaseCoefficient_;
+        feedbackContinuityGain_ += (feedbackContinuityTarget
+                - feedbackContinuityGain_)
+            * feedbackContinuityCoefficient;
         colorSmoothed_ += (params_.color - colorSmoothed_)
             * parameterSmoothingCoefficient_;
         mixSmoothed_ += (params_.mix - mixSmoothed_)
@@ -397,7 +498,9 @@ public:
             coefficients.delaySamples = static_cast<float>(sampleRate_)
                 / (feedbackHz * kLaneTune[lane]);
             wet[lane] = cores_[lane].processSample(dry[lane],
-                shredSmoothed_, feedbackSmoothed_, colorSmoothed_,
+                shredSmoothed_, feedbackSmoothed_,
+                feedbackToneLevelSmoothed_ * feedbackContinuityGain_,
+                colorSmoothed_,
                 params_.circuit, coefficients);
         }
         left = lerp(dryLeft, wet[0u], mixSmoothed_);
@@ -423,11 +526,16 @@ private:
     std::array<BassShredCore, 2u> cores_ {};
     float shredSmoothed_ = 0.0f;
     float feedbackSmoothed_ = 0.0f;
+    float feedbackToneLevelSmoothed_ = 1.0f;
+    float feedbackContinuityGain_ = 1.0f;
     float colorSmoothed_ = 0.55f;
     float mixSmoothed_ = 0.0f;
     float pitchSmoothed_ = 55.0f;
     float parameterSmoothingCoefficient_ = 0.001f;
+    float feedbackInterruptionAttackCoefficient_ = 0.001f;
+    float feedbackInterruptionReleaseCoefficient_ = 0.001f;
     float pitchSmoothingCoefficient_ = 0.001f;
+    uint32_t feedbackInterruptSamplesRemaining_ = 0u;
 };
 
 } // namespace s3g
