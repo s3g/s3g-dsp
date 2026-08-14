@@ -14,7 +14,7 @@ struct ProcessorStackFactoryPresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kProcessorStackFactoryPresetCount = 18u;
+inline constexpr uint32_t kProcessorStackFactoryPresetCount = 22u;
 
 inline const ProcessorStackFactoryPresetInfo&
 processorStackFactoryPresetInfo(uint32_t index)
@@ -39,6 +39,10 @@ processorStackFactoryPresetInfo(uint32_t index)
         { "TRITONE SCRAMBLE", "Deterministic tritone cells tearing across three octaves." },
         { "DECLARED RIFF", "An explicit eight-step scale-degree pattern ready to edit." },
         { "FEEDBACK LANCE", "A narrow self-governed upper partial that stabs through the stack." },
+        { "TARGET ACQUIRED", "Note-period glitch cells ratchet only after a coherent feedback stab." },
+        { "CHUG CHUG CHUG", "Three declared palm-muted power attacks with a piercing answer." },
+        { "POLY SHRAPNEL", "Four played strings fuse into one glitch-targeted speaker return." },
+        { "SLOW MONOLITH", "Whole-note low power movement with calm energy masking." },
     }};
     return info[std::min<uint32_t>(
         index, kProcessorStackFactoryPresetCount - 1u)];
@@ -61,6 +65,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.cone = 0.78f;
         params.feedback = 0.28f;
         params.spill = 0.14f;
+        params.attackMs = 4.0f;
+        params.decayMs = 150.0f;
+        params.sustain = 0.46f;
+        params.releaseMs = 85.0f;
         params.outputGainDb = -11.0f;
         break;
     case 2u: // ONE FINGER RIFF
@@ -69,6 +77,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.wire = 0.68f;
         params.pick = 0.86f;
         params.damping = 0.46f;
+        params.attackMs = 1.0f;
+        params.decayMs = 120.0f;
+        params.sustain = 0.58f;
+        params.releaseMs = 68.0f;
         params.circuit = ProcessorStackCircuit::Rat;
         params.bite = 0.68f;
         params.stack = 0.76f;
@@ -87,6 +99,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 18.0f;
         params.crooked = 0.92f;
         params.spill = 0.08f;
+        params.attackMs = 0.8f;
+        params.decayMs = 92.0f;
+        params.sustain = 0.34f;
+        params.releaseMs = 48.0f;
         params.circuit = ProcessorStackCircuit::ZoneB;
         params.bite = 0.62f;
         params.bias = 0.42f;
@@ -265,6 +281,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 9.0f;
         params.crooked = 0.82f;
         params.spill = 0.18f;
+        params.attackMs = 0.7f;
+        params.decayMs = 78.0f;
+        params.sustain = 0.24f;
+        params.releaseMs = 38.0f;
         params.arpPattern = ProcessorStackArpPattern::Up;
         params.scale = ProcessorStackScale::Phrygian;
         params.arpRate = ProcessorStackArpRate::SixteenthTriplet;
@@ -291,6 +311,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 4.0f;
         params.crooked = 0.74f;
         params.spill = 0.12f;
+        params.attackMs = 0.5f;
+        params.decayMs = 62.0f;
+        params.sustain = 0.16f;
+        params.releaseMs = 28.0f;
         params.arpPattern = ProcessorStackArpPattern::Pendulum;
         params.scale = ProcessorStackScale::Diminished;
         params.arpRate = ProcessorStackArpRate::ThirtySecond;
@@ -314,6 +338,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 13.0f;
         params.crooked = 0.94f;
         params.spill = 0.08f;
+        params.attackMs = 0.6f;
+        params.decayMs = 70.0f;
+        params.sustain = 0.18f;
+        params.releaseMs = 32.0f;
         params.arpPattern = ProcessorStackArpPattern::Pedal;
         params.scale = ProcessorStackScale::HarmonicMinor;
         params.arpRate = ProcessorStackArpRate::Sixteenth;
@@ -339,6 +367,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 6.0f;
         params.crooked = 1.0f;
         params.spill = 0.22f;
+        params.attackMs = 0.5f;
+        params.decayMs = 54.0f;
+        params.sustain = 0.12f;
+        params.releaseMs = 24.0f;
         params.arpPattern = ProcessorStackArpPattern::Scramble;
         params.scale = ProcessorStackScale::Tritone;
         params.arpRate = ProcessorStackArpRate::ThirtySecond;
@@ -367,6 +399,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 7.0f;
         params.crooked = 0.78f;
         params.spill = 0.14f;
+        params.attackMs = 0.8f;
+        params.decayMs = 86.0f;
+        params.sustain = 0.22f;
+        params.releaseMs = 36.0f;
         params.arpPattern = ProcessorStackArpPattern::Custom;
         params.scale = ProcessorStackScale::Diminished;
         params.arpRate = ProcessorStackArpRate::Sixteenth;
@@ -393,6 +429,10 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.glideMs = 11.0f;
         params.crooked = 0.72f;
         params.spill = 0.26f;
+        params.attackMs = 2.0f;
+        params.decayMs = 190.0f;
+        params.sustain = 0.66f;
+        params.releaseMs = 420.0f;
         params.circuit = ProcessorStackCircuit::Shred;
         params.bite = 0.78f;
         params.pedalTone = 0.86f;
@@ -412,6 +452,158 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.pierce = 1.0f;
         params.selfListen = 1.0f;
         params.outputGainDb = -17.0f;
+        break;
+    case 18u: // TARGET ACQUIRED
+        params.mode = ProcessorStackMode::Lead;
+        params.wire = 0.74f;
+        params.pick = 0.96f;
+        params.damping = 0.52f;
+        params.glideMs = 8.0f;
+        params.crooked = 0.66f;
+        params.spill = 0.22f;
+        params.circuit = ProcessorStackCircuit::Shred;
+        params.bite = 0.86f;
+        params.pedalTone = 0.90f;
+        params.stack = 0.78f;
+        params.sag = 0.44f;
+        params.focus = 0.94f;
+        params.cone = 0.72f;
+        params.cabinet = 0.28f;
+        params.mic = 0.36f;
+        params.feedback = 0.84f;
+        params.proximity = 0.94f;
+        params.harmonic = 0.88f;
+        params.tracking = 0.98f;
+        params.polarity = 0.86f;
+        params.root = 0.06f;
+        params.chaos = 0.30f;
+        params.pierce = 1.0f;
+        params.selfListen = 1.0f;
+        params.targetGlitch = 0.88f;
+        params.glitchRatchet = 0.72f;
+        params.outputGainDb = -18.0f;
+        break;
+    case 19u: // CHUG CHUG CHUG
+        params.mode = ProcessorStackMode::Power;
+        params.shape = 0.18f;
+        params.wire = 0.72f;
+        params.pick = 1.0f;
+        params.damping = 0.86f;
+        params.glideMs = 2.0f;
+        params.crooked = 0.34f;
+        params.spill = 0.08f;
+        params.attackMs = 0.0f;
+        params.decayMs = 56.0f;
+        params.sustain = 0.04f;
+        params.releaseMs = 22.0f;
+        params.arpPattern = ProcessorStackArpPattern::Custom;
+        params.scale = ProcessorStackScale::Phrygian;
+        params.arpRate = ProcessorStackArpRate::Sixteenth;
+        params.arpOctaves = 1u;
+        params.arpGate = 0.24f;
+        params.customPatternLength = 3u;
+        params.customPattern = {{ 0, 0, 0, 0, 0, 0, 0, 0 }};
+        params.circuit = ProcessorStackCircuit::Rat;
+        params.bite = 0.88f;
+        params.pedalTone = 0.58f;
+        params.bias = 0.48f;
+        params.stack = 0.88f;
+        params.sag = 0.38f;
+        params.focus = 0.68f;
+        params.cone = 0.76f;
+        params.cabinet = 0.44f;
+        params.mic = 0.22f;
+        params.feedback = 0.52f;
+        params.proximity = 0.84f;
+        params.harmonic = 0.76f;
+        params.tracking = 0.92f;
+        params.polarity = 0.82f;
+        params.root = 0.42f;
+        params.chaos = 0.18f;
+        params.pierce = 0.88f;
+        params.selfListen = 0.92f;
+        params.targetGlitch = 0.28f;
+        params.glitchRatchet = 0.64f;
+        params.outputGainDb = -18.0f;
+        break;
+    case 20u: // POLY SHRAPNEL
+        params.mode = ProcessorStackMode::Hand;
+        params.wire = 0.78f;
+        params.pick = 0.90f;
+        params.damping = 0.48f;
+        params.glideMs = 12.0f;
+        params.crooked = 0.58f;
+        params.spill = 0.30f;
+        params.attackMs = 1.5f;
+        params.decayMs = 160.0f;
+        params.sustain = 0.52f;
+        params.releaseMs = 260.0f;
+        params.circuit = ProcessorStackCircuit::Shred;
+        params.bite = 0.82f;
+        params.pedalTone = 0.82f;
+        params.bias = 0.46f;
+        params.stack = 0.76f;
+        params.sag = 0.66f;
+        params.focus = 0.88f;
+        params.cone = 0.76f;
+        params.cabinet = 0.36f;
+        params.mic = 0.48f;
+        params.feedback = 0.76f;
+        params.proximity = 0.88f;
+        params.harmonic = 0.82f;
+        params.tracking = 0.90f;
+        params.polarity = 0.84f;
+        params.root = 0.18f;
+        params.chaos = 0.46f;
+        params.pierce = 0.96f;
+        params.selfListen = 1.0f;
+        params.targetGlitch = 0.72f;
+        params.glitchRatchet = 0.54f;
+        params.outputGainDb = -19.0f;
+        break;
+    case 21u: // SLOW MONOLITH
+        params.mode = ProcessorStackMode::Power;
+        params.shape = 0.22f;
+        params.wire = 0.86f;
+        params.pick = 0.58f;
+        params.damping = 0.46f;
+        params.glideMs = 96.0f;
+        params.crooked = 0.14f;
+        params.spill = 0.62f;
+        params.attackMs = 380.0f;
+        params.decayMs = 3200.0f;
+        params.sustain = 0.92f;
+        params.releaseMs = 5200.0f;
+        params.arpPattern = ProcessorStackArpPattern::Custom;
+        params.scale = ProcessorStackScale::Phrygian;
+        params.arpRate = ProcessorStackArpRate::Whole;
+        params.arpOctaves = 1u;
+        params.arpGate = 0.82f;
+        params.customPatternLength = 4u;
+        params.customPattern = {{ 0, 0, -1, 0, 0, 0, 0, 0 }};
+        params.circuit = ProcessorStackCircuit::Wool;
+        params.bite = 0.66f;
+        params.pedalTone = 0.38f;
+        params.bias = 0.54f;
+        params.stack = 0.74f;
+        params.sag = 0.84f;
+        params.focus = 0.30f;
+        params.cone = 0.82f;
+        params.cabinet = 0.78f;
+        params.mic = 0.20f;
+        params.feedback = 0.38f;
+        params.proximity = 0.44f;
+        params.harmonic = 0.24f;
+        params.tracking = 0.68f;
+        params.polarity = 0.76f;
+        params.root = 0.48f;
+        params.chaos = 0.08f;
+        params.pierce = 0.24f;
+        params.selfListen = 0.58f;
+        params.targetGlitch = 0.0f;
+        params.glitchRatchet = 0.20f;
+        params.overloadMask = 1.0f;
+        params.outputGainDb = -18.0f;
         break;
     default:
         break;
@@ -440,6 +632,10 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         && near(first.glideMs, second.glideMs)
         && near(first.crooked, second.crooked)
         && near(first.spill, second.spill)
+        && near(first.attackMs, second.attackMs)
+        && near(first.decayMs, second.decayMs)
+        && near(first.sustain, second.sustain)
+        && near(first.releaseMs, second.releaseMs)
         && near(first.arpGate, second.arpGate)
         && near(first.bite, second.bite)
         && near(first.pedalTone, second.pedalTone)
@@ -459,6 +655,9 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         && near(first.chaos, second.chaos)
         && near(first.pierce, second.pierce)
         && near(first.selfListen, second.selfListen)
+        && near(first.targetGlitch, second.targetGlitch)
+        && near(first.glitchRatchet, second.glitchRatchet)
+        && near(first.overloadMask, second.overloadMask)
         && near(first.outputGainDb, second.outputGainDb);
 }
 

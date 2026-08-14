@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <vector>
@@ -13,14 +14,32 @@ namespace {
 
 struct RenderStats {
     double energy = 0.0;
+    double onsetEnergy = 0.0;
+    double onsetDifferenceEnergy = 0.0;
+    double leadingEdgeEnergy = 0.0;
+    double leadingEdgeDifferenceEnergy = 0.0;
     double earlyEnergy = 0.0;
     double tailEnergy = 0.0;
     double differenceEnergy = 0.0;
     double feedbackBodyEnergy = 0.0;
     double feedbackStabEnergy = 0.0;
+    double targetGlitchEnergy = 0.0;
     float peak = 0.0f;
+    float onsetPeak = 0.0f;
+    float onsetMaximumDelta = 0.0f;
+    float leadingEdgePeak = 0.0f;
+    float maximumDelta = 0.0f;
+    float maximumSpeakerProtection = 0.0f;
+    float maximumSpeakerModePreLimit = 0.0f;
+    float maximumLimiterGainStep = 0.0f;
+    uint32_t onsetMaximumDeltaFrame = 0u;
+    float maximumOverloadMask = 0.0f;
     float finalActivity = 0.0f;
     float sag = 0.0f;
+    uint64_t targetGlitchTriggers = 0u;
+    uint64_t speakerSoftLimitCount = 0u;
+    uint64_t micSoftLimitCount = 0u;
+    uint64_t limiterAttackEvents = 0u;
     bool finite = true;
     bool active = false;
 };
@@ -29,18 +48,23 @@ RenderStats render(s3g::ProcessorStackParams params,
     const std::vector<std::pair<uint32_t, int>>& noteOns,
     const std::vector<std::pair<uint32_t, int>>& noteOffs,
     uint32_t frames = 144000u, double sampleRate = 48000.0,
-    float pressure = 0.0f, float bend = 0.0f)
+    float pressure = 0.0f, float bend = 0.0f, float tempo = 120.0f)
 {
     s3g::ProcessorStack stack;
     stack.prepare(sampleRate);
     stack.setParams(params);
     stack.setPressure(pressure);
     stack.setPitchBendSemitones(bend);
+    stack.setTempoBpm(tempo);
     RenderStats stats;
     size_t onIndex = 0u;
     size_t offIndex = 0u;
     float previousMono = 0.0f;
     const uint32_t earlyEnd = std::max<uint32_t>(1u, frames / 4u);
+    const uint32_t onsetEnd = std::max<uint32_t>(1u,
+        static_cast<uint32_t>(sampleRate * 0.006));
+    const uint32_t leadingEdgeEnd = std::max<uint32_t>(1u,
+        static_cast<uint32_t>(sampleRate * 0.002));
     const uint32_t tailStart = frames * 3u / 4u;
     for (uint32_t frame = 0u; frame < frames; ++frame) {
         while (onIndex < noteOns.size() && noteOns[onIndex].first == frame) {
@@ -66,18 +90,56 @@ RenderStats render(s3g::ProcessorStackParams params,
         stats.energy += frameEnergy;
         const float mono = (left + right) * 0.5f;
         const float difference = mono - previousMono;
+        stats.maximumDelta = std::max(stats.maximumDelta,
+            std::abs(difference));
         stats.differenceEnergy += static_cast<double>(difference) * difference;
+        if (frame < onsetEnd) {
+            stats.onsetEnergy += frameEnergy;
+            stats.onsetDifferenceEnergy += static_cast<double>(difference)
+                * difference;
+            stats.onsetPeak = std::max(stats.onsetPeak, framePeak);
+            if (std::abs(difference) > stats.onsetMaximumDelta) {
+                stats.onsetMaximumDelta = std::abs(difference);
+                stats.onsetMaximumDeltaFrame = frame;
+            }
+        }
+        if (frame < leadingEdgeEnd) {
+            stats.leadingEdgeEnergy += frameEnergy;
+            stats.leadingEdgeDifferenceEnergy += static_cast<double>(difference)
+                * difference;
+            stats.leadingEdgePeak = std::max(stats.leadingEdgePeak, framePeak);
+        }
         previousMono = mono;
         stats.feedbackBodyEnergy += static_cast<double>(
             stack.feedbackBodyActivity()) * stack.feedbackBodyActivity();
         stats.feedbackStabEnergy += static_cast<double>(
             stack.feedbackStabActivity()) * stack.feedbackStabActivity();
+        stats.targetGlitchEnergy += static_cast<double>(
+            stack.targetGlitchActivity()) * stack.targetGlitchActivity();
+        stats.maximumOverloadMask = std::max(stats.maximumOverloadMask,
+            stack.overloadMaskActivity());
+        stats.sag = std::max(stats.sag, stack.sagEnvelope());
+        stats.maximumSpeakerProtection = std::max(
+            stats.maximumSpeakerProtection,
+            stack.speakerProtectionActivity());
+        stats.maximumSpeakerModePreLimit = std::max(
+            stats.maximumSpeakerModePreLimit,
+            stack.speakerModePreLimitPeak());
+        stats.maximumLimiterGainStep = std::max(
+            stats.maximumLimiterGainStep,
+            stack.maximumLimiterGainStep());
+        stats.speakerSoftLimitCount = std::max(
+            stats.speakerSoftLimitCount, stack.speakerSoftLimitCount());
+        stats.micSoftLimitCount = std::max(stats.micSoftLimitCount,
+            stack.micSoftLimitCount());
+        stats.limiterAttackEvents = std::max(stats.limiterAttackEvents,
+            stack.limiterAttackEventCount());
         if (frame < earlyEnd) stats.earlyEnergy += frameEnergy;
         if (frame >= tailStart) stats.tailEnergy += frameEnergy;
         stats.peak = std::max(stats.peak, framePeak);
     }
     stats.finalActivity = stack.feedbackActivity();
-    stats.sag = stack.sagEnvelope();
+    stats.targetGlitchTriggers = stack.targetGlitchTriggerCount();
     stats.active = stack.active();
     return stats;
 }
@@ -128,6 +190,10 @@ int main()
     invalid.wire = 3.0f;
     invalid.pick = std::numeric_limits<float>::quiet_NaN();
     invalid.glideMs = 9000.0f;
+    invalid.attackMs = -4.0f;
+    invalid.decayMs = 90000.0f;
+    invalid.sustain = -3.0f;
+    invalid.releaseMs = 90000.0f;
     invalid.feedback = 5.0f;
     invalid.polarity = -5.0f;
     invalid.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(99u);
@@ -138,20 +204,31 @@ int main()
     invalid.customPatternLength = 99u;
     invalid.customPattern[0u] = -99;
     invalid.customPattern[1u] = 99;
+    invalid.pierce = -3.0f;
+    invalid.selfListen = 4.0f;
+    invalid.targetGlitch = 8.0f;
+    invalid.glitchRatchet = -2.0f;
+    invalid.overloadMask = 9.0f;
     invalid.outputGainDb = 80.0f;
     const auto sanitized = s3g::sanitizeProcessorStackParams(invalid);
     if (sanitized.mode != s3g::ProcessorStackMode::Lead
         || sanitized.circuit != s3g::ProcessorStackCircuit::Diode
         || sanitized.shape != 0.0f || sanitized.wire != 1.0f
         || sanitized.pick != 0.72f || sanitized.glideMs != 2000.0f
+        || sanitized.attackMs != 0.0f || sanitized.decayMs != 8000.0f
+        || sanitized.sustain != 0.0f || sanitized.releaseMs != 20000.0f
         || sanitized.feedback != 1.0f || sanitized.polarity != 0.0f
         || sanitized.arpPattern != s3g::ProcessorStackArpPattern::Custom
         || sanitized.scale != s3g::ProcessorStackScale::Tritone
-        || sanitized.arpRate != s3g::ProcessorStackArpRate::SixtyFourth
+        || sanitized.arpRate != s3g::ProcessorStackArpRate::Whole
         || sanitized.arpOctaves != 4u || sanitized.arpGate != 0.05f
         || sanitized.customPatternLength != 8u
         || sanitized.customPattern[0u] != -8
         || sanitized.customPattern[1u] != 15
+        || sanitized.pierce != 0.0f || sanitized.selfListen != 1.0f
+        || sanitized.targetGlitch != 1.0f
+        || sanitized.glitchRatchet != 0.0f
+        || sanitized.overloadMask != 1.0f
         || sanitized.outputGainDb != 6.0f) {
         std::cerr << "Processor Stack parameter sanitation failed\n";
         return 1;
@@ -224,11 +301,133 @@ int main()
         return 1;
     }
 
+    s3g::ProcessorStack feedbackSweep;
+    feedbackSweep.prepare(48000.0);
+    auto feedbackSweepParams = piercingFeedback;
+    feedbackSweepParams.feedback = 0.0f;
+    feedbackSweepParams.pierce = 0.82f;
+    feedbackSweepParams.selfListen = 0.90f;
+    feedbackSweepParams.targetGlitch = 0.0f;
+    feedbackSweepParams.chaos = 0.12f;
+    feedbackSweepParams.overloadMask = 1.0f;
+    feedbackSweep.setParams(feedbackSweepParams);
+    feedbackSweep.noteOn(52, 0.86f);
+    float feedbackSweepPrevious = 0.0f;
+    float feedbackSweepPeak = 0.0f;
+    float feedbackSweepMaximumDelta = 0.0f;
+    double feedbackSweepEnergy = 0.0;
+    double feedbackSweepDifferenceEnergy = 0.0;
+    bool feedbackSweepFinite = true;
+    for (uint32_t frame = 0u; frame < 96000u; ++frame) {
+        if (frame < 48000u && (frame % 64u) == 0u) {
+            feedbackSweepParams.feedback = static_cast<float>(frame)
+                / 48000.0f;
+            feedbackSweep.setParams(feedbackSweepParams);
+        }
+        if (frame == 72000u) feedbackSweep.noteOff(52);
+        float left = 0.0f;
+        float right = 0.0f;
+        feedbackSweep.processFrame(left, right);
+        if (!std::isfinite(left) || !std::isfinite(right)) {
+            feedbackSweepFinite = false;
+            break;
+        }
+        const float mono = (left + right) * 0.5f;
+        const float difference = mono - feedbackSweepPrevious;
+        feedbackSweepPrevious = mono;
+        feedbackSweepPeak = std::max(feedbackSweepPeak,
+            std::max(std::abs(left), std::abs(right)));
+        feedbackSweepMaximumDelta = std::max(feedbackSweepMaximumDelta,
+            std::abs(difference));
+        feedbackSweepEnergy += static_cast<double>(left) * left
+            + static_cast<double>(right) * right;
+        feedbackSweepDifferenceEnergy += static_cast<double>(difference)
+            * difference;
+    }
+    const double feedbackSweepRoughness = feedbackSweepDifferenceEnergy
+        / std::max(1.0e-12, feedbackSweepEnergy);
+    if (!feedbackSweepFinite || feedbackSweepPeak > 1.0f
+        || feedbackSweepMaximumDelta > 0.30f
+        || feedbackSweepRoughness > 0.025) {
+        std::cerr << "microphone feedback sweep developed DSP-like breakup: "
+                  << "peak=" << feedbackSweepPeak << " delta="
+                  << feedbackSweepMaximumDelta << " roughness="
+                  << feedbackSweepRoughness << "\n";
+        return 1;
+    }
+
+    auto targetGlitch = piercingFeedback;
+    targetGlitch.targetGlitch = 1.0f;
+    targetGlitch.glitchRatchet = 0.82f;
+    const auto targetGlitchStats = render(targetGlitch,
+        {{ 0u, 52 }, { 18000u, 55 }, { 36000u, 58 }}, {}, 96000u);
+    if (!targetGlitchStats.finite
+        || targetGlitchStats.targetGlitchTriggers < 2u
+        || targetGlitchStats.targetGlitchEnergy < 1.0e-8
+        || targetGlitchStats.maximumDelta > 0.45f) {
+        std::cerr << "targeted STAB glitch did not produce bounded, click-safe "
+                     "captured repeats: triggers="
+                  << targetGlitchStats.targetGlitchTriggers
+                  << " energy=" << targetGlitchStats.targetGlitchEnergy
+                  << " delta=" << targetGlitchStats.maximumDelta << "\n";
+        return 1;
+    }
+
+    auto unmaskedOverload = targetGlitch;
+    unmaskedOverload.mode = s3g::ProcessorStackMode::Power;
+    unmaskedOverload.shape = 1.0f;
+    unmaskedOverload.bite = 1.0f;
+    unmaskedOverload.stack = 1.0f;
+    unmaskedOverload.sag = 0.88f;
+    unmaskedOverload.cone = 1.0f;
+    unmaskedOverload.feedback = 1.0f;
+    unmaskedOverload.proximity = 1.0f;
+    unmaskedOverload.chaos = 1.0f;
+    unmaskedOverload.targetGlitch = 1.0f;
+    unmaskedOverload.glitchRatchet = 1.0f;
+    unmaskedOverload.overloadMask = 0.0f;
+    const auto unmaskedOverloadStats = render(unmaskedOverload,
+        {{ 0u, 31 }, { 14000u, 32 }, { 28000u, 37 }}, {}, 96000u,
+        48000.0, 1.0f);
+    auto maskedOverload = unmaskedOverload;
+    maskedOverload.overloadMask = 1.0f;
+    const auto maskedOverloadStats = render(maskedOverload,
+        {{ 0u, 31 }, { 14000u, 32 }, { 28000u, 37 }}, {}, 96000u,
+        48000.0, 1.0f);
+    if (!maskedOverloadStats.finite
+        || maskedOverloadStats.maximumOverloadMask < 0.05f
+        || maskedOverloadStats.maximumSpeakerProtection < 0.50f
+        || maskedOverloadStats.speakerSoftLimitCount > 64u
+        || maskedOverloadStats.speakerSoftLimitCount
+            > unmaskedOverloadStats.speakerSoftLimitCount
+        || maskedOverloadStats.micSoftLimitCount != 0u
+        || maskedOverloadStats.differenceEnergy
+            >= unmaskedOverloadStats.differenceEnergy * 0.94
+        || maskedOverloadStats.maximumDelta > 0.45f) {
+        std::cerr << "overload masker did not suppress dense cracking energy: "
+                  << "mask=" << maskedOverloadStats.maximumOverloadMask
+                  << " difference=" << unmaskedOverloadStats.differenceEnergy
+                  << " -> " << maskedOverloadStats.differenceEnergy
+                  << " delta=" << maskedOverloadStats.maximumDelta
+                  << " protection="
+                  << unmaskedOverloadStats.maximumSpeakerProtection << " -> "
+                  << maskedOverloadStats.maximumSpeakerProtection
+                  << " speaker-soft="
+                  << unmaskedOverloadStats.speakerSoftLimitCount << "/"
+                  << maskedOverloadStats.speakerSoftLimitCount
+                  << " mic-soft=" << unmaskedOverloadStats.micSoftLimitCount
+                  << "/" << maskedOverloadStats.micSoftLimitCount
+                  << " limiter-step="
+                  << maskedOverloadStats.maximumLimiterGainStep << "\n";
+        return 1;
+    }
+
     auto noString = reference;
     noString.wire = 0.0f;
     noString.feedback = 0.0f;
     noString.spill = 0.0f;
     noString.damping = 0.10f;
+    noString.releaseMs = 20000.0f;
     const auto noStringStats = render(noString,
         {{ 0u, 45 }}, {{ 3000u, 45 }}, 48000u);
     auto pluckedString = noString;
@@ -261,6 +460,10 @@ int main()
     auto power = reference;
     power.mode = s3g::ProcessorStackMode::Power;
     power.shape = 0.76f;
+    // Keep this voicing comparison independent of the intentionally chaotic
+    // microphone return; feedback behavior has dedicated tests above.
+    power.feedback = 0.0f;
+    power.spill = 0.0f;
     const auto powerStats = render(power, {{ 0u, 40 }}, {{ 30000u, 40 }},
         96000u);
     auto lead = power;
@@ -274,7 +477,243 @@ int main()
         std::cerr << "POWER voicing did not audibly load the shared stack: "
                   << powerStats.energy << "/" << leadStats.energy
                   << " sag=" << powerStats.sag << "/" << leadStats.sag
+                  << " protection=" << powerStats.maximumSpeakerProtection
+                  << "/" << leadStats.maximumSpeakerProtection
+                  << " limiter-events=" << powerStats.limiterAttackEvents
+                  << "/" << leadStats.limiterAttackEvents
+                  << " limiter-step=" << powerStats.maximumLimiterGainStep
+                  << "/" << leadStats.maximumLimiterGainStep
                   << "\n";
+        return 1;
+    }
+
+    auto lowShape = reference;
+    lowShape.mode = s3g::ProcessorStackMode::Power;
+    lowShape.shape = 0.0f;
+    lowShape.feedback = 0.0f;
+    lowShape.targetGlitch = 0.0f;
+    lowShape.pick = 0.92f;
+    lowShape.wire = 0.72f;
+    auto highShape = lowShape;
+    highShape.shape = 1.0f;
+    const auto lowShapeStats = render(lowShape,
+        {{ 0u, 40 }}, {{ 6000u, 40 }}, 12000u);
+    const auto highShapeStats = render(highShape,
+        {{ 0u, 40 }}, {{ 6000u, 40 }}, 12000u);
+    const double lowOnsetRoughness = lowShapeStats.leadingEdgeDifferenceEnergy
+        / std::max(1.0e-12, lowShapeStats.leadingEdgeEnergy);
+    const double highOnsetRoughness = highShapeStats.leadingEdgeDifferenceEnergy
+        / std::max(1.0e-12, highShapeStats.leadingEdgeEnergy);
+    if (!lowShapeStats.finite || !highShapeStats.finite
+        || highShapeStats.onsetMaximumDelta
+            > lowShapeStats.onsetMaximumDelta * 1.24f
+        || highShapeStats.leadingEdgePeak
+            > lowShapeStats.leadingEdgePeak * 1.24f
+        || std::abs(highShapeStats.energy - lowShapeStats.energy) < 0.001) {
+        std::cerr << "SHAPE changed pick harshness instead of only voicing: "
+                  << "roughness=" << lowOnsetRoughness << " -> "
+                  << highOnsetRoughness << " peak="
+                  << lowShapeStats.leadingEdgePeak << " -> "
+                  << highShapeStats.leadingEdgePeak << " delta="
+                  << lowShapeStats.onsetMaximumDelta << " -> "
+                  << highShapeStats.onsetMaximumDelta << " frame="
+                  << lowShapeStats.onsetMaximumDeltaFrame << " -> "
+                  << highShapeStats.onsetMaximumDeltaFrame << "\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack shapeSweep;
+    shapeSweep.prepare(48000.0);
+    shapeSweep.setParams(lowShape);
+    shapeSweep.noteOn(40, 0.88f);
+    float shapePrevious = 0.0f;
+    float shapeBoundaryDelta = 0.0f;
+    for (uint32_t frame = 0u; frame < 8192u; ++frame) {
+        if (frame == 4096u) shapeSweep.setParams(highShape);
+        float left = 0.0f;
+        float right = 0.0f;
+        shapeSweep.processFrame(left, right);
+        const float mono = (left + right) * 0.5f;
+        if (frame >= 4096u && frame < 4352u) {
+            shapeBoundaryDelta = std::max(shapeBoundaryDelta,
+                std::abs(mono - shapePrevious));
+        }
+        shapePrevious = mono;
+    }
+    if (shapeBoundaryDelta > 0.20f) {
+        std::cerr << "SHAPE automation retriggered or clicked: delta="
+                  << shapeBoundaryDelta << "\n";
+        return 1;
+    }
+
+    auto zeroPlay = reference;
+    zeroPlay.mode = s3g::ProcessorStackMode::Power;
+    zeroPlay.shape = 0.0f;
+    zeroPlay.wire = 0.0f;
+    zeroPlay.pick = 0.0f;
+    zeroPlay.damping = 0.0f;
+    zeroPlay.glideMs = 0.0f;
+    zeroPlay.crooked = 0.0f;
+    zeroPlay.spill = 0.0f;
+    zeroPlay.feedback = 0.0f;
+    zeroPlay.targetGlitch = 0.0f;
+    const auto zeroPlayStats = render(zeroPlay,
+        {{ 0u, 40 }}, {{ 6000u, 40 }}, 12000u);
+    auto hardPick = zeroPlay;
+    hardPick.pick = 0.92f;
+    const auto hardPickStats = render(hardPick,
+        {{ 0u, 40 }}, {{ 6000u, 40 }}, 12000u);
+    const double zeroPlayRoughness = zeroPlayStats.onsetDifferenceEnergy
+        / std::max(1.0e-12, zeroPlayStats.onsetEnergy);
+    const double hardPickRoughness = hardPickStats.onsetDifferenceEnergy
+        / std::max(1.0e-12, hardPickStats.onsetEnergy);
+    if (!zeroPlayStats.finite || !hardPickStats.finite
+        || zeroPlayStats.onsetEnergy < 1.0e-8
+        || zeroPlayRoughness >= hardPickRoughness * 0.72
+        || zeroPlayStats.onsetMaximumDelta > 0.09f) {
+        std::cerr << "zeroed PLAY toolbox retained a discontinuous excitation: "
+                  << "roughness=" << zeroPlayRoughness << " vs PICK "
+                  << hardPickRoughness << " delta="
+                  << zeroPlayStats.onsetMaximumDelta << " onset="
+                  << zeroPlayStats.onsetEnergy << " frame="
+                  << zeroPlayStats.onsetMaximumDeltaFrame
+                  << " protection="
+                  << zeroPlayStats.maximumSpeakerProtection
+                  << " limiter-step="
+                  << zeroPlayStats.maximumLimiterGainStep << "\n";
+        return 1;
+    }
+
+    auto midPick = reference;
+    midPick.mode = s3g::ProcessorStackMode::Lead;
+    midPick.feedback = 0.0f;
+    midPick.targetGlitch = 0.0f;
+    midPick.wire = 0.18f;
+    midPick.pick = 0.62f;
+    auto maximumPick = midPick;
+    maximumPick.pick = 1.0f;
+    const auto midPickStats = render(midPick,
+        {{ 0u, 52 }}, {{ 6000u, 52 }}, 12000u);
+    const auto maximumPickStats = render(maximumPick,
+        {{ 0u, 52 }}, {{ 6000u, 52 }}, 12000u);
+    const double midPickRoughness = midPickStats.onsetDifferenceEnergy
+        / std::max(1.0e-12, midPickStats.onsetEnergy);
+    const double maximumPickRoughness =
+        maximumPickStats.onsetDifferenceEnergy
+        / std::max(1.0e-12, maximumPickStats.onsetEnergy);
+    if (!midPickStats.finite || !maximumPickStats.finite
+        || maximumPickStats.onsetEnergy <= midPickStats.onsetEnergy * 0.80
+        || maximumPickRoughness > 0.012
+        || maximumPickRoughness > midPickRoughness * 2.2
+        || maximumPickStats.onsetMaximumDelta > 0.25f) {
+        std::cerr << "maximum PICK became splattery instead of precise: "
+                  << "energy=" << midPickStats.onsetEnergy << " -> "
+                  << maximumPickStats.onsetEnergy << " roughness="
+                  << midPickRoughness << " -> " << maximumPickRoughness
+                  << " delta=" << maximumPickStats.onsetMaximumDelta
+                  << "\n";
+        return 1;
+    }
+
+    auto immediateEnvelope = reference;
+    immediateEnvelope.mode = s3g::ProcessorStackMode::Lead;
+    immediateEnvelope.feedback = 0.0f;
+    immediateEnvelope.targetGlitch = 0.0f;
+    immediateEnvelope.wire = 0.46f;
+    immediateEnvelope.pick = 0.56f;
+    immediateEnvelope.attackMs = 0.0f;
+    immediateEnvelope.decayMs = 60.0f;
+    immediateEnvelope.sustain = 1.0f;
+    immediateEnvelope.releaseMs = 5.0f;
+    auto slowEnvelope = immediateEnvelope;
+    slowEnvelope.attackMs = 350.0f;
+    const auto immediateEnvelopeStats = render(immediateEnvelope,
+        {{ 0u, 45 }}, {{ 10000u, 45 }}, 16000u);
+    const auto slowEnvelopeStats = render(slowEnvelope,
+        {{ 0u, 45 }}, {{ 10000u, 45 }}, 16000u);
+    if (!immediateEnvelopeStats.finite || !slowEnvelopeStats.finite
+        || slowEnvelopeStats.onsetEnergy
+            >= immediateEnvelopeStats.onsetEnergy * 0.32
+        || slowEnvelopeStats.energy < 1.0e-6) {
+        std::cerr << "ADSR ATTACK did not create a playable source swell: "
+                  << immediateEnvelopeStats.onsetEnergy << " -> "
+                  << slowEnvelopeStats.onsetEnergy << " total="
+                  << slowEnvelopeStats.energy << " protection="
+                  << immediateEnvelopeStats.maximumSpeakerProtection << "/"
+                  << slowEnvelopeStats.maximumSpeakerProtection << " mask="
+                  << immediateEnvelopeStats.maximumOverloadMask << "/"
+                  << slowEnvelopeStats.maximumOverloadMask << "\n";
+        return 1;
+    }
+
+    auto fullSustain = immediateEnvelope;
+    fullSustain.decayMs = 45.0f;
+    fullSustain.sustain = 1.0f;
+    auto mutedSustain = fullSustain;
+    mutedSustain.sustain = 0.0f;
+    const auto fullSustainStats = render(fullSustain,
+        {{ 0u, 45 }}, {}, 48000u);
+    const auto mutedSustainStats = render(mutedSustain,
+        {{ 0u, 45 }}, {}, 48000u);
+    if (!fullSustainStats.finite || !mutedSustainStats.finite
+        || mutedSustainStats.tailEnergy
+            >= fullSustainStats.tailEnergy * 0.12) {
+        std::cerr << "ADSR DECAY/SUSTAIN did not create palm-muted hold: "
+                  << fullSustainStats.tailEnergy << " -> "
+                  << mutedSustainStats.tailEnergy << "\n";
+        return 1;
+    }
+
+    auto longRelease = fullSustain;
+    longRelease.releaseMs = 2200.0f;
+    const auto shortReleaseStats = render(fullSustain,
+        {{ 0u, 45 }}, {{ 6000u, 45 }}, 48000u);
+    const auto longReleaseStats = render(longRelease,
+        {{ 0u, 45 }}, {{ 6000u, 45 }}, 48000u);
+    if (!shortReleaseStats.finite || !longReleaseStats.finite
+        || longReleaseStats.tailEnergy
+            <= shortReleaseStats.tailEnergy * 8.0 + 1.0e-8) {
+        std::cerr << "ADSR RELEASE did not extend source energy before SPILL: "
+                  << shortReleaseStats.tailEnergy << " -> "
+                  << longReleaseStats.tailEnergy << "\n";
+        return 1;
+    }
+
+    auto denseArpPick = reference;
+    denseArpPick.mode = s3g::ProcessorStackMode::Lead;
+    denseArpPick.feedback = 0.0f;
+    denseArpPick.targetGlitch = 0.0f;
+    denseArpPick.wire = 0.42f;
+    denseArpPick.pick = 0.62f;
+    denseArpPick.damping = 0.64f;
+    denseArpPick.attackMs = 0.0f;
+    denseArpPick.decayMs = 42.0f;
+    denseArpPick.sustain = 0.16f;
+    denseArpPick.releaseMs = 18.0f;
+    denseArpPick.arpPattern = s3g::ProcessorStackArpPattern::Up;
+    denseArpPick.scale = s3g::ProcessorStackScale::Phrygian;
+    denseArpPick.arpRate = s3g::ProcessorStackArpRate::SixtyFourth;
+    denseArpPick.arpGate = 0.42f;
+    auto denseArpMaximumPick = denseArpPick;
+    denseArpMaximumPick.pick = 1.0f;
+    const auto denseArpPickStats = render(denseArpPick,
+        {{ 0u, 40 }}, {}, 48000u, 48000.0, 0.0f, 0.0f, 300.0f);
+    const auto denseArpMaximumPickStats = render(denseArpMaximumPick,
+        {{ 0u, 40 }}, {}, 48000u, 48000.0, 0.0f, 0.0f, 300.0f);
+    const double denseArpRoughness = denseArpPickStats.differenceEnergy
+        / std::max(1.0e-12, denseArpPickStats.energy);
+    const double denseArpMaximumRoughness =
+        denseArpMaximumPickStats.differenceEnergy
+        / std::max(1.0e-12, denseArpMaximumPickStats.energy);
+    if (!denseArpPickStats.finite || !denseArpMaximumPickStats.finite
+        || denseArpMaximumPickStats.energy < 1.0e-5
+        || denseArpMaximumRoughness > denseArpRoughness * 1.85
+        || denseArpMaximumPickStats.maximumDelta > 0.28f) {
+        std::cerr << "dense arpeggiator PICK retriggers became phasey or harsh: "
+                  << "roughness=" << denseArpRoughness << " -> "
+                  << denseArpMaximumRoughness << " delta="
+                  << denseArpMaximumPickStats.maximumDelta << " energy="
+                  << denseArpMaximumPickStats.energy << "\n";
         return 1;
     }
 
@@ -286,6 +725,21 @@ int main()
     if (!handStats.finite || handStats.energy < 0.001
         || handStats.peak > 1.0f) {
         std::cerr << "HAND voicing was not bounded and audible\n";
+        return 1;
+    }
+
+    auto polyGlitch = s3g::processorStackFactoryPreset(20u);
+    const auto polyGlitchStats = render(polyGlitch,
+        {{ 0u, 40 }, { 0u, 47 }, { 0u, 51 }, { 0u, 58 }},
+        {{ 30000u, 40 }, { 30000u, 47 }, { 30000u, 51 }, { 30000u, 58 }},
+        72000u);
+    if (!polyGlitchStats.finite || polyGlitchStats.energy < 0.001
+        || polyGlitchStats.targetGlitchTriggers == 0u
+        || polyGlitchStats.maximumDelta > 0.45f) {
+        std::cerr << "polyphonic targeted feedback was not bounded and active: "
+                  << polyGlitchStats.energy << " triggers="
+                  << polyGlitchStats.targetGlitchTriggers << " delta="
+                  << polyGlitchStats.maximumDelta << "\n";
         return 1;
     }
 
@@ -344,6 +798,32 @@ int main()
     if (arpeggiator.arpCurrentNote() != 43
         || arpeggiator.arpStepCount() != 3u) {
         std::cerr << "tempo-synced Phrygian rule missed its minor third\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack slowArpeggiator;
+    slowArpeggiator.prepare(48000.0);
+    auto slowParams = arpParams;
+    slowParams.arpRate = s3g::ProcessorStackArpRate::Whole;
+    slowArpeggiator.setParams(slowParams);
+    slowArpeggiator.setTempoBpm(120.0f);
+    slowArpeggiator.noteOn(36, 0.8f);
+    for (uint32_t frame = 0u; frame < 95999u; ++frame) {
+        float left = 0.0f;
+        float right = 0.0f;
+        slowArpeggiator.processFrame(left, right);
+    }
+    if (slowArpeggiator.arpStepCount() != 1u) {
+        std::cerr << "whole-note arpeggiator advanced before four beats\n";
+        return 1;
+    }
+    float slowLeft = 0.0f;
+    float slowRight = 0.0f;
+    slowArpeggiator.processFrame(slowLeft, slowRight);
+    if (slowArpeggiator.arpStepCount() != 2u
+        || std::strcmp(s3g::processorStackArpRateName(
+                s3g::ProcessorStackArpRate::Whole), "1/1") != 0) {
+        std::cerr << "whole-note arpeggiator missed its four-beat boundary\n";
         return 1;
     }
 
@@ -451,9 +931,20 @@ int main()
         const uint32_t frames = static_cast<uint32_t>(sampleRate * 0.24);
         const auto stressStats = render(stress, {{ 0u, 24 }},
             {{ frames / 2u, 24 }}, frames, sampleRate, 1.0f, 12.0f);
-        if (!stressStats.finite || stressStats.peak > 1.0f) {
+        const float allowedLimiterStep = 0.75f * (1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate * 0.00075)));
+        if (!stressStats.finite || stressStats.peak > 0.996f
+            || stressStats.limiterAttackEvents == 0u
+            || stressStats.maximumLimiterGainStep > allowedLimiterStep) {
             std::cerr << "Processor Stack stress failed at " << sampleRate
-                      << " Hz, peak=" << stressStats.peak << "\n";
+                      << " Hz, peak=" << stressStats.peak
+                      << " delta=" << stressStats.maximumDelta
+                      << " limiter-events="
+                      << stressStats.limiterAttackEvents
+                      << " limiter-step="
+                      << stressStats.maximumLimiterGainStep
+                      << " protection="
+                      << stressStats.maximumSpeakerProtection << "\n";
             return 1;
         }
     }

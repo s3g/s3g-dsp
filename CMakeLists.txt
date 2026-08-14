@@ -1849,7 +1849,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_stack_clap>
           org.s3g.s3g-dsp.processor-stack
-          980 856 "s3g Processor Stack" responsive
+          980 1080 "s3g Processor Stack" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_stack_clap

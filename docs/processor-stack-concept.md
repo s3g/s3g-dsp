@@ -17,15 +17,53 @@ The musical center is narrow and specific:
 - playable feedback that can cough, squelch, bloom, change harmonic, or drain
   after release without turning into an unbounded no-input oscillator.
 
-Version 0.3 implements the shared four-lane plucked-string exciter, eight pedal transfers,
+Version 0.6.1 implements the shared four-lane plucked-string exciter, eight pedal transfers,
 oversampled preamp and power stages, shared supply sag, four-mode nonlinear
 speaker, two microphone views, governed pitch-related return, POWER/HAND/LEAD
 allocation, interval-driven CROOKED behavior, a host-tempo scale arpeggiator
 with an editable eight-step rule, independently governed BODY/STAB feedback,
-pressure, pitch bend, eighteen factory presets, versioned CLAP state, and the
+period-targeted glitch capture, adaptive overload masking, pressure, pitch
+bend, twenty-two factory
+presets, versioned CLAP state, and the
 compact editor described below. Later
 sections retain the original rationale and listening criteria so further
 changes can be judged against the product premise.
+
+Version 0.5.1 also separates the calm end of `PICK` from the hard attack path.
+At zero, the seed is noise-free, slow-rising, and band-limited before it reaches
+the pedal; raising PICK continuously restores the scrape noise, upper partials,
+bandwidth, and fast jab. Parameter changes made while the processor is silent
+are adopted before the next note, so a zeroed PLAY toolbox cannot leak the old
+PICK value into its first excitation. Bias-bearing pedal models run against a
+matched idle reference so their startup settling does not become an amp click.
+
+Version 0.5.2 removes hard state clipping from the microphone feedback path.
+STAB now uses a topology-preserving state-variable resonator whose integrator
+states and combined returns approach their bounds continuously. Raising
+`FEEDBACK` can still drive compression, harmonic capture, and instability, but
+it cannot repeatedly strike a flat numerical rail. Maximum `PICK` is also a
+bounded band-pass scrape rather than full-band noise: its envelope is slightly
+rounder, its tonal packet is normalized downward, and pickup velocity is
+band-limited before the shared distortion stack.
+
+Version 0.6.0 adds a per-exciter ADSR before the shared pedal. It shapes the
+player/string energy without acting as a master VCA: `RELEASE` can close the
+source while `SPILL` lets the already-excited amp, speaker, and microphone loop
+continue. POWER chord tones share the gesture, HAND voices retain independent
+envelopes, and every generated arpeggiator step retriggers its allocated
+string. Dense arpeggios now measure attack recovery and host-tempo spacing;
+high `PICK` is progressively energy-normalized, and pick polarity changes wait
+until the preceding packet has cleared rather than reversing a live transient.
+
+Version 0.6.1 removes the remaining flat numerical rails from the pedal,
+speaker-mode, microphone, room, and output path. The cabinet now responds to
+measured coil, feedback, and microphone stress by smoothly shortening modal
+decay and reducing breakup drive before overload becomes incoherent. A
+linear-through-normal-level soft knee remains as an emergency bound. The two
+microphone views share one linked bound, the room stores that already-governed
+signal without reclipping it, and the output stage uses a finite limiter attack
+followed by a continuous soft ceiling. The asymmetric power-stage halves are
+also blended through zero rather than selected by an abrupt sign branch.
 
 The angular lead behavior takes broad cues from the lurching intervals,
 contrary motion, dry articulation, and unstable guitar sonorities associated
@@ -66,7 +104,7 @@ MIDI NOTE / CHORD MEMORY
         |                                   |
         +-> PLUCKED STRING / PICKUP (0--100%) +-> ROOT WITNESS
                                             |
-MIC RETURN -> POLARITY / LOOP FILTER -------+-> PEDAL CIRCUIT
+MIC RETURN -> BODY / STAB / TARGET GLITCH ---+-> PEDAL CIRCUIT
                                                 -> PREAMP
                                                 -> TONE / PRESENCE
                                                 -> PUSH-PULL POWER + SAG
@@ -124,6 +162,11 @@ continues to define the perceived pitch.
   root + fifth to root + fifth + octave, then toward inverted fifth + octave.
   The generated fifth uses equal-tempered pitch by default; a small
   just-intonation pull may be introduced only as a continuous color control.
+  Sustained lane weights and attack weights are separate: every POWER voicing
+  shares one normalized pick-energy budget, with a restrained upper-octave
+  seed. The root attack remains invariant while fifth and octave seeds are
+  separately band-limited and bloom into their sustained balance. SHAPE
+  automation slews held gains and never generates a new pick.
 - `HAND`: up to four played notes feed the shared amp. Oldest-note stealing
   damps the stolen exciter before reuse while leaving the amp and speaker
   states intact.
@@ -142,16 +185,28 @@ The generated step may therefore remain one LEAD string or expand into the
 POWER root/fifth/octave load; it never creates a separate amp per note.
 
 Rates are host-tempo eighth, eighth-triplet, sixteenth, sixteenth-triplet,
-thirty-second, or sixty-fourth notes, with a 120 BPM fallback. OCTAVES selects
-one through four registers and GATE closes only the current string excitation;
+thirty-second, or sixty-fourth notes, plus quarter, half, and whole notes for
+slow processional movement, with a 120 BPM fallback. OCTAVES selects one
+through four registers and GATE closes only the current string excitation;
 speaker and amplifier state remain shared between steps. SCRAMBLE is a fixed
 integer stride, not audio-thread randomness, so saved phrases and offline
 renders remain deterministic.
+
+Each generated gate drives the same per-string ADSR used for direct playing.
+At dense rates, a recovery governor reduces only the excess high-PICK packet
+energy and defers alternating polarity while the prior attack remains live.
+It does not change the selected scale degree, gate duration, or sustained
+speaker state.
 
 CUSTOM reads one to eight signed scale degrees from the public STEP controls.
 Zero addresses the held root, positive degrees climb through the selected
 scale, and negative degrees select notes below the root. This makes the phrase
 explicit and automatable without turning it into a hidden random generator.
+
+A declared cell of three zero degrees with short GATE and high DAMP produces
+the instrument's repeated palm-muted chug grammar. POWER supplies the fifth
+inside the same nonlinear stack, so this remains one tightly gated riff voice
+rather than separately distorted chord oscillators.
 
 ### Crooked interval response
 
@@ -258,9 +313,13 @@ LF Synth's Bass Shred supplies the proven safety grammar:
 - activity measurement for tail processing;
 - a gate that allows regeneration to drain after its source disappears.
 
-Processor Stack changes the topology around that grammar. It uses a shared
-speaker-derived return, allows most of the guitar band into the loop, and
-makes loop tuning a negotiation between note pitch and cabinet geometry.
+Processor Stack changes the topology around that grammar. It uses one shared
+speaker-derived history but reads it through two returns. BODY is broad,
+high-passed, and limited to lower harmonics. STAB uses a shorter delay and a
+narrow topology-preserving state-variable band around a quantized upper
+partial. Its integrator states and the combined return use continuous
+asymptotic bounds rather than hard clipping. Each lane has its own energy
+follower and governor before a final whole-loop governor.
 
 For current root frequency `f0`, selected harmonic `h`, sample rate `fs`, and
 estimated circuit phase delay `d_phase`, the note-related delay target begins
@@ -271,11 +330,9 @@ d_note = clamp(fs / (f0 * h) - d_phase, d_min, d_max)
 d_loop = lerp(d_room, d_note, TRACK)
 ```
 
-`HARMONIC` moves the preferred region from approximately the second through
-the twelfth partial rather than selecting a perfectly quantized oscillator.
-The speaker modes and loop filter bias the final winner. In `POWER` mode, a
-slow hysteretic selector may choose a root, fifth, or shared upper partial;
-it must crossfade delay taps and cannot switch on every zero crossing.
+`HARMONIC` moves BODY across roughly the first through sixth partial and STAB
+across roughly the fifth through twenty-fourth. The speaker modes and loop
+filter still bias the final winner rather than synthesizing a clean sine.
 
 `FEEDBACK` controls requested return gain. `PROXIMITY` shortens the room term,
 opens the loop bandwidth, and increases microphone coupling. `POLARITY` is a
@@ -296,6 +353,31 @@ The governor acts on the internal return, not on the final output, and should
 recover slowly enough that feedback breathes instead of pumping like a master
 compressor. A separate linked output ceiling catches pathological peaks.
 
+`PIERCE` sets the intended upper-lane share and its resonant focus.
+`SELF LISTEN` compares measured BODY and STAB energy. When low speaker modes
+consume more than their intended share, it smoothly ducks BODY and raises
+STAB inside their independent limits. It therefore responds to what the
+speaker is actually returning rather than applying a static treble boost.
+
+`TARGET GLITCH` arms on a real or arpeggiated attack but does not immediately
+freeze an arbitrary buffer position. The self-listener first requires coherent
+STAB energy, then locks a recent micro-cell to a small group of periods at the
+current upper-partial target. `RATCHET` shortens that cell and raises a finite
+repeat count. Raised-cosine cell windows, deterministic speed/reverse edits,
+and a dedicated energy governor make the fractures intentional while the
+complete recurrence still passes through the main loop governor and key gate.
+With HAND polyphony, the captured material is the chord's shared speaker
+response rather than one independent glitch line per string.
+
+`OVERLOAD MASK` detects the failure mode in which sustained speaker level,
+voice-coil stress, high loop energy, and rapid sample-to-sample roughness occur
+together. It is deliberately not a final-output compressor. The detector first
+spectrally masks the microphone signal, then reduces STAB and glitch return
+more strongly than BODY and lowers requested loop drive. Its attack ignores
+isolated pick edges and its long recovery prevents chatter. A loud coherent low
+drone can therefore remain massive while a broadband feedback collapse clears
+space before the linked ceiling becomes the audible processor.
+
 ## Public control surface
 
 The first editor can remain compact with four functional groups.
@@ -305,17 +387,21 @@ The first editor can remain compact with four functional groups.
 - `MODE`: POWER / HAND / LEAD
 - `SHAPE`: power-chord inversion or HAND/LEAD exciter thickness
 - `STRING`: pick packet through the plucked-string waveguide and pickup view
-- `PICK`: soft scrape through hard jab
+- `PICK`: rounded, noise-free seed through scrape and hard jab
 - `DAMP`: exciter and palm damping
 - `GLIDE`: ordinary pitch slew
 - `CROOKED`: interval-dependent hesitation, overshoot, and choke
 - `SPILL`: note-release inheritance of amp and feedback energy
+- `ATTACK`: time for each string/exciter to reach the shared pedal
+- `DECAY`: time from the attack peak toward held source level
+- `SUSTAIN`: held string feed into the stack, independent of feedback sustain
+- `RELEASE`: post-gate source fade before SPILL governs the existing stack tail
 
 ### ARPEGGIATOR
 
 - `PATTERN`: OFF / UP / DOWN / PENDULUM / PEDAL / SCRAMBLE / CUSTOM
 - `SCALE RULE`: CHROMATIC / PHRYGIAN / HARM MIN / DIMINISHED / TRITONE
-- `RATE`: host-tempo 1/8 through 1/64, including triplets
+- `RATE`: host-tempo 1/8 through 1/64 with triplets, plus 1/4, 1/2, and 1/1
 - `OCTAVES`: one through four scale registers
 - `GATE`: held fraction of each generated step
 - `LENGTH`: one through eight declared steps used by CUSTOM
@@ -348,6 +434,9 @@ The first editor can remain compact with four functional groups.
 - `CHAOS`: speaker-mode competition and cross-mic coupling, not random notes
 - `PIERCE`: focus and spectral budget of the note-tracked upper return
 - `SELF LISTEN`: adaptive body ducking when measured upper feedback is masked
+- `TARGET GLITCH`: amount of detector-armed STAB cell capture and reinjection
+- `RATCHET`: shorter target-period cells, more repeats, and stronger recurrence
+- `OVERLOAD MASK`: adaptive spectral and return-gain containment for dense rough energy
 - `OUTPUT`: final trim
 
 `CROOKED` governs performance response; `CHAOS` governs circuit response. They

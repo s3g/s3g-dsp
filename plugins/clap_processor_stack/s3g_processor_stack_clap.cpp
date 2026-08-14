@@ -34,14 +34,20 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x31545350u; // "PST1" little endian.
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kVersionFiveStateVersion = 5u;
+constexpr uint32_t kVersionFiveParamCount = 46u;
+constexpr uint32_t kVersionFourStateVersion = 4u;
+constexpr uint32_t kVersionFourParamCount = 45u;
+constexpr uint32_t kVersionThreeStateVersion = 3u;
+constexpr uint32_t kVersionThreeParamCount = 43u;
 constexpr uint32_t kVersionTwoStateVersion = 2u;
 constexpr uint32_t kVersionTwoParamCount = 32u;
 constexpr uint32_t kVersionOneStateVersion = 1u;
 constexpr uint32_t kVersionOneParamCount = 27u;
 constexpr uint32_t kOutputChannels = 2u;
 constexpr uint32_t kGuiWidth = 980u;
-constexpr uint32_t kGuiHeight = 856u;
+constexpr uint32_t kGuiHeight = 1080u;
 
 enum ParamId : clap_id {
     kModeParamId = 1u,
@@ -87,6 +93,13 @@ enum ParamId : clap_id {
     kCustomStep8ParamId,
     kPierceParamId,
     kSelfListenParamId,
+    kTargetGlitchParamId,
+    kGlitchRatchetParamId,
+    kOverloadMaskParamId,
+    kAttackParamId,
+    kDecayParamId,
+    kSustainParamId,
+    kReleaseParamId,
 };
 
 struct ParamDef {
@@ -99,7 +112,7 @@ struct ParamDef {
     bool stepped;
 };
 
-constexpr std::array<ParamDef, 43u> kParamDefs {{
+constexpr std::array<ParamDef, 50u> kParamDefs {{
     { kModeParamId, "Mode", "Play", 0.0, 2.0, 0.0, true },
     { kShapeParamId, "Shape", "Play", 0.0, 1.0, 0.58, false },
     { kWireParamId, "String", "Play", 0.0, 1.0, 0.56, false },
@@ -129,7 +142,7 @@ constexpr std::array<ParamDef, 43u> kParamDefs {{
     { kMidiReceiveParamId, "MIDI Receive", "Routing", 0.0, 16.0, 0.0, true },
     { kArpPatternParamId, "Arp Pattern", "Arpeggiator", 0.0, 6.0, 0.0, true },
     { kScaleParamId, "Scale Rule", "Arpeggiator", 0.0, 4.0, 1.0, true },
-    { kArpRateParamId, "Arp Rate", "Arpeggiator", 0.0, 5.0, 2.0, true },
+    { kArpRateParamId, "Arp Rate", "Arpeggiator", 0.0, 8.0, 2.0, true },
     { kArpOctavesParamId, "Arp Octaves", "Arpeggiator", 1.0, 4.0, 2.0, true },
     { kArpGateParamId, "Arp Gate", "Arpeggiator", 0.05, 1.0, 0.62, false },
     { kCustomLengthParamId, "Pattern Length", "Arpeggiator", 1.0, 8.0, 8.0, true },
@@ -143,11 +156,18 @@ constexpr std::array<ParamDef, 43u> kParamDefs {{
     { kCustomStep8ParamId, "Pattern Step 8", "Arpeggiator", -8.0, 15.0, 1.0, true },
     { kPierceParamId, "Pierce", "Loop", 0.0, 1.0, 0.68, false },
     { kSelfListenParamId, "Self Listen", "Loop", 0.0, 1.0, 0.72, false },
+    { kTargetGlitchParamId, "Target Glitch", "Loop", 0.0, 1.0, 0.0, false },
+    { kGlitchRatchetParamId, "Glitch Ratchet", "Loop", 0.0, 1.0, 0.46, false },
+    { kOverloadMaskParamId, "Overload Mask", "Loop", 0.0, 1.0, 0.76, false },
+    { kAttackParamId, "Attack", "Play", 0.0, 2000.0, 2.0, false },
+    { kDecayParamId, "Decay", "Play", 5.0, 8000.0, 180.0, false },
+    { kSustainParamId, "Sustain", "Play", 0.0, 1.0, 0.78, false },
+    { kReleaseParamId, "Release", "Play", 5.0, 20000.0, 90.0, false },
 }};
 
-constexpr uint32_t kSynthParamCount = 42u;
+constexpr uint32_t kSynthParamCount = 49u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kSelfListenParamId) + 1u;
+    static_cast<uint32_t>(kReleaseParamId) + 1u;
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kModeParamId, kShapeParamId, kWireParamId, kPickParamId,
@@ -163,6 +183,9 @@ constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kCustomStep3ParamId, kCustomStep4ParamId, kCustomStep5ParamId,
     kCustomStep6ParamId, kCustomStep7ParamId, kCustomStep8ParamId,
     kPierceParamId, kSelfListenParamId,
+    kTargetGlitchParamId, kGlitchRatchetParamId,
+    kOverloadMaskParamId,
+    kAttackParamId, kDecayParamId, kSustainParamId, kReleaseParamId,
 }};
 
 struct SavedStateHeader {
@@ -242,6 +265,10 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kGlideParamId: return params.glideMs;
     case kCrookedParamId: return params.crooked;
     case kSpillParamId: return params.spill;
+    case kAttackParamId: return params.attackMs;
+    case kDecayParamId: return params.decayMs;
+    case kSustainParamId: return params.sustain;
+    case kReleaseParamId: return params.releaseMs;
     case kCircuitParamId: return static_cast<double>(params.circuit);
     case kBiteParamId: return params.bite;
     case kPedalToneParamId: return params.pedalTone;
@@ -277,6 +304,9 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kCustomStep8ParamId: return params.customPattern[7u];
     case kPierceParamId: return params.pierce;
     case kSelfListenParamId: return params.selfListen;
+    case kTargetGlitchParamId: return params.targetGlitch;
+    case kGlitchRatchetParamId: return params.glitchRatchet;
+    case kOverloadMaskParamId: return params.overloadMask;
     default: return 0.0;
     }
 }
@@ -294,7 +324,8 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
 
     const float normalized = static_cast<float>(value);
-    const bool tailChanged = id == kFeedbackParamId || id == kSpillParamId;
+    const bool tailChanged = id == kFeedbackParamId || id == kSpillParamId
+        || id == kReleaseParamId;
     switch (id) {
     case kModeParamId:
         plugin.params.mode = static_cast<s3g::ProcessorStackMode>(
@@ -307,6 +338,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kGlideParamId: plugin.params.glideMs = normalized; break;
     case kCrookedParamId: plugin.params.crooked = normalized; break;
     case kSpillParamId: plugin.params.spill = normalized; break;
+    case kAttackParamId: plugin.params.attackMs = normalized; break;
+    case kDecayParamId: plugin.params.decayMs = normalized; break;
+    case kSustainParamId: plugin.params.sustain = normalized; break;
+    case kReleaseParamId: plugin.params.releaseMs = normalized; break;
     case kCircuitParamId:
         plugin.params.circuit = static_cast<s3g::ProcessorStackCircuit>(
             static_cast<uint32_t>(std::lround(value)));
@@ -382,6 +417,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kPierceParamId: plugin.params.pierce = normalized; break;
     case kSelfListenParamId: plugin.params.selfListen = normalized; break;
+    case kTargetGlitchParamId: plugin.params.targetGlitch = normalized; break;
+    case kGlitchRatchetParamId: plugin.params.glitchRatchet = normalized; break;
+    case kOverloadMaskParamId: plugin.params.overloadMask = normalized; break;
     default: return;
     }
     plugin.engine.setParams(plugin.params);
@@ -565,6 +603,9 @@ std::array<double, kSynthParamCount> paramValues(
         static_cast<double>(params.customPattern[6u]),
         static_cast<double>(params.customPattern[7u]),
         params.pierce, params.selfListen,
+        params.targetGlitch, params.glitchRatchet,
+        params.overloadMask,
+        params.attackMs, params.decayMs, params.sustain, params.releaseMs,
     }};
 }
 
@@ -860,7 +901,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             s3g::processorStackArpRateName(rate));
     } else if (id == kMidiReceiveParamId) {
         s3g::drum_midi::valueToText(value, display, size);
-    } else if (id == kGlideParamId) {
+    } else if (id == kGlideParamId || id == kAttackParamId
+        || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%.1f ms", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
@@ -959,9 +1001,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     };
     double converted = parsed;
     if (suffixLength > 0u) {
-        if (id == kGlideParamId && suffixIs("ms")) {
+        if ((id == kGlideParamId || id == kAttackParamId
+                || id == kDecayParamId || id == kReleaseParamId)
+            && suffixIs("ms")) {
         } else if (id == kOutputParamId && suffixIs("dB")) {
         } else if (suffixIs("%") && id != kGlideParamId
+            && id != kAttackParamId && id != kDecayParamId
+            && id != kReleaseParamId
             && id != kOutputParamId && id != kArpOctavesParamId
             && id != kCustomLengthParamId
             && !(id >= kCustomStep1ParamId
@@ -1018,13 +1064,23 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool current = header.magic == kStateMagic
         && header.version == kStateVersion
         && header.valueCount == kParamDefs.size();
+    const bool versionFive = header.magic == kStateMagic
+        && header.version == kVersionFiveStateVersion
+        && header.valueCount == kVersionFiveParamCount;
+    const bool versionFour = header.magic == kStateMagic
+        && header.version == kVersionFourStateVersion
+        && header.valueCount == kVersionFourParamCount;
+    const bool versionThree = header.magic == kStateMagic
+        && header.version == kVersionThreeStateVersion
+        && header.valueCount == kVersionThreeParamCount;
     const bool versionTwo = header.magic == kStateMagic
         && header.version == kVersionTwoStateVersion
         && header.valueCount == kVersionTwoParamCount;
     const bool versionOne = header.magic == kStateMagic
         && header.version == kVersionOneStateVersion
         && header.valueCount == kVersionOneParamCount;
-    if (!current && !versionTwo && !versionOne) return false;
+    if (!current && !versionFive && !versionFour && !versionThree
+        && !versionTwo && !versionOne) return false;
     if (!s3g::clap_state::readAll(stream, values.data(),
             static_cast<size_t>(header.valueCount) * sizeof(double))) {
         return false;
@@ -1054,7 +1110,8 @@ uint32_t tailGet(const clap_plugin_t* plugin)
     const auto* instance = self(plugin);
     const double seconds = 0.25
         + paramValue(*instance, kSpillParamId) * 15.0
-        + paramValue(*instance, kFeedbackParamId) * 1.0;
+        + paramValue(*instance, kFeedbackParamId) * 1.0
+        + paramValue(*instance, kReleaseParamId) * 0.001;
     return static_cast<uint32_t>(std::min<double>(
         std::numeric_limits<uint32_t>::max() - 1u,
         std::ceil(seconds * instance->sampleRate)));
@@ -1091,7 +1148,7 @@ constexpr layout::Column kRightColumn {
 
 constexpr auto kPlayPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Engine,
-    kLeftColumn, layout::kStandardMetrics.contentTop, 8u);
+    kLeftColumn, layout::kStandardMetrics.contentTop, 12u);
 constexpr auto kArpPanel = layout::fittedStackPanel(
     layout::PanelRole::EventTiming, kPlayPanel, 14u);
 constexpr auto kPedalPanel = layout::fittedStackPanel(
@@ -1103,7 +1160,7 @@ constexpr auto kOutputPanel = layout::fittedPanel(
 constexpr auto kAmplifierPanel = layout::fittedStackPanel(
     layout::PanelRole::Topology, kOutputPanel, 6u);
 constexpr auto kLoopPanel = layout::fittedStackPanel(
-    layout::PanelRole::Motion, kAmplifierPanel, 9u);
+    layout::PanelRole::Motion, kAmplifierPanel, 12u);
 constexpr auto kRoutingPanel = layout::fittedStackPanel(
     layout::PanelRole::Utility, kLoopPanel, 1u);
 
@@ -1117,7 +1174,7 @@ constexpr std::array kRightPanels {
 static_assert(layout::validateColumn(kLeftPanels, kStackCanvas, false));
 static_assert(layout::validateColumn(kRightPanels, kStackCanvas, false));
 
-constexpr std::array<StackUiRow, 43u> kUiRows {{
+constexpr std::array<StackUiRow, 50u> kUiRows {{
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
         layout::rowY(kPlayPanel, 0u) },
     { kShapeParamId, "SHAPE", kLeftPanelX, kPanelWidth,
@@ -1134,6 +1191,14 @@ constexpr std::array<StackUiRow, 43u> kUiRows {{
         layout::rowY(kPlayPanel, 6u) },
     { kSpillParamId, "SPILL", kLeftPanelX, kPanelWidth,
         layout::rowY(kPlayPanel, 7u) },
+    { kAttackParamId, "ATTACK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPlayPanel, 8u) },
+    { kDecayParamId, "DECAY", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPlayPanel, 9u) },
+    { kSustainParamId, "SUSTAIN", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPlayPanel, 10u) },
+    { kReleaseParamId, "RELEASE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kPlayPanel, 11u) },
 
     { kArpPatternParamId, "PATTERN", kLeftPanelX, kPanelWidth,
         layout::rowY(kArpPanel, 0u) },
@@ -1210,6 +1275,12 @@ constexpr std::array<StackUiRow, 43u> kUiRows {{
         layout::rowY(kLoopPanel, 7u) },
     { kSelfListenParamId, "SELF LISTEN", kRightPanelX, kPanelWidth,
         layout::rowY(kLoopPanel, 8u) },
+    { kTargetGlitchParamId, "TARGET GLITCH", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopPanel, 9u) },
+    { kGlitchRatchetParamId, "RATCHET", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopPanel, 10u) },
+    { kOverloadMaskParamId, "OVERLOAD MASK", kRightPanelX, kPanelWidth,
+        layout::rowY(kLoopPanel, 11u) },
 }};
 
 bool isUiMenuParam(clap_id id)
@@ -1235,7 +1306,8 @@ uint32_t uiMenuItemCount(clap_id id)
 
 bool isLogUiParam(clap_id id)
 {
-    return id == kGlideParamId;
+    return id == kGlideParamId || id == kAttackParamId
+        || id == kDecayParamId || id == kReleaseParamId;
 }
 
 double uiNormalizedValue(clap_id id, double value)
@@ -1243,8 +1315,8 @@ double uiNormalizedValue(clap_id id, double value)
     const auto* def = paramDef(id);
     if (!def) return 0.0;
     if (isLogUiParam(id)) {
-        return std::clamp(std::log1p(value)
-            / std::log1p(def->maximum), 0.0, 1.0);
+        return std::clamp(std::log1p(value - def->minimum)
+            / std::log1p(def->maximum - def->minimum), 0.0, 1.0);
     }
     return std::clamp((value - def->minimum)
         / std::max(1.0e-12, def->maximum - def->minimum), 0.0, 1.0);
@@ -1256,7 +1328,8 @@ double uiValueFromNormalized(clap_id id, double normalized)
     if (!def) return 0.0;
     normalized = std::clamp(normalized, 0.0, 1.0);
     const double value = isLogUiParam(id)
-        ? std::expm1(std::log1p(def->maximum) * normalized)
+        ? def->minimum + std::expm1(
+            std::log1p(def->maximum - def->minimum) * normalized)
         : def->minimum + (def->maximum - def->minimum) * normalized;
     return clampValue(*def, value);
 }
@@ -1273,6 +1346,10 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
     params.glideMs = static_cast<float>(paramValue(plugin, kGlideParamId));
     params.crooked = static_cast<float>(paramValue(plugin, kCrookedParamId));
     params.spill = static_cast<float>(paramValue(plugin, kSpillParamId));
+    params.attackMs = static_cast<float>(paramValue(plugin, kAttackParamId));
+    params.decayMs = static_cast<float>(paramValue(plugin, kDecayParamId));
+    params.sustain = static_cast<float>(paramValue(plugin, kSustainParamId));
+    params.releaseMs = static_cast<float>(paramValue(plugin, kReleaseParamId));
     params.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(
         static_cast<uint32_t>(std::lround(
             paramValue(plugin, kArpPatternParamId))));
@@ -1293,6 +1370,12 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
     params.pierce = static_cast<float>(paramValue(plugin, kPierceParamId));
     params.selfListen = static_cast<float>(
         paramValue(plugin, kSelfListenParamId));
+    params.targetGlitch = static_cast<float>(
+        paramValue(plugin, kTargetGlitchParamId));
+    params.glitchRatchet = static_cast<float>(
+        paramValue(plugin, kGlitchRatchetParamId));
+    params.overloadMask = static_cast<float>(
+        paramValue(plugin, kOverloadMaskParamId));
     params.circuit = static_cast<s3g::ProcessorStackCircuit>(
         static_cast<uint32_t>(std::lround(
             paramValue(plugin, kCircuitParamId))));
@@ -1342,6 +1425,11 @@ s3g::ProcessorStackParams safeRandomParams(
     params.glideMs = randomUnit(seed) * randomUnit(seed) * 280.0f;
     params.crooked = randomUnit(seed) * 0.94f;
     params.spill = randomUnit(seed) * 0.78f;
+    params.attackMs = randomUnit(seed) * randomUnit(seed) * 620.0f;
+    params.decayMs = 24.0f + randomUnit(seed) * randomUnit(seed) * 2800.0f;
+    params.sustain = 0.04f + randomUnit(seed) * 0.94f;
+    params.releaseMs = 18.0f
+        + randomUnit(seed) * randomUnit(seed) * 5200.0f;
     params.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(
         std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
             * static_cast<float>(s3g::kProcessorStackArpPatternCount)),
@@ -1364,6 +1452,9 @@ s3g::ProcessorStackParams safeRandomParams(
     }
     params.pierce = 0.34f + randomUnit(seed) * 0.66f;
     params.selfListen = 0.42f + randomUnit(seed) * 0.58f;
+    params.targetGlitch = randomUnit(seed) * 0.88f;
+    params.glitchRatchet = 0.16f + randomUnit(seed) * 0.76f;
+    params.overloadMask = 0.58f + randomUnit(seed) * 0.42f;
     params.circuit = static_cast<s3g::ProcessorStackCircuit>(
         std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
             * static_cast<float>(s3g::kProcessorStackCircuitCount)),
@@ -1941,7 +2032,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.3.0",
+    "0.6.1",
     "A plucked-string, programmable scale-arpeggio, shared amplifier, nonlinear speaker, and self-listening microphone-feedback instrument for power chords and crooked leads.",
     features
 };

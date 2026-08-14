@@ -65,6 +65,13 @@ enum ParamId : clap_id {
     kCustomStep8,
     kPierce,
     kSelfListen,
+    kTargetGlitch,
+    kGlitchRatchet,
+    kOverloadMask,
+    kAttack,
+    kDecay,
+    kSustain,
+    kRelease,
 };
 
 struct ParamSpec {
@@ -76,7 +83,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 43u> kParamSpecs {{
+constexpr std::array<ParamSpec, 50u> kParamSpecs {{
     { kMode, "Mode", 0.0, 2.0, 0.0, true },
     { kShape, "Shape", 0.0, 1.0, 0.58, false },
     { kWire, "String", 0.0, 1.0, 0.56, false },
@@ -106,7 +113,7 @@ constexpr std::array<ParamSpec, 43u> kParamSpecs {{
     { kMidiReceive, "MIDI Receive", 0.0, 16.0, 0.0, true },
     { kArpPattern, "Arp Pattern", 0.0, 6.0, 0.0, true },
     { kScale, "Scale Rule", 0.0, 4.0, 1.0, true },
-    { kArpRate, "Arp Rate", 0.0, 5.0, 2.0, true },
+    { kArpRate, "Arp Rate", 0.0, 8.0, 2.0, true },
     { kArpOctaves, "Arp Octaves", 1.0, 4.0, 2.0, true },
     { kArpGate, "Arp Gate", 0.05, 1.0, 0.62, false },
     { kCustomLength, "Pattern Length", 1.0, 8.0, 8.0, true },
@@ -120,6 +127,13 @@ constexpr std::array<ParamSpec, 43u> kParamSpecs {{
     { kCustomStep8, "Pattern Step 8", -8.0, 15.0, 1.0, true },
     { kPierce, "Pierce", 0.0, 1.0, 0.68, false },
     { kSelfListen, "Self Listen", 0.0, 1.0, 0.72, false },
+    { kTargetGlitch, "Target Glitch", 0.0, 1.0, 0.0, false },
+    { kGlitchRatchet, "Glitch Ratchet", 0.0, 1.0, 0.46, false },
+    { kOverloadMask, "Overload Mask", 0.0, 1.0, 0.76, false },
+    { kAttack, "Attack", 0.0, 2000.0, 2.0, false },
+    { kDecay, "Decay", 5.0, 8000.0, 180.0, false },
+    { kSustain, "Sustain", 0.0, 1.0, 0.78, false },
+    { kRelease, "Release", 5.0, 20000.0, 90.0, false },
 }};
 
 struct HostContext {
@@ -393,6 +407,8 @@ bool verifyParams(const clap_plugin_t* plugin)
         && value == 3.0
         && params->text_to_value(plugin, kArpRate, "1/16T", &value)
         && value == 3.0
+        && params->text_to_value(plugin, kArpRate, "1/1", &value)
+        && value == 8.0
         && params->text_to_value(plugin, kPolarity, "-50%", &value)
         && std::abs(value - 0.25) < 1.0e-9;
 }
@@ -475,6 +491,9 @@ bool processChecks(const clap_plugin_t* plugin)
     events.addParam(kCustomStep4, 6.0);
     events.addParam(kPierce, 1.0);
     events.addParam(kSelfListen, 1.0);
+    events.addParam(kTargetGlitch, 0.86);
+    events.addParam(kGlitchRatchet, 0.74);
+    events.addParam(kOverloadMask, 1.0);
     events.addNote(CLAP_EVENT_NOTE_ON, 40, 0.9, 0u);
     clap_event_transport_t transport {};
     transport.header.size = sizeof(transport);
@@ -548,18 +567,25 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kCustomStep4, 7.0);
     events.addParam(kPierce, 0.93);
     events.addParam(kSelfListen, 0.88);
+    events.addParam(kTargetGlitch, 0.81);
+    events.addParam(kGlitchRatchet, 0.69);
+    events.addParam(kOverloadMask, 0.94);
+    events.addParam(kAttack, 18.0);
+    events.addParam(kDecay, 420.0);
+    events.addParam(kSustain, 0.36);
+    events.addParam(kRelease, 1250.0);
     AudioBlock block(&events);
     if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR
         || host.tailChanges == 0u
         || tail->get(plugin) < static_cast<uint32_t>(kSampleRate * 11.0)
-        || tail->get(plugin) > static_cast<uint32_t>(kSampleRate * 14.0)) {
+        || tail->get(plugin) > static_cast<uint32_t>(kSampleRate * 15.5)) {
         std::cerr << "Processor Stack tail contract mismatch\n";
         return false;
     }
 
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
-    if (!state->save(plugin, &output) || memory.bytes.size() != 360u) {
+    if (!state->save(plugin, &output) || memory.bytes.size() != 416u) {
         std::cerr << "Processor Stack state size mismatch: "
                   << memory.bytes.size() << "\n";
         return false;
@@ -590,7 +616,21 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kPierce, &value)
         || std::abs(value - 0.93) > 1.0e-6
         || !params->get_value(plugin, kSelfListen, &value)
-        || std::abs(value - 0.88) > 1.0e-6) {
+        || std::abs(value - 0.88) > 1.0e-6
+        || !params->get_value(plugin, kTargetGlitch, &value)
+        || std::abs(value - 0.81) > 1.0e-6
+        || !params->get_value(plugin, kGlitchRatchet, &value)
+        || std::abs(value - 0.69) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.94) > 1.0e-6
+        || !params->get_value(plugin, kAttack, &value)
+        || std::abs(value - 18.0) > 1.0e-6
+        || !params->get_value(plugin, kDecay, &value)
+        || std::abs(value - 420.0) > 1.0e-6
+        || !params->get_value(plugin, kSustain, &value)
+        || std::abs(value - 0.36) > 1.0e-6
+        || !params->get_value(plugin, kRelease, &value)
+        || std::abs(value - 1250.0) > 1.0e-6) {
         std::cerr << "Processor Stack arpeggiator state mismatch\n";
         return false;
     }
@@ -601,6 +641,91 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         uint32_t valueCount;
         uint32_t reserved;
     };
+    LegacyHeader versionFiveHeader { 0x31545350u, 5u, 46u, 0u };
+    std::array<double, 46u> versionFiveValues {};
+    for (uint32_t index = 0u; index < versionFiveValues.size(); ++index) {
+        versionFiveValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionFiveValues[static_cast<size_t>(kOverloadMask - 1u)] = 0.89;
+    MemoryState versionFive;
+    clap_ostream_t versionFiveOutput { &versionFive, stateWrite };
+    if (stateWrite(&versionFiveOutput, &versionFiveHeader,
+            sizeof(versionFiveHeader)) < 0
+        || stateWrite(&versionFiveOutput, versionFiveValues.data(),
+            sizeof(versionFiveValues)) < 0) {
+        return false;
+    }
+    versionFive.offset = 0u;
+    clap_istream_t versionFiveInput { &versionFive, stateRead };
+    if (!state->load(plugin, &versionFiveInput)
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.89) > 1.0e-6
+        || !params->get_value(plugin, kAttack, &value)
+        || std::abs(value - 2.0) > 1.0e-6
+        || !params->get_value(plugin, kDecay, &value)
+        || std::abs(value - 180.0) > 1.0e-6
+        || !params->get_value(plugin, kSustain, &value)
+        || std::abs(value - 0.78) > 1.0e-6
+        || !params->get_value(plugin, kRelease, &value)
+        || std::abs(value - 90.0) > 1.0e-6) {
+        std::cerr << "version 5 Processor Stack state did not migrate\n";
+        return false;
+    }
+
+    LegacyHeader versionFourHeader { 0x31545350u, 4u, 45u, 0u };
+    std::array<double, 45u> versionFourValues {};
+    for (uint32_t index = 0u; index < versionFourValues.size(); ++index) {
+        versionFourValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionFourValues[static_cast<size_t>(kTargetGlitch - 1u)] = 0.77;
+    MemoryState versionFour;
+    clap_ostream_t versionFourOutput { &versionFour, stateWrite };
+    if (stateWrite(&versionFourOutput, &versionFourHeader,
+            sizeof(versionFourHeader)) < 0
+        || stateWrite(&versionFourOutput, versionFourValues.data(),
+            sizeof(versionFourValues)) < 0) {
+        return false;
+    }
+    versionFour.offset = 0u;
+    clap_istream_t versionFourInput { &versionFour, stateRead };
+    if (!state->load(plugin, &versionFourInput)
+        || !params->get_value(plugin, kTargetGlitch, &value)
+        || std::abs(value - 0.77) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.76) > 1.0e-6) {
+        std::cerr << "version 4 Processor Stack state did not migrate\n";
+        return false;
+    }
+
+    LegacyHeader versionThreeHeader { 0x31545350u, 3u, 43u, 0u };
+    std::array<double, 43u> versionThreeValues {};
+    for (uint32_t index = 0u; index < versionThreeValues.size(); ++index) {
+        versionThreeValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionThreeValues[static_cast<size_t>(kPierce - 1u)] = 0.97;
+    MemoryState versionThree;
+    clap_ostream_t versionThreeOutput { &versionThree, stateWrite };
+    if (stateWrite(&versionThreeOutput, &versionThreeHeader,
+            sizeof(versionThreeHeader)) < 0
+        || stateWrite(&versionThreeOutput, versionThreeValues.data(),
+            sizeof(versionThreeValues)) < 0) {
+        return false;
+    }
+    versionThree.offset = 0u;
+    clap_istream_t versionThreeInput { &versionThree, stateRead };
+    if (!state->load(plugin, &versionThreeInput)
+        || !params->get_value(plugin, kPierce, &value)
+        || std::abs(value - 0.97) > 1.0e-6
+        || !params->get_value(plugin, kTargetGlitch, &value)
+        || std::abs(value) > 1.0e-6
+        || !params->get_value(plugin, kGlitchRatchet, &value)
+        || std::abs(value - 0.46) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.76) > 1.0e-6) {
+        std::cerr << "version 3 Processor Stack state did not migrate\n";
+        return false;
+    }
+
     LegacyHeader versionTwoHeader { 0x31545350u, 2u, 32u, 0u };
     std::array<double, 32u> versionTwoValues {};
     for (uint32_t index = 0u; index < versionTwoValues.size(); ++index) {
@@ -624,7 +749,13 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kPierce, &value)
         || std::abs(value - 0.68) > 1.0e-6
         || !params->get_value(plugin, kSelfListen, &value)
-        || std::abs(value - 0.72) > 1.0e-6) {
+        || std::abs(value - 0.72) > 1.0e-6
+        || !params->get_value(plugin, kTargetGlitch, &value)
+        || std::abs(value) > 1.0e-6
+        || !params->get_value(plugin, kGlitchRatchet, &value)
+        || std::abs(value - 0.46) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.76) > 1.0e-6) {
         std::cerr << "version 2 Processor Stack state did not migrate\n";
         return false;
     }
@@ -657,7 +788,13 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kPierce, &value)
         || std::abs(value - 0.68) > 1.0e-6
         || !params->get_value(plugin, kSelfListen, &value)
-        || std::abs(value - 0.72) > 1.0e-6) {
+        || std::abs(value - 0.72) > 1.0e-6
+        || !params->get_value(plugin, kTargetGlitch, &value)
+        || std::abs(value) > 1.0e-6
+        || !params->get_value(plugin, kGlitchRatchet, &value)
+        || std::abs(value - 0.46) > 1.0e-6
+        || !params->get_value(plugin, kOverloadMask, &value)
+        || std::abs(value - 0.76) > 1.0e-6) {
         std::cerr << "version 1 Processor Stack state did not migrate\n";
         return false;
     }
