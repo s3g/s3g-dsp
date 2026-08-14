@@ -116,15 +116,17 @@ void drawGeometryReadHead(NSPoint point, CGFloat intensity, bool currentHit,
     bool selected)
 {
     intensity = std::clamp<CGFloat>(intensity, 0.0, 1.0);
-    if (intensity <= 0.0 || !currentHit) return;
+    if (intensity <= 0.0) return;
     NSColor* yellow = [trackerColor(0xffdf3f)
-        colorWithAlphaComponent:intensity];
-    const CGFloat coreRadius = selected ? 5.4 : 4.8;
+        colorWithAlphaComponent:intensity * (currentHit ? 1.0 : 0.78)];
+    const CGFloat coreRadius = currentHit
+        ? (selected ? 5.4 : 4.8)
+        : (selected ? 4.6 : 4.0);
     NSBezierPath* outline = [NSBezierPath bezierPathWithOvalInRect:
         NSMakeRect(point.x - coreRadius - 1.0,
             point.y - coreRadius - 1.0,
             (coreRadius + 1.0) * 2.0, (coreRadius + 1.0) * 2.0)];
-    [trackerColor(0x161300, 0.88) setFill];
+    [trackerColor(0x161300, currentHit ? 0.88 : 0.58 * intensity) setFill];
     [outline fill];
     NSBezierPath* core = [NSBezierPath bezierPathWithOvalInRect:
         NSMakeRect(point.x - coreRadius, point.y - coreRadius,
@@ -133,7 +135,8 @@ void drawGeometryReadHead(NSPoint point, CGFloat intensity, bool currentHit,
     [core fill];
     NSBezierPath* center = [NSBezierPath bezierPathWithOvalInRect:
         NSMakeRect(point.x - 1.7, point.y - 1.7, 3.4, 3.4)];
-    [trackerColor(0xffef91) setFill];
+    [[trackerColor(0xffef91) colorWithAlphaComponent:
+        currentHit ? 1.0 : intensity * 0.72] setFill];
     [center fill];
 }
 
@@ -2981,12 +2984,12 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
     const NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     const NSTimeInterval elapsed = _lastReadHeadAnimationTime > 0.0
         ? std::clamp(now - _lastReadHeadAnimationTime, 0.0, 0.25)
-        : 1.0 / 30.0;
+        : 1.0 / 60.0;
     _lastReadHeadAnimationTime = now;
-    // Roughly 180 ms to halve: long enough to read the hit without turning
-    // fast material into a continuous ring.
+    // Roughly 140 ms to halve: the onset stays crisp while its smaller tail
+    // remains readable between edge-triggered GUI updates.
     const CGFloat decay = static_cast<CGFloat>(
-        std::exp(-elapsed * std::log(2.0) / 0.18));
+        std::exp(-elapsed * std::log(2.0) / 0.14));
     auto* model = self.trackerState;
     for (std::size_t lane = 0u;
          lane < _readHeadHaloStrength.size(); ++lane) {
@@ -2994,7 +2997,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         if (_readHeadHaloStrength[lane] < 0.012)
             _readHeadHaloStrength[lane] = 0.0;
         if (model && model->playing && model->noteHits[lane]) {
-            _readHeadHaloRows[lane] = model->notePlayheads[lane];
+            _readHeadHaloRows[lane] = model->noteHitRows[lane];
             _readHeadHaloStrength[lane] = 1.0;
         }
     }
@@ -3064,6 +3067,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         }
         model->notePlayheads[lane] = playheadRow;
         model->noteHits[lane] = true;
+        model->noteHitRows[lane] = playheadRow;
         _readHeadHaloRows[lane] = playheadRow;
         _readHeadHaloStrength[lane] = 1.0;
         _documentationHitLanes[lane] = true;
@@ -3323,7 +3327,7 @@ GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
         if (haloStrength > 0.0) {
             const auto position = (documentationHit
                     ? _readHeadHaloRows[lane]
-                    : currentHit ? model->notePlayheads[lane]
+                    : currentHit ? model->noteHitRows[lane]
                                  : _readHeadHaloRows[lane]) % length;
             const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
                 + static_cast<CGFloat>(position) * 2.0

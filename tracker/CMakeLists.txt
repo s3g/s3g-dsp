@@ -48,6 +48,7 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_timing_runtime_tests tests/song_timing_runtime_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_visual_note_hit_mailbox_tests tests/visual_note_hit_mailbox_tests.cpp)
 
   add_executable(s3g_tracker_workspace_layout_tests tests/workspace_layout_tests.cpp)
   target_include_directories(s3g_tracker_workspace_layout_tests PRIVATE

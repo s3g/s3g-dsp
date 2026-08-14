@@ -10,6 +10,7 @@
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/project_codec.h"
 #include "s3g/tracker/timing_playback_scheduler.h"
+#include "s3g/tracker/visual_note_hit_mailbox.h"
 
 #include <clap/clap.h>
 #include <clap/ext/draft/transport-control.h>
@@ -50,6 +51,8 @@ using s3g::tracker::SongLaunchQuantization;
 using s3g::tracker::SongPlaybackPlanner;
 using s3g::tracker::TimingPlaybackScheduler;
 using s3g::tracker::TransportSettings;
+using s3g::tracker::VisualNoteHitEvent;
+using s3g::tracker::VisualNoteHitMailbox;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
 
@@ -316,6 +319,9 @@ struct PatternLaunchMailbox {
     std::atomic<uint32_t> quantization { 0u };
 };
 
+using VisualNoteHitMailboxes = std::array<VisualNoteHitMailbox,
+    s3g::tracker::kMaximumTrackCount>;
+
 struct Runtime {
     TimingPlaybackScheduler scheduler;
     SongPlaybackPlanner songPlanner;
@@ -327,13 +333,16 @@ struct Runtime {
     bool songEnabled = false;
     bool valid = false;
     PatternLaunchMailbox* patternLaunch = nullptr;
+    VisualNoteHitMailboxes* visualNoteHits = nullptr;
 
     Runtime(const ProjectDocument& document, double sampleRate,
-        PatternLaunchMailbox* launchMailbox = nullptr)
+        PatternLaunchMailbox* launchMailbox = nullptr,
+        VisualNoteHitMailboxes* hitMailboxes = nullptr)
         : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
         , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
         , patternLaunch(launchMailbox)
+        , visualNoteHits(hitMailboxes)
     {
         if (document.patternBank.entries.empty()) return;
         std::vector<s3g::tracker::Pattern> patterns;
@@ -374,11 +383,7 @@ struct Runtime {
         scheduler.setTimingWarpLibrary(document.warpLibrary);
         scheduler.setTransport(projectTransport);
         scheduler.setRandomSeed(document.session.playbackSeed);
-        if (songEnabled)
-            scheduler.setLogicalTickObserver(&Runtime::advanceSong, this);
-        else if (patternLaunch)
-            scheduler.setLogicalTickObserver(
-                &Runtime::advancePatternLaunch, this);
+        scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
     }
 
     TransportSettings hostClock(double tempo, double sampleRate) const
@@ -403,13 +408,10 @@ struct Runtime {
                 songPatternIndices.front());
             const auto* row = songPlanner.currentRow();
             scheduler.setRuntimeTrackMuteMask(row ? row->mutedTracks : 0u);
-            scheduler.setLogicalTickObserver(&Runtime::advanceSong, this);
         } else {
             scheduler.setRuntimeTrackMuteMask(0u);
-            scheduler.setLogicalTickObserver(patternLaunch
-                    ? &Runtime::advancePatternLaunch : nullptr,
-                patternLaunch ? this : nullptr);
         }
+        scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
         const bool started = scheduler.startPreparedAtHostBeat(hostBeat);
         if (started && songEnabled)
             scheduler.relaunchColumnsAtTickBoundary(0u);
@@ -428,10 +430,26 @@ struct Runtime {
         scheduler.setTransport(std::move(current));
     }
 
-    static LogicalTickBoundaryAction advanceSong(void* context,
-        const LogicalTickBoundary&) noexcept
+    void publishVisualNoteHits(const LogicalTickBoundary& boundary) noexcept
+    {
+        if (!visualNoteHits) return;
+        const auto trackCount = std::min<std::size_t>(
+            scheduler.pattern().tracks.size(), visualNoteHits->size());
+        for (std::size_t track = 0u; track < trackCount; ++track) {
+            if (!scheduler.lastNoteTriggered(track)) continue;
+            (*visualNoteHits)[track].publish(
+                scheduler.lastNotePosition(track),
+                boundary.absoluteSampleTime);
+        }
+    }
+
+    static LogicalTickBoundaryAction advanceLogicalTick(void* context,
+        const LogicalTickBoundary& boundary) noexcept
     {
         auto& runtime = *static_cast<Runtime*>(context);
+        runtime.publishVisualNoteHits(boundary);
+        if (!runtime.songEnabled)
+            return advancePatternLaunch(context, boundary);
         const auto result = runtime.songPlanner.advanceTick();
         if (result.transition) {
             const auto rowIndex = runtime.songPlanner.currentRowIndex();
@@ -505,6 +523,7 @@ struct Plugin {
     std::mutex documentMutex;
     ProjectDocument document = makeInitialDocument();
     PatternLaunchMailbox patternLaunch;
+    VisualNoteHitMailboxes visualNoteHits;
     Runtime* audioRuntime = nullptr;
     std::atomic<Runtime*> pendingRuntime { nullptr };
     std::atomic<Runtime*> queuedVariationRuntime { nullptr };
@@ -533,8 +552,6 @@ struct Plugin {
     uint32_t consumedSongLaunchRevision = 0u;
     std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
         notePlayheads {};
-    std::array<std::atomic<uint8_t>, s3g::tracker::kMaximumTrackCount>
-        noteHits {};
     std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
         instrumentPlayheads {};
     std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
@@ -551,6 +568,27 @@ struct Plugin {
     S3GTrackerClapCoordinator* coordinator = nil;
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+};
+
+// The audio callback commonly renders a block shortly before the downstream
+// instrument presents it. Keep one 60 Hz GUI frame in hand so the playhead is
+// not painted from the newly rendered block ahead of the audible onset.
+struct VisualPlaybackFrame {
+    std::array<std::size_t, s3g::tracker::kMaximumTrackCount>
+        notePlayheads {};
+    std::array<bool, s3g::tracker::kMaximumTrackCount> noteHits {};
+    std::array<std::size_t, s3g::tracker::kMaximumTrackCount> noteHitRows {};
+    std::array<uint64_t, s3g::tracker::kMaximumTrackCount>
+        noteHitSampleTimes {};
+    std::array<std::size_t, s3g::tracker::kMaximumTrackCount>
+        instrumentPlayheads {};
+    std::array<std::size_t, s3g::tracker::kMaximumTrackCount>
+        velocityPlayheads {};
+    std::array<std::array<std::size_t, s3g::tracker::kFxPairCount>,
+        s3g::tracker::kMaximumTrackCount> fxActionPlayheads {};
+    std::array<std::array<std::size_t, s3g::tracker::kFxPairCount>,
+        s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
+    int32_t songRow = -1;
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -631,7 +669,7 @@ bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
 {
     normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document,
-        plugin.sampleRate, &plugin.patternLaunch);
+        plugin.sampleRate, &plugin.patternLaunch, &plugin.visualNoteHits);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return false;
@@ -664,7 +702,7 @@ void publishDocument(Plugin& plugin, ProjectDocument document,
 {
     normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
-        &plugin.patternLaunch);
+        &plugin.patternLaunch, &plugin.visualNoteHits);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return;
@@ -846,15 +884,10 @@ void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
         s3g::tracker::kMaximumTrackCount);
     for (std::size_t track = 0u;
          track < s3g::tracker::kMaximumTrackCount; ++track) {
-        if (track >= trackCount) {
-            plugin.noteHits[track].store(0u, std::memory_order_relaxed);
-            continue;
-        }
+        if (track >= trackCount) continue;
         plugin.notePlayheads[track].store(static_cast<uint16_t>(
             runtime.scheduler.lastNotePosition(track)),
             std::memory_order_relaxed);
-        plugin.noteHits[track].store(runtime.scheduler.lastNoteTriggered(track)
-                ? 1u : 0u, std::memory_order_relaxed);
         plugin.instrumentPlayheads[track].store(static_cast<uint16_t>(
             runtime.scheduler.lastInstrumentPosition(track)),
             std::memory_order_relaxed);
@@ -1321,6 +1354,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     Plugin* _plugin;
     std::unique_ptr<TrackerViewState> _state;
     std::unique_ptr<WorkspaceCallbacks> _callbacks;
+    std::array<uint64_t, s3g::tracker::kMaximumTrackCount>
+        _consumedNoteHitSequences;
+    VisualPlaybackFrame _pendingVisualFrame;
+    bool _visualFramePrimed;
 }
 @property(nonatomic, strong) S3GTrackerWorkspaceController* workspace;
 @property(nonatomic, strong) S3GTrackerSongWindowController* songWindow;
@@ -1347,6 +1384,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     registerBundledFonts();
     _state = std::make_unique<TrackerViewState>();
     _callbacks = std::make_unique<WorkspaceCallbacks>();
+    _consumedNoteHitSequences.fill(0u);
+    _visualFramePrimed = false;
 
     __weak S3GTrackerClapCoordinator* weakSelf = self;
     _callbacks->togglePlayback = [weakSelf] {
@@ -1875,33 +1914,60 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 {
     (void)timer;
     drainRetiredRuntimes(*_plugin);
-    _state->playing = _plugin->visualPlaying.load(std::memory_order_relaxed);
+    const bool playing = _plugin->visualPlaying.load(
+        std::memory_order_relaxed);
+    _state->playing = playing;
     _state->hostBpm = _plugin->visualHostTempo.load(
         std::memory_order_relaxed);
     _state->paused = false;
+    VisualPlaybackFrame captured;
     for (std::size_t track = 0u;
          track < s3g::tracker::kMaximumTrackCount; ++track) {
-        _state->notePlayheads[track] = _plugin->notePlayheads[track].load(
+        captured.notePlayheads[track] = _plugin->notePlayheads[track].load(
             std::memory_order_relaxed);
-        _state->noteHits[track] = _plugin->noteHits[track].load(
-            std::memory_order_relaxed) != 0u;
-        _state->instrumentPlayheads[track]
+        VisualNoteHitEvent hit;
+        const bool newHit = _plugin->visualNoteHits[track].readLatest(
+            _consumedNoteHitSequences[track], hit);
+        captured.noteHits[track] = playing && newHit;
+        if (newHit) {
+            captured.noteHitRows[track] = hit.row;
+            captured.noteHitSampleTimes[track] = hit.absoluteSampleTime;
+        }
+        captured.instrumentPlayheads[track]
             = _plugin->instrumentPlayheads[track].load(
                 std::memory_order_relaxed);
-        _state->velocityPlayheads[track]
+        captured.velocityPlayheads[track]
             = _plugin->velocityPlayheads[track].load(
                 std::memory_order_relaxed);
         for (std::size_t pair = 0u; pair < s3g::tracker::kFxPairCount; ++pair) {
-            _state->fxActionPlayheads[track][pair]
+            captured.fxActionPlayheads[track][pair]
                 = _plugin->fxActionPlayheads[track][pair].load(
                     std::memory_order_relaxed);
-            _state->fxValuePlayheads[track][pair]
+            captured.fxValuePlayheads[track][pair]
                 = _plugin->fxValuePlayheads[track][pair].load(
                     std::memory_order_relaxed);
         }
     }
-    const int32_t songRow = _plugin->visualSongRow.load(
+    captured.songRow = _plugin->visualSongRow.load(
         std::memory_order_relaxed);
+    if (playing && _visualFramePrimed) {
+        _state->notePlayheads = _pendingVisualFrame.notePlayheads;
+        _state->noteHits = _pendingVisualFrame.noteHits;
+        _state->noteHitRows = _pendingVisualFrame.noteHitRows;
+        _state->noteHitSampleTimes
+            = _pendingVisualFrame.noteHitSampleTimes;
+        _state->instrumentPlayheads
+            = _pendingVisualFrame.instrumentPlayheads;
+        _state->velocityPlayheads = _pendingVisualFrame.velocityPlayheads;
+        _state->fxActionPlayheads = _pendingVisualFrame.fxActionPlayheads;
+        _state->fxValuePlayheads = _pendingVisualFrame.fxValuePlayheads;
+    } else {
+        _state->noteHits.fill(false);
+    }
+    const int32_t songRow = playing && _visualFramePrimed
+        ? _pendingVisualFrame.songRow : captured.songRow;
+    _pendingVisualFrame = std::move(captured);
+    _visualFramePrimed = playing;
     _state->songPlaybackActive = _state->playing
         && _state->songPlaybackEnabled && songRow >= 0;
     _state->songPlaybackRowValid = songRow >= 0;
@@ -1925,8 +1991,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)startTimer
 {
     if (self.displayTimer) return;
-    self.displayTimer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 30.0)
+    self.displayTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
         target:self selector:@selector(pollDisplay:) userInfo:nil repeats:YES];
+    self.displayTimer.tolerance = 1.0 / 240.0;
+    [[NSRunLoop mainRunLoop] addTimer:self.displayTimer
+        forMode:NSRunLoopCommonModes];
 }
 
 - (void)stopTimer
@@ -1969,7 +2038,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
         document = instance->document;
     }
     auto* runtime = new (std::nothrow) Runtime(document, sampleRate,
-        &instance->patternLaunch);
+        &instance->patternLaunch, &instance->visualNoteHits);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return false;
@@ -2307,7 +2376,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     instance->host = host;
     instance->audioRuntime = new (std::nothrow) Runtime(
         instance->document, instance->sampleRate,
-        &instance->patternLaunch);
+        &instance->patternLaunch, &instance->visualNoteHits);
     if (!instance->audioRuntime || !instance->audioRuntime->valid) {
         delete instance->audioRuntime;
         delete instance;

@@ -29,6 +29,8 @@ struct TrackerViewState {
     uint32_t selectedRackInstrument = 0u;
     std::array<std::size_t, kVisibleLaneCount> notePlayheads {};
     std::array<bool, kVisibleLaneCount> noteHits {};
+    std::array<std::size_t, kVisibleLaneCount> noteHitRows {};
+    std::array<uint64_t, kVisibleLaneCount> noteHitSampleTimes {};
     std::array<std::size_t, kVisibleLaneCount> instrumentPlayheads {};
     std::array<std::size_t, kVisibleLaneCount> velocityPlayheads {};
     std::array<std::array<std::size_t, kFxPairCount>, kVisibleLaneCount>
