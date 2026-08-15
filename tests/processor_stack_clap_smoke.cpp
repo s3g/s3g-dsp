@@ -121,6 +121,7 @@ enum ParamId : clap_id {
     kTargetGlitchB,
     kGlitchRatchetB,
     kOverloadMaskB,
+    kArpHostSync,
 };
 
 struct ParamSpec {
@@ -132,7 +133,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 99u> kParamSpecs {{
+constexpr std::array<ParamSpec, 100u> kParamSpecs {{
     { kMode, "Mode", 0.0, 2.0, 0.0, true },
     { kShape, "Shape", 0.0, 1.0, 0.58, false },
     { kWire, "String", 0.0, 1.0, 0.56, false },
@@ -232,6 +233,7 @@ constexpr std::array<ParamSpec, 99u> kParamSpecs {{
     { kTargetGlitchB, "Target Glitch B", 0.0, 1.0, 0.0, false },
     { kGlitchRatchetB, "Glitch Ratchet B", 0.0, 1.0, 0.46, false },
     { kOverloadMaskB, "Overload Mask B", 0.0, 1.0, 0.76, false },
+    { kArpHostSync, "Arp Host Sync", 0.0, 1.0, 0.0, true },
 }};
 
 struct HostContext {
@@ -507,6 +509,11 @@ bool verifyParams(const clap_plugin_t* plugin)
         && value == 3.0
         && params->text_to_value(plugin, kArpRate, "1/1", &value)
         && value == 8.0
+        && params->value_to_text(plugin, kArpHostSync, 1.0,
+            text, sizeof(text))
+        && std::strcmp(text, "HOST SYNC") == 0
+        && params->text_to_value(plugin, kArpHostSync, "FREE", &value)
+        && value == 0.0
         && params->text_to_value(plugin, kPolarity, "-50%", &value)
         && std::abs(value - 0.25) < 1.0e-9;
 }
@@ -617,10 +624,43 @@ bool processChecks(const clap_plugin_t* plugin)
         return false;
     }
 
+    // Host sync quantizes a newly held note to the next host grid boundary.
+    plugin->reset(plugin);
+    events.clear();
+    events.addParam(kMode, 2.0);
+    events.addParam(kArpPattern, 1.0);
+    events.addParam(kArpRate, 2.0);
+    events.addParam(kArpHostSync, 1.0);
+    events.addNote(CLAP_EVENT_NOTE_ON, 40, 0.9, 0u);
+    transport.flags = CLAP_TRANSPORT_HAS_TEMPO
+        | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+        | CLAP_TRANSPORT_IS_PLAYING;
+    transport.tempo = 120.0;
+    transport.song_pos_beats = static_cast<clap_beattime>(
+        0.125 * static_cast<double>(CLAP_BEATTIME_FACTOR));
+    noteBlock.process.transport = &transport;
+    noteBlock.clear();
+    if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
+        || noteBlock.energy() != 0.0) {
+        std::cerr << "host-synced arpeggiator attacked between grid lines\n";
+        return false;
+    }
+    events.clear();
+    transport.song_pos_beats = static_cast<clap_beattime>(
+        0.25 * static_cast<double>(CLAP_BEATTIME_FACTOR));
+    noteBlock.clear();
+    if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
+        || !noteBlock.finite() || noteBlock.energy() < 1.0e-8) {
+        std::cerr << "host-synced arpeggiator missed the host grid boundary\n";
+        return false;
+    }
+    noteBlock.process.transport = nullptr;
+
     // MIDI channel filtering is shared by CLAP-note and raw MIDI events.
     plugin->reset(plugin);
     events.clear();
     events.addParam(kMidiReceive, 2.0);
+    events.addParam(kArpHostSync, 0.0);
     events.addNote(CLAP_EVENT_NOTE_ON, 50, 0.8, 0u, 0);
     noteBlock.clear();
     if (plugin->process(plugin, &noteBlock.process) != CLAP_PROCESS_SLEEP
@@ -711,6 +751,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kPierceB, 0.96);
     events.addParam(kTargetGlitchB, 0.72);
     events.addParam(kOverloadMaskB, 0.98);
+    events.addParam(kArpHostSync, 1.0);
     block.clear();
     if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR) {
         return false;
@@ -718,7 +759,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
 
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
-    if (!state->save(plugin, &output) || memory.bytes.size() != 808u) {
+    if (!state->save(plugin, &output) || memory.bytes.size() != 816u) {
         std::cerr << "Processor Stack state size mismatch: "
                   << memory.bytes.size() << "\n";
         return false;
@@ -789,7 +830,9 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kPierceB, &value)
         || std::abs(value - 0.96) > 1.0e-6
         || !params->get_value(plugin, kOverloadMaskB, &value)
-        || std::abs(value - 0.98) > 1.0e-6) {
+        || std::abs(value - 0.98) > 1.0e-6
+        || !params->get_value(plugin, kArpHostSync, &value)
+        || value != 1.0) {
         std::cerr << "Processor Stack extended state mismatch\n";
         return false;
     }
@@ -800,6 +843,31 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         uint32_t valueCount;
         uint32_t reserved;
     };
+    LegacyHeader versionEightHeader { 0x31545350u, 8u, 99u, 0u };
+    std::array<double, 99u> versionEightValues {};
+    for (uint32_t index = 0u; index < versionEightValues.size(); ++index) {
+        versionEightValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionEightValues[static_cast<size_t>(kOverloadMaskB - 1u)] = 0.87;
+    MemoryState versionEight;
+    clap_ostream_t versionEightOutput { &versionEight, stateWrite };
+    if (stateWrite(&versionEightOutput, &versionEightHeader,
+            sizeof(versionEightHeader)) < 0
+        || stateWrite(&versionEightOutput, versionEightValues.data(),
+            sizeof(versionEightValues)) < 0) {
+        return false;
+    }
+    versionEight.offset = 0u;
+    clap_istream_t versionEightInput { &versionEight, stateRead };
+    if (!state->load(plugin, &versionEightInput)
+        || !params->get_value(plugin, kOverloadMaskB, &value)
+        || std::abs(value - 0.87) > 1.0e-6
+        || !params->get_value(plugin, kArpHostSync, &value)
+        || value != 0.0) {
+        std::cerr << "version 8 Processor Stack state did not migrate\n";
+        return false;
+    }
+
     LegacyHeader versionSevenHeader { 0x31545350u, 7u, 58u, 0u };
     std::array<double, 58u> versionSevenValues {};
     for (uint32_t index = 0u; index < versionSevenValues.size(); ++index) {

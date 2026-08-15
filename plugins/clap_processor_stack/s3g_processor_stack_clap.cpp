@@ -34,7 +34,9 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x31545350u; // "PST1" little endian.
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kVersionEightStateVersion = 8u;
+constexpr uint32_t kVersionEightParamCount = 99u;
 constexpr uint32_t kVersionSevenStateVersion = 7u;
 constexpr uint32_t kVersionSevenParamCount = 58u;
 constexpr uint32_t kVersionSixStateVersion = 6u;
@@ -153,6 +155,7 @@ enum ParamId : clap_id {
     kTargetGlitchBParamId,
     kGlitchRatchetBParamId,
     kOverloadMaskBParamId,
+    kArpHostSyncParamId,
 };
 
 struct ParamDef {
@@ -165,7 +168,7 @@ struct ParamDef {
     bool stepped;
 };
 
-constexpr std::array<ParamDef, 99u> kParamDefs {{
+constexpr std::array<ParamDef, 100u> kParamDefs {{
     { kModeParamId, "Mode", "Play", 0.0, 2.0, 0.0, true },
     { kShapeParamId, "Shape", "Play", 0.0, 1.0, 0.58, false },
     { kWireParamId, "String", "Play", 0.0, 1.0, 0.56, false },
@@ -265,11 +268,12 @@ constexpr std::array<ParamDef, 99u> kParamDefs {{
     { kTargetGlitchBParamId, "Target Glitch B", "Loop B", 0.0, 1.0, 0.0, false },
     { kGlitchRatchetBParamId, "Glitch Ratchet B", "Loop B", 0.0, 1.0, 0.46, false },
     { kOverloadMaskBParamId, "Overload Mask B", "Loop B", 0.0, 1.0, 0.76, false },
+    { kArpHostSyncParamId, "Arp Host Sync", "Routing", 0.0, 1.0, 0.0, true },
 }};
 
 constexpr uint32_t kSynthParamCount = 98u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kOverloadMaskBParamId) + 1u;
+    static_cast<uint32_t>(kArpHostSyncParamId) + 1u;
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kModeParamId, kShapeParamId, kWireParamId, kPickParamId,
@@ -325,6 +329,7 @@ struct Plugin {
     const clap_host_params_t* hostParams = nullptr;
     const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
+    double tempoBpm = 120.0;
     s3g::ProcessorStack engine {};
     s3g::ProcessorStackParams params {};
     double midiReceive = 0.0;
@@ -478,6 +483,7 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kTargetGlitchBParamId: return params.targetGlitchB;
     case kGlitchRatchetBParamId: return params.glitchRatchetB;
     case kOverloadMaskBParamId: return params.overloadMaskB;
+    case kArpHostSyncParamId: return params.arpHostSync ? 1.0 : 0.0;
     default: return 0.0;
     }
 }
@@ -713,6 +719,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kOverloadMaskBParamId:
         plugin.params.overloadMaskB = normalized;
+        break;
+    case kArpHostSyncParamId:
+        plugin.params.arpHostSync = value >= 0.5;
         break;
     default: return;
     }
@@ -1024,6 +1033,8 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     instance->engine.setPressure(0.0f);
     instance->engine.setPitchBendSemitones(0.0f);
     instance->engine.setTempoBpm(120.0f);
+    instance->engine.setHostTransportBeat(0.0, false);
+    instance->tempoBpm = 120.0;
     instance->active = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
     return true;
@@ -1038,8 +1049,54 @@ void reset(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     instance->engine.reset();
     instance->engine.setParams(instance->params);
+    instance->engine.setHostTransportBeat(0.0, false);
+    instance->tempoBpm = 120.0;
     instance->active = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
+}
+
+struct ArpTransportClock {
+    bool playing = false;
+    bool hasPosition = false;
+    double beat = 0.0;
+    double tempo = 120.0;
+    double tempoIncrement = 0.0;
+};
+
+void updateArpTransportClock(ArpTransportClock& clock,
+    const clap_event_transport_t* transport, double fallbackTempo)
+{
+    if (!transport) {
+        clock = {};
+        clock.tempo = fallbackTempo;
+        return;
+    }
+    clock.playing = (transport->flags & CLAP_TRANSPORT_IS_PLAYING) != 0u;
+    clock.tempo = (transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+            && std::isfinite(transport->tempo) && transport->tempo > 0.0
+        ? transport->tempo : fallbackTempo;
+    clock.tempoIncrement = std::isfinite(transport->tempo_inc)
+        ? transport->tempo_inc : 0.0;
+    if ((transport->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) != 0u) {
+        clock.beat = static_cast<double>(transport->song_pos_beats)
+            / static_cast<double>(CLAP_BEATTIME_FACTOR);
+        clock.hasPosition = std::isfinite(clock.beat);
+    } else if ((transport->flags
+            & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) != 0u) {
+        const double seconds = static_cast<double>(
+            transport->song_pos_seconds)
+            / static_cast<double>(CLAP_SECTIME_FACTOR);
+        clock.beat = seconds * clock.tempo / 60.0;
+        clock.hasPosition = std::isfinite(clock.beat);
+    }
+}
+
+void advanceArpTransportClock(ArpTransportClock& clock, double sampleRate)
+{
+    if (clock.playing && clock.hasPosition) {
+        clock.beat += clock.tempo / (60.0 * sampleRate);
+    }
+    clock.tempo = std::max(1.0, clock.tempo + clock.tempoIncrement);
 }
 
 clap_process_status process(const clap_plugin_t* plugin,
@@ -1047,13 +1104,12 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     auto* instance = self(plugin);
     if (!processInfo) return CLAP_PROCESS_ERROR;
-    if (processInfo->transport
-        && (processInfo->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
-        && std::isfinite(processInfo->transport->tempo)
-        && processInfo->transport->tempo > 0.0) {
-        instance->engine.setTempoBpm(
-            static_cast<float>(processInfo->transport->tempo));
-    }
+    ArpTransportClock transportClock;
+    updateArpTransportClock(transportClock,
+        processInfo->transport, instance->tempoBpm);
+    instance->engine.setTempoBpm(static_cast<float>(transportClock.tempo));
+    instance->engine.setHostTransportBeat(transportClock.beat,
+        transportClock.playing && transportClock.hasPosition);
     if (instance->tailChangePending.exchange(
             false, std::memory_order_acq_rel)
         && instance->host && instance->hostTail
@@ -1067,9 +1123,26 @@ clap_process_status process(const clap_plugin_t* plugin,
 
     if (processInfo->audio_outputs_count == 0u
         || !processInfo->audio_outputs) {
+        instance->engine.setTempoBpm(static_cast<float>(transportClock.tempo));
+        instance->engine.setHostTransportBeat(transportClock.beat,
+            transportClock.playing && transportClock.hasPosition);
         while (eventIndex < eventCount) {
-            applyEvent(*instance, events->get(events, eventIndex++));
+            const auto* event = events->get(events, eventIndex++);
+            if (event && event->space_id == CLAP_CORE_EVENT_SPACE_ID
+                && event->type == CLAP_EVENT_TRANSPORT
+                && event->size >= sizeof(clap_event_transport_t)) {
+                updateArpTransportClock(transportClock,
+                    reinterpret_cast<const clap_event_transport_t*>(event),
+                    instance->tempoBpm);
+                instance->engine.setTempoBpm(
+                    static_cast<float>(transportClock.tempo));
+                instance->engine.setHostTransportBeat(transportClock.beat,
+                    transportClock.playing && transportClock.hasPosition);
+            } else {
+                applyEvent(*instance, event);
+            }
         }
+        instance->tempoBpm = std::clamp(transportClock.tempo, 20.0, 400.0);
         instance->active = instance->engine.active();
         return instance->active ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
     }
@@ -1080,12 +1153,30 @@ clap_process_status process(const clap_plugin_t* plugin,
 
     float blockPeak = 0.0f;
     for (uint32_t sample = 0u; sample < processInfo->frames_count; ++sample) {
+        instance->engine.setTempoBpm(static_cast<float>(transportClock.tempo));
+        instance->engine.setHostTransportBeat(transportClock.beat,
+            transportClock.playing && transportClock.hasPosition);
         while (eventIndex < eventCount) {
             const auto* event = events->get(events, eventIndex);
             if (!event || event->time > sample) break;
-            applyEvent(*instance, event);
+            if (event->space_id == CLAP_CORE_EVENT_SPACE_ID
+                && event->type == CLAP_EVENT_TRANSPORT
+                && event->size >= sizeof(clap_event_transport_t)) {
+                updateArpTransportClock(transportClock,
+                    reinterpret_cast<const clap_event_transport_t*>(event),
+                    instance->tempoBpm);
+                instance->engine.setTempoBpm(
+                    static_cast<float>(transportClock.tempo));
+                instance->engine.setHostTransportBeat(transportClock.beat,
+                    transportClock.playing && transportClock.hasPosition);
+            } else {
+                applyEvent(*instance, event);
+            }
             ++eventIndex;
         }
+        instance->engine.setTempoBpm(static_cast<float>(transportClock.tempo));
+        instance->engine.setHostTransportBeat(transportClock.beat,
+            transportClock.playing && transportClock.hasPosition);
         float left = 0.0f;
         float right = 0.0f;
         instance->engine.processFrame(left, right);
@@ -1101,10 +1192,21 @@ clap_process_status process(const clap_plugin_t* plugin,
                 output.data64[channel][sample] = value;
             }
         }
+        advanceArpTransportClock(transportClock, instance->sampleRate);
     }
     while (eventIndex < eventCount) {
-        applyEvent(*instance, events->get(events, eventIndex++));
+        const auto* event = events->get(events, eventIndex++);
+        if (event && event->space_id == CLAP_CORE_EVENT_SPACE_ID
+            && event->type == CLAP_EVENT_TRANSPORT
+            && event->size >= sizeof(clap_event_transport_t)) {
+            updateArpTransportClock(transportClock,
+                reinterpret_cast<const clap_event_transport_t*>(event),
+                instance->tempoBpm);
+        } else {
+            applyEvent(*instance, event);
+        }
     }
+    instance->tempoBpm = std::clamp(transportClock.tempo, 20.0, 400.0);
     instance->active = instance->engine.active();
     const float previous = instance->outputPeak.load(
         std::memory_order_relaxed);
@@ -1250,6 +1352,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             s3g::processorStackBodyMaterialName(material));
     } else if (id == kMidiReceiveParamId) {
         s3g::drum_midi::valueToText(value, display, size);
+    } else if (id == kArpHostSyncParamId) {
+        std::snprintf(display, size, "%s",
+            value >= 0.5 ? "HOST SYNC" : "FREE");
     } else if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
         || id == kLinkFeedbackParamId) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "LINK" : "OWN");
@@ -1280,6 +1385,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     if (!display || !value || !def) return false;
     if (id == kMidiReceiveParamId) {
         return s3g::drum_midi::textToValue(display, value);
+    }
+    if (id == kArpHostSyncParamId) {
+        if (std::strcmp(display, "HOST SYNC") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "FREE") == 0) {
+            *value = 0.0;
+            return true;
+        }
     }
     if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
         || id == kLinkFeedbackParamId) {
@@ -1481,6 +1596,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool current = header.magic == kStateMagic
         && header.version == kStateVersion
         && header.valueCount == kParamDefs.size();
+    const bool versionEight = header.magic == kStateMagic
+        && header.version == kVersionEightStateVersion
+        && header.valueCount == kVersionEightParamCount;
     const bool versionSeven = header.magic == kStateMagic
         && header.version == kVersionSevenStateVersion
         && header.valueCount == kVersionSevenParamCount;
@@ -1502,7 +1620,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool versionOne = header.magic == kStateMagic
         && header.version == kVersionOneStateVersion
         && header.valueCount == kVersionOneParamCount;
-    if (!current && !versionSeven && !versionSix && !versionFive
+    if (!current && !versionEight && !versionSeven && !versionSix && !versionFive
         && !versionFour && !versionThree && !versionTwo && !versionOne) {
         return false;
     }
@@ -1604,7 +1722,7 @@ constexpr auto kPlayPanel = layout::fittedPanel(
 constexpr auto kPairPanel = layout::fittedStackPanel(
     layout::PanelRole::Engine, kPlayPanel, 4u);
 constexpr auto kRoutingPanel = layout::fittedStackPanel(
-    layout::PanelRole::Utility, kPairPanel, 1u);
+    layout::PanelRole::Utility, kPairPanel, 2u);
 constexpr auto kArpAPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::EventTiming,
     kRightColumn, kContentTop, 6u);
@@ -1685,7 +1803,7 @@ constexpr std::array<StackUiPanel, 17u> kUiPanels {{
     { "MIC FEEDBACK LOOP B", 2u, kLoopBPanel },
 }};
 
-constexpr std::array<StackUiRow, 83u> kUiRows {{
+constexpr std::array<StackUiRow, 84u> kUiRows {{
     { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
         layout::rowY(kOutputPanel, 0u), kAllPages },
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
@@ -1723,6 +1841,8 @@ constexpr std::array<StackUiRow, 83u> kUiRows {{
         layout::rowY(kPairPanel, 3u), 0u },
     { kMidiReceiveParamId, "MIDI RECEIVE", kLeftPanelX, kPanelWidth,
         layout::rowY(kRoutingPanel, 0u), 0u },
+    { kArpHostSyncParamId, "ARP SYNC", kLeftPanelX, kPanelWidth,
+        layout::rowY(kRoutingPanel, 1u), 0u },
 
     { kArpPatternParamId, "PATTERN", kRightPanelX, kPanelWidth,
         layout::rowY(kArpAPanel, 0u), 0u },
@@ -1861,7 +1981,8 @@ bool isUiMenuParam(clap_id id)
 {
     return id == kModeParamId || id == kCircuitParamId
         || id == kCircuitBParamId
-        || id == kMidiReceiveParamId || id == kArpPatternParamId
+        || id == kMidiReceiveParamId || id == kArpHostSyncParamId
+        || id == kArpPatternParamId
         || id == kArpPatternBParamId || id == kArpBRelationParamId
         || id == kScaleParamId || id == kScaleBParamId
         || id == kArpRateParamId || id == kArpRateBParamId
@@ -1880,6 +2001,7 @@ uint32_t uiMenuItemCount(clap_id id)
     if (id == kCircuitParamId || id == kCircuitBParamId)
         return s3g::kProcessorStackCircuitCount;
     if (id == kMidiReceiveParamId) return 17u;
+    if (id == kArpHostSyncParamId) return 2u;
     if (id == kArpBRelationParamId)
         return s3g::kProcessorStackArpRelationCount;
     if (id == kArpPatternParamId || id == kArpPatternBParamId)
@@ -1964,6 +2086,7 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
         static_cast<uint32_t>(std::lround(paramValue(plugin, kNeckBParamId))));
     params.bodyB = static_cast<s3g::ProcessorStackBodyMaterial>(
         static_cast<uint32_t>(std::lround(paramValue(plugin, kBodyBParamId))));
+    params.arpHostSync = paramValue(plugin, kArpHostSyncParamId) >= 0.5;
     params.arpPattern = static_cast<s3g::ProcessorStackArpPattern>(
         static_cast<uint32_t>(std::lround(
             paramValue(plugin, kArpPatternParamId))));
@@ -2718,7 +2841,8 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 const auto* def = paramDef(menuParam);
                 queueGuiParamGesture(*instance, menuParam,
                     (def ? def->minimum : 0.0) + static_cast<double>(hit));
-                if (menuParam != kMidiReceiveParamId) {
+                if (menuParam != kMidiReceiveParamId
+                    && menuParam != kArpHostSyncParamId) {
                     [self markCustomPreset];
                 }
             }
@@ -2852,7 +2976,8 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             queueGuiParamGestureBegin(*instance, row.id);
             [self updateDraggedParam:point];
         }
-        if (row.id != kOutputParamId && row.id != kMidiReceiveParamId) {
+        if (row.id != kOutputParamId && row.id != kMidiReceiveParamId
+            && row.id != kArpHostSyncParamId) {
             [self markCustomPreset];
         }
         return;

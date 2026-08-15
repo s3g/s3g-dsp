@@ -1060,6 +1060,64 @@ int main()
         return 1;
     }
 
+    s3g::ProcessorStack hostSyncedArpeggiator;
+    hostSyncedArpeggiator.prepare(48000.0);
+    auto hostSyncParams = arpParams;
+    hostSyncParams.arpHostSync = true;
+    hostSyncedArpeggiator.setParams(hostSyncParams);
+    hostSyncedArpeggiator.setTempoBpm(120.0f);
+    hostSyncedArpeggiator.setHostTransportBeat(0.125, true);
+    hostSyncedArpeggiator.noteOn(40, 0.9f);
+    if (hostSyncedArpeggiator.arpStepCount() != 0u
+        || hostSyncedArpeggiator.arpCurrentNote() != -1) {
+        std::cerr << "host-synced arpeggiator attacked between grid lines\n";
+        return 1;
+    }
+    constexpr double kBeatsPerSample = 120.0 / (60.0 * 48000.0);
+    for (uint32_t frame = 0u; frame < 3000u; ++frame) {
+        hostSyncedArpeggiator.setHostTransportBeat(
+            0.125 + static_cast<double>(frame) * kBeatsPerSample, true);
+        float left = 0.0f;
+        float right = 0.0f;
+        hostSyncedArpeggiator.processFrame(left, right);
+    }
+    hostSyncedArpeggiator.setHostTransportBeat(0.25, true);
+    float hostLeft = 0.0f;
+    float hostRight = 0.0f;
+    hostSyncedArpeggiator.processFrame(hostLeft, hostRight);
+    if (hostSyncedArpeggiator.arpStepCount() != 1u
+        || hostSyncedArpeggiator.arpCurrentNote() != 41) {
+        std::cerr << "host-synced arpeggiator missed its timeline step: count="
+                  << hostSyncedArpeggiator.arpStepCount() << " note="
+                  << hostSyncedArpeggiator.arpCurrentNote() << "\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack phasedHostArpeggiator;
+    phasedHostArpeggiator.prepare(48000.0);
+    auto phasedHostParams = dualArpParams;
+    phasedHostParams.arpHostSync = true;
+    phasedHostParams.arpRateB = s3g::ProcessorStackArpRate::Sixteenth;
+    phasedHostParams.arpPhaseB = 0.5f;
+    phasedHostArpeggiator.setParams(phasedHostParams);
+    phasedHostArpeggiator.setTempoBpm(120.0f);
+    phasedHostArpeggiator.setHostTransportBeat(0.0, true);
+    phasedHostArpeggiator.noteOn(40, 0.9f);
+    if (phasedHostArpeggiator.arpStepCount() != 1u
+        || phasedHostArpeggiator.partnerArpStepCount() != 0u) {
+        std::cerr << "host phase did not defer arpeggiator B\n";
+        return 1;
+    }
+    phasedHostArpeggiator.setHostTransportBeat(0.125, true);
+    float phasedLeft = 0.0f;
+    float phasedRight = 0.0f;
+    phasedHostArpeggiator.processFrame(phasedLeft, phasedRight);
+    if (phasedHostArpeggiator.partnerArpStepCount() != 1u
+        || phasedHostArpeggiator.partnerArpCurrentNote() != 40) {
+        std::cerr << "arpeggiator B missed its host-synced phase boundary\n";
+        return 1;
+    }
+
     s3g::ProcessorStack slowArpeggiator;
     slowArpeggiator.prepare(48000.0);
     auto slowParams = arpParams;

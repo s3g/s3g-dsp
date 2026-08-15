@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace s3g {
@@ -270,6 +271,7 @@ struct ProcessorStackParams {
     ProcessorStackBodyMaterial bodyB =
         ProcessorStackBodyMaterial::HollowWood;
 
+    bool arpHostSync = false;
     ProcessorStackArpPattern arpPattern = ProcessorStackArpPattern::Off;
     ProcessorStackScale scale = ProcessorStackScale::Phrygian;
     ProcessorStackArpRate arpRate = ProcessorStackArpRate::Sixteenth;
@@ -536,6 +538,8 @@ public:
         pressure_ = 0.0f;
         pitchBendSemitones_ = 0.0f;
         tempoBpm_ = 120.0f;
+        hostTransportBeat_ = 0.0;
+        hostTransportActive_ = false;
         arpeggiators_.fill(ArpState {});
         lastPlayedNote_ = -1;
         lastRootNote_ = 45;
@@ -569,6 +573,7 @@ public:
         const ProcessorStackPairRelation previousPairRelation =
             params_.pairRelation;
         const ProcessorStackArpPattern previousPattern = params_.arpPattern;
+        const bool previousArpHostSync = params_.arpHostSync;
         const ProcessorStackScale previousScale = params_.scale;
         const ProcessorStackArpRate previousRate = params_.arpRate;
         const uint32_t previousOctaves = params_.arpOctaves;
@@ -601,13 +606,15 @@ public:
                 rig.circuitFade = 1.0f;
             }
         }
-        const bool arpChangedA = params_.arpPattern != previousPattern
+        const bool arpChangedA = params_.arpHostSync != previousArpHostSync
+            || params_.arpPattern != previousPattern
             || params_.scale != previousScale
             || params_.arpRate != previousRate
             || params_.arpOctaves != previousOctaves
             || params_.customPatternLength != previousPatternLength
             || params_.customPattern != previousCustomPattern;
-        const bool arpChangedB = params_.arpBRelation != previousArpBRelation
+        const bool arpChangedB = params_.arpHostSync != previousArpHostSync
+            || params_.arpBRelation != previousArpBRelation
             || params_.arpPatternB != previousPatternB
             || params_.scaleB != previousScaleB
             || params_.arpRateB != previousRateB
@@ -742,6 +749,7 @@ public:
             arp.currentNote = -1;
             arp.gateOpen = false;
             arp.phaseSamples = 0.0;
+            arp.hostStep = kUnprimedHostStep;
         }
     }
 
@@ -761,6 +769,25 @@ public:
     {
         tempoBpm_ = clamp(std::isfinite(bpm) ? bpm : 120.0f,
             20.0f, 400.0f);
+    }
+
+    void setHostTransportBeat(double beat, bool active)
+    {
+        const bool nextActive = active && std::isfinite(beat);
+        const bool changed = nextActive != hostTransportActive_;
+        hostTransportActive_ = nextActive;
+        if (std::isfinite(beat)) hostTransportBeat_ = beat;
+        if (!changed || !params_.arpHostSync || noteOrderSize_ == 0u) {
+            return;
+        }
+        if (params_.arpPattern != ProcessorStackArpPattern::Off) {
+            resetArpeggiator(0u, true);
+        }
+        if (params_.pairAmount > 1.0e-4f
+            && params_.arpBRelation != ProcessorStackArpRelation::Follow
+            && params_.arpPatternB != ProcessorStackArpPattern::Off) {
+            resetArpeggiator(1u, true);
+        }
     }
 
     void processFrame(float& left, float& right)
@@ -1309,12 +1336,16 @@ private:
         std::array<int32_t, 8u> steps {};
     };
 
+    static constexpr int64_t kUnprimedHostStep =
+        std::numeric_limits<int64_t>::min();
+
     struct ArpState {
         double phaseSamples = 0.0;
-        uint64_t stepIndex = 0u;
+        int64_t stepIndex = 0;
         uint64_t stepCount = 0u;
         int currentNote = -1;
         bool gateOpen = false;
+        int64_t hostStep = kUnprimedHostStep;
     };
 
     static ExciterLane resetLanePreservingDelay(std::vector<float> delay)
@@ -1684,32 +1715,45 @@ private:
         return 0.25f;
     }
 
-    uint32_t arpSequencePosition(uint64_t step,
+    static uint32_t positiveModulo(int64_t value, uint32_t modulus)
+    {
+        if (modulus == 0u) return 0u;
+        int64_t remainder = value % static_cast<int64_t>(modulus);
+        if (remainder < 0) remainder += static_cast<int64_t>(modulus);
+        return static_cast<uint32_t>(remainder);
+    }
+
+    static int64_t floorDivide(int64_t value, int64_t divisor)
+    {
+        const int64_t quotient = value / divisor;
+        const int64_t remainder = value % divisor;
+        return quotient - (remainder < 0 ? 1 : 0);
+    }
+
+    uint32_t arpSequencePosition(int64_t step,
         const ArpControls& controls) const
     {
         const uint32_t degrees = scaleDegreeCount(controls.scale);
         const uint32_t length = std::max(1u, degrees * controls.octaves);
-        const uint32_t position = static_cast<uint32_t>(
-            step % static_cast<uint64_t>(length));
+        const uint32_t position = positiveModulo(step, length);
         switch (controls.pattern) {
         case ProcessorStackArpPattern::Down:
             return length - 1u - position;
         case ProcessorStackArpPattern::Pendulum: {
             if (length <= 1u) return 0u;
             const uint32_t cycle = length * 2u - 2u;
-            const uint32_t pendulum = static_cast<uint32_t>(
-                step % static_cast<uint64_t>(cycle));
+            const uint32_t pendulum = positiveModulo(step, cycle);
             return pendulum < length ? pendulum : cycle - pendulum;
         }
         case ProcessorStackArpPattern::Pedal:
-            return (step & 1u) == 0u ? 0u
-                : 1u + static_cast<uint32_t>((step / 2u)
-                    % static_cast<uint64_t>(std::max(1u, length - 1u)));
+            return positiveModulo(step, 2u) == 0u ? 0u
+                : 1u + positiveModulo(floorDivide(step, 2),
+                    std::max(1u, length - 1u));
         case ProcessorStackArpPattern::Scramble:
             // An odd stride walks every position before repeating while
             // avoiding a stored/random sequence in the audio thread.
-            return static_cast<uint32_t>((step * 5u + step / 3u)
-                % static_cast<uint64_t>(length));
+            return (positiveModulo(step, length) * 5u
+                + positiveModulo(floorDivide(step, 3), length)) % length;
         case ProcessorStackArpPattern::Custom:
             return position;
         case ProcessorStackArpPattern::Off:
@@ -1720,14 +1764,13 @@ private:
         return position;
     }
 
-    int arpeggiatedNote(uint64_t step, const ArpControls& controls,
+    int arpeggiatedNote(int64_t step, const ArpControls& controls,
         int root) const
     {
         if (root < 0) return -1;
         if (controls.pattern == ProcessorStackArpPattern::Custom) {
             const uint32_t length = controls.length;
-            const uint32_t index = static_cast<uint32_t>(step
-                % static_cast<uint64_t>(length));
+            const uint32_t index = positiveModulo(step, length);
             int result = root + signedScaleSemitone(
                 controls.scale, controls.steps[index]);
             while (result > 127) result -= 12;
@@ -1772,17 +1815,80 @@ private:
         ++state.stepCount;
     }
 
+    struct HostArpPosition {
+        int64_t step = 0;
+        double fraction = 0.0;
+    };
+
+    bool usesHostArpClock() const
+    {
+        return params_.arpHostSync && hostTransportActive_;
+    }
+
+    HostArpPosition hostArpPosition(uint32_t player,
+        const ArpControls& controls) const
+    {
+        const double stepBeats = static_cast<double>(
+            arpStepBeats(controls.rate));
+        double phase = player == 1u
+            ? static_cast<double>(params_.arpPhaseB) : 0.0;
+        // A full-step phase has the same grid alignment as zero in a
+        // continuously running host timeline.
+        if (phase >= 1.0 - 1.0e-9) phase = 0.0;
+        const double position = hostTransportBeat_ / stepBeats - phase;
+        const double floored = std::floor(position);
+        HostArpPosition result;
+        if (floored <= static_cast<double>(
+                std::numeric_limits<int64_t>::min())) {
+            result.step = std::numeric_limits<int64_t>::min() + 1;
+        } else if (floored >= static_cast<double>(
+                std::numeric_limits<int64_t>::max())) {
+            result.step = std::numeric_limits<int64_t>::max() - 1;
+        } else {
+            result.step = static_cast<int64_t>(floored);
+        }
+        result.fraction = std::clamp(position - floored, 0.0, 1.0);
+        return result;
+    }
+
+    bool isHostArpBoundary(const HostArpPosition& position,
+        const ArpControls& controls) const
+    {
+        const double beatsPerSample = static_cast<double>(tempoBpm_)
+            / (60.0 * sampleRate_);
+        const double tolerance = std::max(1.0e-9,
+            beatsPerSample / static_cast<double>(
+                arpStepBeats(controls.rate)) * 1.5);
+        return position.fraction <= tolerance;
+    }
+
+    void primeHostArpeggiator(uint32_t player,
+        const ArpControls& controls, bool trigger)
+    {
+        auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
+        const HostArpPosition position = hostArpPosition(player, controls);
+        state.hostStep = position.step;
+        state.stepIndex = position.step;
+        if (trigger && isHostArpBoundary(position, controls)) {
+            advanceArpeggiator(player);
+        }
+    }
+
     void resetArpeggiator(uint32_t player, bool trigger)
     {
         auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
         const ArpControls controls = arpControls(player);
+        if (state.gateOpen) closeArpeggiatorGate(player);
         state.phaseSamples = 0.0;
-        state.stepIndex = 0u;
+        state.stepIndex = 0;
         state.currentNote = -1;
         state.gateOpen = false;
+        state.hostStep = kUnprimedHostStep;
         if (trigger && controls.pattern != ProcessorStackArpPattern::Off
             && noteOrderSize_ > 0u) {
-            if (player == 1u && params_.arpPhaseB > 1.0e-4f) {
+            if (usesHostArpClock()) {
+                primeHostArpeggiator(player, controls, true);
+            } else if (player == 1u && params_.arpPhaseB > 1.0e-4f) {
                 const double stepSamples = std::max(1.0,
                     static_cast<double>(sampleRate_) * 60.0
                         / static_cast<double>(tempoBpm_)
@@ -1819,6 +1925,28 @@ private:
         if (controls.pattern == ProcessorStackArpPattern::Off
             || noteOrderSize_ == 0u) return;
         auto& state = arpeggiators_[std::min<uint32_t>(player, 1u)];
+        if (usesHostArpClock()) {
+            const HostArpPosition position = hostArpPosition(player, controls);
+            if (state.hostStep == kUnprimedHostStep) {
+                primeHostArpeggiator(player, controls, true);
+                return;
+            }
+            if (position.step != state.hostStep) {
+                if (state.gateOpen) closeArpeggiatorGate(player);
+                state.currentNote = -1;
+                state.hostStep = position.step;
+                state.stepIndex = position.step;
+                if (isHostArpBoundary(position, controls)) {
+                    advanceArpeggiator(player);
+                }
+                return;
+            }
+            if (state.gateOpen
+                && position.fraction >= static_cast<double>(controls.gate)) {
+                closeArpeggiatorGate(player);
+            }
+            return;
+        }
         const double stepSamples = std::max(1.0,
             static_cast<double>(sampleRate_) * 60.0
                 / static_cast<double>(tempoBpm_)
@@ -3119,6 +3247,8 @@ private:
     float pressure_ = 0.0f;
     float pitchBendSemitones_ = 0.0f;
     float tempoBpm_ = 120.0f;
+    double hostTransportBeat_ = 0.0;
+    bool hostTransportActive_ = false;
     std::array<ArpState, 2u> arpeggiators_ {};
 
     float outputDcLeft_ = 0.0f;
