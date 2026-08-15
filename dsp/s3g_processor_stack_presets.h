@@ -25,14 +25,14 @@ processorStackFactoryPresetInfo(uint32_t index)
         { "BARE STACK", "Sparse pick excitation into an exposed cone and short spill." },
         { "ONE FINGER RIFF", "Root, fifth, and octave loading one sagging amplifier." },
         { "JANKY JAB", "Dry angular lead response with nasal focus and reluctant howl." },
-        { "SPEAKER COUGH", "Negative return polarity and heavy cone displacement." },
+        { "SPEAKER COUGH", "A torn 12-inch cone under negative return polarity." },
         { "PINCHED WIRE", "Thin wire excitation pulled toward a high feedback partial." },
         { "BROWNOUT FIFTH", "Starved fuzz bias with a slow shared supply recovery." },
         { "ROOM FIGHT", "Wide microphone return with unstable harmonic competition." },
         { "WELDED CHORD", "HAND mode chords fused by amp intermodulation." },
         { "HOWL ON PRESSURE", "Pressure-ready loop poised below a bright howl." },
         { "AMP LEFT ON", "Long governed spill near the safe sustaining boundary." },
-        { "BROKEN COMBO", "Small cabinet bark, hard pick, and brittle diode feedback." },
+        { "BROKEN COMBO", "A ripped 12-inch driver, hard pick, and brittle diode feedback." },
         { "PHRYGIAN BARRAGE", "Triplet Phrygian run through one biting lead string." },
         { "DIMINISHED RAKE", "A fast pendulum diminished rule loading power chords." },
         { "PEDAL TONE PANIC", "Root-pedal harmonic-minor leaps with short gates." },
@@ -128,6 +128,7 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.stack = 0.58f;
         params.sag = 0.68f;
         params.focus = 0.30f;
+        params.speaker = ProcessorStackSpeakerProfile::Torn12;
         params.cone = 0.98f;
         params.cabinet = 0.74f;
         params.feedback = 0.82f;
@@ -231,6 +232,7 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.outputGainDb = -15.0f;
         break;
     case 10u: // AMP LEFT ON
+        params.speaker = ProcessorStackSpeakerProfile::Deep15;
         params.mode = ProcessorStackMode::Power;
         params.shape = 0.68f;
         params.wire = 0.64f;
@@ -252,6 +254,7 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.outputGainDb = -18.0f;
         break;
     case 11u: // BROKEN COMBO
+        params.speaker = ProcessorStackSpeakerProfile::Ripped12;
         params.mode = ProcessorStackMode::Lead;
         params.wire = 0.82f;
         params.pick = 1.0f;
@@ -486,6 +489,7 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.outputGainDb = -18.0f;
         break;
     case 19u: // CHUG CHUG CHUG
+        params.speaker = ProcessorStackSpeakerProfile::Tight10;
         params.mode = ProcessorStackMode::Power;
         params.shape = 0.18f;
         params.wire = 0.72f;
@@ -564,6 +568,7 @@ inline ProcessorStackParams processorStackFactoryPreset(uint32_t index)
         params.outputGainDb = -19.0f;
         break;
     case 21u: // SLOW MONOLITH
+        params.speaker = ProcessorStackSpeakerProfile::Heavy18;
         params.mode = ProcessorStackMode::Power;
         params.shape = 0.22f;
         params.wire = 0.86f;
@@ -752,7 +757,9 @@ inline bool processorStackPresetMatches(const ProcessorStackParams& first,
         || first.linkPedal != second.linkPedal
         || first.linkAmplifier != second.linkAmplifier
         || first.linkFeedback != second.linkFeedback
-        || first.circuitB != second.circuitB) {
+        || first.circuitB != second.circuitB
+        || first.speaker != second.speaker
+        || first.speakerB != second.speakerB) {
         return false;
     }
     const auto near = [tolerance](float a, float b) {

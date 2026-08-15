@@ -35,7 +35,11 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x31545350u; // "PST1" little endian.
-constexpr uint32_t kStateVersion = 11u;
+constexpr uint32_t kStateVersion = 13u;
+constexpr uint32_t kVersionTwelveStateVersion = 12u;
+constexpr uint32_t kVersionTwelveParamCount = 111u;
+constexpr uint32_t kVersionElevenStateVersion = 11u;
+constexpr uint32_t kVersionElevenParamCount = 105u;
 constexpr uint32_t kVersionTenStateVersion = 10u;
 constexpr uint32_t kVersionTenParamCount = 105u;
 constexpr uint32_t kVersionNineStateVersion = 9u;
@@ -166,6 +170,14 @@ enum ParamId : clap_id {
     kScoreGateParamId,
     kScoreLengthParamId,
     kScoreBSourceParamId,
+    kRigLevelAParamId,
+    kRigLevelBParamId,
+    kRigPanAParamId,
+    kRigPanBParamId,
+    kRigMuteAParamId,
+    kRigMuteBParamId,
+    kSpeakerAParamId,
+    kSpeakerBParamId,
 };
 
 struct ParamDef {
@@ -178,7 +190,7 @@ struct ParamDef {
     bool stepped;
 };
 
-constexpr std::array<ParamDef, 105u> kParamDefs {{
+constexpr std::array<ParamDef, 113u> kParamDefs {{
     { kModeParamId, "Mode", "Play", 0.0, 2.0, 0.0, true },
     { kShapeParamId, "Shape", "Play", 0.0, 1.0, 0.58, false },
     { kWireParamId, "String", "Play", 0.0, 1.0, 0.56, false },
@@ -187,7 +199,7 @@ constexpr std::array<ParamDef, 105u> kParamDefs {{
     { kGlideParamId, "Glide", "Play", 0.0, 2000.0, 34.0, false },
     { kCrookedParamId, "Crooked", "Play", 0.0, 1.0, 0.36, false },
     { kSpillParamId, "Spill", "Play", 0.0, 1.0, 0.32, false },
-    { kCircuitParamId, "Circuit", "Pedal", 0.0, 7.0, 2.0, true },
+    { kCircuitParamId, "Circuit", "Pedal", 0.0, 8.0, 2.0, true },
     { kBiteParamId, "Bite", "Pedal", 0.0, 1.0, 0.56, false },
     { kPedalToneParamId, "Tone", "Pedal", 0.0, 1.0, 0.54, false },
     { kBiasParamId, "Bias", "Pedal", 0.0, 1.0, 0.52, false },
@@ -212,14 +224,14 @@ constexpr std::array<ParamDef, 105u> kParamDefs {{
     { kArpOctavesParamId, "Arp Octaves", "Arpeggiator", 1.0, 4.0, 2.0, true },
     { kArpGateParamId, "Arp Gate", "Arpeggiator", 0.05, 1.0, 0.62, false },
     { kCustomLengthParamId, "Pattern Length", "Arpeggiator", 1.0, 8.0, 8.0, true },
-    { kCustomStep1ParamId, "Pattern Step 1", "Arpeggiator", -8.0, 15.0, 0.0, true },
-    { kCustomStep2ParamId, "Pattern Step 2", "Arpeggiator", -8.0, 15.0, 1.0, true },
-    { kCustomStep3ParamId, "Pattern Step 3", "Arpeggiator", -8.0, 15.0, 2.0, true },
-    { kCustomStep4ParamId, "Pattern Step 4", "Arpeggiator", -8.0, 15.0, 4.0, true },
-    { kCustomStep5ParamId, "Pattern Step 5", "Arpeggiator", -8.0, 15.0, 3.0, true },
-    { kCustomStep6ParamId, "Pattern Step 6", "Arpeggiator", -8.0, 15.0, 6.0, true },
-    { kCustomStep7ParamId, "Pattern Step 7", "Arpeggiator", -8.0, 15.0, 5.0, true },
-    { kCustomStep8ParamId, "Pattern Step 8", "Arpeggiator", -8.0, 15.0, 1.0, true },
+    { kCustomStep1ParamId, "Pattern Step 1", "Arpeggiator", -9.0, 15.0, 0.0, true },
+    { kCustomStep2ParamId, "Pattern Step 2", "Arpeggiator", -9.0, 15.0, 1.0, true },
+    { kCustomStep3ParamId, "Pattern Step 3", "Arpeggiator", -9.0, 15.0, 2.0, true },
+    { kCustomStep4ParamId, "Pattern Step 4", "Arpeggiator", -9.0, 15.0, 4.0, true },
+    { kCustomStep5ParamId, "Pattern Step 5", "Arpeggiator", -9.0, 15.0, 3.0, true },
+    { kCustomStep6ParamId, "Pattern Step 6", "Arpeggiator", -9.0, 15.0, 6.0, true },
+    { kCustomStep7ParamId, "Pattern Step 7", "Arpeggiator", -9.0, 15.0, 5.0, true },
+    { kCustomStep8ParamId, "Pattern Step 8", "Arpeggiator", -9.0, 15.0, 1.0, true },
     { kPierceParamId, "Pierce", "Loop", 0.0, 1.0, 0.68, false },
     { kSelfListenParamId, "Self Listen", "Loop", 0.0, 1.0, 0.72, false },
     { kTargetGlitchParamId, "Target Glitch", "Loop", 0.0, 1.0, 0.0, false },
@@ -245,18 +257,18 @@ constexpr std::array<ParamDef, 105u> kParamDefs {{
     { kArpGateBParamId, "Arp Gate B", "Arpeggiator B", 0.05, 1.0, 0.62, false },
     { kArpPhaseBParamId, "Arp Phase B", "Arpeggiator B", 0.0, 1.0, 0.50, false },
     { kCustomLengthBParamId, "Pattern Length B", "Arpeggiator B", 1.0, 8.0, 8.0, true },
-    { kCustomStepB1ParamId, "Pattern B Step 1", "Arpeggiator B", -8.0, 15.0, 0.0, true },
-    { kCustomStepB2ParamId, "Pattern B Step 2", "Arpeggiator B", -8.0, 15.0, 4.0, true },
-    { kCustomStepB3ParamId, "Pattern B Step 3", "Arpeggiator B", -8.0, 15.0, 2.0, true },
-    { kCustomStepB4ParamId, "Pattern B Step 4", "Arpeggiator B", -8.0, 15.0, 6.0, true },
-    { kCustomStepB5ParamId, "Pattern B Step 5", "Arpeggiator B", -8.0, 15.0, 1.0, true },
-    { kCustomStepB6ParamId, "Pattern B Step 6", "Arpeggiator B", -8.0, 15.0, 5.0, true },
-    { kCustomStepB7ParamId, "Pattern B Step 7", "Arpeggiator B", -8.0, 15.0, 3.0, true },
-    { kCustomStepB8ParamId, "Pattern B Step 8", "Arpeggiator B", -8.0, 15.0, 7.0, true },
+    { kCustomStepB1ParamId, "Pattern B Step 1", "Arpeggiator B", -9.0, 15.0, 0.0, true },
+    { kCustomStepB2ParamId, "Pattern B Step 2", "Arpeggiator B", -9.0, 15.0, 4.0, true },
+    { kCustomStepB3ParamId, "Pattern B Step 3", "Arpeggiator B", -9.0, 15.0, 2.0, true },
+    { kCustomStepB4ParamId, "Pattern B Step 4", "Arpeggiator B", -9.0, 15.0, 6.0, true },
+    { kCustomStepB5ParamId, "Pattern B Step 5", "Arpeggiator B", -9.0, 15.0, 1.0, true },
+    { kCustomStepB6ParamId, "Pattern B Step 6", "Arpeggiator B", -9.0, 15.0, 5.0, true },
+    { kCustomStepB7ParamId, "Pattern B Step 7", "Arpeggiator B", -9.0, 15.0, 3.0, true },
+    { kCustomStepB8ParamId, "Pattern B Step 8", "Arpeggiator B", -9.0, 15.0, 7.0, true },
     { kLinkPedalParamId, "Link Pedals", "Links", 0.0, 1.0, 1.0, true },
     { kLinkAmplifierParamId, "Link Amplifiers", "Links", 0.0, 1.0, 1.0, true },
     { kLinkFeedbackParamId, "Link Feedback", "Links", 0.0, 1.0, 1.0, true },
-    { kCircuitBParamId, "Circuit B", "Pedal B", 0.0, 7.0, 2.0, true },
+    { kCircuitBParamId, "Circuit B", "Pedal B", 0.0, 8.0, 2.0, true },
     { kBiteBParamId, "Bite B", "Pedal B", 0.0, 1.0, 0.56, false },
     { kPedalToneBParamId, "Tone B", "Pedal B", 0.0, 1.0, 0.54, false },
     { kBiasBParamId, "Bias B", "Pedal B", 0.0, 1.0, 0.52, false },
@@ -284,11 +296,19 @@ constexpr std::array<ParamDef, 105u> kParamDefs {{
     { kScoreGateParamId, "Score Gate", "Stack Score", 0.05, 1.0, 0.72, false },
     { kScoreLengthParamId, "Arrangement Length", "Stack Score", 1.0, 8.0, 4.0, true },
     { kScoreBSourceParamId, "Player B Source", "Stack Score", 0.0, 1.0, 0.0, true },
+    { kRigLevelAParamId, "Rig A Level", "Output Mixer", -36.0, 6.0, 0.0, false },
+    { kRigLevelBParamId, "Rig B Level", "Output Mixer", -36.0, 6.0, 0.0, false },
+    { kRigPanAParamId, "Rig A Pan", "Output Mixer", -1.0, 1.0, -1.0, false },
+    { kRigPanBParamId, "Rig B Pan", "Output Mixer", -1.0, 1.0, 1.0, false },
+    { kRigMuteAParamId, "Rig A Mute", "Output Mixer", 0.0, 1.0, 0.0, true },
+    { kRigMuteBParamId, "Rig B Mute", "Output Mixer", 0.0, 1.0, 0.0, true },
+    { kSpeakerAParamId, "Speaker A", "Amplifier", 0.0, 6.0, 2.0, true },
+    { kSpeakerBParamId, "Speaker B", "Amplifier B", 0.0, 6.0, 2.0, true },
 }};
 
-constexpr uint32_t kSynthParamCount = 98u;
+constexpr uint32_t kSynthParamCount = 106u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kScoreBSourceParamId) + 1u;
+    static_cast<uint32_t>(kSpeakerBParamId) + 1u;
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kModeParamId, kShapeParamId, kWireParamId, kPickParamId,
@@ -324,6 +344,10 @@ constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kTrackingBParamId, kPolarityBParamId, kRootBParamId, kChaosBParamId,
     kPierceBParamId, kSelfListenBParamId, kTargetGlitchBParamId,
     kGlitchRatchetBParamId, kOverloadMaskBParamId,
+    kRigLevelAParamId, kRigLevelBParamId,
+    kRigPanAParamId, kRigPanBParamId,
+    kRigMuteAParamId, kRigMuteBParamId,
+    kSpeakerAParamId, kSpeakerBParamId,
 }};
 
 struct SavedStateHeader {
@@ -347,7 +371,7 @@ struct VersionTenScoreProgram {
 
 static_assert(sizeof(VersionTenScoreProgram) == 776u);
 static_assert(sizeof(s3g::ProcessorStackScoreProgram) == 1800u);
-static_assert(sizeof(SavedState) == 2656u);
+static_assert(sizeof(SavedState) == 2720u);
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -385,6 +409,14 @@ struct Plugin {
     int32_t scorePublishedSlot = -1;
     bool scoreGateClosed = true;
     bool scoreWasRunning = false;
+    std::array<std::array<bool, 128u>, 16u> midiHeldNotes {};
+    std::array<float, 16u> midiChannelPressure {};
+    std::array<float, 16u> midiChannelBend {};
+    std::array<float, 16u> midiChannelTimbre {};
+    std::array<uint8_t, 16u> midiRpnMsb {};
+    std::array<uint8_t, 16u> midiRpnLsb {};
+    std::array<uint8_t, 16u> midiBendRangeSemitones {};
+    std::array<uint8_t, 16u> midiBendRangeCents {};
     std::array<std::atomic<double>, kPublishedParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<bool> tailChangePending { false };
@@ -401,6 +433,18 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+void resetMidiExpressionState(Plugin& plugin)
+{
+    for (auto& channel : plugin.midiHeldNotes) channel.fill(false);
+    plugin.midiChannelPressure.fill(0.0f);
+    plugin.midiChannelBend.fill(0.0f);
+    plugin.midiChannelTimbre.fill(0.5f);
+    plugin.midiRpnMsb.fill(127u);
+    plugin.midiRpnLsb.fill(127u);
+    plugin.midiBendRangeSemitones.fill(2u);
+    plugin.midiBendRangeCents.fill(0u);
 }
 
 s3g::ProcessorStackScoreProgram scoreProgramSnapshot(const Plugin& plugin)
@@ -549,6 +593,14 @@ double rawParamValue(const Plugin& plugin, clap_id id)
         return static_cast<double>(params.pairRelation);
     case kPairLooseParamId: return params.pairLoose;
     case kPairSpreadParamId: return params.pairSpread;
+    case kRigLevelAParamId: return params.rigLevelADb;
+    case kRigLevelBParamId: return params.rigLevelBDb;
+    case kRigPanAParamId: return params.rigPanA;
+    case kRigPanBParamId: return params.rigPanB;
+    case kRigMuteAParamId: return params.rigMuteA ? 1.0 : 0.0;
+    case kRigMuteBParamId: return params.rigMuteB ? 1.0 : 0.0;
+    case kSpeakerAParamId: return static_cast<double>(params.speaker);
+    case kSpeakerBParamId: return static_cast<double>(params.speakerB);
     case kNeckAParamId: return static_cast<double>(params.neckA);
     case kBodyAParamId: return static_cast<double>(params.bodyA);
     case kNeckBParamId: return static_cast<double>(params.neckB);
@@ -713,6 +765,20 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kPairLooseParamId: plugin.params.pairLoose = normalized; break;
     case kPairSpreadParamId: plugin.params.pairSpread = normalized; break;
+    case kRigLevelAParamId: plugin.params.rigLevelADb = normalized; break;
+    case kRigLevelBParamId: plugin.params.rigLevelBDb = normalized; break;
+    case kRigPanAParamId: plugin.params.rigPanA = normalized; break;
+    case kRigPanBParamId: plugin.params.rigPanB = normalized; break;
+    case kRigMuteAParamId: plugin.params.rigMuteA = value >= 0.5; break;
+    case kRigMuteBParamId: plugin.params.rigMuteB = value >= 0.5; break;
+    case kSpeakerAParamId:
+        plugin.params.speaker = static_cast<s3g::ProcessorStackSpeakerProfile>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kSpeakerBParamId:
+        plugin.params.speakerB = static_cast<s3g::ProcessorStackSpeakerProfile>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
     case kNeckAParamId:
         plugin.params.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(
             static_cast<uint32_t>(std::lround(value)));
@@ -922,20 +988,125 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
 }
 
-void noteOn(Plugin& plugin, int key, float velocity)
+bool validMidiChannel(int channel)
+{
+    return channel >= 0 && channel < 16;
+}
+
+bool noteHeldOnAnotherChannel(
+    const Plugin& plugin, int key, int excludedChannel)
+{
+    key = std::clamp(key, 0, 127);
+    for (int channel = 0; channel < 16; ++channel) {
+        if (channel != excludedChannel
+            && plugin.midiHeldNotes[static_cast<size_t>(channel)]
+                [static_cast<size_t>(key)]) return true;
+    }
+    return false;
+}
+
+void applyChannelExpressionToNote(Plugin& plugin, int channel, int key)
+{
+    if (!validMidiChannel(channel)) return;
+    const size_t index = static_cast<size_t>(channel);
+    plugin.engine.setNotePressure(key, plugin.midiChannelPressure[index]);
+    plugin.engine.setNoteTuningSemitones(key, plugin.midiChannelBend[index]);
+    plugin.engine.setNoteTimbre(key, plugin.midiChannelTimbre[index]);
+}
+
+void setChannelPressure(Plugin& plugin, int channel, float pressure)
+{
+    if (!validMidiChannel(channel)) return;
+    const size_t channelIndex = static_cast<size_t>(channel);
+    pressure = std::clamp(std::isfinite(pressure) ? pressure : 0.0f,
+        0.0f, 1.0f);
+    plugin.midiChannelPressure[channelIndex] = pressure;
+    for (int key = 0; key < 128; ++key) {
+        if (plugin.midiHeldNotes[channelIndex][static_cast<size_t>(key)]) {
+            plugin.engine.setNotePressure(key, pressure);
+        }
+    }
+}
+
+void setChannelBend(Plugin& plugin, int channel, float semitones)
+{
+    if (!validMidiChannel(channel)) return;
+    const size_t channelIndex = static_cast<size_t>(channel);
+    semitones = std::clamp(
+        std::isfinite(semitones) ? semitones : 0.0f, -48.0f, 48.0f);
+    plugin.midiChannelBend[channelIndex] = semitones;
+    for (int key = 0; key < 128; ++key) {
+        if (plugin.midiHeldNotes[channelIndex][static_cast<size_t>(key)]) {
+            plugin.engine.setNoteTuningSemitones(key, semitones);
+        }
+    }
+}
+
+void setChannelTimbre(Plugin& plugin, int channel, float timbre)
+{
+    if (!validMidiChannel(channel)) return;
+    const size_t channelIndex = static_cast<size_t>(channel);
+    timbre = std::clamp(std::isfinite(timbre) ? timbre : 0.5f,
+        0.0f, 1.0f);
+    plugin.midiChannelTimbre[channelIndex] = timbre;
+    for (int key = 0; key < 128; ++key) {
+        if (plugin.midiHeldNotes[channelIndex][static_cast<size_t>(key)]) {
+            plugin.engine.setNoteTimbre(key, timbre);
+        }
+    }
+}
+
+void noteOn(Plugin& plugin, int key, float velocity, int channel = -1)
 {
     if (velocity <= 0.0f) {
-        plugin.engine.noteOff(key);
+        if (validMidiChannel(channel)) {
+            plugin.midiHeldNotes[static_cast<size_t>(channel)]
+                [static_cast<size_t>(std::clamp(key, 0, 127))] = false;
+        }
+        if (!noteHeldOnAnotherChannel(plugin, key, channel)) {
+            plugin.engine.noteOff(key);
+        }
         return;
     }
     plugin.engine.noteOn(key, velocity);
+    if (validMidiChannel(channel)) {
+        plugin.midiHeldNotes[static_cast<size_t>(channel)]
+            [static_cast<size_t>(std::clamp(key, 0, 127))] = true;
+        applyChannelExpressionToNote(plugin, channel, key);
+    }
     plugin.active = true;
+}
+
+void noteOff(Plugin& plugin, int key, int channel = -1)
+{
+    key = std::clamp(key, 0, 127);
+    if (validMidiChannel(channel)) {
+        plugin.midiHeldNotes[static_cast<size_t>(channel)]
+            [static_cast<size_t>(key)] = false;
+    }
+    if (!noteHeldOnAnotherChannel(plugin, key, channel)) {
+        plugin.engine.noteOff(key);
+    }
+}
+
+void allNotesOffChannel(Plugin& plugin, int channel)
+{
+    if (!validMidiChannel(channel)) return;
+    auto& held = plugin.midiHeldNotes[static_cast<size_t>(channel)];
+    for (int key = 0; key < 128; ++key) {
+        if (!held[static_cast<size_t>(key)]) continue;
+        held[static_cast<size_t>(key)] = false;
+        if (!noteHeldOnAnotherChannel(plugin, key, channel)) {
+            plugin.engine.noteOff(key);
+        }
+    }
 }
 
 void allNotesOff(Plugin& plugin)
 {
     plugin.engine.allNotesOff();
     plugin.engine.setPressure(0.0f);
+    for (auto& channel : plugin.midiHeldNotes) channel.fill(false);
 }
 
 void applyEvent(Plugin& plugin, const clap_event_header_t* event)
@@ -957,11 +1128,12 @@ void applyEvent(Plugin& plugin, const clap_event_header_t* event)
             return;
         }
         if (event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0) {
-            noteOn(plugin, note->key, static_cast<float>(note->velocity));
+            noteOn(plugin, note->key, static_cast<float>(note->velocity),
+                note->channel);
         } else if (note->key < 0) {
             allNotesOff(plugin);
         } else {
-            plugin.engine.noteOff(note->key);
+            noteOff(plugin, note->key, note->channel);
         }
         return;
     }
@@ -971,12 +1143,39 @@ void applyEvent(Plugin& plugin, const clap_event_header_t* event)
             const clap_event_note_expression_t*>(event);
         if (!s3g::drum_midi::accepts(
                 plugin.midiReceive, expression->channel)) return;
+        const int key = expression->key;
+        const int channel = expression->channel;
         if (expression->expression_id == CLAP_NOTE_EXPRESSION_PRESSURE) {
-            plugin.engine.setPressure(
-                static_cast<float>(expression->value));
+            if (key >= 0) {
+                plugin.engine.setNotePressure(
+                    key, static_cast<float>(expression->value));
+            } else if (validMidiChannel(channel)) {
+                setChannelPressure(plugin, channel,
+                    static_cast<float>(expression->value));
+            } else {
+                plugin.engine.setPressure(
+                    static_cast<float>(expression->value));
+            }
         } else if (expression->expression_id == CLAP_NOTE_EXPRESSION_TUNING) {
-            plugin.engine.setPitchBendSemitones(
-                static_cast<float>(expression->value));
+            if (key >= 0) {
+                plugin.engine.setNoteTuningSemitones(
+                    key, static_cast<float>(expression->value));
+            } else if (validMidiChannel(channel)) {
+                setChannelBend(plugin, channel,
+                    static_cast<float>(expression->value));
+            } else {
+                plugin.engine.setPitchBendSemitones(
+                    static_cast<float>(expression->value));
+            }
+        } else if (expression->expression_id
+                == CLAP_NOTE_EXPRESSION_BRIGHTNESS) {
+            if (key >= 0) {
+                plugin.engine.setNoteTimbre(
+                    key, static_cast<float>(expression->value));
+            } else if (validMidiChannel(channel)) {
+                setChannelTimbre(plugin, channel,
+                    static_cast<float>(expression->value));
+            }
         }
         return;
     }
@@ -989,21 +1188,54 @@ void applyEvent(Plugin& plugin, const clap_event_header_t* event)
     const int key = midi->data[1] & 0x7fu;
     if (command == 0x90u && midi->data[2] != 0u) {
         noteOn(plugin, key,
-            static_cast<float>(midi->data[2]) / 127.0f);
+            static_cast<float>(midi->data[2]) / 127.0f, channel);
     } else if (command == 0x80u
         || (command == 0x90u && midi->data[2] == 0u)) {
-        plugin.engine.noteOff(key);
+        noteOff(plugin, key, channel);
+    } else if (command == 0xa0u) {
+        plugin.engine.setNotePressure(
+            key, static_cast<float>(midi->data[2]) / 127.0f);
     } else if (command == 0xd0u) {
-        plugin.engine.setPressure(
+        setChannelPressure(plugin, channel,
             static_cast<float>(midi->data[1]) / 127.0f);
     } else if (command == 0xe0u) {
         const int bend = (static_cast<int>(midi->data[2]) << 7)
             | static_cast<int>(midi->data[1]);
-        plugin.engine.setPitchBendSemitones(
-            static_cast<float>(bend - 8192) * (2.0f / 8192.0f));
-    } else if (command == 0xb0u
-        && (midi->data[1] == 120u || midi->data[1] == 123u)) {
-        allNotesOff(plugin);
+        const size_t channelIndex = static_cast<size_t>(channel);
+        const float range = static_cast<float>(
+            plugin.midiBendRangeSemitones[channelIndex])
+            + static_cast<float>(plugin.midiBendRangeCents[channelIndex])
+                / 100.0f;
+        setChannelBend(plugin, channel,
+            static_cast<float>(bend - 8192) * (range / 8192.0f));
+    } else if (command == 0xb0u) {
+        const uint8_t controller = midi->data[1] & 0x7fu;
+        const uint8_t value = midi->data[2] & 0x7fu;
+        const size_t channelIndex = static_cast<size_t>(channel);
+        if (controller == 74u) {
+            setChannelTimbre(plugin, channel,
+                static_cast<float>(value) / 127.0f);
+        } else if (controller == 101u) {
+            plugin.midiRpnMsb[channelIndex] = value;
+        } else if (controller == 100u) {
+            plugin.midiRpnLsb[channelIndex] = value;
+        } else if (controller == 6u
+            && plugin.midiRpnMsb[channelIndex] == 0u
+            && plugin.midiRpnLsb[channelIndex] == 0u) {
+            plugin.midiBendRangeSemitones[channelIndex] =
+                std::min<uint8_t>(value, 48u);
+        } else if (controller == 38u
+            && plugin.midiRpnMsb[channelIndex] == 0u
+            && plugin.midiRpnLsb[channelIndex] == 0u) {
+            plugin.midiBendRangeCents[channelIndex] =
+                std::min<uint8_t>(value, 99u);
+        } else if (controller == 120u || controller == 123u) {
+            allNotesOffChannel(plugin, channel);
+        } else if (controller == 121u) {
+            setChannelPressure(plugin, channel, 0.0f);
+            setChannelBend(plugin, channel, 0.0f);
+            setChannelTimbre(plugin, channel, 0.5f);
+        }
     }
 }
 
@@ -1125,6 +1357,12 @@ std::array<double, kSynthParamCount> paramValues(
         params.trackingB, params.polarityB, params.rootB, params.chaosB,
         params.pierceB, params.selfListenB, params.targetGlitchB,
         params.glitchRatchetB, params.overloadMaskB,
+        params.rigLevelADb, params.rigLevelBDb,
+        params.rigPanA, params.rigPanB,
+        params.rigMuteA ? 1.0 : 0.0,
+        params.rigMuteB ? 1.0 : 0.0,
+        static_cast<double>(params.speaker),
+        static_cast<double>(params.speakerB),
     }};
 }
 
@@ -1212,6 +1450,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t)
 {
     auto* instance = self(plugin);
+    resetMidiExpressionState(*instance);
     instance->sampleRate = std::clamp(sampleRate, 8000.0, 768000.0);
     instance->engine.prepare(instance->sampleRate);
     instance->engine.setParams(instance->params);
@@ -1246,6 +1485,7 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
+    resetMidiExpressionState(*instance);
     instance->engine.reset();
     instance->engine.setParams(instance->params);
     instance->engine.setHostTransportBeat(0.0, false);
@@ -1607,7 +1847,8 @@ bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     *info = {};
     info->id = 30u;
     info->supported_dialects = CLAP_NOTE_DIALECT_CLAP
-        | CLAP_NOTE_DIALECT_MIDI;
+        | CLAP_NOTE_DIALECT_MIDI
+        | CLAP_NOTE_DIALECT_MIDI_MPE;
     info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
     std::strncpy(info->name, "Processor Stack MIDI In",
         sizeof(info->name) - 1u);
@@ -1662,6 +1903,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
                 s3g::kProcessorStackCircuitCount - 1u));
         std::snprintf(display, size, "%s",
             s3g::processorStackCircuitName(circuit));
+    } else if (id == kSpeakerAParamId || id == kSpeakerBParamId) {
+        const auto speaker = static_cast<s3g::ProcessorStackSpeakerProfile>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackSpeakerProfileCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackSpeakerProfileName(speaker));
     } else if (id == kArpBRelationParamId) {
         const auto relation = static_cast<s3g::ProcessorStackArpRelation>(
             std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
@@ -1727,17 +1974,31 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (id == kGlideParamId || id == kAttackParamId
         || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%.1f ms", value);
-    } else if (id == kOutputParamId) {
+    } else if (id == kOutputParamId || id == kRigLevelAParamId
+        || id == kRigLevelBParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
+    } else if (id == kRigPanAParamId || id == kRigPanBParamId) {
+        if (std::abs(value) < 0.005) {
+            std::snprintf(display, size, "C");
+        } else {
+            std::snprintf(display, size, "%c %.0f%%",
+                value < 0.0 ? 'L' : 'R', std::abs(value) * 100.0);
+        }
+    } else if (id == kRigMuteAParamId || id == kRigMuteBParamId) {
+        std::snprintf(display, size, "%s", value >= 0.5 ? "MUTED" : "LIVE");
     } else if (id == kArpOctavesParamId || id == kCustomLengthParamId
         || id == kArpOctavesBParamId || id == kCustomLengthBParamId) {
         std::snprintf(display, size, "%.0f", value);
     } else if (id == kScoreLengthParamId) {
         std::snprintf(display, size, "%.0f SECTIONS", value);
-    } else if (id >= kCustomStep1ParamId && id <= kCustomStep8ParamId) {
-        std::snprintf(display, size, "%+.0f", value);
-    } else if (id >= kCustomStepB1ParamId && id <= kCustomStepB8ParamId) {
-        std::snprintf(display, size, "%+.0f", value);
+    } else if ((id >= kCustomStep1ParamId && id <= kCustomStep8ParamId)
+        || (id >= kCustomStepB1ParamId && id <= kCustomStepB8ParamId)) {
+        if (static_cast<int32_t>(std::lround(value))
+                == s3g::kProcessorStackArpRest) {
+            std::snprintf(display, size, "REST");
+        } else {
+            std::snprintf(display, size, "%+.0f", value);
+        }
     } else if (id == kPolarityParamId || id == kPolarityBParamId) {
         std::snprintf(display, size, "%+.0f%%", (value - 0.5) * 200.0);
     } else {
@@ -1753,6 +2014,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     if (!display || !value || !def) return false;
     if (id == kMidiReceiveParamId) {
         return s3g::drum_midi::textToValue(display, value);
+    }
+    if ((id >= kCustomStep1ParamId && id <= kCustomStep8ParamId)
+            || (id >= kCustomStepB1ParamId && id <= kCustomStepB8ParamId)) {
+        if (std::strcmp(display, "REST") == 0
+            || std::strcmp(display, "R") == 0) {
+            *value = static_cast<double>(s3g::kProcessorStackArpRest);
+            return true;
+        }
     }
     if (id == kArpHostSyncParamId) {
         if (std::strcmp(display, "HOST SYNC") == 0) {
@@ -1795,6 +2064,49 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             return true;
         }
     }
+    if (id == kRigMuteAParamId || id == kRigMuteBParamId) {
+        if (std::strcmp(display, "MUTED") == 0
+            || std::strcmp(display, "ON") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "LIVE") == 0
+            || std::strcmp(display, "OFF") == 0) {
+            *value = 0.0;
+            return true;
+        }
+    }
+    if (id == kRigPanAParamId || id == kRigPanBParamId) {
+        if (std::strcmp(display, "C") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        const char direction = display[0];
+        if (direction == 'L' || direction == 'R') {
+            const char* number = display + 1;
+            while (*number != '\0' && std::isspace(
+                    static_cast<unsigned char>(*number)) != 0) ++number;
+            errno = 0;
+            char* end = nullptr;
+            const double percent = std::strtod(number, &end);
+            if (end != number && errno != ERANGE && std::isfinite(percent)) {
+                while (*end != '\0' && std::isspace(
+                        static_cast<unsigned char>(*end)) != 0) ++end;
+                if (*end == '%') {
+                    ++end;
+                    while (*end != '\0' && std::isspace(
+                            static_cast<unsigned char>(*end)) != 0) ++end;
+                    if (*end == '\0') {
+                        const double magnitude = std::clamp(
+                            percent * 0.01, 0.0, 1.0);
+                        *value = direction == 'L' ? -magnitude : magnitude;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
     if (id == kModeParamId) {
         for (uint32_t index = 0u; index < s3g::kProcessorStackModeCount;
              ++index) {
@@ -1811,6 +2123,18 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             const auto circuit = static_cast<s3g::ProcessorStackCircuit>(index);
             if (std::strcmp(display,
                     s3g::processorStackCircuitName(circuit)) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
+    if (id == kSpeakerAParamId || id == kSpeakerBParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackSpeakerProfileCount; ++index) {
+            const auto speaker = static_cast<
+                s3g::ProcessorStackSpeakerProfile>(index);
+            if (std::strcmp(display,
+                    s3g::processorStackSpeakerProfileName(speaker)) == 0) {
                 *value = static_cast<double>(index);
                 return true;
             }
@@ -1932,7 +2256,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         if ((id == kGlideParamId || id == kAttackParamId
                 || id == kDecayParamId || id == kReleaseParamId)
             && suffixIs("ms")) {
-        } else if (id == kOutputParamId && suffixIs("dB")) {
+        } else if ((id == kOutputParamId || id == kRigLevelAParamId
+                || id == kRigLevelBParamId) && suffixIs("dB")) {
         } else if (id == kScoreLengthParamId
             && suffixIs("SECTIONS")) {
         } else if (suffixIs("%") && id != kGlideParamId
@@ -1998,6 +2323,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool current = header.magic == kStateMagic
         && header.version == kStateVersion
         && header.valueCount == kParamDefs.size();
+    const bool versionTwelve = header.magic == kStateMagic
+        && header.version == kVersionTwelveStateVersion
+        && header.valueCount == kVersionTwelveParamCount;
+    const bool versionEleven = header.magic == kStateMagic
+        && header.version == kVersionElevenStateVersion
+        && header.valueCount == kVersionElevenParamCount;
     const bool versionTen = header.magic == kStateMagic
         && header.version == kVersionTenStateVersion
         && header.valueCount == kVersionTenParamCount;
@@ -2028,7 +2359,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool versionOne = header.magic == kStateMagic
         && header.version == kVersionOneStateVersion
         && header.valueCount == kVersionOneParamCount;
-    if (!current && !versionTen && !versionNine && !versionEight && !versionSeven
+    if (!current && !versionTwelve && !versionEleven
+        && !versionTen && !versionNine
+        && !versionEight && !versionSeven
         && !versionSix && !versionFive
         && !versionFour && !versionThree && !versionTwo && !versionOne) {
         return false;
@@ -2039,7 +2372,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     s3g::ProcessorStackScoreProgram score =
         s3g::makeDefaultProcessorStackScoreProgram();
-    if (current && !s3g::clap_state::readAll(
+    if ((current || versionTwelve || versionEleven)
+        && !s3g::clap_state::readAll(
             stream, &score, sizeof(score))) {
         return false;
     }
@@ -2057,6 +2391,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         applyParam(*instance, kParamDefs[index].id, value);
     }
     storeScoreProgram(*instance, score, false);
+    resetMidiExpressionState(*instance);
     instance->engine.reset();
     instance->engine.setParams(instance->params);
     instance->engine.setScorePlaybackActive(false);
@@ -2129,6 +2464,11 @@ namespace layout = s3g::gui_layout;
 constexpr CGFloat kLeftPanelX = 16.0;
 constexpr CGFloat kRightPanelX = 506.0;
 constexpr CGFloat kPanelWidth = 458.0;
+constexpr CGFloat kMixerColumnGap = 8.0;
+constexpr CGFloat kMixerColumnWidth =
+    (kPanelWidth - kMixerColumnGap) * 0.5;
+constexpr CGFloat kMixerBPanelX =
+    kLeftPanelX + kMixerColumnWidth + kMixerColumnGap;
 constexpr uint8_t kAllPages = 0xffu;
 constexpr CGFloat kContentTop =
     s3g::gui_layout::kStandardMetrics.contentTop;
@@ -2156,7 +2496,7 @@ constexpr auto kPlayPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Engine,
     kLeftColumn, kPageLeftTop, 12u);
 constexpr auto kPairPanel = layout::fittedStackPanel(
-    layout::PanelRole::Engine, kPlayPanel, 4u);
+    layout::PanelRole::Engine, kPlayPanel, 7u);
 constexpr auto kRoutingPanel = layout::fittedStackPanel(
     layout::PanelRole::Utility, kPairPanel, 2u);
 constexpr auto kArpAPanel = layout::fittedPanel(
@@ -2177,7 +2517,7 @@ constexpr auto kMaterialAPanel = layout::fittedPanel(
 constexpr auto kPedalAPanel = layout::fittedStackPanel(
     layout::PanelRole::Projection, kMaterialAPanel, 4u);
 constexpr auto kAmplifierAPanel = layout::fittedStackPanel(
-    layout::PanelRole::Topology, kPedalAPanel, 6u);
+    layout::PanelRole::Topology, kPedalAPanel, 7u);
 constexpr auto kLoopAPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Output,
     kRightColumn, kContentTop, 12u);
@@ -2190,7 +2530,7 @@ constexpr auto kMaterialBPanel = layout::fittedStackPanel(
 constexpr auto kPedalBPanel = layout::fittedStackPanel(
     layout::PanelRole::Projection, kMaterialBPanel, 4u);
 constexpr auto kAmplifierBPanel = layout::fittedStackPanel(
-    layout::PanelRole::Topology, kPedalBPanel, 6u);
+    layout::PanelRole::Topology, kPedalBPanel, 7u);
 constexpr auto kLoopBPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Motion,
     kRightColumn, kContentTop, 12u);
@@ -2232,12 +2572,12 @@ static_assert(layout::validateColumn(kScoreRightPanels, kStackCanvas, false));
 constexpr std::array<StackUiPanel, 19u> kUiPanels {{
     { "OUTPUT", kAllPages, kOutputPanel },
     { "PLAY / ENVELOPE", 0u, kPlayPanel },
-    { "PAIR / STEREO", 0u, kPairPanel },
+    { "PAIR / STEREO / OUTPUT MIXER", 0u, kPairPanel },
     { "ROUTING", 0u, kRoutingPanel },
     { "ARPEGGIATOR A", 0u, kArpAPanel },
-    { "PATTERN A POSITIONS", 0u, kPatternAPanel },
+    { "PATTERN A · RIGHT-CLICK REST", 0u, kPatternAPanel },
     { "ARPEGGIATOR B", 0u, kArpBPanel },
-    { "PATTERN B POSITIONS", 0u, kPatternBPanel },
+    { "PATTERN B · RIGHT-CLICK REST", 0u, kPatternBPanel },
     { "MATERIAL A", 1u, kMaterialAPanel },
     { "PEDAL A", 1u, kPedalAPanel },
     { "AMPLIFIER / SPEAKER A", 1u, kAmplifierAPanel },
@@ -2251,7 +2591,7 @@ constexpr std::array<StackUiPanel, 19u> kUiPanels {{
     { "PLAYER A / B RELATIONSHIP", 3u, kScoreRelationPanel },
 }};
 
-constexpr std::array<StackUiRow, 92u> kUiRows {{
+constexpr std::array<StackUiRow, 100u> kUiRows {{
     { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
         layout::rowY(kOutputPanel, 0u), kAllPages },
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
@@ -2287,6 +2627,18 @@ constexpr std::array<StackUiRow, 92u> kUiRows {{
         layout::rowY(kPairPanel, 2u), 0u },
     { kPairSpreadParamId, "SPREAD", kLeftPanelX, kPanelWidth,
         layout::rowY(kPairPanel, 3u), 0u },
+    { kRigLevelAParamId, "A LEVEL", kLeftPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 4u), 0u },
+    { kRigLevelBParamId, "B LEVEL", kMixerBPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 4u), 0u },
+    { kRigPanAParamId, "A PAN", kLeftPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 5u), 0u },
+    { kRigPanBParamId, "B PAN", kMixerBPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 5u), 0u },
+    { kRigMuteAParamId, "A MUTE", kLeftPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 6u), 0u },
+    { kRigMuteBParamId, "B MUTE", kMixerBPanelX, kMixerColumnWidth,
+        layout::rowY(kPairPanel, 6u), 0u },
     { kMidiReceiveParamId, "MIDI RECEIVE", kLeftPanelX, kPanelWidth,
         layout::rowY(kRoutingPanel, 0u), 0u },
     { kArpHostSyncParamId, "ARP SYNC", kLeftPanelX, kPanelWidth,
@@ -2338,12 +2690,14 @@ constexpr std::array<StackUiRow, 92u> kUiRows {{
         layout::rowY(kAmplifierAPanel, 1u), 1u },
     { kFocusParamId, "FOCUS", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierAPanel, 2u), 1u },
-    { kConeParamId, "CONE", kLeftPanelX, kPanelWidth,
+    { kSpeakerAParamId, "SPEAKER", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierAPanel, 3u), 1u },
-    { kCabinetParamId, "CAB", kLeftPanelX, kPanelWidth,
+    { kConeParamId, "CONE", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierAPanel, 4u), 1u },
-    { kMicParamId, "MIC", kLeftPanelX, kPanelWidth,
+    { kCabinetParamId, "CAB", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierAPanel, 5u), 1u },
+    { kMicParamId, "MIC", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierAPanel, 6u), 1u },
     { kFeedbackParamId, "FEEDBACK", kRightPanelX, kPanelWidth,
         layout::rowY(kLoopAPanel, 0u), 1u },
     { kProximityParamId, "PROXIMITY", kRightPanelX, kPanelWidth,
@@ -2393,12 +2747,14 @@ constexpr std::array<StackUiRow, 92u> kUiRows {{
         layout::rowY(kAmplifierBPanel, 1u), 2u },
     { kFocusBParamId, "FOCUS", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierBPanel, 2u), 2u },
-    { kConeBParamId, "CONE", kLeftPanelX, kPanelWidth,
+    { kSpeakerBParamId, "SPEAKER", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierBPanel, 3u), 2u },
-    { kCabinetBParamId, "CAB", kLeftPanelX, kPanelWidth,
+    { kConeBParamId, "CONE", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierBPanel, 4u), 2u },
-    { kMicBParamId, "MIC", kLeftPanelX, kPanelWidth,
+    { kCabinetBParamId, "CAB", kLeftPanelX, kPanelWidth,
         layout::rowY(kAmplifierBPanel, 5u), 2u },
+    { kMicBParamId, "MIC", kLeftPanelX, kPanelWidth,
+        layout::rowY(kAmplifierBPanel, 6u), 2u },
     { kFeedbackBParamId, "FEEDBACK", kRightPanelX, kPanelWidth,
         layout::rowY(kLoopBPanel, 0u), 2u },
     { kProximityBParamId, "PROXIMITY", kRightPanelX, kPanelWidth,
@@ -2445,6 +2801,7 @@ bool isUiMenuParam(clap_id id)
 {
     return id == kModeParamId || id == kCircuitParamId
         || id == kCircuitBParamId
+        || id == kSpeakerAParamId || id == kSpeakerBParamId
         || id == kMidiReceiveParamId || id == kArpHostSyncParamId
         || id == kScoreEnableParamId || id == kScoreRateParamId
         || id == kScoreLengthParamId || id == kScoreBSourceParamId
@@ -2461,11 +2818,18 @@ bool isUiMenuParam(clap_id id)
         || id == kLinkFeedbackParamId;
 }
 
+bool isUiToggleParam(clap_id id)
+{
+    return id == kRigMuteAParamId || id == kRigMuteBParamId;
+}
+
 uint32_t uiMenuItemCount(clap_id id)
 {
     if (id == kModeParamId) return s3g::kProcessorStackModeCount;
     if (id == kCircuitParamId || id == kCircuitBParamId)
         return s3g::kProcessorStackCircuitCount;
+    if (id == kSpeakerAParamId || id == kSpeakerBParamId)
+        return s3g::kProcessorStackSpeakerProfileCount;
     if (id == kMidiReceiveParamId) return 17u;
     if (id == kArpHostSyncParamId) return 2u;
     if (id == kScoreEnableParamId || id == kScoreBSourceParamId) return 2u;
@@ -2548,6 +2912,22 @@ s3g::ProcessorStackParams publishedParamsSnapshot(const Plugin& plugin)
         paramValue(plugin, kPairLooseParamId));
     params.pairSpread = static_cast<float>(
         paramValue(plugin, kPairSpreadParamId));
+    params.rigLevelADb = static_cast<float>(
+        paramValue(plugin, kRigLevelAParamId));
+    params.rigLevelBDb = static_cast<float>(
+        paramValue(plugin, kRigLevelBParamId));
+    params.rigPanA = static_cast<float>(
+        paramValue(plugin, kRigPanAParamId));
+    params.rigPanB = static_cast<float>(
+        paramValue(plugin, kRigPanBParamId));
+    params.rigMuteA = paramValue(plugin, kRigMuteAParamId) >= 0.5;
+    params.rigMuteB = paramValue(plugin, kRigMuteBParamId) >= 0.5;
+    params.speaker = static_cast<s3g::ProcessorStackSpeakerProfile>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kSpeakerAParamId))));
+    params.speakerB = static_cast<s3g::ProcessorStackSpeakerProfile>(
+        static_cast<uint32_t>(std::lround(
+            paramValue(plugin, kSpeakerBParamId))));
     params.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(
         static_cast<uint32_t>(std::lround(paramValue(plugin, kNeckAParamId))));
     params.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(
@@ -2752,6 +3132,10 @@ s3g::ProcessorStackParams safeRandomParams(
     params.stack = 0.34f + randomUnit(seed) * 0.58f;
     params.sag = randomUnit(seed) * 0.88f;
     params.focus = 0.16f + randomUnit(seed) * 0.76f;
+    params.speaker = static_cast<s3g::ProcessorStackSpeakerProfile>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackSpeakerProfileCount)),
+            s3g::kProcessorStackSpeakerProfileCount - 1u));
     params.cone = 0.28f + randomUnit(seed) * 0.68f;
     params.cabinet = randomUnit(seed);
     params.mic = randomUnit(seed) * 0.88f;
@@ -2800,6 +3184,10 @@ s3g::ProcessorStackParams safeRandomParams(
     params.stackB = 0.34f + randomUnit(seed) * 0.58f;
     params.sagB = randomUnit(seed) * 0.88f;
     params.focusB = 0.16f + randomUnit(seed) * 0.76f;
+    params.speakerB = static_cast<s3g::ProcessorStackSpeakerProfile>(
+        std::min<uint32_t>(static_cast<uint32_t>(randomUnit(seed)
+            * static_cast<float>(s3g::kProcessorStackSpeakerProfileCount)),
+            s3g::kProcessorStackSpeakerProfileCount - 1u));
     params.coneB = 0.28f + randomUnit(seed) * 0.68f;
     params.cabinetB = randomUnit(seed);
     params.micB = randomUnit(seed) * 0.88f;
@@ -3058,6 +3446,7 @@ clap_id stackScoreLockParamId(uint32_t player,
     case Control::Stack: return b ? kStackBParamId : kStackParamId;
     case Control::Sag: return b ? kSagBParamId : kSagParamId;
     case Control::Focus: return b ? kFocusBParamId : kFocusParamId;
+    case Control::Speaker: return b ? kSpeakerBParamId : kSpeakerAParamId;
     case Control::Cone: return b ? kConeBParamId : kConeParamId;
     case Control::Cabinet: return b ? kCabinetBParamId : kCabinetParamId;
     case Control::Mic: return b ? kMicBParamId : kMicParamId;
@@ -3146,6 +3535,8 @@ void drawStackPatternMultislider(uint8_t player,
         const NSRect cell = stackPatternStepRect(player, step);
         const clap_id id = stackPatternStepParam(player, step);
         const double value = paramValue(plugin, id);
+        const bool rest = static_cast<int32_t>(std::lround(value))
+            == s3g::kProcessorStackArpRest;
         const CGFloat rawValueY = NSMaxY(field) - static_cast<CGFloat>(
             uiNormalizedValue(id, value)) * field.size.height;
         const CGFloat valueY = std::clamp(rawValueY,
@@ -3154,12 +3545,20 @@ void drawStackPatternMultislider(uint8_t player,
             && dragStep == static_cast<int>(step);
         NSColor* lineColor = selected ? style.text
             : (step < length ? style.accent : style.grid);
-        [lineColor setFill];
-        NSRectFill(NSMakeRect(cell.origin.x + 5.0,
-            std::floor(valueY), cell.size.width - 10.0, 2.0));
+        if (rest) {
+            [[lineColor colorWithAlphaComponent:selected ? 0.36 : 0.22]
+                setFill];
+            NSRectFill(NSInsetRect(cell, 5.0, 5.0));
+        } else {
+            [lineColor setFill];
+            NSRectFill(NSMakeRect(cell.origin.x + 5.0,
+                std::floor(valueY), cell.size.width - 10.0, 2.0));
+        }
 
-        NSString* stepText = [NSString stringWithFormat:@"%u %+d",
-            step + 1u, static_cast<int>(std::lround(value))];
+        NSString* stepText = rest
+            ? [NSString stringWithFormat:@"%u REST", step + 1u]
+            : [NSString stringWithFormat:@"%u %+d", step + 1u,
+                static_cast<int>(std::lround(value))];
         s3g::clap_gui::drawCenteredTextToFit(stepText,
             NSMakeRect(cell.origin.x + 2.0, panel.origin.y + 108.0,
                 cell.size.width - 4.0, 14.0), valueAttrs);
@@ -3168,20 +3567,22 @@ void drawStackPatternMultislider(uint8_t player,
 
 bool queueRigCopy(Plugin& plugin, bool aToB)
 {
-    static constexpr std::array<clap_id, 24u> rigA {{
+    static constexpr std::array<clap_id, 25u> rigA {{
         kNeckAParamId, kBodyAParamId,
         kCircuitParamId, kBiteParamId, kPedalToneParamId, kBiasParamId,
-        kStackParamId, kSagParamId, kFocusParamId, kConeParamId,
+        kStackParamId, kSagParamId, kFocusParamId, kSpeakerAParamId,
+        kConeParamId,
         kCabinetParamId, kMicParamId,
         kFeedbackParamId, kProximityParamId, kHarmonicParamId,
         kTrackingParamId, kPolarityParamId, kRootParamId, kChaosParamId,
         kPierceParamId, kSelfListenParamId, kTargetGlitchParamId,
         kGlitchRatchetParamId, kOverloadMaskParamId,
     }};
-    static constexpr std::array<clap_id, 24u> rigB {{
+    static constexpr std::array<clap_id, 25u> rigB {{
         kNeckBParamId, kBodyBParamId,
         kCircuitBParamId, kBiteBParamId, kPedalToneBParamId, kBiasBParamId,
-        kStackBParamId, kSagBParamId, kFocusBParamId, kConeBParamId,
+        kStackBParamId, kSagBParamId, kFocusBParamId, kSpeakerBParamId,
+        kConeBParamId,
         kCabinetBParamId, kMicBParamId,
         kFeedbackBParamId, kProximityBParamId, kHarmonicBParamId,
         kTrackingBParamId, kPolarityBParamId, kRootBParamId, kChaosBParamId,
@@ -3520,7 +3921,7 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         s3g::ProcessorStackScoreLockControl first;
         s3g::ProcessorStackScoreLockControl last;
     };
-    constexpr std::array<LockGroup, 4u> groups {{
+    constexpr std::array<LockGroup, 5u> groups {{
         { "MATERIAL", s3g::ProcessorStackScoreLockControl::Neck,
             s3g::ProcessorStackScoreLockControl::Body },
         { "PEDAL", s3g::ProcessorStackScoreLockControl::Circuit,
@@ -3529,6 +3930,8 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             s3g::ProcessorStackScoreLockControl::Mic },
         { "MIC FEEDBACK LOOP", s3g::ProcessorStackScoreLockControl::Feedback,
             s3g::ProcessorStackScoreLockControl::OverloadMask },
+        { "SPEAKER PROFILE", s3g::ProcessorStackScoreLockControl::Speaker,
+            s3g::ProcessorStackScoreLockControl::Speaker },
     }};
     for (const auto& group : groups) {
         [menu addItem:NSMenuItem.separatorItem];
@@ -3578,6 +3981,11 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             const uint32_t current = static_cast<uint32_t>(
                 std::lround(base * 7.0));
             normalized = static_cast<double>((current + 3u) % 8u) / 7.0;
+        } else if (control
+                == s3g::ProcessorStackScoreLockControl::Speaker) {
+            const uint32_t current = static_cast<uint32_t>(
+                std::lround(base * 6.0));
+            normalized = static_cast<double>((current + 2u) % 7u) / 6.0;
         } else {
             // A newly assigned lock should be audible immediately rather than
             // beginning as a neutral copy of the base slider.
@@ -3774,9 +4182,11 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                             == s3g::ProcessorStackScoreLockControl::Body;
                     const bool circuit = control
                         == s3g::ProcessorStackScoreLockControl::Circuit;
+                    const bool speaker = control
+                        == s3g::ProcessorStackScoreLockControl::Speaker;
                     const int displayValue = static_cast<int>(std::lround(
                         normalized * (circuit ? 7.0
-                            : material ? 3.0 : 99.0)));
+                            : material ? 3.0 : speaker ? 6.0 : 99.0)));
                     text = [NSString stringWithFormat:@"%s%02d",
                         s3g::processorStackScoreLockControlShortName(control),
                         displayValue];
@@ -4022,7 +4432,12 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             row.id, value, text, sizeof(text));
         NSString* label = [NSString stringWithUTF8String:row.label];
         NSString* display = [NSString stringWithUTF8String:text];
-        if (isUiMenuParam(row.id)) {
+        if (isUiToggleParam(row.id)) {
+            s3g::clap_gui::drawToggle(label, value >= 0.5, row.y,
+                labelAttrs, valueAttrs, style,
+                s3g::gui_layout::processorLabelX(row.panelX),
+                s3g::gui_layout::processorControlX(row.panelX), 64.0);
+        } else if (isUiMenuParam(row.id)) {
             s3g::clap_gui::drawProcessorMenu(label, display, row.y,
                 row.panelX, row.panelWidth,
                 labelAttrs, valueAttrs, style);
@@ -4097,6 +4512,30 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
 
 - (void)rightMouseDown:(NSEvent*)event
 {
+    if (_page == 0u) {
+        const NSPoint point = [self convertPoint:event.locationInWindow
+            fromView:nil];
+        auto* instance = static_cast<Plugin*>(_plugin);
+        if (!instance) return;
+        for (uint8_t player = 0u; player < 2u; ++player) {
+            if (!NSPointInRect(point, stackPatternFieldRect(player))) {
+                continue;
+            }
+            const int step = stackPatternStepAtX(player, point.x);
+            if (step < 0) return;
+            const clap_id id = stackPatternStepParam(
+                player, static_cast<uint32_t>(step));
+            queueGuiParamGesture(*instance, id,
+                static_cast<double>(s3g::kProcessorStackArpRest));
+            _dragPatternPlayer = -1;
+            _dragPatternStep = -1;
+            [self markCustomPreset];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        [super rightMouseDown:event];
+        return;
+    }
     if (_page != 3u) {
         [super rightMouseDown:event];
         return;
@@ -4393,6 +4832,14 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
             s3g::gui_layout::kStandardMetrics.hitHeight);
         if (!NSPointInRect(point, hit)) continue;
+        if (isUiToggleParam(row.id)) {
+            const double next = paramValue(*instance, row.id) >= 0.5
+                ? 0.0 : 1.0;
+            queueGuiParamGesture(*instance, row.id, next);
+            [self markCustomPreset];
+            [self setNeedsDisplay:YES];
+            return;
+        }
         if (isUiMenuParam(row.id)) {
             _openMenu = row.id;
             _hoverMenuItem = -1;
@@ -4831,6 +5278,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     auto* instance = new (std::nothrow) Plugin();
     if (!instance) return nullptr;
     instance->host = host;
+    resetMidiExpressionState(*instance);
     storeScoreProgram(*instance,
         s3g::makeDefaultProcessorStackScoreProgram(), false);
     for (const auto& def : kParamDefs) {

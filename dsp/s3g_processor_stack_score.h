@@ -58,6 +58,7 @@ enum class ProcessorStackScoreLockControl : uint8_t {
     TargetGlitch,
     Ratchet,
     OverloadMask,
+    Speaker,
     Count,
 };
 
@@ -204,6 +205,7 @@ inline const char* processorStackScoreLockControlName(
     case ProcessorStackScoreLockControl::TargetGlitch: return "TARGET GLITCH";
     case ProcessorStackScoreLockControl::Ratchet: return "RATCHET";
     case ProcessorStackScoreLockControl::OverloadMask: return "OVERLOAD MASK";
+    case ProcessorStackScoreLockControl::Speaker: return "SPEAKER";
     case ProcessorStackScoreLockControl::Count: break;
     }
     return "CLEAR";
@@ -238,6 +240,7 @@ inline const char* processorStackScoreLockControlShortName(
     case ProcessorStackScoreLockControl::TargetGlitch: return "GLI";
     case ProcessorStackScoreLockControl::Ratchet: return "RAT";
     case ProcessorStackScoreLockControl::OverloadMask: return "MSK";
+    case ProcessorStackScoreLockControl::Speaker: return "SPK";
     case ProcessorStackScoreLockControl::Count: break;
     }
     return "---";
@@ -254,6 +257,7 @@ inline void applyProcessorStackScoreLock(ProcessorStackParams& params,
         processorStackScoreLockNormalized(lock));
     const uint32_t material = static_cast<uint32_t>(std::lround(value * 3.0f));
     const uint32_t circuit = static_cast<uint32_t>(std::lround(value * 7.0f));
+    const uint32_t speaker = static_cast<uint32_t>(std::lround(value * 6.0f));
     const bool playerB = player != 0u;
     switch (control) {
     case ProcessorStackScoreLockControl::Neck:
@@ -310,12 +314,21 @@ inline void applyProcessorStackScoreLock(ProcessorStackParams& params,
         if (playerB) params.glitchRatchetB = value; else params.glitchRatchet = value; break;
     case ProcessorStackScoreLockControl::OverloadMask:
         if (playerB) params.overloadMaskB = value; else params.overloadMask = value; break;
+    case ProcessorStackScoreLockControl::Speaker:
+        if (playerB) {
+            params.speakerB = static_cast<ProcessorStackSpeakerProfile>(speaker);
+        } else {
+            params.speaker = static_cast<ProcessorStackSpeakerProfile>(speaker);
+        }
+        break;
     case ProcessorStackScoreLockControl::None:
     case ProcessorStackScoreLockControl::Count:
         break;
     }
     if (!playerB) return;
-    if (control >= ProcessorStackScoreLockControl::Circuit
+    if (control == ProcessorStackScoreLockControl::Speaker) {
+        params.linkAmplifier = false;
+    } else if (control >= ProcessorStackScoreLockControl::Circuit
         && control <= ProcessorStackScoreLockControl::Bias) {
         params.linkPedal = false;
     } else if (control >= ProcessorStackScoreLockControl::Stack
@@ -828,7 +841,7 @@ inline ProcessorStackScoreProgram randomizeProcessorStackScoreLocks(
             }
         }
     }
-    static constexpr std::array<ProcessorStackScoreLockControl, 16u>
+    static constexpr std::array<ProcessorStackScoreLockControl, 17u>
         controls {{
             ProcessorStackScoreLockControl::Circuit,
             ProcessorStackScoreLockControl::Bite,
@@ -838,6 +851,7 @@ inline ProcessorStackScoreProgram randomizeProcessorStackScoreLocks(
             ProcessorStackScoreLockControl::Focus,
             ProcessorStackScoreLockControl::Cone,
             ProcessorStackScoreLockControl::Cabinet,
+            ProcessorStackScoreLockControl::Speaker,
             ProcessorStackScoreLockControl::Feedback,
             ProcessorStackScoreLockControl::Proximity,
             ProcessorStackScoreLockControl::Harmonic,

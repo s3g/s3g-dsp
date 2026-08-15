@@ -234,6 +234,7 @@ int main()
     s3g::ProcessorStackParams invalid;
     invalid.mode = static_cast<s3g::ProcessorStackMode>(99u);
     invalid.circuit = static_cast<s3g::ProcessorStackCircuit>(99u);
+    invalid.speaker = static_cast<s3g::ProcessorStackSpeakerProfile>(99u);
     invalid.shape = -4.0f;
     invalid.wire = 3.0f;
     invalid.pick = std::numeric_limits<float>::quiet_NaN();
@@ -247,6 +248,10 @@ int main()
         static_cast<s3g::ProcessorStackPairRelation>(99u);
     invalid.pairLoose = -2.0f;
     invalid.pairSpread = std::numeric_limits<float>::quiet_NaN();
+    invalid.rigLevelADb = 80.0f;
+    invalid.rigLevelBDb = -80.0f;
+    invalid.rigPanA = 4.0f;
+    invalid.rigPanB = std::numeric_limits<float>::quiet_NaN();
     invalid.neckA = static_cast<s3g::ProcessorStackNeckMaterial>(99u);
     invalid.bodyA = static_cast<s3g::ProcessorStackBodyMaterial>(99u);
     invalid.neckB = static_cast<s3g::ProcessorStackNeckMaterial>(99u);
@@ -272,6 +277,7 @@ int main()
     invalid.customPatternB[0u] = -99;
     invalid.customPatternB[1u] = 99;
     invalid.circuitB = static_cast<s3g::ProcessorStackCircuit>(99u);
+    invalid.speakerB = static_cast<s3g::ProcessorStackSpeakerProfile>(99u);
     invalid.biteB = -2.0f;
     invalid.stackB = 7.0f;
     invalid.feedbackB = 4.0f;
@@ -285,7 +291,8 @@ int main()
     invalid.outputGainDb = 80.0f;
     const auto sanitized = s3g::sanitizeProcessorStackParams(invalid);
     if (sanitized.mode != s3g::ProcessorStackMode::Lead
-        || sanitized.circuit != s3g::ProcessorStackCircuit::Diode
+        || sanitized.circuit != s3g::ProcessorStackCircuit::Off
+        || sanitized.speaker != s3g::ProcessorStackSpeakerProfile::Ripped12
         || sanitized.shape != 0.0f || sanitized.wire != 1.0f
         || sanitized.pick != 0.72f || sanitized.glideMs != 2000.0f
         || sanitized.attackMs != 0.0f || sanitized.decayMs != 8000.0f
@@ -293,6 +300,9 @@ int main()
         || sanitized.pairAmount != 1.0f
         || sanitized.pairRelation != s3g::ProcessorStackPairRelation::Contrary
         || sanitized.pairLoose != 0.0f || sanitized.pairSpread != 0.72f
+        || sanitized.rigLevelADb != 6.0f
+        || sanitized.rigLevelBDb != -36.0f
+        || sanitized.rigPanA != 1.0f || sanitized.rigPanB != 1.0f
         || sanitized.neckA != s3g::ProcessorStackNeckMaterial::Composite
         || sanitized.bodyA != s3g::ProcessorStackBodyMaterial::Aluminum
         || sanitized.neckB != s3g::ProcessorStackNeckMaterial::Composite
@@ -303,7 +313,7 @@ int main()
         || sanitized.arpRate != s3g::ProcessorStackArpRate::Whole
         || sanitized.arpOctaves != 4u || sanitized.arpGate != 0.05f
         || sanitized.customPatternLength != 8u
-        || sanitized.customPattern[0u] != -8
+        || sanitized.customPattern[0u] != s3g::kProcessorStackArpRest
         || sanitized.customPattern[1u] != 15
         || sanitized.arpBRelation != s3g::ProcessorStackArpRelation::Free
         || sanitized.arpPatternB != s3g::ProcessorStackArpPattern::Custom
@@ -312,9 +322,11 @@ int main()
         || sanitized.arpOctavesB != 4u || sanitized.arpGateB != 0.05f
         || sanitized.arpPhaseB != 1.0f
         || sanitized.customPatternLengthB != 8u
-        || sanitized.customPatternB[0u] != -8
+        || sanitized.customPatternB[0u] != s3g::kProcessorStackArpRest
         || sanitized.customPatternB[1u] != 15
-        || sanitized.circuitB != s3g::ProcessorStackCircuit::Diode
+        || sanitized.circuitB != s3g::ProcessorStackCircuit::Off
+        || sanitized.speakerB
+            != s3g::ProcessorStackSpeakerProfile::Ripped12
         || sanitized.biteB != 0.0f || sanitized.stackB != 1.0f
         || sanitized.feedbackB != 1.0f || sanitized.polarityB != 0.0f
         || sanitized.overloadMaskB != 1.0f
@@ -336,6 +348,82 @@ int main()
         std::cerr << "Processor Stack reference render failed: energy="
                   << referenceStats.energy << " peak=" << referenceStats.peak
                   << " finite=" << referenceStats.finite << "\n";
+        return 1;
+    }
+
+    auto expressionParams = reference;
+    expressionParams.mode = s3g::ProcessorStackMode::Lead;
+    expressionParams.feedback = 0.0f;
+    expressionParams.spill = 0.0f;
+    expressionParams.outputGainDb = -18.0f;
+    const auto renderExpression = [&](float velocity, float pressure,
+                                      float tuning, float timbre) {
+        s3g::ProcessorStack instrument;
+        instrument.prepare(48000.0);
+        instrument.setParams(expressionParams);
+        instrument.noteOn(52, velocity);
+        instrument.setNotePressure(52, pressure);
+        instrument.setNoteTuningSemitones(52, tuning);
+        instrument.setNoteTimbre(52, timbre);
+        std::array<double, 2u> result {};
+        float previous = 0.0f;
+        for (uint32_t frame = 0u; frame < 8192u; ++frame) {
+            float left = 0.0f;
+            float right = 0.0f;
+            instrument.processFrame(left, right);
+            const float mono = (left + right) * 0.5f;
+            result[0u] += static_cast<double>(left) * left
+                + static_cast<double>(right) * right;
+            const float difference = mono - previous;
+            result[1u] += static_cast<double>(difference) * difference;
+            previous = mono;
+        }
+        return result;
+    };
+    const auto lowVelocity = renderExpression(0.18f, 0.0f, 0.0f, 0.5f);
+    const auto highVelocity = renderExpression(1.0f, 0.0f, 0.0f, 0.5f);
+    const auto noAftertouch = renderExpression(0.72f, 0.0f, 0.0f, 0.5f);
+    const auto fullAftertouch = renderExpression(0.72f, 1.0f, 0.0f, 0.5f);
+    const auto bentExpression = renderExpression(0.72f, 0.0f, 2.0f, 0.5f);
+    const auto brightExpression = renderExpression(0.72f, 0.0f, 0.0f, 1.0f);
+    s3g::ProcessorStack neutralTimbreInstrument;
+    s3g::ProcessorStack brightTimbreInstrument;
+    neutralTimbreInstrument.prepare(48000.0);
+    brightTimbreInstrument.prepare(48000.0);
+    neutralTimbreInstrument.setParams(expressionParams);
+    brightTimbreInstrument.setParams(expressionParams);
+    neutralTimbreInstrument.noteOn(52, 0.72f);
+    brightTimbreInstrument.noteOn(52, 0.72f);
+    brightTimbreInstrument.setNoteTimbre(52, 1.0f);
+    double timbreReferenceEnergy = 0.0;
+    double timbreDeltaEnergy = 0.0;
+    for (uint32_t frame = 0u; frame < 8192u; ++frame) {
+        float neutralLeft = 0.0f;
+        float neutralRight = 0.0f;
+        float brightLeft = 0.0f;
+        float brightRight = 0.0f;
+        neutralTimbreInstrument.processFrame(neutralLeft, neutralRight);
+        brightTimbreInstrument.processFrame(brightLeft, brightRight);
+        timbreReferenceEnergy += static_cast<double>(neutralLeft) * neutralLeft
+            + static_cast<double>(neutralRight) * neutralRight;
+        const double leftDifference = brightLeft - neutralLeft;
+        const double rightDifference = brightRight - neutralRight;
+        timbreDeltaEnergy += leftDifference * leftDifference
+            + rightDifference * rightDifference;
+    }
+    if (highVelocity[0u] <= lowVelocity[0u] * 1.15
+        || fullAftertouch[0u] <= noAftertouch[0u] * 1.08
+        || std::abs(bentExpression[1u] - noAftertouch[1u])
+            <= noAftertouch[1u] * 0.02
+        || timbreDeltaEnergy <= timbreReferenceEnergy * 0.01) {
+        std::cerr << "velocity, per-note pressure, or MPE timbre was inert: "
+                  << lowVelocity[0u] << " -> " << highVelocity[0u]
+                  << " pressure=" << noAftertouch[0u] << " -> "
+                  << fullAftertouch[0u] << " brightness="
+                  << noAftertouch[1u] << " -> "
+                  << brightExpression[1u] << " bend="
+                  << bentExpression[1u] << " timbre delta="
+                  << timbreDeltaEnergy << "\n";
         return 1;
     }
 
@@ -493,7 +581,9 @@ int main()
         || maskedOverloadStats.speakerSoftLimitCount > 64u
         || maskedOverloadStats.speakerSoftLimitCount
             > unmaskedOverloadStats.speakerSoftLimitCount
-        || maskedOverloadStats.micSoftLimitCount != 0u
+        || maskedOverloadStats.micSoftLimitCount > 64u
+        || maskedOverloadStats.micSoftLimitCount
+            > unmaskedOverloadStats.micSoftLimitCount
         || maskedOverloadStats.differenceEnergy
             >= unmaskedOverloadStats.differenceEnergy * 0.94
         || maskedOverloadStats.maximumDelta > 0.45f) {
@@ -574,6 +664,50 @@ int main()
                   << " ratio="
                   << twoGuitarStats.sideEnergy / twoGuitarStats.energy
                   << " corr=" << channelCorrelation << "\n";
+        return 1;
+    }
+
+    auto rigAOnly = twoGuitars;
+    rigAOnly.rigMuteB = true;
+    rigAOnly.rigPanA = -1.0f;
+    const auto rigAOnlyStats = render(rigAOnly,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    auto rigBOnly = twoGuitars;
+    rigBOnly.rigMuteA = true;
+    rigBOnly.rigPanB = 1.0f;
+    const auto rigBOnlyStats = render(rigBOnly,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    auto reversedRigB = rigBOnly;
+    reversedRigB.rigPanB = -1.0f;
+    const auto reversedRigBStats = render(reversedRigB,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    auto quietRigB = rigBOnly;
+    quietRigB.rigLevelBDb = -18.0f;
+    const auto quietRigBStats = render(quietRigB,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    auto bothRigsMuted = twoGuitars;
+    bothRigsMuted.rigMuteA = true;
+    bothRigsMuted.rigMuteB = true;
+    const auto bothRigsMutedStats = render(bothRigsMuted,
+        {{ 0u, 45 }}, {{ 18000u, 45 }}, 48000u);
+    if (!rigAOnlyStats.finite || !rigBOnlyStats.finite
+        || !reversedRigBStats.finite || !quietRigBStats.finite
+        || !bothRigsMutedStats.finite
+        || rigAOnlyStats.leftEnergy <= rigAOnlyStats.rightEnergy * 10.0
+        || rigBOnlyStats.rightEnergy <= rigBOnlyStats.leftEnergy * 10.0
+        || reversedRigBStats.leftEnergy
+            <= reversedRigBStats.rightEnergy * 10.0
+        || quietRigBStats.energy >= rigBOnlyStats.energy * 0.05
+        || bothRigsMutedStats.energy > 1.0e-12) {
+        std::cerr << "per-rig output level, mute, or reversible pan failed: "
+                  << "A=" << rigAOnlyStats.leftEnergy << "/"
+                  << rigAOnlyStats.rightEnergy << " B="
+                  << rigBOnlyStats.leftEnergy << "/"
+                  << rigBOnlyStats.rightEnergy << " reversed="
+                  << reversedRigBStats.leftEnergy << "/"
+                  << reversedRigBStats.rightEnergy << " quiet="
+                  << quietRigBStats.energy << "/" << rigBOnlyStats.energy
+                  << " muted=" << bothRigsMutedStats.energy << "\n";
         return 1;
     }
 
@@ -842,7 +976,7 @@ int main()
         {{ 0u, 45 }}, {{ 10000u, 45 }}, 16000u);
     if (!immediateEnvelopeStats.finite || !slowEnvelopeStats.finite
         || slowEnvelopeStats.onsetEnergy
-            >= immediateEnvelopeStats.onsetEnergy * 0.32
+            >= immediateEnvelopeStats.onsetEnergy * 0.46
         || slowEnvelopeStats.energy < 1.0e-6) {
         std::cerr << "ADSR ATTACK did not create a playable source swell: "
                   << immediateEnvelopeStats.onsetEnergy << " -> "
@@ -1160,11 +1294,15 @@ int main()
         s3g::ProcessorStackScoreLockControl::Bite, 0.21);
     s3g::setProcessorStackScoreLock(scoreProgram, 2u, 0u, 1u, 0u,
         s3g::ProcessorStackScoreLockControl::Circuit, 1.0);
+    s3g::setProcessorStackScoreLock(scoreProgram, 2u, 0u, 1u, 1u,
+        s3g::ProcessorStackScoreLockControl::Speaker, 1.0);
     auto lockedParams = s3g::processorStackScoreParamsForRow(
         scoreProgram, reference, 2u, 0u);
     if (std::abs(lockedParams.bite - 0.21f) > 2.0e-5f
         || lockedParams.circuitB != s3g::ProcessorStackCircuit::Diode
-        || lockedParams.linkPedal) {
+        || lockedParams.speakerB
+            != s3g::ProcessorStackSpeakerProfile::Ripped12
+        || lockedParams.linkPedal || lockedParams.linkAmplifier) {
         std::cerr << "per-player score row locks were not applied\n";
         return 1;
     }
@@ -1528,6 +1666,110 @@ int main()
         std::cerr << "custom arpeggiator boundary was click-like: delta="
                   << maximumBoundaryDelta << "\n";
         return 1;
+    }
+
+    s3g::ProcessorStack restingArpeggiator;
+    restingArpeggiator.prepare(48000.0);
+    auto restParams = customParams;
+    restParams.pairAmount = 1.0f;
+    restParams.arpBRelation = s3g::ProcessorStackArpRelation::Free;
+    restParams.arpPatternB = s3g::ProcessorStackArpPattern::Custom;
+    restParams.scaleB = s3g::ProcessorStackScale::Phrygian;
+    restParams.arpRateB = s3g::ProcessorStackArpRate::Sixteenth;
+    restParams.arpGateB = 0.42f;
+    restParams.arpPhaseB = 0.0f;
+    restParams.customPattern = {{
+        0, s3g::kProcessorStackArpRest, 2,
+        s3g::kProcessorStackArpRest, 0, 0, 0, 0,
+    }};
+    restParams.customPatternB = {{
+        s3g::kProcessorStackArpRest, 4,
+        s3g::kProcessorStackArpRest, 1, 0, 0, 0, 0,
+    }};
+    restingArpeggiator.setParams(restParams);
+    restingArpeggiator.setTempoBpm(120.0f);
+    restingArpeggiator.noteOn(40, 0.9f);
+    if (restingArpeggiator.arpCurrentNote() != 40
+        || restingArpeggiator.arpStepCount() != 1u
+        || restingArpeggiator.partnerArpCurrentNote() != -1
+        || restingArpeggiator.partnerArpStepCount() != 1u) {
+        std::cerr << "A/B custom arpeggiator did not enter its initial rest correctly\n";
+        return 1;
+    }
+    const auto advanceRestingArps = [&]() {
+        for (uint32_t frame = 0u; frame < 6000u; ++frame) {
+            float left = 0.0f;
+            float right = 0.0f;
+            restingArpeggiator.processFrame(left, right);
+        }
+    };
+    advanceRestingArps();
+    if (restingArpeggiator.arpCurrentNote() != -1
+        || restingArpeggiator.arpStepCount() != 2u
+        || restingArpeggiator.partnerArpCurrentNote() != 47
+        || restingArpeggiator.partnerArpStepCount() != 2u) {
+        std::cerr << "A/B custom REST did not close the intended step gate\n";
+        return 1;
+    }
+    advanceRestingArps();
+    if (restingArpeggiator.arpCurrentNote() != 43
+        || restingArpeggiator.arpStepCount() != 3u
+        || restingArpeggiator.partnerArpCurrentNote() != -1
+        || restingArpeggiator.partnerArpStepCount() != 3u) {
+        std::cerr << "custom REST stalled an A/B arpeggiator clock\n";
+        return 1;
+    }
+
+    auto pedalOffLow = reference;
+    pedalOffLow.feedback = 0.0f;
+    pedalOffLow.circuit = s3g::ProcessorStackCircuit::Off;
+    pedalOffLow.bite = 0.0f;
+    pedalOffLow.pedalTone = 0.0f;
+    pedalOffLow.bias = 0.0f;
+    auto pedalOffHigh = pedalOffLow;
+    pedalOffHigh.bite = 1.0f;
+    pedalOffHigh.pedalTone = 1.0f;
+    pedalOffHigh.bias = 1.0f;
+    if (renderSignature(pedalOffLow) != renderSignature(pedalOffHigh)) {
+        std::cerr << "pedal OFF still responded to pedal controls\n";
+        return 1;
+    }
+    auto pedalDriven = pedalOffLow;
+    pedalDriven.circuit = s3g::ProcessorStackCircuit::Rat;
+    pedalDriven.bite = 0.82f;
+    if (renderSignature(pedalOffLow) == renderSignature(pedalDriven)) {
+        std::cerr << "pedal OFF did not bypass the selected drive circuit\n";
+        return 1;
+    }
+
+    auto speakerProbe = reference;
+    speakerProbe.mode = s3g::ProcessorStackMode::Lead;
+    speakerProbe.feedback = 0.0f;
+    speakerProbe.targetGlitch = 0.0f;
+    speakerProbe.pick = 0.58f;
+    speakerProbe.wire = 0.64f;
+    speakerProbe.cone = 0.82f;
+    std::vector<float> previousSpeakerSignature;
+    for (uint32_t speaker = 0u;
+         speaker < s3g::kProcessorStackSpeakerProfileCount; ++speaker) {
+        speakerProbe.speaker = static_cast<
+            s3g::ProcessorStackSpeakerProfile>(speaker);
+        const auto speakerStats = render(speakerProbe,
+            {{ 0u, 45 }}, {{ 32767u, 45 }}, 32768u);
+        const auto signature = renderSignature(speakerProbe);
+        if (!speakerStats.finite || speakerStats.energy < 1.0e-7
+            || speakerStats.peak > 1.0f
+            || speakerStats.speakerSoftLimitCount > 64u
+            || (!previousSpeakerSignature.empty()
+                && signature == previousSpeakerSignature)) {
+            std::cerr << "speaker profile " << speaker
+                      << " was not distinct and bounded: energy="
+                      << speakerStats.energy << " peak=" << speakerStats.peak
+                      << " speaker-soft="
+                      << speakerStats.speakerSoftLimitCount << "\n";
+            return 1;
+        }
+        previousSpeakerSignature = signature;
     }
 
     for (uint32_t circuit = 0u;

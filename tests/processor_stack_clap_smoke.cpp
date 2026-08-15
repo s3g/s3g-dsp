@@ -129,6 +129,14 @@ enum ParamId : clap_id {
     kScoreGate,
     kScoreLength,
     kScoreBSource,
+    kRigLevelA,
+    kRigLevelB,
+    kRigPanA,
+    kRigPanB,
+    kRigMuteA,
+    kRigMuteB,
+    kSpeakerA,
+    kSpeakerB,
 };
 
 struct ParamSpec {
@@ -140,7 +148,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 105u> kParamSpecs {{
+constexpr std::array<ParamSpec, 113u> kParamSpecs {{
     { kMode, "Mode", 0.0, 2.0, 0.0, true },
     { kShape, "Shape", 0.0, 1.0, 0.58, false },
     { kWire, "String", 0.0, 1.0, 0.56, false },
@@ -149,7 +157,7 @@ constexpr std::array<ParamSpec, 105u> kParamSpecs {{
     { kGlide, "Glide", 0.0, 2000.0, 34.0, false },
     { kCrooked, "Crooked", 0.0, 1.0, 0.36, false },
     { kSpill, "Spill", 0.0, 1.0, 0.32, false },
-    { kCircuit, "Circuit", 0.0, 7.0, 2.0, true },
+    { kCircuit, "Circuit", 0.0, 8.0, 2.0, true },
     { kBite, "Bite", 0.0, 1.0, 0.56, false },
     { kPedalTone, "Tone", 0.0, 1.0, 0.54, false },
     { kBias, "Bias", 0.0, 1.0, 0.52, false },
@@ -174,14 +182,14 @@ constexpr std::array<ParamSpec, 105u> kParamSpecs {{
     { kArpOctaves, "Arp Octaves", 1.0, 4.0, 2.0, true },
     { kArpGate, "Arp Gate", 0.05, 1.0, 0.62, false },
     { kCustomLength, "Pattern Length", 1.0, 8.0, 8.0, true },
-    { kCustomStep1, "Pattern Step 1", -8.0, 15.0, 0.0, true },
-    { kCustomStep2, "Pattern Step 2", -8.0, 15.0, 1.0, true },
-    { kCustomStep3, "Pattern Step 3", -8.0, 15.0, 2.0, true },
-    { kCustomStep4, "Pattern Step 4", -8.0, 15.0, 4.0, true },
-    { kCustomStep5, "Pattern Step 5", -8.0, 15.0, 3.0, true },
-    { kCustomStep6, "Pattern Step 6", -8.0, 15.0, 6.0, true },
-    { kCustomStep7, "Pattern Step 7", -8.0, 15.0, 5.0, true },
-    { kCustomStep8, "Pattern Step 8", -8.0, 15.0, 1.0, true },
+    { kCustomStep1, "Pattern Step 1", -9.0, 15.0, 0.0, true },
+    { kCustomStep2, "Pattern Step 2", -9.0, 15.0, 1.0, true },
+    { kCustomStep3, "Pattern Step 3", -9.0, 15.0, 2.0, true },
+    { kCustomStep4, "Pattern Step 4", -9.0, 15.0, 4.0, true },
+    { kCustomStep5, "Pattern Step 5", -9.0, 15.0, 3.0, true },
+    { kCustomStep6, "Pattern Step 6", -9.0, 15.0, 6.0, true },
+    { kCustomStep7, "Pattern Step 7", -9.0, 15.0, 5.0, true },
+    { kCustomStep8, "Pattern Step 8", -9.0, 15.0, 1.0, true },
     { kPierce, "Pierce", 0.0, 1.0, 0.68, false },
     { kSelfListen, "Self Listen", 0.0, 1.0, 0.72, false },
     { kTargetGlitch, "Target Glitch", 0.0, 1.0, 0.0, false },
@@ -207,18 +215,18 @@ constexpr std::array<ParamSpec, 105u> kParamSpecs {{
     { kArpGateB, "Arp Gate B", 0.05, 1.0, 0.62, false },
     { kArpPhaseB, "Arp Phase B", 0.0, 1.0, 0.50, false },
     { kCustomLengthB, "Pattern Length B", 1.0, 8.0, 8.0, true },
-    { kCustomStepB1, "Pattern B Step 1", -8.0, 15.0, 0.0, true },
-    { kCustomStepB2, "Pattern B Step 2", -8.0, 15.0, 4.0, true },
-    { kCustomStepB3, "Pattern B Step 3", -8.0, 15.0, 2.0, true },
-    { kCustomStepB4, "Pattern B Step 4", -8.0, 15.0, 6.0, true },
-    { kCustomStepB5, "Pattern B Step 5", -8.0, 15.0, 1.0, true },
-    { kCustomStepB6, "Pattern B Step 6", -8.0, 15.0, 5.0, true },
-    { kCustomStepB7, "Pattern B Step 7", -8.0, 15.0, 3.0, true },
-    { kCustomStepB8, "Pattern B Step 8", -8.0, 15.0, 7.0, true },
+    { kCustomStepB1, "Pattern B Step 1", -9.0, 15.0, 0.0, true },
+    { kCustomStepB2, "Pattern B Step 2", -9.0, 15.0, 4.0, true },
+    { kCustomStepB3, "Pattern B Step 3", -9.0, 15.0, 2.0, true },
+    { kCustomStepB4, "Pattern B Step 4", -9.0, 15.0, 6.0, true },
+    { kCustomStepB5, "Pattern B Step 5", -9.0, 15.0, 1.0, true },
+    { kCustomStepB6, "Pattern B Step 6", -9.0, 15.0, 5.0, true },
+    { kCustomStepB7, "Pattern B Step 7", -9.0, 15.0, 3.0, true },
+    { kCustomStepB8, "Pattern B Step 8", -9.0, 15.0, 7.0, true },
     { kLinkPedal, "Link Pedals", 0.0, 1.0, 1.0, true },
     { kLinkAmplifier, "Link Amplifiers", 0.0, 1.0, 1.0, true },
     { kLinkFeedback, "Link Feedback", 0.0, 1.0, 1.0, true },
-    { kCircuitB, "Circuit B", 0.0, 7.0, 2.0, true },
+    { kCircuitB, "Circuit B", 0.0, 8.0, 2.0, true },
     { kBiteB, "Bite B", 0.0, 1.0, 0.56, false },
     { kPedalToneB, "Tone B", 0.0, 1.0, 0.54, false },
     { kBiasB, "Bias B", 0.0, 1.0, 0.52, false },
@@ -246,6 +254,14 @@ constexpr std::array<ParamSpec, 105u> kParamSpecs {{
     { kScoreGate, "Score Gate", 0.05, 1.0, 0.72, false },
     { kScoreLength, "Arrangement Length", 1.0, 8.0, 4.0, true },
     { kScoreBSource, "Player B Source", 0.0, 1.0, 0.0, true },
+    { kRigLevelA, "Rig A Level", -36.0, 6.0, 0.0, false },
+    { kRigLevelB, "Rig B Level", -36.0, 6.0, 0.0, false },
+    { kRigPanA, "Rig A Pan", -1.0, 1.0, -1.0, false },
+    { kRigPanB, "Rig B Pan", -1.0, 1.0, 1.0, false },
+    { kRigMuteA, "Rig A Mute", 0.0, 1.0, 0.0, true },
+    { kRigMuteB, "Rig B Mute", 0.0, 1.0, 0.0, true },
+    { kSpeakerA, "Speaker A", 0.0, 6.0, 2.0, true },
+    { kSpeakerB, "Speaker B", 0.0, 6.0, 2.0, true },
 }};
 
 struct HostContext {
@@ -511,10 +527,34 @@ bool verifyParams(const clap_plugin_t* plugin)
         && std::strcmp(text, "LEAD") == 0
         && params->text_to_value(plugin, kCircuit, "FUZZ II", &value)
         && value == 6.0
+        && params->text_to_value(plugin, kCircuit, "OFF", &value)
+        && value == 8.0
+        && params->value_to_text(plugin, kSpeakerA, 0.0,
+            text, sizeof(text))
+        && std::strcmp(text, "LIL' SMOKY 3\"") == 0
+        && params->text_to_value(plugin, kSpeakerB, "RIPPED 12\"", &value)
+        && value == 6.0
+        && params->value_to_text(plugin, kRigLevelA, -7.5,
+            text, sizeof(text))
+        && std::strcmp(text, "-7.5 dB") == 0
+        && params->text_to_value(plugin, kRigLevelA, "-7.5 dB", &value)
+        && std::abs(value + 7.5) < 1.0e-6
+        && params->value_to_text(plugin, kRigPanA, -0.54,
+            text, sizeof(text))
+        && std::strcmp(text, "L 54%") == 0
+        && params->text_to_value(plugin, kRigPanA, "L 54%", &value)
+        && std::abs(value + 0.54) < 1.0e-6
+        && params->text_to_value(plugin, kRigPanB, "C", &value)
+        && value == 0.0
         && params->text_to_value(plugin, kArpPattern, "SCRAMBLE", &value)
         && value == 5.0
         && params->text_to_value(plugin, kArpPattern, "CUSTOM", &value)
         && value == 6.0
+        && params->value_to_text(plugin, kCustomStep2, -9.0,
+            text, sizeof(text))
+        && std::strcmp(text, "REST") == 0
+        && params->text_to_value(plugin, kCustomStepB4, "REST", &value)
+        && value == -9.0
         && params->text_to_value(plugin, kScale, "DIMINISHED", &value)
         && value == 3.0
         && params->text_to_value(plugin, kArpRate, "1/16T", &value)
@@ -557,7 +597,9 @@ bool verifyPorts(const clap_plugin_t* plugin)
         && std::strcmp(audioInfo.port_type, CLAP_PORT_STEREO) == 0
         && notes->get(plugin, 0u, true, &noteInfo)
         && (noteInfo.supported_dialects & CLAP_NOTE_DIALECT_CLAP) != 0u
-        && (noteInfo.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u;
+        && (noteInfo.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
+        && (noteInfo.supported_dialects
+            & CLAP_NOTE_DIALECT_MIDI_MPE) != 0u;
 }
 
 bool processChecks(const clap_plugin_t* plugin)
@@ -573,6 +615,7 @@ bool processChecks(const clap_plugin_t* plugin)
     events.addNote(CLAP_EVENT_NOTE_ON, 43, 0.92, 13u);
     events.addExpression(CLAP_NOTE_EXPRESSION_PRESSURE, 0.78, 96u, 43);
     events.addExpression(CLAP_NOTE_EXPRESSION_TUNING, 1.25, 132u, 43);
+    events.addExpression(CLAP_NOTE_EXPRESSION_BRIGHTNESS, 0.82, 164u, 43);
     AudioBlock noteBlock(&events);
     if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
         || !noteBlock.finite() || noteBlock.energy() < 1.0e-8) {
@@ -598,6 +641,28 @@ bool processChecks(const clap_plugin_t* plugin)
     events.addNote(CLAP_EVENT_NOTE_OFF, 43, 0.0, 0u);
     events.addNote(CLAP_EVENT_NOTE_OFF, 47, 0.0, 16u);
     events.addNote(CLAP_EVENT_NOTE_OFF, 54, 0.0, 32u);
+    noteBlock.clear();
+    if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
+        || !noteBlock.finite()) return false;
+
+    plugin->reset(plugin);
+    events.clear();
+    events.addMidi(0xb2u, 101u, 0u, 0u);
+    events.addMidi(0xb2u, 100u, 0u, 1u);
+    events.addMidi(0xb2u, 6u, 48u, 2u);
+    events.addMidi(0x92u, 52u, 112u, 4u);
+    events.addMidi(0xa2u, 52u, 104u, 16u);
+    events.addMidi(0xd2u, 108u, 0u, 32u);
+    events.addMidi(0xb2u, 74u, 116u, 48u);
+    events.addMidi(0xe2u, 0u, 96u, 64u);
+    noteBlock.clear();
+    if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
+        || !noteBlock.finite() || noteBlock.energy() < 1.0e-8) {
+        std::cerr << "MPE bend/timbre/pressure or poly aftertouch failed\n";
+        return false;
+    }
+    events.clear();
+    events.addMidi(0x82u, 52u, 0u);
     noteBlock.clear();
     if (plugin->process(plugin, &noteBlock.process) == CLAP_PROCESS_ERROR
         || !noteBlock.finite()) return false;
@@ -687,7 +752,7 @@ bool processChecks(const clap_plugin_t* plugin)
         uint32_t valueCount;
         uint32_t reserved;
     };
-    CurrentHeader currentHeader { 0x31545350u, 11u,
+    CurrentHeader currentHeader { 0x31545350u, 13u,
         static_cast<uint32_t>(kParamSpecs.size()), 0u };
     std::array<double, kParamSpecs.size()> currentValues {};
     for (uint32_t index = 0u; index < currentValues.size(); ++index) {
@@ -827,7 +892,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kCustomLength, 4.0);
     events.addParam(kCustomStep1, 0.0);
     events.addParam(kCustomStep2, 5.0);
-    events.addParam(kCustomStep3, -1.0);
+    events.addParam(kCustomStep3, -9.0);
     events.addParam(kCustomStep4, 7.0);
     events.addParam(kPierce, 0.93);
     events.addParam(kSelfListen, 0.88);
@@ -864,7 +929,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kArpGateB, 0.52);
     events.addParam(kArpPhaseB, 0.33);
     events.addParam(kCustomLengthB, 5.0);
-    events.addParam(kCustomStepB3, -2.0);
+    events.addParam(kCustomStepB3, -9.0);
     events.addParam(kLinkPedal, 0.0);
     events.addParam(kLinkAmplifier, 0.0);
     events.addParam(kLinkFeedback, 0.0);
@@ -888,16 +953,34 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         return false;
     }
 
+    events.clear();
+    events.addParam(kRigLevelA, -4.5);
+    events.addParam(kRigLevelB, -9.0);
+    events.addParam(kRigPanA, 0.63);
+    events.addParam(kRigPanB, -0.42);
+    events.addParam(kRigMuteA, 1.0);
+    events.addParam(kRigMuteB, 0.0);
+    events.addParam(kSpeakerA, 5.0);
+    events.addParam(kSpeakerB, 6.0);
+    block.clear();
+    if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR) {
+        return false;
+    }
+
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
-    if (!state->save(plugin, &output) || memory.bytes.size() != 2656u) {
+    constexpr size_t currentStateSize = 16u
+        + sizeof(std::array<double, kParamSpecs.size()>)
+        + sizeof(s3g::ProcessorStackScoreProgram);
+    if (!state->save(plugin, &output)
+        || memory.bytes.size() != currentStateSize) {
         std::cerr << "Processor Stack state size mismatch: "
                   << memory.bytes.size() << "\n";
         return false;
     }
     s3g::ProcessorStackScoreProgram savedScore;
     constexpr size_t currentScoreOffset = 16u
-        + sizeof(std::array<double, 105u>);
+        + sizeof(std::array<double, kParamSpecs.size()>);
     std::memcpy(&savedScore, memory.bytes.data() + currentScoreOffset,
         sizeof(savedScore));
     const auto savedLock = s3g::processorStackScoreLock(
@@ -949,7 +1032,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kArpGate, &value)
         || std::abs(value - 0.41) > 1.0e-6
         || !params->get_value(plugin, kCustomLength, &value) || value != 4.0
-        || !params->get_value(plugin, kCustomStep3, &value) || value != -1.0
+        || !params->get_value(plugin, kCustomStep3, &value) || value != -9.0
         || !params->get_value(plugin, kPierce, &value)
         || std::abs(value - 0.93) > 1.0e-6
         || !params->get_value(plugin, kSelfListen, &value)
@@ -983,7 +1066,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kArpPatternB, &value) || value != 6.0
         || !params->get_value(plugin, kArpPhaseB, &value)
         || std::abs(value - 0.33) > 1.0e-6
-        || !params->get_value(plugin, kCustomStepB3, &value) || value != -2.0
+        || !params->get_value(plugin, kCustomStepB3, &value) || value != -9.0
         || !params->get_value(plugin, kLinkPedal, &value) || value != 0.0
         || !params->get_value(plugin, kLinkAmplifier, &value) || value != 0.0
         || !params->get_value(plugin, kLinkFeedback, &value) || value != 0.0
@@ -1005,7 +1088,19 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kScoreLength, &value)
         || value != 6.0
         || !params->get_value(plugin, kScoreBSource, &value)
-        || value != 1.0) {
+        || value != 1.0
+        || !params->get_value(plugin, kRigLevelA, &value)
+        || std::abs(value + 4.5) > 1.0e-6
+        || !params->get_value(plugin, kRigLevelB, &value)
+        || std::abs(value + 9.0) > 1.0e-6
+        || !params->get_value(plugin, kRigPanA, &value)
+        || std::abs(value - 0.63) > 1.0e-6
+        || !params->get_value(plugin, kRigPanB, &value)
+        || std::abs(value + 0.42) > 1.0e-6
+        || !params->get_value(plugin, kRigMuteA, &value) || value != 1.0
+        || !params->get_value(plugin, kRigMuteB, &value) || value != 0.0
+        || !params->get_value(plugin, kSpeakerA, &value) || value != 5.0
+        || !params->get_value(plugin, kSpeakerB, &value) || value != 6.0) {
         std::cerr << "Processor Stack extended state mismatch\n";
         return false;
     }
@@ -1022,6 +1117,102 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
             arrangement {};
     };
     static_assert(sizeof(VersionTenScore) == 776u);
+
+    LegacyHeader versionTwelveHeader { 0x31545350u, 12u, 111u, 0u };
+    std::array<double, 111u> versionTwelveValues {};
+    for (uint32_t index = 0u; index < versionTwelveValues.size(); ++index) {
+        versionTwelveValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionTwelveValues[static_cast<size_t>(kRigLevelA - 1u)] = -7.5;
+    versionTwelveValues[static_cast<size_t>(kRigPanB - 1u)] = -0.25;
+    auto versionTwelveScore = s3g::makeDefaultProcessorStackScoreProgram();
+    s3g::setProcessorStackScoreCell(versionTwelveScore,
+        1u, 3u, 1u, 2u, 9);
+    MemoryState versionTwelve;
+    clap_ostream_t versionTwelveOutput { &versionTwelve, stateWrite };
+    if (stateWrite(&versionTwelveOutput, &versionTwelveHeader,
+            sizeof(versionTwelveHeader)) < 0
+        || stateWrite(&versionTwelveOutput, versionTwelveValues.data(),
+            sizeof(versionTwelveValues)) < 0
+        || stateWrite(&versionTwelveOutput, &versionTwelveScore,
+            sizeof(versionTwelveScore)) < 0) {
+        return false;
+    }
+    versionTwelve.offset = 0u;
+    clap_istream_t versionTwelveInput { &versionTwelve, stateRead };
+    if (!state->load(plugin, &versionTwelveInput)
+        || !params->get_value(plugin, kRigLevelA, &value)
+        || std::abs(value + 7.5) > 1.0e-6
+        || !params->get_value(plugin, kRigPanB, &value)
+        || std::abs(value + 0.25) > 1.0e-6
+        || !params->get_value(plugin, kSpeakerA, &value) || value != 2.0
+        || !params->get_value(plugin, kSpeakerB, &value) || value != 2.0) {
+        std::cerr << "version 12 Processor Stack state did not migrate\n";
+        return false;
+    }
+    MemoryState migratedVersionTwelve;
+    clap_ostream_t migratedVersionTwelveOutput {
+        &migratedVersionTwelve, stateWrite };
+    if (!state->save(plugin, &migratedVersionTwelveOutput)) return false;
+    s3g::ProcessorStackScoreProgram migratedVersionTwelveScore;
+    std::memcpy(&migratedVersionTwelveScore,
+        migratedVersionTwelve.bytes.data() + currentScoreOffset,
+        sizeof(migratedVersionTwelveScore));
+    if (s3g::processorStackScoreCell(migratedVersionTwelveScore,
+            1u, 3u, 1u, 2u) != 9) {
+        std::cerr << "version 12 Processor Stack score was not preserved\n";
+        return false;
+    }
+
+    LegacyHeader versionElevenHeader { 0x31545350u, 11u, 105u, 0u };
+    std::array<double, 105u> versionElevenValues {};
+    for (uint32_t index = 0u; index < versionElevenValues.size(); ++index) {
+        versionElevenValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionElevenValues[static_cast<size_t>(kPairAmount - 1u)] = 1.0;
+    auto versionElevenScore = s3g::makeDefaultProcessorStackScoreProgram();
+    s3g::setProcessorStackScoreCell(versionElevenScore,
+        0u, 0u, 0u, 0u, 9);
+    MemoryState versionEleven;
+    clap_ostream_t versionElevenOutput { &versionEleven, stateWrite };
+    if (stateWrite(&versionElevenOutput, &versionElevenHeader,
+            sizeof(versionElevenHeader)) < 0
+        || stateWrite(&versionElevenOutput, versionElevenValues.data(),
+            sizeof(versionElevenValues)) < 0
+        || stateWrite(&versionElevenOutput, &versionElevenScore,
+            sizeof(versionElevenScore)) < 0) {
+        return false;
+    }
+    versionEleven.offset = 0u;
+    clap_istream_t versionElevenInput { &versionEleven, stateRead };
+    if (!state->load(plugin, &versionElevenInput)
+        || !params->get_value(plugin, kRigLevelA, &value) || value != 0.0
+        || !params->get_value(plugin, kRigLevelB, &value) || value != 0.0
+        || !params->get_value(plugin, kRigPanA, &value) || value != -1.0
+        || !params->get_value(plugin, kRigPanB, &value) || value != 1.0
+        || !params->get_value(plugin, kRigMuteA, &value) || value != 0.0
+        || !params->get_value(plugin, kRigMuteB, &value) || value != 0.0) {
+        std::cerr << "version 11 Processor Stack mixer state did not migrate\n";
+        return false;
+    }
+    MemoryState migratedVersionEleven;
+    clap_ostream_t migratedVersionElevenOutput {
+        &migratedVersionEleven, stateWrite };
+    if (!state->save(plugin, &migratedVersionElevenOutput)
+        || migratedVersionEleven.bytes.size() != currentStateSize) {
+        std::cerr << "version 11 Processor Stack state did not resave\n";
+        return false;
+    }
+    s3g::ProcessorStackScoreProgram migratedVersionElevenScore;
+    std::memcpy(&migratedVersionElevenScore,
+        migratedVersionEleven.bytes.data() + currentScoreOffset,
+        sizeof(migratedVersionElevenScore));
+    if (s3g::processorStackScoreCell(
+            migratedVersionElevenScore, 0u, 0u, 0u, 0u) != 9) {
+        std::cerr << "version 11 Processor Stack score was not preserved\n";
+        return false;
+    }
+
     LegacyHeader versionTenHeader { 0x31545350u, 10u, 105u, 0u };
     std::array<double, 105u> versionTenValues {};
     for (uint32_t index = 0u; index < versionTenValues.size(); ++index) {
@@ -1054,13 +1245,13 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     clap_ostream_t migratedVersionTenOutput {
         &migratedVersionTen, stateWrite };
     if (!state->save(plugin, &migratedVersionTenOutput)
-        || migratedVersionTen.bytes.size() != 2656u) {
+        || migratedVersionTen.bytes.size() != currentStateSize) {
         std::cerr << "version 10 Processor Stack score did not resave\n";
         return false;
     }
     s3g::ProcessorStackScoreProgram migratedScore;
     constexpr size_t scoreOffset = sizeof(LegacyHeader)
-        + sizeof(std::array<double, 105u>);
+        + sizeof(std::array<double, kParamSpecs.size()>);
     std::memcpy(&migratedScore,
         migratedVersionTen.bytes.data() + scoreOffset,
         sizeof(migratedScore));
