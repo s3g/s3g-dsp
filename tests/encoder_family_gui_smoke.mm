@@ -8524,6 +8524,28 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
+        if (ok && documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.processor-stack") == 0) {
+            failureStage = "documentation Processor Stack Score page";
+            @try {
+                ok = [document respondsToSelector:
+                    @selector(setDocumentationPage:)];
+                if (ok) {
+                    [document setDocumentationPage:3u];
+                    ok = [document respondsToSelector:
+                        @selector(loadDocumentationScore)];
+                    if (ok) [document loadDocumentationScore];
+                    NSTimer* timer = [document valueForKey:@"timer"];
+                    ok = timer
+                        && std::abs(timer.timeInterval - 1.0 / 60.0)
+                            < 1.0e-9
+                        && timer.tolerance <= 1.0 / 240.0 + 1.0e-9;
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         if (ok) failureStage = "render";
         if (ok) {
             NSData* rendered = [document dataWithPDFInsideRect:[document bounds]];

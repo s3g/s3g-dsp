@@ -1,5 +1,6 @@
 #include "s3g_processor_stack.h"
 #include "s3g_processor_stack_presets.h"
+#include "s3g_processor_stack_score.h"
 
 #include <algorithm>
 #include <array>
@@ -1117,6 +1118,343 @@ int main()
         std::cerr << "arpeggiator B missed its host-synced phase boundary\n";
         return 1;
     }
+
+    auto scoreProgram = s3g::makeDefaultProcessorStackScoreProgram();
+    scoreProgram.arrangement[0u] = 2u;
+    scoreProgram.arrangement[1u] = 1u;
+    s3g::setProcessorStackScoreCell(scoreProgram,
+        2u, 0u, 0u, 0u, 0);
+    s3g::setProcessorStackScoreCell(scoreProgram,
+        2u, 0u, 0u, 1u, 2);
+    s3g::setProcessorStackScoreCell(scoreProgram,
+        2u, 0u, 1u, 0u, 7);
+    const auto scoreStart = s3g::processorStackScorePosition(
+        scoreProgram, 0.0, 0.25, 2u);
+    const auto scoreSecondSection = s3g::processorStackScorePosition(
+        scoreProgram, 4.0, 0.25, 2u);
+    std::array<int, 4u> scoreNotes {};
+    const uint32_t scoreNoteCount = s3g::processorStackScoreNotes(
+        scoreProgram, 2u, 0u, 0u, scoreNotes.data(),
+        static_cast<uint32_t>(scoreNotes.size()));
+    if (scoreStart.section != 2u || scoreStart.row != 0u
+        || scoreSecondSection.section != 1u
+        || scoreSecondSection.row != 0u || scoreNoteCount != 2u
+        || scoreNotes[0u] != 40 || scoreNotes[1u] != 47) {
+        std::cerr << "dual-player score arrangement or tablature mapping failed\n";
+        return 1;
+    }
+    s3g::setProcessorStackScoreCell(scoreProgram,
+        2u, 1u, 0u, 0u, s3g::kProcessorStackScoreHold);
+    std::array<int, s3g::kProcessorStackScoreStringCount> scoreCommands {};
+    if (s3g::processorStackScoreStringCommands(scoreProgram,
+            2u, 1u, 0u, scoreCommands.data(),
+            static_cast<uint32_t>(scoreCommands.size()))
+            != scoreCommands.size()
+        || scoreCommands[0u] != s3g::kProcessorStackScoreHold
+        || scoreCommands[1u] != s3g::kProcessorStackScoreRest) {
+        std::cerr << "score hold command was not preserved in tablature mapping\n";
+        return 1;
+    }
+
+    s3g::setProcessorStackScoreLock(scoreProgram, 2u, 0u, 0u, 0u,
+        s3g::ProcessorStackScoreLockControl::Bite, 0.21);
+    s3g::setProcessorStackScoreLock(scoreProgram, 2u, 0u, 1u, 0u,
+        s3g::ProcessorStackScoreLockControl::Circuit, 1.0);
+    auto lockedParams = s3g::processorStackScoreParamsForRow(
+        scoreProgram, reference, 2u, 0u);
+    if (std::abs(lockedParams.bite - 0.21f) > 2.0e-5f
+        || lockedParams.circuitB != s3g::ProcessorStackCircuit::Diode
+        || lockedParams.linkPedal) {
+        std::cerr << "per-player score row locks were not applied\n";
+        return 1;
+    }
+    auto invalidScore = scoreProgram;
+    invalidScore.locks[0u].control = 0xffu;
+    invalidScore = s3g::sanitizeProcessorStackScoreProgram(invalidScore);
+    if (invalidScore.locks[0u].control != static_cast<uint8_t>(
+            s3g::ProcessorStackScoreLockControl::None)) {
+        std::cerr << "invalid score row lock was not sanitized\n";
+        return 1;
+    }
+
+    const auto generatedScore = s3g::generateProcessorStackScore(0x12345678u);
+    const auto repeatedGeneratedScore =
+        s3g::generateProcessorStackScore(0x12345678u);
+    const auto alternateGeneratedScore =
+        s3g::generateProcessorStackScore(0x87654321u);
+    if (std::memcmp(&generatedScore, &repeatedGeneratedScore,
+            sizeof(generatedScore)) != 0
+        || std::memcmp(&generatedScore, &alternateGeneratedScore,
+            sizeof(generatedScore)) == 0) {
+        std::cerr << "Score generation was not deterministic by seed\n";
+        return 1;
+    }
+    std::array<bool, s3g::kProcessorStackScoreSectionCount> arranged {};
+    for (const auto section : generatedScore.arrangement) {
+        if (section < arranged.size()) arranged[section] = true;
+    }
+    for (const bool present : arranged) {
+        if (present) continue;
+        std::cerr << "generated Score form omitted a guitar section\n";
+        return 1;
+    }
+    const int generatedRoot = s3g::processorStackScoreCell(
+        generatedScore, 0u, 0u, 0u, 0u);
+    if (generatedRoot < 0
+        || s3g::processorStackScoreCell(
+            generatedScore, 0u, 0u, 0u, 1u) != generatedRoot + 2
+        || s3g::processorStackScoreCell(
+            generatedScore, 0u, 0u, 0u, 2u) != generatedRoot + 2) {
+        std::cerr << "generated power riff did not preserve guitar fingering\n";
+        return 1;
+    }
+    uint32_t soloRows = 0u;
+    uint32_t soloHoldCells = 0u;
+    int soloMinimumFret = s3g::kProcessorStackScoreMaximumFret;
+    int soloMaximumFret = 0;
+    for (uint32_t row = 0u;
+         row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+        uint32_t rowNotes = 0u;
+        for (uint32_t string = 0u;
+             string < s3g::kProcessorStackScoreStringCount; ++string) {
+            const int fret = s3g::processorStackScoreCell(
+                generatedScore, 2u, row, 0u, string);
+            if (fret == s3g::kProcessorStackScoreHold) {
+                ++soloHoldCells;
+                continue;
+            }
+            if (fret < 0) continue;
+            ++rowNotes;
+            soloMinimumFret = std::min(soloMinimumFret, fret);
+            soloMaximumFret = std::max(soloMaximumFret, fret);
+        }
+        if (rowNotes > 0u) ++soloRows;
+    }
+    if (soloRows < 12u || soloHoldCells < 2u
+        || soloMaximumFret - soloMinimumFret > 3) {
+        std::cerr << "generated metal solo lost its box or hold chain\n";
+        return 1;
+    }
+    for (const auto& lock : generatedScore.locks) {
+        if (lock.control == static_cast<uint8_t>(
+                s3g::ProcessorStackScoreLockControl::None)) continue;
+        std::cerr << "Score generator changed timbre row locks\n";
+        return 1;
+    }
+
+    auto alterationSource = generatedScore;
+    s3g::setProcessorStackScoreLock(alterationSource, 1u, 0u, 0u, 0u,
+        s3g::ProcessorStackScoreLockControl::Sag, 0.73);
+    const auto generatedLead = s3g::randomizeProcessorStackScoreLead(
+        alterationSource, 1u, 0x4c454144u);
+    uint32_t leadRows = 0u;
+    uint32_t leadHoldCells = 0u;
+    for (uint32_t row = 0u;
+         row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+        for (uint32_t player = 0u;
+             player < s3g::kProcessorStackScorePlayerCount; ++player) {
+            uint32_t notes = 0u;
+            uint32_t commands = 0u;
+            for (uint32_t string = 0u;
+                 string < s3g::kProcessorStackScoreStringCount; ++string) {
+                const int cell = s3g::processorStackScoreCell(
+                    generatedLead, 1u, row, player, string);
+                notes += cell >= 0 ? 1u : 0u;
+                commands += cell != s3g::kProcessorStackScoreRest ? 1u : 0u;
+                leadHoldCells += cell == s3g::kProcessorStackScoreHold
+                    ? 1u : 0u;
+            }
+            if (commands > 1u) {
+                std::cerr << "lead randomizer generated a chord/hold overlap\n";
+                return 1;
+            }
+            if (player == 0u && notes == 1u) ++leadRows;
+        }
+    }
+    if (leadRows < 11u || leadHoldCells < 2u
+        || generatedLead.arrangement != alterationSource.arrangement
+        || std::memcmp(generatedLead.locks.data(),
+            alterationSource.locks.data(),
+            sizeof(generatedLead.locks)) != 0) {
+        std::cerr << "lead randomizer changed form/locks or lacked single notes\n";
+        return 1;
+    }
+
+    const auto generatedRiff = s3g::randomizeProcessorStackScoreRiff(
+        alterationSource, 1u, 0x52494646u);
+    uint32_t riffChordRows = 0u;
+    uint32_t riffSingleRows = 0u;
+    uint32_t riffHoldCells = 0u;
+    for (uint32_t row = 0u;
+         row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+        uint32_t notes = 0u;
+        for (uint32_t string = 0u;
+             string < s3g::kProcessorStackScoreStringCount; ++string) {
+            const int cell = s3g::processorStackScoreCell(
+                generatedRiff, 1u, row, 0u, string);
+            notes += cell >= 0 ? 1u : 0u;
+            riffHoldCells += cell == s3g::kProcessorStackScoreHold ? 1u : 0u;
+        }
+        if (notes >= 2u) ++riffChordRows;
+        else if (notes == 1u) ++riffSingleRows;
+    }
+    if (riffChordRows <= riffSingleRows || riffHoldCells == 0u
+        || generatedRiff.arrangement != alterationSource.arrangement
+        || std::memcmp(generatedRiff.locks.data(),
+            alterationSource.locks.data(),
+            sizeof(generatedRiff.locks)) != 0) {
+        std::cerr << "riff randomizer did not preserve chord-oriented mechanics\n";
+        return 1;
+    }
+
+    const auto generatedLocks = s3g::randomizeProcessorStackScoreLocks(
+        alterationSource, 1u, 0x4c4f434bu);
+    uint32_t generatedLockCount = 0u;
+    uint32_t continuedLockCells = 0u;
+    for (uint32_t row = 0u;
+         row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+        for (uint32_t player = 0u;
+             player < s3g::kProcessorStackScorePlayerCount; ++player) {
+            for (uint32_t slot = 0u;
+                 slot < s3g::kProcessorStackScoreLocksPerPlayer; ++slot) {
+                const auto lock = s3g::processorStackScoreLock(
+                    generatedLocks, 1u, row, player, slot);
+                if (lock.control == static_cast<uint8_t>(
+                        s3g::ProcessorStackScoreLockControl::None)) continue;
+                ++generatedLockCount;
+                if (row == 0u) continue;
+                const auto previous = s3g::processorStackScoreLock(
+                    generatedLocks, 1u, row - 1u, player, slot);
+                continuedLockCells += std::memcmp(
+                    &lock, &previous, sizeof(lock)) == 0 ? 1u : 0u;
+            }
+        }
+    }
+    if (generatedLocks.cells != alterationSource.cells
+        || generatedLocks.arrangement != alterationSource.arrangement
+        || generatedLockCount < 16u || generatedLockCount > 32u
+        || continuedLockCells < 8u) {
+        std::cerr << "lock randomizer changed notes/form or missed lock runs\n";
+        return 1;
+    }
+    for (uint32_t section = 0u;
+         section < s3g::kProcessorStackScoreSectionCount; ++section) {
+        if (section == 1u) continue;
+        for (uint32_t row = 0u;
+             row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+            for (uint32_t player = 0u;
+                 player < s3g::kProcessorStackScorePlayerCount; ++player) {
+                for (uint32_t slot = 0u;
+                     slot < s3g::kProcessorStackScoreLocksPerPlayer; ++slot) {
+                    const auto before = s3g::processorStackScoreLock(
+                        alterationSource, section, row, player, slot);
+                    const auto after = s3g::processorStackScoreLock(
+                        generatedLocks, section, row, player, slot);
+                    if (std::memcmp(&before, &after, sizeof(before)) == 0) {
+                        continue;
+                    }
+                    std::cerr << "lock randomizer escaped the selected section\n";
+                    return 1;
+                }
+            }
+        }
+    }
+
+    auto audibleLockBase = reference;
+    audibleLockBase.feedback = 0.0f;
+    audibleLockBase.targetGlitch = 0.0f;
+    audibleLockBase.circuit = s3g::ProcessorStackCircuit::Shred;
+    audibleLockBase.bite = 0.18f;
+    auto audibleLockProgram = s3g::makeDefaultProcessorStackScoreProgram();
+    s3g::setProcessorStackScoreLock(audibleLockProgram, 0u, 0u, 0u, 0u,
+        s3g::ProcessorStackScoreLockControl::Circuit, 1.0);
+    s3g::setProcessorStackScoreLock(audibleLockProgram, 0u, 0u, 0u, 1u,
+        s3g::ProcessorStackScoreLockControl::Bite, 0.92);
+    const auto audibleLockedParams = s3g::processorStackScoreParamsForRow(
+        audibleLockProgram, audibleLockBase, 0u, 0u);
+    const auto audibleBaseStats = render(audibleLockBase,
+        {{ 0u, 45 }}, {{ 8000u, 45 }}, 16000u);
+    const auto audibleLockedStats = render(audibleLockedParams,
+        {{ 0u, 45 }}, {{ 8000u, 45 }}, 16000u);
+    const double lockEnergyDifference = std::abs(
+        audibleLockedStats.energy - audibleBaseStats.energy);
+    const double lockBrightnessDifference = std::abs(
+        audibleLockedStats.differenceEnergy
+            - audibleBaseStats.differenceEnergy);
+    if (!audibleBaseStats.finite || !audibleLockedStats.finite
+        || audibleLockedParams.circuit
+            != s3g::ProcessorStackCircuit::Diode
+        || std::abs(audibleLockedParams.bite - 0.92f) > 2.0e-5f
+        || (lockEnergyDifference < audibleBaseStats.energy * 0.02
+            && lockBrightnessDifference
+                < audibleBaseStats.differenceEnergy * 0.02)) {
+        std::cerr << "matched row locks did not produce an audible rig change: "
+                  << audibleBaseStats.energy << " -> "
+                  << audibleLockedStats.energy << " brightness="
+                  << audibleBaseStats.differenceEnergy << " -> "
+                  << audibleLockedStats.differenceEnergy << "\n";
+        return 1;
+    }
+
+    s3g::ProcessorStack scoreInstrument;
+    scoreInstrument.prepare(48000.0);
+    auto scoreParams = reference;
+    scoreParams.pairAmount = 1.0f;
+    scoreParams.pairRelation = s3g::ProcessorStackPairRelation::FifthUp;
+    scoreParams.feedback = 0.0f;
+    scoreParams.feedbackB = 0.0f;
+    scoreInstrument.setParams(scoreParams);
+    scoreInstrument.setScorePlaybackActive(true);
+    std::array<int, s3g::ProcessorStack::kScoreStringCount> tabCommands {};
+    tabCommands.fill(s3g::kProcessorStackScoreRest);
+    tabCommands[0u] = 40;
+    if (scoreInstrument.scorePlayerTabRow(0u, tabCommands.data(),
+            static_cast<uint32_t>(tabCommands.size())) != 1u) {
+        std::cerr << "score fret did not create one pick attack\n";
+        return 1;
+    }
+    tabCommands[0u] = s3g::kProcessorStackScoreHold;
+    scoreInstrument.scorePrepareNextTabRow(0u,
+        tabCommands.data(), static_cast<uint32_t>(tabCommands.size()));
+    if (scoreInstrument.scorePlayerTabRow(0u, tabCommands.data(),
+            static_cast<uint32_t>(tabCommands.size())) != 0u) {
+        std::cerr << "score hold retriggered its carried note\n";
+        return 1;
+    }
+    tabCommands[0u] = 40;
+    if (scoreInstrument.scorePlayerTabRow(0u, tabCommands.data(),
+            static_cast<uint32_t>(tabCommands.size())) != 1u) {
+        std::cerr << "repeated score fret did not create a fresh attack\n";
+        return 1;
+    }
+    const std::array<int, 2u> scoreChord {{ 40, 47 }};
+    scoreInstrument.scorePlayerChord(0u,
+        scoreChord.data(), static_cast<uint32_t>(scoreChord.size()));
+    scoreInstrument.scoreRelatedChord(scoreChord.data(),
+        static_cast<uint32_t>(scoreChord.size()));
+    if (scoreInstrument.partnerRootNote() != 47) {
+        std::cerr << "score relationship did not derive Player B from A\n";
+        return 1;
+    }
+    double scoreEnergy = 0.0;
+    for (uint32_t frame = 0u; frame < 2048u; ++frame) {
+        float left = 0.0f;
+        float right = 0.0f;
+        scoreInstrument.processFrame(left, right);
+        if (!std::isfinite(left) || !std::isfinite(right)) {
+            std::cerr << "dual-player score render was not finite\n";
+            return 1;
+        }
+        scoreEnergy += static_cast<double>(left) * left
+            + static_cast<double>(right) * right;
+    }
+    if (scoreEnergy < 1.0e-8) {
+        std::cerr << "dual-player score render was silent\n";
+        return 1;
+    }
+    scoreInstrument.scoreReleasePlayer(0u);
+    scoreInstrument.scoreReleasePlayer(1u);
+    scoreInstrument.setScorePlaybackActive(false);
 
     s3g::ProcessorStack slowArpeggiator;
     slowArpeggiator.prepare(48000.0);

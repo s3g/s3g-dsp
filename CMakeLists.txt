@@ -897,7 +897,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_executable(s3g_processor_stack_clap_smoke
       tests/processor_stack_clap_smoke.cpp)
     target_include_directories(s3g_processor_stack_clap_smoke
-      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
     target_link_libraries(s3g_processor_stack_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

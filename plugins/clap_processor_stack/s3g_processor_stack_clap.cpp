@@ -1,5 +1,6 @@
 #include "s3g_processor_stack.h"
 #include "s3g_processor_stack_presets.h"
+#include "s3g_processor_stack_score.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_drum_midi_receive.h"
@@ -34,7 +35,11 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x31545350u; // "PST1" little endian.
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kStateVersion = 11u;
+constexpr uint32_t kVersionTenStateVersion = 10u;
+constexpr uint32_t kVersionTenParamCount = 105u;
+constexpr uint32_t kVersionNineStateVersion = 9u;
+constexpr uint32_t kVersionNineParamCount = 100u;
 constexpr uint32_t kVersionEightStateVersion = 8u;
 constexpr uint32_t kVersionEightParamCount = 99u;
 constexpr uint32_t kVersionSevenStateVersion = 7u;
@@ -156,6 +161,11 @@ enum ParamId : clap_id {
     kGlitchRatchetBParamId,
     kOverloadMaskBParamId,
     kArpHostSyncParamId,
+    kScoreEnableParamId,
+    kScoreRateParamId,
+    kScoreGateParamId,
+    kScoreLengthParamId,
+    kScoreBSourceParamId,
 };
 
 struct ParamDef {
@@ -168,7 +178,7 @@ struct ParamDef {
     bool stepped;
 };
 
-constexpr std::array<ParamDef, 100u> kParamDefs {{
+constexpr std::array<ParamDef, 105u> kParamDefs {{
     { kModeParamId, "Mode", "Play", 0.0, 2.0, 0.0, true },
     { kShapeParamId, "Shape", "Play", 0.0, 1.0, 0.58, false },
     { kWireParamId, "String", "Play", 0.0, 1.0, 0.56, false },
@@ -269,11 +279,16 @@ constexpr std::array<ParamDef, 100u> kParamDefs {{
     { kGlitchRatchetBParamId, "Glitch Ratchet B", "Loop B", 0.0, 1.0, 0.46, false },
     { kOverloadMaskBParamId, "Overload Mask B", "Loop B", 0.0, 1.0, 0.76, false },
     { kArpHostSyncParamId, "Arp Host Sync", "Routing", 0.0, 1.0, 0.0, true },
+    { kScoreEnableParamId, "Score Playback", "Stack Score", 0.0, 1.0, 0.0, true },
+    { kScoreRateParamId, "Score Rate", "Stack Score", 0.0, 8.0, 2.0, true },
+    { kScoreGateParamId, "Score Gate", "Stack Score", 0.05, 1.0, 0.72, false },
+    { kScoreLengthParamId, "Arrangement Length", "Stack Score", 1.0, 8.0, 4.0, true },
+    { kScoreBSourceParamId, "Player B Source", "Stack Score", 0.0, 1.0, 0.0, true },
 }};
 
 constexpr uint32_t kSynthParamCount = 98u;
 constexpr uint32_t kPublishedParamCount =
-    static_cast<uint32_t>(kArpHostSyncParamId) + 1u;
+    static_cast<uint32_t>(kScoreBSourceParamId) + 1u;
 
 constexpr std::array<clap_id, kSynthParamCount> kSynthParamIds {{
     kModeParamId, kShapeParamId, kWireParamId, kPickParamId,
@@ -321,7 +336,18 @@ struct SavedStateHeader {
 struct SavedState {
     SavedStateHeader header {};
     std::array<double, kParamDefs.size()> values {};
+    s3g::ProcessorStackScoreProgram score {};
 };
+
+struct VersionTenScoreProgram {
+    std::array<int8_t, s3g::kProcessorStackScoreCellCount> cells {};
+    std::array<uint8_t, s3g::kProcessorStackScoreArrangementSlots>
+        arrangement {};
+};
+
+static_assert(sizeof(VersionTenScoreProgram) == 776u);
+static_assert(sizeof(s3g::ProcessorStackScoreProgram) == 1800u);
+static_assert(sizeof(SavedState) == 2656u);
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -333,6 +359,32 @@ struct Plugin {
     s3g::ProcessorStack engine {};
     s3g::ProcessorStackParams params {};
     double midiReceive = 0.0;
+    bool scoreEnabled = false;
+    s3g::ProcessorStackArpRate scoreRate =
+        s3g::ProcessorStackArpRate::Sixteenth;
+    float scoreGate = 0.72f;
+    uint32_t scoreLength = 4u;
+    bool scoreBRelatesToA = false;
+    std::array<std::atomic<int32_t>, s3g::kProcessorStackScoreCellCount>
+        scoreCells {};
+    std::array<std::atomic<uint32_t>,
+        s3g::kProcessorStackScoreArrangementSlots> scoreArrangement {};
+    std::array<std::atomic<uint32_t>,
+        s3g::kProcessorStackScoreLockCellCount> scoreLocks {};
+    std::atomic<uint64_t> scoreRevision { 0u };
+    std::atomic<int32_t> scoreVisualSection { -1 };
+    std::atomic<int32_t> scoreVisualRow { -1 };
+    std::atomic<int32_t> scoreVisualSlot { -1 };
+    std::atomic<uint64_t> scoreVisualRevision { 0u };
+    s3g::ProcessorStackScoreProgram scorePlaybackProgram {};
+    int64_t scoreLastGlobalRow = std::numeric_limits<int64_t>::min();
+    uint64_t scoreAppliedRevision = 0u;
+    uint64_t scoreAppliedParameterRevision = 0u;
+    int32_t scorePublishedSection = -1;
+    int32_t scorePublishedRow = -1;
+    int32_t scorePublishedSlot = -1;
+    bool scoreGateClosed = true;
+    bool scoreWasRunning = false;
     std::array<std::atomic<double>, kPublishedParamCount> publishedParams {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<bool> tailChangePending { false };
@@ -349,6 +401,105 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+s3g::ProcessorStackScoreProgram scoreProgramSnapshot(const Plugin& plugin)
+{
+    s3g::ProcessorStackScoreProgram program;
+    for (size_t index = 0u; index < program.cells.size(); ++index) {
+        program.cells[index] = static_cast<int8_t>(std::clamp(
+            plugin.scoreCells[index].load(std::memory_order_acquire),
+            static_cast<int32_t>(s3g::kProcessorStackScoreHold),
+            static_cast<int32_t>(s3g::kProcessorStackScoreMaximumFret)));
+    }
+    for (size_t slot = 0u; slot < program.arrangement.size(); ++slot) {
+        program.arrangement[slot] = static_cast<uint8_t>(std::min<uint32_t>(
+            plugin.scoreArrangement[slot].load(std::memory_order_acquire),
+            s3g::kProcessorStackScoreSectionCount - 1u));
+    }
+    for (size_t index = 0u; index < program.locks.size(); ++index) {
+        const uint32_t packed = plugin.scoreLocks[index].load(
+            std::memory_order_acquire);
+        program.locks[index].control = static_cast<uint8_t>(packed & 0xffu);
+        program.locks[index].reserved = 0u;
+        program.locks[index].normalized = static_cast<uint16_t>(
+            (packed >> 8u) & 0xffffu);
+    }
+    return program;
+}
+
+void notifyScoreChanged(Plugin& plugin)
+{
+    if (!plugin.host) return;
+    if (plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+    if (!plugin.host->get_extension) return;
+    const auto* state = static_cast<const clap_host_state_t*>(
+        plugin.host->get_extension(plugin.host, CLAP_EXT_STATE));
+    if (state && state->mark_dirty) state->mark_dirty(plugin.host);
+}
+
+void storeScoreProgram(Plugin& plugin,
+    s3g::ProcessorStackScoreProgram program, bool notifyHost)
+{
+    program = s3g::sanitizeProcessorStackScoreProgram(program);
+    for (size_t index = 0u; index < program.cells.size(); ++index) {
+        plugin.scoreCells[index].store(
+            program.cells[index], std::memory_order_release);
+    }
+    for (size_t slot = 0u; slot < program.arrangement.size(); ++slot) {
+        plugin.scoreArrangement[slot].store(
+            program.arrangement[slot], std::memory_order_release);
+    }
+    for (size_t index = 0u; index < program.locks.size(); ++index) {
+        const auto lock = program.locks[index];
+        const uint32_t packed = static_cast<uint32_t>(lock.control)
+            | (static_cast<uint32_t>(lock.normalized) << 8u);
+        plugin.scoreLocks[index].store(packed, std::memory_order_release);
+    }
+    plugin.scoreRevision.fetch_add(1u, std::memory_order_acq_rel);
+    if (notifyHost) notifyScoreChanged(plugin);
+}
+
+void setScoreLock(Plugin& plugin, uint32_t section, uint32_t row,
+    uint32_t player, uint32_t slot,
+    s3g::ProcessorStackScoreLockControl control, double normalized)
+{
+    s3g::ProcessorStackScoreLockCell lock;
+    lock.control = static_cast<uint8_t>(
+        static_cast<uint32_t>(control)
+            < s3g::kProcessorStackScoreLockControlCount
+        ? control : s3g::ProcessorStackScoreLockControl::None);
+    normalized = std::isfinite(normalized) ? normalized : 0.0;
+    lock.normalized = static_cast<uint16_t>(std::lround(
+        std::clamp(normalized, 0.0, 1.0) * 65535.0));
+    const uint32_t packed = static_cast<uint32_t>(lock.control)
+        | (static_cast<uint32_t>(lock.normalized) << 8u);
+    const size_t index = s3g::processorStackScoreLockIndex(
+        std::min(section, s3g::kProcessorStackScoreSectionCount - 1u),
+        std::min(row, s3g::kProcessorStackScoreRowsPerSection - 1u),
+        std::min(player, s3g::kProcessorStackScorePlayerCount - 1u),
+        std::min(slot, s3g::kProcessorStackScoreLocksPerPlayer - 1u));
+    plugin.scoreLocks[index].store(packed, std::memory_order_release);
+    plugin.scoreRevision.fetch_add(1u, std::memory_order_acq_rel);
+    notifyScoreChanged(plugin);
+}
+
+void setScoreCell(Plugin& plugin, uint32_t section, uint32_t row,
+    uint32_t player, uint32_t string, int fret)
+{
+    const size_t index = s3g::processorStackScoreCellIndex(
+        std::min(section, s3g::kProcessorStackScoreSectionCount - 1u),
+        std::min(row, s3g::kProcessorStackScoreRowsPerSection - 1u),
+        std::min(player, s3g::kProcessorStackScorePlayerCount - 1u),
+        std::min(string, s3g::kProcessorStackScoreStringCount - 1u));
+    plugin.scoreCells[index].store(std::clamp(fret,
+        static_cast<int>(s3g::kProcessorStackScoreHold),
+        static_cast<int>(s3g::kProcessorStackScoreMaximumFret)),
+        std::memory_order_release);
+    plugin.scoreRevision.fetch_add(1u, std::memory_order_acq_rel);
+    notifyScoreChanged(plugin);
 }
 
 const ParamDef* paramDef(clap_id id)
@@ -484,6 +635,13 @@ double rawParamValue(const Plugin& plugin, clap_id id)
     case kGlitchRatchetBParamId: return params.glitchRatchetB;
     case kOverloadMaskBParamId: return params.overloadMaskB;
     case kArpHostSyncParamId: return params.arpHostSync ? 1.0 : 0.0;
+    case kScoreEnableParamId: return plugin.scoreEnabled ? 1.0 : 0.0;
+    case kScoreRateParamId:
+        return static_cast<double>(plugin.scoreRate);
+    case kScoreGateParamId: return plugin.scoreGate;
+    case kScoreLengthParamId: return plugin.scoreLength;
+    case kScoreBSourceParamId:
+        return plugin.scoreBRelatesToA ? 1.0 : 0.0;
     default: return 0.0;
     }
 }
@@ -497,6 +655,33 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         plugin.midiReceive = value;
         publishParam(plugin, id, value);
         plugin.parameterRevision.fetch_add(1u, std::memory_order_release);
+        return;
+    }
+    if (id == kScoreEnableParamId || id == kScoreRateParamId
+        || id == kScoreGateParamId || id == kScoreLengthParamId
+        || id == kScoreBSourceParamId) {
+        switch (id) {
+        case kScoreEnableParamId: plugin.scoreEnabled = value >= 0.5; break;
+        case kScoreRateParamId:
+            plugin.scoreRate = static_cast<s3g::ProcessorStackArpRate>(
+                static_cast<uint32_t>(std::lround(value)));
+            break;
+        case kScoreGateParamId:
+            plugin.scoreGate = static_cast<float>(value);
+            break;
+        case kScoreLengthParamId:
+            plugin.scoreLength = static_cast<uint32_t>(std::lround(value));
+            break;
+        case kScoreBSourceParamId:
+            plugin.scoreBRelatesToA = value >= 0.5;
+            break;
+        default: break;
+        }
+        publishParam(plugin, id, rawParamValue(plugin, id));
+        plugin.parameterRevision.fetch_add(1u, std::memory_order_release);
+        if (plugin.host && plugin.host->request_process) {
+            plugin.host->request_process(plugin.host);
+        }
         return;
     }
 
@@ -1034,7 +1219,21 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     instance->engine.setPitchBendSemitones(0.0f);
     instance->engine.setTempoBpm(120.0f);
     instance->engine.setHostTransportBeat(0.0, false);
+    instance->engine.setScorePlaybackActive(false);
     instance->tempoBpm = 120.0;
+    instance->scoreLastGlobalRow = std::numeric_limits<int64_t>::min();
+    instance->scoreAppliedRevision = 0u;
+    instance->scoreAppliedParameterRevision = 0u;
+    instance->scoreGateClosed = true;
+    instance->scoreWasRunning = false;
+    instance->scorePublishedSection = -1;
+    instance->scorePublishedRow = -1;
+    instance->scorePublishedSlot = -1;
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_acq_rel);
+    instance->scoreVisualSection.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRow.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualSlot.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_release);
     instance->active = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
     return true;
@@ -1050,7 +1249,21 @@ void reset(const clap_plugin_t* plugin)
     instance->engine.reset();
     instance->engine.setParams(instance->params);
     instance->engine.setHostTransportBeat(0.0, false);
+    instance->engine.setScorePlaybackActive(false);
     instance->tempoBpm = 120.0;
+    instance->scoreLastGlobalRow = std::numeric_limits<int64_t>::min();
+    instance->scoreAppliedRevision = 0u;
+    instance->scoreAppliedParameterRevision = 0u;
+    instance->scoreGateClosed = true;
+    instance->scoreWasRunning = false;
+    instance->scorePublishedSection = -1;
+    instance->scorePublishedRow = -1;
+    instance->scorePublishedSlot = -1;
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_acq_rel);
+    instance->scoreVisualSection.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRow.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualSlot.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_release);
     instance->active = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
@@ -1099,6 +1312,145 @@ void advanceArpTransportClock(ArpTransportClock& clock, double sampleRate)
     clock.tempo = std::max(1.0, clock.tempo + clock.tempoIncrement);
 }
 
+void publishScoreVisual(Plugin& plugin, int32_t section,
+    int32_t row, int32_t slot)
+{
+    if (section == plugin.scorePublishedSection
+        && row == plugin.scorePublishedRow
+        && slot == plugin.scorePublishedSlot) return;
+    plugin.scoreVisualRevision.fetch_add(1u, std::memory_order_acq_rel);
+    plugin.scoreVisualSection.store(section, std::memory_order_relaxed);
+    plugin.scoreVisualRow.store(row, std::memory_order_relaxed);
+    plugin.scoreVisualSlot.store(slot, std::memory_order_relaxed);
+    plugin.scorePublishedSection = section;
+    plugin.scorePublishedRow = row;
+    plugin.scorePublishedSlot = slot;
+    plugin.scoreVisualRevision.fetch_add(1u, std::memory_order_release);
+}
+
+double scoreRowBeats(s3g::ProcessorStackArpRate rate)
+{
+    switch (rate) {
+    case s3g::ProcessorStackArpRate::Eighth: return 0.5;
+    case s3g::ProcessorStackArpRate::EighthTriplet: return 1.0 / 3.0;
+    case s3g::ProcessorStackArpRate::Sixteenth: return 0.25;
+    case s3g::ProcessorStackArpRate::SixteenthTriplet: return 1.0 / 6.0;
+    case s3g::ProcessorStackArpRate::ThirtySecond: return 0.125;
+    case s3g::ProcessorStackArpRate::SixtyFourth: return 0.0625;
+    case s3g::ProcessorStackArpRate::Quarter: return 1.0;
+    case s3g::ProcessorStackArpRate::Half: return 2.0;
+    case s3g::ProcessorStackArpRate::Whole: return 4.0;
+    case s3g::ProcessorStackArpRate::Count: break;
+    }
+    return 0.25;
+}
+
+void processStackScore(Plugin& plugin, const ArpTransportClock& clock)
+{
+    const bool running = plugin.scoreEnabled
+        && clock.playing && clock.hasPosition;
+    if (!running) {
+        if (plugin.scoreWasRunning) {
+            plugin.engine.setParams(plugin.params);
+            plugin.engine.setScorePlaybackActive(false);
+            publishScoreVisual(plugin, -1, -1, -1);
+        } else {
+            plugin.engine.setScorePlaybackActive(false);
+        }
+        plugin.scoreLastGlobalRow = std::numeric_limits<int64_t>::min();
+        plugin.scoreGateClosed = true;
+        plugin.scoreWasRunning = false;
+        return;
+    }
+    plugin.engine.setScorePlaybackActive(true);
+
+    const uint64_t revision = plugin.scoreRevision.load(
+        std::memory_order_acquire);
+    const uint64_t parameterRevision = plugin.parameterRevision.load(
+        std::memory_order_acquire);
+    const bool programChanged = !plugin.scoreWasRunning
+        || revision != plugin.scoreAppliedRevision;
+    if (programChanged) {
+        plugin.scorePlaybackProgram = scoreProgramSnapshot(plugin);
+        plugin.scoreAppliedRevision = revision;
+    }
+    const auto position = s3g::processorStackScorePosition(
+        plugin.scorePlaybackProgram, clock.beat,
+        scoreRowBeats(plugin.scoreRate), plugin.scoreLength);
+    const bool newRow = !plugin.scoreWasRunning
+        || position.globalRow != plugin.scoreLastGlobalRow;
+    const bool paramsChanged = !plugin.scoreWasRunning
+        || parameterRevision != plugin.scoreAppliedParameterRevision;
+    if (newRow || programChanged || paramsChanged) {
+        plugin.engine.setParams(s3g::processorStackScoreParamsForRow(
+            plugin.scorePlaybackProgram, plugin.params,
+            position.section, position.row));
+        plugin.scoreAppliedParameterRevision = parameterRevision;
+    }
+    if (newRow) {
+        const bool consecutive = plugin.scoreWasRunning
+            && position.globalRow == plugin.scoreLastGlobalRow + 1;
+        if (plugin.scoreWasRunning && !consecutive) {
+            // A hold never crosses a host seek or discontinuity: it needs the
+            // immediately preceding tracker row as its source.
+            plugin.engine.scoreReleasePlayer(0u);
+            plugin.engine.scoreReleasePlayer(1u);
+        }
+        std::array<int, s3g::kProcessorStackScoreStringCount> commandsA {};
+        std::array<int, s3g::kProcessorStackScoreStringCount> commandsB {};
+        const uint32_t countA = s3g::processorStackScoreStringCommands(
+            plugin.scorePlaybackProgram,
+            position.section, position.row, 0u,
+            commandsA.data(), static_cast<uint32_t>(commandsA.size()));
+        const uint32_t countB = s3g::processorStackScoreStringCommands(
+            plugin.scorePlaybackProgram,
+            position.section, position.row, 1u,
+            commandsB.data(), static_cast<uint32_t>(commandsB.size()));
+        plugin.engine.scorePlayerTabRow(
+            0u, commandsA.data(), countA, 0.92f);
+        if (plugin.scoreBRelatesToA) {
+            plugin.engine.scoreRelatedTabRow(
+                commandsA.data(), countA, 0.86f);
+        } else {
+            plugin.engine.scorePlayerTabRow(
+                1u, commandsB.data(), countB, 0.86f);
+        }
+        plugin.scoreLastGlobalRow = position.globalRow;
+        plugin.scoreGateClosed = false;
+        plugin.scoreWasRunning = true;
+        publishScoreVisual(plugin,
+            static_cast<int32_t>(position.section),
+            static_cast<int32_t>(position.row),
+            static_cast<int32_t>(position.arrangementSlot));
+    }
+    if (!plugin.scoreGateClosed
+        && position.fraction >= static_cast<double>(plugin.scoreGate)) {
+        const double rowBeats = scoreRowBeats(plugin.scoreRate);
+        const auto next = s3g::processorStackScorePosition(
+            plugin.scorePlaybackProgram,
+            static_cast<double>(position.globalRow + 1) * rowBeats,
+            rowBeats, plugin.scoreLength);
+        std::array<int, s3g::kProcessorStackScoreStringCount> nextA {};
+        std::array<int, s3g::kProcessorStackScoreStringCount> nextB {};
+        const uint32_t nextCountA = s3g::processorStackScoreStringCommands(
+            plugin.scorePlaybackProgram, next.section, next.row, 0u,
+            nextA.data(), static_cast<uint32_t>(nextA.size()));
+        const uint32_t nextCountB = s3g::processorStackScoreStringCommands(
+            plugin.scorePlaybackProgram, next.section, next.row, 1u,
+            nextB.data(), static_cast<uint32_t>(nextB.size()));
+        plugin.engine.scorePrepareNextTabRow(
+            0u, nextA.data(), nextCountA);
+        if (plugin.scoreBRelatesToA) {
+            plugin.engine.scorePrepareNextTabRow(
+                1u, nextA.data(), nextCountA);
+        } else {
+            plugin.engine.scorePrepareNextTabRow(
+                1u, nextB.data(), nextCountB);
+        }
+        plugin.scoreGateClosed = true;
+    }
+}
+
 clap_process_status process(const clap_plugin_t* plugin,
     const clap_process_t* processInfo)
 {
@@ -1142,6 +1494,7 @@ clap_process_status process(const clap_plugin_t* plugin,
                 applyEvent(*instance, event);
             }
         }
+        processStackScore(*instance, transportClock);
         instance->tempoBpm = std::clamp(transportClock.tempo, 20.0, 400.0);
         instance->active = instance->engine.active();
         return instance->active ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
@@ -1177,6 +1530,7 @@ clap_process_status process(const clap_plugin_t* plugin,
         instance->engine.setTempoBpm(static_cast<float>(transportClock.tempo));
         instance->engine.setHostTransportBeat(transportClock.beat,
             transportClock.playing && transportClock.hasPosition);
+        processStackScore(*instance, transportClock);
         float left = 0.0f;
         float right = 0.0f;
         instance->engine.processFrame(left, right);
@@ -1355,6 +1709,18 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (id == kArpHostSyncParamId) {
         std::snprintf(display, size, "%s",
             value >= 0.5 ? "HOST SYNC" : "FREE");
+    } else if (id == kScoreEnableParamId) {
+        std::snprintf(display, size, "%s",
+            value >= 0.5 ? "HOST PLAY" : "OFF");
+    } else if (id == kScoreBSourceParamId) {
+        std::snprintf(display, size, "%s",
+            value >= 0.5 ? "RELATE A" : "EXPLICIT");
+    } else if (id == kScoreRateParamId) {
+        const auto rate = static_cast<s3g::ProcessorStackArpRate>(
+            std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                s3g::kProcessorStackArpRateCount - 1u));
+        std::snprintf(display, size, "%s",
+            s3g::processorStackArpRateName(rate));
     } else if (id == kLinkPedalParamId || id == kLinkAmplifierParamId
         || id == kLinkFeedbackParamId) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "LINK" : "OWN");
@@ -1366,6 +1732,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (id == kArpOctavesParamId || id == kCustomLengthParamId
         || id == kArpOctavesBParamId || id == kCustomLengthBParamId) {
         std::snprintf(display, size, "%.0f", value);
+    } else if (id == kScoreLengthParamId) {
+        std::snprintf(display, size, "%.0f SECTIONS", value);
     } else if (id >= kCustomStep1ParamId && id <= kCustomStep8ParamId) {
         std::snprintf(display, size, "%+.0f", value);
     } else if (id >= kCustomStepB1ParamId && id <= kCustomStepB8ParamId) {
@@ -1392,6 +1760,26 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             return true;
         }
         if (std::strcmp(display, "FREE") == 0) {
+            *value = 0.0;
+            return true;
+        }
+    }
+    if (id == kScoreEnableParamId) {
+        if (std::strcmp(display, "HOST PLAY") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "OFF") == 0) {
+            *value = 0.0;
+            return true;
+        }
+    }
+    if (id == kScoreBSourceParamId) {
+        if (std::strcmp(display, "RELATE A") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "EXPLICIT") == 0) {
             *value = 0.0;
             return true;
         }
@@ -1474,6 +1862,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             }
         }
     }
+    if (id == kScoreRateParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kProcessorStackArpRateCount; ++index) {
+            const auto rate = static_cast<s3g::ProcessorStackArpRate>(index);
+            if (std::strcmp(display, s3g::processorStackArpRateName(rate))
+                == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
     if (id == kPairRelationParamId) {
         for (uint32_t index = 0u;
              index < s3g::kProcessorStackPairRelationCount; ++index) {
@@ -1534,6 +1933,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
                 || id == kDecayParamId || id == kReleaseParamId)
             && suffixIs("ms")) {
         } else if (id == kOutputParamId && suffixIs("dB")) {
+        } else if (id == kScoreLengthParamId
+            && suffixIs("SECTIONS")) {
         } else if (suffixIs("%") && id != kGlideParamId
             && id != kAttackParamId && id != kDecayParamId
             && id != kReleaseParamId
@@ -1583,6 +1984,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     for (uint32_t index = 0u; index < state.values.size(); ++index) {
         state.values[index] = paramValue(*instance, kParamDefs[index].id);
     }
+    state.score = scoreProgramSnapshot(*instance);
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
@@ -1596,6 +1998,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool current = header.magic == kStateMagic
         && header.version == kStateVersion
         && header.valueCount == kParamDefs.size();
+    const bool versionTen = header.magic == kStateMagic
+        && header.version == kVersionTenStateVersion
+        && header.valueCount == kVersionTenParamCount;
+    const bool versionNine = header.magic == kStateMagic
+        && header.version == kVersionNineStateVersion
+        && header.valueCount == kVersionNineParamCount;
     const bool versionEight = header.magic == kStateMagic
         && header.version == kVersionEightStateVersion
         && header.valueCount == kVersionEightParamCount;
@@ -1620,7 +2028,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool versionOne = header.magic == kStateMagic
         && header.version == kVersionOneStateVersion
         && header.valueCount == kVersionOneParamCount;
-    if (!current && !versionEight && !versionSeven && !versionSix && !versionFive
+    if (!current && !versionTen && !versionNine && !versionEight && !versionSeven
+        && !versionSix && !versionFive
         && !versionFour && !versionThree && !versionTwo && !versionOne) {
         return false;
     }
@@ -1628,14 +2037,41 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             static_cast<size_t>(header.valueCount) * sizeof(double))) {
         return false;
     }
+    s3g::ProcessorStackScoreProgram score =
+        s3g::makeDefaultProcessorStackScoreProgram();
+    if (current && !s3g::clap_state::readAll(
+            stream, &score, sizeof(score))) {
+        return false;
+    }
+    if (versionTen) {
+        VersionTenScoreProgram previous;
+        if (!s3g::clap_state::readAll(
+                stream, &previous, sizeof(previous))) return false;
+        score.cells = previous.cells;
+        score.arrangement = previous.arrangement;
+    }
     auto* instance = self(plugin);
     for (uint32_t index = 0u; index < values.size(); ++index) {
         const double value = index < header.valueCount
             ? values[index] : kParamDefs[index].defaultValue;
         applyParam(*instance, kParamDefs[index].id, value);
     }
+    storeScoreProgram(*instance, score, false);
     instance->engine.reset();
     instance->engine.setParams(instance->params);
+    instance->engine.setScorePlaybackActive(false);
+    instance->scoreLastGlobalRow = std::numeric_limits<int64_t>::min();
+    instance->scoreAppliedRevision = 0u;
+    instance->scoreAppliedParameterRevision = 0u;
+    instance->scoreWasRunning = false;
+    instance->scorePublishedSection = -1;
+    instance->scorePublishedRow = -1;
+    instance->scorePublishedSlot = -1;
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_acq_rel);
+    instance->scoreVisualSection.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRow.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualSlot.store(-1, std::memory_order_relaxed);
+    instance->scoreVisualRevision.fetch_add(1u, std::memory_order_release);
     instance->active = false;
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
     if (instance->host && instance->hostParams
@@ -1758,6 +2194,12 @@ constexpr auto kAmplifierBPanel = layout::fittedStackPanel(
 constexpr auto kLoopBPanel = layout::fittedPanel(
     layout::PluginClass::ProceduralEncoder, layout::PanelRole::Motion,
     kRightColumn, kContentTop, 12u);
+constexpr auto kScoreTimingPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::EventTiming,
+    kLeftColumn, kPageLeftTop, 4u);
+constexpr auto kScoreRelationPanel = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Utility,
+    kRightColumn, kContentTop, 4u);
 
 constexpr std::array kOutputPanels { kOutputPanel };
 constexpr std::array kPlayLeftPanels {
@@ -1774,6 +2216,8 @@ constexpr std::array kRigBLeftPanels {
     kLinksPanel, kMaterialBPanel, kPedalBPanel, kAmplifierBPanel,
 };
 constexpr std::array kRigBRightPanels { kLoopBPanel };
+constexpr std::array kScoreLeftPanels { kScoreTimingPanel };
+constexpr std::array kScoreRightPanels { kScoreRelationPanel };
 
 static_assert(layout::validateColumn(kOutputPanels, kStackCanvas));
 static_assert(layout::validateColumn(kPlayLeftPanels, kStackCanvas, false));
@@ -1782,8 +2226,10 @@ static_assert(layout::validateColumn(kRigALeftPanels, kStackCanvas, false));
 static_assert(layout::validateColumn(kRigARightPanels, kStackCanvas, false));
 static_assert(layout::validateColumn(kRigBLeftPanels, kStackCanvas, false));
 static_assert(layout::validateColumn(kRigBRightPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kScoreLeftPanels, kStackCanvas, false));
+static_assert(layout::validateColumn(kScoreRightPanels, kStackCanvas, false));
 
-constexpr std::array<StackUiPanel, 17u> kUiPanels {{
+constexpr std::array<StackUiPanel, 19u> kUiPanels {{
     { "OUTPUT", kAllPages, kOutputPanel },
     { "PLAY / ENVELOPE", 0u, kPlayPanel },
     { "PAIR / STEREO", 0u, kPairPanel },
@@ -1801,9 +2247,11 @@ constexpr std::array<StackUiPanel, 17u> kUiPanels {{
     { "PEDAL B", 2u, kPedalBPanel },
     { "AMPLIFIER / SPEAKER B", 2u, kAmplifierBPanel },
     { "MIC FEEDBACK LOOP B", 2u, kLoopBPanel },
+    { "SCORE CLOCK / RANDOMIZE", 3u, kScoreTimingPanel },
+    { "PLAYER A / B RELATIONSHIP", 3u, kScoreRelationPanel },
 }};
 
-constexpr std::array<StackUiRow, 84u> kUiRows {{
+constexpr std::array<StackUiRow, 92u> kUiRows {{
     { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
         layout::rowY(kOutputPanel, 0u), kAllPages },
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
@@ -1975,6 +2423,22 @@ constexpr std::array<StackUiRow, 84u> kUiRows {{
         layout::rowY(kLoopBPanel, 10u), 2u },
     { kOverloadMaskBParamId, "OVERLOAD MASK", kRightPanelX, kPanelWidth,
         layout::rowY(kLoopBPanel, 11u), 2u },
+    { kScoreEnableParamId, "PLAYBACK", kLeftPanelX, kPanelWidth,
+        layout::rowY(kScoreTimingPanel, 0u), 3u },
+    { kScoreRateParamId, "ROW RATE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kScoreTimingPanel, 1u), 3u },
+    { kScoreGateParamId, "ROW GATE", kLeftPanelX, kPanelWidth,
+        layout::rowY(kScoreTimingPanel, 2u), 3u },
+    { kScoreLengthParamId, "ARRANGE LENGTH", kLeftPanelX, kPanelWidth,
+        layout::rowY(kScoreTimingPanel, 3u), 3u },
+    { kScoreBSourceParamId, "PLAYER B", kRightPanelX, kPanelWidth,
+        layout::rowY(kScoreRelationPanel, 0u), 3u },
+    { kPairRelationParamId, "RELATION", kRightPanelX, kPanelWidth,
+        layout::rowY(kScoreRelationPanel, 1u), 3u },
+    { kPairAmountParamId, "DUAL", kRightPanelX, kPanelWidth,
+        layout::rowY(kScoreRelationPanel, 2u), 3u },
+    { kPairSpreadParamId, "SPREAD", kRightPanelX, kPanelWidth,
+        layout::rowY(kScoreRelationPanel, 3u), 3u },
 }};
 
 bool isUiMenuParam(clap_id id)
@@ -1982,6 +2446,8 @@ bool isUiMenuParam(clap_id id)
     return id == kModeParamId || id == kCircuitParamId
         || id == kCircuitBParamId
         || id == kMidiReceiveParamId || id == kArpHostSyncParamId
+        || id == kScoreEnableParamId || id == kScoreRateParamId
+        || id == kScoreLengthParamId || id == kScoreBSourceParamId
         || id == kArpPatternParamId
         || id == kArpPatternBParamId || id == kArpBRelationParamId
         || id == kScaleParamId || id == kScaleBParamId
@@ -2002,6 +2468,10 @@ uint32_t uiMenuItemCount(clap_id id)
         return s3g::kProcessorStackCircuitCount;
     if (id == kMidiReceiveParamId) return 17u;
     if (id == kArpHostSyncParamId) return 2u;
+    if (id == kScoreEnableParamId || id == kScoreBSourceParamId) return 2u;
+    if (id == kScoreRateParamId) return s3g::kProcessorStackArpRateCount;
+    if (id == kScoreLengthParamId)
+        return s3g::kProcessorStackScoreArrangementSlots;
     if (id == kArpBRelationParamId)
         return s3g::kProcessorStackArpRelationCount;
     if (id == kArpPatternParamId || id == kArpPatternBParamId)
@@ -2351,10 +2821,10 @@ s3g::ProcessorStackParams safeRandomParams(
 NSRect stackPageButtonRect(uint8_t page)
 {
     const NSRect panel = s3g::clap_gui::cocoaRect(kOutputPanel.frame);
-    constexpr CGFloat width = 64.0;
+    constexpr CGFloat width = 58.0;
     constexpr CGFloat height = 15.0;
     constexpr CGFloat gap = 4.0;
-    constexpr CGFloat totalWidth = width * 3.0 + gap * 2.0;
+    constexpr CGFloat totalWidth = width * 4.0 + gap * 3.0;
     return NSMakeRect(NSMaxX(panel) - 8.0 - totalWidth
             + static_cast<CGFloat>(page) * (width + gap),
         panel.origin.y + 3.0, width, height);
@@ -2369,6 +2839,22 @@ NSRect stackCopyButtonRect(uint8_t index)
     constexpr CGFloat totalWidth = width * 2.0 + gap;
     return NSMakeRect(NSMaxX(panel) - 8.0 - totalWidth
             + static_cast<CGFloat>(index) * (width + gap),
+        panel.origin.y + 3.0, width, height);
+}
+
+constexpr uint32_t kStackScoreRandomActionCount = 4u;
+
+NSRect stackScoreRandomActionButtonRect(uint32_t action)
+{
+    const NSRect panel = s3g::clap_gui::cocoaRect(kScoreTimingPanel.frame);
+    constexpr CGFloat width = 56.0;
+    constexpr CGFloat height = 15.0;
+    constexpr CGFloat gap = 3.0;
+    constexpr CGFloat totalWidth = width * kStackScoreRandomActionCount
+        + gap * (kStackScoreRandomActionCount - 1u);
+    return NSMakeRect(NSMaxX(panel) - 8.0 - totalWidth
+            + static_cast<CGFloat>(std::min<uint32_t>(action,
+                kStackScoreRandomActionCount - 1u)) * (width + gap),
         panel.origin.y + 3.0, width, height);
 }
 
@@ -2413,6 +2899,228 @@ int stackPatternStepAtX(uint8_t player, CGFloat x)
         (x - NSMinX(field)) / field.size.width,
         static_cast<CGFloat>(0.0), static_cast<CGFloat>(0.999999));
     return static_cast<int>(std::floor(normalized * 8.0));
+}
+
+constexpr CGFloat kScoreGridTop = 252.0;
+constexpr CGFloat kScoreGridLeft = 16.0;
+constexpr CGFloat kScoreGridWidth = 948.0;
+constexpr CGFloat kScoreGridHeaderHeight = 34.0;
+constexpr CGFloat kScoreGridRowHeight = 24.0;
+constexpr CGFloat kScoreRowNumberWidth = 38.0;
+constexpr CGFloat kScorePlayerGap = 12.0;
+constexpr CGFloat kScoreLockCellWidth = 43.0;
+
+NSRect stackScoreGridRect()
+{
+    return NSMakeRect(kScoreGridLeft, kScoreGridTop, kScoreGridWidth,
+        kScoreGridHeaderHeight
+            + kScoreGridRowHeight
+                * s3g::kProcessorStackScoreRowsPerSection);
+}
+
+CGFloat stackScorePlayerWidth()
+{
+    return (kScoreGridWidth - kScoreRowNumberWidth - kScorePlayerGap) * 0.5;
+}
+
+CGFloat stackScorePlayerX(uint32_t player)
+{
+    return kScoreGridLeft + kScoreRowNumberWidth
+        + static_cast<CGFloat>(std::min(player, 1u))
+            * (stackScorePlayerWidth() + kScorePlayerGap);
+}
+
+CGFloat stackScoreStringAreaWidth()
+{
+    return stackScorePlayerWidth()
+        - kScoreLockCellWidth * s3g::kProcessorStackScoreLocksPerPlayer;
+}
+
+CGFloat stackScoreStringAreaX(uint32_t player)
+{
+    return stackScorePlayerX(player)
+        + (player == 0u ? 0.0
+            : kScoreLockCellWidth
+                * s3g::kProcessorStackScoreLocksPerPlayer);
+}
+
+NSRect stackScoreCellRect(uint32_t player, uint32_t string, uint32_t row)
+{
+    const CGFloat cellWidth = stackScoreStringAreaWidth()
+        / s3g::kProcessorStackScoreStringCount;
+    return NSMakeRect(stackScoreStringAreaX(player)
+            + static_cast<CGFloat>(string) * cellWidth,
+        kScoreGridTop + kScoreGridHeaderHeight
+            + static_cast<CGFloat>(row) * kScoreGridRowHeight,
+        cellWidth, kScoreGridRowHeight);
+}
+
+NSRect stackScoreLockRect(uint32_t player, uint32_t slot, uint32_t row)
+{
+    player = std::min(player, 1u);
+    slot = std::min(slot, s3g::kProcessorStackScoreLocksPerPlayer - 1u);
+    const CGFloat x = player == 0u
+        ? stackScoreStringAreaX(player) + stackScoreStringAreaWidth()
+            + static_cast<CGFloat>(slot) * kScoreLockCellWidth
+        : stackScorePlayerX(player)
+            + static_cast<CGFloat>(slot) * kScoreLockCellWidth;
+    return NSMakeRect(x,
+        kScoreGridTop + kScoreGridHeaderHeight
+            + static_cast<CGFloat>(row) * kScoreGridRowHeight,
+        kScoreLockCellWidth, kScoreGridRowHeight);
+}
+
+NSRect stackScoreRowRect(uint32_t row)
+{
+    return NSMakeRect(kScoreGridLeft,
+        kScoreGridTop + kScoreGridHeaderHeight
+            + static_cast<CGFloat>(std::min(row,
+                s3g::kProcessorStackScoreRowsPerSection - 1u))
+                * kScoreGridRowHeight,
+        kScoreGridWidth, kScoreGridRowHeight);
+}
+
+bool stackScoreCellAtPoint(NSPoint point, uint32_t& player,
+    uint32_t& string, uint32_t& row)
+{
+    for (uint32_t candidatePlayer = 0u;
+         candidatePlayer < s3g::kProcessorStackScorePlayerCount;
+         ++candidatePlayer) {
+        for (uint32_t candidateString = 0u;
+             candidateString < s3g::kProcessorStackScoreStringCount;
+             ++candidateString) {
+            for (uint32_t candidateRow = 0u;
+                 candidateRow < s3g::kProcessorStackScoreRowsPerSection;
+                 ++candidateRow) {
+                if (!NSPointInRect(point, stackScoreCellRect(candidatePlayer,
+                        candidateString, candidateRow))) continue;
+                player = candidatePlayer;
+                string = candidateString;
+                row = candidateRow;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool stackScoreLockAtPoint(NSPoint point, uint32_t& player,
+    uint32_t& slot, uint32_t& row)
+{
+    for (uint32_t candidatePlayer = 0u;
+         candidatePlayer < s3g::kProcessorStackScorePlayerCount;
+         ++candidatePlayer) {
+        for (uint32_t candidateSlot = 0u;
+             candidateSlot < s3g::kProcessorStackScoreLocksPerPlayer;
+             ++candidateSlot) {
+            for (uint32_t candidateRow = 0u;
+                 candidateRow < s3g::kProcessorStackScoreRowsPerSection;
+                 ++candidateRow) {
+                if (!NSPointInRect(point, stackScoreLockRect(
+                        candidatePlayer, candidateSlot, candidateRow))) {
+                    continue;
+                }
+                player = candidatePlayer;
+                slot = candidateSlot;
+                row = candidateRow;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+NSRect stackScoreSectionButtonRect(uint32_t section)
+{
+    const NSRect relationship = s3g::clap_gui::cocoaRect(
+        kScoreRelationPanel.frame);
+    constexpr CGFloat gap = 7.0;
+    const CGFloat width = (relationship.size.width
+        - gap * (s3g::kProcessorStackScoreSectionCount - 1u))
+        / s3g::kProcessorStackScoreSectionCount;
+    return NSMakeRect(relationship.origin.x
+            + static_cast<CGFloat>(section) * (width + gap),
+        NSMaxY(relationship) + 9.0, width, 30.0);
+}
+
+clap_id stackScoreLockParamId(uint32_t player,
+    s3g::ProcessorStackScoreLockControl control)
+{
+    const bool b = player != 0u;
+    using Control = s3g::ProcessorStackScoreLockControl;
+    switch (control) {
+    case Control::Neck: return b ? kNeckBParamId : kNeckAParamId;
+    case Control::Body: return b ? kBodyBParamId : kBodyAParamId;
+    case Control::Circuit: return b ? kCircuitBParamId : kCircuitParamId;
+    case Control::Bite: return b ? kBiteBParamId : kBiteParamId;
+    case Control::Tone: return b ? kPedalToneBParamId : kPedalToneParamId;
+    case Control::Bias: return b ? kBiasBParamId : kBiasParamId;
+    case Control::Stack: return b ? kStackBParamId : kStackParamId;
+    case Control::Sag: return b ? kSagBParamId : kSagParamId;
+    case Control::Focus: return b ? kFocusBParamId : kFocusParamId;
+    case Control::Cone: return b ? kConeBParamId : kConeParamId;
+    case Control::Cabinet: return b ? kCabinetBParamId : kCabinetParamId;
+    case Control::Mic: return b ? kMicBParamId : kMicParamId;
+    case Control::Feedback: return b ? kFeedbackBParamId : kFeedbackParamId;
+    case Control::Proximity: return b ? kProximityBParamId : kProximityParamId;
+    case Control::Harmonic: return b ? kHarmonicBParamId : kHarmonicParamId;
+    case Control::Tracking: return b ? kTrackingBParamId : kTrackingParamId;
+    case Control::Polarity: return b ? kPolarityBParamId : kPolarityParamId;
+    case Control::Root: return b ? kRootBParamId : kRootParamId;
+    case Control::Chaos: return b ? kChaosBParamId : kChaosParamId;
+    case Control::Pierce: return b ? kPierceBParamId : kPierceParamId;
+    case Control::SelfListen: return b ? kSelfListenBParamId : kSelfListenParamId;
+    case Control::TargetGlitch: return b ? kTargetGlitchBParamId : kTargetGlitchParamId;
+    case Control::Ratchet: return b ? kGlitchRatchetBParamId : kGlitchRatchetParamId;
+    case Control::OverloadMask: return b ? kOverloadMaskBParamId : kOverloadMaskParamId;
+    case Control::None:
+    case Control::Count:
+        return CLAP_INVALID_ID;
+    }
+    return CLAP_INVALID_ID;
+}
+
+s3g::ProcessorStackScoreLockCell stackScoreLockCell(
+    const Plugin& plugin, uint32_t section, uint32_t row,
+    uint32_t player, uint32_t slot)
+{
+    const size_t index = s3g::processorStackScoreLockIndex(
+        section, row, player, slot);
+    const uint32_t packed = plugin.scoreLocks[index].load(
+        std::memory_order_acquire);
+    s3g::ProcessorStackScoreLockCell lock;
+    lock.control = static_cast<uint8_t>(packed & 0xffu);
+    lock.normalized = static_cast<uint16_t>((packed >> 8u) & 0xffffu);
+    return lock;
+}
+
+NSRect stackScoreArrangementRect()
+{
+    return NSMakeRect(kScoreGridLeft,
+        kScoreGridTop + kScoreGridHeaderHeight
+            + kScoreGridRowHeight
+                * s3g::kProcessorStackScoreRowsPerSection + 12.0,
+        kScoreGridWidth, 58.0);
+}
+
+NSRect stackScoreArrangementSlotRect(uint32_t slot)
+{
+    const NSRect panel = stackScoreArrangementRect();
+    constexpr CGFloat left = 128.0;
+    constexpr CGFloat gap = 5.0;
+    const CGFloat width = (panel.size.width - left - 14.0
+        - gap * (s3g::kProcessorStackScoreArrangementSlots - 1u))
+        / s3g::kProcessorStackScoreArrangementSlots;
+    return NSMakeRect(panel.origin.x + left
+            + static_cast<CGFloat>(slot) * (width + gap),
+        panel.origin.y + 27.0, width, 20.0);
+}
+
+NSRect stackScoreEntryLegendRect()
+{
+    const NSRect arrangement = stackScoreArrangementRect();
+    return NSMakeRect(arrangement.origin.x, NSMaxY(arrangement) + 6.0,
+        arrangement.size.width, 22.0);
 }
 
 void drawStackPatternMultislider(uint8_t player,
@@ -2516,11 +3224,35 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     clap_id _openMenu;
     int _hoverMenuItem;
     uint32_t _menuItemCount;
+    uint32_t _scoreEditSection;
+    uint32_t _scoreSelectedPlayer;
+    uint32_t _scoreSelectedString;
+    uint32_t _scoreSelectedRow;
+    BOOL _dragScoreLock;
+    uint32_t _scoreLockPlayer;
+    uint32_t _scoreLockSlot;
+    uint32_t _scoreLockRow;
+    NSPoint _scoreLockDragStartPoint;
+    double _scoreLockDragStartNormalized;
+    int _scorePendingFret;
+    NSTimeInterval _scorePendingTime;
+    int _scoreRandomFeedback;
+    NSTimeInterval _scoreRandomFeedbackUntil;
     uint64_t _observedParamRevision;
+    uint64_t _observedScoreVisualRevision;
+    int32_t _pendingScoreSection;
+    int32_t _pendingScoreRow;
+    int32_t _pendingScoreSlot;
+    int32_t _presentedScoreSection;
+    int32_t _presentedScoreRow;
+    int32_t _presentedScoreSlot;
+    BOOL _scoreVisualPrimed;
     NSTimer* _timer;
     char _presetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
+- (void)setDocumentationPage:(NSUInteger)page;
+- (void)loadDocumentationScore;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)applyFactoryPreset:(int)index;
@@ -2528,6 +3260,13 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
 - (NSRect)openMenuRect;
 - (void)drawOpenMenu:(NSDictionary*)attrs
     style:(const s3g::clap_gui::Style&)style;
+- (void)drawScore:(NSDictionary*)labelAttrs
+    values:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style;
+- (NSMenu*)scoreLockMenuForPlayer:(uint32_t)player
+    row:(uint32_t)row slot:(uint32_t)slot;
+- (void)scoreLockSelected:(NSMenuItem*)sender;
+- (void)updateDraggedScoreLock:(NSPoint)point;
 @end
 
 @implementation S3GProcessorStackView
@@ -2544,10 +3283,29 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     _openMenu = CLAP_INVALID_ID;
     _hoverMenuItem = -1;
     _menuItemCount = 0u;
+    _scoreEditSection = 0u;
+    _scoreSelectedPlayer = 0u;
+    _scoreSelectedString = 0u;
+    _scoreSelectedRow = 0u;
+    _dragScoreLock = NO;
+    _scoreLockPlayer = 0u;
+    _scoreLockSlot = 0u;
+    _scoreLockRow = 0u;
+    _scoreLockDragStartPoint = NSZeroPoint;
+    _scoreLockDragStartNormalized = 0.0;
+    _scorePendingFret = -1;
+    _scorePendingTime = 0.0;
+    _scoreRandomFeedback = -1;
+    _scoreRandomFeedbackUntil = 0.0;
     _timer = nil;
     auto* instance = static_cast<Plugin*>(_plugin);
     _observedParamRevision = instance
         ? instance->parameterRevision.load(std::memory_order_acquire) : 0u;
+    _observedScoreVisualRevision = instance
+        ? instance->scoreVisualRevision.load(std::memory_order_acquire) : 0u;
+    _pendingScoreSection = _pendingScoreRow = _pendingScoreSlot = -1;
+    _presentedScoreSection = _presentedScoreRow = _presentedScoreSlot = -1;
+    _scoreVisualPrimed = NO;
     _factoryPresetIndex = instance
         ? s3g::processorStackFactoryPresetIndex(
             publishedParamsSnapshot(*instance)) : 0;
@@ -2557,6 +3315,42 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 static_cast<uint32_t>(_factoryPresetIndex)).name
             : "CUSTOM");
     return self;
+}
+
+- (void)setDocumentationPage:(NSUInteger)page
+{
+    _page = static_cast<uint8_t>(std::min<NSUInteger>(page, 3u));
+    _openMenu = CLAP_INVALID_ID;
+    _hoverMenuItem = -1;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)loadDocumentationScore
+{
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return;
+    auto program = s3g::generateProcessorStackScore(0x53434f52u);
+    s3g::setProcessorStackScoreCell(program, 0u, 2u, 0u, 0u,
+        s3g::kProcessorStackScoreHold);
+    s3g::setProcessorStackScoreCell(program, 0u, 3u, 0u, 0u,
+        s3g::kProcessorStackScoreHold);
+    s3g::setProcessorStackScoreCell(program, 0u, 3u, 1u, 1u,
+        s3g::kProcessorStackScoreHold);
+    program = s3g::randomizeProcessorStackScoreLocks(
+        program, 0u, 0x4c4f434bu);
+    storeScoreProgram(*instance, program, false);
+    _scoreEditSection = 0u;
+    _scoreSelectedPlayer = 0u;
+    _scoreSelectedString = 0u;
+    _scoreSelectedRow = 3u;
+    _presentedScoreSection = _pendingScoreSection = 0;
+    _presentedScoreRow = _pendingScoreRow = 3;
+    _presentedScoreSlot = _pendingScoreSlot = 0;
+    _scoreVisualPrimed = YES;
+    _scoreRandomFeedback = 1;
+    _scoreRandomFeedbackUntil =
+        [NSDate timeIntervalSinceReferenceDate] + 60.0;
+    [self setNeedsDisplay:YES];
 }
 
 - (BOOL)isFlipped { return YES; }
@@ -2571,8 +3365,9 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
 - (void)startRefreshTimer
 {
     if (_timer) return;
-    _timer = [NSTimer timerWithTimeInterval:1.0 / 30.0
+    _timer = [NSTimer timerWithTimeInterval:1.0 / 60.0
         target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
+    _timer.tolerance = 1.0 / 240.0;
     [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
 }
 
@@ -2617,7 +3412,9 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     } else {
         const auto row = std::find_if(kUiRows.begin(), kUiRows.end(),
             [=](const StackUiRow& candidate) {
-                return candidate.id == _openMenu;
+                return candidate.id == _openMenu
+                    && (candidate.page == _page
+                        || candidate.page == kAllPages);
             });
         if (row == kUiRows.end() || !isUiMenuParam(row->id)) {
             return NSZeroRect;
@@ -2671,15 +3468,380 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         items, count, selected, _hoverMenuItem, attrs, style);
 }
 
+- (NSMenu*)scoreLockMenuForPlayer:(uint32_t)player
+    row:(uint32_t)row slot:(uint32_t)slot
+{
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return nil;
+    const auto current = stackScoreLockCell(
+        *instance, _scoreEditSection, row, player, slot);
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"STACK ROW LOCK"];
+    menu.autoenablesItems = NO;
+    menu.font = [NSFont monospacedSystemFontOfSize:10.0
+        weight:NSFontWeightMedium];
+    NSMenuItem* heading = [[NSMenuItem alloc] initWithTitle:
+        [NSString stringWithFormat:@"PLAYER %c · ROW %02u · LOCK %u",
+            static_cast<char>('A' + player), row + 1u, slot + 1u]
+        action:nil keyEquivalent:@""];
+    heading.enabled = NO;
+    [menu addItem:heading];
+    if (player == 1u) {
+        NSMenuItem* note = [[NSMenuItem alloc] initWithTitle:
+            @"B locks use that rig independently for this row"
+            action:nil keyEquivalent:@""];
+        note.enabled = NO;
+        [menu addItem:note];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+
+    const auto addControl = [&](NSString* title,
+                                s3g::ProcessorStackScoreLockControl control,
+                                BOOL headingItem) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+            action:headingItem ? nil : @selector(scoreLockSelected:)
+            keyEquivalent:@""];
+        item.target = self;
+        item.enabled = !headingItem;
+        if (!headingItem) {
+            item.representedObject = @{
+                @"player": @(player), @"row": @(row), @"slot": @(slot),
+                @"control": @(static_cast<uint32_t>(control)),
+            };
+            item.state = current.control == static_cast<uint8_t>(control)
+                ? NSControlStateValueOn : NSControlStateValueOff;
+        }
+        [menu addItem:item];
+    };
+    addControl(@"---   CLEAR", s3g::ProcessorStackScoreLockControl::None,
+        NO);
+
+    struct LockGroup {
+        const char* name;
+        s3g::ProcessorStackScoreLockControl first;
+        s3g::ProcessorStackScoreLockControl last;
+    };
+    constexpr std::array<LockGroup, 4u> groups {{
+        { "MATERIAL", s3g::ProcessorStackScoreLockControl::Neck,
+            s3g::ProcessorStackScoreLockControl::Body },
+        { "PEDAL", s3g::ProcessorStackScoreLockControl::Circuit,
+            s3g::ProcessorStackScoreLockControl::Bias },
+        { "AMPLIFIER / SPEAKER", s3g::ProcessorStackScoreLockControl::Stack,
+            s3g::ProcessorStackScoreLockControl::Mic },
+        { "MIC FEEDBACK LOOP", s3g::ProcessorStackScoreLockControl::Feedback,
+            s3g::ProcessorStackScoreLockControl::OverloadMask },
+    }};
+    for (const auto& group : groups) {
+        [menu addItem:NSMenuItem.separatorItem];
+        addControl([NSString stringWithUTF8String:group.name],
+            s3g::ProcessorStackScoreLockControl::None, YES);
+        for (uint32_t raw = static_cast<uint32_t>(group.first);
+             raw <= static_cast<uint32_t>(group.last); ++raw) {
+            const auto control = static_cast<
+                s3g::ProcessorStackScoreLockControl>(raw);
+            const clap_id id = stackScoreLockParamId(player, control);
+            char valueText[64] {};
+            paramsValueToText(&instance->plugin, id,
+                paramValue(*instance, id), valueText, sizeof(valueText));
+            NSString* title = [NSString stringWithFormat:@"%-16s  %s",
+                s3g::processorStackScoreLockControlName(control), valueText];
+            addControl(title, control, NO);
+        }
+    }
+    return menu;
+}
+
+- (void)scoreLockSelected:(NSMenuItem*)sender
+{
+    auto* instance = static_cast<Plugin*>(_plugin);
+    NSDictionary* value = sender.representedObject;
+    if (!instance || ![value isKindOfClass:NSDictionary.class]) return;
+    const uint32_t player = [value[@"player"] unsignedIntValue];
+    const uint32_t row = [value[@"row"] unsignedIntValue];
+    const uint32_t slot = [value[@"slot"] unsignedIntValue];
+    const auto control = static_cast<s3g::ProcessorStackScoreLockControl>(
+        [value[@"control"] unsignedIntValue]);
+    double normalized = 0.0;
+    const auto existing = stackScoreLockCell(
+        *instance, _scoreEditSection, row, player, slot);
+    if (existing.control == static_cast<uint8_t>(control)) {
+        normalized = s3g::processorStackScoreLockNormalized(existing);
+    } else if (control != s3g::ProcessorStackScoreLockControl::None) {
+        const clap_id id = stackScoreLockParamId(player, control);
+        const double base = uiNormalizedValue(id, paramValue(*instance, id));
+        if (control == s3g::ProcessorStackScoreLockControl::Neck
+            || control == s3g::ProcessorStackScoreLockControl::Body) {
+            const uint32_t current = static_cast<uint32_t>(
+                std::lround(base * 3.0));
+            normalized = static_cast<double>((current + 1u) % 4u) / 3.0;
+        } else if (control
+                == s3g::ProcessorStackScoreLockControl::Circuit) {
+            const uint32_t current = static_cast<uint32_t>(
+                std::lround(base * 7.0));
+            normalized = static_cast<double>((current + 3u) % 8u) / 7.0;
+        } else {
+            // A newly assigned lock should be audible immediately rather than
+            // beginning as a neutral copy of the base slider.
+            normalized = std::clamp(
+                base < 0.5 ? base + 0.36 : base - 0.36, 0.08, 0.92);
+        }
+    }
+    setScoreLock(*instance, _scoreEditSection, row,
+        player, slot, control, normalized);
+    _scoreLockPlayer = player;
+    _scoreLockRow = row;
+    _scoreLockSlot = slot;
+    [self setNeedsDisplayInRect:NSInsetRect(
+        stackScoreLockRect(player, slot, row), -1.0, -1.0)];
+}
+
+- (void)updateDraggedScoreLock:(NSPoint)point
+{
+    if (!_dragScoreLock) return;
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return;
+    const auto lock = stackScoreLockCell(*instance, _scoreEditSection,
+        _scoreLockRow, _scoreLockPlayer, _scoreLockSlot);
+    if (lock.control == static_cast<uint8_t>(
+            s3g::ProcessorStackScoreLockControl::None)) return;
+    const double normalized = std::clamp(_scoreLockDragStartNormalized
+        + static_cast<double>(_scoreLockDragStartPoint.y - point.y) / 120.0,
+        0.0, 1.0);
+    setScoreLock(*instance, _scoreEditSection, _scoreLockRow,
+        _scoreLockPlayer, _scoreLockSlot,
+        static_cast<s3g::ProcessorStackScoreLockControl>(lock.control),
+        normalized);
+    [self setNeedsDisplayInRect:NSInsetRect(stackScoreLockRect(
+        _scoreLockPlayer, _scoreLockSlot, _scoreLockRow), -1.0, -1.0)];
+}
+
+- (void)drawScore:(NSDictionary*)labelAttrs
+    values:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return;
+    const bool scoreBRelatesToA = paramValue(
+        *instance, kScoreBSourceParamId) >= 0.5;
+    const uint32_t scoreLength = static_cast<uint32_t>(std::clamp(
+        std::lround(paramValue(*instance, kScoreLengthParamId)),
+        1l, static_cast<long>(s3g::kProcessorStackScoreArrangementSlots)));
+    const NSRect grid = stackScoreGridRect();
+    NSColor* const scoreTeal = [NSColor colorWithSRGBRed:0.055
+        green:0.255 blue:0.275 alpha:0.34];
+    NSColor* const scoreTealStrong = [NSColor colorWithSRGBRed:0.075
+        green:0.34 blue:0.36 alpha:0.62];
+    // Edit and lock fills stay deliberately darker than the playhead teal.
+    // Their light-gray text is the information; color only marks context.
+    NSColor* const scoreEntryFill = [NSColor colorWithSRGBRed:0.025
+        green:0.115 blue:0.125 alpha:0.96];
+    NSColor* const scoreLockFill = [NSColor colorWithSRGBRed:0.025
+        green:0.085 blue:0.095 alpha:0.96];
+    [style.cellBg setFill];
+    NSRectFill(grid);
+    [style.grid setStroke];
+    NSFrameRect(grid);
+    [style.strip setFill];
+    NSRectFill(NSMakeRect(grid.origin.x, grid.origin.y,
+        grid.size.width, kScoreGridHeaderHeight));
+
+    for (uint32_t section = 0u;
+         section < s3g::kProcessorStackScoreSectionCount; ++section) {
+        const NSRect button = stackScoreSectionButtonRect(section);
+        [(section == _scoreEditSection ? scoreTealStrong : style.cellBg)
+            setFill];
+        NSRectFill(button);
+        [(section == _scoreEditSection ? style.accent : style.grid)
+            setStroke];
+        NSFrameRect(button);
+        NSString* text = [NSString stringWithFormat:@"SECTION %c",
+            static_cast<char>('A' + section)];
+        s3g::clap_gui::drawCenteredTextToFit(text,
+            NSMakeRect(button.origin.x + 4.0, button.origin.y + 7.0,
+                button.size.width - 8.0, 16.0),
+            section == _scoreEditSection ? labelAttrs : valueAttrs);
+    }
+
+    const CGFloat playerWidth = stackScorePlayerWidth();
+    const CGFloat cellWidth = stackScoreStringAreaWidth()
+        / s3g::kProcessorStackScoreStringCount;
+    static NSString* const strings[6] {
+        @"E", @"A", @"D", @"G", @"B", @"e",
+    };
+    for (uint32_t player = 0u;
+         player < s3g::kProcessorStackScorePlayerCount; ++player) {
+        const CGFloat playerX = stackScorePlayerX(player);
+        NSString* title = player == 0u ? @"PLAYER A · TAB"
+            : (scoreBRelatesToA
+                ? @"PLAYER B · RELATE A" : @"PLAYER B · EXPLICIT TAB");
+        s3g::clap_gui::drawCenteredTextToFit(title,
+            NSMakeRect(playerX, kScoreGridTop + 1.0,
+                playerWidth, 14.0), labelAttrs);
+        for (uint32_t string = 0u;
+             string < s3g::kProcessorStackScoreStringCount; ++string) {
+            s3g::clap_gui::drawCenteredTextToFit(strings[string],
+                NSMakeRect(stackScoreStringAreaX(player)
+                        + static_cast<CGFloat>(string) * cellWidth,
+                    kScoreGridTop + 17.0, cellWidth, 14.0), valueAttrs);
+        }
+        for (uint32_t slot = 0u;
+             slot < s3g::kProcessorStackScoreLocksPerPlayer; ++slot) {
+            const NSRect lock = stackScoreLockRect(player, slot, 0u);
+            NSString* lockTitle = [NSString stringWithFormat:
+                @"L%u", slot + 1u];
+            s3g::clap_gui::drawCenteredTextToFit(lockTitle,
+                NSMakeRect(lock.origin.x, kScoreGridTop + 17.0,
+                    lock.size.width, 14.0), valueAttrs);
+        }
+    }
+
+    const int32_t playingSection = _presentedScoreSection;
+    const int32_t playingRow = _presentedScoreRow;
+    for (uint32_t row = 0u;
+         row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+        const CGFloat y = kScoreGridTop + kScoreGridHeaderHeight
+            + static_cast<CGFloat>(row) * kScoreGridRowHeight;
+        if ((row % 4u) == 0u) {
+            [[style.strip colorWithAlphaComponent:0.82] setFill];
+            NSRectFill(NSMakeRect(grid.origin.x, y,
+                grid.size.width, kScoreGridRowHeight));
+        }
+        if (playingSection == static_cast<int32_t>(_scoreEditSection)
+            && playingRow == static_cast<int32_t>(row)) {
+            [scoreTeal setFill];
+            NSRectFill(NSMakeRect(grid.origin.x, y,
+                grid.size.width, kScoreGridRowHeight));
+        }
+        NSString* rowText = [NSString stringWithFormat:@"%02u", row + 1u];
+        s3g::clap_gui::drawCenteredTextToFit(rowText,
+            NSMakeRect(grid.origin.x + 2.0, y + 4.0,
+                kScoreRowNumberWidth - 4.0, 14.0),
+            row == _scoreSelectedRow ? labelAttrs : valueAttrs);
+        for (uint32_t player = 0u;
+             player < s3g::kProcessorStackScorePlayerCount; ++player) {
+            for (uint32_t string = 0u;
+                 string < s3g::kProcessorStackScoreStringCount; ++string) {
+                const NSRect cell = stackScoreCellRect(player, string, row);
+                const bool selected = player == _scoreSelectedPlayer
+                    && string == _scoreSelectedString
+                    && row == _scoreSelectedRow;
+                if (selected) {
+                    [scoreEntryFill setFill];
+                    NSRectFill(NSInsetRect(cell, 1.0, 1.0));
+                }
+                [style.grid setStroke];
+                NSFrameRect(cell);
+                if (selected) {
+                    [[style.accent colorWithAlphaComponent:0.68] setStroke];
+                    NSFrameRect(NSInsetRect(cell, 1.0, 1.0));
+                }
+                const size_t index = s3g::processorStackScoreCellIndex(
+                    _scoreEditSection, row, player, string);
+                const int fret = instance->scoreCells[index].load(
+                    std::memory_order_acquire);
+                NSString* text = fret == s3g::kProcessorStackScoreHold
+                    ? @"~" : fret >= 0
+                        ? [NSString stringWithFormat:@"%d", fret] : @"—";
+                NSDictionary* attrs = player == 1u
+                        && scoreBRelatesToA
+                    ? valueAttrs : (fret != s3g::kProcessorStackScoreRest
+                        ? labelAttrs : valueAttrs);
+                s3g::clap_gui::drawCenteredTextToFit(text,
+                    NSMakeRect(cell.origin.x, cell.origin.y + 4.0,
+                        cell.size.width, 14.0), attrs);
+            }
+            for (uint32_t slot = 0u;
+                 slot < s3g::kProcessorStackScoreLocksPerPlayer; ++slot) {
+                const NSRect cell = stackScoreLockRect(player, slot, row);
+                const auto lock = stackScoreLockCell(*instance,
+                    _scoreEditSection, row, player, slot);
+                const auto control = static_cast<
+                    s3g::ProcessorStackScoreLockControl>(std::min<uint32_t>(
+                        lock.control,
+                        s3g::kProcessorStackScoreLockControlCount - 1u));
+                if (control != s3g::ProcessorStackScoreLockControl::None) {
+                    [scoreLockFill setFill];
+                    NSRectFill(NSInsetRect(cell, 1.0, 1.0));
+                }
+                [style.grid setStroke];
+                NSFrameRect(cell);
+                NSString* text = @"---";
+                if (control != s3g::ProcessorStackScoreLockControl::None) {
+                    const double normalized =
+                        s3g::processorStackScoreLockNormalized(lock);
+                    const bool material = control
+                            == s3g::ProcessorStackScoreLockControl::Neck
+                        || control
+                            == s3g::ProcessorStackScoreLockControl::Body;
+                    const bool circuit = control
+                        == s3g::ProcessorStackScoreLockControl::Circuit;
+                    const int displayValue = static_cast<int>(std::lround(
+                        normalized * (circuit ? 7.0
+                            : material ? 3.0 : 99.0)));
+                    text = [NSString stringWithFormat:@"%s%02d",
+                        s3g::processorStackScoreLockControlShortName(control),
+                        displayValue];
+                }
+                s3g::clap_gui::drawCenteredTextToFit(text,
+                    NSMakeRect(cell.origin.x + 2.0, cell.origin.y + 4.0,
+                        cell.size.width - 4.0, 14.0),
+                    control == s3g::ProcessorStackScoreLockControl::None
+                        ? valueAttrs : labelAttrs);
+            }
+        }
+    }
+
+    const NSRect arrangement = stackScoreArrangementRect();
+    s3g::clap_gui::drawPanelFrame(arrangement.origin.x,
+        arrangement.origin.y, arrangement.size.width,
+        arrangement.size.height, style);
+    s3g::clap_gui::drawPanelHeader(
+        @"ARRANGEMENT · CLICK SLOT: SECTION · RIGHT-CLICK L1/L2: CONTROL · DRAG: VALUE",
+        true, arrangement.origin.x, arrangement.origin.y,
+        arrangement.size.width, 21.0, labelAttrs, style);
+    const int32_t playingSlot = _presentedScoreSlot;
+    for (uint32_t slot = 0u;
+         slot < s3g::kProcessorStackScoreArrangementSlots; ++slot) {
+        const NSRect rect = stackScoreArrangementSlotRect(slot);
+        const bool enabled = slot < scoreLength;
+        const bool playing = playingSlot == static_cast<int32_t>(slot);
+        [(playing ? scoreTealStrong : enabled ? style.cellBg : style.bg)
+            setFill];
+        NSRectFill(rect);
+        [style.grid setStroke];
+        NSFrameRect(rect);
+        const uint32_t section = std::min<uint32_t>(
+            instance->scoreArrangement[slot].load(
+                std::memory_order_acquire),
+            s3g::kProcessorStackScoreSectionCount - 1u);
+        NSString* text = [NSString stringWithFormat:@"%u · %c",
+            slot + 1u, static_cast<char>('A' + section)];
+        s3g::clap_gui::drawCenteredTextToFit(text,
+            NSMakeRect(rect.origin.x, rect.origin.y + 3.0,
+                rect.size.width, 14.0),
+            playing ? labelAttrs : valueAttrs);
+    }
+
+    const NSRect legend = stackScoreEntryLegendRect();
+    [style.strip setFill];
+    NSRectFill(legend);
+    [style.grid setStroke];
+    NSFrameRect(legend);
+    s3g::clap_gui::drawCenteredTextToFit(
+        @"NOTE ENTRY · 0–24 FRET · H / ~ HOLD · - / . / DELETE REST · R REATTACK ABOVE · [ / ] FRET - / + · RETURN NEXT ROW · TAB PLAYER",
+        NSInsetRect(legend, 8.0, 3.0), labelAttrs);
+}
+
 - (void)refresh:(NSTimer*)timer
 {
     (void)timer;
     auto* instance = static_cast<Plugin*>(_plugin);
+    BOOL parameterChanged = NO;
     if (instance) {
         const uint64_t revision = instance->parameterRevision.load(
             std::memory_order_acquire);
         if (revision != _observedParamRevision) {
             _observedParamRevision = revision;
+            parameterChanged = YES;
             _factoryPresetIndex = s3g::processorStackFactoryPresetIndex(
                 publishedParamsSnapshot(*instance));
             std::snprintf(_presetName, sizeof(_presetName), "%s",
@@ -2689,20 +3851,97 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                     : "CUSTOM");
         }
     }
-    if (![self isHidden] && instance
-        && s3g::clap_support::hostAppIsActive()) {
-        [self setNeedsDisplay:YES];
+    if (!instance || !self.window || !self.window.visible
+        || self.window.miniaturized || [self isHiddenOrHasHiddenAncestor]
+        || !s3g::clap_support::hostAppIsActive()) return;
+    if (_scoreRandomFeedback >= 0) {
+        const uint32_t action = static_cast<uint32_t>(_scoreRandomFeedback);
+        const bool expired = [NSDate timeIntervalSinceReferenceDate]
+            >= _scoreRandomFeedbackUntil;
+        if (_page == 3u) {
+            [self setNeedsDisplayInRect:NSInsetRect(
+                stackScoreRandomActionButtonRect(action), -1.0, -1.0)];
+        }
+        if (expired) _scoreRandomFeedback = -1;
     }
+    if (parameterChanged || _page != 3u) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    int32_t capturedSection = -1;
+    int32_t capturedRow = -1;
+    int32_t capturedSlot = -1;
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint64_t before = instance->scoreVisualRevision.load(
+            std::memory_order_acquire);
+        if ((before & 1u) != 0u) continue;
+        const int32_t section = instance->scoreVisualSection.load(
+            std::memory_order_relaxed);
+        const int32_t row = instance->scoreVisualRow.load(
+            std::memory_order_relaxed);
+        const int32_t slot = instance->scoreVisualSlot.load(
+            std::memory_order_relaxed);
+        const uint64_t after = instance->scoreVisualRevision.load(
+            std::memory_order_acquire);
+        if (before != after || (after & 1u) != 0u) continue;
+        _observedScoreVisualRevision = after;
+        capturedSection = section;
+        capturedRow = row;
+        capturedSlot = slot;
+        break;
+    }
+
+    const int32_t nextSection = _scoreVisualPrimed
+        ? _pendingScoreSection : _presentedScoreSection;
+    const int32_t nextRow = _scoreVisualPrimed
+        ? _pendingScoreRow : _presentedScoreRow;
+    const int32_t nextSlot = _scoreVisualPrimed
+        ? _pendingScoreSlot : _presentedScoreSlot;
+    _pendingScoreSection = capturedSection;
+    _pendingScoreRow = capturedRow;
+    _pendingScoreSlot = capturedSlot;
+    _scoreVisualPrimed = YES;
+
+    if (nextSection != _presentedScoreSection
+        || nextRow != _presentedScoreRow) {
+        if (_presentedScoreSection == static_cast<int32_t>(_scoreEditSection)
+            && _presentedScoreRow >= 0) {
+            [self setNeedsDisplayInRect:NSInsetRect(stackScoreRowRect(
+                static_cast<uint32_t>(_presentedScoreRow)), -1.0, -1.0)];
+        }
+        if (nextSection == static_cast<int32_t>(_scoreEditSection)
+            && nextRow >= 0) {
+            [self setNeedsDisplayInRect:NSInsetRect(stackScoreRowRect(
+                static_cast<uint32_t>(nextRow)), -1.0, -1.0)];
+        }
+        _presentedScoreSection = nextSection;
+        _presentedScoreRow = nextRow;
+    }
+    if (nextSlot != _presentedScoreSlot) {
+        if (_presentedScoreSlot >= 0) {
+            [self setNeedsDisplayInRect:NSInsetRect(
+                stackScoreArrangementSlotRect(
+                    static_cast<uint32_t>(_presentedScoreSlot)),
+                -1.0, -1.0)];
+        }
+        if (nextSlot >= 0) {
+            [self setNeedsDisplayInRect:NSInsetRect(
+                stackScoreArrangementSlotRect(
+                    static_cast<uint32_t>(nextSlot)), -1.0, -1.0)];
+        }
+        _presentedScoreSlot = nextSlot;
+    }
+    [self setNeedsDisplayInRect:NSMakeRect(0.0, 0.0, kGuiWidth, 34.0)];
 }
 
 - (void)drawRect:(NSRect)dirty
 {
-    (void)dirty;
     auto* instance = static_cast<Plugin*>(_plugin);
     if (!instance) return;
     s3g::clap_gui::Style style;
     [style.bg setFill];
-    NSRectFill([self bounds]);
+    NSRectFill(dirty);
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
@@ -2729,12 +3968,12 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         drawPanel([NSString stringWithUTF8String:panel.name], panel.panel);
     }
 
-    static NSString* const pageLabels[3] {
-        @"PLAY", @"RIG A", @"RIG B",
+    static NSString* const pageLabels[4] {
+        @"PLAY", @"RIG A", @"RIG B", @"SCORE",
     };
     const NSRect outputHeader = s3g::clap_gui::cocoaRect(
         kOutputPanel.frame);
-    for (uint8_t page = 0u; page < 3u; ++page) {
+    for (uint8_t page = 0u; page < 4u; ++page) {
         s3g::clap_gui::drawHeaderButton(stackPageButtonRect(page),
             outputHeader, pageLabels[page], page == _page,
             valueAttrs, style);
@@ -2746,6 +3985,33 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             linksHeader, @"COPY A > B", valueAttrs, style);
         s3g::clap_gui::drawHeaderActionButton(stackCopyButtonRect(1u),
             linksHeader, @"COPY B > A", valueAttrs, style);
+    }
+    if (_page == 3u) {
+        const NSRect timingHeader = s3g::clap_gui::cocoaRect(
+            kScoreTimingPanel.frame);
+        static NSString* const labels[kStackScoreRandomActionCount] {
+            @"FORM", @"LEAD", @"RIFF", @"LOCKS",
+        };
+        const NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        for (uint32_t action = 0u;
+             action < kStackScoreRandomActionCount; ++action) {
+            const NSRect button = stackScoreRandomActionButtonRect(action);
+            const bool pressed = _scoreRandomFeedback
+                    == static_cast<int>(action)
+                && now < _scoreRandomFeedbackUntil;
+            if (!pressed) {
+                s3g::clap_gui::drawHeaderActionButton(button,
+                    timingHeader, labels[action], valueAttrs, style);
+                continue;
+            }
+            [[NSColor colorWithSRGBRed:0.025 green:0.15
+                blue:0.16 alpha:0.98] setFill];
+            NSRectFill(button);
+            [style.accent setStroke];
+            NSFrameRect(button);
+            s3g::clap_gui::drawCenteredTextToFit(labels[action],
+                NSInsetRect(button, 2.0, 1.0), labelAttrs);
+        }
     }
 
     for (const auto& row : kUiRows) {
@@ -2773,6 +4039,9 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         drawStackPatternMultislider(1u, *instance,
             _dragPatternPlayer, _dragPatternStep, valueAttrs, style);
     }
+    if (_page == 3u) {
+        [self drawScore:labelAttrs values:valueAttrs style:style];
+    }
     [self drawOpenMenu:valueAttrs style:style];
 }
 
@@ -2781,7 +4050,11 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     if (_dragParam <= 0) return;
     const clap_id id = static_cast<clap_id>(_dragParam);
     const auto row = std::find_if(kUiRows.begin(), kUiRows.end(),
-        [=](const StackUiRow& candidate) { return candidate.id == id; });
+        [=](const StackUiRow& candidate) {
+            return candidate.id == id
+                && (candidate.page == _page
+                    || candidate.page == kAllPages);
+        });
     if (row == kUiRows.end()) return;
     const double controlX = s3g::gui_layout::processorControlX(row->panelX);
     const double trackWidth =
@@ -2822,6 +4095,32 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     [self setNeedsDisplay:YES];
 }
 
+- (void)rightMouseDown:(NSEvent*)event
+{
+    if (_page != 3u) {
+        [super rightMouseDown:event];
+        return;
+    }
+    const NSPoint point = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    uint32_t player = 0u;
+    uint32_t slot = 0u;
+    uint32_t row = 0u;
+    if (!stackScoreLockAtPoint(point, player, slot, row)) {
+        [super rightMouseDown:event];
+        return;
+    }
+    _scoreSelectedPlayer = player;
+    _scoreSelectedRow = row;
+    _scoreLockPlayer = player;
+    _scoreLockSlot = slot;
+    _scoreLockRow = row;
+    _scorePendingFret = -1;
+    [self.window makeFirstResponder:self];
+    NSMenu* menu = [self scoreLockMenuForPlayer:player row:row slot:slot];
+    if (menu) [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+}
+
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow]
@@ -2842,7 +4141,11 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 queueGuiParamGesture(*instance, menuParam,
                     (def ? def->minimum : 0.0) + static_cast<double>(hit));
                 if (menuParam != kMidiReceiveParamId
-                    && menuParam != kArpHostSyncParamId) {
+                    && menuParam != kArpHostSyncParamId
+                    && menuParam != kScoreEnableParamId
+                    && menuParam != kScoreRateParamId
+                    && menuParam != kScoreLengthParamId
+                    && menuParam != kScoreBSourceParamId) {
                     [self markCustomPreset];
                 }
             }
@@ -2901,8 +4204,14 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         return;
     }
 
-    for (uint8_t page = 0u; page < 3u; ++page) {
+    for (uint8_t page = 0u; page < 4u; ++page) {
         if (!NSPointInRect(point, stackPageButtonRect(page))) continue;
+        if (page == 3u && _page != 3u) {
+            _scoreVisualPrimed = NO;
+            _pendingScoreSection = _pendingScoreRow = _pendingScoreSlot = -1;
+            _presentedScoreSection = _presentedScoreRow
+                = _presentedScoreSlot = -1;
+        }
         _page = page;
         _dragParam = -1;
         _dragPatternPlayer = -1;
@@ -2918,6 +4227,131 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             } else {
                 NSBeep();
             }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
+    if (_page == 3u) {
+        for (uint32_t action = 0u;
+             action < kStackScoreRandomActionCount; ++action) {
+            if (!NSPointInRect(point,
+                    stackScoreRandomActionButtonRect(action))) continue;
+            const auto current = scoreProgramSnapshot(*instance);
+            s3g::ProcessorStackScoreProgram generated = current;
+            const uint32_t seed = arc4random();
+            switch (action) {
+            case 0u:
+                generated = s3g::generateProcessorStackScore(seed);
+                // FORM changes the complete tablature and arrangement but
+                // keeps detailed control sequencing authored in the lanes.
+                generated.locks = current.locks;
+                _scoreEditSection = 0u;
+                break;
+            case 1u:
+                generated = s3g::randomizeProcessorStackScoreLead(
+                    current, _scoreEditSection, seed);
+                break;
+            case 2u:
+                generated = s3g::randomizeProcessorStackScoreRiff(
+                    current, _scoreEditSection, seed);
+                break;
+            case 3u:
+                // LOCKS changes only the two per-player lane values in the
+                // selected section. Notes, form, and base parameters survive.
+                generated = s3g::randomizeProcessorStackScoreLocks(
+                    current, _scoreEditSection, seed);
+                break;
+            default:
+                break;
+            }
+            storeScoreProgram(*instance, generated, true);
+            _scoreSelectedPlayer = 0u;
+            _scoreSelectedString = 0u;
+            _scoreSelectedRow = 0u;
+            _scorePendingFret = -1;
+            _scoreRandomFeedback = static_cast<int>(action);
+            _scoreRandomFeedbackUntil =
+                [NSDate timeIntervalSinceReferenceDate] + 0.22;
+            [self.window makeFirstResponder:self];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        for (uint32_t section = 0u;
+             section < s3g::kProcessorStackScoreSectionCount; ++section) {
+            if (!NSPointInRect(point,
+                    stackScoreSectionButtonRect(section))) continue;
+            _scoreEditSection = section;
+            _scorePendingFret = -1;
+            [[self window] makeFirstResponder:self];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        for (uint32_t slot = 0u;
+             slot < s3g::kProcessorStackScoreArrangementSlots; ++slot) {
+            if (!NSPointInRect(point,
+                    stackScoreArrangementSlotRect(slot))) continue;
+            const uint32_t current = std::min<uint32_t>(
+                instance->scoreArrangement[slot].load(
+                    std::memory_order_acquire),
+                s3g::kProcessorStackScoreSectionCount - 1u);
+            const bool backwards = (event.modifierFlags
+                & NSEventModifierFlagShift) != 0u;
+            const uint32_t next = backwards
+                ? (current + s3g::kProcessorStackScoreSectionCount - 1u)
+                    % s3g::kProcessorStackScoreSectionCount
+                : (current + 1u) % s3g::kProcessorStackScoreSectionCount;
+            instance->scoreArrangement[slot].store(
+                next, std::memory_order_release);
+            instance->scoreRevision.fetch_add(
+                1u, std::memory_order_acq_rel);
+            notifyScoreChanged(*instance);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        uint32_t lockPlayer = 0u;
+        uint32_t lockSlot = 0u;
+        uint32_t lockRow = 0u;
+        if (stackScoreLockAtPoint(
+                point, lockPlayer, lockSlot, lockRow)) {
+            _scoreSelectedPlayer = lockPlayer;
+            _scoreSelectedRow = lockRow;
+            _scoreLockPlayer = lockPlayer;
+            _scoreLockSlot = lockSlot;
+            _scoreLockRow = lockRow;
+            _scorePendingFret = -1;
+            const auto lock = stackScoreLockCell(*instance,
+                _scoreEditSection, lockRow, lockPlayer, lockSlot);
+            if (event.clickCount >= 2) {
+                setScoreLock(*instance, _scoreEditSection, lockRow,
+                    lockPlayer, lockSlot,
+                    s3g::ProcessorStackScoreLockControl::None, 0.0);
+                _dragScoreLock = NO;
+            } else if (lock.control != static_cast<uint8_t>(
+                    s3g::ProcessorStackScoreLockControl::None)) {
+                _dragScoreLock = YES;
+                _scoreLockDragStartPoint = point;
+                _scoreLockDragStartNormalized =
+                    s3g::processorStackScoreLockNormalized(lock);
+            }
+            [self.window makeFirstResponder:self];
+            [self setNeedsDisplayInRect:NSInsetRect(stackScoreLockRect(
+                lockPlayer, lockSlot, lockRow), -1.0, -1.0)];
+            return;
+        }
+        uint32_t player = 0u;
+        uint32_t string = 0u;
+        uint32_t row = 0u;
+        if (stackScoreCellAtPoint(point, player, string, row)) {
+            _scoreSelectedPlayer = player;
+            _scoreSelectedString = string;
+            _scoreSelectedRow = row;
+            _scorePendingFret = -1;
+            if (event.clickCount >= 2) {
+                setScoreCell(*instance, _scoreEditSection, row,
+                    player, string, s3g::kProcessorStackScoreRest);
+            }
+            [[self window] makeFirstResponder:self];
             [self setNeedsDisplay:YES];
             return;
         }
@@ -2977,18 +4411,228 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             [self updateDraggedParam:point];
         }
         if (row.id != kOutputParamId && row.id != kMidiReceiveParamId
-            && row.id != kArpHostSyncParamId) {
+            && row.id != kArpHostSyncParamId
+            && row.id != kScoreEnableParamId
+            && row.id != kScoreRateParamId
+            && row.id != kScoreGateParamId
+            && row.id != kScoreLengthParamId
+            && row.id != kScoreBSourceParamId) {
             [self markCustomPreset];
         }
         return;
     }
 }
 
+- (void)keyDown:(NSEvent*)event
+{
+    if (_page != 3u) {
+        [super keyDown:event];
+        return;
+    }
+    auto* instance = static_cast<Plugin*>(_plugin);
+    if (!instance) return;
+    NSString* key = event.charactersIgnoringModifiers.lowercaseString;
+    const auto modifiers = event.modifierFlags
+        & (NSEventModifierFlagCommand | NSEventModifierFlagControl
+            | NSEventModifierFlagOption);
+    const bool trackerCopyModifier = modifiers == NSEventModifierFlagControl
+        || modifiers == NSEventModifierFlagCommand;
+    if (trackerCopyModifier && [key isEqualToString:@"c"]) {
+        NSMutableString* text = [NSMutableString string];
+        for (uint32_t row = 0u;
+             row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+            for (uint32_t player = 0u;
+                 player < s3g::kProcessorStackScorePlayerCount; ++player) {
+                for (uint32_t string = 0u;
+                     string < s3g::kProcessorStackScoreStringCount;
+                     ++string) {
+                    const size_t index = s3g::processorStackScoreCellIndex(
+                        _scoreEditSection, row, player, string);
+                    const int fret = instance->scoreCells[index].load(
+                        std::memory_order_acquire);
+                    [text appendString:fret == s3g::kProcessorStackScoreHold
+                        ? @"~" : fret >= 0
+                            ? [NSString stringWithFormat:@"%d", fret] : @"-"];
+                    if (player != 1u || string + 1u
+                            < s3g::kProcessorStackScoreStringCount) {
+                        [text appendString:@"\t"];
+                    }
+                }
+            }
+            if (row + 1u < s3g::kProcessorStackScoreRowsPerSection) {
+                [text appendString:@"\n"];
+            }
+        }
+        NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
+        [pasteboard clearContents];
+        [pasteboard setString:text forType:NSPasteboardTypeString];
+        return;
+    }
+    if (trackerCopyModifier && [key isEqualToString:@"v"]) {
+        NSString* source = [NSPasteboard.generalPasteboard
+            stringForType:NSPasteboardTypeString];
+        if (!source) return;
+        auto program = scoreProgramSnapshot(*instance);
+        NSArray<NSString*>* lines = [source componentsSeparatedByCharactersInSet:
+            NSCharacterSet.newlineCharacterSet];
+        uint32_t row = 0u;
+        for (NSString* line in lines) {
+            if (row >= s3g::kProcessorStackScoreRowsPerSection) break;
+            NSArray<NSString*>* raw = [line componentsSeparatedByCharactersInSet:
+                NSCharacterSet.whitespaceCharacterSet];
+            NSMutableArray<NSString*>* tokens = [NSMutableArray array];
+            for (NSString* token in raw) {
+                if (token.length > 0u) [tokens addObject:token];
+            }
+            if (tokens.count == 0u) continue;
+            const NSUInteger limit = std::min<NSUInteger>(tokens.count,
+                s3g::kProcessorStackScorePlayerCount
+                    * s3g::kProcessorStackScoreStringCount);
+            for (NSUInteger column = 0u; column < limit; ++column) {
+                NSString* token = tokens[column];
+                int fret = s3g::kProcessorStackScoreRest;
+                if ([token isEqualToString:@"~"]
+                    || [token caseInsensitiveCompare:@"h"]
+                        == NSOrderedSame
+                    || [token isEqualToString:@"="]) {
+                    fret = s3g::kProcessorStackScoreHold;
+                } else if (![token isEqualToString:@"-"]
+                    && ![token isEqualToString:@"—"]
+                    && ![token isEqualToString:@"."]) {
+                    NSScanner* scanner = [NSScanner scannerWithString:token];
+                    NSInteger parsed = -1;
+                    if (![scanner scanInteger:&parsed] || !scanner.isAtEnd
+                        || parsed < s3g::kProcessorStackScoreMinimumFret
+                        || parsed > s3g::kProcessorStackScoreMaximumFret) {
+                        continue;
+                    }
+                    fret = static_cast<int>(parsed);
+                }
+                const uint32_t player = static_cast<uint32_t>(column)
+                    / s3g::kProcessorStackScoreStringCount;
+                const uint32_t string = static_cast<uint32_t>(column)
+                    % s3g::kProcessorStackScoreStringCount;
+                s3g::setProcessorStackScoreCell(program,
+                    _scoreEditSection, row, player, string, fret);
+            }
+            ++row;
+        }
+        storeScoreProgram(*instance, program, true);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (modifiers != 0u) {
+        [super keyDown:event];
+        return;
+    }
+
+    const auto advanceRow = [&]() {
+        _scoreSelectedRow = (_scoreSelectedRow + 1u)
+            % s3g::kProcessorStackScoreRowsPerSection;
+        _scorePendingFret = -1;
+    };
+    if (event.keyCode == 123u || event.keyCode == 124u) {
+        int column = static_cast<int>(_scoreSelectedPlayer
+            * s3g::kProcessorStackScoreStringCount + _scoreSelectedString);
+        column += event.keyCode == 123u ? -1 : 1;
+        const int columnCount = static_cast<int>(
+            s3g::kProcessorStackScorePlayerCount
+                * s3g::kProcessorStackScoreStringCount);
+        column = (column + columnCount) % columnCount;
+        _scoreSelectedPlayer = static_cast<uint32_t>(column)
+            / s3g::kProcessorStackScoreStringCount;
+        _scoreSelectedString = static_cast<uint32_t>(column)
+            % s3g::kProcessorStackScoreStringCount;
+        _scorePendingFret = -1;
+    } else if (event.keyCode == 125u || event.keyCode == 126u) {
+        const int direction = event.keyCode == 125u ? 1 : -1;
+        const int rows = static_cast<int>(
+            s3g::kProcessorStackScoreRowsPerSection);
+        _scoreSelectedRow = static_cast<uint32_t>(
+            (static_cast<int>(_scoreSelectedRow) + direction + rows) % rows);
+        _scorePendingFret = -1;
+    } else if (event.keyCode == 48u) {
+        _scoreSelectedPlayer = 1u - _scoreSelectedPlayer;
+        _scorePendingFret = -1;
+    } else if (key.length == 1u
+        && [key characterAtIndex:0u] >= '0'
+        && [key characterAtIndex:0u] <= '9') {
+        const int digit = static_cast<int>([key characterAtIndex:0u] - '0');
+        const bool append = _scorePendingFret >= 0
+            && event.timestamp - _scorePendingTime < 0.8;
+        const int candidate = append ? _scorePendingFret * 10 + digit : digit;
+        if (candidate <= s3g::kProcessorStackScoreMaximumFret) {
+            setScoreCell(*instance, _scoreEditSection, _scoreSelectedRow,
+                _scoreSelectedPlayer, _scoreSelectedString, candidate);
+            if (append) advanceRow();
+            else {
+                _scorePendingFret = candidate;
+                _scorePendingTime = event.timestamp;
+            }
+        } else NSBeep();
+    } else if ([key isEqualToString:@"-"]
+        || [key isEqualToString:@"."]
+        || event.keyCode == 51u || event.keyCode == 117u) {
+        setScoreCell(*instance, _scoreEditSection, _scoreSelectedRow,
+            _scoreSelectedPlayer, _scoreSelectedString,
+            s3g::kProcessorStackScoreRest);
+        advanceRow();
+    } else if ([key isEqualToString:@"h"]
+        || [key isEqualToString:@"~"]
+        || [key isEqualToString:@"="]) {
+        setScoreCell(*instance, _scoreEditSection, _scoreSelectedRow,
+            _scoreSelectedPlayer, _scoreSelectedString,
+            s3g::kProcessorStackScoreHold);
+        advanceRow();
+    } else if ([key isEqualToString:@"r"]) {
+        int repeated = s3g::kProcessorStackScoreRest;
+        for (uint32_t distance = 1u;
+             distance <= s3g::kProcessorStackScoreRowsPerSection;
+             ++distance) {
+            const uint32_t sourceRow = (_scoreSelectedRow
+                + s3g::kProcessorStackScoreRowsPerSection - distance)
+                % s3g::kProcessorStackScoreRowsPerSection;
+            const size_t sourceIndex = s3g::processorStackScoreCellIndex(
+                _scoreEditSection, sourceRow, _scoreSelectedPlayer,
+                _scoreSelectedString);
+            repeated = instance->scoreCells[sourceIndex].load(
+                std::memory_order_acquire);
+            if (repeated != s3g::kProcessorStackScoreHold) break;
+        }
+        if (repeated == s3g::kProcessorStackScoreHold) {
+            repeated = s3g::kProcessorStackScoreRest;
+        }
+        setScoreCell(*instance, _scoreEditSection, _scoreSelectedRow,
+            _scoreSelectedPlayer, _scoreSelectedString, repeated);
+        advanceRow();
+    } else if ([key isEqualToString:@"["]
+        || [key isEqualToString:@"]"]) {
+        const size_t index = s3g::processorStackScoreCellIndex(
+            _scoreEditSection, _scoreSelectedRow, _scoreSelectedPlayer,
+            _scoreSelectedString);
+        int fret = instance->scoreCells[index].load(
+            std::memory_order_acquire);
+        if (fret < 0) fret = 0;
+        fret += [key isEqualToString:@"["] ? -1 : 1;
+        setScoreCell(*instance, _scoreEditSection, _scoreSelectedRow,
+            _scoreSelectedPlayer, _scoreSelectedString, fret);
+        _scorePendingFret = -1;
+    } else if ([key isEqualToString:@"\r"]) {
+        advanceRow();
+    } else {
+        [super keyDown:event];
+        return;
+    }
+    [self setNeedsDisplay:YES];
+}
+
 - (void)mouseDragged:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:
         [event locationInWindow] fromView:nil];
-    if (_dragPatternPlayer >= 0) {
+    if (_dragScoreLock) {
+        [self updateDraggedScoreLock:point];
+    } else if (_dragPatternPlayer >= 0) {
         [self updateDraggedPattern:point];
     } else if (_dragParam > 0) {
         [self updateDraggedParam:point];
@@ -3010,6 +4654,7 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     _dragParam = -1;
     _dragPatternPlayer = -1;
     _dragPatternStep = -1;
+    _dragScoreLock = NO;
 }
 
 - (void)viewDidMoveToWindow
@@ -3186,6 +4831,8 @@ const clap_plugin_t* create(const clap_host_t* host)
     auto* instance = new (std::nothrow) Plugin();
     if (!instance) return nullptr;
     instance->host = host;
+    storeScoreProgram(*instance,
+        s3g::makeDefaultProcessorStackScoreProgram(), false);
     for (const auto& def : kParamDefs) {
         applyParam(*instance, def.id, def.defaultValue);
     }

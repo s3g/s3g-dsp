@@ -487,6 +487,7 @@ inline ProcessorStackParams sanitizeProcessorStackParams(
 class ProcessorStack {
 public:
     static constexpr uint32_t kExciterCount = 4u;
+    static constexpr uint32_t kScoreStringCount = 6u;
     static constexpr uint32_t kSpeakerModeCount = 4u;
 
     void prepare(double sampleRate)
@@ -540,6 +541,9 @@ public:
         tempoBpm_ = 120.0f;
         hostTransportBeat_ = 0.0;
         hostTransportActive_ = false;
+        scorePlaybackActive_ = false;
+        scorePlayerHeld_.fill(false);
+        for (auto& player : scoreStringLanes_) player.fill(-1);
         arpeggiators_.fill(ArpState {});
         lastPlayedNote_ = -1;
         lastRootNote_ = 45;
@@ -606,6 +610,7 @@ public:
                 rig.circuitFade = 1.0f;
             }
         }
+        if (scorePlaybackActive_) return;
         const bool arpChangedA = params_.arpHostSync != previousArpHostSync
             || params_.arpPattern != previousPattern
             || params_.scale != previousScale
@@ -751,6 +756,7 @@ public:
             arp.phaseSamples = 0.0;
             arp.hostStep = kUnprimedHostStep;
         }
+        scorePlayerHeld_.fill(false);
     }
 
     void setPressure(float pressure)
@@ -790,6 +796,243 @@ public:
         }
     }
 
+    void setScorePlaybackActive(bool active)
+    {
+        if (active == scorePlaybackActive_) return;
+        scorePlaybackActive_ = active;
+        scoreReleasePlayer(0u);
+        scoreReleasePlayer(1u);
+        if (!active && noteOrderSize_ > 0u) rebuildVoicing(true);
+    }
+
+    void scorePlayerChord(uint32_t player, const int* notes,
+        uint32_t noteCount, float velocity = 0.9f)
+    {
+        player = std::min<uint32_t>(player, 1u);
+        auto& bank = player == 0u ? lanes_ : partnerLanes_;
+        scoreStringLanes_[player].fill(-1);
+        for (auto& lane : bank) lane.held = false;
+        noteCount = notes ? std::min<uint32_t>(noteCount,
+            static_cast<uint32_t>(bank.size())) : 0u;
+        if (noteCount == 0u) {
+            scorePlayerHeld_[player] = false;
+            return;
+        }
+        velocity = clamp(std::isfinite(velocity) ? velocity : 0.9f,
+            0.0f, 1.0f);
+        const float gain = 1.0f / std::sqrt(static_cast<float>(noteCount));
+        for (uint32_t index = 0u; index < noteCount; ++index) {
+            const int note = std::clamp(notes[index], 0, 127);
+            configureLane(bank[index], note, 0.0f, gain, gain,
+                velocity, true, true, player);
+        }
+        scorePlayerHeld_[player] = true;
+        if (player == 0u) {
+            lastRootNote_ = std::clamp(notes[0u], 0, 127);
+            lastPlayedNote_ = lastRootNote_;
+        } else {
+            partnerRootNote_ = std::clamp(notes[0u], 0, 127);
+        }
+        signalActive_ = true;
+    }
+
+    // Each command corresponds to one physical guitar string. MIDI notes
+    // retrigger that string, -1 rests it, and -2 carries its existing lane
+    // into the new row without another pick attack.
+    uint32_t scorePlayerTabRow(uint32_t player, const int* commands,
+        uint32_t commandCount, float velocity = 0.9f)
+    {
+        player = std::min<uint32_t>(player, 1u);
+        auto& bank = player == 0u ? lanes_ : partnerLanes_;
+        auto& previous = scoreStringLanes_[player];
+        std::array<int8_t, kScoreStringCount> next {};
+        next.fill(-1);
+        std::array<bool, kExciterCount> used {};
+        commandCount = commands ? std::min<uint32_t>(
+            commandCount, kScoreStringCount) : 0u;
+        uint32_t voiceCount = 0u;
+        uint32_t attackCount = 0u;
+
+        // Reserve genuinely sustained lanes first, so new attacks cannot
+        // steal them when a row contains both holds and fresh notes.
+        for (uint32_t string = 0u; string < commandCount; ++string) {
+            if (commands[string] != -2) continue;
+            const int laneIndex = previous[string];
+            if (laneIndex < 0
+                || laneIndex >= static_cast<int>(kExciterCount)
+                || used[static_cast<size_t>(laneIndex)]
+                || !bank[static_cast<size_t>(laneIndex)].active
+                || !bank[static_cast<size_t>(laneIndex)].held) continue;
+            next[string] = static_cast<int8_t>(laneIndex);
+            used[static_cast<size_t>(laneIndex)] = true;
+            ++voiceCount;
+        }
+
+        const auto availableLane = [&](int preferred) {
+            if (preferred >= 0
+                && preferred < static_cast<int>(kExciterCount)
+                && !used[static_cast<size_t>(preferred)]) return preferred;
+            for (uint32_t lane = 0u; lane < kExciterCount; ++lane) {
+                if (!used[lane] && !bank[lane].active) {
+                    return static_cast<int>(lane);
+                }
+            }
+            for (uint32_t lane = 0u; lane < kExciterCount; ++lane) {
+                if (!used[lane]) return static_cast<int>(lane);
+            }
+            return -1;
+        };
+        for (uint32_t string = 0u;
+             string < commandCount && voiceCount < kExciterCount; ++string) {
+            if (commands[string] < 0) continue;
+            const int laneIndex = availableLane(previous[string]);
+            if (laneIndex < 0) continue;
+            next[string] = static_cast<int8_t>(laneIndex);
+            used[static_cast<size_t>(laneIndex)] = true;
+            ++voiceCount;
+            ++attackCount;
+        }
+
+        velocity = clamp(std::isfinite(velocity) ? velocity : 0.9f,
+            0.0f, 1.0f);
+        const float gain = voiceCount > 0u
+            ? 1.0f / std::sqrt(static_cast<float>(voiceCount)) : 0.0f;
+        for (uint32_t string = 0u; string < commandCount; ++string) {
+            const int laneIndex = next[string];
+            if (laneIndex < 0) continue;
+            auto& lane = bank[static_cast<size_t>(laneIndex)];
+            if (commands[string] == -2) {
+                lane.targetGain = gain;
+                lane.targetAttackGain = gain;
+                lane.velocity = velocity;
+                lane.held = true;
+                continue;
+            }
+            configureLane(lane, std::clamp(commands[string], 0, 127),
+                0.0f, gain, gain, velocity, true, true, player);
+        }
+        for (uint32_t lane = 0u; lane < kExciterCount; ++lane) {
+            if (!used[lane]) bank[lane].held = false;
+        }
+        previous = next;
+        scorePlayerHeld_[player] = voiceCount > 0u;
+        if (voiceCount == 0u) return attackCount;
+        for (uint32_t string = 0u; string < commandCount; ++string) {
+            const int laneIndex = next[string];
+            if (laneIndex < 0) continue;
+            const int note = bank[static_cast<size_t>(laneIndex)].sourceNote;
+            if (player == 0u) {
+                lastRootNote_ = note;
+                lastPlayedNote_ = note;
+            } else {
+                partnerRootNote_ = note;
+            }
+            break;
+        }
+        signalActive_ = true;
+        return attackCount;
+    }
+
+    void scoreRelatedTabRow(const int* primaryCommands,
+        uint32_t commandCount, float velocity = 0.86f)
+    {
+        commandCount = primaryCommands ? std::min<uint32_t>(
+            commandCount, kScoreStringCount) : 0u;
+        std::array<int, kScoreStringCount> primaryNotes {};
+        primaryNotes.fill(-1);
+        int primaryRoot = -1;
+        bool rootIsHeld = false;
+        for (uint32_t string = 0u; string < commandCount; ++string) {
+            const int command = primaryCommands[string];
+            if (command >= 0) {
+                primaryNotes[string] = std::clamp(command, 0, 127);
+            } else if (command == -2) {
+                const int laneIndex = scoreStringLanes_[0u][string];
+                if (laneIndex >= 0
+                    && laneIndex < static_cast<int>(kExciterCount)) {
+                    primaryNotes[string] =
+                        lanes_[static_cast<size_t>(laneIndex)].sourceNote;
+                }
+            }
+            if (primaryRoot < 0 && primaryNotes[string] >= 0) {
+                primaryRoot = primaryNotes[string];
+                rootIsHeld = command == -2;
+            }
+        }
+        if (primaryRoot < 0) {
+            scoreReleasePlayer(1u);
+            return;
+        }
+        const int relatedRoot = rootIsHeld && partnerRootNote_ >= 0
+            ? partnerRootNote_ : partnerRootFor(primaryRoot, true);
+        std::array<int, kScoreStringCount> relatedCommands {};
+        relatedCommands.fill(-1);
+        for (uint32_t string = 0u; string < commandCount; ++string) {
+            if (primaryCommands[string] == -2) {
+                relatedCommands[string] = -2;
+            } else if (primaryNotes[string] >= 0) {
+                relatedCommands[string] = std::clamp(relatedRoot
+                    + primaryNotes[string] - primaryRoot, 0, 127);
+            }
+        }
+        scorePlayerTabRow(1u, relatedCommands.data(), commandCount, velocity);
+    }
+
+    void scoreRelatedChord(const int* primaryNotes, uint32_t noteCount,
+        float velocity = 0.86f)
+    {
+        noteCount = primaryNotes
+            ? std::min<uint32_t>(noteCount, kExciterCount) : 0u;
+        if (noteCount == 0u) {
+            scoreReleasePlayer(1u);
+            return;
+        }
+        const int primaryRoot = std::clamp(primaryNotes[0u], 0, 127);
+        const int relatedRoot = partnerRootFor(primaryRoot, true);
+        std::array<int, kExciterCount> related {};
+        for (uint32_t index = 0u; index < noteCount; ++index) {
+            related[index] = std::clamp(relatedRoot
+                + (primaryNotes[index] - primaryRoot), 0, 127);
+        }
+        scorePlayerChord(1u, related.data(), noteCount, velocity);
+    }
+
+    void scoreReleasePlayer(uint32_t player)
+    {
+        player = std::min<uint32_t>(player, 1u);
+        auto& bank = player == 0u ? lanes_ : partnerLanes_;
+        for (auto& lane : bank) lane.held = false;
+        scoreStringLanes_[player].fill(-1);
+        scorePlayerHeld_[player] = false;
+    }
+
+    void scorePrepareNextTabRow(uint32_t player,
+        const int* nextCommands, uint32_t commandCount)
+    {
+        player = std::min<uint32_t>(player, 1u);
+        auto& bank = player == 0u ? lanes_ : partnerLanes_;
+        auto& mapping = scoreStringLanes_[player];
+        std::array<bool, kExciterCount> keep {};
+        commandCount = nextCommands ? std::min<uint32_t>(
+            commandCount, kScoreStringCount) : 0u;
+        for (uint32_t string = 0u; string < kScoreStringCount; ++string) {
+            const int laneIndex = mapping[string];
+            const int command = string < commandCount
+                ? nextCommands[string] : -1;
+            const bool hold = command == -2
+                && laneIndex >= 0
+                && laneIndex < static_cast<int>(kExciterCount);
+            if (hold) keep[static_cast<size_t>(laneIndex)] = true;
+            else if (command < 0) mapping[string] = -1;
+        }
+        bool anyHeld = false;
+        for (uint32_t lane = 0u; lane < kExciterCount; ++lane) {
+            if (!keep[lane]) bank[lane].held = false;
+            anyHeld = anyHeld || (keep[lane] && bank[lane].held);
+        }
+        scorePlayerHeld_[player] = anyHeld;
+    }
+
     void processFrame(float& left, float& right)
     {
         if (!signalActive_ && noteOrderSize_ == 0u && !anyLaneActive()
@@ -801,7 +1044,8 @@ public:
         }
         smoothParams();
         processArpeggiators();
-        const bool keysHeld = noteOrderSize_ > 0u;
+        const bool keysHeld = noteOrderSize_ > 0u
+            || scorePlayerHeld_[0u] || scorePlayerHeld_[1u];
         const float gateTarget = keysHeld ? 1.0f : 0.0f;
         const float gateCoefficient = keysHeld
             ? gateAttackCoefficient_
@@ -1965,6 +2209,7 @@ private:
 
     void processArpeggiators()
     {
+        if (scorePlaybackActive_) return;
         processArpeggiator(0u);
         if (params_.pairAmount > 1.0e-4f
             && params_.arpBRelation != ProcessorStackArpRelation::Follow) {
@@ -2377,7 +2622,14 @@ private:
         const bool upperChordTone = smoothed_.mode == ProcessorStackMode::Power
             && std::abs(lane.noteOffset) > 0.5f;
 
-        const float pickCurve = smoothed_.pick * smoothed_.pick;
+        // Preserve the established response through three quarters of the
+        // control, then compress only the rough endpoint. PICK still becomes
+        // harder, but its last quarter no longer opens every scrape, partial,
+        // comb and pickup-velocity path all the way at once.
+        const float pickTimbre = smoothed_.pick <= 0.75f
+            ? smoothed_.pick
+            : 0.75f + (smoothed_.pick - 0.75f) * 0.55f;
+        const float pickCurve = pickTimbre * pickTimbre;
         const float pickMilliseconds = lerp(12.0f, 1.15f, pickCurve);
         lane.pickEnvelope *= std::exp(-1.0f / std::max(1.0f,
             static_cast<float>(sampleRate_) * pickMilliseconds * 0.001f));
@@ -2394,17 +2646,17 @@ private:
         lane.pickNoiseBody += (noise - lane.pickNoiseBody)
             * onePoleHz(lerp(120.0f, 900.0f, pickCurve));
         const float pickNoiseBand = lane.pickNoiseLow - lane.pickNoiseBody;
-        const float noiseAmount = std::pow(smoothed_.pick, 1.5f) * 0.28f
+        const float noiseAmount = std::pow(pickTimbre, 1.5f) * 0.28f
             * (upperChordTone ? 0.14f : 1.0f);
         const float rawPickPacket = lane.pickSmoothed * lane.pickDirection
             * (pickNoiseBand * noiseAmount
-                + fundamental * lerp(0.08f, 0.38f, smoothed_.pick)
-                + partialTwo * smoothed_.pick * 0.62f)
+                + fundamental * lerp(0.08f, 0.38f, pickTimbre)
+                + partialTwo * pickTimbre * 0.62f)
             * (0.28f + lane.velocity * 0.82f) * lane.attackGain;
         const float pickPacketCutoff = upperChordTone
             ? lerp(120.0f, 1400.0f, pickCurve)
             : lerp(150.0f, 7600.0f,
-                std::pow(smoothed_.pick, 1.35f));
+                std::pow(pickTimbre, 1.35f));
         lane.pickPacketLow += (rawPickPacket - lane.pickPacketLow)
             * onePoleHz(pickPacketCutoff);
         lane.pickPacketLow = flushDenormal(lane.pickPacketLow);
@@ -2425,7 +2677,7 @@ private:
         const float delayed = readDelay(lane.delay, lane.writeIndex,
             delaySamples);
         const float pickupPosition = clamp(lerp(0.11f, 0.31f,
-                1.0f - smoothed_.pick) + material.pickupShift,
+                1.0f - pickTimbre) + material.pickupShift,
             0.06f, 0.38f);
         const float pickupTap = readDelay(lane.delay, lane.writeIndex,
             clamp(delaySamples * pickupPosition, 1.0f, maximumDelay));
@@ -2453,7 +2705,7 @@ private:
 
         const float comb = delayed - pickupTap;
         const float displacement = delayed * 0.74f
-            + comb * (0.34f + smoothed_.pick * 0.34f);
+            + comb * (0.34f + pickTimbre * 0.34f);
         const float velocityScale = clamp(delaySamples * 0.06f,
             1.0f, 18.0f);
         const float pickupVelocityRaw = (displacement - lane.pickupPrevious)
@@ -2464,18 +2716,18 @@ private:
         lane.pickupVelocity += (boundedVelocity - lane.pickupVelocity)
             * onePoleHz(8200.0f);
         const float pickup = displacement * 0.72f
-            + lane.pickupVelocity * (0.12f + smoothed_.pick * 0.14f);
+            + lane.pickupVelocity * (0.12f + pickTimbre * 0.14f);
         lane.pickupLow += (pickup - lane.pickupLow)
-            * onePoleHz(lerp(3800.0f, 8200.0f, smoothed_.pick));
+            * onePoleHz(lerp(3800.0f, 8200.0f, pickTimbre));
         lane.rootLow += (lane.pickupLow - lane.rootLow)
             * onePoleHz(clamp(lane.currentFrequency * 1.45f,
                 45.0f, 1800.0f));
         const float stringRelease = 0.22f + lane.amplitude * 0.78f;
         const float transientTonal = (fundamental
-                + partialTwo * smoothed_.pick
+                + partialTwo * pickTimbre
                 + partialThree * pickCurve)
             * lane.pickSmoothed * lane.attackGain
-            * lerp(0.02f, 0.085f, smoothed_.pick)
+            * lerp(0.02f, 0.085f, pickTimbre)
             * (upperChordTone ? 0.14f : 1.0f);
         const float output = lerp(pickPacket + transientTonal,
             lane.pickupLow * stringRelease + pickPacket * 0.18f,
@@ -3249,6 +3501,10 @@ private:
     float tempoBpm_ = 120.0f;
     double hostTransportBeat_ = 0.0;
     bool hostTransportActive_ = false;
+    bool scorePlaybackActive_ = false;
+    std::array<bool, 2u> scorePlayerHeld_ {};
+    std::array<std::array<int8_t, kScoreStringCount>, 2u>
+        scoreStringLanes_ {};
     std::array<ArpState, 2u> arpeggiators_ {};
 
     float outputDcLeft_ = 0.0f;

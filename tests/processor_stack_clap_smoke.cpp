@@ -5,6 +5,8 @@
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
+#include "s3g_processor_stack_score.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -122,6 +124,11 @@ enum ParamId : clap_id {
     kGlitchRatchetB,
     kOverloadMaskB,
     kArpHostSync,
+    kScoreEnable,
+    kScoreRate,
+    kScoreGate,
+    kScoreLength,
+    kScoreBSource,
 };
 
 struct ParamSpec {
@@ -133,7 +140,7 @@ struct ParamSpec {
     bool stepped;
 };
 
-constexpr std::array<ParamSpec, 100u> kParamSpecs {{
+constexpr std::array<ParamSpec, 105u> kParamSpecs {{
     { kMode, "Mode", 0.0, 2.0, 0.0, true },
     { kShape, "Shape", 0.0, 1.0, 0.58, false },
     { kWire, "String", 0.0, 1.0, 0.56, false },
@@ -234,6 +241,11 @@ constexpr std::array<ParamSpec, 100u> kParamSpecs {{
     { kGlitchRatchetB, "Glitch Ratchet B", 0.0, 1.0, 0.46, false },
     { kOverloadMaskB, "Overload Mask B", 0.0, 1.0, 0.76, false },
     { kArpHostSync, "Arp Host Sync", 0.0, 1.0, 0.0, true },
+    { kScoreEnable, "Score Playback", 0.0, 1.0, 0.0, true },
+    { kScoreRate, "Score Rate", 0.0, 8.0, 2.0, true },
+    { kScoreGate, "Score Gate", 0.05, 1.0, 0.72, false },
+    { kScoreLength, "Arrangement Length", 1.0, 8.0, 4.0, true },
+    { kScoreBSource, "Player B Source", 0.0, 1.0, 0.0, true },
 }};
 
 struct HostContext {
@@ -514,6 +526,15 @@ bool verifyParams(const clap_plugin_t* plugin)
         && std::strcmp(text, "HOST SYNC") == 0
         && params->text_to_value(plugin, kArpHostSync, "FREE", &value)
         && value == 0.0
+        && params->value_to_text(plugin, kScoreEnable, 1.0,
+            text, sizeof(text))
+        && std::strcmp(text, "HOST PLAY") == 0
+        && params->text_to_value(plugin, kScoreBSource, "RELATE A", &value)
+        && value == 1.0
+        && params->text_to_value(plugin, kScoreRate, "1/32", &value)
+        && value == 4.0
+        && params->text_to_value(plugin, kScoreLength, "4 SECTIONS", &value)
+        && value == 4.0
         && params->text_to_value(plugin, kPolarity, "-50%", &value)
         && std::abs(value - 0.25) < 1.0e-9;
 }
@@ -656,11 +677,116 @@ bool processChecks(const clap_plugin_t* plugin)
     }
     noteBlock.process.transport = nullptr;
 
+    // A saved dual-player score follows the host timeline without MIDI input.
+    const auto* state = static_cast<const clap_plugin_state_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_STATE));
+    if (!state) return false;
+    struct CurrentHeader {
+        uint32_t magic;
+        uint32_t version;
+        uint32_t valueCount;
+        uint32_t reserved;
+    };
+    CurrentHeader currentHeader { 0x31545350u, 11u,
+        static_cast<uint32_t>(kParamSpecs.size()), 0u };
+    std::array<double, kParamSpecs.size()> currentValues {};
+    for (uint32_t index = 0u; index < currentValues.size(); ++index) {
+        currentValues[index] = kParamSpecs[index].defaultValue;
+    }
+    currentValues[static_cast<size_t>(kPairAmount - 1u)] = 1.0;
+    currentValues[static_cast<size_t>(kPairRelation - 1u)] = 1.0;
+    currentValues[static_cast<size_t>(kScoreEnable - 1u)] = 1.0;
+    currentValues[static_cast<size_t>(kScoreBSource - 1u)] = 1.0;
+    auto currentScore = s3g::generateProcessorStackScore(0x4d455441u);
+    currentScore.arrangement[0u] = 0u;
+    for (uint32_t player = 0u;
+         player < s3g::kProcessorStackScorePlayerCount; ++player) {
+        for (uint32_t string = 0u;
+             string < s3g::kProcessorStackScoreStringCount; ++string) {
+            s3g::setProcessorStackScoreCell(currentScore,
+                0u, 0u, player, string, s3g::kProcessorStackScoreRest);
+        }
+    }
+    s3g::setProcessorStackScoreCell(
+        currentScore, 0u, 0u, 0u, 0u, 3);
+    s3g::setProcessorStackScoreCell(
+        currentScore, 0u, 0u, 0u, 1u, 2);
+    s3g::setProcessorStackScoreCell(
+        currentScore, 0u, 0u, 1u, 0u, 7);
+    s3g::setProcessorStackScoreCell(currentScore, 0u, 1u, 0u, 0u,
+        s3g::kProcessorStackScoreHold);
+    s3g::setProcessorStackScoreCell(currentScore, 0u, 1u, 0u, 1u,
+        s3g::kProcessorStackScoreHold);
+    s3g::setProcessorStackScoreCell(currentScore, 0u, 1u, 1u, 0u,
+        s3g::kProcessorStackScoreHold);
+    s3g::setProcessorStackScoreLock(currentScore, 0u, 0u, 0u, 0u,
+        s3g::ProcessorStackScoreLockControl::Bite, 0.18);
+    s3g::setProcessorStackScoreLock(currentScore, 0u, 0u, 0u, 1u,
+        s3g::ProcessorStackScoreLockControl::Circuit, 1.0);
+    s3g::setProcessorStackScoreLock(currentScore, 0u, 0u, 1u, 0u,
+        s3g::ProcessorStackScoreLockControl::Circuit, 1.0);
+    const auto serializeCurrentScore = [&](const auto& score) {
+        MemoryState result;
+        clap_ostream_t output { &result, stateWrite };
+        if (stateWrite(&output, &currentHeader, sizeof(currentHeader)) < 0
+            || stateWrite(&output, currentValues.data(),
+                sizeof(currentValues)) < 0
+            || stateWrite(&output, &score, sizeof(score)) < 0) {
+            result.bytes.clear();
+        }
+        return result;
+    };
+    MemoryState currentState = serializeCurrentScore(currentScore);
+    auto unlockedScore = currentScore;
+    unlockedScore.locks = {};
+    MemoryState unlockedState = serializeCurrentScore(unlockedScore);
+    if (currentState.bytes.empty() || unlockedState.bytes.empty()) return false;
+    transport.flags = CLAP_TRANSPORT_HAS_TEMPO
+        | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+        | CLAP_TRANSPORT_IS_PLAYING;
+    transport.tempo = 120.0;
+    transport.song_pos_beats = 0;
+    noteBlock.process.transport = &transport;
+    const auto renderScoreState = [&](MemoryState& saved) {
+        saved.offset = 0u;
+        clap_istream_t input { &saved, stateRead };
+        if (!state->load(plugin, &input)) return -1.0;
+        double energy = 0.0;
+        events.clear();
+        for (uint32_t block = 0u; block < 16u; ++block) {
+            noteBlock.clear();
+            if (plugin->process(plugin, &noteBlock.process)
+                    == CLAP_PROCESS_ERROR
+                || !noteBlock.finite()) return -1.0;
+            energy += noteBlock.energy();
+        }
+        return energy;
+    };
+    const double lockedEnergy = renderScoreState(currentState);
+    const double unlockedEnergy = renderScoreState(unlockedState);
+    if (lockedEnergy < 1.0e-8 || unlockedEnergy < 1.0e-8) {
+        std::cerr << "host-driven dual-player score was not audible\n";
+        return false;
+    }
+    const double energyDifference = std::abs(lockedEnergy - unlockedEnergy);
+    if (energyDifference < std::max(1.0e-8, unlockedEnergy * 0.01)) {
+        std::cerr << "host-driven row locks did not audibly change the matched parameters\n";
+        return false;
+    }
+    currentState.offset = 0u;
+    clap_istream_t currentInput { &currentState, stateRead };
+    if (!state->load(plugin, &currentInput)) {
+        std::cerr << "current dual-player score state did not reload\n";
+        return false;
+    }
+    noteBlock.process.transport = nullptr;
+
     // MIDI channel filtering is shared by CLAP-note and raw MIDI events.
     plugin->reset(plugin);
     events.clear();
     events.addParam(kMidiReceive, 2.0);
     events.addParam(kArpHostSync, 0.0);
+    events.addParam(kScoreEnable, 0.0);
     events.addNote(CLAP_EVENT_NOTE_ON, 50, 0.8, 0u, 0);
     noteBlock.clear();
     if (plugin->process(plugin, &noteBlock.process) != CLAP_PROCESS_SLEEP
@@ -752,6 +878,11 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kTargetGlitchB, 0.72);
     events.addParam(kOverloadMaskB, 0.98);
     events.addParam(kArpHostSync, 1.0);
+    events.addParam(kScoreEnable, 1.0);
+    events.addParam(kScoreRate, 4.0);
+    events.addParam(kScoreGate, 0.63);
+    events.addParam(kScoreLength, 6.0);
+    events.addParam(kScoreBSource, 1.0);
     block.clear();
     if (plugin->process(plugin, &block.process) == CLAP_PROCESS_ERROR) {
         return false;
@@ -759,9 +890,25 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
 
     MemoryState memory;
     clap_ostream_t output { &memory, stateWrite };
-    if (!state->save(plugin, &output) || memory.bytes.size() != 816u) {
+    if (!state->save(plugin, &output) || memory.bytes.size() != 2656u) {
         std::cerr << "Processor Stack state size mismatch: "
                   << memory.bytes.size() << "\n";
+        return false;
+    }
+    s3g::ProcessorStackScoreProgram savedScore;
+    constexpr size_t currentScoreOffset = 16u
+        + sizeof(std::array<double, 105u>);
+    std::memcpy(&savedScore, memory.bytes.data() + currentScoreOffset,
+        sizeof(savedScore));
+    const auto savedLock = s3g::processorStackScoreLock(
+        savedScore, 0u, 0u, 0u, 0u);
+    if (savedLock.control != static_cast<uint8_t>(
+            s3g::ProcessorStackScoreLockControl::Bite)
+        || std::abs(s3g::processorStackScoreLockNormalized(savedLock) - 0.18)
+            > 2.0e-5
+        || s3g::processorStackScoreCell(savedScore,
+            0u, 1u, 0u, 0u) != s3g::kProcessorStackScoreHold) {
+        std::cerr << "Processor Stack row locks or holds were not saved\n";
         return false;
     }
     events.clear();
@@ -780,6 +927,22 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kOutput, &value)
         || value != -17.0 || host.rescans == 0u) {
         std::cerr << "Processor Stack state roundtrip mismatch\n";
+        return false;
+    }
+    MemoryState roundtripState;
+    clap_ostream_t roundtripOutput { &roundtripState, stateWrite };
+    if (!state->save(plugin, &roundtripOutput)
+        || roundtripState.bytes.size() != memory.bytes.size()) {
+        std::cerr << "Processor Stack score did not resave after load\n";
+        return false;
+    }
+    s3g::ProcessorStackScoreProgram roundtripScore;
+    std::memcpy(&roundtripScore,
+        roundtripState.bytes.data() + currentScoreOffset,
+        sizeof(roundtripScore));
+    if (std::memcmp(&savedScore, &roundtripScore,
+            sizeof(savedScore)) != 0) {
+        std::cerr << "complete Processor Stack score state was not preserved\n";
         return false;
     }
     if (!params->get_value(plugin, kArpPattern, &value) || value != 6.0
@@ -832,6 +995,16 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kOverloadMaskB, &value)
         || std::abs(value - 0.98) > 1.0e-6
         || !params->get_value(plugin, kArpHostSync, &value)
+        || value != 1.0
+        || !params->get_value(plugin, kScoreEnable, &value)
+        || value != 1.0
+        || !params->get_value(plugin, kScoreRate, &value)
+        || value != 4.0
+        || !params->get_value(plugin, kScoreGate, &value)
+        || std::abs(value - 0.63) > 1.0e-6
+        || !params->get_value(plugin, kScoreLength, &value)
+        || value != 6.0
+        || !params->get_value(plugin, kScoreBSource, &value)
         || value != 1.0) {
         std::cerr << "Processor Stack extended state mismatch\n";
         return false;
@@ -843,6 +1016,95 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         uint32_t valueCount;
         uint32_t reserved;
     };
+    struct VersionTenScore {
+        std::array<int8_t, s3g::kProcessorStackScoreCellCount> cells {};
+        std::array<uint8_t, s3g::kProcessorStackScoreArrangementSlots>
+            arrangement {};
+    };
+    static_assert(sizeof(VersionTenScore) == 776u);
+    LegacyHeader versionTenHeader { 0x31545350u, 10u, 105u, 0u };
+    std::array<double, 105u> versionTenValues {};
+    for (uint32_t index = 0u; index < versionTenValues.size(); ++index) {
+        versionTenValues[index] = kParamSpecs[index].defaultValue;
+    }
+    VersionTenScore versionTenScore;
+    versionTenScore.cells.fill(s3g::kProcessorStackScoreRest);
+    for (uint32_t slot = 0u; slot < versionTenScore.arrangement.size(); ++slot) {
+        versionTenScore.arrangement[slot] = static_cast<uint8_t>(slot % 4u);
+    }
+    versionTenScore.cells[s3g::processorStackScoreCellIndex(
+        0u, 0u, 0u, 0u)] = 3;
+    MemoryState versionTen;
+    clap_ostream_t versionTenOutput { &versionTen, stateWrite };
+    if (stateWrite(&versionTenOutput, &versionTenHeader,
+            sizeof(versionTenHeader)) < 0
+        || stateWrite(&versionTenOutput, versionTenValues.data(),
+            sizeof(versionTenValues)) < 0
+        || stateWrite(&versionTenOutput, &versionTenScore,
+            sizeof(versionTenScore)) < 0) {
+        return false;
+    }
+    versionTen.offset = 0u;
+    clap_istream_t versionTenInput { &versionTen, stateRead };
+    if (!state->load(plugin, &versionTenInput)) {
+        std::cerr << "version 10 Processor Stack state did not migrate\n";
+        return false;
+    }
+    MemoryState migratedVersionTen;
+    clap_ostream_t migratedVersionTenOutput {
+        &migratedVersionTen, stateWrite };
+    if (!state->save(plugin, &migratedVersionTenOutput)
+        || migratedVersionTen.bytes.size() != 2656u) {
+        std::cerr << "version 10 Processor Stack score did not resave\n";
+        return false;
+    }
+    s3g::ProcessorStackScoreProgram migratedScore;
+    constexpr size_t scoreOffset = sizeof(LegacyHeader)
+        + sizeof(std::array<double, 105u>);
+    std::memcpy(&migratedScore,
+        migratedVersionTen.bytes.data() + scoreOffset,
+        sizeof(migratedScore));
+    if (s3g::processorStackScoreCell(
+            migratedScore, 0u, 0u, 0u, 0u) != 3
+        || migratedScore.locks[0u].control != static_cast<uint8_t>(
+            s3g::ProcessorStackScoreLockControl::None)) {
+        std::cerr << "version 10 tablature or blank locks were not preserved\n";
+        return false;
+    }
+
+    LegacyHeader versionNineHeader { 0x31545350u, 9u, 100u, 0u };
+    std::array<double, 100u> versionNineValues {};
+    for (uint32_t index = 0u; index < versionNineValues.size(); ++index) {
+        versionNineValues[index] = kParamSpecs[index].defaultValue;
+    }
+    versionNineValues[static_cast<size_t>(kArpHostSync - 1u)] = 1.0;
+    MemoryState versionNine;
+    clap_ostream_t versionNineOutput { &versionNine, stateWrite };
+    if (stateWrite(&versionNineOutput, &versionNineHeader,
+            sizeof(versionNineHeader)) < 0
+        || stateWrite(&versionNineOutput, versionNineValues.data(),
+            sizeof(versionNineValues)) < 0) {
+        return false;
+    }
+    versionNine.offset = 0u;
+    clap_istream_t versionNineInput { &versionNine, stateRead };
+    if (!state->load(plugin, &versionNineInput)
+        || !params->get_value(plugin, kArpHostSync, &value)
+        || value != 1.0
+        || !params->get_value(plugin, kScoreEnable, &value)
+        || value != 0.0
+        || !params->get_value(plugin, kScoreRate, &value)
+        || value != 2.0
+        || !params->get_value(plugin, kScoreGate, &value)
+        || std::abs(value - 0.72) > 1.0e-6
+        || !params->get_value(plugin, kScoreLength, &value)
+        || value != 4.0
+        || !params->get_value(plugin, kScoreBSource, &value)
+        || value != 0.0) {
+        std::cerr << "version 9 Processor Stack state did not migrate\n";
+        return false;
+    }
+
     LegacyHeader versionEightHeader { 0x31545350u, 8u, 99u, 0u };
     std::array<double, 99u> versionEightValues {};
     for (uint32_t index = 0u; index < versionEightValues.size(); ++index) {
