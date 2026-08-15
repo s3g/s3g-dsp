@@ -3236,12 +3236,12 @@ NSRect stackCopyButtonRect(uint8_t index)
         panel.origin.y + 3.0, width, height);
 }
 
-constexpr uint32_t kStackScoreRandomActionCount = 4u;
+constexpr uint32_t kStackScoreRandomActionCount = 5u;
 
 NSRect stackScoreRandomActionButtonRect(uint32_t action)
 {
     const NSRect panel = s3g::clap_gui::cocoaRect(kScoreTimingPanel.frame);
-    constexpr CGFloat width = 56.0;
+    constexpr CGFloat width = 50.0;
     constexpr CGFloat height = 15.0;
     constexpr CGFloat gap = 3.0;
     constexpr CGFloat totalWidth = width * kStackScoreRandomActionCount
@@ -4408,7 +4408,7 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
         const NSRect timingHeader = s3g::clap_gui::cocoaRect(
             kScoreTimingPanel.frame);
         static NSString* const labels[kStackScoreRandomActionCount] {
-            @"FORM", @"LEAD", @"RIFF", @"LOCKS",
+            @"FORM", @"LEAD", @"RIFF", @"LOCKS", @"THIN",
         };
         const NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
         for (uint32_t action = 0u;
@@ -4712,6 +4712,12 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 // selected section. Notes, form, and base parameters survive.
                 generated = s3g::randomizeProcessorStackScoreLocks(
                     current, _scoreEditSection, seed);
+                break;
+            case 4u:
+                // THIN removes attack events across every section and player.
+                // Arrangement slots and the two parameter-lock lanes survive.
+                generated = s3g::randomizeProcessorStackScoreThin(
+                    current, seed);
                 break;
             default:
                 break;

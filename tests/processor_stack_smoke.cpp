@@ -1559,6 +1559,87 @@ int main()
         return 1;
     }
 
+    const auto countScoreAttackEvents = [](const auto& program) {
+        uint32_t events = 0u;
+        for (uint32_t section = 0u;
+             section < s3g::kProcessorStackScoreSectionCount; ++section) {
+            for (uint32_t row = 0u;
+                 row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+                for (uint32_t player = 0u;
+                     player < s3g::kProcessorStackScorePlayerCount;
+                     ++player) {
+                    bool hasAttack = false;
+                    for (uint32_t string = 0u;
+                         string < s3g::kProcessorStackScoreStringCount;
+                         ++string) {
+                        hasAttack = hasAttack
+                            || s3g::processorStackScoreCell(program,
+                                section, row, player, string)
+                                >= s3g::kProcessorStackScoreMinimumFret;
+                    }
+                    events += hasAttack ? 1u : 0u;
+                }
+            }
+        }
+        return events;
+    };
+    const auto thinnedScore = s3g::randomizeProcessorStackScoreThin(
+        alterationSource, 0x5448494eu);
+    const auto repeatedThinnedScore =
+        s3g::randomizeProcessorStackScoreThin(
+            alterationSource, 0x5448494eu);
+    const auto progressivelyThinnedScore =
+        s3g::randomizeProcessorStackScoreThin(
+            thinnedScore, 0x4f50454eu);
+    const uint32_t sourceAttackEvents =
+        countScoreAttackEvents(alterationSource);
+    const uint32_t thinnedAttackEvents = countScoreAttackEvents(thinnedScore);
+    if (std::memcmp(&thinnedScore, &repeatedThinnedScore,
+            sizeof(thinnedScore)) != 0
+        || thinnedAttackEvents == 0u
+        || thinnedAttackEvents >= sourceAttackEvents
+        || countScoreAttackEvents(progressivelyThinnedScore)
+            >= thinnedAttackEvents
+        || thinnedScore.arrangement != alterationSource.arrangement
+        || std::memcmp(thinnedScore.locks.data(),
+            alterationSource.locks.data(),
+            sizeof(thinnedScore.locks)) != 0) {
+        std::cerr << "whole-score THIN was not deterministic or non-destructive\n";
+        return 1;
+    }
+    for (size_t index = 0u; index < thinnedScore.cells.size(); ++index) {
+        if (thinnedScore.cells[index] == alterationSource.cells[index]
+            || thinnedScore.cells[index]
+                == s3g::kProcessorStackScoreRest) continue;
+        std::cerr << "whole-score THIN changed a retained tablature cell\n";
+        return 1;
+    }
+    for (uint32_t section = 0u;
+         section < s3g::kProcessorStackScoreSectionCount; ++section) {
+        for (uint32_t player = 0u;
+             player < s3g::kProcessorStackScorePlayerCount; ++player) {
+            for (uint32_t string = 0u;
+                 string < s3g::kProcessorStackScoreStringCount; ++string) {
+                bool active = false;
+                for (uint32_t row = 0u;
+                     row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+                    const int cell = s3g::processorStackScoreCell(
+                        thinnedScore, section, row, player, string);
+                    if (cell >= s3g::kProcessorStackScoreMinimumFret) {
+                        active = true;
+                    } else if (cell == s3g::kProcessorStackScoreHold) {
+                        if (!active) {
+                            std::cerr << "whole-score THIN left an orphan hold\n";
+                            return 1;
+                        }
+                    } else {
+                        active = false;
+                    }
+                }
+            }
+        }
+    }
+
     const auto generatedLocks = s3g::randomizeProcessorStackScoreLocks(
         alterationSource, 1u, 0x4c4f434bu);
     uint32_t generatedLockCount = 0u;

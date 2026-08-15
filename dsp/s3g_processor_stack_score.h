@@ -829,6 +829,88 @@ inline void clearProcessorStackScoreSectionNotes(
     }
 }
 
+// Removes complete player attack events across all four sections while
+// preserving guitar chord shapes, arrangement slots, and parameter locks.
+// Any hold cells carried by a removed attack are cleared with it. A press
+// removes 24--56% of the current events, but keeps at least one event whenever
+// the source contains more than one so thinning cannot erase a score at once.
+inline ProcessorStackScoreProgram randomizeProcessorStackScoreThin(
+    ProcessorStackScoreProgram program, uint32_t seed) noexcept
+{
+    uint32_t attackEvents = 0u;
+    for (uint32_t section = 0u;
+         section < kProcessorStackScoreSectionCount; ++section) {
+        for (uint32_t row = 0u;
+             row < kProcessorStackScoreRowsPerSection; ++row) {
+            for (uint32_t player = 0u;
+                 player < kProcessorStackScorePlayerCount; ++player) {
+                bool hasAttack = false;
+                for (uint32_t string = 0u;
+                     string < kProcessorStackScoreStringCount; ++string) {
+                    hasAttack = hasAttack || processorStackScoreCell(
+                        program, section, row, player, string)
+                        >= kProcessorStackScoreMinimumFret;
+                }
+                attackEvents += hasAttack ? 1u : 0u;
+            }
+        }
+    }
+    if (attackEvents <= 1u) return program;
+
+    uint32_t random = seed;
+    const uint32_t removalPercent = 24u
+        + processorStackScoreRandomRange(random, 33u);
+    uint32_t removalsRemaining = std::clamp(
+        (attackEvents * removalPercent + 50u) / 100u,
+        1u, attackEvents - 1u);
+    uint32_t eventsRemaining = attackEvents;
+    for (uint32_t section = 0u;
+         section < kProcessorStackScoreSectionCount; ++section) {
+        for (uint32_t row = 0u;
+             row < kProcessorStackScoreRowsPerSection; ++row) {
+            for (uint32_t player = 0u;
+                 player < kProcessorStackScorePlayerCount; ++player) {
+                std::array<bool, kProcessorStackScoreStringCount>
+                    attackedStrings {};
+                bool hasAttack = false;
+                for (uint32_t string = 0u;
+                     string < kProcessorStackScoreStringCount; ++string) {
+                    attackedStrings[string] = processorStackScoreCell(
+                        program, section, row, player, string)
+                        >= kProcessorStackScoreMinimumFret;
+                    hasAttack = hasAttack || attackedStrings[string];
+                }
+                if (!hasAttack) continue;
+
+                const bool remove = removalsRemaining > 0u
+                    && processorStackScoreRandomRange(
+                        random, eventsRemaining) < removalsRemaining;
+                --eventsRemaining;
+                if (!remove) continue;
+                --removalsRemaining;
+
+                for (uint32_t string = 0u;
+                     string < kProcessorStackScoreStringCount; ++string) {
+                    if (!attackedStrings[string]) continue;
+                    setProcessorStackScoreCell(program, section, row,
+                        player, string, kProcessorStackScoreRest);
+                    for (uint32_t holdRow = row + 1u;
+                         holdRow < kProcessorStackScoreRowsPerSection;
+                         ++holdRow) {
+                        if (processorStackScoreCell(program, section,
+                                holdRow, player, string)
+                            != kProcessorStackScoreHold) break;
+                        setProcessorStackScoreCell(program, section,
+                            holdRow, player, string,
+                            kProcessorStackScoreRest);
+                    }
+                }
+            }
+        }
+    }
+    return program;
+}
+
 inline ProcessorStackScoreProgram randomizeProcessorStackScoreLead(
     ProcessorStackScoreProgram program, uint32_t section, uint32_t seed,
     ProcessorStackScale scaleA = ProcessorStackScale::Phrygian,
