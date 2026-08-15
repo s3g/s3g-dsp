@@ -177,7 +177,7 @@ constexpr std::array<ParamSpec, 113u> kParamSpecs {{
     { kOutput, "Output", -36.0, 6.0, -12.0, false },
     { kMidiReceive, "MIDI Receive", 0.0, 16.0, 0.0, true },
     { kArpPattern, "Arp Pattern", 0.0, 6.0, 0.0, true },
-    { kScale, "Scale Rule", 0.0, 4.0, 1.0, true },
+    { kScale, "Scale Rule", 0.0, 13.0, 1.0, true },
     { kArpRate, "Arp Rate", 0.0, 8.0, 2.0, true },
     { kArpOctaves, "Arp Octaves", 1.0, 4.0, 2.0, true },
     { kArpGate, "Arp Gate", 0.05, 1.0, 0.62, false },
@@ -209,7 +209,7 @@ constexpr std::array<ParamSpec, 113u> kParamSpecs {{
     { kBodyB, "Body B", 0.0, 3.0, 1.0, true },
     { kArpBRelation, "Arp B Relation", 0.0, 2.0, 0.0, true },
     { kArpPatternB, "Arp Pattern B", 0.0, 6.0, 0.0, true },
-    { kScaleB, "Scale Rule B", 0.0, 4.0, 1.0, true },
+    { kScaleB, "Scale Rule B", 0.0, 13.0, 1.0, true },
     { kArpRateB, "Arp Rate B", 0.0, 8.0, 2.0, true },
     { kArpOctavesB, "Arp Octaves B", 1.0, 4.0, 2.0, true },
     { kArpGateB, "Arp Gate B", 0.05, 1.0, 0.62, false },
@@ -557,6 +557,13 @@ bool verifyParams(const clap_plugin_t* plugin)
         && value == -9.0
         && params->text_to_value(plugin, kScale, "DIMINISHED", &value)
         && value == 3.0
+        && params->text_to_value(plugin, kScale, "PHRYGIAN DOM", &value)
+        && value == 7.0
+        && params->value_to_text(plugin, kScaleB, 12.0,
+            text, sizeof(text))
+        && std::strcmp(text, "DOUBLE HARM") == 0
+        && params->text_to_value(plugin, kScaleB, "WHOLE TONE", &value)
+        && value == 13.0
         && params->text_to_value(plugin, kArpRate, "1/16T", &value)
         && value == 3.0
         && params->text_to_value(plugin, kArpRate, "1/1", &value)
@@ -885,7 +892,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.addParam(kSpill, 0.77);
     events.addParam(kOutput, -17.0);
     events.addParam(kArpPattern, 6.0);
-    events.addParam(kScale, 2.0);
+    events.addParam(kScale, 12.0);
     events.addParam(kArpRate, 3.0);
     events.addParam(kArpOctaves, 3.0);
     events.addParam(kArpGate, 0.41);
@@ -923,7 +930,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
     events.clear();
     events.addParam(kArpBRelation, 2.0);
     events.addParam(kArpPatternB, 6.0);
-    events.addParam(kScaleB, 3.0);
+    events.addParam(kScaleB, 8.0);
     events.addParam(kArpRateB, 4.0);
     events.addParam(kArpOctavesB, 4.0);
     events.addParam(kArpGateB, 0.52);
@@ -1029,6 +1036,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         return false;
     }
     if (!params->get_value(plugin, kArpPattern, &value) || value != 6.0
+        || !params->get_value(plugin, kScale, &value) || value != 12.0
         || !params->get_value(plugin, kArpGate, &value)
         || std::abs(value - 0.41) > 1.0e-6
         || !params->get_value(plugin, kCustomLength, &value) || value != 4.0
@@ -1064,6 +1072,7 @@ bool stateAndTailChecks(const clap_plugin_t* plugin, HostContext& host)
         || !params->get_value(plugin, kBodyB, &value) || value != 3.0
         || !params->get_value(plugin, kArpBRelation, &value) || value != 2.0
         || !params->get_value(plugin, kArpPatternB, &value) || value != 6.0
+        || !params->get_value(plugin, kScaleB, &value) || value != 8.0
         || !params->get_value(plugin, kArpPhaseB, &value)
         || std::abs(value - 0.33) > 1.0e-6
         || !params->get_value(plugin, kCustomStepB3, &value) || value != -9.0

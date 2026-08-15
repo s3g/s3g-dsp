@@ -75,6 +75,15 @@ enum class ProcessorStackScale : uint32_t {
     HarmonicMinor,
     Diminished,
     Tritone,
+    NaturalMinor,
+    Dorian,
+    PhrygianDominant,
+    Locrian,
+    MinorPentatonic,
+    Blues,
+    HungarianMinor,
+    DoubleHarmonic,
+    WholeTone,
     Count,
 };
 
@@ -89,9 +98,119 @@ inline const char* processorStackScaleName(ProcessorStackScale scale)
     case ProcessorStackScale::HarmonicMinor: return "HARM MIN";
     case ProcessorStackScale::Diminished: return "DIMINISHED";
     case ProcessorStackScale::Tritone: return "TRITONE";
+    case ProcessorStackScale::NaturalMinor: return "NATURAL MINOR";
+    case ProcessorStackScale::Dorian: return "DORIAN";
+    case ProcessorStackScale::PhrygianDominant: return "PHRYGIAN DOM";
+    case ProcessorStackScale::Locrian: return "LOCRIAN";
+    case ProcessorStackScale::MinorPentatonic: return "MINOR PENTA";
+    case ProcessorStackScale::Blues: return "BLUES";
+    case ProcessorStackScale::HungarianMinor: return "HUNGARIAN MIN";
+    case ProcessorStackScale::DoubleHarmonic: return "DOUBLE HARM";
+    case ProcessorStackScale::WholeTone: return "WHOLE TONE";
     case ProcessorStackScale::Count: break;
     }
     return "PHRYGIAN";
+}
+
+inline uint32_t processorStackScaleDegreeCount(ProcessorStackScale scale)
+{
+    switch (scale) {
+    case ProcessorStackScale::Chromatic: return 12u;
+    case ProcessorStackScale::Phrygian: return 7u;
+    case ProcessorStackScale::HarmonicMinor: return 7u;
+    case ProcessorStackScale::Diminished: return 8u;
+    case ProcessorStackScale::Tritone: return 6u;
+    case ProcessorStackScale::NaturalMinor: return 7u;
+    case ProcessorStackScale::Dorian: return 7u;
+    case ProcessorStackScale::PhrygianDominant: return 7u;
+    case ProcessorStackScale::Locrian: return 7u;
+    case ProcessorStackScale::MinorPentatonic: return 5u;
+    case ProcessorStackScale::Blues: return 6u;
+    case ProcessorStackScale::HungarianMinor: return 7u;
+    case ProcessorStackScale::DoubleHarmonic: return 7u;
+    case ProcessorStackScale::WholeTone: return 6u;
+    case ProcessorStackScale::Count: break;
+    }
+    return 7u;
+}
+
+inline int processorStackScaleSemitone(
+    ProcessorStackScale scale, uint32_t degree)
+{
+    static constexpr std::array<int, 12u> chromatic {{
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    }};
+    static constexpr std::array<int, 7u> phrygian {{
+        0, 1, 3, 5, 7, 8, 10,
+    }};
+    static constexpr std::array<int, 7u> harmonicMinor {{
+        0, 2, 3, 5, 7, 8, 11,
+    }};
+    static constexpr std::array<int, 8u> diminished {{
+        0, 2, 3, 5, 6, 8, 9, 11,
+    }};
+    static constexpr std::array<int, 6u> tritone {{
+        0, 1, 4, 6, 7, 10,
+    }};
+    static constexpr std::array<int, 7u> naturalMinor {{
+        0, 2, 3, 5, 7, 8, 10,
+    }};
+    static constexpr std::array<int, 7u> dorian {{
+        0, 2, 3, 5, 7, 9, 10,
+    }};
+    static constexpr std::array<int, 7u> phrygianDominant {{
+        0, 1, 4, 5, 7, 8, 10,
+    }};
+    static constexpr std::array<int, 7u> locrian {{
+        0, 1, 3, 5, 6, 8, 10,
+    }};
+    static constexpr std::array<int, 5u> minorPentatonic {{
+        0, 3, 5, 7, 10,
+    }};
+    static constexpr std::array<int, 6u> blues {{
+        0, 3, 5, 6, 7, 10,
+    }};
+    static constexpr std::array<int, 7u> hungarianMinor {{
+        0, 2, 3, 6, 7, 8, 11,
+    }};
+    static constexpr std::array<int, 7u> doubleHarmonic {{
+        0, 1, 4, 5, 7, 8, 11,
+    }};
+    static constexpr std::array<int, 6u> wholeTone {{
+        0, 2, 4, 6, 8, 10,
+    }};
+    switch (scale) {
+    case ProcessorStackScale::Chromatic:
+        return chromatic[degree % chromatic.size()];
+    case ProcessorStackScale::Phrygian:
+        return phrygian[degree % phrygian.size()];
+    case ProcessorStackScale::HarmonicMinor:
+        return harmonicMinor[degree % harmonicMinor.size()];
+    case ProcessorStackScale::Diminished:
+        return diminished[degree % diminished.size()];
+    case ProcessorStackScale::Tritone:
+        return tritone[degree % tritone.size()];
+    case ProcessorStackScale::NaturalMinor:
+        return naturalMinor[degree % naturalMinor.size()];
+    case ProcessorStackScale::Dorian:
+        return dorian[degree % dorian.size()];
+    case ProcessorStackScale::PhrygianDominant:
+        return phrygianDominant[degree % phrygianDominant.size()];
+    case ProcessorStackScale::Locrian:
+        return locrian[degree % locrian.size()];
+    case ProcessorStackScale::MinorPentatonic:
+        return minorPentatonic[degree % minorPentatonic.size()];
+    case ProcessorStackScale::Blues:
+        return blues[degree % blues.size()];
+    case ProcessorStackScale::HungarianMinor:
+        return hungarianMinor[degree % hungarianMinor.size()];
+    case ProcessorStackScale::DoubleHarmonic:
+        return doubleHarmonic[degree % doubleHarmonic.size()];
+    case ProcessorStackScale::WholeTone:
+        return wholeTone[degree % wholeTone.size()];
+    case ProcessorStackScale::Count: break;
+    }
+    return 0;
 }
 
 enum class ProcessorStackArpRate : uint32_t {
@@ -2142,48 +2261,12 @@ private:
 
     static uint32_t scaleDegreeCount(ProcessorStackScale scale)
     {
-        switch (scale) {
-        case ProcessorStackScale::Chromatic: return 12u;
-        case ProcessorStackScale::Phrygian: return 7u;
-        case ProcessorStackScale::HarmonicMinor: return 7u;
-        case ProcessorStackScale::Diminished: return 8u;
-        case ProcessorStackScale::Tritone: return 6u;
-        case ProcessorStackScale::Count: break;
-        }
-        return 7u;
+        return processorStackScaleDegreeCount(scale);
     }
 
     static int scaleSemitone(ProcessorStackScale scale, uint32_t degree)
     {
-        static constexpr std::array<int, 12u> chromatic {{
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-        }};
-        static constexpr std::array<int, 7u> phrygian {{
-            0, 1, 3, 5, 7, 8, 10,
-        }};
-        static constexpr std::array<int, 7u> harmonicMinor {{
-            0, 2, 3, 5, 7, 8, 11,
-        }};
-        static constexpr std::array<int, 8u> diminished {{
-            0, 2, 3, 5, 6, 8, 9, 11,
-        }};
-        static constexpr std::array<int, 6u> tritone {{
-            0, 1, 4, 6, 7, 10,
-        }};
-        switch (scale) {
-        case ProcessorStackScale::Chromatic:
-            return chromatic[degree % chromatic.size()];
-        case ProcessorStackScale::Phrygian:
-            return phrygian[degree % phrygian.size()];
-        case ProcessorStackScale::HarmonicMinor:
-            return harmonicMinor[degree % harmonicMinor.size()];
-        case ProcessorStackScale::Diminished:
-            return diminished[degree % diminished.size()];
-        case ProcessorStackScale::Tritone:
-            return tritone[degree % tritone.size()];
-        case ProcessorStackScale::Count: break;
-        }
-        return 0;
+        return processorStackScaleSemitone(scale, degree);
     }
 
     static int signedScaleSemitone(ProcessorStackScale scale, int degree)

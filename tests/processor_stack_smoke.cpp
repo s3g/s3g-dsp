@@ -309,7 +309,7 @@ int main()
         || sanitized.bodyB != s3g::ProcessorStackBodyMaterial::Aluminum
         || sanitized.feedback != 1.0f || sanitized.polarity != 0.0f
         || sanitized.arpPattern != s3g::ProcessorStackArpPattern::Custom
-        || sanitized.scale != s3g::ProcessorStackScale::Tritone
+        || sanitized.scale != s3g::ProcessorStackScale::WholeTone
         || sanitized.arpRate != s3g::ProcessorStackArpRate::Whole
         || sanitized.arpOctaves != 4u || sanitized.arpGate != 0.05f
         || sanitized.customPatternLength != 8u
@@ -317,7 +317,7 @@ int main()
         || sanitized.customPattern[1u] != 15
         || sanitized.arpBRelation != s3g::ProcessorStackArpRelation::Free
         || sanitized.arpPatternB != s3g::ProcessorStackArpPattern::Custom
-        || sanitized.scaleB != s3g::ProcessorStackScale::Tritone
+        || sanitized.scaleB != s3g::ProcessorStackScale::WholeTone
         || sanitized.arpRateB != s3g::ProcessorStackArpRate::Whole
         || sanitized.arpOctavesB != 4u || sanitized.arpGateB != 0.05f
         || sanitized.arpPhaseB != 1.0f
@@ -1144,6 +1144,63 @@ int main()
         return 1;
     }
 
+    struct ScaleExpectation {
+        s3g::ProcessorStackScale scale;
+        const char* name;
+        uint32_t degreeCount;
+        std::array<int, 7u> semitones;
+    };
+    const std::array<ScaleExpectation, 9u> metalScales {{
+        { s3g::ProcessorStackScale::NaturalMinor, "NATURAL MINOR", 7u,
+            {{ 0, 2, 3, 5, 7, 8, 10 }} },
+        { s3g::ProcessorStackScale::Dorian, "DORIAN", 7u,
+            {{ 0, 2, 3, 5, 7, 9, 10 }} },
+        { s3g::ProcessorStackScale::PhrygianDominant, "PHRYGIAN DOM", 7u,
+            {{ 0, 1, 4, 5, 7, 8, 10 }} },
+        { s3g::ProcessorStackScale::Locrian, "LOCRIAN", 7u,
+            {{ 0, 1, 3, 5, 6, 8, 10 }} },
+        { s3g::ProcessorStackScale::MinorPentatonic, "MINOR PENTA", 5u,
+            {{ 0, 3, 5, 7, 10, 0, 0 }} },
+        { s3g::ProcessorStackScale::Blues, "BLUES", 6u,
+            {{ 0, 3, 5, 6, 7, 10, 0 }} },
+        { s3g::ProcessorStackScale::HungarianMinor, "HUNGARIAN MIN", 7u,
+            {{ 0, 2, 3, 6, 7, 8, 11 }} },
+        { s3g::ProcessorStackScale::DoubleHarmonic, "DOUBLE HARM", 7u,
+            {{ 0, 1, 4, 5, 7, 8, 11 }} },
+        { s3g::ProcessorStackScale::WholeTone, "WHOLE TONE", 6u,
+            {{ 0, 2, 4, 6, 8, 10, 0 }} },
+    }};
+    for (const auto& expectation : metalScales) {
+        s3g::ProcessorStack scaleArpeggiator;
+        scaleArpeggiator.prepare(48000.0);
+        auto scaleParams = arpParams;
+        scaleParams.scale = expectation.scale;
+        scaleParams.arpOctaves = 1u;
+        scaleArpeggiator.setParams(scaleParams);
+        scaleArpeggiator.setTempoBpm(120.0f);
+        scaleArpeggiator.noteOn(40, 0.9f);
+        for (uint32_t degree = 0u; degree < expectation.degreeCount;
+             ++degree) {
+            const int expectedNote = 40 + expectation.semitones[degree];
+            if (scaleArpeggiator.arpCurrentNote() != expectedNote) {
+                std::cerr << expectation.name << " produced "
+                          << scaleArpeggiator.arpCurrentNote() << " instead of "
+                          << expectedNote << " at degree " << degree << "\n";
+                return 1;
+            }
+            for (uint32_t frame = 0u; frame < 6000u; ++frame) {
+                float left = 0.0f;
+                float right = 0.0f;
+                scaleArpeggiator.processFrame(left, right);
+            }
+        }
+        if (std::strcmp(s3g::processorStackScaleName(expectation.scale),
+                expectation.name) != 0) {
+            std::cerr << "expanded arpeggiator scale label mismatch\n";
+            return 1;
+        }
+    }
+
     s3g::ProcessorStack dualArpeggiator;
     dualArpeggiator.prepare(48000.0);
     auto dualArpParams = arpParams;
@@ -1320,11 +1377,62 @@ int main()
         s3g::generateProcessorStackScore(0x12345678u);
     const auto alternateGeneratedScore =
         s3g::generateProcessorStackScore(0x87654321u);
+    constexpr auto kScoreScaleA = s3g::ProcessorStackScale::Locrian;
+    constexpr auto kScoreScaleB =
+        s3g::ProcessorStackScale::DoubleHarmonic;
+    const auto scaleConstrainedScore = s3g::generateProcessorStackScore(
+        0x12345678u, kScoreScaleA, kScoreScaleB);
     if (std::memcmp(&generatedScore, &repeatedGeneratedScore,
             sizeof(generatedScore)) != 0
         || std::memcmp(&generatedScore, &alternateGeneratedScore,
+            sizeof(generatedScore)) == 0
+        || std::memcmp(&generatedScore, &scaleConstrainedScore,
             sizeof(generatedScore)) == 0) {
         std::cerr << "Score generation was not deterministic by seed\n";
+        return 1;
+    }
+    const auto scoreRootsMatchScales = [](const auto& program,
+                                           uint32_t firstSection,
+                                           uint32_t sectionCount,
+                                           auto scaleA,
+                                           auto scaleB) {
+        const std::array<s3g::ProcessorStackScale, 2u> scales {{
+            scaleA, scaleB,
+        }};
+        std::array<uint32_t, 2u> attacks {};
+        for (uint32_t offset = 0u; offset < sectionCount; ++offset) {
+            const uint32_t section = firstSection + offset;
+            for (uint32_t row = 0u;
+                 row < s3g::kProcessorStackScoreRowsPerSection; ++row) {
+                for (uint32_t player = 0u;
+                     player < s3g::kProcessorStackScorePlayerCount;
+                     ++player) {
+                    for (uint32_t string = 0u;
+                         string < s3g::kProcessorStackScoreStringCount;
+                         ++string) {
+                        const int fret = s3g::processorStackScoreCell(
+                            program, section, row, player, string);
+                        if (fret < s3g::kProcessorStackScoreMinimumFret) {
+                            continue;
+                        }
+                        ++attacks[player];
+                        const int midi =
+                            s3g::kProcessorStackScoreOpenMidi[string] + fret;
+                        if (!s3g::processorStackScorePitchMatchesScale(
+                                scales[player], 40, midi)) {
+                            return false;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return attacks[0u] > 0u && attacks[1u] > 0u;
+    };
+    if (!scoreRootsMatchScales(scaleConstrainedScore, 0u,
+            s3g::kProcessorStackScoreSectionCount,
+            kScoreScaleA, kScoreScaleB)) {
+        std::cerr << "FORM randomizer did not follow Player A/B scales\n";
         return 1;
     }
     std::array<bool, s3g::kProcessorStackScoreSectionCount> arranged {};
@@ -1384,7 +1492,8 @@ int main()
     s3g::setProcessorStackScoreLock(alterationSource, 1u, 0u, 0u, 0u,
         s3g::ProcessorStackScoreLockControl::Sag, 0.73);
     const auto generatedLead = s3g::randomizeProcessorStackScoreLead(
-        alterationSource, 1u, 0x4c454144u);
+        alterationSource, 1u, 0x4c454144u,
+        kScoreScaleA, kScoreScaleB);
     uint32_t leadRows = 0u;
     uint32_t leadHoldCells = 0u;
     for (uint32_t row = 0u;
@@ -1410,6 +1519,8 @@ int main()
         }
     }
     if (leadRows < 11u || leadHoldCells < 2u
+        || !scoreRootsMatchScales(generatedLead, 1u, 1u,
+            kScoreScaleA, kScoreScaleB)
         || generatedLead.arrangement != alterationSource.arrangement
         || std::memcmp(generatedLead.locks.data(),
             alterationSource.locks.data(),
@@ -1419,7 +1530,8 @@ int main()
     }
 
     const auto generatedRiff = s3g::randomizeProcessorStackScoreRiff(
-        alterationSource, 1u, 0x52494646u);
+        alterationSource, 1u, 0x52494646u,
+        kScoreScaleA, kScoreScaleB);
     uint32_t riffChordRows = 0u;
     uint32_t riffSingleRows = 0u;
     uint32_t riffHoldCells = 0u;
@@ -1437,6 +1549,8 @@ int main()
         else if (notes == 1u) ++riffSingleRows;
     }
     if (riffChordRows <= riffSingleRows || riffHoldCells == 0u
+        || !scoreRootsMatchScales(generatedRiff, 1u, 1u,
+            kScoreScaleA, kScoreScaleB)
         || generatedRiff.arrangement != alterationSource.arrangement
         || std::memcmp(generatedRiff.locks.data(),
             alterationSource.locks.data(),

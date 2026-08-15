@@ -419,6 +419,100 @@ inline uint32_t processorStackScoreRandomRange(
     return limit > 0u ? processorStackScoreRandomNext(state) % limit : 0u;
 }
 
+inline bool processorStackScorePitchMatchesScale(
+    ProcessorStackScale scale, int tonicMidi, int midiNote) noexcept
+{
+    scale = static_cast<ProcessorStackScale>(std::min<uint32_t>(
+        static_cast<uint32_t>(scale), kProcessorStackScaleCount - 1u));
+    int interval = (midiNote - tonicMidi) % 12;
+    if (interval < 0) interval += 12;
+    const uint32_t count = processorStackScaleDegreeCount(scale);
+    for (uint32_t degree = 0u; degree < count; ++degree) {
+        if (processorStackScaleSemitone(scale, degree) % 12 == interval) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline int processorStackScoreNearestScaleFret(
+    ProcessorStackScale scale, int tonicMidi, uint32_t string,
+    int targetFret, int minimumFret, int maximumFret) noexcept
+{
+    string = std::min(string, kProcessorStackScoreStringCount - 1u);
+    minimumFret = std::clamp(minimumFret,
+        static_cast<int>(kProcessorStackScoreMinimumFret),
+        static_cast<int>(kProcessorStackScoreMaximumFret));
+    maximumFret = std::clamp(maximumFret, minimumFret,
+        static_cast<int>(kProcessorStackScoreMaximumFret));
+    targetFret = std::clamp(targetFret, minimumFret, maximumFret);
+    for (int distance = 0;
+         distance <= static_cast<int>(kProcessorStackScoreMaximumFret);
+         ++distance) {
+        const int lower = targetFret - distance;
+        if (lower >= minimumFret
+            && processorStackScorePitchMatchesScale(scale, tonicMidi,
+                kProcessorStackScoreOpenMidi[string] + lower)) {
+            return lower;
+        }
+        const int upper = targetFret + distance;
+        if (upper != lower && upper <= maximumFret
+            && processorStackScorePitchMatchesScale(scale, tonicMidi,
+                kProcessorStackScoreOpenMidi[string] + upper)) {
+            return upper;
+        }
+    }
+    return targetFret;
+}
+
+inline void quantizeProcessorStackScoreSectionToScales(
+    ProcessorStackScoreProgram& program, uint32_t section,
+    ProcessorStackScale scaleA, ProcessorStackScale scaleB,
+    int tonicMidi = 40) noexcept
+{
+    section = std::min(section, kProcessorStackScoreSectionCount - 1u);
+    const std::array<ProcessorStackScale, 2u> scales {{ scaleA, scaleB }};
+    for (uint32_t player = 0u;
+         player < kProcessorStackScorePlayerCount; ++player) {
+        for (uint32_t row = 0u;
+             row < kProcessorStackScoreRowsPerSection; ++row) {
+            uint32_t rootString = kProcessorStackScoreStringCount;
+            int rootFret = 0;
+            int minimumRowFret = kProcessorStackScoreMaximumFret;
+            int maximumRowFret = kProcessorStackScoreMinimumFret;
+            for (uint32_t string = 0u;
+                 string < kProcessorStackScoreStringCount; ++string) {
+                const int fret = processorStackScoreCell(
+                    program, section, row, player, string);
+                if (fret < kProcessorStackScoreMinimumFret) continue;
+                if (rootString == kProcessorStackScoreStringCount) {
+                    rootString = string;
+                    rootFret = fret;
+                }
+                minimumRowFret = std::min(minimumRowFret, fret);
+                maximumRowFret = std::max(maximumRowFret, fret);
+            }
+            if (rootString == kProcessorStackScoreStringCount) continue;
+            const int minimumRootFret = rootFret - minimumRowFret;
+            const int maximumRootFret = rootFret
+                + kProcessorStackScoreMaximumFret - maximumRowFret;
+            const int quantizedRoot = processorStackScoreNearestScaleFret(
+                scales[player], tonicMidi, rootString, rootFret,
+                minimumRootFret, maximumRootFret);
+            const int delta = quantizedRoot - rootFret;
+            if (delta == 0) continue;
+            for (uint32_t string = 0u;
+                 string < kProcessorStackScoreStringCount; ++string) {
+                const int fret = processorStackScoreCell(
+                    program, section, row, player, string);
+                if (fret < kProcessorStackScoreMinimumFret) continue;
+                setProcessorStackScoreCell(program, section, row,
+                    player, string, fret + delta);
+            }
+        }
+    }
+}
+
 inline void setProcessorStackScorePowerChord(
     ProcessorStackScoreProgram& program, uint32_t section, uint32_t row,
     uint32_t player, uint32_t rootString, int rootFret,
@@ -542,9 +636,14 @@ inline uint32_t addProcessorStackScoreHoldChains(
 
 // Builds a complete four-section guitar form without changing synthesis
 // parameters. Section A is a low-string power riff, B uses gallop/pedal-note
-// mechanics, C walks a compact minor-pentatonic solo box with a second-guitar
-// harmony, and D trades breakdown chords between the two players.
-inline ProcessorStackScoreProgram generateProcessorStackScore(uint32_t seed)
+// mechanics, C walks a compact solo box with a second-guitar harmony, and D
+// trades breakdown chords between the two players. Generated attack roots are
+// quantized to each player's selected scale around low E; power-chord shapes
+// remain intact so the result stays physically idiomatic on guitar.
+inline ProcessorStackScoreProgram generateProcessorStackScore(uint32_t seed,
+    ProcessorStackScale scaleA = ProcessorStackScale::Phrygian,
+    ProcessorStackScale scaleB = ProcessorStackScale::Phrygian,
+    int tonicMidi = 40)
 {
     ProcessorStackScoreProgram program =
         makeDefaultProcessorStackScoreProgram();
@@ -706,6 +805,11 @@ inline ProcessorStackScoreProgram generateProcessorStackScore(uint32_t seed)
     }};
     program.arrangement = forms[processorStackScoreRandomRange(
         random, static_cast<uint32_t>(forms.size()))];
+    for (uint32_t section = 0u;
+         section < kProcessorStackScoreSectionCount; ++section) {
+        quantizeProcessorStackScoreSectionToScales(
+            program, section, scaleA, scaleB, tonicMidi);
+    }
     return program;
 }
 
@@ -726,7 +830,10 @@ inline void clearProcessorStackScoreSectionNotes(
 }
 
 inline ProcessorStackScoreProgram randomizeProcessorStackScoreLead(
-    ProcessorStackScoreProgram program, uint32_t section, uint32_t seed)
+    ProcessorStackScoreProgram program, uint32_t section, uint32_t seed,
+    ProcessorStackScale scaleA = ProcessorStackScale::Phrygian,
+    ProcessorStackScale scaleB = ProcessorStackScale::Phrygian,
+    int tonicMidi = 40)
 {
     section = std::min(section, kProcessorStackScoreSectionCount - 1u);
     clearProcessorStackScoreSectionNotes(program, section);
@@ -780,11 +887,16 @@ inline ProcessorStackScoreProgram randomizeProcessorStackScoreLead(
                 holdSource, holdSource + offset, player);
         }
     }
+    quantizeProcessorStackScoreSectionToScales(
+        program, section, scaleA, scaleB, tonicMidi);
     return program;
 }
 
 inline ProcessorStackScoreProgram randomizeProcessorStackScoreRiff(
-    ProcessorStackScoreProgram program, uint32_t section, uint32_t seed)
+    ProcessorStackScoreProgram program, uint32_t section, uint32_t seed,
+    ProcessorStackScale scaleA = ProcessorStackScale::Phrygian,
+    ProcessorStackScale scaleB = ProcessorStackScale::Phrygian,
+    int tonicMidi = 40)
 {
     section = std::min(section, kProcessorStackScoreSectionCount - 1u);
     clearProcessorStackScoreSectionNotes(program, section);
@@ -824,6 +936,8 @@ inline ProcessorStackScoreProgram randomizeProcessorStackScoreRiff(
     }
     (void)addProcessorStackScoreHoldChains(
         program, section, random, 28u, 3u);
+    quantizeProcessorStackScoreSectionToScales(
+        program, section, scaleA, scaleB, tonicMidi);
     return program;
 }
 

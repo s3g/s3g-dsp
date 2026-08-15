@@ -219,7 +219,7 @@ constexpr std::array<ParamDef, 113u> kParamDefs {{
     { kOutputParamId, "Output", "Output", -36.0, 6.0, -12.0, false },
     { kMidiReceiveParamId, "MIDI Receive", "Routing", 0.0, 16.0, 0.0, true },
     { kArpPatternParamId, "Arp Pattern", "Arpeggiator", 0.0, 6.0, 0.0, true },
-    { kScaleParamId, "Scale Rule", "Arpeggiator", 0.0, 4.0, 1.0, true },
+    { kScaleParamId, "Scale Rule", "Arpeggiator", 0.0, 13.0, 1.0, true },
     { kArpRateParamId, "Arp Rate", "Arpeggiator", 0.0, 8.0, 2.0, true },
     { kArpOctavesParamId, "Arp Octaves", "Arpeggiator", 1.0, 4.0, 2.0, true },
     { kArpGateParamId, "Arp Gate", "Arpeggiator", 0.05, 1.0, 0.62, false },
@@ -251,7 +251,7 @@ constexpr std::array<ParamDef, 113u> kParamDefs {{
     { kBodyBParamId, "Body B", "Two Guitars", 0.0, 3.0, 1.0, true },
     { kArpBRelationParamId, "Arp B Relation", "Arpeggiator B", 0.0, 2.0, 0.0, true },
     { kArpPatternBParamId, "Arp Pattern B", "Arpeggiator B", 0.0, 6.0, 0.0, true },
-    { kScaleBParamId, "Scale Rule B", "Arpeggiator B", 0.0, 4.0, 1.0, true },
+    { kScaleBParamId, "Scale Rule B", "Arpeggiator B", 0.0, 13.0, 1.0, true },
     { kArpRateBParamId, "Arp Rate B", "Arpeggiator B", 0.0, 8.0, 2.0, true },
     { kArpOctavesBParamId, "Arp Octaves B", "Arpeggiator B", 1.0, 4.0, 2.0, true },
     { kArpGateBParamId, "Arp Gate B", "Arpeggiator B", 0.05, 1.0, 0.62, false },
@@ -2469,6 +2469,8 @@ constexpr CGFloat kMixerColumnWidth =
     (kPanelWidth - kMixerColumnGap) * 0.5;
 constexpr CGFloat kMixerBPanelX =
     kLeftPanelX + kMixerColumnWidth + kMixerColumnGap;
+constexpr CGFloat kScoreRelationBPanelX =
+    kRightPanelX + kMixerColumnWidth + kMixerColumnGap;
 constexpr uint8_t kAllPages = 0xffu;
 constexpr CGFloat kContentTop =
     s3g::gui_layout::kStandardMetrics.contentTop;
@@ -2588,10 +2590,10 @@ constexpr std::array<StackUiPanel, 19u> kUiPanels {{
     { "AMPLIFIER / SPEAKER B", 2u, kAmplifierBPanel },
     { "MIC FEEDBACK LOOP B", 2u, kLoopBPanel },
     { "SCORE CLOCK / RANDOMIZE", 3u, kScoreTimingPanel },
-    { "PLAYER A / B RELATIONSHIP", 3u, kScoreRelationPanel },
+    { "SCORE SCALES / A-B RELATIONSHIP", 3u, kScoreRelationPanel },
 }};
 
-constexpr std::array<StackUiRow, 100u> kUiRows {{
+constexpr std::array<StackUiRow, 102u> kUiRows {{
     { kOutputParamId, "OUT", kLeftPanelX, kPanelWidth,
         layout::rowY(kOutputPanel, 0u), kAllPages },
     { kModeParamId, "MODE", kLeftPanelX, kPanelWidth,
@@ -2787,14 +2789,18 @@ constexpr std::array<StackUiRow, 100u> kUiRows {{
         layout::rowY(kScoreTimingPanel, 2u), 3u },
     { kScoreLengthParamId, "ARRANGE LENGTH", kLeftPanelX, kPanelWidth,
         layout::rowY(kScoreTimingPanel, 3u), 3u },
-    { kScoreBSourceParamId, "PLAYER B", kRightPanelX, kPanelWidth,
+    { kScaleParamId, "SCALE A", kRightPanelX, kPanelWidth,
         layout::rowY(kScoreRelationPanel, 0u), 3u },
-    { kPairRelationParamId, "RELATION", kRightPanelX, kPanelWidth,
+    { kScaleBParamId, "SCALE B", kRightPanelX, kPanelWidth,
         layout::rowY(kScoreRelationPanel, 1u), 3u },
-    { kPairAmountParamId, "DUAL", kRightPanelX, kPanelWidth,
+    { kScoreBSourceParamId, "B SOURCE", kRightPanelX, kMixerColumnWidth,
         layout::rowY(kScoreRelationPanel, 2u), 3u },
-    { kPairSpreadParamId, "SPREAD", kRightPanelX, kPanelWidth,
+    { kPairRelationParamId, "RELATION", kScoreRelationBPanelX,
+        kMixerColumnWidth, layout::rowY(kScoreRelationPanel, 2u), 3u },
+    { kPairAmountParamId, "DUAL", kRightPanelX, kMixerColumnWidth,
         layout::rowY(kScoreRelationPanel, 3u), 3u },
+    { kPairSpreadParamId, "SPREAD", kScoreRelationBPanelX,
+        kMixerColumnWidth, layout::rowY(kScoreRelationPanel, 3u), 3u },
 }};
 
 bool isUiMenuParam(clap_id id)
@@ -3730,7 +3736,9 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
 {
     auto* instance = static_cast<Plugin*>(_plugin);
     if (!instance) return;
-    auto program = s3g::generateProcessorStackScore(0x53434f52u);
+    const auto params = publishedParamsSnapshot(*instance);
+    auto program = s3g::generateProcessorStackScore(
+        0x53434f52u, params.scale, params.scaleB);
     s3g::setProcessorStackScoreCell(program, 0u, 2u, 0u, 0u,
         s3g::kProcessorStackScoreHold);
     s3g::setProcessorStackScoreCell(program, 0u, 3u, 0u, 0u,
@@ -4677,11 +4685,13 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
             if (!NSPointInRect(point,
                     stackScoreRandomActionButtonRect(action))) continue;
             const auto current = scoreProgramSnapshot(*instance);
+            const auto scoreParams = publishedParamsSnapshot(*instance);
             s3g::ProcessorStackScoreProgram generated = current;
             const uint32_t seed = arc4random();
             switch (action) {
             case 0u:
-                generated = s3g::generateProcessorStackScore(seed);
+                generated = s3g::generateProcessorStackScore(
+                    seed, scoreParams.scale, scoreParams.scaleB);
                 // FORM changes the complete tablature and arrangement but
                 // keeps detailed control sequencing authored in the lanes.
                 generated.locks = current.locks;
@@ -4689,11 +4699,13 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                 break;
             case 1u:
                 generated = s3g::randomizeProcessorStackScoreLead(
-                    current, _scoreEditSection, seed);
+                    current, _scoreEditSection, seed,
+                    scoreParams.scale, scoreParams.scaleB);
                 break;
             case 2u:
                 generated = s3g::randomizeProcessorStackScoreRiff(
-                    current, _scoreEditSection, seed);
+                    current, _scoreEditSection, seed,
+                    scoreParams.scale, scoreParams.scaleB);
                 break;
             case 3u:
                 // LOCKS changes only the two per-player lane values in the
