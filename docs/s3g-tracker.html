@@ -69,18 +69,19 @@
 
         <h2 id="step-recording">MIDI Step Recording</h2>
 
-        <p>Route a REAPER MIDI input to Tracker, place the tracker cursor on the destination lane and row, and choose a <code>STEP REC</code> mode. Incoming note-ons write NOTE and velocity at the cursor, then advance one row. The input channel is reported in Console but does not override the selected lane or its output channel. Step-record input is for authoring and is not echoed; use REAPER monitoring when the controller also needs to play an instrument live.</p>
+        <p>Route a REAPER MIDI input to Tracker, place the tracker cursor on the destination lane, and choose <code>STEP</code>, <code>LIVE Q</code>, or <code>LIVE MT</code>. Armed MIDI is passed through immediately on the selected lane's output channel. The input channel is reported in Console but does not override the selected lane or its output channel.</p>
 
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Recorded result</th></tr></thead>
           <tbody>
             <tr><td><code>OFF</code></td><td>Disarms input capture.</td></tr>
-            <tr><td><code>GRID</code></td><td>Writes the note and velocity exactly on the cursor row and removes an MT action already authored on that row.</td></tr>
-            <tr><td><code>MICRO</code></td><td>Measures the onset against the nearest actual tracker tick and writes the signed offset as MicroTime in an existing MT cell or the first empty SEQ pair.</td></tr>
+            <tr><td><code>STEP</code></td><td>Writes note and velocity exactly on the cursor row, removes MT there, and advances one row. Note-off is not recorded.</td></tr>
+            <tr><td><code>LIVE Q</code></td><td>Writes onset and physical note-off at their nearest viable playback rows, filling crossed rows with <code>HLD</code> and ending on <code>KIL</code>.</td></tr>
+            <tr><td><code>LIVE MT</code></td><td>Uses the same NOTE duration cells and also writes the measured onset and release offsets as MicroTime in an existing MT cell or the first empty SEQ pair.</td></tr>
           </tbody>
         </table>
 
-        <p>MICRO timing is bounded by the project's MicroTime range and reports when an extreme offset is clamped. If both SEQ cells on the cursor row already contain other actions, that onset is rejected transactionally instead of overwriting them. While REAPER is stopped and no tick reference exists, MICRO records a centered value. Step-record arming is transient and returns to <code>OFF</code> when the editor is recreated. MIDI-file import is not part of this version.</p>
+        <p>Microtiming is bounded by the project's MicroTime range and reports when an extreme offset is clamped. If both SEQ cells on an onset or release row already contain other actions, that boundary is rejected transactionally instead of overwriting them. Live modes require running REAPER transport and target one selected pattern; MIDI-file import is not part of this version.</p>
 
         <h2 id="grid">Tracker Grid</h2>
 
@@ -89,7 +90,7 @@
         <table class="readout-table">
           <thead><tr><th>Column</th><th>Purpose</th><th>Entry</th></tr></thead>
           <tbody>
-            <tr><td><code>NOTE</code></td><td>MIDI note, rest, retrigger, or kill.</td><td><code>60</code>, <code>C-4</code>, <code>---</code>, <code>RPT</code>, or <code>KIL</code></td></tr>
+            <tr><td><code>NOTE</code></td><td>MIDI note, rest, retrigger, hold, or kill.</td><td><code>60</code>, <code>C-4</code>, <code>---</code>, <code>RPT</code>, <code>HLD</code>, or <code>KIL</code></td></tr>
             <tr><td><code>VOL</code></td><td>Normalized velocity sent as MIDI 0–127.</td><td><code>0.000</code>–<code>1.000</code>, <code>DEF</code>, or <code>PRV</code></td></tr>
             <tr><td><code>SEQ1</code></td><td>First sequencing behavior.</td><td>Action code, full name, <code>PRV</code>, or <code>---</code></td></tr>
             <tr><td><code>V1</code></td><td>Normalized value for <code>SEQ1</code>.</td><td><code>0.000</code>–<code>1.000</code> or <code>PRV</code></td></tr>
@@ -143,7 +144,7 @@
           </tbody>
         </table>
 
-        <p>For example, <code>vol @kick !+*.</code> writes four levels, while <code>fx1 @kick pr !.=-</code> writes probability 1.00, probability 0.55, previous, and empty. Numeric VOL entries are always MIDI integers or normalized decimals; numeric FX entries are always normalized decimals. Grid cell text also accepts <code>---</code>, <code>RPT</code>, and <code>KIL</code> in NOTE; <code>DEF</code> and <code>PRV</code> appear in value columns.</p>
+        <p>For example, <code>vol @kick !+*.</code> writes four levels, while <code>fx1 @kick pr !.=-</code> writes probability 1.00, probability 0.55, previous, and empty. Numeric VOL entries are always MIDI integers or normalized decimals; numeric FX entries are always normalized decimals. Grid cell text also accepts <code>---</code>, <code>RPT</code>, <code>HLD</code>, and <code>KIL</code> in NOTE; <code>DEF</code> and <code>PRV</code> appear in value columns.</p>
 
         <h2 id="editing">Editing and Shortcuts</h2>
 
@@ -161,7 +162,7 @@
             <tr><td>Control-Z / Control-Shift-Z</td><td>Undo or redo a persistent Tracker edit. Command-Z remains available to REAPER.</td></tr>
             <tr><td>Control-= / − / 0</td><td>Zoom in, zoom out, or reset tracker zoom.</td></tr>
             <tr><td>Delete / Backspace</td><td>Clear the selected cell.</td></tr>
-            <tr><td>X / R / K in NOTE</td><td>Toggle an anchored hit, write retrigger-previous, or write kill; each advances to the next row.</td></tr>
+            <tr><td>X / R / H / K in NOTE</td><td>Toggle an anchored hit, write retrigger-previous, continue the active note, or write kill; each advances to the next row.</td></tr>
             <tr><td>[ / ] in VOL, V1, or V2</td><td>Decrease or increase the selected normalized value.</td></tr>
             <tr><td>M</td><td>Toggle mute for the selected column.</td></tr>
             <tr><td><code>:</code> / backtick</td><td>Focus Live Code.</td></tr>

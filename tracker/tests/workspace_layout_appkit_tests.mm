@@ -658,6 +658,17 @@ int main()
                 s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
             "tracker zoom reset should restore the 16-row default");
 
+        state.session.selectedTrack = 0u;
+        state.session.selectedRow = 1u;
+        state.session.selectedField = 0u;
+        const int changesBeforeHold = patternChangeRequests;
+        [grid.documentView keyDown:keyEvent(window, @"h", 4u, 0u)];
+        check(state.session.pattern.tracks[0u].notes[1u].state
+                    == s3g::tracker::NoteCellState::Hold
+                && state.session.selectedRow == 2u
+                && patternChangeRequests == changesBeforeHold + 1,
+            "H should write HLD in a NOTE cell and advance one row");
+
         auto& clearTrack = state.session.pattern.tracks[0u];
         clearTrack.notes[2u] = s3g::tracker::NoteCell::withNote(62u);
         clearTrack.notes[3u] = s3g::tracker::NoteCell::withNote(64u);

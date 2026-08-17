@@ -56,6 +56,7 @@ ProjectDocument makeDocument()
     track.notes[0u] = NoteCell::withNote(36u);
     track.notes[1u] = NoteCell::retriggerPrevious();
     track.notes[2u] = NoteCell::kill();
+    track.notes[3u] = NoteCell::hold();
     track.notes[7u] = NoteCell::withNote(72u);
     track.instruments.resize(12u, InstrumentCell::empty());
     track.instruments[0u] = InstrumentCell::withInstrument(0u);
@@ -229,6 +230,8 @@ void testCompleteDeterministicRoundTrip()
             && std::abs(decoded.session.mainOutputGain - 0.73f) < 1.0e-6f,
         "random seeds, MAIN OUT, and Song mode should survive without precision loss");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
+            && activePattern(decoded).tracks[0u].notes[3u].state
+                == NoteCellState::Hold
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actions[11u]
                 .sequencerAction == SequencerAction::Euclid,

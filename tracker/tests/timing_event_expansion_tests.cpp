@@ -10,6 +10,7 @@ namespace {
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::TimingEventExpansion;
 using s3g::tracker::expandTimingEvent;
+using s3g::tracker::kSustainUntilExplicitNoteOff;
 
 int failures = 0;
 
@@ -84,12 +85,43 @@ void testFlamGhostAndVelocityScales()
         "accent, flam attenuation, and ghost velocity should clamp correctly");
 }
 
+void testHeldOnsetKeepsOneReleaseIdentity()
+{
+    ScheduledEvent primary;
+    primary.absoluteSampleTime = 100u;
+    primary.frameOffset = 4u;
+    primary.noteId = 10u;
+    primary.durationSamples = kSustainUntilExplicitNoteOff;
+    primary.normalizedVelocity = 0.8f;
+    TimingEventExpansion timing;
+    timing.tickDurationSamples = 80u;
+    timing.baseDelaySamples = 10u;
+    timing.ratchetCount = 4u;
+    timing.stutterCount = 3u;
+    timing.flamEnabled = true;
+    timing.ghostEnabled = true;
+    timing.velocityScale = 1.25f;
+
+    std::array<ScheduledEvent, 8u> events {};
+    std::size_t count = 0u;
+    uint64_t nextId = 11u;
+    expandTimingEvent(primary, timing, [&] { return nextId++; },
+        [&](const ScheduledEvent& event) { events[count++] = event; });
+    check(count == 1u && events[0u].noteId == 10u
+            && events[0u].absoluteSampleTime == 110u
+            && events[0u].durationSamples
+                == kSustainUntilExplicitNoteOff
+            && std::abs(events[0u].normalizedVelocity - 1.0f) < 0.00001f,
+        "held onsets should retain timing/accent but suppress secondary voices");
+}
+
 } // namespace
 
 int main()
 {
     testRatchetAndCrossTickStutter();
     testFlamGhostAndVelocityScales();
+    testHeldOnsetKeepsOneReleaseIdentity();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "timing event expansion tests passed\n";
     return EXIT_SUCCESS;

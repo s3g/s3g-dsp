@@ -21,10 +21,27 @@ struct MidiStepCapture {
     uint8_t note = 0u;
     uint8_t velocity = 0u;
     uint8_t channel = 1u;
+    bool noteOn = true;
     MidiStepRecordMode mode = MidiStepRecordMode::Off;
     std::size_t row = 0u;
+    int64_t followingOffsetSamples = 0;
+    std::size_t followingRow = 0u;
     bool rowKnown = false;
+    bool followingRowKnown = false;
     bool timingKnown = false;
+};
+
+// LIVE recording is monophonic per selected tracker lane. This UI-thread
+// state links an admitted onset to its physical MIDI note-off without adding
+// mutable recording state to the realtime sequencer.
+struct MidiLiveRecordState {
+    bool active = false;
+    uint8_t note = 0u;
+    uint8_t channel = 1u;
+    std::size_t track = 0u;
+    std::size_t onsetRow = 0u;
+
+    void clear() noexcept { *this = {}; }
 };
 
 // Single-producer (audio thread), single-consumer (main thread) queue. The
@@ -65,6 +82,8 @@ struct MidiStepRecordResult {
     float microTime = 0.5f;
     bool timingKnown = false;
     bool timingClamped = false;
+    bool release = false;
+    std::size_t holdRows = 0u;
 
     bool recorded() const noexcept
     {
@@ -81,6 +100,6 @@ struct MidiStepRecordResult {
 // pair so a full row is left completely unchanged.
 MidiStepRecordResult recordMidiStep(TrackerSession& session,
     MidiStepRecordMode mode, const MidiStepCapture& capture,
-    double sampleRate);
+    double sampleRate, MidiLiveRecordState* liveState = nullptr);
 
 } // namespace s3g::tracker

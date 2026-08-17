@@ -21,6 +21,7 @@ using s3g::tracker::InstrumentCell;
 using s3g::tracker::InstrumentCellState;
 using s3g::tracker::kInvalidInstrumentNode;
 using s3g::tracker::kMembraneRackSlotCount;
+using s3g::tracker::kSustainUntilExplicitNoteOff;
 using s3g::tracker::kTrackInstrumentNode;
 using s3g::tracker::NoteCell;
 using s3g::tracker::ParameterScope;
@@ -1619,6 +1620,55 @@ void testReadableMidiNoteParsing()
         "invalid and out-of-range note text must fail closed");
 }
 
+void testHoldCellsSustainUntilExplicitBoundary()
+{
+    auto held = makeTrack({ 60u });
+    held.notes = { NoteCell::withNote(60u), NoteCell::hold(),
+        NoteCell::hold(), NoteCell::rest() };
+    held.noteColumn.length = held.notes.size();
+    const auto events = renderTicks(std::move(held), 4u);
+    check(events.size() == 2u
+            && events[0u].kind == ScheduledEventKind::NoteOn
+            && events[0u].absoluteSampleTime == 0u
+            && events[0u].durationSamples
+                == kSustainUntilExplicitNoteOff
+            && events[1u].kind == ScheduledEventKind::NoteOff
+            && events[1u].absoluteSampleTime == 18000u
+            && events[1u].noteId == events[0u].noteId,
+        "HLD chains should continue one onset until the first non-HLD row");
+
+    auto shortest = makeTrack({ 61u });
+    shortest.notes = { NoteCell::withNote(61u), NoteCell::kill() };
+    shortest.noteColumn.length = shortest.notes.size();
+    const auto shortEvents = renderTicks(std::move(shortest), 2u);
+    check(shortEvents.size() == 2u
+            && shortEvents[0u].durationSamples
+                == kSustainUntilExplicitNoteOff
+            && shortEvents[1u].kind == ScheduledEventKind::NoteOff
+            && shortEvents[1u].absoluteSampleTime == 6000u,
+        "a following KIL should provide an exact one-row held duration");
+
+    auto replaced = makeTrack({ 62u });
+    replaced.notes = { NoteCell::withNote(62u), NoteCell::hold(),
+        NoteCell::withNote(65u), NoteCell::rest() };
+    replaced.noteColumn.length = replaced.notes.size();
+    const auto replacementEvents = renderTicks(std::move(replaced), 3u);
+    check(replacementEvents.size() == 3u
+            && replacementEvents[1u].kind == ScheduledEventKind::NoteOff
+            && replacementEvents[2u].kind == ScheduledEventKind::NoteOn
+            && replacementEvents[1u].absoluteSampleTime == 12000u
+            && replacementEvents[2u].absoluteSampleTime == 12000u
+            && replacementEvents[1u].note == 62u
+            && replacementEvents[2u].note == 65u,
+        "a NOTE after HLD should release the old identity before reattacking");
+
+    auto orphan = makeTrack({ 63u });
+    orphan.notes = { NoteCell::hold(), NoteCell::rest() };
+    orphan.noteColumn.length = orphan.notes.size();
+    check(renderTicks(std::move(orphan), 2u).empty(),
+        "an orphan HLD should remain silent");
+}
+
 void testLastNoteTriggeredTracksActualOnsets()
 {
     Track track;
@@ -2356,6 +2406,7 @@ int main()
     testSongBoundaryRevisitResetsNonOverlappingTracks();
     testLiveInstrumentReassignmentRetainsReleaseTarget();
     testReadableMidiNoteParsing();
+    testHoldCellsSustainUntilExplicitBoundary();
     testLastNoteTriggeredTracksActualOnsets();
     testIndependentColumnPhase();
     testProbabilityGatePreservesActiveLifecycle();

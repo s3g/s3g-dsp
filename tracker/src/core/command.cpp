@@ -2538,7 +2538,7 @@ CommandResult executeTokens(TrackerSession& session,
     }
 
     if (verb == "hit" || verb == "rest" || verb == "repeat"
-        || verb == "kill") {
+        || verb == "kill" || verb == "hold") {
         const bool isHit = verb == "hit";
         if ((isHit && tokens.size() != 3u && tokens.size() != 4u)
             || (!isHit && tokens.size() != 3u))
@@ -2563,6 +2563,8 @@ CommandResult executeTokens(TrackerSession& session,
             cell = NoteCell::retriggerPrevious();
         } else if (verb == "kill") {
             cell = NoteCell::kill();
+        } else if (verb == "hold") {
+            cell = NoteCell::hold();
         } else {
             cell = NoteCell::rest();
         }
@@ -3063,10 +3065,12 @@ CommandResult executeTokens(TrackerSession& session,
             if (value == "rest") cell = NoteCell::rest();
             else if (value == "rpt") cell = NoteCell::retriggerPrevious();
             else if (value == "kill") cell = NoteCell::kill();
+            else if (value == "hold" || value == "hld")
+                cell = NoteCell::hold();
             else if (parseUnsigned(tokens[3], midiNote) && midiNote <= 127u)
                 cell = NoteCell::withNote(static_cast<uint8_t>(midiNote));
             else
-                return failure("Note must be MIDI 0..127, rest, rpt, or kill.");
+                return failure("Note must be MIDI 0..127, rest, rpt, hold, or kill.");
             auto& track = session.pattern.tracks[lane];
             ensureNoteStorage(session, track, row + 1u);
             track.notes[row] = cell;
@@ -3507,8 +3511,9 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit", "hit @kick 1 36" },
             { "rest <target> <row>", "Write a NOTE rest.", "rest", "rest @kick 2" },
             { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },
+            { "hold <target> <row>", "Continue the active note without reattacking it.", "hold", "hold @kick 4" },
             { "kill <target> <row>", "Write a NOTE kill cell.", "kill", "kill @kick 4" },
-            { "note <target> <row> <0..127|rest|rpt|kill>", "Edit one NOTE cell directly.", "note", "note @kick 5 38" },
+            { "note <target> <row> <0..127|rest|rpt|hold|kill>", "Edit one NOTE cell directly.", "note", "note @kick 5 38" },
             { "mask <target> <x---...> [direction]", "Replace the active NOTE mask: x/X is a hit and - is a rest.", "mask", "mask @kick x---x--- <>" },
             { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask.", "eu e euclid", "eu @kick 5 16 1 <>" },
             { "rotate|rot <target> <signed steps>", "Rotate active NOTE cells right; negative values move left.", "rotate rot", "rotate @kick -1" },
@@ -3557,7 +3562,7 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "PREVIOUS / HOLD  =", "A standalone = always recalls or holds the previously resolved VOL or FX state; it is not alias assignment.", "", "vol @kick !=+" },
             { "NOTE MASK  x/X  -", "NOTE masks use only x/X for a hit and - for a rest; value marks and digits are rejected.", "", "mask @kick x---x---" },
             { "DIRECTION  >  <  <>  random", "Use > for forward, < for reverse, <> for palindrome, and the word random; ? is reserved for Help.", "", "dir @kick note random" },
-            { "GRID NOTE  ---  RPT  KIL", "Direct NOTE-cell text for rest, retrigger previous, and kill the active note.", "", "note @kick 1 rpt" },
+            { "GRID NOTE  ---  RPT  HLD  KIL", "Direct NOTE-cell text for rest, retrigger previous, continue the active note, and kill it.", "", "note @kick 1 hold" },
             { "GRID VALUE  DEF  PRV", "Direct VOL/SEQ value text for the default velocity or the previously resolved value; SEQ action PRV recalls its previous action.", "", "vol @kick default previous .5" },
         } },
     };

@@ -49,6 +49,7 @@ using s3g::tracker::LogicalTickBoundary;
 using s3g::tracker::LogicalTickBoundaryAction;
 using s3g::tracker::MidiStepCapture;
 using s3g::tracker::MidiStepCaptureQueue;
+using s3g::tracker::MidiLiveRecordState;
 using s3g::tracker::MidiStepRecordCode;
 using s3g::tracker::MidiStepRecordMode;
 using s3g::tracker::PatternBankEntry;
@@ -402,6 +403,31 @@ struct MidiStepClock {
         return false;
     }
 
+    bool nextTarget(uint64_t frame, int64_t& offset,
+        std::size_t& row) const noexcept
+    {
+        for (unsigned attempt = 0u; attempt < 4u; ++attempt) {
+            const uint64_t before = sequence.load(std::memory_order_acquire);
+            if ((before & 1u) != 0u) continue;
+            const bool available = valid.load(std::memory_order_relaxed);
+            const uint64_t next = nextFrame.load(std::memory_order_relaxed);
+            const uint64_t nextTrackerRow = nextRow.load(
+                std::memory_order_relaxed);
+            const uint64_t after = sequence.load(std::memory_order_acquire);
+            if (before != after || (after & 1u) != 0u) continue;
+            if (!available) return false;
+            const uint64_t magnitude = frame >= next
+                ? frame - next : next - frame;
+            const uint64_t bounded = std::min<uint64_t>(magnitude,
+                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
+            offset = frame >= next ? static_cast<int64_t>(bounded)
+                                   : -static_cast<int64_t>(bounded);
+            row = static_cast<std::size_t>(nextTrackerRow);
+            return true;
+        }
+        return false;
+    }
+
     std::atomic<uint64_t> sequence { 0u };
     std::atomic<uint64_t> currentFrame { 0u };
     std::atomic<uint64_t> nextFrame { 0u };
@@ -748,11 +774,17 @@ void captureMidiStep(Plugin& plugin, const clap_event_midi_t& event,
         plugin.midiStepRecordMode.load(std::memory_order_relaxed));
     if (mode == MidiStepRecordMode::Off || event.port_index != 0u) return;
     const uint8_t status = event.data[0];
-    if ((status & 0xf0u) != 0x90u || event.data[2] == 0u) return;
+    const uint8_t kind = status & 0xf0u;
+    const bool noteOn = kind == 0x90u && event.data[2] != 0u;
+    const bool noteOff = kind == 0x80u
+        || (kind == 0x90u && event.data[2] == 0u);
+    if (!noteOn && !noteOff) return;
+    if (noteOff && mode == MidiStepRecordMode::Step) return;
     MidiStepCapture capture;
     capture.note = static_cast<uint8_t>(event.data[1] & 0x7fu);
     capture.velocity = static_cast<uint8_t>(event.data[2] & 0x7fu);
     capture.channel = static_cast<uint8_t>((status & 0x0fu) + 1u);
+    capture.noteOn = noteOn;
     capture.mode = mode;
     const uint64_t absoluteFrame = frameOffset
             > std::numeric_limits<uint64_t>::max() - plugin.processFrame
@@ -760,6 +792,11 @@ void captureMidiStep(Plugin& plugin, const clap_event_midi_t& event,
         : plugin.processFrame + frameOffset;
     capture.rowKnown = plugin.midiStepClock.nearestTarget(
         absoluteFrame, capture.offsetSamples, capture.row);
+    if (noteOff) {
+        capture.followingRowKnown = plugin.midiStepClock.nextTarget(
+            absoluteFrame, capture.followingOffsetSamples,
+            capture.followingRow);
+    }
     capture.timingKnown = capture.rowKnown;
     (void)plugin.midiStepCaptures.push(capture);
 }
@@ -1769,6 +1806,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     VisualPlaybackFrame _pendingVisualFrame;
     bool _visualFramePrimed;
     uint64_t _reportedStepRecordDrops;
+    MidiLiveRecordState _midiLiveRecordState;
     bool _runtimePublicationPending;
 }
 @property(nonatomic, strong) S3GTrackerWorkspaceController* workspace;
@@ -1932,6 +1970,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         const auto previous = static_cast<MidiStepRecordMode>(
             owner->_plugin->midiStepRecordMode.exchange(
                 static_cast<uint8_t>(mode), std::memory_order_acq_rel));
+        if (mode != previous) owner->_midiLiveRecordState.clear();
         if (mode == MidiStepRecordMode::Off
             && previous != MidiStepRecordMode::Off) {
             owner->_plugin->requestMidiMonitorRelease.store(
@@ -2043,11 +2082,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             continue;
         }
         const auto result = s3g::tracker::recordMidiStep(_state->session,
-            capture.mode, capture, _plugin->sampleRate);
+            capture.mode, capture, _plugin->sampleRate,
+            &_midiLiveRecordState);
         if (result.recorded()) {
             changed = true;
             std::ostringstream message;
-            const char* label = capture.mode == MidiStepRecordMode::Step
+            const char* label = result.release
+                ? (capture.mode == MidiStepRecordMode::LiveQuantized
+                        ? "LIVE Q REL" : "LIVE MT REL")
+                : capture.mode == MidiStepRecordMode::Step
                 ? "STEP REC" : capture.mode
                     == MidiStepRecordMode::LiveQuantized
                 ? "LIVE Q REC" : "LIVE MT REC";
@@ -2055,7 +2098,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
                     << " note " << static_cast<unsigned>(capture.note)
                     << " → lane " << (result.track + 1u)
                     << ", row " << (result.row + 1u);
-            if (capture.mode == MidiStepRecordMode::LiveUnquantized) {
+            if (result.holdRows > 0u)
+                message << ", " << result.holdRows << " HLD";
+            if (capture.mode == MidiStepRecordMode::LiveUnquantized
+                && result.fxPair < s3g::tracker::kFxPairCount) {
                 message << ", MT " << std::lround(
                     static_cast<double>(result.microTime) * 100.0) << '%';
                 if (result.timingClamped) message << " (clamped)";
@@ -2085,6 +2131,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)disarmMidiStepRecording
 {
     if (!_state) return;
+    _midiLiveRecordState.clear();
     _state->midiStepRecordMode = MidiStepRecordMode::Off;
     const auto previous = static_cast<MidiStepRecordMode>(
         _plugin->midiStepRecordMode.exchange(
@@ -2251,6 +2298,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)applyDocument:(const ProjectDocument&)document
 {
+    _midiLiveRecordState.clear();
     ProjectDocument midiDocument = document;
     normalizeMidiOnlyDocument(midiDocument);
     _state->patternBank = midiDocument.patternBank;

@@ -988,6 +988,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             bool trigger = false;
             bool retrigger = false;
             bool hardRelease = false;
+            bool hold = false;
         } candidate;
         candidate.channel = track.midiChannel;
         candidate.sourceRow = noteLength > 0u
@@ -1035,6 +1036,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.note = memory.note;
             } else if (cell.state == NoteCellState::Kill) {
                 candidate.hardRelease = true;
+            } else if (cell.state == NoteCellState::Hold) {
+                candidate.hold = true;
             }
         }
 
@@ -1053,10 +1056,12 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                                    uint8_t note,
                                    uint8_t channel,
                                    float velocity,
-                                   EventDestination destination) {
+                                   EventDestination destination,
+                                   uint64_t durationSamples = 0u) {
             ScheduledEvent event;
             event.absoluteSampleTime = absoluteSampleTime;
             event.noteId = noteId;
+            event.durationSamples = durationSamples;
             event.frameOffset = frameOffset;
             event.track = static_cast<uint32_t>(trackIndex);
             event.targetNode = targetNode;
@@ -1185,7 +1190,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         // Source transforms are deliberately unable to resurrect an authored
         // Kill or a muted NOTE lane. OF substitutes a valid nearby source;
         // RP then fills only a still-empty candidate from an accepted onset.
-        if (!candidate.hardRelease && noteFx.offsetEnabled
+        if (!candidate.hardRelease && !candidate.hold && noteFx.offsetEnabled
             && noteFx.offset != 0 && noteLength > 0u) {
             const auto distance = static_cast<std::size_t>(
                 std::abs(noteFx.offset)) % noteLength;
@@ -1201,7 +1206,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.retrigger = false;
             }
         }
-        if (!candidate.trigger && noteFx.repeatPreviousEnabled) {
+        if (!candidate.trigger && !candidate.hold
+            && noteFx.repeatPreviousEnabled) {
             const bool repeat = chancePassed(
                 noteFx.repeatPreviousProbability, 1.0f, true, true);
             if (!candidate.hardRelease && repeat
@@ -1241,10 +1247,22 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         }
         state.lastNoteTriggered = accepted;
 
+        bool sustainOnset = false;
+        if (accepted && noteLength > 0u) {
+            auto nextNoteColumn = state.noteColumn;
+            advance(track.noteColumn, nextNoteColumn);
+            const auto& nextCell = track.notes[
+                nextNoteColumn.position % noteLength];
+            sustainOnset = nextCell.state == NoteCellState::Hold
+                || nextCell.state == NoteCellState::Kill;
+        }
+
         const bool shouldKill = candidate.hardRelease
             && memory.hasNote && !memory.noteMuted;
         if (candidate.hardRelease) memory.noteMuted = true;
         const bool shouldRetrigger = accepted && candidate.retrigger;
+        const bool shouldReleaseHeld = memory.sustainHeld
+            && !candidate.hold;
         const bool shouldReleaseForReassignment
             = state.releaseActiveForDefaultReassignment;
         const uint64_t releaseNoteId = memory.noteId;
@@ -1255,12 +1273,14 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         const EventDestination releaseDestination = memory.activeDestination;
         const uint64_t onsetNoteId = accepted ? allocateNoteId() : 0u;
 
-        if (shouldKill || shouldRetrigger || shouldReleaseForReassignment) {
+        if (shouldKill || shouldRetrigger || shouldReleaseHeld
+            || shouldReleaseForReassignment) {
             writeNote(ScheduledEventKind::NoteOff, releaseNoteId,
                 releaseNodeId, releaseNote, releaseChannel,
                 releaseVelocity, releaseDestination);
             memory.activeNodeId = kInvalidInstrumentNode;
             memory.activeDestination = EventDestination::None;
+            memory.sustainHeld = false;
             state.releaseActiveForDefaultReassignment = false;
         }
 
@@ -1302,7 +1322,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             const uint64_t targetNoteId = onsetNoteId != 0u
                 ? onsetNoteId : memory.noteId;
             const bool activeAfterRelease = accepted
-                || (!(shouldKill || shouldRetrigger
+                || (!(shouldKill || shouldRetrigger || shouldReleaseHeld
                         || shouldReleaseForReassignment)
                     && memory.activeDestination != EventDestination::None
                     && !memory.noteMuted);
@@ -1346,9 +1366,11 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             memory.lastEmittedNodeId = candidate.nodeId;
             memory.lastEmittedDestination = candidate.destination;
             memory.hasLastEmitted = true;
+            memory.sustainHeld = sustainOnset;
             writeNote(ScheduledEventKind::NoteOn, onsetNoteId,
                 candidate.nodeId, candidate.note, candidate.channel,
-                candidate.velocity, candidate.destination);
+                candidate.velocity, candidate.destination,
+                sustainOnset ? kSustainUntilExplicitNoteOff : 0u);
         }
 
         advance(track.noteColumn, state.noteColumn);

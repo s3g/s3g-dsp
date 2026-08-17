@@ -313,7 +313,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "autoalias", "delay", "demo",
         "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
-        "gate", "help", "hit", "kill", "kit",
+        "gate", "help", "hit", "hold", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
@@ -574,6 +574,10 @@ void testNoteAndVelocityEdits()
             && session.pattern.tracks[1].notes[1].state
                 == NoteCellState::Kill,
         "note should support kill cells");
+    check(CommandEngine::execute(session, "note 2 2 hold").ok
+            && session.pattern.tracks[1].notes[1].state
+                == NoteCellState::Hold,
+        "note should support hold cells");
     check(CommandEngine::execute(session, "note 2 3 rest").ok
             && session.pattern.tracks[1].notes[2].state
                 == NoteCellState::Rest,
@@ -609,6 +613,10 @@ void testNoteAndVelocityEdits()
             && session.pattern.tracks[0].notes[1].state
                 == NoteCellState::Kill,
         "kill should provide a concise cell edit");
+    check(CommandEngine::execute(session, "hold 1 2").ok
+            && session.pattern.tracks[0].notes[1].state
+                == NoteCellState::Hold,
+        "hold should provide a concise cell edit");
 }
 
 void testMasks()

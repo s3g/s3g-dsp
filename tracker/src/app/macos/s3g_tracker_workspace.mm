@@ -201,6 +201,7 @@ NSString* noteText(const NoteCell& cell, bool showMidiValue)
             : midiNoteName(cell.note);
     case NoteCellState::RetriggerPrevious: return @"RPT";
     case NoteCellState::Kill: return @"KIL";
+    case NoteCellState::Hold: return @"HLD";
     case NoteCellState::Rest:
     default: return @"---";
     }
@@ -701,7 +702,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and sequence values accept 0.000 through 1.000. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -853,6 +854,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         track.notes[row] = NoteCell::retriggerPrevious();
     else if (state == NoteCellState::Kill)
         track.notes[row] = NoteCell::kill();
+    else if (state == NoteCellState::Hold)
+        track.notes[row] = NoteCell::hold();
     else
         track.notes[row] = NoteCell::rest();
     track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
@@ -1649,6 +1652,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         else if ([lower isEqualToString:@"kil"]
             || [lower isEqualToString:@"kill"])
             track.notes[row] = NoteCell::kill();
+        else if ([lower isEqualToString:@"hld"]
+            || [lower isEqualToString:@"hold"]
+            || [lower isEqualToString:@"~"])
+            track.notes[row] = NoteCell::hold();
         else if (noteUtf8 && s3g::tracker::parseMidiNote(noteUtf8, value))
             track.notes[row] = NoteCell::withNote(value);
         else return NO;
@@ -2301,6 +2308,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     if ([key isEqualToString:@"k"]) {
         if (session.selectedField == 0u)
             [self writeCellState:NoteCellState::Kill advance:YES];
+        else
+            [super keyDown:event];
+        return;
+    }
+    if ([key isEqualToString:@"h"]) {
+        if (session.selectedField == 0u)
+            [self writeCellState:NoteCellState::Hold advance:YES];
         else
             [super keyDown:event];
         return;

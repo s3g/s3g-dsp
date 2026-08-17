@@ -133,6 +133,100 @@ int main()
             && !earlyResult.timingClamped,
         "negative timing should map to the early half of MT");
 
+    auto heldTake = sessionWithTrack();
+    MidiLiveRecordState heldState;
+    MidiStepCapture heldOn = input;
+    heldOn.rowKnown = true;
+    heldOn.row = 2u;
+    check(recordMidiStep(heldTake, MidiStepRecordMode::LiveQuantized,
+              heldOn, 48000.0, &heldState).recorded()
+            && heldState.active && heldState.onsetRow == 2u,
+        "LIVE onset should retain its physical note identity");
+    MidiStepCapture heldOff = heldOn;
+    heldOff.noteOn = false;
+    heldOff.velocity = 0u;
+    heldOff.row = 6u;
+    const auto heldRelease = recordMidiStep(heldTake,
+        MidiStepRecordMode::LiveQuantized, heldOff, 48000.0, &heldState);
+    const auto& heldNotes = heldTake.pattern.tracks[0u].notes;
+    check(heldRelease.recorded() && heldRelease.release
+            && heldRelease.holdRows == 3u && !heldState.active
+            && heldNotes[2u].state == NoteCellState::Note
+            && heldNotes[3u].state == NoteCellState::Hold
+            && heldNotes[4u].state == NoteCellState::Hold
+            && heldNotes[5u].state == NoteCellState::Hold
+            && heldNotes[6u].state == NoteCellState::Kill
+            && heldTake.selectedRow == 6u,
+        "LIVE note-off should write an HLD chain and timed KIL boundary");
+
+    auto shortTake = sessionWithTrack();
+    MidiLiveRecordState shortState;
+    check(recordMidiStep(shortTake, MidiStepRecordMode::LiveQuantized,
+              heldOn, 48000.0, &shortState).recorded(),
+        "short-duration fixture should record its onset");
+    MidiStepCapture shortOff = heldOff;
+    shortOff.row = heldOn.row;
+    shortOff.followingRowKnown = true;
+    shortOff.followingRow = heldOn.row + 1u;
+    shortOff.followingOffsetSamples = -3000;
+    const auto shortRelease = recordMidiStep(shortTake,
+        MidiStepRecordMode::LiveQuantized, shortOff, 48000.0, &shortState);
+    check(shortRelease.recorded() && shortRelease.release
+            && shortRelease.row == 3u
+            && shortTake.pattern.tracks[0u].notes[2u].state
+                == NoteCellState::Note
+            && shortTake.pattern.tracks[0u].notes[3u].state
+                == NoteCellState::Kill,
+        "a note-off nearest its onset row should use the following boundary instead of encoding a full-cycle hold");
+
+    auto timedReleaseTake = sessionWithTrack();
+    MidiLiveRecordState timedState;
+    MidiStepCapture timedOn = input;
+    timedOn.rowKnown = true;
+    timedOn.timingKnown = true;
+    timedOn.row = 1u;
+    check(recordMidiStep(timedReleaseTake,
+              MidiStepRecordMode::LiveUnquantized, timedOn, 48000.0,
+              &timedState).recorded(),
+        "LIVE MT onset should arm a duration take");
+    MidiStepCapture timedOff = timedOn;
+    timedOff.noteOn = false;
+    timedOff.velocity = 0u;
+    timedOff.row = 4u;
+    timedOff.offsetSamples = -600; // -12.5 ms = MT 0.25.
+    const auto timedRelease = recordMidiStep(timedReleaseTake,
+        MidiStepRecordMode::LiveUnquantized, timedOff, 48000.0,
+        &timedState);
+    const auto& releaseTrack = timedReleaseTake.pattern.tracks[0u];
+    check(timedRelease.recorded() && timedRelease.release
+            && timedRelease.fxPair == 0u
+            && std::abs(timedRelease.microTime - 0.25f) < 1.0e-6f
+            && releaseTrack.notes[2u].state == NoteCellState::Hold
+            && releaseTrack.notes[3u].state == NoteCellState::Hold
+            && releaseTrack.notes[4u].state == NoteCellState::Kill
+            && releaseTrack.fxPairs[0u].actions[4u].sequencerAction
+                == SequencerAction::MicroTime
+            && std::abs(releaseTrack.fxPairs[0u].values[4u].normalized
+                    - 0.25f) < 1.0e-6f,
+        "LIVE MT note-off should encode release microtime on its KIL row");
+
+    auto mismatchedTake = sessionWithTrack();
+    MidiLiveRecordState mismatchedState;
+    heldOn.row = 0u;
+    check(recordMidiStep(mismatchedTake,
+              MidiStepRecordMode::LiveQuantized, heldOn, 48000.0,
+              &mismatchedState).recorded(),
+        "mismatch fixture should record an onset");
+    heldOff.row = 3u;
+    heldOff.note = static_cast<uint8_t>(heldOn.note + 1u);
+    check(recordMidiStep(mismatchedTake,
+              MidiStepRecordMode::LiveQuantized, heldOff, 48000.0,
+              &mismatchedState).code == MidiStepRecordCode::InvalidEvent
+            && mismatchedState.active
+            && mismatchedTake.pattern.tracks[0u].notes[3u].state
+                == NoteCellState::Rest,
+        "a different key's note-off must not terminate the active take");
+
     auto full = sessionWithTrack();
     for (auto& pair : full.pattern.tracks[0u].fxPairs) {
         pair.actions.resize(8u, FxActionCell::empty());

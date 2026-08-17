@@ -65,6 +65,14 @@ void expandTimingEvent(const ScheduledEvent& primary,
         emit(event);
     };
 
+    // A held tracker onset has one voice identity until a later HLD-chain
+    // release. Secondary ratchet/flam/stutter/ghost identities cannot share
+    // that release contract, so held onsets keep only timing offset/accent.
+    if (primary.durationSamples == kSustainUntilExplicitNoteOff) {
+        emitAt(baseTime, baseVelocity, true);
+        return;
+    }
+
     for (uint8_t index = 0u; index < ratchets; ++index) {
         const uint64_t offset = tick * static_cast<uint64_t>(index)
             / static_cast<uint64_t>(ratchets);

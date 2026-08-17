@@ -1013,6 +1013,28 @@ void testPreparedHostBeatStartUsesWarpedClock()
         "the first host-synchronized event should read the sought polymetric row");
 }
 
+void testHeldNoteOffTraversesTimingTimeline()
+{
+    Track track;
+    track.notes = { NoteCell::withNote(60u), NoteCell::hold(),
+        NoteCell::rest() };
+    track.noteColumn.length = track.notes.size();
+    TimingPlaybackScheduler scheduler;
+    scheduler.setPattern(oneTrack(std::move(track)));
+    scheduler.setTransport(transport());
+    scheduler.start();
+
+    std::array<ScheduledEvent, 4u> events {};
+    const auto count = scheduler.process(16001u, events.data(),
+        events.size());
+    check(count == 2u
+            && events[0u].kind == ScheduledEventKind::NoteOn
+            && events[1u].kind == ScheduledEventKind::NoteOff
+            && events[1u].absoluteSampleTime == 16000u
+            && events[1u].noteId == events[0u].noteId,
+        "held-note release should retain identity through the timing timeline");
+}
+
 } // namespace
 
 int main()
@@ -1037,6 +1059,7 @@ int main()
     testBlockSizeInvarianceAndOverflowTelemetry();
     testInactiveStoredTimingCellsDoNotAddLatency();
     testPreparedHostBeatStartUsesWarpedClock();
+    testHeldNoteOffTraversesTimingTimeline();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "timing playback scheduler tests passed\n";
     return EXIT_SUCCESS;

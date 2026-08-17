@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -27,6 +28,7 @@ enum class NoteCellState : uint8_t {
     Rest,
     RetriggerPrevious,
     Kill,
+    Hold,
     Note,
 };
 
@@ -47,6 +49,13 @@ struct NoteCell {
     {
         NoteCell cell;
         cell.state = NoteCellState::Kill;
+        return cell;
+    }
+
+    static NoteCell hold()
+    {
+        NoteCell cell;
+        cell.state = NoteCellState::Hold;
         return cell;
     }
 
@@ -329,7 +338,8 @@ struct ScheduledEvent {
     // its explicit note-off carries the same ID.
     uint64_t noteId = 0u;
     // Zero means that duration is unspecified and the destination's gate or a
-    // later NoteOff controls release.
+    // later NoteOff controls release. kSustainUntilExplicitNoteOff suppresses
+    // the destination gate until the sequencer emits that NoteOff.
     uint64_t durationSamples = 0u;
     uint32_t frameOffset = 0u;
     uint32_t track = 0u;
@@ -350,6 +360,9 @@ struct ScheduledEvent {
     ParameterScope parameterScope = ParameterScope::Global;
     EventDestination destination = EventDestination::Midi;
 };
+
+constexpr uint64_t kSustainUntilExplicitNoteOff
+    = std::numeric_limits<uint64_t>::max();
 
 EventDestination destinationForInstrument(uint32_t nodeId,
     EventDestination fallback = EventDestination::None) noexcept;
@@ -551,6 +564,7 @@ private:
         bool hasLastEmitted = false;
         bool hasNote = false;
         bool noteMuted = true;
+        bool sustainHeld = false;
     };
 
     struct ColumnState {

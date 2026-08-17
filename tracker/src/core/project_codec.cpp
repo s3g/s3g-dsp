@@ -893,6 +893,9 @@ JsonValue encodeNoteCells(const std::vector<NoteCell>& cells,
         case NoteCellState::Kill:
             cell.object["state"] = JsonValue::stringValue("kill");
             break;
+        case NoteCellState::Hold:
+            cell.object["state"] = JsonValue::stringValue("hold");
+            break;
         case NoteCellState::Note:
             if (cells[index].note > 127u)
                 setError(result, ProjectErrorCode::OutOfRange,
@@ -934,6 +937,8 @@ bool decodeNoteCells(const JsonValue& input, std::vector<NoteCell>& destination,
             candidate.push_back(NoteCell::retriggerPrevious());
         else if (state->string == "kill")
             candidate.push_back(NoteCell::kill());
+        else if (state->string == "hold")
+            candidate.push_back(NoteCell::hold());
         else if (state->string == "note") {
             const auto* note = requiredField(input.array[index], "note",
                 JsonType::Number, cellPath, result);
