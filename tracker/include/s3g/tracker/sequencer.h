@@ -464,6 +464,11 @@ public:
     // track; playback memory and the last-rendered cursors are kept.
     bool resyncTrackColumnsAtTickBoundary(std::size_t track,
         std::size_t row = 0u) noexcept;
+    // Performance resync for the complete pattern. Unlike a host seek or
+    // Song launch, every authored phase is deliberately ignored so all
+    // column read heads observe the same absolute row on the next tick.
+    void resyncAllTrackColumnsAtTickBoundary(
+        std::size_t row = 0u) noexcept;
 
     // start(true) and reset() rebuild playback storage and may allocate; they
     // are control-thread operations, never audio-callback commands.

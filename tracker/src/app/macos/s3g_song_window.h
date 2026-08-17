@@ -12,6 +12,7 @@ typedef void (^S3GTrackerSongDidChangeHandler)(NSString* summary);
 typedef void (^S3GTrackerSongModeDidChangeHandler)(BOOL enabled);
 typedef void (^S3GTrackerSongLaunchHandler)(NSUInteger row,
     NSInteger quantization);
+typedef void (^S3GTrackerSongProjectFileHandler)(void);
 
 /// Retained, nonmodal editor for the in-memory song arrangement.
 ///
@@ -27,6 +28,12 @@ typedef void (^S3GTrackerSongLaunchHandler)(NSUInteger row,
 @property(nonatomic, copy, nullable) S3GTrackerSongModeDidChangeHandler
     modeChangeHandler;
 @property(nonatomic, copy, nullable) S3GTrackerSongLaunchHandler launchHandler;
+/// Save/load handlers are owned by the host coordinator because the file is a
+/// complete Tracker project: Song arrangement plus every referenced pattern.
+@property(nonatomic, copy, nullable) S3GTrackerSongProjectFileHandler
+    saveProjectHandler;
+@property(nonatomic, copy, nullable) S3GTrackerSongProjectFileHandler
+    loadProjectHandler;
 
 /// Pattern mode remains the default. This explicit switch makes the main
 /// transport consume Song rows on the next fresh Play.
@@ -40,6 +47,9 @@ typedef void (^S3GTrackerSongLaunchHandler)(NSUInteger row,
 - (void)showWindow:(nullable id)sender;
 - (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
     activePatternId:(NSString*)activePatternId;
+- (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
+    patternNames:(NSArray<NSString*>*)patternNames
+    activePatternId:(NSString*)activePatternId;
 
 #ifdef __cplusplus
 /// Native model boundary used by project persistence and the scheduler.
@@ -47,6 +57,8 @@ typedef void (^S3GTrackerSongLaunchHandler)(NSUInteger row,
 - (void)setSongArrangement:(const s3g::tracker::SongArrangement&)arrangement;
 - (void)setPlaybackRow:(NSUInteger)row valid:(BOOL)valid;
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid;
+- (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid
+    quantization:(NSInteger)quantization;
 - (void)setPlaybackLocked:(BOOL)locked;
 #endif
 

@@ -15,6 +15,16 @@ void check(bool condition, const char* message)
     ++failures;
 }
 
+NSPopUpButton* firstPopup(NSView* view)
+{
+    if ([view isKindOfClass:NSPopUpButton.class])
+        return static_cast<NSPopUpButton*>(view);
+    for (NSView* child in view.subviews) {
+        if (NSPopUpButton* popup = firstPopup(child)) return popup;
+    }
+    return nil;
+}
+
 void testEmptyArrangementRemainsEmpty(
     S3GTrackerSongWindowController* controller)
 {
@@ -30,7 +40,7 @@ void testEmptyArrangementRemainsEmpty(
         "empty arrangement metadata should round trip exactly");
 }
 
-void testOptionalOverridesRemainOptional(
+void testHostTempoAndOptionalSwing(
     S3GTrackerSongWindowController* controller)
 {
     s3g::tracker::SongArrangement input;
@@ -61,13 +71,20 @@ void testOptionalOverridesRemainOptional(
     if (output.rows.size() != 3u) return;
     check(!output.rows[0u].bpm.has_value()
             && !output.rows[0u].swing.has_value(),
-        "fully inherited BPM/swing should remain nullopt");
-    check(output.rows[1u].bpm == 143.0
+        "fully inherited host tempo and swing should remain optional");
+    check(!output.rows[1u].bpm.has_value()
             && !output.rows[1u].swing.has_value(),
-        "BPM-only override should not manufacture swing");
+        "Song UI should discard hidden BPM overrides because REAPER owns tempo");
     check(!output.rows[2u].bpm.has_value()
             && output.rows[2u].swing == 0.625,
-        "swing-only override should not manufacture BPM");
+        "swing-only override should survive without manufacturing a BPM");
+
+    __block int programmaticChanges = 0;
+    controller.changeHandler = ^(NSString*) { ++programmaticChanges; };
+    [controller setSongArrangement:input];
+    check(programmaticChanges == 0,
+        "programmatic project application must not report a user Song edit");
+    controller.changeHandler = nil;
 }
 
 void testPlaybackPresentationDoesNotMutateArrangement(
@@ -88,6 +105,50 @@ void testPlaybackPresentationDoesNotMutateArrangement(
         "playback highlights and edit locking must remain presentation-only");
     [controller setPlaybackLocked:NO];
     controller.playbackEnabled = NO;
+}
+
+void testPatternNamesAndQueuePresentation(
+    S3GTrackerSongWindowController* controller)
+{
+    s3g::tracker::SongArrangement arrangement;
+    arrangement.name = "MENU";
+    arrangement.ticksPerBeat = 4u;
+    for (const char* pattern : { "A01", "A02", "A03" }) {
+        s3g::tracker::SongRow row;
+        row.patternId = pattern;
+        row.durationTicks = 8u;
+        arrangement.rows.push_back(row);
+    }
+    [controller setSongArrangement:arrangement];
+    [controller setAvailablePatternIds:@[ @"A01", @"A02", @"A03" ]
+        patternNames:@[ @"INTRO", @"VERSE", @"FILL" ]
+        activePatternId:@"A01"];
+    [controller showWindow:nil];
+    [controller.window.contentView layoutSubtreeIfNeeded];
+
+    NSTableView* table = [controller valueForKey:@"tableView"];
+    NSView* patternCell = [table viewAtColumn:1 row:0
+        makeIfNecessary:YES];
+    NSPopUpButton* popup = firstPopup(patternCell);
+    check(popup.numberOfItems == 3u
+            && [[popup itemAtIndex:0].title isEqualToString:@"A01 · INTRO"]
+            && [[popup itemAtIndex:1].title isEqualToString:@"A02 · VERSE"]
+            && [[[popup itemAtIndex:1] representedObject]
+                isEqualToString:@"A02"],
+        "Song pattern menus should show names while retaining stable IDs");
+
+    [controller setPlaybackRow:0u valid:YES];
+    [controller setPendingPlaybackRow:2u valid:YES quantization:1u];
+    NSTextField* queueStatus = [controller valueForKey:@"queueStatusLabel"];
+    NSTableRowView* pending = [table rowViewAtRow:2 makeIfNecessary:YES];
+    check([queueStatus.stringValue
+                isEqualToString:@"QUEUED ROW 03 · NEXT BEAT"]
+            && [[pending valueForKey:@"playbackPending"] boolValue]
+            && [pending.accessibilityValue isEqualToString:@"Queued"],
+        "pending Song row and its actual launch boundary should be visible");
+    [controller setPendingPlaybackRow:0u valid:NO quantization:0u];
+    check([queueStatus.stringValue isEqualToString:@"QUEUE —"],
+        "Song queue status should clear after the pending launch is consumed");
 }
 
 void testMutedLaneRedrawDoesNotThrow(
@@ -134,6 +195,28 @@ void testMutedLaneRedrawDoesNotThrow(
     [NSGraphicsContext restoreGraphicsState];
 }
 
+void testProjectFileMenuDispatchesCompleteProjectActions(
+    S3GTrackerSongWindowController* controller)
+{
+    __block int saves = 0;
+    __block int loads = 0;
+    controller.saveProjectHandler = ^{ ++saves; };
+    controller.loadProjectHandler = ^{ ++loads; };
+    NSPopUpButton* menu = [controller valueForKey:@"projectFileMenu"];
+    check(menu.numberOfItems == 3u
+            && [[menu itemAtIndex:1].title
+                isEqualToString:@"SAVE SONG + PATTERNS…"]
+            && [[menu itemAtIndex:2].title
+                isEqualToString:@"LOAD SONG + PATTERNS…"],
+        "Song page should expose complete-project save/load choices");
+    [menu selectItemAtIndex:1u];
+    [menu sendAction:menu.action to:menu.target];
+    [menu selectItemAtIndex:2u];
+    [menu sendAction:menu.action to:menu.target];
+    check(saves == 1 && loads == 1 && menu.indexOfSelectedItem == 0,
+        "Song file choices should dispatch and reset their pull-down menu");
+}
+
 } // namespace
 
 int main()
@@ -143,8 +226,10 @@ int main()
         S3GTrackerSongWindowController* controller =
             [[S3GTrackerSongWindowController alloc] init];
         testEmptyArrangementRemainsEmpty(controller);
-        testOptionalOverridesRemainOptional(controller);
+        testHostTempoAndOptionalSwing(controller);
         testPlaybackPresentationDoesNotMutateArrangement(controller);
+        testPatternNamesAndQueuePresentation(controller);
+        testProjectFileMenuDispatchesCompleteProjectActions(controller);
         testMutedLaneRedrawDoesNotThrow(controller);
         [controller close];
     }

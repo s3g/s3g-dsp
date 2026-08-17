@@ -3,9 +3,12 @@ add_library(s3g_tracker_core STATIC
   src/core/command.cpp
   src/core/fx_catalog.cpp
   src/core/instrument_rack.cpp
+  src/core/midi_step_recorder.cpp
   src/core/pattern_bank.cpp
   src/core/atomic_project_store.cpp
   src/core/project_codec.cpp
+  src/core/project_history.cpp
+  src/core/runtime_pattern_plan.cpp
   src/core/sequencer.cpp
   src/core/song_playback_planner.cpp
   src/core/timing_action_resolver.cpp
@@ -36,6 +39,8 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_core_tests tests/sequencer_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_command_tests tests/command_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_instrument_rack_tests tests/instrument_rack_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_midi_step_recorder_tests tests/midi_step_recorder_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_runtime_pattern_plan_tests tests/runtime_pattern_plan_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_timing_warp_tests tests/timing_warp_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_fixed_timed_event_queue_tests tests/fixed_timed_event_queue_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_scheduled_event_timeline_tests tests/scheduled_event_timeline_tests.cpp)

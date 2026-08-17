@@ -81,6 +81,11 @@ public:
     {
         return sequencer_.resyncTrackColumnsAtTickBoundary(track, row);
     }
+    void resyncAllTrackColumnsAtTickBoundary(
+        std::size_t row = 0u) noexcept
+    {
+        sequencer_.resyncAllTrackColumnsAtTickBoundary(row);
+    }
     const TransportSettings& transport() const
     {
         return sequencer_.transport();

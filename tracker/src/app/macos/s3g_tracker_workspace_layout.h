@@ -12,10 +12,16 @@ inline constexpr double kWorkspaceMinimumContentHeight = 560.0;
 inline constexpr double kWorkspaceToolbarHeight = 92.0;
 inline constexpr double kWorkspaceConsoleInputHeight = 44.0;
 inline constexpr double kTrackerRowNumberWidth = 34.0;
-// A lane now exposes NOTE, VOL, and both sequencing action/value pairs at
-// once. Preserve readable field widths and let the horizontal scroller carry
-// larger patterns instead of compressing the unified lane.
-inline constexpr double kTrackerLanePreferredWidth = 360.0;
+inline constexpr double kTrackerLaneInnerPadding = 3.0;
+inline constexpr double kTrackerLaneExpandedWidth = 360.0;
+inline constexpr double kTrackerExpandedNoteFraction = 0.19;
+inline constexpr double kTrackerExpandedVolumeFraction = 0.15;
+// Collapsing removes the SEQ fields without stretching NOTE or VOL. The
+// compact field area is exactly their combined width in an expanded lane.
+inline constexpr double kTrackerLaneCompactWidth =
+    2.0 * kTrackerLaneInnerPadding
+    + (kTrackerLaneExpandedWidth - 2.0 * kTrackerLaneInnerPadding)
+        * (kTrackerExpandedNoteFraction + kTrackerExpandedVolumeFraction);
 inline constexpr double kTrackerLaneGutter = 7.0;
 
 struct WorkspaceLayoutMetrics {
@@ -40,13 +46,15 @@ constexpr WorkspaceLayoutMetrics workspaceLayoutMetrics(
 }
 
 constexpr double trackerDocumentWidth(std::size_t trackCount,
-    double viewportWidth) noexcept
+    double viewportWidth, bool sequenceColumnsExpanded) noexcept
 {
     const double viewport = viewportWidth > 0.0 ? viewportWidth : 0.0;
     const double gutters = trackCount > 0u
         ? static_cast<double>(trackCount - 1u) * kTrackerLaneGutter : 0.0;
+    const double laneWidth = sequenceColumnsExpanded
+        ? kTrackerLaneExpandedWidth : kTrackerLaneCompactWidth;
     const double content = kTrackerRowNumberWidth
-        + static_cast<double>(trackCount) * kTrackerLanePreferredWidth
+        + static_cast<double>(trackCount) * laneWidth
         + gutters;
     return content > viewport ? content : viewport;
 }

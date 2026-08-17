@@ -40,14 +40,28 @@ int main()
     check(near(spacious.envelopeHeight, 140.0),
         "large workspace should cap the envelope at its designed size");
 
-    check(near(trackerDocumentWidth(1u, 500.0), 500.0),
-        "one track should expand to fill a wide viewport");
-    check(near(trackerDocumentWidth(4u, 500.0), 1495.0),
-        "track lanes should retain readable intrinsic widths");
-    check(near(trackerDocumentWidth(12u, 500.0), 4431.0),
-        "track count should grow the scroll document, not the window");
-    check(near(trackerDocumentWidth(0u, 300.0), 300.0),
+    check(near(trackerDocumentWidth(1u, 500.0, false), 500.0),
+        "a sparse compact tracker should leave unused viewport space blank");
+    check(near(trackerDocumentWidth(4u, 500.0, false), 560.44),
+        "collapsed lanes should remove the sequencing-field width");
+    check(near(trackerDocumentWidth(4u, 500.0, true), 1495.0),
+        "expanded lanes should retain readable six-field widths");
+    check(near(trackerDocumentWidth(12u, 500.0, true), 4431.0),
+        "expanded track count should grow the scroll document");
+    check(near(trackerDocumentWidth(0u, 300.0, false), 300.0),
         "empty tracker should still fill its viewport");
+
+    const double expandedFieldWidth = kTrackerLaneExpandedWidth
+        - 2.0 * kTrackerLaneInnerPadding;
+    const double compactFieldWidth = kTrackerLaneCompactWidth
+        - 2.0 * kTrackerLaneInnerPadding;
+    const double compactNoteShare = kTrackerExpandedNoteFraction
+        / (kTrackerExpandedNoteFraction + kTrackerExpandedVolumeFraction);
+    check(near(compactFieldWidth * compactNoteShare,
+            expandedFieldWidth * kTrackerExpandedNoteFraction)
+            && near(compactFieldWidth * (1.0 - compactNoteShare),
+                expandedFieldWidth * kTrackerExpandedVolumeFraction),
+        "NOTE and VOL must keep identical widths when SEQ is collapsed");
 
     check(near(scrollingStripDocumentWidth(1080.0, 600.0), 1080.0),
         "transport controls should become horizontally scrollable");

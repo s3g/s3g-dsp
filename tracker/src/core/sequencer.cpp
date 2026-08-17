@@ -782,6 +782,13 @@ bool Sequencer::resyncTrackColumnsAtTickBoundary(std::size_t trackIndex,
     return true;
 }
 
+void Sequencer::resyncAllTrackColumnsAtTickBoundary(
+    std::size_t row) noexcept
+{
+    for (std::size_t track = 0u; track < pattern_.tracks.size(); ++track)
+        (void)resyncTrackColumnsAtTickBoundary(track, row);
+}
+
 uint64_t Sequencer::nextTickSampleFrame() const noexcept
 {
     const long double rounded = std::floor(nextTickFrame_ + 0.5L);

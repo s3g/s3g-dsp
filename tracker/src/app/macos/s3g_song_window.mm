@@ -18,7 +18,6 @@ NSFont* s3gSongFont(CGFloat size, NSFontWeight weight = NSFontWeightRegular)
 NSString* const S3GSongColumnRow = @"row";
 NSString* const S3GSongColumnPattern = @"pattern";
 NSString* const S3GSongColumnRepeats = @"repeats";
-NSString* const S3GSongColumnBPM = @"bpm";
 NSString* const S3GSongColumnTicks = @"ticks";
 NSString* const S3GSongColumnSwing = @"swing";
 NSString* const S3GSongColumnMutes = @"mutes";
@@ -75,8 +74,6 @@ bool s3gUsesProjectValue(NSString* text)
 @interface S3GTrackerSongRow : NSObject
 @property(nonatomic, copy) NSString* pattern;
 @property(nonatomic) NSInteger repeats;
-@property(nonatomic) double bpm;
-@property(nonatomic) BOOL hasBPMOverride;
 @property(nonatomic) NSInteger ticks;
 @property(nonatomic) double swing;
 @property(nonatomic) BOOL hasSwingOverride;
@@ -143,6 +140,19 @@ bool s3gUsesProjectValue(NSString* text)
 
 @implementation S3GTrackerSongRowView
 
+- (void)drawPendingIndicator
+{
+    [S3GTrackerThemeColor(S3GTrackerThemeRole::Warning, 0.12) setFill];
+    NSRectFill(self.bounds);
+    [S3GTrackerThemeColor(S3GTrackerThemeRole::Warning) setFill];
+    NSRectFill(NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds),
+        NSWidth(self.bounds), 2.0));
+    NSRectFill(NSMakeRect(NSMinX(self.bounds), NSMaxY(self.bounds) - 2.0,
+        NSWidth(self.bounds), 2.0));
+    NSRectFill(NSMakeRect(NSMaxX(self.bounds) - 3.0, NSMinY(self.bounds),
+        3.0, NSHeight(self.bounds)));
+}
+
 - (void)drawBackgroundInRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
@@ -157,11 +167,7 @@ bool s3gUsesProjectValue(NSString* text)
         NSRectFill(NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds),
             3.0, NSHeight(self.bounds)));
     }
-    if (self.playbackPending) {
-        [S3GTrackerThemeColor(S3GTrackerThemeRole::Warning) setFill];
-        NSRectFill(NSMakeRect(NSMinX(self.bounds), NSMaxY(self.bounds) - 2.0,
-            NSWidth(self.bounds), 2.0));
-    }
+    if (self.playbackPending) [self drawPendingIndicator];
 }
 
 - (void)drawSelectionInRect:(NSRect)dirtyRect
@@ -173,6 +179,14 @@ bool s3gUsesProjectValue(NSString* text)
     NSBezierPath* path = [NSBezierPath bezierPathWithRect:NSInsetRect(self.bounds, 0.5, 0.5)];
     [path setLineWidth:1.0];
     [path stroke];
+    // Selection is drawn after the row background, so redraw transport marks
+    // here to keep the commonly selected queued row unmistakably visible.
+    if (self.playbackActive) {
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Success) setFill];
+        NSRectFill(NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds),
+            3.0, NSHeight(self.bounds)));
+    }
+    if (self.playbackPending) [self drawPendingIndicator];
 }
 
 @end
@@ -275,14 +289,17 @@ bool s3gUsesProjectValue(NSString* text)
 @property(nonatomic, strong) NSMutableArray<S3GTrackerSongRow*>* rows;
 @property(nonatomic, strong) NSTableView* tableView;
 @property(nonatomic, strong) NSTextField* summaryLabel;
+@property(nonatomic, strong) NSTextField* queueStatusLabel;
 @property(nonatomic, strong) NSButton* addButton;
 @property(nonatomic, strong) NSButton* removeButton;
 @property(nonatomic, strong) S3GTrackerActionButton* songModeButton;
 @property(nonatomic, strong) S3GTrackerActionButton* songLoopButton;
 @property(nonatomic, strong) S3GTrackerPopupButton* launchQuantizationPopup;
 @property(nonatomic, strong) S3GTrackerActionButton* queueButton;
+@property(nonatomic, strong) S3GTrackerPopupButton* projectFileMenu;
 @property(nonatomic, copy) NSString* arrangementName;
 @property(nonatomic, copy) NSArray<NSString*>* availablePatternIds;
+@property(nonatomic, copy) NSArray<NSString*>* availablePatternNames;
 @property(nonatomic, copy) NSString* activePatternId;
 @property(nonatomic) BOOL arrangementLoops;
 @property(nonatomic) NSInteger arrangementTicksPerBeat;
@@ -290,6 +307,7 @@ bool s3gUsesProjectValue(NSString* text)
 @property(nonatomic) BOOL currentPlaybackRowValid;
 @property(nonatomic) NSUInteger pendingPlaybackRow;
 @property(nonatomic) BOOL pendingPlaybackRowValid;
+@property(nonatomic) NSInteger pendingPlaybackQuantization;
 @property(nonatomic) BOOL playbackLocked;
 @end
 
@@ -322,6 +340,7 @@ bool s3gUsesProjectValue(NSString* text)
     [_rows addObject:[self newRowWithPattern:@"A01"]];
     _arrangementName = @"SONG";
     _availablePatternIds = @[ @"A01" ];
+    _availablePatternNames = @[ @"" ];
     _activePatternId = @"A01";
     _arrangementLoops = NO;
     _arrangementTicksPerBeat = 4;
@@ -347,8 +366,6 @@ bool s3gUsesProjectValue(NSString* text)
     S3GTrackerSongRow* row = [[S3GTrackerSongRow alloc] init];
     row.pattern = pattern;
     row.repeats = 1;
-    row.bpm = 126.0;
-    row.hasBPMOverride = NO;
     row.ticks = 4;
     row.swing = 56.0;
     row.hasSwingOverride = YES;
@@ -390,6 +407,10 @@ bool s3gUsesProjectValue(NSString* text)
     _summaryLabel = [self label:self.songSummary size:10.0
         color:s3gSongColor(0xb8b8b8) weight:NSFontWeightMedium];
     [root addSubview:_summaryLabel];
+    _queueStatusLabel = [self label:@"QUEUE —" size:10.0
+        color:s3gSongColor(0x737879) weight:NSFontWeightSemibold];
+    _queueStatusLabel.accessibilityLabel = @"Song queue status";
+    [root addSubview:_queueStatusLabel];
 
     NSScrollView* scrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -470,8 +491,23 @@ bool s3gUsesProjectValue(NSString* text)
     _queueButton.enabled = NO;
     [root addSubview:_queueButton];
 
+    _projectFileMenu = [[S3GTrackerPopupButton alloc]
+        initWithFrame:NSZeroRect pullsDown:YES];
+    _projectFileMenu.translatesAutoresizingMaskIntoConstraints = NO;
+    [_projectFileMenu addItemsWithTitles:@[
+        @"SONG FILE", @"SAVE SONG + PATTERNS…", @"LOAD SONG + PATTERNS…"
+    ]];
+    [_projectFileMenu itemAtIndex:1].tag = 1;
+    [_projectFileMenu itemAtIndex:2].tag = 2;
+    _projectFileMenu.target = self;
+    _projectFileMenu.action = @selector(projectFileSelected:);
+    _projectFileMenu.toolTip =
+        @"Save or load the Song arrangement and its complete pattern bank";
+    _projectFileMenu.accessibilityLabel = @"Song and pattern project file";
+    [root addSubview:_projectFileMenu];
+
     NSTextField* hint = [self label:
-        @"GREEN = PLAYING · YELLOW = QUEUED · RED = MUTED · — = BASE · STABLE PATTERN IDS"
+        @"GREEN ROW = PLAYING · YELLOW ROW = QUEUED · RED = MUTED · — = BASE"
         size:9.0 color:s3gSongColor(0x737879) weight:NSFontWeightMedium];
     hint.alignment = NSTextAlignmentRight;
     [root addSubview:hint];
@@ -481,10 +517,18 @@ bool s3gUsesProjectValue(NSString* text)
         [title.topAnchor constraintEqualToAnchor:root.topAnchor constant:16.0],
         [_summaryLabel.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
         [_summaryLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:4.0],
+        [_queueStatusLabel.leadingAnchor constraintEqualToAnchor:_summaryLabel.trailingAnchor
+            constant:18.0],
+        [_queueStatusLabel.centerYAnchor constraintEqualToAnchor:_summaryLabel.centerYAnchor],
+        [_queueStatusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_projectFileMenu.leadingAnchor
+            constant:-12.0],
         [scrollView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:24.0],
         [scrollView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-24.0],
         [scrollView.topAnchor constraintEqualToAnchor:root.topAnchor constant:88.0],
         [scrollView.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-58.0],
+        [_projectFileMenu.trailingAnchor constraintEqualToAnchor:scrollView.trailingAnchor],
+        [_projectFileMenu.topAnchor constraintEqualToAnchor:root.topAnchor constant:20.0],
+        [_projectFileMenu.widthAnchor constraintEqualToConstant:128.0],
         [_addButton.leadingAnchor constraintEqualToAnchor:scrollView.leadingAnchor],
         [_addButton.topAnchor constraintEqualToAnchor:scrollView.bottomAnchor constant:13.0],
         [_removeButton.leadingAnchor constraintEqualToAnchor:_addButton.trailingAnchor constant:10.0],
@@ -509,6 +553,19 @@ bool s3gUsesProjectValue(NSString* text)
 
     [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
         byExtendingSelection:NO];
+}
+
+- (void)projectFileSelected:(S3GTrackerPopupButton*)sender
+{
+    const NSInteger action = sender.selectedItem.tag;
+    if (action == 1 && self.saveProjectHandler) {
+        self.saveProjectHandler();
+    } else if (action == 2 && self.loadProjectHandler) {
+        self.loadProjectHandler();
+    } else if (action != 0) {
+        NSBeep();
+    }
+    [sender selectItemAtIndex:0];
 }
 
 - (void)addColumn:(NSString*)identifier title:(NSString*)title
@@ -553,6 +610,13 @@ bool s3gUsesProjectValue(NSString* text)
         && self.currentPlaybackRow == static_cast<NSUInteger>(row);
     view.playbackPending = self.pendingPlaybackRowValid
         && self.pendingPlaybackRow == static_cast<NSUInteger>(row);
+    if (view.playbackActive && view.playbackPending) {
+        view.accessibilityValue = @"Playing and queued";
+    } else if (view.playbackActive) {
+        view.accessibilityValue = @"Playing";
+    } else if (view.playbackPending) {
+        view.accessibilityValue = @"Queued";
+    }
     return view;
 }
 
@@ -608,10 +672,18 @@ bool s3gUsesProjectValue(NSString* text)
         pattern.enabled = !self.playbackLocked;
         pattern.accessibilityLabel = [NSString stringWithFormat:
             @"Song row %ld pattern", rowIndex + 1];
-        for (NSString* patternId in self.availablePatternIds) {
-            [pattern addItemWithTitle:patternId];
+        [self.availablePatternIds enumerateObjectsUsingBlock:
+            ^(NSString* patternId, NSUInteger index, BOOL* stop) {
+            (void)stop;
+            NSString* patternName = index < self.availablePatternNames.count
+                ? self.availablePatternNames[index] : @"";
+            NSString* title = patternName.length > 0u
+                ? [NSString stringWithFormat:@"%@ · %@", patternId,
+                    patternName]
+                : patternId;
+            [pattern addItemWithTitle:title];
             pattern.lastItem.representedObject = patternId;
-        }
+        }];
         const NSUInteger selectionIndex = [self.availablePatternIds
             indexOfObject:row.pattern];
         NSInteger selection = selectionIndex == NSNotFound
@@ -629,11 +701,6 @@ bool s3gUsesProjectValue(NSString* text)
         [cell addSubview:pattern];
     } else if ([column isEqualToString:S3GSongColumnRepeats]) {
         [cell addSubview:[self cellText:[NSString stringWithFormat:@"%ld", row.repeats]
-            row:rowIndex column:column editable:YES alignment:NSTextAlignmentCenter]];
-    } else if ([column isEqualToString:S3GSongColumnBPM]) {
-        NSString* bpm = row.hasBPMOverride
-            ? [NSString stringWithFormat:@"%.1f", row.bpm] : @"—";
-        [cell addSubview:[self cellText:bpm
             row:rowIndex column:column editable:YES alignment:NSTextAlignmentCenter]];
     } else if ([column isEqualToString:S3GSongColumnTicks]) {
         [cell addSubview:[self cellText:[NSString stringWithFormat:@"%ld", row.ticks]
@@ -727,20 +794,6 @@ bool s3gUsesProjectValue(NSString* text)
             changed = value != row.repeats;
             row.repeats = value;
         }
-    } else if ([column isEqualToString:S3GSongColumnBPM]) {
-        if (s3gUsesProjectValue(field.stringValue)) {
-            changed = row.hasBPMOverride;
-            row.hasBPMOverride = NO;
-        } else {
-            double value = 0.0;
-            valid = s3gScanDouble(field.stringValue, value);
-            if (valid) {
-            value = s3gClampDouble(value, 20.0, 400.0);
-            changed = !row.hasBPMOverride || value != row.bpm;
-            row.bpm = value;
-            row.hasBPMOverride = YES;
-            }
-        }
     } else if ([column isEqualToString:S3GSongColumnTicks]) {
         NSInteger value = 0;
         valid = s3gScanInteger(field.stringValue, value);
@@ -801,8 +854,6 @@ bool s3gUsesProjectValue(NSString* text)
     S3GTrackerSongRow* row = [self newRowWithPattern:pattern];
     if (insertion > 0 && insertion <= (NSInteger)self.rows.count) {
         S3GTrackerSongRow* prior = self.rows[(NSUInteger)insertion - 1u];
-        row.bpm = prior.bpm;
-        row.hasBPMOverride = prior.hasBPMOverride;
         row.ticks = prior.ticks;
         row.swing = prior.swing;
         row.hasSwingOverride = prior.hasSwingOverride;
@@ -936,10 +987,39 @@ bool s3gUsesProjectValue(NSString* text)
 
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid
 {
+    [self setPendingPlaybackRow:row valid:valid
+        quantization:self.launchQuantizationPopup.indexOfSelectedItem];
+}
+
+- (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid
+    quantization:(NSInteger)quantization
+{
+    quantization = std::clamp<NSInteger>(quantization, 0, 3);
     if (self.pendingPlaybackRow == row
-        && self.pendingPlaybackRowValid == valid) return;
+        && self.pendingPlaybackRowValid == valid
+        && self.pendingPlaybackQuantization == quantization) return;
     self.pendingPlaybackRow = row;
     self.pendingPlaybackRowValid = valid;
+    self.pendingPlaybackQuantization = quantization;
+    if (valid) {
+        static NSArray<NSString*>* titles = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            titles = @[ @"NEXT TICK", @"NEXT BEAT", @"NEXT CYCLE",
+                @"NEXT SONG ROW" ];
+        });
+        self.queueStatusLabel.stringValue = [NSString stringWithFormat:
+            @"QUEUED ROW %02lu · %@", static_cast<unsigned long>(row + 1u),
+            titles[(NSUInteger)quantization]];
+        self.queueStatusLabel.textColor =
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Warning);
+        self.queueStatusLabel.accessibilityValue =
+            self.queueStatusLabel.stringValue;
+    } else {
+        self.queueStatusLabel.stringValue = @"QUEUE —";
+        self.queueStatusLabel.textColor = s3gSongColor(0x737879);
+        self.queueStatusLabel.accessibilityValue = @"No queued Song row";
+    }
     [self.tableView reloadData];
 }
 
@@ -961,15 +1041,34 @@ bool s3gUsesProjectValue(NSString* text)
 - (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
     activePatternId:(NSString*)activePatternId
 {
+    [self setAvailablePatternIds:patternIds patternNames:@[]
+        activePatternId:activePatternId];
+}
+
+- (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
+    patternNames:(NSArray<NSString*>*)patternNames
+    activePatternId:(NSString*)activePatternId
+{
     NSMutableArray<NSString*>* available = [[NSMutableArray alloc] init];
-    for (NSString* patternId in patternIds) {
+    NSMutableArray<NSString*>* names = [[NSMutableArray alloc] init];
+    [patternIds enumerateObjectsUsingBlock:
+        ^(NSString* patternId, NSUInteger index, BOOL* stop) {
+        (void)stop;
         if (![patternId isKindOfClass:NSString.class]
             || patternId.length == 0u
-            || [available containsObject:patternId]) continue;
+            || [available containsObject:patternId]) return;
         [available addObject:patternId.copy];
+        NSString* name = index < patternNames.count
+            && [patternNames[index] isKindOfClass:NSString.class]
+            ? patternNames[index] : @"";
+        [names addObject:name.copy];
+    }];
+    if (available.count == 0u) {
+        [available addObject:@"A01"];
+        [names addObject:@""];
     }
-    if (available.count == 0u) [available addObject:@"A01"];
     _availablePatternIds = available.copy;
+    _availablePatternNames = names.copy;
     _activePatternId = [available containsObject:activePatternId]
         ? activePatternId.copy : available.firstObject;
     [self.tableView reloadData];
@@ -992,8 +1091,6 @@ bool s3gUsesProjectValue(NSString* text)
             source.ticks, 1, 1 << 20));
         row.repeats = static_cast<uint32_t>(std::clamp<NSInteger>(
             source.repeats, 1, 65535));
-        if (source.hasBPMOverride)
-            row.bpm = std::clamp(source.bpm, 20.0, 400.0);
         if (source.hasSwingOverride)
             row.swing = std::clamp(source.swing * 0.01, 0.5, 0.75);
         __block uint32_t muteMask = 0u;
@@ -1027,8 +1124,6 @@ bool s3gUsesProjectValue(NSString* text)
             pattern ? pattern : @"A01"];
         row.ticks = static_cast<NSInteger>(source.durationTicks);
         row.repeats = static_cast<NSInteger>(source.repeats);
-        row.bpm = source.bpm.value_or(126.0);
-        row.hasBPMOverride = source.bpm.has_value();
         row.swing = source.swing.value_or(0.56) * 100.0;
         row.hasSwingOverride = source.swing.has_value();
         [row.mutedLanes removeAllIndexes];
@@ -1046,7 +1141,9 @@ bool s3gUsesProjectValue(NSString* text)
         [self.tableView deselectAll:nil];
         self.removeButton.enabled = NO;
     }
-    [self songDidChange];
+    // Applying a project is presentation synchronization, not a user edit.
+    // The coordinator publishes file loads and history restores exactly once.
+    self.summaryLabel.stringValue = self.songSummary;
 }
 
 @end

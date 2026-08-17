@@ -246,6 +246,16 @@ void testTransportActionsAndHelp()
     result = CommandEngine::execute(session, "PANIC");
     check(result.ok && result.hasEffect(CommandEffect::Panic),
         "verbs should be ASCII case-insensitive");
+    result = CommandEngine::execute(session, "undo");
+    check(result.ok && result.hasEffect(CommandEffect::UndoRequested)
+            && !result.hasEffect(CommandEffect::ProjectChanged),
+        "undo should request coordinator history without mutating the session");
+    result = CommandEngine::execute(session, "redo");
+    check(result.ok && result.hasEffect(CommandEffect::RedoRequested)
+            && !result.hasEffect(CommandEffect::ProjectChanged),
+        "redo should request coordinator history without mutating the session");
+    check(!CommandEngine::execute(session, "undo now").ok,
+        "undo should reject trailing arguments");
     result = CommandEngine::execute(session, "loop rows 3 12");
     check(result.ok && result.hasEffect(CommandEffect::TransportChanged)
             && session.transport.loopStartRow == 2u
@@ -260,11 +270,38 @@ void testTransportActionsAndHelp()
     check(result.ok && result.effects == CommandEffect::None
             && result.message.find("mask") != std::string::npos
             && result.message.find("SEQUENCING COLUMNS") != std::string::npos
+            && result.message.find("COMPACT SYMBOL REFERENCE")
+                != std::string::npos
+            && result.message.find("! = 1.00, + = 0.85")
+                != std::string::npos
+            && result.message.find("A standalone - always means no authored event")
+                != std::string::npos
+            && result.message.find("A standalone = always recalls or holds")
+                != std::string::npos
+            && result.message.find("value marks and digits are rejected")
+                != std::string::npos
+            && result.message.find("Example: kit superior compact")
+                != std::string::npos
             && result.message.find("instrument") == std::string::npos
             && result.message.find("bpm <") == std::string::npos,
-        "help should return the current MIDI-product command summary");
+        "help should return commands plus an unambiguous compact-symbol reference");
     check(!CommandEngine::execute(session, "play now").ok,
         "transport commands should reject trailing arguments");
+
+    auto exampleSession = makeSession();
+    check(CommandEngine::execute(
+              exampleSession, "kit superior compact").ok
+            && CommandEngine::execute(
+                exampleSession, "warp save 1 EXAMPLE").ok,
+        "Help example validation fixture should provide aliases and a warp slot");
+    for (const auto& section : CommandEngine::helpSections()) {
+        for (const auto& entry : section.entries) {
+            auto probe = exampleSession;
+            check(!entry.example.empty()
+                    && CommandEngine::execute(probe, entry.example).ok,
+                "every Help command should provide a valid console example row");
+        }
+    }
 }
 
 void testHelpCatalogCoversAuditedParserVerbs()
@@ -272,7 +309,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // Keep this set beside the parser tests: adding an executeTokens verb or
     // alias requires a deliberate help-catalog update instead of leaving an
     // undiscoverable console feature behind. `@` represents alias-first
-    // assignment, queries, masks, direction, and operation shorthand.
+    // queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "delay", "demo",
         "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
@@ -280,7 +317,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
-        "stride", "swing", "thin", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
+        "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
         "variation", "vary", "warps", "warprecall", "wrp", "track",
     };
 
@@ -288,14 +325,20 @@ void testHelpCatalogCoversAuditedParserVerbs()
     const auto& sections = CommandEngine::helpSections();
     check(!sections.empty(), "help catalog should contain logical sections");
     const auto rendered = CommandEngine::helpText();
+    std::size_t documentedCommands = 0u;
     for (const auto& section : sections) {
         check(!section.title.empty() && !section.entries.empty(),
             "every help section should have a title and entries");
         for (const auto& entry : section.entries) {
-            check(!entry.syntax.empty() && !entry.description.empty(),
-                "every help entry should have syntax and a description");
+            ++documentedCommands;
+            check(!entry.syntax.empty() && !entry.description.empty()
+                    && !entry.example.empty(),
+                "every help entry should have syntax, description, and example");
             check(rendered.find(std::string(entry.syntax))
-                    != std::string::npos,
+                    != std::string::npos
+                    && rendered.find("Example: "
+                            + std::string(entry.example))
+                        != std::string::npos,
                 "console help text should be generated from every catalog entry");
             std::istringstream words { std::string(entry.acceptedVerbs) };
             std::string verb;
@@ -305,6 +348,15 @@ void testHelpCatalogCoversAuditedParserVerbs()
             }
         }
     }
+    std::size_t renderedExamples = 0u;
+    for (std::size_t position = 0u;
+         (position = rendered.find("    Example: ", position))
+            != std::string::npos;
+         position += 13u) {
+        ++renderedExamples;
+    }
+    check(renderedExamples == documentedCommands,
+        "console help should render exactly one example per command entry");
     check(documentedVerbs == auditedParserVerbs,
         "help catalog should cover every current MIDI-product command spelling");
     for (const auto& verb : auditedParserVerbs) {
@@ -624,18 +676,23 @@ void testKitsAliasesAndTargets()
     check(result.ok && session.pattern.tracks[2].notes[0].note == 61u,
         "an empty Superior hat lane should retain pitch 61 for later masks");
     result = CommandEngine::execute(session, "aliases");
-    check(result.ok && result.message.find("@h=3") != std::string::npos
-            && result.message.find("@kick=1") != std::string::npos,
+    check(result.ok && result.message.find("@h -> 3") != std::string::npos
+            && result.message.find("@kick -> 1") != std::string::npos,
         "aliases should report deterministic one-based bindings");
 
     result = CommandEngine::execute(session, "alias hats @h");
     check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
             && session.aliases.at("hats") == 2u,
         "alias should accept another alias and report a persistent edit");
-    result = CommandEngine::execute(session, "@ghost = 2");
+    checkRejectedWithoutMutation(session, "@ghost = 2",
+        "alias = shorthand should reject so = has only its previous/hold meaning");
+    result = CommandEngine::execute(session, "alias ghost 2");
     check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
             && session.aliases.at("ghost") == 1u,
-        "alias assignment shorthand should be one-based and persistent");
+        "the alias command should assign one-based persistent bindings");
+    result = CommandEngine::execute(session, "@ghost");
+    check(result.ok && result.message == "@ghost -> 2",
+        "alias queries should avoid reusing = as a binding symbol");
     result = CommandEngine::execute(session, "select @ghost 3");
     check(result.ok && session.selectedTrack == 1u
             && session.selectedRow == 2u,
@@ -672,12 +729,20 @@ void testCompactMasksAndColumnControls()
     auto session = makeSession(1u);
     check(CommandEngine::execute(session, "alias k 1").ok,
         "manual aliases should bind numeric one-based lanes");
-    auto result = CommandEngine::execute(session, "@k x1.-_0 <>");
+    auto result = CommandEngine::execute(session, "@k x-x--- <>");
     const auto& track = session.pattern.tracks[0];
     check(result.ok && track.noteColumn.length == 6u
             && track.noteColumn.direction == Direction::Palindrome
-            && activeNoteMask(track) == "xx----",
-        "compact masks should accept all hit/rest symbols and a direction suffix");
+            && activeNoteMask(track) == "x-x---",
+        "compact masks should use only x/X for hits and - for rests");
+    checkRejectedWithoutMutation(session, "mask @k x.x-",
+        "a value dot must not double as a NOTE rest");
+    checkRejectedWithoutMutation(session, "mask @k x1x-",
+        "numeric one must not double as a NOTE hit");
+    checkRejectedWithoutMutation(session, "mask @k x0x-",
+        "numeric zero must not double as a NOTE rest");
+    checkRejectedWithoutMutation(session, "mask @k x_x-",
+        "underscore must not duplicate the NOTE rest symbol");
 
     const auto noteLength = track.noteColumn.length;
     result = CommandEngine::execute(session, "@k len vel 9");
@@ -690,12 +755,22 @@ void testCompactMasksAndColumnControls()
             && session.pattern.tracks[0].velocityColumn.stride == 3u
             && session.pattern.tracks[0].noteColumn.stride == 1u,
         "canonical stride should accept an alias and a velocity field");
-    result = CommandEngine::execute(session, "@k dir vel ?");
+    result = CommandEngine::execute(session, "@k dir vel random");
     check(result.ok && session.pattern.tracks[0].velocityColumn.direction
                 == Direction::Random
             && session.pattern.tracks[0].noteColumn.direction
                 == Direction::Palindrome,
-        "direction aliases should affect only the requested column");
+        "direction words should affect only the requested column");
+    checkRejectedWithoutMutation(session, "dir @k vel ?",
+        "question mark should be reserved for Help rather than random direction");
+    checkRejectedWithoutMutation(session, "dir @k vel r",
+        "one-letter direction aliases should reject as ambiguous shorthand");
+    checkRejectedWithoutMutation(session, "dir @k vel f",
+        "one-letter forward shorthand should reject as ambiguous");
+    checkRejectedWithoutMutation(session, "dir @k vel b",
+        "one-letter backward shorthand should reject as ambiguous");
+    checkRejectedWithoutMutation(session, "dir @k vel p",
+        "one-letter palindrome shorthand should reject as ambiguous");
     result = CommandEngine::execute(session, "@k >");
     check(result.ok && session.pattern.tracks[0].noteColumn.direction
                 == Direction::Forward,
@@ -719,16 +794,16 @@ void testVelocitySequences()
     auto session = makeSession(1u);
     check(CommandEngine::execute(session, "alias k 1").ok,
         "velocity tests should establish an alias");
-    auto result = CommandEngine::execute(session, "@k vel !.+-9");
+    auto result = CommandEngine::execute(session, "@k vel !.*-=");
     const auto& compact = session.pattern.tracks[0].velocities;
     check(result.ok && session.pattern.tracks[0].velocityColumn.length == 5u
             && compact[0].state == ValueCellState::Value
             && std::abs(compact[0].normalized - 1.0f) < 1.0e-6f
             && std::abs(compact[1].normalized - 0.55f) < 1.0e-6f
-            && std::abs(compact[2].normalized - 0.85f) < 1.0e-6f
-            && compact[3].state == ValueCellState::Previous
-            && std::abs(compact[4].normalized - 0.9f) < 1.0e-6f,
-        "compact velocity symbols should map to values and Previous cells");
+            && std::abs(compact[2].normalized - 0.70f) < 1.0e-6f
+            && compact[3].state == ValueCellState::Default
+            && compact[4].state == ValueCellState::Previous,
+        "compact VOL symbols should share level, empty/default, and previous meanings");
 
     result = CommandEngine::execute(session, "vol @k 127,96,64,32");
     const auto& numeric = session.pattern.tracks[0].velocities;
@@ -739,7 +814,7 @@ void testVelocitySequences()
             && std::abs(numeric[3].normalized - 32.0f / 127.0f)
                 < 1.0e-6f,
         "comma-separated MIDI velocities should normalize independently");
-    result = CommandEngine::execute(session, "velseq @k .25 .5 1.0 ==");
+    result = CommandEngine::execute(session, "velseq @k .25 .5 1.0 =");
     check(result.ok && std::abs(session.pattern.tracks[0].velocities[0].normalized
                     - 0.25f)
                 < 1.0e-6f
@@ -753,12 +828,12 @@ void testVelocitySequences()
                     - 9.0f / 127.0f)
                 < 1.0e-6f,
         "a single bare digit should be an unambiguous MIDI velocity");
-    result = CommandEngine::execute(session, "@k vel !9");
-    check(result.ok && session.pattern.tracks[0].velocityColumn.length == 2u
-            && std::abs(session.pattern.tracks[0].velocities[1].normalized
-                    - 0.9f)
-                < 1.0e-6f,
-        "digits inside a multi-character symbolic pattern should use compact scale");
+    checkRejectedWithoutMutation(session, "@k vel !9",
+        "digits inside symbolic VOL patterns must not acquire a compact scale");
+    checkRejectedWithoutMutation(session, "@k vel !o",
+        "letter o must not resemble zero or duplicate a value level");
+    checkRejectedWithoutMutation(session, "@k vel !_",
+        "underscore must not duplicate the previous/hold symbol");
 
     checkRejectedWithoutMutation(session, "@k vol !?+-",
         "unsupported random velocity must be explicit and transactional");
@@ -1272,6 +1347,15 @@ void testFxCommands()
         "compact FX entry should reject rows beyond the project limit");
     checkRejectedWithoutMutation(compact, "fx1 1 PR ?",
         "compact FX random values should remain explicit rather than hide RNG state");
+    check(CommandEngine::execute(compact, "fx1 1 PR 1").ok
+            && compact.pattern.tracks[0].fxPairs[0u].valueColumn.length == 1u
+            && compact.pattern.tracks[0].fxPairs[0u].values[0u].normalized
+                == 1.0f,
+        "a bare FX number should always be a normalized value, never compact scale");
+    checkRejectedWithoutMutation(compact, "fx1 1 PR 02469",
+        "digit strings must not acquire a context-dependent compact FX scale");
+    checkRejectedWithoutMutation(compact, "fx1 1 PR !o",
+        "letter o must not duplicate a compact FX value level");
 
     checkRejectedWithoutMutation(session,
         "fx 1 2 1 membrane.click .5",

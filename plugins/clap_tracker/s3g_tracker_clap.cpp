@@ -6,9 +6,13 @@
 #import "s3g_tracker_workspace.h"
 #include "s3g_tracker_workspace_layout.h"
 
+#include "s3g/tracker/atomic_project_store.h"
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
+#include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/project_codec.h"
+#include "s3g/tracker/project_history.h"
+#include "s3g/tracker/runtime_pattern_plan.h"
 #include "s3g/tracker/timing_playback_scheduler.h"
 #include "s3g/tracker/visual_note_hit_mailbox.h"
 
@@ -16,6 +20,7 @@
 #include <clap/ext/draft/transport-control.h>
 
 #import <CoreText/CoreText.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #include <algorithm>
 #include <array>
@@ -42,9 +47,14 @@ using s3g::tracker::CommandEngine;
 using s3g::tracker::EventDestination;
 using s3g::tracker::LogicalTickBoundary;
 using s3g::tracker::LogicalTickBoundaryAction;
+using s3g::tracker::MidiStepCapture;
+using s3g::tracker::MidiStepCaptureQueue;
+using s3g::tracker::MidiStepRecordCode;
+using s3g::tracker::MidiStepRecordMode;
 using s3g::tracker::PatternBankEntry;
 using s3g::tracker::PatternVariationLaunch;
 using s3g::tracker::ProjectDocument;
+using s3g::tracker::ProjectHistory;
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::SongLaunchQuantization;
@@ -56,11 +66,12 @@ using s3g::tracker::VisualNoteHitMailbox;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
 
-constexpr uint32_t kMidiBusCount = 8u;
 constexpr uint32_t kMidiChannelCount = 16u;
 constexpr uint32_t kMidiNoteCount = 128u;
 constexpr uint32_t kActiveNoteCount =
-    kMidiBusCount * kMidiChannelCount * kMidiNoteCount;
+    kMidiChannelCount * kMidiNoteCount;
+constexpr uint32_t kMaximumGateOffsPerBlock = kActiveNoteCount
+    + s3g::tracker::kMaximumScheduledEventsPerBlock;
 constexpr uint32_t kRetiredRuntimeCapacity = 64u;
 constexpr uint32_t kNativeWidth = 1320u;
 constexpr uint32_t kNativeHeight = 780u;
@@ -184,21 +195,17 @@ void normalizeMidiOnlyDocument(ProjectDocument& document)
     auto rack = s3g::tracker::makeDefaultInstrumentRack();
     for (auto& instrument : rack.instruments)
         instrument = s3g::tracker::RackInstrument {};
-    for (std::size_t slot = 0u;
-         slot < s3g::tracker::kMidiOutRackSlotCount; ++slot) {
-        const auto node = s3g::tracker::midiOutNodeForRackSlot(slot);
-        if (const auto* definition =
-                s3g::tracker::defaultRackInstrument(node)) {
-            rack.instruments[slot] = *definition;
-        }
-        rack.midiRoutes[slot].kind =
-            s3g::tracker::MidiInstrumentRouteKind::VirtualSource;
-        rack.midiRoutes[slot].destinationId = 0;
-        rack.midiRoutes[slot].virtualSource =
-            static_cast<uint8_t>(slot + 1u);
-        rack.midiRoutes[slot].channel = 1u;
+    const auto midiNode = s3g::tracker::midiOutNodeForRackSlot(0u);
+    if (const auto* definition =
+            s3g::tracker::defaultRackInstrument(midiNode)) {
+        rack.instruments[0u] = *definition;
     }
-    rack.selectedNode = s3g::tracker::midiOutNodeForRackSlot(0u);
+    rack.midiRoutes[0u].kind =
+        s3g::tracker::MidiInstrumentRouteKind::VirtualSource;
+    rack.midiRoutes[0u].destinationId = 0;
+    rack.midiRoutes[0u].virtualSource = 1u;
+    rack.midiRoutes[0u].channel = 1u;
+    rack.selectedNode = midiNode;
     document.instrumentRack = rack;
     for (auto& row : document.song.rows) row.bpm.reset();
 
@@ -206,17 +213,12 @@ void normalizeMidiOnlyDocument(ProjectDocument& document)
         for (std::size_t lane = 0u; lane < entry.pattern.tracks.size();
              ++lane) {
             auto& track = entry.pattern.tracks[lane];
-            auto bus = s3g::tracker::midiOutRackSlotIndex(
-                track.initialInstrumentNodeId);
-            if (bus >= s3g::tracker::kMidiOutRackSlotCount)
-                bus = lane % s3g::tracker::kMidiOutRackSlotCount;
-            const auto node = s3g::tracker::midiOutNodeForRackSlot(bus);
-            track.initialInstrumentNodeId = node;
+            track.initialInstrumentNodeId = midiNode;
             track.destination = EventDestination::Midi;
             track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
                 track.midiChannel, 1, 16));
-            // Routing is owned by the lane header. The removed INS column may
-            // not override buses row-by-row in the MIDI-only instrument.
+            // Routing is owned by the lane's channel header. Older bus and INS
+            // assignments collapse onto the plug-in's single CLAP note port.
             std::fill(track.instruments.begin(), track.instruments.end(),
                 s3g::tracker::InstrumentCell::empty());
             for (auto& pair : track.fxPairs) {
@@ -319,6 +321,57 @@ struct PatternLaunchMailbox {
     std::atomic<uint32_t> quantization { 0u };
 };
 
+struct MidiStepClock {
+    void clear() noexcept
+    {
+        sequence.fetch_add(1u, std::memory_order_acq_rel);
+        valid.store(false, std::memory_order_relaxed);
+        sequence.fetch_add(1u, std::memory_order_release);
+    }
+
+    void publish(uint64_t current, uint64_t next) noexcept
+    {
+        sequence.fetch_add(1u, std::memory_order_acq_rel);
+        currentFrame.store(current, std::memory_order_relaxed);
+        nextFrame.store(std::max(current, next), std::memory_order_relaxed);
+        valid.store(true, std::memory_order_relaxed);
+        sequence.fetch_add(1u, std::memory_order_release);
+    }
+
+    bool nearestOffset(uint64_t frame, int64_t& offset) const noexcept
+    {
+        for (unsigned attempt = 0u; attempt < 4u; ++attempt) {
+            const uint64_t before = sequence.load(std::memory_order_acquire);
+            if ((before & 1u) != 0u) continue;
+            const bool available = valid.load(std::memory_order_relaxed);
+            const uint64_t current = currentFrame.load(
+                std::memory_order_relaxed);
+            const uint64_t next = nextFrame.load(std::memory_order_relaxed);
+            const uint64_t after = sequence.load(std::memory_order_acquire);
+            if (before != after || (after & 1u) != 0u) continue;
+            if (!available || frame < current) return false;
+            const uint64_t currentDistance = frame - current;
+            const uint64_t nextDistance = next >= frame
+                ? next - frame : std::numeric_limits<uint64_t>::max();
+            const bool chooseNext = next > current
+                && nextDistance < currentDistance;
+            const uint64_t magnitude = chooseNext
+                ? nextDistance : currentDistance;
+            const uint64_t bounded = std::min<uint64_t>(magnitude,
+                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
+            offset = chooseNext ? -static_cast<int64_t>(bounded)
+                                : static_cast<int64_t>(bounded);
+            return true;
+        }
+        return false;
+    }
+
+    std::atomic<uint64_t> sequence { 0u };
+    std::atomic<uint64_t> currentFrame { 0u };
+    std::atomic<uint64_t> nextFrame { 0u };
+    std::atomic<bool> valid { false };
+};
+
 using VisualNoteHitMailboxes = std::array<VisualNoteHitMailbox,
     s3g::tracker::kMaximumTrackCount>;
 
@@ -334,51 +387,39 @@ struct Runtime {
     bool valid = false;
     PatternLaunchMailbox* patternLaunch = nullptr;
     VisualNoteHitMailboxes* visualNoteHits = nullptr;
+    MidiStepClock* midiStepClock = nullptr;
+    uint64_t absoluteFrameOrigin = 0u;
 
     Runtime(const ProjectDocument& document, double sampleRate,
         PatternLaunchMailbox* launchMailbox = nullptr,
-        VisualNoteHitMailboxes* hitMailboxes = nullptr)
+        VisualNoteHitMailboxes* hitMailboxes = nullptr,
+        MidiStepClock* stepClock = nullptr)
         : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
         , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
         , patternLaunch(launchMailbox)
         , visualNoteHits(hitMailboxes)
+        , midiStepClock(stepClock)
     {
-        if (document.patternBank.entries.empty()) return;
+        s3g::tracker::RuntimePatternPlan plan;
+        if (!s3g::tracker::makeRuntimePatternPlan(document, plan)) return;
         std::vector<s3g::tracker::Pattern> patterns;
-        patterns.reserve(document.patternBank.entries.size());
-        patternIds.reserve(document.patternBank.entries.size());
-        std::size_t initial = 0u;
-        for (std::size_t index = 0u;
-             index < document.patternBank.entries.size(); ++index) {
+        patterns.reserve(plan.documentPatternIndices.size());
+        patternIds.reserve(plan.documentPatternIndices.size());
+        for (const auto index : plan.documentPatternIndices) {
             const auto& entry = document.patternBank.entries[index];
             patterns.push_back(entry.pattern);
             patternIds.push_back(entry.id);
-            if (entry.id == document.patternBank.activePatternId)
-                initial = index;
         }
 
-        songEnabled = document.session.songPlaybackEnabled
-            && !document.song.rows.empty()
+        songEnabled = plan.songEnabled
             && songPlanner.setArrangement(document.song).ok();
         if (songEnabled) {
-            songPatternIndices.reserve(document.song.rows.size());
-            for (const auto& row : document.song.rows) {
-                const auto found = std::find(patternIds.begin(),
-                    patternIds.end(), row.patternId);
-                if (found == patternIds.end()) {
-                    songEnabled = false;
-                    songPatternIndices.clear();
-                    break;
-                }
-                songPatternIndices.push_back(static_cast<std::size_t>(
-                    std::distance(patternIds.begin(), found)));
-            }
-            if (songEnabled && !songPatternIndices.empty())
-                initial = songPatternIndices.front();
+            songPatternIndices = plan.songPatternIndices;
         }
         projectTransport.sampleRate = sampleRate;
-        valid = scheduler.preparePatternSet(std::move(patterns), initial);
+        valid = scheduler.preparePatternSet(std::move(patterns),
+            plan.initialPatternIndex);
         if (!valid) return;
         scheduler.setTimingWarpLibrary(document.warpLibrary);
         scheduler.setTransport(projectTransport);
@@ -396,9 +437,12 @@ struct Runtime {
         return result;
     }
 
-    bool arm(double hostBeat, double tempo, double sampleRate) noexcept
+    bool arm(double hostBeat, double tempo, double sampleRate,
+        uint64_t absoluteStartFrame, bool forceAllRows = false) noexcept
     {
         if (!valid) return false;
+        absoluteFrameOrigin = absoluteStartFrame;
+        if (midiStepClock) midiStepClock->clear();
         scheduler.setTransport(hostClock(tempo, sampleRate));
         if (songEnabled) {
             songPlanner.reset();
@@ -413,7 +457,9 @@ struct Runtime {
         }
         scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
         const bool started = scheduler.startPreparedAtHostBeat(hostBeat);
-        if (started && songEnabled)
+        if (started && forceAllRows)
+            scheduler.resyncAllTrackColumnsAtTickBoundary(0u);
+        else if (started && songEnabled)
             scheduler.relaunchColumnsAtTickBoundary(0u);
         return started;
     }
@@ -432,6 +478,16 @@ struct Runtime {
 
     void publishVisualNoteHits(const LogicalTickBoundary& boundary) noexcept
     {
+        if (midiStepClock) {
+            const auto addOrigin = [&](uint64_t frame) {
+                return frame > std::numeric_limits<uint64_t>::max()
+                        - absoluteFrameOrigin
+                    ? std::numeric_limits<uint64_t>::max()
+                    : absoluteFrameOrigin + frame;
+            };
+            midiStepClock->publish(addOrigin(boundary.absoluteSampleTime),
+                addOrigin(scheduler.nextTickSampleFrame()));
+        }
         if (!visualNoteHits) return;
         const auto trackCount = std::min<std::size_t>(
             scheduler.pattern().tracks.size(), visualNoteHits->size());
@@ -493,14 +549,10 @@ struct Runtime {
         return LogicalTickBoundaryAction::StopAfterBoundary;
     }
 
-    void routeFor(uint32_t nodeId, uint8_t fallbackChannel,
-        uint8_t& bus, uint8_t& channel) const noexcept
+    void routeFor(uint8_t fallbackChannel, uint8_t& channel) const noexcept
     {
-        bus = 0u;
         channel = static_cast<uint8_t>(std::clamp<int>(
             fallbackChannel, 1, 16) - 1);
-        const auto slot = s3g::tracker::midiOutRackSlotIndex(nodeId);
-        if (slot < kMidiBusCount) bus = static_cast<uint8_t>(slot);
     }
 };
 
@@ -524,6 +576,11 @@ struct Plugin {
     ProjectDocument document = makeInitialDocument();
     PatternLaunchMailbox patternLaunch;
     VisualNoteHitMailboxes visualNoteHits;
+    MidiStepCaptureQueue midiStepCaptures;
+    MidiStepClock midiStepClock;
+    std::atomic<uint8_t> midiStepRecordMode {
+        static_cast<uint8_t>(MidiStepRecordMode::Off)
+    };
     Runtime* audioRuntime = nullptr;
     std::atomic<Runtime*> pendingRuntime { nullptr };
     std::atomic<Runtime*> queuedVariationRuntime { nullptr };
@@ -532,7 +589,7 @@ struct Plugin {
     std::atomic<uint32_t> retiredWrite { 0u };
     std::array<ScheduledEvent,
         s3g::tracker::kMaximumScheduledEventsPerBlock> events {};
-    std::array<GateOff, kActiveNoteCount> gateOffs {};
+    std::array<GateOff, kMaximumGateOffsPerBlock> gateOffs {};
     std::array<ActiveNote, kActiveNoteCount> activeNotes {};
     uint64_t processFrame = 0u;
     double expectedBeat = 0.0;
@@ -563,8 +620,11 @@ struct Plugin {
     std::atomic<bool> visualPlaying { false };
     std::atomic<double> visualHostTempo { 0.0 };
     std::atomic<int32_t> visualSongRow { -1 };
+    std::atomic<int32_t> visualPendingSongRow { -1 };
+    std::atomic<uint32_t> visualPendingSongQuantization { 0u };
     std::atomic<uint64_t> sentEvents { 0u };
     std::atomic<uint64_t> droppedEvents { 0u };
+    std::atomic<uint64_t> runtimeBuildCount { 0u };
     S3GTrackerClapCoordinator* coordinator = nil;
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -589,6 +649,8 @@ struct VisualPlaybackFrame {
     std::array<std::array<std::size_t, s3g::tracker::kFxPairCount>,
         s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
     int32_t songRow = -1;
+    int32_t pendingSongRow = -1;
+    uint32_t pendingSongQuantization = 0u;
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -596,11 +658,115 @@ Plugin* self(const clap_plugin_t* plugin)
     return static_cast<Plugin*>(plugin->plugin_data);
 }
 
+void captureMidiStep(Plugin& plugin, const clap_event_midi_t& event,
+    uint32_t frameOffset) noexcept
+{
+    const auto mode = static_cast<MidiStepRecordMode>(
+        plugin.midiStepRecordMode.load(std::memory_order_relaxed));
+    if (mode == MidiStepRecordMode::Off || event.port_index != 0u) return;
+    const uint8_t status = event.data[0];
+    if ((status & 0xf0u) != 0x90u || event.data[2] == 0u) return;
+    MidiStepCapture capture;
+    capture.note = static_cast<uint8_t>(event.data[1] & 0x7fu);
+    capture.velocity = static_cast<uint8_t>(event.data[2] & 0x7fu);
+    capture.channel = static_cast<uint8_t>((status & 0x0fu) + 1u);
+    capture.mode = mode;
+    const uint64_t absoluteFrame = frameOffset
+            > std::numeric_limits<uint64_t>::max() - plugin.processFrame
+        ? std::numeric_limits<uint64_t>::max()
+        : plugin.processFrame + frameOffset;
+    capture.timingKnown = plugin.midiStepClock.nearestOffset(
+        absoluteFrame, capture.offsetSamples);
+    (void)plugin.midiStepCaptures.push(capture);
+}
+
 const clap_host_transport_control_t* hostTransportControl(Plugin& plugin)
 {
     if (!plugin.host || !plugin.host->get_extension) return nullptr;
     return static_cast<const clap_host_transport_control_t*>(
         plugin.host->get_extension(plugin.host, CLAP_EXT_TRANSPORT_CONTROL));
+}
+
+// REAPER exposes this prefix of reaper_plugin_info_t to CLAP plug-ins through
+// "cockos.reaper_extension". Keep the bridge local and minimal so Tracker can
+// use the host's documented transport buttons without taking on the complete
+// REAPER extension SDK.
+struct ReaperHostBridge {
+    int callerVersion;
+    void* mainWindow;
+    int (*registerObject)(const char*, void*);
+    void* (*getFunction)(const char*);
+};
+
+const ReaperHostBridge* reaperHostBridge(Plugin& plugin)
+{
+    if (!plugin.host || !plugin.host->get_extension) return nullptr;
+    return static_cast<const ReaperHostBridge*>(plugin.host->get_extension(
+        plugin.host, "cockos.reaper_extension"));
+}
+
+using ReaperTransportButton = void (*)();
+
+ReaperTransportButton reaperTransportButton(Plugin& plugin,
+    const char* name)
+{
+    const auto* bridge = reaperHostBridge(plugin);
+    if (!bridge || !bridge->getFunction) return nullptr;
+    return reinterpret_cast<ReaperTransportButton>(
+        bridge->getFunction(name));
+}
+
+bool requestHostContinue(Plugin& plugin)
+{
+    const auto* control = hostTransportControl(plugin);
+    if (control && control->request_continue) {
+        control->request_continue(plugin.host);
+        return true;
+    }
+    if (const auto play = reaperTransportButton(plugin, "OnPlayButton")) {
+        play();
+        return true;
+    }
+    return false;
+}
+
+bool requestHostStop(Plugin& plugin)
+{
+    const auto* control = hostTransportControl(plugin);
+    if (control && control->request_stop) {
+        control->request_stop(plugin.host);
+        return true;
+    }
+    if (const auto stop = reaperTransportButton(plugin, "OnStopButton")) {
+        stop();
+        return true;
+    }
+    return false;
+}
+
+bool requestHostTogglePlayback(Plugin& plugin)
+{
+    const auto* control = hostTransportControl(plugin);
+    if (control && control->request_toggle_play) {
+        control->request_toggle_play(plugin.host);
+        return true;
+    }
+    const bool playing = plugin.visualPlaying.load(std::memory_order_relaxed);
+    if (control) {
+        if (playing && control->request_pause) {
+            control->request_pause(plugin.host);
+            return true;
+        }
+        if (!playing && control->request_continue) {
+            control->request_continue(plugin.host);
+            return true;
+        }
+    }
+    const auto button = reaperTransportButton(plugin,
+        playing ? "OnPauseButton" : "OnPlayButton");
+    if (!button) return false;
+    button();
+    return true;
 }
 
 void markHostStateDirty(Plugin& plugin)
@@ -669,11 +835,13 @@ bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
 {
     normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document,
-        plugin.sampleRate, &plugin.patternLaunch, &plugin.visualNoteHits);
+        plugin.sampleRate, &plugin.patternLaunch, &plugin.visualNoteHits,
+        &plugin.midiStepClock);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return false;
     }
+    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(plugin.documentMutex);
         plugin.document = std::move(document);
@@ -702,11 +870,13 @@ void publishDocument(Plugin& plugin, ProjectDocument document,
 {
     normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
-        &plugin.patternLaunch, &plugin.visualNoteHits);
+        &plugin.patternLaunch, &plugin.visualNoteHits,
+        &plugin.midiStepClock);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return;
     }
+    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(plugin.documentMutex);
         plugin.document = std::move(document);
@@ -720,25 +890,47 @@ void publishDocument(Plugin& plugin, ProjectDocument document,
         plugin.host->request_process(plugin.host);
 }
 
-uint32_t activeNoteIndex(uint8_t bus, uint8_t channel, uint8_t note) noexcept
+bool publishStoredDocumentRuntime(Plugin& plugin)
 {
-    return (static_cast<uint32_t>(bus) * kMidiChannelCount
-        + static_cast<uint32_t>(channel)) * kMidiNoteCount
+    ProjectDocument document;
+    {
+        std::lock_guard<std::mutex> lock(plugin.documentMutex);
+        document = plugin.document;
+    }
+    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
+        &plugin.patternLaunch, &plugin.visualNoteHits,
+        &plugin.midiStepClock);
+    if (!runtime || !runtime->valid) {
+        delete runtime;
+        return false;
+    }
+    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
+    cancelQueuedVariation(plugin);
+    Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
+        std::memory_order_acq_rel);
+    delete superseded;
+    if (plugin.host && plugin.host->request_process)
+        plugin.host->request_process(plugin.host);
+    return true;
+}
+
+uint32_t activeNoteIndex(uint8_t channel, uint8_t note) noexcept
+{
+    return static_cast<uint32_t>(channel) * kMidiNoteCount
         + static_cast<uint32_t>(note);
 }
 
-void decodeActiveNoteIndex(uint32_t index, uint8_t& bus,
-    uint8_t& channel, uint8_t& note) noexcept
+void decodeActiveNoteIndex(uint32_t index, uint8_t& channel,
+    uint8_t& note) noexcept
 {
     note = static_cast<uint8_t>(index % kMidiNoteCount);
     index /= kMidiNoteCount;
     channel = static_cast<uint8_t>(index % kMidiChannelCount);
-    bus = static_cast<uint8_t>(index / kMidiChannelCount);
 }
 
 bool pushMidi(Plugin& plugin, const clap_output_events_t* output,
-    uint32_t frameOffset, uint8_t bus, uint8_t status,
-    uint8_t data1, uint8_t data2) noexcept
+    uint32_t frameOffset, uint8_t status, uint8_t data1,
+    uint8_t data2) noexcept
 {
     if (!output || !output->try_push) {
         plugin.droppedEvents.fetch_add(1u, std::memory_order_relaxed);
@@ -749,7 +941,7 @@ bool pushMidi(Plugin& plugin, const clap_output_events_t* output,
     event.header.time = frameOffset;
     event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
     event.header.type = CLAP_EVENT_MIDI;
-    event.port_index = bus;
+    event.port_index = 0u;
     event.data[0] = status;
     event.data[1] = data1;
     event.data[2] = data2;
@@ -766,11 +958,10 @@ void emitActiveNoteOff(Plugin& plugin, const clap_output_events_t* output,
 {
     auto& active = plugin.activeNotes[index];
     if (!active.active) return;
-    uint8_t bus = 0u;
     uint8_t channel = 0u;
     uint8_t note = 0u;
-    decodeActiveNoteIndex(index, bus, channel, note);
-    (void)pushMidi(plugin, output, frameOffset, bus,
+    decodeActiveNoteIndex(index, channel, note);
+    (void)pushMidi(plugin, output, frameOffset,
         static_cast<uint8_t>(0x80u | channel), note, 0u);
     active = {};
 }
@@ -786,11 +977,9 @@ void emitPanic(Plugin& plugin, const clap_output_events_t* output,
     uint32_t frameOffset) noexcept
 {
     releaseActiveNotes(plugin, output, frameOffset);
-    for (uint8_t bus = 0u; bus < kMidiBusCount; ++bus) {
-        for (uint8_t channel = 0u; channel < kMidiChannelCount; ++channel) {
-            (void)pushMidi(plugin, output, frameOffset, bus,
-                static_cast<uint8_t>(0xb0u | channel), 123u, 0u);
-        }
+    for (uint8_t channel = 0u; channel < kMidiChannelCount; ++channel) {
+        (void)pushMidi(plugin, output, frameOffset,
+            static_cast<uint8_t>(0xb0u | channel), 123u, 0u);
     }
 }
 
@@ -799,10 +988,9 @@ void emitScheduledEvent(Plugin& plugin, Runtime& runtime,
     uint32_t blockOffset) noexcept
 {
     if (event.kind == ScheduledEventKind::Parameter) return;
-    uint8_t bus = 0u;
     uint8_t channel = 0u;
-    runtime.routeFor(event.targetNode, event.channel, bus, channel);
-    const uint32_t index = activeNoteIndex(bus, channel, event.note);
+    runtime.routeFor(event.channel, channel);
+    const uint32_t index = activeNoteIndex(channel, event.note);
     const uint32_t offset = blockOffset + event.frameOffset;
     auto& active = plugin.activeNotes[index];
     if (event.kind == ScheduledEventKind::NoteOff) {
@@ -811,10 +999,14 @@ void emitScheduledEvent(Plugin& plugin, Runtime& runtime,
             emitActiveNoteOff(plugin, output, offset, index);
         return;
     }
+    // MIDI 1.0 has no note identity beyond channel and pitch. Use a
+    // deterministic latest-note-wins policy: retrigger the pitch explicitly,
+    // replace its noteId/dueFrame below, and let the noteId check suppress the
+    // superseded gate-off so it cannot cut the new onset short.
     if (active.active) emitActiveNoteOff(plugin, output, offset, index);
     const uint8_t velocity = s3g::tracker::midiVelocityFromNormalized(
         event.normalizedVelocity);
-    (void)pushMidi(plugin, output, offset, bus,
+    (void)pushMidi(plugin, output, offset,
         static_cast<uint8_t>(0x90u | channel), event.note, velocity);
     const uint64_t gate = event.durationSamples != 0u
         ? event.durationSamples
@@ -836,16 +1028,19 @@ std::size_t collectGateOffs(Plugin& plugin, uint64_t segmentStart,
     std::size_t count = 0u;
     for (uint32_t index = 0u; index < plugin.activeNotes.size(); ++index) {
         const auto& active = plugin.activeNotes[index];
-        if (!active.active || active.dueFrame < segmentStart
-            || active.dueFrame >= segmentEnd) continue;
+        if (!active.active || active.dueFrame >= segmentEnd) continue;
         plugin.gateOffs[count++] = { index,
-            static_cast<uint32_t>(active.dueFrame - segmentStart),
+            active.dueFrame <= segmentStart ? 0u
+                : static_cast<uint32_t>(active.dueFrame - segmentStart),
             active.noteId };
     }
-    std::sort(plugin.gateOffs.begin(), plugin.gateOffs.begin() + count,
-        [](const GateOff& left, const GateOff& right) {
-            return left.frameOffset < right.frameOffset;
-        });
+    const auto later = [](const GateOff& left, const GateOff& right) {
+        if (left.frameOffset != right.frameOffset)
+            return left.frameOffset > right.frameOffset;
+        return left.noteId > right.noteId;
+    };
+    std::make_heap(plugin.gateOffs.begin(),
+        plugin.gateOffs.begin() + count, later);
     return count;
 }
 
@@ -860,13 +1055,12 @@ void handleAudition(Plugin& plugin, Runtime& runtime,
     const uint32_t data = plugin.auditionData.load(std::memory_order_relaxed);
     const uint8_t note = static_cast<uint8_t>(data & 0x7fu);
     const uint8_t velocity = static_cast<uint8_t>((data >> 8u) & 0x7fu);
-    uint8_t bus = 0u;
     uint8_t channel = 0u;
-    runtime.routeFor(node, 1u, bus, channel);
-    const uint32_t index = activeNoteIndex(bus, channel, note);
+    runtime.routeFor(1u, channel);
+    const uint32_t index = activeNoteIndex(channel, note);
     if (plugin.activeNotes[index].active)
         emitActiveNoteOff(plugin, output, blockOffset, index);
-    (void)pushMidi(plugin, output, blockOffset, bus,
+    (void)pushMidi(plugin, output, blockOffset,
         static_cast<uint8_t>(0x90u | channel), note,
         std::max<uint8_t>(velocity, 1u));
     auto& active = plugin.activeNotes[index];
@@ -907,6 +1101,16 @@ void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
         ? runtime.songPlanner.currentRowIndex() : std::nullopt;
     plugin.visualSongRow.store(songRow
             ? static_cast<int32_t>(*songRow) : -1,
+        std::memory_order_relaxed);
+    const auto pendingSongRow = runtime.songEnabled
+        ? runtime.songPlanner.pendingRowIndex() : std::nullopt;
+    const auto pendingSongQuantization = runtime.songEnabled
+        ? runtime.songPlanner.pendingQuantization() : std::nullopt;
+    plugin.visualPendingSongRow.store(pendingSongRow
+            ? static_cast<int32_t>(*pendingSongRow) : -1,
+        std::memory_order_relaxed);
+    plugin.visualPendingSongQuantization.store(pendingSongQuantization
+            ? static_cast<uint32_t>(*pendingSongQuantization) : 0u,
         std::memory_order_relaxed);
 }
 
@@ -976,6 +1180,7 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     handleAudition(plugin, *runtime, output, blockOffset);
 
     if (!transport.playing) {
+        plugin.midiStepClock.clear();
         if (plugin.hostWasPlaying) {
             releaseActiveNotes(plugin, output, blockOffset);
             runtime->scheduler.stop();
@@ -984,6 +1189,7 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
         plugin.runtimeArmed = false;
         plugin.expectedBeatValid = false;
         plugin.visualPlaying.store(false, std::memory_order_relaxed);
+        plugin.visualPendingSongRow.store(-1, std::memory_order_relaxed);
     } else {
         const bool restartRequested = plugin.requestRestart.exchange(false,
             std::memory_order_acq_rel);
@@ -1008,14 +1214,16 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
         if (restartRequested) {
             releaseActiveNotes(plugin, output, blockOffset);
             plugin.runtimeArmed = runtime->arm(
-                0.0, transport.tempo, plugin.sampleRate);
+                0.0, transport.tempo, plugin.sampleRate,
+                plugin.processFrame + blockOffset, true);
             plugin.expectedBeatValid = false;
         } else if (!plugin.runtimeArmed || !plugin.hostWasPlaying
             || discontinuity || tempoChanged) {
             releaseActiveNotes(plugin, output, blockOffset);
             plugin.runtimeArmed = runtime->arm(
                 transport.hasBeat ? transport.beat : 0.0,
-                transport.tempo, plugin.sampleRate);
+                transport.tempo, plugin.sampleRate,
+                plugin.processFrame + blockOffset);
         } else {
             runtime->updateClock(transport.tempo, plugin.sampleRate);
         }
@@ -1038,22 +1246,52 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
             const std::size_t gateCount = collectGateOffs(plugin,
                 segmentStart, frameCount);
             std::size_t eventIndex = 0u;
-            std::size_t gateIndex = 0u;
-            while (eventIndex < eventCount || gateIndex < gateCount) {
-                const bool useGate = gateIndex < gateCount
+            std::size_t pendingGateCount = gateCount;
+            const auto laterGate = [](const GateOff& left,
+                                       const GateOff& right) {
+                if (left.frameOffset != right.frameOffset)
+                    return left.frameOffset > right.frameOffset;
+                return left.noteId > right.noteId;
+            };
+            while (eventIndex < eventCount || pendingGateCount > 0u) {
+                const bool useGate = pendingGateCount > 0u
                     && (eventIndex >= eventCount
-                        || plugin.gateOffs[gateIndex].frameOffset
+                        || plugin.gateOffs.front().frameOffset
                             <= plugin.events[eventIndex].frameOffset);
                 if (useGate) {
-                    const auto gate = plugin.gateOffs[gateIndex++];
+                    std::pop_heap(plugin.gateOffs.begin(),
+                        plugin.gateOffs.begin() + pendingGateCount,
+                        laterGate);
+                    const auto gate = plugin.gateOffs[--pendingGateCount];
                     const auto& active = plugin.activeNotes[gate.activeIndex];
                     if (active.active && active.noteId == gate.noteId)
                         emitActiveNoteOff(plugin, output,
                             blockOffset + gate.frameOffset,
                             gate.activeIndex);
                 } else {
-                    emitScheduledEvent(plugin, *runtime, output,
-                        plugin.events[eventIndex++], blockOffset);
+                    const auto event = plugin.events[eventIndex++];
+                    emitScheduledEvent(plugin, *runtime, output, event,
+                        blockOffset);
+                    if (event.kind != ScheduledEventKind::NoteOn) continue;
+                    uint8_t channel = 0u;
+                    runtime->routeFor(event.channel, channel);
+                    const uint32_t activeIndex = activeNoteIndex(
+                        channel, event.note);
+                    const auto& active = plugin.activeNotes[activeIndex];
+                    const uint64_t segmentEnd = segmentStart + frameCount;
+                    if (!active.active || active.dueFrame >= segmentEnd
+                        || pendingGateCount >= plugin.gateOffs.size())
+                        continue;
+                    plugin.gateOffs[pendingGateCount++] = {
+                        activeIndex,
+                        active.dueFrame <= segmentStart ? 0u
+                            : static_cast<uint32_t>(
+                                active.dueFrame - segmentStart),
+                        active.noteId,
+                    };
+                    std::push_heap(plugin.gateOffs.begin(),
+                        plugin.gateOffs.begin() + pendingGateCount,
+                        laterGate);
                 }
             }
             updateVisualState(plugin, *runtime);
@@ -1217,10 +1455,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const auto page = static_cast<S3GTrackerClapPage>(
         sender.identifier.integerValue);
     [self showPage:page];
-    if (NSApp.currentEvent.clickCount >= 2
-        && (page == S3GTrackerClapPageGeometry
-            || page == S3GTrackerClapPageWarps
-            || page == S3GTrackerClapPageConsole)) {
+    if (NSApp.currentEvent.clickCount >= 2 && [self pageCanDetach:page]) {
         [self toggleDetachPage:page];
     }
 }
@@ -1229,7 +1464,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 {
     return page == S3GTrackerClapPageGeometry
         || page == S3GTrackerClapPageWarps
-        || page == S3GTrackerClapPageConsole;
+        || page == S3GTrackerClapPageConsole
+        || page == S3GTrackerClapPageHelp;
 }
 
 - (void)popoutPressed:(id)sender
@@ -1250,6 +1486,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const NSInteger index = static_cast<NSInteger>(page);
     if (index < 0 || index >= static_cast<NSInteger>(self.pageViews.count))
         return;
+    NSWindow* parentWindow = self.window;
     NSView* content = self.pageViews[static_cast<NSUInteger>(index)];
     [content removeFromSuperview];
     NSWindow* window = [[NSWindow alloc] initWithContentRect:
@@ -1270,12 +1507,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         NSAppearanceNameDarkAqua];
     window.releasedWhenClosed = NO;
     window.tabbingMode = NSWindowTabbingModeDisallowed;
+    window.hidesOnDeactivate = YES;
+    window.collectionBehavior |=
+        NSWindowCollectionBehaviorFullScreenAuxiliary;
     window.delegate = self;
     content.frame = window.contentView.bounds;
     content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     window.contentView = content;
     self.detachedWindows[key] = window;
     self.detachedPlaceholders[static_cast<NSUInteger>(index)].hidden = NO;
+    if (parentWindow)
+        [parentWindow addChildWindow:window ordered:NSWindowAbove];
+    window.level = parentWindow
+        ? std::max<NSInteger>(
+            NSFloatingWindowLevel, parentWindow.level + 1)
+        : NSFloatingWindowLevel;
     [window center];
     [window makeKeyAndOrderFront:nil];
     [self showPage:page];
@@ -1289,6 +1535,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const NSUInteger index = static_cast<NSUInteger>(page);
     NSView* content = self.pageViews[index];
     window.delegate = nil;
+    if (window.parentWindow)
+        [window.parentWindow removeChildWindow:window];
     window.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
     [content removeFromSuperview];
     [self.pageHosts[index] addSubview:content];
@@ -1354,20 +1602,36 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     Plugin* _plugin;
     std::unique_ptr<TrackerViewState> _state;
     std::unique_ptr<WorkspaceCallbacks> _callbacks;
+    ProjectHistory _history;
     std::array<uint64_t, s3g::tracker::kMaximumTrackCount>
         _consumedNoteHitSequences;
     VisualPlaybackFrame _pendingVisualFrame;
     bool _visualFramePrimed;
+    uint64_t _reportedStepRecordDrops;
+    bool _runtimePublicationPending;
 }
 @property(nonatomic, strong) S3GTrackerWorkspaceController* workspace;
 @property(nonatomic, strong) S3GTrackerSongWindowController* songWindow;
 @property(nonatomic, strong) S3GTrackerConsoleHelpWindowController* helpWindow;
 @property(nonatomic, strong) S3GTrackerClapPageView* pageView;
 @property(nonatomic, strong) NSTimer* displayTimer;
+@property(nonatomic, strong) NSTimer* runtimePublicationTimer;
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (ProjectDocument)currentDocument;
 - (void)applyDocument:(const ProjectDocument&)document;
+- (void)updateHistoryAvailability;
+- (void)resetHistory:(const ProjectDocument&)document;
+- (void)recordHistory:(const ProjectDocument&)document;
+- (void)undoProject;
+- (void)redoProject;
+- (void)consumeMidiStepCaptures;
+- (void)scheduleRuntimePublication;
+- (void)cancelRuntimePublication;
+- (void)flushRuntimePublication;
+- (void)disarmMidiStepRecording;
 - (void)commitProjectWithoutRuntime:(BOOL)dirty;
+- (void)presentSaveSongProject;
+- (void)presentLoadSongProject;
 - (BOOL)installPatternVariation:
     (const s3g::tracker::PatternVariationRequest&)variation;
 - (void)startTimer;
@@ -1386,16 +1650,20 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks = std::make_unique<WorkspaceCallbacks>();
     _consumedNoteHitSequences.fill(0u);
     _visualFramePrimed = false;
+    _reportedStepRecordDrops = 0u;
+    _runtimePublicationPending = false;
+    _state->midiStepInputAvailable = true;
+    _state->midiStepRecordMode = MidiStepRecordMode::Off;
+    _plugin->midiStepRecordMode.store(
+        static_cast<uint8_t>(MidiStepRecordMode::Off),
+        std::memory_order_relaxed);
 
     __weak S3GTrackerClapCoordinator* weakSelf = self;
     _callbacks->togglePlayback = [weakSelf] {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner) return;
-        const auto* control = hostTransportControl(*owner->_plugin);
-        if (control && control->request_continue)
-            control->request_continue(owner->_plugin->host);
-        else {
-            owner->_state->status = "Use REAPER transport to play";
+        if (!requestHostTogglePlayback(*owner->_plugin)) {
+            owner->_state->status = "Use REAPER transport controls";
             [owner.workspace reloadModel];
         }
     };
@@ -1406,7 +1674,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         if (owner->_plugin->host && owner->_plugin->host->request_process)
             owner->_plugin->host->request_process(owner->_plugin->host);
         [owner.workspace appendConsoleMessage:
-            "Tracker restart queued at row 1; REAPER transport unchanged"
+            "SYNC ALL queued for row 1; phase offsets ignored and REAPER transport unchanged"
             error:NO];
     };
     _callbacks->resyncTrack = [weakSelf](std::size_t track) {
@@ -1428,7 +1696,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         if (owner->_plugin->host && owner->_plugin->host->request_process)
             owner->_plugin->host->request_process(owner->_plugin->host);
         [owner.workspace appendConsoleMessage:
-            "MIDI panic queued on all eight REAPER MIDI buses" error:NO];
+            "MIDI panic queued on channels 1–16" error:NO];
     };
     _callbacks->showSongWindow = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageSong];
@@ -1443,7 +1711,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [weakSelf.pageView showPage:S3GTrackerClapPageHelp];
     };
     _callbacks->instrumentRackChanged = [weakSelf] {
-        [weakSelf commitProject:YES];
+        [weakSelf commitProjectWithoutRuntime:YES];
     };
     _callbacks->instrumentRackReloaded = [weakSelf] {
         [weakSelf commitProject:NO];
@@ -1488,7 +1756,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [weakSelf commitProject:YES];
     };
     _callbacks->mainOutputGainChanged = [weakSelf](float) {
-        [weakSelf commitProject:YES];
+        [weakSelf commitProjectWithoutRuntime:YES];
+    };
+    _callbacks->midiStepRecordModeChanged = [weakSelf](
+        MidiStepRecordMode mode) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        owner->_plugin->midiStepRecordMode.store(
+            static_cast<uint8_t>(mode), std::memory_order_release);
     };
     _callbacks->executeCommand = [weakSelf](const std::string& command) {
         [weakSelf executeCommand:command];
@@ -1505,6 +1780,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         initial = _plugin->document;
     }
     [self applyDocument:initial];
+    [self resetHistory:[self currentDocument]];
 
     self.pageView = [[S3GTrackerClapPageView alloc] initWithPages:@[
         self.workspace.view,
@@ -1546,44 +1822,187 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             + std::to_string(row + 1u);
         [owner.workspace appendConsoleMessage:owner->_state->status error:NO];
     };
+    self.songWindow.saveProjectHandler = ^{
+        [weakSelf presentSaveSongProject];
+    };
+    self.songWindow.loadProjectHandler = ^{
+        [weakSelf presentLoadSongProject];
+    };
     [self configureHostDevices];
     return self;
 }
 
 - (void)dealloc
 {
+    _plugin->midiStepRecordMode.store(
+        static_cast<uint8_t>(MidiStepRecordMode::Off),
+        std::memory_order_release);
     [self stopTimer];
     [self.pageView detachFromPlugin];
     [self.songWindow close];
     [self.helpWindow close];
 }
 
+- (void)consumeMidiStepCaptures
+{
+    if (!_state) return;
+    MidiStepCapture capture;
+    bool changed = false;
+    while (_plugin->midiStepCaptures.pop(capture)) {
+        const auto result = s3g::tracker::recordMidiStep(_state->session,
+            capture.mode, capture, _plugin->sampleRate);
+        if (result.recorded()) {
+            changed = true;
+            std::ostringstream message;
+            message << "STEP REC CH" << static_cast<unsigned>(capture.channel)
+                    << " note " << static_cast<unsigned>(capture.note)
+                    << " → lane " << (result.track + 1u)
+                    << ", row " << (result.row + 1u);
+            if (capture.mode == MidiStepRecordMode::Unquantized) {
+                message << ", MT " << std::lround(
+                    static_cast<double>(result.microTime) * 100.0) << '%';
+                if (!result.timingKnown) message << " (no host tick; centered)";
+                else if (result.timingClamped) message << " (clamped)";
+            }
+            [self.workspace appendConsoleMessage:message.str() error:NO];
+        } else if (result.code == MidiStepRecordCode::FxUnavailable) {
+            [self.workspace appendConsoleMessage:
+                "MICRO step record needs an empty SEQ1 or SEQ2 cell on the cursor row"
+                error:YES];
+        } else if (result.code == MidiStepRecordCode::TimingUnavailable) {
+            [self.workspace appendConsoleMessage:
+                "MICRO step record requires a nonzero MicroTime range"
+                error:YES];
+        }
+    }
+    const uint64_t dropped = _plugin->midiStepCaptures.droppedCount();
+    if (dropped != _reportedStepRecordDrops) {
+        _reportedStepRecordDrops = dropped;
+        [self.workspace appendConsoleMessage:
+            "MIDI step-record input overflowed; reduce controller density"
+            error:YES];
+    }
+    if (changed) [self commitProject:YES];
+}
+
+- (void)disarmMidiStepRecording
+{
+    if (!_state) return;
+    _state->midiStepRecordMode = MidiStepRecordMode::Off;
+    _plugin->midiStepRecordMode.store(
+        static_cast<uint8_t>(MidiStepRecordMode::Off),
+        std::memory_order_release);
+    [self.workspace reloadModel];
+}
+
 - (void)configureHostDevices
 {
     if (!_state || !self.workspace) return;
-    _state->midiRoute = "8 REAPER MIDI BUSES";
+    _state->midiRoute = "1 OUT • 1 STEP IN • CH 1–16";
     _state->audioOutputDevice = "REAPER HOST AUDIO";
     _state->audioAvailable = false;
     std::vector<s3g::tracker::MidiDestination> destinations;
     s3g::tracker::MidiOutputTarget target;
     target.kind = s3g::tracker::MidiOutputTargetKind::VirtualSource;
     target.virtualSource = 1u;
-    target.name = "REAPER MIDI BUS 1";
+    target.name = "TRACKER MIDI OUTPUT";
     [self.workspace setMidiDestinations:destinations selectedTarget:target];
     std::vector<s3g::tracker::app::AudioOutputDevice> devices {
         { 1u, "REAPER HOST AUDIO", _plugin->sampleRate, 0u, true },
     };
     [self.workspace setAudioOutputDevices:devices selectedDeviceId:1u];
+    [self.workspace reloadModel];
 }
 
 - (void)refreshSongPatterns
 {
     NSMutableArray<NSString*>* ids = [[NSMutableArray alloc] init];
-    for (const auto& entry : _state->patternBank.entries)
+    NSMutableArray<NSString*>* names = [[NSMutableArray alloc] init];
+    for (const auto& entry : _state->patternBank.entries) {
         [ids addObject:[NSString stringWithUTF8String:entry.id.c_str()]];
+        [names addObject:[NSString stringWithUTF8String:
+            entry.pattern.name.c_str()]];
+    }
     NSString* active = [NSString stringWithUTF8String:
         _state->patternBank.activePatternId.c_str()];
-    [self.songWindow setAvailablePatternIds:ids activePatternId:active];
+    [self.songWindow setAvailablePatternIds:ids patternNames:names
+        activePatternId:active];
+}
+
+- (void)presentSaveSongProject
+{
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    panel.title = @"Save Tracker Song + Patterns";
+    panel.prompt = @"Save";
+    panel.canCreateDirectories = YES;
+    panel.nameFieldStringValue = @"Tracker Song.s3gt";
+    if (UTType* type = [UTType typeWithFilenameExtension:@"s3gt"])
+        panel.allowedContentTypes = @[ type ];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || response != NSModalResponseOK || !panel.URL) return;
+        const char* path = panel.URL.fileSystemRepresentation;
+        if (!path) return;
+        const auto result = s3g::tracker::saveProjectDocumentAtomically(
+            [owner currentDocument], path);
+        if (!result.ok()) {
+            const std::string message = "Could not save Song + Patterns: "
+                + result.message;
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+        } else {
+            owner->_state->status = "Saved Song + Patterns";
+            [owner.workspace appendConsoleMessage:
+                std::string("Saved Song + Patterns to ") + path error:NO];
+        }
+        [owner.workspace reloadModel];
+    };
+    if (self.pageView.window)
+        [panel beginSheetModalForWindow:self.pageView.window
+            completionHandler:completion];
+    else
+        [panel beginWithCompletionHandler:completion];
+}
+
+- (void)presentLoadSongProject
+{
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    panel.title = @"Load Tracker Song + Patterns";
+    panel.prompt = @"Load";
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    if (UTType* type = [UTType typeWithFilenameExtension:@"s3gt"])
+        panel.allowedContentTypes = @[ type ];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || response != NSModalResponseOK || !panel.URL) return;
+        const char* path = panel.URL.fileSystemRepresentation;
+        if (!path) return;
+        ProjectDocument document;
+        const auto result = s3g::tracker::loadProjectDocument(path, document);
+        if (!result.ok()) {
+            const std::string message = "Could not load Song + Patterns: "
+                + result.message;
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+            [owner.workspace reloadModel];
+            return;
+        }
+        [owner applyDocument:document];
+        [owner commitProject:YES];
+        owner->_state->status = "Loaded Song + Patterns";
+        [owner.workspace appendConsoleMessage:
+            std::string("Loaded Song + Patterns from ") + path error:NO];
+        [owner.workspace reloadModel];
+    };
+    if (self.pageView.window)
+        [panel beginSheetModalForWindow:self.pageView.window
+            completionHandler:completion];
+    else
+        [panel beginWithCompletionHandler:completion];
 }
 
 - (ProjectDocument)currentDocument
@@ -1631,6 +2050,76 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [self.workspace reloadModel];
 }
 
+- (void)updateHistoryAvailability
+{
+    if (!_state) return;
+    _state->canUndo = _history.canUndo();
+    _state->canRedo = _history.canRedo();
+}
+
+- (void)resetHistory:(const ProjectDocument&)document
+{
+    ProjectDocument normalized = document;
+    normalizeMidiOnlyDocument(normalized);
+    const auto result = _history.reset(normalized);
+    if (!result.ok()) {
+        [self.workspace appendConsoleMessage:
+            "Could not initialize Tracker edit history: " + result.message
+            error:YES];
+    }
+    [self updateHistoryAvailability];
+    [self.workspace reloadModel];
+}
+
+- (void)recordHistory:(const ProjectDocument&)document
+{
+    const auto result = _history.record(document);
+    if (!result.ok()) {
+        [self.workspace appendConsoleMessage:
+            "Could not record Tracker edit history: " + result.message
+            error:YES];
+    }
+    [self updateHistoryAvailability];
+}
+
+- (void)undoProject
+{
+    ProjectDocument document;
+    const auto result = _history.undo(document);
+    if (!result.ok()) {
+        [self.workspace appendConsoleMessage:result.message error:YES];
+        [self updateHistoryAvailability];
+        [self.workspace reloadModel];
+        return;
+    }
+    [self cancelRuntimePublication];
+    [self applyDocument:document];
+    publishDocument(*_plugin, std::move(document), true);
+    [self updateHistoryAvailability];
+    _state->status = "Undid Tracker edit";
+    [self.workspace appendConsoleMessage:_state->status error:NO];
+    [self.workspace reloadModel];
+}
+
+- (void)redoProject
+{
+    ProjectDocument document;
+    const auto result = _history.redo(document);
+    if (!result.ok()) {
+        [self.workspace appendConsoleMessage:result.message error:YES];
+        [self updateHistoryAvailability];
+        [self.workspace reloadModel];
+        return;
+    }
+    [self cancelRuntimePublication];
+    [self applyDocument:document];
+    publishDocument(*_plugin, std::move(document), true);
+    [self updateHistoryAvailability];
+    _state->status = "Redid Tracker edit";
+    [self.workspace appendConsoleMessage:_state->status error:NO];
+    [self.workspace reloadModel];
+}
+
 - (void)commitProject:(BOOL)dirty
 {
     if (!_state) return;
@@ -1639,7 +2128,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->instrumentRack = document.instrumentRack;
     _state->selectedRackInstrument = document.instrumentRack.selectedNode;
     (void)loadActivePatternIntoSession(*_state);
-    publishDocument(*_plugin, std::move(document), dirty);
+    if (dirty) [self recordHistory:document];
+    storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
+    [self scheduleRuntimePublication];
     [self.workspace reloadModel];
 }
 
@@ -1651,13 +2142,48 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->instrumentRack = document.instrumentRack;
     _state->selectedRackInstrument = document.instrumentRack.selectedNode;
     (void)loadActivePatternIntoSession(*_state);
+    if (dirty) [self recordHistory:document];
     storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
     [self.workspace reloadModel];
+}
+
+- (void)scheduleRuntimePublication
+{
+    _runtimePublicationPending = true;
+    [self.runtimePublicationTimer invalidate];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    self.runtimePublicationTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
+        repeats:NO block:^(NSTimer*) {
+            [weakSelf flushRuntimePublication];
+        }];
+    [[NSRunLoop mainRunLoop] addTimer:self.runtimePublicationTimer
+        forMode:NSRunLoopCommonModes];
+}
+
+- (void)cancelRuntimePublication
+{
+    [self.runtimePublicationTimer invalidate];
+    self.runtimePublicationTimer = nil;
+    _runtimePublicationPending = false;
+}
+
+- (void)flushRuntimePublication
+{
+    [self.runtimePublicationTimer invalidate];
+    self.runtimePublicationTimer = nil;
+    if (!_runtimePublicationPending) return;
+    _runtimePublicationPending = false;
+    if (!publishStoredDocumentRuntime(*_plugin)) {
+        [self.workspace appendConsoleMessage:
+            "Could not prepare the edited Tracker playback runtime"
+            error:YES];
+    }
 }
 
 - (BOOL)installPatternVariation:
     (const s3g::tracker::PatternVariationRequest&)variation
 {
+    [self cancelRuntimePublication];
     if (_state->patternBank.entries.size()
             >= s3g::tracker::kMaximumPatternBankEntries
         || !syncSessionToActivePattern(*_state)) return NO;
@@ -1683,6 +2209,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     ProjectDocument document = [self currentDocument];
     _state->patternBank = document.patternBank;
     (void)loadActivePatternIntoSession(*_state);
+    const ProjectDocument historyDocument = document;
     const bool playing = _plugin->visualPlaying.load(
         std::memory_order_acquire);
     bool installed = true;
@@ -1701,6 +2228,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [self.workspace reloadModel];
         return NO;
     }
+    [self recordHistory:historyDocument];
     _state->status = playing
         ? "Queued variation " + id + " for quantized launch"
         : "Selected variation " + id;
@@ -1762,7 +2290,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const char* text = value.UTF8String;
     entry->pattern.name = text ? text : entry->pattern.name;
     _state->session.pattern.name = entry->pattern.name;
-    [self commitProject:YES];
+    [self refreshSongPatterns];
+    [self commitProjectWithoutRuntime:YES];
 }
 
 - (void)deletePattern
@@ -1830,7 +2359,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         }
         if (verb == "instrument" || verb == "inst") {
             [self.workspace appendConsoleMessage:
-                "The MIDI tracker has no INS column; set Bxx and CHxx in the lane header."
+                "The MIDI tracker has no INS column; set CH01–CH16 in the lane header."
                 error:YES];
             return;
         }
@@ -1879,6 +2408,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [self.workspace appendConsoleMessage:result.message error:YES];
         return;
     }
+    if (result.hasEffect(CommandEffect::UndoRequested)) {
+        [self undoProject];
+        return;
+    }
+    if (result.hasEffect(CommandEffect::RedoRequested)) {
+        [self redoProject];
+        return;
+    }
     if (result.patternVariation) {
         [self.workspace appendConsoleMessage:result.message error:NO];
         if (![self installPatternVariation:*result.patternVariation]) {
@@ -1889,21 +2426,25 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         return;
     }
     [self.workspace appendConsoleMessage:result.message error:NO];
-    if (result.hasEffect(CommandEffect::PatternChanged)
+    const bool runtimeChanged = result.hasEffect(CommandEffect::PatternChanged)
         || result.hasEffect(CommandEffect::TransportChanged)
         || result.hasEffect(CommandEffect::OutputChanged)
-        || result.hasEffect(CommandEffect::RoutingChanged)
-        || result.hasEffect(CommandEffect::ProjectChanged))
+        || result.hasEffect(CommandEffect::RoutingChanged);
+    if (runtimeChanged)
         [self commitProject:YES];
+    else if (result.hasEffect(CommandEffect::ProjectChanged))
+        [self commitProjectWithoutRuntime:YES];
     if (result.hasEffect(CommandEffect::StartPlayback)) {
-        const auto* control = hostTransportControl(*_plugin);
-        if (control && control->request_continue)
-            control->request_continue(_plugin->host);
+        if (!requestHostContinue(*_plugin))
+            [self.workspace appendConsoleMessage:
+                "The host does not expose a plug-in transport-start request."
+                error:YES];
     }
     if (result.hasEffect(CommandEffect::StopPlayback)) {
-        const auto* control = hostTransportControl(*_plugin);
-        if (control && control->request_stop)
-            control->request_stop(_plugin->host);
+        if (!requestHostStop(*_plugin))
+            [self.workspace appendConsoleMessage:
+                "The host does not expose a plug-in transport-stop request."
+                error:YES];
     }
     if (result.hasEffect(CommandEffect::Panic))
         _plugin->requestPanic.store(true, std::memory_order_release);
@@ -1914,6 +2455,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 {
     (void)timer;
     drainRetiredRuntimes(*_plugin);
+    [self consumeMidiStepCaptures];
     const bool playing = _plugin->visualPlaying.load(
         std::memory_order_relaxed);
     _state->playing = playing;
@@ -1950,6 +2492,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     }
     captured.songRow = _plugin->visualSongRow.load(
         std::memory_order_relaxed);
+    captured.pendingSongRow = _plugin->visualPendingSongRow.load(
+        std::memory_order_relaxed);
+    captured.pendingSongQuantization
+        = _plugin->visualPendingSongQuantization.load(
+            std::memory_order_relaxed);
     if (playing && _visualFramePrimed) {
         _state->notePlayheads = _pendingVisualFrame.notePlayheads;
         _state->noteHits = _pendingVisualFrame.noteHits;
@@ -1966,6 +2513,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     }
     const int32_t songRow = playing && _visualFramePrimed
         ? _pendingVisualFrame.songRow : captured.songRow;
+    const int32_t pendingSongRow = playing && _visualFramePrimed
+        ? _pendingVisualFrame.pendingSongRow : captured.pendingSongRow;
+    const uint32_t pendingSongQuantization = playing && _visualFramePrimed
+        ? _pendingVisualFrame.pendingSongQuantization
+        : captured.pendingSongQuantization;
     _pendingVisualFrame = std::move(captured);
     _visualFramePrimed = playing;
     _state->songPlaybackActive = _state->playing
@@ -1973,8 +2525,24 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->songPlaybackRowValid = songRow >= 0;
     _state->songPlaybackRow = songRow >= 0
         ? static_cast<std::size_t>(songRow) : 0u;
+    _state->songPlaybackPatternId.clear();
+    _state->songPlaybackMutedTracks = 0u;
+    if (_state->songPlaybackActive) {
+        const auto arrangement = [self.songWindow songArrangement];
+        if (_state->songPlaybackRow < arrangement.rows.size()) {
+            const auto& activeRow = arrangement.rows[
+                _state->songPlaybackRow];
+            _state->songPlaybackPatternId = activeRow.patternId;
+            _state->songPlaybackMutedTracks = activeRow.mutedTracks;
+        }
+    }
     [self.songWindow setPlaybackRow:_state->songPlaybackRow
         valid:_state->songPlaybackRowValid];
+    [self.songWindow setPendingPlaybackRow:pendingSongRow >= 0
+            ? static_cast<NSUInteger>(pendingSongRow) : 0u
+        valid:pendingSongRow >= 0
+        quantization:static_cast<NSInteger>(std::min<uint32_t>(
+            pendingSongQuantization, 3u))];
     [self.songWindow setPlaybackLocked:_state->songPlaybackActive];
     _state->sentEventCount = _plugin->sentEvents.load(
         std::memory_order_relaxed);
@@ -2000,6 +2568,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)stopTimer
 {
+    [self consumeMidiStepCaptures];
+    [self flushRuntimePublication];
     [self.displayTimer invalidate];
     self.displayTimer = nil;
 }
@@ -2038,7 +2608,8 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
         document = instance->document;
     }
     auto* runtime = new (std::nothrow) Runtime(document, sampleRate,
-        &instance->patternLaunch, &instance->visualNoteHits);
+        &instance->patternLaunch, &instance->visualNoteHits,
+        &instance->midiStepClock);
     if (!runtime || !runtime->valid) {
         delete runtime;
         return false;
@@ -2063,6 +2634,7 @@ void deactivate(const clap_plugin_t* plugin)
     instance->visualPlaying.store(false, std::memory_order_relaxed);
     instance->hostWasPlaying = false;
     instance->runtimeArmed = false;
+    instance->midiStepClock.clear();
 }
 
 bool startProcessing(const clap_plugin_t*) { return true; }
@@ -2077,6 +2649,7 @@ void reset(const clap_plugin_t* plugin)
     instance->runtimeArmed = false;
     instance->expectedBeatValid = false;
     instance->visualPlaying.store(false, std::memory_order_relaxed);
+    instance->midiStepClock.clear();
 }
 
 clap_process_status process(const clap_plugin_t* plugin,
@@ -2104,15 +2677,21 @@ clap_process_status process(const clap_plugin_t* plugin,
     for (uint32_t index = 0u; index < count; ++index) {
         const clap_event_header_t* event = processData->in_events->get(
             processData->in_events, index);
-        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
-            || event->type != CLAP_EVENT_TRANSPORT
-            || event->size < sizeof(clap_event_transport_t)) continue;
+        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
         const uint32_t time = std::min(event->time,
             processData->frames_count);
-        renderTo(time);
-        transport = readHostTransport(reinterpret_cast<
-            const clap_event_transport_t*>(event));
-        cursor = time;
+        if (event->type == CLAP_EVENT_TRANSPORT
+            && event->size >= sizeof(clap_event_transport_t)) {
+            renderTo(time);
+            transport = readHostTransport(reinterpret_cast<
+                const clap_event_transport_t*>(event));
+            cursor = time;
+        } else if (event->type == CLAP_EVENT_MIDI
+            && event->size >= sizeof(clap_event_midi_t)) {
+            renderTo(time);
+            captureMidiStep(instance, *reinterpret_cast<
+                const clap_event_midi_t*>(event), time);
+        }
     }
     renderTo(processData->frames_count);
     instance.processFrame += processData->frames_count;
@@ -2126,19 +2705,20 @@ void onMainThread(const clap_plugin_t* plugin)
 
 uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
 {
-    return isInput ? 0u : kMidiBusCount;
+    (void)isInput;
+    return 1u;
 }
 
 bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     clap_note_port_info_t* info)
 {
-    if (!info || isInput || index >= kMidiBusCount) return false;
+    if (!info || index != 0u) return false;
     *info = {};
-    info->id = 100u + index;
+    info->id = isInput ? 50u : 100u;
     info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
-    std::snprintf(info->name, sizeof(info->name),
-        "Tracker MIDI Bus %u", index + 1u);
+    std::snprintf(info->name, sizeof(info->name), "%s",
+        isInput ? "Step Record MIDI Input" : "Tracker MIDI Output");
     return true;
 }
 
@@ -2191,9 +2771,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const auto result = s3g::tracker::decodeProjectDocument(json, document);
     if (!result.ok()) return false;
     auto* instance = self(plugin);
-    publishDocument(*instance, document, false);
     if (instance->coordinator)
+        [instance->coordinator cancelRuntimePublication];
+    publishDocument(*instance, document, false);
+    if (instance->coordinator) {
         [instance->coordinator applyDocument:document];
+        [instance->coordinator resetHistory:document];
+    }
     return true;
 }
 
@@ -2316,6 +2900,7 @@ bool guiHide(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
+    [instance->coordinator disarmMidiStepRecording];
     [instance->coordinator stopTimer];
     return s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, true);
@@ -2376,7 +2961,8 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     instance->host = host;
     instance->audioRuntime = new (std::nothrow) Runtime(
         instance->document, instance->sampleRate,
-        &instance->patternLaunch, &instance->visualNoteHits);
+        &instance->patternLaunch, &instance->visualNoteHits,
+        &instance->midiStepClock);
     if (!instance->audioRuntime || !instance->audioRuntime->valid) {
         delete instance->audioRuntime;
         delete instance;

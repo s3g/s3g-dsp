@@ -535,7 +535,7 @@ std::string aliasesText(const TrackerSession& session)
     std::ostringstream stream;
     stream << "Aliases:";
     for (const auto& [name, lane] : session.aliases)
-        stream << " @" << name << '=' << (lane + 1u);
+        stream << " @" << name << " -> " << (lane + 1u);
     return stream.str();
 }
 
@@ -762,9 +762,9 @@ float compactFxValue(char symbol) noexcept
 {
     if (symbol == '!') return 1.0f;
     if (symbol == '+') return 0.85f;
-    if (symbol == '*' || symbol == 'o' || symbol == 'O') return 0.70f;
+    if (symbol == '*') return 0.70f;
     if (symbol == '.') return 0.55f;
-    return static_cast<float>(symbol - '0') * 0.1f;
+    return 0.0f;
 }
 
 bool isCompactFxPattern(std::string_view token) noexcept
@@ -772,9 +772,7 @@ bool isCompactFxPattern(std::string_view token) noexcept
     return !token.empty() && std::all_of(token.begin(), token.end(),
         [](char symbol) {
             return symbol == '!' || symbol == '+' || symbol == '*'
-                || symbol == 'o' || symbol == 'O' || symbol == '.'
-                || symbol == '=' || symbol == '-'
-                || (symbol >= '0' && symbol <= '9');
+                || symbol == '.' || symbol == '=' || symbol == '-';
         });
 }
 
@@ -805,7 +803,7 @@ bool makeFxSequenceCell(std::string_view atom,
     double numeric = 0.0;
     if (!parseFiniteDouble(atom, numeric) || numeric < 0.0
         || numeric > 1.0) {
-        error = "FX sequence values must be normalized 0..1, compact symbols, =, or -.";
+        error = "FX sequence values must be normalized 0..1, level symbols ! + * ., previous =, or empty -.";
         return false;
     }
     cell.action = selectedAction;
@@ -968,26 +966,24 @@ bool parseDirection(std::string_view token, Direction& direction,
     std::string& canonical)
 {
     const auto value = asciiLower(token);
-    if (value == "forward" || value == "fwd" || value == "f"
-        || value == ">") {
+    if (value == "forward" || value == "fwd" || value == ">") {
         direction = Direction::Forward;
         canonical = "forward";
         return true;
     }
     if (value == "reverse" || value == "backward" || value == "back"
-        || value == "rev" || value == "b" || value == "<") {
+        || value == "rev" || value == "<") {
         direction = Direction::Reverse;
         canonical = "reverse";
         return true;
     }
-    if (value == "random" || value == "rand" || value == "rnd"
-        || value == "r" || value == "?") {
+    if (value == "random" || value == "rand" || value == "rnd") {
         direction = Direction::Random;
         canonical = "random";
         return true;
     }
     if (value == "palindrome" || value == "pal" || value == "pingpong"
-        || value == "ping-pong" || value == "p" || value == "<>") {
+        || value == "ping-pong" || value == "<>") {
         direction = Direction::Palindrome;
         canonical = "palindrome";
         return true;
@@ -999,15 +995,13 @@ bool isMaskLiteral(std::string_view token)
 {
     return !token.empty()
         && std::all_of(token.begin(), token.end(), [](char value) {
-               return value == 'x' || value == 'X' || value == '1'
-                   || value == '-' || value == '.' || value == '_'
-                   || value == '0';
+               return value == 'x' || value == 'X' || value == '-';
            });
 }
 
 bool maskSymbolIsHit(char value)
 {
-    return value == 'x' || value == 'X' || value == '1';
+    return value == 'x' || value == 'X';
 }
 
 void applyMask(TrackerSession& session, std::size_t lane,
@@ -1028,40 +1022,32 @@ void applyMask(TrackerSession& session, std::size_t lane,
 
 bool isCompactVelocityPattern(std::string_view token)
 {
-    if (token.size() <= 1u || token == "==" || token == "--"
-        || token == "??")
+    if (token.size() <= 1u || token == "--")
         return false;
     double numeric = 0.0;
     if (parseFiniteDouble(token, numeric)) return false;
-    bool hasSymbol = false;
     for (const auto value : token) {
         const bool valid = value == '!' || value == '+' || value == '*'
-            || value == 'o' || value == 'O' || value == '.'
-            || value == '-' || value == '_' || value == '='
-            || value == '?' || (value >= '0' && value <= '9');
+            || value == '.' || value == '-' || value == '=';
         if (!valid) return false;
-        if (!(value >= '0' && value <= '9')) hasSymbol = true;
     }
-    return hasSymbol;
+    return true;
 }
 
 bool compactVelocityCell(char token, ValueCell& cell, std::string& error)
 {
-    if (token == '?') {
-        error = "Random velocity (?) is not supported by the native value model yet.";
-        return false;
+    if (token == '-') {
+        cell = ValueCell::defaultValue();
+        return true;
     }
-    if (token == '-' || token == '_' || token == '=') {
+    if (token == '=') {
         cell = ValueCell::previous();
         return true;
     }
     if (token == '!') cell = ValueCell::withValue(1.0f);
     else if (token == '+') cell = ValueCell::withValue(0.85f);
-    else if (token == '*' || token == 'o' || token == 'O')
-        cell = ValueCell::withValue(0.70f);
+    else if (token == '*') cell = ValueCell::withValue(0.70f);
     else if (token == '.') cell = ValueCell::withValue(0.55f);
-    else if (token >= '0' && token <= '9')
-        cell = ValueCell::withValue(static_cast<float>(token - '0') / 10.0f);
     else {
         error = "Unsupported compact velocity symbol.";
         return false;
@@ -1078,12 +1064,12 @@ bool parseVelocityCell(std::string_view token, ValueCell& cell,
         error = "Random velocity (?) is not supported by the native value model yet.";
         return false;
     }
-    if (value == "-" || value == "_" || value == "=" || value == "=="
-        || value == "hold" || value == "previous" || value == "prev") {
+    if (value == "=" || value == "hold" || value == "previous"
+        || value == "prev") {
         cell = ValueCell::previous();
         return true;
     }
-    if (value == "default") {
+    if (value == "-" || value == "default") {
         cell = ValueCell::defaultValue();
         return true;
     }
@@ -1099,7 +1085,7 @@ bool parseVelocityCell(std::string_view token, ValueCell& cell,
         cell = ValueCell::withValue(0.85f);
         return true;
     }
-    if (value == "*" || value == "o") {
+    if (value == "*") {
         cell = ValueCell::withValue(0.70f);
         return true;
     }
@@ -1939,27 +1925,14 @@ CommandResult executeTokens(TrackerSession& session,
     if (tokens.empty()) return failure("Enter a command, or type help.");
 
     if (isAliasReference(tokens[0])) {
-        if (tokens.size() >= 2u && tokens[1] == "=") {
-            if (tokens.size() != 3u)
-                return failure("Usage: @name = <lane|@alias>");
-            std::string alias;
-            if (!normalizeAliasName(tokens[0], alias))
-                return failure("Alias names must start with a letter and use only letters, digits, or underscore.");
-            std::size_t lane = 0u;
-            std::string error;
-            if (!parseLane(session, tokens[2], lane, error))
-                return failure(std::move(error));
-            session.aliases[alias] = lane;
-            return success("Bound @" + alias + " to "
-                + laneLabel(session, lane) + '.',
-                CommandEffect::ProjectChanged);
-        }
+        if (tokens.size() >= 2u && tokens[1] == "=")
+            return failure("Alias = shorthand was removed so = always means previous/hold. Use: alias <name> <lane|@alias>.");
         if (tokens.size() == 1u) {
             std::size_t lane = 0u;
             std::string error;
             if (!parseLane(session, tokens[0], lane, error))
                 return failure(std::move(error));
-            return success(tokens[0] + " = " + std::to_string(lane + 1u));
+            return success(tokens[0] + " -> " + std::to_string(lane + 1u));
         }
 
         std::vector<std::string> expanded;
@@ -1999,6 +1972,14 @@ CommandResult executeTokens(TrackerSession& session,
     if (verb == "help" || verb == "?") {
         if (tokens.size() != 1u) return failure("Usage: help");
         return success(CommandEngine::helpText());
+    }
+    if (verb == "undo") {
+        if (tokens.size() != 1u) return failure("Usage: undo");
+        return success("Undo requested.", CommandEffect::UndoRequested);
+    }
+    if (verb == "redo") {
+        if (tokens.size() != 1u) return failure("Usage: redo");
+        return success("Redo requested.", CommandEffect::RedoRequested);
     }
     if (verb == "aliases") {
         if (tokens.size() != 1u) return failure("Usage: aliases");
@@ -3137,7 +3118,7 @@ CommandResult executeTokens(TrackerSession& session,
         if (tokens[2].empty() || tokens[2].size() > kMaximumRows)
             return failure("Mask must contain between 1 and 256 steps.");
         if (!isMaskLiteral(tokens[2]))
-            return failure("Mask symbols are x/X/1 for hits and -/./_/0 for rests.");
+            return failure("Mask symbols are x/X for hits and - for rests.");
         Direction direction = session.pattern.tracks[lane].noteColumn.direction;
         std::string canonical;
         if (tokens.size() == 4u
@@ -3410,13 +3391,14 @@ std::string CommandEngine::helpText()
         stream << '\n' << section.title << '\n';
         for (const auto& entry : section.entries) {
             stream << "  " << entry.syntax << "\n    "
-                   << entry.description << '\n';
+                   << entry.description << "\n    Example: "
+                   << entry.example << '\n';
         }
     }
     stream
         << "\nTargets are one-based lane numbers or @aliases; rows are one-based.\n"
         << "Columns: note, vol, fx1, v1, fx2, v2. "
-        << "Directions: forward (>), reverse (<), palindrome (<>), random (?).\n"
+        << "Directions: forward (>), reverse (<), palindrome (<>), or the word random.\n"
         << "Randomize materializes repeatable values into the targeted VOL column.";
     return stream.str();
 }
@@ -3425,94 +3407,104 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
 {
     static const std::vector<CommandHelpSection> sections {
         { "ESSENTIALS", {
-            { "help  |  ?", "Show this complete command reference.", "help ?" },
-            { "demo", "Load the General MIDI tracker demonstration.", "demo" },
-            { "play", "Start timestamped playback.", "play" },
-            { "stop", "Stop playback and clean up active notes.", "stop" },
-            { "panic", "Send MIDI All Notes Off and reset active voices.", "panic" },
+            { "help  |  ?", "Show this complete command reference.", "help ?", "help" },
+            { "undo", "Restore the preceding persistent Tracker project state.", "undo", "undo" },
+            { "redo", "Restore the next state after an undo.", "redo", "redo" },
+            { "demo", "Load the General MIDI tracker demonstration.", "demo", "demo" },
+            { "play", "Ask the host to continue playback from its current position.", "play", "play" },
+            { "stop", "Ask the host to stop playback and clean up active notes.", "stop", "stop" },
+            { "panic", "Send MIDI All Notes Off and reset active voices.", "panic", "panic" },
         } },
         { "TRANSPORT & TIMING", {
-            { "swing <0.50..0.75 | 50..75>", "Set traditional pair swing.", "swing" },
-            { "gate <1..5000 ms>", "Set external MIDI note-gate duration.", "gate" },
-            { "loop <on|off|toggle>  |  loop [rows] <start> <end>", "Toggle the global loop or set its inclusive one-based row region.", "loop" },
-            { "warps", "List the current composition and indexed warp library.", "warps" },
-            { "warp clear", "Remove every timing transform.", "warp" },
-            { "warp save <1..64> [name]", "Store the current composed stack and cycle in a library slot.", "" },
-            { "warp load|recall|use <1..64>", "Recall a library warp immediately.", "" },
-            { "warp rename <1..64> <name>  |  warp delete <1..64>", "Edit indexed warp-library metadata.", "" },
-            { "warp cycle <1..16 ticks>", "Set the repeating live-warp cycle.", "" },
-            { "warp exp|exponential <power> [options]", "Append an exponential warp.", "" },
-            { "warp step|quantize <steps> [options]", "Append a stepped quantizer warp.", "" },
-            { "warp eu|euclid <pulses> <steps> [options]", "Append a Euclidean quantizer warp.", "" },
-            { "  options: [mix|alpha <0..1>] [segment <begin> <end>] [repeat <count>]", "Options apply to exp, step, and Euclidean timing warps.", "" },
+            { "swing <0.50..0.75 | 50..75>", "Set traditional pair swing.", "swing", "swing 58" },
+            { "gate <1..5000 ms>", "Set external MIDI note-gate duration.", "gate", "gate 90" },
+            { "loop <on|off|toggle>  |  loop [rows] <start> <end>", "Toggle the global loop or set its inclusive one-based row region.", "loop", "loop 1 16" },
+            { "warps", "List the current composition and indexed warp library.", "warps", "warps" },
+            { "warp clear", "Remove every timing transform.", "warp", "warp clear" },
+            { "warp save <1..64> [name]", "Store the current composed stack and cycle in a library slot.", "", "warp save 1 GROOVE" },
+            { "warp load|recall|use <1..64>", "Recall a library warp immediately.", "", "warp load 1" },
+            { "warp rename <1..64> <name>  |  warp delete <1..64>", "Edit indexed warp-library metadata.", "", "warp rename 1 SWUNG GROOVE" },
+            { "warp cycle <1..16 ticks>", "Set the repeating live-warp cycle.", "", "warp cycle 8" },
+            { "warp exp|exponential <power> [options]", "Append an exponential warp.", "", "warp exp 1.5 mix 0.7" },
+            { "warp step|quantize <steps> [options]", "Append a stepped quantizer warp.", "", "warp step 4 mix 0.8" },
+            { "warp eu|euclid <pulses> <steps> [options]", "Append a Euclidean quantizer warp.", "", "warp eu 5 8 mix 0.6" },
+            { "  options: [mix|alpha <0..1>] [segment <begin> <end>] [repeat <count>]", "Options apply to exp, step, and Euclidean timing warps.", "", "warp exp 1.25 segment .25 .75 repeat 2" },
         } },
         { "KITS, TARGETS & SELECTION", {
-            { "kit [gm|superior] <compact|basic|toms>", "Configure a named drum map, template, and aliases.", "kit" },
-            { "aliases", "List every current @alias binding.", "aliases" },
-            { "alias <name> <lane|@alias>", "Bind a case-insensitive alias.", "alias" },
-            { "@name = <lane|@alias>", "Compact alias assignment.", "@" },
-            { "@name", "Show the lane currently bound to an alias.", "" },
-            { "select [lane] <lane|@alias> [row]", "Move tracker selection; lane and row are one-based.", "select" },
-            { "name <lane|@alias> <words...>", "Rename a lane.", "name" },
-            { "track add [name...]", "Append a lane, up to the 32-track realtime publication limit.", "track" },
-            { "track remove <target>", "Remove one lane; at least one remains.", "" },
+            { "kit [gm|superior] <compact|basic|toms>", "Configure a named drum map, template, and aliases.", "kit", "kit superior compact" },
+            { "aliases", "List every current @alias binding.", "aliases", "aliases" },
+            { "alias <name> <lane|@alias>", "Bind or reassign a case-insensitive alias.", "alias", "alias hats 3" },
+            { "@name", "Show the lane currently bound to an alias; use the alias command to assign or reassign it.", "@", "@kick" },
+            { "select [lane] <lane|@alias> [row]", "Move tracker selection; lane and row are one-based.", "select", "select @kick 5" },
+            { "name <lane|@alias> <words...>", "Rename a lane.", "name", "name @kick DEEP KICK" },
+            { "track add [name...]", "Append a lane, up to the 32-track realtime publication limit.", "track", "track add PERCUSSION" },
+            { "track remove <target>", "Remove one lane; at least one remains.", "", "track remove 4" },
         } },
         { "GENERATION & VARIATION", {
-            { "variation|vary <generator...> [launch <tick|beat|cycle>]", "Create a generated bank entry and optionally request a quantized launch.", "variation vary" },
-            { "generate [density chaos symbols]", "Generate every native column using the session random stream.", "generate" },
-            { "generateseed <seed> [density chaos symbols]", "Generate a repeatable whole pattern without consuming the session stream.", "generateseed" },
-            { "scene <sparse|balanced|dense|drift|weird> [seed]", "Generate a repeatable named whole-pattern scene.", "scene" },
-            { "mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]", "Vary the current pattern within one typed native scope.", "mutate" },
-            { "drumscene <techno|broken|sparse|blast|ritual> [seed]", "Generate seeded rhythms for recognized kit lanes.", "drumscene" },
+            { "variation|vary <generator...> [launch <tick|beat|cycle>]", "Create a generated bank entry and optionally request a quantized launch.", "variation vary", "variation scene sparse 101 launch beat" },
+            { "generate [density chaos symbols]", "Generate every native column using the session random stream.", "generate", "generate 0.5 0.5 0.1" },
+            { "generateseed <seed> [density chaos symbols]", "Generate a repeatable whole pattern without consuming the session stream.", "generateseed", "generateseed orchard 1 0.5 0" },
+            { "scene <sparse|balanced|dense|drift|weird> [seed]", "Generate a repeatable named whole-pattern scene.", "scene", "scene balanced 733" },
+            { "mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]", "Vary the current pattern within one typed native scope.", "mutate", "mutate 0.25 notes" },
+            { "drumscene <techno|broken|sparse|blast|ritual> [seed]", "Generate seeded rhythms for recognized kit lanes.", "drumscene", "drumscene techno 101" },
         } },
         { "RHYTHM & NOTE CELLS", {
-            { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit" },
-            { "rest <target> <row>", "Write a NOTE rest.", "rest" },
-            { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat" },
-            { "kill <target> <row>", "Write a NOTE kill cell.", "kill" },
-            { "note <target> <row> <0..127|rest|rpt|kill>", "Edit one NOTE cell directly.", "note" },
-            { "mask <target> <x---...> [direction]", "Replace the active NOTE mask and optional direction.", "mask" },
-            { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask.", "eu e euclid" },
-            { "rotate|rot <target> <signed steps>", "Rotate active NOTE cells right; negative values move left.", "rotate rot" },
-            { "reverse <target>", "Reverse every active NOTE cell.", "reverse" },
-            { "fill <target> <every> [offset]", "Add anchored hits to NOTE rests at a fixed interval.", "fill" },
-            { "sieve <target> [note] <modulus> <residue...>", "Build a repeating modular-residue NOTE rhythm.", "sieve" },
-            { "density <target> [note] <0..1>", "Stochastically replace the NOTE mask at the requested density.", "density" },
-            { "thin <target> [note] <0..1>", "Remove each existing NOTE hit with the requested probability.", "thin" },
-            { "rotatehits <target> [note] <steps>", "Rotate active hits and clear non-hit cells.", "rotatehits" },
-            { "humanize <target> [note] <0..1>", "Move selected hits one step left or right when the destination is empty.", "humanize" },
+            { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit", "hit @kick 1 36" },
+            { "rest <target> <row>", "Write a NOTE rest.", "rest", "rest @kick 2" },
+            { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },
+            { "kill <target> <row>", "Write a NOTE kill cell.", "kill", "kill @kick 4" },
+            { "note <target> <row> <0..127|rest|rpt|kill>", "Edit one NOTE cell directly.", "note", "note @kick 5 38" },
+            { "mask <target> <x---...> [direction]", "Replace the active NOTE mask: x/X is a hit and - is a rest.", "mask", "mask @kick x---x--- <>" },
+            { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask.", "eu e euclid", "eu @kick 5 16 1 <>" },
+            { "rotate|rot <target> <signed steps>", "Rotate active NOTE cells right; negative values move left.", "rotate rot", "rotate @kick -1" },
+            { "reverse <target>", "Reverse every active NOTE cell.", "reverse", "reverse @kick" },
+            { "fill <target> <every> [offset]", "Add anchored hits to NOTE rests at a fixed interval.", "fill", "fill @kick 4 0" },
+            { "sieve <target> [note] <modulus> <residue...>", "Build a repeating modular-residue NOTE rhythm.", "sieve", "sieve @kick note 5 0 2" },
+            { "density <target> [note] <0..1>", "Stochastically replace the NOTE mask at the requested density.", "density", "density @kick note 0.65" },
+            { "thin <target> [note] <0..1>", "Remove each existing NOTE hit with the requested probability.", "thin", "thin @kick note 0.25" },
+            { "rotatehits <target> [note] <steps>", "Rotate active hits and clear non-hit cells.", "rotatehits", "rotatehits @kick note 2" },
+            { "humanize <target> [note] <0..1>", "Move selected hits one step left or right when the destination is empty.", "humanize", "humanize @kick note 0.2" },
         } },
         { "VOLUME", {
-            { "vel <target> <row> <0..127>", "Edit one VOL cell using MIDI velocity notation.", "vel" },
-            { "velseq|vol <target> <symbols|values...>", "Replace VOL with symbolic, MIDI, or normalized values.", "velseq vol" },
-            { "randomize|random|rand <target> [vol] [minimum maximum]", "Materialize random values across the active VOL length.", "randomize random rand" },
+            { "vel <target> <row> <0..127>", "Edit one VOL cell using MIDI velocity notation.", "vel", "vel @kick 1 110" },
+            { "velseq|vol <target> <symbols|values...>", "Replace VOL with compact symbols, MIDI integers, or normalized decimals; see Compact Symbol Reference.", "velseq vol", "vol @kick 110 92 104 76" },
+            { "randomize|random|rand <target> [vol] [minimum maximum]", "Materialize random values across the active VOL length.", "randomize random rand", "randomize @kick vol 40 110" },
         } },
         { "COLUMN MOTION & LANE STATE", {
-            { "len|length <target> [column] <1..256>", "Set an independent column length; NOTE is the default.", "len length" },
-            { "stride|speed|spd <target> [column] <positive integer>", "Set an independent column stride.", "stride speed spd" },
-            { "phase|ph <target> [column] <signed rows>", "Set an independent per-column phase rotation.", "phase ph" },
-            { "dir|mode <target> [column] <direction>", "Set forward, reverse, palindrome, or random traversal.", "dir mode" },
-            { "mute <target> [column] [on|off|toggle]", "Mute or toggle a lane column; NOTE is the default.", "mute" },
-            { "unmute <target|all>", "Unmute one NOTE lane or every NOTE lane.", "unmute" },
-            { "solo <target> [target ...]", "Mute every NOTE lane except the listed targets.", "solo" },
+            { "len|length <target> [column] <1..256>", "Set an independent column length; NOTE is the default.", "len length", "len @kick vol 12" },
+            { "stride|speed|spd <target> [column] <positive integer>", "Set an independent column stride.", "stride speed spd", "stride @kick note 2" },
+            { "phase|ph <target> [column] <signed rows>", "Set an independent per-column phase rotation.", "phase ph", "phase @kick note -1" },
+            { "dir|mode <target> [column] <direction>", "Set forward, reverse, palindrome, or random traversal.", "dir mode", "dir @kick note <>" },
+            { "mute <target> [column] [on|off|toggle]", "Mute or toggle a lane column; NOTE is the default.", "mute", "mute @kick vol toggle" },
+            { "unmute <target|all>", "Unmute one NOTE lane or every NOTE lane.", "unmute", "unmute all" },
+            { "solo <target> [target ...]", "Mute every NOTE lane except the listed targets.", "solo", "solo @kick @snare" },
         } },
         { "SEQUENCING COLUMNS", {
-            { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions" },
-            { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx" },
-            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior; values are normalized except WRP, which accepts 1..64.", "" },
-            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value; WRP rows accept library index 1..64.", "fxvalue fxv" },
-            { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; ! + * o . 0..9 write values, = recalls, and - rests.", "fx1 f1 fx2 f2" },
-            { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability" },
-            { "ratchet|retrig|retrigger <target> <row> <amount|clear>", "Write or clear a ratchet action in the first available FX pair.", "ratchet retrig retrigger" },
-            { "microtime|micro|delay|flam|stutter <target> <row> <amount|clear>", "Write or clear a timing action.", "microtime micro delay flam stutter" },
-            { "skip|offset|repeatprev|accent|ghost|euclidfx <target> <row> <amount|clear>", "Write or clear a note-sequencing action.", "skip offset repeatprev accent ghost euclidfx" },
-            { "wrp|warprecall <target> <row> <1..64|clear>", "Write or clear an indexed timing-warp recall action.", "wrp warprecall" },
+            { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions", "actions" },
+            { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx", "fx @kick 1 1 previous" },
+            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior; values are normalized except WRP, which accepts 1..64.", "", "fx @kick 1 5 pr 0.65" },
+            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value; WRP rows accept library index 1..64.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
+            { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; see Compact Symbol Reference for every value, previous, and empty mark.", "fx1 f1 fx2 f2", "fx1 @kick pr !.=-" },
+            { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability", "prob @kick 5 25%" },
+            { "ratchet|retrig|retrigger <target> <row> <amount|clear>", "Write or clear a ratchet action in the first available FX pair.", "ratchet retrig retrigger", "ratchet @kick 6 0.5" },
+            { "microtime|micro|delay|flam|stutter <target> <row> <amount|clear>", "Write or clear a timing action.", "microtime micro delay flam stutter", "microtime @kick 7 0.25" },
+            { "skip|offset|repeatprev|accent|ghost|euclidfx <target> <row> <amount|clear>", "Write or clear a note-sequencing action.", "skip offset repeatprev accent ghost euclidfx", "skip @kick 8 0.5" },
+            { "wrp|warprecall <target> <row> <1..64|clear>", "Write or clear an indexed timing-warp recall action.", "wrp warprecall", "wrp @kick 9 1" },
         } },
         { "ALIAS-FIRST PERFORMANCE SHORTHAND", {
-            { "@alias <x---...> [direction]", "Alias-first mask entry.", "" },
-            { "@alias vel|v <sequence>", "Alias-first velocity sequence entry.", "" },
-            { "@alias <operation> ...", "Move the alias after any lane-targeted operation, for example @h eu 7 16.", "" },
-            { "@alias <direction>", "Set NOTE direction with a word or >, <, <>, or ?.", "" },
+            { "@alias <x---...> [direction]", "Alias-first mask entry.", "", "@kick x---x--- <>" },
+            { "@alias vel|v <sequence>", "Alias-first velocity sequence entry.", "", "@kick v 127 96 80 64" },
+            { "@alias <operation> ...", "Move the alias after any lane-targeted operation, for example @h eu 7 16.", "", "@kick eu 7 16" },
+            { "@alias <direction>", "Set NOTE direction with forward/>, reverse/<, palindrome/<>, or the word random.", "", "@kick >" },
+        } },
+        { "COMPACT SYMBOL REFERENCE", {
+            { "VALUE LEVELS  !  +  *  .", "Only value sequences use these marks: ! = 1.00, + = 0.85, * = 0.70, and . = 0.55 in both VOL and FX.", "", "vol @kick !+*." },
+            { "EMPTY / REST / DEFAULT  -", "A standalone - always means no authored event: NOTE rest, VOL default, or empty FX action. Attached to a number, it remains a minus sign.", "", "vol @kick !-+" },
+            { "PREVIOUS / HOLD  =", "A standalone = always recalls or holds the previously resolved VOL or FX state; it is not alias assignment.", "", "vol @kick !=+" },
+            { "NOTE MASK  x/X  -", "NOTE masks use only x/X for a hit and - for a rest; value marks and digits are rejected.", "", "mask @kick x---x---" },
+            { "DIRECTION  >  <  <>  random", "Use > for forward, < for reverse, <> for palindrome, and the word random; ? is reserved for Help.", "", "dir @kick note random" },
+            { "GRID NOTE  ---  RPT  KIL", "Direct NOTE-cell text for rest, retrigger previous, and kill the active note.", "", "note @kick 1 rpt" },
+            { "GRID VALUE  DEF  PRV", "Direct VOL/SEQ value text for the default velocity or the previously resolved value; SEQ action PRV recalls its previous action.", "", "vol @kick default previous .5" },
         } },
     };
     return sections;

@@ -11,10 +11,10 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 @interface NSView (S3GTrackerGridTestAccess)
 - (void)laneMidiChannelSelected:(NSMenuItem*)sender;
-- (void)laneMidiBusSelected:(NSMenuItem*)sender;
 - (void)beginTrackNameEditingForTrack:(std::size_t)track rect:(NSRect)rect;
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
@@ -70,6 +70,8 @@ void seedTracks(s3g::tracker::app::TrackerViewState& state)
         track.noteColumn.length = 64u;
         track.velocityColumn.length = 64u;
     }
+    state.session.pattern.tracks[0u].notes[0u]
+        = s3g::tracker::NoteCell::withNote(60u);
 
     auto* first = state.patternBank.findEntry(
         state.patternBank.activePatternId);
@@ -79,6 +81,9 @@ void seedTracks(s3g::tracker::app::TrackerViewState& state)
     s3g::tracker::PatternBankEntry second = *first;
     second.id = "A02";
     second.pattern.name = "BREAK";
+    second.pattern.tracks.resize(2u);
+    second.pattern.tracks[0u].name = "SONG LEAD";
+    second.pattern.tracks[1u].noteColumn.muted = true;
     state.patternBank.entries.push_back(std::move(second));
 }
 
@@ -91,6 +96,7 @@ int main()
         s3g::tracker::app::TrackerViewState state;
         s3g::tracker::app::WorkspaceCallbacks callbacks;
         seedTracks(state);
+        state.midiStepInputAvailable = true;
         std::string selectedPattern;
         int addPatternRequests = 0;
         int renamePatternRequests = 0;
@@ -99,6 +105,8 @@ int main()
         int transportChangeRequests = 0;
         int restartRequests = 0;
         int trackResyncRequests = 0;
+        int stepRecordModeRequests = 0;
+        std::vector<std::string> commands;
         std::size_t resyncedTrack = s3g::tracker::kMaximumTrackCount;
         callbacks.selectPattern = [&](const std::string& patternId) {
             selectedPattern = patternId;
@@ -113,6 +121,13 @@ int main()
         callbacks.resyncTrack = [&](std::size_t track) {
             ++trackResyncRequests;
             resyncedTrack = track;
+        };
+        callbacks.executeCommand = [&](const std::string& command) {
+            commands.push_back(command);
+        };
+        callbacks.midiStepRecordModeChanged = [&](auto mode) {
+            ++stepRecordModeRequests;
+            state.midiStepRecordMode = mode;
         };
 
         S3GTrackerWorkspaceController* controller =
@@ -146,7 +161,17 @@ int main()
             valueForKey:@"renamePatternButton"];
         NSButton* deletePatternButton = [controller
             valueForKey:@"deletePatternButton"];
-        NSTextField* columnSummary = [controller valueForKey:@"columnSummary"];
+        NSButton* sequenceColumnsButton = [controller
+            valueForKey:@"sequenceColumnsButton"];
+        NSButton* trackAddButton = [controller valueForKey:@"trackAddButton"];
+        NSButton* trackRemoveButton = [controller
+            valueForKey:@"trackRemoveButton"];
+        NSButton* undoButton = [controller valueForKey:@"undoButton"];
+        NSButton* redoButton = [controller valueForKey:@"redoButton"];
+        NSButton* noteDisplayButton = [controller
+            valueForKey:@"noteDisplayButton"];
+        NSPopUpButton* midiStepRecordPopup = [controller
+            valueForKey:@"midiStepRecordPopup"];
         NSTextField* bpmDisplay = [controller valueForKey:@"bpmDisplay"];
         NSPopUpButton* tempoScalePopup = [controller
             valueForKey:@"tempoScalePopup"];
@@ -154,8 +179,13 @@ int main()
         NSButton* restartButton = [controller valueForKey:@"restartButton"];
         NSView* envelope = [controller valueForKey:@"envelopeView"];
         NSView* consoleOutput = [controller consolePageView];
+        NSTextField* trackerLiveCode = [controller valueForKey:@"consoleInput"];
+        NSTextField* consoleLiveCode = [controller
+            valueForKey:@"consolePageInput"];
         NSView* geometryPage = [controller geometryPageView];
         NSView* warpPage = [controller warpPageView];
+        NSPopUpButton* geometryViewMode = [geometryPage
+            valueForKey:@"viewModePopup"];
 
         check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
             "compact tracker should use the full embedded page width");
@@ -165,6 +195,20 @@ int main()
                 && consoleOutput != geometryPage
                 && geometryPage != warpPage,
             "console, geometry, and warp modules should expose distinct pages");
+        check(trackerLiveCode != nil && consoleLiveCode != nil
+                && trackerLiveCode != consoleLiveCode
+                && [trackerLiveCode.accessibilityLabel
+                    isEqualToString:@"Live command input"]
+                && [consoleLiveCode.accessibilityLabel
+                    isEqualToString:@"Console live command input"],
+            "Tracker and detachable Console pages should each expose Live Code entry");
+        consoleLiveCode.stringValue = @"aliases";
+        [consoleLiveCode sendAction:consoleLiveCode.action
+            to:consoleLiveCode.target];
+        check(!commands.empty() && commands.back() == "aliases"
+                && trackerLiveCode.stringValue.length == 0u
+                && consoleLiveCode.stringValue.length == 0u,
+            "Console-page Live Code should use the shared command history and executor");
         NSView* envelopePlaybackOverlay = [envelope
             valueForKey:@"playbackOverlay"];
         NSView* geometryPlaybackOverlay = [geometryPage
@@ -172,6 +216,73 @@ int main()
         check(envelopePlaybackOverlay.wantsLayer
                 && geometryPlaybackOverlay.wantsLayer,
             "animated envelope and geometry marks should use isolated overlays");
+        check(geometryViewMode.numberOfItems == 5u
+                && [[geometryViewMode itemAtIndex:0].title
+                    isEqualToString:@"ACTIVE PULSES"]
+                && [[geometryViewMode itemAtIndex:1].title
+                    isEqualToString:@"ALL STEPS UNDERLAY"]
+                && [[geometryViewMode itemAtIndex:2].title
+                    isEqualToString:@"PHASE SPOKES"]
+                && [[geometryViewMode itemAtIndex:3].title
+                    isEqualToString:@"LANE FOCUS"]
+                && [[geometryViewMode itemAtIndex:4].title
+                    isEqualToString:@"COMPOSITE RING"]
+                && [[geometryPage valueForKey:@"geometryViewMode"]
+                    integerValue] == 0,
+            "Geometry should default to active pulses and expose all five views");
+        check(NSMinY(geometryViewMode.frame) >= 24.0,
+            "Geometry view selector should sit below the title strip");
+        check([[geometryPage valueForKey:@"displayedPatternId"]
+                isEqualToString:@"A01"],
+            "Geometry should initially display the editor pattern");
+        geometryPage.needsDisplay = NO;
+        state.songPlaybackActive = true;
+        state.songPlaybackPatternId = "A02";
+        state.songPlaybackMutedTracks = 1u << 0u;
+        [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
+        check([[geometryPage valueForKey:@"displayedPatternId"]
+                    isEqualToString:@"A02"]
+                && [[geometryPage valueForKey:@"displayedLaneCount"]
+                    unsignedIntegerValue] == 0u
+                && geometryPage.needsDisplay,
+            "Geometry should combine the sounding pattern NOTE mutes with the active Song-row lane mutes");
+        [geometryPage displayIfNeeded];
+        geometryPage.needsDisplay = NO;
+        state.songPlaybackMutedTracks = 0u;
+        [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
+        check([[geometryPage valueForKey:@"displayedLaneCount"]
+                    unsignedIntegerValue] == 1u
+                && geometryPage.needsDisplay,
+            "Geometry should retain pattern NOTE mutes and redraw when only the Song-row mute mask changes");
+        state.songPlaybackActive = false;
+        state.songPlaybackPatternId.clear();
+        state.songPlaybackMutedTracks = 0u;
+        [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
+        check([[geometryPage valueForKey:@"displayedPatternId"]
+                isEqualToString:@"A01"],
+            "Geometry should return to the editor pattern when Song playback stops");
+        NSArray<NSString*>* geometryDescriptions = @[
+            @"Active pulses", @"All steps underlay", @"Phase spokes",
+            @"Lane focus", @"Composite ring"
+        ];
+        BOOL geometryModesDispatch = YES;
+        for (NSInteger mode = 1; mode < 5; ++mode) {
+            geometryPlaybackOverlay.needsDisplay = NO;
+            [geometryViewMode selectItemAtIndex:mode];
+            [geometryViewMode sendAction:geometryViewMode.action
+                to:geometryViewMode.target];
+            geometryModesDispatch = geometryModesDispatch
+                && [[geometryPage valueForKey:@"geometryViewMode"]
+                    integerValue] == mode
+                && [geometryPage.accessibilityValue
+                    isEqualToString:geometryDescriptions[(NSUInteger)mode]]
+                && geometryPlaybackOverlay.needsDisplay;
+        }
+        check(geometryModesDispatch,
+            "every Geometry view should update its base and playback overlays");
+        [geometryViewMode selectItemAtIndex:0u];
+        [geometryViewMode sendAction:geometryViewMode.action
+            to:geometryViewMode.target];
         [window displayIfNeeded];
         grid.documentView.needsDisplay = NO;
         envelope.needsDisplay = NO;
@@ -192,9 +303,61 @@ int main()
             "hidden geometry should not advance its playback animation");
         state.playing = false;
         [controller refreshPlaybackDisplay];
-        check([columnSummary.stringValue containsString:@"SEQ2"]
-                && ![columnSummary.stringValue containsString:@"BUS"],
-            "tracker should expose one unified sequencing grid without INS/BUS cells");
+        check(!state.sequenceColumnsExpanded
+                && [sequenceColumnsButton.title isEqualToString:@"EXPAND SEQ"],
+            "tracker should open in compact NOTE/VOL lane mode");
+        check(!state.showMidiNoteValues
+                && [noteDisplayButton.title isEqualToString:@"NOTE: NAME"]
+                && [grid.documentView.accessibilityValue
+                    containsString:@"Note, C-4"],
+            "tracker notes should initially display as pitch names");
+        [noteDisplayButton performClick:nil];
+        check(state.showMidiNoteValues
+                && [noteDisplayButton.title isEqualToString:@"NOTE: MIDI"]
+                && [grid.documentView.accessibilityValue
+                    containsString:@"Note, 60"],
+            "note display control should show decimal MIDI note values");
+        [noteDisplayButton performClick:nil];
+        check(!state.showMidiNoteValues
+                && [grid.documentView.accessibilityValue
+                    containsString:@"Note, C-4"],
+            "note display control should return to pitch names without changing the note");
+        check(midiStepRecordPopup.enabled
+                && midiStepRecordPopup.numberOfItems == 3u
+                && [midiStepRecordPopup.selectedItem.title
+                    isEqualToString:@"OFF"],
+            "MIDI step recording should expose OFF, GRID, and MICRO modes");
+        [midiStepRecordPopup selectItemAtIndex:1u];
+        [midiStepRecordPopup sendAction:midiStepRecordPopup.action
+            to:midiStepRecordPopup.target];
+        [midiStepRecordPopup selectItemAtIndex:2u];
+        [midiStepRecordPopup sendAction:midiStepRecordPopup.action
+            to:midiStepRecordPopup.target];
+        check(state.midiStepRecordMode
+                    == s3g::tracker::MidiStepRecordMode::Unquantized
+                && stepRecordModeRequests == 2,
+            "GRID and MICRO selections should arm the coordinator explicitly");
+        const CGFloat initialSequenceX = NSMinX(sequenceColumnsButton.frame);
+        const CGFloat initialAddTrackX = NSMinX(trackAddButton.frame);
+        const CGFloat initialRemoveTrackX = NSMinX(trackRemoveButton.frame);
+        check(moduleControls.arrangedSubviews.count >= 5u
+                && moduleControls.arrangedSubviews[0u]
+                    == sequenceColumnsButton
+                && moduleControls.arrangedSubviews[1u] == trackAddButton
+                && moduleControls.arrangedSubviews[2u] == trackRemoveButton
+                && moduleControls.arrangedSubviews[3u] == undoButton
+                && moduleControls.arrangedSubviews[4u] == redoButton
+                && near(initialSequenceX, 14.0),
+            "sequence, track, and history controls should form a left-aligned fixed group");
+        [sequenceColumnsButton performClick:nil];
+        [root layoutSubtreeIfNeeded];
+        check(state.sequenceColumnsExpanded
+                && [sequenceColumnsButton.title
+                    isEqualToString:@"COLLAPSE SEQ"]
+                && near(NSMinX(sequenceColumnsButton.frame), initialSequenceX)
+                && near(NSMinX(trackAddButton.frame), initialAddTrackX)
+                && near(NSMinX(trackRemoveButton.frame), initialRemoveTrackX),
+            "Expand Seq should reveal both sequencing pairs without moving the left control group");
         state.hostBpm = 128.25;
         state.tempoScale = 0.5;
         [controller reloadModel];
@@ -223,7 +386,7 @@ int main()
                 + (laneWidth - 6.0) * 0.095;
         const CGFloat firstLaneSyncCenterX
             = s3g::tracker::app::kTrackerRowNumberWidth + 3.0
-                + (laneWidth - 6.0) - 104.0;
+                + (laneWidth - 6.0) - 70.0;
         const auto headerClick = [&](CGFloat y, NSInteger clicks) {
             const NSPoint inWindow = [grid.documentView convertPoint:
                 NSMakePoint(firstFieldCenterX, y) toView:nil];
@@ -308,12 +471,13 @@ int main()
                 && near(swingField.doubleValue, unchangedSwing, 0.0001),
             "clicking blank workspace should release an unchanged text field");
         check(restartButton != nil
+                && [restartButton.title isEqualToString:@"SYNC ALL"]
                 && [restartButton.accessibilityLabel
-                    containsString:@"Restart tracker"],
-            "embedded transport should expose tracker restart instead of host stop/pause");
+                    containsString:@"Sync all tracker lanes"],
+            "embedded transport should expose a global row-one synchronization control");
         [restartButton sendAction:restartButton.action to:restartButton.target];
         check(restartRequests == 1,
-            "restart control should dispatch an internal scheduler restart");
+            "SYNC ALL should dispatch an internal scheduler synchronization request");
         check(S3GTrackerThemeRGB(S3GTrackerThemeRole::GridPlayback)
                     == 0x2e412e
                 && S3GTrackerThemeRGB(
@@ -370,17 +534,6 @@ int main()
                 && state.session.pattern.tracks[2u].midiChannel == 1u,
             "lane channel menu should change only the targeted track");
 
-        NSMenuItem* laneBus = [[NSMenuItem alloc] initWithTitle:@"BUS 06"
-            action:nil keyEquivalent:@""];
-        laneBus.representedObject = @{ @"track": @5, @"bus": @5 };
-        [grid.documentView laneMidiBusSelected:laneBus];
-        check(state.session.pattern.tracks[5u].initialInstrumentNodeId
-                    == s3g::tracker::midiOutNodeForRackSlot(5u)
-                && state.session.pattern.tracks[4u].initialInstrumentNodeId
-                    != s3g::tracker::midiOutNodeForRackSlot(5u)
-                && patternChangeRequests == 2,
-            "lane bus menu should change only the targeted track and publish");
-
         [grid.documentView beginTrackNameEditingForTrack:2u
             rect:NSMakeRect(40.0, 3.0, 110.0, 18.0)];
         NSTextField* trackNameEditor = [grid.documentView
@@ -389,7 +542,7 @@ int main()
         [trackNameEditor sendAction:trackNameEditor.action
             to:trackNameEditor.target];
         check(state.session.pattern.tracks[2u].name == "BREAKS A"
-                && patternChangeRequests == 3,
+                && patternChangeRequests == 2,
             "lane-name editor should commit a renamed track and publish it");
 
         NSMenu* sequenceMenu = [grid.documentView
@@ -426,7 +579,7 @@ int main()
                 && chosenPair.values[4u].state
                     == s3g::tracker::FxValueCellState::Value
                 && near(chosenPair.values[4u].normalized, 0.5)
-                && patternChangeRequests == 4,
+                && patternChangeRequests == 3,
             "choosing a SEQ action should author it with a visible default value");
 
         NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
@@ -441,6 +594,30 @@ int main()
             NSEventModifierFlagCommand);
         check(![grid.documentView performKeyEquivalent:commandPaste],
             "Command-V should report unhandled for REAPER");
+        NSEvent* commandUndo = keyEvent(window, @"z", 6u,
+            NSEventModifierFlagCommand);
+        check(![grid.documentView performKeyEquivalent:commandUndo],
+            "Command-Z should remain available to REAPER");
+
+        state.canUndo = true;
+        state.canRedo = true;
+        [controller reloadModel];
+        check(undoButton.enabled && redoButton.enabled,
+            "history buttons should reflect coordinator availability");
+        [undoButton performClick:nil];
+        [redoButton performClick:nil];
+        NSEvent* trackerUndo = keyEvent(window, @"z", 6u,
+            NSEventModifierFlagControl);
+        NSEvent* trackerRedo = keyEvent(window, @"Z", 6u,
+            NSEventModifierFlagControl | NSEventModifierFlagShift);
+        check([grid.documentView performKeyEquivalent:trackerUndo]
+                && [grid.documentView performKeyEquivalent:trackerRedo]
+                && commands.size() >= 4u
+                && commands[commands.size() - 4u] == "undo"
+                && commands[commands.size() - 3u] == "redo"
+                && commands[commands.size() - 2u] == "undo"
+                && commands[commands.size() - 1u] == "redo",
+            "buttons and Control-Z/Control-Shift-Z should request Tracker history");
 
         const NSInteger clipboardBefore = [[grid.documentView
             valueForKey:@"copiedPasteboardChangeCount"] integerValue];

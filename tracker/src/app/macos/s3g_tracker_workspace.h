@@ -5,6 +5,7 @@
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/coremidi_output.h"
 #include "s3g/tracker/instrument_rack.h"
+#include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/pattern_bank.h"
 #include "s3g_tracker_audio_device.h"
 
@@ -43,6 +44,15 @@ struct TrackerViewState {
     bool songPlaybackActive = false;
     std::size_t songPlaybackRow = 0u;
     bool songPlaybackRowValid = false;
+    // View-only identity of the pattern currently sounding through Song mode.
+    // The audio scheduler publishes the row; the coordinator resolves that
+    // row through the arrangement so Geometry can follow it without touching
+    // real-time state or changing the editor's selected pattern.
+    std::string songPlaybackPatternId;
+    // Per-lane mute mask belonging to that active Song row. Geometry combines
+    // it with the pattern's NOTE-column mutes; the scheduler applies the same
+    // zero-based bit positions during playback.
+    uint32_t songPlaybackMutedTracks = 0u;
     bool audioAvailable = false;
     bool audioProcessing = false;
     double audioSampleRate = 0.0;
@@ -52,6 +62,20 @@ struct TrackerViewState {
     float mainOutputGain = 1.0f;
     bool mainOutputMuted = false;
     bool mixerPageVisible = false;
+    // View-only tracker density. Compact lanes expose NOTE and VOL; expanded
+    // lanes additionally expose both sequencing action/value pairs.
+    bool sequenceColumnsExpanded = false;
+    // View-only NOTE formatting. Pattern storage remains MIDI 0..127 in both
+    // modes; false renders pitch names and true renders decimal MIDI values.
+    bool showMidiNoteValues = false;
+    // Step-record arming is deliberately transient host/UI state. It is OFF
+    // whenever an editor is created and is not embedded in project files.
+    bool midiStepInputAvailable = false;
+    MidiStepRecordMode midiStepRecordMode = MidiStepRecordMode::Off;
+    // Project-level history availability is published by the coordinator;
+    // view controls do not own or mutate snapshots directly.
+    bool canUndo = false;
+    bool canRedo = false;
     std::size_t mixerSelectedStrip = 0u;
     bool mixerSoloActive = false;
     std::size_t mixerSoloTrack = kVisibleLaneCount;
@@ -107,6 +131,7 @@ struct WorkspaceCallbacks {
     std::function<void()> transportChanged;
     std::function<void()> outputChanged;
     std::function<void(float)> mainOutputGainChanged;
+    std::function<void(MidiStepRecordMode)> midiStepRecordModeChanged;
     std::function<void(const std::string&)> executeCommand;
 };
 

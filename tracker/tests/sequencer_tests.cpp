@@ -282,6 +282,24 @@ void testPerTrackColumnResync()
             && sequencer.lastFxValuePosition(0u, 1u) == 0u
             && sequencer.lastNotePosition(1u) == otherNoteBefore,
         "the next logical tick must read the resynced track starts while the other track continues independently");
+
+    const auto allSyncTick = sequencer.tickIndex();
+    const auto allSyncRow = sequencer.transportRow();
+    const auto lastTrackZero = sequencer.lastNotePosition(0u);
+    const auto lastTrackOne = sequencer.lastNotePosition(1u);
+    sequencer.resyncAllTrackColumnsAtTickBoundary(0u);
+    check(sequencer.notePosition(0u) == 0u
+            && sequencer.velocityPosition(0u) == 0u
+            && sequencer.fxActionPosition(0u, 1u) == 0u
+            && sequencer.notePosition(1u) == 0u
+            && sequencer.instrumentPosition(1u) == 0u
+            && sequencer.velocityPosition(1u) == 0u
+            && sequencer.fxValuePosition(1u, 1u) == 0u
+            && sequencer.lastNotePosition(0u) == lastTrackZero
+            && sequencer.lastNotePosition(1u) == lastTrackOne
+            && sequencer.tickIndex() == allSyncTick
+            && sequencer.transportRow() == allSyncRow,
+        "global resync must force every polymetric column to absolute row one without moving the transport clock");
 }
 
 void testTrackVelocityScale()

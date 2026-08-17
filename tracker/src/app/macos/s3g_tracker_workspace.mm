@@ -26,8 +26,10 @@ using s3g::tracker::FxValueCell;
 using s3g::tracker::FxValueCellState;
 using s3g::tracker::InstrumentCell;
 using s3g::tracker::InstrumentCellState;
+using s3g::tracker::MidiStepRecordMode;
 using s3g::tracker::NoteCell;
 using s3g::tracker::NoteCellState;
+using s3g::tracker::Pattern;
 using s3g::tracker::SequencerAction;
 using s3g::tracker::Track;
 using s3g::tracker::ValueCell;
@@ -41,7 +43,8 @@ constexpr CGFloat kGridRowNumberWidth =
     s3g::tracker::app::kTrackerRowNumberWidth;
 constexpr CGFloat kGridLaneGutter =
     s3g::tracker::app::kTrackerLaneGutter;
-constexpr CGFloat kGridLaneInnerPadding = 3.0;
+constexpr CGFloat kGridLaneInnerPadding =
+    s3g::tracker::app::kTrackerLaneInnerPadding;
 constexpr CGFloat kGridColumnLabelTop = 22.0;
 constexpr CGFloat kGridColumnLabelHeight = 15.0;
 constexpr CGFloat kGridColumnLengthTop = 37.0;
@@ -158,7 +161,7 @@ NSString* directionMark(Direction direction)
 {
     switch (direction) {
     case Direction::Reverse: return @"<";
-    case Direction::Random: return @"?";
+    case Direction::Random: return @"RND";
     case Direction::Palindrome: return @"<>";
     case Direction::Forward:
     default: return @">";
@@ -186,10 +189,14 @@ NSString* midiNoteName(uint8_t note)
     return [NSString stringWithFormat:@"%s%d", names[note % 12u], octave];
 }
 
-NSString* noteText(const NoteCell& cell)
+NSString* noteText(const NoteCell& cell, bool showMidiValue)
 {
     switch (cell.state) {
-    case NoteCellState::Note: return midiNoteName(cell.note);
+    case NoteCellState::Note:
+        return showMidiValue
+            ? [NSString stringWithFormat:@"%u",
+                static_cast<unsigned int>(cell.note)]
+            : midiNoteName(cell.note);
     case NoteCellState::RetriggerPrevious: return @"RPT";
     case NoteCellState::Kill: return @"KIL";
     case NoteCellState::Rest:
@@ -286,83 +293,94 @@ NSString* fxValueText(const Track& track, std::size_t pair,
             std::clamp(cell.normalized, 0.0f, 1.0f))];
 }
 
-NSString* gridPageTitle(std::size_t page)
+std::size_t gridFieldCount(bool sequenceColumnsExpanded) noexcept
 {
-    (void)page;
-    return @"NOTE · VOL · SEQ1 · V1 · SEQ2 · V2";
+    return sequenceColumnsExpanded ? 6u : 2u;
 }
 
-std::size_t gridFieldCount(std::size_t page) noexcept
+CGFloat gridFieldStartFraction(bool sequenceColumnsExpanded,
+    std::size_t field) noexcept
 {
-    (void)page;
-    return 6u;
-}
-
-CGFloat gridFieldStartFraction(std::size_t page, std::size_t field) noexcept
-{
-    (void)page;
+    if (!sequenceColumnsExpanded) {
+        constexpr CGFloat noteShare =
+            s3g::tracker::app::kTrackerExpandedNoteFraction
+            / (s3g::tracker::app::kTrackerExpandedNoteFraction
+                + s3g::tracker::app::kTrackerExpandedVolumeFraction);
+        constexpr std::array<CGFloat, 2u> starts { 0.0, noteShare };
+        return starts[std::min<std::size_t>(
+            field, starts.size() - 1u)];
+    }
     constexpr std::array<CGFloat, 6u> starts {
-        0.0, 0.19, 0.34, 0.51, 0.66, 0.83,
+        0.0, s3g::tracker::app::kTrackerExpandedNoteFraction,
+        s3g::tracker::app::kTrackerExpandedNoteFraction
+            + s3g::tracker::app::kTrackerExpandedVolumeFraction,
+        0.51, 0.66, 0.83,
     };
     return starts[std::min<std::size_t>(field, starts.size() - 1u)];
 }
 
-CGFloat gridFieldEndFraction(std::size_t page, std::size_t field) noexcept
+CGFloat gridFieldEndFraction(bool sequenceColumnsExpanded,
+    std::size_t field) noexcept
 {
-    (void)page;
+    if (!sequenceColumnsExpanded) {
+        constexpr CGFloat noteShare =
+            s3g::tracker::app::kTrackerExpandedNoteFraction
+            / (s3g::tracker::app::kTrackerExpandedNoteFraction
+                + s3g::tracker::app::kTrackerExpandedVolumeFraction);
+        constexpr std::array<CGFloat, 2u> ends { noteShare, 1.0 };
+        return ends[std::min<std::size_t>(field, ends.size() - 1u)];
+    }
     constexpr std::array<CGFloat, 6u> ends {
-        0.19, 0.34, 0.51, 0.66, 0.83, 1.0,
+        s3g::tracker::app::kTrackerExpandedNoteFraction,
+        s3g::tracker::app::kTrackerExpandedNoteFraction
+            + s3g::tracker::app::kTrackerExpandedVolumeFraction,
+        0.51, 0.66, 0.83, 1.0,
     };
     return ends[std::min<std::size_t>(field, ends.size() - 1u)];
 }
 
 NSRect gridFieldRect(CGFloat laneX, CGFloat y, CGFloat laneWidth,
-    CGFloat height, std::size_t page, std::size_t field) noexcept
+    CGFloat height, bool sequenceColumnsExpanded,
+    std::size_t field) noexcept
 {
-    const CGFloat start = gridFieldStartFraction(page, field);
-    const CGFloat end = gridFieldEndFraction(page, field);
+    const CGFloat start = gridFieldStartFraction(
+        sequenceColumnsExpanded, field);
+    const CGFloat end = gridFieldEndFraction(
+        sequenceColumnsExpanded, field);
     return NSMakeRect(laneX + laneWidth * start, y,
         laneWidth * (end - start), height);
 }
 
-NSRect gridLaneBusRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
-{
-    return NSMakeRect(fieldX + std::max<CGFloat>(0.0, fieldWidth - 88.0),
-        4.0, 38.0, 16.0);
-}
-
 NSRect gridLaneChannelRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
 {
-    return NSMakeRect(fieldX + std::max<CGFloat>(40.0, fieldWidth - 48.0),
-        4.0, 48.0, 16.0);
+    return NSMakeRect(fieldX + std::max<CGFloat>(36.0, fieldWidth - 52.0),
+        4.0, 52.0, 16.0);
 }
 
 NSRect gridLaneResyncRect(CGFloat fieldX, CGFloat fieldWidth) noexcept
 {
-    return NSMakeRect(fieldX + std::max<CGFloat>(0.0, fieldWidth - 116.0),
-        4.0, 24.0, 16.0);
+    return NSMakeRect(fieldX + std::max<CGFloat>(0.0, fieldWidth - 84.0),
+        4.0, 28.0, 16.0);
 }
 
 std::size_t gridFieldAtX(CGFloat localX, CGFloat laneWidth,
-    std::size_t page) noexcept
+    bool sequenceColumnsExpanded) noexcept
 {
     const CGFloat fraction = laneWidth > 0.0
         ? std::clamp(localX / laneWidth, 0.0, 0.999999) : 0.0;
-    const auto count = gridFieldCount(page);
+    const auto count = gridFieldCount(sequenceColumnsExpanded);
     for (std::size_t field = 0u; field < count; ++field) {
-        if (fraction < gridFieldEndFraction(page, field)) return field;
+        if (fraction < gridFieldEndFraction(
+                sequenceColumnsExpanded, field)) return field;
     }
     return count - 1u;
 }
 
-CGFloat gridLaneWidth(CGFloat viewWidth, std::size_t laneCount) noexcept
+CGFloat gridLaneWidth(bool sequenceColumnsExpanded) noexcept
 {
-    if (laneCount == 0u) return 0.0;
-    const CGFloat gutters = static_cast<CGFloat>(laneCount - 1u)
-        * kGridLaneGutter;
-    return std::max<CGFloat>(1.0,
-        (viewWidth - kGridRowNumberWidth - gutters)
-            / static_cast<CGFloat>(laneCount));
+    return static_cast<CGFloat>(sequenceColumnsExpanded
+        ? s3g::tracker::app::kTrackerLaneExpandedWidth
+        : s3g::tracker::app::kTrackerLaneCompactWidth);
 }
 
 CGFloat gridLaneX(std::size_t lane, CGFloat laneWidth) noexcept
@@ -382,11 +400,12 @@ CGFloat gridLaneFieldWidth(CGFloat laneWidth) noexcept
         laneWidth - 2.0 * kGridLaneInnerPadding);
 }
 
-bool gridLaneAtX(CGFloat x, CGFloat viewWidth, std::size_t laneCount,
-    std::size_t& lane, CGFloat& localFieldX) noexcept
+bool gridLaneAtX(CGFloat x, std::size_t laneCount,
+    bool sequenceColumnsExpanded, std::size_t& lane,
+    CGFloat& localFieldX) noexcept
 {
     if (laneCount == 0u || x < kGridRowNumberWidth) return false;
-    const CGFloat laneWidth = gridLaneWidth(viewWidth, laneCount);
+    const CGFloat laneWidth = gridLaneWidth(sequenceColumnsExpanded);
     const CGFloat laneStride = laneWidth + kGridLaneGutter;
     const CGFloat relativeX = x - kGridRowNumberWidth;
     const auto candidate = static_cast<std::size_t>(relativeX / laneStride);
@@ -478,23 +497,62 @@ const std::array<uint32_t, 8u> kGeometryLaneColors {
     0xb36bffu, 0xff7314u, 0x3d7affu, 0xe6eb38u,
 };
 
+constexpr CGFloat kGeometryPlotTop = 58.0;
+constexpr CGFloat kGeometryLegendTop = 60.0;
+
+const Pattern* geometryPattern(const TrackerViewState* state)
+{
+    if (!state) return nullptr;
+    if (state->songPlaybackActive
+        && !state->songPlaybackPatternId.empty()) {
+        if (const auto* pattern = state->patternBank.findPattern(
+                state->songPlaybackPatternId))
+            return pattern;
+    }
+    return &state->session.pattern;
+}
+
+std::string geometryPatternId(const TrackerViewState* state)
+{
+    if (!state) return {};
+    if (state->songPlaybackActive
+        && state->patternBank.findPattern(state->songPlaybackPatternId))
+        return state->songPlaybackPatternId;
+    return state->patternBank.activePatternId;
+}
+
 struct GeometryLaneSet {
     std::array<std::size_t, s3g::tracker::kMaximumTrackCount> indices {};
     std::size_t count = 0u;
 };
 
-GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
+GeometryLaneSet visibleGeometryLanes(const Pattern* pattern)
 {
     GeometryLaneSet result;
-    if (!state) return result;
+    if (!pattern) return result;
     const auto lanes = std::min<std::size_t>(
         s3g::tracker::kMaximumTrackCount,
-        state->session.pattern.tracks.size());
+        pattern->tracks.size());
     for (std::size_t lane = 0u; lane < lanes; ++lane) {
-        if (!state->session.pattern.tracks[lane].noteColumn.muted)
+        if (!pattern->tracks[lane].noteColumn.muted)
             result.indices[result.count++] = lane;
     }
     return result;
+}
+
+GeometryLaneSet visibleGeometryLanes(const TrackerViewState* state)
+{
+    auto result = visibleGeometryLanes(geometryPattern(state));
+    if (!state || !state->songPlaybackActive
+        || state->songPlaybackMutedTracks == 0u) return result;
+    GeometryLaneSet filtered;
+    for (std::size_t ordinal = 0u; ordinal < result.count; ++ordinal) {
+        const auto lane = result.indices[ordinal];
+        if ((state->songPlaybackMutedTracks & (uint32_t { 1u } << lane))
+            == 0u)
+            filtered.indices[filtered.count++] = lane;
+    }
+    return filtered;
 }
 
 bool viewCanPresentPlayback(NSView* view)
@@ -507,6 +565,14 @@ bool viewCanPresentPlayback(NSView* view)
 
 @class S3GTrackerGridView;
 @class S3GTrackerGeometryView;
+
+typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
+    S3GTrackerGeometryViewModeActivePulses = 0,
+    S3GTrackerGeometryViewModeAllStepsUnderlay,
+    S3GTrackerGeometryViewModePhaseSpokes,
+    S3GTrackerGeometryViewModeLaneFocus,
+    S3GTrackerGeometryViewModeCompositeRing,
+};
 @class S3GTrackerGeometryWindowController;
 @class S3GTrackerEnvelopeView;
 @class S3GTrackerInstrumentToolboxView;
@@ -531,13 +597,20 @@ bool viewCanPresentPlayback(NSView* view)
 @property(nonatomic, strong) NSView* consoleOutputPanel;
 @property(nonatomic, strong) NSTextView* consoleOutput;
 @property(nonatomic, strong) NSTextField* consoleInput;
+@property(nonatomic, strong) NSTextField* consolePageInput;
 @property(nonatomic, strong) NSMutableArray<NSString*>* consoleHistory;
 @property(nonatomic) NSInteger consoleHistoryIndex;
 @property(nonatomic, copy) NSString* consoleDraft;
 @property(nonatomic, strong) NSButton* playButton;
 @property(nonatomic, strong) NSButton* loopButton;
 @property(nonatomic, strong) NSButton* restartButton;
-@property(nonatomic, strong) NSTextField* columnSummary;
+@property(nonatomic, strong) NSButton* sequenceColumnsButton;
+@property(nonatomic, strong) NSButton* trackAddButton;
+@property(nonatomic, strong) NSButton* trackRemoveButton;
+@property(nonatomic, strong) NSButton* undoButton;
+@property(nonatomic, strong) NSButton* redoButton;
+@property(nonatomic, strong) NSButton* noteDisplayButton;
+@property(nonatomic, strong) NSPopUpButton* midiStepRecordPopup;
 @property(nonatomic, strong) NSPopUpButton* patternPopup;
 @property(nonatomic, strong) NSButton* createPatternButton;
 @property(nonatomic, strong) NSButton* duplicatePatternButton;
@@ -557,6 +630,11 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)moduleTransportChanged;
 - (void)moduleSelectionChanged;
 - (void)moduleTogglePlayback;
+- (void)undoPressed:(id)sender;
+- (void)redoPressed:(id)sender;
+- (void)toggleSequenceColumns:(id)sender;
+- (void)toggleNoteDisplay:(id)sender;
+- (void)midiStepRecordModeChanged:(id)sender;
 - (void)moduleFocusConsole;
 - (void)tempoScaleChanged:(id)sender;
 - (void)loopPressed:(id)sender;
@@ -579,6 +657,7 @@ bool viewCanPresentPlayback(NSView* view)
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
 - (void)scrollSelectionToVisible;
+- (void)clearGridSelection;
 - (void)refreshAccessibilityValue;
 - (void)refreshPlaybackDisplay;
 @property(nonatomic, assign) TrackerViewState* trackerState;
@@ -609,7 +688,6 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)beginColumnLengthEditingForTrack:(std::size_t)track
     page:(std::size_t)page field:(std::size_t)field rect:(NSRect)rect;
 - (void)beginTrackNameEditingForTrack:(std::size_t)track rect:(NSRect)rect;
-- (void)showMidiBusMenuForTrack:(std::size_t)track event:(NSEvent*)event;
 - (void)showMidiChannelMenuForTrack:(std::size_t)track event:(NSEvent*)event;
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
@@ -630,7 +708,7 @@ bool viewCanPresentPlayback(NSView* view)
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Each lane header has a SYNC control that restarts that track's NOTE, VOL, and FX loops together, plus its own clickable MIDI bus and channel. Double-click the lane name to rename it. Each column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across NOTE, VOL, SEQ1, V1, SEQ2, and V2; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and ordinary sequence values accept 0.000 through 1.000; WRP values accept warp library index 1 through 64. Control-A, C, X, and V select all, copy, cut, and paste tracker cells; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and ordinary sequence values accept 0.000 through 1.000; WRP values accept warp library index 1 through 64. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -671,7 +749,8 @@ bool viewCanPresentPlayback(NSView* view)
         const auto candidate = _gridSelection.range();
         if (!model->session.pattern.tracks.empty()
             && candidate.lastTrack < model->session.pattern.tracks.size()
-            && candidate.lastField < gridFieldCount(candidate.page)
+            && candidate.lastField < gridFieldCount(
+                model->sequenceColumnsExpanded)
             && candidate.lastRow < visibleRows(model)) return candidate;
         _gridSelection.active = false;
     }
@@ -697,14 +776,14 @@ bool viewCanPresentPlayback(NSView* view)
     const auto row = session.selectedRow;
     const auto page = 0u;
     const auto field = std::min(session.selectedField,
-        gridFieldCount(0u) - 1u);
+        gridFieldCount(model->sequenceColumnsExpanded) - 1u);
     const auto& track = session.pattern.tracks[lane];
     NSString* fieldName = @"Note";
     NSString* fieldValue = @"---";
     if (page == 0u && field == 0u) {
         const NoteCell cell = row < track.notes.size()
             ? track.notes[row] : NoteCell::rest();
-        fieldValue = noteText(cell);
+        fieldValue = noteText(cell, model->showMidiNoteValues);
     } else if (field == 1u) {
         fieldName = @"Volume";
         fieldValue = volumeText(track, row);
@@ -757,7 +836,8 @@ bool viewCanPresentPlayback(NSView* view)
     const auto lane = std::min(model->session.selectedTrack, laneCount - 1u);
     const auto row = std::min(model->session.selectedRow,
         visibleRows(model) - 1u);
-    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat laneWidth = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     [self scrollRectToVisible:NSMakeRect(gridLaneX(lane, laneWidth),
         kGridHeaderHeight + static_cast<CGFloat>(row) * kGridRowHeight,
         laneWidth, kGridRowHeight)];
@@ -982,34 +1062,6 @@ bool viewCanPresentPlayback(NSView* view)
     [self.owner modulePatternChanged];
 }
 
-- (void)showMidiBusMenuForTrack:(std::size_t)trackIndex
-    event:(NSEvent*)event
-{
-    auto* model = self.trackerState;
-    if (!model || trackIndex >= model->session.pattern.tracks.size()) return;
-    const auto& track = model->session.pattern.tracks[trackIndex];
-    auto selected = s3g::tracker::midiOutRackSlotIndex(
-        track.initialInstrumentNodeId);
-    if (selected >= s3g::tracker::kMidiOutRackSlotCount) selected = 0u;
-    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"TRACK MIDI BUS"];
-    menu.autoenablesItems = NO;
-    for (std::size_t bus = 0u;
-         bus < s3g::tracker::kMidiOutRackSlotCount; ++bus) {
-        NSMenuItem* item = [[NSMenuItem alloc]
-            initWithTitle:[NSString stringWithFormat:@"BUS %02lu",
-                static_cast<unsigned long>(bus + 1u)]
-            action:@selector(laneMidiBusSelected:) keyEquivalent:@""];
-        item.target = self;
-        item.representedObject = @{
-            @"track": @(trackIndex), @"bus": @(bus),
-        };
-        item.state = bus == selected
-            ? NSControlStateValueOn : NSControlStateValueOff;
-        [menu addItem:item];
-    }
-    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
-}
-
 - (void)showMidiChannelMenuForTrack:(std::size_t)trackIndex
     event:(NSEvent*)event
 {
@@ -1033,23 +1085,6 @@ bool viewCanPresentPlayback(NSView* view)
         [menu addItem:item];
     }
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
-}
-
-- (void)laneMidiBusSelected:(NSMenuItem*)sender
-{
-    auto* model = self.trackerState;
-    NSDictionary* value = sender.representedObject;
-    if (!model || ![value isKindOfClass:NSDictionary.class]) return;
-    const auto trackIndex = [value[@"track"] unsignedIntegerValue];
-    const auto bus = [value[@"bus"] unsignedIntegerValue];
-    if (trackIndex >= model->session.pattern.tracks.size()
-        || bus >= s3g::tracker::kMidiOutRackSlotCount) return;
-    auto& track = model->session.pattern.tracks[trackIndex];
-    track.initialInstrumentNodeId = s3g::tracker::midiOutNodeForRackSlot(bus);
-    track.destination = EventDestination::Midi;
-    model->selectedRackInstrument = track.initialInstrumentNodeId;
-    model->session.selectedTrack = trackIndex;
-    [self.owner modulePatternChanged];
 }
 
 - (void)laneMidiChannelSelected:(NSMenuItem*)sender
@@ -1197,12 +1232,13 @@ bool viewCanPresentPlayback(NSView* view)
     const auto laneCount = std::min<std::size_t>(
         s3g::tracker::kMaximumTrackCount,
         model->session.pattern.tracks.size());
-    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat laneWidth = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     const CGFloat fieldWidth = gridLaneFieldWidth(laneWidth);
     std::size_t lane = 0u;
     CGFloat localFieldX = 0.0;
-    if (!gridLaneAtX(point.x, NSWidth(self.bounds), laneCount,
-            lane, localFieldX)) {
+    if (!gridLaneAtX(point.x, laneCount,
+            model->sequenceColumnsExpanded, lane, localFieldX)) {
         [super rightMouseDown:event];
         return;
     }
@@ -1211,7 +1247,8 @@ bool viewCanPresentPlayback(NSView* view)
     if (rawRow < 0
         || rawRow >= static_cast<NSInteger>(visibleRows(model))) return;
     const auto row = static_cast<std::size_t>(rawRow);
-    const auto field = gridFieldAtX(localFieldX, fieldWidth, 0u);
+    const auto field = gridFieldAtX(localFieldX, fieldWidth,
+        model->sequenceColumnsExpanded);
     if (!gridFieldIsSequenceAction(field)) {
         [super rightMouseDown:event];
         return;
@@ -1254,21 +1291,16 @@ bool viewCanPresentPlayback(NSView* view)
     const auto laneCount = std::min<std::size_t>(
         s3g::tracker::kMaximumTrackCount,
         model->session.pattern.tracks.size());
-    const CGFloat width = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat width = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     const CGFloat fieldWidth = gridLaneFieldWidth(width);
     std::size_t lane = 0u;
     CGFloat localFieldX = 0.0;
-    if (!gridLaneAtX(point.x, NSWidth(self.bounds), laneCount,
-            lane, localFieldX)) return;
+    if (!gridLaneAtX(point.x, laneCount,
+            model->sequenceColumnsExpanded, lane, localFieldX)) return;
     if (point.y < kGridHeaderHeight) {
         [self clearGridSelection];
         const CGFloat laneLeft = gridLaneFieldX(lane, width);
-        if (NSPointInRect(point,
-                gridLaneBusRect(laneLeft, fieldWidth))) {
-            [self selectTrack:lane row:model->session.selectedRow];
-            [self showMidiBusMenuForTrack:lane event:event];
-            return;
-        }
         if (NSPointInRect(point,
                 gridLaneChannelRect(laneLeft, fieldWidth))) {
             [self selectTrack:lane row:model->session.selectedRow];
@@ -1288,24 +1320,24 @@ bool viewCanPresentPlayback(NSView* view)
             [self selectTrack:lane row:model->session.selectedRow];
             [self beginTrackNameEditingForTrack:lane rect:NSMakeRect(
                 laneLeft + 4.0, 3.0,
-                std::max<CGFloat>(44.0, fieldWidth - 124.0), 18.0)];
+                std::max<CGFloat>(44.0, fieldWidth - 92.0), 18.0)];
             return;
         }
         const auto page = 0u;
         model->session.selectedField = gridFieldAtX(
-            localFieldX, fieldWidth, page);
+            localFieldX, fieldWidth, model->sequenceColumnsExpanded);
         [self selectTrack:lane
             row:model->session.selectedRow];
         const NSRect muteRect = gridFieldRect(laneLeft,
             kGridColumnMuteTop, fieldWidth, kGridColumnMuteHeight,
-            page, model->session.selectedField);
+            model->sequenceColumnsExpanded, model->session.selectedField);
         const NSRect directionRect = gridFieldRect(laneLeft,
             kGridColumnDirectionTop, fieldWidth,
-            kGridColumnDirectionHeight, page,
+            kGridColumnDirectionHeight, model->sequenceColumnsExpanded,
             model->session.selectedField);
         const NSRect lengthRect = gridFieldRect(laneLeft,
             kGridColumnLengthTop, fieldWidth, kGridColumnLengthHeight,
-            page, model->session.selectedField);
+            model->sequenceColumnsExpanded, model->session.selectedField);
         if (NSPointInRect(point, muteRect)) {
             auto& track = model->session.pattern.tracks[
                 lane];
@@ -1335,7 +1367,7 @@ bool viewCanPresentPlayback(NSView* view)
     if (row < 0 || row >= static_cast<NSInteger>(visibleRows(model))) return;
     const auto page = 0u;
     model->session.selectedField = gridFieldAtX(
-        localFieldX, fieldWidth, page);
+        localFieldX, fieldWidth, model->sequenceColumnsExpanded);
     const auto field = model->session.selectedField;
     [self beginGridSelectionAtTrack:lane
         field:field row:static_cast<std::size_t>(row)
@@ -1431,17 +1463,18 @@ bool viewCanPresentPlayback(NSView* view)
         const auto laneCount = std::min<std::size_t>(
             s3g::tracker::kMaximumTrackCount,
             model->session.pattern.tracks.size());
-        const CGFloat width = gridLaneWidth(NSWidth(self.bounds), laneCount);
+        const CGFloat width = gridLaneWidth(
+            model->sequenceColumnsExpanded);
         const CGFloat fieldWidth = gridLaneFieldWidth(width);
         std::size_t lane = 0u;
         CGFloat localFieldX = 0.0;
-        if (!gridLaneAtX(point.x, NSWidth(self.bounds), laneCount,
-                lane, localFieldX)) return;
+        if (!gridLaneAtX(point.x, laneCount,
+                model->sequenceColumnsExpanded, lane, localFieldX)) return;
         const NSInteger row = std::clamp<NSInteger>(static_cast<NSInteger>(
             (point.y - kGridHeaderHeight) / kGridRowHeight), 0,
             static_cast<NSInteger>(visibleRows(model) - 1u));
-        const auto page = 0u;
-        const auto field = gridFieldAtX(localFieldX, fieldWidth, page);
+        const auto field = gridFieldAtX(localFieldX, fieldWidth,
+            model->sequenceColumnsExpanded);
         [self extendGridSelectionToTrack:lane field:field
             row:static_cast<std::size_t>(row)];
         model->session.selectedField = field;
@@ -1483,7 +1516,7 @@ bool viewCanPresentPlayback(NSView* view)
     if (self.editingField == 0u) {
         if (self.editingRow >= track.notes.size()) return @"---";
         const auto& cell = track.notes[self.editingRow];
-        return noteText(cell);
+        return noteText(cell, model->showMidiNoteValues);
     }
     if (self.editingField == 1u) {
         if (self.editingRow >= track.velocities.size()) return @"DEF";
@@ -1520,13 +1553,14 @@ bool viewCanPresentPlayback(NSView* view)
     const auto row = model->session.selectedRow;
     const auto page = 0u;
     const auto field = std::min(model->session.selectedField,
-        gridFieldCount(page) - 1u);
-    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+        gridFieldCount(model->sequenceColumnsExpanded) - 1u);
+    const CGFloat laneWidth = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     const CGFloat fieldWidth = gridLaneFieldWidth(laneWidth);
     const CGFloat x = gridLaneFieldX(lane, laneWidth);
     NSRect rect = gridFieldRect(x, kGridHeaderHeight
             + static_cast<CGFloat>(row) * kGridRowHeight,
-        fieldWidth, kGridRowHeight, page, field);
+        fieldWidth, kGridRowHeight, model->sequenceColumnsExpanded, field);
     rect = NSInsetRect(rect, 1.0, 1.0);
     self.editingTrack = lane;
     self.editingRow = row;
@@ -1634,7 +1668,9 @@ bool viewCanPresentPlayback(NSView* view)
         NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSString* lower = text.lowercaseString;
     auto* model = self.trackerState;
-    if (!model || page != 0u || field >= gridFieldCount(0u)) return NO;
+    if (!model || page != 0u
+        || field >= gridFieldCount(model->sequenceColumnsExpanded))
+        return NO;
     if (field == 0u) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
@@ -1845,7 +1881,8 @@ bool viewCanPresentPlayback(NSView* view)
     const auto& track = model->session.pattern.tracks[trackIndex];
     (void)page;
     if (field == 0u)
-        return row < track.notes.size() ? noteText(track.notes[row]) : @"---";
+        return row < track.notes.size()
+            ? noteText(track.notes[row], model->showMidiNoteValues) : @"---";
     if (field == 1u) return volumeText(track, row);
     const auto pair = gridSequencePair(field);
     return gridFieldIsSequenceAction(field)
@@ -1873,7 +1910,8 @@ bool viewCanPresentPlayback(NSView* view)
     _gridSelection.anchorField = 0u;
     _gridSelection.anchorRow = 0u;
     _gridSelection.focusTrack = model->session.pattern.tracks.size() - 1u;
-    _gridSelection.focusField = gridFieldCount(page) - 1u;
+    _gridSelection.focusField = gridFieldCount(
+        model->sequenceColumnsExpanded) - 1u;
     _gridSelection.focusRow = visibleRows(model) - 1u;
     [self setNeedsDisplay:YES];
     NSAccessibilityPostNotification(
@@ -1889,7 +1927,7 @@ bool viewCanPresentPlayback(NSView* view)
     range.lastTrack = std::min(range.lastTrack,
         model->session.pattern.tracks.size() - 1u);
     range.lastField = std::min(range.lastField,
-        gridFieldCount(range.page) - 1u);
+        gridFieldCount(model->sequenceColumnsExpanded) - 1u);
     range.lastRow = std::min(range.lastRow, visibleRows(model) - 1u);
     NSMutableArray<NSString*>* lines = [[NSMutableArray alloc] init];
     for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
@@ -1923,7 +1961,7 @@ bool viewCanPresentPlayback(NSView* view)
     auto range = [self effectiveGridSelection];
     range.lastTrack = std::min(range.lastTrack, candidate.tracks.size() - 1u);
     range.lastField = std::min(range.lastField,
-        gridFieldCount(range.page) - 1u);
+        gridFieldCount(model->sequenceColumnsExpanded) - 1u);
     range.lastRow = std::min<std::size_t>(range.lastRow, 255u);
     for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
         for (std::size_t track = range.firstTrack;
@@ -1973,7 +2011,7 @@ bool viewCanPresentPlayback(NSView* view)
     s3g::tracker::Pattern candidate = model->session.pattern;
     const auto range = [self effectiveGridSelection];
     const auto page = range.page;
-    const auto fields = gridFieldCount(page);
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
     const bool fillSelection = rows.count == 1u && widest == 1u
         && _gridSelection.active;
     const bool shapedInternalPaste = self.copiedPasteboardChangeCount
@@ -2050,17 +2088,23 @@ bool viewCanPresentPlayback(NSView* view)
         & (NSEventModifierFlagCommand | NSEventModifierFlagControl
             | NSEventModifierFlagOption | NSEventModifierFlagShift);
     if ((modifiers & NSEventModifierFlagCommand) != 0u) return NO;
+    NSString* key = event.charactersIgnoringModifiers.lowercaseString;
     if (modifiers == NSEventModifierFlagControl) {
-        NSString* key = event.charactersIgnoringModifiers.lowercaseString;
         const bool edit = [key isEqualToString:@"a"]
             || [key isEqualToString:@"c"] || [key isEqualToString:@"x"]
-            || [key isEqualToString:@"v"];
+            || [key isEqualToString:@"v"] || [key isEqualToString:@"z"];
         const bool zoom = event.keyCode == 24u || event.keyCode == 27u
             || event.keyCode == 29u;
         if (edit || zoom) {
             [self keyDown:event];
             return YES;
         }
+    }
+    if (modifiers == (NSEventModifierFlagControl
+            | NSEventModifierFlagShift)
+        && [key isEqualToString:@"z"]) {
+        [self keyDown:event];
+        return YES;
     }
     return [super performKeyEquivalent:event];
 }
@@ -2083,6 +2127,16 @@ bool viewCanPresentPlayback(NSView* view)
     }
     const bool trackerControl = shortcutModifiers
         == NSEventModifierFlagControl;
+    const bool trackerControlShift = shortcutModifiers
+        == (NSEventModifierFlagControl | NSEventModifierFlagShift);
+    if (trackerControl && [key isEqualToString:@"z"]) {
+        [self.owner undoPressed:nil];
+        return;
+    }
+    if (trackerControlShift && [key isEqualToString:@"z"]) {
+        [self.owner redoPressed:nil];
+        return;
+    }
     if (trackerControl && [key isEqualToString:@"a"]) {
         [self trackerSelectAll:nil];
         return;
@@ -2142,9 +2196,11 @@ bool viewCanPresentPlayback(NSView* view)
             if (session.selectedField > 0u) {
                 --session.selectedField;
             } else {
-                session.selectedField = gridFieldCount(0u) - 1u;
+                session.selectedField = gridFieldCount(
+                    model->sequenceColumnsExpanded) - 1u;
             }
-        } else if (session.selectedField + 1u < gridFieldCount(0u)) {
+        } else if (session.selectedField + 1u < gridFieldCount(
+                model->sequenceColumnsExpanded)) {
             ++session.selectedField;
         } else {
             session.selectedField = 0u;
@@ -2168,9 +2224,11 @@ bool viewCanPresentPlayback(NSView* view)
             if (session.selectedField > 0u) {
                 --session.selectedField;
             } else {
-                session.selectedField = gridFieldCount(0u) - 1u;
+                session.selectedField = gridFieldCount(
+                    model->sequenceColumnsExpanded) - 1u;
             }
-        } else if (session.selectedField + 1u < gridFieldCount(0u)) {
+        } else if (session.selectedField + 1u < gridFieldCount(
+                model->sequenceColumnsExpanded)) {
             ++session.selectedField;
         } else {
             session.selectedField = 0u;
@@ -2255,17 +2313,11 @@ bool viewCanPresentPlayback(NSView* view)
         [self selectTrack:session.selectedTrack row:next];
         return;
     }
-    if ([key isEqualToString:@"x"] || [key isEqualToString:@"1"]) {
-        if (session.selectedField == 0u)
-            [self toggleSelectedCell:YES];
-        else if (session.selectedField == 1u)
-            [self adjustVolume:0.0f];
-        else
-            [self writeFxState:NO clear:NO];
+    if ([key isEqualToString:@"x"] && session.selectedField == 0u) {
+        [self toggleSelectedCell:YES];
         return;
     }
-    if ([key isEqualToString:@"0"] || event.keyCode == 51
-        || event.keyCode == 117) {
+    if (event.keyCode == 51 || event.keyCode == 117) {
         if (session.selectedField == 0u)
             [self writeCellState:NoteCellState::Rest advance:YES];
         else if (session.selectedField == 1u)
@@ -2341,12 +2393,15 @@ bool viewCanPresentPlayback(NSView* view)
         s3g::tracker::kMaximumTrackCount,
         model->session.pattern.tracks.size());
     const auto rows = visibleRows(model);
-    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat laneWidth = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     const CGFloat fieldWidth = gridLaneFieldWidth(laneWidth);
     const BOOL playing = model->playing;
     for (std::size_t lane = 0u; lane < laneCount; ++lane) {
         const CGFloat x = gridLaneFieldX(lane, laneWidth);
-        for (std::size_t field = 0u; field < gridFieldCount(0u); ++field) {
+        for (std::size_t field = 0u;
+             field < gridFieldCount(model->sequenceColumnsExpanded);
+             ++field) {
             const auto previous = _presentedPlayheads[lane][field];
             const auto current = gridPlaybackRow(model, lane, field);
             if (!_playbackPresentationPrimed
@@ -2356,7 +2411,8 @@ bool viewCanPresentPlayback(NSView* view)
                     const NSRect cell = gridFieldRect(x,
                         kGridHeaderHeight
                             + static_cast<CGFloat>(row) * kGridRowHeight,
-                        fieldWidth, kGridRowHeight, 0u, field);
+                        fieldWidth, kGridRowHeight,
+                        model->sequenceColumnsExpanded, field);
                     [self setNeedsDisplayInRect:NSInsetRect(cell, -1.0, -1.0)];
                 };
                 if (_playbackPresentationPrimed && _presentedPlaying)
@@ -2387,15 +2443,14 @@ bool viewCanPresentPlayback(NSView* view)
         s3g::tracker::kMaximumTrackCount,
         session.pattern.tracks.size());
     const auto rows = visibleRows(model);
-    const CGFloat laneWidth = gridLaneWidth(NSWidth(self.bounds), laneCount);
+    const CGFloat laneWidth = gridLaneWidth(
+        model->sequenceColumnsExpanded);
     const CGFloat fieldWidth = gridLaneFieldWidth(laneWidth);
     NSColor* grid = S3GTrackerThemeColor(S3GTrackerThemeRole::Grid, 0.70);
     NSColor* dim = S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint);
     NSColor* text = S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary);
     NSColor* focus = S3GTrackerThemeColor(S3GTrackerThemeRole::Focus);
     NSColor* note = S3GTrackerThemeColor(S3GTrackerThemeRole::Note);
-    NSColor* instrument = S3GTrackerThemeColor(
-        S3GTrackerThemeRole::Instrument);
     NSColor* value = S3GTrackerThemeColor(S3GTrackerThemeRole::Value);
 
     fillRect(NSMakeRect(0.0, 0.0, NSWidth(self.bounds),
@@ -2472,7 +2527,8 @@ bool viewCanPresentPlayback(NSView* view)
     for (std::size_t lane = 0u; lane < laneCount; ++lane) {
         const auto& track = session.pattern.tracks[lane];
         const auto page = 0u;
-        const auto fieldCount = gridFieldCount(0u);
+        const auto fieldCount = gridFieldCount(
+            model->sequenceColumnsExpanded);
         std::array<const ColumnDefinition*, 6u> columns {{
             &track.noteColumn, &track.velocityColumn,
             &track.fxPairs[0u].actionColumn,
@@ -2503,34 +2559,21 @@ bool viewCanPresentPlayback(NSView* view)
         drawCenteredText(nsString(track.name.empty()
                 ? "LANE " + std::to_string(lane + 1u) : track.name),
             NSMakeRect(x + 6.0, 3.0,
-                std::max<CGFloat>(1.0, fieldWidth - 126.0), 18.0),
+                std::max<CGFloat>(1.0, fieldWidth - 94.0), 18.0),
             allMuted ? dim : text,
             9.5, NSFontWeightSemibold, NSTextAlignmentLeft);
-        auto bus = s3g::tracker::midiOutRackSlotIndex(
-            track.initialInstrumentNodeId);
-        if (bus >= s3g::tracker::kMidiOutRackSlotCount) bus = 0u;
-        const NSRect busRect = gridLaneBusRect(x, fieldWidth);
         const NSRect channelRect = gridLaneChannelRect(x, fieldWidth);
         const NSRect resyncRect = gridLaneResyncRect(x, fieldWidth);
         fillRect(resyncRect, S3GTrackerThemeColor(
-            S3GTrackerThemeRole::Control));
-        fillRect(busRect, S3GTrackerThemeColor(
             S3GTrackerThemeRole::Control));
         fillRect(channelRect, S3GTrackerThemeColor(
             S3GTrackerThemeRole::Control));
         strokeRect(resyncRect, lane == session.selectedTrack
             ? focus : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
-        strokeRect(busRect, lane == session.selectedTrack
-            ? instrument : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
         strokeRect(channelRect, lane == session.selectedTrack
             ? note : S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
         drawCenteredText(@"SYNC", resyncRect,
             allMuted ? dim : focus, 6.2, NSFontWeightSemibold,
-            NSTextAlignmentCenter);
-        drawCenteredText([NSString stringWithFormat:@"B%02lu",
-                static_cast<unsigned long>(bus + 1u)],
-            NSInsetRect(busRect, 2.0, 0.0),
-            allMuted ? dim : instrument, 8.0, NSFontWeightSemibold,
             NSTextAlignmentCenter);
         drawCenteredText([NSString stringWithFormat:@"CH%02u",
                 static_cast<unsigned int>(std::clamp<int>(
@@ -2542,7 +2585,8 @@ bool viewCanPresentPlayback(NSView* view)
             const auto* column = columns[field];
             const NSRect headerField = gridFieldRect(x,
                 kGridColumnLabelTop, fieldWidth,
-                kGridHeaderHeight - kGridColumnLabelTop, page, field);
+                kGridHeaderHeight - kGridColumnLabelTop,
+                model->sequenceColumnsExpanded, field);
             constexpr std::array<const char*, 6u> labels {
                 "NOTE", "VOL", "SEQ1", "V1", "SEQ2", "V2",
             };
@@ -2617,7 +2661,7 @@ bool viewCanPresentPlayback(NSView* view)
             for (std::size_t field = 0u; field < fieldCount; ++field) {
                 const auto* column = columns[field];
                 const NSRect fieldRect = gridFieldRect(x, y, fieldWidth,
-                    kGridRowHeight, page, field);
+                    kGridRowHeight, model->sequenceColumnsExpanded, field);
                 const auto pairIndex = gridFieldIsSequence(field)
                     ? gridSequencePair(field) : 0u;
                 const bool head = model->playing && (field == 0u
@@ -2669,7 +2713,7 @@ bool viewCanPresentPlayback(NSView* view)
                 if (field == 0u) {
                     const NoteCell note = row < track.notes.size()
                         ? track.notes[row] : NoteCell::rest();
-                    value = noteText(note);
+                    value = noteText(note, model->showMidiNoteValues);
                     active = note.state != NoteCellState::Rest;
                 } else if (field == 1u) {
                     value = volumeText(track, row);
@@ -2705,7 +2749,7 @@ bool viewCanPresentPlayback(NSView* view)
             const CGFloat lengthY = kGridHeaderHeight
                 + static_cast<CGFloat>(column->length) * kGridRowHeight;
             const NSRect fieldRect = gridFieldRect(x, lengthY - 1.0,
-                fieldWidth, 2.0, page, field);
+                fieldWidth, 2.0, model->sequenceColumnsExpanded, field);
             NSColor* lengthColor = field == 0u ? note
                 : gridFieldIsSequenceAction(field)
                     ? S3GTrackerThemeColor(S3GTrackerThemeRole::Warning)
@@ -3023,6 +3067,8 @@ bool viewCanPresentPlayback(NSView* view)
         _documentationHitLanes;
     BOOL _documentationPlaybackSnapshot;
     NSTimeInterval _lastReadHeadAnimationTime;
+    std::string _lastDisplayedPatternId;
+    uint32_t _lastDisplayedSongMuteMask;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
@@ -3030,9 +3076,13 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)refreshPlaybackDisplay;
 - (void)drawPlaybackOverlay;
 - (NSInteger)prepareDocumentationPlaybackSnapshot;
+- (NSString*)displayedPatternId;
+- (NSUInteger)displayedLaneCount;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
+@property(nonatomic) S3GTrackerGeometryViewMode geometryViewMode;
+@property(nonatomic, strong) S3GTrackerPopupButton* viewModePopup;
 @property(nonatomic, strong) S3GTrackerGeometryPlaybackOverlayView*
     playbackOverlay;
 @end
@@ -3047,6 +3097,7 @@ bool viewCanPresentPlayback(NSView* view)
         self.trackerState = state;
         self.owner = owner;
         self.geometryZoom = 1.0;
+        self.geometryViewMode = S3GTrackerGeometryViewModeActivePulses;
         self.playbackOverlay = [[S3GTrackerGeometryPlaybackOverlayView alloc]
             initWithFrame:self.bounds];
         self.playbackOverlay.geometryView = self;
@@ -3055,16 +3106,58 @@ bool viewCanPresentPlayback(NSView* view)
         self.playbackOverlay.accessibilityHidden = YES;
         self.playbackOverlay.wantsLayer = YES;
         [self addSubview:self.playbackOverlay];
+        self.viewModePopup = [[S3GTrackerPopupButton alloc]
+            initWithFrame:NSMakeRect(48.0, 30.0, 166.0, 22.0)
+            pullsDown:NO];
+        self.viewModePopup.controlSize = NSControlSizeSmall;
+        self.viewModePopup.autoresizingMask = NSViewMaxXMargin;
+        [self.viewModePopup addItemsWithTitles:@[
+            @"ACTIVE PULSES", @"ALL STEPS UNDERLAY", @"PHASE SPOKES",
+            @"LANE FOCUS", @"COMPOSITE RING"
+        ]];
+        self.viewModePopup.target = self;
+        self.viewModePopup.action = @selector(viewModeChanged:);
+        self.viewModePopup.toolTip =
+            @"Choose pulse, step-reference, live phase, selected-lane, or normalized composite geometry";
+        self.viewModePopup.accessibilityLabel = @"Geometry view mode";
+        [self addSubview:self.viewModePopup];
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
-        self.accessibilityHelp = @"Use arrow keys or click a rhythm layer to select a lane; Space toggles playback. Compact yellow points mark current note hits. Use the minus, reset, and plus controls to zoom the vector geometry.";
+        self.accessibilityHelp = @"Choose Active Pulses, All Steps Underlay, Phase Spokes, Lane Focus, or Composite Ring. Use arrow keys or the legend to select a lane; Space toggles playback. Compact yellow points mark current note hits. Use the minus, reset, and plus controls to zoom the vector geometry.";
     }
     return self;
 }
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (NSString*)displayedPatternId
+{
+    return nsString(geometryPatternId(self.trackerState));
+}
+
+- (NSUInteger)displayedLaneCount
+{
+    return static_cast<NSUInteger>(
+        visibleGeometryLanes(self.trackerState).count);
+}
+
+- (void)viewModeChanged:(S3GTrackerPopupButton*)sender
+{
+    self.geometryViewMode = static_cast<S3GTrackerGeometryViewMode>(
+        std::clamp<NSInteger>(sender.indexOfSelectedItem, 0, 4));
+    static NSArray<NSString*>* descriptions = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        descriptions = @[ @"Active pulses", @"All steps underlay",
+            @"Phase spokes", @"Lane focus", @"Composite ring" ];
+    });
+    self.accessibilityValue = descriptions[
+        static_cast<NSUInteger>(self.geometryViewMode)];
+    [self setNeedsDisplay:YES];
+    [self.playbackOverlay setNeedsDisplay:YES];
+}
 
 - (void)advancePlaybackAnimation
 {
@@ -3092,6 +3185,16 @@ bool viewCanPresentPlayback(NSView* view)
 
 - (void)refreshPlaybackDisplay
 {
+    const auto currentPatternId = geometryPatternId(self.trackerState);
+    const uint32_t currentSongMuteMask = self.trackerState
+            && self.trackerState->songPlaybackActive
+        ? self.trackerState->songPlaybackMutedTracks : 0u;
+    if (_lastDisplayedPatternId != currentPatternId
+        || _lastDisplayedSongMuteMask != currentSongMuteMask) {
+        _lastDisplayedPatternId = currentPatternId;
+        _lastDisplayedSongMuteMask = currentSongMuteMask;
+        [self setNeedsDisplay:YES];
+    }
     [self advancePlaybackAnimation];
     [self.playbackOverlay setNeedsDisplay:YES];
 }
@@ -3100,7 +3203,7 @@ bool viewCanPresentPlayback(NSView* view)
 {
     auto* model = self.trackerState;
     if (!model) return 0;
-    const auto visible = visibleGeometryLanes(model);
+    const auto visible = visibleGeometryLanes(&model->session.pattern);
     model->playing = true;
     std::fill(model->noteHits.begin(), model->noteHits.end(), false);
     _documentationHitLanes.fill(false);
@@ -3199,14 +3302,15 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)selectLane:(std::size_t)lane
 {
     auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) return;
+    const auto* pattern = geometryPattern(model);
+    if (!model || !pattern || pattern->tracks.empty()) return;
     const auto lanes = std::min<std::size_t>(
         s3g::tracker::kMaximumTrackCount,
-        model->session.pattern.tracks.size());
+        pattern->tracks.size());
     model->session.selectedTrack = std::min(lane, lanes - 1u);
     self.accessibilityValue = [NSString stringWithFormat:@"Lane %lu, %@",
         static_cast<unsigned long>(model->session.selectedTrack + 1u),
-        nsString(model->session.pattern.tracks[
+        nsString(pattern->tracks[
             model->session.selectedTrack].name)];
     [self.owner moduleSelectionChanged];
 }
@@ -3214,7 +3318,8 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)mouseDown:(NSEvent*)event
 {
     auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) return;
+    const auto* pattern = geometryPattern(model);
+    if (!model || !pattern || pattern->tracks.empty()) return;
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     if (NSPointInRect(point, [self zoomOutRect])) {
         [self setGeometryZoomAndRedraw:self.geometryZoom / 1.15];
@@ -3232,16 +3337,15 @@ bool viewCanPresentPlayback(NSView* view)
     if (visible.count == 0u) return;
     std::size_t selectedOrdinal = 0u;
     if (point.x > NSWidth(self.bounds) - 112.0) {
-        constexpr CGFloat legendTop = 28.0;
         constexpr CGFloat legendRowHeight = 18.0;
-        if (point.y < legendTop
-            || point.y >= legendTop
+        if (point.y < kGeometryLegendTop
+            || point.y >= kGeometryLegendTop
                 + static_cast<CGFloat>(visible.count) * legendRowHeight)
             return;
         selectedOrdinal = static_cast<std::size_t>(
-            (point.y - legendTop) / legendRowHeight);
+            (point.y - kGeometryLegendTop) / legendRowHeight);
     } else {
-        if (point.y < 24.0) return;
+        if (point.y < kGeometryPlotTop) return;
         const CGFloat cx = std::min(NSWidth(self.bounds) * 0.39,
             NSHeight(self.bounds) * 0.5);
         const CGFloat cy = NSHeight(self.bounds) * 0.55;
@@ -3251,17 +3355,58 @@ bool viewCanPresentPlayback(NSView* view)
         const CGFloat spacing = maximum
             / static_cast<CGFloat>(visible.count + 1u);
         const CGFloat distance = std::hypot(point.x - cx, point.y - cy);
-        CGFloat best = 1.0e9;
-        for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
-            const CGFloat radius = spacing
-                * static_cast<CGFloat>(ordinal + 2u);
-            const CGFloat difference = std::abs(distance - radius);
-            if (difference < best) {
-                best = difference;
-                selectedOrdinal = ordinal;
+        if (self.geometryViewMode
+                == S3GTrackerGeometryViewModeLaneFocus) {
+            for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
+                if (visible.indices[ordinal] == model->session.selectedTrack) {
+                    selectedOrdinal = ordinal;
+                    break;
+                }
             }
+            if (std::abs(distance - maximum * 0.72) > 9.0) return;
+        } else if (self.geometryViewMode
+                == S3GTrackerGeometryViewModeCompositeRing) {
+            CGFloat best = 1.0e9;
+            for (std::size_t ordinal = 0u; ordinal < visible.count;
+                 ++ordinal) {
+                const auto lane = visible.indices[ordinal];
+                const auto& track = pattern->tracks[lane];
+                const auto length = std::clamp<std::size_t>(
+                    track.noteColumn.length, 1u, 256u);
+                for (std::size_t step = 0u; step < length; ++step) {
+                    const bool hit = step < track.notes.size()
+                        && (track.notes[step].state == NoteCellState::Note
+                            || track.notes[step].state
+                                == NoteCellState::RetriggerPrevious);
+                    if (!hit) continue;
+                    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+                        + static_cast<CGFloat>(step) * 2.0
+                            * static_cast<CGFloat>(M_PI)
+                            / static_cast<CGFloat>(length);
+                    const CGFloat difference = std::hypot(
+                        point.x - (cx + std::cos(angle) * maximum * 0.72),
+                        point.y - (cy + std::sin(angle) * maximum * 0.72));
+                    if (difference < best) {
+                        best = difference;
+                        selectedOrdinal = ordinal;
+                    }
+                }
+            }
+            if (best > 10.0) return;
+        } else {
+            CGFloat best = 1.0e9;
+            for (std::size_t ordinal = 0u; ordinal < visible.count;
+                 ++ordinal) {
+                const CGFloat radius = spacing
+                    * static_cast<CGFloat>(ordinal + 2u);
+                const CGFloat difference = std::abs(distance - radius);
+                if (difference < best) {
+                    best = difference;
+                    selectedOrdinal = ordinal;
+                }
+            }
+            if (best > std::max<CGFloat>(6.0, spacing * 0.35)) return;
         }
-        if (best > std::max<CGFloat>(6.0, spacing * 0.35)) return;
     }
     [self.window makeFirstResponder:self];
     [self selectLane:visible.indices[selectedOrdinal]];
@@ -3270,7 +3415,8 @@ bool viewCanPresentPlayback(NSView* view)
 - (void)keyDown:(NSEvent*)event
 {
     auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) {
+    const auto* pattern = geometryPattern(model);
+    if (!model || !pattern || pattern->tracks.empty()) {
         [super keyDown:event];
         return;
     }
@@ -3331,14 +3477,23 @@ bool viewCanPresentPlayback(NSView* view)
         trackerColor(0x131313));
     fillRect(NSMakeRect(0.0, 0.0, NSWidth(self.bounds), 2.0),
         trackerColor(0xb8b8b8));
-    const NSRect plotRect = NSMakeRect(8.0, 30.0,
+    const NSRect plotRect = NSMakeRect(8.0, kGeometryPlotTop,
         std::max<CGFloat>(0.0, NSWidth(self.bounds) - 128.0),
-        std::max<CGFloat>(0.0, NSHeight(self.bounds) - 38.0));
+        std::max<CGFloat>(0.0,
+            NSHeight(self.bounds) - kGeometryPlotTop - 8.0));
     fillRect(plotRect, trackerColor(0x0c0c0c));
     strokeRect(NSInsetRect(plotRect, 0.5, 0.5), trackerColor(0x383838));
-    drawText(@"RHYTHM GEOMETRY  /  NOTE", NSMakeRect(8.0, 6.0,
+    auto* model = self.trackerState;
+    const auto* pattern = geometryPattern(model);
+    NSString* title = pattern
+        ? [NSString stringWithFormat:@"RHYTHM GEOMETRY  /  NOTE  •  %@ · %@",
+            [self displayedPatternId], nsString(pattern->name)]
+        : @"RHYTHM GEOMETRY  /  NOTE";
+    drawText(title, NSMakeRect(8.0, 6.0,
         std::max<CGFloat>(1.0, NSWidth(self.bounds) - 140.0), 16.0),
         trackerColor(0xa8a8a8), 9.5);
+    drawText(@"VIEW", NSMakeRect(12.0, 34.0, 32.0, 14.0),
+        trackerColor(0x858585), 7.5, NSFontWeightMedium);
     const std::array<NSRect, 3u> zoomRects {{
         [self zoomOutRect], [self zoomResetRect], [self zoomInRect],
     }};
@@ -3354,8 +3509,10 @@ bool viewCanPresentPlayback(NSView* view)
             trackerColor(0xc2c6c8), index == 1u ? 7.5 : 10.0,
             NSFontWeightMedium, NSTextAlignmentCenter);
     }
-    auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) return;
+    if (!model || !pattern || pattern->tracks.empty()) return;
+    _lastDisplayedPatternId = geometryPatternId(model);
+    _lastDisplayedSongMuteMask = model->songPlaybackActive
+        ? model->songPlaybackMutedTracks : 0u;
     const auto visible = visibleGeometryLanes(model);
     if (visible.count == 0u) {
         drawText(@"ALL NOTE LANES MUTED", NSMakeRect(
@@ -3372,18 +3529,78 @@ bool viewCanPresentPlayback(NSView* view)
         * self.geometryZoom;
     const CGFloat spacing = maximum
         / static_cast<CGFloat>(visible.count + 1u);
+    std::size_t focusLane = visible.indices[0u];
+    for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
+        if (visible.indices[ordinal] == model->session.selectedTrack) {
+            focusLane = visible.indices[ordinal];
+            break;
+        }
+    }
+    const bool laneFocusMode = self.geometryViewMode
+        == S3GTrackerGeometryViewModeLaneFocus;
+    const bool compositeMode = self.geometryViewMode
+        == S3GTrackerGeometryViewModeCompositeRing;
+    const CGFloat normalizedRadius = maximum * 0.72;
+    if (compositeMode) {
+        NSBezierPath* referenceRing = [NSBezierPath bezierPathWithOvalInRect:
+            NSMakeRect(cx - normalizedRadius, cy - normalizedRadius,
+                normalizedRadius * 2.0, normalizedRadius * 2.0)];
+        referenceRing.lineWidth = 1.15;
+        [trackerColor(0xbfc3c5, 0.42) setStroke];
+        [referenceRing stroke];
+        fillRect(NSMakeRect(cx - 1.5, cy - normalizedRadius - 1.5,
+            3.0, 3.0), trackerColor(0xd0d3d4, 0.72));
+    }
 
     for (std::size_t ordinal = visible.count; ordinal-- > 0u;) {
         const auto lane = visible.indices[ordinal];
-        const auto& track = model->session.pattern.tracks[lane];
+        const auto& track = pattern->tracks[lane];
         const auto length = std::clamp<std::size_t>(
             track.noteColumn.length, 1u, 256u);
-        const CGFloat radius = spacing
+        const CGFloat regularRadius = spacing
             * static_cast<CGFloat>(ordinal + 2u);
-        const bool selected = lane == model->session.selectedTrack;
-        const CGFloat alpha = selected ? 1.0 : 0.76;
+        const bool selected = lane == focusLane;
+        const CGFloat radius = compositeMode
+            ? normalizedRadius
+            : laneFocusMode && selected ? normalizedRadius : regularRadius;
+        const CGFloat alpha = selected ? 1.0
+            : laneFocusMode ? 0.14 : compositeMode ? 0.64 : 0.76;
         NSColor* laneColor = trackerColor(
             kGeometryLaneColors[lane % kGeometryLaneColors.size()], alpha);
+        NSColor* legendColor = trackerColor(
+            kGeometryLaneColors[lane % kGeometryLaneColors.size()],
+            selected ? 1.0 : laneFocusMode ? 0.42 : 0.76);
+        const bool drawAllSteps = self.geometryViewMode
+                == S3GTrackerGeometryViewModeAllStepsUnderlay
+            || (laneFocusMode && selected);
+        if (drawAllSteps) {
+            NSBezierPath* allSteps = [NSBezierPath bezierPath];
+            NSBezierPath* stepPoints = [NSBezierPath bezierPath];
+            for (std::size_t step = 0u; step < length; ++step) {
+                const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+                    + static_cast<CGFloat>(step) * 2.0
+                        * static_cast<CGFloat>(M_PI)
+                        / static_cast<CGFloat>(length);
+                const NSPoint point = NSMakePoint(
+                    cx + std::cos(angle) * radius,
+                    cy + std::sin(angle) * radius);
+                if (step == 0u) [allSteps moveToPoint:point];
+                else [allSteps lineToPoint:point];
+                const CGFloat pointRadius = selected ? 1.5 : 1.2;
+                [stepPoints appendBezierPathWithOvalInRect:NSMakeRect(
+                    point.x - pointRadius, point.y - pointRadius,
+                    pointRadius * 2.0, pointRadius * 2.0)];
+            }
+            [allSteps closePath];
+            allSteps.lineWidth = selected ? 1.6 : 1.3;
+            allSteps.lineJoinStyle = NSLineJoinStyleRound;
+            NSColor* reference = trackerColor(0xbfc3c5,
+                selected ? 0.68 : 0.48);
+            [reference setStroke];
+            [allSteps stroke];
+            [reference setFill];
+            [stepPoints fill];
+        }
         NSBezierPath* polygon = [NSBezierPath bezierPath];
         bool started = false;
         for (std::size_t step = 0u; step < length; ++step) {
@@ -3403,17 +3620,18 @@ bool viewCanPresentPlayback(NSView* view)
         }
         if (started) {
             [polygon closePath];
-            polygon.lineWidth = selected ? 2.0 : 1.15;
+            polygon.lineWidth = selected ? 2.0
+                : laneFocusMode ? 0.75 : 1.15;
             polygon.lineJoinStyle = NSLineJoinStyleRound;
             polygon.lineCapStyle = NSLineCapStyleRound;
             [laneColor setStroke];
             [polygon stroke];
         }
 
-        const CGFloat legendY = 32.0
+        const CGFloat legendY = kGeometryLegendTop
             + static_cast<CGFloat>(ordinal) * 18.0;
         drawText(nsString(track.name), NSMakeRect(NSWidth(self.bounds) - 108.0,
-            legendY, 67.0, 14.0), laneColor, 7.5,
+            legendY, 67.0, 14.0), legendColor, 7.5,
             selected ? NSFontWeightBold : NSFontWeightRegular);
         std::size_t hits = 0u;
         for (std::size_t row = 0u; row < length; ++row)
@@ -3426,14 +3644,15 @@ bool viewCanPresentPlayback(NSView* view)
             static_cast<unsigned long>(length),
             directionMark(track.noteColumn.direction)],
             NSMakeRect(NSWidth(self.bounds) - 42.0, legendY, 36.0, 14.0),
-            laneColor, 7.5, NSFontWeightRegular, NSTextAlignmentRight);
+            legendColor, 7.5, NSFontWeightRegular, NSTextAlignmentRight);
     }
 }
 
 - (void)drawPlaybackOverlay
 {
     auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) return;
+    const auto* pattern = geometryPattern(model);
+    if (!model || !pattern || pattern->tracks.empty()) return;
     const auto visible = visibleGeometryLanes(model);
     if (visible.count == 0u) return;
     const CGFloat cx = std::min(NSWidth(self.bounds) * 0.39,
@@ -3444,14 +3663,59 @@ bool viewCanPresentPlayback(NSView* view)
         * self.geometryZoom;
     const CGFloat spacing = maximum
         / static_cast<CGFloat>(visible.count + 1u);
+    std::size_t focusLane = visible.indices[0u];
+    for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
+        if (visible.indices[ordinal] == model->session.selectedTrack) {
+            focusLane = visible.indices[ordinal];
+            break;
+        }
+    }
+    const bool phaseSpokesMode = self.geometryViewMode
+        == S3GTrackerGeometryViewModePhaseSpokes;
+    const bool laneFocusMode = self.geometryViewMode
+        == S3GTrackerGeometryViewModeLaneFocus;
+    const bool compositeMode = self.geometryViewMode
+        == S3GTrackerGeometryViewModeCompositeRing;
+    const CGFloat normalizedRadius = maximum * 0.72;
     for (std::size_t ordinal = visible.count; ordinal-- > 0u;) {
         const auto lane = visible.indices[ordinal];
-        const auto& track = model->session.pattern.tracks[lane];
+        const auto& track = pattern->tracks[lane];
         const auto length = std::clamp<std::size_t>(
             track.noteColumn.length, 1u, 256u);
-        const CGFloat radius = spacing
+        const CGFloat regularRadius = spacing
             * static_cast<CGFloat>(ordinal + 2u);
-        const bool selected = lane == model->session.selectedTrack;
+        const bool selected = lane == focusLane;
+        const CGFloat radius = compositeMode
+            ? normalizedRadius
+            : laneFocusMode && selected ? normalizedRadius : regularRadius;
+        if (phaseSpokesMode) {
+            const auto phasePosition = model->notePlayheads[lane] % length;
+            const CGFloat phaseAngle = -static_cast<CGFloat>(M_PI_2)
+                + static_cast<CGFloat>(phasePosition) * 2.0
+                    * static_cast<CGFloat>(M_PI)
+                    / static_cast<CGFloat>(length);
+            const CGFloat cosine = std::cos(phaseAngle);
+            const CGFloat sine = std::sin(phaseAngle);
+            const CGFloat innerRadius = std::max<CGFloat>(7.0, radius * 0.16);
+            NSBezierPath* spoke = [NSBezierPath bezierPath];
+            [spoke moveToPoint:NSMakePoint(cx + cosine * innerRadius,
+                cy + sine * innerRadius)];
+            [spoke lineToPoint:NSMakePoint(cx + cosine * radius,
+                cy + sine * radius)];
+            spoke.lineWidth = selected ? 1.7 : 1.0;
+            NSColor* spokeColor = trackerColor(
+                kGeometryLaneColors[lane % kGeometryLaneColors.size()],
+                selected ? 0.92 : 0.48);
+            [spokeColor setStroke];
+            [spoke stroke];
+            const CGFloat markerRadius = selected ? 2.6 : 1.8;
+            [spokeColor setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                cx + cosine * radius - markerRadius,
+                cy + sine * radius - markerRadius,
+                markerRadius * 2.0, markerRadius * 2.0)] fill];
+        }
+        if (laneFocusMode && !selected) continue;
         const bool documentationHit = _documentationPlaybackSnapshot
             && _documentationHitLanes[lane];
         const bool currentHit = documentationHit
@@ -3470,7 +3734,7 @@ bool viewCanPresentPlayback(NSView* view)
         const NSPoint point = NSMakePoint(
             cx + std::cos(angle) * radius,
             cy + std::sin(angle) * radius);
-        const CGFloat alpha = selected ? 1.0 : 0.76;
+        const CGFloat alpha = selected ? 1.0 : compositeMode ? 0.72 : 0.76;
         drawGeometryReadHead(point, haloStrength * alpha,
             currentHit, selected);
     }
@@ -3983,8 +4247,8 @@ bool viewCanPresentPlayback(NSView* view)
 
     self.playButton = [self button:@"▶" action:@selector(playPressed:)];
     self.playButton.tag = 3;
-    self.playButton.toolTip = @"Request REAPER play / continue (Space)";
-    self.playButton.accessibilityLabel = @"Request host play";
+    self.playButton.toolTip = @"Toggle REAPER play / pause (Space)";
+    self.playButton.accessibilityLabel = @"Toggle host play or pause";
     [self.playButton.widthAnchor constraintEqualToConstant:31.0].active = YES;
     [controls addArrangedSubview:self.playButton];
     self.loopButton = [self button:@"↻" action:@selector(loopPressed:)];
@@ -3993,16 +4257,16 @@ bool viewCanPresentPlayback(NSView* view)
     self.loopButton.accessibilityLabel = @"Loop";
     [self.loopButton.widthAnchor constraintEqualToConstant:31.0].active = YES;
     [controls addArrangedSubview:self.loopButton];
-    self.restartButton = [self button:@"↤"
+    self.restartButton = [self button:@"SYNC ALL"
         action:@selector(restartPressed:)];
-    self.restartButton.toolTip = @"Restart the tracker at row 1 without stopping REAPER";
-    self.restartButton.accessibilityLabel = @"Restart tracker from row 1";
-    [self.restartButton.widthAnchor constraintEqualToConstant:31.0].active = YES;
+    self.restartButton.toolTip = @"Force every lane and column to row 1, ignoring phase, without stopping REAPER";
+    self.restartButton.accessibilityLabel = @"Sync all tracker lanes and columns to row 1";
+    [self.restartButton.widthAnchor constraintEqualToConstant:68.0].active = YES;
     [controls addArrangedSubview:self.restartButton];
     NSButton* panicButton = [self button:@"! PANIC"
         action:@selector(panicPressed:)];
     panicButton.tag = 2;
-    panicButton.toolTip = @"Send tracked Note Offs and CC 123 All Notes Off on every MIDI bus and channel";
+    panicButton.toolTip = @"Send tracked Note Offs and CC 123 All Notes Off on MIDI channels 1–16";
     panicButton.accessibilityLabel = @"Clear active MIDI notes";
     [controls addArrangedSubview:panicButton];
 
@@ -4062,20 +4326,67 @@ bool viewCanPresentPlayback(NSView* view)
     moduleButtons.alignment = NSLayoutAttributeCenterY;
     moduleButtons.spacing = 6.0;
     moduleButtons.edgeInsets = NSEdgeInsetsMake(0.0, 14.0, 0.0, 14.0);
-    self.columnSummary = [self label:gridPageTitle(0u) size:8.5
-        color:trackerColor(0x92989c)];
-    self.columnSummary.accessibilityLabel = @"Unified tracker columns";
-    [moduleButtons addArrangedSubview:self.columnSummary];
-    [moduleButtons addArrangedSubview:[self button:@"+ TRACK"
-        action:@selector(trackAddPressed:)]];
-    [moduleButtons addArrangedSubview:[self button:@"− TRACK"
-        action:@selector(trackRemovePressed:)]];
+    self.sequenceColumnsButton = [self button:@"EXPAND SEQ"
+        action:@selector(toggleSequenceColumns:)];
+    [self.sequenceColumnsButton.widthAnchor
+        constraintEqualToConstant:104.0].active = YES;
+    self.sequenceColumnsButton.toolTip =
+        @"Show SEQ1, V1, SEQ2, and V2 in every tracker lane";
+    self.sequenceColumnsButton.accessibilityLabel =
+        @"Expand tracker sequencing columns";
+    [moduleButtons addArrangedSubview:self.sequenceColumnsButton];
+    self.trackAddButton = [self button:@"+ TRACK"
+        action:@selector(trackAddPressed:)];
+    [self.trackAddButton.widthAnchor
+        constraintEqualToConstant:70.0].active = YES;
+    [moduleButtons addArrangedSubview:self.trackAddButton];
+    self.trackRemoveButton = [self button:@"− TRACK"
+        action:@selector(trackRemovePressed:)];
+    [self.trackRemoveButton.widthAnchor
+        constraintEqualToConstant:76.0].active = YES;
+    [moduleButtons addArrangedSubview:self.trackRemoveButton];
+    self.undoButton = [self button:@"UNDO"
+        action:@selector(undoPressed:)];
+    [self.undoButton.widthAnchor constraintEqualToConstant:58.0].active = YES;
+    self.undoButton.toolTip = @"Undo the last persistent Tracker edit (Control-Z)";
+    self.undoButton.accessibilityLabel = @"Undo last Tracker edit";
+    [moduleButtons addArrangedSubview:self.undoButton];
+    self.redoButton = [self button:@"REDO"
+        action:@selector(redoPressed:)];
+    [self.redoButton.widthAnchor constraintEqualToConstant:58.0].active = YES;
+    self.redoButton.toolTip = @"Redo the last undone Tracker edit (Control-Shift-Z)";
+    self.redoButton.accessibilityLabel = @"Redo last Tracker edit";
+    [moduleButtons addArrangedSubview:self.redoButton];
+    self.noteDisplayButton = [self button:@"NOTE: NAME"
+        action:@selector(toggleNoteDisplay:)];
+    [self.noteDisplayButton.widthAnchor
+        constraintEqualToConstant:92.0].active = YES;
+    self.noteDisplayButton.toolTip =
+        @"Show NOTE cells as decimal MIDI values";
+    self.noteDisplayButton.accessibilityLabel =
+        @"Show notes as MIDI values";
+    [moduleButtons addArrangedSubview:self.noteDisplayButton];
+    [moduleButtons addArrangedSubview:[self label:@"STEP REC" size:9.0
+        color:trackerColor(0xa8a8a8)]];
+    self.midiStepRecordPopup = [[S3GTrackerPopupButton alloc]
+        initWithFrame:NSZeroRect pullsDown:NO];
+    [self.midiStepRecordPopup addItemsWithTitles:@[
+        @"OFF", @"GRID", @"MICRO",
+    ]];
+    self.midiStepRecordPopup.target = self;
+    self.midiStepRecordPopup.action = @selector(midiStepRecordModeChanged:);
+    self.midiStepRecordPopup.accessibilityLabel = @"MIDI step recording mode";
+    self.midiStepRecordPopup.toolTip = @"GRID records at the cursor row; MICRO writes measured timing into an available SEQ pair";
+    [self.midiStepRecordPopup.widthAnchor
+        constraintEqualToConstant:76.0].active = YES;
+    [moduleButtons addArrangedSubview:self.midiStepRecordPopup];
     self.moduleScroll = [self horizontalStripForStack:moduleButtons];
     self.moduleScroll.accessibilityLabel = @"Tracker module controls";
     [self.toolbar addSubview:self.moduleScroll];
 
     self.routeStatus = [self label:@"MIDI ROUTE" size:8.0
         color:trackerColor(0xa0a0a0)];
+    self.routeStatus.accessibilityLabel = @"Tracker route status";
     self.routeStatus.lineBreakMode = NSLineBreakByTruncatingMiddle;
     self.routeStatus.toolTip = self.routeStatus.stringValue;
     [self.routeStatus setContentCompressionResistancePriority:1.0
@@ -4154,10 +4465,24 @@ bool viewCanPresentPlayback(NSView* view)
     self.consoleOutputPanel.accessibilityElement = YES;
     self.consoleOutputPanel.accessibilityRole = NSAccessibilityGroupRole;
     self.consoleOutputPanel.accessibilityLabel = @"Console output page";
-    NSTextField* outputTitle = [self label:@"CONSOLE OUTPUT"
+    NSTextField* outputTitle = [self label:@"CONSOLE + LIVE CODE"
         size:8.5 color:trackerColor(0xa8a8a8)];
     outputTitle.translatesAutoresizingMaskIntoConstraints = NO;
     [self.consoleOutputPanel addSubview:outputTitle];
+    NSTextField* pagePrompt = [self label:@":" size:12.0
+        color:trackerColor(0xb8b8b8)];
+    pagePrompt.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.consoleOutputPanel addSubview:pagePrompt];
+    self.consolePageInput = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    S3GTrackerStyleTextField(self.consolePageInput, NSTextAlignmentLeft);
+    self.consolePageInput.placeholderString =
+        @"Live Code remains available when this Console is detached";
+    self.consolePageInput.accessibilityLabel = @"Console live command input";
+    self.consolePageInput.delegate = self;
+    self.consolePageInput.target = self;
+    self.consolePageInput.action = @selector(consoleSubmitted:);
+    self.consolePageInput.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.consoleOutputPanel addSubview:self.consolePageInput];
     NSScrollView* outputScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     outputScroll.hasVerticalScroller = YES;
     outputScroll.autohidesScrollers = YES;
@@ -4240,9 +4565,16 @@ bool viewCanPresentPlayback(NSView* view)
 
         [outputTitle.leadingAnchor constraintEqualToAnchor:self.consoleOutputPanel.leadingAnchor constant:12.0],
         [outputTitle.topAnchor constraintEqualToAnchor:self.consoleOutputPanel.topAnchor constant:10.0],
+        [pagePrompt.leadingAnchor constraintEqualToAnchor:self.consoleOutputPanel.leadingAnchor constant:12.0],
+        [pagePrompt.centerYAnchor constraintEqualToAnchor:self.consolePageInput.centerYAnchor],
+        [pagePrompt.widthAnchor constraintEqualToConstant:12.0],
+        [self.consolePageInput.leadingAnchor constraintEqualToAnchor:pagePrompt.trailingAnchor constant:2.0],
+        [self.consolePageInput.trailingAnchor constraintEqualToAnchor:self.consoleOutputPanel.trailingAnchor constant:-10.0],
+        [self.consolePageInput.topAnchor constraintEqualToAnchor:outputTitle.bottomAnchor constant:7.0],
+        [self.consolePageInput.heightAnchor constraintEqualToConstant:25.0],
         [outputScroll.leadingAnchor constraintEqualToAnchor:self.consoleOutputPanel.leadingAnchor constant:8.0],
         [outputScroll.trailingAnchor constraintEqualToAnchor:self.consoleOutputPanel.trailingAnchor constant:-8.0],
-        [outputScroll.topAnchor constraintEqualToAnchor:outputTitle.bottomAnchor constant:6.0],
+        [outputScroll.topAnchor constraintEqualToAnchor:self.consolePageInput.bottomAnchor constant:7.0],
         [outputScroll.bottomAnchor constraintEqualToAnchor:self.consoleOutputPanel.bottomAnchor constant:-8.0],
     ]];
     [self appendConsoleMessage:"Native console ready. Try kit superior compact, @k x---x---, or help."
@@ -4271,7 +4603,9 @@ bool viewCanPresentPlayback(NSView* view)
             self.trackerState->session.pattern.tracks.size()) : 0u;
     const CGFloat width = static_cast<CGFloat>(
         s3g::tracker::app::trackerDocumentWidth(lanes,
-            NSWidth(self.gridScroll.contentView.bounds)));
+            NSWidth(self.gridScroll.contentView.bounds),
+            self.trackerState
+                && self.trackerState->sequenceColumnsExpanded));
     const CGFloat height = kGridHeaderHeight
         + static_cast<CGFloat>(visibleRows(self.trackerState)) * kGridRowHeight;
     self.gridView.frame = NSMakeRect(0.0, 0.0, width,
@@ -4301,7 +4635,7 @@ bool viewCanPresentPlayback(NSView* view)
     state->session.selectedPage = 0u;
     state->session.selectedField = std::min<std::size_t>(
         state->session.selectedField,
-        gridFieldCount(0u) - 1u);
+        gridFieldCount(state->sequenceColumnsExpanded) - 1u);
     state->tempoScale = kTempoScales[nearestTempoScaleIndex(
         std::isfinite(state->tempoScale) ? state->tempoScale : 1.0)];
     state->mainOutputGain = std::clamp(
@@ -4337,6 +4671,31 @@ bool viewCanPresentPlayback(NSView* view)
         && !state->songPlaybackActive;
     self.deletePatternButton.enabled = state->patternBank.entries.size() > 1u
         && !state->songPlaybackActive;
+    self.sequenceColumnsButton.title = state->sequenceColumnsExpanded
+        ? @"COLLAPSE SEQ" : @"EXPAND SEQ";
+    self.sequenceColumnsButton.toolTip = state->sequenceColumnsExpanded
+        ? @"Hide sequencing columns and keep NOTE and VOL visible"
+        : @"Show SEQ1, V1, SEQ2, and V2 in every tracker lane";
+    self.sequenceColumnsButton.accessibilityLabel =
+        state->sequenceColumnsExpanded
+            ? @"Collapse tracker sequencing columns"
+            : @"Expand tracker sequencing columns";
+    self.noteDisplayButton.title = state->showMidiNoteValues
+        ? @"NOTE: MIDI" : @"NOTE: NAME";
+    self.noteDisplayButton.toolTip = state->showMidiNoteValues
+        ? @"Show NOTE cells as pitch names"
+        : @"Show NOTE cells as decimal MIDI values";
+    self.noteDisplayButton.accessibilityLabel = state->showMidiNoteValues
+        ? @"Show notes as pitch names"
+        : @"Show notes as MIDI values";
+    self.midiStepRecordPopup.enabled = state->midiStepInputAvailable;
+    [self.midiStepRecordPopup selectItemAtIndex:static_cast<NSInteger>(
+        state->midiStepRecordMode)];
+    self.midiStepRecordPopup.toolTip = state->midiStepInputAvailable
+        ? @"GRID records at the cursor row; MICRO records signed timing into an available SEQ pair"
+        : @"This build does not expose a host MIDI input";
+    self.undoButton.enabled = state->canUndo;
+    self.redoButton.enabled = state->canRedo;
     self.playButton.state = state->playing
         ? NSControlStateValueOn : NSControlStateValueOff;
     [self.playButton setNeedsDisplay:YES];
@@ -4570,6 +4929,52 @@ bool viewCanPresentPlayback(NSView* view)
     }
 }
 
+- (void)toggleSequenceColumns:(id)sender
+{
+    (void)sender;
+    auto* state = self.trackerState;
+    if (!state) return;
+    state->sequenceColumnsExpanded = !state->sequenceColumnsExpanded;
+    if (!state->sequenceColumnsExpanded)
+        state->session.selectedField = std::min<std::size_t>(
+            state->session.selectedField, 1u);
+    [self.gridView clearGridSelection];
+    [self reloadModel];
+    NSAccessibilityPostNotification(
+        self.gridView, NSAccessibilityLayoutChangedNotification);
+}
+
+- (void)toggleNoteDisplay:(id)sender
+{
+    (void)sender;
+    auto* state = self.trackerState;
+    if (!state) return;
+    state->showMidiNoteValues = !state->showMidiNoteValues;
+    [self reloadModel];
+}
+
+- (void)midiStepRecordModeChanged:(id)sender
+{
+    (void)sender;
+    auto* state = self.trackerState;
+    if (!state || !state->midiStepInputAvailable) return;
+    state->midiStepRecordMode = static_cast<MidiStepRecordMode>(
+        std::clamp<NSInteger>(self.midiStepRecordPopup.indexOfSelectedItem,
+            0, 2));
+    if (self.trackerCallbacks
+        && self.trackerCallbacks->midiStepRecordModeChanged) {
+        self.trackerCallbacks->midiStepRecordModeChanged(
+            state->midiStepRecordMode);
+    }
+    const char* mode = state->midiStepRecordMode
+            == MidiStepRecordMode::Quantized
+        ? "GRID" : state->midiStepRecordMode
+            == MidiStepRecordMode::Unquantized ? "MICRO" : "OFF";
+    [self appendConsoleMessage:std::string("MIDI step recording ") + mode
+        error:NO];
+    [self reloadModel];
+}
+
 - (void)assignTrackInstrument:(uint32_t)nodeId
 {
     auto* state = self.trackerState;
@@ -4694,6 +5099,20 @@ bool viewCanPresentPlayback(NSView* view)
     if (self.trackerCallbacks && self.trackerCallbacks->executeCommand)
         self.trackerCallbacks->executeCommand(
             "track remove " + std::to_string(lane + 1u));
+}
+
+- (void)undoPressed:(id)sender
+{
+    (void)sender;
+    if (self.trackerCallbacks && self.trackerCallbacks->executeCommand)
+        self.trackerCallbacks->executeCommand("undo");
+}
+
+- (void)redoPressed:(id)sender
+{
+    (void)sender;
+    if (self.trackerCallbacks && self.trackerCallbacks->executeCommand)
+        self.trackerCallbacks->executeCommand("redo");
 }
 
 - (void)playPressed:(id)sender
@@ -4849,8 +5268,9 @@ bool viewCanPresentPlayback(NSView* view)
 
 - (void)consoleSubmitted:(id)sender
 {
-    (void)sender;
-    NSString* input = [self.consoleInput.stringValue
+    NSTextField* source = [sender isKindOfClass:NSTextField.class]
+        ? static_cast<NSTextField*>(sender) : self.consoleInput;
+    NSString* input = [source.stringValue
         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (input.length == 0u) return;
     [self.consoleHistory addObject:input];
@@ -4861,8 +5281,18 @@ bool viewCanPresentPlayback(NSView* view)
     [self appendConsoleMessage:std::string(": ")
         + input.UTF8String error:NO];
     self.consoleInput.stringValue = @"";
+    self.consolePageInput.stringValue = @"";
     if (self.trackerCallbacks && self.trackerCallbacks->executeCommand)
         self.trackerCallbacks->executeCommand(input.UTF8String);
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification
+{
+    NSTextField* field = (NSTextField*)notification.object;
+    if (field == self.consoleInput)
+        self.consolePageInput.stringValue = field.stringValue;
+    else if (field == self.consolePageInput)
+        self.consoleInput.stringValue = field.stringValue;
 }
 
 - (void)controlTextDidBeginEditing:(NSNotification*)notification
@@ -4876,7 +5306,8 @@ bool viewCanPresentPlayback(NSView* view)
     doCommandBySelector:(SEL)selector
 {
     (void)textView;
-    if (control != self.consoleInput) return NO;
+    if (control != self.consoleInput && control != self.consolePageInput)
+        return NO;
     if (selector == @selector(moveUp:)) {
         if (self.consoleHistory.count > 0u) {
             if (self.consoleHistoryIndex
@@ -4887,6 +5318,9 @@ bool viewCanPresentPlayback(NSView* view)
             textView.string = self.consoleHistory[
                 static_cast<NSUInteger>(self.consoleHistoryIndex)];
             textView.selectedRange = NSMakeRange(textView.string.length, 0u);
+            NSTextField* other = control == self.consoleInput
+                ? self.consolePageInput : self.consoleInput;
+            other.stringValue = textView.string;
         }
         return YES;
     }
@@ -4900,11 +5334,14 @@ bool viewCanPresentPlayback(NSView* view)
             ? self.consoleHistory[static_cast<NSUInteger>(self.consoleHistoryIndex)]
             : (self.consoleDraft ? self.consoleDraft : @"");
         textView.selectedRange = NSMakeRange(textView.string.length, 0u);
+        NSTextField* other = control == self.consoleInput
+            ? self.consolePageInput : self.consoleInput;
+        other.stringValue = textView.string;
         return YES;
     }
     if (selector == @selector(insertTab:)) {
         constexpr const char* commands[] {
-            "help", "aliases", "alias", "kit", "play", "stop", "panic",
+            "help", "undo", "redo", "aliases", "alias", "kit", "play", "stop", "panic",
             "demo", "variation", "vary", "generate", "generateseed", "scene", "mutate",
             "drumscene", "bpm", "swing", "gate", "select", "hit", "rest",
             "repeat", "kill", "note", "vel", "velseq", "vol", "mask",
@@ -4926,6 +5363,9 @@ bool viewCanPresentPlayback(NSView* view)
             [self appendConsoleMessage:std::string("matches: ")
                 + [[matches componentsJoinedByString:@", "] UTF8String] error:NO];
         textView.selectedRange = NSMakeRange(textView.string.length, 0u);
+        NSTextField* other = control == self.consoleInput
+            ? self.consolePageInput : self.consoleInput;
+        other.stringValue = textView.string;
         return YES;
     }
     if (selector == @selector(cancelOperation:)) {

@@ -55,6 +55,10 @@ enum class CommandEffect : uint32_t {
     // Persistent session state changed without necessarily changing the
     // pattern or transport (for example, a console alias binding).
     ProjectChanged = 1u << 8u,
+    // Project-level history is owned by the application coordinator rather
+    // than TrackerSession, so console commands report explicit requests.
+    UndoRequested = 1u << 9u,
+    RedoRequested = 1u << 10u,
 };
 
 enum class PatternVariationLaunch : uint8_t {
@@ -119,6 +123,8 @@ struct CommandHelpEntry {
     std::string_view syntax;
     std::string_view description;
     std::string_view acceptedVerbs;
+    // One valid invocation of this specific command row.
+    std::string_view example;
 };
 
 struct CommandHelpSection {

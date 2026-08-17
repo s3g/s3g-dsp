@@ -1,0 +1,32 @@
+desc:s3g Tracker Acceptance MIDI Capture
+author:s3g
+tags:utility MIDI test
+options:gmem=s3g_tracker_acceptance
+
+// gmem contract (v1):
+// 0 magic, 1 total events, 2 note-ons, 3 note-offs, 4 invalid bytes,
+// 5 channel bit mask, 6 first sample offset, 7 last sample offset,
+// 8 processed blocks.
+
+@init
+gmem[0] = 1395872820; // "S3T4", exactly representable as a double.
+
+@block
+gmem[8] += 1;
+while (midirecv(offset, msg1, msg23)) (
+  status = msg1 & 240;
+  channel = msg1 & 15;
+  data1 = msg23 & 127;
+  data2 = (msg23 / 256) & 127;
+  gmem[1] == 0 ? gmem[6] = offset;
+  gmem[1] += 1;
+  gmem[7] = offset;
+  gmem[5] |= 1 << channel;
+  status == 144 && data2 > 0 ? (
+    gmem[2] += 1;
+  ) : (status == 128 || (status == 144 && data2 == 0)) ? (
+    gmem[3] += 1;
+  );
+  data1 < 0 || data1 > 127 || data2 < 0 || data2 > 127 ? gmem[4] += 1;
+  midisend(offset, msg1, msg23);
+);

@@ -17,18 +17,61 @@
 
 namespace {
 
+struct ReaperHostBridge {
+    int callerVersion = 0;
+    void* mainWindow = nullptr;
+    int (*registerObject)(const char*, void*) = nullptr;
+    void* (*getFunction)(const char*) = nullptr;
+};
+
 struct HostContext {
     clap_host_t host {};
     uint32_t processRequests = 0u;
     uint32_t dirtyMarks = 0u;
+    uint32_t playRequests = 0u;
+    uint32_t pauseRequests = 0u;
+    uint32_t stopRequests = 0u;
     clap_host_state_t state {};
+    ReaperHostBridge reaper {};
 };
+
+HostContext* activeReaperHost = nullptr;
+
+void reaperPlay()
+{
+    if (activeReaperHost) ++activeReaperHost->playRequests;
+}
+
+void reaperPause()
+{
+    if (activeReaperHost) ++activeReaperHost->pauseRequests;
+}
+
+void reaperStop()
+{
+    if (activeReaperHost) ++activeReaperHost->stopRequests;
+}
+
+void* reaperGetFunction(const char* name)
+{
+    if (!name) return nullptr;
+    if (std::strcmp(name, "OnPlayButton") == 0)
+        return reinterpret_cast<void*>(&reaperPlay);
+    if (std::strcmp(name, "OnPauseButton") == 0)
+        return reinterpret_cast<void*>(&reaperPause);
+    if (std::strcmp(name, "OnStopButton") == 0)
+        return reinterpret_cast<void*>(&reaperStop);
+    return nullptr;
+}
 
 const void* hostGetExtension(const clap_host_t* host, const char* id)
 {
     auto* context = static_cast<HostContext*>(host->host_data);
-    return id && std::strcmp(id, CLAP_EXT_STATE) == 0
-        ? &context->state : nullptr;
+    if (!id) return nullptr;
+    if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &context->state;
+    if (std::strcmp(id, "cockos.reaper_extension") == 0)
+        return &context->reaper;
+    return nullptr;
 }
 
 void hostRequest(const clap_host_t* host)
@@ -63,6 +106,45 @@ struct OutputEvents {
         self->events[self->count++] = *reinterpret_cast<
             const clap_event_midi_t*>(header);
         return true;
+    }
+};
+
+struct InputEvents {
+    clap_input_events_t interface {};
+    std::array<clap_event_midi_t, 8u> events {};
+    uint32_t count = 0u;
+
+    InputEvents()
+    {
+        interface.ctx = this;
+        interface.size = size;
+        interface.get = get;
+    }
+
+    void addMidi(uint32_t time, uint8_t status, uint8_t note,
+        uint8_t velocity)
+    {
+        auto& event = events[count++];
+        event.header.size = sizeof(event);
+        event.header.time = time;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.port_index = 0u;
+        event.data[0] = status;
+        event.data[1] = note;
+        event.data[2] = velocity;
+    }
+
+    static uint32_t size(const clap_input_events_t* list)
+    {
+        return static_cast<InputEvents*>(list->ctx)->count;
+    }
+
+    static const clap_event_header_t* get(const clap_input_events_t* list,
+        uint32_t index)
+    {
+        auto* self = static_cast<InputEvents*>(list->ctx);
+        return index < self->count ? &self->events[index].header : nullptr;
     }
 };
 
@@ -145,6 +227,8 @@ bool expect(bool condition, const char* message)
 
 namespace {
 
+NSView* findAccessibleView(NSView* root, NSString* accessibilityLabel);
+
 NSButton* findButton(NSView* root, NSString* title,
     NSString* accessibilityLabel, NSString* identifier)
 {
@@ -174,6 +258,24 @@ bool clickButton(NSView* root, NSString* title,
     if (!button) return false;
     [button performClick:nil];
     return true;
+}
+
+bool submitCommand(NSView* root, NSString* command)
+{
+    NSView* view = findAccessibleView(root, @"Live command input");
+    if (![view isKindOfClass:NSTextField.class]) return false;
+    NSTextField* field = static_cast<NSTextField*>(view);
+    field.stringValue = command;
+    return [field sendAction:field.action to:field.target];
+}
+
+NSWindow* visibleWindow(NSString* title)
+{
+    for (NSWindow* window in NSApp.windows) {
+        if (window.visible && [window.title isEqualToString:title])
+            return window;
+    }
+    return nil;
 }
 
 NSView* findAccessibleView(NSView* root, NSString* accessibilityLabel)
@@ -267,6 +369,8 @@ int main(int argc, char** argv)
 
     HostContext context;
     context.state.mark_dirty = hostMarkDirty;
+    context.reaper.getFunction = reaperGetFunction;
+    activeReaperHost = &context;
     context.host.clap_version = CLAP_VERSION_INIT;
     context.host.host_data = &context;
     context.host.name = "s3g tracker smoke";
@@ -292,12 +396,19 @@ int main(int argc, char** argv)
     const auto* gui = plugin ? static_cast<const clap_plugin_gui_t*>(
         plugin->get_extension(plugin, CLAP_EXT_GUI)) : nullptr;
 #endif
-    clap_note_port_info_t port {};
-    ok &= expect(notePorts && notePorts->count(plugin, true) == 0u
-        && notePorts->count(plugin, false) == 8u
-        && notePorts->get(plugin, 0u, false, &port)
-        && port.preferred_dialect == CLAP_NOTE_DIALECT_MIDI,
-        "plugin should expose eight instrument-owned MIDI output buses");
+    clap_note_port_info_t inputPort {};
+    clap_note_port_info_t outputPort {};
+    ok &= expect(notePorts && notePorts->count(plugin, true) == 1u
+        && notePorts->count(plugin, false) == 1u
+        && notePorts->get(plugin, 0u, true, &inputPort)
+        && notePorts->get(plugin, 0u, false, &outputPort)
+        && !notePorts->get(plugin, 1u, true, &inputPort)
+        && !notePorts->get(plugin, 1u, false, &outputPort)
+        && inputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+        && outputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+        && std::strcmp(inputPort.name, "Step Record MIDI Input") == 0
+        && std::strcmp(outputPort.name, "Tracker MIDI Output") == 0,
+        "plugin should expose one step-record input and one channel-addressed output");
     ok &= expect(plugin && !plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS),
         "tracker should not expose audio ports");
     ok &= expect(state != nullptr, "project state extension is missing");
@@ -317,6 +428,7 @@ int main(int argc, char** argv)
             NSView* parent = [[S3GTrackerCaptureHostView alloc]
                 initWithFrame:NSMakeRect(
                 0.0, 0.0, width, height)];
+            NSWindow* hostWindow = nil;
             clap_window_t window {};
             window.api = CLAP_WINDOW_API_COCOA;
             window.cocoa = (__bridge clap_nsview)parent;
@@ -330,6 +442,260 @@ int main(int argc, char** argv)
                 "full tracker workspace lifecycle failed");
             if (shown) {
                 [parent setFrameSize:NSMakeSize(resizedWidth, resizedHeight)];
+                NSView* routeStatusView = findAccessibleView(parent,
+                    @"Tracker route status");
+                NSTextField* routeStatus =
+                    [routeStatusView isKindOfClass:NSTextField.class]
+                        ? static_cast<NSTextField*>(routeStatusView) : nil;
+                ok &= expect([routeStatus.stringValue
+                            containsString:@"1 OUT • 1 STEP IN • CH 1–16"]
+                        && ![routeStatus.stringValue
+                            containsString:@"8 REAPER MIDI BUSES"],
+                    "routing status did not reflect the single CLAP MIDI port");
+                ok &= expect(clickButton(parent, nil,
+                            @"Expand tracker sequencing columns", nil)
+                        && clickButton(parent, nil,
+                            @"Collapse tracker sequencing columns", nil),
+                    "tracker lanes did not toggle between compact and expanded columns");
+                ok &= expect(clickButton(parent, nil,
+                            @"Show notes as MIDI values", nil)
+                        && clickButton(parent, nil,
+                            @"Show notes as pitch names", nil),
+                    "tracker note display did not toggle between names and MIDI values");
+                ok &= expect(clickButton(parent, nil,
+                            @"Sync all tracker lanes and columns to row 1", nil),
+                    "tracker did not expose global row-one synchronization");
+                ok &= expect(clickButton(parent, nil, @"GEOMETRY page", nil),
+                    "Geometry page could not be selected for view-mode audit");
+                [parent layoutSubtreeIfNeeded];
+                NSView* geometryModeView = findAccessibleView(parent,
+                    @"Geometry view mode");
+                NSPopUpButton* geometryMode =
+                    [geometryModeView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(geometryModeView) : nil;
+                const bool geometryModesAvailable = geometryMode.numberOfItems
+                        == 5u
+                    && geometryMode.indexOfSelectedItem == 0
+                    && [[geometryMode itemAtIndex:0].title
+                        isEqualToString:@"ACTIVE PULSES"]
+                    && [[geometryMode itemAtIndex:1].title
+                        isEqualToString:@"ALL STEPS UNDERLAY"]
+                    && [[geometryMode itemAtIndex:2].title
+                        isEqualToString:@"PHASE SPOKES"]
+                    && [[geometryMode itemAtIndex:3].title
+                        isEqualToString:@"LANE FOCUS"]
+                    && [[geometryMode itemAtIndex:4].title
+                        isEqualToString:@"COMPOSITE RING"];
+                if (geometryModesAvailable) {
+                    for (NSInteger mode = 1; mode < 5; ++mode) {
+                        [geometryMode selectItemAtIndex:mode];
+                        [geometryMode sendAction:geometryMode.action
+                            to:geometryMode.target];
+                    }
+                    // Leave the animated phase view active for optional
+                    // documentation capture later in this smoke run.
+                    [geometryMode selectItemAtIndex:2u];
+                    [geometryMode sendAction:geometryMode.action
+                        to:geometryMode.target];
+                }
+                ok &= expect(geometryModesAvailable
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "Geometry five-view selector is incomplete");
+                ok &= expect(submitCommand(parent, @"play")
+                        && submitCommand(parent, @"stop")
+                        && context.playRequests == 1u
+                        && context.stopRequests == 1u,
+                    "REAPER bridge did not receive console transport requests");
+                const uint32_t dirtyBeforeHistory = context.dirtyMarks;
+                NSView* undoView = findAccessibleView(parent,
+                    @"Undo last Tracker edit");
+                NSView* redoView = findAccessibleView(parent,
+                    @"Redo last Tracker edit");
+                NSButton* undoButton = [undoView isKindOfClass:NSButton.class]
+                    ? static_cast<NSButton*>(undoView) : nil;
+                NSButton* redoButton = [redoView isKindOfClass:NSButton.class]
+                    ? static_cast<NSButton*>(redoView) : nil;
+                const bool editedForOverlap = submitCommand(parent,
+                    @"note 2 1 36");
+                const bool undoAvailable = undoButton.enabled;
+                if (undoAvailable) [undoButton performClick:nil];
+                const bool redoAvailable = redoButton.enabled;
+                if (redoAvailable) [redoButton performClick:nil];
+                ok &= expect(editedForOverlap && undoAvailable
+                        && redoAvailable && undoButton.enabled
+                        && context.dirtyMarks >= dirtyBeforeHistory + 3u,
+                    "Tracker project undo/redo did not restore a persistent edit");
+                NSView* stepModeView = findAccessibleView(parent,
+                    @"MIDI step recording mode");
+                NSPopUpButton* stepMode =
+                    [stepModeView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(stepModeView) : nil;
+                const bool stepModeAvailable = stepMode.numberOfItems == 3u
+                    && [stepMode.itemArray[0u].title isEqualToString:@"OFF"]
+                    && [stepMode.itemArray[1u].title isEqualToString:@"GRID"]
+                    && [stepMode.itemArray[2u].title isEqualToString:@"MICRO"];
+                if (stepModeAvailable) {
+                    [stepMode selectItemAtIndex:2u];
+                    [stepMode sendAction:stepMode.action to:stepMode.target];
+                }
+                const bool stepCursorSelected = submitCommand(parent,
+                    @"select 1 5");
+                bool stepRecordProcessing = plugin->activate(
+                        plugin, 48000.0, 16u, 32768u)
+                    && plugin->start_processing(plugin);
+                if (stepRecordProcessing) {
+                    clap_event_transport_t stepTransport {};
+                    stepTransport.header.size = sizeof(stepTransport);
+                    stepTransport.header.space_id =
+                        CLAP_CORE_EVENT_SPACE_ID;
+                    stepTransport.header.type = CLAP_EVENT_TRANSPORT;
+                    stepTransport.flags = CLAP_TRANSPORT_HAS_TEMPO
+                        | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+                        | CLAP_TRANSPORT_IS_PLAYING;
+                    stepTransport.tempo = 120.0;
+                    InputEvents stepInput;
+                    stepInput.addMidi(600u, 0x96u, 67u, 101u);
+                    OutputEvents stepOutput;
+                    clap_process_t stepProcess {};
+                    stepProcess.frames_count = 2048u;
+                    stepProcess.transport = &stepTransport;
+                    stepProcess.in_events = &stepInput.interface;
+                    stepProcess.out_events = &stepOutput.interface;
+                    stepRecordProcessing = plugin->process(plugin,
+                        &stepProcess) == CLAP_PROCESS_CONTINUE;
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.08]];
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                }
+                NSView* consoleMessages = findAccessibleView(parent,
+                    @"Console printed messages");
+                const bool stepRecorded =
+                    [consoleMessages isKindOfClass:NSTextView.class]
+                    && [static_cast<NSTextView*>(consoleMessages).string
+                        containsString:@"STEP REC CH7 note 67 → lane 1, row 5, MT 75%"];
+                ok &= expect(stepModeAvailable && stepCursorSelected
+                        && stepRecordProcessing && stepRecorded,
+                    "MICRO step record did not capture host MIDI timing into the cursor row");
+
+                ok &= expect(clickButton(parent, nil, @"SONG page", nil),
+                    "Song page could not be selected for file-menu audit");
+                [parent layoutSubtreeIfNeeded];
+                [parent displayIfNeeded];
+                NSView* projectFileView = findAccessibleView(parent,
+                    @"Song and pattern project file");
+                NSView* songPatternView = findAccessibleView(parent,
+                    @"Song row 1 pattern");
+                NSPopUpButton* projectFileMenu =
+                    [projectFileView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(projectFileView) : nil;
+                NSPopUpButton* songPatternMenu =
+                    [songPatternView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(songPatternView) : nil;
+                ok &= expect(projectFileMenu.numberOfItems == 3u
+                        && [[projectFileMenu itemAtIndex:1].title
+                            isEqualToString:@"SAVE SONG + PATTERNS…"]
+                        && [[projectFileMenu itemAtIndex:2].title
+                            isEqualToString:@"LOAD SONG + PATTERNS…"]
+                        && songPatternMenu.numberOfItems > 0u
+                        && [songPatternMenu.itemArray.firstObject.title
+                            containsString:@"A01"]
+                        && [[[songPatternMenu itemAtIndex:0] representedObject]
+                            isEqualToString:@"A01"]
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "Song file menu or named stable-ID pattern selector is incomplete");
+                hostWindow = [[NSWindow alloc] initWithContentRect:
+                    parent.frame
+                    styleMask:(NSWindowStyleMaskTitled
+                        | NSWindowStyleMaskClosable
+                        | NSWindowStyleMaskResizable)
+                    backing:NSBackingStoreBuffered defer:NO];
+                hostWindow.title = @"s3g Tracker smoke host";
+                hostWindow.releasedWhenClosed = NO;
+                hostWindow.contentView = parent;
+                [hostWindow orderFront:nil];
+                const bool consoleSelected = clickButton(parent, nil,
+                    @"CONSOLE page", nil);
+                [parent layoutSubtreeIfNeeded];
+                NSView* consoleLiveCode = findAccessibleView(parent,
+                    @"Console live command input");
+                bool consoleCommandWorked = false;
+                if ([consoleLiveCode isKindOfClass:NSTextField.class]) {
+                    NSTextField* field = static_cast<NSTextField*>(
+                        consoleLiveCode);
+                    field.stringValue = @"aliases";
+                    consoleCommandWorked = [field sendAction:field.action
+                        to:field.target];
+                }
+                const bool consoleDetached = clickButton(parent, nil,
+                    @"Detach selected tool page", nil);
+                NSWindow* detachedConsole = visibleWindow(
+                    @"s3g Tracker — Console");
+                ok &= expect(consoleSelected && consoleCommandWorked
+                        && consoleDetached && detachedConsole != nil
+                        && detachedConsole.parentWindow == hostWindow
+                        && detachedConsole.level > hostWindow.level
+                        && detachedConsole.hidesOnDeactivate
+                        && findAccessibleView(detachedConsole.contentView,
+                            @"Console live command input") != nil,
+                    "detached Console did not remain above its plug-in window");
+                [detachedConsole close];
+                ok &= expect(visibleWindow(@"s3g Tracker — Console") == nil
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "detached Console could not return to the plug-in page");
+                const bool helpSelected = clickButton(
+                    parent, nil, @"HELP page", nil);
+                [parent layoutSubtreeIfNeeded];
+                NSView* helpTextView = findAccessibleView(parent,
+                    @"All console commands, grouped by function");
+                BOOL neutralExampleHeading = NO;
+                BOOL helpDocumentsCompactSymbols = NO;
+                if ([helpTextView isKindOfClass:NSTextView.class]) {
+                    NSTextStorage* storage =
+                        static_cast<NSTextView*>(helpTextView).textStorage;
+                    helpDocumentsCompactSymbols =
+                        [storage.string containsString:
+                            @"COMPACT SYMBOL REFERENCE"]
+                        && [storage.string containsString:
+                            @"! = 1.00, + = 0.85"]
+                        && [storage.string containsString:
+                            @"A standalone - always means no authored event"]
+                        && [storage.string containsString:
+                            @"? is reserved for Help"]
+                        && [storage.string containsString:
+                            @"QUICK ENTRY  NOTE X toggles"];
+                    const NSRange exampleRange = [storage.string
+                        rangeOfString:@"EXAMPLE  "];
+                    if (exampleRange.location != NSNotFound
+                        && NSMaxRange(exampleRange) < storage.length) {
+                        NSColor* headingColor = [storage attribute:
+                            NSForegroundColorAttributeName
+                            atIndex:exampleRange.location
+                            effectiveRange:nullptr];
+                        NSColor* commandColor = [storage attribute:
+                            NSForegroundColorAttributeName
+                            atIndex:NSMaxRange(exampleRange)
+                            effectiveRange:nullptr];
+                        neutralExampleHeading = headingColor && commandColor
+                            && ![headingColor isEqual:commandColor];
+                    }
+                }
+                ok &= expect(helpSelected && neutralExampleHeading
+                        && helpDocumentsCompactSymbols
+                        && clickButton(parent, nil,
+                            @"Detach selected tool page", nil),
+                    "Help symbol reference, example styling, or detach action is incomplete");
+                NSWindow* detachedHelp = visibleWindow(
+                    @"s3g Tracker — Help");
+                ok &= expect(detachedHelp != nil
+                        && detachedHelp.parentWindow == hostWindow
+                        && detachedHelp.level > hostWindow.level
+                        && detachedHelp.hidesOnDeactivate,
+                    "detached Help did not remain above its plug-in window");
+                [detachedHelp close];
+                ok &= expect(visibleWindow(@"s3g Tracker — Help") == nil
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "detached Help window could not be reattached");
                 const char* captureDirectory = std::getenv(
                     "S3G_GUI_SMOKE_PDF_DIR");
                 NSString* directory = captureDirectory && captureDirectory[0]
@@ -440,15 +806,71 @@ int main(int argc, char** argv)
                     "full tracker workspace hide failed");
             }
             gui->destroy(plugin);
+            [hostWindow close];
         }
     }
 #endif
     StateBuffer stateBuffer;
     ok &= expect(state && state->save(plugin, &stateBuffer.output)
         && !stateBuffer.bytes.empty()
-        && stateBuffer.bytes.front() == static_cast<uint8_t>('{')
-        && state->load(plugin, &stateBuffer.input),
-        "native tracker project JSON did not round-trip");
+        && stateBuffer.bytes.front() == static_cast<uint8_t>('{'),
+        "native tracker project JSON did not save");
+    std::string legacyJson(stateBuffer.bytes.begin(),
+        stateBuffer.bytes.end());
+    const std::string initialKey = "\"initialInstrumentNode\": ";
+    const auto initialKeyAt = legacyJson.find(initialKey);
+    const auto initialValueAt = initialKeyAt == std::string::npos
+        ? std::string::npos : initialKeyAt + initialKey.size();
+    const auto initialValueEnd = initialValueAt == std::string::npos
+        ? std::string::npos
+        : legacyJson.find_first_not_of("0123456789", initialValueAt);
+    const auto activeKeyAt = legacyJson.find("\"activeNodes\": [");
+    const auto activeValueAt = activeKeyAt == std::string::npos
+        ? std::string::npos
+        : legacyJson.find_first_of("0123456789", activeKeyAt);
+    const auto activeValueEnd = activeValueAt == std::string::npos
+        ? std::string::npos
+        : legacyJson.find_first_not_of("0123456789", activeValueAt);
+    const bool legacyStateReady = initialValueAt != std::string::npos
+        && initialValueEnd != std::string::npos
+        && activeValueAt != std::string::npos
+        && activeValueEnd != std::string::npos;
+    unsigned long legacyNode = 0u;
+    if (legacyStateReady) {
+        const unsigned long firstMidiNode = std::strtoul(
+            legacyJson.c_str() + initialValueAt, nullptr, 10);
+        legacyNode = firstMidiNode + 5u;
+        legacyJson.replace(initialValueAt,
+            initialValueEnd - initialValueAt, std::to_string(legacyNode));
+        const auto shiftedActiveValueEnd = legacyJson.find_first_not_of(
+            "0123456789", legacyJson.find_first_of(
+                "0123456789", legacyJson.find("\"activeNodes\": [")));
+        legacyJson.insert(shiftedActiveValueEnd,
+            ",\n      " + std::to_string(legacyNode));
+    }
+    StateBuffer legacyState;
+    legacyState.bytes.assign(legacyJson.begin(), legacyJson.end());
+    ok &= expect(legacyStateReady
+            && state->load(plugin, &legacyState.input),
+        "legacy multi-port tracker project did not load");
+    StateBuffer normalizedState;
+    const bool normalizedSaved = state->save(plugin, &normalizedState.output);
+    const std::string normalizedJson(normalizedState.bytes.begin(),
+        normalizedState.bytes.end());
+    const auto normalizedActiveAt = normalizedJson.find("\"activeNodes\": [");
+    const auto normalizedActiveEnd = normalizedActiveAt == std::string::npos
+        ? std::string::npos : normalizedJson.find(']', normalizedActiveAt);
+    const std::string normalizedActiveNodes = normalizedActiveAt
+            != std::string::npos && normalizedActiveEnd != std::string::npos
+        ? normalizedJson.substr(normalizedActiveAt,
+            normalizedActiveEnd - normalizedActiveAt)
+        : std::string {};
+    ok &= expect(normalizedSaved
+            && normalizedJson.find(initialKey + std::to_string(legacyNode))
+                == std::string::npos
+            && normalizedActiveNodes.find(std::to_string(legacyNode))
+                == std::string::npos,
+        "obsolete MIDI bus assignments did not collapse onto the single port");
     ok &= expect(plugin && plugin->activate(plugin, 48000.0, 16u, 32768u)
         && plugin->start_processing(plugin), "activation failed");
 
@@ -465,7 +887,9 @@ int main(int argc, char** argv)
     OutputEvents output;
     clap_process_t process {};
     process.steady_time = 0;
-    process.frames_count = 12000u;
+    // Keep the first block shorter than the default 90 ms gate so the
+    // following block can prove that only the replacement note owns it.
+    process.frames_count = 2048u;
     process.transport = &transport;
     process.out_events = &output.interface;
     ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
@@ -476,11 +900,55 @@ int main(int argc, char** argv)
             <= output.events[index].header.time,
             "output MIDI is not sample sorted");
     }
+    for (uint32_t index = 0u; index < output.count; ++index) {
+        ok &= expect(output.events[index].port_index == 0u,
+            "output MIDI escaped the single declared note port");
+    }
     ok &= expect(output.count > 0u
-        && output.events[0].header.time == 0u
+        && output.events[0].header.time < process.frames_count
         && (output.events[0].data[0] & 0xf0u) == 0x90u
         && (output.events[0].data[0] & 0x0fu) == 9u,
-        "first event should be a channel-10 note-on at sample zero");
+        "first event should be a sample-aligned channel-10 note-on");
+    const uint32_t replacementOnset = output.count > 0u
+        ? output.events[0].header.time : 0u;
+    const bool latestNoteWins = output.count >= 3u
+        && output.events[0].header.time == replacementOnset
+        && output.events[1].header.time == replacementOnset
+        && output.events[2].header.time == replacementOnset
+        && (output.events[0].data[0] & 0xf0u) == 0x90u
+        && (output.events[1].data[0] & 0xf0u) == 0x80u
+        && (output.events[2].data[0] & 0xf0u) == 0x90u
+        && output.events[0].data[1] == 36u
+        && output.events[1].data[1] == 36u
+        && output.events[2].data[1] == 36u;
+    if (!latestNoteWins) {
+        std::fprintf(stderr, "tracker CLAP overlap events:");
+        for (uint32_t index = 0u; index < output.count; ++index) {
+            std::fprintf(stderr, " [%u:%02x:%u]",
+                output.events[index].header.time,
+                output.events[index].data[0],
+                output.events[index].data[1]);
+        }
+        std::fputc('\n', stderr);
+    }
+    ok &= expect(latestNoteWins,
+        "same-channel same-pitch overlap did not follow latest-note-wins retrigger policy");
+
+    output.count = 0u;
+    process.steady_time += process.frames_count;
+    transport.song_pos_beats = static_cast<int64_t>(CLAP_BEATTIME_FACTOR)
+        * 2048 / 24000;
+    process.frames_count = 4096u;
+    ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+        "overlap gate process failed");
+    uint32_t replacementGateOffs = 0u;
+    for (uint32_t index = 0u; index < output.count; ++index) {
+        if ((output.events[index].data[0] & 0xf0u) == 0x80u
+            && output.events[index].data[1] == 36u)
+            ++replacementGateOffs;
+    }
+    ok &= expect(replacementGateOffs == 1u,
+        "a superseded same-pitch gate cut or duplicated the replacement note-off");
 
     output.count = 0u;
     transport.flags &= ~CLAP_TRANSPORT_IS_PLAYING;
@@ -492,8 +960,46 @@ int main(int argc, char** argv)
     if (plugin) {
         plugin->stop_processing(plugin);
         plugin->deactivate(plugin);
+        const bool largeBlockActive = plugin->activate(
+                plugin, 48000.0, 16u, 32768u)
+            && plugin->start_processing(plugin);
+        uint32_t sameBlockPitch36Offs = 0u;
+        if (largeBlockActive) {
+            output.count = 0u;
+            transport.flags |= CLAP_TRANSPORT_IS_PLAYING;
+            transport.song_pos_beats = 0;
+            process.steady_time = 0;
+            process.frames_count = 12000u;
+            process.in_events = nullptr;
+            ok &= expect(plugin->process(plugin, &process)
+                    == CLAP_PROCESS_CONTINUE,
+                "large-block gate process failed");
+            const uint32_t largeBlockOnset = output.count > 0u
+                ? output.events[0u].header.time : 0u;
+            for (uint32_t index = 0u; index < output.count; ++index) {
+                if (output.events[index].header.time > largeBlockOnset
+                    && (output.events[index].data[0] & 0xf0u) == 0x80u
+                    && output.events[index].data[1] == 36u)
+                    ++sameBlockPitch36Offs;
+            }
+            plugin->stop_processing(plugin);
+            plugin->deactivate(plugin);
+        }
+        if (!largeBlockActive || sameBlockPitch36Offs != 1u) {
+            std::fprintf(stderr, "tracker CLAP large-block events:");
+            for (uint32_t index = 0u; index < output.count; ++index) {
+                std::fprintf(stderr, " [%u:%02x:%u]",
+                    output.events[index].header.time,
+                    output.events[index].data[0],
+                    output.events[index].data[1]);
+            }
+            std::fputc('\n', stderr);
+        }
+        ok &= expect(largeBlockActive && sameBlockPitch36Offs == 1u,
+            "a gate beginning and ending inside one host block was not released exactly once");
         plugin->destroy(plugin);
     }
+    activeReaperHost = nullptr;
     if (entry) entry->deinit();
     if (library) dlclose(library);
     if (!ok) return 1;

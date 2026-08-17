@@ -89,6 +89,25 @@ NSAttributedString* helpDocument()
                 initWithString:[stringFromView(visibleDescription)
                     stringByAppendingString:@"\n"]
                 attributes:descriptionAttributes]];
+
+            NSDictionary* exampleLabelAttributes = @{
+                NSFontAttributeName: helpFont(10.5, NSFontWeightMedium),
+                NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
+                NSParagraphStyleAttributeName: paragraph(0.0, 6.0, 2.5),
+            };
+            NSDictionary* exampleCommandAttributes = @{
+                NSFontAttributeName: helpFont(10.5, NSFontWeightMedium),
+                NSForegroundColorAttributeName: S3GTrackerThemeColor(
+                    S3GTrackerThemeRole::Live),
+                NSParagraphStyleAttributeName: paragraph(0.0, 6.0, 2.5),
+            };
+            [document appendAttributedString:[[NSAttributedString alloc]
+                initWithString:@"EXAMPLE  "
+                attributes:exampleLabelAttributes]];
+            [document appendAttributedString:[[NSAttributedString alloc]
+                initWithString:[stringFromView(entry.example)
+                    stringByAppendingString:@"\n"]
+                attributes:exampleCommandAttributes]];
         }
     }
 
@@ -125,7 +144,30 @@ NSAttributedString* helpDocument()
         NSParagraphStyleAttributeName: paragraph(17.0, 8.0, 2.0),
     };
     [document appendAttributedString:[[NSAttributedString alloc]
-        initWithString:@"COLUMNS  NOTE · VOL · SEQ1 · V1 · SEQ2 · V2 are visible together · Double-click a column header to enter its independent length\nSEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action, or double-click and type its code\nROUTING  Click B01–B08 or CH01–CH16 in any lane header to set that track's MIDI bus and channel · Double-click the lane name to rename it\nVALUES  VOL and ordinary sequence values use normalized 0.000–1.000 · WRP uses library index 01–64\nWARPS  Compose EXP/STEP/EUCLID serially · SAVE/RECALL named project slots · WRP switches a slot at a row boundary\nDIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (?)\n\nTRANSPORT  Tempo follows REAPER · RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4× · Space play/pause · Shift-Space loop\nTRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\nTRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-=/−/0 zoom\nHOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\nNAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\nLOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\nTOOLS  Geometry, Warps, and Console can be detached with ↗ or by double-clicking their page tab\n\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
+        initWithString:
+            @"COLUMNS  Compact lanes show NOTE · VOL · EXPAND SEQ reveals SEQ1 · V1 · SEQ2 · V2 · Double-click a column length to edit it\n"
+            @"NOTE VIEW  NOTE: NAME shows pitches such as C-4 · NOTE: MIDI shows the same stored pitch as decimal value 60\n"
+            @"CELL TEXT  NOTE --- rest · RPT retrigger previous · KIL kill active note · VOL DEF default · VOL/SEQ PRV previous\n"
+            @"SEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action, or double-click and type its code\n"
+            @"ROUTING  Tracker exposes one CLAP MIDI output plus one step-record input · Click CH01–CH16 in a lane header to set that track's output channel · Use another Tracker instance for more than 16 destinations · Double-click the lane name to rename it\n"
+            @"STEP RECORD  OFF disarms · GRID writes note/velocity at the cursor and clears MT there · MICRO measures against the nearest tracker tick and writes MT into an available SEQ pair · Each onset advances one row\n"
+            @"ALIASES  alias name 3 assigns or reassigns @name to lane 3 · @name queries it · aliases lists the active pattern's bindings\n"
+            @"HISTORY  UNDO/REDO buttons or undo/redo commands restore persistent Tracker states · Control-Z undo · Control-Shift-Z redo · Command-Z remains REAPER's\n"
+            @"VALUES  VOL and ordinary sequence values use normalized 0.000–1.000 · WRP uses library index 01–64\n"
+            @"WARPS  Compose EXP/STEP/EUCLID serially · SAVE/RECALL named project slots · WRP switches a slot at a row boundary\n"
+            @"DIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (write random; header displays RND) · ? opens Help\n"
+            @"\nTRANSPORT  Tempo follows REAPER · RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4× · Space play/pause · Shift-Space loop · SYNC ALL forces every lane and column to row 1 without moving REAPER and ignores phase for that launch\n"
+            @"SONG QUEUE  Select a target row · Choose NEXT TICK/BEAT/CYCLE/SONG ROW · QUEUE SELECTED · The pending row and boundary appear in yellow\n"
+            @"SONG FILE  SAVE/LOAD SONG + PATTERNS uses a complete validated .s3gt project file\n"
+            @"GEOMETRY VIEW  ACTIVE PULSES original · ALL STEPS reference · PHASE SPOKES live position · LANE FOCUS selected lane · COMPOSITE RING normalized cycle · Pattern NOTE mutes and active Song-row lane mutes are omitted\n"
+            @"TRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\n"
+            @"QUICK ENTRY  NOTE X toggles an anchored hit · R writes RPT · K writes KIL · Delete clears · [ and ] adjust VOL/V values · M toggles the selected column mute\n"
+            @"TRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-Z/Shift-Z undo/redo · Control-=/−/0 zoom\n"
+            @"HOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\n"
+            @"NAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\n"
+            @"LOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\n"
+            @"TOOLS  Geometry, Warps, Console, and Help can be detached with ↗ or by double-clicking their page tab · Detached Console retains its own Live Code line\n"
+            @"\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
         attributes:footerAttributes]];
     return document;
 }

@@ -1,6 +1,7 @@
 #include "s3g/tracker/atomic_project_store.h"
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/project_codec.h"
+#include "s3g/tracker/project_history.h"
 
 #include <array>
 #include <cmath>
@@ -501,6 +502,46 @@ void testAtomicStorePublishesCompleteReplacement()
     ::rmdir(directory.c_str());
 }
 
+void testBoundedProjectUndoRedo()
+{
+    auto document = makeDocument();
+    ProjectHistory history;
+    check(history.reset(document).ok()
+            && !history.canUndo() && !history.canRedo(),
+        "project history should seed without manufacturing an undo step");
+
+    activePattern(document).name = "FIRST EDIT";
+    bool changed = false;
+    check(history.record(document, &changed).ok() && changed
+            && history.canUndo() && !history.canRedo(),
+        "a persistent document edit should create one undo snapshot");
+    check(history.record(document, &changed).ok() && !changed
+            && history.undoCount() == 1u,
+        "publishing identical project state should not duplicate history");
+
+    activePattern(document).name = "SECOND EDIT";
+    check(history.record(document).ok() && history.undoCount() == 2u,
+        "successive edits should remain independently undoable");
+    ProjectDocument restored;
+    check(history.undo(restored).ok()
+            && activePattern(restored).name == "FIRST EDIT"
+            && history.canRedo(),
+        "undo should restore the exact preceding native project");
+    check(history.undo(restored).ok()
+            && activePattern(restored).name == "Native Pattern α"
+            && !history.canUndo(),
+        "a second undo should restore the seeded project");
+    check(history.redo(restored).ok()
+            && activePattern(restored).name == "FIRST EDIT",
+        "redo should restore the next project snapshot");
+
+    activePattern(restored).name = "BRANCH EDIT";
+    check(history.record(restored).ok() && !history.canRedo(),
+        "a new edit after undo should discard the abandoned redo branch");
+    check(!history.redo(restored).ok(),
+        "redo should report an empty branch without mutating the project");
+}
+
 } // namespace
 
 int main()
@@ -511,6 +552,7 @@ int main()
     testUnknownFieldsAreSafelyIgnored();
     testStrictTransactionalRejection();
     testAtomicStorePublishesCompleteReplacement();
+    testBoundedProjectUndoRedo();
     if (failures != 0) {
         std::cerr << failures << " project codec test(s) failed\n";
         return 1;
