@@ -598,7 +598,6 @@ void Sequencer::reset()
     droppedEventCount_ = 0u;
     nextNoteId_ = 1u;
     pendingBoundaryReleaseCount_ = 0u;
-    timingWarpRecallPending_ = false;
     if (preparedPatterns_.empty()) {
         playback_.assign(pattern_.tracks.size(), {});
     } else {
@@ -1161,13 +1160,6 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             case SequencerAction::Euclid:
                 noteFx.euclidEnabled = true;
                 noteFx.euclideanDensity = value;
-                break;
-            case SequencerAction::WarpRecall:
-                // Track order, then FX-pair order, is deterministic. If more
-                // than one WRP executes on a tick, the last request wins.
-                timingWarpRecallIndex_
-                    = timingWarpLibraryIndexFromNormalized(value);
-                timingWarpRecallPending_ = true;
                 break;
             default:
                 break;

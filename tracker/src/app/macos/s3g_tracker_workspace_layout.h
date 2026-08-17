@@ -11,6 +11,12 @@ inline constexpr double kWorkspaceMinimumContentWidth = 760.0;
 inline constexpr double kWorkspaceMinimumContentHeight = 560.0;
 inline constexpr double kWorkspaceToolbarHeight = 92.0;
 inline constexpr double kWorkspaceConsoleInputHeight = 44.0;
+inline constexpr double kTrackerGridHeaderHeight = 86.0;
+inline constexpr double kTrackerGridRowHeight = 25.0;
+// The native CLAP page loses 40 points to its page selector. A slightly
+// denser logical 100% keeps the first 16 tracker rows fully visible without
+// increasing the host window or changing the authored row geometry.
+inline constexpr double kTrackerDefaultMagnification = 0.95;
 inline constexpr double kTrackerRowNumberWidth = 34.0;
 inline constexpr double kTrackerLaneInnerPadding = 3.0;
 inline constexpr double kTrackerLaneExpandedWidth = 360.0;

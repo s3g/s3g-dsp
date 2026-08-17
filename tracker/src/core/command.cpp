@@ -531,12 +531,89 @@ std::string laneLabel(const TrackerSession& session, std::size_t lane)
 std::string aliasesText(const TrackerSession& session)
 {
     if (session.aliases.empty())
-        return "No aliases. Use kit superior compact or alias <name> <lane>.";
+        return "No aliases. Use autoalias, kit, or alias <name> <lane>.";
+    std::vector<std::vector<std::string>> aliasesByLane(
+        session.pattern.tracks.size());
+    for (const auto& [name, lane] : session.aliases) {
+        if (lane < aliasesByLane.size())
+            aliasesByLane[lane].push_back(name);
+    }
     std::ostringstream stream;
-    stream << "Aliases:";
-    for (const auto& [name, lane] : session.aliases)
-        stream << " @" << name << " -> " << (lane + 1u);
+    stream << "Aliases by lane:";
+    for (std::size_t lane = 0u; lane < aliasesByLane.size(); ++lane) {
+        if (aliasesByLane[lane].empty()) continue;
+        stream << "\n  Lane " << (lane + 1u);
+        const auto& name = session.pattern.tracks[lane].name;
+        if (!name.empty()) stream << " (" << name << ')';
+        stream << ':';
+        for (const auto& alias : aliasesByLane[lane])
+            stream << " @" << alias;
+    }
     return stream.str();
+}
+
+std::string automaticAliasStem(std::string_view laneName,
+    std::size_t lane)
+{
+    constexpr std::size_t kMaximumAliasBytes = 64u;
+    std::string stem;
+    stem.reserve(std::min(laneName.size(), kMaximumAliasBytes));
+    bool started = false;
+    for (char value : laneName) {
+        const bool letter = (value >= 'a' && value <= 'z')
+            || (value >= 'A' && value <= 'Z');
+        const bool digit = value >= '0' && value <= '9';
+        if (!started && !letter) continue;
+        if (!letter && !digit) continue;
+        started = true;
+        if (value >= 'A' && value <= 'Z')
+            value = static_cast<char>(value - 'A' + 'a');
+        stem.push_back(value);
+        if (stem.size() == kMaximumAliasBytes) break;
+    }
+    if (!stem.empty()) return stem;
+    return "lane" + std::to_string(lane + 1u);
+}
+
+std::map<std::string, std::size_t> automaticAliases(
+    const TrackerSession& session)
+{
+    constexpr std::size_t kMaximumAliasBytes = 64u;
+    std::map<std::string, std::size_t> aliases;
+    std::vector<std::string> used;
+    used.reserve(session.pattern.tracks.size());
+    for (std::size_t lane = 0u; lane < session.pattern.tracks.size(); ++lane) {
+        const bool named = std::any_of(
+            session.pattern.tracks[lane].name.begin(),
+            session.pattern.tracks[lane].name.end(), [](char value) {
+                return (value >= 'a' && value <= 'z')
+                    || (value >= 'A' && value <= 'Z');
+            });
+        const std::string stem = automaticAliasStem(
+            session.pattern.tracks[lane].name, lane);
+        std::string alias;
+        if (!named) {
+            alias = stem;
+        } else {
+            for (std::size_t length = 1u; length <= stem.size(); ++length) {
+                const std::string candidate = stem.substr(0u, length);
+                if (std::find(used.begin(), used.end(), candidate)
+                        == used.end()) {
+                    alias = candidate;
+                    break;
+                }
+            }
+        }
+        if (alias.empty()
+            || std::find(used.begin(), used.end(), alias) != used.end()) {
+            const std::string suffix = std::to_string(lane + 1u);
+            alias = stem.substr(0u, kMaximumAliasBytes - suffix.size())
+                + suffix;
+        }
+        used.push_back(alias);
+        aliases.emplace(std::move(alias), lane);
+    }
+    return aliases;
 }
 
 bool parseColumnTarget(std::string_view token, ColumnTarget& field)
@@ -2000,6 +2077,17 @@ CommandResult executeTokens(TrackerSession& session,
             + laneLabel(session, lane) + '.',
             CommandEffect::ProjectChanged);
     }
+    if (verb == "autoalias") {
+        if (tokens.size() != 1u) return failure("Usage: autoalias");
+        if (session.pattern.tracks.empty())
+            return failure("Autoalias requires at least one lane.");
+        auto generated = automaticAliases(session);
+        const bool changed = generated != session.aliases;
+        session.aliases = std::move(generated);
+        return success(std::string(changed ? "Generated" : "Retained")
+                + " automatic aliases.\n" + aliasesText(session),
+            changed ? CommandEffect::ProjectChanged : CommandEffect::None);
+    }
     if (verb == "kit") {
         if (tokens.size() != 2u && tokens.size() != 3u)
             return failure("Usage: kit [gm|superior] <compact|basic|toms>");
@@ -2305,7 +2393,8 @@ CommandResult executeTokens(TrackerSession& session,
                 return failure("Warp name is too long or the live cycle is outside 1..16 ticks.");
             return success("Saved current composition to warp "
                     + std::to_string(index + 1u) + " · " + name + '.',
-                CommandEffect::ProjectChanged);
+                CommandEffect::ProjectChanged
+                    | CommandEffect::TransportChanged);
         }
         if (operation == "load" || operation == "recall"
             || operation == "use") {
@@ -2333,7 +2422,8 @@ CommandResult executeTokens(TrackerSession& session,
                 return failure("Warp library slot "
                     + std::to_string(index + 1u) + " is already empty.");
             return success("Deleted warp " + std::to_string(index + 1u)
-                    + '.', CommandEffect::ProjectChanged);
+                    + '.', CommandEffect::ProjectChanged
+                        | CommandEffect::TransportChanged);
         }
         if (operation == "rename") {
             std::size_t index = 0u;
@@ -2536,28 +2626,6 @@ CommandResult executeTokens(TrackerSession& session,
             SequencerAction::Probability, tokens[3], "probability");
     }
 
-    if (verb == "wrp" || verb == "warprecall") {
-        if (tokens.size() != 4u)
-            return failure("Usage: wrp|warprecall <target> <row> <1..64|clear>");
-        std::size_t lane = 0u;
-        std::size_t row = 0u;
-        std::string error;
-        if (!parseLane(session, tokens[1], lane, error))
-            return failure(std::move(error));
-        if (!parseRow(tokens[2], row, error))
-            return failure(std::move(error));
-        if (asciiLower(tokens[3]) == "clear")
-            return writeSequencerFxCell(session, lane, row,
-                SequencerAction::WarpRecall, "clear", "warp recall");
-        std::size_t warpIndex = 0u;
-        if (!parseWarpLibraryIndex(tokens[3], warpIndex))
-            return failure("Warp recall index must be between 1 and 64.");
-        return writeSequencerFxCell(session, lane, row,
-            SequencerAction::WarpRecall,
-            std::to_string(timingWarpLibraryNormalizedFromIndex(warpIndex)),
-            "warp recall");
-    }
-
     if (verb == "ratchet" || verb == "retrig" || verb == "retrigger"
         || verb == "microtime" || verb == "micro" || verb == "delay"
         || verb == "flam" || verb == "stutter" || verb == "skip"
@@ -2625,12 +2693,7 @@ CommandResult executeTokens(TrackerSession& session,
             if (!timingAction)
                 return failure("Unknown sequencing action; use actions to list codes.");
             double value = 0.0;
-            if (timingAction->action == SequencerAction::WarpRecall) {
-                std::size_t warpIndex = 0u;
-                if (!parseWarpLibraryIndex(tokens[5], warpIndex))
-                    return failure("WRP values are warp library indices 1..64.");
-                value = timingWarpLibraryNormalizedFromIndex(warpIndex);
-            } else if (!parseFiniteDouble(tokens[5], value)
+            if (!parseFiniteDouble(tokens[5], value)
                 || value < 0.0 || value > 1.0) {
                 return failure("FX values must be normalized between 0 and 1.");
             }
@@ -2655,7 +2718,7 @@ CommandResult executeTokens(TrackerSession& session,
 
     if (verb == "fxvalue" || verb == "fxv") {
         if (tokens.size() != 5u)
-            return failure("Usage: fxvalue <lane|@alias> <pair> <row> <0..1|WRP index 1..64|previous>");
+            return failure("Usage: fxvalue <lane|@alias> <pair> <row> <0..1|previous>");
         std::size_t lane = 0u;
         std::size_t pair = 0u;
         std::size_t row = 0u;
@@ -2674,16 +2737,7 @@ CommandResult executeTokens(TrackerSession& session,
             target.values[row] = FxValueCell::previous();
         } else {
             double value = 0.0;
-            const bool warpIndex = row < target.actions.size()
-                && target.actions[row].state == FxActionCellState::Sequencer
-                && target.actions[row].sequencerAction
-                    == SequencerAction::WarpRecall;
-            if (warpIndex) {
-                std::size_t index = 0u;
-                if (!parseWarpLibraryIndex(tokens[4], index))
-                    return failure("WRP values are warp library indices 1..64.");
-                value = timingWarpLibraryNormalizedFromIndex(index);
-            } else if (!parseFiniteDouble(tokens[4], value)
+            if (!parseFiniteDouble(tokens[4], value)
                 || value < 0.0 || value > 1.0) {
                 return failure("FX values must be normalized between 0 and 1.");
             }
@@ -3432,8 +3486,9 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
         } },
         { "KITS, TARGETS & SELECTION", {
             { "kit [gm|superior] <compact|basic|toms>", "Configure a named drum map, template, and aliases.", "kit", "kit superior compact" },
-            { "aliases", "List every current @alias binding.", "aliases", "aliases" },
+            { "aliases", "List current @aliases grouped in lane order.", "aliases", "aliases" },
             { "alias <name> <lane|@alias>", "Bind or reassign a case-insensitive alias.", "alias", "alias hats 3" },
+            { "autoalias", "Replace the alias map with the shortest available prefix of each lane name.", "autoalias", "autoalias" },
             { "@name", "Show the lane currently bound to an alias; use the alias command to assign or reassign it.", "@", "@kick" },
             { "select [lane] <lane|@alias> [row]", "Move tracker selection; lane and row are one-based.", "select", "select @kick 5" },
             { "name <lane|@alias> <words...>", "Rename a lane.", "name", "name @kick DEEP KICK" },
@@ -3482,14 +3537,13 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
         { "SEQUENCING COLUMNS", {
             { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx", "fx @kick 1 1 previous" },
-            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior; values are normalized except WRP, which accepts 1..64.", "", "fx @kick 1 5 pr 0.65" },
-            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value; WRP rows accept library index 1..64.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
+            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior with a normalized value.", "", "fx @kick 1 5 pr 0.65" },
+            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired normalized value.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
             { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; see Compact Symbol Reference for every value, previous, and empty mark.", "fx1 f1 fx2 f2", "fx1 @kick pr !.=-" },
             { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability", "prob @kick 5 25%" },
             { "ratchet|retrig|retrigger <target> <row> <amount|clear>", "Write or clear a ratchet action in the first available FX pair.", "ratchet retrig retrigger", "ratchet @kick 6 0.5" },
             { "microtime|micro|delay|flam|stutter <target> <row> <amount|clear>", "Write or clear a timing action.", "microtime micro delay flam stutter", "microtime @kick 7 0.25" },
             { "skip|offset|repeatprev|accent|ghost|euclidfx <target> <row> <amount|clear>", "Write or clear a note-sequencing action.", "skip offset repeatprev accent ghost euclidfx", "skip @kick 8 0.5" },
-            { "wrp|warprecall <target> <row> <1..64|clear>", "Write or clear an indexed timing-warp recall action.", "wrp warprecall", "wrp @kick 9 1" },
         } },
         { "ALIAS-FIRST PERFORMANCE SHORTHAND", {
             { "@alias <x---...> [direction]", "Alias-first mask entry.", "", "@kick x---x--- <>" },

@@ -11,8 +11,9 @@ namespace s3g::tracker {
 
 enum class MidiStepRecordMode : uint8_t {
     Off,
-    Quantized,
-    Unquantized,
+    Step,
+    LiveQuantized,
+    LiveUnquantized,
 };
 
 struct MidiStepCapture {
@@ -21,6 +22,8 @@ struct MidiStepCapture {
     uint8_t velocity = 0u;
     uint8_t channel = 1u;
     MidiStepRecordMode mode = MidiStepRecordMode::Off;
+    std::size_t row = 0u;
+    bool rowKnown = false;
     bool timingKnown = false;
 };
 
@@ -69,10 +72,13 @@ struct MidiStepRecordResult {
     }
 };
 
-// Writes one note and its velocity at the current cursor, then advances one
-// row. Quantized mode removes an authored MT action from that row. Unquantized
-// mode writes MT into an existing MT pair or the first empty SEQ pair. The
-// operation preflights the pair so a full row is left completely unchanged.
+// STEP writes note/velocity at the current cursor and advances one row. LIVE
+// modes wrap the captured host row independently inside the selected NOTE and
+// VOL column lengths without changing those lengths. The cursor follows the
+// written NOTE row but does not auto-advance. Quantized recording removes
+// authored MT at the target row; unquantized live recording writes MT into an
+// existing MT pair or the first empty SEQ pair. The operation preflights the
+// pair so a full row is left completely unchanged.
 MidiStepRecordResult recordMidiStep(TrackerSession& session,
     MidiStepRecordMode mode, const MidiStepCapture& capture,
     double sampleRate);

@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -406,12 +407,55 @@ int main(int argc, char** argv)
         && !notePorts->get(plugin, 1u, false, &outputPort)
         && inputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
         && outputPort.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
-        && std::strcmp(inputPort.name, "Step Record MIDI Input") == 0
+        && std::strcmp(inputPort.name, "MIDI Record Input") == 0
         && std::strcmp(outputPort.name, "Tracker MIDI Output") == 0,
-        "plugin should expose one step-record input and one channel-addressed output");
+        "plugin should expose one record input and one channel-addressed output");
     ok &= expect(plugin && !plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS),
         "tracker should not expose audio ports");
     ok &= expect(state != nullptr, "project state extension is missing");
+    StateBuffer factoryState;
+    const bool factoryStateSaved = state
+        && state->save(plugin, &factoryState.output);
+    const std::string factoryJson(factoryState.bytes.begin(),
+        factoryState.bytes.end());
+    const auto countText = [&factoryJson](std::string_view needle) {
+        std::size_t count = 0u;
+        for (std::size_t at = factoryJson.find(needle);
+             at != std::string::npos;
+             at = factoryJson.find(needle, at + needle.size())) ++count;
+        return count;
+    };
+    const auto defaultsKey = factoryJson.find("\"laneDefaultNotes\"");
+    const auto defaultsBegin = defaultsKey == std::string::npos
+        ? std::string::npos : factoryJson.find('[', defaultsKey);
+    const auto defaultsEnd = defaultsBegin == std::string::npos
+        ? std::string::npos : factoryJson.find(']', defaultsBegin);
+    std::string compactDefaults;
+    if (defaultsEnd != std::string::npos) {
+        for (std::size_t at = defaultsBegin + 1u; at < defaultsEnd; ++at) {
+            const char value = factoryJson[at];
+            if ((value >= '0' && value <= '9') || value == ',')
+                compactDefaults += value;
+        }
+    }
+    ok &= expect(factoryStateSaved
+            && countText("\"midiChannel\": 1") == 4u
+            && compactDefaults == "36,38,41,61"
+            && countText("\"note\": 36") == 4u
+            && countText("\"note\": 38") == 2u
+            && countText("\"note\": 41") == 2u
+            && countText("\"note\": 61") == 8u
+            && factoryJson.find("\"name\": \"FOUR ON THE FLOOR\"")
+                != std::string::npos
+            && factoryJson.find("\"name\": \"Kick\"")
+                != std::string::npos
+            && factoryJson.find("\"name\": \"Snare\"")
+                != std::string::npos
+            && factoryJson.find("\"name\": \"Tom\"")
+                != std::string::npos
+            && factoryJson.find("\"name\": \"Hat\"")
+                != std::string::npos,
+        "fresh Tracker state is not the four-lane Superior Drummer groove");
 #if defined(__APPLE__)
     ok &= expect(gui
         && gui->is_api_supported(plugin, CLAP_WINDOW_API_COCOA, false)
@@ -448,7 +492,7 @@ int main(int argc, char** argv)
                     [routeStatusView isKindOfClass:NSTextField.class]
                         ? static_cast<NSTextField*>(routeStatusView) : nil;
                 ok &= expect([routeStatus.stringValue
-                            containsString:@"1 OUT • 1 STEP IN • CH 1–16"]
+                            containsString:@"1 OUT • 1 REC IN • CH 1–16"]
                         && ![routeStatus.stringValue
                             containsString:@"8 REAPER MIDI BUSES"],
                     "routing status did not reflect the single CLAP MIDI port");
@@ -526,20 +570,22 @@ int main(int argc, char** argv)
                         && context.dirtyMarks >= dirtyBeforeHistory + 3u,
                     "Tracker project undo/redo did not restore a persistent edit");
                 NSView* stepModeView = findAccessibleView(parent,
-                    @"MIDI step recording mode");
+                    @"MIDI recording mode");
                 NSPopUpButton* stepMode =
                     [stepModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(stepModeView) : nil;
-                const bool stepModeAvailable = stepMode.numberOfItems == 3u
+                const bool stepModeAvailable = stepMode.numberOfItems == 4u
                     && [stepMode.itemArray[0u].title isEqualToString:@"OFF"]
-                    && [stepMode.itemArray[1u].title isEqualToString:@"GRID"]
-                    && [stepMode.itemArray[2u].title isEqualToString:@"MICRO"];
+                    && [stepMode.itemArray[1u].title isEqualToString:@"STEP"]
+                    && [stepMode.itemArray[2u].title isEqualToString:@"LIVE Q"]
+                    && [stepMode.itemArray[3u].title isEqualToString:@"LIVE MT"];
                 if (stepModeAvailable) {
-                    [stepMode selectItemAtIndex:2u];
+                    [stepMode selectItemAtIndex:1u];
                     [stepMode sendAction:stepMode.action to:stepMode.target];
                 }
                 const bool stepCursorSelected = submitCommand(parent,
                     @"select 1 5");
+                bool stepMonitorPassed = false;
                 bool stepRecordProcessing = plugin->activate(
                         plugin, 48000.0, 16u, 32768u)
                     && plugin->start_processing(plugin);
@@ -555,6 +601,7 @@ int main(int argc, char** argv)
                     stepTransport.tempo = 120.0;
                     InputEvents stepInput;
                     stepInput.addMidi(600u, 0x96u, 67u, 101u);
+                    stepInput.addMidi(700u, 0x86u, 67u, 0u);
                     OutputEvents stepOutput;
                     clap_process_t stepProcess {};
                     stepProcess.frames_count = 2048u;
@@ -563,6 +610,88 @@ int main(int argc, char** argv)
                     stepProcess.out_events = &stepOutput.interface;
                     stepRecordProcessing = plugin->process(plugin,
                         &stepProcess) == CLAP_PROCESS_CONTINUE;
+                    bool monitoredOn = false;
+                    bool monitoredOff = false;
+                    for (uint32_t index = 0u;
+                         index < stepOutput.count; ++index) {
+                        const auto& event = stepOutput.events[index];
+                        monitoredOn |= event.header.time == 600u
+                            && event.data[0] == 0x90u
+                            && event.data[1] == 67u
+                            && event.data[2] == 101u;
+                        monitoredOff |= event.header.time == 700u
+                            && event.data[0] == 0x80u
+                            && event.data[1] == 67u;
+                    }
+                    stepMonitorPassed = monitoredOn && monitoredOff;
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.08]];
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                }
+                if (stepModeAvailable) {
+                    [stepMode selectItemAtIndex:3u];
+                    [stepMode sendAction:stepMode.action to:stepMode.target];
+                }
+                bool liveMonitorPassed = false;
+                bool liveRecordProcessing = plugin->activate(
+                        plugin, 48000.0, 16u, 32768u)
+                    && plugin->start_processing(plugin);
+                if (liveRecordProcessing) {
+                    clap_event_transport_t liveTransport {};
+                    liveTransport.header.size = sizeof(liveTransport);
+                    liveTransport.header.space_id =
+                        CLAP_CORE_EVENT_SPACE_ID;
+                    liveTransport.header.type = CLAP_EVENT_TRANSPORT;
+                    liveTransport.flags = CLAP_TRANSPORT_HAS_TEMPO
+                        | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+                        | CLAP_TRANSPORT_IS_PLAYING;
+                    liveTransport.tempo = 120.0;
+                    InputEvents liveInput;
+                    liveInput.addMidi(6600u, 0x96u, 69u, 111u);
+                    OutputEvents liveOutput;
+                    clap_process_t liveProcess {};
+                    liveProcess.frames_count = 8000u;
+                    liveProcess.transport = &liveTransport;
+                    liveProcess.in_events = &liveInput.interface;
+                    liveProcess.out_events = &liveOutput.interface;
+                    liveRecordProcessing = plugin->process(plugin,
+                        &liveProcess) == CLAP_PROCESS_CONTINUE;
+                    bool monitoredOn = false;
+                    for (uint32_t index = 0u;
+                         index < liveOutput.count; ++index) {
+                        const auto& event = liveOutput.events[index];
+                        monitoredOn |= event.header.time == 6600u
+                            && event.data[0] == 0x90u
+                            && event.data[1] == 69u
+                            && event.data[2] == 111u;
+                    }
+                    if (stepModeAvailable) {
+                        [stepMode selectItemAtIndex:0u];
+                        [stepMode sendAction:stepMode.action
+                            to:stepMode.target];
+                    }
+                    OutputEvents disarmOutput;
+                    InputEvents disarmedInput;
+                    disarmedInput.addMidi(64u, 0x96u, 71u, 99u);
+                    liveProcess.frames_count = 128u;
+                    liveProcess.in_events = &disarmedInput.interface;
+                    liveProcess.out_events = &disarmOutput.interface;
+                    liveRecordProcessing &= plugin->process(plugin,
+                        &liveProcess) == CLAP_PROCESS_CONTINUE;
+                    bool releasedOnDisarm = false;
+                    bool disarmedNoteLeaked = false;
+                    for (uint32_t index = 0u;
+                         index < disarmOutput.count; ++index) {
+                        const auto& event = disarmOutput.events[index];
+                        releasedOnDisarm |= event.header.time == 0u
+                            && event.data[0] == 0x80u
+                            && event.data[1] == 69u;
+                        disarmedNoteLeaked |= event.data[1] == 71u
+                            && (event.data[0] & 0xf0u) == 0x90u;
+                    }
+                    liveMonitorPassed = monitoredOn && releasedOnDisarm
+                        && !disarmedNoteLeaked;
                     [[NSRunLoop currentRunLoop] runUntilDate:
                         [NSDate dateWithTimeIntervalSinceNow:0.08]];
                     plugin->stop_processing(plugin);
@@ -570,13 +699,17 @@ int main(int argc, char** argv)
                 }
                 NSView* consoleMessages = findAccessibleView(parent,
                     @"Console printed messages");
-                const bool stepRecorded =
+                const bool midiRecorded =
                     [consoleMessages isKindOfClass:NSTextView.class]
                     && [static_cast<NSTextView*>(consoleMessages).string
-                        containsString:@"STEP REC CH7 note 67 → lane 1, row 5, MT 75%"];
+                        containsString:@"STEP REC CH7 note 67 → lane 1, row 5"]
+                    && [static_cast<NSTextView*>(consoleMessages).string
+                        containsString:@"LIVE MT REC CH7 note 69 → lane 1, row 2, MT 75%"];
                 ok &= expect(stepModeAvailable && stepCursorSelected
-                        && stepRecordProcessing && stepRecorded,
-                    "MICRO step record did not capture host MIDI timing into the cursor row");
+                        && stepRecordProcessing && liveRecordProcessing
+                        && stepMonitorPassed && liveMonitorPassed
+                        && midiRecorded,
+                    "armed STEP/LIVE recording did not monitor and record MIDI notes");
 
                 ok &= expect(clickButton(parent, nil, @"SONG page", nil),
                     "Song page could not be selected for file-menu audit");
@@ -623,9 +756,31 @@ int main(int argc, char** argv)
                 if ([consoleLiveCode isKindOfClass:NSTextField.class]) {
                     NSTextField* field = static_cast<NSTextField*>(
                         consoleLiveCode);
-                    field.stringValue = @"aliases";
-                    consoleCommandWorked = [field sendAction:field.action
+                    field.stringValue = @"autoalias";
+                    const bool automatic = [field sendAction:field.action
                         to:field.target];
+                    field.stringValue = @"aliases";
+                    const bool listed = [field sendAction:field.action
+                        to:field.target];
+                    NSView* messagesView = findAccessibleView(parent,
+                        @"Console printed messages");
+                    NSString* messages =
+                        [messagesView isKindOfClass:NSTextView.class]
+                            ? static_cast<NSTextView*>(messagesView).string
+                            : @"";
+                    const NSRange kickAliases = [messages rangeOfString:
+                        @"Lane 1 (Kick): @k"];
+                    const NSRange snareAliases = [messages rangeOfString:
+                        @"Lane 2 (Snare): @s"];
+                    const NSRange tomAliases = [messages rangeOfString:
+                        @"Lane 3 (Tom): @t"];
+                    const NSRange hatAliases = [messages rangeOfString:
+                        @"Lane 4 (Hat): @h"];
+                    consoleCommandWorked = automatic && listed
+                        && kickAliases.location != NSNotFound
+                        && snareAliases.location > kickAliases.location
+                        && tomAliases.location > snareAliases.location
+                        && hatAliases.location > tomAliases.location;
                 }
                 const bool consoleDetached = clickButton(parent, nil,
                     @"Detach selected tool page", nil);
@@ -638,7 +793,7 @@ int main(int argc, char** argv)
                         && detachedConsole.hidesOnDeactivate
                         && findAccessibleView(detachedConsole.contentView,
                             @"Console live command input") != nil,
-                    "detached Console did not remain above its plug-in window");
+                    "Console autoalias/listing or detached-window ordering failed");
                 [detachedConsole close];
                 ok &= expect(visibleWindow(@"s3g Tracker — Console") == nil
                         && clickButton(parent, nil, @"TRACKER page", nil),
@@ -907,8 +1062,8 @@ int main(int argc, char** argv)
     ok &= expect(output.count > 0u
         && output.events[0].header.time < process.frames_count
         && (output.events[0].data[0] & 0xf0u) == 0x90u
-        && (output.events[0].data[0] & 0x0fu) == 9u,
-        "first event should be a sample-aligned channel-10 note-on");
+        && (output.events[0].data[0] & 0x0fu) == 0u,
+        "first event should be a sample-aligned channel-1 note-on");
     const uint32_t replacementOnset = output.count > 0u
         ? output.events[0].header.time : 0u;
     const bool latestNoteWins = output.count >= 3u

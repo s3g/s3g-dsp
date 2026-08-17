@@ -162,7 +162,7 @@
             <tr><td>Control-= / − / 0</td><td>Zoom in, zoom out, or reset tracker zoom.</td></tr>
             <tr><td>Delete / Backspace</td><td>Clear the selected cell.</td></tr>
             <tr><td>X / R / K in NOTE</td><td>Toggle an anchored hit, write retrigger-previous, or write kill; each advances to the next row.</td></tr>
-            <tr><td>[ / ] in VOL, V1, or V2</td><td>Decrease or increase the selected value; WRP moves by one library slot.</td></tr>
+            <tr><td>[ / ] in VOL, V1, or V2</td><td>Decrease or increase the selected normalized value.</td></tr>
             <tr><td>M</td><td>Toggle mute for the selected column.</td></tr>
             <tr><td><code>:</code> / backtick</td><td>Focus Live Code.</td></tr>
             <tr><td>Escape</td><td>Leave an editor or return focus to the grid.</td></tr>
@@ -187,9 +187,9 @@
 
         <p>Song mode arranges stable pattern references into a longer form. Each pattern menu shows both parts as <code>A01 · Pattern Name</code>: the ID is saved in the Song row, while the renameable pattern name is there for recognition. Pattern-bank editing is locked while Song playback is active so a playing arrangement cannot acquire unresolved references.</p>
 
-        <p>Turn on <code>SONG TRANSPORT</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS</code> is the length of one pattern cycle for that Song row, and <code>REP</code> is the number of cycles before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start.</p>
+        <p>Turn on <code>SONG TRANSPORT</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS</code> is the length of one pattern cycle for that Song row, and <code>REP</code> is the number of cycles before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start. The <code>WARP</code> column selects <code>OFF</code> or a named composition saved on the Warps page. Warp is global timing, so it belongs to the Song row rather than an individual tracker lane.</p>
 
-        <p>To jump during playback, select a target row, choose its launch boundary, and press <code>QUEUE SELECTED</code>. <code>NEXT TICK</code> waits at least one tracker tick; <code>NEXT BEAT</code> uses the Song beat grid (four tracker ticks by default); <code>NEXT CYCLE</code> waits for the end of the current <code>TICKS</code> cycle; and <code>NEXT SONG ROW</code> waits for the natural end of the current row, including its repeats. The target row is filled and outlined in yellow, and the queue readout states both the row and boundary. Queueing again replaces the earlier pending target.</p>
+        <p>To jump during playback, select a target row, choose its launch boundary, and press <code>QUEUE SELECTED</code>. <code>NEXT TICK</code> waits at least one tracker tick; <code>NEXT BEAT</code> uses the Song beat grid (four tracker ticks by default); <code>NEXT CYCLE</code> waits for the end of the current <code>TICKS</code> cycle; and <code>NEXT SONG ROW</code> waits for the natural end of the current row, including its repeats. The target row is filled and outlined in yellow, and the queue readout states both the row and boundary. Queueing again replaces the earlier pending target. At the chosen boundary, pattern, WARP, swing, and lane mutes switch as one row launch; <code>OFF</code> restores identity timing instead of inheriting the previous row's warp.</p>
 
         <h2 id="live-code">Live Code</h2>
 
@@ -217,7 +217,7 @@ warp exp 2.0 mix .5</code></pre>
 
         <ul>
           <li><strong>Geometry</strong> draws polygons from active pulses on unmuted note lanes. A pattern's muted NOTE lanes are omitted, and during Song playback the active Song row's muted lanes are omitted too. <code>ACTIVE PULSES</code> preserves the original nested view; <code>ALL STEPS UNDERLAY</code> adds complete light-gray step polygons; <code>PHASE SPOKES</code> animates each lane's current readhead from the center; <code>LANE FOCUS</code> enlarges the selected lane and ghosts the others; and <code>COMPOSITE RING</code> normalizes every lane onto one shared cycle. A compact solid yellow point marks each current note hit. Zoom controls keep dense patterns readable.</li>
-          <li><strong>Warps</strong> edits the functional timing-warp stack used for exponential and stepped ramps, Euclidean timing, and multipart swing.</li>
+          <li><strong>Warps</strong> edits the functional timing-warp stack used for exponential and stepped ramps, Euclidean timing, and multipart swing. Save named compositions here, then select them per row in Song's <code>WARP</code> column.</li>
           <li><strong>Console</strong> displays Live Code results and errors and repeats the Live Code entry field, so commands remain available when Console is detached.</li>
           <li><strong>Help</strong> provides the categorized command and sequencing-action reference generated from the current command registry.</li>
         </ul>

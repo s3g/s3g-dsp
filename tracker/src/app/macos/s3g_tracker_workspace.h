@@ -68,8 +68,8 @@ struct TrackerViewState {
     // View-only NOTE formatting. Pattern storage remains MIDI 0..127 in both
     // modes; false renders pitch names and true renders decimal MIDI values.
     bool showMidiNoteValues = false;
-    // Step-record arming is deliberately transient host/UI state. It is OFF
-    // whenever an editor is created and is not embedded in project files.
+    // MIDI recording is deliberately transient host/UI state. It is OFF when
+    // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;
     MidiStepRecordMode midiStepRecordMode = MidiStepRecordMode::Off;
     // Project-level history availability is published by the coordinator;
@@ -123,6 +123,7 @@ struct WorkspaceCallbacks {
     std::function<void()> refreshMidiDestinations;
     std::function<void()> refreshAudioOutputDevices;
     std::function<void(uint32_t)> selectAudioOutputDevice;
+    std::function<void()> selectionChanged;
     std::function<void()> patternChanged;
     std::function<void(const std::string&)> selectPattern;
     std::function<void(bool)> addPattern;

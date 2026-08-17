@@ -1,5 +1,7 @@
 #pragma once
 
+#include "s3g/tracker/timing_warp.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -22,7 +24,9 @@ constexpr uint32_t kMaximumSongTicksPerBeat = 96u;
 //
 // bpm and swing are row-level transport overrides. Their absence means the
 // project transport remains unchanged. mutedTracks uses the same zero-based
-// 32-lane bit positions as the tracker core.
+// 32-lane bit positions as the tracker core. timingWarpLibraryIndex selects
+// one saved project warp for the entire Song row; absence explicitly means
+// identity timing (OFF), rather than inheriting the preceding row's warp.
 struct SongRow {
     std::string patternId;
     uint32_t durationTicks = 16u;
@@ -30,6 +34,7 @@ struct SongRow {
     std::optional<double> bpm;
     std::optional<double> swing;
     uint32_t mutedTracks = 0u;
+    std::optional<std::size_t> timingWarpLibraryIndex;
 };
 
 struct SongArrangement {
@@ -51,6 +56,7 @@ enum class SongValidationCode : uint8_t {
     InvalidRepeats,
     InvalidBpm,
     InvalidSwing,
+    InvalidTimingWarpLibraryIndex,
 };
 
 constexpr std::size_t kNoSongRow = static_cast<std::size_t>(-1);

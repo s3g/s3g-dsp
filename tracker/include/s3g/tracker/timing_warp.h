@@ -158,10 +158,9 @@ private:
 };
 
 // Project-owned library of composed timing-warp stacks. Slots are addressed
-// one-based in the tracker UI/live language and zero-based in the engine.
-// The fixed slot count makes WRP recall deterministic and allocation-free on
-// the render thread; names are authoring metadata and are never touched by
-// realtime recall.
+// one-based in the UI/live language and zero-based in the engine. Song rows
+// recall these immutable compositions at deterministic tick boundaries;
+// names are authoring metadata and are never touched by realtime playback.
 constexpr std::size_t kMaximumTimingWarpLibraryEntries = 64u;
 constexpr std::size_t kMaximumTimingWarpLibraryNameBytes = 64u;
 constexpr uint32_t kMaximumLiveWarpCycleTicks = 16u;
@@ -189,9 +188,8 @@ private:
         kMaximumTimingWarpLibraryEntries> entries_ {};
 };
 
-// SEQ value columns retain their normalized storage contract. WRP presents
-// that value as a one-based library number while these helpers provide the
-// exact reversible mapping used by the UI, console, and scheduler.
+// Exact reversible mapping retained for normalized control surfaces that need
+// to address the fixed one-based library.
 std::size_t timingWarpLibraryIndexFromNormalized(float normalized) noexcept;
 float timingWarpLibraryNormalizedFromIndex(std::size_t index) noexcept;
 

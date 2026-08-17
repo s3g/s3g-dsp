@@ -217,6 +217,45 @@ void testProjectFileMenuDispatchesCompleteProjectActions(
         "Song file choices should dispatch and reset their pull-down menu");
 }
 
+void testNamedWarpMenuAndRoundTrip(
+    S3GTrackerSongWindowController* controller)
+{
+    s3g::tracker::TimingWarpStack stack;
+    check(stack.append(
+            s3g::tracker::TimingWarpTransform::exponential(2.0)).added(),
+        "Song window warp fixture should compile");
+    s3g::tracker::TimingWarpLibrary library;
+    check(library.store(6u, "Fast Start", 4u, stack),
+        "Song window warp fixture should occupy slot 07");
+    [controller setTimingWarpLibrary:library];
+
+    s3g::tracker::SongArrangement arrangement;
+    arrangement.name = "WARPS";
+    arrangement.ticksPerBeat = 4u;
+    s3g::tracker::SongRow row;
+    row.patternId = "A01";
+    row.durationTicks = 16u;
+    row.timingWarpLibraryIndex = 6u;
+    arrangement.rows.push_back(row);
+    [controller setSongArrangement:arrangement];
+    [controller showWindow:nil];
+    [controller.window.contentView layoutSubtreeIfNeeded];
+
+    NSTableView* table = [controller valueForKey:@"tableView"];
+    NSView* warpCell = [table viewAtColumn:2 row:0 makeIfNecessary:YES];
+    NSPopUpButton* popup = firstPopup(warpCell);
+    const auto output = [controller songArrangement];
+    check(popup.numberOfItems == 2u
+            && [[[popup itemAtIndex:0] title] isEqualToString:@"OFF"]
+            && [[[popup itemAtIndex:1] title]
+                isEqualToString:@"07 · Fast Start"]
+            && popup.indexOfSelectedItem == 1
+            && output.rows.size() == 1u
+            && output.rows[0u].timingWarpLibraryIndex
+                == std::optional<std::size_t>(6u),
+        "Song WARP should show named saved slots and preserve its selection");
+}
+
 } // namespace
 
 int main()
@@ -229,6 +268,7 @@ int main()
         testHostTempoAndOptionalSwing(controller);
         testPlaybackPresentationDoesNotMutateArrangement(controller);
         testPatternNamesAndQueuePresentation(controller);
+        testNamedWarpMenuAndRoundTrip(controller);
         testProjectFileMenuDispatchesCompleteProjectActions(controller);
         testMutedLaneRedrawDoesNotThrow(controller);
         [controller close];

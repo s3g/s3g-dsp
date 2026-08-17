@@ -23,7 +23,6 @@ constexpr bool isTimingExpansionAction(SequencerAction action) noexcept
     case SequencerAction::Stutter:
     case SequencerAction::Accent:
     case SequencerAction::Ghost:
-    case SequencerAction::WarpRecall:
         return true;
     case SequencerAction::Probability:
     case SequencerAction::Skip:
@@ -315,17 +314,6 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
             generatedEvents_.data(), generatedEvents_.size());
         const uint64_t advanced = sequencer_.tickIndex() - tickBefore;
         if (advanced == 0u) break;
-        std::size_t warpIndex = 0u;
-        if (sequencer_.consumeTimingWarpRecall(warpIndex)) {
-            if (const auto* preset = timingWarpLibrary_.entry(warpIndex)) {
-                auto replacement = sequencer_.transport();
-                replacement.warpCycleTicks = preset->cycleTicks;
-                replacement.timingWarp = preset->stack;
-                sequencer_.setTransportAtTickBoundary(
-                    std::move(replacement));
-                activeTimingWarpLibraryIndex_ = warpIndex;
-            }
-        }
         resolveCurrentTick(nominalTick);
         const auto activeTimingTracks = std::min(
             sequencer_.pattern().tracks.size(), timing_.size());

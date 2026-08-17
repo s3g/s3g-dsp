@@ -83,8 +83,16 @@ struct SongSchedulerRuntime {
     {
         auto result = base;
         result.loopEnabled = false;
+        result.timingWarp.clear();
         if (row.bpm) result.bpm = *row.bpm;
         if (row.swing) result.swing = *row.swing;
+        if (row.timingWarpLibraryIndex) {
+            if (const auto* entry = scheduler->timingWarpLibrary().entry(
+                    *row.timingWarpLibraryIndex)) {
+                result.warpCycleTicks = entry->cycleTicks;
+                result.timingWarp = entry->stack;
+            }
+        }
         return result;
     }
 
@@ -206,6 +214,55 @@ void testQuantizedLaunchUsesPatternBoundary()
         "a quantized row launch must relaunch authored columns at row zero");
 }
 
+void testSongRowsRecallSavedWarpAndOffRestoresIdentity()
+{
+    SongArrangement song;
+    song.name = "Warp rows";
+    song.ticksPerBeat = 1u;
+    SongRow offBefore;
+    offBefore.patternId = "ONLY PATTERN";
+    offBefore.durationTicks = 1u;
+    song.rows.push_back(offBefore);
+    SongRow warped;
+    warped.patternId = "ONLY PATTERN";
+    warped.durationTicks = 2u;
+    warped.timingWarpLibraryIndex = 6u;
+    song.rows.push_back(warped);
+    SongRow offAfter;
+    offAfter.patternId = "ONLY PATTERN";
+    offAfter.durationTicks = 1u;
+    song.rows.push_back(offAfter);
+
+    TimingWarpStack stack;
+    check(stack.append(TimingWarpTransform::exponential(2.0)).added(),
+        "Song warp fixture should compile");
+    TimingWarpLibrary library;
+    check(library.store(6u, "Fast Start", 4u, stack),
+        "Song warp fixture should occupy named slot 07");
+
+    TimingPlaybackScheduler scheduler;
+    scheduler.setTimingWarpLibrary(std::move(library));
+    SongSchedulerRuntime runtime;
+    armRuntime(runtime, scheduler, std::move(song), runtimePattern());
+
+    std::array<ScheduledEvent, 32u> events {};
+    const auto count = scheduler.process(16001u,
+        events.data(), events.size());
+    const auto notes = noteOnsForTrack(events.data(), count, 0u);
+    const std::array<uint64_t, 4u> expectedFrames {
+        0u, 2000u, 8000u, 16000u
+    };
+    check(notes.size() == expectedFrames.size(),
+        "three Song rows should emit their complete test sequence");
+    for (std::size_t index = 0u;
+         index < std::min(notes.size(), expectedFrames.size()); ++index) {
+        check(notes[index].absoluteSampleTime == expectedFrames[index],
+            "Song WARP should retime its row and OFF should restore identity timing");
+    }
+    check(scheduler.transport().timingWarp.empty(),
+        "the final OFF row must not inherit the preceding saved warp");
+}
+
 void testFinalStutterTailDrainsAfterStopBoundary()
 {
     auto pattern = runtimePattern();
@@ -253,6 +310,7 @@ int main()
 {
     testNaturalRowsApplyTempoMuteAndRelaunch();
     testQuantizedLaunchUsesPatternBoundary();
+    testSongRowsRecallSavedWarpAndOffRestoresIdentity();
     testFinalStutterTailDrainsAfterStopBoundary();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "Song timing runtime tests passed\n";

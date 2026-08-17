@@ -82,7 +82,6 @@ ProjectDocument makeDocument()
         SequencerAction::Offset,
         SequencerAction::RepeatPrevious,
         SequencerAction::Euclid,
-        SequencerAction::WarpRecall,
     }};
     auto& firstFx = track.fxPairs[0u];
     firstFx.actions.resize(actions.size());
@@ -191,6 +190,7 @@ ProjectDocument makeDocument()
     firstRow.bpm = 145.0;
     firstRow.swing = 0.63;
     firstRow.mutedTracks = 0x80000000u;
+    firstRow.timingWarpLibraryIndex = 6u;
     document.song.rows.push_back(std::move(firstRow));
     SongRow secondRow;
     secondRow.patternId = "B02";
@@ -274,8 +274,11 @@ void testCompleteDeterministicRoundTrip()
         "instrument-owned MIDI destination and channel should round trip");
     check(decoded.song.rows.size() == 2u
             && decoded.song.rows[0u].bpm == 145.0
-            && !decoded.song.rows[1u].bpm.has_value(),
-        "song arrangement and optional row overrides should round trip");
+            && decoded.song.rows[0u].timingWarpLibraryIndex
+                == std::optional<std::size_t>(6u)
+            && !decoded.song.rows[1u].bpm.has_value()
+            && !decoded.song.rows[1u].timingWarpLibraryIndex.has_value(),
+        "song arrangement, warp selection, and optional row overrides should round trip");
 }
 
 void testEmptyOptionalSongIsAValidProject()

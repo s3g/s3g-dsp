@@ -19,6 +19,10 @@
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
 - (void)sequenceActionSelected:(NSMenuItem*)sender;
+- (void)beginGridSelectionAtTrack:(std::size_t)track
+    field:(std::size_t)field row:(std::size_t)row page:(std::size_t)page;
+- (void)extendGridSelectionToTrack:(std::size_t)track
+    field:(std::size_t)field row:(std::size_t)row;
 @end
 
 namespace {
@@ -149,6 +153,9 @@ int main()
             "real workspace window should reach its 760-point minimum width");
 
         NSScrollView* grid = [controller valueForKey:@"gridScroll"];
+        check(near(grid.magnification,
+                s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
+            "tracker lanes should initialize at the 16-row default zoom");
         NSScrollView* transport = [controller valueForKey:@"transportScroll"];
         NSScrollView* modules = [controller valueForKey:@"moduleScroll"];
         NSStackView* moduleControls = [controller valueForKey:@"moduleControls"];
@@ -323,20 +330,29 @@ int main()
                     containsString:@"Note, C-4"],
             "note display control should return to pitch names without changing the note");
         check(midiStepRecordPopup.enabled
-                && midiStepRecordPopup.numberOfItems == 3u
+                && midiStepRecordPopup.numberOfItems == 4u
                 && [midiStepRecordPopup.selectedItem.title
-                    isEqualToString:@"OFF"],
-            "MIDI step recording should expose OFF, GRID, and MICRO modes");
+                    isEqualToString:@"OFF"]
+                && [[midiStepRecordPopup itemAtIndex:1u].title
+                    isEqualToString:@"STEP"]
+                && [[midiStepRecordPopup itemAtIndex:2u].title
+                    isEqualToString:@"LIVE Q"]
+                && [[midiStepRecordPopup itemAtIndex:3u].title
+                    isEqualToString:@"LIVE MT"],
+            "MIDI recording should expose STEP plus two live timing modes");
         [midiStepRecordPopup selectItemAtIndex:1u];
         [midiStepRecordPopup sendAction:midiStepRecordPopup.action
             to:midiStepRecordPopup.target];
         [midiStepRecordPopup selectItemAtIndex:2u];
         [midiStepRecordPopup sendAction:midiStepRecordPopup.action
             to:midiStepRecordPopup.target];
+        [midiStepRecordPopup selectItemAtIndex:3u];
+        [midiStepRecordPopup sendAction:midiStepRecordPopup.action
+            to:midiStepRecordPopup.target];
         check(state.midiStepRecordMode
-                    == s3g::tracker::MidiStepRecordMode::Unquantized
-                && stepRecordModeRequests == 2,
-            "GRID and MICRO selections should arm the coordinator explicitly");
+                    == s3g::tracker::MidiStepRecordMode::LiveUnquantized
+                && stepRecordModeRequests == 3,
+            "STEP, LIVE Q, and LIVE MT should arm the coordinator explicitly");
         const CGFloat initialSequenceX = NSMinX(sequenceColumnsButton.frame);
         const CGFloat initialAddTrackX = NSMinX(trackAddButton.frame);
         const CGFloat initialRemoveTrackX = NSMinX(trackRemoveButton.frame);
@@ -635,6 +651,37 @@ int main()
             [grid.documentView performKeyEquivalent:trackerPaste];
         check(trackerPasteHandled,
             "Control-V should report handled by the tracker");
+
+        grid.magnification = 1.2;
+        [controller resetTrackerZoom];
+        check(near(grid.magnification,
+                s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
+            "tracker zoom reset should restore the 16-row default");
+
+        auto& clearTrack = state.session.pattern.tracks[0u];
+        clearTrack.notes[2u] = s3g::tracker::NoteCell::withNote(62u);
+        clearTrack.notes[3u] = s3g::tracker::NoteCell::withNote(64u);
+        clearTrack.velocities[2u]
+            = s3g::tracker::ValueCell::withValue(0.5f);
+        clearTrack.velocities[3u]
+            = s3g::tracker::ValueCell::withValue(0.75f);
+        [grid.documentView beginGridSelectionAtTrack:0u
+            field:0u row:2u page:0u];
+        [grid.documentView extendGridSelectionToTrack:0u
+            field:1u row:3u];
+        const int changesBeforeDelete = patternChangeRequests;
+        [grid.documentView keyDown:keyEvent(window, @"\x7f", 51u, 0u)];
+        const auto& clearedTrack = state.session.pattern.tracks[0u];
+        check(clearedTrack.notes[2u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && clearedTrack.notes[3u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && clearedTrack.velocities[2u].state
+                    == s3g::tracker::ValueCellState::Default
+                && clearedTrack.velocities[3u].state
+                    == s3g::tracker::ValueCellState::Default
+                && patternChangeRequests == changesBeforeDelete + 1,
+            "Delete should clear every cell in a rectangular drag selection");
 
         state.session.selectedTrack = 11u;
         state.session.selectedRow = 63u;

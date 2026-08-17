@@ -54,15 +54,10 @@ public:
     void setTimingWarpLibrary(TimingWarpLibrary library)
     {
         timingWarpLibrary_ = std::move(library);
-        activeTimingWarpLibraryIndex_ = kMaximumTimingWarpLibraryEntries;
     }
     const TimingWarpLibrary& timingWarpLibrary() const noexcept
     {
         return timingWarpLibrary_;
-    }
-    std::size_t activeTimingWarpLibraryIndex() const noexcept
-    {
-        return activeTimingWarpLibraryIndex_;
     }
     void setRuntimeTrackMuteMask(uint32_t mask) noexcept
     {
@@ -218,8 +213,6 @@ private:
     uint64_t highestPrimaryNoteId_ = 0u;
     uint64_t timingDroppedEventCount_ = 0u;
     TimingWarpLibrary timingWarpLibrary_;
-    std::size_t activeTimingWarpLibraryIndex_
-        = kMaximumTimingWarpLibraryEntries;
     LogicalTickObserver logicalTickObserver_ = nullptr;
     void* logicalTickObserverContext_ = nullptr;
     bool timingSchedulerActive_ = false;

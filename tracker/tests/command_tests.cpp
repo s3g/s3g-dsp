@@ -311,14 +311,14 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // undiscoverable console feature behind. `@` represents alias-first
     // queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
-        "@", "?", "accent", "actions", "alias", "aliases", "delay", "demo",
+        "@", "?", "accent", "actions", "alias", "aliases", "autoalias", "delay", "demo",
         "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
         "gate", "help", "hit", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
-        "variation", "vary", "warps", "warprecall", "wrp", "track",
+        "variation", "vary", "warps", "track",
     };
 
     std::set<std::string> documentedVerbs;
@@ -434,6 +434,7 @@ void testTimingWarpCommands()
         "warp save 7 Broken Quintuplet");
     const auto* saved = session.warpLibrary.entry(6u);
     check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
+            && result.hasEffect(CommandEffect::TransportChanged)
             && saved && saved->name == "Broken Quintuplet"
             && saved->cycleTicks == 5u && saved->stack.size() == 2u,
         "warp save should store the complete composition at a stable index");
@@ -444,13 +445,8 @@ void testTimingWarpCommands()
             && session.transport.timingWarp.size() == 2u,
         "warp load should recall stack and cycle as one composition");
     result = CommandEngine::execute(session, "wrp 1 2 7");
-    const auto& recallPair = session.pattern.tracks[0u].fxPairs[0u];
-    check(result.ok
-            && recallPair.actions[1u].sequencerAction
-                == s3g::tracker::SequencerAction::WarpRecall
-            && s3g::tracker::timingWarpLibraryIndexFromNormalized(
-                recallPair.values[1u].normalized) == 6u,
-        "live code should author a WRP action using its visible library index");
+    check(!result.ok,
+        "warp recall must not remain available as a lane-local command");
     check(CommandEngine::execute(session,
             "warp rename 7 Five Against Four").ok
             && session.warpLibrary.entry(6u)->name == "Five Against Four"
@@ -676,9 +672,17 @@ void testKitsAliasesAndTargets()
     check(result.ok && session.pattern.tracks[2].notes[0].note == 61u,
         "an empty Superior hat lane should retain pitch 61 for later masks");
     result = CommandEngine::execute(session, "aliases");
-    check(result.ok && result.message.find("@h -> 3") != std::string::npos
-            && result.message.find("@kick -> 1") != std::string::npos,
-        "aliases should report deterministic one-based bindings");
+    const auto laneOneAliases = result.message.find("Lane 1 (Kick):");
+    const auto laneThreeAliases = result.message.find(
+        "Lane 3 (Closed Hat):");
+    check(result.ok && laneOneAliases != std::string::npos
+            && laneThreeAliases != std::string::npos
+            && laneOneAliases < laneThreeAliases
+            && result.message.find("@kick", laneOneAliases)
+                != std::string::npos
+            && result.message.find("@h", laneThreeAliases)
+                != std::string::npos,
+        "aliases should group all bindings in one-based lane order");
 
     result = CommandEngine::execute(session, "alias hats @h");
     check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
@@ -722,6 +726,40 @@ void testKitsAliasesAndTargets()
         "invalid alias names should not alter the alias table");
     checkRejectedWithoutMutation(session, "mask @missing x---",
         "unknown target aliases should fail without mutating a pattern");
+
+    auto automatic = makeSession(5u);
+    automatic.pattern.tracks[0u].name = "Kick";
+    automatic.pattern.tracks[1u].name = "King";
+    automatic.pattern.tracks[2u].name = "Kit";
+    automatic.pattern.tracks[3u].name = "Snare";
+    automatic.pattern.tracks[4u].name = "808";
+    automatic.aliases["obsolete"] = 0u;
+    result = CommandEngine::execute(automatic, "autoalias");
+    check(result.ok && result.hasEffect(CommandEffect::ProjectChanged)
+            && automatic.aliases.size() == 5u
+            && automatic.aliases.at("k") == 0u
+            && automatic.aliases.at("ki") == 1u
+            && automatic.aliases.at("kit") == 2u
+            && automatic.aliases.at("s") == 3u
+            && automatic.aliases.at("lane5") == 4u
+            && automatic.aliases.find("obsolete")
+                == automatic.aliases.end(),
+        "autoalias should rebuild shortest collision-free lane-name prefixes");
+    const auto automaticList = CommandEngine::execute(
+        automatic, "aliases");
+    check(automaticList.ok
+            && automaticList.message.find("Lane 1 (Kick): @k")
+                < automaticList.message.find("Lane 2 (King): @ki")
+            && automaticList.message.find("Lane 2 (King): @ki")
+                < automaticList.message.find("Lane 3 (Kit): @kit")
+            && automaticList.message.find("Lane 5 (808): @lane5")
+                != std::string::npos,
+        "automatic aliases should render in lane order rather than map order");
+    const auto unchanged = CommandEngine::execute(automatic, "autoalias");
+    check(unchanged.ok && unchanged.effects == CommandEffect::None,
+        "repeating autoalias should avoid a redundant persistent edit");
+    checkRejectedWithoutMutation(automatic, "autoalias now",
+        "autoalias should reject trailing arguments transactionally");
 }
 
 void testCompactMasksAndColumnControls()

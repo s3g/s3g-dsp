@@ -154,7 +154,6 @@ enum class SequencerAction : uint8_t {
     Offset,
     RepeatPrevious,
     Euclid,
-    WarpRecall,
     Count,
 };
 
@@ -529,16 +528,6 @@ public:
     FxPlaybackMemorySnapshot fxMemorySnapshot(std::size_t track,
         std::size_t pair) const noexcept;
 
-    // WRP is resolved with the other authoritative sequencing actions while
-    // processing a row. The timing facade consumes the request immediately
-    // after that logical tick and performs the prepared boundary swap.
-    bool consumeTimingWarpRecall(std::size_t& index) noexcept
-    {
-        if (!timingWarpRecallPending_) return false;
-        index = timingWarpRecallIndex_;
-        timingWarpRecallPending_ = false;
-        return true;
-    }
 private:
     struct TrackMemory {
         uint8_t note = 0u;
@@ -641,8 +630,6 @@ private:
     uint64_t nextNoteId_ = 1u;
     uint32_t randomSeed_ = 0x6d2b79f5u;
     uint32_t runtimeTrackMuteMask_ = 0u;
-    std::size_t timingWarpRecallIndex_ = 0u;
-    bool timingWarpRecallPending_ = false;
     bool playing_ = false;
 };
 

@@ -1013,51 +1013,6 @@ void testPreparedHostBeatStartUsesWarpedClock()
         "the first host-synchronized event should read the sought polymetric row");
 }
 
-void testIndexedWarpRecallRetimesAtRowBoundary()
-{
-    Track track;
-    track.notes = {
-        NoteCell::withNote(60u), NoteCell::withNote(61u),
-        NoteCell::withNote(62u), NoteCell::withNote(63u),
-    };
-    track.noteColumn.length = track.notes.size();
-    auto& pair = track.fxPairs[0u];
-    pair.actions = {
-        FxActionCell::sequencer(SequencerAction::WarpRecall),
-        FxActionCell::empty(), FxActionCell::empty(), FxActionCell::empty(),
-    };
-    pair.values = {
-        FxValueCell::withValue(
-            s3g::tracker::timingWarpLibraryNormalizedFromIndex(6u)),
-        FxValueCell::previous(), FxValueCell::previous(),
-        FxValueCell::previous(),
-    };
-    pair.actionColumn.length = pair.actions.size();
-    pair.valueColumn.length = pair.values.size();
-
-    s3g::tracker::TimingWarpStack stack;
-    check(stack.append(TimingWarpTransform::exponential(2.0)).added(),
-        "warp recall fixture should compile");
-    s3g::tracker::TimingWarpLibrary library;
-    check(library.store(6u, "Fast Start", 4u, stack),
-        "warp recall fixture should occupy slot 07");
-
-    TimingPlaybackScheduler scheduler;
-    scheduler.setPattern(oneTrack(std::move(track)));
-    scheduler.setTimingWarpLibrary(std::move(library));
-    scheduler.setTransport(transport());
-    scheduler.start();
-    std::array<ScheduledEvent, 8u> events {};
-    const auto count = scheduler.process(2001u, events.data(), events.size());
-    check(count == 2u && events[0u].absoluteSampleTime == 0u
-            && events[1u].absoluteSampleTime == 2000u,
-        "WRP should replace the already-computed next interval at its row boundary");
-    check(scheduler.activeTimingWarpLibraryIndex() == 6u
-            && scheduler.transport().warpCycleTicks == 4u
-            && scheduler.transport().timingWarp.size() == 1u,
-        "WRP should expose the recalled slot and its complete composition");
-}
-
 } // namespace
 
 int main()
@@ -1082,7 +1037,6 @@ int main()
     testBlockSizeInvarianceAndOverflowTelemetry();
     testInactiveStoredTimingCellsDoNotAddLatency();
     testPreparedHostBeatStartUsesWarpedClock();
-    testIndexedWarpRecallRetimesAtRowBoundary();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "timing playback scheduler tests passed\n";
     return EXIT_SUCCESS;

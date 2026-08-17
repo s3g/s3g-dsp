@@ -28,13 +28,16 @@ tab and `/tmp` artifacts may be discarded after inspection.
 The following editor-owned interactions remain a short manual extension to
 the automated host pass:
 
-1. Open Tracker, choose `STEP REC: GRID`, send a controller note, and verify
+1. Open Tracker, choose `MIDI REC: STEP`, send a controller note, and verify
    NOTE/VOL are written at the cursor and the cursor advances.
-2. During playback choose `STEP REC: MICRO`, play slightly ahead of and behind
-   a tick, and verify MT appears in an available SEQ pair on each row.
-3. Detach Console, submit Live Code from its repeated entry line, then reattach.
-4. Queue Song rows at NEXT TICK, BEAT, CYCLE, and SONG ROW and verify the yellow
+2. During pattern playback choose `MIDI REC: LIVE Q`, play across several
+   ticks, and verify notes wrap inside the selected NOTE lane length while the
+   cursor follows each written NOTE without auto-advancing.
+3. During pattern playback choose `MIDI REC: LIVE MT`, play slightly ahead of
+   and behind ticks, and verify MT appears in an available SEQ pair.
+4. Detach Console, submit Live Code from its repeated entry line, then reattach.
+5. Queue Song rows at NEXT TICK, BEAT, CYCLE, and SONG ROW and verify the yellow
    pending marker clears exactly at the named boundary.
-5. Trigger PANIC and confirm the capture/receiving instrument retains no notes.
+6. Trigger PANIC and confirm the capture/receiving instrument retains no notes.
 
 MIDI-file import is intentionally outside the current-version contract.

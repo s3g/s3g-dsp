@@ -37,8 +37,10 @@ using s3g::tracker::ValueCellState;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
 
-constexpr CGFloat kGridHeaderHeight = 86.0;
-constexpr CGFloat kGridRowHeight = 25.0;
+constexpr CGFloat kGridHeaderHeight = static_cast<CGFloat>(
+    s3g::tracker::app::kTrackerGridHeaderHeight);
+constexpr CGFloat kGridRowHeight = static_cast<CGFloat>(
+    s3g::tracker::app::kTrackerGridRowHeight);
 constexpr CGFloat kGridRowNumberWidth =
     s3g::tracker::app::kTrackerRowNumberWidth;
 constexpr CGFloat kGridLaneGutter =
@@ -278,16 +280,6 @@ NSString* fxValueText(const Track& track, std::size_t pair,
         || row >= track.fxPairs[pair].values.size()) return @"PRV";
     const auto& cell = track.fxPairs[pair].values[row];
     if (cell.state == FxValueCellState::Previous) return @"PRV";
-    const auto& actions = track.fxPairs[pair].actions;
-    if (row < actions.size()
-        && actions[row].state == FxActionCellState::Sequencer
-        && actions[row].sequencerAction
-            == s3g::tracker::SequencerAction::WarpRecall) {
-        return [NSString stringWithFormat:@"%02lu",
-            static_cast<unsigned long>(
-                s3g::tracker::timingWarpLibraryIndexFromNormalized(
-                    cell.normalized) + 1u)];
-    }
     return [NSString stringWithFormat:@"%.3f",
         static_cast<double>(
             std::clamp(cell.normalized, 0.0f, 1.0f))];
@@ -658,6 +650,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     owner:(S3GTrackerWorkspaceController*)owner;
 - (void)scrollSelectionToVisible;
 - (void)clearGridSelection;
+- (BOOL)clearSelectedGridCells;
 - (void)refreshAccessibilityValue;
 - (void)refreshPlaybackDisplay;
 @property(nonatomic, assign) TrackerViewState* trackerState;
@@ -708,7 +701,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and ordinary sequence values accept 0.000 through 1.000; WRP values accept warp library index 1 through 64. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number or note name. VOL and sequence values accept 0.000 through 1.000. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -994,25 +987,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         pair.values.resize(row + 1u, FxValueCell::previous());
     const float current = resolvedFxValue(track,
         pairIndex, row);
-    const bool warpIndex = row < pair.actions.size()
-        && pair.actions[row].state == FxActionCellState::Sequencer
-        && pair.actions[row].sequencerAction
-            == s3g::tracker::SequencerAction::WarpRecall;
-    if (warpIndex) {
-        const auto currentIndex = static_cast<int>(
-            s3g::tracker::timingWarpLibraryIndexFromNormalized(current));
-        const auto last = static_cast<int>(
-            s3g::tracker::kMaximumTimingWarpLibraryEntries - 1u);
-        pair.values[row] = FxValueCell::withValue(
-            s3g::tracker::timingWarpLibraryNormalizedFromIndex(
-                static_cast<std::size_t>(std::clamp(currentIndex
-                    + (delta < 0 ? -1 : 1), 0, last))));
-    } else {
-        const int scaled = static_cast<int>(std::lround(current * 100.0f));
-        pair.values[row] = FxValueCell::withValue(
-            static_cast<float>(std::clamp(scaled + delta, 0, 100))
-                / 100.0f);
-    }
+    const int scaled = static_cast<int>(std::lround(current * 100.0f));
+    pair.values[row] = FxValueCell::withValue(
+        static_cast<float>(std::clamp(scaled + delta, 0, 100))
+            / 100.0f);
     pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
     session.pattern.visibleRows = std::max(session.pattern.visibleRows,
         row + 1u);
@@ -1118,7 +1096,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     menu.autoenablesItems = NO;
     menu.font = trackerFont(9.5, NSFontWeightMedium);
     NSMenuItem* heading = [[NSMenuItem alloc]
-        initWithTitle:@"SEQ ACTION  ·  NORMALIZED VALUE / WRP 01–64"
+        initWithTitle:@"SEQ ACTION  ·  NORMALIZED VALUE 0.000–1.000"
         action:nil keyEquivalent:@""];
     heading.enabled = NO;
     [menu addItem:heading];
@@ -1196,10 +1174,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         if (pair.values.size() <= row)
             pair.values.resize(row + 1u, FxValueCell::previous());
         if (pair.values[row].state == FxValueCellState::Previous)
-            pair.values[row] = FxValueCell::withValue(
-                action->action == s3g::tracker::SequencerAction::WarpRecall
-                    ? s3g::tracker::timingWarpLibraryNormalizedFromIndex(0u)
-                    : 0.5f);
+            pair.values[row] = FxValueCell::withValue(0.5f);
         pair.valueColumn.length = std::max(
             pair.valueColumn.length, row + 1u);
     } else return;
@@ -1432,18 +1407,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
                 if (pair.values.size() <= self.numericDragRow)
                     pair.values.resize(self.numericDragRow + 1u,
                         FxValueCell::previous());
-                const bool warpIndex = self.numericDragRow
-                        < pair.actions.size()
-                    && pair.actions[self.numericDragRow].state
-                        == FxActionCellState::Sequencer
-                    && pair.actions[self.numericDragRow].sequencerAction
-                        == s3g::tracker::SequencerAction::WarpRecall;
                 pair.values[self.numericDragRow]
-                    = FxValueCell::withValue(warpIndex
-                        ? s3g::tracker::timingWarpLibraryNormalizedFromIndex(
-                            s3g::tracker::timingWarpLibraryIndexFromNormalized(
-                                value))
-                        : value);
+                    = FxValueCell::withValue(value);
                 pair.valueColumn.length = std::max(
                     pair.valueColumn.length, self.numericDragRow + 1u);
             }
@@ -1739,20 +1704,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         || [lower isEqualToString:@"previous"])
         pair.values[row] = FxValueCell::previous();
     else {
-        const bool warpIndex = row < pair.actions.size()
-            && pair.actions[row].state == FxActionCellState::Sequencer
-            && pair.actions[row].sequencerAction
-                == s3g::tracker::SequencerAction::WarpRecall;
-        if (warpIndex) {
-            NSInteger oneBased = 0;
-            if (![self scanInteger:lower result:&oneBased]
-                || oneBased < 1
-                || oneBased > static_cast<NSInteger>(
-                    s3g::tracker::kMaximumTimingWarpLibraryEntries))
-                return NO;
-            value = s3g::tracker::timingWarpLibraryNormalizedFromIndex(
-                static_cast<std::size_t>(oneBased - 1));
-        } else if (!s3g::tracker::app::parseGridNormalizedValue(
+        if (!s3g::tracker::app::parseGridNormalizedValue(
                 std::string_view(lower.UTF8String ? lower.UTF8String : ""),
                 value)) return NO;
         pair.values[row] = FxValueCell::withValue(value);
@@ -1955,8 +1907,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
 - (void)trackerCut:(id)sender
 {
     [self trackerCopy:sender];
+    [self clearSelectedGridCells];
+}
+
+- (BOOL)clearSelectedGridCells
+{
     auto* model = self.trackerState;
-    if (!model || model->session.pattern.tracks.empty()) return;
+    if (!model || model->session.pattern.tracks.empty()) return NO;
     s3g::tracker::Pattern candidate = model->session.pattern;
     auto range = [self effectiveGridSelection];
     range.lastTrack = std::min(range.lastTrack, candidate.tracks.size() - 1u);
@@ -1972,7 +1929,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
                         field:field] toTrack:candidate.tracks[track] row:row
                         page:range.page field:field]) {
                     NSBeep();
-                    return;
+                    return NO;
                 }
             }
         }
@@ -1980,6 +1937,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     candidate.visibleRows = std::max(candidate.visibleRows, range.lastRow + 1u);
     model->session.pattern = std::move(candidate);
     [self.owner modulePatternChanged];
+    return YES;
 }
 
 - (void)trackerPaste:(id)sender
@@ -2170,6 +2128,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             | NSEventModifierFlagOption);
     if (editingModifiers != 0u) {
         [super keyDown:event];
+        return;
+    }
+    if ((event.keyCode == 51 || event.keyCode == 117)
+        && _gridSelection.active) {
+        [self clearSelectedGridCells];
         return;
     }
     [self clearGridSelection];
@@ -3034,7 +2997,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         zoomTop + 20.0, buttonWidth, 30.0);
     const NSInteger percent = self.owner.gridScroll
         ? static_cast<NSInteger>(std::lround(
-            self.owner.gridScroll.magnification * 100.0)) : 100;
+            self.owner.gridScroll.magnification
+                / s3g::tracker::app::kTrackerDefaultMagnification * 100.0))
+        : 100;
     const std::array<NSRect, 3u> zoomRects {
         _zoomOutRect, _zoomResetRect, _zoomInRect };
     NSArray<NSString*>* zoomLabels = @[ @"−", [NSString
@@ -4366,19 +4331,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     self.noteDisplayButton.accessibilityLabel =
         @"Show notes as MIDI values";
     [moduleButtons addArrangedSubview:self.noteDisplayButton];
-    [moduleButtons addArrangedSubview:[self label:@"STEP REC" size:9.0
+    [moduleButtons addArrangedSubview:[self label:@"MIDI REC" size:9.0
         color:trackerColor(0xa8a8a8)]];
     self.midiStepRecordPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     [self.midiStepRecordPopup addItemsWithTitles:@[
-        @"OFF", @"GRID", @"MICRO",
+        @"OFF", @"STEP", @"LIVE Q", @"LIVE MT",
     ]];
     self.midiStepRecordPopup.target = self;
     self.midiStepRecordPopup.action = @selector(midiStepRecordModeChanged:);
-    self.midiStepRecordPopup.accessibilityLabel = @"MIDI step recording mode";
-    self.midiStepRecordPopup.toolTip = @"GRID records at the cursor row; MICRO writes measured timing into an available SEQ pair";
+    self.midiStepRecordPopup.accessibilityLabel = @"MIDI recording mode";
+    self.midiStepRecordPopup.toolTip = @"Armed modes monitor incoming notes on the selected lane's MIDI channel; STEP advances the cursor; live modes follow the written NOTE; LIVE MT preserves timing in a SEQ pair";
     [self.midiStepRecordPopup.widthAnchor
-        constraintEqualToConstant:76.0].active = YES;
+        constraintEqualToConstant:88.0].active = YES;
     [moduleButtons addArrangedSubview:self.midiStepRecordPopup];
     self.moduleScroll = [self horizontalStripForStack:moduleButtons];
     self.moduleScroll.accessibilityLabel = @"Tracker module controls";
@@ -4417,7 +4382,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     self.gridScroll.allowsMagnification = YES;
     self.gridScroll.minMagnification = 0.55;
     self.gridScroll.maxMagnification = 1.80;
-    self.gridScroll.magnification = 1.0;
+    self.gridScroll.magnification = static_cast<CGFloat>(
+        s3g::tracker::app::kTrackerDefaultMagnification);
     self.gridScroll.documentView = self.gridView;
     self.gridScroll.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:self.gridScroll];
@@ -4692,7 +4658,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     [self.midiStepRecordPopup selectItemAtIndex:static_cast<NSInteger>(
         state->midiStepRecordMode)];
     self.midiStepRecordPopup.toolTip = state->midiStepInputAvailable
-        ? @"GRID records at the cursor row; MICRO records signed timing into an available SEQ pair"
+        ? @"Armed modes monitor incoming notes on the selected lane's MIDI channel; STEP advances the cursor; live modes follow the written NOTE; LIVE MT preserves timing in a SEQ pair"
         : @"This build does not expose a host MIDI input";
     self.undoButton.enabled = state->canUndo;
     self.redoButton.enabled = state->canRedo;
@@ -4913,6 +4879,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
 - (void)moduleSelectionChanged
 {
     if (self.trackerState) self.trackerState->session.selectedPage = 0u;
+    if (self.trackerCallbacks && self.trackerCallbacks->selectionChanged)
+        self.trackerCallbacks->selectionChanged();
     [self.gridView refreshAccessibilityValue];
     [self.gridView setNeedsDisplay:YES];
     [self.geometryView setNeedsDisplay:YES];
@@ -4960,17 +4928,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     if (!state || !state->midiStepInputAvailable) return;
     state->midiStepRecordMode = static_cast<MidiStepRecordMode>(
         std::clamp<NSInteger>(self.midiStepRecordPopup.indexOfSelectedItem,
-            0, 2));
+            0, 3));
     if (self.trackerCallbacks
         && self.trackerCallbacks->midiStepRecordModeChanged) {
         self.trackerCallbacks->midiStepRecordModeChanged(
             state->midiStepRecordMode);
     }
     const char* mode = state->midiStepRecordMode
-            == MidiStepRecordMode::Quantized
-        ? "GRID" : state->midiStepRecordMode
-            == MidiStepRecordMode::Unquantized ? "MICRO" : "OFF";
-    [self appendConsoleMessage:std::string("MIDI step recording ") + mode
+            == MidiStepRecordMode::Step
+        ? "STEP" : state->midiStepRecordMode
+            == MidiStepRecordMode::LiveQuantized
+        ? "LIVE Q" : state->midiStepRecordMode
+            == MidiStepRecordMode::LiveUnquantized ? "LIVE MT" : "OFF";
+    [self appendConsoleMessage:std::string("MIDI recording ") + mode
         error:NO];
     [self reloadModel];
 }
@@ -5058,7 +5028,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
 
 - (void)resetTrackerZoom
 {
-    [self setTrackerMagnification:1.0];
+    [self setTrackerMagnification:static_cast<CGFloat>(
+        s3g::tracker::app::kTrackerDefaultMagnification)];
 }
 
 - (void)moduleFocusConsole { [self focusConsole]; }

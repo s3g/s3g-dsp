@@ -83,14 +83,30 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
         session.pattern.tracks.size() - 1u);
     const std::size_t visibleRows = std::max<std::size_t>(
         session.pattern.visibleRows, 1u);
-    const std::size_t row = std::min(session.selectedRow, visibleRows - 1u);
+    const bool live = mode == MidiStepRecordMode::LiveQuantized
+        || mode == MidiStepRecordMode::LiveUnquantized;
+    if (live && !capture.rowKnown) {
+        result.code = MidiStepRecordCode::TimingUnavailable;
+        return result;
+    }
+    auto& track = session.pattern.tracks[trackIndex];
+    const std::size_t noteLength = live
+        ? std::max<std::size_t>(track.noteColumn.length, 1u)
+        : visibleRows;
+    const std::size_t row = live
+        ? capture.row % noteLength
+        : std::min(session.selectedRow, visibleRows - 1u);
+    const std::size_t velocityLength = live
+        ? std::max<std::size_t>(track.velocityColumn.length, 1u)
+        : visibleRows;
+    const std::size_t velocityRow = live
+        ? capture.row % velocityLength : row;
     result.track = trackIndex;
     result.row = row;
-    auto& track = session.pattern.tracks[trackIndex];
 
     std::size_t pairIndex = kFxPairCount;
     float microTime = 0.5f;
-    if (mode == MidiStepRecordMode::Unquantized) {
+    if (mode == MidiStepRecordMode::LiveUnquantized) {
         const double range = session.transport.microTimingRangeMilliseconds;
         if (!std::isfinite(sampleRate) || sampleRate <= 0.0
             || !std::isfinite(range) || range <= 0.0) {
@@ -110,18 +126,25 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
         microTime = static_cast<float>(std::clamp(raw, 0.0, 1.0));
     }
 
-    if (track.notes.size() <= row)
-        track.notes.resize(row + 1u, NoteCell::rest());
-    if (track.velocities.size() <= row)
-        track.velocities.resize(row + 1u, ValueCell::defaultValue());
+    const std::size_t requiredNotes = live ? noteLength : row + 1u;
+    const std::size_t requiredVelocities = live
+        ? velocityLength : velocityRow + 1u;
+    if (track.notes.size() < requiredNotes)
+        track.notes.resize(requiredNotes, NoteCell::rest());
+    if (track.velocities.size() < requiredVelocities)
+        track.velocities.resize(requiredVelocities,
+            ValueCell::defaultValue());
     track.notes[row] = NoteCell::withNote(capture.note);
-    track.velocities[row] = ValueCell::withValue(
+    track.velocities[velocityRow] = ValueCell::withValue(
         static_cast<float>(capture.velocity) / 127.0f);
-    track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
-    track.velocityColumn.length = std::max(
-        track.velocityColumn.length, row + 1u);
+    if (!live) {
+        track.noteColumn.length = std::max(
+            track.noteColumn.length, row + 1u);
+        track.velocityColumn.length = std::max(
+            track.velocityColumn.length, velocityRow + 1u);
+    }
 
-    if (mode == MidiStepRecordMode::Quantized) {
+    if (mode != MidiStepRecordMode::LiveUnquantized) {
         clearMicroTime(track, row);
     } else {
         auto& pair = track.fxPairs[pairIndex];
@@ -138,10 +161,17 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
             pair.valueColumn.length, row + 1u);
     }
 
-    session.pattern.visibleRows = std::max(
-        session.pattern.visibleRows, row + 1u);
-    session.selectedRow = (row + 1u) % std::max<std::size_t>(
-        session.pattern.visibleRows, 1u);
+    if (mode == MidiStepRecordMode::Step) {
+        session.pattern.visibleRows = std::max(
+            session.pattern.visibleRows, row + 1u);
+        session.selectedRow = (row + 1u) % std::max<std::size_t>(
+            session.pattern.visibleRows, 1u);
+    } else {
+        // Live capture follows the written NOTE so the highlight and recorded
+        // cell agree, but it does not perform STEP's post-write advance.
+        session.selectedRow = row;
+    }
+    session.selectedTrack = trackIndex;
     session.selectedField = 0u;
     result.code = MidiStepRecordCode::Recorded;
     result.fxPair = pairIndex;

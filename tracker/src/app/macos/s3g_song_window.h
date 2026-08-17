@@ -4,6 +4,7 @@
 
 #ifdef __cplusplus
 #include "s3g/tracker/song_playback_planner.h"
+#include "s3g/tracker/timing_warp.h"
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -55,6 +56,8 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
 /// Native model boundary used by project persistence and the scheduler.
 - (s3g::tracker::SongArrangement)songArrangement;
 - (void)setSongArrangement:(const s3g::tracker::SongArrangement&)arrangement;
+- (void)setTimingWarpLibrary:
+    (const s3g::tracker::TimingWarpLibrary&)library;
 - (void)setPlaybackRow:(NSUInteger)row valid:(BOOL)valid;
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid;
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid

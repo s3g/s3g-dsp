@@ -728,7 +728,7 @@ constexpr std::array<std::pair<std::string_view, ParameterScope>, 3u>
         { "channel", ParameterScope::Channel },
         { "note", ParameterScope::Note },
     }};
-constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
+constexpr std::array<std::pair<std::string_view, SequencerAction>, 12u>
     kSequencerActions {{
         { "ratchet", SequencerAction::Ratchet },
         { "microtime", SequencerAction::MicroTime },
@@ -742,7 +742,6 @@ constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
         { "offset", SequencerAction::Offset },
         { "repeat-previous", SequencerAction::RepeatPrevious },
         { "euclid", SequencerAction::Euclid },
-        { "warp-recall", SequencerAction::WarpRecall },
     }};
 static_assert(kSequencerActions.size() == kSequencerActionCount,
     "project schema must explicitly name every sequencing action");
@@ -1727,6 +1726,9 @@ JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
         encoded.object["repeats"] = number(row.repeats);
         if (row.swing.has_value())
             encoded.object["swing"] = JsonValue::numberValue(*row.swing);
+        encoded.object["warpSlot"] = number(static_cast<std::size_t>(
+            row.timingWarpLibraryIndex
+                ? *row.timingWarpLibraryIndex + 1u : 0u));
         rows.array.push_back(std::move(encoded));
     }
     output.object["rows"] = std::move(rows);
@@ -1805,6 +1807,17 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
             if (!checkedNumber(swing->second, value, 0.5, 0.75,
                     path + ".swing", result)) return false;
             row.swing = value;
+        }
+        const auto warpSlot = inputRow.object.find("warpSlot");
+        if (warpSlot != inputRow.object.end()) {
+            uint32_t oneBased = 0u;
+            if (!checkedUint32(warpSlot->second, oneBased,
+                    static_cast<uint32_t>(
+                        kMaximumTimingWarpLibraryEntries),
+                    path + ".warpSlot", result)) return false;
+            if (oneBased > 0u)
+                row.timingWarpLibraryIndex
+                    = static_cast<std::size_t>(oneBased - 1u);
         }
         candidate.rows.push_back(std::move(row));
     }

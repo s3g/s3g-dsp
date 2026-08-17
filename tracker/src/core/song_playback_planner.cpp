@@ -58,6 +58,12 @@ SongValidationResult validateSongArrangement(
                 || *row.swing > kMaximumSongSwing)) {
             return { SongValidationCode::InvalidSwing, index };
         }
+        if (row.timingWarpLibraryIndex
+            && *row.timingWarpLibraryIndex
+                >= kMaximumTimingWarpLibraryEntries) {
+            return { SongValidationCode::InvalidTimingWarpLibraryIndex,
+                index };
+        }
     }
     return {};
 }

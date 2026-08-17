@@ -428,7 +428,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         self.endField.doubleValue = transform->options.phaseEnd;
         self.repeatsField.integerValue = transform->options.repetitions;
         self.statusLabel.stringValue = [NSString stringWithFormat:
-            @"%lu TRANSFORM%@ • SERIAL LEFT → RIGHT • %lu SAVED • WRP RECALLS 01–64",
+            @"%lu TRANSFORM%@ • SERIAL LEFT → RIGHT • %lu SAVED • SONG RECALLS SAVED SLOTS",
             static_cast<unsigned long>(count), count == 1u ? @"" : @"S",
             static_cast<unsigned long>(library.size())];
     } else {

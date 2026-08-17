@@ -114,6 +114,12 @@ void testValidationAndTransactionalInstall()
     check(validateSongArrangement(invalidSwing).code
             == SongValidationCode::InvalidSwing,
         "row swing overrides should use the transport's native range");
+    auto invalidWarp = song;
+    invalidWarp.rows[0].timingWarpLibraryIndex
+        = kMaximumTimingWarpLibraryEntries;
+    check(validateSongArrangement(invalidWarp).code
+            == SongValidationCode::InvalidTimingWarpLibraryIndex,
+        "Song warp references should remain inside the fixed project library");
 }
 
 void testNaturalRepeatRowAndFinishBoundaries()

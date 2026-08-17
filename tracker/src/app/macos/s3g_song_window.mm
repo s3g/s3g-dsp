@@ -17,6 +17,7 @@ NSFont* s3gSongFont(CGFloat size, NSFontWeight weight = NSFontWeightRegular)
 
 NSString* const S3GSongColumnRow = @"row";
 NSString* const S3GSongColumnPattern = @"pattern";
+NSString* const S3GSongColumnWarp = @"warp";
 NSString* const S3GSongColumnRepeats = @"repeats";
 NSString* const S3GSongColumnTicks = @"ticks";
 NSString* const S3GSongColumnSwing = @"swing";
@@ -77,6 +78,7 @@ bool s3gUsesProjectValue(NSString* text)
 @property(nonatomic) NSInteger ticks;
 @property(nonatomic) double swing;
 @property(nonatomic) BOOL hasSwingOverride;
+@property(nonatomic) NSInteger warpSlot;
 @property(nonatomic, strong) NSMutableIndexSet* mutedLanes;
 @end
 
@@ -300,6 +302,8 @@ bool s3gUsesProjectValue(NSString* text)
 @property(nonatomic, copy) NSString* arrangementName;
 @property(nonatomic, copy) NSArray<NSString*>* availablePatternIds;
 @property(nonatomic, copy) NSArray<NSString*>* availablePatternNames;
+@property(nonatomic, copy) NSArray<NSNumber*>* availableWarpSlots;
+@property(nonatomic, copy) NSArray<NSString*>* availableWarpTitles;
 @property(nonatomic, copy) NSString* activePatternId;
 @property(nonatomic) BOOL arrangementLoops;
 @property(nonatomic) NSInteger arrangementTicksPerBeat;
@@ -341,6 +345,8 @@ bool s3gUsesProjectValue(NSString* text)
     _arrangementName = @"SONG";
     _availablePatternIds = @[ @"A01" ];
     _availablePatternNames = @[ @"" ];
+    _availableWarpSlots = @[ @0 ];
+    _availableWarpTitles = @[ @"OFF" ];
     _activePatternId = @"A01";
     _arrangementLoops = NO;
     _arrangementTicksPerBeat = 4;
@@ -369,6 +375,7 @@ bool s3gUsesProjectValue(NSString* text)
     row.ticks = 4;
     row.swing = 56.0;
     row.hasSwingOverride = YES;
+    row.warpSlot = 0;
     row.mutedLanes = [[NSMutableIndexSet alloc] init];
     return row;
 }
@@ -441,6 +448,7 @@ bool s3gUsesProjectValue(NSString* text)
 
     [self addColumn:S3GSongColumnRow title:@"ROW" width:48.0 minWidth:44.0];
     [self addColumn:S3GSongColumnPattern title:@"PATTERN" width:180.0 minWidth:110.0];
+    [self addColumn:S3GSongColumnWarp title:@"WARP" width:170.0 minWidth:120.0];
     [self addColumn:S3GSongColumnRepeats title:@"REP" width:70.0 minWidth:56.0];
     [self addColumn:S3GSongColumnTicks title:@"TICKS" width:80.0 minWidth:62.0];
     [self addColumn:S3GSongColumnSwing title:@"SWING %" width:92.0 minWidth:76.0];
@@ -699,6 +707,40 @@ bool s3gUsesProjectValue(NSString* text)
         }
         if (selection >= 0) [pattern selectItemAtIndex:selection];
         [cell addSubview:pattern];
+    } else if ([column isEqualToString:S3GSongColumnWarp]) {
+        S3GTrackerPopupButton* warp = [[S3GTrackerPopupButton alloc]
+            initWithFrame:NSMakeRect(4.0,
+                std::max(2.0, (tableView.rowHeight - 28.0) * 0.5),
+                std::max(40.0, tableColumn.width - 8.0), 28.0)
+            pullsDown:NO];
+        warp.autoresizingMask = NSViewWidthSizable;
+        warp.target = self;
+        warp.action = @selector(warpPopupChanged:);
+        warp.tag = rowIndex;
+        warp.enabled = !self.playbackLocked;
+        warp.accessibilityLabel = [NSString stringWithFormat:
+            @"Song row %ld timing warp", rowIndex + 1];
+        [self.availableWarpSlots enumerateObjectsUsingBlock:
+            ^(NSNumber* slot, NSUInteger index, BOOL* stop) {
+            (void)stop;
+            NSString* title = index < self.availableWarpTitles.count
+                ? self.availableWarpTitles[index] : @"OFF";
+            [warp addItemWithTitle:title];
+            warp.lastItem.representedObject = slot;
+        }];
+        const NSUInteger selectionIndex = [self.availableWarpSlots
+            indexOfObject:@(row.warpSlot)];
+        NSInteger selection = selectionIndex == NSNotFound
+            ? -1 : static_cast<NSInteger>(selectionIndex);
+        if (selectionIndex == NSNotFound && row.warpSlot > 0) {
+            [warp addItemWithTitle:[NSString stringWithFormat:
+                @"%02ld · MISSING", row.warpSlot]];
+            warp.lastItem.representedObject = @(row.warpSlot);
+            selection = static_cast<NSInteger>(warp.numberOfItems - 1u);
+            warp.toolTip = @"This Song row references an empty saved warp slot; playback uses OFF";
+        }
+        if (selection >= 0) [warp selectItemAtIndex:selection];
+        [cell addSubview:warp];
     } else if ([column isEqualToString:S3GSongColumnRepeats]) {
         [cell addSubview:[self cellText:[NSString stringWithFormat:@"%ld", row.repeats]
             row:rowIndex column:column editable:YES alignment:NSTextAlignmentCenter]];
@@ -841,6 +883,22 @@ bool s3gUsesProjectValue(NSString* text)
     [self songDidChange];
 }
 
+- (void)warpPopupChanged:(S3GTrackerPopupButton*)sender
+{
+    if (self.playbackLocked) return;
+    const NSInteger rowIndex = sender.tag;
+    if (rowIndex < 0 || rowIndex >= (NSInteger)self.rows.count) return;
+    NSNumber* represented = sender.selectedItem.representedObject;
+    if (![represented isKindOfClass:NSNumber.class]) return;
+    const NSInteger slot = s3gClampInteger(represented.integerValue, 0,
+        static_cast<NSInteger>(
+            s3g::tracker::kMaximumTimingWarpLibraryEntries));
+    S3GTrackerSongRow* row = self.rows[(NSUInteger)rowIndex];
+    if (row.warpSlot == slot) return;
+    row.warpSlot = slot;
+    [self songDidChange];
+}
+
 - (void)addRow:(id)sender
 {
     (void)sender;
@@ -857,6 +915,7 @@ bool s3gUsesProjectValue(NSString* text)
         row.ticks = prior.ticks;
         row.swing = prior.swing;
         row.hasSwingOverride = prior.hasSwingOverride;
+        row.warpSlot = prior.warpSlot;
     }
     [self.rows insertObject:row atIndex:(NSUInteger)insertion];
     [self.tableView reloadData];
@@ -1074,6 +1133,28 @@ bool s3gUsesProjectValue(NSString* text)
     [self.tableView reloadData];
 }
 
+- (void)setTimingWarpLibrary:
+    (const s3g::tracker::TimingWarpLibrary&)library
+{
+    NSMutableArray<NSNumber*>* slots = [[NSMutableArray alloc] init];
+    NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
+    [slots addObject:@0];
+    [titles addObject:@"OFF"];
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kMaximumTimingWarpLibraryEntries; ++index) {
+        const auto* entry = library.entry(index);
+        if (!entry) continue;
+        NSString* name = [NSString stringWithUTF8String:entry->name.c_str()];
+        [slots addObject:@(index + 1u)];
+        [titles addObject:[NSString stringWithFormat:@"%02lu · %@",
+            static_cast<unsigned long>(index + 1u),
+            name.length > 0u ? name : @"UNTITLED"]];
+    }
+    _availableWarpSlots = slots.copy;
+    _availableWarpTitles = titles.copy;
+    [self.tableView reloadData];
+}
+
 - (s3g::tracker::SongArrangement)songArrangement
 {
     s3g::tracker::SongArrangement arrangement;
@@ -1093,6 +1174,9 @@ bool s3gUsesProjectValue(NSString* text)
             source.repeats, 1, 65535));
         if (source.hasSwingOverride)
             row.swing = std::clamp(source.swing * 0.01, 0.5, 0.75);
+        if (source.warpSlot > 0)
+            row.timingWarpLibraryIndex
+                = static_cast<std::size_t>(source.warpSlot - 1);
         __block uint32_t muteMask = 0u;
         [source.mutedLanes enumerateIndexesUsingBlock:
             ^(NSUInteger index, BOOL* stop) {
@@ -1126,6 +1210,9 @@ bool s3gUsesProjectValue(NSString* text)
         row.repeats = static_cast<NSInteger>(source.repeats);
         row.swing = source.swing.value_or(0.56) * 100.0;
         row.hasSwingOverride = source.swing.has_value();
+        row.warpSlot = source.timingWarpLibraryIndex
+            ? static_cast<NSInteger>(*source.timingWarpLibraryIndex + 1u)
+            : 0;
         [row.mutedLanes removeAllIndexes];
         for (NSUInteger lane = 0u; lane < 32u; ++lane) {
             if ((source.mutedTracks & (1u << lane)) != 0u)
