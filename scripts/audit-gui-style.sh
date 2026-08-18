@@ -1162,10 +1162,14 @@ if ! rg -Fq 'updateLivePitchTarget(voice, settings)' dsp/s3g_sample_player.h \
     "Sample Player Tune/Fine, Sustain/pre-release Release, and loop edits must update active voices through bounded smoothing."
 fi
 if ! rg -Fq 'PitchMode::Stretch' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'PitchMode::RateBelowStretchAbove' \
+      dsp/s3g_sample_player.h \
+    || ! rg -Fq '@"RATE BELOW / STRETCH ABOVE"' \
+      "$sample_player_source" \
     || ! rg -Fq 'stretchSample' dsp/s3g_sample_player.h \
     || ! rg -Fq 'stretchPhaseStep' dsp/s3g_sample_player.h; then
   warn "control" "$sample_player_source" \
-    "Sample Player Stretch mode must preserve transport timing while shifting pitch."
+    "Sample Player Stretch and root-split Rate/Stretch modes must preserve transport timing while shifting pitch."
 fi
 if ! rg -Fq 'loopCrossfadeFrames' dsp/s3g_sample_player.h \
     || ! rg -Fq 'ForwardPingPong' dsp/s3g_sample_player.h \

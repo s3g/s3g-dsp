@@ -3201,8 +3201,8 @@ CommandResult executeTokens(TrackerSession& session,
         std::size_t steps = 0u;
         if (!parseUnsigned(tokens[2], pulses)
             || !parseUnsigned(tokens[3], steps) || steps == 0u
-            || steps > kMaximumRows || pulses > steps)
-            return failure("Euclid requires 0..steps pulses and 1..256 steps.");
+            || steps > kMaximumRows || pulses > steps * 8u)
+            return failure("Euclid requires 0..8×steps pulses and 1..256 steps; overfull rhythms use automatic 2..8-way SEQ ratchets.");
         int64_t rotation = 0;
         if (tokens.size() >= 5u && !parseSigned(tokens[4], rotation))
             return failure("Euclid rotation must be a whole number.");
@@ -3211,6 +3211,45 @@ CommandResult executeTokens(TrackerSession& session,
         if (tokens.size() == 6u
             && !parseDirection(tokens[5], direction, canonical))
             return failure("Unknown Euclid direction; use forward, reverse, random, or palindrome.");
+
+        const bool overfull = pulses > steps;
+        if (overfull && direction == Direction::Random)
+            return failure("Overfull Euclid cannot align NOTE and SEQ ratchets in random direction; use forward, reverse, or palindrome.");
+
+        auto& track = session.pattern.tracks[lane];
+        std::size_t ratchetPair = kFxPairCount;
+        std::size_t bestExistingRatchets = 0u;
+        if (overfull) {
+            // One complete SEQ pair owns the generated burst lane so its
+            // action/value heads can remain phase-locked to NOTE. Existing
+            // RR cells are reusable; unrelated actions are never overwritten.
+            for (std::size_t pairIndex = 0u; pairIndex < kFxPairCount;
+                 ++pairIndex) {
+                const auto& pair = track.fxPairs[pairIndex];
+                bool available = true;
+                std::size_t existingRatchets = 0u;
+                for (std::size_t row = 0u; row < steps; ++row) {
+                    if (row >= pair.actions.size()
+                        || pair.actions[row].state
+                            == FxActionCellState::Empty)
+                        continue;
+                    if (fxCellNamesAction(pair.actions[row],
+                            SequencerAction::Ratchet)) {
+                        ++existingRatchets;
+                        continue;
+                    }
+                    available = false;
+                    break;
+                }
+                if (available && (ratchetPair == kFxPairCount
+                        || existingRatchets > bestExistingRatchets)) {
+                    ratchetPair = pairIndex;
+                    bestExistingRatchets = existingRatchets;
+                }
+            }
+            if (ratchetPair == kFxPairCount)
+                return failure("Overfull Euclid needs one SEQ pair whose active rows are empty or already RR; clear SEQ1 or SEQ2 first.");
+        }
 
         std::string mask(steps, '-');
         const auto normalized = normalizedRotation(rotation, steps);
@@ -3221,11 +3260,63 @@ CommandResult executeTokens(TrackerSession& session,
         }
         applyMask(session, lane, mask);
         if (tokens.size() == 6u)
-            session.pattern.tracks[lane].noteColumn.direction = direction;
-        return success("Applied Euclid " + std::to_string(pulses) + '/'
+            track.noteColumn.direction = direction;
+        track.noteColumn.phase %= steps;
+
+        // `eu` owns prior automatic RR cells across the generated span. This
+        // makes a later conventional Euclid remove stale bursts and prevents
+        // a RR in the other pair from overriding the newly generated count.
+        for (auto& pair : track.fxPairs) {
+            for (std::size_t row = 0u;
+                 row < steps && row < pair.actions.size(); ++row) {
+                if (!fxCellNamesAction(pair.actions[row],
+                        SequencerAction::Ratchet))
+                    continue;
+                pair.actions[row] = FxActionCell::empty();
+                if (row < pair.values.size())
+                    pair.values[row] = FxValueCell::previous();
+            }
+        }
+
+        std::size_t maximumBurst = 1u;
+        if (overfull) {
+            auto& pair = track.fxPairs[ratchetPair];
+            ensureFxStorage(session, pair, true, steps);
+            ensureFxStorage(session, pair, false, steps);
+            for (std::size_t row = 0u; row < steps; ++row) {
+                const std::size_t burst = ((row + 1u) * pulses) / steps
+                    - (row * pulses) / steps;
+                const auto destination = (row + normalized) % steps;
+                maximumBurst = std::max(maximumBurst, burst);
+                if (burst <= 1u) continue;
+                pair.actions[destination] = FxActionCell::sequencer(
+                    SequencerAction::Ratchet);
+                pair.values[destination] = FxValueCell::withValue(
+                    static_cast<float>(burst - 2u) / 6.0f);
+            }
+            pair.actionColumn.length = steps;
+            pair.valueColumn.length = steps;
+            pair.actionColumn.stride = track.noteColumn.stride;
+            pair.valueColumn.stride = track.noteColumn.stride;
+            pair.actionColumn.phase = track.noteColumn.phase;
+            pair.valueColumn.phase = track.noteColumn.phase;
+            pair.actionColumn.direction = track.noteColumn.direction;
+            pair.valueColumn.direction = track.noteColumn.direction;
+            pair.actionColumn.muted = false;
+            pair.valueColumn.muted = false;
+        }
+
+        std::string message = "Applied Euclid " + std::to_string(pulses) + '/'
                 + std::to_string(steps) + " rotate "
                 + std::to_string(rotation) + " to "
-                + laneLabel(session, lane) + '.',
+                + laneLabel(session, lane);
+        if (overfull) {
+            message += " with aligned SEQ" + std::to_string(ratchetPair + 1u)
+                + " ratchets up to " + std::to_string(maximumBurst)
+                + " onsets per step";
+        }
+        message += '.';
+        return success(std::move(message),
             CommandEffect::PatternChanged);
     }
 
@@ -3515,7 +3606,7 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "kill <target> <row>", "Write a NOTE kill cell.", "kill", "kill @kick 4" },
             { "note <target> <row> <0..127|rest|rpt|hold|kill>", "Edit one NOTE cell directly.", "note", "note @kick 5 38" },
             { "mask <target> <x---...> [direction]", "Replace the active NOTE mask: x/X is a hit and - is a rest.", "mask", "mask @kick x---x--- <>" },
-            { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask.", "eu e euclid", "eu @kick 5 16 1 <>" },
+            { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask; pulses above steps automatically use aligned 2–8-way RR cells in an available SEQ pair.", "eu e euclid", "eu @kick 20 16 1 <>" },
             { "rotate|rot <target> <signed steps>", "Rotate active NOTE cells right; negative values move left.", "rotate rot", "rotate @kick -1" },
             { "reverse <target>", "Reverse every active NOTE cell.", "reverse", "reverse @kick" },
             { "fill <target> <every> [offset]", "Add anchored hits to NOTE rests at a fixed interval.", "fill", "fill @kick 4 0" },

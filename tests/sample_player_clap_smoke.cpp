@@ -278,12 +278,14 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     char filterText[32] {};
     char cutoffText[32] {};
     char pitchModeText[32] {};
+    char splitPitchModeText[40] {};
     char midiReceiveText[32] {};
     double envelopeValue = -1.0;
     double modeValue = -1.0;
     double filterValue = -1.0;
     double cutoffValue = -1.0;
     double pitchModeValue = -1.0;
+    double splitPitchModeValue = -1.0;
     double midiReceiveValue = -1.0;
     const auto findParam = [&](clap_id id, clap_param_info_t& found) {
         if (!params) return false;
@@ -339,7 +341,7 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && cutoffInfo.id == 18u && cutoffInfo.min_value == 20.0
             && cutoffInfo.max_value == 20000.0
             && pitchModeInfo.id == 21u
-            && pitchModeInfo.max_value == 1.0
+            && pitchModeInfo.max_value == 2.0
             && pitchModeInfo.default_value == 0.0
             && syncModeInfo.max_value == 1.0
             && syncModeInfo.default_value == 0.0
@@ -380,6 +382,13 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && params->text_to_value(plugin, pitchModeInfo.id, "Rate",
                 &pitchModeValue)
             && std::fabs(pitchModeValue) < 1.0e-9
+            && params->value_to_text(plugin, pitchModeInfo.id, 2.0,
+                splitPitchModeText, sizeof(splitPitchModeText))
+            && std::strcmp(splitPitchModeText,
+                "Rate Below / Stretch Above") == 0
+            && params->text_to_value(plugin, pitchModeInfo.id,
+                "Rate Below / Stretch Above", &splitPitchModeValue)
+            && std::fabs(splitPitchModeValue - 2.0) < 1.0e-9
             && params->value_to_text(plugin, midiReceiveInfo.id, 16.0,
                 midiReceiveText, sizeof(midiReceiveText))
             && std::strcmp(midiReceiveText, "Channel 16") == 0

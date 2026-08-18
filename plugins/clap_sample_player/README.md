@@ -25,7 +25,10 @@ voice rather than averaging polyphonic positions.
 
 Tempo Sync defaults to Free. Host mode compares Sample BPM with the CLAP host
 tempo: Rate changes timing and pitch together, while Stretch follows tempo and
-keeps MIDI pitch independent. Trigger defaults to Auto, retaining the original
+keeps MIDI pitch independent. Rate Below / Stretch Above uses Rate for notes
+below Root Note and Stretch for Root Note and higher notes. Tune and Fine Tune
+shift pitch without moving that keyboard split. Pitch-mode changes on active
+voices use a 10 ms transition. Trigger defaults to Auto, retaining the original
 one-shot note-off behavior for Forward/Reverse and gated note-off behavior for
 loops. Gate, One Shot, and Toggle are also available. Retrigger defaults to
 Layer, with Restart and Ignore choices for repeated keys. Voice mode defaults

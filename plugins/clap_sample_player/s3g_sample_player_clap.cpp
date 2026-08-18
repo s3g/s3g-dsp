@@ -150,7 +150,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         0.0, false },
     { kFilterEnvelopeParamId, "Filter Envelope", "Filter", -1.0, 1.0,
         0.0, false },
-    { kPitchModeParamId, "Pitch Mode", "Pitch", 0.0, 1.0, 0.0, true },
+    { kPitchModeParamId, "Pitch Mode", "Pitch", 0.0, 2.0, 0.0, true },
     { kSyncModeParamId, "Tempo Sync", "Playback", 0.0, 1.0, 0.0, true },
     { kSourceTempoParamId, "Sample BPM", "Playback", 20.0, 999.0,
         120.0, false },
@@ -1187,8 +1187,10 @@ const char* filterTypeName(int type) noexcept
 
 const char* pitchModeName(int mode) noexcept
 {
-    constexpr std::array<const char*, 2u> names {{ "Rate", "Stretch" }};
-    return names[static_cast<std::size_t>(std::clamp(mode, 0, 1))];
+    constexpr std::array<const char*, 3u> names {{
+        "Rate", "Stretch", "Rate Below / Stretch Above",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 2))];
 }
 
 const char* syncModeName(int mode) noexcept
@@ -1316,7 +1318,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         return false;
     }
     if (id == kPitchModeParamId) {
-        for (int mode = 0; mode < 2; ++mode) {
+        for (int mode = 0; mode < 3; ++mode) {
             if (strcasecmp(display, pitchModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
@@ -1816,7 +1818,7 @@ NSRect pitchModeDropdownRect()
 {
     const NSRect menu = pitchModeMenuRect();
     return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
-        menu.size.width, 40.0);
+        menu.size.width, 60.0);
 }
 
 NSString* parameterText(const Plugin& instance, clap_id id, double value)
@@ -1956,7 +1958,9 @@ NSString* const kFilterTypeItems[] = {
     @"OFF", @"LOW PASS", @"BAND PASS", @"HIGH PASS", @"NOTCH",
 };
 
-NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
+NSString* const kPitchModeItems[] = {
+    @"RATE", @"STRETCH", @"RATE BELOW / STRETCH ABOVE",
+};
 
 NSString* const kSyncModeItems[] = { @"FREE", @"HOST" };
 
@@ -2346,7 +2350,7 @@ NSString* const kMidiReceiveItems[] = {
     }
     if (_pitchModeMenuOpen) {
         const int selected = s3g::clap_gui::dropdownHitIndex(point,
-            pitchModeDropdownRect(), 20.0, 2u);
+            pitchModeDropdownRect(), 20.0, 3u);
         [self closeMenus];
         [self setNeedsDisplay:YES];
         if (selected >= 0) {
@@ -2566,7 +2570,7 @@ NSString* const kMidiReceiveItems[] = {
         }
     } else if (_pitchModeMenuOpen) {
         const int hover = s3g::clap_gui::dropdownHitIndex(point,
-            pitchModeDropdownRect(), 20.0, 2u);
+            pitchModeDropdownRect(), 20.0, 3u);
         if (hover != _pitchModeMenuHover) {
             _pitchModeMenuHover = hover;
             [self setNeedsDisplay:YES];
@@ -2939,7 +2943,7 @@ NSString* const kMidiReceiveItems[] = {
             _filterTypeMenuHover, valueAttrs, style);
     } else if (_pitchModeMenuOpen) {
         s3g::clap_gui::drawDropdownMenu(pitchModeDropdownRect(), 20.0,
-            kPitchModeItems, 2u, static_cast<int>(std::lround(
+            kPitchModeItems, 3u, static_cast<int>(std::lround(
                 paramValue(*_instance, kPitchModeParamId))),
             _pitchModeMenuHover, valueAttrs, style);
     } else if (_voiceModeMenuOpen) {

@@ -2558,7 +2558,7 @@ int main(int argc, char** argv)
                     && [[document valueForKey:@"filterTypeMenuHover"]
                         intValue] == -1;
                 const NSPoint pitchModeMenu = NSMakePoint(200.0, 683.0);
-                const NSPoint stretchItem = NSMakePoint(200.0, 722.0);
+                const NSPoint splitPitchItem = NSMakePoint(200.0, 742.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, pitchModeMenu)];
@@ -2569,17 +2569,17 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     [document mouseMoved:mouseEvent(
-                        NSEventTypeMouseMoved, stretchItem)];
+                        NSEventTypeMouseMoved, splitPitchItem)];
                     ok = [[document valueForKey:@"pitchModeMenuHover"]
-                        intValue] == 1;
+                        intValue] == 2;
                 }
                 if (ok) {
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, stretchItem)];
+                        NSEventTypeLeftMouseDown, splitPitchItem)];
                 }
                 double pitchMode = -1.0;
                 ok = ok && params->get_value(plugin, 21u, &pitchMode)
-                    && std::fabs(pitchMode - 1.0) < 0.000001
+                    && std::fabs(pitchMode - 2.0) < 0.000001
                     && ![[document valueForKey:@"pitchModeMenuOpen"]
                         boolValue]
                     && [[document valueForKey:@"pitchModeMenuHover"]

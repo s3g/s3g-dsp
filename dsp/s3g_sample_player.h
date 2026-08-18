@@ -14,6 +14,7 @@ namespace s3g::sample {
 constexpr std::size_t kMaximumVoices = 32u;
 constexpr std::size_t kMidiNoteCount = 128u;
 constexpr double kLivePitchSmoothingSeconds = 0.010;
+constexpr double kPitchModeTransitionSeconds = 0.010;
 constexpr double kLiveSustainSmoothingSeconds = 0.010;
 constexpr double kLiveLoopTransitionSeconds = 0.005;
 
@@ -29,6 +30,7 @@ enum class PlayMode : uint8_t {
 enum class PitchMode : uint8_t {
     Rate = 0u,
     Stretch,
+    RateBelowStretchAbove,
 };
 
 enum class SyncMode : uint8_t {
@@ -129,7 +131,7 @@ struct PlayerSettings {
         return static_cast<uint8_t>(playMode)
                 <= static_cast<uint8_t>(PlayMode::ReversePingPong)
             && static_cast<uint8_t>(pitchMode)
-                <= static_cast<uint8_t>(PitchMode::Stretch)
+                <= static_cast<uint8_t>(PitchMode::RateBelowStretchAbove)
             && static_cast<uint8_t>(syncMode)
                 <= static_cast<uint8_t>(SyncMode::Host)
             && static_cast<uint8_t>(triggerMode)
@@ -257,6 +259,9 @@ public:
         for (auto& voice : voices_) {
             if (!voice.active) continue;
             voice.syncRatio = nextSyncRatio;
+            if (settings.pitchMode != voice.pitchModeSelection)
+                configurePitchMode(voice, settings.pitchMode,
+                    voice.key, voice.rootNote);
             updateLivePitchTarget(voice, settings);
             refreshVoiceRates(voice);
             updateLiveEnvelopeTargets(voice, settings);
@@ -297,25 +302,25 @@ public:
                     float value = processFilter(
                         voice.filterStates[channel], source, filter)
                         * channelLevel;
-                    if (voice.loopTransitionFramesRemaining != 0u) {
+                    if (voice.playbackTransitionFramesRemaining != 0u) {
                         const uint32_t total = std::max(1u,
-                            voice.loopTransitionTotalFrames);
+                            voice.playbackTransitionTotalFrames);
                         const float linear = total == 1u ? 1.0f
                             : static_cast<float>(total
-                                - voice.loopTransitionFramesRemaining)
+                                - voice.playbackTransitionFramesRemaining)
                                 / static_cast<float>(total - 1u);
                         const float phase = linear * linear
                             * (3.0f - 2.0f * linear);
-                        value = voice.loopTransitionFromSamples[channel]
+                        value = voice.playbackTransitionFromSamples[channel]
                             + (value
-                                - voice.loopTransitionFromSamples[channel])
+                                - voice.playbackTransitionFromSamples[channel])
                                 * phase;
                     }
                     outputs[channel][frame] += value;
                     voice.lastOutputSamples[channel] = value;
                 }
-                if (voice.loopTransitionFramesRemaining != 0u)
-                    --voice.loopTransitionFramesRemaining;
+                if (voice.playbackTransitionFramesRemaining != 0u)
+                    --voice.playbackTransitionFramesRemaining;
                 voice.hasRenderedSample = true;
                 if (voiceCursorCount_ < voiceCursors_.size()) {
                     const double sourceFrameCount = std::max(1.0,
@@ -381,6 +386,7 @@ private:
         uint8_t rootNote = 60u;
         uint8_t midiChannel = 0u;
         PlayMode playMode = PlayMode::Forward;
+        PitchMode pitchModeSelection = PitchMode::Rate;
         PitchMode pitchMode = PitchMode::Rate;
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
         float velocityLevel = 0.0f;
@@ -393,9 +399,9 @@ private:
         std::array<FilterState, kMaximumAudioChannels> filterStates {};
         std::array<float, kMaximumAudioChannels> lastOutputSamples {};
         std::array<float, kMaximumAudioChannels>
-            loopTransitionFromSamples {};
-        uint32_t loopTransitionFramesRemaining = 0u;
-        uint32_t loopTransitionTotalFrames = 0u;
+            playbackTransitionFromSamples {};
+        uint32_t playbackTransitionFramesRemaining = 0u;
+        uint32_t playbackTransitionTotalFrames = 0u;
         bool active = false;
         bool hasLooped = false;
         bool hasRenderedSample = false;
@@ -489,6 +495,53 @@ private:
         return std::pow(2.0, static_cast<double>(semitones) / 12.0);
     }
 
+    static PitchMode resolvePitchModeForKey(PitchMode selection,
+        uint8_t key, uint8_t rootNote) noexcept
+    {
+        if (selection != PitchMode::RateBelowStretchAbove)
+            return selection;
+        return key < rootNote ? PitchMode::Rate : PitchMode::Stretch;
+    }
+
+    void beginPlaybackTransition(Voice& voice, double seconds) const noexcept
+    {
+        if (!voice.hasRenderedSample) return;
+        voice.playbackTransitionFromSamples = voice.lastOutputSamples;
+        voice.playbackTransitionTotalFrames = static_cast<uint32_t>(
+            std::max(16.0, std::round(sampleRate_ * seconds)));
+        voice.playbackTransitionFramesRemaining
+            = voice.playbackTransitionTotalFrames;
+    }
+
+    void configurePitchMode(Voice& voice, PitchMode selection,
+        uint8_t key, uint8_t rootNote) const noexcept
+    {
+        voice.pitchModeSelection = selection;
+        const PitchMode resolved = resolvePitchModeForKey(
+            selection, key, rootNote);
+        if (resolved == voice.pitchMode
+            && (resolved != PitchMode::Stretch
+                || voice.stretchWindowOutputFrames > 0.0)) {
+            refreshVoiceRates(voice);
+            return;
+        }
+        beginPlaybackTransition(voice, kPitchModeTransitionSeconds);
+        voice.pitchMode = resolved;
+        voice.stretchPhase = 0.0;
+        if (resolved == PitchMode::Stretch) {
+            constexpr double stretchWindowSeconds = 0.080;
+            voice.stretchWindowOutputFrames = std::max(8.0,
+                sampleRate_ * stretchWindowSeconds);
+            voice.stretchWindowSourceFrames
+                = voice.stretchWindowOutputFrames * voice.sourceRatio;
+        } else {
+            voice.stretchWindowOutputFrames = 0.0;
+            voice.stretchWindowSourceFrames = 0.0;
+            voice.stretchPhaseStep = 0.0;
+        }
+        refreshVoiceRates(voice);
+    }
+
     void setPitchTarget(Voice& voice, double target,
         uint32_t transitionFrames) const noexcept
     {
@@ -565,14 +618,7 @@ private:
             && geometry.end == voice.loopEndFrame
             && std::abs(geometry.crossfadeFrames
                 - voice.loopCrossfadeFrames) <= 1.0e-9) return;
-        if (voice.hasRenderedSample) {
-            voice.loopTransitionFromSamples = voice.lastOutputSamples;
-            voice.loopTransitionTotalFrames = static_cast<uint32_t>(
-                std::max(16.0,
-                    std::round(sampleRate_ * kLiveLoopTransitionSeconds)));
-            voice.loopTransitionFramesRemaining
-                = voice.loopTransitionTotalFrames;
-        }
+        beginPlaybackTransition(voice, kLiveLoopTransitionSeconds);
         voice.loopStartFrame = geometry.start;
         voice.loopEndFrame = geometry.end;
         voice.loopCrossfadeFrames = geometry.crossfadeFrames;
@@ -860,7 +906,6 @@ private:
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
         voice.playMode = settings.playMode;
-        voice.pitchMode = settings.pitchMode;
         voice.playStartFrame = start;
         voice.playEndFrame = end;
         const bool reverse = isReverse(settings.playMode);
@@ -873,15 +918,8 @@ private:
             event.key, voice.rootNote, settings);
         voice.targetPitchRatio = voice.pitchRatio;
         voice.increment = sourceRatio * (reverse ? -1.0 : 1.0);
-        if (settings.pitchMode == PitchMode::Stretch) {
-            constexpr double stretchWindowSeconds = 0.080;
-            const double windowOutputFrames = std::max(8.0,
-                sampleRate_ * stretchWindowSeconds);
-            voice.stretchWindowOutputFrames = windowOutputFrames;
-            voice.stretchWindowSourceFrames = windowOutputFrames
-                * sourceRatio;
-        }
-        refreshVoiceRates(voice);
+        configurePitchMode(voice, settings.pitchMode,
+            event.key, voice.rootNote);
         const LoopGeometry loop = resolveLoopGeometry(voice, settings);
         voice.loopStartFrame = loop.start;
         voice.loopEndFrame = loop.end;
@@ -921,6 +959,8 @@ private:
         voice.key = event.key;
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
+        configurePitchMode(voice, settings.pitchMode,
+            event.key, voice.rootNote);
         const double target = pitchRatioFor(
             event.key, voice.rootNote, settings);
         const uint32_t glideFrames = static_cast<uint32_t>(

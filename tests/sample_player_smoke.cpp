@@ -350,6 +350,56 @@ void testStretchPitchPreservesDuration()
         "Stretch mode did not preserve duration while shifting pitch");
 }
 
+void testRateBelowStretchAbovePitchMode()
+{
+    auto asset = rampAsset(1u, 1000u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "split pitch-mode fixture did not prepare");
+    PlayerSettings settings;
+    settings.pitchMode = PitchMode::RateBelowStretchAbove;
+    settings.rootNote = 60u;
+    settings.tuneSemitones = 24.0f;
+    settings.attackProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    const std::array<RenderEvent, 3u> notes {{
+        { 0u, EventKind::NoteOn, 20u, 48u, 1.0f, 1u },
+        { 0u, EventKind::NoteOn, 21u, 60u, 1.0f, 1u },
+        { 0u, EventKind::NoteOn, 22u, 72u, 1.0f, 1u },
+    }};
+    std::array<float, 4u> left {};
+    std::array<float, 4u> right {};
+    float* outputs[] { left.data(), right.data() };
+    engine.render(settings, notes.data(), notes.size(), outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    const auto& cursors = engine.voiceCursors();
+    check(engine.voiceCursorCount() == 3u
+            && cursors[0u].key == 48u
+            && near(cursors[0u].sourcePositionNormalized, 0.006f)
+            && cursors[1u].key == 60u
+            && near(cursors[1u].sourcePositionNormalized, 0.003f)
+            && cursors[2u].key == 72u
+            && near(cursors[2u].sourcePositionNormalized, 0.003f),
+        "split pitch mode did not use Rate below Root and Stretch at/above it");
+
+    engine.reset();
+    settings.voiceMode = VoiceMode::Legato;
+    const std::array<RenderEvent, 2u> legatoNotes {{
+        { 0u, EventKind::NoteOn, 23u, 48u, 1.0f, 1u },
+        { 4u, EventKind::NoteOn, 24u, 72u, 1.0f, 1u },
+    }};
+    std::array<float, 8u> legatoLeft {};
+    std::array<float, 8u> legatoRight {};
+    float* legatoOutputs[] { legatoLeft.data(), legatoRight.data() };
+    engine.render(settings, legatoNotes.data(), legatoNotes.size(),
+        legatoOutputs, 2u, static_cast<uint32_t>(legatoLeft.size()));
+    check(engine.voiceCursorCount() == 1u
+            && engine.voiceCursors()[0u].key == 72u
+            && near(engine.voiceCursors()[0u].sourcePositionNormalized,
+                0.011f),
+        "Legato voice did not switch algorithms across the Root boundary");
+}
+
 void testAdsrAndRelease()
 {
     auto asset = rampAsset(2u, 4096u);
@@ -956,6 +1006,7 @@ int main()
     testLoopCrossfadeAndPingPong();
     testMultimodeFilterAndEnvelopeAmount();
     testStretchPitchPreservesDuration();
+    testRateBelowStretchAbovePitchMode();
     testAdsrAndRelease();
     testOneShotTailReleaseIgnoresNoteOff();
     testTempoSyncRateAndStretch();

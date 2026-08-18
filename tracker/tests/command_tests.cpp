@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1223,8 +1224,78 @@ void testEuclidAndDeterministicTransforms()
     check(result.ok && (humanized == "-x--" || humanized == "---x"),
         "humanize should move an eligible hit one circular neighbor");
 
-    checkRejectedWithoutMutation(session, "eu @k 17 16 0",
-        "Euclidean pulses greater than steps should not edit the lane");
+    result = CommandEngine::execute(session, "eu @k 17 16 1 <>");
+    const auto& overfullTrack = session.pattern.tracks[0u];
+    const auto& overfullPair = overfullTrack.fxPairs[0u];
+    check(result.ok && activeNoteMask(overfullTrack)
+                == "xxxxxxxxxxxxxxxx"
+            && overfullPair.actions[0u].state
+                == FxActionCellState::Sequencer
+            && overfullPair.actions[0u].sequencerAction
+                == s3g::tracker::SequencerAction::Ratchet
+            && std::abs(overfullPair.values[0u].normalized) < 1.0e-6f
+            && overfullPair.actionColumn.length == 16u
+            && overfullPair.valueColumn.length == 16u
+            && overfullPair.actionColumn.direction == Direction::Palindrome
+            && overfullPair.valueColumn.direction == Direction::Palindrome
+            && result.message.find("aligned SEQ1 ratchets")
+                != std::string::npos,
+        "overfull Euclid should rotate and align its extra pulse as a two-way RR burst");
+
+    auto overfullScheduler = std::make_unique<TimingPlaybackScheduler>();
+    overfullScheduler->setPattern(session.pattern);
+    overfullScheduler->setTransport({ 8000.0, 60.0, 1u, 0.5 });
+    overfullScheduler->start();
+    std::array<ScheduledEvent, 32u> overfullEvents {};
+    const auto overfullCount = overfullScheduler->process(120001u,
+        overfullEvents.data(), overfullEvents.size());
+    check(overfullCount == 17u
+            && overfullEvents[0u].absoluteSampleTime == 0u
+            && overfullEvents[1u].absoluteSampleTime == 4000u
+            && overfullEvents[2u].absoluteSampleTime == 8000u
+            && std::all_of(overfullEvents.begin(),
+                overfullEvents.begin()
+                    + static_cast<std::ptrdiff_t>(overfullCount),
+                [](const ScheduledEvent& event) {
+                    return event.kind == ScheduledEventKind::NoteOn;
+                }),
+        "a complete 17/16 overfull cycle should render exactly 17 onsets with its RR pulse halfway through the assigned step");
+
+    result = CommandEngine::execute(session, "eu @k 5 16 0 forward");
+    const auto& conventionalPair = session.pattern.tracks[0u].fxPairs[0u];
+    check(result.ok
+            && conventionalPair.actions.size() >= 16u
+            && std::none_of(conventionalPair.actions.begin(),
+                conventionalPair.actions.begin() + 16,
+                [](const auto& cell) {
+                    return cell.state == FxActionCellState::Sequencer
+                        && cell.sequencerAction
+                            == s3g::tracker::SequencerAction::Ratchet;
+                }),
+        "a conventional Euclid should clear stale auto-ratchets from the generated span");
+
+    auto maximumEuclid = std::make_unique<TrackerSession>(makeSession(1u));
+    result = CommandEngine::execute(*maximumEuclid, "eu 1 128 16");
+    check(result.ok
+            && maximumEuclid->pattern.tracks[0u].fxPairs[0u]
+                    .actions[0u].sequencerAction
+                == s3g::tracker::SequencerAction::Ratchet
+            && std::abs(maximumEuclid->pattern.tracks[0u].fxPairs[0u]
+                    .values[0u].normalized - 1.0f) < 1.0e-6f,
+        "eight pulses per step should map exactly to RR value 1.0");
+    checkRejectedWithoutMutation(*maximumEuclid, "eu 1 129 16",
+        "more than eight pulses per step must reject without mutation");
+
+    auto blockedEuclid = std::make_unique<TrackerSession>(makeSession(1u));
+    for (auto& pair : blockedEuclid->pattern.tracks[0u].fxPairs) {
+        pair.actions.resize(16u, s3g::tracker::FxActionCell::empty());
+        pair.actions[0u] = s3g::tracker::FxActionCell::sequencer(
+            s3g::tracker::SequencerAction::Probability);
+    }
+    checkRejectedWithoutMutation(*blockedEuclid, "eu 1 17 16",
+        "overfull Euclid must not overwrite unrelated SEQ actions");
+    checkRejectedWithoutMutation(session, "eu @k 17 16 0 random",
+        "overfull Euclid must reject independently randomized NOTE/SEQ heads");
     checkRejectedWithoutMutation(session, "rotate @k 1.5",
         "fractional rotation should fail without mutation");
     checkRejectedWithoutMutation(session, "fill @k 0",

@@ -129,6 +129,8 @@
 
         <p>When both pairs resolve the same kind of source transform, <code>SEQ2</code> wins. Probability, skip, offset, repeat-previous, and Euclidean gating resolve the note source before ratchet, microtime, delay, flam, stutter, accent, and ghost expand its timing.</p>
 
+        <p>The Console command <code>eu &lt;target&gt; &lt;pulses&gt; &lt;steps&gt;</code> also accepts overfull rhythms up to eight pulses per step. For example, <code>eu @kick 20 16</code> fills the 16 NOTE steps, distributes the four extra pulses across the cycle, and writes correctly valued <code>RR</code> cells into an available SEQ pair. The generated SEQ action and value columns are length-, stride-, phase-, and direction-aligned with NOTE so each burst remains on its intended step. Forward, reverse, and palindrome are supported; overfull random traversal is rejected because independently randomized NOTE and SEQ heads cannot stay aligned. Running <code>eu</code> again replaces RR cells in its generated row span, and unrelated SEQ actions are never overwritten.</p>
+
         <h3>Compact symbol reference</h3>
 
         <p>The compact grammar uses one meaning per standalone symbol. Removed legacy spellings are rejected instead of being interpreted differently by context.</p>
