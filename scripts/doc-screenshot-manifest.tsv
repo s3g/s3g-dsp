@@ -71,6 +71,7 @@ nim-gesture	nim-gesture
 fault	fault
 tracker	s3g-tracker
 breakbeat-slicer	s3g-slicer
+sample-player	sample-player
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
 crcltr	crcltr

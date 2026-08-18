@@ -47,6 +47,13 @@ DOCUMENTATION_SAMPLE_RECIPES = {
         ("break-c.wav", 1, 3.2, 9),
         ("break-d.wav", 1, 3.6, 10),
     ),
+    f"{PLUGIN_ID_PREFIX}sample-player": (
+        ("sample-player.wav", 2, 4.2, 11),
+    ),
+}
+SHARED_BUNDLE_PLUGIN_IDS = {
+    f"{PLUGIN_ID_PREFIX}sample-player-16":
+        f"{PLUGIN_ID_PREFIX}sample-player",
 }
 PREFERRED_SLICER_SAMPLES = (
     "Angles Break.wav",
@@ -249,6 +256,8 @@ def read_gui_inventory(
             plugin_target = target_name(match.group("plugin"), context=context)
             plugin_id = match.group("plugin_id")
             bundle = bundles.get(plugin_id)
+            if bundle is None:
+                bundle = bundles.get(SHARED_BUNDLE_PLUGIN_IDS.get(plugin_id, ""))
             if bundle is None:
                 raise UsageError(
                     f"{context}: GUI audit CLAP ID {plugin_id!r} is absent from "
