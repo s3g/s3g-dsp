@@ -2585,11 +2585,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_player_clap>
           org.s3g.s3g-dsp.sample-player
-          980 760 "s3g Sample Player 2" responsive
+          980 790 "s3g Sample Player 2" responsive
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_player_clap>
           org.s3g.s3g-dsp.sample-player-16
-          980 760 "s3g Sample Player 16" responsive
+          980 790 "s3g Sample Player 16" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_player_clap

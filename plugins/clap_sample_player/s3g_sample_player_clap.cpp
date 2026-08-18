@@ -40,6 +40,7 @@ namespace {
 using s3g::sample::EventKind;
 using s3g::sample::FilterType;
 using s3g::sample::PlayMode;
+using s3g::sample::PitchMode;
 using s3g::sample::PlayerSettings;
 using s3g::sample::RenderEvent;
 using s3g::sample::SampleAsset;
@@ -47,9 +48,10 @@ using s3g::sample::SampleAsset;
 constexpr uint32_t kStateMagic = 0x50533353u; // "S3SP"
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kProportionalStateVersion = 2u;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kExpandedStateVersion = 3u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kGuiWidth = 980u;
-constexpr uint32_t kGuiHeight = 760u;
+constexpr uint32_t kGuiHeight = 790u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
@@ -74,8 +76,10 @@ constexpr clap_id kFilterTypeParamId = 17u;
 constexpr clap_id kFilterCutoffParamId = 18u;
 constexpr clap_id kFilterResonanceParamId = 19u;
 constexpr clap_id kFilterEnvelopeParamId = 20u;
+constexpr clap_id kPitchModeParamId = 21u;
 constexpr std::size_t kLegacyParamCount = 15u;
-constexpr std::size_t kParamCount = 20u;
+constexpr std::size_t kExpandedParamCount = 20u;
+constexpr std::size_t kParamCount = 21u;
 
 constexpr clap_id kStereoOutputConfigId = 3002u;
 constexpr clap_id kSixteenChannelOutputConfigId = 3016u;
@@ -133,6 +137,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         0.0, false },
     { kFilterEnvelopeParamId, "Filter Envelope", "Filter", -1.0, 1.0,
         0.0, false },
+    { kPitchModeParamId, "Pitch Mode", "Pitch", 0.0, 1.0, 0.0, true },
 }};
 
 struct LegacySavedState {
@@ -156,6 +161,21 @@ struct SavedState {
     clap_id outputConfigId = kStereoOutputConfigId;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
     std::array<double, kParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct ExpandedSavedState {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kExpandedStateVersion;
+    clap_id outputConfigId = kStereoOutputConfigId;
+    uint32_t parameterCount = static_cast<uint32_t>(kExpandedParamCount);
+    std::array<double, kExpandedParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
     uint8_t embedded = 0u;
     uint8_t channelCount = 0u;
@@ -200,7 +220,11 @@ struct Plugin {
     std::array<RenderEvent, kMaximumBlockEvents> blockEvents {};
     std::array<std::vector<float>, s3g::sample::kMaximumAudioChannels>
         scratchChannels {};
-    std::atomic<float> playhead { -1.0f };
+    std::array<std::atomic<float>, s3g::sample::kMaximumVoices>
+        voiceCursorPositions {};
+    std::array<std::atomic<uint8_t>, s3g::sample::kMaximumVoices>
+        voiceCursorKeys {};
+    std::atomic<uint32_t> voiceCursorCount { 0u };
     std::atomic<float> outputPeak { 0.0f };
     bool embedSampleInState = true;
     bool active = false;
@@ -237,7 +261,7 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kPlayModeParamId && id <= kFilterEnvelopeParamId
+    return id >= kPlayModeParamId && id <= kPitchModeParamId
         ? static_cast<std::size_t>(id - kPlayModeParamId) : kParamCount;
 }
 
@@ -393,6 +417,8 @@ PlayerSettings settingsSnapshot(const Plugin& instance) noexcept
     PlayerSettings settings;
     settings.playMode = static_cast<PlayMode>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kPlayModeParamId))));
+    settings.pitchMode = static_cast<PitchMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kPitchModeParamId))));
     settings.start = paramValue(instance, kStartParamId);
     settings.length = paramValue(instance, kLengthParamId);
     settings.loopStart = paramValue(instance, kLoopStartParamId);
@@ -415,7 +441,8 @@ PlayerSettings settingsSnapshot(const Plugin& instance) noexcept
         paramValue(instance, kReleaseParamId));
     settings.gainDecibels = static_cast<float>(
         paramValue(instance, kGainParamId));
-    settings.pan = static_cast<float>(paramValue(instance, kPanParamId));
+    settings.pan = instance.outputChannelCount == 2u
+        ? static_cast<float>(paramValue(instance, kPanParamId)) : 0.0f;
     settings.velocitySensitivity = static_cast<float>(
         paramValue(instance, kVelocityParamId));
     settings.filterType = static_cast<FilterType>(static_cast<uint8_t>(
@@ -790,7 +817,7 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.active = false;
     instance.engine.unprepare();
     instance.audioAsset = nullptr;
-    instance.playhead.store(-1.0f, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     for (auto& channel : instance.scratchChannels) channel.clear();
     instance.retainedAssets.clear();
     if (instance.controlAsset)
@@ -807,7 +834,7 @@ void pluginStopProcessing(const clap_plugin_t*) {}
 void pluginReset(const clap_plugin_t* plugin)
 {
     self(plugin)->engine.reset();
-    self(plugin)->playhead.store(-1.0f, std::memory_order_relaxed);
+    self(plugin)->voiceCursorCount.store(0u, std::memory_order_release);
 }
 
 clap_process_status pluginProcess(const clap_plugin_t* plugin,
@@ -834,8 +861,19 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     instance.engine.render(settingsSnapshot(instance),
         instance.blockEvents.data(), eventCount, scratch.data(),
         instance.outputChannelCount, process->frames_count);
-    instance.playhead.store(instance.engine.playheadNormalized(),
-        std::memory_order_relaxed);
+    const uint32_t cursorCount = std::min<uint32_t>(
+        instance.engine.voiceCursorCount(),
+        static_cast<uint32_t>(instance.voiceCursorPositions.size()));
+    const auto& cursors = instance.engine.voiceCursors();
+    for (uint32_t cursor = 0u; cursor < cursorCount; ++cursor) {
+        instance.voiceCursorPositions[cursor].store(
+            cursors[cursor].sourcePositionNormalized,
+            std::memory_order_relaxed);
+        instance.voiceCursorKeys[cursor].store(cursors[cursor].key,
+            std::memory_order_relaxed);
+    }
+    instance.voiceCursorCount.store(cursorCount,
+        std::memory_order_release);
 
     float peak = 0.0f;
     if (process->audio_outputs_count > 0u && process->audio_outputs) {
@@ -1003,31 +1041,49 @@ const clap_plugin_note_name_t noteNames {
     noteNameGet,
 };
 
-uint32_t paramsCount(const clap_plugin_t*)
+bool paramIsExposed(const Plugin& instance, clap_id id) noexcept
 {
-    return static_cast<uint32_t>(kParamDefs.size());
+    return instance.outputChannelCount == 2u || id != kPanParamId;
 }
 
-bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
+const ParamDef* exposedParamAt(const Plugin& instance,
+    uint32_t index) noexcept
+{
+    uint32_t exposedIndex = 0u;
+    for (const auto& def : kParamDefs) {
+        if (!paramIsExposed(instance, def.id)) continue;
+        if (exposedIndex++ == index) return &def;
+    }
+    return nullptr;
+}
+
+uint32_t paramsCount(const clap_plugin_t* plugin)
+{
+    return static_cast<uint32_t>(kParamDefs.size()
+        - (self(plugin)->outputChannelCount == 16u ? 1u : 0u));
+}
+
+bool paramsGetInfo(const clap_plugin_t* plugin, uint32_t index,
     clap_param_info_t* info)
 {
-    if (!info || index >= kParamDefs.size()) return false;
-    const auto& def = kParamDefs[index];
+    const auto* def = exposedParamAt(*self(plugin), index);
+    if (!info || !def) return false;
     *info = {};
-    info->id = def.id;
+    info->id = def->id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    if (def.stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
-    std::snprintf(info->name, sizeof(info->name), "%s", def.name);
-    std::snprintf(info->module, sizeof(info->module), "%s", def.module);
-    info->min_value = def.minimum;
-    info->max_value = def.maximum;
-    info->default_value = def.defaultValue;
+    if (def->stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
+    std::snprintf(info->name, sizeof(info->name), "%s", def->name);
+    std::snprintf(info->module, sizeof(info->module), "%s", def->module);
+    info->min_value = def->minimum;
+    info->max_value = def->maximum;
+    info->default_value = def->defaultValue;
     return true;
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value || !paramDef(id)) return false;
+    if (!value || !paramDef(id) || !paramIsExposed(*self(plugin), id))
+        return false;
     *value = paramValue(*self(plugin), id);
     return true;
 }
@@ -1049,15 +1105,25 @@ const char* filterTypeName(int type) noexcept
     return names[static_cast<std::size_t>(std::clamp(type, 0, 4))];
 }
 
-bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
+const char* pitchModeName(int mode) noexcept
+{
+    constexpr std::array<const char*, 2u> names {{ "Rate", "Stretch" }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 1))];
+}
+
+bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     char* display, uint32_t size)
 {
-    if (!display || size == 0u || !paramDef(id)) return false;
+    if (!display || size == 0u || !paramDef(id)
+        || !paramIsExposed(*self(plugin), id)) return false;
     if (id == kPlayModeParamId)
         std::snprintf(display, size, "%s", playModeName(
             static_cast<int>(std::lround(value))));
     else if (id == kFilterTypeParamId)
         std::snprintf(display, size, "%s", filterTypeName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kPitchModeParamId)
+        std::snprintf(display, size, "%s", pitchModeName(
             static_cast<int>(std::lround(value))));
     else if (id == kStartParamId || id == kLengthParamId
         || id == kLoopStartParamId || id == kLoopEndParamId
@@ -1087,10 +1153,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id id,
+bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     const char* display, double* value)
 {
-    if (!display || !value || !paramDef(id)) return false;
+    if (!display || !value || !paramDef(id)
+        || !paramIsExposed(*self(plugin), id)) return false;
     if (id == kPlayModeParamId) {
         for (int mode = 0; mode < 6; ++mode) {
             if (strcasecmp(display, playModeName(mode)) == 0) {
@@ -1104,6 +1171,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         for (int type = 0; type < 5; ++type) {
             if (strcasecmp(display, filterTypeName(type)) == 0) {
                 *value = static_cast<double>(type);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kPitchModeParamId) {
+        for (int mode = 0; mode < 2; ++mode) {
+            if (strcasecmp(display, pitchModeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
                 return true;
             }
         }
@@ -1139,6 +1215,7 @@ void readParameterEvents(Plugin& instance,
             || header->size < sizeof(clap_event_param_value_t)) continue;
         const auto* event = reinterpret_cast<
             const clap_event_param_value_t*>(header);
+        if (!paramIsExposed(instance, event->param_id)) continue;
         setParam(instance, event->param_id, event->value);
     }
 }
@@ -1238,6 +1315,32 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         saved.reserved1 = legacy.reserved1;
         saved.frameCount = legacy.frameCount;
         saved.sampleRate = legacy.sampleRate;
+    } else if (prefix.version == kExpandedStateVersion) {
+        ExpandedSavedState expanded;
+        expanded.magic = prefix.magic;
+        expanded.version = prefix.version;
+        auto* remainder = reinterpret_cast<uint8_t*>(&expanded)
+            + sizeof(prefix);
+        if (!s3g::clap_state::readAll(stream, remainder,
+                sizeof(expanded) - sizeof(prefix))
+            || expanded.parameterCount != kExpandedParamCount
+            || expanded.outputConfigId != self(plugin)->outputConfigId)
+            return false;
+        saved.magic = expanded.magic;
+        saved.version = kStateVersion;
+        saved.outputConfigId = expanded.outputConfigId;
+        saved.parameterCount = static_cast<uint32_t>(kParamCount);
+        for (const auto& def : kParamDefs)
+            saved.parameters[paramIndex(def.id)] = def.defaultValue;
+        std::copy(expanded.parameters.begin(), expanded.parameters.end(),
+            saved.parameters.begin());
+        saved.path = expanded.path;
+        saved.embedded = expanded.embedded;
+        saved.channelCount = expanded.channelCount;
+        saved.reserved0 = expanded.reserved0;
+        saved.reserved1 = expanded.reserved1;
+        saved.frameCount = expanded.frameCount;
+        saved.sampleRate = expanded.sampleRate;
     } else if (prefix.version == kStateVersion) {
         saved.magic = prefix.magic;
         saved.version = prefix.version;
@@ -1343,12 +1446,12 @@ NSRect filterPanelRect()
 
 NSRect pitchOutputPanelRect()
 {
-    return NSMakeRect(18.0, 538.0, 456.0, 190.0);
+    return NSMakeRect(18.0, 538.0, 456.0, 220.0);
 }
 
 NSRect envelopePanelRect()
 {
-    return NSMakeRect(486.0, 538.0, 476.0, 190.0);
+    return NSMakeRect(486.0, 538.0, 476.0, 220.0);
 }
 
 NSRect sampleLoadButtonRect()
@@ -1393,10 +1496,26 @@ NSRect filterTypeDropdownRect()
         menu.size.width, 100.0);
 }
 
-NSString* parameterText(clap_id id, double value)
+NSRect pitchModeMenuRect()
+{
+    const NSRect panel = pitchOutputPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        573.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect pitchModeDropdownRect()
+{
+    const NSRect menu = pitchModeMenuRect();
+    return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
+        menu.size.width, 40.0);
+}
+
+NSString* parameterText(const Plugin& instance, clap_id id, double value)
 {
     char text[64] {};
-    return paramsValueToText(nullptr, id, value, text,
+    return paramsValueToText(&instance.plugin, id, value, text,
         static_cast<uint32_t>(sizeof(text)))
         ? [NSString stringWithUTF8String:text] : @"";
 }
@@ -1418,17 +1537,35 @@ const std::array<GuiSlider, 18u> kGuiSliders {{
     { kFilterCutoffParamId, "CUTOFF", 486.0, 476.0, 398.0 },
     { kFilterResonanceParamId, "RESONANCE", 486.0, 476.0, 424.0 },
     { kFilterEnvelopeParamId, "ENV AMOUNT", 486.0, 476.0, 450.0 },
-    { kGainParamId, "OUT", 18.0, 456.0, 574.0 },
-    { kPanParamId, "PAN", 18.0, 456.0, 600.0 },
-    { kVelocityParamId, "VELOCITY", 18.0, 456.0, 626.0 },
-    { kTuneParamId, "TUNE", 18.0, 456.0, 652.0 },
-    { kFineTuneParamId, "FINE", 18.0, 456.0, 678.0 },
-    { kRootNoteParamId, "ROOT NOTE", 18.0, 456.0, 704.0 },
+    { kGainParamId, "OUT", 18.0, 456.0, 600.0 },
+    { kPanParamId, "PAN", 18.0, 456.0, 626.0 },
+    { kVelocityParamId, "VELOCITY", 18.0, 456.0, 652.0 },
+    { kTuneParamId, "TUNE", 18.0, 456.0, 678.0 },
+    { kFineTuneParamId, "FINE", 18.0, 456.0, 704.0 },
+    { kRootNoteParamId, "ROOT NOTE", 18.0, 456.0, 730.0 },
     { kAttackParamId, "ATTACK", 486.0, 476.0, 574.0 },
     { kDecayParamId, "DECAY", 486.0, 476.0, 600.0 },
     { kSustainParamId, "SUSTAIN", 486.0, 476.0, 626.0 },
     { kReleaseParamId, "RELEASE", 486.0, 476.0, 652.0 },
 }};
+
+bool guiSliderIsVisible(const Plugin& instance,
+    const GuiSlider& slider) noexcept
+{
+    return paramIsExposed(instance, slider.id);
+}
+
+GuiSlider positionedGuiSlider(const Plugin& instance,
+    const GuiSlider& slider) noexcept
+{
+    GuiSlider positioned = slider;
+    if (instance.outputChannelCount == 16u
+        && (slider.id == kVelocityParamId || slider.id == kTuneParamId
+            || slider.id == kFineTuneParamId
+            || slider.id == kRootNoteParamId))
+        positioned.y -= 26.0;
+    return positioned;
+}
 
 NSRect sliderTrackRect(const GuiSlider& slider)
 {
@@ -1479,10 +1616,13 @@ const GuiSlider* sliderForId(clap_id id)
     return nullptr;
 }
 
-const GuiSlider* sliderAtPoint(NSPoint point)
+const GuiSlider* sliderAtPoint(const Plugin& instance, NSPoint point)
 {
-    for (const auto& slider : kGuiSliders)
-        if (NSPointInRect(point, sliderHitRect(slider))) return &slider;
+    for (const auto& slider : kGuiSliders) {
+        if (!guiSliderIsVisible(instance, slider)) continue;
+        const GuiSlider positioned = positionedGuiSlider(instance, slider);
+        if (NSPointInRect(point, sliderHitRect(positioned))) return &slider;
+    }
     return nullptr;
 }
 
@@ -1512,6 +1652,8 @@ NSString* const kFilterTypeItems[] = {
     @"OFF", @"LOW PASS", @"BAND PASS", @"HIGH PASS", @"NOTCH",
 };
 
+NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
+
 } // namespace
 
 @interface S3GSamplePlayerView : NSView <NSDraggingDestination> {
@@ -1524,6 +1666,8 @@ NSString* const kFilterTypeItems[] = {
     int _playModeMenuHover;
     BOOL _filterTypeMenuOpen;
     int _filterTypeMenuHover;
+    BOOL _pitchModeMenuOpen;
+    int _pitchModeMenuHover;
     double _waveZoom;
     double _waveViewStart;
     double _waveFixedStart;
@@ -1552,6 +1696,8 @@ NSString* const kFilterTypeItems[] = {
     _playModeMenuHover = -1;
     _filterTypeMenuOpen = NO;
     _filterTypeMenuHover = -1;
+    _pitchModeMenuOpen = NO;
+    _pitchModeMenuHover = -1;
     _waveZoom = 1.0;
     _waveViewStart = 0.0;
     _waveFixedStart = 0.0;
@@ -1588,7 +1734,8 @@ NSString* const kFilterTypeItems[] = {
 {
     const auto* def = paramDef(slider.id);
     if (!def) return;
-    const NSRect track = sliderTrackRect(slider);
+    const GuiSlider positioned = positionedGuiSlider(*_instance, slider);
+    const NSRect track = sliderTrackRect(positioned);
     const double normalized = std::clamp(static_cast<double>(
         (point.x - track.origin.x) / track.size.width), 0.0, 1.0);
     queueGuiParamValue(*_instance, slider.id, clampParam(*def,
@@ -1708,6 +1855,8 @@ NSString* const kFilterTypeItems[] = {
         return NO;
     setParam(*_instance, kPlayModeParamId,
         static_cast<double>(PlayMode::ForwardLoop));
+    setParam(*_instance, kPitchModeParamId,
+        static_cast<double>(PitchMode::Stretch));
     setParam(*_instance, kLoopCrossfadeParamId, 0.08);
     setParam(*_instance, kFilterTypeParamId,
         static_cast<double>(FilterType::LowPass));
@@ -1721,6 +1870,23 @@ NSString* const kFilterTypeItems[] = {
         start + (end - start) * 0.24);
     setParam(*_instance, kLoopEndParamId,
         start + (end - start) * 0.76);
+    constexpr std::array<float, 3u> documentationCursorPositions {{
+        0.18f, 0.47f, 0.71f,
+    }};
+    constexpr std::array<uint8_t, 3u> documentationCursorKeys {{
+        48u, 55u, 60u,
+    }};
+    for (std::size_t cursor = 0u;
+         cursor < documentationCursorPositions.size(); ++cursor) {
+        _instance->voiceCursorPositions[cursor].store(
+            documentationCursorPositions[cursor],
+            std::memory_order_relaxed);
+        _instance->voiceCursorKeys[cursor].store(
+            documentationCursorKeys[cursor], std::memory_order_relaxed);
+    }
+    _instance->voiceCursorCount.store(
+        static_cast<uint32_t>(documentationCursorPositions.size()),
+        std::memory_order_release);
     _waveZoom = 1.0;
     _waveViewStart = 0.0;
     _instance->status = "CROSSFADING LOOP READY";
@@ -1778,6 +1944,18 @@ NSString* const kFilterTypeItems[] = {
             return;
         }
     }
+    if (_pitchModeMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            pitchModeDropdownRect(), 20.0, 2u);
+        _pitchModeMenuOpen = NO;
+        _pitchModeMenuHover = -1;
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kPitchModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
 
     const bool initAction = NSPointInRect(point,
         s3g::clap_gui::cocoaRect(kSampleTitleBand.presetMenu));
@@ -1810,6 +1988,8 @@ NSString* const kFilterTypeItems[] = {
         _playModeMenuHover = -1;
         _filterTypeMenuOpen = NO;
         _filterTypeMenuHover = -1;
+        _pitchModeMenuOpen = NO;
+        _pitchModeMenuHover = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1818,6 +1998,18 @@ NSString* const kFilterTypeItems[] = {
         _filterTypeMenuHover = -1;
         _playModeMenuOpen = NO;
         _playModeMenuHover = -1;
+        _pitchModeMenuOpen = NO;
+        _pitchModeMenuHover = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, pitchModeMenuRect())) {
+        _pitchModeMenuOpen = YES;
+        _pitchModeMenuHover = -1;
+        _playModeMenuOpen = NO;
+        _playModeMenuHover = -1;
+        _filterTypeMenuOpen = NO;
+        _filterTypeMenuHover = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1844,7 +2036,7 @@ NSString* const kFilterTypeItems[] = {
         }
     }
 
-    const GuiSlider* slider = sliderAtPoint(point);
+    const GuiSlider* slider = sliderAtPoint(*_instance, point);
     if (slider) {
         double resetValue = 0.0;
         const bool reset = isBoundaryParam(slider->id)
@@ -1904,6 +2096,13 @@ NSString* const kFilterTypeItems[] = {
             _filterTypeMenuHover = hover;
             [self setNeedsDisplay:YES];
         }
+    } else if (_pitchModeMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            pitchModeDropdownRect(), 20.0, 2u);
+        if (hover != _pitchModeMenuHover) {
+            _pitchModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
     }
 }
 
@@ -1943,9 +2142,11 @@ NSString* const kFilterTypeItems[] = {
 - (void)mouseExited:(NSEvent*)event
 {
     (void)event;
-    if (_playModeMenuHover >= 0 || _filterTypeMenuHover >= 0) {
+    if (_playModeMenuHover >= 0 || _filterTypeMenuHover >= 0
+        || _pitchModeMenuHover >= 0) {
         _playModeMenuHover = -1;
         _filterTypeMenuHover = -1;
+        _pitchModeMenuHover = -1;
         [self setNeedsDisplay:YES];
     }
 }
@@ -2084,22 +2285,42 @@ NSString* const kFilterTypeItems[] = {
                     wave.origin.x + 3.0, NSMaxX(wave) - 20.0), labelY)
                 withAttributes:labelAttrs];
         }
-        const float playhead = _instance->playhead.load(
-            std::memory_order_relaxed);
-        if (playhead >= 0.0f) {
-            [style.fill setStroke];
+        const uint32_t cursorCount = std::min<uint32_t>(
+            _instance->voiceCursorCount.load(std::memory_order_acquire),
+            static_cast<uint32_t>(_instance->voiceCursorPositions.size()));
+        for (uint32_t cursor = 0u; cursor < cursorCount; ++cursor) {
+            const float position = _instance->voiceCursorPositions[cursor]
+                .load(std::memory_order_relaxed);
+            if (position < _waveViewStart || position > visibleEnd)
+                continue;
+            NSColor* cursorColor = cursor % 3u == 0u ? style.fill
+                : (cursor % 3u == 1u ? style.accent : style.dim);
+            [cursorColor setStroke];
             NSBezierPath* line = [NSBezierPath bezierPath];
-            const double position = start
-                + static_cast<double>(playhead) * (end - start);
-            if (position >= _waveViewStart && position <= visibleEnd) {
-                const CGFloat x = [self waveXForNormalized:position];
-                [line moveToPoint:NSMakePoint(x, wave.origin.y)];
-                [line lineToPoint:NSMakePoint(x, NSMaxY(wave))];
-                [line stroke];
-            }
+            const CGFloat x = [self waveXForNormalized:position];
+            [line moveToPoint:NSMakePoint(x, wave.origin.y)];
+            [line lineToPoint:NSMakePoint(x, NSMaxY(wave))];
+            [line setLineWidth:1.25];
+            [line stroke];
+            NSString* cursorLabel = [NSString stringWithFormat:@"N%u",
+                static_cast<unsigned>(_instance->voiceCursorKeys[cursor]
+                    .load(std::memory_order_relaxed))];
+            const NSSize labelSize = [cursorLabel sizeWithAttributes:
+                labelAttrs];
+            CGFloat labelX = x + 3.0;
+            if (labelX + labelSize.width + 6.0 > NSMaxX(wave))
+                labelX = x - labelSize.width - 7.0;
+            const CGFloat labelY = wave.origin.y + 18.0
+                + static_cast<CGFloat>(cursor % 12u) * 15.0;
+            [style.bg setFill];
+            NSRectFill(NSMakeRect(labelX - 2.0, labelY - 1.0,
+                labelSize.width + 5.0, labelSize.height + 2.0));
+            [cursorLabel drawAtPoint:NSMakePoint(labelX, labelY)
+                withAttributes:labelAttrs];
         }
         NSString* details = [NSString stringWithFormat:
-            @"%u CH  /  %u FRAMES  /  %.0f HZ  /  %@",
+            @"%u VOICES  /  %u CH  /  %u FRAMES  /  %.0f HZ  /  %@",
+            static_cast<unsigned>(cursorCount),
             static_cast<unsigned>(asset->channelCount),
             static_cast<unsigned>(asset->frameCount()), asset->sampleRate,
             _instance->samplePath.empty() ? @"EMBEDDED SAMPLE"
@@ -2144,16 +2365,30 @@ NSString* const kFilterTypeItems[] = {
             std::lround(paramValue(*_instance, kFilterTypeParamId))))],
         372.0, filterPanelRect().origin.x,
         filterPanelRect().size.width, labelAttrs, valueAttrs, style);
+    s3g::clap_gui::drawProcessorMenu(@"PITCH MODE",
+        [NSString stringWithUTF8String:pitchModeName(static_cast<int>(
+            std::lround(paramValue(*_instance, kPitchModeParamId))))],
+        574.0, pitchOutputPanelRect().origin.x,
+        pitchOutputPanelRect().size.width,
+        labelAttrs, valueAttrs, style);
 
     for (const auto& slider : kGuiSliders) {
+        if (!guiSliderIsVisible(*_instance, slider)) continue;
+        const GuiSlider positioned = positionedGuiSlider(
+            *_instance, slider);
         const double value = paramValue(*_instance, slider.id);
         const CGFloat normalized = static_cast<CGFloat>(
             sliderNormalizedValue(slider.id, value));
         s3g::clap_gui::drawProcessorSlider(
             [NSString stringWithUTF8String:slider.label],
-            parameterText(slider.id, value), normalized, slider.y,
-            slider.panelX, slider.panelWidth,
+            parameterText(*_instance, slider.id, value), normalized,
+            positioned.y, positioned.panelX, positioned.panelWidth,
             labelAttrs, valueAttrs, style);
+    }
+    if (_instance->outputChannelCount == 16u) {
+        [@"PAN DISABLED / SOURCE CHANNEL RELATIONSHIPS PRESERVED"
+            drawAtPoint:NSMakePoint(68.0, 730.0)
+            withAttributes:labelAttrs];
     }
 
     if (_playModeMenuOpen) {
@@ -2167,6 +2402,11 @@ NSString* const kFilterTypeItems[] = {
             kFilterTypeItems, 5u, static_cast<int>(std::lround(
                 paramValue(*_instance, kFilterTypeParamId))),
             _filterTypeMenuHover, valueAttrs, style);
+    } else if (_pitchModeMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(pitchModeDropdownRect(), 20.0,
+            kPitchModeItems, 2u, static_cast<int>(std::lround(
+                paramValue(*_instance, kPitchModeParamId))),
+            _pitchModeMenuHover, valueAttrs, style);
     }
 }
 
@@ -2353,8 +2593,8 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.0",
-    "Stereo one-shot, crossfaded/ping-pong loop sampler with filter and ADSR.",
+    "0.4.0",
+    "Polyphonic stereo sampler with Rate/Stretch pitch, loops, filter, and ADSR.",
     stereoFeatures,
 };
 
@@ -2366,8 +2606,8 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.0",
-    "Fixed 16-output sample-locked sampler with loop crossfade and filter.",
+    "0.4.0",
+    "Polyphonic 16-output channel-preserving sampler with Rate/Stretch pitch.",
     multichannelFeatures,
 };
 
@@ -2394,6 +2634,11 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory_t*,
     instance->host = host;
     instance->outputChannelCount = outputChannels;
     instance->outputConfigId = configId;
+    for (auto& position : instance->voiceCursorPositions)
+        position.store(-1.0f, std::memory_order_relaxed);
+    for (auto& key : instance->voiceCursorKeys)
+        key.store(0u, std::memory_order_relaxed);
+    instance->voiceCursorCount.store(0u, std::memory_order_relaxed);
     instance->plugin.desc = descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = pluginInit;

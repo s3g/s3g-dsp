@@ -23,6 +23,11 @@ enum class PlayMode : uint8_t {
     ReversePingPong,
 };
 
+enum class PitchMode : uint8_t {
+    Rate = 0u,
+    Stretch,
+};
+
 enum class FilterType : uint8_t {
     Off = 0u,
     LowPass,
@@ -46,11 +51,17 @@ struct RenderEvent {
     uint8_t midiChannel = 0u;
 };
 
+struct VoiceCursor {
+    float sourcePositionNormalized = -1.0f;
+    uint8_t key = 0u;
+};
+
 // Start, Length, Loop Start, and Loop End are normalized against the source.
 // Length is measured from Start. Loop points are absolute source positions and
 // are clipped into the active Start/Length window at trigger time.
 struct PlayerSettings {
     PlayMode playMode = PlayMode::Forward;
+    PitchMode pitchMode = PitchMode::Rate;
     double start = 0.0;
     double length = 1.0;
     double loopStart = 0.0;
@@ -82,6 +93,8 @@ struct PlayerSettings {
     {
         return static_cast<uint8_t>(playMode)
                 <= static_cast<uint8_t>(PlayMode::ReversePingPong)
+            && static_cast<uint8_t>(pitchMode)
+                <= static_cast<uint8_t>(PitchMode::Stretch)
             && std::isfinite(start) && start >= 0.0 && start <= 1.0
             && std::isfinite(length) && length >= 0.0 && length <= 1.0
             && std::isfinite(loopStart) && loopStart >= 0.0
@@ -146,7 +159,8 @@ public:
     {
         voices_ = {};
         ageCounter_ = 0u;
-        playheadNormalized_ = -1.0f;
+        voiceCursors_ = {};
+        voiceCursorCount_ = 0u;
         outputPeak_ = 0.0f;
     }
 
@@ -163,7 +177,9 @@ public:
             voices_.end(), [](const Voice& voice) { return voice.active; }));
     }
 
-    float playheadNormalized() const noexcept { return playheadNormalized_; }
+    const std::array<VoiceCursor, kMaximumVoices>& voiceCursors()
+        const noexcept { return voiceCursors_; }
+    uint32_t voiceCursorCount() const noexcept { return voiceCursorCount_; }
     float outputPeak() const noexcept { return outputPeak_; }
 
     void render(const PlayerSettings& settings, const RenderEvent* events,
@@ -176,7 +192,7 @@ public:
             if (!outputs[channel]) return;
             std::fill(outputs[channel], outputs[channel] + frameCount, 0.0f);
         }
-        playheadNormalized_ = -1.0f;
+        voiceCursorCount_ = 0u;
         outputPeak_ = 0.0f;
         if (!prepared_ || !asset_ || !asset_->valid() || !settings.valid()
             || outputChannelCount != outputChannelCount_
@@ -190,8 +206,7 @@ public:
                 && events[eventIndex].frameOffset <= frame) {
                 handleEvent(events[eventIndex++], settings);
             }
-            double playheadSum = 0.0;
-            uint32_t playheadVoices = 0u;
+            voiceCursorCount_ = 0u;
             for (auto& voice : voices_) {
                 if (!voice.active || !voice.asset) continue;
                 const float envelope = voice.envelopeLevel
@@ -200,44 +215,47 @@ public:
                 const uint32_t sourceChannels = voice.asset->channelCount;
                 const FilterCoefficients filter = makeFilterCoefficients(
                     voice, settings);
+                const StretchFrame stretch = makeStretchFrame(voice);
                 for (uint32_t channel = 0u; channel < outputChannelCount;
                      ++channel) {
                     uint32_t sourceChannel = channel;
                     float channelLevel = level;
-                    if (sourceChannels == 1u && outputChannelCount >= 2u
-                        && channel < 2u) {
+                    if (outputChannelCount_ == 2u
+                        && sourceChannels == 1u && channel < 2u) {
                         sourceChannel = 0u;
                         channelLevel *= channel == 0u
                             ? voice.leftPan : voice.rightPan;
                     } else if (channel >= sourceChannels) {
                         continue;
-                    } else if (sourceChannels == 2u && channel < 2u) {
+                    } else if (outputChannelCount_ == 2u
+                        && sourceChannels == 2u && channel < 2u) {
                         channelLevel *= channel == 0u
                             ? voice.leftPan : voice.rightPan;
                     }
-                    const float source = loopCrossfadedSample(voice,
-                        voice.asset->channels[sourceChannel]);
+                    const float source = voice.pitchMode == PitchMode::Stretch
+                        ? stretchSample(voice,
+                            voice.asset->channels[sourceChannel], stretch)
+                        : loopCrossfadedSample(voice,
+                            voice.asset->channels[sourceChannel]);
                     const float value = processFilter(
                         voice.filterStates[channel], source, filter)
                         * channelLevel;
                     outputs[channel][frame] += value;
                     outputPeak_ = std::max(outputPeak_, std::abs(value));
                 }
-                const double denominator = std::max(1.0,
-                    static_cast<double>(voice.playEndFrame
-                        - voice.playStartFrame));
-                playheadSum += (voice.position
-                    - static_cast<double>(voice.playStartFrame))
-                    / denominator;
-                ++playheadVoices;
+                if (voiceCursorCount_ < voiceCursors_.size()) {
+                    const double sourceFrameCount = std::max(1.0,
+                        static_cast<double>(voice.asset->frameCount()));
+                    voiceCursors_[voiceCursorCount_++] = {
+                        static_cast<float>(std::clamp(
+                            voice.position / sourceFrameCount, 0.0, 1.0)),
+                        voice.key,
+                    };
+                }
                 voice.position += voice.increment;
+                advanceStretchPhase(voice);
                 advanceEnvelope(voice);
                 advancePosition(voice);
-            }
-            if (playheadVoices != 0u) {
-                playheadNormalized_ = static_cast<float>(std::clamp(
-                    playheadSum / static_cast<double>(playheadVoices),
-                    0.0, 1.0));
             }
         }
     }
@@ -266,6 +284,11 @@ private:
         uint32_t loopStartFrame = 0u;
         uint32_t loopEndFrame = 0u;
         double loopCrossfadeFrames = 0.0;
+        double pitchRatio = 1.0;
+        double readIncrementMagnitude = 1.0;
+        double stretchWindowSourceFrames = 0.0;
+        double stretchPhase = 0.0;
+        double stretchPhaseStep = 0.0;
         uint32_t attackFrames = 0u;
         uint32_t decayFrames = 0u;
         uint32_t releaseFrames = 0u;
@@ -273,6 +296,7 @@ private:
         uint8_t key = 60u;
         uint8_t midiChannel = 0u;
         PlayMode playMode = PlayMode::Forward;
+        PitchMode pitchMode = PitchMode::Rate;
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
         float level = 0.0f;
         float leftPan = 1.0f;
@@ -282,6 +306,7 @@ private:
         float sustainLevel = 1.0f;
         std::array<FilterState, kMaximumAudioChannels> filterStates {};
         bool active = false;
+        bool hasLooped = false;
     };
 
     struct FilterCoefficients {
@@ -290,6 +315,15 @@ private:
         double a2 = 0.0;
         double a3 = 0.0;
         double damping = 0.0;
+    };
+
+    struct StretchFrame {
+        double firstPosition = 0.0;
+        double secondPosition = 0.0;
+        float firstWeight = 1.0f;
+        float secondWeight = 0.0f;
+        float normalization = 1.0f;
+        bool active = false;
     };
 
     static bool isReverse(PlayMode mode) noexcept
@@ -387,6 +421,7 @@ private:
         voice.key = event.key;
         voice.midiChannel = event.midiChannel;
         voice.playMode = settings.playMode;
+        voice.pitchMode = settings.pitchMode;
         voice.playStartFrame = start;
         voice.playEndFrame = end;
         voice.loopStartFrame = loopStart;
@@ -400,16 +435,30 @@ private:
         const double ratio = std::pow(2.0,
             static_cast<double>(semitones) / 12.0);
         const double sourceRatio = asset_->sampleRate / sampleRate_;
-        voice.increment = ratio * sourceRatio * (reverse ? -1.0 : 1.0);
+        voice.pitchRatio = ratio;
+        voice.increment = sourceRatio * (reverse ? -1.0 : 1.0);
+        voice.readIncrementMagnitude = sourceRatio * ratio;
+        if (settings.pitchMode == PitchMode::Rate)
+            voice.increment *= ratio;
+        else {
+            constexpr double stretchWindowSeconds = 0.080;
+            const double windowOutputFrames = std::max(8.0,
+                sampleRate_ * stretchWindowSeconds);
+            voice.stretchWindowSourceFrames = windowOutputFrames
+                * sourceRatio;
+            voice.stretchPhaseStep = std::abs(ratio - 1.0)
+                / windowOutputFrames;
+        }
         const double loopLength = static_cast<double>(loopEnd - loopStart);
         if (!isPingPong(settings.playMode)
             && isLooping(settings.playMode)
             && settings.loopCrossfade > 0.0 && loopLength >= 2.0) {
             const double maximum = std::max(0.0,
-                (loopLength - std::abs(voice.increment)) * 0.5);
+                    (loopLength - voice.readIncrementMagnitude) * 0.5);
             if (maximum >= 1.0) {
                 const double pitchSafeMinimum = std::min(maximum,
-                    std::max(1.0, std::abs(voice.increment) * 2.0));
+                    std::max(1.0,
+                        voice.readIncrementMagnitude * 2.0));
                 voice.loopCrossfadeFrames = std::clamp(
                     loopLength * settings.loopCrossfade,
                     pitchSafeMinimum, maximum);
@@ -563,6 +612,7 @@ private:
                     voice.position = lower + (distance - range);
                     voice.increment = std::abs(voice.increment);
                 }
+                voice.hasLooped = true;
             } else if (voice.increment < 0.0 && voice.position < lower) {
                 double distance = std::fmod(lower - voice.position, period);
                 if (distance < 0.0) distance += period;
@@ -573,6 +623,7 @@ private:
                     voice.position = upper - (distance - range);
                     voice.increment = -std::abs(voice.increment);
                 }
+                voice.hasLooped = true;
             }
             return;
         }
@@ -590,6 +641,7 @@ private:
                 voice.position - wrappedStart, wrappedLength);
             if (distance < 0.0) distance += wrappedLength;
             voice.position = wrappedStart + distance;
+            voice.hasLooped = true;
         } else if (voice.playMode == PlayMode::ReverseLoop
             && voice.position < loopStart) {
             const double wrappedEnd = loopEnd - crossfade;
@@ -602,27 +654,126 @@ private:
                 wrappedLength);
             voice.position = wrappedEnd - distance;
             if (voice.position >= wrappedEnd) voice.position = loopStart;
+            voice.hasLooped = true;
         }
+    }
+
+    static void advanceStretchPhase(Voice& voice) noexcept
+    {
+        if (voice.pitchMode != PitchMode::Stretch
+            || !(voice.stretchPhaseStep > 0.0)) return;
+        voice.stretchPhase += voice.stretchPhaseStep;
+        voice.stretchPhase -= std::floor(voice.stretchPhase);
+    }
+
+    static double wrapPosition(double position, double start,
+        double end) noexcept
+    {
+        const double length = end - start;
+        if (!(length > 0.0)) return start;
+        position = start + std::fmod(position - start, length);
+        if (position < start) position += length;
+        return position;
+    }
+
+    static double reflectPosition(double position, double start,
+        double end) noexcept
+    {
+        const double upper = end - 1.0;
+        const double range = upper - start;
+        if (!(range > 0.0)) return start;
+        const double period = range * 2.0;
+        double offset = std::fmod(position - start, period);
+        if (offset < 0.0) offset += period;
+        return offset <= range ? start + offset
+                               : upper - (offset - range);
+    }
+
+    static double resolveStretchPosition(const Voice& voice,
+        double position) noexcept
+    {
+        if (!isLooping(voice.playMode) || !voice.hasLooped)
+            return std::clamp(position,
+                static_cast<double>(voice.playStartFrame),
+                static_cast<double>(voice.playEndFrame - 1u));
+        const double start = static_cast<double>(voice.loopStartFrame);
+        const double end = static_cast<double>(voice.loopEndFrame);
+        return isPingPong(voice.playMode)
+            ? reflectPosition(position, start, end)
+            : wrapPosition(position, start, end);
+    }
+
+    static float grainWindow(double phase) noexcept
+    {
+        constexpr double twoPi = 6.283185307179586476925286766559;
+        return static_cast<float>(0.5 - 0.5 * std::cos(twoPi
+            * std::clamp(phase, 0.0, 1.0)));
+    }
+
+    static StretchFrame makeStretchFrame(const Voice& voice) noexcept
+    {
+        StretchFrame frame;
+        if (!(voice.stretchPhaseStep > 1.0e-12)
+            || !(voice.stretchWindowSourceFrames > 0.0))
+            return frame;
+        const double firstPhase = voice.stretchPhase;
+        double secondPhase = firstPhase + 0.5;
+        if (secondPhase >= 1.0) secondPhase -= 1.0;
+        const double direction = voice.increment < 0.0 ? -1.0 : 1.0;
+        const auto readerPosition = [&](double phase) noexcept {
+            const double delay = voice.pitchRatio >= 1.0
+                ? voice.stretchWindowSourceFrames * (1.0 - phase)
+                : voice.stretchWindowSourceFrames * phase;
+            return resolveStretchPosition(voice,
+                voice.position - direction * delay);
+        };
+        frame.firstPosition = readerPosition(firstPhase);
+        frame.secondPosition = readerPosition(secondPhase);
+        frame.firstWeight = grainWindow(firstPhase);
+        frame.secondWeight = grainWindow(secondPhase);
+        frame.normalization = 1.0f / std::max(1.0e-6f,
+            frame.firstWeight + frame.secondWeight);
+        frame.active = true;
+        return frame;
+    }
+
+    static float stretchSample(const Voice& voice,
+        const std::vector<float>& samples,
+        const StretchFrame& frame) noexcept
+    {
+        if (!frame.active) return loopCrossfadedSample(voice, samples);
+        const float first = loopCrossfadedSampleAt(voice, samples,
+            frame.firstPosition);
+        const float second = loopCrossfadedSampleAt(voice, samples,
+            frame.secondPosition);
+        return (first * frame.firstWeight + second * frame.secondWeight)
+            * frame.normalization;
     }
 
     static float loopCrossfadedSample(const Voice& voice,
         const std::vector<float>& samples) noexcept
     {
-        const float primary = interpolate(samples, voice.position,
+        return loopCrossfadedSampleAt(voice, samples, voice.position);
+    }
+
+    static float loopCrossfadedSampleAt(const Voice& voice,
+        const std::vector<float>& samples, double position) noexcept
+    {
+        const float primary = interpolate(samples, position,
             voice.playStartFrame, voice.playEndFrame);
         const double crossfade = voice.loopCrossfadeFrames;
         if (!(crossfade > 0.0)) return primary;
-        const double rate = std::abs(voice.increment);
+        const double rate = voice.readIncrementMagnitude;
         const double denominator = std::max(
             crossfade - std::min(rate, crossfade - 1.0e-9), 1.0e-9);
         if (voice.playMode == PlayMode::ForwardLoop) {
             const double fadeStart = static_cast<double>(
                 voice.loopEndFrame) - crossfade;
-            if (voice.position < fadeStart) return primary;
+            if (position < fadeStart) return primary;
             const double phase = std::clamp(
-                (voice.position - fadeStart) / denominator, 0.0, 1.0);
+                (position - fadeStart) / denominator, 0.0, 1.0);
             const double secondaryPosition = static_cast<double>(
-                voice.loopStartFrame) + (voice.position - fadeStart);
+                voice.loopStartFrame) + (position - fadeStart);
             const float secondary = interpolate(samples, secondaryPosition,
                 voice.playStartFrame, voice.playEndFrame);
             return primary + (secondary - primary)
@@ -631,12 +782,12 @@ private:
         if (voice.playMode == PlayMode::ReverseLoop) {
             const double fadeEnd = static_cast<double>(
                 voice.loopStartFrame) + crossfade;
-            if (voice.position > fadeEnd) return primary;
+            if (position > fadeEnd) return primary;
             const double phase = std::clamp(
-                (fadeEnd - voice.position) / denominator, 0.0, 1.0);
+                (fadeEnd - position) / denominator, 0.0, 1.0);
             const double secondaryPosition = static_cast<double>(
                 voice.loopEndFrame) - crossfade
-                + (voice.position
+                + (position
                     - static_cast<double>(voice.loopStartFrame));
             const float secondary = interpolate(samples, secondaryPosition,
                 voice.playStartFrame, voice.playEndFrame);
@@ -742,7 +893,8 @@ private:
     double sampleRate_ = 48000.0;
     uint64_t ageCounter_ = 0u;
     uint32_t outputChannelCount_ = 2u;
-    float playheadNormalized_ = -1.0f;
+    std::array<VoiceCursor, kMaximumVoices> voiceCursors_ {};
+    uint32_t voiceCursorCount_ = 0u;
     float outputPeak_ = 0.0f;
     bool prepared_ = false;
 };

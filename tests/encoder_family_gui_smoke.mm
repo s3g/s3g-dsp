@@ -2557,6 +2557,33 @@ int main(int argc, char** argv)
                         boolValue]
                     && [[document valueForKey:@"filterTypeMenuHover"]
                         intValue] == -1;
+                const NSPoint pitchModeMenu = NSMakePoint(200.0, 580.0);
+                const NSPoint stretchItem = NSMakePoint(200.0, 619.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, pitchModeMenu)];
+                    ok = [[document valueForKey:@"pitchModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"pitchModeMenuHover"]
+                            intValue] == -1;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, stretchItem)];
+                    ok = [[document valueForKey:@"pitchModeMenuHover"]
+                        intValue] == 1;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, stretchItem)];
+                }
+                double pitchMode = -1.0;
+                ok = ok && params->get_value(plugin, 21u, &pitchMode)
+                    && std::fabs(pitchMode - 1.0) < 0.000001
+                    && ![[document valueForKey:@"pitchModeMenuOpen"]
+                        boolValue]
+                    && [[document valueForKey:@"pitchModeMenuHover"]
+                        intValue] == -1;
                 if (!ok) {
                     std::cerr << "Sample Player menu details: open="
                         << [[document valueForKey:@"playModeMenuOpen"]
@@ -2571,7 +2598,14 @@ int main(int argc, char** argv)
                         << " filterHover="
                         << [[document valueForKey:@"filterTypeMenuHover"]
                             intValue]
-                        << " filterValue=" << filterType << "\n";
+                        << " filterValue=" << filterType
+                        << " pitchOpen="
+                        << [[document valueForKey:@"pitchModeMenuOpen"]
+                            boolValue]
+                        << " pitchHover="
+                        << [[document valueForKey:@"pitchModeMenuHover"]
+                            intValue]
+                        << " pitchValue=" << pitchMode << "\n";
                 }
             } @catch (NSException* exception) {
                 std::cerr << "Sample Player menu exception: "

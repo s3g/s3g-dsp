@@ -31,8 +31,8 @@ if(APPLE)
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.sample-player"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Player 2"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.4.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.0")
   add_custom_command(TARGET s3g_sample_player_clap POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E touch
       "$<TARGET_BUNDLE_DIR:s3g_sample_player_clap>"

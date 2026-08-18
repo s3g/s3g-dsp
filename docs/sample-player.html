@@ -36,11 +36,11 @@
           <li>Route its fixed output to the intended speakers or monitor path before loading audio.</li>
           <li>Press <code>LOAD SAMPLE</code> or drop an audio file on the waveform.</li>
           <li>On load, Start, the derived End, Loop Start, and Loop End default to safe zero crossings near the file boundaries.</li>
-          <li>Set Root Note, Tune, and Fine Tune for chromatic MIDI playback.</li>
+          <li>Set Root Note, Tune, and Fine Tune for chromatic MIDI playback, then choose Rate or Stretch pitch mode.</li>
           <li>Drag the labeled Start, End, Loop Start, and Loop End handles on the waveform, or use their sliders for exact normalized values. Scroll over the waveform to zoom, Shift-scroll to pan, and double-click open waveform space to fit the complete file.</li>
           <li>Select Forward, Forward Loop, Reverse, Reverse Loop, Forward Ping-Pong, or Reverse Ping-Pong. Loop points are clipped inside Start/Length.</li>
           <li>Raise Loop Crossfade to overlap the outgoing and incoming sides of a forward or reverse wrap. This remains useful even when both loop points sit on zero crossings.</li>
-          <li>Shape the result with the resonant multimode filter, proportional Attack, Decay, Sustain, Release, Gain, Pan, and Velocity.</li>
+          <li>Shape the result with the resonant multimode filter, proportional Attack, Decay, Sustain, Release, Gain, and Velocity. Sample Player 2 also provides Pan.</li>
         </ol>
 
         <h2 id="playback">Playback Modes</h2>
@@ -57,9 +57,11 @@
           </tbody>
         </table>
 
-        <p>Every MIDI note creates an independent voice. Pitch follows the distance from Root Note plus Tune and Fine Tune. Attack, Decay, and Release are percentages of the audible, pitch-adjusted Start/Length duration; their combined value cannot exceed 100%. Sustain remains an amplitude percentage.</p>
+        <p>Every MIDI note creates an independent voice. Pitch follows the distance from Root Note plus Tune and Fine Tune. Rate mode uses conventional sampler playback, so higher notes finish sooner and lower notes finish later. Stretch mode changes pitch with overlapped grain readers while the transport continues at the sample's original timing, keeping Start/Length and loop durations constant across the keyboard.</p>
 
-        <p>Forward and Reverse are true one-shots: note-off does not truncate them, and Release is placed at the end of the selected sample window. All four loop modes sustain until note-off, then enter their proportional Release stage. One shared clock drives every channel in a voice so wide files remain sample-aligned through pitch changes, envelope stages, crossfades, and direction changes. Double-clicking a boundary slider restores its sample-aware safe default.</p>
+        <p>Attack, Decay, and Release are percentages of the audible Start/Length duration; their combined value cannot exceed 100%. That duration follows playback rate in Rate mode and remains locked to the original sample timeline in Stretch mode. Sustain remains an amplitude percentage.</p>
+
+        <p>Forward and Reverse are true one-shots: note-off does not truncate them, and Release is placed at the end of the selected sample window. All four loop modes sustain until note-off, then enter their proportional Release stage. One shared clock drives every channel in a voice so wide files remain sample-aligned through pitch changes, envelope stages, crossfades, and direction changes. Every active voice has its own waveform cursor labeled with its MIDI note number; voices are never averaged into one display position. Double-clicking a boundary slider restores its sample-aware safe default.</p>
 
         <h2 id="waveform-filter">Waveform Editing and Filter</h2>
 
@@ -75,7 +77,8 @@
           <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
           <li>Sample Player 2 output: one fixed stereo port; mono is presented on both stereo lanes.</li>
           <li>Sample Player 16 output: one fixed 16-channel port; unused lanes remain silent.</li>
-          <li>Pan applies to mono and stereo sources. Wider files preserve their channel levels and order.</li>
+          <li>Pan is exclusive to Sample Player 2, where it places mono sources across stereo or balances a stereo source.</li>
+          <li>Sample Player 16 does not expose Pan. Every source lane maps directly to its matching output lane without stereo balancing or mono duplication; unused output lanes remain silent.</li>
           <li><code>EMBED IN STATE</code> stores decoded audio with the project by default; the source path is also retained.</li>
         </ul>
 

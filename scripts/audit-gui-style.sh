@@ -1108,10 +1108,18 @@ fi
 if ! rg -q 'NSTrackingMouseMoved' "$sample_player_source" \
     || ! rg -Uq 'dropdownHitIndex\([^;]*playModeDropdownRect' "$sample_player_source" \
     || ! rg -Uq 'dropdownHitIndex\([^;]*filterTypeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*pitchModeDropdownRect' "$sample_player_source" \
     || ! rg -Fq '_playModeMenuHover' "$sample_player_source" \
-    || ! rg -Fq '_filterTypeMenuHover' "$sample_player_source"; then
+    || ! rg -Fq '_filterTypeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_pitchModeMenuHover' "$sample_player_source"; then
   warn "control" "$sample_player_source" \
     "Sample Player menus must track, draw, and clear the pointer-hover row."
+fi
+if ! rg -Fq 'PitchMode::Stretch' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'stretchSample' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'stretchPhaseStep' dsp/s3g_sample_player.h; then
+  warn "control" "$sample_player_source" \
+    "Sample Player Stretch mode must preserve transport timing while shifting pitch."
 fi
 if ! rg -Fq 'loopCrossfadeFrames' dsp/s3g_sample_player.h \
     || ! rg -Fq 'ForwardPingPong' dsp/s3g_sample_player.h \
@@ -1124,6 +1132,19 @@ if ! rg -Fq 'waveBoundaryAtPoint' "$sample_player_source" \
     || ! rg -Fq 'waveVisibleSpan' "$sample_player_source"; then
   warn "control" "$sample_player_source" \
     "Sample Player waveform boundaries must remain directly draggable and zoomable."
+fi
+if ! rg -Fq 'voiceCursorCount' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'voiceCursorPositions' "$sample_player_source" \
+    || ! rg -Fq 'voiceCursorKeys' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player must publish and draw one labeled cursor per active voice."
+fi
+if ! rg -Fq 'paramIsExposed' "$sample_player_source" \
+    || ! rg -Fq 'outputChannelCount_ == 2u' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'SOURCE CHANNEL RELATIONSHIPS PRESERVED' \
+        "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player 16 must hide Pan and preserve source-to-output lane mapping."
 fi
 
 section "Compact Effect Family"

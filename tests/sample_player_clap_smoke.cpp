@@ -21,9 +21,11 @@ namespace {
 
 constexpr uint32_t kStateMagic = 0x50533353u;
 constexpr uint32_t kLegacyStateVersion = 1u;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kExpandedStateVersion = 3u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr std::size_t kLegacyParamCount = 15u;
-constexpr std::size_t kParamCount = 20u;
+constexpr std::size_t kExpandedParamCount = 20u;
+constexpr std::size_t kParamCount = 21u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct LegacyFixtureState {
@@ -52,6 +54,21 @@ struct CurrentFixtureState {
     clap_id outputConfigId = 3002u;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
     std::array<double, kParamCount> parameters {};
+    std::array<char, kPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct ExpandedFixtureState {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kExpandedStateVersion;
+    clap_id outputConfigId = 3002u;
+    uint32_t parameterCount = static_cast<uint32_t>(kExpandedParamCount);
+    std::array<double, kExpandedParamCount> parameters {};
     std::array<char, kPathBytes> path {};
     uint8_t embedded = 0u;
     uint8_t channelCount = 0u;
@@ -194,7 +211,10 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
         "fixed output width mismatch");
     ok &= expect(notePorts && notePorts->count(plugin, true) == 1u,
         "note input missing");
-    ok &= expect(params && params->count(plugin) == kParamCount,
+    const uint32_t expectedExposedParamCount = static_cast<uint32_t>(
+        kParamCount - (channels == 16u ? 1u : 0u));
+    ok &= expect(params
+            && params->count(plugin) == expectedExposedParamCount,
         "parameter surface mismatch");
     clap_param_info_t attackInfo {};
     clap_param_info_t decayInfo {};
@@ -203,21 +223,44 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     clap_param_info_t crossfadeInfo {};
     clap_param_info_t filterTypeInfo {};
     clap_param_info_t cutoffInfo {};
+    clap_param_info_t pitchModeInfo {};
     char envelopeText[32] {};
     char modeText[32] {};
     char filterText[32] {};
     char cutoffText[32] {};
+    char pitchModeText[32] {};
     double envelopeValue = -1.0;
     double modeValue = -1.0;
     double filterValue = -1.0;
     double cutoffValue = -1.0;
-    ok &= expect(params && params->get_info(plugin, 0u, &playModeInfo)
-            && params->get_info(plugin, 8u, &attackInfo)
-            && params->get_info(plugin, 9u, &decayInfo)
-            && params->get_info(plugin, 11u, &releaseInfo)
-            && params->get_info(plugin, 15u, &crossfadeInfo)
-            && params->get_info(plugin, 16u, &filterTypeInfo)
-            && params->get_info(plugin, 17u, &cutoffInfo)
+    double pitchModeValue = -1.0;
+    const auto findParam = [&](clap_id id, clap_param_info_t& found) {
+        if (!params) return false;
+        for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+            clap_param_info_t candidate {};
+            if (params->get_info(plugin, index, &candidate)
+                && candidate.id == id) {
+                found = candidate;
+                return true;
+            }
+        }
+        return false;
+    };
+    clap_param_info_t panInfo {};
+    const bool exposesPan = findParam(14u, panInfo);
+    double panValue = -1.0;
+    ok &= expect(params && findParam(1u, playModeInfo)
+            && findParam(9u, attackInfo)
+            && findParam(10u, decayInfo)
+            && findParam(12u, releaseInfo)
+            && findParam(16u, crossfadeInfo)
+            && findParam(17u, filterTypeInfo)
+            && findParam(18u, cutoffInfo)
+            && findParam(21u, pitchModeInfo)
+            && (channels == 2u
+                ? exposesPan && params->get_value(plugin, 14u, &panValue)
+                : !exposesPan && !params->get_value(
+                    plugin, 14u, &panValue))
             && playModeInfo.id == 1u && playModeInfo.max_value == 5.0
             && attackInfo.id == 9u && decayInfo.id == 10u
             && releaseInfo.id == 12u
@@ -237,6 +280,9 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && filterTypeInfo.max_value == 4.0
             && cutoffInfo.id == 18u && cutoffInfo.min_value == 20.0
             && cutoffInfo.max_value == 20000.0
+            && pitchModeInfo.id == 21u
+            && pitchModeInfo.max_value == 1.0
+            && pitchModeInfo.default_value == 0.0
             && params->value_to_text(plugin, playModeInfo.id, 4.0,
                 modeText, sizeof(modeText))
             && std::strcmp(modeText, "Forward Ping-Pong") == 0
@@ -254,8 +300,36 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && std::strcmp(cutoffText, "3.20 kHz") == 0
             && params->text_to_value(plugin, cutoffInfo.id, cutoffText,
                 &cutoffValue)
-            && std::fabs(cutoffValue - 3200.0) < 1.0e-9,
-        "expanded loop, ADSR, or filter parameter contract is invalid");
+            && std::fabs(cutoffValue - 3200.0) < 1.0e-9
+            && params->value_to_text(plugin, pitchModeInfo.id, 1.0,
+                pitchModeText, sizeof(pitchModeText))
+            && std::strcmp(pitchModeText, "Stretch") == 0
+            && params->text_to_value(plugin, pitchModeInfo.id, "Rate",
+                &pitchModeValue)
+            && std::fabs(pitchModeValue) < 1.0e-9,
+        "expanded loop, ADSR, filter, or pitch-mode contract is invalid");
+
+    ExpandedFixtureState expandedFixture;
+    expandedFixture.outputConfigId = configId;
+    StateBuffer expandedState;
+    const auto* expandedBytes = reinterpret_cast<const uint8_t*>(
+        &expandedFixture);
+    expandedState.bytes.insert(expandedState.bytes.end(), expandedBytes,
+        expandedBytes + sizeof(expandedFixture));
+    ok &= expect(state && state->load(plugin, &expandedState.input),
+        "version 3 state failed to migrate to Rate pitch mode");
+    StateBuffer expandedRoundTrip;
+    CurrentFixtureState expandedMigrated {};
+    ok &= expect(state && state->save(plugin, &expandedRoundTrip.output)
+            && expandedRoundTrip.bytes.size() >= sizeof(expandedMigrated),
+        "version 3 state failed to save after migration");
+    if (expandedRoundTrip.bytes.size() >= sizeof(expandedMigrated))
+        std::memcpy(&expandedMigrated, expandedRoundTrip.bytes.data(),
+            sizeof(expandedMigrated));
+    ok &= expect(expandedMigrated.version == kStateVersion
+            && expandedMigrated.parameterCount == kParamCount
+            && expandedMigrated.parameters[20u] == 0.0,
+        "version 3 state did not default to Rate pitch mode");
 
     StateBuffer fixture;
     fillEmbeddedFixture(fixture, channels, configId);
@@ -282,8 +356,9 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && migrated.parameters[16u] == 0.0
             && migrated.parameters[17u] == 20000.0
             && migrated.parameters[18u] == 0.0
-            && migrated.parameters[19u] == 0.0,
-        "legacy state did not preserve wraps while migrating ADSR/filter defaults");
+            && migrated.parameters[19u] == 0.0
+            && migrated.parameters[20u] == 0.0,
+        "legacy state did not preserve wraps while migrating ADSR/filter/pitch defaults");
     ok &= expect(plugin->activate(plugin, 48000.0, 8u, 16u)
             && plugin->start_processing(plugin),
         "activation failed");

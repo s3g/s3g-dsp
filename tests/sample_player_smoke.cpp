@@ -295,6 +295,61 @@ void testMultimodeFilterAndEnvelopeAmount()
         "multimode filter or bipolar envelope modulation was ineffective");
 }
 
+void testStretchPitchPreservesDuration()
+{
+    SampleAsset asset;
+    asset.sampleRate = 48000.0;
+    asset.channelCount = 1u;
+    asset.channels[0u].resize(9600u);
+    constexpr double pi = 3.1415926535897932384626433832795;
+    for (uint32_t frame = 0u; frame < asset.frameCount(); ++frame) {
+        asset.channels[0u][frame] = static_cast<float>(std::sin(
+            2.0 * pi * 220.0 * static_cast<double>(frame) / 48000.0));
+    }
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "stretch fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.decayProportion = 0.0f;
+    settings.releaseProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.tuneSemitones = 12.0f;
+    const RenderEvent note { 0u, EventKind::NoteOn, 10u, 60u, 1.0f, 1u };
+
+    std::array<float, 5000u> rateLeft {};
+    std::array<float, 5000u> rateRight {};
+    float* rateOutputs[] { rateLeft.data(), rateRight.data() };
+    engine.render(settings, &note, 1u, rateOutputs, 2u,
+        static_cast<uint32_t>(rateLeft.size()));
+    check(engine.activeVoiceCount() == 0u,
+        "Rate mode did not shorten octave-up playback");
+
+    engine.reset();
+    settings.pitchMode = PitchMode::Stretch;
+    std::array<float, 5000u> stretchLeft {};
+    std::array<float, 5000u> stretchRight {};
+    float* stretchOutputs[] { stretchLeft.data(), stretchRight.data() };
+    engine.render(settings, &note, 1u, stretchOutputs, 2u,
+        static_cast<uint32_t>(stretchLeft.size()));
+    const bool activeAtRateEnding = engine.activeVoiceCount() == 1u;
+    uint32_t upwardCrossings = 0u;
+    for (std::size_t frame = 2001u; frame < stretchLeft.size(); ++frame) {
+        if (stretchLeft[frame - 1u] <= 0.0f
+            && stretchLeft[frame] > 0.0f) ++upwardCrossings;
+    }
+    const double measuredHz = static_cast<double>(upwardCrossings)
+        * 48000.0 / static_cast<double>(stretchLeft.size() - 2001u);
+    std::array<float, 5000u> tailLeft {};
+    std::array<float, 5000u> tailRight {};
+    float* tailOutputs[] { tailLeft.data(), tailRight.data() };
+    engine.render(settings, nullptr, 0u, tailOutputs, 2u,
+        static_cast<uint32_t>(tailLeft.size()));
+    check(activeAtRateEnding && engine.activeVoiceCount() == 0u
+            && measuredHz > 390.0 && measuredHz < 490.0,
+        "Stretch mode did not preserve duration while shifting pitch");
+}
+
 void testAdsrAndRelease()
 {
     auto asset = rampAsset(2u, 4096u);
@@ -373,6 +428,70 @@ void testSixteenChannelLock()
             static_cast<float>(channel + 1u) * 0.1f);
     }
     check(locked, "16-channel playback did not preserve sample lanes");
+
+    SampleAsset stereo;
+    stereo.sampleRate = 48000.0;
+    stereo.channelCount = 2u;
+    stereo.channels[0u].assign(8u, 0.25f);
+    stereo.channels[1u].assign(8u, 0.50f);
+    engine.reset();
+    check(engine.setAsset(&stereo),
+        "16-channel stereo preservation fixture did not load");
+    settings.pan = -1.0f;
+    std::array<std::array<float, 1u>, 16u> preservedStorage {};
+    std::array<float*, 16u> preservedOutputs {};
+    for (std::size_t channel = 0u; channel < preservedOutputs.size();
+         ++channel)
+        preservedOutputs[channel] = preservedStorage[channel].data();
+    engine.render(settings, &note, 1u, preservedOutputs.data(), 16u, 1u);
+    const bool relationshipsPreserved = preservedStorage[0u][0u] > 0.0f
+            && near(preservedStorage[1u][0u],
+                preservedStorage[0u][0u] * 2.0f)
+            && preservedStorage[2u][0u] == 0.0f;
+    if (!relationshipsPreserved) {
+        std::cerr << "16-channel preserved lanes: "
+            << preservedStorage[0u][0u] << ", "
+            << preservedStorage[1u][0u] << ", "
+            << preservedStorage[2u][0u] << '\n';
+    }
+    check(relationshipsPreserved,
+        "16-channel playback applied stereo Pan or filled an unused lane");
+}
+
+void testPolyphonicVoiceCursors()
+{
+    auto asset = rampAsset(1u, 1000u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "polyphonic cursor fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    const std::array<RenderEvent, 2u> events {{
+        { 0u, EventKind::NoteOn, 11u, 60u, 1.0f, 1u },
+        { 5u, EventKind::NoteOn, 12u, 67u, 1.0f, 1u },
+    }};
+    std::array<float, 10u> left {};
+    std::array<float, 10u> right {};
+    float* outputs[] { left.data(), right.data() };
+    engine.render(settings, events.data(), events.size(), outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    const auto& cursors = engine.voiceCursors();
+    const bool cursorsIndependent = engine.voiceCursorCount() == 2u
+            && cursors[0u].key == 60u && cursors[1u].key == 67u
+            && near(cursors[0u].sourcePositionNormalized, 0.009f)
+            && near(cursors[1u].sourcePositionNormalized,
+                static_cast<float>(4.0 * std::pow(2.0, 7.0 / 12.0)
+                    / 1000.0));
+    if (!cursorsIndependent) {
+        std::cerr << "cursor count=" << engine.voiceCursorCount()
+            << " first=" << static_cast<unsigned>(cursors[0u].key)
+            << '@' << cursors[0u].sourcePositionNormalized
+            << " second=" << static_cast<unsigned>(cursors[1u].key)
+            << '@' << cursors[1u].sourcePositionNormalized << '\n';
+    }
+    check(cursorsIndependent,
+        "polyphonic voices collapsed into one averaged cursor");
 }
 
 } // namespace
@@ -385,9 +504,11 @@ int main()
     testForwardAndReverseLoops();
     testLoopCrossfadeAndPingPong();
     testMultimodeFilterAndEnvelopeAmount();
+    testStretchPitchPreservesDuration();
     testAdsrAndRelease();
     testOneShotTailReleaseIgnoresNoteOff();
     testSixteenChannelLock();
+    testPolyphonicVoiceCursors();
     if (failures != 0) {
         std::cerr << failures << " sample player smoke failure(s)\n";
         return 1;
