@@ -105,8 +105,8 @@ struct SavedSlot {
     float mixerAuxSend = 0.0f;
     std::array<s3g::breakbeat::InsertSettings,
         s3g::breakbeat::kInsertSlotsPerStrip> inserts {};
-    uint8_t rootNote = 36u;
-    uint8_t mappedRootNote = 36u;
+    uint8_t rootNote = 48u;
+    uint8_t mappedRootNote = 48u;
     uint8_t midiChannel = 0u;
     uint8_t muted = 0u;
     uint8_t solo = 0u;
@@ -371,7 +371,9 @@ bool replaceSlotSlices(Plugin& instance, uint32_t slotIndex,
         return false;
     auto bank = editableBank(instance);
     auto& slot = bank->slots[slotIndex];
-    if (!slot.asset) return false;
+    if (!slot.asset || slices.size()
+        > s3g::breakbeat::maximumSlicesForStartNote(slot.rootNote))
+        return false;
     slot.slices = {};
     slot.sliceCount = static_cast<uint16_t>(slices.size());
     std::copy(slices.begin(), slices.end(), slot.slices.begin());
@@ -402,18 +404,14 @@ bool setSlotMidiChannel(Plugin& instance, uint32_t slotIndex,
     return publishBank(instance, std::move(bank));
 }
 
-bool automapSlot(Plugin& instance, uint32_t slotIndex,
-    bool* rootAdjusted = nullptr)
+bool automapSlot(Plugin& instance, uint32_t slotIndex)
 {
-    if (rootAdjusted) *rootAdjusted = false;
     if (slotIndex >= s3g::breakbeat::kMaximumSampleSlots) return false;
     auto bank = editableBank(instance);
     auto& slot = bank->slots[slotIndex];
     if (!slot.asset || slot.sliceCount == 0u) return false;
-    const uint8_t previousRoot = slot.rootNote;
     if (!s3g::breakbeat::autoMapSlotConsecutively(*bank,
             static_cast<uint8_t>(slotIndex), true)) return false;
-    if (rootAdjusted) *rootAdjusted = slot.rootNote != previousRoot;
     return publishBank(instance, std::move(bank));
 }
 
@@ -512,7 +510,7 @@ bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     }
     const uint32_t sourceChannelCount = asset->channelCount;
     if (sourceChannelCount > instance.outputChannelCount) {
-        instance.status = "USE S3G SLICER 16 FOR THIS FILE";
+        instance.status = "USE S3G SAMPLE SLICER FOR THIS FILE";
         return false;
     }
     auto bank = editableBank(instance);
@@ -1403,7 +1401,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 || !std::isfinite(source.sampleRate)) return false;
             if (source.channelCount > instance.outputChannelCount) {
                 instance.status
-                    = "STATE REQUIRES S3G SLICER 16";
+                    = "STATE REQUIRES S3G SAMPLE SLICER";
                 return false;
             }
             const uint64_t bytes = static_cast<uint64_t>(source.channelCount)
@@ -1437,7 +1435,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 || !decodeSampleFile(path, asset, analysis, error)) continue;
             if (asset->channelCount > instance.outputChannelCount) {
                 instance.status
-                    = "STATE REQUIRES S3G SLICER 16";
+                    = "STATE REQUIRES S3G SAMPLE SLICER";
                 return false;
             }
 #else
@@ -1849,7 +1847,7 @@ NSString* noteText(uint8_t note)
         @"F#", @"G", @"G#", @"A", @"A#", @"B"
     ];
     return [NSString stringWithFormat:@"%@%d / %u", names[note % 12u],
-        static_cast<int>(note / 12u) - 1, static_cast<unsigned>(note)];
+        static_cast<int>(note / 12u) - 2, static_cast<unsigned>(note)];
 }
 
 NSString* shortNoteText(uint8_t note)
@@ -1859,7 +1857,7 @@ NSString* shortNoteText(uint8_t note)
         @"F#", @"G", @"G#", @"A", @"A#", @"B"
     ];
     return [NSString stringWithFormat:@"%@%d", names[note % 12u],
-        static_cast<int>(note / 12u) - 1];
+        static_cast<int>(note / 12u) - 2];
 }
 
 NSString* launchModeText(s3g::breakbeat::LaunchMode mode)
@@ -3207,11 +3205,11 @@ double gainDb(float gain)
         s3g::clap_gui::color(0xa6a6a6), 10.5);
     NSDictionary* value = slicerTextAttrs(
         s3g::clap_gui::color(0xc6c6c6), 11.0);
-    [@"s3g SLICER" drawAtPoint:NSMakePoint(18.0, 17.0)
+    [@"s3g SAMPLE SLICER" drawAtPoint:NSMakePoint(18.0, 17.0)
         withAttributes:title];
     NSString* variant = [NSString stringWithFormat:@"%u OUT",
         static_cast<unsigned>(_instance->outputChannelCount)];
-    [variant drawAtPoint:NSMakePoint(132.0, 21.0) withAttributes:label];
+    [variant drawAtPoint:NSMakePoint(210.0, 21.0) withAttributes:label];
     NSString* status = [NSString stringWithUTF8String:
         _instance->status.c_str()];
     if (!status) status = @"";
@@ -3268,10 +3266,14 @@ double gainDb(float gain)
         [filename drawInRect:nameRect withAttributes:label];
         const auto& slot = bank->slots[index];
         NSString* meta = slot.asset
-            ? [NSString stringWithFormat:@"%u SLICES   %u CH   ROOT %@",
+            ? [NSString stringWithFormat:
+                @"%u SL  %uCH  START %@/%u  MAX %zu",
                 slot.sliceCount,
                 static_cast<unsigned>(slot.asset->channelCount),
-                noteText(slot.rootNote)] : @"";
+                shortNoteText(slot.rootNote),
+                static_cast<unsigned>(slot.rootNote),
+                s3g::breakbeat::maximumSlicesForStartNote(slot.rootNote)]
+            : @"";
         [meta drawAtPoint:NSMakePoint(row.origin.x + 10.0,
             row.origin.y + 37.0) withAttributes:label];
         NSString* channel = slot.midiChannel == 0u ? @"MIDI OMNI"
@@ -3309,8 +3311,8 @@ double gainDb(float gain)
         drawButton(controlButtonRect(4u), @"EQ 16");
         drawButton(controlButtonRect(5u), @"EQ 32");
         drawButton(controlButtonRect(6u), @"TRANSIENT");
-        drawButton(controlButtonRect(7u), @"ROOT -");
-        drawButton(controlButtonRect(8u), @"ROOT +");
+        drawButton(controlButtonRect(7u), @"START -");
+        drawButton(controlButtonRect(8u), @"START +");
         drawButton(controlButtonRect(9u), @"AUDITION");
         drawButton(transientPreRollButtonRect(0u), @"-");
         drawButton(transientPreRollButtonRect(1u),
@@ -3325,10 +3327,12 @@ double gainDb(float gain)
             const double seconds = slot.asset->frameCount()
                 / slot.asset->sampleRate;
             NSString* details = [NSString stringWithFormat:
-                @"%u CH   %.2f S   %.0f HZ   %u SLICES   ROOT %@   ZOOM %.1fX",
+                @"%u CH   %.2f S   %.0f HZ   %u SLICES   START %@   MAX %zu   ZOOM %.1fX",
                 static_cast<unsigned>(slot.asset->channelCount), seconds,
                 slot.asset->sampleRate, slot.sliceCount,
-                noteText(slot.rootNote), _zoom];
+                noteText(slot.rootNote),
+                s3g::breakbeat::maximumSlicesForStartNote(slot.rootNote),
+                _zoom];
             [details drawAtPoint:NSMakePoint(292.0, 616.0)
                 withAttributes:value];
             const std::size_t selected = static_cast<std::size_t>(
@@ -3476,10 +3480,15 @@ double gainDb(float gain)
 {
     const auto* slot = [self selectedSampleSlot];
     if (!slot || !slot->asset) return;
+    const std::size_t requested = count;
+    count = std::min(count,
+        s3g::breakbeat::maximumSlicesForStartNote(slot->rootNote));
     if (replaceSlotSlices(*_instance, [self selectedSlot],
             s3g::breakbeat::makeEqualSlices(*slot->asset, count))) {
         _selectedSlice = 0;
-        _instance->status = "SLICES CHANGED - PRESS AUTO MAP";
+        _instance->status = count < requested
+            ? "SLICES CAPPED BY START NOTE - PRESS AUTO MAP"
+            : "SLICES CHANGED - PRESS AUTO MAP";
     }
 }
 
@@ -3493,7 +3502,8 @@ double gainDb(float gain)
         slot->asset->sampleRate * 0.004));
     if (replaceSlotSlices(*_instance, selected,
             s3g::breakbeat::makeTransientSlices(*slot->asset, *analysis,
-                64u, zeroRadius,
+                s3g::breakbeat::maximumSlicesForStartNote(slot->rootNote),
+                zeroRadius,
                 _instance->transientPreRollMicroseconds))) {
         _selectedSlice = 0;
         _instance->status = "SLICES CHANGED - PRESS AUTO MAP";
@@ -3914,13 +3924,11 @@ double gainDb(float gain)
             return;
         }
         if (NSPointInRect(point, slotAutomapRect(index))) {
-            bool rootAdjusted = false;
-            if (automapSlot(*_instance, index, &rootAdjusted))
-                _instance->status = rootAdjusted
-                    ? "AUTO-MAPPED; ROOT LOWERED TO FIT ALL SLICES"
-                    : "BREAK SLICES AUTO-MAPPED";
+            if (automapSlot(*_instance, index))
+                _instance->status = "BREAK SLICES AUTO-MAPPED";
             else
-                _instance->status = "LOAD A BREAK BEFORE AUTO MAP";
+                _instance->status =
+                    "LOAD OR REDUCE SLICES BEFORE AUTO MAP";
             [self setNeedsDisplay:YES];
             return;
         }
@@ -4045,12 +4053,19 @@ double gainDb(float gain)
         else if (index == 7u || index == 8u) {
             const auto* slot = [self selectedSampleSlot];
             if (slot && slot->asset) {
-                const int delta = index == 7u ? -1 : 1;
                 const int maximum = 128 - slot->sliceCount;
+                const NSEventModifierFlags modifiers = [event modifierFlags];
+                const int step = (modifiers & NSEventModifierFlagShift)
+                    ? 12 : 1;
+                const int candidate =
+                    (modifiers & NSEventModifierFlagOption)
+                    ? (index == 7u ? 0 : maximum)
+                    : static_cast<int>(slot->rootNote)
+                        + (index == 7u ? -step : step);
                 const uint8_t root = static_cast<uint8_t>(std::clamp(
-                    static_cast<int>(slot->rootNote) + delta, 0, maximum));
+                    candidate, 0, maximum));
                 if (setSlotRootNote(*_instance, [self selectedSlot], root))
-                    _instance->status = "ROOT NOTE UPDATED";
+                    _instance->status = "START NOTE UPDATED";
             }
         } else if (index == 9u) [self audition];
         [self setNeedsDisplay:YES];
@@ -4080,13 +4095,18 @@ double gainDb(float gain)
         const uint32_t snapped = s3g::breakbeat::nearestZeroFrame(
             *edited.asset, frame, static_cast<uint32_t>(std::lround(
                 edited.asset->sampleRate * 0.004)));
+        const std::size_t maximum = std::min<std::size_t>(
+            edited.slices.size(),
+            s3g::breakbeat::maximumSlicesForStartNote(edited.rootNote));
         if (s3g::breakbeat::addSliceMarker(edited.slices.data(), count,
-                edited.slices.size(), snapped)) {
+                maximum, snapped)) {
             edited.sliceCount = static_cast<uint16_t>(count);
             edited.mappedSliceCount = 0u;
             publishBank(*_instance, std::move(bank));
             _selectedSlice = [self sliceAtFrame:snapped];
             _instance->status = "MARKER ADDED - PRESS AUTO MAP";
+        } else if (count >= maximum) {
+            _instance->status = "START NOTE SLICE LIMIT REACHED";
         }
     } else {
         _selectedSlice = [self sliceAtFrame:frame];
@@ -4424,7 +4444,7 @@ const char* const multichannelFeatures[] {
 const clap_plugin_descriptor_t multichannelDescriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.breakbeat-slicer",
-    "s3g Slicer",
+    "s3g Sample Slicer 16",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
@@ -4437,7 +4457,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
 const clap_plugin_descriptor_t stereoDescriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.breakbeat-slicer-stereo",
-    "s3g Slicer 2",
+    "s3g Sample Slicer 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

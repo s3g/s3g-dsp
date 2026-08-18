@@ -271,10 +271,20 @@ int main(int argc, char** argv)
 
     const auto* factory = entry ? static_cast<const clap_plugin_factory_t*>(
         entry->get_factory(CLAP_PLUGIN_FACTORY_ID)) : nullptr;
+    const auto* multichannelDescriptor = factory
+        ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
+    const auto* stereoDescriptor = factory
+        ? factory->get_plugin_descriptor(factory, 1u) : nullptr;
     ok &= expect(factory && factory->get_plugin_count(factory) == 2u
-            && factory->get_plugin_descriptor(factory, 0u)
-            && factory->get_plugin_descriptor(factory, 1u),
+            && multichannelDescriptor && stereoDescriptor,
         "expected fixed stereo and fixed 16-channel descriptors");
+    ok &= expect(multichannelDescriptor && multichannelDescriptor->name
+            && std::strcmp(multichannelDescriptor->name,
+                "s3g Sample Slicer 16") == 0
+            && stereoDescriptor && stereoDescriptor->name
+            && std::strcmp(stereoDescriptor->name,
+                "s3g Sample Slicer 2") == 0,
+        "descriptor names did not expose their fixed channel counts");
     const clap_plugin_t* plugin = factory ? factory->create_plugin(factory,
         &context.host, kPluginId) : nullptr;
     ok &= expect(plugin && plugin->init(plugin), "plugin creation failed");
@@ -312,6 +322,26 @@ int main(int argc, char** argv)
         "expected output and velocity host parameters");
     ok &= expect(state && noteNames && noteNames->count(plugin) == 0u,
         "state or initial note-name surface is invalid");
+    StateBuffer initializedState;
+    bool initializedRouting = state
+        && state->save(plugin, &initializedState.output)
+        && initializedState.bytes.size() >= sizeof(FixtureSavedState);
+    if (initializedRouting) {
+        FixtureSavedState initialized {};
+        std::memcpy(&initialized, initializedState.bytes.data(),
+            sizeof(initialized));
+        for (std::size_t index = 0u; index < initialized.slots.size();
+             ++index) {
+            const auto& slot = initialized.slots[index];
+            initializedRouting = initializedRouting
+                && slot.rootNote == 48u && slot.mappedRootNote == 48u
+                && slot.midiChannel == index + 1u
+                && slot.sliceCount == 0u
+                && slot.mappedSliceCount == 0u;
+        }
+    }
+    ok &= expect(initializedRouting,
+        "fresh state did not use C2/start 48 and MIDI channels 1-4");
     ok &= expect(portConfigs && portConfigs->count(plugin) == 1u,
         "expected one immutable 16-channel output configuration");
     if (portConfigs && audioPorts) {

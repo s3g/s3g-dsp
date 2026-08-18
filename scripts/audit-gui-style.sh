@@ -931,6 +931,21 @@ while IFS= read -r hit; do
   warn "name" "$hit" "Direct panner host names use 's3g Panner <method>'."
 done < <(rg -n '"s3g (DBAP|LBAP|VBAP|Layout) Panner"' plugins --glob '*.cpp' --glob 'CMakeLists.txt')
 
+sample_family_names=(
+  'plugins/clap_sample_player/s3g_sample_player_clap.cpp|s3g Sample Player 2'
+  'plugins/clap_sample_player/s3g_sample_player_clap.cpp|s3g Sample Player 16'
+  'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 2'
+  'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 16'
+)
+for contract in "${sample_family_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Sample-family host names must expose the fixed channel count in '${expected_name}'."
+  fi
+done
+
 processor_family_names=(
   'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 8ch'
   'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 24ch'
@@ -1052,6 +1067,63 @@ if ! rg -q 'processorLabelX\(kLeftToolboxX\), kPerformanceRowY - 5\.0' "$fault_s
     || ! rg -q 'kStandardMetrics\.headerLabelInset, y \+ 7\.0' "$fault_source"; then
   warn "layout" "$fault_source" \
     "Processor Fault contextual labels and field headings must use the shared 16 px label and 8 px header anchors."
+fi
+
+section "Sample Family"
+sample_player_source=plugins/clap_sample_player/s3g_sample_player_clap.cpp
+for contract in \
+  drawProcessorTitleBand \
+  handleProcessorTitleClick \
+  drawPanelHeader \
+  drawProcessorSlider \
+  drawProcessorMenu \
+  sliderDoubleClickDefault \
+  ResponsiveViewport \
+  peakDbText; do
+  if ! rg -Fq "$contract" "$sample_player_source"; then
+    warn "family" "$sample_player_source" \
+      "Sample Player must use the shared ${contract} GUI convention."
+  fi
+done
+if ! rg -q 'kStandardMetrics\.contentTop' "$sample_player_source" \
+    || ! rg -Fq '"OUT"' "$sample_player_source"; then
+  warn "layout" "$sample_player_source" \
+    "Sample Player uses the shared content top and begins its OUTPUT controls with OUT."
+fi
+if rg -q 'NSSlider|NSButton' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player uses the shared custom canvas controls instead of native Cocoa sliders or buttons."
+fi
+if ! rg -q 'defaultSafeSampleBounds|applySafeDefaultBounds' \
+    "$sample_player_source" dsp/s3g_sample_asset.h; then
+  warn "control" "$sample_player_source" \
+    "Sample Player default Start, End, and loop boundaries must be sample-aware safe zero crossings."
+fi
+if ! rg -Uq 'attackProportion[^}]+decayProportion[^}]+releaseProportion' \
+    dsp/s3g_sample_player.h \
+    || ! rg -Fq 'migrateLegacyEnvelope' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player A/D/R must use Slicer-style proportions and migrate legacy millisecond state."
+fi
+if ! rg -q 'NSTrackingMouseMoved' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*playModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*filterTypeDropdownRect' "$sample_player_source" \
+    || ! rg -Fq '_playModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_filterTypeMenuHover' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player menus must track, draw, and clear the pointer-hover row."
+fi
+if ! rg -Fq 'loopCrossfadeFrames' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'ForwardPingPong' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'processFilter' dsp/s3g_sample_player.h; then
+  warn "control" "$sample_player_source" \
+    "Sample Player must retain crossfaded wraps, ping-pong loops, and its multimode filter."
+fi
+if ! rg -Fq 'waveBoundaryAtPoint' "$sample_player_source" \
+    || ! rg -Fq 'scrollWheel:' "$sample_player_source" \
+    || ! rg -Fq 'waveVisibleSpan' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player waveform boundaries must remain directly draggable and zoomable."
 fi
 
 section "Compact Effect Family"

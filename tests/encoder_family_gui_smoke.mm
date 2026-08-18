@@ -36,6 +36,7 @@
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
 - (BOOL)loadDocumentationBreaks;
+- (BOOL)loadDocumentationSample;
 - (void)setDocumentationPage:(NSUInteger)page;
 - (void)setViewPreset:(int)mode;
 - (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
@@ -2465,6 +2466,20 @@ int main(int argc, char** argv)
                 pluginId, "org.s3g.s3g-dsp.drum-toms") == 0;
         const bool drumOverload = std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.drum-overload") == 0;
+        const bool samplePlayer = std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.sample-player") == 0
+            || std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.sample-player-16") == 0;
+        if (ok && samplePlayer && documentationCapture) {
+            failureStage = "Sample Player documentation sample";
+            @try {
+                ok = [document respondsToSelector:
+                        @selector(loadDocumentationSample)]
+                    && [document loadDocumentationSample];
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         NSPanel* parameterSurfacePanel = nil;
         auto mouseEvent = [&](NSEventType type, NSPoint documentPoint) {
             return [NSEvent
@@ -2478,6 +2493,92 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && samplePlayer && !documentationCapture) {
+            failureStage = "Sample Player play-mode/filter menu hover";
+            @try {
+                const NSPoint playModeMenu = NSMakePoint(200.0, 378.0);
+                const NSPoint reverseItem = NSMakePoint(200.0, 437.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, playModeMenu)];
+                ok = [[document valueForKey:@"playModeMenuOpen"] boolValue]
+                    && [[document valueForKey:@"playModeMenuHover"]
+                        intValue] == -1;
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, reverseItem)];
+                    ok = [[document valueForKey:@"playModeMenuHover"]
+                        intValue] == 2;
+                }
+                if (ok) {
+                    [document mouseExited:mouseEvent(
+                        NSEventTypeMouseMoved, reverseItem)];
+                    ok = [[document valueForKey:@"playModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"playModeMenuHover"]
+                            intValue] == -1;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, reverseItem)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, reverseItem)];
+                }
+                double playMode = -1.0;
+                ok = ok && params->get_value(plugin, 1u, &playMode)
+                    && std::fabs(playMode - 2.0) < 0.000001
+                    && ![[document valueForKey:@"playModeMenuOpen"]
+                        boolValue]
+                    && [[document valueForKey:@"playModeMenuHover"]
+                        intValue] == -1;
+                const NSPoint filterMenu = NSMakePoint(700.0, 378.0);
+                const NSPoint bandPassItem = NSMakePoint(700.0, 437.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, filterMenu)];
+                    ok = [[document valueForKey:@"filterTypeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"filterTypeMenuHover"]
+                            intValue] == -1;
+                }
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, bandPassItem)];
+                    ok = [[document valueForKey:@"filterTypeMenuHover"]
+                        intValue] == 2;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, bandPassItem)];
+                }
+                double filterType = -1.0;
+                ok = ok && params->get_value(plugin, 17u, &filterType)
+                    && std::fabs(filterType - 2.0) < 0.000001
+                    && ![[document valueForKey:@"filterTypeMenuOpen"]
+                        boolValue]
+                    && [[document valueForKey:@"filterTypeMenuHover"]
+                        intValue] == -1;
+                if (!ok) {
+                    std::cerr << "Sample Player menu details: open="
+                        << [[document valueForKey:@"playModeMenuOpen"]
+                            boolValue]
+                        << " hover="
+                        << [[document valueForKey:@"playModeMenuHover"]
+                            intValue]
+                        << " value=" << playMode
+                        << " filterOpen="
+                        << [[document valueForKey:@"filterTypeMenuOpen"]
+                            boolValue]
+                        << " filterHover="
+                        << [[document valueForKey:@"filterTypeMenuHover"]
+                            intValue]
+                        << " filterValue=" << filterType << "\n";
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Sample Player menu exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         if (ok && drumOverload && !documentationCapture) {
             failureStage = "Drum Overload dropdown and DRIVE hit map";
             @try {

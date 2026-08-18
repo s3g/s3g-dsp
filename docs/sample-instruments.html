@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sample / Loop Instruments - s3g-dsp</title>
-    <meta name="description" content="Loaded-audio loop and granular instrument documentation for s3g-dsp.">
+    <title>Sample Instruments - s3g-dsp</title>
+    <meta name="description" content="Sample Player, Sample Slicer, and related loaded-audio instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -25,23 +25,27 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Sample / Loop Instruments</h1>
+        <h1>Sample Instruments</h1>
 
-        <p>Sample and loop instruments load audio files as their source. s3g Slicer turns as many as four breaks into mapped stereo or 16-channel voices; the Processor Loop family creates discrete eight-channel playback structures; Processor Ambi Grain treats a loaded ambisonic file as one locked encoded field.</p>
+        <p>The Sample family loads audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, while <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices. Both preserve a common playback clock across stereo or multichannel material.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose an instrument and set the REAPER track to its required channel count. The 16-channel s3g Slicer and Processor Loop family use discrete lanes; Processor Ambi Grain also requires the source ambisonic order.</li>
+          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms use an ordinary stereo track.</li>
           <li>For Processor Loop or Processor Multi Loop, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Load the source file or files and confirm that the expected channels appear.</li>
-          <li>For a loop instrument, set the source assignment, loop region, playback, and lane relationships. For Processor Ambi Grain, set the shared grain controls.</li>
+          <li>Set the sample window, loop region, direction, pitch, and envelope, or derive and map slices in Sample Slicer.</li>
           <li>Audition the result through the established output path, then keep the source files with the project or in a stable media location.</li>
         </ol>
 
+        <h2 id="player">One-shots and Loops</h2>
+
+        <p><a href="sample-player.html">Sample Player</a> loads one sample and plays it chromatically as a forward or reverse one-shot, wrapping loop, or ping-pong loop. Direct waveform handles and zoom edit the active and loop regions; adjustable loop crossfade suppresses wrap discontinuities. Tune, Fine Tune, Root Note, a resonant multimode filter, proportional ADSR, gain, pan, and velocity response complete the playback controls. One-shots carry their release into the sample ending, while loop modes release from note-off.</p>
+
         <h2 id="slicer">Break Slicing</h2>
 
-        <p><a href="s3g-slicer.html">s3g Slicer</a> loads four breaks, derives equal or transient slices, and maps each break to a consecutive MIDI range. Its stereo and fixed 16-channel variants share the same editor, project-audio embedding, proportional envelopes, two inserts per break, four-strip mixer, and processed AUX return.</p>
+        <p><a href="sample-slicer.html">Sample Slicer</a> loads four breaks, derives equal or transient slices, and maps each break to a consecutive MIDI range. Its stereo and fixed 16-channel variants share the same editor, project-audio embedding, proportional envelopes, two inserts per break, four-strip mixer, and processed AUX return.</p>
 
         <h2 id="loop-family">Loop Family</h2>
 
@@ -63,25 +67,27 @@
             <span>Previous</span>
             Processor Errant
           </a>
-          <a class="page-nav-link next" href="processor-loop.html">
+          <a class="page-nav-link next" href="sample-player.html">
             <span>Next</span>
-            Processor Loop
+            Sample Player
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Instruments</h2>
-          <a href="instruments.html">Overview</a>
-          <a href="drums.html">Drums</a>
-          <a href="generative-instruments.html">Generative</a>
-          <a href="sample-instruments.html">Sample / Loop</a>
-          <a href="voice-instruments.html">Voice / Language</a>
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="processor-loop.html">Processor Loop</a>
+          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#player">One-shots and Loops</a>
           <a href="#slicer">Break Slicing</a>
           <a href="#loop-family">Loop Family</a>
           <a href="#ambisonic-grain">Ambisonic Granulation</a>

@@ -38,7 +38,7 @@ deliberately pending.
   Processor LF Synth, Processor Stack, Processor Conduit, and Macro Shred.
 - [x] Add top-down SVG signal-flow diagrams for Formant Matrix and Processor Stack.
 - [x] Add Processor LF Synth, Processor Stack, Processor Conduit, Processor
-  Errant, s3g Slicer, and Drum Echo to the screenshot manifest and regenerate
+  Errant, s3g Sample Slicer, and Drum Echo to the screenshot manifest and regenerate
   their PNG images and PDF masters.
 - [x] Regenerate active-signal captures for Formant Matrix, Processor Fissure,
   Processor Feedback Shift, Processor Conduit, and Macro Shred.

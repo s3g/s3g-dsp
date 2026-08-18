@@ -131,6 +131,14 @@ EXPECTED_SHARED_TOC_LINKS = {
         "drum-echo.html",
         "drum-mixer.html",
     ],
+    "Sample": [
+        "sample-instruments.html",
+        "sample-player.html",
+        "sample-slicer.html",
+        "processor-loop.html",
+        "processor-multi-loop.html",
+        "processor-ambi-grain.html",
+    ],
 }
 TOC_SECTION_PATTERN = re.compile(
     r'<div class="toc-section">\s*<h2>([^<]+)</h2>(.*?)</div>', re.DOTALL
@@ -356,7 +364,6 @@ DOC_SEQUENCE = [
     "s3gray-format.html",
     "instruments.html",
     "s3g-tracker.html",
-    "s3g-slicer.html",
     "drums.html",
     "drum-kick.html",
     "drum-snare.html",
@@ -382,6 +389,8 @@ DOC_SEQUENCE = [
     "processor-fault.html",
     "processor-errant.html",
     "sample-instruments.html",
+    "sample-player.html",
+    "sample-slicer.html",
     "processor-loop.html",
     "processor-multi-loop.html",
     "voice-instruments.html",
@@ -394,6 +403,7 @@ REDIRECT_PAGES = {
     "effects.html",
     "mix-pan.html",
     "processors.html",
+    "s3g-slicer.html",
 }
 NON_PRODUCT_PAGE_NAMES = {
     "apps.html",
@@ -444,6 +454,13 @@ EXPECTED_SHARED_TOC_PAGES = {
     "Utility Pages": EXPECTED_SHARED_TOC_LINKS["Utility Pages"],
     "Surface Instruments": ["parameter-surface.html"],
     "Drums": EXPECTED_SHARED_TOC_LINKS["Drums"],
+    "Sample": [
+        "sample-instruments.html",
+        "sample-player.html",
+        "sample-slicer.html",
+        "processor-loop.html",
+        "processor-multi-loop.html",
+    ],
 }
 
 

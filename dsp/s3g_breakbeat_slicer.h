@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_break_bus.h"
+#include "s3g_sample_asset.h"
 
 #include <algorithm>
 #include <array>
@@ -18,9 +19,19 @@ namespace s3g::breakbeat {
 constexpr std::size_t kMaximumSampleSlots = 4u;
 constexpr std::size_t kMaximumSlicesPerSlot = 128u;
 constexpr std::size_t kMidiNoteCount = 128u;
+
+inline constexpr std::size_t maximumSlicesForStartNote(
+    uint8_t startNote) noexcept
+{
+    return startNote < kMidiNoteCount
+        ? kMidiNoteCount - static_cast<std::size_t>(startNote) : 0u;
+}
 constexpr std::size_t kMaximumVoices = 32u;
-constexpr std::size_t kMaximumAudioChannels = 16u;
+constexpr std::size_t kMaximumAudioChannels
+    = s3g::sample::kMaximumAudioChannels;
 constexpr uint8_t kUnmappedIndex = 0xffu;
+
+using SampleAsset = s3g::sample::SampleAsset;
 
 enum class LaunchMode : uint8_t {
     OneShot = 0u,
@@ -152,44 +163,6 @@ struct Envelope {
             && releaseProportion >= 0.0f && releaseProportion <= 1.0f
             && attackProportion + decayProportion + releaseProportion
                 <= 1.000001f;
-    }
-};
-
-// Decoding and validation happen off the audio thread. Every active channel
-// has exactly the same frame count: a voice therefore owns one playback clock
-// shared by all channels, including quad, octal, and 3OA material.
-struct SampleAsset {
-    double sampleRate = 48000.0;
-    std::array<std::vector<float>, kMaximumAudioChannels> channels {};
-    uint8_t channelCount = 0u;
-
-    bool valid() const noexcept
-    {
-        if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)
-            || channelCount == 0u || channelCount > channels.size()
-            || channels[0u].empty()
-            || channels[0u].size() > std::numeric_limits<uint32_t>::max())
-            return false;
-        const auto finite = [](const std::vector<float>& channel) {
-            return std::all_of(channel.begin(), channel.end(),
-                [](float value) { return std::isfinite(value); });
-        };
-        const std::size_t frames = channels[0u].size();
-        for (std::size_t index = 0u; index < channels.size(); ++index) {
-            if (index < channelCount) {
-                if (channels[index].size() != frames
-                    || !finite(channels[index])) return false;
-            } else if (!channels[index].empty()) return false;
-        }
-        return true;
-    }
-
-    uint32_t frameCount() const noexcept
-    {
-        return channelCount != 0u
-                && channels[0u].size()
-                    <= std::numeric_limits<uint32_t>::max()
-            ? static_cast<uint32_t>(channels[0u].size()) : 0u;
     }
 };
 
@@ -545,8 +518,8 @@ struct SampleSlot {
     float mixerMidFrequencyHz = 900.0f;
     float mixerAuxSend = 0.0f;
     std::array<InsertSettings, kInsertSlotsPerStrip> inserts {};
-    uint8_t rootNote = 36u;
-    uint8_t mappedRootNote = 36u;
+    uint8_t rootNote = 48u;
+    uint8_t mappedRootNote = 48u;
     uint8_t midiChannel = 0u; // zero is omni; 1-16 are explicit MIDI channels
     bool muted = false;
     bool solo = false;
@@ -570,6 +543,7 @@ struct SampleSlot {
             || mixerAuxSend > 1.0f || rootNote >= kMidiNoteCount
             || mappedRootNote >= kMidiNoteCount || midiChannel > 16u
             || sliceCount > slices.size()
+            || sliceCount > maximumSlicesForStartNote(rootNote)
             || mappedSliceCount > sliceCount
             || static_cast<std::size_t>(mappedRootNote) + mappedSliceCount
                 > kMidiNoteCount) return false;
@@ -749,8 +723,9 @@ inline void initializeEmptyBank(BankSnapshot& bank) noexcept
 {
     bank = {};
     for (std::size_t index = 0u; index < bank.slots.size(); ++index) {
-        bank.slots[index].rootNote = static_cast<uint8_t>(36u + index * 16u);
+        bank.slots[index].rootNote = 48u;
         bank.slots[index].mappedRootNote = bank.slots[index].rootNote;
+        bank.slots[index].midiChannel = static_cast<uint8_t>(index + 1u);
     }
 }
 
@@ -778,20 +753,18 @@ inline bool mapSlotConsecutively(BankSnapshot& bank, uint8_t slotIndex,
     return true;
 }
 
-// Auto Map favors completing the map over retaining a preferred root that no
-// longer leaves enough MIDI notes after the slice table grows. Valid roots are
-// preserved; only an overflowing range is shifted down to end at note 127.
+// Auto Map always retains the user-selected starting note. Slice creation is
+// responsible for respecting maximumSlicesForStartNote(), so mapping never
+// silently moves the keyboard range.
 inline bool autoMapSlotConsecutively(BankSnapshot& bank, uint8_t slotIndex,
     bool replace = true) noexcept
 {
     if (slotIndex >= bank.slots.size()) return false;
     const auto& slot = bank.slots[slotIndex];
     if (!slot.asset || slot.sliceCount == 0u
-        || slot.sliceCount > kMidiNoteCount) return false;
-    const uint8_t maximumRoot = static_cast<uint8_t>(
-        kMidiNoteCount - slot.sliceCount);
-    return mapSlotConsecutively(bank, slotIndex,
-        std::min(slot.rootNote, maximumRoot), replace);
+        || slot.sliceCount > maximumSlicesForStartNote(slot.rootNote))
+        return false;
+    return mapSlotConsecutively(bank, slotIndex, slot.rootNote, replace);
 }
 
 enum class EventKind : uint8_t {

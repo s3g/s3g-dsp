@@ -1,21 +1,22 @@
-# s3g Slicer
+# s3g Sample Slicer
 
-`s3g Slicer` is a multichannel multisample CLAP instrument designed to sit
+`s3g Sample Slicer 16` is a multichannel multisample CLAP instrument designed to sit
 after `s3g Tracker` in REAPER. Tracker supplies timing and MIDI; this plug-in
 owns sample files, slices, mapping, voices, and audio.
 
 The bundle exposes two instruments backed by the same sampler core:
 
-- `s3g Slicer 2` has one immutable 2-channel output and accepts
+- `s3g Sample Slicer 2` has one immutable 2-channel output and accepts
   mono or stereo files; and
-- `s3g Slicer` has one immutable 16-channel output, accepts 1–16
+- `s3g Sample Slicer 16` has one immutable 16-channel output, accepts 1–16
   channel files, passes lanes through in source order, and clears every unused
   output to silence.
 
 The first playable build includes:
 
-- four break slots, each with a MIDI channel menu (`OMNI` or `1–16`) and an
-  explicit consecutive Auto Map range;
+- four break slots, defaulting to MIDI channels `1`, `2`, `3`, and `4`, each
+  with a channel menu (`OMNI` or `1–16`) and an explicit consecutive Auto Map
+  range;
 - fixed output topology per variant, with no host restart or bus mutation when
   samples are loaded;
 - one shared playback clock per voice, keeping every source channel precisely
@@ -54,9 +55,13 @@ The first playable build includes:
   and choke controls;
 - background user-initiated file decoding and transient analysis with stale
   load cancellation when a slot is replaced or cleared;
-- explicit remapping from a selectable root note and channel-aware CLAP note
-  names; marker moves preserve the map while marker add/delete, re-slicing,
-  and root edits deliberately require another Auto Map press;
+- explicit remapping from a selectable lowest starting note and channel-aware
+  CLAP note names; every break starts at MIDI note `48 / C2`, allowing 80
+  slices through note 127, while start note 0 allows all 128 slices; equal and
+  transient slicing plus manual marker creation respect the `128 - start`
+  ceiling, and Auto Map never moves the selected start; marker moves preserve
+  the map while marker add/delete, re-slicing, and start edits deliberately
+  require another Auto Map press;
 - a resizable native macOS bank/slice editor and audition control;
 - versioned project state retaining the original external sample paths;
 - optional decoded-audio embedding in CLAP project state (enabled by default),
@@ -138,7 +143,7 @@ mode are latched at onset so a slider or mode change cannot restructure the
 buffer already playing. Short crossfades protect capture, repeat, and return-to-
 dry boundaries.
 
-On `s3g Slicer`, the same EQ is applied independently to every source lane.
+On `s3g Sample Slicer 16`, the same EQ is applied independently to every source lane.
 Break Bus keeps separate nonlinear and filter state per lane. Its `ALL`,
 `PAIR`, and `FREE` modes alter only detector/gain linking: they never exchange,
 decode, sum, or reorder samples. `FIELD SAFE` retains linked compression, SNAP,

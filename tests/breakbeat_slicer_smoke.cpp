@@ -1,5 +1,6 @@
 #include "s3g_breakbeat_slicer.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -61,6 +62,22 @@ void testBankMappingAndValidation()
     check(!mismatched.valid(),
         "mismatched multichannel lane lengths were accepted");
 
+    BankSnapshot initialized;
+    initializeEmptyBank(initialized);
+    bool initializedRouting = initialized.valid();
+    for (std::size_t index = 0u; index < initialized.slots.size(); ++index) {
+        const auto& slot = initialized.slots[index];
+        initializedRouting = initializedRouting
+            && slot.rootNote == 48u && slot.mappedRootNote == 48u
+            && slot.midiChannel == index + 1u;
+    }
+    check(initializedRouting,
+        "empty bank did not default to C2/start 48 and MIDI channels 1-4");
+    check(maximumSlicesForStartNote(0u) == 128u
+            && maximumSlicesForStartNote(48u) == 80u
+            && maximumSlicesForStartNote(127u) == 1u,
+        "start-note-derived slice capacities were incorrect");
+
     BankSnapshot bank;
     check(bank.valid(), "a default empty bank was not valid");
     bank.slots[0u] = oneSliceSlot(constantAsset(0.5f, 0.25f));
@@ -90,12 +107,30 @@ void testBankMappingAndValidation()
     BankSnapshot fitted = bank;
     fitted.slots[0u].rootNote = 127u;
     fitted.slots[0u].mappedSliceCount = 0u;
-    check(autoMapSlotConsecutively(fitted, 0u)
-            && fitted.slots[0u].rootNote == 125u
-            && fitted.slots[0u].mappedRootNote == 125u
-            && fitted.slots[0u].mappedSliceCount == 3u
-            && fitted.valid(),
-        "auto map did not lower an overflowing root to fit all slices");
+    check(!autoMapSlotConsecutively(fitted, 0u)
+            && fitted.slots[0u].rootNote == 127u
+            && fitted.slots[0u].mappedSliceCount == 0u,
+        "auto map moved or accepted an overflowing start-note range");
+
+    BankSnapshot fullRange;
+    initializeEmptyBank(fullRange);
+    fullRange.slots[0u] = oneSliceSlot(constantAsset(0.5f, 0.25f));
+    fullRange.slots[0u].rootNote = 0u;
+    fullRange.slots[0u].mappedRootNote = 0u;
+    fullRange.slots[0u].midiChannel = 1u;
+    const auto fullSlices = makeEqualSlices(*fullRange.slots[0u].asset,
+        kMaximumSlicesPerSlot);
+    fullRange.slots[0u].sliceCount = static_cast<uint16_t>(
+        fullSlices.size());
+    std::copy(fullSlices.begin(), fullSlices.end(),
+        fullRange.slots[0u].slices.begin());
+    fullRange.slots[0u].mappedSliceCount = 0u;
+    check(fullSlices.size() == 128u
+            && autoMapSlotConsecutively(fullRange, 0u)
+            && fullRange.slots[0u].mappedRootNote == 0u
+            && fullRange.slots[0u].mappedSliceCount == 128u
+            && fullRange.valid(),
+        "start note 0 did not expose and map all 128 MIDI notes");
 
     bank.slots[1u].midiChannel = 17u;
     check(!bank.valid(), "an invalid per-break MIDI channel was accepted");
