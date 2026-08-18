@@ -13,6 +13,9 @@ namespace s3g::sample {
 
 constexpr std::size_t kMaximumVoices = 32u;
 constexpr std::size_t kMidiNoteCount = 128u;
+constexpr double kLivePitchSmoothingSeconds = 0.010;
+constexpr double kLiveSustainSmoothingSeconds = 0.010;
+constexpr double kLiveLoopTransitionSeconds = 0.005;
 
 enum class PlayMode : uint8_t {
     Forward = 0u,
@@ -26,6 +29,31 @@ enum class PlayMode : uint8_t {
 enum class PitchMode : uint8_t {
     Rate = 0u,
     Stretch,
+};
+
+enum class SyncMode : uint8_t {
+    Free = 0u,
+    Host,
+};
+
+enum class TriggerMode : uint8_t {
+    // Original behavior: one-shots ignore note-off and loops release from it.
+    Auto = 0u,
+    Gate,
+    OneShot,
+    Toggle,
+};
+
+enum class RetriggerMode : uint8_t {
+    Layer = 0u,
+    Restart,
+    Ignore,
+};
+
+enum class VoiceMode : uint8_t {
+    Poly = 0u,
+    Mono,
+    Legato,
 };
 
 enum class FilterType : uint8_t {
@@ -62,6 +90,13 @@ struct VoiceCursor {
 struct PlayerSettings {
     PlayMode playMode = PlayMode::Forward;
     PitchMode pitchMode = PitchMode::Rate;
+    SyncMode syncMode = SyncMode::Free;
+    TriggerMode triggerMode = TriggerMode::Auto;
+    RetriggerMode retriggerMode = RetriggerMode::Layer;
+    VoiceMode voiceMode = VoiceMode::Poly;
+    double sourceTempoBpm = 120.0;
+    double hostTempoBpm = 120.0;
+    double glideSeconds = 0.0;
     double start = 0.0;
     double length = 1.0;
     double loopStart = 0.0;
@@ -95,6 +130,20 @@ struct PlayerSettings {
                 <= static_cast<uint8_t>(PlayMode::ReversePingPong)
             && static_cast<uint8_t>(pitchMode)
                 <= static_cast<uint8_t>(PitchMode::Stretch)
+            && static_cast<uint8_t>(syncMode)
+                <= static_cast<uint8_t>(SyncMode::Host)
+            && static_cast<uint8_t>(triggerMode)
+                <= static_cast<uint8_t>(TriggerMode::Toggle)
+            && static_cast<uint8_t>(retriggerMode)
+                <= static_cast<uint8_t>(RetriggerMode::Ignore)
+            && static_cast<uint8_t>(voiceMode)
+                <= static_cast<uint8_t>(VoiceMode::Legato)
+            && std::isfinite(sourceTempoBpm)
+            && sourceTempoBpm >= 20.0 && sourceTempoBpm <= 999.0
+            && std::isfinite(hostTempoBpm)
+            && hostTempoBpm >= 1.0 && hostTempoBpm <= 999.0
+            && std::isfinite(glideSeconds)
+            && glideSeconds >= 0.0 && glideSeconds <= 2.0
             && std::isfinite(start) && start >= 0.0 && start <= 1.0
             && std::isfinite(length) && length >= 0.0 && length <= 1.0
             && std::isfinite(loopStart) && loopStart >= 0.0
@@ -158,11 +207,15 @@ public:
     void reset() noexcept
     {
         voices_ = {};
+        heldNotes_ = {};
         ageCounter_ = 0u;
+        heldNoteAgeCounter_ = 0u;
         voiceCursors_ = {};
         voiceCursorCount_ = 0u;
         outputPeak_ = 0.0f;
     }
+
+    void killAll() noexcept { reset(); }
 
     bool setAsset(const SampleAsset* asset) noexcept
     {
@@ -200,6 +253,16 @@ public:
             return;
         if (!events) eventCount = 0u;
 
+        const double nextSyncRatio = tempoRatio(settings);
+        for (auto& voice : voices_) {
+            if (!voice.active) continue;
+            voice.syncRatio = nextSyncRatio;
+            updateLivePitchTarget(voice, settings);
+            refreshVoiceRates(voice);
+            updateLiveEnvelopeTargets(voice, settings);
+            updateLiveLoopGeometry(voice, settings);
+        }
+
         std::size_t eventIndex = 0u;
         for (uint32_t frame = 0u; frame < frameCount; ++frame) {
             while (eventIndex < eventCount
@@ -211,7 +274,7 @@ public:
                 if (!voice.active || !voice.asset) continue;
                 const float envelope = voice.envelopeLevel
                     * boundaryFade(voice);
-                const float level = voice.level * envelope;
+                const float level = voice.velocityLevel * envelope;
                 const uint32_t sourceChannels = voice.asset->channelCount;
                 const FilterCoefficients filter = makeFilterCoefficients(
                     voice, settings);
@@ -223,26 +286,37 @@ public:
                     if (outputChannelCount_ == 2u
                         && sourceChannels == 1u && channel < 2u) {
                         sourceChannel = 0u;
-                        channelLevel *= channel == 0u
-                            ? voice.leftPan : voice.rightPan;
                     } else if (channel >= sourceChannels) {
                         continue;
-                    } else if (outputChannelCount_ == 2u
-                        && sourceChannels == 2u && channel < 2u) {
-                        channelLevel *= channel == 0u
-                            ? voice.leftPan : voice.rightPan;
                     }
                     const float source = voice.pitchMode == PitchMode::Stretch
                         ? stretchSample(voice,
                             voice.asset->channels[sourceChannel], stretch)
                         : loopCrossfadedSample(voice,
                             voice.asset->channels[sourceChannel]);
-                    const float value = processFilter(
+                    float value = processFilter(
                         voice.filterStates[channel], source, filter)
                         * channelLevel;
+                    if (voice.loopTransitionFramesRemaining != 0u) {
+                        const uint32_t total = std::max(1u,
+                            voice.loopTransitionTotalFrames);
+                        const float linear = total == 1u ? 1.0f
+                            : static_cast<float>(total
+                                - voice.loopTransitionFramesRemaining)
+                                / static_cast<float>(total - 1u);
+                        const float phase = linear * linear
+                            * (3.0f - 2.0f * linear);
+                        value = voice.loopTransitionFromSamples[channel]
+                            + (value
+                                - voice.loopTransitionFromSamples[channel])
+                                * phase;
+                    }
                     outputs[channel][frame] += value;
-                    outputPeak_ = std::max(outputPeak_, std::abs(value));
+                    voice.lastOutputSamples[channel] = value;
                 }
+                if (voice.loopTransitionFramesRemaining != 0u)
+                    --voice.loopTransitionFramesRemaining;
+                voice.hasRenderedSample = true;
                 if (voiceCursorCount_ < voiceCursors_.size()) {
                     const double sourceFrameCount = std::max(1.0,
                         static_cast<double>(voice.asset->frameCount()));
@@ -254,10 +328,13 @@ public:
                 }
                 voice.position += voice.increment;
                 advanceStretchPhase(voice);
+                advanceGlide(voice);
+                advanceLiveSustain(voice);
                 advanceEnvelope(voice);
                 advancePosition(voice);
             }
         }
+        applyFinalOutput(settings, outputs, outputChannelCount, frameCount);
     }
 
 private:
@@ -284,29 +361,53 @@ private:
         uint32_t loopStartFrame = 0u;
         uint32_t loopEndFrame = 0u;
         double loopCrossfadeFrames = 0.0;
+        double sourceRatio = 1.0;
+        double syncRatio = 1.0;
         double pitchRatio = 1.0;
+        double targetPitchRatio = 1.0;
+        double glideMultiplier = 1.0;
+        uint32_t glideFramesRemaining = 0u;
         double readIncrementMagnitude = 1.0;
         double stretchWindowSourceFrames = 0.0;
+        double stretchWindowOutputFrames = 0.0;
         double stretchPhase = 0.0;
         double stretchPhaseStep = 0.0;
         uint32_t attackFrames = 0u;
         uint32_t decayFrames = 0u;
         uint32_t releaseFrames = 0u;
+        uint32_t envelopeReferenceFrames = 1u;
         uint32_t envelopeFrame = 0u;
         uint8_t key = 60u;
+        uint8_t rootNote = 60u;
         uint8_t midiChannel = 0u;
         PlayMode playMode = PlayMode::Forward;
         PitchMode pitchMode = PitchMode::Rate;
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
-        float level = 0.0f;
-        float leftPan = 1.0f;
-        float rightPan = 1.0f;
+        float velocityLevel = 0.0f;
         float envelopeLevel = 1.0f;
         float releaseStartLevel = 0.0f;
         float sustainLevel = 1.0f;
+        float targetSustainLevel = 1.0f;
+        float sustainStep = 0.0f;
+        uint32_t sustainFramesRemaining = 0u;
         std::array<FilterState, kMaximumAudioChannels> filterStates {};
+        std::array<float, kMaximumAudioChannels> lastOutputSamples {};
+        std::array<float, kMaximumAudioChannels>
+            loopTransitionFromSamples {};
+        uint32_t loopTransitionFramesRemaining = 0u;
+        uint32_t loopTransitionTotalFrames = 0u;
         bool active = false;
         bool hasLooped = false;
+        bool hasRenderedSample = false;
+    };
+
+    struct HeldNote {
+        uint64_t noteId = 0u;
+        uint64_t age = 0u;
+        uint8_t key = 60u;
+        uint8_t midiChannel = 0u;
+        float velocity = 1.0f;
+        bool active = false;
     };
 
     struct FilterCoefficients {
@@ -324,6 +425,12 @@ private:
         float secondWeight = 0.0f;
         float normalization = 1.0f;
         bool active = false;
+    };
+
+    struct LoopGeometry {
+        uint32_t start = 0u;
+        uint32_t end = 1u;
+        double crossfadeFrames = 0.0;
     };
 
     static bool isReverse(PlayMode mode) noexcept
@@ -365,20 +472,360 @@ private:
             0.0, static_cast<double>(frameCount)));
     }
 
+    static double tempoRatio(const PlayerSettings& settings) noexcept
+    {
+        return settings.syncMode == SyncMode::Host
+            ? std::clamp(settings.hostTempoBpm / settings.sourceTempoBpm,
+                0.01, 32.0)
+            : 1.0;
+    }
+
+    static double pitchRatioFor(uint8_t key, uint8_t rootNote,
+        const PlayerSettings& settings) noexcept
+    {
+        const float semitones = static_cast<float>(
+            static_cast<int>(key) - static_cast<int>(rootNote))
+            + settings.tuneSemitones + settings.fineTuneCents * 0.01f;
+        return std::pow(2.0, static_cast<double>(semitones) / 12.0);
+    }
+
+    void setPitchTarget(Voice& voice, double target,
+        uint32_t transitionFrames) const noexcept
+    {
+        voice.targetPitchRatio = target;
+        if (transitionFrames == 0u || !(voice.pitchRatio > 0.0)
+            || !(target > 0.0)) {
+            voice.pitchRatio = target;
+            voice.glideFramesRemaining = 0u;
+            voice.glideMultiplier = 1.0;
+            refreshVoiceRates(voice);
+            return;
+        }
+        voice.glideFramesRemaining = transitionFrames;
+        voice.glideMultiplier = std::pow(target / voice.pitchRatio,
+            1.0 / static_cast<double>(transitionFrames));
+    }
+
+    void updateLivePitchTarget(Voice& voice,
+        const PlayerSettings& settings) const noexcept
+    {
+        const double target = pitchRatioFor(
+            voice.key, voice.rootNote, settings);
+        if (std::abs(target - voice.targetPitchRatio)
+            <= std::max(1.0, target) * 1.0e-12) return;
+        const uint32_t smoothingFrames = voice.glideFramesRemaining != 0u
+            ? voice.glideFramesRemaining
+            : static_cast<uint32_t>(std::max(1.0,
+                std::round(sampleRate_ * kLivePitchSmoothingSeconds)));
+        setPitchTarget(voice, target, smoothingFrames);
+    }
+
+    LoopGeometry resolveLoopGeometry(const Voice& voice,
+        const PlayerSettings& settings) const noexcept
+    {
+        LoopGeometry geometry;
+        if (!voice.asset || voice.playEndFrame <= voice.playStartFrame)
+            return geometry;
+        const uint32_t frames = voice.asset->frameCount();
+        geometry.start = std::clamp(normalizedFrame(settings.loopStart,
+            frames), voice.playStartFrame, voice.playEndFrame - 1u);
+        geometry.end = std::clamp(normalizedFrame(settings.loopEnd, frames),
+            geometry.start + 1u, voice.playEndFrame);
+        if (geometry.end <= geometry.start) {
+            geometry.start = voice.playStartFrame;
+            geometry.end = voice.playEndFrame;
+        }
+        const double loopLength = static_cast<double>(
+            geometry.end - geometry.start);
+        if (!isPingPong(voice.playMode) && isLooping(voice.playMode)
+            && settings.loopCrossfade > 0.0 && loopLength >= 2.0) {
+            const double targetReadIncrement = voice.sourceRatio
+                * (voice.pitchMode == PitchMode::Rate
+                    ? voice.syncRatio * voice.targetPitchRatio
+                    : std::max(voice.targetPitchRatio, voice.syncRatio));
+            const double maximum = std::max(0.0,
+                (loopLength - targetReadIncrement) * 0.5);
+            if (maximum >= 1.0) {
+                const double pitchSafeMinimum = std::min(maximum,
+                    std::max(1.0, targetReadIncrement * 2.0));
+                geometry.crossfadeFrames = std::clamp(
+                    loopLength * settings.loopCrossfade,
+                    pitchSafeMinimum, maximum);
+            }
+        }
+        return geometry;
+    }
+
+    void updateLiveLoopGeometry(Voice& voice,
+        const PlayerSettings& settings) const noexcept
+    {
+        if (!isLooping(voice.playMode)) return;
+        const LoopGeometry geometry = resolveLoopGeometry(voice, settings);
+        if (geometry.start == voice.loopStartFrame
+            && geometry.end == voice.loopEndFrame
+            && std::abs(geometry.crossfadeFrames
+                - voice.loopCrossfadeFrames) <= 1.0e-9) return;
+        if (voice.hasRenderedSample) {
+            voice.loopTransitionFromSamples = voice.lastOutputSamples;
+            voice.loopTransitionTotalFrames = static_cast<uint32_t>(
+                std::max(16.0,
+                    std::round(sampleRate_ * kLiveLoopTransitionSeconds)));
+            voice.loopTransitionFramesRemaining
+                = voice.loopTransitionTotalFrames;
+        }
+        voice.loopStartFrame = geometry.start;
+        voice.loopEndFrame = geometry.end;
+        voice.loopCrossfadeFrames = geometry.crossfadeFrames;
+        if (!voice.hasLooped) return;
+        const double start = static_cast<double>(geometry.start);
+        const double end = static_cast<double>(geometry.end);
+        if (isPingPong(voice.playMode)) {
+            if (voice.position < start || voice.position >= end)
+                voice.position = reflectPosition(voice.position, start, end);
+        } else if (voice.position < start || voice.position >= end) {
+            voice.position = wrapPosition(voice.position, start, end);
+        }
+    }
+
+    uint32_t currentOutputLengthFrames(const Voice& voice) const noexcept
+    {
+        const double outputLength = std::ceil(static_cast<double>(
+            voice.playEndFrame - voice.playStartFrame)
+            / std::max(std::abs(voice.increment),
+                std::numeric_limits<double>::min()));
+        return static_cast<uint32_t>(std::clamp<double>(outputLength,
+            1.0, std::numeric_limits<uint32_t>::max()));
+    }
+
+    void updateLiveEnvelopeTargets(Voice& voice,
+        const PlayerSettings& settings) const noexcept
+    {
+        if (std::abs(settings.sustain - voice.targetSustainLevel)
+            > 1.0e-7f) {
+            voice.targetSustainLevel = settings.sustain;
+            voice.sustainFramesRemaining = static_cast<uint32_t>(
+                std::max(1.0, std::round(sampleRate_
+                    * kLiveSustainSmoothingSeconds)));
+            voice.sustainStep = (voice.targetSustainLevel
+                - voice.sustainLevel)
+                / static_cast<float>(voice.sustainFramesRemaining);
+        }
+        if (voice.envelopeStage != Voice::EnvelopeStage::Release) {
+            voice.envelopeReferenceFrames
+                = currentOutputLengthFrames(voice);
+            voice.releaseFrames = proportionalFrames(
+                settings.releaseProportion,
+                voice.envelopeReferenceFrames);
+        }
+    }
+
+    static void advanceLiveSustain(Voice& voice) noexcept
+    {
+        if (voice.sustainFramesRemaining == 0u) return;
+        --voice.sustainFramesRemaining;
+        if (voice.sustainFramesRemaining == 0u)
+            voice.sustainLevel = voice.targetSustainLevel;
+        else voice.sustainLevel += voice.sustainStep;
+    }
+
+    static void refreshVoiceRates(Voice& voice) noexcept
+    {
+        const double direction = voice.increment < 0.0 ? -1.0 : 1.0;
+        const double transportRatio = voice.sourceRatio * voice.syncRatio;
+        if (voice.pitchMode == PitchMode::Rate) {
+            voice.increment = direction * transportRatio * voice.pitchRatio;
+            voice.readIncrementMagnitude = std::abs(voice.increment);
+            voice.stretchPhaseStep = 0.0;
+        } else {
+            voice.increment = direction * transportRatio;
+            voice.readIncrementMagnitude = voice.sourceRatio
+                * std::max(voice.pitchRatio, voice.syncRatio);
+            voice.stretchPhaseStep = voice.stretchWindowOutputFrames > 0.0
+                ? std::abs(voice.pitchRatio - voice.syncRatio)
+                    / voice.stretchWindowOutputFrames
+                : 0.0;
+        }
+    }
+
+    static void advanceGlide(Voice& voice) noexcept
+    {
+        if (voice.glideFramesRemaining == 0u) return;
+        --voice.glideFramesRemaining;
+        if (voice.glideFramesRemaining == 0u)
+            voice.pitchRatio = voice.targetPitchRatio;
+        else voice.pitchRatio *= voice.glideMultiplier;
+        refreshVoiceRates(voice);
+    }
+
+    static bool eventMatchesVoice(const RenderEvent& event,
+        const Voice& voice) noexcept
+    {
+        if (event.noteId != 0u) return voice.noteId == event.noteId;
+        return voice.key == event.key
+            && (event.midiChannel == 0u
+                || voice.midiChannel == event.midiChannel);
+    }
+
+    static bool eventRetriggersVoice(const RenderEvent& event,
+        const Voice& voice) noexcept
+    {
+        return voice.key == event.key
+            && (event.midiChannel == 0u
+                || voice.midiChannel == event.midiChannel);
+    }
+
+    static bool eventMatchesHeldNote(const RenderEvent& event,
+        const HeldNote& note) noexcept
+    {
+        if (event.noteId != 0u) return note.noteId == event.noteId;
+        return note.key == event.key
+            && (event.midiChannel == 0u
+                || note.midiChannel == event.midiChannel);
+    }
+
+    void holdNote(const RenderEvent& event) noexcept
+    {
+        HeldNote* slot = nullptr;
+        for (auto& note : heldNotes_) {
+            if (!note.active) {
+                slot = &note;
+                break;
+            }
+        }
+        if (!slot) {
+            slot = &*std::min_element(heldNotes_.begin(), heldNotes_.end(),
+                [](const HeldNote& left, const HeldNote& right) {
+                    return left.age < right.age;
+                });
+        }
+        *slot = { event.noteId, ++heldNoteAgeCounter_, event.key,
+            event.midiChannel, event.velocity, true };
+    }
+
+    void releaseHeldNote(const RenderEvent& event) noexcept
+    {
+        for (auto& note : heldNotes_) {
+            if (note.active && eventMatchesHeldNote(event, note))
+                note.active = false;
+        }
+    }
+
+    const HeldNote* newestHeldNote() const noexcept
+    {
+        const HeldNote* newest = nullptr;
+        for (const auto& note : heldNotes_) {
+            if (note.active && (!newest || note.age > newest->age))
+                newest = &note;
+        }
+        return newest;
+    }
+
     void handleEvent(const RenderEvent& event,
         const PlayerSettings& settings) noexcept
     {
         switch (event.kind) {
         case EventKind::NoteOn:
-            startVoice(event, settings);
+            holdNote(event);
+            handleNoteOn(event, settings);
             break;
         case EventKind::NoteOff:
-            releaseMatching(event, false);
+            releaseHeldNote(event);
+            handleNoteOff(event, settings);
             break;
         case EventKind::Choke:
+            releaseHeldNote(event);
             releaseMatching(event, true);
             break;
         }
+    }
+
+    void handleNoteOn(const RenderEvent& event,
+        const PlayerSettings& settings) noexcept
+    {
+        bool matchingVoice = false;
+        bool toggledVoice = false;
+        for (auto& voice : voices_) {
+            if (!voice.active || !eventRetriggersVoice(event, voice))
+                continue;
+            matchingVoice = true;
+            if (settings.triggerMode == TriggerMode::Toggle
+                && voice.envelopeStage != Voice::EnvelopeStage::Release) {
+                beginRelease(voice, voice.releaseFrames);
+                toggledVoice = true;
+            }
+        }
+        if (settings.triggerMode == TriggerMode::Toggle && toggledVoice)
+            return;
+        if (matchingVoice
+            && settings.retriggerMode == RetriggerMode::Ignore) return;
+        if (matchingVoice
+            && settings.retriggerMode == RetriggerMode::Restart) {
+            for (auto& voice : voices_) {
+                if (voice.active && eventRetriggersVoice(event, voice))
+                    voice.active = false;
+            }
+        }
+
+        if (settings.voiceMode == VoiceMode::Legato) {
+            Voice* current = newestActiveVoice();
+            if (current
+                && current->envelopeStage != Voice::EnvelopeStage::Release
+                && !(matchingVoice
+                    && settings.retriggerMode == RetriggerMode::Restart)) {
+                for (auto& voice : voices_) {
+                    if (&voice != current) voice.active = false;
+                }
+                retargetVoice(*current, event, settings);
+                return;
+            }
+        }
+        if (settings.voiceMode != VoiceMode::Poly) {
+            for (auto& voice : voices_) voice.active = false;
+        }
+        startVoice(event, settings);
+    }
+
+    void handleNoteOff(const RenderEvent& event,
+        const PlayerSettings& settings) noexcept
+    {
+        if (settings.triggerMode == TriggerMode::OneShot
+            || settings.triggerMode == TriggerMode::Toggle) return;
+        Voice* current = nullptr;
+        for (auto& voice : voices_) {
+            if (voice.active && eventMatchesVoice(event, voice)
+                && (!current || voice.age > current->age)) current = &voice;
+        }
+        if (!current) return;
+        const bool shouldRelease = settings.triggerMode == TriggerMode::Gate
+            || (settings.triggerMode == TriggerMode::Auto
+                && isLooping(current->playMode));
+        if (!shouldRelease) return;
+
+        if (settings.voiceMode != VoiceMode::Poly) {
+            if (const HeldNote* fallback = newestHeldNote()) {
+                const RenderEvent fallbackEvent { event.frameOffset,
+                    EventKind::NoteOn, fallback->noteId, fallback->key,
+                    fallback->velocity, fallback->midiChannel };
+                if (settings.voiceMode == VoiceMode::Legato) {
+                    retargetVoice(*current, fallbackEvent, settings);
+                    return;
+                }
+                for (auto& voice : voices_) voice.active = false;
+                startVoice(fallbackEvent, settings);
+                return;
+            }
+        }
+        releaseMatching(event, false, settings.triggerMode);
+    }
+
+    Voice* newestActiveVoice() noexcept
+    {
+        Voice* newest = nullptr;
+        for (auto& voice : voices_) {
+            if (voice.active && (!newest || voice.age > newest->age))
+                newest = &voice;
+        }
+        return newest;
     }
 
     Voice* voiceToStart() noexcept
@@ -404,81 +851,47 @@ private:
             requestedLength, frames - start));
         if (end <= start) return;
 
-        uint32_t loopStart = std::clamp(normalizedFrame(settings.loopStart,
-            frames), start, end - 1u);
-        uint32_t loopEnd = std::clamp(normalizedFrame(settings.loopEnd,
-            frames), loopStart + 1u, end);
-        if (loopEnd <= loopStart) {
-            loopStart = start;
-            loopEnd = end;
-        }
-
         Voice& voice = *voiceToStart();
         voice = {};
         voice.asset = asset_;
         voice.noteId = event.noteId;
         voice.age = ++ageCounter_;
         voice.key = event.key;
+        voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
         voice.playMode = settings.playMode;
         voice.pitchMode = settings.pitchMode;
         voice.playStartFrame = start;
         voice.playEndFrame = end;
-        voice.loopStartFrame = loopStart;
-        voice.loopEndFrame = loopEnd;
         const bool reverse = isReverse(settings.playMode);
         voice.position = reverse ? static_cast<double>(end - 1u)
                                  : static_cast<double>(start);
-        const float semitones = static_cast<float>(
-            static_cast<int>(event.key) - static_cast<int>(settings.rootNote))
-            + settings.tuneSemitones + settings.fineTuneCents * 0.01f;
-        const double ratio = std::pow(2.0,
-            static_cast<double>(semitones) / 12.0);
         const double sourceRatio = asset_->sampleRate / sampleRate_;
-        voice.pitchRatio = ratio;
+        voice.sourceRatio = sourceRatio;
+        voice.syncRatio = tempoRatio(settings);
+        voice.pitchRatio = pitchRatioFor(
+            event.key, voice.rootNote, settings);
+        voice.targetPitchRatio = voice.pitchRatio;
         voice.increment = sourceRatio * (reverse ? -1.0 : 1.0);
-        voice.readIncrementMagnitude = sourceRatio * ratio;
-        if (settings.pitchMode == PitchMode::Rate)
-            voice.increment *= ratio;
-        else {
+        if (settings.pitchMode == PitchMode::Stretch) {
             constexpr double stretchWindowSeconds = 0.080;
             const double windowOutputFrames = std::max(8.0,
                 sampleRate_ * stretchWindowSeconds);
+            voice.stretchWindowOutputFrames = windowOutputFrames;
             voice.stretchWindowSourceFrames = windowOutputFrames
                 * sourceRatio;
-            voice.stretchPhaseStep = std::abs(ratio - 1.0)
-                / windowOutputFrames;
         }
-        const double loopLength = static_cast<double>(loopEnd - loopStart);
-        if (!isPingPong(settings.playMode)
-            && isLooping(settings.playMode)
-            && settings.loopCrossfade > 0.0 && loopLength >= 2.0) {
-            const double maximum = std::max(0.0,
-                    (loopLength - voice.readIncrementMagnitude) * 0.5);
-            if (maximum >= 1.0) {
-                const double pitchSafeMinimum = std::min(maximum,
-                    std::max(1.0,
-                        voice.readIncrementMagnitude * 2.0));
-                voice.loopCrossfadeFrames = std::clamp(
-                    loopLength * settings.loopCrossfade,
-                    pitchSafeMinimum, maximum);
-            }
-        }
+        refreshVoiceRates(voice);
+        const LoopGeometry loop = resolveLoopGeometry(voice, settings);
+        voice.loopStartFrame = loop.start;
+        voice.loopEndFrame = loop.end;
+        voice.loopCrossfadeFrames = loop.crossfadeFrames;
         const float velocity = std::clamp(1.0f
             + (std::clamp(event.velocity, 0.0f, 1.0f) - 1.0f)
                 * settings.velocitySensitivity, 0.0f, 1.0f);
-        voice.level = std::pow(10.0f, settings.gainDecibels * 0.05f)
-            * velocity;
-        voice.leftPan = std::sqrt(std::max(0.0f, 1.0f
-            - std::max(0.0f, settings.pan)));
-        voice.rightPan = std::sqrt(std::max(0.0f, 1.0f
-            + std::min(0.0f, settings.pan)));
-        const double outputLength = std::ceil(
-            static_cast<double>(end - start)
-                / std::max(std::abs(voice.increment),
-                    std::numeric_limits<double>::min()));
-        const auto boundedLength = static_cast<uint32_t>(std::clamp<double>(
-            outputLength, 1.0, std::numeric_limits<uint32_t>::max()));
+        voice.velocityLevel = velocity;
+        const uint32_t boundedLength = currentOutputLengthFrames(voice);
+        voice.envelopeReferenceFrames = boundedLength;
         voice.attackFrames = proportionalFrames(
             settings.attackProportion, boundedLength);
         voice.decayFrames = proportionalFrames(
@@ -486,6 +899,7 @@ private:
         voice.releaseFrames = proportionalFrames(
             settings.releaseProportion, boundedLength);
         voice.sustainLevel = settings.sustain;
+        voice.targetSustainLevel = settings.sustain;
         if (voice.attackFrames != 0u) {
             voice.envelopeStage = Voice::EnvelopeStage::Attack;
             voice.envelopeLevel = 0.0f;
@@ -496,21 +910,34 @@ private:
             voice.envelopeStage = Voice::EnvelopeStage::Sustain;
             voice.envelopeLevel = voice.sustainLevel;
         }
-        voice.active = voice.level > 0.0f;
+        voice.active = voice.velocityLevel > 0.0f;
     }
 
-    void releaseMatching(const RenderEvent& event, bool choke) noexcept
+    void retargetVoice(Voice& voice, const RenderEvent& event,
+        const PlayerSettings& settings) noexcept
+    {
+        voice.noteId = event.noteId;
+        voice.age = ++ageCounter_;
+        voice.key = event.key;
+        voice.rootNote = settings.rootNote;
+        voice.midiChannel = event.midiChannel;
+        const double target = pitchRatioFor(
+            event.key, voice.rootNote, settings);
+        const uint32_t glideFrames = static_cast<uint32_t>(
+            std::clamp(std::round(settings.glideSeconds * sampleRate_),
+                0.0, static_cast<double>(
+                    std::numeric_limits<uint32_t>::max())));
+        setPitchTarget(voice, target, glideFrames);
+    }
+
+    void releaseMatching(const RenderEvent& event, bool choke,
+        TriggerMode triggerMode = TriggerMode::Auto) noexcept
     {
         for (auto& voice : voices_) {
             if (!voice.active) continue;
-            const bool idMatches = event.noteId != 0u
-                && voice.noteId == event.noteId;
-            const bool keyMatches = event.noteId == 0u
-                && voice.key == event.key
-                && (event.midiChannel == 0u
-                    || voice.midiChannel == event.midiChannel);
-            if (!idMatches && !keyMatches) continue;
-            if (!choke && !isLooping(voice.playMode)) continue;
+            if (!eventMatchesVoice(event, voice)) continue;
+            if (!choke && triggerMode == TriggerMode::Auto
+                && !isLooping(voice.playMode)) continue;
             beginRelease(voice, choke ? 0u : voice.releaseFrames);
         }
     }
@@ -721,7 +1148,7 @@ private:
         if (secondPhase >= 1.0) secondPhase -= 1.0;
         const double direction = voice.increment < 0.0 ? -1.0 : 1.0;
         const auto readerPosition = [&](double phase) noexcept {
-            const double delay = voice.pitchRatio >= 1.0
+            const double delay = voice.pitchRatio >= voice.syncRatio
                 ? voice.stretchWindowSourceFrames * (1.0 - phase)
                 : voice.stretchWindowSourceFrames * phase;
             return resolveStretchPosition(voice,
@@ -852,6 +1279,30 @@ private:
         return 0.0f;
     }
 
+    void applyFinalOutput(const PlayerSettings& settings,
+        float* const* outputs, uint32_t outputChannelCount,
+        uint32_t frameCount) noexcept
+    {
+        const float gain = std::pow(10.0f,
+            settings.gainDecibels * 0.05f);
+        const float leftPan = outputChannelCount == 2u
+            ? std::sqrt(std::max(0.0f, 1.0f
+                - std::max(0.0f, settings.pan))) : 1.0f;
+        const float rightPan = outputChannelCount == 2u
+            ? std::sqrt(std::max(0.0f, 1.0f
+                + std::min(0.0f, settings.pan))) : 1.0f;
+        for (uint32_t channel = 0u; channel < outputChannelCount;
+             ++channel) {
+            const float channelGain = gain * (channel == 0u
+                    ? leftPan : channel == 1u ? rightPan : 1.0f);
+            for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+                outputs[channel][frame] *= channelGain;
+                outputPeak_ = std::max(outputPeak_,
+                    std::abs(outputs[channel][frame]));
+            }
+        }
+    }
+
     static float boundaryFade(const Voice& voice) noexcept
     {
         if (isLooping(voice.playMode)) return 1.0f;
@@ -890,8 +1341,10 @@ private:
 
     const SampleAsset* asset_ = nullptr;
     std::array<Voice, kMaximumVoices> voices_ {};
+    std::array<HeldNote, kMidiNoteCount> heldNotes_ {};
     double sampleRate_ = 48000.0;
     uint64_t ageCounter_ = 0u;
+    uint64_t heldNoteAgeCounter_ = 0u;
     uint32_t outputChannelCount_ = 2u;
     std::array<VoiceCursor, kMaximumVoices> voiceCursors_ {};
     uint32_t voiceCursorCount_ = 0u;

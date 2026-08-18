@@ -2494,7 +2494,7 @@ int main(int argc, char** argv)
                 pressure:1.0];
         };
         if (ok && samplePlayer && !documentationCapture) {
-            failureStage = "Sample Player play-mode/filter menu hover";
+            failureStage = "Sample Player menu hover";
             @try {
                 const NSPoint playModeMenu = NSMakePoint(200.0, 378.0);
                 const NSPoint reverseItem = NSMakePoint(200.0, 437.0);
@@ -2530,8 +2530,8 @@ int main(int argc, char** argv)
                         boolValue]
                     && [[document valueForKey:@"playModeMenuHover"]
                         intValue] == -1;
-                const NSPoint filterMenu = NSMakePoint(700.0, 378.0);
-                const NSPoint bandPassItem = NSMakePoint(700.0, 437.0);
+                const NSPoint filterMenu = NSMakePoint(700.0, 518.0);
+                const NSPoint bandPassItem = NSMakePoint(700.0, 577.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, filterMenu)];
@@ -2557,8 +2557,8 @@ int main(int argc, char** argv)
                         boolValue]
                     && [[document valueForKey:@"filterTypeMenuHover"]
                         intValue] == -1;
-                const NSPoint pitchModeMenu = NSMakePoint(200.0, 580.0);
-                const NSPoint stretchItem = NSMakePoint(200.0, 619.0);
+                const NSPoint pitchModeMenu = NSMakePoint(200.0, 683.0);
+                const NSPoint stretchItem = NSMakePoint(200.0, 722.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, pitchModeMenu)];
@@ -2584,6 +2584,98 @@ int main(int argc, char** argv)
                         boolValue]
                     && [[document valueForKey:@"pitchModeMenuHover"]
                         intValue] == -1;
+                const NSPoint triggerMenu = NSMakePoint(200.0, 404.0);
+                const NSPoint gateItem = NSMakePoint(200.0, 443.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, triggerMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, gateItem)];
+                    ok = [[document valueForKey:@"triggerModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"triggerModeMenuHover"]
+                            intValue] == 1;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, gateItem)];
+                }
+                double triggerMode = -1.0;
+                ok = ok && params->get_value(plugin, 24u, &triggerMode)
+                    && std::fabs(triggerMode - 1.0) < 0.000001;
+                const NSPoint retriggerMenu = NSMakePoint(200.0, 430.0);
+                const NSPoint ignoreItem = NSMakePoint(200.0, 489.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, retriggerMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, ignoreItem)];
+                    ok = [[document valueForKey:@"retriggerModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"retriggerModeMenuHover"]
+                            intValue] == 2;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, ignoreItem)];
+                }
+                double retriggerMode = -1.0;
+                ok = ok && params->get_value(plugin, 25u, &retriggerMode)
+                    && std::fabs(retriggerMode - 2.0) < 0.000001;
+                const NSPoint syncMenu = NSMakePoint(200.0, 456.0);
+                const NSPoint hostItem = NSMakePoint(200.0, 495.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, syncMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, hostItem)];
+                    ok = [[document valueForKey:@"syncModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"syncModeMenuHover"]
+                            intValue] == 1;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, hostItem)];
+                }
+                double syncMode = -1.0;
+                ok = ok && params->get_value(plugin, 22u, &syncMode)
+                    && std::fabs(syncMode - 1.0) < 0.000001;
+                const NSPoint voiceMenu = NSMakePoint(200.0, 709.0);
+                const NSPoint legatoItem = NSMakePoint(200.0, 768.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, voiceMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, legatoItem)];
+                    ok = [[document valueForKey:@"voiceModeMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"voiceModeMenuHover"]
+                            intValue] == 2;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, legatoItem)];
+                }
+                double voiceMode = -1.0;
+                ok = ok && params->get_value(plugin, 26u, &voiceMode)
+                    && std::fabs(voiceMode - 2.0) < 0.000001;
+                const NSPoint receiveMenu = NSMakePoint(700.0, 430.0);
+                const NSPoint channelTwoItem = NSMakePoint(700.0, 132.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, receiveMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, channelTwoItem)];
+                    ok = [[document valueForKey:@"midiReceiveMenuOpen"]
+                            boolValue]
+                        && [[document valueForKey:@"midiReceiveMenuHover"]
+                            intValue] == 2;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, channelTwoItem)];
+                }
+                double midiReceive = -1.0;
+                ok = ok && params->get_value(plugin, 28u, &midiReceive)
+                    && std::fabs(midiReceive - 2.0) < 0.000001;
+                if (ok) {
+                    const NSPoint killAll = NSMakePoint(915.0, 346.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, killAll)];
+                    ok = [[document valueForKey:@"killAllPending"]
+                        boolValue];
+                }
                 if (!ok) {
                     std::cerr << "Sample Player menu details: open="
                         << [[document valueForKey:@"playModeMenuOpen"]

@@ -22,10 +22,12 @@ namespace {
 constexpr uint32_t kStateMagic = 0x50533353u;
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kExpandedStateVersion = 3u;
-constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kPitchStateVersion = 4u;
+constexpr uint32_t kStateVersion = 5u;
 constexpr std::size_t kLegacyParamCount = 15u;
 constexpr std::size_t kExpandedParamCount = 20u;
-constexpr std::size_t kParamCount = 21u;
+constexpr std::size_t kPitchParamCount = 21u;
+constexpr std::size_t kParamCount = 28u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct LegacyFixtureState {
@@ -69,6 +71,21 @@ struct ExpandedFixtureState {
     clap_id outputConfigId = 3002u;
     uint32_t parameterCount = static_cast<uint32_t>(kExpandedParamCount);
     std::array<double, kExpandedParamCount> parameters {};
+    std::array<char, kPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct PitchFixtureState {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kPitchStateVersion;
+    clap_id outputConfigId = 3002u;
+    uint32_t parameterCount = static_cast<uint32_t>(kPitchParamCount);
+    std::array<double, kPitchParamCount> parameters {};
     std::array<char, kPathBytes> path {};
     uint8_t embedded = 0u;
     uint8_t channelCount = 0u;
@@ -133,6 +150,31 @@ struct NoteEvents {
         input.get = [](const clap_input_events_t* list, uint32_t index)
             -> const clap_event_header_t* {
             const auto* self = static_cast<const NoteEvents*>(list->ctx);
+            return index == 0u ? &self->event.header : nullptr;
+        };
+    }
+};
+
+struct ParamEvents {
+    clap_event_param_value_t event {};
+    clap_input_events_t input {};
+
+    ParamEvents(clap_id id, double value)
+    {
+        event.header.size = sizeof(event);
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.param_id = id;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = value;
+        input.ctx = this;
+        input.size = [](const clap_input_events_t*) { return 1u; };
+        input.get = [](const clap_input_events_t* list, uint32_t index)
+            -> const clap_event_header_t* {
+            const auto* self = static_cast<const ParamEvents*>(list->ctx);
             return index == 0u ? &self->event.header : nullptr;
         };
     }
@@ -224,16 +266,25 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     clap_param_info_t filterTypeInfo {};
     clap_param_info_t cutoffInfo {};
     clap_param_info_t pitchModeInfo {};
+    clap_param_info_t syncModeInfo {};
+    clap_param_info_t sourceTempoInfo {};
+    clap_param_info_t triggerModeInfo {};
+    clap_param_info_t retriggerModeInfo {};
+    clap_param_info_t voiceModeInfo {};
+    clap_param_info_t glideInfo {};
+    clap_param_info_t midiReceiveInfo {};
     char envelopeText[32] {};
     char modeText[32] {};
     char filterText[32] {};
     char cutoffText[32] {};
     char pitchModeText[32] {};
+    char midiReceiveText[32] {};
     double envelopeValue = -1.0;
     double modeValue = -1.0;
     double filterValue = -1.0;
     double cutoffValue = -1.0;
     double pitchModeValue = -1.0;
+    double midiReceiveValue = -1.0;
     const auto findParam = [&](clap_id id, clap_param_info_t& found) {
         if (!params) return false;
         for (uint32_t index = 0u; index < params->count(plugin); ++index) {
@@ -257,6 +308,13 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && findParam(17u, filterTypeInfo)
             && findParam(18u, cutoffInfo)
             && findParam(21u, pitchModeInfo)
+            && findParam(22u, syncModeInfo)
+            && findParam(23u, sourceTempoInfo)
+            && findParam(24u, triggerModeInfo)
+            && findParam(25u, retriggerModeInfo)
+            && findParam(26u, voiceModeInfo)
+            && findParam(27u, glideInfo)
+            && findParam(28u, midiReceiveInfo)
             && (channels == 2u
                 ? exposesPan && params->get_value(plugin, 14u, &panValue)
                 : !exposesPan && !params->get_value(
@@ -283,6 +341,21 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && pitchModeInfo.id == 21u
             && pitchModeInfo.max_value == 1.0
             && pitchModeInfo.default_value == 0.0
+            && syncModeInfo.max_value == 1.0
+            && syncModeInfo.default_value == 0.0
+            && sourceTempoInfo.min_value == 20.0
+            && sourceTempoInfo.max_value == 999.0
+            && sourceTempoInfo.default_value == 120.0
+            && triggerModeInfo.max_value == 3.0
+            && triggerModeInfo.default_value == 0.0
+            && retriggerModeInfo.max_value == 2.0
+            && retriggerModeInfo.default_value == 0.0
+            && voiceModeInfo.max_value == 2.0
+            && voiceModeInfo.default_value == 0.0
+            && glideInfo.max_value == 2000.0
+            && glideInfo.default_value == 0.0
+            && midiReceiveInfo.max_value == 16.0
+            && midiReceiveInfo.default_value == 0.0
             && params->value_to_text(plugin, playModeInfo.id, 4.0,
                 modeText, sizeof(modeText))
             && std::strcmp(modeText, "Forward Ping-Pong") == 0
@@ -306,8 +379,14 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && std::strcmp(pitchModeText, "Stretch") == 0
             && params->text_to_value(plugin, pitchModeInfo.id, "Rate",
                 &pitchModeValue)
-            && std::fabs(pitchModeValue) < 1.0e-9,
-        "expanded loop, ADSR, filter, or pitch-mode contract is invalid");
+            && std::fabs(pitchModeValue) < 1.0e-9
+            && params->value_to_text(plugin, midiReceiveInfo.id, 16.0,
+                midiReceiveText, sizeof(midiReceiveText))
+            && std::strcmp(midiReceiveText, "Channel 16") == 0
+            && params->text_to_value(plugin, midiReceiveInfo.id, "Omni",
+                &midiReceiveValue)
+            && std::fabs(midiReceiveValue) < 1.0e-9,
+        "expanded playback, voice, sync, MIDI, or pitch contract is invalid");
 
     ExpandedFixtureState expandedFixture;
     expandedFixture.outputConfigId = configId;
@@ -328,8 +407,42 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             sizeof(expandedMigrated));
     ok &= expect(expandedMigrated.version == kStateVersion
             && expandedMigrated.parameterCount == kParamCount
-            && expandedMigrated.parameters[20u] == 0.0,
-        "version 3 state did not default to Rate pitch mode");
+            && expandedMigrated.parameters[20u] == 0.0
+            && expandedMigrated.parameters[21u] == 0.0
+            && expandedMigrated.parameters[22u] == 120.0
+            && expandedMigrated.parameters[23u] == 0.0
+            && expandedMigrated.parameters[24u] == 0.0
+            && expandedMigrated.parameters[25u] == 0.0
+            && expandedMigrated.parameters[26u] == 0.0
+            && expandedMigrated.parameters[27u] == 0.0,
+        "version 3 state did not receive compatibility playback defaults");
+
+    PitchFixtureState pitchFixture;
+    pitchFixture.outputConfigId = configId;
+    StateBuffer pitchState;
+    const auto* pitchBytes = reinterpret_cast<const uint8_t*>(&pitchFixture);
+    pitchState.bytes.insert(pitchState.bytes.end(), pitchBytes,
+        pitchBytes + sizeof(pitchFixture));
+    ok &= expect(state && state->load(plugin, &pitchState.input),
+        "version 4 state failed to migrate");
+    StateBuffer pitchRoundTrip;
+    CurrentFixtureState pitchMigrated {};
+    ok &= expect(state && state->save(plugin, &pitchRoundTrip.output)
+            && pitchRoundTrip.bytes.size() >= sizeof(pitchMigrated),
+        "version 4 state failed to save after migration");
+    if (pitchRoundTrip.bytes.size() >= sizeof(pitchMigrated))
+        std::memcpy(&pitchMigrated, pitchRoundTrip.bytes.data(),
+            sizeof(pitchMigrated));
+    ok &= expect(pitchMigrated.version == kStateVersion
+            && pitchMigrated.parameterCount == kParamCount
+            && pitchMigrated.parameters[21u] == 0.0
+            && pitchMigrated.parameters[22u] == 120.0
+            && pitchMigrated.parameters[23u] == 0.0
+            && pitchMigrated.parameters[24u] == 0.0
+            && pitchMigrated.parameters[25u] == 0.0
+            && pitchMigrated.parameters[26u] == 0.0
+            && pitchMigrated.parameters[27u] == 0.0,
+        "version 4 state did not preserve legacy-default playback behavior");
 
     StateBuffer fixture;
     fillEmbeddedFixture(fixture, channels, configId);
@@ -357,8 +470,15 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && migrated.parameters[17u] == 20000.0
             && migrated.parameters[18u] == 0.0
             && migrated.parameters[19u] == 0.0
-            && migrated.parameters[20u] == 0.0,
-        "legacy state did not preserve wraps while migrating ADSR/filter/pitch defaults");
+            && migrated.parameters[20u] == 0.0
+            && migrated.parameters[21u] == 0.0
+            && migrated.parameters[22u] == 120.0
+            && migrated.parameters[23u] == 0.0
+            && migrated.parameters[24u] == 0.0
+            && migrated.parameters[25u] == 0.0
+            && migrated.parameters[26u] == 0.0
+            && migrated.parameters[27u] == 0.0,
+        "legacy state did not preserve wraps and playback defaults");
     ok &= expect(plugin->activate(plugin, 48000.0, 8u, 16u)
             && plugin->start_processing(plugin),
         "activation failed");
@@ -376,6 +496,21 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     process.in_events = &note.input;
     process.audio_outputs = &output;
     process.audio_outputs_count = 1u;
+    ParamEvents channelTwoOnly(28u, 2.0);
+    params->flush(plugin, &channelTwoOnly.input, nullptr);
+    ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+        "MIDI-filtered process call failed");
+    bool filtered = true;
+    for (const auto& channel : rendered) {
+        for (float sample : channel) filtered = filtered && sample == 0.0f;
+    }
+    ok &= expect(filtered,
+        "MIDI Receive did not reject a note from another channel");
+    plugin->reset(plugin);
+    ParamEvents omni(28u, 0.0);
+    params->flush(plugin, &omni.input, nullptr);
+    ParamEvents forwardLoop(1u, 1.0);
+    params->flush(plugin, &forwardLoop.input, nullptr);
     ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
         "process call failed");
     bool locked = rendered[0u][0u] == 0.0f;
@@ -385,6 +520,65 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     }
     ok &= expect(locked,
         "embedded audio did not render sample-accurately by lane");
+
+    ParamEvents quarterOutput(13u, -12.041199826559248);
+    params->flush(plugin, &quarterOutput.input, nullptr);
+    ParamEvents hardLeft(14u, -1.0);
+    if (channels == 2u) params->flush(plugin, &hardLeft.input, nullptr);
+    process.in_events = nullptr;
+    ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+        "post-mix output process call failed");
+    bool postOutput = true;
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        const float expected = channels == 2u && channel == 1u
+            ? 0.0f : static_cast<float>(channel + 1u) * 0.025f;
+        postOutput = postOutput
+            && std::abs(rendered[channel][0u] - expected) < 1.0e-6f;
+    }
+    if (!postOutput) {
+        std::fprintf(stderr, "post-mix values:");
+        for (uint32_t channel = 0u; channel < channels; ++channel)
+            std::fprintf(stderr, " %.7f", rendered[channel][0u]);
+        std::fprintf(stderr, "\n");
+    }
+    ok &= expect(postOutput,
+        "Out or stereo Pan did not affect an already-sounding voice");
+
+    ParamEvents unityOutput(13u, 0.0);
+    params->flush(plugin, &unityOutput.input, nullptr);
+    ParamEvents centerPan(14u, 0.0);
+    if (channels == 2u) params->flush(plugin, &centerPan.input, nullptr);
+    ParamEvents halfSustain(11u, 0.5);
+    params->flush(plugin, &halfSustain.input, nullptr);
+    for (uint32_t block = 0u; block < 31u; ++block) {
+        ok &= expect(plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE,
+            "live Sustain process call failed");
+    }
+    bool liveSustain = true;
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        const float expected = static_cast<float>(channel + 1u) * 0.05f;
+        liveSustain = liveSustain
+            && std::abs(rendered[channel][0u] - expected) < 1.0e-5f;
+    }
+    ok &= expect(liveSustain,
+        "Sustain did not update an already-sounding voice");
+
+    ParamEvents shortRelease(12u, 0.1);
+    params->flush(plugin, &shortRelease.input, nullptr);
+    note.event.header.type = CLAP_EVENT_NOTE_OFF;
+    note.event.header.time = 0u;
+    note.event.velocity = 0.0;
+    process.in_events = &note.input;
+    ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+        "live Release process call failed");
+    bool liveRelease = true;
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        liveRelease = liveRelease && rendered[channel][0u] > 0.0f
+            && rendered[channel][15u] == 0.0f;
+    }
+    ok &= expect(liveRelease,
+        "Release did not update a held voice before note-off");
     plugin->stop_processing(plugin);
     plugin->deactivate(plugin);
     plugin->destroy(plugin);

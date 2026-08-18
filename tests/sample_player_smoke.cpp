@@ -407,6 +407,209 @@ void testOneShotTailReleaseIgnoresNoteOff()
         "one-shot note-off or end-aligned proportional release failed");
 }
 
+void testTempoSyncRateAndStretch()
+{
+    auto asset = rampAsset(1u, 200u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "tempo-sync fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.releaseProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.syncMode = SyncMode::Host;
+    settings.sourceTempoBpm = 120.0;
+    settings.hostTempoBpm = 240.0;
+    const RenderEvent note { 0u, EventKind::NoteOn, 20u, 60u, 1.0f, 1u };
+    std::array<float, 4u> rateLeft {};
+    std::array<float, 4u> rateRight {};
+    float* rateOutputs[] { rateLeft.data(), rateRight.data() };
+    engine.render(settings, &note, 1u, rateOutputs, 2u, 4u);
+    check(near(rateLeft[0u], 0.1f) && near(rateLeft[1u], 0.102f)
+            && near(rateLeft[3u], 0.106f),
+        "Rate host sync did not scale playback speed and pitch together");
+
+    engine.reset();
+    settings.pitchMode = PitchMode::Stretch;
+    std::array<float, 4u> stretchLeft {};
+    std::array<float, 4u> stretchRight {};
+    float* stretchOutputs[] { stretchLeft.data(), stretchRight.data() };
+    engine.render(settings, &note, 1u, stretchOutputs, 2u, 4u);
+    const auto& cursor = engine.voiceCursors()[0u];
+    check(engine.voiceCursorCount() == 1u
+            && near(cursor.sourcePositionNormalized, 0.03f, 0.002f),
+        "Stretch host sync did not change transport duration independently");
+
+    engine.reset();
+    settings.syncMode = SyncMode::Free;
+    std::array<float, 4u> freeLeft {};
+    std::array<float, 4u> freeRight {};
+    float* freeOutputs[] { freeLeft.data(), freeRight.data() };
+    engine.render(settings, &note, 1u, freeOutputs, 2u, 4u);
+    check(engine.voiceCursorCount() == 1u
+            && near(engine.voiceCursors()[0u].sourcePositionNormalized,
+                0.015f, 0.002f),
+        "Free sync default did not preserve the original transport speed");
+
+    SampleAsset tone;
+    tone.sampleRate = 48000.0;
+    tone.channelCount = 1u;
+    tone.channels[0u].resize(24000u);
+    constexpr double pi = 3.1415926535897932384626433832795;
+    for (uint32_t frame = 0u; frame < tone.frameCount(); ++frame) {
+        tone.channels[0u][frame] = static_cast<float>(std::sin(
+            2.0 * pi * 220.0 * static_cast<double>(frame) / 48000.0));
+    }
+    engine.reset();
+    check(engine.setAsset(&tone), "tempo-sync tone did not load");
+    settings.syncMode = SyncMode::Host;
+    settings.pitchMode = PitchMode::Stretch;
+    std::array<float, 5000u> toneLeft {};
+    std::array<float, 5000u> toneRight {};
+    float* toneOutputs[] { toneLeft.data(), toneRight.data() };
+    engine.render(settings, &note, 1u, toneOutputs, 2u,
+        static_cast<uint32_t>(toneLeft.size()));
+    uint32_t crossings = 0u;
+    for (std::size_t frame = 2001u; frame < toneLeft.size(); ++frame) {
+        if (toneLeft[frame - 1u] <= 0.0f && toneLeft[frame] > 0.0f)
+            ++crossings;
+    }
+    const double measuredHz = static_cast<double>(crossings) * 48000.0
+        / static_cast<double>(toneLeft.size() - 2001u);
+    check(measuredHz > 190.0 && measuredHz < 250.0,
+        "Stretch host sync changed pitch while changing duration");
+}
+
+void testTriggerAndRetriggerModes()
+{
+    auto asset = rampAsset(1u, 200u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "trigger fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.releaseProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.triggerMode = TriggerMode::Gate;
+    const std::array<RenderEvent, 2u> gated {{
+        { 0u, EventKind::NoteOn, 21u, 60u, 1.0f, 1u },
+        { 4u, EventKind::NoteOff, 21u, 60u, 0.0f, 1u },
+    }};
+    std::array<float, 8u> gateLeft {};
+    std::array<float, 8u> gateRight {};
+    float* gateOutputs[] { gateLeft.data(), gateRight.data() };
+    engine.render(settings, gated.data(), gated.size(), gateOutputs, 2u, 8u);
+    check(gateLeft[3u] > 0.0f && gateLeft[4u] == 0.0f
+            && engine.activeVoiceCount() == 0u,
+        "Gate trigger did not stop a non-looping voice on note-off");
+
+    const std::array<RenderEvent, 2u> repeated {{
+        { 0u, EventKind::NoteOn, 22u, 60u, 1.0f, 1u },
+        { 4u, EventKind::NoteOn, 23u, 60u, 1.0f, 1u },
+    }};
+    engine.reset();
+    settings.triggerMode = TriggerMode::Auto;
+    settings.retriggerMode = RetriggerMode::Layer;
+    std::array<float, 8u> layerLeft {};
+    std::array<float, 8u> layerRight {};
+    float* layerOutputs[] { layerLeft.data(), layerRight.data() };
+    engine.render(settings, repeated.data(), repeated.size(), layerOutputs,
+        2u, 8u);
+    check(engine.activeVoiceCount() == 2u,
+        "Layer retrigger default did not preserve polyphonic repeats");
+
+    engine.reset();
+    settings.retriggerMode = RetriggerMode::Restart;
+    std::array<float, 8u> restartLeft {};
+    std::array<float, 8u> restartRight {};
+    float* restartOutputs[] { restartLeft.data(), restartRight.data() };
+    engine.render(settings, repeated.data(), repeated.size(), restartOutputs,
+        2u, 8u);
+    check(engine.activeVoiceCount() == 1u
+            && near(engine.voiceCursors()[0u].sourcePositionNormalized,
+                0.015f, 0.002f),
+        "Restart retrigger did not replace the matching-key voice");
+
+    engine.reset();
+    settings.retriggerMode = RetriggerMode::Ignore;
+    std::array<float, 8u> ignoreLeft {};
+    std::array<float, 8u> ignoreRight {};
+    float* ignoreOutputs[] { ignoreLeft.data(), ignoreRight.data() };
+    engine.render(settings, repeated.data(), repeated.size(), ignoreOutputs,
+        2u, 8u);
+    check(engine.activeVoiceCount() == 1u
+            && near(engine.voiceCursors()[0u].sourcePositionNormalized,
+                0.035f, 0.002f),
+        "Ignore retrigger interrupted the existing matching-key voice");
+
+    engine.reset();
+    settings.retriggerMode = RetriggerMode::Layer;
+    settings.triggerMode = TriggerMode::Toggle;
+    std::array<float, 8u> toggleLeft {};
+    std::array<float, 8u> toggleRight {};
+    float* toggleOutputs[] { toggleLeft.data(), toggleRight.data() };
+    engine.render(settings, repeated.data(), repeated.size(), toggleOutputs,
+        2u, 8u);
+    check(toggleLeft[3u] > 0.0f && toggleLeft[4u] == 0.0f
+            && engine.activeVoiceCount() == 0u,
+        "Toggle trigger did not stop the matching-key voice");
+}
+
+void testMonoLegatoAndGlide()
+{
+    auto asset = rampAsset(1u, 1000u);
+    asset.sampleRate = 1000.0;
+    const std::array<RenderEvent, 2u> notes {{
+        { 0u, EventKind::NoteOn, 24u, 60u, 1.0f, 1u },
+        { 10u, EventKind::NoteOn, 25u, 72u, 1.0f, 1u },
+    }};
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.releaseProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.voiceMode = VoiceMode::Mono;
+    SamplePlayerEngine mono;
+    check(mono.prepare(1000.0, 2u) && mono.setAsset(&asset),
+        "mono/legato fixture did not prepare");
+    std::array<float, 20u> monoLeft {};
+    std::array<float, 20u> monoRight {};
+    float* monoOutputs[] { monoLeft.data(), monoRight.data() };
+    mono.render(settings, notes.data(), notes.size(), monoOutputs, 2u, 20u);
+    check(mono.activeVoiceCount() == 1u
+            && mono.voiceCursors()[0u].key == 72u
+            && mono.voiceCursors()[0u].sourcePositionNormalized < 0.020f,
+        "Mono mode did not restart as a single voice");
+
+    settings.voiceMode = VoiceMode::Legato;
+    settings.glideSeconds = 0.010;
+    SamplePlayerEngine glide;
+    check(glide.prepare(1000.0, 2u) && glide.setAsset(&asset),
+        "legato glide fixture did not prepare");
+    std::array<float, 20u> glideLeft {};
+    std::array<float, 20u> glideRight {};
+    float* glideOutputs[] { glideLeft.data(), glideRight.data() };
+    glide.render(settings, notes.data(), notes.size(), glideOutputs, 2u, 20u);
+    const float glidedPosition = glide.voiceCursors()[0u]
+        .sourcePositionNormalized;
+
+    settings.glideSeconds = 0.0;
+    SamplePlayerEngine instant;
+    check(instant.prepare(1000.0, 2u) && instant.setAsset(&asset),
+        "instant legato fixture did not prepare");
+    std::array<float, 20u> instantLeft {};
+    std::array<float, 20u> instantRight {};
+    float* instantOutputs[] { instantLeft.data(), instantRight.data() };
+    instant.render(settings, notes.data(), notes.size(), instantOutputs, 2u,
+        20u);
+    const float instantPosition = instant.voiceCursors()[0u]
+        .sourcePositionNormalized;
+    check(glide.activeVoiceCount() == 1u
+            && glide.voiceCursors()[0u].key == 72u
+            && glidedPosition > 0.020f
+            && instantPosition > glidedPosition + 0.002f,
+        "Legato did not preserve the playhead or apply Glide");
+}
+
 void testSixteenChannelLock()
 {
     auto asset = rampAsset(16u, 64u);
@@ -458,6 +661,254 @@ void testSixteenChannelLock()
         "16-channel playback applied stereo Pan or filled an unused lane");
 }
 
+void testPostMixOutputGainAndPan()
+{
+    SampleAsset asset;
+    asset.sampleRate = 48000.0;
+    asset.channelCount = 1u;
+    asset.channels[0u].assign(64u, 0.5f);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "post-mix output fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.playMode = PlayMode::ForwardLoop;
+    settings.loopCrossfade = 0.0;
+    settings.gainDecibels = 0.0f;
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 14u, 60u, 1.0f, 1u,
+    };
+    std::array<float, 4u> left {};
+    std::array<float, 4u> right {};
+    float* outputs[] { left.data(), right.data() };
+    engine.render(settings, &note, 1u, outputs, 2u, 4u);
+    const bool centered = near(left[0u], 0.5f)
+        && near(right[0u], 0.5f);
+
+    settings.gainDecibels = -6.020599913f;
+    settings.pan = -1.0f;
+    engine.render(settings, nullptr, 0u, outputs, 2u, 4u);
+    const bool liveLeft = engine.activeVoiceCount() == 1u
+        && near(left[0u], 0.25f, 1.0e-4f) && right[0u] == 0.0f;
+
+    settings.gainDecibels = 0.0f;
+    settings.pan = 1.0f;
+    engine.render(settings, nullptr, 0u, outputs, 2u, 4u);
+    const bool liveRight = engine.activeVoiceCount() == 1u
+        && left[0u] == 0.0f && near(right[0u], 0.5f);
+    check(centered && liveLeft && liveRight,
+        "Out or stereo Pan remained captured by the initial note");
+}
+
+void testLiveTuneAndFine()
+{
+    auto asset = rampAsset(1u, 5000u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "live Tune/Fine fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.playMode = PlayMode::ForwardLoop;
+    settings.loopCrossfade = 0.0;
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 15u, 60u, 1.0f, 1u,
+    };
+    std::array<float, 4u> initialLeft {};
+    std::array<float, 4u> initialRight {};
+    float* initialOutputs[] { initialLeft.data(), initialRight.data() };
+    engine.render(settings, &note, 1u, initialOutputs, 2u, 4u);
+
+    settings.tuneSemitones = 12.0f;
+    settings.fineTuneCents = 100.0f;
+    settings.rootNote = 72u;
+    std::array<float, 3u> transitionLeft {};
+    std::array<float, 3u> transitionRight {};
+    float* transitionOutputs[] {
+        transitionLeft.data(), transitionRight.data(),
+    };
+    engine.render(settings, nullptr, 0u, transitionOutputs, 2u, 3u);
+    const float transitionStep = transitionLeft[2u]
+        - transitionLeft[1u];
+
+    std::array<float, 600u> settlingLeft {};
+    std::array<float, 600u> settlingRight {};
+    float* settlingOutputs[] {
+        settlingLeft.data(), settlingRight.data(),
+    };
+    engine.render(settings, nullptr, 0u, settlingOutputs, 2u, 600u);
+    std::array<float, 3u> steadyLeft {};
+    std::array<float, 3u> steadyRight {};
+    float* steadyOutputs[] { steadyLeft.data(), steadyRight.data() };
+    engine.render(settings, nullptr, 0u, steadyOutputs, 2u, 3u);
+    const float steadyStep = steadyLeft[1u] - steadyLeft[0u];
+    const float expectedStep = static_cast<float>(
+        0.001 * std::pow(2.0, 13.0 / 12.0));
+    check(engine.activeVoiceCount() == 1u
+            && transitionStep > 0.001f
+            && transitionStep < expectedStep
+            && near(steadyStep, expectedStep, 2.0e-5f),
+        "Tune/Fine did not smoothly retarget an active voice");
+}
+
+void testLiveSustainAndRelease()
+{
+    SampleAsset asset;
+    asset.sampleRate = 1000.0;
+    asset.channelCount = 1u;
+    asset.channels[0u].assign(1000u, 0.8f);
+    SamplePlayerEngine engine;
+    check(engine.prepare(1000.0, 2u) && engine.setAsset(&asset),
+        "live Sustain/Release fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.releaseProportion = 0.0f;
+    settings.sustain = 1.0f;
+    settings.gainDecibels = 0.0f;
+    settings.playMode = PlayMode::ForwardLoop;
+    settings.triggerMode = TriggerMode::Gate;
+    settings.loopCrossfade = 0.0;
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 16u, 60u, 1.0f, 1u,
+    };
+    std::array<float, 20u> initialLeft {};
+    std::array<float, 20u> initialRight {};
+    float* initialOutputs[] { initialLeft.data(), initialRight.data() };
+    engine.render(settings, &note, 1u, initialOutputs, 2u, 20u);
+
+    settings.sustain = 0.25f;
+    settings.releaseProportion = 0.10f;
+    std::array<float, 20u> sustainLeft {};
+    std::array<float, 20u> sustainRight {};
+    float* sustainOutputs[] { sustainLeft.data(), sustainRight.data() };
+    engine.render(settings, nullptr, 0u, sustainOutputs, 2u, 20u);
+    const bool sustainUpdated = sustainLeft[0u] > sustainLeft[19u]
+        && near(sustainLeft[19u], 0.2f, 1.0e-4f);
+
+    const RenderEvent noteOff {
+        0u, EventKind::NoteOff, 16u, 60u, 0.0f, 1u,
+    };
+    std::array<float, 50u> releaseLeft {};
+    std::array<float, 50u> releaseRight {};
+    float* releaseOutputs[] { releaseLeft.data(), releaseRight.data() };
+    engine.render(settings, &noteOff, 1u, releaseOutputs, 2u, 50u);
+    const bool releaseUpdated = engine.activeVoiceCount() == 1u
+        && releaseLeft[0u] > releaseLeft[49u]
+        && releaseLeft[49u] > 0.0f;
+    std::array<float, 60u> tailLeft {};
+    std::array<float, 60u> tailRight {};
+    float* tailOutputs[] { tailLeft.data(), tailRight.data() };
+    engine.render(settings, nullptr, 0u, tailOutputs, 2u, 60u);
+    check(sustainUpdated && releaseUpdated
+            && engine.activeVoiceCount() == 0u,
+        "Sustain/Release did not update a held voice before note-off");
+}
+
+void testLiveLoopEditing()
+{
+    auto asset = rampAsset(1u, 100u);
+    asset.sampleRate = 1000.0;
+    SamplePlayerEngine engine;
+    check(engine.prepare(1000.0, 2u) && engine.setAsset(&asset),
+        "live loop editing fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    settings.playMode = PlayMode::ForwardLoop;
+    settings.loopStart = 0.20;
+    settings.loopEnd = 0.40;
+    settings.loopCrossfade = 0.0;
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 17u, 60u, 1.0f, 1u,
+    };
+    std::array<float, 45u> initialLeft {};
+    std::array<float, 45u> initialRight {};
+    float* initialOutputs[] { initialLeft.data(), initialRight.data() };
+    engine.render(settings, &note, 1u, initialOutputs, 2u, 45u);
+
+    settings.loopStart = 0.60;
+    settings.loopEnd = 0.80;
+    std::array<float, 1u> movedLeft {};
+    std::array<float, 1u> movedRight {};
+    float* movedOutputs[] { movedLeft.data(), movedRight.data() };
+    engine.render(settings, nullptr, 0u, movedOutputs, 2u, 1u);
+    const bool pointsMovedSafely = engine.voiceCursorCount() == 1u
+        && near(engine.voiceCursors()[0u].sourcePositionNormalized, 0.65f)
+        && near(movedLeft[0u], initialLeft[44u]);
+
+    std::array<float, 40u> settledLeft {};
+    std::array<float, 40u> settledRight {};
+    float* settledOutputs[] { settledLeft.data(), settledRight.data() };
+    engine.render(settings, nullptr, 0u, settledOutputs, 2u, 40u);
+    settings.loopCrossfade = 0.50;
+    std::array<float, 40u> crossfadedLeft {};
+    std::array<float, 40u> crossfadedRight {};
+    float* crossfadedOutputs[] {
+        crossfadedLeft.data(), crossfadedRight.data(),
+    };
+    engine.render(settings, nullptr, 0u, crossfadedOutputs, 2u, 40u);
+    const float settledMinimum = *std::min_element(
+        crossfadedLeft.begin() + 16u, crossfadedLeft.end());
+    const bool crossfadeMovedSafely
+        = near(crossfadedLeft[0u], settledLeft[39u])
+        && settledMinimum > 0.168f;
+    check(pointsMovedSafely && crossfadeMovedSafely
+            && engine.activeVoiceCount() == 1u,
+        "active loop points/crossfade did not transition click-safely");
+}
+
+void testKillAllPlayback()
+{
+    auto asset = rampAsset(1u, 512u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 2u) && engine.setAsset(&asset),
+        "kill-all fixture did not prepare");
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.playMode = PlayMode::ForwardLoop;
+    settings.loopStart = 0.10;
+    settings.loopEnd = 0.20;
+    settings.gainDecibels = 0.0f;
+    const RenderEvent firstNote {
+        0u, EventKind::NoteOn, 18u, 60u, 1.0f, 1u,
+    };
+    std::array<float, 64u> playingLeft {};
+    std::array<float, 64u> playingRight {};
+    float* playingOutputs[] { playingLeft.data(), playingRight.data() };
+    engine.render(settings, &firstNote, 1u, playingOutputs, 2u,
+        static_cast<uint32_t>(playingLeft.size()));
+    const bool wasPlaying = engine.activeVoiceCount() == 1u
+        && engine.voiceCursorCount() == 1u && playingLeft.back() != 0.0f;
+
+    engine.killAll();
+    std::array<float, 32u> silentLeft {};
+    std::array<float, 32u> silentRight {};
+    silentLeft.fill(1.0f);
+    silentRight.fill(1.0f);
+    float* silentOutputs[] { silentLeft.data(), silentRight.data() };
+    engine.render(settings, nullptr, 0u, silentOutputs, 2u,
+        static_cast<uint32_t>(silentLeft.size()));
+    bool silent = engine.activeVoiceCount() == 0u
+        && engine.voiceCursorCount() == 0u;
+    for (std::size_t frame = 0u; frame < silentLeft.size(); ++frame)
+        silent = silent && silentLeft[frame] == 0.0f
+            && silentRight[frame] == 0.0f;
+
+    const RenderEvent secondNote {
+        0u, EventKind::NoteOn, 19u, 67u, 1.0f, 1u,
+    };
+    std::array<float, 8u> restartedLeft {};
+    std::array<float, 8u> restartedRight {};
+    float* restartedOutputs[] {
+        restartedLeft.data(), restartedRight.data(),
+    };
+    engine.render(settings, &secondNote, 1u, restartedOutputs, 2u,
+        static_cast<uint32_t>(restartedLeft.size()));
+    check(wasPlaying && silent && engine.activeVoiceCount() == 1u
+            && restartedLeft.back() != 0.0f,
+        "kill all did not silence voices or preserve fresh retriggering");
+}
+
 void testPolyphonicVoiceCursors()
 {
     auto asset = rampAsset(1u, 1000u);
@@ -507,7 +958,15 @@ int main()
     testStretchPitchPreservesDuration();
     testAdsrAndRelease();
     testOneShotTailReleaseIgnoresNoteOff();
+    testTempoSyncRateAndStretch();
+    testTriggerAndRetriggerModes();
+    testMonoLegatoAndGlide();
     testSixteenChannelLock();
+    testPostMixOutputGainAndPan();
+    testLiveTuneAndFine();
+    testLiveSustainAndRelease();
+    testLiveLoopEditing();
+    testKillAllPlayback();
     testPolyphonicVoiceCursors();
     if (failures != 0) {
         std::cerr << failures << " sample player smoke failure(s)\n";

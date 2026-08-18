@@ -43,15 +43,20 @@ using s3g::sample::PlayMode;
 using s3g::sample::PitchMode;
 using s3g::sample::PlayerSettings;
 using s3g::sample::RenderEvent;
+using s3g::sample::RetriggerMode;
 using s3g::sample::SampleAsset;
+using s3g::sample::SyncMode;
+using s3g::sample::TriggerMode;
+using s3g::sample::VoiceMode;
 
 constexpr uint32_t kStateMagic = 0x50533353u; // "S3SP"
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kProportionalStateVersion = 2u;
 constexpr uint32_t kExpandedStateVersion = 3u;
-constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kPitchStateVersion = 4u;
+constexpr uint32_t kStateVersion = 5u;
 constexpr uint32_t kGuiWidth = 980u;
-constexpr uint32_t kGuiHeight = 790u;
+constexpr uint32_t kGuiHeight = 844u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
@@ -77,9 +82,17 @@ constexpr clap_id kFilterCutoffParamId = 18u;
 constexpr clap_id kFilterResonanceParamId = 19u;
 constexpr clap_id kFilterEnvelopeParamId = 20u;
 constexpr clap_id kPitchModeParamId = 21u;
+constexpr clap_id kSyncModeParamId = 22u;
+constexpr clap_id kSourceTempoParamId = 23u;
+constexpr clap_id kTriggerModeParamId = 24u;
+constexpr clap_id kRetriggerModeParamId = 25u;
+constexpr clap_id kVoiceModeParamId = 26u;
+constexpr clap_id kGlideParamId = 27u;
+constexpr clap_id kMidiReceiveParamId = 28u;
 constexpr std::size_t kLegacyParamCount = 15u;
 constexpr std::size_t kExpandedParamCount = 20u;
-constexpr std::size_t kParamCount = 21u;
+constexpr std::size_t kPitchParamCount = 21u;
+constexpr std::size_t kParamCount = 28u;
 
 constexpr clap_id kStereoOutputConfigId = 3002u;
 constexpr clap_id kSixteenChannelOutputConfigId = 3016u;
@@ -138,6 +151,15 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kFilterEnvelopeParamId, "Filter Envelope", "Filter", -1.0, 1.0,
         0.0, false },
     { kPitchModeParamId, "Pitch Mode", "Pitch", 0.0, 1.0, 0.0, true },
+    { kSyncModeParamId, "Tempo Sync", "Playback", 0.0, 1.0, 0.0, true },
+    { kSourceTempoParamId, "Sample BPM", "Playback", 20.0, 999.0,
+        120.0, false },
+    { kTriggerModeParamId, "Trigger", "Playback", 0.0, 3.0, 0.0, true },
+    { kRetriggerModeParamId, "Retrigger", "Playback", 0.0, 2.0, 0.0,
+        true },
+    { kVoiceModeParamId, "Voice Mode", "Pitch", 0.0, 2.0, 0.0, true },
+    { kGlideParamId, "Glide", "Pitch", 0.0, 2000.0, 0.0, false },
+    { kMidiReceiveParamId, "MIDI Receive", "MIDI", 0.0, 16.0, 0.0, true },
 }};
 
 struct LegacySavedState {
@@ -176,6 +198,21 @@ struct ExpandedSavedState {
     clap_id outputConfigId = kStereoOutputConfigId;
     uint32_t parameterCount = static_cast<uint32_t>(kExpandedParamCount);
     std::array<double, kExpandedParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct PitchSavedState {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kPitchStateVersion;
+    clap_id outputConfigId = kStereoOutputConfigId;
+    uint32_t parameterCount = static_cast<uint32_t>(kPitchParamCount);
+    std::array<double, kPitchParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
     uint8_t embedded = 0u;
     uint8_t channelCount = 0u;
@@ -226,6 +263,7 @@ struct Plugin {
         voiceCursorKeys {};
     std::atomic<uint32_t> voiceCursorCount { 0u };
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<bool> killRequested { false };
     bool embedSampleInState = true;
     bool active = false;
 #if defined(__APPLE__)
@@ -261,7 +299,7 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kPlayModeParamId && id <= kPitchModeParamId
+    return id >= kPlayModeParamId && id <= kMidiReceiveParamId
         ? static_cast<std::size_t>(id - kPlayModeParamId) : kParamCount;
 }
 
@@ -412,13 +450,29 @@ void applySafeDefaultBounds(Plugin& instance, const SampleAsset& asset,
     }
 }
 
-PlayerSettings settingsSnapshot(const Plugin& instance) noexcept
+PlayerSettings settingsSnapshot(const Plugin& instance,
+    double hostTempoBpm) noexcept
 {
     PlayerSettings settings;
     settings.playMode = static_cast<PlayMode>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kPlayModeParamId))));
     settings.pitchMode = static_cast<PitchMode>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kPitchModeParamId))));
+    settings.syncMode = static_cast<SyncMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kSyncModeParamId))));
+    settings.triggerMode = static_cast<TriggerMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kTriggerModeParamId))));
+    settings.retriggerMode = static_cast<RetriggerMode>(
+        static_cast<uint8_t>(std::lround(
+            paramValue(instance, kRetriggerModeParamId))));
+    settings.voiceMode = static_cast<VoiceMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kVoiceModeParamId))));
+    settings.sourceTempoBpm = paramValue(instance, kSourceTempoParamId);
+    settings.hostTempoBpm = hostTempoBpm > 0.0
+            && std::isfinite(hostTempoBpm)
+        ? std::clamp(hostTempoBpm, 1.0, 999.0)
+        : settings.sourceTempoBpm;
+    settings.glideSeconds = paramValue(instance, kGlideParamId) * 0.001;
     settings.start = paramValue(instance, kStartParamId);
     settings.length = paramValue(instance, kLengthParamId);
     settings.loopStart = paramValue(instance, kLoopStartParamId);
@@ -695,6 +749,13 @@ void appendNoteEvent(Plugin& instance, std::size_t& count, uint32_t frame,
     };
 }
 
+bool receivesNoteOn(const Plugin& instance, uint8_t midiChannel) noexcept
+{
+    const int receive = static_cast<int>(std::lround(
+        paramValue(instance, kMidiReceiveParamId)));
+    return receive == 0 || receive == static_cast<int>(midiChannel);
+}
+
 void readInputEvents(Plugin& instance, const clap_input_events_t* events,
     uint32_t frames, std::size_t& renderEventCount) noexcept
 {
@@ -723,14 +784,18 @@ void readInputEvents(Plugin& instance, const clap_input_events_t* events,
             const EventKind kind = header->type == CLAP_EVENT_NOTE_ON
                 ? EventKind::NoteOn : header->type == CLAP_EVENT_NOTE_OFF
                     ? EventKind::NoteOff : EventKind::Choke;
+            const uint8_t midiChannel = event->channel >= 0
+                    && event->channel < 16
+                ? static_cast<uint8_t>(event->channel + 1) : 0u;
+            if (kind == EventKind::NoteOn
+                && !receivesNoteOn(instance, midiChannel)) continue;
             appendNoteEvent(instance, renderEventCount, frame, kind,
                 event->note_id >= 0
                     ? static_cast<uint64_t>(event->note_id) + 1u : 0u,
                 static_cast<uint8_t>(event->key),
                 kind == EventKind::NoteOn
                     ? static_cast<float>(event->velocity) : 0.0f,
-                event->channel >= 0 && event->channel < 16
-                    ? static_cast<uint8_t>(event->channel + 1) : 0u);
+                midiChannel);
             continue;
         }
         if (header->type == CLAP_EVENT_MIDI
@@ -743,6 +808,7 @@ void readInputEvents(Plugin& instance, const clap_input_events_t* events,
                 (event->data[0u] & 0x0fu) + 1u);
             const uint8_t key = event->data[1u] & 0x7fu;
             if (status == 0x90u && event->data[2u] != 0u) {
+                if (!receivesNoteOn(instance, channel)) continue;
                 appendNoteEvent(instance, renderEventCount, frame,
                     EventKind::NoteOn, 0u, key,
                     static_cast<float>(event->data[2u]) / 127.0f, channel);
@@ -807,6 +873,7 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     instance.audioAsset = instance.publishedAsset.load(
         std::memory_order_acquire);
     instance.engine.setAsset(instance.audioAsset);
+    instance.killRequested.store(false, std::memory_order_release);
     instance.active = true;
     return true;
 }
@@ -817,6 +884,7 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.active = false;
     instance.engine.unprepare();
     instance.audioAsset = nullptr;
+    instance.killRequested.store(false, std::memory_order_release);
     instance.voiceCursorCount.store(0u, std::memory_order_release);
     for (auto& channel : instance.scratchChannels) channel.clear();
     instance.retainedAssets.clear();
@@ -833,8 +901,10 @@ void pluginStopProcessing(const clap_plugin_t*) {}
 
 void pluginReset(const clap_plugin_t* plugin)
 {
-    self(plugin)->engine.reset();
-    self(plugin)->voiceCursorCount.store(0u, std::memory_order_release);
+    auto& instance = *self(plugin);
+    instance.killRequested.store(false, std::memory_order_release);
+    instance.engine.reset();
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
 }
 
 clap_process_status pluginProcess(const clap_plugin_t* plugin,
@@ -854,11 +924,21 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     std::size_t eventCount = 0u;
     readInputEvents(instance, process->in_events, process->frames_count,
         eventCount);
+    if (instance.killRequested.exchange(false, std::memory_order_acq_rel)) {
+        instance.engine.killAll();
+        eventCount = 0u;
+    }
     std::array<float*, s3g::sample::kMaximumAudioChannels> scratch {};
     for (uint32_t channel = 0u; channel < instance.outputChannelCount;
          ++channel)
         scratch[channel] = instance.scratchChannels[channel].data();
-    instance.engine.render(settingsSnapshot(instance),
+    double hostTempoBpm = 0.0;
+    if (process->transport
+        && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+        && process->transport->tempo > 0.0
+        && std::isfinite(process->transport->tempo))
+        hostTempoBpm = process->transport->tempo;
+    instance.engine.render(settingsSnapshot(instance, hostTempoBpm),
         instance.blockEvents.data(), eventCount, scratch.data(),
         instance.outputChannelCount, process->frames_count);
     const uint32_t cursorCount = std::min<uint32_t>(
@@ -1111,6 +1191,44 @@ const char* pitchModeName(int mode) noexcept
     return names[static_cast<std::size_t>(std::clamp(mode, 0, 1))];
 }
 
+const char* syncModeName(int mode) noexcept
+{
+    constexpr std::array<const char*, 2u> names {{ "Free", "Host" }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 1))];
+}
+
+const char* triggerModeName(int mode) noexcept
+{
+    constexpr std::array<const char*, 4u> names {{
+        "Auto", "Gate", "One Shot", "Toggle",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 3))];
+}
+
+const char* retriggerModeName(int mode) noexcept
+{
+    constexpr std::array<const char*, 3u> names {{
+        "Layer", "Restart", "Ignore",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 2))];
+}
+
+const char* voiceModeName(int mode) noexcept
+{
+    constexpr std::array<const char*, 3u> names {{
+        "Poly", "Mono", "Legato",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(mode, 0, 2))];
+}
+
+const char* midiReceiveName(int channel, char* text,
+    std::size_t size) noexcept
+{
+    if (channel <= 0) return "Omni";
+    std::snprintf(text, size, "Channel %d", std::clamp(channel, 1, 16));
+    return text;
+}
+
 bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     char* display, uint32_t size)
 {
@@ -1124,6 +1242,18 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
             static_cast<int>(std::lround(value))));
     else if (id == kPitchModeParamId)
         std::snprintf(display, size, "%s", pitchModeName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kSyncModeParamId)
+        std::snprintf(display, size, "%s", syncModeName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kTriggerModeParamId)
+        std::snprintf(display, size, "%s", triggerModeName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kRetriggerModeParamId)
+        std::snprintf(display, size, "%s", retriggerModeName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kVoiceModeParamId)
+        std::snprintf(display, size, "%s", voiceModeName(
             static_cast<int>(std::lround(value))));
     else if (id == kStartParamId || id == kLengthParamId
         || id == kLoopStartParamId || id == kLoopEndParamId
@@ -1149,6 +1279,15 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
             std::lround(value)));
     else if (id == kPanParamId)
         std::snprintf(display, size, "%+.2f", value);
+    else if (id == kSourceTempoParamId)
+        std::snprintf(display, size, "%.2f BPM", value);
+    else if (id == kGlideParamId)
+        std::snprintf(display, size, "%.1f ms", value);
+    else if (id == kMidiReceiveParamId) {
+        char text[32] {};
+        std::snprintf(display, size, "%s", midiReceiveName(
+            static_cast<int>(std::lround(value)), text, sizeof(text)));
+    }
     else return false;
     return true;
 }
@@ -1184,6 +1323,56 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
             }
         }
         return false;
+    }
+    if (id == kSyncModeParamId) {
+        for (int mode = 0; mode < 2; ++mode) {
+            if (strcasecmp(display, syncModeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kTriggerModeParamId) {
+        for (int mode = 0; mode < 4; ++mode) {
+            if (strcasecmp(display, triggerModeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kRetriggerModeParamId) {
+        for (int mode = 0; mode < 3; ++mode) {
+            if (strcasecmp(display, retriggerModeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kVoiceModeParamId) {
+        for (int mode = 0; mode < 3; ++mode) {
+            if (strcasecmp(display, voiceModeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (id == kMidiReceiveParamId) {
+        if (strcasecmp(display, "Omni") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        for (int channel = 1; channel <= 16; ++channel) {
+            char text[32] {};
+            if (strcasecmp(display, midiReceiveName(
+                    channel, text, sizeof(text))) == 0) {
+                *value = static_cast<double>(channel);
+                return true;
+            }
+        }
     }
     char* end = nullptr;
     double parsed = std::strtod(display, &end);
@@ -1341,6 +1530,32 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         saved.reserved1 = expanded.reserved1;
         saved.frameCount = expanded.frameCount;
         saved.sampleRate = expanded.sampleRate;
+    } else if (prefix.version == kPitchStateVersion) {
+        PitchSavedState pitch;
+        pitch.magic = prefix.magic;
+        pitch.version = prefix.version;
+        auto* remainder = reinterpret_cast<uint8_t*>(&pitch)
+            + sizeof(prefix);
+        if (!s3g::clap_state::readAll(stream, remainder,
+                sizeof(pitch) - sizeof(prefix))
+            || pitch.parameterCount != kPitchParamCount
+            || pitch.outputConfigId != self(plugin)->outputConfigId)
+            return false;
+        saved.magic = pitch.magic;
+        saved.version = kStateVersion;
+        saved.outputConfigId = pitch.outputConfigId;
+        saved.parameterCount = static_cast<uint32_t>(kParamCount);
+        for (const auto& def : kParamDefs)
+            saved.parameters[paramIndex(def.id)] = def.defaultValue;
+        std::copy(pitch.parameters.begin(), pitch.parameters.end(),
+            saved.parameters.begin());
+        saved.path = pitch.path;
+        saved.embedded = pitch.embedded;
+        saved.channelCount = pitch.channelCount;
+        saved.reserved0 = pitch.reserved0;
+        saved.reserved1 = pitch.reserved1;
+        saved.frameCount = pitch.frameCount;
+        saved.sampleRate = pitch.sampleRate;
     } else if (prefix.version == kStateVersion) {
         saved.magic = prefix.magic;
         saved.version = prefix.version;
@@ -1436,22 +1651,34 @@ NSRect waveformRect()
 
 NSRect playbackPanelRect()
 {
-    return NSMakeRect(18.0, 336.0, 456.0, 190.0);
+    return NSMakeRect(18.0, 336.0, 456.0, 294.0);
 }
 
 NSRect filterPanelRect()
 {
-    return NSMakeRect(486.0, 336.0, 476.0, 190.0);
+    return NSMakeRect(486.0, 476.0, 476.0, 154.0);
+}
+
+NSRect outputPanelRect()
+{
+    return NSMakeRect(486.0, 336.0, 476.0, 128.0);
+}
+
+NSRect killAllButtonRect()
+{
+    const NSRect panel = outputPanelRect();
+    return NSMakeRect(NSMaxX(panel) - 86.0, panel.origin.y + 3.0,
+        74.0, 15.0);
 }
 
 NSRect pitchOutputPanelRect()
 {
-    return NSMakeRect(18.0, 538.0, 456.0, 220.0);
+    return NSMakeRect(18.0, 642.0, 456.0, 184.0);
 }
 
 NSRect envelopePanelRect()
 {
-    return NSMakeRect(486.0, 538.0, 476.0, 220.0);
+    return NSMakeRect(486.0, 642.0, 476.0, 166.0);
 }
 
 NSRect sampleLoadButtonRect()
@@ -1480,13 +1707,77 @@ NSRect playModeDropdownRect()
         menu.size.width, 120.0);
 }
 
+NSRect triggerModeMenuRect()
+{
+    const NSRect panel = playbackPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        397.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect triggerModeDropdownRect()
+{
+    const NSRect menu = triggerModeMenuRect();
+    return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
+        menu.size.width, 80.0);
+}
+
+NSRect retriggerModeMenuRect()
+{
+    const NSRect panel = playbackPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        423.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect retriggerModeDropdownRect()
+{
+    const NSRect menu = retriggerModeMenuRect();
+    return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
+        menu.size.width, 60.0);
+}
+
+NSRect syncModeMenuRect()
+{
+    const NSRect panel = playbackPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        449.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect syncModeDropdownRect()
+{
+    const NSRect menu = syncModeMenuRect();
+    return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
+        menu.size.width, 40.0);
+}
+
 NSRect filterTypeMenuRect()
 {
     const NSRect panel = filterPanelRect();
     return NSMakeRect(static_cast<CGFloat>(
             s3g::gui_layout::processorControlX(panel.origin.x)),
-        371.0, static_cast<CGFloat>(
+        511.0, static_cast<CGFloat>(
             s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect midiReceiveMenuRect()
+{
+    const NSRect panel = outputPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        423.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect midiReceiveDropdownRect()
+{
+    const NSRect menu = midiReceiveMenuRect();
+    return NSMakeRect(menu.origin.x, menu.origin.y - 341.0,
+        menu.size.width, 340.0);
 }
 
 NSRect filterTypeDropdownRect()
@@ -1501,8 +1792,24 @@ NSRect pitchModeMenuRect()
     const NSRect panel = pitchOutputPanelRect();
     return NSMakeRect(static_cast<CGFloat>(
             s3g::gui_layout::processorControlX(panel.origin.x)),
-        573.0, static_cast<CGFloat>(
+        676.0, static_cast<CGFloat>(
             s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect voiceModeMenuRect()
+{
+    const NSRect panel = pitchOutputPanelRect();
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        702.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect voiceModeDropdownRect()
+{
+    const NSRect menu = voiceModeMenuRect();
+    return NSMakeRect(menu.origin.x, NSMaxY(menu) + 1.0,
+        menu.size.width, 60.0);
 }
 
 NSRect pitchModeDropdownRect()
@@ -1528,25 +1835,27 @@ struct GuiSlider {
     CGFloat y;
 };
 
-const std::array<GuiSlider, 18u> kGuiSliders {{
-    { kStartParamId, "START", 18.0, 456.0, 398.0 },
-    { kLengthParamId, "LENGTH", 18.0, 456.0, 424.0 },
-    { kLoopStartParamId, "LOOP START", 18.0, 456.0, 450.0 },
-    { kLoopEndParamId, "LOOP END", 18.0, 456.0, 476.0 },
-    { kLoopCrossfadeParamId, "LOOP XFADE", 18.0, 456.0, 502.0 },
-    { kFilterCutoffParamId, "CUTOFF", 486.0, 476.0, 398.0 },
-    { kFilterResonanceParamId, "RESONANCE", 486.0, 476.0, 424.0 },
-    { kFilterEnvelopeParamId, "ENV AMOUNT", 486.0, 476.0, 450.0 },
-    { kGainParamId, "OUT", 18.0, 456.0, 600.0 },
-    { kPanParamId, "PAN", 18.0, 456.0, 626.0 },
-    { kVelocityParamId, "VELOCITY", 18.0, 456.0, 652.0 },
-    { kTuneParamId, "TUNE", 18.0, 456.0, 678.0 },
-    { kFineTuneParamId, "FINE", 18.0, 456.0, 704.0 },
-    { kRootNoteParamId, "ROOT NOTE", 18.0, 456.0, 730.0 },
-    { kAttackParamId, "ATTACK", 486.0, 476.0, 574.0 },
-    { kDecayParamId, "DECAY", 486.0, 476.0, 600.0 },
-    { kSustainParamId, "SUSTAIN", 486.0, 476.0, 626.0 },
-    { kReleaseParamId, "RELEASE", 486.0, 476.0, 652.0 },
+const std::array<GuiSlider, 20u> kGuiSliders {{
+    { kStartParamId, "START", 18.0, 456.0, 476.0 },
+    { kLengthParamId, "LENGTH", 18.0, 456.0, 502.0 },
+    { kLoopStartParamId, "LOOP START", 18.0, 456.0, 528.0 },
+    { kLoopEndParamId, "LOOP END", 18.0, 456.0, 554.0 },
+    { kLoopCrossfadeParamId, "LOOP XFADE", 18.0, 456.0, 580.0 },
+    { kSourceTempoParamId, "SAMPLE BPM", 18.0, 456.0, 606.0 },
+    { kGainParamId, "OUT", 486.0, 476.0, 372.0 },
+    { kPanParamId, "PAN", 486.0, 476.0, 398.0 },
+    { kVelocityParamId, "VELOCITY", 486.0, 476.0, 450.0 },
+    { kFilterCutoffParamId, "CUTOFF", 486.0, 476.0, 538.0 },
+    { kFilterResonanceParamId, "RESONANCE", 486.0, 476.0, 564.0 },
+    { kFilterEnvelopeParamId, "ENV AMOUNT", 486.0, 476.0, 590.0 },
+    { kGlideParamId, "GLIDE", 18.0, 456.0, 730.0 },
+    { kTuneParamId, "TUNE", 18.0, 456.0, 756.0 },
+    { kFineTuneParamId, "FINE", 18.0, 456.0, 782.0 },
+    { kRootNoteParamId, "ROOT NOTE", 18.0, 456.0, 808.0 },
+    { kAttackParamId, "ATTACK", 486.0, 476.0, 678.0 },
+    { kDecayParamId, "DECAY", 486.0, 476.0, 704.0 },
+    { kSustainParamId, "SUSTAIN", 486.0, 476.0, 730.0 },
+    { kReleaseParamId, "RELEASE", 486.0, 476.0, 756.0 },
 }};
 
 bool guiSliderIsVisible(const Plugin& instance,
@@ -1558,13 +1867,8 @@ bool guiSliderIsVisible(const Plugin& instance,
 GuiSlider positionedGuiSlider(const Plugin& instance,
     const GuiSlider& slider) noexcept
 {
-    GuiSlider positioned = slider;
-    if (instance.outputChannelCount == 16u
-        && (slider.id == kVelocityParamId || slider.id == kTuneParamId
-            || slider.id == kFineTuneParamId
-            || slider.id == kRootNoteParamId))
-        positioned.y -= 26.0;
-    return positioned;
+    (void)instance;
+    return slider;
 }
 
 NSRect sliderTrackRect(const GuiSlider& slider)
@@ -1654,6 +1958,25 @@ NSString* const kFilterTypeItems[] = {
 
 NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
 
+NSString* const kSyncModeItems[] = { @"FREE", @"HOST" };
+
+NSString* const kTriggerModeItems[] = {
+    @"AUTO", @"GATE", @"ONE SHOT", @"TOGGLE",
+};
+
+NSString* const kRetriggerModeItems[] = {
+    @"LAYER", @"RESTART", @"IGNORE",
+};
+
+NSString* const kVoiceModeItems[] = { @"POLY", @"MONO", @"LEGATO" };
+
+NSString* const kMidiReceiveItems[] = {
+    @"OMNI", @"CHANNEL 1", @"CHANNEL 2", @"CHANNEL 3", @"CHANNEL 4",
+    @"CHANNEL 5", @"CHANNEL 6", @"CHANNEL 7", @"CHANNEL 8", @"CHANNEL 9",
+    @"CHANNEL 10", @"CHANNEL 11", @"CHANNEL 12", @"CHANNEL 13",
+    @"CHANNEL 14", @"CHANNEL 15", @"CHANNEL 16",
+};
+
 } // namespace
 
 @interface S3GSamplePlayerView : NSView <NSDraggingDestination> {
@@ -1664,10 +1987,20 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
     clap_id _waveDragParam;
     BOOL _playModeMenuOpen;
     int _playModeMenuHover;
+    BOOL _triggerModeMenuOpen;
+    int _triggerModeMenuHover;
+    BOOL _retriggerModeMenuOpen;
+    int _retriggerModeMenuHover;
+    BOOL _syncModeMenuOpen;
+    int _syncModeMenuHover;
     BOOL _filterTypeMenuOpen;
     int _filterTypeMenuHover;
     BOOL _pitchModeMenuOpen;
     int _pitchModeMenuHover;
+    BOOL _voiceModeMenuOpen;
+    int _voiceModeMenuHover;
+    BOOL _midiReceiveMenuOpen;
+    int _midiReceiveMenuHover;
     double _waveZoom;
     double _waveViewStart;
     double _waveFixedStart;
@@ -1678,6 +2011,8 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
 }
 - (instancetype)initWithPlugin:(Plugin*)instance;
 - (BOOL)loadDocumentationSample;
+- (BOOL)killAllPending;
+- (void)closeMenus;
 - (void)startTimer;
 - (void)stopTimer;
 @end
@@ -1694,10 +2029,20 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
     _waveDragParam = CLAP_INVALID_ID;
     _playModeMenuOpen = NO;
     _playModeMenuHover = -1;
+    _triggerModeMenuOpen = NO;
+    _triggerModeMenuHover = -1;
+    _retriggerModeMenuOpen = NO;
+    _retriggerModeMenuHover = -1;
+    _syncModeMenuOpen = NO;
+    _syncModeMenuHover = -1;
     _filterTypeMenuOpen = NO;
     _filterTypeMenuHover = -1;
     _pitchModeMenuOpen = NO;
     _pitchModeMenuHover = -1;
+    _voiceModeMenuOpen = NO;
+    _voiceModeMenuHover = -1;
+    _midiReceiveMenuOpen = NO;
+    _midiReceiveMenuHover = -1;
     _waveZoom = 1.0;
     _waveViewStart = 0.0;
     _waveFixedStart = 0.0;
@@ -1712,6 +2057,30 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)killAllPending
+{
+    return _instance->killRequested.load(std::memory_order_acquire);
+}
+
+- (void)closeMenus
+{
+    _playModeMenuOpen = NO;
+    _playModeMenuHover = -1;
+    _triggerModeMenuOpen = NO;
+    _triggerModeMenuHover = -1;
+    _retriggerModeMenuOpen = NO;
+    _retriggerModeMenuHover = -1;
+    _syncModeMenuOpen = NO;
+    _syncModeMenuHover = -1;
+    _filterTypeMenuOpen = NO;
+    _filterTypeMenuHover = -1;
+    _pitchModeMenuOpen = NO;
+    _pitchModeMenuHover = -1;
+    _voiceModeMenuOpen = NO;
+    _voiceModeMenuHover = -1;
+    _midiReceiveMenuOpen = NO;
+    _midiReceiveMenuHover = -1;
+}
 
 - (void)updateTrackingAreas
 {
@@ -1923,8 +2292,7 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
     if (_playModeMenuOpen) {
         const int selected = s3g::clap_gui::dropdownHitIndex(point,
             playModeDropdownRect(), 20.0, 6u);
-        _playModeMenuOpen = NO;
-        _playModeMenuHover = -1;
+        [self closeMenus];
         [self setNeedsDisplay:YES];
         if (selected >= 0) {
             queueGuiParamValue(*_instance, kPlayModeParamId,
@@ -1932,11 +2300,43 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
             return;
         }
     }
+    if (_triggerModeMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            triggerModeDropdownRect(), 20.0, 4u);
+        [self closeMenus];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kTriggerModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
+    if (_retriggerModeMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            retriggerModeDropdownRect(), 20.0, 3u);
+        [self closeMenus];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kRetriggerModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
+    if (_syncModeMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            syncModeDropdownRect(), 20.0, 2u);
+        [self closeMenus];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kSyncModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
     if (_filterTypeMenuOpen) {
         const int selected = s3g::clap_gui::dropdownHitIndex(point,
             filterTypeDropdownRect(), 20.0, 5u);
-        _filterTypeMenuOpen = NO;
-        _filterTypeMenuHover = -1;
+        [self closeMenus];
         [self setNeedsDisplay:YES];
         if (selected >= 0) {
             queueGuiParamValue(*_instance, kFilterTypeParamId,
@@ -1947,11 +2347,32 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
     if (_pitchModeMenuOpen) {
         const int selected = s3g::clap_gui::dropdownHitIndex(point,
             pitchModeDropdownRect(), 20.0, 2u);
-        _pitchModeMenuOpen = NO;
-        _pitchModeMenuHover = -1;
+        [self closeMenus];
         [self setNeedsDisplay:YES];
         if (selected >= 0) {
             queueGuiParamValue(*_instance, kPitchModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
+    if (_voiceModeMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            voiceModeDropdownRect(), 20.0, 3u);
+        [self closeMenus];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kVoiceModeParamId,
+                static_cast<double>(selected));
+            return;
+        }
+    }
+    if (_midiReceiveMenuOpen) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            midiReceiveDropdownRect(), 20.0, 17u);
+        [self closeMenus];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            queueGuiParamValue(*_instance, kMidiReceiveParamId,
                 static_cast<double>(selected));
             return;
         }
@@ -1973,6 +2394,14 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
         return;
     }
 
+    if (NSPointInRect(point, killAllButtonRect())) {
+        [self closeMenus];
+        _instance->killRequested.store(true, std::memory_order_release);
+        requestProcess(*_instance);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
     if (NSPointInRect(point, sampleLoadButtonRect())) {
         [self loadSample:nil];
         return;
@@ -1984,32 +2413,50 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
         return;
     }
     if (NSPointInRect(point, playModeMenuRect())) {
+        [self closeMenus];
         _playModeMenuOpen = YES;
-        _playModeMenuHover = -1;
-        _filterTypeMenuOpen = NO;
-        _filterTypeMenuHover = -1;
-        _pitchModeMenuOpen = NO;
-        _pitchModeMenuHover = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, triggerModeMenuRect())) {
+        [self closeMenus];
+        _triggerModeMenuOpen = YES;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, retriggerModeMenuRect())) {
+        [self closeMenus];
+        _retriggerModeMenuOpen = YES;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, syncModeMenuRect())) {
+        [self closeMenus];
+        _syncModeMenuOpen = YES;
         [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, filterTypeMenuRect())) {
+        [self closeMenus];
         _filterTypeMenuOpen = YES;
-        _filterTypeMenuHover = -1;
-        _playModeMenuOpen = NO;
-        _playModeMenuHover = -1;
-        _pitchModeMenuOpen = NO;
-        _pitchModeMenuHover = -1;
         [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, pitchModeMenuRect())) {
+        [self closeMenus];
         _pitchModeMenuOpen = YES;
-        _pitchModeMenuHover = -1;
-        _playModeMenuOpen = NO;
-        _playModeMenuHover = -1;
-        _filterTypeMenuOpen = NO;
-        _filterTypeMenuHover = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, voiceModeMenuRect())) {
+        [self closeMenus];
+        _voiceModeMenuOpen = YES;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, midiReceiveMenuRect())) {
+        [self closeMenus];
+        _midiReceiveMenuOpen = YES;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2089,6 +2536,27 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
             _playModeMenuHover = hover;
             [self setNeedsDisplay:YES];
         }
+    } else if (_triggerModeMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            triggerModeDropdownRect(), 20.0, 4u);
+        if (hover != _triggerModeMenuHover) {
+            _triggerModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+    } else if (_retriggerModeMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            retriggerModeDropdownRect(), 20.0, 3u);
+        if (hover != _retriggerModeMenuHover) {
+            _retriggerModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+    } else if (_syncModeMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            syncModeDropdownRect(), 20.0, 2u);
+        if (hover != _syncModeMenuHover) {
+            _syncModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
     } else if (_filterTypeMenuOpen) {
         const int hover = s3g::clap_gui::dropdownHitIndex(point,
             filterTypeDropdownRect(), 20.0, 5u);
@@ -2101,6 +2569,20 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
             pitchModeDropdownRect(), 20.0, 2u);
         if (hover != _pitchModeMenuHover) {
             _pitchModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+    } else if (_voiceModeMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            voiceModeDropdownRect(), 20.0, 3u);
+        if (hover != _voiceModeMenuHover) {
+            _voiceModeMenuHover = hover;
+            [self setNeedsDisplay:YES];
+        }
+    } else if (_midiReceiveMenuOpen) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            midiReceiveDropdownRect(), 20.0, 17u);
+        if (hover != _midiReceiveMenuHover) {
+            _midiReceiveMenuHover = hover;
             [self setNeedsDisplay:YES];
         }
     }
@@ -2142,11 +2624,18 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
 - (void)mouseExited:(NSEvent*)event
 {
     (void)event;
-    if (_playModeMenuHover >= 0 || _filterTypeMenuHover >= 0
-        || _pitchModeMenuHover >= 0) {
+    if (_playModeMenuHover >= 0 || _triggerModeMenuHover >= 0
+        || _retriggerModeMenuHover >= 0 || _syncModeMenuHover >= 0
+        || _filterTypeMenuHover >= 0 || _pitchModeMenuHover >= 0
+        || _voiceModeMenuHover >= 0 || _midiReceiveMenuHover >= 0) {
         _playModeMenuHover = -1;
+        _triggerModeMenuHover = -1;
+        _retriggerModeMenuHover = -1;
+        _syncModeMenuHover = -1;
         _filterTypeMenuHover = -1;
         _pitchModeMenuHover = -1;
+        _voiceModeMenuHover = -1;
+        _midiReceiveMenuHover = -1;
         [self setNeedsDisplay:YES];
     }
 }
@@ -2338,10 +2827,11 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
             withAttributes:valueAttrs];
     }
 
-    const std::array<std::pair<NSRect, NSString*>, 4u> panels {{
+    const std::array<std::pair<NSRect, NSString*>, 5u> panels {{
         { playbackPanelRect(), @"PLAYBACK" },
+        { outputPanelRect(), @"OUTPUT / MIDI" },
         { filterPanelRect(), @"FILTER" },
-        { pitchOutputPanelRect(), @"PITCH / OUTPUT" },
+        { pitchOutputPanelRect(), @"PITCH" },
         { envelopePanelRect(), @"AMP ENVELOPE" },
     }};
     for (const auto& panel : panels) {
@@ -2354,22 +2844,52 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
                 s3g::gui_layout::kStandardMetrics.headerHeight),
             labelAttrs, style);
     }
+    s3g::clap_gui::drawHeaderButton(killAllButtonRect(), outputPanelRect(),
+        @"KILL ALL", false, labelAttrs, style);
 
     s3g::clap_gui::drawProcessorMenu(@"PLAY MODE",
         [NSString stringWithUTF8String:playModeName(static_cast<int>(
             std::lround(paramValue(*_instance, kPlayModeParamId))))],
         372.0, playbackPanelRect().origin.x,
         playbackPanelRect().size.width, labelAttrs, valueAttrs, style);
+    s3g::clap_gui::drawProcessorMenu(@"TRIGGER",
+        [NSString stringWithUTF8String:triggerModeName(static_cast<int>(
+            std::lround(paramValue(*_instance, kTriggerModeParamId))))],
+        398.0, playbackPanelRect().origin.x,
+        playbackPanelRect().size.width, labelAttrs, valueAttrs, style);
+    s3g::clap_gui::drawProcessorMenu(@"RETRIGGER",
+        [NSString stringWithUTF8String:retriggerModeName(static_cast<int>(
+            std::lround(paramValue(*_instance, kRetriggerModeParamId))))],
+        424.0, playbackPanelRect().origin.x,
+        playbackPanelRect().size.width, labelAttrs, valueAttrs, style);
+    s3g::clap_gui::drawProcessorMenu(@"TEMPO SYNC",
+        [NSString stringWithUTF8String:syncModeName(static_cast<int>(
+            std::lround(paramValue(*_instance, kSyncModeParamId))))],
+        450.0, playbackPanelRect().origin.x,
+        playbackPanelRect().size.width, labelAttrs, valueAttrs, style);
     s3g::clap_gui::drawProcessorMenu(@"FILTER TYPE",
         [NSString stringWithUTF8String:filterTypeName(static_cast<int>(
             std::lround(paramValue(*_instance, kFilterTypeParamId))))],
-        372.0, filterPanelRect().origin.x,
+        512.0, filterPanelRect().origin.x,
         filterPanelRect().size.width, labelAttrs, valueAttrs, style);
     s3g::clap_gui::drawProcessorMenu(@"PITCH MODE",
         [NSString stringWithUTF8String:pitchModeName(static_cast<int>(
             std::lround(paramValue(*_instance, kPitchModeParamId))))],
-        574.0, pitchOutputPanelRect().origin.x,
+        677.0, pitchOutputPanelRect().origin.x,
         pitchOutputPanelRect().size.width,
+        labelAttrs, valueAttrs, style);
+    s3g::clap_gui::drawProcessorMenu(@"VOICE MODE",
+        [NSString stringWithUTF8String:voiceModeName(static_cast<int>(
+            std::lround(paramValue(*_instance, kVoiceModeParamId))))],
+        703.0, pitchOutputPanelRect().origin.x,
+        pitchOutputPanelRect().size.width,
+        labelAttrs, valueAttrs, style);
+    char receiveText[32] {};
+    s3g::clap_gui::drawProcessorMenu(@"RECEIVE",
+        [NSString stringWithUTF8String:midiReceiveName(static_cast<int>(
+            std::lround(paramValue(*_instance, kMidiReceiveParamId))),
+            receiveText, sizeof(receiveText))],
+        424.0, outputPanelRect().origin.x, outputPanelRect().size.width,
         labelAttrs, valueAttrs, style);
 
     for (const auto& slider : kGuiSliders) {
@@ -2387,7 +2907,7 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
     }
     if (_instance->outputChannelCount == 16u) {
         [@"PAN DISABLED / SOURCE CHANNEL RELATIONSHIPS PRESERVED"
-            drawAtPoint:NSMakePoint(68.0, 730.0)
+            drawAtPoint:NSMakePoint(536.0, 400.0)
             withAttributes:labelAttrs];
     }
 
@@ -2397,6 +2917,21 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
                 paramValue(*_instance, kPlayModeParamId))),
             _playModeMenuHover,
             valueAttrs, style);
+    } else if (_triggerModeMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(triggerModeDropdownRect(), 20.0,
+            kTriggerModeItems, 4u, static_cast<int>(std::lround(
+                paramValue(*_instance, kTriggerModeParamId))),
+            _triggerModeMenuHover, valueAttrs, style);
+    } else if (_retriggerModeMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(retriggerModeDropdownRect(), 20.0,
+            kRetriggerModeItems, 3u, static_cast<int>(std::lround(
+                paramValue(*_instance, kRetriggerModeParamId))),
+            _retriggerModeMenuHover, valueAttrs, style);
+    } else if (_syncModeMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(syncModeDropdownRect(), 20.0,
+            kSyncModeItems, 2u, static_cast<int>(std::lround(
+                paramValue(*_instance, kSyncModeParamId))),
+            _syncModeMenuHover, valueAttrs, style);
     } else if (_filterTypeMenuOpen) {
         s3g::clap_gui::drawDropdownMenu(filterTypeDropdownRect(), 20.0,
             kFilterTypeItems, 5u, static_cast<int>(std::lround(
@@ -2407,6 +2942,16 @@ NSString* const kPitchModeItems[] = { @"RATE", @"STRETCH" };
             kPitchModeItems, 2u, static_cast<int>(std::lround(
                 paramValue(*_instance, kPitchModeParamId))),
             _pitchModeMenuHover, valueAttrs, style);
+    } else if (_voiceModeMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(voiceModeDropdownRect(), 20.0,
+            kVoiceModeItems, 3u, static_cast<int>(std::lround(
+                paramValue(*_instance, kVoiceModeParamId))),
+            _voiceModeMenuHover, valueAttrs, style);
+    } else if (_midiReceiveMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu(midiReceiveDropdownRect(), 20.0,
+            kMidiReceiveItems, 17u, static_cast<int>(std::lround(
+                paramValue(*_instance, kMidiReceiveParamId))),
+            _midiReceiveMenuHover, valueAttrs, style);
     }
 }
 
@@ -2593,8 +3138,8 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.4.0",
-    "Polyphonic stereo sampler with Rate/Stretch pitch, loops, filter, and ADSR.",
+    "0.5.0",
+    "Tempo-aware stereo sampler with configurable trigger, voice, pitch, loops, filter, and ADSR.",
     stereoFeatures,
 };
 
@@ -2606,8 +3151,8 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.4.0",
-    "Polyphonic 16-output channel-preserving sampler with Rate/Stretch pitch.",
+    "0.5.0",
+    "Tempo-aware 16-output channel-preserving sampler with configurable voices and pitch.",
     multichannelFeatures,
 };
 

@@ -1109,11 +1109,57 @@ if ! rg -q 'NSTrackingMouseMoved' "$sample_player_source" \
     || ! rg -Uq 'dropdownHitIndex\([^;]*playModeDropdownRect' "$sample_player_source" \
     || ! rg -Uq 'dropdownHitIndex\([^;]*filterTypeDropdownRect' "$sample_player_source" \
     || ! rg -Uq 'dropdownHitIndex\([^;]*pitchModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*triggerModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*retriggerModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*syncModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*voiceModeDropdownRect' "$sample_player_source" \
+    || ! rg -Uq 'dropdownHitIndex\([^;]*midiReceiveDropdownRect' "$sample_player_source" \
     || ! rg -Fq '_playModeMenuHover' "$sample_player_source" \
     || ! rg -Fq '_filterTypeMenuHover' "$sample_player_source" \
-    || ! rg -Fq '_pitchModeMenuHover' "$sample_player_source"; then
+    || ! rg -Fq '_pitchModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_triggerModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_retriggerModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_syncModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_voiceModeMenuHover' "$sample_player_source" \
+    || ! rg -Fq '_midiReceiveMenuHover' "$sample_player_source"; then
   warn "control" "$sample_player_source" \
     "Sample Player menus must track, draw, and clear the pointer-hover row."
+fi
+if ! rg -Fq 'SyncMode::Host' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'TriggerMode::Auto' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'RetriggerMode::Layer' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'VoiceMode::Poly' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'CLAP_TRANSPORT_HAS_TEMPO' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player must retain compatibility-default host sync, trigger/retrigger, Poly, and transport behavior."
+fi
+if ! rg -Fq 'midiReceiveMenuRect' "$sample_player_source" \
+    || ! rg -Fq 'receivesNoteOn' "$sample_player_source" \
+    || ! rg -Fq 'outputPanelRect' "$sample_player_source" \
+    || ! rg -Fq '@"OUTPUT / MIDI"' "$sample_player_source" \
+    || rg -Fq 'midiPanelRect' "$sample_player_source" \
+    || ! rg -Fq '{ kGainParamId, "OUT", 486.0' "$sample_player_source"; then
+  warn "layout" "$sample_player_source" \
+    "Sample Player must combine MIDI receive with its upper-right OUTPUT panel and begin with OUT."
+fi
+if ! rg -Fq 'applyFinalOutput(settings, outputs' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'voice.velocityLevel = velocity' dsp/s3g_sample_player.h \
+    || rg -q 'voice\.(leftPan|rightPan)|voice\.level = .*gainDecibels' \
+      dsp/s3g_sample_player.h; then
+  warn "control" "$sample_player_source" \
+    "Sample Player Out and stereo Pan must process the summed final output instead of being captured per note."
+fi
+if ! rg -Fq 'updateLivePitchTarget(voice, settings)' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'updateLiveEnvelopeTargets(voice, settings)' \
+      dsp/s3g_sample_player.h \
+    || ! rg -Fq 'updateLiveLoopGeometry(voice, settings)' \
+      dsp/s3g_sample_player.h \
+    || ! rg -Fq 'kLivePitchSmoothingSeconds = 0.010' \
+      dsp/s3g_sample_player.h \
+    || ! rg -Fq 'kLiveLoopTransitionSeconds = 0.005' \
+      dsp/s3g_sample_player.h; then
+  warn "control" "$sample_player_source" \
+    "Sample Player Tune/Fine, Sustain/pre-release Release, and loop edits must update active voices through bounded smoothing."
 fi
 if ! rg -Fq 'PitchMode::Stretch' dsp/s3g_sample_player.h \
     || ! rg -Fq 'stretchSample' dsp/s3g_sample_player.h \
@@ -1138,6 +1184,14 @@ if ! rg -Fq 'voiceCursorCount' dsp/s3g_sample_player.h \
     || ! rg -Fq 'voiceCursorKeys' "$sample_player_source"; then
   warn "control" "$sample_player_source" \
     "Sample Player must publish and draw one labeled cursor per active voice."
+fi
+if ! rg -Fq 'void killAll() noexcept' dsp/s3g_sample_player.h \
+    || ! rg -Fq 'killAllButtonRect' "$sample_player_source" \
+    || ! rg -Fq '@"KILL ALL"' "$sample_player_source" \
+    || ! rg -Fq 'killRequested.exchange' "$sample_player_source" \
+    || ! rg -Fq 'instance.engine.killAll()' "$sample_player_source"; then
+  warn "control" "$sample_player_source" \
+    "Sample Player must provide an audio-thread-safe Kill All action that clears every active voice."
 fi
 if ! rg -Fq 'paramIsExposed' "$sample_player_source" \
     || ! rg -Fq 'outputChannelCount_ == 2u' dsp/s3g_sample_player.h \

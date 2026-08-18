@@ -36,11 +36,13 @@
           <li>Route its fixed output to the intended speakers or monitor path before loading audio.</li>
           <li>Press <code>LOAD SAMPLE</code> or drop an audio file on the waveform.</li>
           <li>On load, Start, the derived End, Loop Start, and Loop End default to safe zero crossings near the file boundaries.</li>
-          <li>Set Root Note, Tune, and Fine Tune for chromatic MIDI playback, then choose Rate or Stretch pitch mode.</li>
+          <li>Set MIDI Receive to Omni or one MIDI channel. Omni preserves the original all-channel response and remains the default.</li>
+          <li>Set Root Note, Tune, and Fine Tune for chromatic MIDI playback, then choose Rate or Stretch pitch mode. Choose Poly, Mono, or Legato voice handling; Glide applies to Legato pitch changes.</li>
+          <li>Leave Tempo Sync at Free for the original timing. To follow the host, enter the sample's source BPM and select Host.</li>
           <li>Drag the labeled Start, End, Loop Start, and Loop End handles on the waveform, or use their sliders for exact normalized values. Scroll over the waveform to zoom, Shift-scroll to pan, and double-click open waveform space to fit the complete file.</li>
           <li>Select Forward, Forward Loop, Reverse, Reverse Loop, Forward Ping-Pong, or Reverse Ping-Pong. Loop points are clipped inside Start/Length.</li>
           <li>Raise Loop Crossfade to overlap the outgoing and incoming sides of a forward or reverse wrap. This remains useful even when both loop points sit on zero crossings.</li>
-          <li>Shape the result with the resonant multimode filter, proportional Attack, Decay, Sustain, Release, Gain, and Velocity. Sample Player 2 also provides Pan.</li>
+          <li>Choose Trigger and Retrigger behavior, then shape the result with the resonant multimode filter and proportional Attack, Decay, Sustain, and Release. The compact upper-right Output / MIDI panel begins with Out, followed by stereo Pan where available, MIDI Receive, and Velocity. Out and Pan operate on the final summed output, so they affect notes already in progress. Press <code>KILL ALL</code> whenever every active voice or latched loop must stop immediately.</li>
         </ol>
 
         <h2 id="playback">Playback Modes</h2>
@@ -57,17 +59,36 @@
           </tbody>
         </table>
 
-        <p>Every MIDI note creates an independent voice. Pitch follows the distance from Root Note plus Tune and Fine Tune. Rate mode uses conventional sampler playback, so higher notes finish sooner and lower notes finish later. Stretch mode changes pitch with overlapped grain readers while the transport continues at the sample's original timing, keeping Start/Length and loop durations constant across the keyboard.</p>
+        <p>Poly mode gives every MIDI note an independent voice. Mono mode keeps one voice and restarts the sample for a new note. Legato also keeps one voice, but connected notes preserve the current playhead and envelope while pitch moves to the new note; Glide sets that transition from 0 to 2000 ms. When the current legato note is released, the most recently held note takes over when the selected Trigger behavior responds to note-off.</p>
 
-        <p>Attack, Decay, and Release are percentages of the audible Start/Length duration; their combined value cannot exceed 100%. That duration follows playback rate in Rate mode and remains locked to the original sample timeline in Stretch mode. Sustain remains an amplitude percentage.</p>
+        <p>Pitch follows the distance from Root Note plus Tune and Fine Tune. Tune and Fine Tune retarget every active voice through a 10 ms smoothing transition, making their automation safe for notes already in progress. Root Note remains a trigger-time keyboard mapping. Rate mode uses conventional sampler playback, so higher notes finish sooner and lower notes finish later. Stretch mode changes pitch with overlapped grain readers while maintaining an independent transport clock.</p>
 
-        <p>Forward and Reverse are true one-shots: note-off does not truncate them, and Release is placed at the end of the selected sample window. All four loop modes sustain until note-off, then enter their proportional Release stage. One shared clock drives every channel in a voice so wide files remain sample-aligned through pitch changes, envelope stages, crossfades, and direction changes. Every active voice has its own waveform cursor labeled with its MIDI note number; voices are never averaged into one display position. Double-clicking a boundary slider restores its sample-aware safe default.</p>
+        <p>Tempo Sync defaults to Free and therefore preserves the original playback behavior. Host mode compares the entered Sample BPM with the host tempo. In Rate mode that tempo ratio changes playback speed and pitch together; in Stretch mode it changes Start/Length and loop duration while preserving the pitch selected from MIDI, Root Note, Tune, and Fine Tune. If the host does not provide tempo, playback falls back safely to the entered Sample BPM ratio of 1:1.</p>
+
+        <h3 id="trigger-voice">Trigger and Retrigger</h3>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Trigger: Auto</td><td>Compatibility default. Forward and Reverse ignore note-off; all loop modes release from note-off.</td></tr>
+            <tr><td>Trigger: Gate</td><td>Every playback mode enters Release on note-off.</td></tr>
+            <tr><td>Trigger: One Shot</td><td>Note-off is ignored. Non-looping modes finish once; loop modes continue until choked, replaced, or stopped by the host.</td></tr>
+            <tr><td>Trigger: Toggle</td><td>A note starts playback; another press of the same key enters Release. Note-off is ignored.</td></tr>
+            <tr><td>Retrigger: Layer</td><td>Compatibility default. Repeated notes may create additional voices in Poly mode.</td></tr>
+            <tr><td>Retrigger: Restart</td><td>A repeated key replaces its matching active voice and starts from the selected boundary.</td></tr>
+            <tr><td>Retrigger: Ignore</td><td>A repeated key is ignored while its matching voice remains active.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Attack, Decay, and Release are percentages of the audible Start/Length duration; their combined value cannot exceed 100%. That duration follows playback rate in Rate mode and remains locked to the original sample timeline in Stretch mode. Sustain remains an amplitude percentage. Sustain changes reach held voices through a 10 ms smoothing transition. Release is recalculated for held voices until note-off or another action begins the Release stage; a release already in progress keeps its established duration.</p>
+
+        <p>With the default Auto trigger, Forward and Reverse are true one-shots: note-off does not truncate them, and Release is placed at the end of the selected sample window. All four loop modes sustain until note-off, then enter their proportional Release stage. One shared clock drives every channel in a voice so wide files remain sample-aligned through tempo sync, pitch changes, envelope stages, crossfades, and direction changes. Every active voice has its own waveform cursor labeled with its MIDI note number; voices are never averaged into one display position. Double-clicking a boundary slider restores its sample-aware safe default.</p>
 
         <h2 id="waveform-filter">Waveform Editing and Filter</h2>
 
         <p>The waveform labels <code>S</code>, <code>E</code>, <code>LS</code>, and <code>LE</code> are direct handles. Start and End use the upper half of the display; Loop Start and Loop End use the lower half, so coincident default boundaries remain individually selectable. Zoom changes only the view and never changes playback positions.</p>
 
-        <p>Loop Crossfade is a percentage of the resolved loop span and is bounded so a playable loop body remains. It applies to Forward Loop and Reverse Loop; ping-pong modes reverse continuously at their endpoints and do not wrap.</p>
+        <p>Loop Crossfade is a percentage of the resolved loop span and is bounded so a playable loop body remains. It applies to Forward Loop and Reverse Loop; ping-pong modes reverse continuously at their endpoints and do not wrap. Loop Start, Loop End, and Loop Crossfade changes update active loop voices through a 5 ms click-safe transition. Start and Length remain fixed for each triggered voice.</p>
 
         <p>The filter offers Off, Low Pass, Band Pass, High Pass, and Notch types. Cutoff is frequency-scaled from 20 Hz to 20 kHz, Resonance raises the response around cutoff, and bipolar Env Amount moves cutoff by as much as six octaves from the proportional amplitude envelope. Off is the compatibility default for restored projects.</p>
 
@@ -75,10 +96,12 @@
 
         <ul>
           <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
+          <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16. The filter applies equally to the stereo and 16-channel versions.</li>
           <li>Sample Player 2 output: one fixed stereo port; mono is presented on both stereo lanes.</li>
           <li>Sample Player 16 output: one fixed 16-channel port; unused lanes remain silent.</li>
           <li>Pan is exclusive to Sample Player 2, where it places mono sources across stereo or balances a stereo source.</li>
           <li>Sample Player 16 does not expose Pan. Every source lane maps directly to its matching output lane without stereo balancing or mono duplication; unused output lanes remain silent.</li>
+          <li><code>KILL ALL</code> is a momentary, unsaved panic action. It clears every active voice and held-note state without unloading the sample or changing any controls; the next note starts normally.</li>
           <li><code>EMBED IN STATE</code> stores decoded audio with the project by default; the source path is also retained.</li>
         </ul>
 
@@ -102,6 +125,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#playback">Playback Modes</a>
+          <a href="#trigger-voice">Trigger / Voice</a>
           <a href="#waveform-filter">Waveform / Filter</a>
           <a href="#routing">Routing and State</a>
         </div>
