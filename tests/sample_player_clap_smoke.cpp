@@ -499,6 +499,7 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     clap_audio_buffer_t output {};
     output.data32 = pointers.data();
     output.channel_count = channels;
+    output.constant_mask = ~uint64_t { 0u };
     NoteEvents note;
     clap_process_t process {};
     process.frames_count = 16u;
@@ -509,6 +510,8 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     params->flush(plugin, &channelTwoOnly.input, nullptr);
     ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
         "MIDI-filtered process call failed");
+    ok &= expect(output.constant_mask == 0u,
+        "dynamic output retained a host constant-channel mask");
     bool filtered = true;
     for (const auto& channel : rendered) {
         for (float sample : channel) filtered = filtered && sample == 0.0f;
@@ -594,6 +597,64 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     return ok;
 }
 
+bool exerciseSupportedSourceWidths(const clap_plugin_factory_t* factory,
+    const clap_host_t* host)
+{
+    bool ok = true;
+    for (uint32_t sourceChannels = 1u; sourceChannels <= 16u;
+         ++sourceChannels) {
+        const clap_plugin_t* plugin = factory->create_plugin(factory, host,
+            "org.s3g.s3g-dsp.sample-player-16");
+        ok &= expect(plugin && plugin->init(plugin),
+            "Player 16 source-width fixture creation failed");
+        if (!plugin) return false;
+
+        const auto* state = static_cast<const clap_plugin_state_t*>(
+            plugin->get_extension(plugin, CLAP_EXT_STATE));
+        StateBuffer fixture;
+        fillEmbeddedFixture(fixture, sourceChannels, 3016u);
+        ok &= expect(state && state->load(plugin, &fixture.input),
+            "Player 16 rejected a supported source width");
+        ok &= expect(plugin->activate(plugin, 48000.0, 8u, 16u)
+                && plugin->start_processing(plugin),
+            "Player 16 source-width fixture activation failed");
+
+        std::vector<std::array<float, 16u>> rendered(sourceChannels);
+        std::vector<float*> pointers(sourceChannels);
+        for (uint32_t channel = 0u; channel < sourceChannels; ++channel)
+            pointers[channel] = rendered[channel].data();
+        clap_audio_buffer_t output {};
+        output.data32 = pointers.data();
+        output.channel_count = sourceChannels;
+        output.constant_mask = ~uint64_t { 0u };
+        NoteEvents note;
+        clap_process_t process {};
+        process.frames_count = 16u;
+        process.in_events = &note.input;
+        process.audio_outputs = &output;
+        process.audio_outputs_count = 1u;
+        ok &= expect(plugin->process(plugin, &process)
+                == CLAP_PROCESS_CONTINUE,
+            "Player 16 rejected a connected output prefix wide enough for "
+            "its source");
+        ok &= expect(output.constant_mask == 0u,
+            "Player 16 retained a host constant-channel mask");
+        bool lanesPreserved = rendered[0u][0u] == 0.0f;
+        for (uint32_t channel = 0u; channel < sourceChannels; ++channel) {
+            lanesPreserved = lanesPreserved
+                && std::abs(rendered[channel][1u]
+                    - static_cast<float>(channel + 1u) * 0.1f) < 1.0e-6f;
+        }
+        ok &= expect(lanesPreserved,
+            "Player 16 did not preserve a supported source width");
+
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        plugin->destroy(plugin);
+    }
+    return ok;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -634,6 +695,7 @@ int main(int argc, char** argv)
         ok &= exerciseDescriptor(factory, &context.host,
             "org.s3g.s3g-dsp.sample-player-16", "s3g Sample Player 16",
             16u, 3016u);
+        ok &= exerciseSupportedSourceWidths(factory, &context.host);
     }
     if (entry) entry->deinit();
     if (library) dlclose(library);

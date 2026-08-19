@@ -44,8 +44,8 @@
 
         <ol>
           <li>Insert <code>s3g Processor Loop 8ch</code> on an 8-channel REAPER track.</li>
-          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
-          <li>Click <code>LOAD</code> and choose an audio file.</li>
+          <li>Leave <code>FORMAT</code> at <code>8CH DIRECT</code> for discrete routing, or select <code>QUAD RING</code> or <code>STEREO RING</code> for an internal monitoring fold-down.</li>
+          <li>Click <code>LOAD</code> and choose an audio file, or drag a supported audio file from Finder onto the plugin window.</li>
           <li>Use the transport icons to play, pause/resume, or stop and return the lane playheads to the start.</li>
           <li>Use the output lane strip to enable or mute individual lanes.</li>
           <li>Shape lane timing with the relationship and loop sections.</li>
@@ -56,20 +56,9 @@
 
         <h2 id="display">Display</h2>
 
-        <div class="compact-grid">
-          <div>
-            <h3>Waveform</h3>
-            <p>Shows the loaded channel with the strongest activity. Loop start and length are drawn as markers over the waveform.</p>
-          </div>
-          <div>
-            <h3>Lane Playheads</h3>
-            <p>Thin overlay cursors show where enabled lanes are inside the loop region. The relationship panel shows lane-rate differences as horizontal bars.</p>
-          </div>
-          <div>
-            <h3>Lane Strip</h3>
-            <p>The compact output strip enables or mutes individual output lanes without invoking the topology patch matrix model.</p>
-          </div>
-        </div>
+        <p>The waveform shows the loaded channel with the strongest activity. Loop start and length are drawn as markers over it, while thin overlay cursors show where the enabled lanes are inside the loop region.</p>
+
+        <p>The relationship panel shows lane-rate differences as horizontal bars. The compact output strip enables or mutes individual output lanes without invoking the topology patch matrix model.</p>
 
         <h2 id="engine">Engine</h2>
 
@@ -85,6 +74,8 @@
             <tr><td>XFD</td><td>Loop seam crossfade as a percentage of the active loop length, capped at 30%. This keeps the seam proportional as <code>LEN</code> changes.</td></tr>
             <tr><td>DUCK</td><td>Optional seam ducking inside the crossfade window.</td></tr>
             <tr><td>OUT</td><td>Output gain after lane playback.</td></tr>
+            <tr><td>FORMAT</td><td><code>8CH DIRECT</code> preserves the eight lanes. <code>QUAD RING</code> projects them into outputs 1–4; <code>STEREO RING</code> projects them into outputs 1–2. The host bus remains eight channels and unused outputs are silent.</td></tr>
+            <tr><td>ROTATE</td><td>Rotates the eight source lanes around the quad or stereo ring from −180° to +180°. It has no audible effect in <code>8CH DIRECT</code>.</td></tr>
             <tr><td>STRT</td><td>Loop start position inside the loaded file.</td></tr>
             <tr><td>LEN</td><td>Loop length. The default is the full file.</td></tr>
           </tbody>

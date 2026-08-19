@@ -243,6 +243,39 @@ bool expect(bool condition, const char* message)
     return false;
 }
 
+void fillEmbeddedWidthFixture(StateBuffer& state, uint8_t channelCount)
+{
+    FixtureSavedState fixture;
+    fixture.outputConfigId = 2016u;
+    auto& slot = fixture.slots[0u];
+    slot.sliceCount = 1u;
+    slot.mappedSliceCount = 1u;
+    slot.rootNote = 60u;
+    slot.mappedRootNote = 60u;
+    slot.midiChannel = 1u;
+    slot.embedded = 1u;
+    slot.channelCount = channelCount;
+    slot.frameCount = 64u;
+    slot.sampleRate = 48000.0;
+    slot.slices[0u].startFrame = 0u;
+    slot.slices[0u].endFrame = slot.frameCount;
+    slot.envelope.attackProportion = 0.0f;
+    slot.envelope.decayProportion = 0.0f;
+    slot.envelope.sustain = 1.0f;
+    slot.envelope.releaseProportion = 1.0f / 64.0f;
+    const auto* fixtureBytes = reinterpret_cast<const uint8_t*>(&fixture);
+    state.bytes.insert(state.bytes.end(), fixtureBytes,
+        fixtureBytes + sizeof(fixture));
+    for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+        std::array<float, 64u> samples {};
+        samples.fill(static_cast<float>(channel + 1u) * 0.03f);
+        const auto* sampleBytes = reinterpret_cast<const uint8_t*>(
+            samples.data());
+        state.bytes.insert(state.bytes.end(), sampleBytes,
+            sampleBytes + sizeof(samples));
+    }
+}
+
 #if defined(__APPLE__)
 bool testWaveExport()
 {
@@ -475,6 +508,17 @@ int main(int argc, char** argv)
     }
     ok &= expect(legacyMigration,
         "state v9 did not migrate with transient pre-roll disabled");
+
+    bool supportedSourceWidths = state != nullptr;
+    for (uint8_t sourceChannels = 1u;
+         supportedSourceWidths && sourceChannels <= 16u;
+         ++sourceChannels) {
+        StateBuffer widthFixture;
+        fillEmbeddedWidthFixture(widthFixture, sourceChannels);
+        supportedSourceWidths = state->load(plugin, &widthFixture.input);
+    }
+    ok &= expect(supportedSourceWidths,
+        "Sample Slicer 16 rejected a supported 1-16 channel source width");
 
     FixtureSavedState fixture;
     fixture.auxPress = 0.52f;

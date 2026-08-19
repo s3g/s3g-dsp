@@ -691,7 +691,7 @@ inline constexpr NoInputMixerFamilyLayout kNoInputMixerFamilyLayout {
     { 12.0, 42.0, 1332.0, 766.0 },
     { 28.0, 78.0, 1300.0, 714.0 },
     { PluginClass::EffectProcessor, PanelRole::Output,
-        { 248.0, 150.0, 392.0, 132.0 }, 36.0, 26.0, 4u },
+        { 248.0, 150.0, 392.0, 184.0 }, 36.0, 26.0, 6u },
     { PluginClass::EffectProcessor, PanelRole::Engine,
         { 936.0, 78.0, 392.0, 262.0 }, 36.0, 26.0, 9u },
     { PluginClass::EffectProcessor, PanelRole::SelectedObject,

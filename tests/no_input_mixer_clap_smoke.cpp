@@ -25,7 +25,7 @@ namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 402u;
+constexpr uint32_t kParamCount = 404u;
 constexpr clap_id kOutputParam = 1u;
 constexpr clap_id kFeedbackParam = 5u;
 constexpr clap_id kQualityParam = 10u;
@@ -48,6 +48,8 @@ constexpr clap_id kMatrixMidiModeParam = 57u;
 constexpr clap_id kMatrixMidiSignParam = 58u;
 constexpr clap_id kMatrixMidiRampParam = 59u;
 constexpr clap_id kBehaviorDepthParam = 60u;
+constexpr clap_id kOutputFormatParam = 61u;
+constexpr clap_id kOutputRotationParam = 62u;
 constexpr clap_id kLaneOneMuteParam = 1003u;
 constexpr clap_id kLaneOneMidFrequencyParam = 1005u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
@@ -535,6 +537,8 @@ int main(int argc, char** argv)
     clap_param_info_t matrixMidiModeInfo {};
     clap_param_info_t matrixMidiSignInfo {};
     clap_param_info_t matrixMidiRampInfo {};
+    clap_param_info_t outputFormatInfo {};
+    clap_param_info_t outputRotationInfo {};
     bool foundReactDepth = false;
     bool foundReactMode = false;
     bool foundReactDirection = false;
@@ -544,6 +548,8 @@ int main(int argc, char** argv)
     bool foundMatrixMidiMode = false;
     bool foundMatrixMidiSign = false;
     bool foundMatrixMidiRamp = false;
+    bool foundOutputFormat = false;
+    bool foundOutputRotation = false;
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
         clap_param_info_t info {};
         if (!params->get_info(plugin, index, &info)) {
@@ -586,11 +592,20 @@ int main(int argc, char** argv)
             matrixMidiRampInfo = info;
             foundMatrixMidiRamp = true;
         }
+        if (info.id == kOutputFormatParam) {
+            outputFormatInfo = info;
+            foundOutputFormat = true;
+        }
+        if (info.id == kOutputRotationParam) {
+            outputRotationInfo = info;
+            foundOutputRotation = true;
+        }
     }
     ok = ok && foundReactDepth && foundReactMode
         && foundReactDirection && foundBehaviorDepth && foundBehavior
         && foundFieldShape && foundMatrixMidiMode
         && foundMatrixMidiSign && foundMatrixMidiRamp
+        && foundOutputFormat && foundOutputRotation
         && (reactDepthInfo.flags & CLAP_PARAM_IS_MODULATABLE) != 0u
         && (reactDepthInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
         && (reactModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
@@ -613,7 +628,16 @@ int main(int argc, char** argv)
         && (matrixMidiRampInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
         && matrixMidiRampInfo.min_value == 20.0
         && matrixMidiRampInfo.max_value == 10000.0
-        && matrixMidiRampInfo.default_value == 1000.0;
+        && matrixMidiRampInfo.default_value == 1000.0
+        && (outputFormatInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && outputFormatInfo.min_value == 0.0
+        && outputFormatInfo.max_value == 2.0
+        && outputFormatInfo.default_value == 0.0
+        && (outputRotationInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
+        && (outputRotationInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u
+        && outputRotationInfo.min_value == -180.0
+        && outputRotationInfo.max_value == 180.0
+        && outputRotationInfo.default_value == 0.0;
     if (!ok) std::cerr << "failed: setup/parameter metadata\n";
 
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
@@ -716,10 +740,74 @@ int main(int argc, char** argv)
     normalDirectionChange.add(kReactDirectionParam, 1.0);
     if (params) params->flush(plugin, &normalDirectionChange.input, nullptr);
 
+    EventList ringOutputChange;
+    ringOutputChange.add(kOutputFormatParam, 1.0);
+    ringOutputChange.add(kOutputRotationParam, 90.0);
+    if (ok) params->flush(plugin, &ringOutputChange.input, nullptr);
+    double ringFormatValue = -1.0;
+    double ringRotationValue = -999.0;
+    MemoryState ringOutputState;
+    clap_ostream_t ringOutputStream { &ringOutputState, stateWrite };
+    ok = ok
+        && params->get_value(plugin, kOutputFormatParam, &ringFormatValue)
+        && ringFormatValue == 1.0
+        && params->get_value(plugin, kOutputRotationParam,
+            &ringRotationValue)
+        && ringRotationValue == 90.0
+        && state->save(plugin, &ringOutputStream);
+    EventList directOutputChange;
+    directOutputChange.add(kOutputFormatParam, 0.0);
+    directOutputChange.add(kOutputRotationParam, 0.0);
+    if (ok) params->flush(plugin, &directOutputChange.input, nullptr);
+    ringOutputState.offset = 0u;
+    clap_istream_t ringOutputInput { &ringOutputState, stateRead };
+    ok = ok && state->load(plugin, &ringOutputInput)
+        && params->get_value(plugin, kOutputFormatParam, &ringFormatValue)
+        && ringFormatValue == 1.0
+        && params->get_value(plugin, kOutputRotationParam,
+            &ringRotationValue)
+        && ringRotationValue == 90.0;
+    if (!ok) std::cerr << "failed: ring output state\n";
+    if (params) params->flush(plugin, &directOutputChange.input, nullptr);
+
     MemoryState saved;
     clap_ostream_t outputStream { &saved, stateWrite };
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();
     if (!ok) std::cerr << "failed: current state save\n";
+
+    bool versionFourteenMigrationOk = ok;
+    if (versionFourteenMigrationOk
+        && saved.bytes.size() >= sizeof(uint32_t) + 8u) {
+        MemoryState versionFourteen = saved;
+        const uint32_t version = 14u;
+        std::memcpy(versionFourteen.bytes.data(), &version, sizeof(version));
+        versionFourteen.bytes.resize(versionFourteen.bytes.size() - 8u);
+        clap_istream_t versionFourteenStream {
+            &versionFourteen, stateRead
+        };
+        double migratedFormat = -1.0;
+        double migratedRotation = -999.0;
+        versionFourteenMigrationOk = state->load(plugin,
+                &versionFourteenStream)
+            && versionFourteen.offset == versionFourteen.bytes.size()
+            && params->get_value(plugin, kOutputFormatParam,
+                &migratedFormat)
+            && migratedFormat == 0.0
+            && params->get_value(plugin, kOutputRotationParam,
+                &migratedRotation)
+            && migratedRotation == 0.0;
+        saved.offset = 0u;
+        clap_istream_t postV14Restore { &saved, stateRead };
+        versionFourteenMigrationOk = versionFourteenMigrationOk
+            && state->load(plugin, &postV14Restore)
+            && saved.offset == saved.bytes.size();
+        saved.offset = 0u;
+    } else {
+        versionFourteenMigrationOk = false;
+    }
+    ok = ok && versionFourteenMigrationOk;
+    if (!versionFourteenMigrationOk)
+        std::cerr << "failed: v14 state migration\n";
 
     bool versionThirteenMigrationOk = ok;
     if (versionThirteenMigrationOk) {
@@ -815,9 +903,10 @@ int main(int argc, char** argv)
     // Version eleven keeps the version-ten layout but converts dynamic cell
     // topology into a stable mutation anchor.
     MemoryState versionTen = saved;
-    if (versionTen.bytes.size() >= sizeof(uint32_t)) {
+    if (versionTen.bytes.size() >= sizeof(uint32_t) + 8u) {
         const uint32_t version = 10u;
         std::memcpy(versionTen.bytes.data(), &version, sizeof(version));
+        versionTen.bytes.resize(versionTen.bytes.size() - 8u);
         clap_istream_t versionTenStream { &versionTen, stateRead };
         ok = ok && state->load(plugin, &versionTenStream);
     } else {
@@ -825,14 +914,14 @@ int main(int argc, char** argv)
     }
     if (!ok) std::cerr << "failed: v10 state migration\n";
 
-    // Version ten originally appended the NIM-specific surface topology mode
-    // and cell. Removing those final fields recreates version nine exactly.
+    // Remove the v15 output fields plus the v10 topology mode/cell to recreate
+    // the version-nine byte layout exactly.
     MemoryState versionNine = saved;
-    if (versionNine.bytes.size() >= sizeof(uint32_t) * 2u) {
+    if (versionNine.bytes.size() >= sizeof(uint32_t) * 4u) {
         const uint32_t version = 9u;
         std::memcpy(versionNine.bytes.data(), &version, sizeof(version));
         versionNine.bytes.resize(versionNine.bytes.size()
-            - sizeof(uint32_t) * 2u);
+            - sizeof(uint32_t) * 4u);
         clap_istream_t versionNineStream { &versionNine, stateRead };
         ok = ok && state->load(plugin, &versionNineStream);
     } else {
@@ -1061,7 +1150,13 @@ int main(int argc, char** argv)
         && std::strcmp(processorName, "NEGATIVE") == 0
         && params->value_to_text(plugin, kMatrixMidiRampParam, 1000.0,
             processorName, sizeof(processorName))
-        && std::strcmp(processorName, "1000 ms") == 0;
+        && std::strcmp(processorName, "1000 ms") == 0
+        && params->value_to_text(plugin, kOutputFormatParam, 2.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "STEREO RING") == 0
+        && params->value_to_text(plugin, kOutputRotationParam, 90.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "+90.0 deg") == 0;
     if (!ok) std::cerr << "failed: parameter text\n";
 
     AudioBlock audio;
@@ -1623,6 +1718,42 @@ int main(int argc, char** argv)
         if (channel > 0u) ok = ok && difference[channel] > 1.0e-4;
     }
     if (!ok) std::cerr << "failed: audio generation\n";
+
+    EventList quadOutput;
+    quadOutput.add(kOutputFormatParam, 1.0);
+    quadOutput.add(kOutputRotationParam, 45.0);
+    process.in_events = &quadOutput.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    double quadEnergy = 0.0;
+    bool quadUnusedSilent = true;
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (float value : audio.output[channel]) {
+            if (channel < 4u) quadEnergy += std::abs(value);
+            else quadUnusedSilent = quadUnusedSilent && value == 0.0f;
+        }
+    }
+    EventList stereoOutput;
+    stereoOutput.add(kOutputFormatParam, 2.0);
+    stereoOutput.add(kOutputRotationParam, -90.0);
+    process.in_events = &stereoOutput.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    double stereoEnergy = 0.0;
+    bool stereoUnusedSilent = true;
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (float value : audio.output[channel]) {
+            if (channel < 2u) stereoEnergy += std::abs(value);
+            else stereoUnusedSilent = stereoUnusedSilent && value == 0.0f;
+        }
+    }
+    ok = ok && quadEnergy > 1.0e-7 && stereoEnergy > 1.0e-7
+        && quadUnusedSilent && stereoUnusedSilent;
+    if (!ok) std::cerr << "failed: ring output fold-down\n";
+    process.in_events = &directOutputChange.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    process.in_events = nullptr;
 
     saved.offset = 0u;
     clap_istream_t timedRestore { &saved, stateRead };

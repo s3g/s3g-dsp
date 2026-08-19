@@ -28,6 +28,7 @@
 #include <dlfcn.h>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <vector>
 
 // Optional documentation-only selectors exposed by specific native views.
@@ -46,6 +47,59 @@
 - (void)textDidChange:(NSNotification*)notification;
 - (void)refresh:(NSTimer*)timer;
 - (void)captureDocumentationHistorySample;
+@end
+
+@interface S3GSmokeFilePasteboard : NSObject {
+    NSArray<NSURL*>* _urls;
+}
+- (instancetype)initWithURLs:(NSArray<NSURL*>*)urls;
+- (NSArray<NSURL*>*)readObjectsForClasses:(NSArray<Class>*)classes
+    options:(NSDictionary<NSPasteboardReadingOptionKey, id>*)options;
+@end
+
+@implementation S3GSmokeFilePasteboard
+- (instancetype)initWithURLs:(NSArray<NSURL*>*)urls
+{
+    self = [super init];
+    if (self) _urls = [urls copy];
+    return self;
+}
+- (NSArray<NSURL*>*)readObjectsForClasses:(NSArray<Class>*)classes
+    options:(NSDictionary<NSPasteboardReadingOptionKey, id>*)options
+{
+    (void)classes;
+    (void)options;
+    return _urls;
+}
+- (void)dealloc
+{
+    [_urls release];
+    [super dealloc];
+}
+@end
+
+@interface S3GSmokeDraggingInfo : NSObject {
+    id _pasteboard;
+}
+- (instancetype)initWithPasteboard:(id)pasteboard;
+- (NSPasteboard*)draggingPasteboard;
+@end
+
+@implementation S3GSmokeDraggingInfo
+- (instancetype)initWithPasteboard:(id)pasteboard
+{
+    self = [super init];
+    if (self) {
+        _pasteboard = [pasteboard retain];
+    }
+    return self;
+}
+- (NSPasteboard*)draggingPasteboard { return _pasteboard; }
+- (void)dealloc
+{
+    [_pasteboard release];
+    [super dealloc];
+}
 @end
 
 namespace {
@@ -156,10 +210,61 @@ bool closeEnough(CGFloat a, CGFloat b)
     return std::fabs(a - b) < 0.5;
 }
 
+void writeLittleEndian16(FILE* file, uint16_t value)
+{
+    std::fputc(value & 0xffu, file);
+    std::fputc((value >> 8u) & 0xffu, file);
+}
+
+void writeLittleEndian32(FILE* file, uint32_t value)
+{
+    writeLittleEndian16(file, static_cast<uint16_t>(value & 0xffffu));
+    writeLittleEndian16(file, static_cast<uint16_t>(value >> 16u));
+}
+
+bool writeDropSmokeWaveFile(const char* path, double frequency)
+{
+    if (!path || !path[0]) return false;
+    FILE* file = std::fopen(path, "wb");
+    if (!file) return false;
+    constexpr uint32_t sampleRate = 48000u;
+    constexpr uint32_t frameCount = 256u;
+    constexpr uint32_t dataBytes = frameCount * sizeof(int16_t);
+    std::fwrite("RIFF", 1u, 4u, file);
+    writeLittleEndian32(file, 36u + dataBytes);
+    std::fwrite("WAVEfmt ", 1u, 8u, file);
+    writeLittleEndian32(file, 16u);
+    writeLittleEndian16(file, 1u);
+    writeLittleEndian16(file, 1u);
+    writeLittleEndian32(file, sampleRate);
+    writeLittleEndian32(file, sampleRate * sizeof(int16_t));
+    writeLittleEndian16(file, sizeof(int16_t));
+    writeLittleEndian16(file, 16u);
+    std::fwrite("data", 1u, 4u, file);
+    writeLittleEndian32(file, dataBytes);
+    for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+        const double phase = 6.28318530717958647692 * frequency
+            * static_cast<double>(frame) / static_cast<double>(sampleRate);
+        const int16_t sample = static_cast<int16_t>(
+            std::lround(std::sin(phase) * 12000.0));
+        writeLittleEndian16(file, static_cast<uint16_t>(sample));
+    }
+    const bool ok = std::ferror(file) == 0;
+    return std::fclose(file) == 0 && ok;
+}
+
 struct MemoryPluginState {
     std::vector<uint8_t> bytes;
     size_t offset = 0u;
 };
+
+bool memoryStateContains(const MemoryPluginState& state,
+                         const std::string& text)
+{
+    if (text.empty()) return false;
+    return std::search(state.bytes.begin(), state.bytes.end(),
+        text.begin(), text.end()) != state.bytes.end();
+}
 
 template <typename Params>
 struct WorldSphereSavedState {
@@ -630,6 +735,117 @@ int main(int argc, char** argv)
             && resolvedDefault == firstParam.default_value
             && !s3g::clap_gui::sliderDoubleClickDefault(
                 singleClick, plugin, firstParam.id, &resolvedDefault);
+
+        const bool loopOutputContract = std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.loop-processor-8ch") == 0;
+        const bool multiLoopOutputContract = std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.multi-loop-processor-8ch") == 0;
+        if (ok && (loopOutputContract || multiLoopOutputContract)) {
+            failureStage = "loop ring-output parameter/state contract";
+            const clap_id formatId = loopOutputContract ? 15u : 20u;
+            const clap_id rotationId = loopOutputContract ? 16u : 21u;
+            clap_param_info_t formatInfo {};
+            clap_param_info_t rotationInfo {};
+            bool foundFormat = false;
+            bool foundRotation = false;
+            for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+                clap_param_info_t info {};
+                if (!params->get_info(plugin, index, &info)) {
+                    ok = false;
+                    break;
+                }
+                if (info.id == formatId) {
+                    formatInfo = info;
+                    foundFormat = true;
+                } else if (info.id == rotationId) {
+                    rotationInfo = info;
+                    foundRotation = true;
+                }
+            }
+            char formatText[32] {};
+            char rotationText[32] {};
+            double parsedFormat = -1.0;
+            ok = ok && foundFormat && foundRotation
+                && std::strcmp(formatInfo.name, "Output Format") == 0
+                && std::strcmp(formatInfo.module, "Output") == 0
+                && (formatInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && formatInfo.min_value == 0.0
+                && formatInfo.max_value == 2.0
+                && formatInfo.default_value == 0.0
+                && std::strcmp(rotationInfo.name, "Output Rotation") == 0
+                && std::strcmp(rotationInfo.module, "Output") == 0
+                && rotationInfo.min_value == -180.0
+                && rotationInfo.max_value == 180.0
+                && rotationInfo.default_value == 0.0
+                && params->value_to_text(plugin, formatId, 2.0,
+                    formatText, sizeof(formatText))
+                && std::strcmp(formatText, "STEREO RING") == 0
+                && params->text_to_value(plugin, formatId, "QUAD RING",
+                    &parsedFormat)
+                && parsedFormat == 1.0
+                && params->value_to_text(plugin, rotationId, 73.0,
+                    rotationText, sizeof(rotationText))
+                && std::strcmp(rotationText, "+73.0 deg") == 0;
+
+            const auto* pluginState = ok
+                ? static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
+            SingleParamEventInput event {};
+            if (ok) {
+                setSingleParamEvent(event, formatId, 2.0);
+                params->flush(plugin, &event.events, nullptr);
+                setSingleParamEvent(event, rotationId, 73.0);
+                params->flush(plugin, &event.events, nullptr);
+            }
+            MemoryPluginState current;
+            clap_ostream_t currentOutput { &current, stateWrite };
+            ok = ok && pluginState && pluginState->save && pluginState->load
+                && pluginState->save(plugin, &currentOutput)
+                && !current.bytes.empty();
+            if (ok) {
+                setSingleParamEvent(event, formatId, 0.0);
+                params->flush(plugin, &event.events, nullptr);
+                setSingleParamEvent(event, rotationId, -40.0);
+                params->flush(plugin, &event.events, nullptr);
+                current.offset = 0u;
+                clap_istream_t currentInput { &current, stateReadWhole };
+                ok = pluginState->load(plugin, &currentInput)
+                    && current.offset == current.bytes.size();
+            }
+            double restoredFormat = -1.0;
+            double restoredRotation = -999.0;
+            ok = ok && params->get_value(plugin, formatId, &restoredFormat)
+                && restoredFormat == 2.0
+                && params->get_value(plugin, rotationId, &restoredRotation)
+                && std::fabs(restoredRotation - 73.0) < 0.0001;
+
+            MemoryPluginState legacy;
+            if (ok && loopOutputContract) {
+                DocumentationLoopState stateFixture {};
+                const auto* begin = reinterpret_cast<const uint8_t*>(
+                    &stateFixture);
+                legacy.bytes.assign(begin, begin + sizeof(stateFixture));
+            } else if (ok) {
+                DocumentationMultiLoopState stateFixture {};
+                const auto* begin = reinterpret_cast<const uint8_t*>(
+                    &stateFixture);
+                legacy.bytes.assign(begin, begin + sizeof(stateFixture));
+            }
+            if (ok) {
+                clap_istream_t legacyInput { &legacy, stateReadWhole };
+                ok = pluginState->load(plugin, &legacyInput)
+                    && legacy.offset == legacy.bytes.size()
+                    && params->get_value(plugin, formatId, &restoredFormat)
+                    && restoredFormat == 0.0
+                    && params->get_value(plugin, rotationId,
+                        &restoredRotation)
+                    && restoredRotation == 0.0;
+            }
+            if (!ok) {
+                std::cerr << "Loop ring-output contract failed for "
+                          << pluginId << "\n";
+            }
+        }
 
         if (ok && std::strcmp(
                 pluginId,
@@ -6014,6 +6230,47 @@ int main(int argc, char** argv)
                 ok = ok && [[document valueForKey:@"activePage"]
                     unsignedIntValue] == 0u;
 
+                if (ok) {
+                    failureStage = "No Input Mixer ring output controls";
+                    pageArrow(124u, @"\uF703");
+                    pageArrow(124u, @"\uF703");
+                    pageArrow(124u, @"\uF703");
+                    ok = [[document valueForKey:@"activePage"]
+                        unsignedIntValue] == 3u;
+                    const auto& outputPanel =
+                        s3g::gui_layout::kNoInputMixerFamilyLayout.output;
+                    const CGFloat outputControlX = static_cast<CGFloat>(
+                        s3g::gui_layout::processorControlX(
+                            outputPanel.frame.x));
+                    const CGFloat outputTrackWidth = static_cast<CGFloat>(
+                        s3g::gui_layout::processorTrackWidth(
+                            outputPanel.frame.width));
+                    const CGFloat formatY = static_cast<CGFloat>(
+                        s3g::gui_layout::rowY(outputPanel, 2u));
+                    clickNoInput(NSMakePoint(outputControlX + 50.0,
+                        formatY + 5.0));
+                    ok = ok && [[document valueForKey:@"openMenu"] intValue]
+                        != -1;
+                    if (ok) clickNoInput(NSMakePoint(outputControlX + 50.0,
+                        formatY + 61.0));
+                    double outputFormat = -1.0;
+                    ok = ok && params->get_value(plugin, 61u,
+                            &outputFormat)
+                        && outputFormat == 2.0;
+                    if (ok) clickNoInput(NSMakePoint(
+                        outputControlX + outputTrackWidth * 0.75,
+                        s3g::gui_layout::rowY(outputPanel, 3u) + 5.0));
+                    double outputRotation = -999.0;
+                    ok = ok && params->get_value(plugin, 62u,
+                            &outputRotation)
+                        && std::fabs(outputRotation - 90.0) < 0.5;
+                    pageArrow(123u, @"\uF702");
+                    pageArrow(123u, @"\uF702");
+                    pageArrow(123u, @"\uF702");
+                    ok = ok && [[document valueForKey:@"activePage"]
+                        unsignedIntValue] == 0u;
+                }
+
                 failureStage = "No Input Mixer presets and randomization";
                 double feedbackBefore = 0.0;
                 double bodyBefore = 0.0;
@@ -6866,6 +7123,43 @@ int main(int argc, char** argv)
                     clickNoInput(NSMakePoint(
                         tabStart + tabWidth * 0.5,
                         family.fieldPanel.y + 11.0));
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
+        if (ok && (loopOutputContract || multiLoopOutputContract)) {
+            failureStage = "Loop output format GUI";
+            const clap_id formatId = loopOutputContract ? 15u : 20u;
+            const clap_id rotationId = loopOutputContract ? 16u : 21u;
+            const CGFloat controlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(596.0));
+            const CGFloat trackWidth = static_cast<CGFloat>(
+                s3g::gui_layout::processorTrackWidth(306.0));
+            const auto clickLoop = [&](NSPoint point) {
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+            };
+            @try {
+                clickLoop(NSMakePoint(controlX + 50.0, 104.0));
+                ok = [[document valueForKey:@"openMenu"] intValue]
+                    == (multiLoopOutputContract ? 3 : 1);
+                if (ok) {
+                    clickLoop(NSMakePoint(controlX + 50.0, 148.0));
+                    double format = -1.0;
+                    ok = params->get_value(plugin, formatId, &format)
+                        && format == 1.0
+                        && [[document valueForKey:@"openMenu"] intValue]
+                            == 0;
+                }
+                if (ok) {
+                    clickLoop(NSMakePoint(
+                        controlX + trackWidth * 0.75, 130.0));
+                    double rotation = -999.0;
+                    ok = params->get_value(plugin, rotationId, &rotation)
+                        && std::fabs(rotation - 90.0) < 0.5;
                 }
             } @catch (NSException*) {
                 ok = false;
@@ -8922,6 +9216,85 @@ int main(int argc, char** argv)
                         [directory stringByAppendingPathComponent:fileName]
                         atomically:YES];
                 }
+            }
+        }
+        if (ok && !documentationCapture
+            && (loopOutputContract || multiLoopOutputContract)) {
+            failureStage = "Loop Finder audio drag-and-drop";
+            std::vector<std::string> droppedPaths;
+            bool pasteboardWritten = false;
+            bool dragTypeRegistered = false;
+            NSDragOperation enteredOperation = NSDragOperationNone;
+            bool dropPerformed = false;
+            bool stateSaved = false;
+            uint32_t pathsFound = 0u;
+            @try {
+                const uint32_t fileCount = multiLoopOutputContract ? 2u : 1u;
+                NSMutableArray<NSURL*>* urls = [NSMutableArray array];
+                for (uint32_t index = 0u; index < fileCount; ++index) {
+                    NSString* name = [NSString stringWithFormat:
+                        @"s3g-loop-drop-%@-%u.wav",
+                        [[NSUUID UUID] UUIDString], index];
+                    NSString* path = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:name];
+                    const char* filePath = [path fileSystemRepresentation];
+                    ok = filePath && writeDropSmokeWaveFile(filePath,
+                        220.0 + static_cast<double>(index) * 110.0);
+                    if (!ok) break;
+                    droppedPaths.emplace_back(filePath);
+                    NSURL* url = [NSURL fileURLWithPath:path];
+                    [urls addObject:url];
+                }
+                S3GSmokeFilePasteboard* pasteboard =
+                    [[S3GSmokeFilePasteboard alloc] initWithURLs:urls];
+                pasteboardWritten = pasteboard != nil
+                    && urls.count == fileCount;
+                dragTypeRegistered = [[document registeredDraggedTypes]
+                    containsObject:NSPasteboardTypeFileURL];
+                ok = ok && pasteboardWritten && dragTypeRegistered;
+                S3GSmokeDraggingInfo* draggingInfo = ok
+                    ? [[S3GSmokeDraggingInfo alloc]
+                        initWithPasteboard:pasteboard] : nil;
+                [pasteboard release];
+                if (ok) {
+                    enteredOperation = [document
+                        draggingEntered:(id<NSDraggingInfo>)draggingInfo];
+                    dropPerformed = [document performDragOperation:
+                        (id<NSDraggingInfo>)draggingInfo];
+                    ok = enteredOperation == NSDragOperationCopy
+                        && dropPerformed;
+                }
+                [draggingInfo release];
+
+                const auto* pluginState = ok
+                    ? static_cast<const clap_plugin_state_t*>(
+                        plugin->get_extension(plugin, CLAP_EXT_STATE))
+                    : nullptr;
+                MemoryPluginState loadedState;
+                clap_ostream_t loadedOutput { &loadedState, stateWrite };
+                stateSaved = ok && pluginState && pluginState->save
+                    && pluginState->save(plugin, &loadedOutput);
+                ok = ok && stateSaved;
+                for (const auto& path : droppedPaths) {
+                    const bool found = memoryStateContains(loadedState, path);
+                    pathsFound += found ? 1u : 0u;
+                    ok = ok && found;
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+            for (const auto& path : droppedPaths) {
+                std::remove(path.c_str());
+            }
+            if (!ok) {
+                std::cerr << "Loop drop details: files="
+                    << droppedPaths.size() << " pasteboard="
+                    << pasteboardWritten << " registered="
+                    << dragTypeRegistered << " entered="
+                    << static_cast<unsigned long>(enteredOperation)
+                    << " performed=" << dropPerformed << " state="
+                    << stateSaved << " paths=" << pathsFound << "/"
+                    << droppedPaths.size() << "\n";
             }
         }
         if (ok && responsive

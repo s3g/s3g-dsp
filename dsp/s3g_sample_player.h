@@ -196,6 +196,14 @@ public:
         return true;
     }
 
+    // Audio-thread adoption for an immutable asset that was fully validated
+    // before publication. This must remain constant-time: SampleAsset::valid()
+    // deliberately scans every source sample to reject non-finite data.
+    void setPreparedAsset(const SampleAsset* asset) noexcept
+    {
+        asset_ = asset;
+    }
+
     std::size_t activeVoiceCount() const noexcept
     {
         return static_cast<std::size_t>(std::count_if(voices_.begin(),
@@ -219,9 +227,14 @@ public:
         }
         voiceCursorCount_ = 0u;
         outputPeak_ = 0.0f;
-        if (!prepared_ || !asset_ || !asset_->valid() || !settings.valid()
+        // Hosted assets are validated before setPreparedAsset() publishes
+        // them. Never call SampleAsset::valid() here: it scans the complete
+        // file and would repeat that work for every real-time audio block.
+        if (!prepared_ || !asset_ || !settings.valid()
             || outputChannelCount != outputChannelCount_
-            || asset_->channelCount > outputChannelCount || frameCount == 0u)
+            || asset_->channelCount == 0u
+            || asset_->channelCount > outputChannelCount
+            || asset_->frameCount() == 0u || frameCount == 0u)
             return;
         if (!events) eventCount = 0u;
 
@@ -856,7 +869,9 @@ private:
     void startVoice(const RenderEvent& event,
         const PlayerSettings& settings) noexcept
     {
-        if (!asset_ || !asset_->valid()) return;
+        // The asset was validated at set/publish time. Revalidating here
+        // would rescan the complete file for every note-on.
+        if (!asset_) return;
         const uint32_t frames = asset_->frameCount();
         if (frames == 0u) return;
         const uint32_t start = std::min(normalizedFrame(settings.start,

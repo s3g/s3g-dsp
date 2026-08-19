@@ -1,6 +1,7 @@
 #include "s3g_no_input_mixer.h"
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
+#include "s3g_ring_output_mixdown.h"
 #include "../common/s3g_nim_midi_feedback.h"
 
 #include <clap/clap.h>
@@ -26,7 +27,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 14u;
+constexpr uint32_t kStateVersion = 15u;
 constexpr uint32_t kChannelCount = s3g::kNoInputMixerChannels;
 constexpr uint32_t kRouteScopeSamples = 96u;
 constexpr uint32_t kGuiWidth = 1356u;
@@ -118,6 +119,8 @@ constexpr clap_id kMatrixMidiModeParamId = 57u;
 constexpr clap_id kMatrixMidiSignParamId = 58u;
 constexpr clap_id kMatrixMidiRampParamId = 59u;
 constexpr clap_id kBehaviorDepthParamId = 60u;
+constexpr clap_id kOutputFormatParamId = 61u;
+constexpr clap_id kOutputRotationParamId = 62u;
 constexpr clap_id kMatrixParamBase = 100u;
 constexpr clap_id kLaneParamBase = 1000u;
 constexpr clap_id kLaneParamStride = 100u;
@@ -146,7 +149,7 @@ constexpr clap_id kInsertToneOffset = 2u;
 constexpr clap_id kInsertBiasOffset = 3u;
 constexpr clap_id kInsertLevelOffset = 4u;
 constexpr clap_id kInsertBypassOffset = 5u;
-constexpr uint32_t kGlobalParamCount = 58u;
+constexpr uint32_t kGlobalParamCount = 60u;
 constexpr uint32_t kLaneDirectParamCount = 17u;
 constexpr uint32_t kInsertParamCount = 6u;
 constexpr uint32_t kLaneParamCount = kLaneDirectParamCount
@@ -347,6 +350,10 @@ const std::array<GlobalParamDef, kGlobalParamCount> kGlobalParamDefs {{
         s3g::kNoInputMatrixMidiRampDefaultMs, false },
     { kBehaviorDepthParamId, "Depth", "Movement / Behavior", 0.0, 1.0,
         kDefaultParams.motion, false },
+    { kOutputFormatParamId, "Output Format", "Output", 0.0, 2.0,
+        0.0, true },
+    { kOutputRotationParamId, "Output Rotation", "Output", -180.0, 180.0,
+        0.0, false },
 }};
 
 struct ParamRange {
@@ -540,6 +547,30 @@ struct LegacyNoInputMixerParamsV4 {
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    uint32_t matrixMidiMode = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiMode::Flip);
+    uint32_t matrixMidiSign = static_cast<uint32_t>(
+        s3g::NoInputMatrixMidiSign::Positive);
+    float matrixMidiRampMs = s3g::kNoInputMatrixMidiRampDefaultMs;
+    std::array<uint32_t, 2u> auxMute {};
+    s3g::NoInputMovementBehaviorParams behavior {};
+    float behaviorDepth = 0.0f;
+    NoInputSurface surface {};
+    uint32_t surfaceTopologyMode = static_cast<uint32_t>(
+        NoInputSurfaceTopologyMode::Base);
+    uint32_t surfaceTopologyCell = kNoInputSurfaceNoTopologyCell;
+    uint32_t outputFormat = 0u;
+    float outputRotationDegrees = 0.0f;
+};
+
+struct Version14SavedState {
+    uint32_t version = 14u;
     s3g::NoInputMixerParams params = s3g::defaultNoInputMixerParams();
     uint32_t selectedLane = 2u;
     uint32_t selectedSlot = 0u;
@@ -938,6 +969,9 @@ struct Plugin {
     double transportTempoBpm = 120.0;
     bool transportHasTempo = false;
     s3g::NoInputMixer mixer;
+    s3g::RingOutputMixdown outputMixdown;
+    std::atomic<uint32_t> outputFormat { 0u };
+    std::atomic<float> outputRotationDegrees { 0.0f };
     std::array<float, kChannelCount> frame {};
     std::array<std::atomic<float>,
         s3g::kNoInputMixerMatrixCells * kRouteScopeSamples> routeScope {};
@@ -1346,6 +1380,15 @@ void applyParamLegacy(Plugin& plugin, clap_id id, double value)
             plugin.params.aux[id == kAuxABiasParamId ? 0u : 1u]
                 .effect.bias = static_cast<float>(value);
             break;
+        case kOutputFormatParamId:
+            plugin.outputFormat.store(static_cast<uint32_t>(std::lround(value)),
+                std::memory_order_relaxed);
+            break;
+        case kOutputRotationParamId:
+            plugin.outputRotationDegrees.store(
+                s3g::sanitizeRingOutputRotation(static_cast<float>(value)),
+                std::memory_order_relaxed);
+            break;
         default: break;
         }
         syncMixerStateLegacy(plugin);
@@ -1493,6 +1536,12 @@ bool paramValueLegacy(const Plugin& plugin, clap_id id, double& value)
         value = plugin.params.aux[0].effect.bias; return true;
     case kAuxBBiasParamId:
         value = plugin.params.aux[1].effect.bias; return true;
+    case kOutputFormatParamId:
+        value = plugin.outputFormat.load(std::memory_order_relaxed);
+        return true;
+    case kOutputRotationParamId:
+        value = plugin.outputRotationDegrees.load(std::memory_order_relaxed);
+        return true;
     default: break;
     }
     uint32_t destination = 0u;
@@ -1801,6 +1850,7 @@ bool surfaceKeepsLive(clap_id id)
 {
     if (id == kOutputParamId || id == kCeilingParamId
         || id == kLimiterParamId || id == kDcBlockParamId
+        || id == kOutputFormatParamId || id == kOutputRotationParamId
         || id == kQualityParamId || id == kVarianceParamId
         || id == kHouseToneParamId || id == kAuxAMuteParamId
         || id == kAuxBMuteParamId || id == kSurfaceXParamId
@@ -1960,6 +2010,10 @@ void publishUiBaseState(Plugin& plugin)
         plugin.matrixMidiSign.load(std::memory_order_relaxed));
     publishUiParameter(plugin, kMatrixMidiRampParamId,
         plugin.matrixMidiRampMs.load(std::memory_order_relaxed));
+    publishUiParameter(plugin, kOutputFormatParamId,
+        plugin.outputFormat.load(std::memory_order_relaxed));
+    publishUiParameter(plugin, kOutputRotationParamId,
+        plugin.outputRotationDegrees.load(std::memory_order_relaxed));
 }
 
 void requestGuiCommandDrain(Plugin& plugin)
@@ -2174,6 +2228,23 @@ void applyParam(Plugin& plugin, clap_id id, double value,
         if (publishUi) publishUiParameter(plugin, id, milliseconds);
         return;
     }
+    if (id == kOutputFormatParamId) {
+        const uint32_t format = static_cast<uint32_t>(std::clamp(
+            std::lround(value), 0l, 2l));
+        plugin.outputFormat.store(format, std::memory_order_relaxed);
+        markNrpnFeedbackDirty(plugin, id);
+        if (publishUi) publishUiParameter(plugin, id, format);
+        return;
+    }
+    if (id == kOutputRotationParamId) {
+        const float rotation = s3g::sanitizeRingOutputRotation(
+            static_cast<float>(value));
+        plugin.outputRotationDegrees.store(rotation,
+            std::memory_order_relaxed);
+        markNrpnFeedbackDirty(plugin, id);
+        if (publishUi) publishUiParameter(plugin, id, rotation);
+        return;
+    }
     auto snapshot = baseSnapshot(plugin);
     if (!assignSnapshotParam(snapshot, id, value)) return;
     plugin.params = snapshot.params;
@@ -2208,6 +2279,14 @@ bool paramValue(const Plugin& plugin, clap_id id, double& value)
     }
     if (id == kMatrixMidiRampParamId) {
         value = plugin.matrixMidiRampMs.load(std::memory_order_relaxed);
+        return true;
+    }
+    if (id == kOutputFormatParamId) {
+        value = plugin.outputFormat.load(std::memory_order_relaxed);
+        return true;
+    }
+    if (id == kOutputRotationParamId) {
+        value = plugin.outputRotationDegrees.load(std::memory_order_relaxed);
         return true;
     }
     return snapshotParamValue(baseSnapshot(plugin), id, value);
@@ -3179,6 +3258,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     const uint32_t writableChannels = std::min<uint32_t>(
         output.channel_count, kChannelCount);
     std::array<float, kChannelCount> blockPeaks {};
+    std::array<float, kChannelCount> renderedFrame {};
     float blockPeak = 0.0f;
 
     for (uint32_t frame = 0u; frame < process->frames_count; ++frame) {
@@ -3201,15 +3281,23 @@ clap_process_status process(const clap_plugin_t* plugin,
         } else {
             --p->routeScopeCountdown;
         }
+        for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
+            blockPeaks[lane] = std::max(blockPeaks[lane],
+                std::abs(p->frame[lane]));
+        }
+        p->outputMixdown.configure(s3g::sanitizeRingOutputFormat(
+            p->outputFormat.load(std::memory_order_relaxed)),
+            p->outputRotationDegrees.load(std::memory_order_relaxed));
+        p->outputMixdown.processFrame(p->frame.data(),
+            renderedFrame.data());
         for (uint32_t lane = 0u; lane < writableChannels; ++lane) {
-            const float value = p->frame[lane];
+            const float value = renderedFrame[lane];
             if (output.data32 && output.data32[lane]) {
                 output.data32[lane][frame] = value;
             }
             if (output.data64 && output.data64[lane]) {
                 output.data64[lane][frame] = static_cast<double>(value);
             }
-            blockPeaks[lane] = std::max(blockPeaks[lane], std::abs(value));
             blockPeak = std::max(blockPeak, std::abs(value));
         }
         for (uint32_t lane = writableChannels;
@@ -3329,7 +3417,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     info->id = id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     if (range.stepped) info->flags |= CLAP_PARAM_IS_STEPPED;
-    else if (id != kMatrixMidiRampParamId)
+    else if (id != kMatrixMidiRampParamId
+        && id != kOutputRotationParamId)
         info->flags |= CLAP_PARAM_IS_MODULATABLE;
     info->min_value = range.minimum;
     info->max_value = range.maximum;
@@ -3389,6 +3478,16 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     char* display, uint32_t size)
 {
     if (!display || size == 0u) return false;
+    if (id == kOutputFormatParamId) {
+        std::snprintf(display, size, "%s", s3g::ringOutputFormatName(
+            s3g::sanitizeRingOutputFormat(static_cast<uint32_t>(std::clamp(
+                std::lround(value), 0l, 2l)))));
+        return true;
+    }
+    if (id == kOutputRotationParamId) {
+        std::snprintf(display, size, "%+.1f deg", value);
+        return true;
+    }
     if (id == kOutputParamId || id == kCeilingParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
         return true;
@@ -3586,6 +3685,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
     const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kOutputFormatParamId) {
+        for (uint32_t format = 0u; format < s3g::kRingOutputFormatCount;
+             ++format) {
+            if (std::strcmp(display, s3g::ringOutputFormatName(
+                    static_cast<s3g::RingOutputFormat>(format))) == 0) {
+                *value = format;
+                return true;
+            }
+        }
+    }
     if (id == kMotionShapeParamId) {
         for (uint32_t shape = 0u;
              shape < s3g::kMatrixFlowShapeCount; ++shape) {
@@ -3787,6 +3896,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.surface = p->surface;
     state.surfaceTopologyMode = p->surfaceTopologyMode;
     state.surfaceTopologyCell = p->surfaceTopologyCell;
+    double outputFormat = 0.0;
+    double outputRotation = 0.0;
+    uiParameterValue(*p, kOutputFormatParamId, outputFormat);
+    uiParameterValue(*p, kOutputRotationParamId, outputRotation);
+    state.outputFormat = static_cast<uint32_t>(std::clamp(
+        std::lround(outputFormat), 0l, 2l));
+    state.outputRotationDegrees = s3g::sanitizeRingOutputRotation(
+        static_cast<float>(outputRotation));
     const auto* bytes = reinterpret_cast<const uint8_t*>(&state);
     uint64_t offset = 0u;
     while (offset < sizeof(state)) {
@@ -3822,6 +3939,28 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(state) - sizeof(version))) {
             return false;
         }
+    } else if (version == 14u) {
+        Version14SavedState previous;
+        previous.version = version;
+        if (!readExact(reinterpret_cast<uint8_t*>(&previous)
+                + sizeof(version), sizeof(previous) - sizeof(version))) {
+            return false;
+        }
+        state.params = previous.params;
+        state.selectedLane = previous.selectedLane;
+        state.selectedSlot = previous.selectedSlot;
+        state.selectedSource = previous.selectedSource;
+        state.selectedDestination = previous.selectedDestination;
+        state.guiPage = previous.guiPage;
+        state.matrixMidiMode = previous.matrixMidiMode;
+        state.matrixMidiSign = previous.matrixMidiSign;
+        state.matrixMidiRampMs = previous.matrixMidiRampMs;
+        state.auxMute = previous.auxMute;
+        state.behavior = previous.behavior;
+        state.behaviorDepth = previous.behaviorDepth;
+        state.surface = previous.surface;
+        state.surfaceTopologyMode = previous.surfaceTopologyMode;
+        state.surfaceTopologyCell = previous.surfaceTopologyCell;
     } else if (version == 13u) {
         Version13SavedState previous;
         previous.version = version;
@@ -4171,6 +4310,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         s3g::kNoInputMatrixMidiRampMinimumMs,
         s3g::kNoInputMatrixMidiRampMaximumMs),
         std::memory_order_relaxed);
+    p->outputFormat.store(static_cast<uint32_t>(
+        s3g::sanitizeRingOutputFormat(state.outputFormat)),
+        std::memory_order_relaxed);
+    p->outputRotationDegrees.store(s3g::sanitizeRingOutputRotation(
+        state.outputRotationDegrees), std::memory_order_relaxed);
     publishUiSnapshot(*p, loaded);
     publishUiParameter(*p, kMatrixMidiModeParamId,
         p->matrixMidiMode.load(std::memory_order_relaxed));
@@ -4178,6 +4322,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->matrixMidiSign.load(std::memory_order_relaxed));
     publishUiParameter(*p, kMatrixMidiRampParamId,
         p->matrixMidiRampMs.load(std::memory_order_relaxed));
+    publishUiParameter(*p, kOutputFormatParamId,
+        p->outputFormat.load(std::memory_order_relaxed));
+    publishUiParameter(*p, kOutputRotationParamId,
+        p->outputRotationDegrees.load(std::memory_order_relaxed));
     if (p->active.load(std::memory_order_acquire)) {
         if (!enqueueGuiCommand(*p, { GuiCommandType::ApplyUiSnapshot,
                 CLAP_INVALID_ID, 0.62, 0u, loaded.params.seed })) {
@@ -4228,6 +4376,7 @@ enum OpenMenu : int {
     kMenuEventDivision,
     kMenuAuxTapA,
     kMenuAuxTapB,
+    kMenuOutputFormat,
 };
 
 NSRect processorMenuRect(const s3g::gui_layout::Panel& panel,
@@ -6069,6 +6218,8 @@ NSRect effectEditorToggleRect(uint32_t row)
     case kMenuQuality:
         return NSMakeRect(family.containment.frame.x + 108.0,
             family.containment.frame.y + 35.0, 110.0, 15.0);
+    case kMenuOutputFormat:
+        return processorMenuRect(family.output, 2u);
     case kMenuReactMode:
         return processorMenuRect(family.movement, 0u);
     case kMenuFieldDivision:
@@ -6104,6 +6255,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (menu == kMenuMotionShape) return s3g::kMatrixFlowShapeCount;
     if (menu == kMenuBehavior) return s3g::kNoInputMovementBehaviorCount;
     if (menu == kMenuQuality) return 3u;
+    if (menu == kMenuOutputFormat) return s3g::kRingOutputFormatCount;
     if (menu == kMenuLane || menu == kMenuSource
         || menu == kMenuDestination) return kChannelCount;
     return 0u;
@@ -6177,6 +6329,9 @@ NSRect effectEditorToggleRect(uint32_t row)
     NSString* tapItems[4] = {
         @"RETURN", @"PRE EQ", @"POST EQ", @"POST INSERT",
     };
+    NSString* outputFormatItems[s3g::kRingOutputFormatCount] = {
+        @"8CH DIRECT", @"QUAD RING", @"STEREO RING",
+    };
     NSString* presetItems[s3g::kNoInputMixerFactoryPresetCount] = {
         @"INIT", @"CIRCUIT LATTICE", @"RAIN FOREST", @"WOOL RING",
         @"RAT CAGE", @"ZONE WEB", @"NEGATIVE SPACE", @"RELAY BLOOM",
@@ -6216,6 +6371,13 @@ NSRect effectEditorToggleRect(uint32_t row)
         items = qualityItems;
         count = 3u;
         selected = static_cast<int>(visible.params.quality);
+    } else if (_openMenu == kMenuOutputFormat) {
+        items = outputFormatItems;
+        count = s3g::kRingOutputFormatCount;
+        double format = 0.0;
+        uiParameterValue(*plugin, kOutputFormatParamId, format);
+        selected = static_cast<int>(std::clamp(
+            std::lround(format), 0l, 2l));
     } else if (_openMenu == kMenuMotionShape) {
         items = shapeItems;
         count = s3g::kMatrixFlowShapeCount;
@@ -6489,6 +6651,13 @@ NSRect effectEditorToggleRect(uint32_t row)
     auto* plugin = static_cast<Plugin*>(_plugin);
     if (!plugin) return;
     const auto visible = uiSnapshot(*plugin);
+    double outputFormatValue = 0.0;
+    double outputRotationValue = 0.0;
+    uiParameterValue(*plugin, kOutputFormatParamId, outputFormatValue);
+    uiParameterValue(*plugin, kOutputRotationParamId, outputRotationValue);
+    const auto visibleOutputFormat = s3g::sanitizeRingOutputFormat(
+        static_cast<uint32_t>(std::clamp(
+            std::lround(outputFormatValue), 0l, 2l)));
     const auto& family = s3g::gui_layout::kNoInputMixerFamilyLayout;
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
@@ -6582,14 +6751,24 @@ NSRect effectEditorToggleRect(uint32_t row)
             visible.params.ceilingDb]
         norm:(visible.params.ceilingDb + 18.0f) / 18.0f row:1u
         panel:family.output label:label valueAttrs:value style:style];
+    s3g::clap_gui::drawProcessorMenu(@"FORMAT",
+        [NSString stringWithUTF8String:s3g::ringOutputFormatName(
+            visibleOutputFormat)],
+        s3g::gui_layout::rowY(family.output, 2u),
+        family.output.frame.x, family.output.frame.width,
+        label, value, style);
+    [self drawSlider:@"ROTATE"
+        value:[NSString stringWithFormat:@"%+.1f°", outputRotationValue]
+        norm:(outputRotationValue + 180.0) / 360.0 row:3u
+        panel:family.output label:label valueAttrs:value style:style];
     s3g::clap_gui::drawToggle(@"LIMIT",
         visible.params.limiterEnabled != 0u,
-        s3g::gui_layout::rowY(family.output, 2u), label, value, style,
+        s3g::gui_layout::rowY(family.output, 4u), label, value, style,
         s3g::gui_layout::processorLabelX(family.output.frame.x),
         s3g::gui_layout::processorControlX(family.output.frame.x), 82.0);
     s3g::clap_gui::drawToggle(@"DC BLOCK",
         visible.params.dcBlockEnabled != 0u,
-        s3g::gui_layout::rowY(family.output, 3u), label, value, style,
+        s3g::gui_layout::rowY(family.output, 5u), label, value, style,
         s3g::gui_layout::processorLabelX(family.output.frame.x),
         s3g::gui_layout::processorControlX(family.output.frame.x), 82.0);
     }
@@ -7047,7 +7226,8 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (const s3g::gui_layout::Panel*)panelForParam:(clap_id)param
 {
     const auto& family = s3g::gui_layout::kNoInputMixerFamilyLayout;
-    if (param == kOutputParamId || param == kCeilingParamId)
+    if (param == kOutputParamId || param == kCeilingParamId
+        || param == kOutputRotationParamId)
         return &family.output;
     if ((param >= kFeedbackParamId && param <= kFormantParamId)
         || (param >= kAgencyParamId && param <= kVarianceParamId))
@@ -7198,6 +7378,9 @@ NSRect effectEditorToggleRect(uint32_t row)
     }
     case kMenuQuality:
         [self applyGuiParam:kQualityParamId value:index];
+        break;
+    case kMenuOutputFormat:
+        [self applyGuiParam:kOutputFormatParamId value:index];
         break;
     case kMenuMotionShape:
         [self applyGuiParam:kMotionShapeParamId value:index];
@@ -7993,13 +8176,13 @@ NSRect effectEditorToggleRect(uint32_t row)
     const uint32_t slot = plugin->selectedSlot.load(
         std::memory_order_relaxed);
     if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(family.output, 2u)))) {
+            s3g::gui_layout::sliderHitRect(family.output, 4u)))) {
         [self applyGuiParam:kLimiterParamId
             value:(visible.params.limiterEnabled == 0u ? 1.0 : 0.0)];
         return;
     }
     if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(family.output, 3u)))) {
+            s3g::gui_layout::sliderHitRect(family.output, 5u)))) {
         [self applyGuiParam:kDcBlockParamId
             value:(visible.params.dcBlockEnabled == 0u ? 1.0 : 0.0)];
         return;
@@ -8061,6 +8244,18 @@ NSRect effectEditorToggleRect(uint32_t row)
             [self beginSlider:outputIds[row] event:event point:point];
             return;
         }
+    }
+    if (page == 3u && NSPointInRect(point,
+            processorMenuRect(family.output, 2u))) {
+        _openMenu = kMenuOutputFormat;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (page == 3u && NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(family.output, 3u)))) {
+        [self beginSlider:kOutputRotationParamId event:event point:point];
+        return;
     }
     const clap_id networkIds[8] = {
         kFeedbackParamId, kCouplingParamId, kPhaseParamId,

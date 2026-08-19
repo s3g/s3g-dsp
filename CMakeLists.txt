@@ -226,6 +226,10 @@ target_link_libraries(s3g_ambi_neural_ecology_smoke PRIVATE s3g_dsp)
 add_executable(s3g_no_input_mixer_smoke tests/no_input_mixer_smoke.cpp)
 target_link_libraries(s3g_no_input_mixer_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_ring_output_mixdown_smoke
+  tests/ring_output_mixdown_smoke.cpp)
+target_link_libraries(s3g_ring_output_mixdown_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_ambi_insect_encoder_smoke tests/ambi_insect_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_insect_encoder_smoke PRIVATE s3g_dsp)
 target_compile_definitions(s3g_ambi_insect_encoder_smoke PRIVATE
@@ -498,6 +502,11 @@ if(BUILD_TESTING)
     COMMAND $<TARGET_FILE:s3g_no_input_mixer_smoke>)
   set_tests_properties(s3g_no_input_mixer_smoke PROPERTIES
     LABELS "nim;smoke" TIMEOUT 300)
+
+  add_test(NAME s3g_ring_output_mixdown_smoke
+    COMMAND $<TARGET_FILE:s3g_ring_output_mixdown_smoke>)
+  set_tests_properties(s3g_ring_output_mixdown_smoke PROPERTIES
+    LABELS "non_nim;smoke" TIMEOUT 120)
 
   add_test(NAME clap_bundle_installer_smoke
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/clap_bundle_installer_smoke.sh)
@@ -2308,7 +2317,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_loop_processor_clap> org.s3g.s3g-dsp.loop-processor-8ch 920 640 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 674 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 726 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -225,7 +226,6 @@ bool expect(bool condition, const char* message)
 
 @end
 
-
 namespace {
 
 NSView* findAccessibleView(NSView* root, NSString* accessibilityLabel);
@@ -294,6 +294,11 @@ bool prepareGeometryPlaybackSnapshot(NSView* root)
 {
     [root layoutSubtreeIfNeeded];
     NSView* geometry = findAccessibleView(root, @"Rhythm geometry");
+    NSView* modeView = findAccessibleView(root, @"Geometry view mode");
+    if (![modeView isKindOfClass:NSPopUpButton.class]) return false;
+    NSPopUpButton* mode = static_cast<NSPopUpButton*>(modeView);
+    [mode selectItemAtIndex:0];
+    if (![mode sendAction:mode.action to:mode.target]) return false;
     SEL selector = NSSelectorFromString(
         @"prepareDocumentationPlaybackSnapshot");
     if (!geometry || ![geometry respondsToSelector:selector]) return false;
@@ -301,6 +306,61 @@ bool prepareGeometryPlaybackSnapshot(NSView* root)
     auto prepare = reinterpret_cast<PrepareFunction>(
         [geometry methodForSelector:selector]);
     return prepare(geometry, selector) >= 4;
+}
+
+NSTableView* findTableView(NSView* root)
+{
+    if ([root isKindOfClass:NSTableView.class])
+        return static_cast<NSTableView*>(root);
+    for (NSView* child in root.subviews) {
+        if (NSTableView* table = findTableView(child)) return table;
+    }
+    return nil;
+}
+
+bool prepareDocumentationSongMuteControls(NSView* root)
+{
+    NSTableView* table = findTableView(root);
+    if (!table) return false;
+    NSInteger muteColumn = -1;
+    for (NSUInteger column = 0u;
+         column < table.tableColumns.count; ++column) {
+        if ([table.tableColumns[column].identifier isEqualToString:@"mutes"]) {
+            muteColumn = static_cast<NSInteger>(column);
+            break;
+        }
+    }
+    if (muteColumn < 0 || table.numberOfRows < 1) return false;
+    for (NSInteger row = 0; row < table.numberOfRows; ++row) {
+        (void)[table viewAtColumn:muteColumn row:row makeIfNecessary:YES];
+    }
+    [table layoutSubtreeIfNeeded];
+    return true;
+}
+
+bool selectTrackerGridVolumeField(NSView* root)
+{
+    NSView* grid = findAccessibleView(root, @"Editable tracker lanes");
+    if (!grid) return false;
+    [grid.window makeFirstResponder:grid];
+    for (NSUInteger attempt = 0u; attempt < 6u; ++attempt) {
+        NSString* value = [grid.accessibilityValue isKindOfClass:NSString.class]
+            ? static_cast<NSString*>(grid.accessibilityValue) : @"";
+        if ([value containsString:@", Volume,"]) return true;
+        NSEvent* rightArrow = [NSEvent
+            keyEventWithType:NSEventTypeKeyDown
+            location:NSZeroPoint
+            modifierFlags:0u
+            timestamp:NSProcessInfo.processInfo.systemUptime
+            windowNumber:grid.window.windowNumber
+            context:nil
+            characters:@"\uf703"
+            charactersIgnoringModifiers:@"\uf703"
+            isARepeat:NO
+            keyCode:124u];
+        [grid keyDown:rightArrow];
+    }
+    return false;
 }
 
 bool writeDocumentationPage(NSView* root, NSString* directory,
@@ -738,7 +798,7 @@ int main(int argc, char** argv)
                         && clickButton(parent, nil, @"TRACKER page", nil),
                     "Song file menu or named stable-ID pattern selector is incomplete");
                 hostWindow = [[NSWindow alloc] initWithContentRect:
-                    parent.frame
+                    NSMakeRect(0.0, 0.0, requestedWidth, requestedHeight)
                     styleMask:(NSWindowStyleMaskTitled
                         | NSWindowStyleMaskClosable
                         | NSWindowStyleMaskResizable)
@@ -746,6 +806,11 @@ int main(int argc, char** argv)
                 hostWindow.title = @"s3g Tracker smoke host";
                 hostWindow.releasedWhenClosed = NO;
                 hostWindow.contentView = parent;
+                [hostWindow setContentSize:NSMakeSize(
+                    requestedWidth, requestedHeight)];
+                [parent setFrame:NSMakeRect(
+                    0.0, 0.0, requestedWidth, requestedHeight)];
+                [parent layoutSubtreeIfNeeded];
                 [hostWindow orderFront:nil];
                 const bool consoleSelected = clickButton(parent, nil,
                     @"CONSOLE page", nil);
@@ -857,6 +922,14 @@ int main(int argc, char** argv)
                     ? [NSString stringWithUTF8String:captureDirectory] : nil;
                 bool documentationProcessing = false;
                 if (directory) {
+                    [hostWindow setContentSize:NSMakeSize(
+                        requestedWidth, requestedHeight)];
+                    [parent setFrame:NSMakeRect(
+                        0.0, 0.0, requestedWidth, requestedHeight)];
+                    [parent layoutSubtreeIfNeeded];
+                    ok &= expect(NSWidth(parent.bounds) == requestedWidth
+                            && NSHeight(parent.bounds) == requestedHeight,
+                        "tracker documentation host size could not be restored");
                     ok &= expect(clickButton(parent, @"DUP", nil, nil)
                             && clickButton(parent, @"DUP", nil, nil),
                         "tracker documentation patterns could not be prepared");
@@ -870,23 +943,22 @@ int main(int argc, char** argv)
                         "Song documentation page could not be prepared");
                     [parent layoutSubtreeIfNeeded];
                     [parent displayIfNeeded];
-                    const std::array<NSString*, 14u> songLaneMutes {{
-                        @"Song row 1 lane 5 mute",
-                        @"Song row 1 lane 6 mute",
-                        @"Song row 2 lane 3 mute",
-                        @"Song row 2 lane 7 mute",
-                        @"Song row 3 lane 2 mute",
-                        @"Song row 3 lane 4 mute",
-                        @"Song row 3 lane 6 mute",
-                        @"Song row 4 lane 1 mute",
-                        @"Song row 4 lane 5 mute",
-                        @"Song row 5 lane 3 mute",
-                        @"Song row 5 lane 4 mute",
-                        @"Song row 5 lane 7 mute",
-                        @"Song row 6 lane 2 mute",
-                        @"Song row 6 lane 6 mute",
+                    const std::array<std::pair<NSUInteger, NSUInteger>, 14u>
+                        songLaneMutes {{
+                        { 0u, 4u }, { 0u, 5u },
+                        { 1u, 2u }, { 1u, 6u },
+                        { 2u, 1u }, { 2u, 3u }, { 2u, 5u },
+                        { 3u, 0u }, { 3u, 4u },
+                        { 4u, 2u }, { 4u, 3u }, { 4u, 6u },
+                        { 5u, 1u }, { 5u, 5u },
                     }};
-                    for (NSString* label : songLaneMutes) {
+                    for (const auto& mute : songLaneMutes) {
+                        ok &= expect(prepareDocumentationSongMuteControls(parent),
+                            "tracker documentation Song mute controls could not be prepared");
+                        NSString* label = [NSString stringWithFormat:
+                            @"Song row %lu lane %lu mute",
+                            static_cast<unsigned long>(mute.first + 1u),
+                            static_cast<unsigned long>(mute.second + 1u)];
                         ok &= expect(clickButton(parent, nil, label, nil),
                             "tracker documentation Song lane mute could not be set");
                     }
@@ -935,6 +1007,31 @@ int main(int argc, char** argv)
                 ok &= expect(clickButton(
                         parent, nil, @"TRACKER page", nil),
                     "Tracker documentation page could not be selected");
+                if (directory) {
+                    ok &= expect(submitCommand(parent,
+                                @"fx 1 1 1 RR 0.62")
+                            && submitCommand(parent,
+                                @"fx 1 1 5 PR 0.84")
+                            && submitCommand(parent,
+                                @"fx 1 1 9 AC 0.72")
+                            && submitCommand(parent,
+                                @"fx 1 1 13 FL 0.46")
+                            && submitCommand(parent,
+                                @"fx 1 2 1 MT 0.58")
+                            && submitCommand(parent,
+                                @"fx 1 2 5 ST 0.36")
+                            && submitCommand(parent,
+                                @"fx 1 2 9 GL 0.64")
+                            && submitCommand(parent,
+                                @"fx 1 2 13 SK 0.48")
+                            && submitCommand(parent,
+                                @"vol 1 1.0 0.68 0.82 0.54 0.94 0.62 0.78 0.48 0.88 0.58 0.74 0.44 0.84 0.52 0.70 0.40"),
+                        "Tracker documentation sequencing fixture could not be prepared");
+                    ok &= expect(clickButton(parent, nil,
+                                @"Expand tracker sequencing columns", nil)
+                            && selectTrackerGridVolumeField(parent),
+                        "Tracker documentation sequencing columns or Volume field could not be selected");
+                }
                 ok &= expect(writeDocumentationPage(parent, directory, @""),
                     "full tracker workspace did not render");
                 if (directory) {
@@ -945,6 +1042,7 @@ int main(int argc, char** argv)
                                 parent, directory, @"geometry"),
                         "active Tracker Geometry page did not render");
                     ok &= expect(clickButton(parent, nil, @"SONG page", nil)
+                            && prepareDocumentationSongMuteControls(parent)
                             && writeDocumentationPage(
                                 parent, directory, @"song"),
                         "active Tracker Song page did not render");

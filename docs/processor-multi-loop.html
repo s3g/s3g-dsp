@@ -44,8 +44,8 @@
 
         <ol>
           <li>Insert <code>s3g Processor Multi Loop 8ch</code> on an 8-channel REAPER track.</li>
-          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
-          <li>Click <code>LOAD</code> and select up to four files in the file picker.</li>
+          <li>Leave <code>FORMAT</code> at <code>8CH DIRECT</code> for discrete routing, or select <code>QUAD RING</code> or <code>STEREO RING</code> for an internal monitoring fold-down.</li>
+          <li>Click <code>LOAD</code> and select up to four files in the file picker, or drag up to four supported audio files from Finder onto the plugin window.</li>
           <li>Choose a <code>RULE</code> to decide how files feed the eight lanes.</li>
           <li>Use <code>SRAT</code> and <code>XBLD</code> to shape the source layer.</li>
           <li>Set the playback rate, loop region, seam crossfade, and output gain.</li>
@@ -114,6 +114,8 @@
             <tr><td>STRT</td><td>Loop start position inside the composite.</td></tr>
             <tr><td>LEN</td><td>Loop length. The default is the full composite.</td></tr>
             <tr><td>OUT</td><td>Output gain after lane playback.</td></tr>
+            <tr><td>FORMAT</td><td><code>8CH DIRECT</code> preserves the eight composite lanes. <code>QUAD RING</code> uses outputs 1–4 and <code>STEREO RING</code> uses outputs 1–2. The fixed eight-channel host bus does not change.</td></tr>
+            <tr><td>ROTATE</td><td>Rotates the lane-to-speaker ring projection from −180° to +180°. Unused host outputs are silent in the folded formats.</td></tr>
             <tr><td>MIDI</td><td>MIDI input behavior. <code>OFF</code> ignores notes, <code>GATE</code> plays while notes are held, and <code>TRIG</code> retriggers from note-on.</td></tr>
             <tr><td>ROOT</td><td>Root MIDI note for pitch-follow playback rate. Note 60 is middle C.</td></tr>
           </tbody>
@@ -139,6 +141,10 @@
         </table>
 
         <h2 id="standalone-app">Standalone App</h2>
+
+        <div class="callout">
+          <p><strong>Source-only application.</strong> The Processor Multi Loop standalone app is not included in packaged s3g-dsp releases. Its source code is provided in the repository and the app must be <a href="building-from-source.html#standalone-apps">built from source</a>.</p>
+        </div>
 
         <p>The macOS standalone app runs outside REAPER and provides a MIDI map based on the nanoKONTROL2 control layout.</p>
 

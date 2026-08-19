@@ -31,7 +31,7 @@
 
         <p>The instrument combines no-input mixing, configurable feedback circuits, resonant-object excitation, and s3g Matrix movement. Its controls describe musical feedback behaviors rather than recreating a specific circuit or artist's instrument.</p>
 
-        <p>A separate <a href="no-input-mixer-standalone.html">No Input Mixer standalone app</a> embeds the same DSP and adds Stereo Autogain, Quad Autogain, and direct eight-channel Core Audio output without requiring REAPER.</p>
+        <p>A separate <a href="no-input-mixer-standalone.html">No Input Mixer standalone app</a> embeds the same DSP for use without a host and adds selectable Core Audio output-channel banks.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -46,7 +46,7 @@
 
         <ol>
           <li>Set a REAPER track to eight channels, then insert <code>s3g Processor No Input Mixer 8ch</code>. No audio pins or MIDI source are required.</li>
-          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
+          <li>On <code>SAFETY</code>, leave <code>FORMAT</code> at <code>8CH DIRECT</code> for discrete routing, or select <code>QUAD RING</code> or <code>STEREO RING</code> for an internal monitoring fold-down.</li>
           <li>Choose one of the title-band factory presets, or click <code>RANDOM</code> and choose <code>HIGH / QUICK</code>, <code>MID / MODERATE</code>, or <code>LOW / SLOW</code> for a bounded complete-network variation.</li>
           <li>Activation injects a deterministic startup packet into the otherwise oscillator-free network. Click <code>NEW</code> to reseed the current patch without changing its matrix or processors.</li>
           <li>Begin on <code>PATCH</code>. Drag a source port to a destination port to create a route; repeat the gesture or click an already selected cable to dissolve it. Hold Option while connecting for negative polarity. In <code>GRID</code>, click once to patch or select an intersection and click the selected intersection again to dissolve it.</li>
@@ -247,13 +247,15 @@
 
         <h2 id="containment">Containment</h2>
 
+        <p>The <code>SAFETY</code> page keeps the host-facing output controls separate from the regenerative graph. <code>FORMAT</code> defaults to <code>8CH DIRECT</code>. <code>QUAD RING</code> projects all eight audition lanes into outputs 1–4, while <code>STEREO RING</code> projects them into outputs 1–2; the CLAP bus remains fixed at eight channels and all unused outputs are written as silence. <code>ROTATE</code> turns that ring projection from −180° to +180° without changing the internal lane order, matrix, or feedback behavior.</p>
+
         <p>Per-lane RMS and peak observers drive a slow feedback governor only when loop energy becomes unsafe. Normal transients are not treated as compressor input. Optional DC blocking surrounds the feedback path, and eight independent ceiling limiters protect the final outputs. The monitor reports <code>QUIET</code>, <code>STABLE</code>, <code>EDGE</code>, or <code>RUNAWAY</code>.</p>
 
         <p><code>PANIC</code> remains visible in the title strip on every page. It ramps the outputs down, clears all feedback, resonator, filter, oversampling, and limiter memories, and rearms from silence. It does not automatically reseed; click <code>NEW</code> when a fresh excitation is wanted.</p>
 
         <h2 id="state">Automation and State</h2>
 
-        <p>The plugin exposes 402 CLAP parameters for host automation: 58 globals; all sixty-four signed matrix gains; seventeen direct controls per lane, including tuning and aux topology; and six controls per insert slot. Continuous sound controls advertise CLAP modulation, and parameter/modulation events take effect at their sample offsets inside each process block. Project state stores the complete mixer, selected lane/slot/source/destination, independent Behavior depth, BU16 mode, new-point sign and ramp time, and editor page. State loading supplies conservative defaults for controls omitted from older stored data; version-eight and earlier projects initialize Behavior Depth from their former shared movement depth. Retired Parameter Surface data and unused parameter IDs 55/56 do not participate in the DSP after migration.</p>
+        <p>The plugin exposes 404 CLAP parameters for host automation: 60 globals; all sixty-four signed matrix gains; seventeen direct controls per lane, including tuning and aux topology; and six controls per insert slot. Continuous sound controls advertise CLAP modulation, and parameter/modulation events take effect at their sample offsets inside each process block. Project state stores the complete mixer, output format and rotation, selected lane/slot/source/destination, independent Behavior depth, BU16 mode, new-point sign and ramp time, and editor page. State loading supplies conservative defaults for controls omitted from older stored data; older projects open in <code>8CH DIRECT</code> at 0° rotation, and version-eight and earlier projects initialize Behavior Depth from their former shared movement depth. Retired Parameter Surface data and unused parameter IDs 55/56 do not participate in the DSP after migration.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-fissure.html">

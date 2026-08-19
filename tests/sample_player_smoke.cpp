@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <utility>
 
 namespace {
@@ -682,6 +683,30 @@ void testSixteenChannelLock()
     }
     check(locked, "16-channel playback did not preserve sample lanes");
 
+    bool narrowerWidthsPreserved = true;
+    for (uint8_t sourceChannels = 1u; sourceChannels <= 16u;
+         ++sourceChannels) {
+        auto narrower = rampAsset(sourceChannels, 64u);
+        engine.reset();
+        narrowerWidthsPreserved = narrowerWidthsPreserved
+            && engine.setAsset(&narrower);
+        std::array<std::array<float, 1u>, 16u> narrowStorage {};
+        std::array<float*, 16u> narrowOutputs {};
+        for (std::size_t channel = 0u; channel < narrowOutputs.size();
+             ++channel)
+            narrowOutputs[channel] = narrowStorage[channel].data();
+        engine.render(settings, &note, 1u, narrowOutputs.data(), 16u, 1u);
+        for (uint32_t channel = 0u; channel < 16u; ++channel) {
+            const float expected = channel < sourceChannels
+                ? static_cast<float>(channel + 1u) * 0.1f : 0.0f;
+            narrowerWidthsPreserved = narrowerWidthsPreserved
+                && near(narrowStorage[channel][0u], expected);
+        }
+    }
+    check(narrowerWidthsPreserved,
+        "16-channel playback did not accept and preserve every 1-16 "
+        "channel source width");
+
     SampleAsset stereo;
     stereo.sampleRate = 48000.0;
     stereo.channelCount = 2u;
@@ -995,6 +1020,37 @@ void testPolyphonicVoiceCursors()
         "polyphonic voices collapsed into one averaged cursor");
 }
 
+void testPreparedAssetIsNotRescannedInRender()
+{
+    auto asset = rampAsset(8u, 4096u);
+    SamplePlayerEngine engine;
+    check(engine.prepare(48000.0, 16u) && engine.setAsset(&asset),
+        "prepared-asset fixture did not validate");
+
+    // A hosted asset is immutable after validation. Place a sentinel outside
+    // the rendered range only after setAsset() so this test can distinguish
+    // ordinary sample reads from an accidental full-file validation pass on
+    // the audio thread.
+    asset.channels[7u].back() = std::numeric_limits<float>::quiet_NaN();
+    PlayerSettings settings;
+    settings.attackProportion = 0.0f;
+    settings.gainDecibels = 0.0f;
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 20u, 60u, 1.0f, 1u,
+    };
+    std::array<std::array<float, 8u>, 16u> rendered {};
+    std::array<float*, 16u> outputs {};
+    for (std::size_t channel = 0u; channel < outputs.size(); ++channel)
+        outputs[channel] = rendered[channel].data();
+    engine.render(settings, &note, 1u, outputs.data(),
+        static_cast<uint32_t>(outputs.size()),
+        static_cast<uint32_t>(rendered[0u].size()));
+    check(near(rendered[0u][0u], 0.1f)
+            && near(rendered[7u][0u], 0.8f)
+            && rendered[8u][0u] == 0.0f,
+        "render or note-on rescanned the complete prepared sample asset");
+}
+
 } // namespace
 
 int main()
@@ -1019,6 +1075,7 @@ int main()
     testLiveLoopEditing();
     testKillAllPlayback();
     testPolyphonicVoiceCursors();
+    testPreparedAssetIsNotRescannedInRender();
     if (failures != 0) {
         std::cerr << failures << " sample player smoke failure(s)\n";
         return 1;

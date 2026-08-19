@@ -1,5 +1,6 @@
 #include "s3g_loop_processor.h"
 #include "s3g_realtime.h"
+#include "s3g_ring_output_mixdown.h"
 #include "../common/s3g_clap_state_stream.h"
 
 #include <clap/clap.h>
@@ -27,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kChannelCount = s3g::kLoopProcessorChannels;
-constexpr uint32_t kStateVersion = 6;
+constexpr uint32_t kStateVersion = 7;
 
 constexpr clap_id kRateParamId = 1;
 constexpr clap_id kSpreadParamId = 2;
@@ -41,6 +42,8 @@ constexpr clap_id kLoopStartParamId = 9;
 constexpr clap_id kLoopLengthParamId = 10;
 constexpr clap_id kLaunchParamId = 13;
 constexpr clap_id kLaneMaskParamId = 14;
+constexpr clap_id kOutputFormatParamId = 15;
+constexpr clap_id kOutputRotationParamId = 16;
 
 constexpr double kGuiW = 920.0;
 constexpr double kGuiH = 640.0;
@@ -51,6 +54,26 @@ constexpr double kSliderTrackW = s3g::gui_layout::processorTrackWidth(kToolboxW)
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    double baseRate = 1.0;
+    double rateSpread = 0.08;
+    double driftAmount = 0.0;
+    double relationCenter = 0.5;
+    double relationGlideMs = 250.0;
+    double loopStart = 0.0;
+    double loopLength = 1.0;
+    double xfadePct = 0.08;
+    double seamDuck = 0.12;
+    double gainDb = -12.0;
+    uint32_t launchMode = 0;
+    uint32_t laneMask = 0xffu;
+    uint32_t playing = 1;
+    char samplePath[1024] {};
+    uint32_t outputFormat = 0u;
+    float outputRotationDegrees = 0.0f;
+};
+
+struct LegacySavedStateV6 {
+    uint32_t version = 6u;
     double baseRate = 1.0;
     double rateSpread = 0.08;
     double driftAmount = 0.0;
@@ -80,6 +103,8 @@ struct ParameterTargets {
     std::atomic<float> gainDb { -12.0f };
     std::atomic<uint32_t> launchMode { 0u };
     std::atomic<uint32_t> laneMask { 0xffu };
+    std::atomic<uint32_t> outputFormat { 0u };
+    std::atomic<float> outputRotationDegrees { 0.0f };
 };
 
 struct Plugin {
@@ -89,6 +114,7 @@ struct Plugin {
     uint32_t maxFrames = 0;
     ParameterTargets targets {};
     s3g::LoopProcessorEngine engine;
+    s3g::RingOutputMixdown outputMixdown;
     std::shared_ptr<const s3g::LoopProcessorSample> sample;
     std::string samplePath;
     std::atomic<bool> playing { true };
@@ -140,6 +166,8 @@ void setParam(Plugin& p, clap_id id, double value)
     case kXfadeParamId: p.targets.xfadePct.store(static_cast<float>(std::clamp(value, 0.0, 0.3)), std::memory_order_release); break;
     case kDuckParamId: p.targets.seamDuck.store(static_cast<float>(std::clamp(value, 0.0, 0.75)), std::memory_order_release); break;
     case kGainParamId: p.targets.gainDb.store(static_cast<float>(std::clamp(value, -60.0, 6.0)), std::memory_order_release); break;
+    case kOutputFormatParamId: p.targets.outputFormat.store(static_cast<uint32_t>(std::clamp(std::lround(value), 0l, 2l)), std::memory_order_release); break;
+    case kOutputRotationParamId: p.targets.outputRotationDegrees.store(s3g::sanitizeRingOutputRotation(static_cast<float>(value)), std::memory_order_release); break;
     default: break;
     }
 }
@@ -235,6 +263,33 @@ void chooseSampleFromFinder(Plugin& p)
     }
 }
 
+bool isSupportedAudioFileURL(NSURL* url)
+{
+    if (!url || ![url isFileURL]) {
+        return false;
+    }
+    NSString* extension = [[[url path] pathExtension] lowercaseString];
+    return [@[@"wav", @"aif", @"aiff", @"caf", @"mp3", @"m4a"]
+        containsObject:extension];
+}
+
+NSArray<NSURL*>* supportedAudioFileURLs(NSPasteboard* pasteboard)
+{
+    if (!pasteboard) {
+        return @[];
+    }
+    NSArray<NSURL*>* urls = [pasteboard
+        readObjectsForClasses:@[ [NSURL class] ]
+        options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+    NSMutableArray<NSURL*>* supported = [NSMutableArray array];
+    for (NSURL* url in urls) {
+        if (isSupportedAudioFileURL(url)) {
+            [supported addObject:url];
+        }
+    }
+    return supported;
+}
+
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
@@ -304,6 +359,30 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         const bool requestedPlaying = p->playing.load(std::memory_order_acquire);
         p->audioPlaying = requestedPlaying;
         p->engine.process(sample, laneOut, frames, requestedPlaying);
+        const auto outputFormat = s3g::sanitizeRingOutputFormat(
+            p->targets.outputFormat.load(std::memory_order_acquire));
+        const float outputRotation = p->targets.outputRotationDegrees.load(
+            std::memory_order_acquire);
+        p->outputMixdown.configure(outputFormat, outputRotation);
+        if (outputFormat != s3g::RingOutputFormat::Direct8) {
+            std::array<float, kChannelCount> direct {};
+            std::array<float, kChannelCount> rendered {};
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                for (uint32_t channel = 0u; channel < kChannelCount;
+                     ++channel) {
+                    direct[channel] = channel < out.channel_count
+                            && out.data32[channel]
+                        ? out.data32[channel][frame] : 0.0f;
+                }
+                p->outputMixdown.processFrame(direct.data(), rendered.data());
+                for (uint32_t channel = 0u;
+                     channel < std::min<uint32_t>(out.channel_count,
+                         kChannelCount); ++channel) {
+                    if (out.data32[channel])
+                        out.data32[channel][frame] = rendered[channel];
+                }
+            }
+        }
         if (requestedPlaying) {
             p->resetAfterStopFrames.store(0u, std::memory_order_release);
         } else {
@@ -371,6 +450,8 @@ constexpr ParamDef kParamDefs[] {
     { kXfadeParamId, "Loop Crossfade", 0.0, 0.3, 0.08 },
     { kDuckParamId, "Seam Duck", 0.0, 0.75, 0.12 },
     { kGainParamId, "Output Gain", -60.0, 6.0, -12.0 },
+    { kOutputFormatParamId, "Output Format", 0.0, 2.0, 0.0 },
+    { kOutputRotationParamId, "Output Rotation", -180.0, 180.0, 0.0 },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0])); }
@@ -381,11 +462,13 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     const auto& def = kParamDefs[index];
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    if (def.id == kLaneMaskParamId) {
+    if (def.id == kLaneMaskParamId || def.id == kOutputFormatParamId) {
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Processor Loop", sizeof(info->module));
+    std::strncpy(info->module,
+        def.id == kOutputFormatParamId || def.id == kOutputRotationParamId
+            ? "Output" : "Processor Loop", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -410,6 +493,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kXfadeParamId: *value = params.xfadePct; return true;
     case kDuckParamId: *value = params.seamDuck; return true;
     case kGainParamId: *value = params.gainDb; return true;
+    case kOutputFormatParamId: *value = p->targets.outputFormat.load(std::memory_order_acquire); return true;
+    case kOutputRotationParamId: *value = p->targets.outputRotationDegrees.load(std::memory_order_acquire); return true;
     default: return false;
     }
 }
@@ -417,7 +502,9 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
     if (!display || size == 0) return false;
-    if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
+    if (id == kOutputFormatParamId) std::snprintf(display, size, "%s", s3g::ringOutputFormatName(s3g::sanitizeRingOutputFormat(static_cast<uint32_t>(std::clamp(std::lround(value), 0l, 2l)))));
+    else if (id == kOutputRotationParamId) std::snprintf(display, size, "%+.1f deg", value);
+    else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kGlideParamId) std::snprintf(display, size, "%.1f ms", value);
     else if (id == kSpreadParamId) std::snprintf(display, size, "%+.0f %%", value * 100.0);
     else if (id == kDriftParamId) std::snprintf(display, size, "%+.3f", value);
@@ -431,6 +518,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 {
     if (!display || !value) return false;
     double v = std::atof(display);
+    if (id == kOutputFormatParamId) {
+        if (std::strstr(display, "QUAD") || std::strstr(display, "quad")) v = 1.0;
+        else if (std::strstr(display, "STEREO") || std::strstr(display, "stereo")) v = 2.0;
+        else if (std::strstr(display, "DIRECT") || std::strstr(display, "direct")) v = 0.0;
+    }
     if (id == kXfadeParamId || id == kLoopStartParamId || id == kLoopLengthParamId) {
         v *= 0.01;
     } else if (id == kSpreadParamId) {
@@ -465,14 +557,45 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.laneMask = params.laneMask;
     s.playing = p->playing.load(std::memory_order_acquire) ? 1u : 0u;
     std::strncpy(s.samplePath, p->samplePath.c_str(), sizeof(s.samplePath) - 1u);
+    s.outputFormat = p->targets.outputFormat.load(std::memory_order_acquire);
+    s.outputRotationDegrees = p->targets.outputRotationDegrees.load(std::memory_order_acquire);
     return s3g::clap_state::writeAll(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
+    uint32_t version = 0u;
+    if (!s3g::clap_state::readAll(stream, &version, sizeof(version))) return false;
     SavedState s {};
-    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
+    s.version = version;
+    if (version == kStateVersion) {
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&s) + sizeof(version),
+                sizeof(s) - sizeof(version))) return false;
+    } else if (version == 6u) {
+        LegacySavedStateV6 legacy {};
+        legacy.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&legacy) + sizeof(version),
+                sizeof(legacy) - sizeof(version))) return false;
+        s.baseRate = legacy.baseRate;
+        s.rateSpread = legacy.rateSpread;
+        s.driftAmount = legacy.driftAmount;
+        s.relationCenter = legacy.relationCenter;
+        s.relationGlideMs = legacy.relationGlideMs;
+        s.loopStart = legacy.loopStart;
+        s.loopLength = legacy.loopLength;
+        s.xfadePct = legacy.xfadePct;
+        s.seamDuck = legacy.seamDuck;
+        s.gainDb = legacy.gainDb;
+        s.launchMode = legacy.launchMode;
+        s.laneMask = legacy.laneMask;
+        s.playing = legacy.playing;
+        std::memcpy(s.samplePath, legacy.samplePath, sizeof(s.samplePath));
+    } else {
+        return false;
+    }
     auto* p = self(plugin);
     setParam(*p, kRateParamId, s.baseRate);
     setParam(*p, kSpreadParamId, s.rateSpread);
@@ -486,6 +609,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     setParam(*p, kXfadeParamId, s.xfadePct);
     setParam(*p, kDuckParamId, s.seamDuck);
     setParam(*p, kGainParamId, s.gainDb);
+    setParam(*p, kOutputFormatParamId, s.outputFormat);
+    setParam(*p, kOutputRotationParamId, s.outputRotationDegrees);
     p->playing.store(s.playing != 0u, std::memory_order_release);
 #if defined(__APPLE__)
     if (s.samplePath[0] != '\0') loadSampleFromPath(*p, s.samplePath, false);
@@ -497,7 +622,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GLoopProcessorView : NSView {
+@interface S3GLoopProcessorView : NSView <NSDraggingDestination> {
     void* _plugin;
     int _dragSlider;
     NSTimer* _timer;
@@ -544,6 +669,7 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         _waveZoom = 1.0;
         _waveScroll = 0.0;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
+        [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
     }
     return self;
 }
@@ -859,13 +985,25 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         s3g::clap_gui::drawPanelFrame(panelX, y, panelW, h, style);
     };
     CGFloat y = 42.0;
-    const CGFloat outputH = 54.0;
+    const CGFloat outputH =
+        s3g::gui_layout::toolboxHeightForRows(3);
     panelFrame(y, outputH);
     s3g::clap_gui::Style outputStyle;
     s3g::clap_gui::drawPanelHeader(
         @"OUTPUT", true, panelX, y, panelW, headerH, section, outputStyle);
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", params.gainDb]
         norm:(params.gainDb + 60.0f) / 66.0f y:y + 36 attrs:small small:small];
+    const auto outputFormat = s3g::sanitizeRingOutputFormat(
+        p->targets.outputFormat.load(std::memory_order_acquire));
+    [self drawMenuControl:@"FORMAT"
+        value:[NSString stringWithUTF8String:s3g::ringOutputFormatName(outputFormat)]
+        y:y + 62 attrs:small small:small];
+    const float outputRotation = p->targets.outputRotationDegrees.load(
+        std::memory_order_acquire);
+    [self drawSlider:@"ROTATE"
+        value:[NSString stringWithFormat:@"%+.1f°", outputRotation]
+        norm:(outputRotation + 180.0f) / 360.0f y:y + 88
+        attrs:small small:small];
     y += outputH + gap;
 
     const CGFloat engineH =
@@ -888,6 +1026,15 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     [self drawRelationshipPreview:NSMakeRect(
         s3g::gui_layout::processorLabelX(panelX), y + 146,
         panelW - 2.0 * s3g::gui_layout::kStandardMetrics.labelInset, 102) attrs:small];
+    if (_openMenu == 1) {
+        NSString* items[] = { @"8CH DIRECT", @"QUAD RING", @"STEREO RING" };
+        s3g::clap_gui::Style style;
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            _menuOrigin.x, _menuOrigin.y,
+            s3g::gui_layout::processorMenuWidth(kToolboxW), 54.0),
+            18.0, items, 3, static_cast<int>(outputFormat), -1, small,
+            style);
+    }
 }
 - (void)updateSlider:(NSPoint)pt
 {
@@ -904,9 +1051,30 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     case 8: setParam(*p, kGlideParamId, 10.0 + n * 1990.0); break;
     case 9: setParam(*p, kLoopStartParamId, n * 0.999); break;
     case 10: setParam(*p, kLoopLengthParamId, 0.01 + n * 0.99); break;
+    case 11: setParam(*p, kOutputRotationParamId, -180.0 + n * 360.0); break;
     default: break;
     }
     [self setNeedsDisplay:YES];
+}
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
+{
+    return supportedAudioFileURLs([sender draggingPasteboard]).count > 0u
+        ? NSDragOperationCopy : NSDragOperationNone;
+}
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    for (NSURL* url in supportedAudioFileURLs(
+             [sender draggingPasteboard])) {
+        const char* path = [[url path] fileSystemRepresentation];
+        if (path && loadSampleFromPath(*p, path, true)) {
+            _waveZoom = 1.0;
+            _waveScroll = 0.0;
+            [self setNeedsDisplay:YES];
+            return YES;
+        }
+    }
+    return NO;
 }
 - (void)mouseDown:(NSEvent*)event
 {
@@ -916,6 +1084,17 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Loop", titleBand,
             _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (_openMenu == 1) {
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt,
+            NSMakeRect(_menuOrigin.x, _menuOrigin.y,
+                s3g::gui_layout::processorMenuWidth(kToolboxW), 54.0),
+            18.0, 3u);
+        if (hit >= 0) setParam(*p, kOutputFormatParamId, hit);
+        _openMenu = 0;
+        _menuItemCount = 0;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -999,7 +1178,8 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     }
     const CGFloat gap = s3g::gui_layout::kStandardMetrics.panelGap;
     const CGFloat outputY = 42.0;
-    const CGFloat outputH = 54.0;
+    const CGFloat outputH =
+        s3g::gui_layout::toolboxHeightForRows(3);
     if (NSPointInRect(pt, NSMakeRect(
             kToolboxX, outputY + 28.0, kToolboxW, 24))) {
         double defaultValue = 0.0;
@@ -1009,6 +1189,27 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
             _dragSlider = -1;
         } else {
             _dragSlider = 4;
+            [self updateSlider:pt];
+        }
+        return;
+    }
+    if (NSPointInRect(pt, NSMakeRect(
+            kToolboxX, outputY + 62.0 - 8.0, kToolboxW, 24.0))) {
+        _openMenu = 1;
+        _menuItemCount = 3u;
+        _menuOrigin = NSMakePoint(kSliderTrackX, outputY + 79.0);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, NSMakeRect(
+            kToolboxX, outputY + 88.0 - 8.0, kToolboxW, 24.0))) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, kOutputRotationParamId, &defaultValue)) {
+            setParam(*p, kOutputRotationParamId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = 11;
             [self updateSlider:pt];
         }
         return;

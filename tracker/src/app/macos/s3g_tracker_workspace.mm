@@ -3729,8 +3729,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-    CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
-        NSRectToCGRect(dirtyRect));
+    if (NSGraphicsContext.currentContext.isDrawingToScreen) {
+        CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
+            NSRectToCGRect(dirtyRect));
+    }
     [self.geometryView drawPlaybackOverlay];
 }
 
@@ -4054,8 +4056,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-    CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
-        NSRectToCGRect(dirtyRect));
+    if (NSGraphicsContext.currentContext.isDrawingToScreen) {
+        CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
+            NSRectToCGRect(dirtyRect));
+    }
     [self.envelopeView drawPlaybackOverlay];
 }
 

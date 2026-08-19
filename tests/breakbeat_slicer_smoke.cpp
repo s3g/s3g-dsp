@@ -1076,30 +1076,56 @@ void testBreakBusCore()
 
 void testWideOutputSilencesUnusedChannels()
 {
-    BankSnapshot bank;
-    bank.slots[0u] = oneSliceSlot(constantAsset(0.5f, 0.25f, 32u));
-    check(mapSlotConsecutively(bank, 0u, 60u),
-        "stereo-to-wide fixture mapping failed");
-    SlicerEngine engine;
-    check(engine.prepare(48000.0) && engine.setBank(&bank),
-        "stereo-to-wide fixture did not prepare");
-    std::array<std::array<float, 8u>, 16u> rendered {};
-    for (auto& channel : rendered) channel.fill(1.0f);
-    std::array<float*, 16u> outputs {};
-    for (std::size_t channel = 0u; channel < rendered.size(); ++channel)
-        outputs[channel] = rendered[channel].data();
-    const RenderEvent event { 0u, EventKind::NoteOn, 1u, 60u, 0u, 1.0f };
-    engine.render(&event, 1u, outputs.data(),
-        static_cast<uint32_t>(outputs.size()), 8u);
-    bool unusedSilent = rendered[0u][0u] != 0.0f
-        && rendered[1u][0u] != 0.0f;
-    for (std::size_t channel = 2u; channel < rendered.size(); ++channel) {
-        unusedSilent = unusedSilent && std::all_of(
-            rendered[channel].begin(), rendered[channel].end(),
-            [](float sample) { return sample == 0.0f; });
+    bool supportedWidthsPreserved = true;
+    for (uint8_t sourceChannels = 1u; sourceChannels <= 16u;
+         ++sourceChannels) {
+        auto asset = std::make_shared<SampleAsset>();
+        asset->sampleRate = 48000.0;
+        asset->channelCount = sourceChannels;
+        for (uint32_t channel = 0u; channel < sourceChannels; ++channel) {
+            asset->channels[channel].assign(32u,
+                static_cast<float>(channel + 1u) * 0.03f);
+        }
+        BankSnapshot bank;
+        bank.slots[0u] = oneSliceSlot(asset);
+        supportedWidthsPreserved = supportedWidthsPreserved
+            && mapSlotConsecutively(bank, 0u, 60u);
+        SlicerEngine engine;
+        supportedWidthsPreserved = supportedWidthsPreserved
+            && engine.prepare(48000.0) && engine.setBank(&bank);
+        std::array<std::array<float, 8u>, 16u> rendered {};
+        for (auto& channel : rendered) channel.fill(1.0f);
+        std::array<float*, 16u> outputs {};
+        for (std::size_t channel = 0u; channel < rendered.size(); ++channel)
+            outputs[channel] = rendered[channel].data();
+        const RenderEvent event {
+            0u, EventKind::NoteOn, 1u, 60u, 0u, 1.0f,
+        };
+        engine.render(&event, 1u, outputs.data(),
+            static_cast<uint32_t>(outputs.size()), 8u);
+        for (uint32_t channel = 0u; channel < 16u; ++channel) {
+            if (sourceChannels == 1u && channel < 2u) {
+                supportedWidthsPreserved = supportedWidthsPreserved
+                    && near(rendered[channel][0u],
+                        0.03f * 0.7071067811865475f);
+            } else if (channel < sourceChannels) {
+                const float panGain = sourceChannels == 2u
+                    ? 0.7071067811865475f : 1.0f;
+                supportedWidthsPreserved = supportedWidthsPreserved
+                    && near(rendered[channel][0u],
+                        static_cast<float>(channel + 1u) * 0.03f
+                            * panGain);
+            } else {
+                supportedWidthsPreserved = supportedWidthsPreserved
+                    && std::all_of(rendered[channel].begin(),
+                        rendered[channel].end(),
+                        [](float sample) { return sample == 0.0f; });
+            }
+        }
     }
-    check(unusedSilent,
-        "fixed wide output did not clear unused source channels");
+    check(supportedWidthsPreserved,
+        "Slicer 16 did not accept and preserve every 1-16 channel source "
+        "width or clear its unused outputs");
 }
 
 void testProportionalSliceEnvelope()

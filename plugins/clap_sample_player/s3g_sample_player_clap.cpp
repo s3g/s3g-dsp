@@ -872,7 +872,7 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     }
     instance.audioAsset = instance.publishedAsset.load(
         std::memory_order_acquire);
-    instance.engine.setAsset(instance.audioAsset);
+    instance.engine.setPreparedAsset(instance.audioAsset);
     instance.killRequested.store(false, std::memory_order_release);
     instance.active = true;
     return true;
@@ -919,7 +919,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
         std::memory_order_acquire);
     if (nextAsset != instance.audioAsset) {
         instance.audioAsset = nextAsset;
-        instance.engine.setAsset(nextAsset);
+        instance.engine.setPreparedAsset(nextAsset);
     }
     std::size_t eventCount = 0u;
     readInputEvents(instance, process->in_events, process->frames_count,
@@ -958,7 +958,22 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     float peak = 0.0f;
     if (process->audio_outputs_count > 0u && process->audio_outputs) {
         auto& output = process->audio_outputs[0u];
-        if (output.channel_count < instance.outputChannelCount)
+        // This instrument always fills every published frame, and its output
+        // may change as soon as a note or live control event arrives. Never
+        // inherit a host-provided constant/silent hint from the buffer: hosts
+        // are allowed to optimize channels marked in constant_mask.
+        output.constant_mask = 0u;
+        // REAPER may expose only the connected prefix of this fixed
+        // 16-channel port (for example, 8/16 for an eight-channel source).
+        // That is safe as long as every source lane is present. Keep the
+        // complete 16-lane scratch render internally, then publish the host's
+        // connected prefix. Never accept a buffer that would truncate the
+        // loaded source field.
+        const uint32_t requiredOutputChannels
+            = instance.outputChannelCount == 16u && instance.audioAsset
+            ? instance.audioAsset->channelCount
+            : instance.outputChannelCount;
+        if (output.channel_count < requiredOutputChannels)
             return CLAP_PROCESS_ERROR;
         for (uint32_t channel = 0u; channel < output.channel_count;
              ++channel) {
@@ -2707,41 +2722,79 @@ NSString* const kMidiReceiveItems[] = {
     NSFrameRect(wave);
     auto asset = _instance->controlAsset;
     if (asset && asset->valid()) {
-        const auto& samples = asset->channels[0u];
         const std::size_t width = static_cast<std::size_t>(wave.size.width);
         const double visibleSpan = [self waveVisibleSpan];
         const double visibleEnd = _waveViewStart + visibleSpan;
-        [style.text setStroke];
-        NSBezierPath* trace = [NSBezierPath bezierPath];
-        [trace setLineWidth:1.0];
-        for (std::size_t pixel = 0u; pixel < width; ++pixel) {
-            const double firstPosition = _waveViewStart
-                + static_cast<double>(pixel) / width * visibleSpan;
-            const double lastPosition = _waveViewStart
-                + static_cast<double>(pixel + 1u) / width * visibleSpan;
-            const std::size_t first = std::min(samples.size() - 1u,
-                static_cast<std::size_t>(std::floor(firstPosition
-                    * samples.size())));
-            const std::size_t last = std::max(first + 1u,
-                std::min(samples.size(), static_cast<std::size_t>(
-                    std::ceil(lastPosition * samples.size()))));
-            float minimum = 1.0f;
-            float maximum = -1.0f;
-            for (std::size_t frame = first;
-                 frame < std::min(last, samples.size()); ++frame) {
-                minimum = std::min(minimum, samples[frame]);
-                maximum = std::max(maximum, samples[frame]);
+        const CGFloat usableHeight = wave.size.height - 4.0;
+        const CGFloat laneHeight = usableHeight
+            / static_cast<CGFloat>(asset->channelCount);
+        NSDictionary* channelAttrs = s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(0x676767),
+            asset->channelCount > 8u ? 7.0 : 8.0);
+        for (uint32_t channel = 0u; channel < asset->channelCount;
+             ++channel) {
+            const auto& samples = asset->channels[channel];
+            const CGFloat laneY = wave.origin.y + 2.0
+                + laneHeight * static_cast<CGFloat>(channel);
+            const CGFloat center = laneY + laneHeight * 0.5;
+            NSBezierPath* trace = [NSBezierPath bezierPath];
+            [trace setLineWidth:1.0];
+            for (std::size_t pixel = 0u; pixel < width; ++pixel) {
+                const double firstPosition = _waveViewStart
+                    + static_cast<double>(pixel) / width * visibleSpan;
+                const double lastPosition = _waveViewStart
+                    + static_cast<double>(pixel + 1u) / width * visibleSpan;
+                const std::size_t first = std::min(samples.size() - 1u,
+                    static_cast<std::size_t>(std::floor(firstPosition
+                        * samples.size())));
+                const std::size_t last = std::max(first + 1u,
+                    std::min(samples.size(), static_cast<std::size_t>(
+                        std::ceil(lastPosition * samples.size()))));
+                const std::size_t boundedLast = std::min(last,
+                    samples.size());
+                // Keep the editor refresh cost independent of sample length.
+                // A long multichannel file can otherwise make the GUI thread
+                // scan tens of millions of samples at 30 Hz and starve audio.
+                const std::size_t stride = std::max<std::size_t>(1u,
+                    (boundedLast - first) / 32u);
+                float minimum = 1.0f;
+                float maximum = -1.0f;
+                for (std::size_t frame = first;
+                     frame < boundedLast; frame += stride) {
+                    minimum = std::min(minimum, samples[frame]);
+                    maximum = std::max(maximum, samples[frame]);
+                }
+                if (boundedLast > first) {
+                    const float finalSample = samples[boundedLast - 1u];
+                    minimum = std::min(minimum, finalSample);
+                    maximum = std::max(maximum, finalSample);
+                }
+                const CGFloat x = wave.origin.x
+                    + static_cast<CGFloat>(pixel);
+                [trace moveToPoint:NSMakePoint(x,
+                    center - static_cast<CGFloat>(maximum)
+                        * laneHeight * 0.44)];
+                [trace lineToPoint:NSMakePoint(x,
+                    center - static_cast<CGFloat>(minimum)
+                        * laneHeight * 0.44)];
             }
-            const CGFloat x = wave.origin.x + static_cast<CGFloat>(pixel);
-            const CGFloat center = NSMidY(wave);
-            [trace moveToPoint:NSMakePoint(x,
-                center - static_cast<CGFloat>(maximum) * wave.size.height
-                    * 0.45)];
-            [trace lineToPoint:NSMakePoint(x,
-                center - static_cast<CGFloat>(minimum) * wave.size.height
-                    * 0.45)];
+            [s3g::clap_gui::color(channel % 2u == 0u
+                ? 0x747d78 : 0x68706c) setStroke];
+            [trace stroke];
+            if (channel != 0u) {
+                [s3g::clap_gui::color(0x333333) setFill];
+                NSRectFill(NSMakeRect(wave.origin.x + 1.0, laneY,
+                    wave.size.width - 2.0, 1.0));
+            }
+            NSString* channelLabel = [NSString stringWithFormat:@"%02u",
+                static_cast<unsigned>(channel + 1u)];
+            const NSSize labelSize = [channelLabel sizeWithAttributes:
+                channelAttrs];
+            [channelLabel drawAtPoint:NSMakePoint(wave.origin.x + 5.0,
+                    laneY + std::max<CGFloat>(0.0,
+                        (laneHeight - labelSize.height) * 0.5))
+                withAttributes:channelAttrs];
         }
-        [trace stroke];
 
         const double start = paramValue(*_instance, kStartParamId);
         const double end = std::min(1.0, start
