@@ -169,6 +169,11 @@ TimingPlaybackScheduler::summarizeTiming(const Pattern& pattern) noexcept
                 const auto& cell = pair.actions[row];
                 if (cell.state == FxActionCellState::Previous) {
                     summary.hasPrevious = true;
+                } else if (cell.state
+                        == FxActionCellState::MidiControlChange
+                    && pair.valueInterpolation
+                        == ValueInterpolation::Linear) {
+                    summary.linearControl = true;
                 } else if (cell.state == FxActionCellState::Sequencer
                     && isTimingExpansionAction(cell.sequencerAction)) {
                     summary.explicitTiming = true;
@@ -211,6 +216,15 @@ void TimingPlaybackScheduler::rebuildTimingState(
                     = microTimingCompensationActive_
                     || cached.explicitMicroTiming;
             }
+            if (cached.linearControl) timingSchedulerActive_ = true;
+            if (cached.hasPrevious && retained.hasAction
+                && retained.action.state
+                    == FxActionCellState::MidiControlChange
+                && sequencer_.pattern().tracks[trackIndex]
+                       .fxPairs[pairIndex].valueInterpolation
+                    == ValueInterpolation::Linear) {
+                timingSchedulerActive_ = true;
+            }
             if (!cached.hasPrevious || !retained.hasAction
                 || retained.action.state != FxActionCellState::Sequencer
                 || !isTimingExpansionAction(
@@ -241,7 +255,9 @@ void TimingPlaybackScheduler::resolveCurrentTick(
                     trackIndex, pairIndex) % actionLength;
                 const auto& cell = pair.actions[position];
                 if (cell.state == FxActionCellState::Parameter
-                    || cell.state == FxActionCellState::Sequencer) {
+                    || cell.state == FxActionCellState::Sequencer
+                    || cell.state
+                        == FxActionCellState::MidiControlChange) {
                     execute = true;
                 } else if (cell.state == FxActionCellState::Previous) {
                     execute = true;
@@ -317,6 +333,21 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
         resolveCurrentTick(nominalTick);
         const auto activeTimingTracks = std::min(
             sequencer_.pattern().tracks.size(), timing_.size());
+        std::size_t linearCcCount = 0u;
+        for (std::size_t index = 0u; index < count; ++index) {
+            const auto& event = generatedEvents_[index];
+            if (event.kind == ScheduledEventKind::ControlChange
+                && event.valueInterpolation == ValueInterpolation::Linear
+                && event.durationSamples > 0u
+                && midiValueFromNormalized(event.parameterValue)
+                    != midiValueFromNormalized(event.parameterEndValue)) {
+                ++linearCcCount;
+            }
+        }
+        const std::size_t fairCcBudget = linearCcCount == 0u ? 0u
+            : std::max<std::size_t>(1u,
+                kMaximumCcInterpolationEventsPerTick / linearCcCount);
+
         for (std::size_t index = 0u; index < count; ++index) {
             const auto& event = generatedEvents_[index];
             highestPrimaryNoteId_ = std::max(highestPrimaryNoteId_,
@@ -333,6 +364,62 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
                     && timeline_.cancelPendingPrimaryOnset(
                         shifted.noteId, shifted.absoluteSampleTime))
                     continue;
+                if (shifted.kind == ScheduledEventKind::ControlChange) {
+                    (void)timeline_.cancelPendingControlInterpolation(
+                        shifted.channel, shifted.parameterId,
+                        shifted.absoluteSampleTime);
+                    const auto start = midiValueFromNormalized(
+                        shifted.parameterValue);
+                    const auto end = midiValueFromNormalized(
+                        shifted.parameterEndValue);
+                    const uint64_t duration = shifted.durationSamples;
+                    const bool linear = shifted.valueInterpolation
+                            == ValueInterpolation::Linear
+                        && duration > 0u && start != end;
+
+                    ScheduledEvent endpoint = shifted;
+                    endpoint.parameterEndValue = endpoint.parameterValue;
+                    endpoint.valueInterpolation = ValueInterpolation::Step;
+                    endpoint.generatedInterpolation = false;
+                    (void)timeline_.enqueue(endpoint);
+                    if (!linear || fairCcBudget == 0u) continue;
+
+                    const auto difference = static_cast<std::size_t>(
+                        std::abs(static_cast<int>(end)
+                            - static_cast<int>(start)));
+                    const double sampleRate = std::max(
+                        sequencer_.transport().sampleRate, 1.0);
+                    const auto rateSlots = static_cast<std::size_t>(
+                        std::floor(static_cast<double>(duration)
+                            * kMaximumCcInterpolationRateHz / sampleRate));
+                    const std::size_t intermediateCount = std::min({
+                        difference > 0u ? difference - 1u : 0u,
+                        rateSlots > 0u ? rateSlots - 1u : 0u,
+                        fairCcBudget,
+                    });
+                    for (std::size_t point = 1u;
+                         point <= intermediateCount; ++point) {
+                        const double progress = static_cast<double>(point)
+                            / static_cast<double>(intermediateCount + 1u);
+                        const int value = static_cast<int>(std::lround(
+                            static_cast<double>(start)
+                            + (static_cast<double>(end)
+                                - static_cast<double>(start)) * progress));
+                        ScheduledEvent interpolated = endpoint;
+                        interpolated.absoluteSampleTime =
+                            detail::saturatingSampleAdd(
+                                shifted.absoluteSampleTime,
+                                duration * point
+                                    / (intermediateCount + 1u));
+                        interpolated.parameterValue = static_cast<float>(
+                            std::clamp(value, 0, 127)) / 127.0f;
+                        interpolated.parameterEndValue =
+                            interpolated.parameterValue;
+                        interpolated.generatedInterpolation = true;
+                        (void)timeline_.enqueue(interpolated);
+                    }
+                    continue;
+                }
                 (void)timeline_.enqueue(shifted);
                 continue;
             }

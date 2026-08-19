@@ -83,6 +83,14 @@ int main()
             && !parseGridNormalizedValue("0.5x", normalized)
             && !parseGridNormalizedValue(".", normalized),
         "VOL parser should reject MIDI integers and malformed values");
+    check(parseGridMidiOrNormalizedValue("64", normalized)
+            && std::abs(normalized - 64.0f / 127.0f) < 0.0001f
+            && parseGridMidiOrNormalizedValue("1.0", normalized)
+            && normalized == 1.0f
+            && parseGridMidiOrNormalizedValue("0", normalized)
+            && normalized == 0.0f
+            && !parseGridMidiOrNormalizedValue("128", normalized),
+        "CC value parser should accept 7-bit integers and explicit normalized decimals");
 
     check(std::abs(normalizedValueFromVerticalDrag(
                 0.5f, 20.0, false, false) - 0.6f) < 0.0001f

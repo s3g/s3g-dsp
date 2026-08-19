@@ -4,17 +4,18 @@ Apple silicon macOS CLAP collection and optional No Input Mixer standalone pre-r
 
 ## Assets
 
-- `s3g-dsp-macos-clap-0.7.0-pre.zip` — 124 CLAP bundles containing 125 plug-ins for REAPER
+- `s3g-dsp-macos-clap-0.7.0-pre.zip` — 125 CLAP bundles containing 126 plug-ins for REAPER
 - `s3g-no-input-mixer-app-macos-arm64-0.7.0-pre.zip` — standalone No Input Mixer application
 
 Both archives contain arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or newer). They are not compiled for Intel Macs and are not universal binaries. The standalone app currently requires macOS 15 or newer and is distributed separately from the CLAP collection.
 
 ## Highlights
 
-- Expands the release inventory from 98 to 124 CLAP bundles. The Slicer bundle contains both its stereo and 16-channel plug-ins, bringing the collection to 125 plug-in descriptors. The complete procedural drum family now includes Kick, Snare, Floor Tom, Concert Bass, Toms, Hi-Hat, Clap, Cowbell, Crash, Break, Drum Overload, Drum Echo, and Drum Mixer 16.
+- Expands the release inventory from 98 to 125 CLAP bundles. The Slicer bundle contains both its stereo and 16-channel plug-ins, bringing the collection to 126 plug-in descriptors. The complete procedural drum family now includes Kick, Snare, Floor Tom, Concert Bass, Toms, Hi-Hat, Clap, Cowbell, Crash, Break, Drum Overload, Drum Echo, and Drum Mixer 16.
 - Adds **s3g Tracker**, a host-synchronized polymetric MIDI tracker with 32 lanes, pattern and Song workflows, timing warps, Live Code, and eight REAPER-routable MIDI output buses.
 - Adds both **s3g Sample Slicer** variants, sharing a four-break sample engine, embedded project media, simultaneous waveform overviews, and stereo or fixed 16-channel output. Fresh banks start at MIDI note 48/C2 on channels 1–4; the user-selected starting note determines the available slice count through note 127, and Auto Map preserves that range.
 - Adds **s3g Sample Player 2** and **s3g Sample Player 16** for chromatic one-shots, crossfaded forward/reverse loops, and forward/reverse ping-pong playback, with conventional Rate, duration-preserving Stretch, and root-split Rate Below / Stretch Above pitch modes, optional host BPM sync, configurable trigger/retrigger behavior, Poly/Mono/Legato voices with Glide, Omni or single-channel MIDI reception, independent labeled cursors for every active voice, direct zoomable waveform handles, a resonant multimode envelope filter, safe default boundaries, proportional pitch-aware envelopes, embedded project media, an audio-thread-safe Kill All action, smoothed live Tune/Fine and Sustain, pre-release-stage Release updates, click-safe live loop edits, live final-stage output gain, stereo-only final-stage Pan, and relationship-preserving 16-channel output. Free timing, Auto Trigger, Layer Retrigger, Poly voices, zero Glide, and Omni reception preserve the established defaults.
+- Adds **s3g Sample Doubles 2**, a stereo two-read-head instrument for chopped two-copy performance. It couples pitch and duration through turntable-style varispeed, provides three crossfader curves, source-beat offsets, gated deck punches, immediate resync, discrete phase steps, gradual Deck B drift, and a complete note-command map for s3g Tracker. Both read heads share one embedded source while retaining independent positions.
 - Adds Ambi Encoder Membrane Kick 16, Ambi Encoder Acid 16, and Ambi Encoder Horizon, and brings the expanded landscape, site-processing, and listener system for Ambi Encoder Cartography into the archive.
 - Adds Processor Errant and Processor Feedback Shift, including Errant's repeatable glitch genealogies and Feedback Shift's paired eight-node scenes, virtual patch splicing, per-node inserts, in-network aux processing, and post-network granulation.
 - Adds **Processor Formant Matrix**, a voice-responsive synthesis instrument and resonant filter-bank effect with a signed 22-by-22 routing matrix, live or procedural speech articulation, MIDI or voice-tracked carriers, scenes, and post-bank processing.
@@ -26,10 +27,10 @@ Both archives contain arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or 
 ## Reliability and release checks
 
 - New products participate in the normal CLAP, Release, sanitizer, manifest, validator, allocation, and realtime configurations through the standard build presets.
-- The Release suite passes 112 CTest cases, including focused DSP, CLAP contract, GUI, state, realtime, and Tracker workspace tests. Dedicated drum-family, Membrane Kick, Acid, and Horizon audits cover their full product boundaries.
-- The canonical manifest requires exactly 124 bundles, including 122 non-NIM bundles. Packaging and extracted-archive verification use the same inventory and reject partial, duplicate, or mismatched bundles.
-- All 122 non-NIM bundles pass isolated CLAP validation and the callback-allocation sweep. The non-NIM ASan/UBSan suite passes 109 tests, including the new processors' DSP, CLAP, GUI, state, and routing behavior.
-- Documentation now covers 121 checked HTML pages and 4,708 local references. New native captures document Processor LF Synth, Processor Stack, Processor Conduit, Processor Errant, the Sample Slicer editor and mixer, Sample Player, and Drum Echo. Refreshed meter-bearing captures retain active signal or network history, and new top-down SVG diagrams document the Formant Matrix and Stack signal paths.
+- The Release suite includes 115 CTest cases, including focused DSP, CLAP contract, GUI, state, realtime, and Tracker workspace tests. Dedicated drum-family, Sample-family, Membrane Kick, Acid, and Horizon audits cover their full product boundaries.
+- The canonical manifest requires exactly 125 bundles, including 123 non-NIM bundles. Packaging and extracted-archive verification use the same inventory and reject partial, duplicate, or mismatched bundles.
+- All 123 non-NIM bundles pass isolated CLAP validation and the callback-allocation sweep. The non-NIM ASan/UBSan suite includes focused DSP, CLAP, GUI, state, and routing coverage for the new instruments and processors.
+- Documentation now covers 124 checked HTML pages and 4,775 local references. New native captures document Processor LF Synth, Processor Stack, Processor Conduit, Processor Errant, the Sample Slicer editor and mixer, Sample Player, Sample Doubles, and Drum Echo. Refreshed meter-bearing captures retain active signal or network history, and new top-down SVG diagrams document the Formant Matrix and Stack signal paths.
 - Ten realtime profiles cover core, wide-buffer, Spectral Topology, Spectral Spray, Water, and Insect processing with allocation evidence. All strict profiles pass; the documented 96 kHz maximum-density Water/Insect profile also remains stable and allocation-free as an advisory measurement.
 
 ---

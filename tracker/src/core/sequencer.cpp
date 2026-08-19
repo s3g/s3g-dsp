@@ -116,6 +116,13 @@ uint8_t midiVelocityFromNormalized(float normalized) noexcept
     return static_cast<uint8_t>(std::clamp(scaled, 1, 127));
 }
 
+uint8_t midiValueFromNormalized(float normalized) noexcept
+{
+    const auto scaled = static_cast<int>(std::lround(
+        normalizedParameter(normalized) * 127.0f));
+    return static_cast<uint8_t>(std::clamp(scaled, 0, 127));
+}
+
 void Sequencer::setPattern(Pattern pattern)
 {
     preparedPatterns_.clear();
@@ -932,9 +939,13 @@ void Sequencer::normalizePattern(Pattern& pattern)
             fx.valueColumn.phase = fx.valueColumn.length == 0u ? 0u
                 : fx.valueColumn.phase % fx.valueColumn.length;
             for (auto& cell : fx.actions) {
-                if (cell.state != FxActionCellState::Sequencer) continue;
-                if (static_cast<std::size_t>(cell.sequencerAction)
-                    >= kSequencerActionCount) {
+                if (cell.state == FxActionCellState::Sequencer
+                    && static_cast<std::size_t>(cell.sequencerAction)
+                        >= kSequencerActionCount) {
+                    cell = FxActionCell::empty();
+                } else if (cell.state
+                        == FxActionCellState::MidiControlChange
+                    && cell.midiController > 127u) {
                     cell = FxActionCell::empty();
                 }
             }
@@ -1079,8 +1090,10 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         struct PendingFxEvent {
             FxActionCell action;
             float value = 0.0f;
+            float endValue = 0.0f;
             bool execute = false;
             bool trackRelativeTarget = false;
+            bool linear = false;
         };
         std::array<PendingFxEvent, kFxPairCount> pendingFx {};
         for (std::size_t fx = 0u; fx < track.fxPairs.size(); ++fx) {
@@ -1105,7 +1118,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 const auto& actionCell = definition.actions[
                     fxState.actionColumn.position % actionLength];
                 if (actionCell.state == FxActionCellState::Parameter
-                    || actionCell.state == FxActionCellState::Sequencer) {
+                    || actionCell.state == FxActionCellState::Sequencer
+                    || actionCell.state
+                        == FxActionCellState::MidiControlChange) {
                     fxState.action = actionCell;
                     fxState.hasAction = true;
                     pendingFx[fx].execute = fxState.hasValue;
@@ -1116,12 +1131,59 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 if (pendingFx[fx].execute) {
                     pendingFx[fx].action = fxState.action;
                     pendingFx[fx].value = fxState.value;
+                    pendingFx[fx].endValue = fxState.value;
                     pendingFx[fx].trackRelativeTarget
                         = fxState.action.targetNode == kTrackInstrumentNode;
                 }
             }
             advance(definition.actionColumn, fxState.actionColumn);
             advance(definition.valueColumn, fxState.valueColumn);
+
+            auto& pending = pendingFx[fx];
+            if (!pending.execute
+                || pending.action.state
+                    != FxActionCellState::MidiControlChange
+                || definition.valueInterpolation
+                    != ValueInterpolation::Linear
+                || definition.actionColumn.muted) continue;
+
+            FxActionCell nextAction = fxState.action;
+            bool nextHasAction = fxState.hasAction;
+            bool nextExecutes = false;
+            if (actionLength > 0u) {
+                const auto& nextCell = definition.actions[
+                    fxState.actionColumn.position % actionLength];
+                if (nextCell.state == FxActionCellState::Parameter
+                    || nextCell.state == FxActionCellState::Sequencer
+                    || nextCell.state
+                        == FxActionCellState::MidiControlChange) {
+                    nextAction = nextCell;
+                    nextHasAction = true;
+                    nextExecutes = true;
+                } else if (nextCell.state == FxActionCellState::Previous) {
+                    nextExecutes = nextHasAction;
+                }
+            }
+
+            float nextValue = fxState.value;
+            bool nextHasValue = fxState.hasValue;
+            if (!definition.valueColumn.muted && valueLength > 0u) {
+                const auto& nextCell = definition.values[
+                    fxState.valueColumn.position % valueLength];
+                if (nextCell.state == FxValueCellState::Value) {
+                    nextValue = normalizedParameter(nextCell.normalized);
+                    nextHasValue = true;
+                }
+            }
+            if (nextExecutes && nextHasAction && nextHasValue
+                && nextAction.state
+                    == FxActionCellState::MidiControlChange
+                && nextAction.midiController
+                    == pending.action.midiController) {
+                pending.endValue = nextValue;
+                pending.linear = midiValueFromNormalized(pending.value)
+                    != midiValueFromNormalized(nextValue);
+            }
         }
 
         struct NoteFx {
@@ -1348,6 +1410,44 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                             : memory.activeDestination)
                 : destinationForInstrument(event.targetNode,
                       track.destination);
+            writeScheduled(event);
+        }
+        for (std::size_t fx = 0u; fx < pendingFx.size(); ++fx) {
+            const auto& pending = pendingFx[fx];
+            if (!pending.execute
+                || pending.action.state
+                    != FxActionCellState::MidiControlChange) continue;
+            bool shadowed = false;
+            for (std::size_t later = fx + 1u; later < pendingFx.size();
+                 ++later) {
+                const auto& laterFx = pendingFx[later];
+                if (laterFx.execute
+                    && laterFx.action.state
+                        == FxActionCellState::MidiControlChange
+                    && laterFx.action.midiController
+                        == pending.action.midiController) {
+                    shadowed = true;
+                    break;
+                }
+            }
+            if (shadowed) continue;
+            ScheduledEvent event;
+            event.absoluteSampleTime = absoluteSampleTime;
+            event.durationSamples = pending.linear
+                ? static_cast<uint64_t>(std::max<long double>(0.0L,
+                    std::round(nextTickInterval()))) : 0u;
+            event.frameOffset = frameOffset;
+            event.track = static_cast<uint32_t>(trackIndex);
+            event.targetNode = memory.instrumentNodeId;
+            event.parameterId = pending.action.midiController;
+            event.parameterValue = pending.value;
+            event.parameterEndValue = pending.endValue;
+            event.channel = candidate.channel;
+            event.kind = ScheduledEventKind::ControlChange;
+            event.parameterScope = ParameterScope::Channel;
+            event.valueInterpolation = pending.linear
+                ? ValueInterpolation::Linear : ValueInterpolation::Step;
+            event.destination = EventDestination::Midi;
             writeScheduled(event);
         }
         if (accepted) {

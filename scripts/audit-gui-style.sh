@@ -936,6 +936,7 @@ sample_family_names=(
   'plugins/clap_sample_player/s3g_sample_player_clap.cpp|s3g Sample Player 16'
   'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 2'
   'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 16'
+  'plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp|s3g Sample Doubles 2'
 )
 for contract in "${sample_family_names[@]}"; do
   file="${contract%%|*}"

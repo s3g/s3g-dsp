@@ -25,6 +25,8 @@ using s3g::tracker::TimingWarpTransform;
 using s3g::tracker::Track;
 using s3g::tracker::TransportSettings;
 using s3g::tracker::ValueCell;
+using s3g::tracker::ValueInterpolation;
+using s3g::tracker::midiValueFromNormalized;
 
 int failures = 0;
 
@@ -1035,6 +1037,105 @@ void testHeldNoteOffTraversesTimingTimeline()
         "held-note release should retain identity through the timing timeline");
 }
 
+void testBoundedMidiControlInterpolation()
+{
+    Track track;
+    track.midiChannel = 7u;
+    track.notes.assign(2u, NoteCell::rest());
+    track.noteColumn.length = track.notes.size();
+    auto& pair = track.fxPairs[0u];
+    pair.actions = { FxActionCell::midiControlChange(74u),
+        FxActionCell::previous() };
+    pair.values = { FxValueCell::withValue(0.0f),
+        FxValueCell::withValue(1.0f) };
+    pair.actionColumn.length = pair.actions.size();
+    pair.valueColumn.length = pair.values.size();
+    pair.valueInterpolation = ValueInterpolation::Linear;
+
+    TimingPlaybackScheduler scheduler;
+    scheduler.setPattern(oneTrack(track));
+    scheduler.setTransport(transport());
+    scheduler.start();
+    std::array<ScheduledEvent, 256u> events {};
+    auto count = scheduler.process(8001u, events.data(), events.size());
+    check(count == 128u
+            && events.front().kind == ScheduledEventKind::ControlChange
+            && events.front().channel == 7u
+            && events.front().parameterId == 74u
+            && midiValueFromNormalized(events.front().parameterValue) == 0u
+            && events[count - 1u].absoluteSampleTime == 8000u
+            && midiValueFromNormalized(
+                events[count - 1u].parameterValue) == 127u,
+        "LINEAR CC should emit every distinct in-between 7-bit value and reach the next row exactly");
+    bool monotonic = count == 128u;
+    for (std::size_t index = 1u; index + 1u < count; ++index) {
+        monotonic = monotonic
+            && events[index].generatedInterpolation
+            && events[index].absoluteSampleTime
+                > events[index - 1u].absoluteSampleTime
+            && midiValueFromNormalized(events[index].parameterValue)
+                > midiValueFromNormalized(
+                    events[index - 1u].parameterValue);
+    }
+    check(monotonic,
+        "derived CC points should be ordered, distinct, and explicitly marked");
+
+    auto rateTransport = transport();
+    rateTransport.sampleRate = 48000.0;
+    rateTransport.bpm = 120.0;
+    rateTransport.ticksPerBeat = 4u;
+    scheduler.setPattern(oneTrack(track));
+    scheduler.setTransport(rateTransport);
+    scheduler.start();
+    count = scheduler.process(6001u, events.data(), events.size());
+    bool rateBounded = count == 26u;
+    for (std::size_t index = 1u; index < count; ++index) {
+        rateBounded = rateBounded
+            && events[index].absoluteSampleTime
+                - events[index - 1u].absoluteSampleTime >= 240u;
+    }
+    check(rateBounded,
+        "LINEAR CC emission should stay at or below 200 messages per second");
+
+    Pattern dense;
+    for (std::size_t trackIndex = 0u; trackIndex < 32u; ++trackIndex) {
+        Track lane;
+        lane.midiChannel = static_cast<uint8_t>(trackIndex % 16u + 1u);
+        lane.notes.assign(2u, NoteCell::rest());
+        lane.noteColumn.length = lane.notes.size();
+        for (std::size_t pairIndex = 0u; pairIndex < 2u; ++pairIndex) {
+            auto& lanePair = lane.fxPairs[pairIndex];
+            lanePair.actions = {
+                FxActionCell::midiControlChange(static_cast<uint8_t>(
+                    trackIndex * 2u + pairIndex)),
+                FxActionCell::previous(),
+            };
+            lanePair.values = { FxValueCell::withValue(0.0f),
+                FxValueCell::withValue(1.0f) };
+            lanePair.actionColumn.length = lanePair.actions.size();
+            lanePair.valueColumn.length = lanePair.values.size();
+            lanePair.valueInterpolation = ValueInterpolation::Linear;
+        }
+        dense.tracks.push_back(std::move(lane));
+    }
+    scheduler.setPattern(std::move(dense));
+    scheduler.setTransport(transport());
+    scheduler.start();
+    count = scheduler.process(1u, events.data(), events.size());
+    check(count == 64u && scheduler.pendingEventCount() == 128u,
+        "concurrent LINEAR CC ramps should share the 128-point per-tick budget");
+
+    track.fxPairs[0u].valueInterpolation = ValueInterpolation::Step;
+    scheduler.setPattern(oneTrack(std::move(track)));
+    scheduler.setTransport(transport());
+    scheduler.start();
+    count = scheduler.process(8001u, events.data(), events.size());
+    check(count == 2u
+            && midiValueFromNormalized(events[0u].parameterValue) == 0u
+            && midiValueFromNormalized(events[1u].parameterValue) == 127u,
+        "STEP CC should emit only row endpoints without derived values");
+}
+
 } // namespace
 
 int main()
@@ -1060,6 +1161,7 @@ int main()
     testInactiveStoredTimingCellsDoNotAddLatency();
     testPreparedHostBeatStartUsesWarpedClock();
     testHeldNoteOffTraversesTimingTimeline();
+    testBoundedMidiControlInterpolation();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "timing playback scheduler tests passed\n";
     return EXIT_SUCCESS;

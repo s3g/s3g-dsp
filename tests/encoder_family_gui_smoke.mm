@@ -21,6 +21,8 @@
 
 #include <array>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +31,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Optional documentation-only selectors exposed by specific native views.
@@ -47,6 +50,22 @@
 - (void)textDidChange:(NSNotification*)notification;
 - (void)refresh:(NSTimer*)timer;
 - (void)captureDocumentationHistorySample;
+- (NSUInteger)refreshTickCount;
+- (NSUInteger)fullFrameRequestCount;
+- (NSUInteger)drawPassCount;
+- (NSUInteger)fullDrawPassCount;
+- (NSUInteger)cursorDrawPassCount;
+- (NSUInteger)cursorAnimationInstallCount;
+- (BOOL)deckACursorAnimationActive;
+- (BOOL)deckBCursorAnimationActive;
+- (double)deckACursorPresentationX;
+- (double)deckBCursorPresentationX;
+- (uint64_t)processBlockCount;
+- (double)deckAPositionValue;
+- (double)deckBPositionValue;
+- (double)visualDeckAPositionValue;
+- (double)visualDeckBPositionValue;
+- (void)updateVisualCursors;
 @end
 
 @interface S3GSmokeFilePasteboard : NSObject {
@@ -113,6 +132,12 @@ struct HostContext {
     bool callbackRequested = false;
     bool processRequested = false;
     uint32_t paramRescanCount = 0u;
+    uint32_t stateDirtyCount = 0u;
+    std::atomic<uint32_t> guiParamValueCount { 0u };
+    std::atomic<uint32_t> guiGestureBeginCount { 0u };
+    std::atomic<uint32_t> guiGestureEndCount { 0u };
+    std::atomic<uint32_t> paramFlushRequestCount { 0u };
+    std::atomic<uint32_t> processRequestCount { 0u };
 };
 
 void hostParamsRescan(const clap_host_t* host, clap_param_rescan_flags flags)
@@ -126,17 +151,42 @@ void hostParamsRescan(const clap_host_t* host, clap_param_rescan_flags flags)
 void hostParamsClear(const clap_host_t*, clap_id,
     clap_param_clear_flags) {}
 
+bool captureHostParamEvent(const clap_output_events_t* events,
+    const clap_event_header_t* header)
+{
+    auto* context = events
+        ? static_cast<HostContext*>(events->ctx) : nullptr;
+    if (!context || !header) return false;
+    if (header->space_id != CLAP_CORE_EVENT_SPACE_ID) return true;
+    if (header->type == CLAP_EVENT_PARAM_VALUE)
+        context->guiParamValueCount.fetch_add(1u,
+            std::memory_order_relaxed);
+    else if (header->type == CLAP_EVENT_PARAM_GESTURE_BEGIN)
+        context->guiGestureBeginCount.fetch_add(1u,
+            std::memory_order_relaxed);
+    else if (header->type == CLAP_EVENT_PARAM_GESTURE_END)
+        context->guiGestureEndCount.fetch_add(1u,
+            std::memory_order_relaxed);
+    return true;
+}
+
 void hostParamsRequestFlush(const clap_host_t* host)
 {
     auto* context = host
         ? static_cast<HostContext*>(host->host_data) : nullptr;
     if (!context || !context->plugin || !context->params
         || !context->params->flush) return;
+    context->paramFlushRequestCount.fetch_add(1u,
+        std::memory_order_relaxed);
     context->paramFlushRequested = true;
     if (context->deferParamFlush || context->servicingParamFlush) return;
     context->servicingParamFlush = true;
     context->paramFlushRequested = false;
-    context->params->flush(context->plugin, nullptr, nullptr);
+    clap_output_events_t output {
+        context,
+        captureHostParamEvent,
+    };
+    context->params->flush(context->plugin, nullptr, &output);
     context->servicingParamFlush = false;
 }
 
@@ -146,10 +196,23 @@ const clap_host_params_t hostParams {
     hostParamsRequestFlush,
 };
 
+void hostStateMarkDirty(const clap_host_t* host)
+{
+    auto* context = host
+        ? static_cast<HostContext*>(host->host_data) : nullptr;
+    if (context) ++context->stateDirtyCount;
+}
+
+const clap_host_state_t hostState {
+    hostStateMarkDirty,
+};
+
 const void* hostGetExtension(const clap_host_t*, const char* id)
 {
-    return id && std::strcmp(id, CLAP_EXT_PARAMS) == 0
-        ? &hostParams : nullptr;
+    if (!id) return nullptr;
+    if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &hostParams;
+    if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &hostState;
+    return nullptr;
 }
 void hostRequest(const clap_host_t*) {}
 
@@ -157,7 +220,11 @@ void hostRequestProcess(const clap_host_t* host)
 {
     auto* context = host
         ? static_cast<HostContext*>(host->host_data) : nullptr;
-    if (context) context->processRequested = true;
+    if (context) {
+        context->processRequested = true;
+        context->processRequestCount.fetch_add(1u,
+            std::memory_order_relaxed);
+    }
 }
 
 void hostRequestCallback(const clap_host_t* host)
@@ -350,6 +417,23 @@ struct DocumentationAmbiGrainState {
     double envelope = 2.0;
     uint32_t playing = 1u;
     char samplePath[1024] {};
+};
+
+struct DocumentationSampleDoublesState {
+    uint32_t magic = 0x44443353u;
+    uint32_t version = 1u;
+    uint32_t parameterCount = 12u;
+    std::array<double, 12u> parameters {{
+        -7.0, 0.0, 120.0, 1.0, 2.0, 0.0, 1.0, 1.0,
+        -1.0, 0.0, -6.0, 0.0,
+    }};
+    std::array<char, 1024u> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 1u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 16384u;
+    double sampleRate = 48000.0;
 };
 
 static_assert(sizeof(DocumentationLoopState) == 1128u,
@@ -2744,8 +2828,13 @@ int main(int argc, char** argv)
                 pluginId, "org.s3g.s3g-dsp.sample-player") == 0
             || std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.sample-player-16") == 0;
-        if (ok && samplePlayer && documentationCapture) {
-            failureStage = "Sample Player documentation sample";
+        const bool sampleDoubles = std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.sample-doubles") == 0;
+        if (ok && (samplePlayer || sampleDoubles)
+            && documentationCapture) {
+            failureStage = sampleDoubles
+                ? "Sample Doubles documentation sample"
+                : "Sample Player documentation sample";
             @try {
                 ok = [document respondsToSelector:
                         @selector(loadDocumentationSample)]
@@ -2978,6 +3067,792 @@ int main(int argc, char** argv)
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }
+        }
+        if (ok && sampleDoubles && !documentationCapture) {
+            failureStage = "Sample Doubles interaction and redraw stress";
+            bool doublesGuiShown = false;
+            bool doublesActivated = false;
+            bool doublesProcessing = false;
+            std::atomic<bool> keepDoublesProcessing { false };
+            std::atomic<bool> pauseDoublesProcessing { false };
+            std::atomic<bool> doublesProcessingPaused { false };
+            std::atomic<bool> doublesProcessOk { true };
+            std::atomic<uint64_t> maximumProcessNanoseconds { 0u };
+            std::thread doublesAudioThread;
+            @try {
+                hostContext.stateDirtyCount = 0u;
+                hostContext.guiParamValueCount = 0u;
+                hostContext.guiGestureBeginCount = 0u;
+                hostContext.guiGestureEndCount = 0u;
+                const NSUInteger refreshBefore =
+                    [document refreshTickCount];
+                const NSUInteger cursorDrawsBefore =
+                    [document cursorDrawPassCount];
+                doublesGuiShown = gui->show(plugin);
+                ok = doublesGuiShown;
+                if (ok) {
+                    // Prime the display-rate timer in the normal run-loop
+                    // mode. Tracking-mode cadence and localized redraw are
+                    // exercised separately below with real mouseDragged calls.
+                    NSRunLoop* runLoop = [NSRunLoop mainRunLoop];
+                    NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:0.18];
+                    while ([deadline timeIntervalSinceNow] > 0.0) {
+                        [runLoop runMode:NSDefaultRunLoopMode
+                            beforeDate:deadline];
+                    }
+                    // The smoke host has no compositor-driven window flush;
+                    // present its pending invalidation explicitly after the
+                    // same scheduled-timer phase used by Sample Player.
+                    [document displayIfNeeded];
+                    const NSUInteger refreshAfter =
+                        [document refreshTickCount];
+                    const NSUInteger cursorDrawsAfter =
+                        [document cursorDrawPassCount];
+                    ok = refreshAfter > refreshBefore
+                        && cursorDrawsAfter > cursorDrawsBefore;
+                    if (!ok) {
+                        std::cerr << "Sample Doubles tracking timer: ticks="
+                            << refreshBefore << "->" << refreshAfter
+                            << " cursor draws=" << cursorDrawsBefore << "->"
+                            << cursorDrawsAfter << "\n";
+                    }
+                }
+
+                const NSPoint phaseMenu = NSMakePoint(720.0, 400.0);
+                const NSPoint quarterBeat = NSMakePoint(720.0, 459.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, phaseMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, quarterBeat)];
+                    ok = [[document valueForKey:@"openMenu"]
+                                unsignedIntValue] == 5u
+                        && [[document valueForKey:@"menuHover"] intValue]
+                            == 2;
+                }
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, quarterBeat)];
+                }
+                double phaseStep = -1.0;
+                ok = ok && params->get_value(plugin, 5u, &phaseStep)
+                    && std::fabs(phaseStep - 2.0) < 0.000001;
+
+                const NSPoint loopMenu = NSMakePoint(720.0, 426.0);
+                const NSPoint loopOff = NSMakePoint(720.0, 445.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, loopMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, loopOff)];
+                }
+                double loop = -1.0;
+                ok = ok && params->get_value(plugin, 8u, &loop)
+                    && std::fabs(loop) < 0.000001;
+
+                const NSPoint receiveMenu = NSMakePoint(720.0, 478.0);
+                const NSPoint channelTwo = NSMakePoint(720.0, 180.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, receiveMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, channelTwo)];
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, channelTwo)];
+                }
+                double receive = -1.0;
+                ok = ok && params->get_value(plugin, 12u, &receive)
+                    && std::fabs(receive - 2.0) < 0.000001;
+
+                // Load an embedded source through the public state API, then
+                // keep the real DSP callback running on an audio worker while
+                // the main thread performs the control stress below.
+                const auto* doublesState = ok
+                    ? static_cast<const clap_plugin_state_t*>(
+                        plugin->get_extension(plugin, CLAP_EXT_STATE))
+                    : nullptr;
+                DocumentationSampleDoublesState fixture;
+                std::memset(&fixture, 0, sizeof(fixture));
+                fixture.magic = 0x44443353u;
+                fixture.version = 1u;
+                fixture.parameterCount = 12u;
+                fixture.parameters = {{
+                    -7.0, 0.0, 120.0, 1.0, 2.0, 0.0, 1.0, 1.0,
+                    -1.0, 0.0, -6.0, 0.0,
+                }};
+                fixture.embedded = 1u;
+                fixture.channelCount = 1u;
+                fixture.frameCount = 16384u;
+                fixture.sampleRate = 48000.0;
+                MemoryPluginState doublesMemory;
+                doublesMemory.bytes.resize(sizeof(fixture)
+                    + static_cast<size_t>(fixture.frameCount)
+                        * sizeof(float));
+                std::memcpy(doublesMemory.bytes.data(), &fixture,
+                    sizeof(fixture));
+                for (uint32_t frame = 0u; frame < fixture.frameCount;
+                     ++frame) {
+                    const float sample = static_cast<float>(
+                        std::sin(6.28318530717958647692 * 220.0
+                            * static_cast<double>(frame)
+                            / fixture.sampleRate) * 0.35);
+                    std::memcpy(doublesMemory.bytes.data() + sizeof(fixture)
+                            + static_cast<size_t>(frame) * sizeof(float),
+                        &sample, sizeof(sample));
+                }
+                clap_istream_t doublesInput {
+                    &doublesMemory, stateReadWhole,
+                };
+                ok = ok && doublesState && doublesState->load
+                    && doublesState->load(plugin, &doublesInput)
+                    && doublesMemory.offset == doublesMemory.bytes.size();
+                if (ok) {
+                    doublesActivated = plugin->activate(
+                        plugin, 48000.0, 1u, 128u);
+                    doublesProcessing = doublesActivated
+                        && plugin->start_processing(plugin);
+                    ok = doublesProcessing;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(74.0, 546.0))];
+                    keepDoublesProcessing.store(true,
+                        std::memory_order_release);
+                    doublesAudioThread = std::thread([&] {
+                        std::array<float, 128u> audioLeft {};
+                        std::array<float, 128u> audioRight {};
+                        std::array<float*, 2u> audioChannels {{
+                            audioLeft.data(), audioRight.data(),
+                        }};
+                        clap_audio_buffer_t audioOutput {};
+                        audioOutput.data32 = audioChannels.data();
+                        audioOutput.channel_count = 2u;
+                        clap_process_t audioBlock {};
+                        audioBlock.steady_time = 0;
+                        audioBlock.frames_count = 128u;
+                        audioBlock.audio_outputs = &audioOutput;
+                        audioBlock.audio_outputs_count = 1u;
+                        clap_output_events_t audioEvents {
+                            &hostContext,
+                            captureHostParamEvent,
+                        };
+                        audioBlock.out_events = &audioEvents;
+                        while (keepDoublesProcessing.load(
+                                std::memory_order_acquire)) {
+                            if (pauseDoublesProcessing.load(
+                                    std::memory_order_acquire)) {
+                                doublesProcessingPaused.store(true,
+                                    std::memory_order_release);
+                                std::this_thread::sleep_for(
+                                    std::chrono::milliseconds(1));
+                                continue;
+                            }
+                            doublesProcessingPaused.store(false,
+                                std::memory_order_release);
+                            const auto start =
+                                std::chrono::steady_clock::now();
+                            if (plugin->process(plugin, &audioBlock)
+                                    == CLAP_PROCESS_ERROR) {
+                                doublesProcessOk.store(false,
+                                    std::memory_order_release);
+                                break;
+                            }
+                            const auto elapsed = static_cast<uint64_t>(
+                                std::chrono::duration_cast<
+                                    std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now() - start)
+                                    .count());
+                            uint64_t previous = maximumProcessNanoseconds.load(
+                                std::memory_order_relaxed);
+                            while (elapsed > previous
+                                && !maximumProcessNanoseconds
+                                    .compare_exchange_weak(previous, elapsed,
+                                        std::memory_order_relaxed)) {}
+                            audioBlock.steady_time +=
+                                audioBlock.frames_count;
+                            std::this_thread::sleep_for(
+                                std::chrono::milliseconds(1));
+                        }
+                        doublesProcessingPaused.store(false,
+                            std::memory_order_release);
+                    });
+                }
+
+                const uint64_t processBlocksBefore =
+                    [document processBlockCount];
+                const NSUInteger liveCursorDrawsBefore =
+                    [document cursorDrawPassCount];
+                const double deckAPositionBefore =
+                    [document deckAPositionValue];
+
+                struct SliderDrag {
+                    CGFloat left;
+                    CGFloat right;
+                    CGFloat y;
+                };
+                const std::array<SliderDrag, 7u> sliderDrags {{
+                    { 126.0, 276.0, 343.0 }, // Speed
+                    { 126.0, 276.0, 369.0 }, // Sample BPM
+                    { 126.0, 180.0, 395.0 }, // Start (remain below End)
+                    { 220.0, 276.0, 421.0 }, // End (remain above Start)
+                    { 126.0, 276.0, 447.0 }, // Out
+                    { 636.0, 786.0, 343.0 }, // B Offset
+                    { 636.0, 786.0, 369.0 }, // B Drift
+                }};
+                hostContext.paramFlushRequestCount.store(0u,
+                    std::memory_order_relaxed);
+                hostContext.processRequestCount.store(0u,
+                    std::memory_order_relaxed);
+                const NSUInteger cursorDrawsBeforeSliders =
+                    [document cursorDrawPassCount];
+                const uint64_t blocksBeforeSliders =
+                    [document processBlockCount];
+                NSRunLoop* trackingRunLoop = [NSRunLoop mainRunLoop];
+                for (const auto& slider : sliderDrags) {
+                    if (!ok) break;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(slider.left, slider.y))];
+                    const NSUInteger cursorBeforeDrag =
+                        [document cursorDrawPassCount];
+                    for (uint32_t iteration = 0u; iteration < 96u;
+                         ++iteration) {
+                        const uint32_t phase = iteration % 48u;
+                        const double normalized = phase <= 24u
+                            ? static_cast<double>(phase) / 24.0
+                            : static_cast<double>(48u - phase) / 24.0;
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged,
+                            NSMakePoint(slider.left
+                                + (slider.right - slider.left) * normalized,
+                                slider.y))];
+                        [trackingRunLoop runMode:NSEventTrackingRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.001]];
+                        [document displayIfNeeded];
+                    }
+                    ok = [document cursorDrawPassCount]
+                        > cursorBeforeDrag + 2u;
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(slider.right, slider.y))];
+                }
+                ok = ok && [document cursorDrawPassCount]
+                        > cursorDrawsBeforeSliders + 14u
+                    && [document processBlockCount]
+                        > blocksBeforeSliders + 200u
+                    && hostContext.paramFlushRequestCount.load(
+                        std::memory_order_relaxed) == 0u
+                    && hostContext.processRequestCount.load(
+                        std::memory_order_relaxed) == 0u;
+
+                // Exercise every discrete menu repeatedly while the same loop
+                // and audio callback remain active. Menus may repaint their
+                // dropdown, but each repaint must also present a fresh cursor.
+                const std::array<NSPoint, 4u> menuAnchors {{
+                    NSMakePoint(720.0, 400.0),
+                    NSMakePoint(720.0, 426.0),
+                    NSMakePoint(720.0, 452.0),
+                    NSMakePoint(720.0, 478.0),
+                }};
+                const NSUInteger cursorDrawsBeforeMenus =
+                    [document cursorDrawPassCount];
+                const uint64_t blocksBeforeMenus =
+                    [document processBlockCount];
+                for (uint32_t iteration = 0u; ok && iteration < 17u;
+                     ++iteration) {
+                    const std::array<NSPoint, 4u> menuItems {{
+                        NSMakePoint(720.0,
+                            419.0 + 20.0 * static_cast<CGFloat>(
+                                iteration % 7u)),
+                        NSMakePoint(720.0, 465.0), // Loop On
+                        NSMakePoint(720.0,
+                            471.0 + 20.0 * static_cast<CGFloat>(
+                                iteration % 3u)),
+                        NSMakePoint(720.0,
+                            140.0 + 20.0 * static_cast<CGFloat>(
+                                iteration % 17u)),
+                    }};
+                    for (std::size_t menu = 0u; menu < menuAnchors.size();
+                         ++menu) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, menuAnchors[menu])];
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved, menuItems[menu])];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, menuItems[menu])];
+                        [trackingRunLoop runMode:NSEventTrackingRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.001]];
+                        [document displayIfNeeded];
+                    }
+                }
+                ok = ok && [document cursorDrawPassCount]
+                        > cursorDrawsBeforeMenus + 60u
+                    && [document processBlockCount]
+                        > blocksBeforeMenus + 30u
+                    && hostContext.paramFlushRequestCount.load(
+                        std::memory_order_relaxed) == 0u
+                    && hostContext.processRequestCount.load(
+                        std::memory_order_relaxed) == 0u;
+
+                double liveLoop = -1.0;
+                ok = ok && params->get_value(plugin, 8u, &liveLoop)
+                    && std::fabs(liveLoop - 1.0) < 0.000001;
+
+                // Exact host reproduction: one looping source and a sustained
+                // crossfader drag. While process() is already running, GUI
+                // parameter events must ride the audio callback rather than
+                // flooding the host with request_flush + request_process.
+                hostContext.paramFlushRequestCount.store(0u,
+                    std::memory_order_relaxed);
+                hostContext.processRequestCount.store(0u,
+                    std::memory_order_relaxed);
+                const NSUInteger cursorDrawsBeforeCrossfade =
+                    [document cursorDrawPassCount];
+                const NSUInteger fullDrawsBeforeCrossfade =
+                    [document fullDrawPassCount];
+                const NSUInteger drawPassesBeforeCrossfade =
+                    [document drawPassCount];
+                const NSUInteger animationsBeforeCrossfade =
+                    [document cursorAnimationInstallCount];
+                const uint64_t blocksBeforeCrossfade =
+                    [document processBlockCount];
+                const NSPoint crossfaderLeft = NSMakePoint(172.0, 644.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, crossfaderLeft)];
+                    NSRunLoop* runLoop = [NSRunLoop mainRunLoop];
+                    for (uint32_t iteration = 0u; iteration < 512u;
+                         ++iteration) {
+                        const uint32_t phase = iteration % 256u;
+                        const double normalized = phase <= 128u
+                            ? static_cast<double>(phase) / 128.0
+                            : static_cast<double>(256u - phase) / 128.0;
+                        const NSPoint point = NSMakePoint(
+                            172.0 + 696.0 * normalized, 644.0);
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, point)];
+                        NSDate* deadline = [NSDate
+                            dateWithTimeIntervalSinceNow:0.001];
+                        [runLoop runMode:NSEventTrackingRunLoopMode
+                            beforeDate:deadline];
+                        [document displayIfNeeded];
+                    }
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(840.0, 644.0))];
+                    const NSUInteger cursorDrawsDuringCrossfade =
+                        [document cursorDrawPassCount];
+                    const NSUInteger animationsDuringCrossfade =
+                        [document cursorAnimationInstallCount];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(840.0, 644.0))];
+                    ok = cursorDrawsDuringCrossfade
+                            > cursorDrawsBeforeCrossfade + 12u
+                        && [document processBlockCount]
+                            > blocksBeforeCrossfade + 100u
+                        && [document deckACursorAnimationActive]
+                        && [document deckBCursorAnimationActive]
+                        && animationsDuringCrossfade
+                            == animationsBeforeCrossfade;
+                }
+                double crossfade = -1.0;
+                ok = ok && params->get_value(plugin, 9u, &crossfade)
+                    && crossfade > 0.85;
+                const NSUInteger trackingTicksBefore =
+                    [document refreshTickCount];
+                const NSUInteger trackingCursorDrawsBefore =
+                    [document cursorDrawPassCount];
+                if (ok) {
+                    NSRunLoop* runLoop = [NSRunLoop mainRunLoop];
+                    NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:0.18];
+                    while ([deadline timeIntervalSinceNow] > 0.0) {
+                        [runLoop runMode:NSEventTrackingRunLoopMode
+                            beforeDate:deadline];
+                        [document displayIfNeeded];
+                    }
+                }
+                const NSUInteger trackingTicksAfter =
+                    [document refreshTickCount];
+                const NSUInteger trackingCursorDrawsAfter =
+                    [document cursorDrawPassCount];
+
+                // REAPER's anticipative engine can render a burst, then make
+                // no process call for roughly its render-ahead interval while
+                // the buffered audio is heard. Reproduce that exact gap while
+                // a crossfader gesture keeps AppKit in tracking mode. The raw
+                // DSP publication must remain fixed, while the visual cursor
+                // must continue in the sample domain on every display tick.
+                double renderAheadRawBefore = -1.0;
+                double renderAheadRawAfter = -1.0;
+                double renderAheadVisualBefore = -1.0;
+                double renderAheadVisualAfter = -1.0;
+                NSUInteger renderAheadTicksBefore = 0u;
+                NSUInteger renderAheadTicksAfter = 0u;
+                NSUInteger renderAheadDrawsBefore = 0u;
+                NSUInteger renderAheadDrawsAfter = 0u;
+                NSUInteger renderAheadFullDrawsBefore = 0u;
+                NSUInteger renderAheadFullDrawsAfter = 0u;
+                NSUInteger renderAheadFrameRequestsBefore = 0u;
+                NSUInteger renderAheadFrameRequestsAfter = 0u;
+                NSUInteger renderAheadMovingTicks = 0u;
+                NSUInteger renderAheadMaximumStationaryTicks = 0u;
+                double renderAheadTotalVisualMovement = 0.0;
+                NSUInteger releaseTicksBefore = 0u;
+                NSUInteger releaseTicksAfter = 0u;
+                NSUInteger releaseDrawsBefore = 0u;
+                NSUInteger releaseDrawsAfter = 0u;
+                NSUInteger releaseFullDrawsBefore = 0u;
+                NSUInteger releaseFullDrawsAfter = 0u;
+                NSUInteger releaseFrameRequestsBefore = 0u;
+                NSUInteger releaseFrameRequestsAfter = 0u;
+                NSUInteger releaseAnimationsBefore = 0u;
+                NSUInteger releaseAnimationsAfter = 0u;
+                double releaseVisualBefore = -1.0;
+                double releaseVisualAfter = -1.0;
+                uint64_t renderAheadBlocksBefore = 0u;
+                uint64_t renderAheadBlocksAfter = 0u;
+                bool renderAheadPauseAcknowledged = false;
+                bool renderAheadDragActive = false;
+                if (ok) {
+                    const bool hasIndependentVisualCursor =
+                        [document respondsToSelector:
+                            @selector(updateVisualCursors)]
+                        && [document respondsToSelector:
+                            @selector(visualDeckAPositionValue)];
+                    const auto visualDeckAPosition = [&]() {
+                        return hasIndependentVisualCursor
+                            ? [document visualDeckAPositionValue]
+                            : [document deckAPositionValue];
+                    };
+                    const NSPoint heldCrossfader = NSMakePoint(520.0, 644.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, heldCrossfader)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, heldCrossfader)];
+                    renderAheadDragActive = true;
+
+                    pauseDoublesProcessing.store(true,
+                        std::memory_order_release);
+                    const auto pauseDeadline =
+                        std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(250);
+                    while (!doublesProcessingPaused.load(
+                            std::memory_order_acquire)
+                        && std::chrono::steady_clock::now()
+                            < pauseDeadline) {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(1));
+                    }
+                    renderAheadPauseAcknowledged =
+                        doublesProcessingPaused.load(
+                            std::memory_order_acquire);
+
+                    if (hasIndependentVisualCursor)
+                        [document updateVisualCursors];
+                    [document displayIfNeeded];
+                    renderAheadRawBefore = [document deckAPositionValue];
+                    renderAheadVisualBefore = visualDeckAPosition();
+                    renderAheadTicksBefore = [document refreshTickCount];
+                    renderAheadDrawsBefore =
+                        [document cursorDrawPassCount];
+                    renderAheadFullDrawsBefore =
+                        [document fullDrawPassCount];
+                    renderAheadFrameRequestsBefore =
+                        [document fullFrameRequestCount];
+                    renderAheadBlocksBefore =
+                        [document processBlockCount];
+
+                    double loopStart = 0.0;
+                    double loopEnd = 1.0;
+                    ok = params->get_value(plugin, 6u, &loopStart)
+                        && params->get_value(plugin, 7u, &loopEnd)
+                        && loopEnd > loopStart;
+                    double previousVisual = renderAheadVisualBefore;
+                    NSUInteger observedTick = renderAheadTicksBefore;
+                    NSUInteger stationaryTicks = 0u;
+
+                    NSRunLoop* runLoop = [NSRunLoop mainRunLoop];
+                    NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:0.85];
+                    while ([deadline timeIntervalSinceNow] > 0.0) {
+                        [runLoop runMode:NSEventTrackingRunLoopMode
+                            beforeDate:deadline];
+                        [document displayIfNeeded];
+                        const NSUInteger currentTick =
+                            [document refreshTickCount];
+                        if (currentTick == observedTick) continue;
+                        const NSUInteger tickDelta =
+                            currentTick - observedTick;
+                        const double currentVisual = visualDeckAPosition();
+                        double movement = currentVisual - previousVisual;
+                        if (movement < 0.0)
+                            movement += loopEnd - loopStart;
+                        if (movement > 1.0e-7) {
+                            renderAheadMovingTicks += tickDelta;
+                            renderAheadTotalVisualMovement += movement;
+                            stationaryTicks = 0u;
+                        } else {
+                            stationaryTicks += tickDelta;
+                            renderAheadMaximumStationaryTicks = std::max(
+                                renderAheadMaximumStationaryTicks,
+                                stationaryTicks);
+                        }
+                        previousVisual = currentVisual;
+                        observedTick = currentTick;
+                    }
+
+                    renderAheadRawAfter = [document deckAPositionValue];
+                    renderAheadVisualAfter = visualDeckAPosition();
+                    renderAheadTicksAfter = [document refreshTickCount];
+                    renderAheadDrawsAfter =
+                        [document cursorDrawPassCount];
+                    renderAheadFullDrawsAfter =
+                        [document fullDrawPassCount];
+                    renderAheadFrameRequestsAfter =
+                        [document fullFrameRequestCount];
+                    renderAheadBlocksAfter =
+                        [document processBlockCount];
+
+                    const double rawMovement = std::fabs(
+                        renderAheadRawAfter - renderAheadRawBefore);
+                    ok = ok && renderAheadPauseAcknowledged
+                        && rawMovement < 1.0e-9
+                        && renderAheadBlocksAfter
+                            == renderAheadBlocksBefore
+                        && renderAheadTotalVisualMovement > 1.0e-3
+                        && renderAheadMovingTicks > 18u
+                        && renderAheadMaximumStationaryTicks <= 2u
+                        && renderAheadTicksAfter
+                            > renderAheadTicksBefore + 18u
+                        && renderAheadDrawsAfter
+                            > renderAheadDrawsBefore
+                        && renderAheadFullDrawsAfter
+                            > renderAheadFullDrawsBefore
+                        && renderAheadFrameRequestsAfter
+                                - renderAheadFrameRequestsBefore
+                            == renderAheadTicksAfter
+                                - renderAheadTicksBefore;
+
+                    // The reported host failure starts on mouse-up: the heads
+                    // move during the held drag, then their rendered lines
+                    // pause when AppKit returns to its default run-loop mode.
+                    // Keep the audio callback paused across that transition
+                    // so the cursor can only be driven by the GUI clock.
+                    releaseTicksBefore = [document refreshTickCount];
+                    releaseDrawsBefore = [document cursorDrawPassCount];
+                    releaseFullDrawsBefore = [document fullDrawPassCount];
+                    releaseFrameRequestsBefore =
+                        [document fullFrameRequestCount];
+                    releaseAnimationsBefore =
+                        [document cursorAnimationInstallCount];
+                    releaseVisualBefore = visualDeckAPosition();
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, heldCrossfader)];
+                    renderAheadDragActive = false;
+
+                    NSRunLoop* releaseRunLoop = [NSRunLoop mainRunLoop];
+                    NSDate* releaseDeadline = [NSDate
+                        dateWithTimeIntervalSinceNow:0.35];
+                    while ([releaseDeadline timeIntervalSinceNow] > 0.0) {
+                        [releaseRunLoop runMode:NSDefaultRunLoopMode
+                            beforeDate:releaseDeadline];
+                        [document displayIfNeeded];
+                    }
+                    releaseTicksAfter = [document refreshTickCount];
+                    releaseDrawsAfter = [document cursorDrawPassCount];
+                    releaseFullDrawsAfter = [document fullDrawPassCount];
+                    releaseFrameRequestsAfter =
+                        [document fullFrameRequestCount];
+                    releaseAnimationsAfter =
+                        [document cursorAnimationInstallCount];
+                    releaseVisualAfter = visualDeckAPosition();
+                    double releaseMovement = releaseVisualAfter
+                        - releaseVisualBefore;
+                    if (releaseMovement < 0.0)
+                        releaseMovement += loopEnd - loopStart;
+                    ok = ok && releaseMovement > 1.0e-3
+                        && releaseTicksAfter > releaseTicksBefore + 7u
+                        && releaseDrawsAfter > releaseDrawsBefore
+                        && releaseFullDrawsAfter > releaseFullDrawsBefore
+                        && releaseAnimationsAfter
+                            == releaseAnimationsBefore
+                        && [document deckACursorAnimationActive]
+                        && [document deckBCursorAnimationActive]
+                        && releaseFrameRequestsAfter
+                                - releaseFrameRequestsBefore
+                            == releaseTicksAfter - releaseTicksBefore;
+
+                    pauseDoublesProcessing.store(false,
+                        std::memory_order_release);
+                    const auto resumeDeadline =
+                        std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(250);
+                    while ((doublesProcessingPaused.load(
+                                std::memory_order_acquire)
+                            || [document processBlockCount]
+                                == renderAheadBlocksAfter)
+                        && std::chrono::steady_clock::now()
+                            < resumeDeadline) {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(1));
+                    }
+                }
+                if (renderAheadDragActive) {
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(520.0, 644.0))];
+                }
+                pauseDoublesProcessing.store(false,
+                    std::memory_order_release);
+
+                const NSUInteger fullDrawsAfterCrossfade =
+                    [document fullDrawPassCount];
+                const NSUInteger drawPassesAfterCrossfade =
+                    [document drawPassCount];
+                const uint64_t processBlocksAfter =
+                    [document processBlockCount];
+                const NSUInteger liveCursorDrawsAfter =
+                    [document cursorDrawPassCount];
+                const double deckAPositionAfter =
+                    [document deckAPositionValue];
+                const uint32_t flushRequestsDuringCrossfade =
+                    hostContext.paramFlushRequestCount.load(
+                        std::memory_order_relaxed);
+                const uint32_t processRequestsDuringCrossfade =
+                    hostContext.processRequestCount.load(
+                        std::memory_order_relaxed);
+                ok = ok && doublesProcessOk.load(std::memory_order_acquire)
+                    && processBlocksAfter > processBlocksBefore + 20u
+                    && liveCursorDrawsAfter > liveCursorDrawsBefore + 2u
+                    && liveCursorDrawsAfter <= [document drawPassCount]
+                    && trackingTicksAfter > trackingTicksBefore + 3u
+                    && trackingCursorDrawsAfter
+                        > trackingCursorDrawsBefore
+                    && fullDrawsAfterCrossfade
+                        > fullDrawsBeforeCrossfade + 20u
+                    && drawPassesAfterCrossfade
+                        > drawPassesBeforeCrossfade + 20u
+                    && [[document subviews] count] == 1u
+                    && std::fabs(deckAPositionAfter - deckAPositionBefore)
+                        > 1.0e-5
+                    && maximumProcessNanoseconds.load(
+                        std::memory_order_relaxed) < 20000000u;
+                ok = ok && hostContext.stateDirtyCount == 0u;
+                ok = ok && flushRequestsDuringCrossfade == 0u
+                    && processRequestsDuringCrossfade == 0u;
+                const uint32_t guiParamValues =
+                    hostContext.guiParamValueCount.load(
+                        std::memory_order_relaxed);
+                const uint32_t gestureBegins =
+                    hostContext.guiGestureBeginCount.load(
+                        std::memory_order_relaxed);
+                const uint32_t gestureEnds =
+                    hostContext.guiGestureEndCount.load(
+                        std::memory_order_relaxed);
+                ok = ok && guiParamValues >= 1200u
+                    && gestureBegins >= 70u
+                    && gestureBegins == gestureEnds;
+                if (!ok) {
+                    std::cerr << "Sample Doubles interaction details: "
+                        << "phase=" << phaseStep
+                        << " loop=" << loop
+                        << " liveLoop=" << liveLoop
+                        << " receive=" << receive
+                        << " crossfade=" << crossfade
+                        << " stateDirty="
+                        << hostContext.stateDirtyCount
+                        << " hostRequests="
+                        << flushRequestsDuringCrossfade << "/"
+                        << processRequestsDuringCrossfade
+                        << " paramEvents="
+                        << guiParamValues
+                        << " gestures="
+                        << gestureBegins << "/" << gestureEnds
+                        << " processBlocks=" << processBlocksBefore << "->"
+                        << processBlocksAfter
+                        << " cursorDraws=" << liveCursorDrawsBefore << "->"
+                        << liveCursorDrawsAfter
+                        << " trackingTicks=" << trackingTicksBefore << "->"
+                        << trackingTicksAfter
+                        << " trackingCursorDraws="
+                        << trackingCursorDrawsBefore << "->"
+                        << trackingCursorDrawsAfter
+                        << " renderAheadAck="
+                        << renderAheadPauseAcknowledged
+                        << " renderAheadRaw="
+                        << renderAheadRawBefore << "->"
+                        << renderAheadRawAfter
+                        << " renderAheadVisual="
+                        << renderAheadVisualBefore << "->"
+                        << renderAheadVisualAfter
+                        << " renderAheadTicks="
+                        << renderAheadTicksBefore << "->"
+                        << renderAheadTicksAfter
+                        << " renderAheadDraws="
+                        << renderAheadDrawsBefore << "->"
+                        << renderAheadDrawsAfter
+                        << " renderAheadFullDraws="
+                        << renderAheadFullDrawsBefore << "->"
+                        << renderAheadFullDrawsAfter
+                        << " renderAheadFrameRequests="
+                        << renderAheadFrameRequestsBefore << "->"
+                        << renderAheadFrameRequestsAfter
+                        << " renderAheadBlocks="
+                        << renderAheadBlocksBefore << "->"
+                        << renderAheadBlocksAfter
+                        << " renderAheadMovingTicks="
+                        << renderAheadMovingTicks
+                        << " renderAheadMaxStationary="
+                        << renderAheadMaximumStationaryTicks
+                        << " renderAheadDistance="
+                        << renderAheadTotalVisualMovement
+                        << " releaseTicks="
+                        << releaseTicksBefore << "->" << releaseTicksAfter
+                        << " releaseDraws="
+                        << releaseDrawsBefore << "->" << releaseDrawsAfter
+                        << " releaseFullDraws="
+                        << releaseFullDrawsBefore << "->"
+                        << releaseFullDrawsAfter
+                        << " releaseFrameRequests="
+                        << releaseFrameRequestsBefore << "->"
+                        << releaseFrameRequestsAfter
+                        << " releaseAnimations="
+                        << releaseAnimationsBefore << "->"
+                        << releaseAnimationsAfter
+                        << " releaseVisual="
+                        << releaseVisualBefore << "->"
+                        << releaseVisualAfter
+                        << " fullDraws=" << fullDrawsBeforeCrossfade << "->"
+                        << fullDrawsAfterCrossfade
+                        << " drawPasses=" << drawPassesBeforeCrossfade << "->"
+                        << drawPassesAfterCrossfade
+                        << " deckA=" << deckAPositionBefore << "->"
+                        << deckAPositionAfter
+                        << " maxProcessNs="
+                        << maximumProcessNanoseconds.load(
+                            std::memory_order_relaxed) << "\n";
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Sample Doubles interaction exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+            pauseDoublesProcessing.store(false, std::memory_order_release);
+            keepDoublesProcessing.store(false, std::memory_order_release);
+            if (doublesAudioThread.joinable()) doublesAudioThread.join();
+            if (doublesProcessing) plugin->stop_processing(plugin);
+            if (doublesActivated) plugin->deactivate(plugin);
+            if (doublesGuiShown) ok = gui->hide(plugin) && ok;
         }
         if (ok && drumOverload && !documentationCapture) {
             failureStage = "Drum Overload dropdown and DRIVE hit map";

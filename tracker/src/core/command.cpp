@@ -878,9 +878,21 @@ bool makeFxSequenceCell(std::string_view atom,
         return true;
     }
     double numeric = 0.0;
-    if (!parseFiniteDouble(atom, numeric) || numeric < 0.0
+    if (selectedAction.state == FxActionCellState::MidiControlChange
+        && atom.find('.') == std::string_view::npos
+        && atom.find('%') == std::string_view::npos) {
+        uint32_t midi = 0u;
+        if (!parseUnsigned(atom, midi) || midi > 127u) {
+            error = "MIDI CC sequence values must be integers 0..127 or normalized decimals 0..1.";
+            return false;
+        }
+        numeric = static_cast<double>(midi) / 127.0;
+    } else if (!parseFiniteDouble(atom, numeric) || numeric < 0.0
         || numeric > 1.0) {
-        error = "FX sequence values must be normalized 0..1, level symbols ! + * ., previous =, or empty -.";
+        error = selectedAction.state
+                == FxActionCellState::MidiControlChange
+            ? "MIDI CC sequence values must be integers 0..127 or normalized decimals 0..1."
+            : "FX sequence values must be normalized 0..1, level symbols ! + * ., previous =, or empty -.";
         return false;
     }
     cell.action = selectedAction;
@@ -961,8 +973,43 @@ std::string fxActionsText()
         if (!action) continue;
         stream << ' ' << action->mnemonic << '=' << action->displayName;
     }
-    stream << ". Enter a code in SEQ1/SEQ2 or right-click a SEQ cell.";
+    stream << " CC0..CC127=MIDI Control Change. Enter a code in SEQ1/SEQ2 or right-click a SEQ cell.";
     return stream.str();
+}
+
+bool parseFxActionToken(std::string_view token, FxActionCell& action)
+{
+    if (const auto* definition = findSequencerAction(token)) {
+        action = FxActionCell::sequencer(definition->action);
+        return true;
+    }
+    uint8_t controller = 0u;
+    if (!parseMidiControlChange(token, controller)) return false;
+    action = FxActionCell::midiControlChange(controller);
+    return true;
+}
+
+bool parseFxValueForAction(std::string_view token,
+    const FxActionCell& action, float& normalized)
+{
+    if (action.state != FxActionCellState::MidiControlChange) {
+        double value = 0.0;
+        if (!parseFiniteDouble(token, value)
+            || value < 0.0 || value > 1.0) return false;
+        normalized = static_cast<float>(value);
+        return true;
+    }
+    if (token.find('.') != std::string_view::npos) {
+        double value = 0.0;
+        if (!parseFiniteDouble(token, value)
+            || value < 0.0 || value > 1.0) return false;
+        normalized = static_cast<float>(value);
+        return true;
+    }
+    uint32_t midi = 0u;
+    if (!parseUnsigned(token, midi) || midi > 127u) return false;
+    normalized = static_cast<float>(midi) / 127.0f;
+    return true;
 }
 
 bool parseFxAmount(std::string_view token, float& normalized)
@@ -2591,11 +2638,9 @@ CommandResult executeTokens(TrackerSession& session,
         if (!parseLane(session, tokens[1], lane, error))
             return failure(std::move(error));
         std::size_t pairIndex = (verb == "fx2" || verb == "f2") ? 1u : 0u;
-        const auto* sequencerAction = findSequencerAction(tokens[2]);
-        if (!sequencerAction)
-            return failure("Unknown sequencing action; use actions to list codes.");
-        const auto selectedAction = FxActionCell::sequencer(
-            sequencerAction->action);
+        FxActionCell selectedAction;
+        if (!parseFxActionToken(tokens[2], selectedAction))
+            return failure("Unknown sequencing action or MIDI CC; use actions to list codes.");
         std::vector<ParsedFxSequenceCell> cells;
         if (!parseFxSequence(tokens, 3u, selectedAction, cells, error))
             return failure(std::move(error));
@@ -2691,19 +2736,18 @@ CommandResult executeTokens(TrackerSession& session,
         } else {
             if (tokens.size() != 6u)
                 return failure("A sequencing action requires a normalized value.");
-            const auto* timingAction = findSequencerAction(tokens[4]);
-            if (!timingAction)
-                return failure("Unknown sequencing action; use actions to list codes.");
-            double value = 0.0;
-            if (!parseFiniteDouble(tokens[5], value)
-                || value < 0.0 || value > 1.0) {
-                return failure("FX values must be normalized between 0 and 1.");
-            }
+            FxActionCell selectedAction;
+            if (!parseFxActionToken(tokens[4], selectedAction))
+                return failure("Unknown sequencing action or MIDI CC; use actions to list codes.");
+            float value = 0.0f;
+            if (!parseFxValueForAction(tokens[5], selectedAction, value))
+                return failure(selectedAction.state
+                        == FxActionCellState::MidiControlChange
+                    ? "MIDI CC values must be integers 0..127 or normalized decimals 0..1."
+                    : "FX values must be normalized between 0 and 1.");
             ensureFxStorage(session, target, false, row + 1u);
-            target.actions[row] = FxActionCell::sequencer(
-                timingAction->action);
-            target.values[row] = FxValueCell::withValue(
-                static_cast<float>(value));
+            target.actions[row] = selectedAction;
+            target.values[row] = FxValueCell::withValue(value);
             wroteValue = true;
         }
         target.actionColumn.length = std::max(
@@ -2715,6 +2759,40 @@ CommandResult executeTokens(TrackerSession& session,
         return success("Updated " + laneLabel(session, lane) + " FX"
                 + std::to_string(pair + 1u) + ", row "
                 + std::to_string(row + 1u) + '.',
+            CommandEffect::PatternChanged);
+    }
+
+    if (verb == "interp" || verb == "interpolation") {
+        if (tokens.size() != 4u)
+            return failure("Usage: interp <target> <v1|v2> <step|linear>");
+        std::size_t lane = 0u;
+        std::string error;
+        if (!parseLane(session, tokens[1], lane, error))
+            return failure(std::move(error));
+        const auto pairToken = asciiLower(tokens[2]);
+        std::size_t pair = 0u;
+        if (pairToken == "v1" || pairToken == "fx1"
+            || pairToken == "f1" || pairToken == "1") {
+            pair = 0u;
+        } else if (pairToken == "v2" || pairToken == "fx2"
+            || pairToken == "f2" || pairToken == "2") {
+            pair = 1u;
+        } else {
+            return failure("Interpolation column must be V1 or V2.");
+        }
+        const auto mode = asciiLower(tokens[3]);
+        if (mode == "step") {
+            session.pattern.tracks[lane].fxPairs[pair].valueInterpolation
+                = ValueInterpolation::Step;
+        } else if (mode == "linear" || mode == "lin") {
+            session.pattern.tracks[lane].fxPairs[pair].valueInterpolation
+                = ValueInterpolation::Linear;
+        } else {
+            return failure("Interpolation mode must be STEP or LINEAR.");
+        }
+        return success("Set " + laneLabel(session, lane) + " V"
+                + std::to_string(pair + 1u) + " interpolation to "
+                + (mode == "step" ? "STEP." : "LINEAR."),
             CommandEffect::PatternChanged);
     }
 
@@ -2738,13 +2816,21 @@ CommandResult executeTokens(TrackerSession& session,
             || valueToken == "=") {
             target.values[row] = FxValueCell::previous();
         } else {
-            double value = 0.0;
-            if (!parseFiniteDouble(tokens[4], value)
-                || value < 0.0 || value > 1.0) {
-                return failure("FX values must be normalized between 0 and 1.");
+            const bool midiValueLane = std::any_of(target.actions.begin(),
+                target.actions.end(), [](const FxActionCell& action) {
+                    return action.state
+                        == FxActionCellState::MidiControlChange;
+                });
+            const auto valueAction = midiValueLane
+                ? FxActionCell::midiControlChange(0u)
+                : FxActionCell::empty();
+            float value = 0.0f;
+            if (!parseFxValueForAction(tokens[4], valueAction, value)) {
+                return failure(midiValueLane
+                    ? "MIDI CC values must be integers 0..127 or normalized decimals 0..1."
+                    : "FX values must be normalized between 0 and 1.");
             }
-            target.values[row] = FxValueCell::withValue(
-                static_cast<float>(value));
+            target.values[row] = FxValueCell::withValue(value);
         }
         target.valueColumn.length = std::max(
             target.valueColumn.length, row + 1u);
@@ -3631,11 +3717,12 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "solo <target> [target ...]", "Mute every NOTE lane except the listed targets.", "solo", "solo @kick @snare" },
         } },
         { "SEQUENCING COLUMNS", {
-            { "actions", "List sequencing action codes accepted by SEQ1 and SEQ2.", "actions", "actions" },
+            { "actions", "List sequencing action codes and CC0..CC127 accepted by SEQ1 and SEQ2.", "actions", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx", "fx @kick 1 1 previous" },
-            { "fx <target> <pair> <row> <sequencing-action> <value>", "Write a sequencing behavior with a normalized value.", "", "fx @kick 1 5 pr 0.65" },
-            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired normalized value.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
-            { "fx1|f1|fx2|f2 <target> <action> <sequence>", "Replace a compact FX/value sequence; see Compact Symbol Reference for every value, previous, and empty mark.", "fx1 f1 fx2 f2", "fx1 @kick pr !.=-" },
+            { "fx <target> <pair> <row> <action|CC0..CC127> <value>", "Write a sequencing behavior or MIDI control change. CC values accept 0..127 integers or normalized decimals.", "", "fx @kick 1 5 cc74 96" },
+            { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value. CC lanes accept 0..127 integers or normalized decimals.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
+            { "fx1|f1|fx2|f2 <target> <action|CC0..CC127> <sequence>", "Replace a compact FX/value sequence; MIDI CC sequences also accept 0..127 integers.", "fx1 f1 fx2 f2", "fx1 @kick cc74 24 64 96 127" },
+            { "interp|interpolation <target> <v1|v2> <step|linear>", "Choose stepped values or bounded between-row MIDI CC interpolation for one value column.", "interp interpolation", "interp @kick v1 linear" },
             { "prob|probability <target> <row> <amount|clear>", "Write PR into the first available FX pair; percentages are accepted.", "prob probability", "prob @kick 5 25%" },
             { "ratchet|retrig|retrigger <target> <row> <amount|clear>", "Write or clear a ratchet action in the first available FX pair.", "ratchet retrig retrigger", "ratchet @kick 6 0.5" },
             { "microtime|micro|delay|flam|stutter <target> <row> <amount|clear>", "Write or clear a timing action.", "microtime micro delay flam stutter", "microtime @kick 7 0.25" },

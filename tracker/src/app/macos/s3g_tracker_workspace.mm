@@ -22,6 +22,7 @@ using s3g::tracker::ColumnDefinition;
 using s3g::tracker::EventDestination;
 using s3g::tracker::FxActionCell;
 using s3g::tracker::FxActionCellState;
+using s3g::tracker::FxPair;
 using s3g::tracker::FxValueCell;
 using s3g::tracker::FxValueCellState;
 using s3g::tracker::InstrumentCell;
@@ -34,6 +35,7 @@ using s3g::tracker::SequencerAction;
 using s3g::tracker::Track;
 using s3g::tracker::ValueCell;
 using s3g::tracker::ValueCellState;
+using s3g::tracker::ValueInterpolation;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
 
@@ -269,9 +271,21 @@ NSString* fxActionText(const Track& track, std::size_t pair,
         return action ? [NSString stringWithUTF8String:
             std::string(action->mnemonic).c_str()] : @"???";
     }
+    if (cell.state == FxActionCellState::MidiControlChange) {
+        return [NSString stringWithFormat:@"CC%u",
+            static_cast<unsigned int>(cell.midiController)];
+    }
     // Audio-parameter actions from the former internal-instrument build are
     // intentionally not presented by the MIDI-only tracker.
     return @"---";
+}
+
+bool pairContainsMidiControlChange(const FxPair& pair) noexcept
+{
+    return std::any_of(pair.actions.begin(), pair.actions.end(),
+        [](const FxActionCell& cell) {
+            return cell.state == FxActionCellState::MidiControlChange;
+        });
 }
 
 NSString* fxValueText(const Track& track, std::size_t pair,
@@ -702,7 +716,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length, direction, and MUTE rows. Click a V1 or V2 label to toggle STEP and LINEAR interpolation. Double-click only the length row to edit it, click DIR to cycle direction, or click MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -791,6 +805,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             fieldName = [NSString stringWithFormat:@"Sequence %lu value",
                 static_cast<unsigned long>(pair + 1u)];
             fieldValue = fxValueText(track, pair, row);
+            fieldValue = [NSString stringWithFormat:@"%@, %@ interpolation",
+                fieldValue,
+                track.fxPairs[pair].valueInterpolation
+                        == ValueInterpolation::Linear
+                    ? @"linear" : @"step"];
         }
     }
     self.accessibilityValue = [NSString stringWithFormat:
@@ -1144,6 +1163,42 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
     }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem* ccRoot = [[NSMenuItem alloc]
+        initWithTitle:@"MIDI CONTROL CHANGE" action:nil keyEquivalent:@""];
+    NSMenu* ccMenu = [[NSMenu alloc] initWithTitle:@"MIDI CONTROL CHANGE"];
+    for (NSUInteger group = 0u; group < 4u; ++group) {
+        const NSUInteger first = group * 32u;
+        NSMenuItem* groupItem = [[NSMenuItem alloc]
+            initWithTitle:[NSString stringWithFormat:@"CC%03lu–CC%03lu",
+                static_cast<unsigned long>(first),
+                static_cast<unsigned long>(first + 31u)]
+            action:nil keyEquivalent:@""];
+        NSMenu* groupMenu = [[NSMenu alloc] initWithTitle:groupItem.title];
+        for (NSUInteger controller = first;
+             controller < first + 32u; ++controller) {
+            NSMenuItem* item = [[NSMenuItem alloc]
+                initWithTitle:[NSString stringWithFormat:@"CC%03lu",
+                    static_cast<unsigned long>(controller)]
+                action:@selector(sequenceActionSelected:)
+                keyEquivalent:@""];
+            item.target = self;
+            item.representedObject = @{
+                @"track": @(trackIndex), @"row": @(row),
+                @"field": @(field), @"kind": @"cc",
+                @"controller": @(controller),
+            };
+            item.state = current.state
+                        == FxActionCellState::MidiControlChange
+                    && current.midiController == controller
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            [groupMenu addItem:item];
+        }
+        groupItem.submenu = groupMenu;
+        [ccMenu addItem:groupItem];
+    }
+    ccRoot.submenu = ccMenu;
+    [menu addItem:ccRoot];
     return menu;
 }
 
@@ -1174,6 +1229,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         const auto* action = s3g::tracker::sequencerAction(index);
         if (!action) return;
         pair.actions[row] = FxActionCell::sequencer(action->action);
+        if (pair.values.size() <= row)
+            pair.values.resize(row + 1u, FxValueCell::previous());
+        if (pair.values[row].state == FxValueCellState::Previous)
+            pair.values[row] = FxValueCell::withValue(0.5f);
+        pair.valueColumn.length = std::max(
+            pair.valueColumn.length, row + 1u);
+    } else if ([kind isEqualToString:@"cc"]) {
+        const auto controller = [value[@"controller"] unsignedIntegerValue];
+        if (controller > 127u) return;
+        pair.actions[row] = FxActionCell::midiControlChange(
+            static_cast<uint8_t>(controller));
         if (pair.values.size() <= row)
             pair.values.resize(row + 1u, FxValueCell::previous());
         if (pair.values[row].state == FxValueCellState::Previous)
@@ -1316,6 +1382,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         const NSRect lengthRect = gridFieldRect(laneLeft,
             kGridColumnLengthTop, fieldWidth, kGridColumnLengthHeight,
             model->sequenceColumnsExpanded, model->session.selectedField);
+        const NSRect labelRect = gridFieldRect(laneLeft,
+            kGridColumnLabelTop, fieldWidth, kGridColumnLabelHeight,
+            model->sequenceColumnsExpanded, model->session.selectedField);
         if (NSPointInRect(point, muteRect)) {
             auto& track = model->session.pattern.tracks[
                 lane];
@@ -1329,6 +1398,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             auto& direction = columnForField(track, 0u,
                 model->session.selectedField)->direction;
             direction = nextDirection(direction);
+            [self.owner modulePatternChanged];
+        } else if (gridFieldIsSequence(model->session.selectedField)
+            && !gridFieldIsSequenceAction(model->session.selectedField)
+            && NSPointInRect(point, labelRect)) {
+            auto& pair = model->session.pattern.tracks[lane].fxPairs[
+                gridSequencePair(model->session.selectedField)];
+            pair.valueInterpolation = pair.valueInterpolation
+                    == ValueInterpolation::Step
+                ? ValueInterpolation::Linear : ValueInterpolation::Step;
             [self.owner modulePatternChanged];
         } else if (event.clickCount >= 2
             && NSPointInRect(point, lengthRect)) {
@@ -1698,7 +1776,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             if (const auto* timing
                 = s3g::tracker::findSequencerAction(key)) {
                 pair.actions[row] = FxActionCell::sequencer(timing->action);
-            } else return NO;
+            } else {
+                uint8_t controller = 0u;
+                if (!s3g::tracker::parseMidiControlChange(key, controller))
+                    return NO;
+                pair.actions[row] = FxActionCell::midiControlChange(
+                    controller);
+            }
         }
         pair.actionColumn.length = std::max(
             pair.actionColumn.length, row + 1u);
@@ -1711,9 +1795,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
         || [lower isEqualToString:@"previous"])
         pair.values[row] = FxValueCell::previous();
     else {
-        if (!s3g::tracker::app::parseGridNormalizedValue(
-                std::string_view(lower.UTF8String ? lower.UTF8String : ""),
-                value)) return NO;
+        const std::string_view entered(
+            lower.UTF8String ? lower.UTF8String : "");
+        const bool parsed = pairContainsMidiControlChange(pair)
+            ? s3g::tracker::app::parseGridMidiOrNormalizedValue(
+                entered, value)
+            : s3g::tracker::app::parseGridNormalizedValue(entered, value);
+        if (!parsed) return NO;
         pair.values[row] = FxValueCell::withValue(value);
     }
     pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
@@ -2568,6 +2656,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
                 "NOTE", "VOL", "SEQ1", "V1", "SEQ2", "V2",
             };
             NSString* label = [NSString stringWithUTF8String:labels[field]];
+            if (gridFieldIsSequence(field)
+                && !gridFieldIsSequenceAction(field)) {
+                const auto mode = track.fxPairs[gridSequencePair(field)]
+                    .valueInterpolation;
+                label = [NSString stringWithFormat:@"%@ %@", label,
+                    mode == ValueInterpolation::Linear ? @"LIN" : @"STP"];
+            }
             NSString* stride = column->stride == 1u ? @""
                 : [NSString stringWithFormat:@"×%u", column->stride];
             NSString* state = [NSString stringWithFormat:@"L%lu%@",
@@ -2582,7 +2677,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
                     NSMinX(headerField), kGridColumnLabelTop,
                     NSWidth(headerField), kGridColumnLabelHeight), 2.0, 0.0),
                 column->muted ? dim : fieldColor,
-                7.8, NSFontWeightSemibold,
+                gridFieldIsSequence(field)
+                        && !gridFieldIsSequenceAction(field) ? 6.8 : 7.8,
+                NSFontWeightSemibold,
                 NSTextAlignmentCenter);
             drawCenteredText(state, NSInsetRect(NSMakeRect(
                     NSMinX(headerField), kGridColumnLengthTop,
@@ -5337,7 +5434,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
             "len", "stride", "dir", "mute", "unmute", "solo", "name",
             "eu", "euclid", "rotate", "fill", "reverse", "actions",
             "randomize", "random", "rand",
-            "fx", "fxvalue", "warps", "warp", "out", "route",
+            "fx", "fxvalue", "interp", "interpolation", "warps", "warp", "out", "route",
             "instrument", "inst",
         };
         NSString* prefix = textView.string.lowercaseString;

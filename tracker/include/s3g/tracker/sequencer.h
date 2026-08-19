@@ -14,15 +14,17 @@
 
 namespace s3g::tracker {
 
-// Thirty-two tracks x (retrigger off/on + two FX actions) x the initial
-// 16-tick live warp collision budget is 2048 events returned by one process
-// call. Timing FX can retain up to fifteen onsets per lane across future ticks;
-// the separate 8192-event pending heap bounds that expansion. More extreme
-// density fails closed with explicit telemetry rather than silently diverging
-// audio and MIDI output.
+// Thirty-two tracks x (retrigger off/on + two SEQ actions), plus bounded CC
+// interpolation, fit in the 4096 events returned by one process call. Timing
+// FX can retain up to fifteen onsets per lane across future ticks; the separate
+// 8192-event pending heap bounds that expansion. More extreme density fails
+// closed with explicit telemetry rather than silently diverging audio and MIDI
+// output.
 constexpr std::size_t kMaximumTrackCount = 32u;
-constexpr std::size_t kMaximumScheduledEventsPerBlock = 2048u;
+constexpr std::size_t kMaximumScheduledEventsPerBlock = 4096u;
 constexpr std::size_t kMaximumPendingScheduledEvents = 8192u;
+constexpr std::size_t kMaximumCcInterpolationEventsPerTick = 128u;
+constexpr double kMaximumCcInterpolationRateHz = 200.0;
 
 enum class NoteCellState : uint8_t {
     Rest,
@@ -147,6 +149,11 @@ enum class ParameterScope : uint8_t {
     Note,
 };
 
+enum class ValueInterpolation : uint8_t {
+    Step,
+    Linear,
+};
+
 // Destination-neutral operations that reshape note production before the
 // canonical audio/MIDI event boundary. Their paired V1/V2 values remain
 // normalized; the action catalog defines the musical interpretation.
@@ -174,6 +181,7 @@ enum class FxActionCellState : uint8_t {
     Previous,
     Parameter,
     Sequencer,
+    MidiControlChange,
 };
 
 struct FxActionCell {
@@ -182,6 +190,7 @@ struct FxActionCell {
     uint32_t parameterId = 0u;
     ParameterScope scope = ParameterScope::Global;
     SequencerAction sequencerAction = SequencerAction::Ratchet;
+    uint8_t midiController = 0u;
 
     static FxActionCell empty() { return {}; }
 
@@ -209,6 +218,14 @@ struct FxActionCell {
         FxActionCell cell;
         cell.state = FxActionCellState::Sequencer;
         cell.sequencerAction = action;
+        return cell;
+    }
+
+    static FxActionCell midiControlChange(uint8_t controller)
+    {
+        FxActionCell cell;
+        cell.state = FxActionCellState::MidiControlChange;
+        cell.midiController = controller;
         return cell;
     }
 };
@@ -275,6 +292,10 @@ struct FxPair {
     std::vector<FxValueCell> values;
     ColumnDefinition actionColumn;
     ColumnDefinition valueColumn;
+    // STEP emits only the authored row value. LINEAR also describes a bounded
+    // segment from the current resolved value to the next executing CC value;
+    // the timing facade materializes sample-timed 7-bit points between them.
+    ValueInterpolation valueInterpolation = ValueInterpolation::Step;
 };
 
 // Read-only snapshot of the authoritative playback memory behind one FX pair.
@@ -327,6 +348,7 @@ enum class ScheduledEventKind : uint8_t {
     NoteOn,
     NoteOff,
     Parameter,
+    ControlChange,
 };
 
 // Canonical scheduler output. Raw MIDI bytes and CLAP events are adapter
@@ -337,9 +359,10 @@ struct ScheduledEvent {
     // parameter action). Every onset/retrigger receives a new nonzero ID and
     // its explicit note-off carries the same ID.
     uint64_t noteId = 0u;
-    // Zero means that duration is unspecified and the destination's gate or a
-    // later NoteOff controls release. kSustainUntilExplicitNoteOff suppresses
-    // the destination gate until the sequencer emits that NoteOff.
+    // Zero means that duration is unspecified. For notes, the destination's
+    // gate or a later NoteOff controls release; kSustainUntilExplicitNoteOff
+    // suppresses the destination gate until the sequencer emits that NoteOff.
+    // For a linear ControlChange this is the duration to its next row point.
     uint64_t durationSamples = 0u;
     uint32_t frameOffset = 0u;
     uint32_t track = 0u;
@@ -352,12 +375,20 @@ struct ScheduledEvent {
     // Canonical parameter values are normalized. A node adapter resolves the
     // destination's native range and stepped behavior off the render thread.
     float parameterValue = 0.0f;
+    // Linear ControlChange segments retain their next resolved value here.
+    // Ordinary endpoints and generated in-between points keep this equal to
+    // parameterValue and use STEP interpolation.
+    float parameterEndValue = 0.0f;
     uint8_t note = 0u;
     // One-based to match the tracker model. MIDI and chip adapters translate
     // this into their own channel representation.
     uint8_t channel = 1u;
     ScheduledEventKind kind = ScheduledEventKind::NoteOn;
     ParameterScope parameterScope = ParameterScope::Global;
+    ValueInterpolation valueInterpolation = ValueInterpolation::Step;
+    // Marks a bounded derived CC point so a later authored endpoint can
+    // cancel a stale tail after timing, tempo, or pattern changes.
+    bool generatedInterpolation = false;
     EventDestination destination = EventDestination::Midi;
 };
 
@@ -374,6 +405,7 @@ static_assert(std::is_trivially_copyable<ScheduledEvent>::value,
 // preserve the established tracker behavior (zero-velocity cells still
 // produce a note-on rather than a MIDI note-off encoding).
 uint8_t midiVelocityFromNormalized(float normalized) noexcept;
+uint8_t midiValueFromNormalized(float normalized) noexcept;
 
 struct TransportSettings {
     TransportSettings() = default;

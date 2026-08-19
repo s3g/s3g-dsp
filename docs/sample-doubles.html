@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Doubles - s3g-dsp</title>
+    <meta name="description" content="User guide for the stereo Sample Doubles two-copy cutting and phasing instrument.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Doubles</h1>
+
+        <p><code>Sample Doubles 2</code> is a stereo instrument for cutting between two copies of one recording. The copies are independent read heads over the same mono or stereo source: Deck A establishes the main timeline, while Deck B can be synchronized at a musical offset, nudged in discrete steps, or allowed to drift gradually. A turntable-style crossfader and gated MIDI punches turn that relationship into a playable instrument.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-doubles.png" aria-label="Open the high-resolution Sample Doubles interface screenshot">
+              <img src="assets/plugin-guis/sample-doubles.png" alt="Sample Doubles interface with one stereo source drawn as Deck A and Deck B, independent colored playhead cursors, varispeed and timing controls, phase controls, transport buttons, punch buttons, turntable crossfader, and Tracker command legend" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>One shared source feeds two independently positioned read heads. The cyan Deck A and orange Deck B cursors expose the exact relationship being cut by the crossfader.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Press <code>LOAD SAMPLE</code> or drop a mono or stereo audio file on the waveform. Leave <code>EMBED ON</code> enabled for portable project state, or choose <code>EMBED OFF</code> to store only its location.</li>
+          <li>Route its fixed stereo output to the intended speakers or monitor path.</li>
+          <li>Enter the recording's original tempo in <code>SAMPLE BPM</code>. This defines beat distances inside the source; it does not force the instrument to follow host tempo.</li>
+          <li>Set <code>SPEED</code>. Its default of -7 semitones slows pitch and duration together, like changing turntable or tape speed.</li>
+          <li>Drag the waveform's <code>S</code> and <code>E</code> handles to select a region. Choose <code>ON</code> from the <code>LOOP</code> menu when the two copies should remain inside it.</li>
+          <li>Press <code>RESTART</code>. Deck A starts at S and Deck B starts at Deck A plus <code>B OFFSET</code>, measured in source beats.</li>
+          <li>Move the crossfader between A and B. The <code>XFADE CURVE</code> menu provides <code>CUT</code> for a narrow center transition, <code>SHARP</code> for a short overlap, and <code>BLEND</code> for equal-power mixing.</li>
+          <li>Use <code>SYNC</code> to restore the selected offset, or <code>STEP -</code> and <code>STEP +</code> to move only Deck B by the value chosen in the <code>PHASE STEP</code> menu.</li>
+          <li>Sequence the command notes from <a href="s3g-tracker.html">s3g Tracker</a>. The complete mapping is published through the CLAP note-name extension, so supporting hosts can display the commands by name.</li>
+        </ol>
+
+        <h2 id="performance-model">Performance Model</h2>
+
+        <p>The University of Houston's <a href="references.html#turntable-phase">DJ Screw archive</a> describes the defining gestures as a deep slowdown combined with manually repeated words, phrases, and beats. Doubles keeps those roles separate: Speed establishes the shared slowed world, while two copies, offsets, punches, and the crossfader create the chops. It deliberately omits a dub-print recorder because the performance can be captured by the host and the desired pitch is already part of varispeed playback.</p>
+
+        <p>The phase controls extend the two-copy idea in another direction. <a href="references.html#turntable-phase">Steve Reich's description of <em>Piano Phase</em></a> begins with identical repeated patterns in unison, lets one move gradually ahead, and eventually returns them to unison. Deck B Drift realizes the continuous version of that process; Phase Step and Sync make its intermediate positions addressable from a tracker pattern.</p>
+
+        <h2 id="timing">Deck Timing</h2>
+
+        <p><code>SPEED</code> is authentic varispeed: pitch and duration remain coupled. Both decks use this common rate. <code>B DRIFT</code> adds a fine speed difference to Deck B only, from -100 to +100 cents. Very small values create a slowly changing relationship; larger values move through alignments quickly.</p>
+
+        <p><code>B OFFSET</code> is stored in beats but does not teleport Deck B whenever its slider moves. Press Sync or Restart to apply it. MIDI notes 48–60 are performance shortcuts: each selects a signed beat offset and synchronizes Deck B immediately. Phase Step instead moves the existing Deck B playhead backward or forward without changing the stored offset.</p>
+
+        <p>Phase Step, Loop, Crossfader Curve, and MIDI Receive are categorical settings and therefore use the shared s3g dropdown menus. Speed, Sample BPM, Start, End, output level, Deck B Offset, Deck B Drift, and the crossfader remain continuous controls.</p>
+
+        <p>With Loop enabled, synchronization, offsets, drift, and phase steps wrap inside the selected S–E region. Without Loop, each deck stops when it reaches E. Stop silences both positions; Play resumes from the current positions, while Restart returns to the beginning and reapplies the offset.</p>
+
+        <h2 id="tracker">Tracker Command Keyboard</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Note</th><th>Command</th><th>Tracker use</th></tr></thead>
+          <tbody>
+            <tr><td>36</td><td>Restart</td><td>Place on phrase or pattern boundaries to establish a repeatable downbeat.</td></tr>
+            <tr><td>37</td><td>Stop</td><td>Cut both decks to silence.</td></tr>
+            <tr><td>38</td><td>Sync B</td><td>Return Deck B to Deck A plus the current B Offset.</td></tr>
+            <tr><td>39 / 42</td><td>Phase Step - / +</td><td>Nudge Deck B by the selected Phase Step; repeat or ratchet for stepped phase patterns.</td></tr>
+            <tr><td>40 / 41</td><td>Punch A / B</td><td>Gated overrides of the crossfader. Note duration controls the cut and <code>VOL</code> controls its depth.</td></tr>
+            <tr><td>43</td><td>Play</td><td>Resume the current deck positions after Stop.</td></tr>
+            <tr><td>48–60</td><td>Offset select + Sync</td><td>Select -4, -2, -1, -1/2, -1/4, -1/8, 0, +1/8, +1/4, +1/2, +1, +2, or +4 beats.</td></tr>
+          </tbody>
+        </table>
+
+        <p>A practical Tracker layout uses one sparse lane for Restart, Sync, and offset selection, one lane for Punch A, and one for Punch B. The punch lanes are ordinary gated notes, so Tracker's microtime, delay, repeat, ratchet, flam, stutter, probability, and per-step volume can shape cuts directly. With the Cut curve, Tracker's normal note velocity is already deep enough to cross the narrow center transition; full volume lands completely on the punched deck.</p>
+
+        <h2 id="settings">Starting Settings</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Idea</th><th>Settings</th><th>Gesture</th></tr></thead>
+          <tbody>
+            <tr><td>Two-copy chop</td><td>Speed -7 st; Offset +1 beat; Drift 0; Cut; Loop optional</td><td>Restart on the phrase, then alternate gated notes 40 and 41. Use short repeats or flams for repeated words and drum hits.</td></tr>
+            <tr><td>Trailing double</td><td>Offset +1/2 or +1 beat; Sharp; crossfader A</td><td>Punch B at phrase endings, then release back to A.</td></tr>
+            <tr><td>Stepped phase</td><td>Offset 0; Drift 0; Step 1/8 or 1/4; Blend centered; Loop on</td><td>Place note 42 at uneven polymetric intervals and note 38 at formal return points.</td></tr>
+            <tr><td>Gradual phase</td><td>Offset 0; Drift +0.2 to +1 cent; Blend centered; Loop on</td><td>Let the copies move from unison through changing attacks and comb-like cancellations; use Sync to begin a new phase cycle.</td></tr>
+            <tr><td>Phase canon</td><td>Offset +1 beat; Drift ±0.1 to ±0.5 cent; Blend; Loop on</td><td>Begin with a clear beat displacement, allow slow motion around it, then use note 54 for immediate unison or note 58 for a one-beat return.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The stepped and gradual settings let identical repeating material begin together, separate through a small rate difference, pass through intermediate relationships, and reunite. Doubles keeps that process performable by adding explicit Sync and Phase Step commands alongside the continuous B Drift control.</p>
+
+        <h2 id="routing-state">Routing and State</h2>
+
+        <ul>
+          <li>Input: one CLAP note/MIDI command port and file loading through the editor.</li>
+          <li>Output: one fixed stereo port. Mono files are presented on both lanes; stereo channel order is preserved.</li>
+          <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16.</li>
+          <li>State: all twelve parameters, source path, embed choice, and optionally as much as 1 GiB of decoded mono or stereo audio.</li>
+          <li>The audio engine keeps one immutable source asset and two positions; it does not duplicate the decoded audio in memory and does not record a dub print.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-player.html"><span>Previous</span>Sample Player</a>
+          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="processor-loop.html">Processor Loop</a>
+          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#performance-model">Performance Model</a>
+          <a href="#timing">Deck Timing</a>
+          <a href="#tracker">Tracker Commands</a>
+          <a href="#settings">Starting Settings</a>
+          <a href="#routing-state">Routing and State</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

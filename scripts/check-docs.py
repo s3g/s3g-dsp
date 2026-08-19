@@ -134,6 +134,7 @@ EXPECTED_SHARED_TOC_LINKS = {
     "Sample": [
         "sample-instruments.html",
         "sample-player.html",
+        "sample-doubles.html",
         "sample-slicer.html",
         "processor-loop.html",
         "processor-multi-loop.html",
@@ -390,6 +391,7 @@ DOC_SEQUENCE = [
     "processor-errant.html",
     "sample-instruments.html",
     "sample-player.html",
+    "sample-doubles.html",
     "sample-slicer.html",
     "processor-loop.html",
     "processor-multi-loop.html",
@@ -457,6 +459,7 @@ EXPECTED_SHARED_TOC_PAGES = {
     "Sample": [
         "sample-instruments.html",
         "sample-player.html",
+        "sample-doubles.html",
         "sample-slicer.html",
         "processor-loop.html",
         "processor-multi-loop.html",

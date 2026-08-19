@@ -50,6 +50,9 @@ DOCUMENTATION_SAMPLE_RECIPES = {
     f"{PLUGIN_ID_PREFIX}sample-player": (
         ("sample-player.wav", 2, 4.2, 11),
     ),
+    f"{PLUGIN_ID_PREFIX}sample-doubles": (
+        ("sample-doubles.wav", 2, 8.0, 12),
+    ),
 }
 SHARED_BUNDLE_PLUGIN_IDS = {
     f"{PLUGIN_ID_PREFIX}sample-player-16":

@@ -1007,6 +1007,9 @@ int main(int argc, char** argv)
                 ok &= expect(clickButton(
                         parent, nil, @"TRACKER page", nil),
                     "Tracker documentation page could not be selected");
+                ok &= expect(submitCommand(parent, @"fx 1 1 2 CC74 64")
+                        && submitCommand(parent, @"interp 1 v1 step"),
+                    "Tracker MIDI CC fixture could not be prepared");
                 if (directory) {
                     ok &= expect(submitCommand(parent,
                                 @"fx 1 1 1 RR 0.62")
@@ -1070,6 +1073,11 @@ int main(int argc, char** argv)
         "native tracker project JSON did not save");
     std::string legacyJson(stateBuffer.bytes.begin(),
         stateBuffer.bytes.end());
+    ok &= expect(legacyJson.find("\"state\": \"midi-control-change\"")
+                != std::string::npos
+            && legacyJson.find("\"controller\": 74")
+                != std::string::npos,
+        "Tracker MIDI CC edit did not persist in project state");
     const std::string initialKey = "\"initialInstrumentNode\": ";
     const auto initialKeyAt = legacyJson.find(initialKey);
     const auto initialValueAt = initialKeyAt == std::string::npos
@@ -1195,13 +1203,31 @@ int main(int argc, char** argv)
     ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
         "overlap gate process failed");
     uint32_t replacementGateOffs = 0u;
+    bool emittedMidiCc = false;
     for (uint32_t index = 0u; index < output.count; ++index) {
         if ((output.events[index].data[0] & 0xf0u) == 0x80u
             && output.events[index].data[1] == 36u)
             ++replacementGateOffs;
+        emittedMidiCc |= output.events[index].header.time == 3952u
+            && output.events[index].data[0] == 0xb0u
+            && output.events[index].data[1] == 74u
+            && output.events[index].data[2] == 64u;
     }
     ok &= expect(replacementGateOffs == 1u,
         "a superseded same-pitch gate cut or duplicated the replacement note-off");
+    if (!emittedMidiCc) {
+        std::fprintf(stderr, "tracker CLAP second-block events:");
+        for (uint32_t index = 0u; index < output.count; ++index) {
+            std::fprintf(stderr, " [%u:%02x:%u:%u]",
+                output.events[index].header.time,
+                output.events[index].data[0],
+                output.events[index].data[1],
+                output.events[index].data[2]);
+        }
+        std::fputc('\n', stderr);
+    }
+    ok &= expect(emittedMidiCc,
+        "rest-row SEQ MIDI CC did not reach the CLAP MIDI output");
 
     output.count = 0u;
     transport.flags &= ~CLAP_TRANSPORT_IS_PLAYING;

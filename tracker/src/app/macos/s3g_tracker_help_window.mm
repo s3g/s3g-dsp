@@ -137,6 +137,14 @@ NSAttributedString* helpDocument()
         [document appendAttributedString:[[NSAttributedString alloc]
             initWithString:line attributes:actionAttributes]];
     }
+    NSDictionary* midiCcAttributes = @{
+        NSFontAttributeName: helpFont(10.0, NSFontWeightRegular),
+        NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
+        NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 2.0),
+    };
+    [document appendAttributedString:[[NSAttributedString alloc]
+        initWithString:@"CC0–CC127  MIDI CONTROL CHANGE  —  MIDI value 0–127; STEP or LINEAR between visited rows\n"
+        attributes:midiCcAttributes]];
 
     NSDictionary* footerAttributes = @{
         NSFontAttributeName: helpFont(9.5, NSFontWeightRegular),
@@ -148,12 +156,12 @@ NSAttributedString* helpDocument()
             @"COLUMNS  Compact lanes show NOTE · VOL · EXPAND SEQ reveals SEQ1 · V1 · SEQ2 · V2 · Double-click a column length to edit it\n"
             @"NOTE VIEW  NOTE: NAME shows pitches such as C-4 · NOTE: MIDI shows the same stored pitch as decimal value 60\n"
             @"CELL TEXT  NOTE --- rest · RPT retrigger previous · HLD continue active note · KIL kill active note · VOL DEF default · VOL/SEQ PRV previous\n"
-            @"SEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action, or double-click and type its code\n"
+            @"SEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action or CC number, or double-click and type its code · Click V1 STP/LIN or V2 STP/LIN to switch interpolation\n"
             @"ROUTING  Tracker exposes one CLAP MIDI output plus one record input · Click CH01–CH16 in a lane header to set that track's output channel · Use another Tracker instance for more than 16 destinations · Double-click the lane name to rename it\n"
             @"MIDI RECORD  OFF disarms · STEP, LIVE Q, and LIVE MT immediately monitor incoming note-on/off on the selected lane's MIDI channel · STEP writes note/velocity at the cursor, clears MT there, and advances one row · LIVE Q records the onset at the nearest playback row, then writes HLD rows and a KIL release from the physical note-off · LIVE MT also writes measured onset and release offsets into available SEQ pairs · Live recording preserves lane lengths and moves the cursor highlight to each written boundary without advancing · Live modes require REAPER playback and pattern transport\n"
             @"ALIASES  aliases groups bindings by lane · alias name 3 assigns or reassigns @name · autoalias replaces the map with the shortest available prefix of every lane name (k, then ki, then kit as needed)\n"
             @"HISTORY  UNDO/REDO buttons or undo/redo commands restore persistent Tracker states · Control-Z undo · Control-Shift-Z redo · Command-Z remains REAPER's\n"
-            @"VALUES  VOL and sequence values use normalized 0.000–1.000\n"
+            @"VALUES  VOL and sequence values use normalized 0.000–1.000 · CC values also accept MIDI integers 0–127 (use 1.0 for normalized maximum) · STEP holds between rows · LINEAR emits bounded intermediate CC values\n"
             @"WARPS  Compose EXP/STEP/EUCLID serially · SAVE/RECALL named project slots · Song WARP selects OFF or a saved slot per row\n"
             @"DIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (write random; header displays RND) · ? opens Help\n"
             @"\nTRANSPORT  Tempo follows REAPER · RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4× · Space play/pause · Shift-Space loop · SYNC ALL forces every lane and column to row 1 without moving REAPER and ignores phase for that launch\n"

@@ -715,6 +715,11 @@ constexpr std::array<std::pair<std::string_view, Direction>, 4u>
         { "random", Direction::Random },
         { "palindrome", Direction::Palindrome },
     }};
+constexpr std::array<std::pair<std::string_view, ValueInterpolation>, 2u>
+    kValueInterpolations {{
+        { "step", ValueInterpolation::Step },
+        { "linear", ValueInterpolation::Linear },
+    }};
 constexpr std::array<std::pair<std::string_view, EventDestination>, 4u>
     kDestinations {{
         { "none", EventDestination::None },
@@ -1135,6 +1140,16 @@ JsonValue encodeFxActions(const std::vector<FxActionCell>& cells,
                 kSequencerActions, cellPath + ".action", result);
             cell.object["state"] = JsonValue::stringValue("sequencer");
             break;
+        case FxActionCellState::MidiControlChange:
+            if (cells[index].midiController > 127u)
+                setError(result, ProjectErrorCode::OutOfRange,
+                    cellPath + ".controller",
+                    "MIDI controller must be 0..127");
+            cell.object["controller"] = number(
+                static_cast<uint32_t>(cells[index].midiController));
+            cell.object["state"] = JsonValue::stringValue(
+                "midi-control-change");
+            break;
         default:
             setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "invalid FX action cell state");
@@ -1195,6 +1210,14 @@ bool decodeFxActions(const JsonValue& input,
             if (!action || !decodeEnum(*action, kSequencerActions, value,
                     cellPath + ".action", result)) return false;
             candidate.push_back(FxActionCell::sequencer(value));
+        } else if (state->string == "midi-control-change") {
+            const auto* controller = requiredField(input.array[index],
+                "controller", JsonType::Number, cellPath, result);
+            uint32_t value = 0u;
+            if (!controller || !checkedUint32(*controller, value, 127u,
+                    cellPath + ".controller", result)) return false;
+            candidate.push_back(FxActionCell::midiControlChange(
+                static_cast<uint8_t>(value)));
         } else {
             return setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "unknown FX action cell state");
@@ -1279,6 +1302,9 @@ JsonValue encodeFxPair(const FxPair& pair, std::string_view path,
         std::string(path) + ".actions", result);
     output.object["valueColumn"] = encodeColumn(pair.valueColumn,
         pair.values.size(), std::string(path) + ".valueColumn", result);
+    output.object["valueInterpolation"] = encodeEnum(
+        pair.valueInterpolation, kValueInterpolations,
+        std::string(path) + ".valueInterpolation", result);
     output.object["values"] = encodeFxValues(pair.values,
         std::string(path) + ".values", result);
     return output;
@@ -1297,6 +1323,11 @@ bool decodeFxPair(const JsonValue& input, FxPair& destination,
         JsonType::Object, path, result);
     if (!actions || !values || !actionColumn || !valueColumn) return false;
     FxPair candidate;
+    const auto interpolation = input.object.find("valueInterpolation");
+    if (interpolation != input.object.end()
+        && !decodeEnum(interpolation->second, kValueInterpolations,
+            candidate.valueInterpolation,
+            std::string(path) + ".valueInterpolation", result)) return false;
     if (!decodeFxActions(*actions, candidate.actions,
             std::string(path) + ".actions", result)
         || !decodeFxValues(*values, candidate.values,
@@ -1945,7 +1976,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
     if (!checkedUint32(*schema, schemaVersion,
             std::numeric_limits<uint32_t>::max(), "$.schemaVersion", result))
         return false;
-    if (schemaVersion != kProjectSchemaVersion)
+    if (schemaVersion < kOldestSupportedProjectSchemaVersion
+        || schemaVersion > kProjectSchemaVersion)
         return setError(result, ProjectErrorCode::UnsupportedSchemaVersion,
             "$.schemaVersion", "project schema version is not supported");
 

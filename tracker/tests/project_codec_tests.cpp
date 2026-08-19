@@ -103,7 +103,10 @@ ProjectDocument makeDocument()
     secondFx.actions[0u] = FxActionCell::parameter(23u,
         ParameterScope::Note, kTrackInstrumentNode);
     secondFx.actions[1u] = FxActionCell::previous();
+    secondFx.actions[2u] = FxActionCell::midiControlChange(74u);
     secondFx.values[0u] = FxValueCell::withValue(0.42f);
+    secondFx.values[2u] = FxValueCell::withValue(64.0f / 127.0f);
+    secondFx.valueInterpolation = ValueInterpolation::Linear;
     secondFx.actionColumn = { 4u, 2u, 1u, Direction::Random, false };
     secondFx.valueColumn = { 3u, 1u, 2u, Direction::Palindrome, true };
     activePattern(document).tracks.push_back(std::move(track));
@@ -208,11 +211,15 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 5") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 6") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
+            && firstEncoding.find("\"midi-control-change\"")
+                != std::string::npos
+            && firstEncoding.find("\"valueInterpolation\": \"linear\"")
+                != std::string::npos
             && firstEncoding.find("\"phase\": 4") != std::string::npos,
-        "schema, generative FX, and column phase should be explicit JSON data");
+        "schema, MIDI CC interpolation, generative FX, and column phase should be explicit JSON data");
 
     ProjectDocument decoded;
     const auto decodedResult = decodeProjectDocument(firstEncoding, decoded);
@@ -234,8 +241,15 @@ void testCompleteDeterministicRoundTrip()
                 == NoteCellState::Hold
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actions[11u]
-                .sequencerAction == SequencerAction::Euclid,
-        "polymetric phase and every current sequencing action should round trip");
+                .sequencerAction == SequencerAction::Euclid
+            && activePattern(decoded).tracks[0u].fxPairs[1u]
+                    .actions[2u].state
+                == FxActionCellState::MidiControlChange
+            && activePattern(decoded).tracks[0u].fxPairs[1u]
+                    .actions[2u].midiController == 74u
+            && activePattern(decoded).tracks[0u].fxPairs[1u]
+                    .valueInterpolation == ValueInterpolation::Linear,
+        "polymetric phase, MIDI CC modes, and every current sequencing action should round trip");
     check(decoded.patternBank.entries.size() == 2u
             && decoded.patternBank.entries[0u].id == "A01"
             && decoded.patternBank.entries[1u].id == "B02"
@@ -352,13 +366,33 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 5");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 5").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 6");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 6").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
             && activePattern(destination).name == "sentinel",
         "unsupported schemas should reject without mutating destination");
+
+    std::string legacy = encoded;
+    const auto legacySchema = legacy.find("\"schemaVersion\": 6");
+    legacy.replace(legacySchema,
+        std::string("\"schemaVersion\": 6").size(),
+        "\"schemaVersion\": 5");
+    const std::string linearInterpolation
+        = "\"valueInterpolation\": \"linear\",\n";
+    const auto legacyInterpolation = legacy.find(linearInterpolation);
+    check(legacyInterpolation != std::string::npos,
+        "schema migration fixture should contain a linear value lane");
+    if (legacyInterpolation != std::string::npos)
+        legacy.erase(legacyInterpolation, linearInterpolation.size());
+    ProjectDocument migrated;
+    check(decodeProjectDocument(legacy, migrated).ok()
+            && migrated.patternBank.entries.size() == 2u
+            && migrated.patternBank.entries[0u].pattern.tracks[0u]
+                    .fxPairs[1u].valueInterpolation
+                == ValueInterpolation::Step,
+        "schema 5 projects should migrate missing interpolation modes to STEP");
 
     auto invalidBank = makeDocument();
     invalidBank.patternBank.entries[1u].id = "A01";

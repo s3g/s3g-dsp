@@ -62,4 +62,9 @@ const SequencerActionDefinition* findSequencerAction(
 const SequencerActionDefinition* findSequencerAction(
     SequencerAction action) noexcept;
 
+// Compact tracker spelling used by SEQ cells and Live Code. The parser is
+// case-insensitive and accepts exactly CC0 through CC127.
+bool parseMidiControlChange(std::string_view text,
+    uint8_t& controller) noexcept;
+
 } // namespace s3g::tracker

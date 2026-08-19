@@ -18,7 +18,8 @@ struct CanonicalScheduledEventOrder {
         const auto priority = [](ScheduledEventKind kind) {
             switch (kind) {
             case ScheduledEventKind::NoteOff: return 0u;
-            case ScheduledEventKind::Parameter: return 1u;
+            case ScheduledEventKind::Parameter:
+            case ScheduledEventKind::ControlChange: return 1u;
             case ScheduledEventKind::NoteOn: return 2u;
             }
             return 3u;
@@ -84,6 +85,22 @@ public:
                     && event.absoluteSampleTime >= releaseTime;
             });
         return true;
+    }
+
+    // A newly authored CC endpoint owns its channel/controller from this
+    // sample onward. Remove only derived interpolation points, preserving
+    // authored endpoints and unrelated controller streams.
+    std::size_t cancelPendingControlInterpolation(uint8_t channel,
+        uint32_t controller, uint64_t fromTime) noexcept
+    {
+        return events_.eraseIf(
+            [channel, controller, fromTime](const ScheduledEvent& event) {
+                return event.kind == ScheduledEventKind::ControlChange
+                    && event.generatedInterpolation
+                    && event.channel == channel
+                    && event.parameterId == controller
+                    && event.absoluteSampleTime >= fromTime;
+            });
     }
 
     std::size_t drain(uint64_t blockStart, uint64_t blockEnd,

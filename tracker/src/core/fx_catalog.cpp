@@ -1,6 +1,7 @@
 #include "s3g/tracker/fx_catalog.h"
 
 #include <array>
+#include <charconv>
 
 namespace s3g::tracker {
 namespace {
@@ -131,6 +132,26 @@ const SequencerActionDefinition* findSequencerAction(
         if (action.action == requested) return &action;
     }
     return nullptr;
+}
+
+bool parseMidiControlChange(std::string_view text,
+    uint8_t& controller) noexcept
+{
+    if (text.size() < 3u) return false;
+    const auto lower = [](char value) {
+        return value >= 'A' && value <= 'Z'
+            ? static_cast<char>(value - 'A' + 'a') : value;
+    };
+    if (lower(text[0u]) != 'c' || lower(text[1u]) != 'c') return false;
+    text.remove_prefix(2u);
+    unsigned int value = 0u;
+    const auto result = std::from_chars(text.data(),
+        text.data() + text.size(), value);
+    if (result.ec != std::errc {}
+        || result.ptr != text.data() + text.size()
+        || value > 127u) return false;
+    controller = static_cast<uint8_t>(value);
+    return true;
 }
 
 } // namespace s3g::tracker

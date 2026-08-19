@@ -1180,8 +1180,16 @@ void emitScheduledEvent(Plugin& plugin, Runtime& runtime,
     if (event.kind == ScheduledEventKind::Parameter) return;
     uint8_t channel = 0u;
     runtime.routeFor(event.channel, channel);
-    const uint32_t index = activeNoteIndex(channel, event.note);
     const uint32_t offset = blockOffset + event.frameOffset;
+    if (event.kind == ScheduledEventKind::ControlChange) {
+        (void)pushMidi(plugin, output, offset,
+            static_cast<uint8_t>(0xb0u | channel),
+            static_cast<uint8_t>(std::min<uint32_t>(
+                event.parameterId, 127u)),
+            s3g::tracker::midiValueFromNormalized(event.parameterValue));
+        return;
+    }
+    const uint32_t index = activeNoteIndex(channel, event.note);
     // Do not let a sequenced retrigger/gate-off cut a physically held
     // monitored key sharing the same MIDI 1.0 channel and pitch.
     if (plugin.monitoredOutputCounts[index] != 0u) return;
@@ -2649,6 +2657,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
                 message += " ";
                 message += action->displayName;
             }
+            message += " · CC0–CC127 MIDI Control Change";
             [self.workspace appendConsoleMessage:message error:NO];
             return;
         }
@@ -2668,11 +2677,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         if (verb == "fx" && words.size() >= 5u) action = words[4u];
         else if ((verb == "fx1" || verb == "f1" || verb == "fx2"
                 || verb == "f2") && words.size() >= 3u) action = words[2u];
+        uint8_t midiController = 0u;
+        const bool midiControlChange = s3g::tracker::parseMidiControlChange(
+            action, midiController);
         if (!action.empty() && action != "clear" && action != "previous"
-            && action != "prv"
-            && !s3g::tracker::findSequencerAction(action)) {
+            && action != "prv" && !s3g::tracker::findSequencerAction(action)
+            && !midiControlChange) {
             [self.workspace appendConsoleMessage:
-                "SEQ columns accept sequencing actions only; type actions to list them."
+                "SEQ columns accept sequencing actions or CC0..CC127; type actions to list them."
                 error:YES];
             return;
         }

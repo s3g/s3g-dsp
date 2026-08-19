@@ -135,13 +135,16 @@ std::string sessionFingerprint(const TrackerSession& session)
                    << pair.valueColumn.stride << ':'
                    << pair.valueColumn.phase << ':'
                    << static_cast<unsigned int>(pair.valueColumn.direction)
-                   << ':' << pair.valueColumn.muted;
+                   << ':' << pair.valueColumn.muted << ':'
+                   << static_cast<unsigned int>(pair.valueInterpolation);
             for (const auto& cell : pair.actions)
                 stream << "|a:" << static_cast<unsigned int>(cell.state)
                        << ':' << cell.targetNode << ':' << cell.parameterId
                        << ':' << static_cast<unsigned int>(cell.scope)
                        << ':' << static_cast<unsigned int>(
-                              cell.sequencerAction);
+                              cell.sequencerAction)
+                       << ':' << static_cast<unsigned int>(
+                              cell.midiController);
             for (const auto& cell : pair.values)
                 stream << "|x:" << static_cast<unsigned int>(cell.state)
                        << ':' << cell.normalized;
@@ -318,7 +321,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
-        "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset",
+        "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset", "interp", "interpolation",
         "variation", "vary", "warps", "track",
     };
 
@@ -1406,8 +1409,37 @@ void testFxCommands()
             && result.message.find("RR=Ratchet") != std::string::npos
             && result.message.find("MT=Microtime") != std::string::npos
             && result.message.find("EU=Euclidean Gate") != std::string::npos
+            && result.message.find("CC0..CC127") != std::string::npos
             && result.message.find("membrane") == std::string::npos,
         "actions should expose only MIDI-product sequencing choices");
+
+    result = CommandEngine::execute(session, "fx 1 1 1 CC74 64");
+    check(result.ok
+            && session.pattern.tracks[0].fxPairs[0u].actions[0u].state
+                == FxActionCellState::MidiControlChange
+            && session.pattern.tracks[0].fxPairs[0u].actions[0u]
+                    .midiController == 74u
+            && std::abs(session.pattern.tracks[0].fxPairs[0u].values[0u]
+                    .normalized - 64.0f / 127.0f) < 1.0e-6f,
+        "fx should author MIDI CC actions with direct 7-bit values");
+    result = CommandEngine::execute(session, "interp 1 v1 linear");
+    check(result.ok
+            && session.pattern.tracks[0].fxPairs[0u].valueInterpolation
+                == s3g::tracker::ValueInterpolation::Linear,
+        "interp should select LINEAR mode independently for each value pair");
+    check(CommandEngine::execute(session, "interpolation 1 v1 step").ok
+            && session.pattern.tracks[0].fxPairs[0u].valueInterpolation
+                == s3g::tracker::ValueInterpolation::Step,
+        "interpolation should restore the backward-compatible STEP mode");
+    result = CommandEngine::execute(session, "fxvalue 1 1 2 96");
+    check(result.ok
+            && std::abs(session.pattern.tracks[0u].fxPairs[0u]
+                    .values[1u].normalized - 96.0f / 127.0f) < 1.0e-6f,
+        "fxvalue should accept direct 7-bit values on a CC lane");
+    checkRejectedWithoutMutation(session, "fx 1 1 1 cc128 64",
+        "CC numbers beyond 127 must reject transactionally");
+    checkRejectedWithoutMutation(session, "fx 1 1 1 cc74 128",
+        "CC values beyond 127 must reject transactionally");
 
     auto compact = makeSession(1u);
     result = CommandEngine::execute(compact, "fx1 1 PR !.=-");

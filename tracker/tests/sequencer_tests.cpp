@@ -35,6 +35,7 @@ using s3g::tracker::TransportSettings;
 using s3g::tracker::TimingWarpTransform;
 using s3g::tracker::ValueCell;
 using s3g::tracker::midiVelocityFromNormalized;
+using s3g::tracker::midiValueFromNormalized;
 using s3g::tracker::parseMidiNote;
 using s3g::tracker::routesToInternal;
 using s3g::tracker::routesToMidi;
@@ -873,6 +874,59 @@ void testCanonicalScheduledEventContract()
             && midiVelocityFromNormalized(0.5f) == 64u
             && midiVelocityFromNormalized(2.0f) == 127u,
         "the MIDI velocity edge adapter must clamp and round normalized values");
+}
+
+void testMidiControlChangeEndpoints()
+{
+    Track track;
+    track.midiChannel = 10u;
+    track.notes.assign(2u, NoteCell::rest());
+    track.noteColumn.length = track.notes.size();
+    auto& pair = track.fxPairs[0u];
+    pair.actions = { FxActionCell::midiControlChange(74u),
+        FxActionCell::previous() };
+    pair.values = { FxValueCell::withValue(0.2f),
+        FxValueCell::withValue(0.8f) };
+    pair.actionColumn.length = pair.actions.size();
+    pair.valueColumn.length = pair.values.size();
+    pair.valueInterpolation = s3g::tracker::ValueInterpolation::Linear;
+
+    Pattern pattern;
+    pattern.tracks.push_back(track);
+    Sequencer sequencer;
+    sequencer.setPattern(pattern);
+    sequencer.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    sequencer.start();
+    std::array<ScheduledEvent, 4u> events {};
+    auto count = sequencer.process(1u, events.data(), events.size());
+    check(count == 1u
+            && events[0u].kind == ScheduledEventKind::ControlChange
+            && events[0u].parameterId == 74u
+            && events[0u].channel == 10u
+            && events[0u].destination == EventDestination::Midi
+            && midiValueFromNormalized(events[0u].parameterValue) == 25u
+            && midiValueFromNormalized(events[0u].parameterEndValue) == 102u
+            && events[0u].durationSamples == 6000u
+            && events[0u].valueInterpolation
+                == s3g::tracker::ValueInterpolation::Linear,
+        "a CC action on a rest row should use the lane channel and describe its next linear endpoint");
+
+    track.fxPairs[0u].valueInterpolation
+        = s3g::tracker::ValueInterpolation::Step;
+    pattern.tracks[0u] = std::move(track);
+    sequencer.setPattern(std::move(pattern));
+    sequencer.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    sequencer.start();
+    count = sequencer.process(1u, events.data(), events.size());
+    check(count == 1u && events[0u].durationSamples == 0u
+            && events[0u].valueInterpolation
+                == s3g::tracker::ValueInterpolation::Step
+            && midiValueFromNormalized(events[0u].parameterValue) == 25u,
+        "STEP mode should emit only the authored CC endpoint");
+    check(midiValueFromNormalized(-1.0f) == 0u
+            && midiValueFromNormalized(0.5f) == 64u
+            && midiValueFromNormalized(2.0f) == 127u,
+        "MIDI control values should retain zero while clamping and rounding");
 }
 
 void testInstrumentCellValidation()
@@ -2390,6 +2444,7 @@ int main()
     testFunctionalTimingWarp();
     testTimingIsIndependentOfBlockPartition();
     testCanonicalScheduledEventContract();
+    testMidiControlChangeEndpoints();
     testInstrumentCellValidation();
     testRetriggerRestAndKillSemantics();
     testBoundedOutput();

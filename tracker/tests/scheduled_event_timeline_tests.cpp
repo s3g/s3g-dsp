@@ -108,21 +108,51 @@ void testCanonicalSameSampleOrdering()
     auto parameter = eventAt(100u, 0u);
     parameter.track = 2u;
     parameter.kind = s3g::tracker::ScheduledEventKind::Parameter;
+    auto control = eventAt(100u, 0u);
+    control.track = 2u;
+    control.kind = s3g::tracker::ScheduledEventKind::ControlChange;
     auto earlierTrack = eventAt(100u, 3u);
     earlierTrack.track = 1u;
     check(timeline.enqueue(onset) && timeline.enqueue(parameter)
-            && timeline.enqueue(release) && timeline.enqueue(earlierTrack),
+            && timeline.enqueue(control) && timeline.enqueue(release)
+            && timeline.enqueue(earlierTrack),
         "same-sample ordering test events should fit");
-    std::array<ScheduledEvent, 4u> due {};
+    std::array<ScheduledEvent, 5u> due {};
     const auto count = timeline.drain(96u, 101u, due.data(), due.size());
-    check(count == 4u && due[0u].track == 1u
+    check(count == 5u && due[0u].track == 1u
             && due[1u].kind
                 == s3g::tracker::ScheduledEventKind::NoteOff
             && due[2u].kind
                 == s3g::tracker::ScheduledEventKind::Parameter
             && due[3u].kind
+                == s3g::tracker::ScheduledEventKind::ControlChange
+            && due[4u].kind
                 == s3g::tracker::ScheduledEventKind::NoteOn,
-        "same-sample delivery should be track-stable and release-parameter-onset ordered");
+        "same-sample delivery should be track-stable and release-control-onset ordered");
+}
+
+void testControlInterpolationCancellation()
+{
+    ScheduledEventTimeline timeline;
+    auto before = eventAt(90u, 0u);
+    before.kind = s3g::tracker::ScheduledEventKind::ControlChange;
+    before.channel = 4u;
+    before.parameterId = 74u;
+    before.generatedInterpolation = true;
+    auto stale = before;
+    stale.absoluteSampleTime = 110u;
+    auto other = stale;
+    other.parameterId = 71u;
+    check(timeline.enqueue(before) && timeline.enqueue(stale)
+            && timeline.enqueue(other),
+        "control cancellation fixture should fit");
+    check(timeline.cancelPendingControlInterpolation(4u, 74u, 100u) == 1u,
+        "a new endpoint should cancel only its future derived CC tail");
+    std::array<ScheduledEvent, 3u> due {};
+    const auto count = timeline.drain(0u, 200u, due.data(), due.size());
+    check(count == 2u && due[0u].parameterId == 74u
+            && due[1u].parameterId == 71u,
+        "past and unrelated CC interpolation points should remain queued");
 }
 
 void testBatchInsertionIsTransactional()
@@ -184,6 +214,7 @@ int main()
     testLateEventAndFailClosedOutput();
     testResetAndDestinationNone();
     testCanonicalSameSampleOrdering();
+    testControlInterpolationCancellation();
     testBatchInsertionIsTransactional();
     testPendingPrimaryLifecycleCancellation();
     if (failures != 0) return EXIT_FAILURE;

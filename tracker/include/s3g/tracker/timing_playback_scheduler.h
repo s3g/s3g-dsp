@@ -34,7 +34,7 @@ using LogicalTickObserver = LogicalTickBoundaryAction (*)(void* context,
 // no logical-tick observer is installed. Timed or observed patterns are
 // generated one tracker tick at a time, expanded into a bounded persistent
 // timeline, and drained only when events enter the requested block.
-// ScheduledEvent itself and the original Sequencer ABI remain unchanged.
+// The nominal Sequencer remains the single source of authored events.
 class TimingPlaybackScheduler {
 public:
     void setPattern(Pattern pattern);
@@ -189,6 +189,7 @@ private:
         bool authoredValue = false;
         bool explicitTiming = false;
         bool explicitMicroTiming = false;
+        bool linearControl = false;
         bool hasPrevious = false;
     };
     using PatternTimingSummary = std::array<

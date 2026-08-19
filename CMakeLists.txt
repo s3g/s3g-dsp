@@ -30,6 +30,8 @@ option(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
   "Build the s3g Sample Slicer multisample CLAP" ON)
 option(S3G_BUILD_SAMPLE_PLAYER_PREVIEW
   "Build the s3g Sample Player stereo/16-channel CLAP" ON)
+option(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW
+  "Build the s3g Sample Doubles stereo two-deck CLAP" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -62,6 +64,14 @@ add_executable(s3g_sample_player_smoke
 target_link_libraries(s3g_sample_player_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_player_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_sample_doubles_smoke
+  tests/sample_doubles_smoke.cpp)
+target_link_libraries(s3g_sample_doubles_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_doubles_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
@@ -363,6 +373,7 @@ if(BUILD_TESTING)
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
     s3g_sample_player_smoke
+    s3g_sample_doubles_smoke
     s3g_feedback_shift_smoke
     s3g_processor_fissure_smoke
     s3g_crcltr_external_memory_smoke
@@ -657,6 +668,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_include_directories(s3g_sample_player_clap_smoke PRIVATE
       ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_sample_player_clap_smoke PRIVATE
+      ${CMAKE_DL_LIBS})
+  endif()
+
+  if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
+    add_executable(s3g_sample_doubles_clap_smoke
+      tests/sample_doubles_clap_smoke.cpp)
+    target_include_directories(s3g_sample_doubles_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_sample_doubles_clap_smoke PRIVATE
       ${CMAKE_DL_LIBS})
   endif()
 
@@ -1121,6 +1141,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_SAMPLE_PLAYER_PREVIEW)
     add_subdirectory(plugins/clap_sample_player)
   endif()
+  if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
+    add_subdirectory(plugins/clap_sample_doubles)
+  endif()
   if(S3G_BUILD_TRACKER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
@@ -1142,8 +1165,25 @@ if(S3G_BUILD_CLAP_PLUGIN)
     set_tests_properties(s3g_sample_player_clap_smoke PROPERTIES
       LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
   endif()
+  if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_sample_doubles_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_sample_doubles_clap_smoke>
+        $<TARGET_FILE:s3g_sample_doubles_clap>)
+    set_tests_properties(s3g_sample_doubles_clap_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_sample_doubles_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_doubles_clap>
+          org.s3g.s3g-dsp.sample-doubles
+          1040 760 "s3g Sample Doubles 2" responsive)
+      set_tests_properties(s3g_sample_doubles_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
-      AND S3G_BUILD_SAMPLE_PLAYER_PREVIEW AND BUILD_TESTING)
+      AND S3G_BUILD_SAMPLE_PLAYER_PREVIEW
+      AND S3G_BUILD_SAMPLE_DOUBLES_PREVIEW AND BUILD_TESTING)
     add_custom_target(audit_sample_family
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_smoke>
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_clap_smoke>
@@ -1151,6 +1191,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_sample_player_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_player_clap_smoke>
         $<TARGET_FILE:s3g_sample_player_clap>
+      COMMAND $<TARGET_FILE:s3g_sample_doubles_smoke>
+      COMMAND $<TARGET_FILE:s3g_sample_doubles_clap_smoke>
+        $<TARGET_FILE:s3g_sample_doubles_clap>
       DEPENDS
         s3g_breakbeat_slicer_smoke
         s3g_breakbeat_slicer_clap_smoke
@@ -1158,7 +1201,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_sample_player_smoke
         s3g_sample_player_clap_smoke
         s3g_sample_player_clap
-      COMMENT "Validating the Sample Slicer and Sample Player family")
+        s3g_sample_doubles_smoke
+        s3g_sample_doubles_clap_smoke
+        s3g_sample_doubles_clap
+      COMMENT "Validating the Sample Slicer, Player, and Doubles family")
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
@@ -2606,10 +2652,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_sample_player_clap
         COMMENT "Rendering and validating the Sample Player family GUIs")
     endif()
+    if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
+      add_custom_target(audit_gui_sample_doubles
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_doubles_clap>
+          org.s3g.s3g-dsp.sample-doubles
+          1040 760 "s3g Sample Doubles 2" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_sample_doubles_clap
+        COMMENT "Rendering and validating the Sample Doubles GUI")
+    endif()
     if(TARGET audit_sample_family)
       add_dependencies(audit_sample_family
         audit_gui_breakbeat_slicer
-        audit_gui_sample_player)
+        audit_gui_sample_player
+        audit_gui_sample_doubles)
     endif()
   endif()
 

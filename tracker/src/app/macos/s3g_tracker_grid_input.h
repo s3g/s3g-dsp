@@ -57,6 +57,24 @@ inline bool parseGridNormalizedValue(std::string_view text,
     return true;
 }
 
+inline bool parseGridMidiOrNormalizedValue(std::string_view text,
+    float& result) noexcept
+{
+    if (text.find('.') != std::string_view::npos)
+        return parseGridNormalizedValue(text, result);
+    if (text.empty()) return false;
+    unsigned int value = 0u;
+    for (const char character : text) {
+        if (character < '0' || character > '9') return false;
+        const auto digit = static_cast<unsigned int>(character - '0');
+        if (value > (127u - digit) / 10u) return false;
+        value = value * 10u + digit;
+    }
+    if (value > 127u) return false;
+    result = static_cast<float>(value) / 127.0f;
+    return true;
+}
+
 inline float normalizedValueFromVerticalDrag(float initial,
     double verticalDelta, bool fine, bool coarse) noexcept
 {
