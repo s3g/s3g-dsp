@@ -1,4 +1,7 @@
 #include "s3g_psd_raw_field.h"
+#include "s3g_mc_to_quad.h"
+#include "s3g_mc_to_stereo.h"
+#include "../common/s3g_drum_midi_receive.h"
 
 #include <clap/clap.h>
 #include <clap/ext/note-ports.h>
@@ -32,7 +35,7 @@ constexpr uint32_t kOutputChannels = s3g::kPsdRawFieldChannels;
 constexpr uint32_t kCodecModeCount = s3g::kPsdRawFieldCodecModeCount;
 constexpr uint32_t kCodecModeMax = kCodecModeCount - 1u;
 constexpr uint32_t kWaveHistory = 512;
-constexpr uint32_t kStateVersion = 23;
+constexpr uint32_t kStateVersion = 25;
 constexpr uint32_t kWaveTracePreset = 12;
 constexpr uint32_t kCustomPreset = 13;
 constexpr float kInitBassTrace = 0.62f;
@@ -103,10 +106,16 @@ constexpr double kToolboxTop = 230.0;
 constexpr double kPatchPanelY = 516.0;
 constexpr double kPresetRowY = 552.0;
 constexpr double kPerformanceRowY = 586.0;
+constexpr double kMidiReceivePanelX = 300.0;
+constexpr double kMidiReceivePanelWidth = 300.0;
 constexpr double kEnvelopeX = 620.0;
 constexpr double kEnvelopeY = 574.0;
 constexpr double kEnvelopeWidth = 700.0;
 constexpr double kEnvelopeHeight = 94.0;
+constexpr double kOutputPanelX = 18.0;
+constexpr double kOutputPanelWidth = 584.0;
+constexpr double kOutputFormatRowY = 642.0;
+constexpr double kOutputRotationRowY = 668.0;
 constexpr std::size_t kSourcePathCapacity = 4096u;
 
 // IDs retain their nearest earlier meaning so existing automation has the best possible migration path.
@@ -176,6 +185,9 @@ constexpr clap_id kBassLowWidthParamId = 95;
 constexpr clap_id kBassFuzzParamId = 96;
 constexpr clap_id kBassMetalParamId = 97;
 constexpr clap_id kBassFeedbackParamId = 98;
+constexpr clap_id kMidiReceiveParamId = 99;
+constexpr clap_id kOutputFormatParamId = 100;
+constexpr clap_id kOutputRotationParamId = 101;
 
 enum class SourceInterpretation : uint32_t {
     Generated = 0u,
@@ -187,6 +199,22 @@ enum class PerformanceMode : uint32_t {
     Free = 0u,
     Midi = 1u,
 };
+
+enum class OutputFormat : uint32_t {
+    Direct8 = 0u,
+    QuadRing = 1u,
+    StereoRing = 2u,
+};
+
+const char* outputFormatName(OutputFormat format)
+{
+    switch (format) {
+    case OutputFormat::Direct8: return "8CH DIRECT";
+    case OutputFormat::QuadRing: return "QUAD RING";
+    case OutputFormat::StereoRing: return "STEREO RING";
+    }
+    return "8CH DIRECT";
+}
 
 enum class EnvelopeStage : uint32_t {
     Idle = 0u,
@@ -476,6 +504,39 @@ struct LegacySavedStateV22 {
 static_assert(sizeof(LegacySavedStateV22) == 4344u,
     "Unexpected version-22 state layout");
 
+struct LegacySavedStateV23 {
+    uint32_t version = 23u;
+    uint32_t selectedPreset = 0u;
+    s3g::PsdRawFieldParams params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV23) == 4356u,
+    "Unexpected version-23 state layout");
+
+struct LegacySavedStateV24 {
+    uint32_t version = 24u;
+    uint32_t selectedPreset = 0u;
+    s3g::PsdRawFieldParams params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+    uint32_t midiReceive = 0u;
+};
+static_assert(sizeof(LegacySavedStateV24) == 4360u,
+    "Unexpected version-24 state layout");
+
 struct SavedState {
     uint32_t version = kStateVersion;
     uint32_t selectedPreset = 0u;
@@ -488,8 +549,11 @@ struct SavedState {
     float sustain = 0.72f;
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
+    uint32_t midiReceive = 0u;
+    uint32_t outputFormat = static_cast<uint32_t>(OutputFormat::Direct8);
+    float outputRotationDeg = 0.0f;
 };
-static_assert(sizeof(SavedState) == 4356u, "Unexpected version-23 state layout");
+static_assert(sizeof(SavedState) == 4368u, "Unexpected version-25 state layout");
 
 struct LegacyParamsV8 {
     float rawRate, strata, compression, masks, metadata, colorBleed, byteSkew, channelSpread, fold;
@@ -534,6 +598,9 @@ struct Plugin {
     float decayMs = 280.0f;
     float sustain = 0.72f;
     float releaseMs = 850.0f;
+    double midiReceive = 0.0;
+    OutputFormat outputFormat = OutputFormat::Direct8;
+    float outputRotationDeg = 0.0f;
     EnvelopeStage envelopeStage = EnvelopeStage::Idle;
     float envelopeValue = 0.0f;
     bool envelopeGate = false;
@@ -1948,6 +2015,27 @@ void undoPatch(Plugin& p)
 
 void applyParam(Plugin& p, clap_id id, double value)
 {
+    if (id == kOutputFormatParamId) {
+        const double finiteValue = std::isfinite(value) ? value : 0.0;
+        p.outputFormat = static_cast<OutputFormat>(static_cast<uint32_t>(
+            std::clamp(std::round(finiteValue), 0.0, 2.0)));
+        return;
+    }
+    if (id == kOutputRotationParamId) {
+        p.outputRotationDeg = std::isfinite(value)
+            ? static_cast<float>(std::clamp(value, -180.0, 180.0))
+            : 0.0f;
+        return;
+    }
+    if (id == kMidiReceiveParamId) {
+        const double next = static_cast<double>(
+            s3g::drum_midi::receiveChannel(value));
+        if (next != p.midiReceive) {
+            p.midiReceive = next;
+            resetMidiPerformance(p);
+        }
+        return;
+    }
     if (id == kRunParamId) {
         p.playing.store(value >= 0.5, std::memory_order_relaxed);
         return;
@@ -2182,6 +2270,8 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
 void handleMidiMessage(Plugin& p, const clap_event_midi_t& midi)
 {
     const uint8_t status = midi.data[0] & 0xf0u;
+    const uint8_t channel = midi.data[0] & 0x0fu;
+    if (!s3g::drum_midi::accepts(p.midiReceive, channel)) return;
     const int32_t key = static_cast<int32_t>(midi.data[1] & 0x7fu);
     const uint8_t value = midi.data[2] & 0x7fu;
     if (status == 0x90u && value > 0u) {
@@ -2204,18 +2294,21 @@ void handleCoreEvent(Plugin& p, const clap_event_header_t* event)
     }
     case CLAP_EVENT_NOTE_ON: {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (!s3g::drum_midi::accepts(p.midiReceive, note->channel)) break;
         if (note->velocity > 0.0) midiNoteOn(p, note->key, static_cast<float>(note->velocity));
         else midiNoteOff(p, note->key, false);
         break;
     }
     case CLAP_EVENT_NOTE_OFF: {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (!s3g::drum_midi::accepts(p.midiReceive, note->channel)) break;
         midiNoteOff(p, note->key, false);
         break;
     }
     case CLAP_EVENT_NOTE_CHOKE:
     case CLAP_EVENT_NOTE_END: {
         const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+        if (!s3g::drum_midi::accepts(p.midiReceive, note->channel)) break;
         midiNoteOff(p, note->key, true);
         break;
     }
@@ -2269,6 +2362,36 @@ void renderSegment(Plugin& p, uint32_t offset, uint32_t frames)
     } else {
         for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) {
             std::fill(p.output32[ch].begin() + offset, p.output32[ch].begin() + offset + frames, 0.0f);
+        }
+    }
+
+    if (p.outputFormat != OutputFormat::Direct8) {
+        s3g::McStereoParams foldParams {};
+        foldParams.inputChannels = kOutputChannels;
+        foldParams.rotationDegrees = p.outputRotationDeg;
+        foldParams.layout = s3g::McStereoLayout::RingProjection;
+        foldParams.autogain = s3g::McStereoAutogain::PowerSqrtN;
+        foldParams.outputGainDb = 0.0f;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            std::array<float, kOutputChannels> direct {};
+            for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) {
+                direct[ch] = p.output32[ch][offset + i];
+                p.output32[ch][offset + i] = 0.0f;
+            }
+            if (p.outputFormat == OutputFormat::QuadRing) {
+                std::array<float, 4> quad {};
+                s3g::processMcToQuadFrame(
+                    direct.data(), kOutputChannels, quad.data(), foldParams);
+                for (uint32_t ch = 0u; ch < quad.size(); ++ch) {
+                    p.output32[ch][offset + i] = quad[ch];
+                }
+            } else {
+                std::array<float, 2> stereo {};
+                s3g::processMcToStereoFrame(
+                    direct.data(), kOutputChannels, stereo.data(), foldParams);
+                p.output32[0][offset + i] = stereo[0];
+                p.output32[1][offset + i] = stereo[1];
+            }
         }
     }
     p.displayEnvelope.store(midiMode ? p.envelopeValue : 1.0f, std::memory_order_relaxed);
@@ -2411,6 +2534,9 @@ constexpr ParamDef kParamDefs[] {
     { kSeedParamId, "Field Seed", 1.0, 4294967295.0, 1346589745.0 },
     { kRandomizeFieldParamId, "Randomize Field", 0.0, 1.0, 0.0 },
     { kPerformanceModeParamId, "Performance Mode", 0.0, 1.0, 0.0 },
+    { kMidiReceiveParamId, "MIDI Receive", 0.0, 16.0, 0.0 },
+    { kOutputFormatParamId, "Output Format", 0.0, 2.0, 0.0 },
+    { kOutputRotationParamId, "Output Rotation", -180.0, 180.0, 0.0 },
     { kAttackParamId, "Attack", 1.0, 5000.0, 12.0 },
     { kDecayParamId, "Decay", 5.0, 8000.0, 280.0 },
     { kSustainParamId, "Sustain", 0.0, 1.0, 0.72 },
@@ -2450,15 +2576,20 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         || def.id == kModEnvelope1ParamId || def.id == kModEnvelope2ParamId
         || def.id == kModEnvelope3ParamId || def.id == kModulationEnabledParamId
         || def.id == kBassReceiverParamId || def.id == kBassPitchTrackingParamId
-        || def.id == kBassOctaveParamId) {
+        || def.id == kBassOctaveParamId || def.id == kMidiReceiveParamId
+        || def.id == kOutputFormatParamId) {
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
-    const bool performance = def.id >= kPerformanceModeParamId && def.id <= kReleaseParamId;
+    const bool performance = (def.id >= kPerformanceModeParamId
+        && def.id <= kReleaseParamId) || def.id == kMidiReceiveParamId;
     const bool bassCore = def.id >= kBassReceiverParamId
         && def.id <= kBassFeedbackParamId;
-    const char* module = performance ? "Performance" : (bassCore ? "Bass Core" : "Processor Fault");
+    const bool output = def.id == kOutputFormatParamId
+        || def.id == kOutputRotationParamId;
+    const char* module = performance ? "Performance"
+        : (output ? "Output" : (bassCore ? "Bass Core" : "Processor Fault"));
     std::strncpy(info->module, module, sizeof(info->module));
     info->module[sizeof(info->module) - 1u] = '\0';
     info->min_value = def.min;
@@ -2529,6 +2660,9 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kGainParamId: *value = p.gainDb; return true;
     case kRunParamId: *value = instance->playing.load(std::memory_order_relaxed) ? 1.0 : 0.0; return true;
     case kPerformanceModeParamId: *value = static_cast<uint32_t>(instance->performanceMode); return true;
+    case kMidiReceiveParamId: *value = instance->midiReceive; return true;
+    case kOutputFormatParamId: *value = static_cast<uint32_t>(instance->outputFormat); return true;
+    case kOutputRotationParamId: *value = instance->outputRotationDeg; return true;
     case kAttackParamId: *value = instance->attackMs; return true;
     case kDecayParamId: *value = instance->decayMs; return true;
     case kSustainParamId: *value = instance->sustain; return true;
@@ -2863,6 +2997,17 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value, ch
     }
     else if (id == kPerformanceModeParamId) std::snprintf(display, size, "%s", performanceModeName(
         static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0))));
+    else if (id == kMidiReceiveParamId) {
+        s3g::drum_midi::valueToText(value, display, size);
+    }
+    else if (id == kOutputFormatParamId) {
+        std::snprintf(display, size, "%s", outputFormatName(
+            static_cast<OutputFormat>(static_cast<uint32_t>(
+                std::clamp(std::round(value), 0.0, 2.0)))));
+    }
+    else if (id == kOutputRotationParamId) {
+        std::snprintf(display, size, "%+.1f deg", value);
+    }
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%s", envelopeTimeText(value).c_str());
     }
@@ -2916,6 +3061,19 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
         if (std::strcmp(display, "MIDI") == 0) *value = 1.0;
         else if (std::strcmp(display, "FREE") == 0) *value = 0.0;
         else *value = numeric >= 0.5 ? 1.0 : 0.0;
+    } else if (id == kMidiReceiveParamId) {
+        return s3g::drum_midi::textToValue(display, value);
+    } else if (id == kOutputFormatParamId) {
+        for (uint32_t format = 0u; format < 3u; ++format) {
+            if (std::strcmp(display, outputFormatName(
+                    static_cast<OutputFormat>(format))) == 0) {
+                *value = static_cast<double>(format);
+                return true;
+            }
+        }
+        return false;
+    } else if (id == kOutputRotationParamId) {
+        *value = std::clamp(numeric, -180.0, 180.0);
     } else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
         *value = numeric;
         if (!std::strstr(display, "ms") && std::strchr(display, 's')) *value *= 1000.0;
@@ -3051,6 +3209,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.decayMs = p->decayMs;
     state.sustain = p->sustain;
     state.releaseMs = p->releaseMs;
+    state.midiReceive = static_cast<uint32_t>(
+        s3g::drum_midi::receiveChannel(p->midiReceive));
+    state.outputFormat = static_cast<uint32_t>(p->outputFormat);
+    state.outputRotationDeg = p->outputRotationDeg;
     if (!p->sourcePath.empty()) {
         state.sourceMode = static_cast<uint32_t>(p->sourceInterpretation);
         std::snprintf(state.sourcePath, sizeof(state.sourcePath), "%s", p->sourcePath.c_str());
@@ -3070,6 +3232,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->decayMs = 280.0f;
     p->sustain = 0.72f;
     p->releaseMs = 850.0f;
+    p->midiReceive = 0.0;
+    p->outputFormat = OutputFormat::Direct8;
+    p->outputRotationDeg = 0.0f;
     if (version == kStateVersion) {
         SavedState state {};
         state.version = version;
@@ -3083,6 +3248,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
         p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
         p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->midiReceive = static_cast<double>(
+            s3g::drum_midi::receiveChannel(state.midiReceive));
+        p->outputFormat = static_cast<OutputFormat>(
+            std::min(state.outputFormat, 2u));
+        p->outputRotationDeg = std::isfinite(state.outputRotationDeg)
+            ? std::clamp(state.outputRotationDeg, -180.0f, 180.0f)
+            : 0.0f;
         p->rawSource.reset();
         p->sourcePath.clear();
         p->sourceName.clear();
@@ -3097,6 +3269,78 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             p->sourceName = sourceNameFromPath(p->sourcePath);
             p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
             readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 24u) {
+        LegacySavedStateV24 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
+                sizeof(state) - offset)) return false;
+        p->params = state.params;
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(
+            std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->midiReceive = static_cast<double>(
+            s3g::drum_midi::receiveChannel(state.midiReceive));
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath)
+                && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation =
+                static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation,
+                p->rawSource, p->sourceError);
+        }
+    } else if (version == 23u) {
+        LegacySavedStateV23 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
+                sizeof(state) - offset)) return false;
+        p->params = state.params;
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(
+            std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath)
+                && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation =
+                static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation,
+                p->rawSource, p->sourceError);
         }
     } else if (version == 22u) {
         LegacySavedStateV22 state {};
@@ -3558,6 +3802,7 @@ double normalizedPerformanceParam(const Plugin& p, clap_id id)
     case kDecayParamId: return normalizedEnvelopeTime(p.decayMs, 5.0, 8000.0);
     case kSustainParamId: return p.sustain;
     case kReleaseParamId: return normalizedEnvelopeTime(p.releaseMs, 5.0, 12000.0);
+    case kOutputRotationParamId: return (p.outputRotationDeg + 180.0) / 360.0;
     default: return 0.0;
     }
 }
@@ -3626,6 +3871,7 @@ void applyNormalizedParam(Plugin& p, clap_id id, double normalized)
     case kDecayParamId: applyParam(p, id, denormalizedEnvelopeTime(normalized, 5.0, 8000.0)); break;
     case kSustainParamId: applyParam(p, id, normalized); break;
     case kReleaseParamId: applyParam(p, id, denormalizedEnvelopeTime(normalized, 5.0, 12000.0)); break;
+    case kOutputRotationParamId: applyParam(p, id, -180.0 + normalized * 360.0); break;
     default: applyParam(p, id, normalized); break;
     }
 }
@@ -3732,6 +3978,28 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     const CGFloat x = a.x - b.x;
     const CGFloat y = a.y - b.y;
     return x * x + y * y;
+}
+
+NSRect midiReceiveDropdownRect()
+{
+    constexpr CGFloat itemHeight = 18.0;
+    constexpr CGFloat itemCount = 17.0;
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(kMidiReceivePanelX),
+        kPerformanceRowY - 3.0 - itemHeight * itemCount,
+        s3g::gui_layout::processorMenuWidth(kMidiReceivePanelWidth),
+        itemHeight * itemCount);
+}
+
+NSRect outputFormatDropdownRect()
+{
+    constexpr CGFloat itemHeight = 18.0;
+    constexpr CGFloat itemCount = 3.0;
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(kOutputPanelX),
+        kOutputFormatRowY + 14.0,
+        s3g::gui_layout::processorMenuWidth(kOutputPanelWidth),
+        itemHeight * itemCount);
 }
 
 } // namespace
@@ -3847,12 +4115,22 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         [label drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5, NSMidY(rect) - size.height * 0.5)
             withAttributes:small];
     }
+    char receiveText[16] {};
+    s3g::drum_midi::valueToText(
+        plugin->midiReceive, receiveText, sizeof(receiveText));
+    s3g::clap_gui::drawProcessorMenu(@"MIDI RECEIVE",
+        [NSString stringWithUTF8String:receiveText], kPerformanceRowY,
+        kMidiReceivePanelX, kMidiReceivePanelWidth,
+        attrs, small, style);
     const std::string note = midi ? midiNoteName(plugin->displayNote.load(std::memory_order_relaxed)) : "CONTINUOUS";
-    [[NSString stringWithFormat:@"NOTE %s", note.c_str()] drawAtPoint:NSMakePoint(318.0, kPerformanceRowY - 5.0) withAttributes:small];
-    [[NSString stringWithFormat:@"ENV %.0f%%", plugin->displayEnvelope.load(std::memory_order_relaxed) * 100.0f]
-        drawAtPoint:NSMakePoint(442.0, kPerformanceRowY - 5.0) withAttributes:small];
-    [[NSString stringWithFormat:@"FIELD %08X", plugin->params.seed]
-        drawAtPoint:NSMakePoint(500.0, kPerformanceRowY - 5.0) withAttributes:small];
+    [[NSString stringWithFormat:@"NOTE %s   ·   ENV %.0f%%   ·   FIELD %08X",
+        note.c_str(),
+        plugin->displayEnvelope.load(std::memory_order_relaxed) * 100.0f,
+        plugin->params.seed]
+        drawAtPoint:NSMakePoint(
+            s3g::gui_layout::processorLabelX(kLeftToolboxX),
+            kPerformanceRowY + 25.0)
+        withAttributes:small];
 }
 - (void)drawEnvelopeEditor:(Plugin*)plugin attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
@@ -4274,6 +4552,25 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0),
             18.0, items, 3u, static_cast<int>(p->params.bassOctave),
             _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 17) {
+        NSString* items[17] {};
+        for (uint32_t index = 0u; index < 17u; ++index) {
+            char text[16] {};
+            s3g::drum_midi::valueToText(
+                static_cast<double>(index), text, sizeof(text));
+            items[index] = [NSString stringWithUTF8String:text];
+        }
+        s3g::clap_gui::drawDropdownMenu(midiReceiveDropdownRect(), 18.0,
+            items, 17u,
+            s3g::drum_midi::receiveChannel(p->midiReceive),
+            _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 18) {
+        NSString* const items[] = {
+            @"8CH DIRECT", @"QUAD RING", @"STEREO RING"
+        };
+        s3g::clap_gui::drawDropdownMenu(outputFormatDropdownRect(), 18.0,
+            items, 3u, static_cast<int>(p->outputFormat),
+            _hoverMenuItem, attrs, style);
     }
 }
 - (void)updateMenuHover:(NSPoint)point
@@ -4327,6 +4624,14 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     else if (_openMenu == 16) {
         rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
             333.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
+        count = 3u;
+    }
+    else if (_openMenu == 17) {
+        rect = midiReceiveDropdownRect();
+        count = 17u;
+    }
+    else if (_openMenu == 18) {
+        rect = outputFormatDropdownRect();
         count = 3u;
     }
     if (count == 0u) return;
@@ -4568,6 +4873,15 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     [self drawButton:@"UNDO" rect:NSMakeRect(706, kPresetRowY - 7.0, 90, 24) attrs:values];
     [self drawPerformanceMode:p attrs:labels small:values style:style];
     [self drawEnvelopeEditor:p attrs:values style:style];
+    [self drawMenuControl:@"FORMAT"
+        value:[NSString stringWithUTF8String:outputFormatName(p->outputFormat)]
+        panelX:kOutputPanelX panelWidth:kOutputPanelWidth y:kOutputFormatRowY
+        attrs:labels small:values style:style];
+    [self drawRow:@"ROTATE"
+        value:[NSString stringWithFormat:@"%+.1f deg", p->outputRotationDeg]
+        norm:normalizedPerformanceParam(*p, kOutputRotationParamId)
+        panelX:kOutputPanelX panelWidth:kOutputPanelWidth y:kOutputRotationRowY
+        attrs:labels small:values];
     [self drawOpenMenu:values style:style];
 }
 - (void)updateSlider:(NSPoint)point
@@ -4623,6 +4937,12 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             (point.x - s3g::gui_layout::processorControlX(kBassControlPanelX))
                 / s3g::gui_layout::processorTrackWidth(kBassControlPanelWidth), 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 601], normalized);
+    } else if (_dragSlider == 701) {
+        const double normalized = std::clamp(
+            (point.x - s3g::gui_layout::processorControlX(kOutputPanelX))
+                / s3g::gui_layout::processorTrackWidth(kOutputPanelWidth),
+            0.0, 1.0);
+        applyNormalizedParam(*p, kOutputRotationParamId, normalized);
     } else if (_dragSlider >= 201 && _dragSlider <= 204) {
         const EnvelopeGraphGeometry graph = envelopeGraphGeometry(*p);
         const double sustain = std::clamp(
@@ -4721,6 +5041,16 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
                 333.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
             count = 3u;
             id = kBassOctaveParamId;
+        }
+        else if (_openMenu == 17) {
+            rect = midiReceiveDropdownRect();
+            count = 17u;
+            id = kMidiReceiveParamId;
+        }
+        else if (_openMenu == 18) {
+            rect = outputFormatDropdownRect();
+            count = 3u;
+            id = kOutputFormatParamId;
         }
         const int hit = s3g::clap_gui::dropdownHitIndex(point, rect, 18.0, count);
         if (hit >= 0 && id != CLAP_INVALID_ID) {
@@ -4823,6 +5153,43 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             [self setNeedsDisplay:YES];
             return;
         }
+    }
+    if (NSPointInRect(point, NSMakeRect(
+            kMidiReceivePanelX + s3g::gui_layout::kStandardMetrics.hitInset,
+            kPerformanceRowY - 9.0,
+            kMidiReceivePanelWidth
+                - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
+            s3g::gui_layout::kStandardMetrics.hitHeight))) {
+        _openMenu = 17;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(
+            kOutputPanelX + s3g::gui_layout::kStandardMetrics.hitInset,
+            kOutputFormatRowY - 9.0,
+            kOutputPanelWidth
+                - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
+            s3g::gui_layout::kStandardMetrics.hitHeight))) {
+        _openMenu = 18;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(
+            kOutputPanelX, kOutputRotationRowY - 9.0,
+            kOutputPanelWidth, 24.0))) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, kOutputRotationParamId, &defaultValue)) {
+            applyParam(*p, kOutputRotationParamId, defaultValue);
+            markHostStateDirty(*p);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = 701;
+            [self updateSlider:point];
+        }
+        return;
     }
     if (NSPointInRect(point, NSMakeRect(140, kPerformanceRowY - 10.0, 148, 22))) {
         applyParam(*p, kPerformanceModeParamId,
@@ -5041,7 +5408,8 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
-    if (_dragSlider == 108 || (_dragSlider >= 601 && _dragSlider <= 608)) {
+    if (_dragSlider == 108 || (_dragSlider >= 601 && _dragSlider <= 608)
+        || _dragSlider == 701) {
         markHostStateDirty(*static_cast<Plugin*>(_plugin));
     }
     _dragSlider = -1;

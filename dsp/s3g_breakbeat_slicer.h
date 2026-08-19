@@ -263,6 +263,41 @@ inline float multichannelMagnitude(const SampleAsset& asset,
     return magnitude;
 }
 
+// Mutation renders retain floating-point headroom while they are being built,
+// then reduce only slices whose shared multichannel peak exceeds the requested
+// ceiling. One gain factor per slice preserves its channel relationships and
+// internal dynamics; quieter slices are left unchanged.
+inline bool reduceSlicePeaksToCeiling(SampleAsset& asset,
+    const uint32_t* sliceStarts, std::size_t sliceCount,
+    float ceiling = 1.0f) noexcept
+{
+    if (!asset.valid() || !sliceStarts || sliceCount == 0u
+        || sliceStarts[0u] != 0u || !std::isfinite(ceiling)
+        || ceiling <= 0.0f) return false;
+    const uint32_t frames = asset.frameCount();
+    for (std::size_t sliceIndex = 0u; sliceIndex < sliceCount;
+         ++sliceIndex) {
+        const uint32_t start = sliceStarts[sliceIndex];
+        const uint32_t end = sliceIndex + 1u < sliceCount
+            ? sliceStarts[sliceIndex + 1u] : frames;
+        if (start >= end || end > frames) return false;
+        float peak = 0.0f;
+        for (uint32_t frame = start; frame < end; ++frame)
+            peak = std::max(peak, multichannelMagnitude(asset, frame));
+        if (!(peak > ceiling)) continue;
+        const float gain = ceiling / peak;
+        for (std::size_t channel = 0u; channel < asset.channelCount;
+             ++channel) {
+            auto& samples = asset.channels[channel];
+            for (uint32_t frame = start; frame < end; ++frame) {
+                samples[frame] = std::clamp(samples[frame] * gain,
+                    -ceiling, ceiling);
+            }
+        }
+    }
+    return true;
+}
+
 inline SampleAnalysis analyzeSample(const SampleAsset& asset,
     const AnalysisSettings& settings = {})
 {
@@ -1217,6 +1252,7 @@ enum class EventKind : uint8_t {
     NoteOn = 0u,
     NoteOff,
     Choke,
+    StopSlot,
 };
 
 struct RenderEvent {
@@ -1224,7 +1260,7 @@ struct RenderEvent {
     EventKind kind = EventKind::NoteOn;
     uint64_t noteId = 0u;
     uint8_t key = 0u;
-    uint8_t chokeGroup = 0u; // zero chokes every voice for Choke events
+    uint8_t chokeGroup = 0u; // Choke group, or slot index for StopSlot
     float velocity = 1.0f;
     uint8_t midiChannel = 0u; // zero is unspecified/omni; 1-16 are explicit
 };
@@ -3037,7 +3073,12 @@ private:
         }
         refreshVoiceRates(voice);
         const bool reverse = slice.reverse;
-        if (reverse != (voice.increment < 0.0))
+        // Once Ping Pong has reflected, its direction belongs to the running
+        // voice. Reapplying the slice's launch direction at every process
+        // block would push it back toward the same boundary and trap it in a
+        // short segment there.
+        if ((voice.launchMode != LaunchMode::PingPong || !voice.hasLooped)
+            && reverse != (voice.increment < 0.0))
             voice.increment = -voice.increment;
         if (loopChanged
             && (voice.launchMode == LaunchMode::Loop
@@ -3292,6 +3333,22 @@ private:
             releaseHeldNote(event);
             choke(event.chokeGroup);
             break;
+        case EventKind::StopSlot:
+            stopSlot(event.chokeGroup);
+            break;
+        }
+    }
+
+    void stopSlot(uint8_t slotIndex) noexcept
+    {
+        if (slotIndex >= kMaximumSampleSlots) return;
+        for (auto& voice : voices_) {
+            if (voice.active && voice.slotIndex == slotIndex)
+                voice.active = false;
+        }
+        for (auto& note : heldNotes_) {
+            if (note.active && note.slotIndex == slotIndex)
+                note.active = false;
         }
     }
 
@@ -3676,15 +3733,37 @@ private:
             return;
         }
         if (voice.launchMode == LaunchMode::PingPong) {
-            if (voice.increment > 0.0 && voice.position >= loopEnd) {
-                voice.position = loopEnd
-                    - std::fmod(voice.position - loopEnd, span) - 1.0;
-                voice.increment = -voice.increment;
+            const double lower = loopStart;
+            const double upper = loopEnd - 1.0;
+            const double range = upper - lower;
+            if (!(range > 0.0)) {
+                voice.position = lower;
+                return;
+            }
+            const double period = 2.0 * range;
+            if (voice.increment > 0.0 && voice.position > upper) {
+                double distance = std::fmod(
+                    voice.position - upper, period);
+                if (distance < 0.0) distance += period;
+                if (distance <= range) {
+                    voice.position = upper - distance;
+                    voice.increment = -std::abs(voice.increment);
+                } else {
+                    voice.position = lower + (distance - range);
+                    voice.increment = std::abs(voice.increment);
+                }
                 voice.hasLooped = true;
             } else if (voice.increment < 0.0 && voice.position < loopStart) {
-                voice.position = loopStart
-                    + std::fmod(loopStart - voice.position, span);
-                voice.increment = -voice.increment;
+                double distance = std::fmod(
+                    lower - voice.position, period);
+                if (distance < 0.0) distance += period;
+                if (distance <= range) {
+                    voice.position = lower + distance;
+                    voice.increment = std::abs(voice.increment);
+                } else {
+                    voice.position = upper - (distance - range);
+                    voice.increment = -std::abs(voice.increment);
+                }
                 voice.hasLooped = true;
             }
         } else if (voice.increment > 0.0 && voice.position >= loopEnd) {

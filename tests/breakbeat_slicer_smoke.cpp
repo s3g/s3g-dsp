@@ -292,6 +292,34 @@ void testStructuralMutationUses()
         "mixer insert and EQ mutation was not deterministic or distinct");
 }
 
+void testMutationSlicePeakCeiling()
+{
+    SampleAsset asset;
+    asset.sampleRate = 48000.0;
+    asset.channelCount = 2u;
+    asset.channels[0u] = {
+        2.0f, -1.0f, 0.5f, 1.5f, 0.25f, -0.5f, 0.4f, -0.2f,
+    };
+    asset.channels[1u] = {
+        1.0f, -3.0f, 0.25f, 0.75f, -0.3f, 0.2f, -0.1f, 0.5f,
+    };
+    constexpr std::array<uint32_t, 2u> starts {{ 0u, 4u }};
+    check(reduceSlicePeaksToCeiling(asset, starts.data(), starts.size()),
+        "the mutation slice peak ceiling rejected valid audio");
+    float firstPeak = 0.0f;
+    float secondPeak = 0.0f;
+    for (uint32_t frame = 0u; frame < 4u; ++frame)
+        firstPeak = std::max(firstPeak, multichannelMagnitude(asset, frame));
+    for (uint32_t frame = 4u; frame < 8u; ++frame)
+        secondPeak = std::max(secondPeak,
+            multichannelMagnitude(asset, frame));
+    check(firstPeak <= 1.0f && near(asset.channels[1u][1u], -1.0f)
+            && near(asset.channels[0u][0u], 2.0f / 3.0f),
+        "an over-level mutation slice was not reduced coherently to 0 dBFS");
+    check(near(secondPeak, 0.5f) && near(asset.channels[0u][5u], -0.5f),
+        "a mutation slice below 0 dBFS was changed by the peak ceiling");
+}
+
 void testAnalysisAndSliceEditing()
 {
     SampleAsset asset;
@@ -1312,6 +1340,33 @@ void testInheritedSamplePlaybackBehavior()
         "Kill All did not clear inherited Slicer playback state");
 }
 
+void testStopSlotEvent()
+{
+    BankSnapshot bank;
+    initializeEmptyBank(bank);
+    bank.slots[0u] = oneSliceSlot(
+        constantAsset(0.5f, 0.25f, 128u, 1000.0));
+    check(mapSlotConsecutively(bank, 0u, 60u) && bank.valid(),
+        "slot-stop fixture was invalid");
+
+    SlicerEngine engine;
+    check(engine.prepare(1000.0) && engine.setBank(&bank),
+        "slot-stop fixture did not prepare");
+    const std::array<RenderEvent, 2u> events {{
+        { 0u, EventKind::NoteOn, 207u, 60u, 0u, 1.0f, 1u },
+        { 32u, EventKind::StopSlot, 0u, 0u, 0u, 0.0f, 0u },
+    }};
+    std::array<float, 64u> left {};
+    std::array<float, 64u> right {};
+    engine.render(events.data(), events.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    const bool silentAfterStop = std::all_of(left.begin() + 32u,
+        left.end(), [](float sample) { return sample == 0.0f; });
+    check(left[16u] > 0.0f && silentAfterStop
+            && engine.activeVoiceCount() == 0u,
+        "the sample-accurate slot stop did not terminate playthrough audio");
+}
+
 void testInheritedLoopCrossfade()
 {
     auto mutableAsset = std::make_shared<SampleAsset>();
@@ -1355,6 +1410,54 @@ void testInheritedLoopCrossfade()
         "inherited loop crossfade did not suppress the slice-loop seam");
 }
 
+void testPingPongDirectionAcrossProcessBlocks()
+{
+    auto mutableAsset = std::make_shared<SampleAsset>();
+    mutableAsset->sampleRate = 48000.0;
+    mutableAsset->channelCount = 2u;
+    mutableAsset->channels[0u].resize(12u);
+    mutableAsset->channels[1u].resize(12u);
+    for (uint32_t frame = 0u; frame < 12u; ++frame) {
+        const float sample = static_cast<float>(frame) / 16.0f;
+        mutableAsset->channels[0u][frame] = sample;
+        mutableAsset->channels[1u][frame] = sample;
+    }
+    std::shared_ptr<const SampleAsset> asset = mutableAsset;
+    BankSnapshot bank;
+    initializeEmptyBank(bank);
+    bank.slots[0u] = oneSliceSlot(asset, LaunchMode::PingPong);
+    bank.slots[0u].slices[0u].startFrame = 2u;
+    bank.slots[0u].slices[0u].endFrame = 10u;
+    bank.slots[0u].slices[0u].pan = -1.0f;
+    check(mapSlotConsecutively(bank, 0u, 60u) && bank.valid(),
+        "Slicer ping-pong fixture was invalid");
+
+    SlicerEngine engine;
+    check(engine.prepare(48000.0) && engine.setBank(&bank),
+        "Slicer ping-pong fixture did not prepare");
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 208u, 60u, 0u, 1.0f, 1u,
+    };
+    std::array<float, 10u> firstLeft {};
+    std::array<float, 10u> firstRight {};
+    engine.render(&note, 1u, firstLeft.data(), firstRight.data(),
+        static_cast<uint32_t>(firstLeft.size()));
+    std::array<float, 10u> secondLeft {};
+    std::array<float, 10u> secondRight {};
+    engine.render(nullptr, 0u, secondLeft.data(), secondRight.data(),
+        static_cast<uint32_t>(secondLeft.size()));
+
+    check(near(firstLeft[7u], 9.0f / 16.0f)
+            && near(firstLeft[8u], 8.0f / 16.0f)
+            && near(firstLeft[9u], 7.0f / 16.0f),
+        "Slicer ping-pong did not reflect cleanly at the slice end");
+    check(near(secondLeft[0u], 6.0f / 16.0f)
+            && near(secondLeft[4u], 2.0f / 16.0f)
+            && near(secondLeft[5u], 3.0f / 16.0f)
+            && near(secondLeft[9u], 7.0f / 16.0f),
+        "Slicer ping-pong direction reset at an audio-block boundary");
+}
+
 } // namespace
 
 int main()
@@ -1362,6 +1465,7 @@ int main()
     testBankMappingAndValidation();
     testSourceSafeMutationVariations();
     testStructuralMutationUses();
+    testMutationSlicePeakCeiling();
     testAnalysisAndSliceEditing();
     testTwoSlotSampleAccuratePlayback();
     testReversePitchAndPan();
@@ -1375,7 +1479,9 @@ int main()
     testProportionalSliceEnvelope();
     testLoopGateAndChoke();
     testInheritedSamplePlaybackBehavior();
+    testStopSlotEvent();
     testInheritedLoopCrossfade();
+    testPingPongDirectionAcrossProcessBlocks();
     if (failures == 0)
         std::cout << "breakbeat slicer smoke tests passed\n";
     return failures == 0 ? 0 : 1;

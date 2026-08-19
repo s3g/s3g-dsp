@@ -71,6 +71,9 @@ constexpr clap_id kBassLowWidthParamId = 95u;
 constexpr clap_id kBassFuzzParamId = 96u;
 constexpr clap_id kBassMetalParamId = 97u;
 constexpr clap_id kBassFeedbackParamId = 98u;
+constexpr clap_id kMidiReceiveParamId = 99u;
+constexpr clap_id kOutputFormatParamId = 100u;
+constexpr clap_id kOutputRotationParamId = 101u;
 constexpr clap_id kCodecModeParamId = 15u;
 constexpr clap_id kRandomizeFieldParamId = 23u;
 
@@ -430,7 +433,7 @@ struct LegacySavedStateV22 {
 static_assert(sizeof(LegacySavedStateV22) == 4344u,
     "Unexpected version-22 Fault state layout");
 
-struct SavedStateV23 {
+struct LegacySavedStateV23 {
     uint32_t version = 23u;
     uint32_t selectedPreset = 12u;
     s3g::PsdRawFieldParams params {};
@@ -443,8 +446,44 @@ struct SavedStateV23 {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedStateV23) == 4356u,
+static_assert(sizeof(LegacySavedStateV23) == 4356u,
     "Unexpected version-23 Fault state layout");
+
+struct LegacySavedStateV24 {
+    uint32_t version = 24u;
+    uint32_t selectedPreset = 12u;
+    s3g::PsdRawFieldParams params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+    uint32_t midiReceive = 0u;
+};
+static_assert(sizeof(LegacySavedStateV24) == 4360u,
+    "Unexpected version-24 Fault state layout");
+
+struct SavedStateV25 {
+    uint32_t version = 25u;
+    uint32_t selectedPreset = 12u;
+    s3g::PsdRawFieldParams params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+    uint32_t midiReceive = 0u;
+    uint32_t outputFormat = 0u;
+    float outputRotationDeg = 0.0f;
+};
+static_assert(sizeof(SavedStateV25) == 4368u,
+    "Unexpected version-25 Fault state layout");
 
 struct SavedStateV13 {
     uint32_t version = 13u;
@@ -820,6 +859,78 @@ int main(int argc, char** argv)
         };
         ok = paramsExtension && paramsExtension->flush;
         if (ok) {
+            clap_param_info_t receiveInfo {};
+            clap_param_info_t formatInfo {};
+            clap_param_info_t rotationInfo {};
+            bool foundReceive = false;
+            bool foundFormat = false;
+            bool foundRotation = false;
+            for (uint32_t index = 0u; index < paramsExtension->count(plugin); ++index) {
+                clap_param_info_t candidate {};
+                if (paramsExtension->get_info(plugin, index, &candidate)) {
+                    if (candidate.id == kMidiReceiveParamId) {
+                        receiveInfo = candidate;
+                        foundReceive = true;
+                    } else if (candidate.id == kOutputFormatParamId) {
+                        formatInfo = candidate;
+                        foundFormat = true;
+                    } else if (candidate.id == kOutputRotationParamId) {
+                        rotationInfo = candidate;
+                        foundRotation = true;
+                    }
+                }
+            }
+            char omniText[16] {};
+            char channelText[16] {};
+            char formatText[32] {};
+            char rotationText[32] {};
+            double parsedChannel = -1.0;
+            double parsedFormat = -1.0;
+            double parsedRotation = 0.0;
+            ok = foundReceive && foundFormat && foundRotation
+                && (receiveInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && receiveInfo.min_value == 0.0
+                && receiveInfo.max_value == 16.0
+                && receiveInfo.default_value == 0.0
+                && paramsExtension->value_to_text(plugin,
+                    kMidiReceiveParamId, 0.0, omniText, sizeof(omniText))
+                && std::strcmp(omniText, "OMNI") == 0
+                && paramsExtension->value_to_text(plugin,
+                    kMidiReceiveParamId, 16.0,
+                    channelText, sizeof(channelText))
+                && std::strcmp(channelText, "CH 16") == 0
+                && paramsExtension->text_to_value(plugin,
+                    kMidiReceiveParamId, "ch 7", &parsedChannel)
+                && parsedChannel == 7.0
+                && (formatInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                && std::strcmp(formatInfo.module, "Output") == 0
+                && formatInfo.min_value == 0.0
+                && formatInfo.max_value == 2.0
+                && formatInfo.default_value == 0.0
+                && paramsExtension->value_to_text(plugin,
+                    kOutputFormatParamId, 2.0,
+                    formatText, sizeof(formatText))
+                && std::strcmp(formatText, "STEREO RING") == 0
+                && paramsExtension->text_to_value(plugin,
+                    kOutputFormatParamId, "QUAD RING", &parsedFormat)
+                && parsedFormat == 1.0
+                && (rotationInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
+                && std::strcmp(rotationInfo.module, "Output") == 0
+                && rotationInfo.min_value == -180.0
+                && rotationInfo.max_value == 180.0
+                && rotationInfo.default_value == 0.0
+                && paramsExtension->value_to_text(plugin,
+                    kOutputRotationParamId, -51.0,
+                    rotationText, sizeof(rotationText))
+                && std::strcmp(rotationText, "-51.0 deg") == 0
+                && paramsExtension->text_to_value(plugin,
+                    kOutputRotationParamId, "+37 deg", &parsedRotation)
+                && parsedRotation == 37.0;
+            if (!ok) {
+                std::cerr << "Fault did not expose the MIDI/output parameter contract\n";
+            }
+        }
+        if (ok) {
             flushParam(kPerformanceModeParamId, 1.0);
             flushParam(kAttackParamId, 1.0);
             flushParam(kDecayParamId, 5.0);
@@ -979,6 +1090,86 @@ int main(int argc, char** argv)
                 static_cast<double>(s3g::PsdRawFieldBassOctave::MinusOne));
             flushParam(kBassLowWidthParamId, 1.0);
         }
+        if (ok) {
+            flushParam(kMidiReceiveParamId, 2.0);
+            clap_event_note_t wrongChannelNote {};
+            wrongChannelNote.header.size = sizeof(wrongChannelNote);
+            wrongChannelNote.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            wrongChannelNote.header.type = CLAP_EVENT_NOTE_ON;
+            wrongChannelNote.note_id = -1;
+            wrongChannelNote.port_index = 30;
+            wrongChannelNote.channel = 0;
+            wrongChannelNote.key = 60;
+            wrongChannelNote.velocity = 0.82;
+            ok = renderMidiBlock(&wrongChannelNote.header);
+            const double rejectedEnergy = rangeEnergy(0u, kTransportFrames);
+
+            clap_event_midi_t selectedChannelNote {};
+            selectedChannelNote.header.size = sizeof(selectedChannelNote);
+            selectedChannelNote.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            selectedChannelNote.header.type = CLAP_EVENT_MIDI;
+            selectedChannelNote.port_index = 30;
+            selectedChannelNote.data[0] = 0x91u;
+            selectedChannelNote.data[1] = 60u;
+            selectedChannelNote.data[2] = 104u;
+            if (ok) ok = renderMidiBlock(&selectedChannelNote.header);
+            const double acceptedEnergy = rangeEnergy(0u, kTransportFrames);
+
+            selectedChannelNote.data[0] = 0x81u;
+            selectedChannelNote.data[2] = 0u;
+            if (ok) {
+                ok = renderMidiBlock(&selectedChannelNote.header)
+                    && renderMidiBlock(nullptr);
+            }
+            ok = ok && rejectedEnergy <= 1.0e-20
+                && acceptedEnergy > 1.0e-8;
+            if (!ok) {
+                std::cerr << "Fault MIDI receive filtering failed: rejected="
+                          << rejectedEnergy << " accepted="
+                          << acceptedEnergy << "\n";
+            }
+        }
+        if (ok) {
+            auto channelEnergy = [&](uint32_t channel) {
+                double energy = 0.0;
+                for (float sample : midiAudio[channel]) {
+                    energy += static_cast<double>(sample) * sample;
+                }
+                return energy;
+            };
+            flushParam(kPerformanceModeParamId, 0.0);
+            flushParam(kOutputFormatParamId, 1.0);
+            flushParam(kOutputRotationParamId, 37.0);
+            ok = renderMidiBlock(nullptr);
+            double quadEnergy = 0.0;
+            double quadUnusedEnergy = 0.0;
+            for (uint32_t ch = 0u; ch < 4u; ++ch) quadEnergy += channelEnergy(ch);
+            for (uint32_t ch = 4u; ch < kChannels; ++ch) {
+                quadUnusedEnergy += channelEnergy(ch);
+            }
+            ok = ok && quadEnergy > 1.0e-8 && quadUnusedEnergy <= 1.0e-20;
+
+            flushParam(kOutputFormatParamId, 2.0);
+            flushParam(kOutputRotationParamId, -51.0);
+            if (ok) ok = renderMidiBlock(nullptr);
+            const double stereoEnergy = channelEnergy(0u) + channelEnergy(1u);
+            double stereoUnusedEnergy = 0.0;
+            for (uint32_t ch = 2u; ch < kChannels; ++ch) {
+                stereoUnusedEnergy += channelEnergy(ch);
+            }
+            ok = ok && stereoEnergy > 1.0e-8
+                && stereoUnusedEnergy <= 1.0e-20;
+            if (!ok) {
+                std::cerr << "Fault ring mixdown routing failed: quad="
+                          << quadEnergy << "/" << quadUnusedEnergy
+                          << " stereo=" << stereoEnergy << "/"
+                          << stereoUnusedEnergy << "\n";
+            }
+        }
+        if (ok) {
+            flushParam(kPerformanceModeParamId, 1.0);
+            flushParam(kMidiReceiveParamId, 7.0);
+        }
     }
 
     if (started) plugin->stop_processing(plugin);
@@ -988,11 +1179,11 @@ int main(int argc, char** argv)
         MemoryOutput currentOutput;
         clap_ostream_t currentStream { &currentOutput, streamWrite };
         ok = stateExtension->save(plugin, &currentStream)
-            && currentOutput.bytes.size() == sizeof(SavedStateV23);
+            && currentOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 saved {};
+            SavedStateV25 saved {};
             std::memcpy(&saved, currentOutput.bytes.data(), sizeof(saved));
-            ok = saved.version == 23u && saved.selectedPreset == 13u
+            ok = saved.version == 25u && saved.selectedPreset == 13u
                 && saved.sourceMode == 2u && saved.runState == 1u
                 && saved.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::RawPcm
                 && saved.params.carrierTune == 0.0f
@@ -1021,9 +1212,74 @@ int main(int argc, char** argv)
                 && saved.params.bassMetal == 0.55f
                 && saved.params.bassFeedback == 0.0f
                 && saved.performanceMode == 1u && saved.attackMs == 1.0f
-                && saved.decayMs == 5.0f && saved.sustain == 1.0f && saved.releaseMs == 5.0f;
+                && saved.decayMs == 5.0f && saved.sustain == 1.0f
+                && saved.releaseMs == 5.0f && saved.midiReceive == 7u
+                && saved.outputFormat == 2u
+                && saved.outputRotationDeg == -51.0f;
         }
-        if (!ok) std::cerr << "Fault did not preserve the current version-23 state contract\n";
+        if (!ok) std::cerr << "Fault did not preserve the current version-25 state contract\n";
+    }
+
+    if (ok) {
+        LegacySavedStateV24 legacy {};
+        legacy.selectedPreset = 6u;
+        legacy.params.codecMode = s3g::PsdRawFieldCodecMode::DeltaPcm;
+        legacy.midiReceive = 11u;
+        MemoryInput legacyInput {
+            reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u
+        };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
+        if (ok) {
+            SavedStateV25 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 25u
+                && migrated.selectedPreset == 6u
+                && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::DeltaPcm
+                && migrated.midiReceive == 11u
+                && migrated.outputFormat == 0u
+                && migrated.outputRotationDeg == 0.0f;
+        }
+        if (!ok) {
+            std::cerr << "Fault did not migrate version-24 output format to 8CH DIRECT\n";
+        }
+    }
+
+    if (ok) {
+        LegacySavedStateV23 legacy {};
+        legacy.selectedPreset = 5u;
+        legacy.params.codecMode = s3g::PsdRawFieldCodecMode::Apt;
+        legacy.performanceMode = 1u;
+        legacy.attackMs = 17.0f;
+        MemoryInput legacyInput {
+            reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u
+        };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
+        if (ok) {
+            SavedStateV25 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(),
+                sizeof(migrated));
+            ok = migrated.version == 25u
+                && migrated.selectedPreset == 5u
+                && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Apt
+                && migrated.performanceMode == 1u
+                && migrated.attackMs == 17.0f
+                && migrated.midiReceive == 0u
+                && migrated.outputFormat == 0u
+                && migrated.outputRotationDeg == 0.0f;
+        }
+        if (!ok) {
+            std::cerr << "Fault did not migrate version-23 MIDI receive to OMNI\n";
+        }
     }
 
     if (ok) {
@@ -1054,11 +1310,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.selectedPreset == 7u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Apt
                 && migrated.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Divide
@@ -1099,11 +1355,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::HfFax
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Multiplex
                 && migrated.params.modSource == s3g::PsdRawFieldModSource::Morse
@@ -1142,11 +1398,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
                 && migrated.params.modEnvelope1 == 1u
                 && migrated.params.modEnvelope2 == 0u
@@ -1178,11 +1434,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Relay
                 && migrated.params.modSource3 == s3g::PsdRawFieldModSource::Hellschreiber
                 && migrated.params.modTarget3 == s3g::PsdRawFieldModTarget::Damage
@@ -1216,11 +1472,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
                 && migrated.params.modSource == s3g::PsdRawFieldModSource::Field
                 && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Carrier
@@ -1257,11 +1513,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Hellschreiber
                 && migrated.params.modSource == s3g::PsdRawFieldModSource::Morse
                 && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Data
@@ -1294,11 +1550,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u
+            ok = migrated.version == 25u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Sstv
                 && migrated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::HfFax
                 && migrated.params.carrierTune == -7.5f
@@ -1321,11 +1577,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u && migrated.selectedPreset == 12u
+            ok = migrated.version == 25u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.performanceMode == 0u && migrated.attackMs == 12.0f
                 && migrated.decayMs == 280.0f && migrated.sustain == 0.72f
@@ -1344,11 +1600,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u && migrated.selectedPreset == 12u
+            ok = migrated.version == 25u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1366,11 +1622,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u && migrated.selectedPreset == 12u
+            ok = migrated.version == 25u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1388,11 +1644,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV23);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 migrated {};
+            SavedStateV25 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 23u && migrated.selectedPreset == 13u
+            ok = migrated.version == 25u && migrated.selectedPreset == 13u
                 && migrated.sourceMode == 1u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1410,11 +1666,11 @@ int main(int argc, char** argv)
         MemoryOutput stoppedOutput;
         clap_ostream_t stoppedOutputStream { &stoppedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &stoppedOutputStream)
-            && stoppedOutput.bytes.size() == sizeof(SavedStateV23);
+            && stoppedOutput.bytes.size() == sizeof(SavedStateV25);
         if (ok) {
-            SavedStateV23 savedStopped {};
+            SavedStateV25 savedStopped {};
             std::memcpy(&savedStopped, stoppedOutput.bytes.data(), sizeof(savedStopped));
-            ok = savedStopped.version == 23u && savedStopped.runState == 0u;
+            ok = savedStopped.version == 25u && savedStopped.runState == 0u;
         }
         if (!ok) std::cerr << "Fault did not preserve its stopped transport state\n";
     }
@@ -1744,9 +2000,9 @@ int main(int argc, char** argv)
             MemoryOutput generatedOutput;
             clap_ostream_t generatedStream { &generatedOutput, streamWrite };
             ok = stateExtension->save(plugin, &generatedStream)
-                && generatedOutput.bytes.size() == sizeof(SavedStateV23);
+                && generatedOutput.bytes.size() == sizeof(SavedStateV25);
             if (ok) {
-                SavedStateV23 generated {};
+                SavedStateV25 generated {};
                 std::memcpy(&generated, generatedOutput.bytes.data(), sizeof(generated));
                 ok = generated.sourceMode == 0u
                     && generated.params.codecMode == s3g::PsdRawFieldCodecMode::ModemFsk
@@ -1800,11 +2056,11 @@ int main(int argc, char** argv)
                 MemoryOutput roundTripOutput;
                 clap_ostream_t roundTripSave { &roundTripOutput, streamWrite };
                 ok = ok && stateExtension->save(plugin, &roundTripSave)
-                    && roundTripOutput.bytes.size() == sizeof(SavedStateV23);
+                    && roundTripOutput.bytes.size() == sizeof(SavedStateV25);
                 if (ok) {
-                    SavedStateV23 roundTripped {};
+                    SavedStateV25 roundTripped {};
                     std::memcpy(&roundTripped, roundTripOutput.bytes.data(), sizeof(roundTripped));
-                    ok = roundTripped.version == 23u
+                    ok = roundTripped.version == 25u
                         && roundTripped.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Error
                         && std::abs(roundTripped.params.bassBody - 0.76f) < 1.0e-6f
                         && std::abs(roundTripped.params.bassPunch - 0.42f) < 1.0e-6f
@@ -1853,9 +2109,9 @@ int main(int argc, char** argv)
                         preset, presetText, sizeof(presetText))
                     && std::strcmp(presetText, expectedPresetNames[preset]) == 0
                     && stateExtension->save(plugin, &presetStream)
-                    && presetOutput.bytes.size() == sizeof(SavedStateV23);
+                    && presetOutput.bytes.size() == sizeof(SavedStateV25);
                 if (!ok) break;
-                SavedStateV23 savedPreset {};
+                SavedStateV25 savedPreset {};
                 std::memcpy(&savedPreset, presetOutput.bytes.data(), sizeof(savedPreset));
                 constexpr uint32_t presetFrames = 1024u;
                 std::array<std::array<float, presetFrames>, kChannels> presetAudio {};
@@ -2056,9 +2312,9 @@ int main(int argc, char** argv)
                 MemoryOutput randomOutput;
                 clap_ostream_t randomStream { &randomOutput, streamWrite };
                 ok = stateExtension->save(plugin, &randomStream)
-                    && randomOutput.bytes.size() == sizeof(SavedStateV23);
+                    && randomOutput.bytes.size() == sizeof(SavedStateV25);
                 if (!ok) break;
-                SavedStateV23 randomized {};
+                SavedStateV25 randomized {};
                 std::memcpy(&randomized, randomOutput.bytes.data(), sizeof(randomized));
                 const auto& rp = randomized.params;
                 ok = guarded(rp);
@@ -2070,9 +2326,9 @@ int main(int argc, char** argv)
                 MemoryOutput mutateOutput;
                 clap_ostream_t mutateStream { &mutateOutput, streamWrite };
                 ok = stateExtension->save(plugin, &mutateStream)
-                    && mutateOutput.bytes.size() == sizeof(SavedStateV23);
+                    && mutateOutput.bytes.size() == sizeof(SavedStateV25);
                 if (!ok) break;
-                SavedStateV23 mutated {};
+                SavedStateV25 mutated {};
                 std::memcpy(&mutated, mutateOutput.bytes.data(), sizeof(mutated));
                 ok = guarded(mutated.params);
             }

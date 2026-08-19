@@ -1111,7 +1111,11 @@ int main(int argc, char** argv)
                         NSEventTypeLeftMouseDown,
                         NSMakePoint(420.0, 473.0))];
                     ok = [[document valueForKey:@"detailMenuKind"] intValue]
-                        == -1;
+                            == -1
+                        && [[document valueForKey:@"sliceModeSelection"]
+                                intValue] == 0
+                        && [document respondsToSelector:
+                            @selector(applySelectedSliceMethod)];
                 }
                 NSTextField* preRoll = static_cast<NSTextField*>(
                     [document viewWithTag:4100]);
@@ -6952,6 +6956,47 @@ int main(int argc, char** argv)
                     && [[document valueForKey:@"editorPage"] intValue] == 1
                     && clickFaultPage(NSMakePoint(1104.0, 240.0))
                     && [[document valueForKey:@"editorPage"] intValue] == 0;
+                if (ok) {
+                    failureStage = "Processor Fault MIDI receive menu";
+                    clickFaultPage(NSMakePoint(500.0, 586.0));
+                    ok = [[document valueForKey:@"openMenu"] intValue] == 17;
+                    if (ok) {
+                        constexpr CGFloat menuTop = 277.0;
+                        constexpr CGFloat itemHeight = 18.0;
+                        clickFaultPage(NSMakePoint(
+                            496.0, menuTop + itemHeight * 3.5));
+                        double midiReceive = -1.0;
+                        ok = params->get_value(plugin, 99u, &midiReceive)
+                            && midiReceive == 3.0
+                            && [[document valueForKey:@"openMenu"] intValue] == 0;
+                    }
+                }
+                if (ok) {
+                    failureStage = "Processor Fault output format menu";
+                    clickFaultPage(NSMakePoint(300.0, 642.0));
+                    ok = [[document valueForKey:@"openMenu"] intValue] == 18;
+                    if (ok) {
+                        clickFaultPage(NSMakePoint(300.0, 683.0));
+                        double outputFormat = -1.0;
+                        ok = params->get_value(plugin, 100u, &outputFormat)
+                            && outputFormat == 1.0
+                            && [[document valueForKey:@"openMenu"] intValue] == 0;
+                    }
+                }
+                if (ok) {
+                    failureStage = "Processor Fault output rotation slider";
+                    constexpr CGFloat outputPanelX = 18.0;
+                    constexpr CGFloat outputPanelWidth = 584.0;
+                    const CGFloat outputControlX = static_cast<CGFloat>(
+                        s3g::gui_layout::processorControlX(outputPanelX));
+                    const CGFloat outputTrackWidth = static_cast<CGFloat>(
+                        s3g::gui_layout::processorTrackWidth(outputPanelWidth));
+                    clickFaultPage(NSMakePoint(
+                        outputControlX + outputTrackWidth * 0.75, 668.0));
+                    double outputRotation = -999.0;
+                    ok = params->get_value(plugin, 101u, &outputRotation)
+                        && std::fabs(outputRotation - 90.0) < 0.5;
+                }
             } @catch (NSException*) {
                 ok = false;
             }
@@ -8801,11 +8846,11 @@ int main(int argc, char** argv)
                     }
                 }
                 if (ok) {
-                    failureStage = "documentation Slicer Build Mutate page";
+                    failureStage = "documentation Slicer Mutate page";
                     [document setDocumentationPage:3u];
-                    NSData* buildMutate = [document dataWithPDFInsideRect:
+                    NSData* mutate = [document dataWithPDFInsideRect:
                         [document bounds]];
-                    ok = buildMutate && [buildMutate length] > 0u;
+                    ok = mutate && [mutate length] > 0u;
                     if (ok && captureDirectory && captureDirectory[0]) {
                         NSString* directory = [NSString
                             stringWithUTF8String:captureDirectory];
@@ -8814,9 +8859,9 @@ int main(int argc, char** argv)
                             withIntermediateDirectories:YES
                             attributes:nil error:nil];
                         NSString* fileName = [[NSString stringWithFormat:
-                            @"%s.build-mutate", pluginId]
+                            @"%s.mutate", pluginId]
                             stringByAppendingPathExtension:@"pdf"];
-                        ok = [buildMutate writeToFile:
+                        ok = [mutate writeToFile:
                             [directory stringByAppendingPathComponent:fileName]
                             atomically:YES];
                     }

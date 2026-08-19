@@ -33,6 +33,8 @@ The first playable build includes:
   repeating one note restarts its slice while different slices may overlap;
 - independent waveform cursors and MIDI-note flags for every active voice,
   plus a global KILL ALL control that clears held, latched, and looping notes;
+  Kill All and the complete Project Audio embed/path status stay fixed in the
+  global header on Overview, Break Edit, Mixer, and Mutate;
 - equal and transient slicing with zero-crossing snap, an adjustable
   0–20,000 µs pre-transient onset offset, and a transient-only minimum slice
   duration from zero through 1000 ms (20 ms by default); both are shared
@@ -47,16 +49,22 @@ The first playable build includes:
   playback cursors at once;
 - a BREAK EDIT page with the detailed selected-break waveform, shared AMP
   ENVELOPE, and a compact mapped-note audition keyboard that shows pitch names
-  and MIDI values; its Sample / Slice, Slice / Map, Mapped Slice Playback,
+  and MIDI values, and illuminates notes received from the host or auditioned
+  with the mouse; both routes use the same per-slice gain, pitch, pan, direction,
+  launch, and choke behavior; its Sample / Slice, Slice / Map, Mapped Slice Playback,
   Selected Slice, Timing, and Amp Envelope toolboxes follow the Sample Player
   panel style, with categorical choices exposed as shared in-canvas dropdowns
-  rather than cycle buttons and numeric Timing controls exposed as sliders
-  with exact entry fields;
-- a BUILD / MUTATE page where one source fills every empty break slot with a
+  rather than cycle buttons and numeric Timing plus per-slice gain, pitch, and
+  pan controls exposed as sliders with exact entry fields;
+- a MUTATE page where one source fills every empty break slot with a
   different structural mutation; rearrange, repeat, pitch, Mixer FX, AUX Bus,
   and reverse are independently selectable, with reverse off by default;
-  Mixer FX assigns a deterministic pair of inserts plus three-band EQ per
-  result, while occupied and building slots remain locked until cleared;
+  Mixer FX and AUX assign deterministic effect recipes independently to every
+  generated slice, while occupied and building slots remain locked until cleared;
+  over-level rendered slices receive one channel-linked gain reduction so their
+  shared peak cannot exceed 0 dBFS, while quieter slices remain unchanged;
+  Play Through schedules the mapped slices in order through their normal voice
+  path and the Mutate waveform displays each live cursor and MIDI-note flag;
   generated audio retains mapped hit boundaries and is embedded automatically,
   and EXPORT WAV writes the selected break to a 32-bit float file without
   using another slot;
@@ -75,7 +83,9 @@ The first playable build includes:
   SAFE disables nonlinear stages for encoded spatial material; SAT, BITE, and
   CLIP then draw as muted `BYP` controls and reject interaction;
 - a slice-first Break Edit workflow: slicing and marker edits come before Start
-  and Auto Map, which unlock post-map gain, pitch, pan (mono/stereo only),
+  and Auto Map; the Method menu selects Equal or Transient behavior and a
+  separate SLICE action applies it, while Auto Map unlocks post-map gain,
+  pitch, pan (mono/stereo only),
   reverse, launch-mode, choke, and mapped-note audition controls;
 - a clearly scoped MAPPED SLICE PLAYBACK toolbox whose trigger, retrigger,
   voice, pitch, sync, source BPM, crossfade, glide, and envelope settings apply
@@ -183,7 +193,7 @@ Click the button to select `PROJECT AUDIO: PATHS` when smaller project files
 are preferable. The original paths are still stored as useful references in
 embedded mode. A single plug-in instance embeds up to 1 GiB of decoded audio;
 if the bank exceeds that bound, the button reports `PARTIAL` and later slots
-fall back to paths. Build / Mutate results have no external path and therefore
+fall back to paths. Mutate results have no external path and therefore
 remain embedded even when ordinary source samples use `PATHS`; state saving
 fails instead of silently losing a generated mutation if the 1 GiB bound cannot
 hold it.

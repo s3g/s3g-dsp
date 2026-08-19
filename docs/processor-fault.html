@@ -31,7 +31,7 @@
 
         <p>Raw-data scanning reads bytes as a moving waveform, while stochastic breakpoint geometry connects selected values with evolving curves. The codec section then introduces prediction errors, quantization, missing blocks, or damaged reconstruction as sound-generating processes rather than as file-format emulation.</p>
 
-        <p>The editor organizes its upper controls across three pages. Use <code>SOUND</code> for the field, codec, FM-style algorithm chart, M1/M2/M3 route summaries, and immediate <code>BASS CORE</code> amount. Use <code>BASS LAB</code> for receiver, pitch, body, high-gain character, articulation, and low-width controls, and open <code>MOD LAB</code> to edit every operator setting. <code>MOD ON</code>/<code>MOD OFF</code> remains visible on all three pages and bypasses the operator graph without disabling the bass core. Patch actions, performance mode, and the envelope editor stay in the lower strip. In a reduced host window, scroll the editor to reach controls outside the visible area.</p>
+        <p>The editor organizes its upper controls across three pages. Use <code>SOUND</code> for the field, codec, FM-style algorithm chart, M1/M2/M3 route summaries, and immediate <code>BASS CORE</code> amount. Use <code>BASS LAB</code> for receiver, pitch, body, high-gain character, articulation, and low-width controls, and open <code>MOD LAB</code> to edit every operator setting. <code>MOD ON</code>/<code>MOD OFF</code> remains visible on all three pages and bypasses the operator graph without disabling the bass core. Patch actions, performance mode, envelope editor, output format, and ring rotation stay in the lower strip. In a reduced host window, scroll the editor to reach controls outside the visible area.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -46,7 +46,7 @@
 
         <ol>
           <li>Set a REAPER track to eight channels and insert <code>s3g Processor Fault 8ch</code>.</li>
-          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
+          <li>Keep the host track at eight channels. Use <code>8CH DIRECT</code> for eight ordinary output lanes, or select the internal <code>QUAD RING</code> or <code>STEREO RING</code> fold-down before routing the active outputs.</li>
           <li>Choose a preset or begin with <code>INIT</code>. Use <code>OPEN ANY</code> to replace the generated field with any file. A recognized WAV opened from <code>INIT</code> selects <code>WAVE TRACE</code>.</li>
           <li>Use <code>FREE</code> for continuous sound, or select <code>MIDI</code> and play notes from the DAW.</li>
           <li>Set <code>SCAN</code>, <code>GEOMETRY</code>, <code>CHAOS</code>, and <code>FOLD</code> for the underlying motion.</li>
@@ -55,13 +55,14 @@
           <li>On <code>SOUND</code>, choose a <code>CURATED CIRCUIT</code> and read its operator flow in the chart. Start with a factory patch or <code>CURATED RANDOM</code> for a bounded variation, then open <code>MOD LAB</code> to change the algorithm or an operator's source, destination, rate, ratio, index, feedback, clock, or envelope response.</li>
           <li>Raise <code>DRIVE</code>, <code>SHRED</code>, and <code>RESONANCE</code> to expose the byte-field contours and reinforce the modal body.</li>
           <li>Choose a <code>ROUTE</code> and set <code>SPREAD</code> for the eight-channel distribution.</li>
+          <li>When using a ring fold-down, adjust <code>ROTATE</code> to turn the eight lanes around the output layout.</li>
         </ol>
 
         <p>A useful first experiment is a low displayed codec update rate with high <code>FOLD</code>, followed by enough <code>DRIVE</code> and <code>SHRED</code> to turn the held vectors into pronounced curves. Then raise <code>BASS CORE</code>, select <code>DIVIDE</code>, and lower <code>TRACE</code> until the codec's carrier crossings resolve into a low body without disappearing completely. Raise <code>FUZZ</code> for a compressed upper growl, move <code>METAL</code> to find the desired edge and low-mid cut, then add restrained <code>FEEDBACK</code> to lengthen that texture.</p>
 
         <h2 id="performance">Performance</h2>
 
-        <p><code>FREE</code> runs the generator continuously and bypasses the amplitude envelope. <code>MIDI</code> makes the field engine a monophonic, last-note-priority voice. Note-on retriggers the attack from the current envelope level, velocity controls voice level, and releasing the active note returns to the most recently held note. When no notes remain, the release runs to silence and the field freezes once the envelope becomes idle.</p>
+        <p><code>FREE</code> runs the generator continuously and bypasses the amplitude envelope. <code>MIDI</code> makes the field engine a monophonic, last-note-priority voice. <code>MIDI RECEIVE</code> selects <code>OMNI</code> or one of MIDI channels 1–16 for both CLAP note events and raw MIDI input. Note-on retriggers the attack from the current envelope level, velocity controls voice level, and releasing the active note returns to the most recently held note. When no notes remain, the release runs to silence and the field freezes once the envelope becomes idle.</p>
 
         <p>MIDI note 60 (<code>C4</code>) is the patch's reference note. <code>KEY TRACK</code> determines which domains receive its equal-tempered ratio: <code>SCAN</code> changes traversal and breakpoint timing while leaving the bass target fixed; <code>BODY</code> keys the divider and modal-filter target while the field keeps its free-running scan rate; and <code>BODY + SCAN</code> keys both. <code>OCTAVE</code> places that target at C2, C3, or C4 for <code>-2 OCT</code>, <code>-1 OCT</code>, or <code>UNISON</code> (zero-octave offset), and <code>GLIDE</code> smooths changes between held notes. Codec crossings can pull the measured result away from an exact oscillator pitch, especially with loaded material, so tune by ear when the source has strong irregularities.</p>
 
@@ -233,7 +234,7 @@
 
         <p>Feed-forward calibration and a slow, bounded level correction reduce large loudness jumps among codec and shaping settings. They do not normalize away transient or spectral differences. The final path removes DC and limits output to finite sample bounds.</p>
 
-        <h2 id="routing">Eight-Channel Routing</h2>
+        <h2 id="routing">Eight-Channel Routing and Output Format</h2>
 
         <p><code>ROUTE</code> changes how each output lane addresses the byte field:</p>
 
@@ -246,6 +247,21 @@
         </ul>
 
         <p><code>SPREAD</code> operates on the mean plus each channel's residual. At zero, all lanes collapse toward the instantaneous eight-channel mean. At one, their full differences remain. Bounded energy compensation prevents spread changes from acting mainly as gain changes.</p>
+
+        <p>Fault always presents one fixed eight-channel host bus. <code>FORMAT</code> chooses how the completed eight-lane field reaches that bus:</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Format</th><th>Active host outputs</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>8CH DIRECT</code></td><td>1–8</td><td>The default. Each generated lane reaches its matching host output without mixdown.</td></tr>
+            <tr><td><code>QUAD RING</code></td><td>1–4</td><td>Projects the eight lanes around a ring to L, R, right-back, and left-back. Outputs 5–8 are silent.</td></tr>
+            <tr><td><code>STEREO RING</code></td><td>1–2</td><td>Projects the same ring to left and right. Outputs 3–8 are silent.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>ROTATE</code> turns the eight-lane ring from -180° to +180° before quad or stereo projection, making it possible to place a preferred Fault lane or motion across the front, sides, or rear. The fold-down uses power-based gain compensation. Rotation remains stored in <code>8CH DIRECT</code> but has no effect until a ring format is selected.</p>
 
         <p>The display shows eight recent output waveforms. Each trace scales itself to reveal shape and is therefore not an absolute level meter; use the peak readout or a following <a href="analyzer-meter.html">Analyzer Meter</a> for level comparison.</p>
 
@@ -283,7 +299,7 @@
           <li><code>UNDO</code> restores the state before the most recent preset, source, field, randomize, or mutate action.</li>
         </ul>
 
-        <p>Preset, source, field, codec, bit-depth, and routing changes crossfade instead of resetting abruptly. The automatable <code>Run</code> parameter mirrors the <code>PLAY</code> and <code>STOP</code> buttons. REAPER project state stores the transport state, performance mode, ADSR settings, complete operator graph, complete bass reconstruction and high-gain setup, field seed, captured generation profile, and external source path; held notes and source bytes are not embedded. If an external file is unavailable, Fault uses the generated field and identifies the missing source in its header; use <code>OPEN ANY</code> to locate or replace the file.</p>
+        <p>Preset, source, field, codec, bit-depth, and routing changes crossfade instead of resetting abruptly. The automatable <code>Run</code> parameter mirrors the <code>PLAY</code> and <code>STOP</code> buttons. REAPER project state stores the transport state, performance mode, MIDI receive channel, ADSR settings, output format and rotation, complete operator graph, complete bass reconstruction and high-gain setup, field seed, captured generation profile, and external source path; held notes and source bytes are not embedded. If an external file is unavailable, Fault uses the generated field and identifies the missing source in its header; use <code>OPEN ANY</code> to locate or replace the file.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="no-input-mixer-control.html">
