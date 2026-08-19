@@ -136,6 +136,162 @@ void testBankMappingAndValidation()
     check(!bank.valid(), "an invalid per-break MIDI channel was accepted");
 }
 
+void testSourceSafeMutationVariations()
+{
+    BankSnapshot bank;
+    initializeEmptyBank(bank);
+    bank.slots[0u] = oneSliceSlot(constantAsset(0.5f, 0.25f));
+    bank.slots[0u].sliceCount = 4u;
+    for (uint32_t index = 0u; index < 4u; ++index) {
+        bank.slots[0u].slices[index].startFrame = index * 1024u;
+        bank.slots[0u].slices[index].endFrame = (index + 1u) * 1024u;
+    }
+    bank.slots[0u].inserts[0u] = defaultInsertSettings(
+        InsertType::Degrade);
+    bank.slots[0u].mixerAuxSend = 0.42f;
+    check(mapSlotConsecutively(bank, 0u, 48u) && bank.valid(),
+        "mutation fixture did not map");
+
+    const auto originalAsset = bank.slots[0u].asset;
+    const MutationVariation original = captureMutationVariation(
+        bank.slots[0u]);
+    MutationVariation first = original;
+    MutationVariation second = original;
+    check(original.occupied && original.sliceCount == 4u
+            && original.validFor(*originalAsset),
+        "captured mutation variation was incomplete");
+    check(mutateVariation(first, *originalAsset, 1977u, 0.65f)
+            && mutateVariation(second, *originalAsset, 1977u, 0.65f)
+            && std::memcmp(first.slices.data(), second.slices.data(),
+                sizeof(Slice) * first.sliceCount) == 0,
+        "mutation variation was not deterministic for a stored seed");
+    bool differs = false;
+    for (std::size_t index = 0u; index < first.sliceCount; ++index) {
+        differs = differs
+            || first.slices[index].gain != original.slices[index].gain
+            || first.slices[index].transposeSemitones
+                != original.slices[index].transposeSemitones
+            || first.slices[index].reverse
+                != original.slices[index].reverse
+            || first.slices[index].pan != original.slices[index].pan;
+    }
+    check(differs, "mutation recipe did not change any slice treatment");
+    check(applyMutationVariation(bank.slots[0u], first)
+            && bank.slots[0u].asset == originalAsset
+            && bank.slots[0u].mappedSliceCount == 4u
+            && bank.slots[0u].inserts[0u].type == InsertType::Degrade
+            && near(bank.slots[0u].mixerAuxSend, 0.42f)
+            && bank.valid(),
+        "recalling a variation replaced audio or lost routing/processing");
+    check(applyMutationVariation(bank.slots[0u], original)
+            && bank.slots[0u].asset == originalAsset
+            && std::memcmp(bank.slots[0u].slices.data(),
+                original.slices.data(), sizeof(Slice) * original.sliceCount)
+                == 0,
+        "variation A did not restore the original slice treatment");
+
+    auto wideAsset = std::make_shared<SampleAsset>();
+    wideAsset->sampleRate = 48000.0;
+    wideAsset->channelCount = 4u;
+    for (uint32_t channel = 0u; channel < 4u; ++channel)
+        wideAsset->channels[channel].assign(256u, 0.1f * (channel + 1u));
+    const SampleSlot wideSlot = oneSliceSlot(wideAsset);
+    MutationVariation panOnly = captureMutationVariation(wideSlot);
+    const MutationVariation unchanged = panOnly;
+    check(mutateVariation(panOnly, *wideAsset, 41u, 1.0f, MutationPan)
+            && std::memcmp(panOnly.slices.data(), unchanged.slices.data(),
+                sizeof(Slice) * panOnly.sliceCount) == 0,
+        "wide-source pan mutation altered an unrelated slice property");
+}
+
+void testStructuralMutationUses()
+{
+    const auto asset = constantAsset(0.5f, 0.25f, 8192u);
+    SampleSlot slot = oneSliceSlot(asset);
+    slot.sliceCount = 8u;
+    for (uint32_t index = 0u; index < slot.sliceCount; ++index) {
+        slot.slices[index].startFrame = index * 1024u;
+        slot.slices[index].endFrame = (index + 1u) * 1024u;
+    }
+    const MutationVariation original = captureMutationVariation(slot);
+    MutationVariation first = original;
+    MutationVariation second = original;
+    check(structurallyMutateVariation(first, *asset, 90210u, 0.72f,
+              80u)
+            && structurallyMutateVariation(second, *asset, 90210u,
+                0.72f, 80u)
+            && first.sliceCount > original.sliceCount
+            && first.sliceCount <= 80u
+            && std::memcmp(first.slices.data(), second.slices.data(),
+                sizeof(first.slices)) == 0,
+        "structural mutation was not deterministic or did not repeat hits");
+    bool orderChanged = first.sliceCount != original.sliceCount;
+    bool defaultReversed = false;
+    for (std::size_t index = 0u; index < first.sliceCount; ++index) {
+        if (index < original.sliceCount)
+            orderChanged = orderChanged
+                || first.slices[index].startFrame
+                    != original.slices[index].startFrame;
+        defaultReversed = defaultReversed || first.slices[index].reverse;
+    }
+    check(orderChanged && !defaultReversed && first.validFor(*asset),
+        "default structural mutation did not rearrange safely or used reverse");
+
+    MutationVariation noRepeat = original;
+    check(structurallyMutateVariation(noRepeat, *asset, 7u, 0.72f, 80u,
+              StructuralRearrange)
+            && noRepeat.sliceCount == original.sliceCount,
+        "disabling repeat changed the structural mutation length");
+    bool treatmentChanged = false;
+    for (std::size_t index = 0u; index < noRepeat.sliceCount; ++index) {
+        treatmentChanged = treatmentChanged
+            || noRepeat.slices[index].reverse
+                != original.slices[index].reverse
+            || noRepeat.slices[index].transposeSemitones
+                != original.slices[index].transposeSemitones;
+    }
+    check(!treatmentChanged,
+        "disabled pitch/reverse treatments changed a structural mutation");
+
+    MutationVariation single = captureMutationVariation(
+        oneSliceSlot(asset));
+    check(structurallyMutateVariation(single, *asset, 44u, 0.72f, 6u,
+              StructuralRepeat)
+            && single.sliceCount > 1u && single.sliceCount <= 6u,
+        "repeat did not turn a one-shot source into a repeated structure");
+
+    SampleSlot firstFx = slot;
+    SampleSlot secondFx = slot;
+    check((kDefaultStructuralMutationUses & StructuralMixerFx) != 0u
+            && (kDefaultStructuralMutationUses & StructuralReverse) == 0u
+            && mutateMixerEffects(firstFx, 112358u)
+            && mutateMixerEffects(secondFx, 112358u)
+            && firstFx.inserts[0u].type != InsertType::Off
+            && firstFx.inserts[1u].type != InsertType::Off
+            && firstFx.valid(),
+        "default mutation uses or generated mixer effects are invalid");
+    bool deterministicFx = true;
+    for (std::size_t insert = 0u; insert < firstFx.inserts.size(); ++insert) {
+        deterministicFx = deterministicFx
+            && firstFx.inserts[insert].type == secondFx.inserts[insert].type
+            && firstFx.inserts[insert].mode == secondFx.inserts[insert].mode
+            && firstFx.inserts[insert].variant
+                == secondFx.inserts[insert].variant
+            && firstFx.inserts[insert].values
+                == secondFx.inserts[insert].values;
+    }
+    deterministicFx = deterministicFx
+        && firstFx.mixerLowEqDb == secondFx.mixerLowEqDb
+        && firstFx.mixerMidEqDb == secondFx.mixerMidEqDb
+        && firstFx.mixerHighEqDb == secondFx.mixerHighEqDb
+        && firstFx.mixerMidFrequencyHz == secondFx.mixerMidFrequencyHz
+        && (std::abs(firstFx.mixerLowEqDb) > 0.01f
+            || std::abs(firstFx.mixerMidEqDb) > 0.01f
+            || std::abs(firstFx.mixerHighEqDb) > 0.01f);
+    check(deterministicFx,
+        "mixer insert and EQ mutation was not deterministic or distinct");
+}
+
 void testAnalysisAndSliceEditing()
 {
     SampleAsset asset;
@@ -178,6 +334,20 @@ void testAnalysisAndSliceEditing()
             && preRolled[1u].endFrame == 399u
             && preRolled[2u].startFrame == 399u,
         "microsecond transient pre-roll did not move slice onsets earlier");
+    SampleAnalysis crowded = analysis;
+    crowded.transients = {{ 100u, 1.0f }, { 115u, 1.0f },
+        { 200u, 1.0f }, { 980u, 1.0f }};
+    const auto durationFiltered = makeTransientSlices(asset, crowded,
+        8u, 0u, 0u, 50u);
+    bool minimumDurationHeld = durationFiltered.size() == 3u;
+    for (const auto& slice : durationFiltered)
+        minimumDurationHeld = minimumDurationHeld
+            && slice.endFrame - slice.startFrame >= 50u;
+    check(minimumDurationHeld
+            && durationFiltered[0u].endFrame == 100u
+            && durationFiltered[1u].endFrame == 200u
+            && durationFiltered[2u].endFrame == 1000u,
+        "minimum transient-slice duration admitted a short region");
     std::size_t count = slices.size();
     slices.resize(8u);
     check(addSliceMarker(slices.data(), count, slices.size(), 200u)
@@ -341,6 +511,7 @@ void testSixteenChannelSliceLock()
         "moving to another slice displaced one or more source channels");
 
     bank.slots[0u].slices[0u].launchMode = LaunchMode::Loop;
+    bank.slots[0u].loopCrossfade = 0.0f;
     bank.slots[0u].slices[0u].loopStartFrame = 8u;
     bank.slots[0u].slices[0u].loopEndFrame = 12u;
     check(engine.setBank(&bank), "16-channel loop bank was rejected");
@@ -997,11 +1168,200 @@ void testLoopGateAndChoke()
         "loop note-off did not apply the configured release");
 }
 
+void testInheritedSamplePlaybackBehavior()
+{
+    auto mutableAsset = std::make_shared<SampleAsset>();
+    mutableAsset->sampleRate = 1000.0;
+    mutableAsset->channelCount = 1u;
+    mutableAsset->channels[0u].resize(400u);
+    for (uint32_t frame = 0u; frame < mutableAsset->frameCount(); ++frame)
+        mutableAsset->channels[0u][frame]
+            = 0.1f + static_cast<float>(frame) * 0.001f;
+    std::shared_ptr<const SampleAsset> asset = mutableAsset;
+    BankSnapshot bank;
+    bank.slots[0u] = oneSliceSlot(asset);
+    bank.slots[0u].sliceCount = 2u;
+    bank.slots[0u].slices[0u].endFrame = 200u;
+    bank.slots[0u].slices[1u].startFrame = 200u;
+    bank.slots[0u].slices[1u].endFrame = 400u;
+    check(bank.slots[0u].retriggerMode == RetriggerMode::Restart
+            && bank.slots[0u].voiceMode == VoiceMode::Poly
+            && mapSlotConsecutively(bank, 0u, 60u)
+            && bank.valid(),
+        "Slicer did not inherit the restart/poly Sample-family defaults");
+
+    const std::array<RenderEvent, 2u> repeated {{
+        { 0u, EventKind::NoteOn, 200u, 60u, 0u, 1.0f, 1u },
+        { 4u, EventKind::NoteOn, 201u, 60u, 0u, 1.0f, 1u },
+    }};
+    SlicerEngine engine;
+    check(engine.prepare(1000.0) && engine.setBank(&bank),
+        "inherited playback fixture did not prepare");
+    std::array<float, 8u> left {};
+    std::array<float, 8u> right {};
+    engine.render(repeated.data(), repeated.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.voiceCursorCount() == 1u
+            && engine.voiceCursors()[0u].key == 60u
+            && engine.voiceCursors()[0u].sourcePositionNormalized < 0.02f,
+        "default same-note retrigger did not restart the mapped slice");
+
+    bank.slots[0u].retriggerMode = RetriggerMode::Layer;
+    engine.reset();
+    check(engine.setBank(&bank), "Layer bank was rejected");
+    engine.render(repeated.data(), repeated.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 2u
+            && engine.voiceCursorCount() == 2u,
+        "Layer did not preserve optional same-slice polyphony");
+
+    bank.slots[0u].retriggerMode = RetriggerMode::Ignore;
+    engine.reset();
+    check(engine.setBank(&bank), "Ignore bank was rejected");
+    engine.render(repeated.data(), repeated.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.voiceCursors()[0u].sourcePositionNormalized > 0.019f,
+        "Ignore interrupted the existing same-note slice");
+
+    bank.slots[0u].retriggerMode = RetriggerMode::Restart;
+    const std::array<RenderEvent, 2u> different {{
+        { 0u, EventKind::NoteOn, 202u, 60u, 0u, 1.0f, 1u },
+        { 2u, EventKind::NoteOn, 203u, 61u, 0u, 1.0f, 1u },
+    }};
+    engine.reset();
+    check(engine.setBank(&bank), "Poly bank was rejected");
+    engine.render(different.data(), different.size(), left.data(),
+        right.data(), static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 2u,
+        "Poly mode did not allow different mapped slices to overlap");
+
+    bank.slots[0u].voiceMode = VoiceMode::Mono;
+    engine.reset();
+    check(engine.setBank(&bank), "Mono bank was rejected");
+    engine.render(different.data(), different.size(), left.data(),
+        right.data(), static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.voiceCursors()[0u].key == 61u,
+        "Mono did not replace the previous mapped slice");
+
+    bank.slots[0u].voiceMode = VoiceMode::Legato;
+    bank.slots[0u].glideSeconds = 0.05f;
+    bank.slots[0u].slices[1u].transposeSemitones = 12.0f;
+    engine.reset();
+    check(engine.setBank(&bank), "Legato bank was rejected");
+    engine.render(different.data(), different.size(), left.data(),
+        right.data(), static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 1u
+            && engine.voiceCursors()[0u].key == 61u,
+        "Legato did not retarget the active break voice");
+
+    bank.slots[0u].voiceMode = VoiceMode::Poly;
+    bank.slots[0u].glideSeconds = 0.0f;
+    bank.slots[0u].slices[1u].transposeSemitones = 0.0f;
+    bank.slots[0u].triggerMode = TriggerMode::Gate;
+    const std::array<RenderEvent, 2u> gated {{
+        { 0u, EventKind::NoteOn, 204u, 60u, 0u, 1.0f, 1u },
+        { 4u, EventKind::NoteOff, 204u, 60u, 0u, 0.0f, 1u },
+    }};
+    engine.reset();
+    check(engine.setBank(&bank), "Gate bank was rejected");
+    engine.render(gated.data(), gated.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 0u && left[3u] > 0.0f
+            && left[4u] > 0.0f && left[5u] == 0.0f,
+        "Gate did not release a non-looping mapped slice on note-off");
+
+    bank.slots[0u].triggerMode = TriggerMode::Toggle;
+    engine.reset();
+    check(engine.setBank(&bank), "Toggle bank was rejected");
+    engine.render(repeated.data(), repeated.size(), left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    check(engine.activeVoiceCount() == 0u && left[3u] > 0.0f
+            && left[4u] > 0.0f && left[5u] == 0.0f,
+        "Toggle did not stop the matching mapped slice");
+
+    bank.slots[0u].triggerMode = TriggerMode::Auto;
+    bank.slots[0u].syncMode = SyncMode::Host;
+    bank.slots[0u].sourceTempoBpm = 100.0f;
+    engine.reset();
+    check(engine.setBank(&bank), "Host-sync bank was rejected");
+    engine.render(repeated.data(), 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()), 200.0);
+    check(engine.voiceCursors()[0u].sourcePositionNormalized > 0.035f,
+        "host tempo did not scale Slicer playback duration");
+
+    bank.slots[0u].syncMode = SyncMode::Free;
+    bank.slots[0u].pitchMode = PitchMode::Stretch;
+    bank.slots[0u].slices[0u].transposeSemitones = 12.0f;
+    engine.reset();
+    check(engine.setBank(&bank), "Stretch bank was rejected");
+    std::array<float, 120u> stretchLeft {};
+    std::array<float, 120u> stretchRight {};
+    const RenderEvent pitched {
+        0u, EventKind::NoteOn, 205u, 60u, 0u, 1.0f, 1u,
+    };
+    engine.render(&pitched, 1u, stretchLeft.data(), stretchRight.data(),
+        static_cast<uint32_t>(stretchLeft.size()));
+    check(engine.activeVoiceCount() == 1u,
+        "Stretch pitch did not preserve the mapped slice duration");
+    engine.killAll();
+    check(engine.activeVoiceCount() == 0u
+            && engine.voiceCursorCount() == 0u,
+        "Kill All did not clear inherited Slicer playback state");
+}
+
+void testInheritedLoopCrossfade()
+{
+    auto mutableAsset = std::make_shared<SampleAsset>();
+    mutableAsset->sampleRate = 48000.0;
+    mutableAsset->channelCount = 1u;
+    mutableAsset->channels[0u].resize(16u);
+    for (uint32_t frame = 0u; frame < 16u; ++frame)
+        mutableAsset->channels[0u][frame]
+            = static_cast<float>(frame) / 15.0f;
+    std::shared_ptr<const SampleAsset> asset = mutableAsset;
+    BankSnapshot bank;
+    bank.slots[0u] = oneSliceSlot(asset, LaunchMode::Loop);
+    bank.slots[0u].slices[0u].loopStartFrame = 4u;
+    bank.slots[0u].slices[0u].loopEndFrame = 12u;
+    bank.slots[0u].loopCrossfade = 0.0f;
+    check(mapSlotConsecutively(bank, 0u, 60u) && bank.valid(),
+        "Slicer crossfade fixture was invalid");
+
+    const RenderEvent note {
+        0u, EventKind::NoteOn, 206u, 60u, 0u, 1.0f, 1u,
+    };
+    SlicerEngine engine;
+    check(engine.prepare(48000.0) && engine.setBank(&bank),
+        "Slicer crossfade fixture did not prepare");
+    std::array<float, 14u> dryLeft {};
+    std::array<float, 14u> dryRight {};
+    engine.render(&note, 1u, dryLeft.data(), dryRight.data(),
+        static_cast<uint32_t>(dryLeft.size()));
+    const float drySeam = std::abs(dryLeft[12u] - dryLeft[11u]);
+
+    bank.slots[0u].loopCrossfade = 0.5f;
+    engine.reset();
+    check(engine.setBank(&bank), "Slicer crossfade bank was rejected");
+    std::array<float, 14u> fadedLeft {};
+    std::array<float, 14u> fadedRight {};
+    engine.render(&note, 1u, fadedLeft.data(), fadedRight.data(),
+        static_cast<uint32_t>(fadedLeft.size()));
+    const float fadedSeam = std::abs(fadedLeft[12u] - fadedLeft[11u]);
+    check(drySeam > 0.3f && fadedSeam < 0.08f
+            && fadedSeam < drySeam * 0.25f,
+        "inherited loop crossfade did not suppress the slice-loop seam");
+}
+
 } // namespace
 
 int main()
 {
     testBankMappingAndValidation();
+    testSourceSafeMutationVariations();
+    testStructuralMutationUses();
     testAnalysisAndSliceEditing();
     testTwoSlotSampleAccuratePlayback();
     testReversePitchAndPan();
@@ -1014,6 +1374,8 @@ int main()
     testBreakBusCore();
     testProportionalSliceEnvelope();
     testLoopGateAndChoke();
+    testInheritedSamplePlaybackBehavior();
+    testInheritedLoopCrossfade();
     if (failures == 0)
         std::cout << "breakbeat slicer smoke tests passed\n";
     return failures == 0 ? 0 : 1;

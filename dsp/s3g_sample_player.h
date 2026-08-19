@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_sample_asset.h"
+#include "s3g_sample_playback.h"
 
 #include <algorithm>
 #include <array>
@@ -25,37 +26,6 @@ enum class PlayMode : uint8_t {
     ReverseLoop,
     ForwardPingPong,
     ReversePingPong,
-};
-
-enum class PitchMode : uint8_t {
-    Rate = 0u,
-    Stretch,
-    RateBelowStretchAbove,
-};
-
-enum class SyncMode : uint8_t {
-    Free = 0u,
-    Host,
-};
-
-enum class TriggerMode : uint8_t {
-    // Original behavior: one-shots ignore note-off and loops release from it.
-    Auto = 0u,
-    Gate,
-    OneShot,
-    Toggle,
-};
-
-enum class RetriggerMode : uint8_t {
-    Layer = 0u,
-    Restart,
-    Ignore,
-};
-
-enum class VoiceMode : uint8_t {
-    Poly = 0u,
-    Mono,
-    Legato,
 };
 
 enum class FilterType : uint8_t {

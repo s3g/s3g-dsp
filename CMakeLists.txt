@@ -626,7 +626,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       tests/breakbeat_slicer_clap_smoke.cpp)
     target_include_directories(s3g_breakbeat_slicer_clap_smoke PRIVATE
       ${S3G_CLAP_INCLUDE_DIR}
-      ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+      ${CMAKE_CURRENT_SOURCE_DIR}/dsp
+      ${CMAKE_CURRENT_SOURCE_DIR}/plugins/common)
     target_link_libraries(s3g_breakbeat_slicer_clap_smoke PRIVATE
       s3g_dsp
       ${CMAKE_DL_LIBS})
@@ -636,7 +637,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       target_compile_options(s3g_breakbeat_slicer_clap_smoke PRIVATE
         -fobjc-arc)
       target_link_libraries(s3g_breakbeat_slicer_clap_smoke PRIVATE
-        "-framework Cocoa")
+        "-framework Cocoa"
+        "-framework AVFoundation")
     endif()
   endif()
 

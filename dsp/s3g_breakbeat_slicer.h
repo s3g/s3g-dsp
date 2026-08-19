@@ -2,6 +2,7 @@
 
 #include "s3g_break_bus.h"
 #include "s3g_sample_asset.h"
+#include "s3g_sample_playback.h"
 
 #include <algorithm>
 #include <array>
@@ -18,6 +19,7 @@ namespace s3g::breakbeat {
 
 constexpr std::size_t kMaximumSampleSlots = 4u;
 constexpr std::size_t kMaximumSlicesPerSlot = 128u;
+constexpr std::size_t kMutationVariationCount = 4u;
 constexpr std::size_t kMidiNoteCount = 128u;
 
 inline constexpr std::size_t maximumSlicesForStartNote(
@@ -32,6 +34,11 @@ constexpr std::size_t kMaximumAudioChannels
 constexpr uint8_t kUnmappedIndex = 0xffu;
 
 using SampleAsset = s3g::sample::SampleAsset;
+using PitchMode = s3g::sample::PitchMode;
+using RetriggerMode = s3g::sample::RetriggerMode;
+using SyncMode = s3g::sample::SyncMode;
+using TriggerMode = s3g::sample::TriggerMode;
+using VoiceMode = s3g::sample::VoiceMode;
 
 enum class LaunchMode : uint8_t {
     OneShot = 0u,
@@ -422,7 +429,8 @@ inline std::vector<Slice> makeTransientSlices(const SampleAsset& asset,
     const SampleAnalysis& analysis,
     std::size_t maximumSliceCount = kMaximumSlicesPerSlot,
     uint32_t zeroCrossingRadiusFrames = 0u,
-    uint32_t preTransientMicroseconds = 0u)
+    uint32_t preTransientMicroseconds = 0u,
+    uint32_t minimumSliceFrames = 0u)
 {
     std::vector<Slice> result;
     if (!analysis.validFor(asset) || maximumSliceCount == 0u) return result;
@@ -432,21 +440,32 @@ inline std::vector<Slice> makeTransientSlices(const SampleAsset& asset,
         std::clamp<double>(std::round(asset.sampleRate
                 * static_cast<double>(preTransientMicroseconds) * 1.0e-6),
             0.0, std::numeric_limits<uint32_t>::max()));
-    std::vector<uint32_t> starts { 0u };
-    starts.reserve(std::min(maximumSliceCount,
-        analysis.transients.size() + 1u));
+    std::vector<uint32_t> candidates { 0u };
+    candidates.reserve(analysis.transients.size() + 1u);
     for (const auto& transient : analysis.transients) {
-        if (starts.size() >= maximumSliceCount) break;
         uint32_t marker = transient.frame > preTransientFrames
             ? transient.frame - preTransientFrames : 0u;
         if (zeroCrossingRadiusFrames != 0u)
             marker = nearestZeroFrame(asset, marker,
                 zeroCrossingRadiusFrames);
         if (marker > 0u && marker < asset.frameCount())
-            starts.push_back(marker);
+            candidates.push_back(marker);
     }
-    std::sort(starts.begin() + 1, starts.end());
-    starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
+    std::sort(candidates.begin() + 1, candidates.end());
+    candidates.erase(std::unique(candidates.begin(), candidates.end()),
+        candidates.end());
+    minimumSliceFrames = std::min(minimumSliceFrames,
+        asset.frameCount());
+    std::vector<uint32_t> starts { 0u };
+    starts.reserve(std::min(maximumSliceCount, candidates.size()));
+    for (std::size_t index = 1u; index < candidates.size(); ++index) {
+        if (starts.size() >= maximumSliceCount) break;
+        if (candidates[index] - starts.back() < minimumSliceFrames) continue;
+        starts.push_back(candidates[index]);
+    }
+    while (starts.size() > 1u
+        && asset.frameCount() - starts.back() < minimumSliceFrames)
+        starts.pop_back();
     result.reserve(starts.size());
     for (std::size_t index = 0u; index < starts.size(); ++index) {
         const uint32_t end = index + 1u < starts.size()
@@ -474,7 +493,11 @@ inline bool addSliceMarker(Slice* slices, std::size_t& count,
         slices[index] = slices[index - 1u];
     Slice right = slices[selected];
     right.startFrame = frame;
+    right.loopStartFrame = 0u;
+    right.loopEndFrame = 0u;
     slices[selected].endFrame = frame;
+    slices[selected].loopStartFrame = 0u;
+    slices[selected].loopEndFrame = 0u;
     slices[selected + 1u] = right;
     ++count;
     return true;
@@ -488,7 +511,11 @@ inline bool moveSliceMarker(Slice* slices, std::size_t count,
     auto& right = slices[markerIndex];
     if (frame <= left.startFrame || frame >= right.endFrame) return false;
     left.endFrame = frame;
+    left.loopStartFrame = 0u;
+    left.loopEndFrame = 0u;
     right.startFrame = frame;
+    right.loopStartFrame = 0u;
+    right.loopEndFrame = 0u;
     return true;
 }
 
@@ -497,6 +524,8 @@ inline bool deleteSliceMarker(Slice* slices, std::size_t& count,
 {
     if (!slices || markerIndex == 0u || markerIndex >= count) return false;
     slices[markerIndex - 1u].endFrame = slices[markerIndex].endFrame;
+    slices[markerIndex - 1u].loopStartFrame = 0u;
+    slices[markerIndex - 1u].loopEndFrame = 0u;
     for (std::size_t index = markerIndex; index + 1u < count; ++index)
         slices[index] = slices[index + 1u];
     --count;
@@ -518,6 +547,17 @@ struct SampleSlot {
     float mixerMidFrequencyHz = 900.0f;
     float mixerAuxSend = 0.0f;
     std::array<InsertSettings, kInsertSlotsPerStrip> inserts {};
+    TriggerMode triggerMode = TriggerMode::Auto;
+    // Unlike Sample Player's legacy Layer default, a mapped slice restarts
+    // when its own note is struck again. Different mapped notes remain
+    // polyphonic while VoiceMode is Poly.
+    RetriggerMode retriggerMode = RetriggerMode::Restart;
+    VoiceMode voiceMode = VoiceMode::Poly;
+    PitchMode pitchMode = PitchMode::Rate;
+    SyncMode syncMode = SyncMode::Free;
+    float sourceTempoBpm = 120.0f;
+    float loopCrossfade = 0.02f;
+    float glideSeconds = 0.0f;
     uint8_t rootNote = 48u;
     uint8_t mappedRootNote = 48u;
     uint8_t midiChannel = 0u; // zero is omni; 1-16 are explicit MIDI channels
@@ -541,6 +581,22 @@ struct SampleSlot {
             || mixerMidFrequencyHz > 8000.0f
             || !std::isfinite(mixerAuxSend) || mixerAuxSend < 0.0f
             || mixerAuxSend > 1.0f || rootNote >= kMidiNoteCount
+            || static_cast<uint8_t>(triggerMode)
+                > static_cast<uint8_t>(TriggerMode::Toggle)
+            || static_cast<uint8_t>(retriggerMode)
+                > static_cast<uint8_t>(RetriggerMode::Ignore)
+            || static_cast<uint8_t>(voiceMode)
+                > static_cast<uint8_t>(VoiceMode::Legato)
+            || static_cast<uint8_t>(pitchMode)
+                > static_cast<uint8_t>(PitchMode::RateBelowStretchAbove)
+            || static_cast<uint8_t>(syncMode)
+                > static_cast<uint8_t>(SyncMode::Host)
+            || !std::isfinite(sourceTempoBpm)
+            || sourceTempoBpm < 20.0f || sourceTempoBpm > 999.0f
+            || !std::isfinite(loopCrossfade)
+            || loopCrossfade < 0.0f || loopCrossfade > 0.5f
+            || !std::isfinite(glideSeconds)
+            || glideSeconds < 0.0f || glideSeconds > 2.0f
             || mappedRootNote >= kMidiNoteCount || midiChannel > 16u
             || sliceCount > slices.size()
             || sliceCount > maximumSlicesForStartNote(rootNote)
@@ -559,6 +615,396 @@ struct SampleSlot {
         return true;
     }
 };
+
+enum MutationTarget : uint8_t {
+    MutationGain = 1u << 0u,
+    MutationPitch = 1u << 1u,
+    MutationReverse = 1u << 2u,
+    MutationPan = 1u << 3u,
+};
+
+constexpr uint8_t kDefaultMutationTargets = MutationGain | MutationPitch
+    | MutationReverse | MutationPan;
+
+enum StructuralMutationUse : uint8_t {
+    StructuralRearrange = 1u << 0u,
+    StructuralRepeat = 1u << 1u,
+    StructuralPitch = 1u << 2u,
+    StructuralReverse = 1u << 3u,
+    StructuralAuxBus = 1u << 4u,
+    StructuralMixerFx = 1u << 5u,
+};
+
+constexpr uint8_t kAllStructuralMutationUses = StructuralRearrange
+    | StructuralRepeat | StructuralPitch | StructuralReverse
+    | StructuralAuxBus | StructuralMixerFx;
+constexpr uint8_t kDefaultStructuralMutationUses = StructuralRearrange
+    | StructuralRepeat | StructuralPitch | StructuralAuxBus
+    | StructuralMixerFx;
+
+// A variation deliberately shares the slot's immutable audio asset. It stores
+// the authored slice treatment and post-playback strip, so A/B changes are
+// instantaneous and do not duplicate source audio in project state.
+struct MutationVariation {
+    std::array<Slice, kMaximumSlicesPerSlot> slices {};
+    Envelope envelope {};
+    float mixerGain = 1.0f;
+    float mixerPan = 0.0f;
+    float mixerLowEqDb = 0.0f;
+    float mixerMidEqDb = 0.0f;
+    float mixerHighEqDb = 0.0f;
+    float mixerMidFrequencyHz = 900.0f;
+    float mixerAuxSend = 0.0f;
+    std::array<InsertSettings, kInsertSlotsPerStrip> inserts {};
+    uint16_t sliceCount = 0u;
+    bool occupied = false;
+
+    bool validFor(const SampleAsset& asset) const noexcept
+    {
+        if (!occupied) return sliceCount == 0u;
+        if (!asset.valid() || sliceCount == 0u
+            || sliceCount > slices.size() || !envelope.valid()
+            || !std::isfinite(mixerGain) || mixerGain < 0.0f
+            || mixerGain > 2.0f || !std::isfinite(mixerPan)
+            || mixerPan < -1.0f || mixerPan > 1.0f
+            || !std::isfinite(mixerLowEqDb) || mixerLowEqDb < -12.0f
+            || mixerLowEqDb > 12.0f || !std::isfinite(mixerMidEqDb)
+            || mixerMidEqDb < -12.0f || mixerMidEqDb > 12.0f
+            || !std::isfinite(mixerHighEqDb) || mixerHighEqDb < -12.0f
+            || mixerHighEqDb > 12.0f
+            || !std::isfinite(mixerMidFrequencyHz)
+            || mixerMidFrequencyHz < 120.0f
+            || mixerMidFrequencyHz > 8000.0f
+            || !std::isfinite(mixerAuxSend) || mixerAuxSend < 0.0f
+            || mixerAuxSend > 1.0f) return false;
+        if (!std::all_of(inserts.begin(), inserts.end(),
+                [](const InsertSettings& insert) {
+                    return insert.valid();
+                })) return false;
+        for (std::size_t index = 0u; index < sliceCount; ++index) {
+            if (!slices[index].validFor(asset)) return false;
+        }
+        return true;
+    }
+};
+
+inline MutationVariation captureMutationVariation(
+    const SampleSlot& slot) noexcept
+{
+    MutationVariation variation;
+    if (!slot.asset || slot.sliceCount == 0u) return variation;
+    variation.slices = slot.slices;
+    variation.envelope = slot.envelope;
+    variation.mixerGain = slot.mixerGain;
+    variation.mixerPan = slot.mixerPan;
+    variation.mixerLowEqDb = slot.mixerLowEqDb;
+    variation.mixerMidEqDb = slot.mixerMidEqDb;
+    variation.mixerHighEqDb = slot.mixerHighEqDb;
+    variation.mixerMidFrequencyHz = slot.mixerMidFrequencyHz;
+    variation.mixerAuxSend = slot.mixerAuxSend;
+    variation.inserts = slot.inserts;
+    variation.sliceCount = slot.sliceCount;
+    variation.occupied = true;
+    return variation;
+}
+
+inline bool applyMutationVariation(SampleSlot& slot,
+    const MutationVariation& variation) noexcept
+{
+    if (!slot.asset || !variation.validFor(*slot.asset)
+        || variation.sliceCount > maximumSlicesForStartNote(slot.rootNote))
+        return false;
+    const bool mappingWasComplete = slot.mappedSliceCount == slot.sliceCount
+        && slot.mappedRootNote == slot.rootNote;
+    slot.slices = variation.slices;
+    slot.sliceCount = variation.sliceCount;
+    slot.envelope = variation.envelope;
+    slot.mixerGain = variation.mixerGain;
+    slot.mixerPan = variation.mixerPan;
+    slot.mixerLowEqDb = variation.mixerLowEqDb;
+    slot.mixerMidEqDb = variation.mixerMidEqDb;
+    slot.mixerHighEqDb = variation.mixerHighEqDb;
+    slot.mixerMidFrequencyHz = variation.mixerMidFrequencyHz;
+    slot.mixerAuxSend = variation.mixerAuxSend;
+    slot.inserts = variation.inserts;
+    slot.mappedRootNote = slot.rootNote;
+    slot.mappedSliceCount = mappingWasComplete ? slot.sliceCount : 0u;
+    return true;
+}
+
+inline uint32_t nextMutationRandom(uint32_t& state) noexcept
+{
+    if (state == 0u) state = 0x6d2b79f5u;
+    state ^= state << 13u;
+    state ^= state >> 17u;
+    state ^= state << 5u;
+    return state;
+}
+
+inline float mutationUnit(uint32_t& state) noexcept
+{
+    return static_cast<float>(nextMutationRandom(state) >> 8u)
+        * (1.0f / 16777215.0f);
+}
+
+inline bool mutateVariation(MutationVariation& variation,
+    const SampleAsset& asset, uint32_t seed, float depth,
+    uint8_t targets = kDefaultMutationTargets) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.25f, 0.0f, 1.0f);
+    targets &= kDefaultMutationTargets;
+    if (asset.channelCount > 2u)
+        targets &= static_cast<uint8_t>(~MutationPan);
+    if (depth <= 0.0f || targets == 0u) return true;
+    uint32_t random = seed;
+    bool changed = false;
+    for (std::size_t index = 0u; index < variation.sliceCount; ++index) {
+        auto& slice = variation.slices[index];
+        if ((targets & MutationGain) != 0u
+            && mutationUnit(random) < 0.30f + depth * 0.55f) {
+            const float gainDb = (mutationUnit(random) * 2.0f - 1.0f)
+                * (2.0f + depth * 7.0f);
+            slice.gain = std::clamp(slice.gain
+                    * std::pow(10.0f, gainDb / 20.0f),
+                0.0f, 4.0f);
+            changed = true;
+        }
+        if ((targets & MutationPitch) != 0u
+            && mutationUnit(random) < 0.10f + depth * 0.40f) {
+            const int maximum = std::max(1,
+                static_cast<int>(std::lround(1.0f + depth * 11.0f)));
+            int step = 1 + static_cast<int>(mutationUnit(random) * maximum);
+            if (mutationUnit(random) < 0.5f) step = -step;
+            slice.transposeSemitones = std::clamp(
+                slice.transposeSemitones + static_cast<float>(step),
+                -96.0f, 96.0f);
+            changed = true;
+        }
+        if ((targets & MutationReverse) != 0u
+            && mutationUnit(random) < depth * 0.32f) {
+            slice.reverse = !slice.reverse;
+            changed = true;
+        }
+        if ((targets & MutationPan) != 0u && asset.channelCount <= 2u
+            && mutationUnit(random) < 0.20f + depth * 0.35f) {
+            slice.pan = std::clamp(slice.pan
+                    + (mutationUnit(random) * 2.0f - 1.0f)
+                        * depth * 0.85f,
+                -1.0f, 1.0f);
+            changed = true;
+        }
+    }
+    if (!changed && variation.sliceCount > 0u) {
+        const std::size_t index = nextMutationRandom(random)
+            % variation.sliceCount;
+        auto& slice = variation.slices[index];
+        if ((targets & MutationReverse) != 0u) {
+            slice.reverse = !slice.reverse;
+        } else if ((targets & MutationPitch) != 0u) {
+            slice.transposeSemitones = std::clamp(
+                slice.transposeSemitones + 1.0f, -96.0f, 96.0f);
+        } else if ((targets & MutationPan) != 0u
+            && asset.channelCount <= 2u) {
+            slice.pan = std::clamp(slice.pan + 0.1f, -1.0f, 1.0f);
+        } else if ((targets & MutationGain) != 0u) {
+            slice.gain = std::clamp(slice.gain * 0.9440609f, 0.0f, 4.0f);
+        }
+    }
+    return variation.validFor(asset);
+}
+
+inline bool structurallyMutateVariation(MutationVariation& variation,
+    const SampleAsset& asset, uint32_t seed, float depth,
+    std::size_t maximumSliceCount = kMaximumSlicesPerSlot,
+    uint8_t uses = kDefaultStructuralMutationUses) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.68f, 0.0f, 1.0f);
+    uses &= kAllStructuralMutationUses;
+    maximumSliceCount = std::min(maximumSliceCount,
+        variation.slices.size());
+    if (maximumSliceCount == 0u) return false;
+
+    const auto sourceSlices = variation.slices;
+    const std::size_t sourceCount = variation.sliceCount;
+    const std::size_t added = std::max<std::size_t>(1u,
+        static_cast<std::size_t>(std::lround(sourceCount
+            * (0.20f + depth * 0.55f))));
+    std::size_t targetCount = (uses & StructuralRepeat) != 0u
+        ? std::min(maximumSliceCount, sourceCount + added)
+        : std::min(maximumSliceCount, sourceCount);
+    if (sourceCount == 1u && (uses & StructuralRepeat) != 0u)
+        targetCount = std::min<std::size_t>(maximumSliceCount,
+            4u + static_cast<std::size_t>(depth * 4.0f));
+    targetCount = std::max<std::size_t>(1u, targetCount);
+
+    std::array<Slice, kMaximumSlicesPerSlot> arranged {};
+    uint32_t random = seed;
+    std::size_t cursor = 0u;
+    std::size_t previous = 0u;
+    uint32_t repeatsRemaining = 0u;
+    for (std::size_t output = 0u; output < targetCount; ++output) {
+        std::size_t sourceIndex = 0u;
+        if (repeatsRemaining > 0u) {
+            sourceIndex = previous;
+            --repeatsRemaining;
+        } else {
+            const float decision = mutationUnit(random);
+            const float repeatChance = (uses & StructuralRepeat) != 0u
+                ? 0.18f + depth * 0.34f : 0.0f;
+            const float jumpChance = (uses & StructuralRearrange) != 0u
+                ? 0.18f + depth * 0.28f : 0.0f;
+            if (output > 0u && decision < repeatChance) {
+                sourceIndex = previous;
+                repeatsRemaining = 1u + static_cast<uint32_t>(
+                    mutationUnit(random) * (1.0f + depth * 3.0f));
+            } else if (sourceCount > 1u
+                && decision < repeatChance + jumpChance) {
+                sourceIndex = nextMutationRandom(random) % sourceCount;
+            } else {
+                sourceIndex = cursor;
+                cursor = (cursor + 1u) % sourceCount;
+            }
+        }
+        previous = sourceIndex;
+        Slice slice = sourceSlices[sourceIndex];
+        if ((uses & StructuralReverse) != 0u
+            && mutationUnit(random) < 0.05f + depth * 0.20f)
+            slice.reverse = !slice.reverse;
+        if ((uses & StructuralPitch) != 0u
+            && mutationUnit(random) < 0.04f + depth * 0.16f) {
+            static constexpr std::array<int, 6u> pitchSteps {{
+                -12, -7, -5, 5, 7, 12,
+            }};
+            const int step = pitchSteps[
+                nextMutationRandom(random) % pitchSteps.size()];
+            slice.transposeSemitones = std::clamp(
+                slice.transposeSemitones + static_cast<float>(step),
+                -96.0f, 96.0f);
+        }
+        arranged[output] = slice;
+    }
+
+    bool structurallyChanged = targetCount != sourceCount;
+    for (std::size_t index = 0u;
+         !structurallyChanged && index < sourceCount; ++index) {
+        structurallyChanged = arranged[index].startFrame
+                != sourceSlices[index].startFrame
+            || arranged[index].endFrame != sourceSlices[index].endFrame;
+    }
+    if (!structurallyChanged && sourceCount > 1u
+        && (uses & StructuralRearrange) != 0u)
+        std::swap(arranged[0u], arranged[1u]);
+    variation.slices = arranged;
+    variation.sliceCount = static_cast<uint16_t>(targetCount);
+    return variation.validFor(asset);
+}
+
+inline bool mutateMixerEffects(SampleSlot& slot, uint32_t seed,
+    float depth = 0.72f) noexcept
+{
+    if (!slot.asset || slot.sliceCount == 0u) return false;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.72f, 0.0f, 1.0f);
+    uint32_t random = seed ^ 0x3c6ef372u;
+    const auto unit = [&random] { return mutationUnit(random); };
+    static constexpr std::array<InsertType, 4u> firstTypes {{
+        InsertType::Filter,
+        InsertType::Degrade,
+        InsertType::Transient,
+        InsertType::Resonator,
+    }};
+    static constexpr std::array<InsertType, 5u> secondTypes {{
+        InsertType::Erosion,
+        InsertType::Shifter,
+        InsertType::Wavefolder,
+        InsertType::Repeater,
+        InsertType::TimeMangler,
+    }};
+    slot.inserts[0u] = defaultInsertSettings(
+        firstTypes[nextMutationRandom(random) % firstTypes.size()]);
+    slot.inserts[1u] = defaultInsertSettings(
+        secondTypes[nextMutationRandom(random) % secondTypes.size()]);
+
+    const auto configure = [&](InsertSettings& settings) {
+        settings.bypassed = false;
+        switch (settings.type) {
+        case InsertType::Filter:
+            settings.mode = static_cast<FilterMode>(
+                nextMutationRandom(random) % 4u);
+            settings.values = {{ 0.28f + unit() * 0.48f,
+                0.12f + unit() * 0.43f, 0.04f + unit() * 0.38f,
+                0.58f + unit() * 0.34f }};
+            break;
+        case InsertType::Degrade:
+            settings.values = {{ 0.14f + unit() * 0.42f,
+                0.34f + unit() * 0.45f, unit() * 0.34f,
+                0.48f + unit() * 0.38f }};
+            break;
+        case InsertType::Transient:
+            settings.values = {{ 0.58f + unit() * 0.36f,
+                0.16f + unit() * 0.46f, unit() * 0.30f,
+                0.70f + unit() * 0.30f }};
+            break;
+        case InsertType::Resonator:
+            settings.values = {{ 0.22f + unit() * 0.44f,
+                0.28f + unit() * 0.40f, 0.24f + unit() * 0.52f,
+                0.28f + unit() * 0.34f }};
+            break;
+        case InsertType::Erosion:
+            settings.variant = static_cast<uint8_t>(
+                nextMutationRandom(random) % 2u);
+            settings.values = {{ 0.22f + unit() * 0.50f,
+                0.14f + unit() * 0.44f, 0.04f + unit() * 0.36f,
+                0.36f + unit() * 0.36f }};
+            break;
+        case InsertType::Shifter:
+            settings.variant = static_cast<uint8_t>(
+                nextMutationRandom(random) % 2u);
+            settings.values = {{ settings.variant == 0u
+                    ? 0.42f + unit() * 0.16f
+                    : 0.08f + unit() * 0.36f,
+                0.04f + unit() * 0.22f, 0.08f + unit() * 0.44f,
+                0.28f + unit() * 0.34f }};
+            break;
+        case InsertType::Wavefolder:
+            settings.variant = static_cast<uint8_t>(
+                nextMutationRandom(random) % 2u);
+            settings.values = {{ 0.18f + unit() * 0.40f,
+                0.34f + unit() * 0.32f, 0.10f + unit() * 0.54f,
+                0.34f + unit() * 0.38f }};
+            break;
+        case InsertType::Repeater:
+            settings.variant = static_cast<uint8_t>(
+                nextMutationRandom(random) % 3u);
+            settings.values = {{ 0.20f + unit() * 0.42f,
+                0.06f + unit() * 0.28f, 0.04f + unit() * 0.30f,
+                0.48f + unit() * 0.32f }};
+            break;
+        case InsertType::TimeMangler:
+            settings.variant = static_cast<uint8_t>(
+                nextMutationRandom(random) % 3u);
+            settings.values = {{ 0.28f + unit() * 0.40f,
+                0.36f + unit() * 0.28f, 0.12f + unit() * 0.40f,
+                0.38f + unit() * 0.30f }};
+            break;
+        case InsertType::Off: break;
+        }
+    };
+    configure(slot.inserts[0u]);
+    configure(slot.inserts[1u]);
+
+    const float maximumEqDb = 1.5f + depth * 2.5f;
+    slot.mixerLowEqDb = (unit() * 2.0f - 1.0f) * maximumEqDb;
+    slot.mixerMidEqDb = (unit() * 2.0f - 1.0f) * maximumEqDb;
+    slot.mixerHighEqDb = (unit() * 2.0f - 1.0f) * maximumEqDb;
+    slot.mixerMidFrequencyHz = 280.0f * std::pow(
+        12.0f, unit());
+    slot.mixerGain = std::clamp(slot.mixerGain
+            * (0.86f + unit() * 0.18f),
+        0.0f, 2.0f);
+    return slot.valid();
+}
 
 struct BankSnapshot {
     std::array<SampleSlot, kMaximumSampleSlots> slots {};
@@ -783,6 +1229,12 @@ struct RenderEvent {
     uint8_t midiChannel = 0u; // zero is unspecified/omni; 1-16 are explicit
 };
 
+struct VoiceCursor {
+    float sourcePositionNormalized = -1.0f;
+    uint8_t slotIndex = 0u;
+    uint8_t key = 0u;
+};
+
 class SlicerEngine {
 public:
     bool prepare(double sampleRate,
@@ -905,6 +1357,9 @@ public:
     void reset() noexcept
     {
         voices_ = {};
+        heldNotes_ = {};
+        voiceCursors_ = {};
+        voiceCursorCount_ = 0u;
         mixerFilters_ = {};
         resetAllInsertStates();
         slotPeaks_.fill(0.0f);
@@ -913,6 +1368,15 @@ public:
         auxGainReductionDb_ = 0.0f;
         auxProcessor_.beginBlock();
         voiceAge_ = 0u;
+        heldNoteAge_ = 0u;
+    }
+
+    void killAll() noexcept
+    {
+        voices_ = {};
+        heldNotes_ = {};
+        voiceCursors_ = {};
+        voiceCursorCount_ = 0u;
     }
 
     std::size_t activeVoiceCount() const noexcept
@@ -921,6 +1385,10 @@ public:
             voices_.begin(), voices_.end(),
             [](const Voice& voice) { return voice.active; }));
     }
+
+    const std::array<VoiceCursor, kMaximumVoices>& voiceCursors()
+        const noexcept { return voiceCursors_; }
+    uint32_t voiceCursorCount() const noexcept { return voiceCursorCount_; }
 
     float slotPlayheadNormalized(uint8_t slotIndex) const noexcept
     {
@@ -949,7 +1417,7 @@ public:
 
     void render(const RenderEvent* events, std::size_t eventCount,
         float* const* outputs, uint32_t outputChannelCount,
-        uint32_t frameCount) noexcept
+        uint32_t frameCount, double hostTempoBpm = 120.0) noexcept
     {
         if (!outputs || outputChannelCount == 0u
             || outputChannelCount > kMaximumAudioChannels) return;
@@ -960,8 +1428,18 @@ public:
         slotPeaks_.fill(0.0f);
         auxActivity_ = 0.0f;
         auxGainReductionDb_ = 0.0f;
+        voiceCursorCount_ = 0u;
         if (!prepared_ || !bank_ || !mixer_ || frameCount == 0u) return;
         if (!events) eventCount = 0u;
+        hostTempoBpm = std::isfinite(hostTempoBpm) && hostTempoBpm > 0.0
+            ? std::clamp(hostTempoBpm, 1.0, 999.0) : 120.0;
+
+        for (auto& voice : voices_) {
+            if (!voice.active || voice.slotIndex >= bank_->slots.size())
+                continue;
+            updateLiveVoicePlayback(voice,
+                bank_->slots[voice.slotIndex], hostTempoBpm);
+        }
 
         struct StripRenderParams {
             float leftBalance = 1.0f;
@@ -1009,7 +1487,7 @@ public:
         for (uint32_t frame = 0u; frame < frameCount; ++frame) {
             while (eventIndex < eventCount
                 && events[eventIndex].frameOffset <= frame) {
-                handleEvent(events[eventIndex++]);
+                handleEvent(events[eventIndex++], hostTempoBpm);
             }
 
             std::array<std::array<float, kMaximumAudioChannels>,
@@ -1041,16 +1519,23 @@ public:
                         // All channels read the exact same position before the
                         // voice clock advances once below. Slice, loop, reverse,
                         // pitch, and envelope transitions are sample locked.
-                        const float rendered = interpolate(
-                            voice.asset->channels[sourceChannel],
-                            voice.position, voice.playStartFrame,
-                            voice.playEndFrame, bank_->interpolation)
+                        const auto stretch = makeStretchFrame(voice);
+                        const float rendered = (voice.pitchMode
+                                    == PitchMode::Stretch
+                                ? stretchSample(voice,
+                                    voice.asset->channels[sourceChannel],
+                                    stretch, bank_->interpolation)
+                                : loopCrossfadedSample(voice,
+                                    voice.asset->channels[sourceChannel],
+                                    bank_->interpolation))
                             * channelLevel;
                         slotMixed[voice.slotIndex][channel] += rendered;
                     }
                 }
 
                 voice.position += voice.increment;
+                advanceStretchPhase(voice);
+                advanceGlide(voice);
                 advanceEnvelope(voice);
                 advancePosition(voice);
             }
@@ -1099,13 +1584,25 @@ public:
                 outputs[channel][frame] = mixed[channel] * mixer_->outputGain;
             }
         }
+        for (const auto& voice : voices_) {
+            if (!voice.active || !voice.asset
+                || voiceCursorCount_ >= voiceCursors_.size()) continue;
+            voiceCursors_[voiceCursorCount_++] = {
+                static_cast<float>(std::clamp(voice.position
+                    / static_cast<double>(std::max<uint32_t>(1u,
+                        voice.asset->frameCount())), 0.0, 1.0)),
+                voice.slotIndex,
+                voice.key,
+            };
+        }
     }
 
     void render(const RenderEvent* events, std::size_t eventCount,
-        float* left, float* right, uint32_t frameCount) noexcept
+        float* left, float* right, uint32_t frameCount,
+        double hostTempoBpm = 120.0) noexcept
     {
         float* outputs[] { left, right };
-        render(events, eventCount, outputs, 2u, frameCount);
+        render(events, eventCount, outputs, 2u, frameCount, hostTempoBpm);
     }
 
 private:
@@ -1247,6 +1744,17 @@ private:
         uint64_t age = 0u;
         double position = 0.0;
         double increment = 1.0;
+        double sourceRatio = 1.0;
+        double syncRatio = 1.0;
+        double pitchRatio = 1.0;
+        double targetPitchRatio = 1.0;
+        double glideMultiplier = 1.0;
+        double readIncrementMagnitude = 1.0;
+        double stretchWindowSourceFrames = 0.0;
+        double stretchWindowOutputFrames = 0.0;
+        double stretchPhase = 0.0;
+        double stretchPhaseStep = 0.0;
+        double loopCrossfadeFrames = 0.0;
         uint32_t playStartFrame = 0u;
         uint32_t playEndFrame = 0u;
         uint32_t loopStartFrame = 0u;
@@ -1257,11 +1765,15 @@ private:
         uint32_t decayFrames = 0u;
         uint32_t releaseFrames = 0u;
         uint32_t envelopeFrame = 0u;
+        uint32_t glideFramesRemaining = 0u;
         uint8_t slotIndex = 0u;
+        uint8_t sliceIndex = 0u;
         uint8_t key = 0u;
         uint8_t midiChannel = 0u;
         uint8_t chokeGroup = 0u;
         LaunchMode launchMode = LaunchMode::OneShot;
+        PitchMode pitchModeSelection = PitchMode::Rate;
+        PitchMode pitchMode = PitchMode::Rate;
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
         float level = 0.0f;
         float leftPan = 1.0f;
@@ -1269,6 +1781,26 @@ private:
         float envelopeLevel = 0.0f;
         float releaseStartLevel = 0.0f;
         float sustainLevel = 1.0f;
+        bool active = false;
+        bool hasLooped = false;
+    };
+
+    struct HeldNote {
+        uint64_t noteId = 0u;
+        uint64_t age = 0u;
+        uint8_t slotIndex = 0u;
+        uint8_t key = 0u;
+        uint8_t midiChannel = 0u;
+        float velocity = 1.0f;
+        bool active = false;
+    };
+
+    struct StretchFrame {
+        double firstPosition = 0.0;
+        double secondPosition = 0.0;
+        float firstWeight = 1.0f;
+        float secondWeight = 0.0f;
+        float normalization = 1.0f;
         bool active = false;
     };
 
@@ -2357,16 +2889,414 @@ private:
         return samples[first] + (samples[second] - samples[first]) * fraction;
     }
 
-    void handleEvent(const RenderEvent& event) noexcept
+    void configureStretch(Voice& voice) const noexcept
     {
-        switch (event.kind) {
-        case EventKind::NoteOn: startVoice(event); break;
-        case EventKind::NoteOff: releaseNote(event); break;
-        case EventKind::Choke: choke(event.chokeGroup); break;
+        voice.stretchPhase = 0.0;
+        if (voice.pitchMode == PitchMode::Stretch) {
+            constexpr double kWindowSeconds = 0.080;
+            voice.stretchWindowOutputFrames = std::max(8.0,
+                sampleRate_ * kWindowSeconds);
+            voice.stretchWindowSourceFrames
+                = voice.stretchWindowOutputFrames * voice.sourceRatio;
+        } else {
+            voice.stretchWindowOutputFrames = 0.0;
+            voice.stretchWindowSourceFrames = 0.0;
+            voice.stretchPhaseStep = 0.0;
         }
     }
 
-    void startVoice(const RenderEvent& event) noexcept
+    static void refreshVoiceRates(Voice& voice) noexcept
+    {
+        const double direction = voice.increment < 0.0 ? -1.0 : 1.0;
+        const double transportRatio = voice.sourceRatio * voice.syncRatio;
+        if (voice.pitchMode == PitchMode::Rate) {
+            voice.increment = direction * transportRatio * voice.pitchRatio;
+            voice.readIncrementMagnitude = std::abs(voice.increment);
+            voice.stretchPhaseStep = 0.0;
+        } else {
+            voice.increment = direction * transportRatio;
+            voice.readIncrementMagnitude = voice.sourceRatio
+                * std::max(voice.pitchRatio, voice.syncRatio);
+            voice.stretchPhaseStep = voice.stretchWindowOutputFrames > 0.0
+                ? std::abs(voice.pitchRatio - voice.syncRatio)
+                    / voice.stretchWindowOutputFrames
+                : 0.0;
+        }
+    }
+
+    void setPitchTarget(Voice& voice, double target,
+        uint32_t transitionFrames) const noexcept
+    {
+        voice.targetPitchRatio = target;
+        if (transitionFrames == 0u || !(voice.pitchRatio > 0.0)
+            || !(target > 0.0)) {
+            voice.pitchRatio = target;
+            voice.glideFramesRemaining = 0u;
+            voice.glideMultiplier = 1.0;
+            refreshVoiceRates(voice);
+            return;
+        }
+        voice.glideFramesRemaining = transitionFrames;
+        voice.glideMultiplier = std::pow(target / voice.pitchRatio,
+            1.0 / static_cast<double>(transitionFrames));
+    }
+
+    static void advanceGlide(Voice& voice) noexcept
+    {
+        if (voice.glideFramesRemaining == 0u) return;
+        --voice.glideFramesRemaining;
+        if (voice.glideFramesRemaining == 0u)
+            voice.pitchRatio = voice.targetPitchRatio;
+        else voice.pitchRatio *= voice.glideMultiplier;
+        refreshVoiceRates(voice);
+    }
+
+    static PitchMode resolvedPitchMode(const SampleSlot& slot,
+        const Slice& slice) noexcept
+    {
+        if (slot.pitchMode != PitchMode::RateBelowStretchAbove)
+            return slot.pitchMode;
+        const double semitones = static_cast<double>(
+            slice.transposeSemitones)
+            + static_cast<double>(slice.fineTuneCents) * 0.01;
+        return semitones < 0.0 ? PitchMode::Rate : PitchMode::Stretch;
+    }
+
+    static double slicePitchRatio(const Slice& slice) noexcept
+    {
+        const double semitones = static_cast<double>(
+            slice.transposeSemitones)
+            + static_cast<double>(slice.fineTuneCents) * 0.01;
+        return std::pow(2.0, semitones / 12.0);
+    }
+
+    void configureLoopCrossfade(Voice& voice,
+        float proportion) const noexcept
+    {
+        voice.loopCrossfadeFrames = 0.0;
+        if (voice.launchMode != LaunchMode::Loop
+            || !(proportion > 0.0f)
+            || voice.loopEndFrame <= voice.loopStartFrame) return;
+        const double loopLength = static_cast<double>(
+            voice.loopEndFrame - voice.loopStartFrame);
+        if (loopLength < 2.0) return;
+        const double maximum = std::max(0.0,
+            (loopLength - voice.readIncrementMagnitude) * 0.5);
+        if (maximum < 1.0) return;
+        const double minimum = std::min(maximum,
+            std::max(1.0, voice.readIncrementMagnitude * 2.0));
+        voice.loopCrossfadeFrames = std::clamp(
+            loopLength * static_cast<double>(proportion), minimum, maximum);
+    }
+
+    void updateLiveVoicePlayback(Voice& voice, const SampleSlot& slot,
+        double hostTempoBpm) noexcept
+    {
+        if (voice.sliceIndex >= slot.sliceCount) {
+            voice.active = false;
+            return;
+        }
+        const auto& slice = slot.slices[voice.sliceIndex];
+        voice.playStartFrame = slice.startFrame;
+        voice.playEndFrame = slice.endFrame;
+        if (slice.launchMode == LaunchMode::Thru) {
+            if (slice.reverse) voice.playStartFrame = 0u;
+            else voice.playEndFrame = slot.asset->frameCount();
+        }
+        const uint32_t nextLoopStart = slice.loopStartFrame == 0u
+                && slice.loopEndFrame == 0u
+            ? slice.startFrame : slice.loopStartFrame;
+        const uint32_t nextLoopEnd = slice.loopStartFrame == 0u
+                && slice.loopEndFrame == 0u
+            ? slice.endFrame : slice.loopEndFrame;
+        const bool loopChanged = nextLoopStart != voice.loopStartFrame
+            || nextLoopEnd != voice.loopEndFrame;
+        voice.loopStartFrame = nextLoopStart;
+        voice.loopEndFrame = nextLoopEnd;
+        voice.launchMode = slice.launchMode;
+        const double nextSync = slot.syncMode == SyncMode::Host
+            ? std::clamp(hostTempoBpm
+                    / static_cast<double>(slot.sourceTempoBpm), 0.01, 32.0)
+            : 1.0;
+        const PitchMode nextMode = resolvedPitchMode(slot, slice);
+        if (nextMode != voice.pitchMode
+            || slot.pitchMode != voice.pitchModeSelection) {
+            voice.pitchModeSelection = slot.pitchMode;
+            voice.pitchMode = nextMode;
+            configureStretch(voice);
+        }
+        voice.syncRatio = nextSync;
+        const double target = slicePitchRatio(slice);
+        if (std::abs(target - voice.targetPitchRatio)
+            > std::max(1.0, target) * 1.0e-12) {
+            const uint32_t smoothing = voice.glideFramesRemaining != 0u
+                ? voice.glideFramesRemaining
+                : static_cast<uint32_t>(std::max(1.0,
+                    std::round(sampleRate_ * 0.010)));
+            setPitchTarget(voice, target, smoothing);
+        }
+        refreshVoiceRates(voice);
+        const bool reverse = slice.reverse;
+        if (reverse != (voice.increment < 0.0))
+            voice.increment = -voice.increment;
+        if (loopChanged
+            && (voice.launchMode == LaunchMode::Loop
+                || voice.launchMode == LaunchMode::PingPong)) {
+            if (voice.launchMode == LaunchMode::PingPong) {
+                voice.position = reflectPosition(voice.position,
+                    static_cast<double>(voice.loopStartFrame),
+                    static_cast<double>(voice.loopEndFrame));
+            } else {
+                voice.position = wrapPosition(voice.position,
+                    static_cast<double>(voice.loopStartFrame),
+                    static_cast<double>(voice.loopEndFrame));
+            }
+        }
+        const double outputLength = std::ceil(
+            static_cast<double>(voice.playEndFrame - voice.playStartFrame)
+                / std::max(std::abs(voice.increment),
+                    std::numeric_limits<double>::min()));
+        const auto boundedLength = static_cast<uint32_t>(std::clamp<double>(
+            outputLength, 1.0, std::numeric_limits<uint32_t>::max()));
+        voice.sustainLevel = slot.envelope.sustain;
+        voice.releaseFrames = proportionalFrames(
+            slot.envelope.releaseProportion, boundedLength);
+        voice.tailReleaseFrames = voice.launchMode == LaunchMode::OneShot
+            ? voice.releaseFrames : 0u;
+        configureLoopCrossfade(voice, slot.loopCrossfade);
+    }
+
+    static double wrapPosition(double position, double start,
+        double end) noexcept
+    {
+        const double length = end - start;
+        if (!(length > 0.0)) return start;
+        position = start + std::fmod(position - start, length);
+        if (position < start) position += length;
+        return position;
+    }
+
+    static double reflectPosition(double position, double start,
+        double end) noexcept
+    {
+        const double upper = end - 1.0;
+        const double range = upper - start;
+        if (!(range > 0.0)) return start;
+        const double period = range * 2.0;
+        double offset = std::fmod(position - start, period);
+        if (offset < 0.0) offset += period;
+        return offset <= range ? start + offset
+                               : upper - (offset - range);
+    }
+
+    static double resolveStretchPosition(const Voice& voice,
+        double position) noexcept
+    {
+        if (!loops(voice) || !voice.hasLooped)
+            return std::clamp(position,
+                static_cast<double>(voice.playStartFrame),
+                static_cast<double>(voice.playEndFrame - 1u));
+        const double start = static_cast<double>(voice.loopStartFrame);
+        const double end = static_cast<double>(voice.loopEndFrame);
+        return voice.launchMode == LaunchMode::PingPong
+            ? reflectPosition(position, start, end)
+            : wrapPosition(position, start, end);
+    }
+
+    static float grainWindow(double phase) noexcept
+    {
+        constexpr double kTwoPi = 6.28318530717958647692;
+        return static_cast<float>(0.5 - 0.5 * std::cos(kTwoPi
+            * std::clamp(phase, 0.0, 1.0)));
+    }
+
+    static StretchFrame makeStretchFrame(const Voice& voice) noexcept
+    {
+        StretchFrame frame;
+        if (!(voice.stretchPhaseStep > 1.0e-12)
+            || !(voice.stretchWindowSourceFrames > 0.0)) return frame;
+        const double firstPhase = voice.stretchPhase;
+        double secondPhase = firstPhase + 0.5;
+        if (secondPhase >= 1.0) secondPhase -= 1.0;
+        const double direction = voice.increment < 0.0 ? -1.0 : 1.0;
+        const auto readerPosition = [&](double phase) noexcept {
+            const double delay = voice.pitchRatio >= voice.syncRatio
+                ? voice.stretchWindowSourceFrames * (1.0 - phase)
+                : voice.stretchWindowSourceFrames * phase;
+            return resolveStretchPosition(voice,
+                voice.position - direction * delay);
+        };
+        frame.firstPosition = readerPosition(firstPhase);
+        frame.secondPosition = readerPosition(secondPhase);
+        frame.firstWeight = grainWindow(firstPhase);
+        frame.secondWeight = grainWindow(secondPhase);
+        frame.normalization = 1.0f / std::max(1.0e-6f,
+            frame.firstWeight + frame.secondWeight);
+        frame.active = true;
+        return frame;
+    }
+
+    static float loopCrossfadedSampleAt(const Voice& voice,
+        const std::vector<float>& samples, double position,
+        Interpolation interpolation) noexcept
+    {
+        const float primary = interpolate(samples, position,
+            voice.playStartFrame, voice.playEndFrame, interpolation);
+        const double crossfade = voice.loopCrossfadeFrames;
+        if (!(crossfade > 0.0) || voice.launchMode != LaunchMode::Loop)
+            return primary;
+        const double denominator = std::max(crossfade
+                - std::min(voice.readIncrementMagnitude,
+                    crossfade - 1.0e-9), 1.0e-9);
+        if (voice.increment > 0.0) {
+            const double fadeStart = static_cast<double>(
+                voice.loopEndFrame) - crossfade;
+            if (position < fadeStart) return primary;
+            const double phase = std::clamp(
+                (position - fadeStart) / denominator, 0.0, 1.0);
+            const double secondaryPosition = static_cast<double>(
+                voice.loopStartFrame) + (position - fadeStart);
+            const float secondary = interpolate(samples, secondaryPosition,
+                voice.playStartFrame, voice.playEndFrame, interpolation);
+            return primary + (secondary - primary)
+                * static_cast<float>(phase);
+        }
+        const double fadeEnd = static_cast<double>(
+            voice.loopStartFrame) + crossfade;
+        if (position > fadeEnd) return primary;
+        const double phase = std::clamp(
+            (fadeEnd - position) / denominator, 0.0, 1.0);
+        const double secondaryPosition = static_cast<double>(
+            voice.loopEndFrame) - crossfade
+            + (position - static_cast<double>(voice.loopStartFrame));
+        const float secondary = interpolate(samples, secondaryPosition,
+            voice.playStartFrame, voice.playEndFrame, interpolation);
+        return primary + (secondary - primary) * static_cast<float>(phase);
+    }
+
+    static float loopCrossfadedSample(const Voice& voice,
+        const std::vector<float>& samples,
+        Interpolation interpolation) noexcept
+    {
+        return loopCrossfadedSampleAt(voice, samples, voice.position,
+            interpolation);
+    }
+
+    static float stretchSample(const Voice& voice,
+        const std::vector<float>& samples, const StretchFrame& frame,
+        Interpolation interpolation) noexcept
+    {
+        if (!frame.active)
+            return loopCrossfadedSample(voice, samples, interpolation);
+        const float first = loopCrossfadedSampleAt(voice, samples,
+            frame.firstPosition, interpolation);
+        const float second = loopCrossfadedSampleAt(voice, samples,
+            frame.secondPosition, interpolation);
+        return (first * frame.firstWeight + second * frame.secondWeight)
+            * frame.normalization;
+    }
+
+    static void advanceStretchPhase(Voice& voice) noexcept
+    {
+        if (voice.pitchMode != PitchMode::Stretch
+            || !(voice.stretchPhaseStep > 0.0)) return;
+        voice.stretchPhase += voice.stretchPhaseStep;
+        voice.stretchPhase -= std::floor(voice.stretchPhase);
+    }
+
+    static bool channelMatches(uint8_t configured,
+        uint8_t eventChannel) noexcept
+    {
+        return configured == 0u || eventChannel == 0u
+            || configured == eventChannel;
+    }
+
+    static bool eventMatchesVoice(const RenderEvent& event,
+        const Voice& voice) noexcept
+    {
+        const bool noteMatches = event.noteId != 0u
+            ? voice.noteId == event.noteId : voice.key == event.key;
+        return noteMatches
+            && channelMatches(voice.midiChannel, event.midiChannel);
+    }
+
+    static bool eventRetriggersVoice(const RenderEvent& event,
+        const Voice& voice, uint8_t slotIndex) noexcept
+    {
+        return voice.slotIndex == slotIndex && voice.key == event.key
+            && channelMatches(voice.midiChannel, event.midiChannel);
+    }
+
+    static bool eventMatchesHeldNote(const RenderEvent& event,
+        const HeldNote& note) noexcept
+    {
+        const bool noteMatches = event.noteId != 0u
+            ? note.noteId == event.noteId : note.key == event.key;
+        return noteMatches
+            && channelMatches(note.midiChannel, event.midiChannel);
+    }
+
+    void holdNote(const RenderEvent& event, uint8_t slotIndex) noexcept
+    {
+        HeldNote* destination = nullptr;
+        for (auto& note : heldNotes_) {
+            if (!note.active) {
+                destination = &note;
+                break;
+            }
+        }
+        if (!destination) {
+            destination = &*std::min_element(heldNotes_.begin(),
+                heldNotes_.end(), [](const HeldNote& left,
+                    const HeldNote& right) { return left.age < right.age; });
+        }
+        *destination = { event.noteId, ++heldNoteAge_, slotIndex,
+            event.key, event.midiChannel, event.velocity, true };
+    }
+
+    void releaseHeldNote(const RenderEvent& event) noexcept
+    {
+        for (auto& note : heldNotes_) {
+            if (note.active && eventMatchesHeldNote(event, note))
+                note.active = false;
+        }
+    }
+
+    const HeldNote* newestHeldNote(uint8_t slotIndex) const noexcept
+    {
+        const HeldNote* newest = nullptr;
+        for (const auto& note : heldNotes_) {
+            if (!note.active || note.slotIndex != slotIndex) continue;
+            if (!newest || note.age > newest->age) newest = &note;
+        }
+        return newest;
+    }
+
+    Voice* newestSlotVoice(uint8_t slotIndex) noexcept
+    {
+        Voice* newest = nullptr;
+        for (auto& voice : voices_) {
+            if (!voice.active || voice.slotIndex != slotIndex) continue;
+            if (!newest || voice.age > newest->age) newest = &voice;
+        }
+        return newest;
+    }
+
+    void handleEvent(const RenderEvent& event,
+        double hostTempoBpm) noexcept
+    {
+        switch (event.kind) {
+        case EventKind::NoteOn: startVoice(event, hostTempoBpm); break;
+        case EventKind::NoteOff: releaseNote(event, hostTempoBpm); break;
+        case EventKind::Choke:
+            releaseHeldNote(event);
+            choke(event.chokeGroup);
+            break;
+        }
+    }
+
+    void startVoice(const RenderEvent& event,
+        double hostTempoBpm) noexcept
     {
         if (!bank_ || !mixer_ || event.key >= kMidiNoteCount) return;
         const bool anySolo = std::any_of(mixer_->strips.begin(),
@@ -2377,10 +3307,9 @@ private:
              slotIndex < bank_->slots.size(); ++slotIndex) {
             const auto& slot = bank_->slots[slotIndex];
             const auto& strip = mixer_->strips[slotIndex];
-            const bool channelMatches = slot.midiChannel == 0u
-                || event.midiChannel == 0u
-                || slot.midiChannel == event.midiChannel;
-            if (!channelMatches || strip.muted || (anySolo && !strip.solo)
+            const bool receives = channelMatches(slot.midiChannel,
+                event.midiChannel);
+            if (!receives || strip.muted || (anySolo && !strip.solo)
                 || !slot.asset
                 || slot.mappedSliceCount == 0u
                 || event.key < slot.mappedRootNote) continue;
@@ -2388,13 +3317,66 @@ private:
                 - slot.mappedRootNote);
             if (sliceIndex >= slot.mappedSliceCount
                 || sliceIndex >= slot.sliceCount) continue;
-            startSlotVoice(event, static_cast<uint8_t>(slotIndex),
-                static_cast<uint8_t>(sliceIndex));
+            const uint8_t boundedSlot = static_cast<uint8_t>(slotIndex);
+            holdNote(event, boundedSlot);
+            handleSlotNoteOn(event, boundedSlot,
+                static_cast<uint8_t>(sliceIndex), hostTempoBpm);
         }
     }
 
+    void handleSlotNoteOn(const RenderEvent& event, uint8_t slotIndex,
+        uint8_t sliceIndex, double hostTempoBpm) noexcept
+    {
+        const auto& slot = bank_->slots[slotIndex];
+        bool matchingVoice = false;
+        bool toggledVoice = false;
+        for (auto& voice : voices_) {
+            if (!voice.active
+                || !eventRetriggersVoice(event, voice, slotIndex)) continue;
+            matchingVoice = true;
+            if (slot.triggerMode == TriggerMode::Toggle
+                && voice.envelopeStage != Voice::EnvelopeStage::Release) {
+                beginRelease(voice, voice.releaseFrames);
+                toggledVoice = true;
+            }
+        }
+        if (slot.triggerMode == TriggerMode::Toggle && toggledVoice) return;
+        if (matchingVoice
+            && slot.retriggerMode == RetriggerMode::Ignore) return;
+        if (matchingVoice
+            && slot.retriggerMode == RetriggerMode::Restart) {
+            for (auto& voice : voices_) {
+                if (voice.active
+                    && eventRetriggersVoice(event, voice, slotIndex))
+                    voice.active = false;
+            }
+        }
+
+        if (slot.voiceMode == VoiceMode::Legato) {
+            Voice* current = newestSlotVoice(slotIndex);
+            if (current
+                && current->envelopeStage != Voice::EnvelopeStage::Release
+                && !(matchingVoice
+                    && slot.retriggerMode == RetriggerMode::Restart)) {
+                for (auto& voice : voices_) {
+                    if (&voice != current && voice.slotIndex == slotIndex)
+                        voice.active = false;
+                }
+                retargetSlotVoice(*current, event, slotIndex, sliceIndex,
+                    hostTempoBpm);
+                return;
+            }
+        }
+        if (slot.voiceMode != VoiceMode::Poly) {
+            for (auto& voice : voices_) {
+                if (voice.slotIndex == slotIndex) voice.active = false;
+            }
+        }
+        startSlotVoice(event, slotIndex, sliceIndex, hostTempoBpm);
+    }
+
     void startSlotVoice(const RenderEvent& event, uint8_t slotIndex,
-        uint8_t sliceIndex) noexcept
+        uint8_t sliceIndex, double hostTempoBpm) noexcept
     {
         const auto& slot = bank_->slots[slotIndex];
         const auto& slice = slot.slices[sliceIndex];
@@ -2417,10 +3399,36 @@ private:
 
         auto& voice = voices_[selected];
         voice = {};
+        configureSlotVoice(voice, event, slotIndex, sliceIndex,
+            hostTempoBpm, true);
+    }
+
+    void retargetSlotVoice(Voice& voice, const RenderEvent& event,
+        uint8_t slotIndex, uint8_t sliceIndex,
+        double hostTempoBpm) noexcept
+    {
+        const uint8_t group = bank_->slots[slotIndex]
+            .slices[sliceIndex].chokeGroup;
+        if (group != 0u) choke(group);
+        configureSlotVoice(voice, event, slotIndex, sliceIndex,
+            hostTempoBpm, false);
+    }
+
+    void configureSlotVoice(Voice& voice, const RenderEvent& event,
+        uint8_t slotIndex, uint8_t sliceIndex, double hostTempoBpm,
+        bool restartEnvelope) noexcept
+    {
+        const auto& slot = bank_->slots[slotIndex];
+        const auto& slice = slot.slices[sliceIndex];
+        const float retainedEnvelope = voice.envelopeLevel;
+        const auto retainedStage = voice.envelopeStage;
+        const uint32_t retainedEnvelopeFrame = voice.envelopeFrame;
+        const double retainedPitchRatio = voice.pitchRatio;
         voice.asset = slot.asset.get();
         voice.noteId = event.noteId;
         voice.age = ++voiceAge_;
         voice.slotIndex = slotIndex;
+        voice.sliceIndex = sliceIndex;
         voice.key = event.key;
         voice.midiChannel = event.midiChannel;
         voice.chokeGroup = slice.chokeGroup;
@@ -2444,8 +3452,32 @@ private:
             slice.transposeSemitones)
             + static_cast<double>(slice.fineTuneCents) / 100.0;
         const double ratio = std::pow(2.0, semitones / 12.0);
-        const double increment = slot.asset->sampleRate / sampleRate_ * ratio;
-        voice.increment = slice.reverse ? -increment : increment;
+        voice.sourceRatio = slot.asset->sampleRate / sampleRate_;
+        voice.syncRatio = slot.syncMode == SyncMode::Host
+            ? std::clamp(hostTempoBpm
+                    / static_cast<double>(slot.sourceTempoBpm), 0.01, 32.0)
+            : 1.0;
+        voice.pitchModeSelection = slot.pitchMode;
+        voice.pitchMode = slot.pitchMode == PitchMode::RateBelowStretchAbove
+            ? semitones < 0.0 ? PitchMode::Rate : PitchMode::Stretch
+            : slot.pitchMode;
+        voice.targetPitchRatio = ratio;
+        if (restartEnvelope || !(retainedPitchRatio > 0.0)) {
+            voice.pitchRatio = ratio;
+            voice.glideFramesRemaining = 0u;
+            voice.glideMultiplier = 1.0;
+        } else {
+            voice.pitchRatio = retainedPitchRatio;
+            const uint32_t glideFrames = static_cast<uint32_t>(
+                std::clamp(std::round(slot.glideSeconds * sampleRate_),
+                    0.0, static_cast<double>(
+                        std::numeric_limits<uint32_t>::max())));
+            setPitchTarget(voice, ratio, glideFrames);
+        }
+        voice.increment = slice.reverse ? -1.0 : 1.0;
+        configureStretch(voice);
+        refreshVoiceRates(voice);
+        configureLoopCrossfade(voice, slot.loopCrossfade);
         voice.level = std::clamp(event.velocity, 0.0f, 1.0f)
             * slice.gain;
         constexpr double kHalfPi = 1.57079632679489661923;
@@ -2456,7 +3488,7 @@ private:
         voice.rightPan = static_cast<float>(std::sin(angle));
         const double outputLength = std::ceil(
             static_cast<double>(voice.playEndFrame - voice.playStartFrame)
-                / std::max(std::abs(increment),
+                / std::max(std::abs(voice.increment),
                     std::numeric_limits<double>::min()));
         const auto boundedLength = static_cast<uint32_t>(std::clamp<double>(
             outputLength, 1.0, std::numeric_limits<uint32_t>::max()));
@@ -2471,7 +3503,11 @@ private:
         voice.sustainLevel = slot.envelope.sustain;
         voice.naturalFadeFrames = std::min(naturalFadeFrames_,
             std::max<uint32_t>(2u, boundedLength / 2u));
-        if (voice.attackFrames != 0u) {
+        if (!restartEnvelope) {
+            voice.envelopeStage = retainedStage;
+            voice.envelopeLevel = retainedEnvelope;
+            voice.envelopeFrame = retainedEnvelopeFrame;
+        } else if (voice.attackFrames != 0u) {
             voice.envelopeStage = Voice::EnvelopeStage::Attack;
             voice.envelopeLevel = 0.0f;
         } else if (voice.decayFrames != 0u) {
@@ -2481,22 +3517,67 @@ private:
             voice.envelopeStage = Voice::EnvelopeStage::Sustain;
             voice.envelopeLevel = voice.sustainLevel;
         }
-        voice.active = voice.level > 0.0f && increment > 0.0;
+        voice.active = voice.level > 0.0f
+            && std::abs(voice.increment) > 0.0;
     }
 
-    void releaseNote(const RenderEvent& event) noexcept
+    void releaseNote(const RenderEvent& event,
+        double hostTempoBpm) noexcept
     {
-        for (auto& voice : voices_) {
-            if (!voice.active) continue;
-            const bool matches = event.noteId != 0u
-                ? voice.noteId == event.noteId : voice.key == event.key;
-            const bool channelMatches = event.midiChannel == 0u
-                || voice.midiChannel == 0u
-                || voice.midiChannel == event.midiChannel;
-            if (!matches || !channelMatches
-                || (voice.launchMode == LaunchMode::OneShot)
-                || voice.launchMode == LaunchMode::Thru) continue;
-            beginRelease(voice, voice.releaseFrames);
+        releaseHeldNote(event);
+        for (uint8_t slotIndex = 0u;
+             slotIndex < bank_->slots.size(); ++slotIndex) {
+            const auto& slot = bank_->slots[slotIndex];
+            Voice* current = nullptr;
+            for (auto& voice : voices_) {
+                if (voice.active && voice.slotIndex == slotIndex
+                    && eventMatchesVoice(event, voice)
+                    && (!current || voice.age > current->age))
+                    current = &voice;
+            }
+            if (!current || slot.triggerMode == TriggerMode::OneShot
+                || slot.triggerMode == TriggerMode::Toggle) continue;
+            const bool shouldRelease = slot.triggerMode == TriggerMode::Gate
+                || (slot.triggerMode == TriggerMode::Auto
+                    && current->launchMode != LaunchMode::OneShot
+                    && current->launchMode != LaunchMode::Thru);
+            if (!shouldRelease) continue;
+
+            if (slot.voiceMode != VoiceMode::Poly) {
+                if (const HeldNote* fallback = newestHeldNote(slotIndex)) {
+                    const uint32_t fallbackSlice = fallback->key
+                        >= slot.mappedRootNote
+                        ? fallback->key - slot.mappedRootNote
+                        : slot.sliceCount;
+                    if (fallbackSlice < slot.sliceCount
+                        && fallbackSlice < slot.mappedSliceCount) {
+                        const RenderEvent fallbackEvent { event.frameOffset,
+                            EventKind::NoteOn, fallback->noteId,
+                            fallback->key, 0u, fallback->velocity,
+                            fallback->midiChannel };
+                        if (slot.voiceMode == VoiceMode::Legato) {
+                            retargetSlotVoice(*current, fallbackEvent,
+                                slotIndex,
+                                static_cast<uint8_t>(fallbackSlice),
+                                hostTempoBpm);
+                            continue;
+                        }
+                        for (auto& voice : voices_) {
+                            if (voice.slotIndex == slotIndex)
+                                voice.active = false;
+                        }
+                        startSlotVoice(fallbackEvent, slotIndex,
+                            static_cast<uint8_t>(fallbackSlice),
+                            hostTempoBpm);
+                        continue;
+                    }
+                }
+            }
+            for (auto& voice : voices_) {
+                if (voice.active && voice.slotIndex == slotIndex
+                    && eventMatchesVoice(event, voice))
+                    beginRelease(voice, voice.releaseFrames);
+            }
         }
     }
 
@@ -2599,17 +3680,37 @@ private:
                 voice.position = loopEnd
                     - std::fmod(voice.position - loopEnd, span) - 1.0;
                 voice.increment = -voice.increment;
+                voice.hasLooped = true;
             } else if (voice.increment < 0.0 && voice.position < loopStart) {
                 voice.position = loopStart
                     + std::fmod(loopStart - voice.position, span);
                 voice.increment = -voice.increment;
+                voice.hasLooped = true;
             }
         } else if (voice.increment > 0.0 && voice.position >= loopEnd) {
-            voice.position = loopStart
-                + std::fmod(voice.position - loopEnd, span);
+            const double wrappedStart = loopStart
+                + std::clamp(voice.loopCrossfadeFrames, 0.0, span * 0.5);
+            const double wrappedSpan = loopEnd - wrappedStart;
+            if (!(wrappedSpan > 0.0)) {
+                voice.active = false;
+                return;
+            }
+            voice.position = wrappedStart
+                + std::fmod(voice.position - wrappedStart, wrappedSpan);
+            voice.hasLooped = true;
         } else if (voice.increment < 0.0 && voice.position < loopStart) {
-            voice.position = loopEnd
-                - std::fmod(loopStart - voice.position, span) - 1.0;
+            const double wrappedEnd = loopEnd
+                - std::clamp(voice.loopCrossfadeFrames, 0.0, span * 0.5);
+            const double wrappedSpan = wrappedEnd - loopStart;
+            if (!(wrappedSpan > 0.0)) {
+                voice.active = false;
+                return;
+            }
+            const double distance = std::fmod(loopStart - voice.position,
+                wrappedSpan);
+            voice.position = wrappedEnd - distance;
+            if (voice.position >= wrappedEnd) voice.position = loopStart;
+            voice.hasLooped = true;
         }
     }
 
@@ -2637,6 +3738,9 @@ private:
     const MixerSnapshot* mixer_ = nullptr;
     MixerSnapshot ownedMixer_ {};
     std::array<Voice, kMaximumVoices> voices_ {};
+    std::array<HeldNote, kMaximumVoices> heldNotes_ {};
+    std::array<VoiceCursor, kMaximumVoices> voiceCursors_ {};
+    uint32_t voiceCursorCount_ = 0u;
     std::array<float, kMaximumSampleSlots> slotPeaks_ {};
     std::array<std::array<MixerFilterState, kMaximumAudioChannels>,
         kMaximumSampleSlots> mixerFilters_ {};
@@ -2646,6 +3750,7 @@ private:
     s3g::BreakBus auxProcessor_ {};
     double sampleRate_ = 48000.0;
     uint64_t voiceAge_ = 0u;
+    uint64_t heldNoteAge_ = 0u;
     uint32_t naturalFadeFrames_ = 96u;
     uint32_t chokeReleaseFrames_ = 96u;
     float lowCoefficient_ = 0.02f;

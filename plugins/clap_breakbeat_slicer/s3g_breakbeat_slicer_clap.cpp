@@ -14,6 +14,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 #import <CoreText/CoreText.h>
+#include "../common/s3g_audio_file_export.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -31,6 +32,8 @@
 #include <new>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -41,6 +44,7 @@ using s3g::breakbeat::FilterMode;
 using s3g::breakbeat::InsertSettings;
 using s3g::breakbeat::InsertType;
 using s3g::breakbeat::MixerSnapshot;
+using s3g::breakbeat::MutationVariation;
 using s3g::breakbeat::RenderEvent;
 using s3g::breakbeat::SampleAnalysis;
 using s3g::breakbeat::SampleAsset;
@@ -48,8 +52,17 @@ using s3g::breakbeat::Slice;
 
 constexpr uint32_t kStateMagic = 0x53423353u; // "S3BS"
 constexpr uint32_t kLegacyStateVersion = 9u;
-constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kPreviousStateVersion = 10u;
+constexpr uint32_t kMutationContainerStateVersion = 11u;
+constexpr uint32_t kStateVersion = 12u;
+constexpr uint32_t kMutationStateMagic = 0x4154554du; // "MUTA"
+constexpr uint32_t kLegacyMutationStateVersion = 1u;
+constexpr uint32_t kStructuralMutationStateVersion = 2u;
+constexpr uint32_t kMixerFxMutationStateVersion = 3u;
+constexpr uint32_t kMutationStateVersion = 4u;
 constexpr uint32_t kMaximumTransientPreRollMicroseconds = 20000u;
+constexpr uint32_t kDefaultMinimumTransientSliceMilliseconds = 20u;
+constexpr uint32_t kMaximumMinimumTransientSliceMilliseconds = 1000u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
 constexpr uint32_t kGuiWidth = 1080u;
 constexpr uint32_t kGuiHeight = 800u;
@@ -142,19 +155,71 @@ struct SavedState {
     std::array<SavedSlot, s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
 
+struct SavedMutationState {
+    uint32_t magic = kMutationStateMagic;
+    uint32_t version = kMutationStateVersion;
+    uint32_t nextSeed = 1u;
+    float depth = 0.25f;
+    uint8_t targets = s3g::breakbeat::kDefaultMutationTargets;
+    std::array<uint8_t,
+        s3g::breakbeat::kMaximumSampleSlots> selectedVariations {};
+    std::array<uint8_t, 3u> reserved {};
+    std::array<std::array<MutationVariation,
+        s3g::breakbeat::kMutationVariationCount>,
+        s3g::breakbeat::kMaximumSampleSlots> variations {};
+};
+
+struct SavedPlaybackSlot {
+    float sourceTempoBpm = 120.0f;
+    float loopCrossfade = 0.02f;
+    float glideSeconds = 0.0f;
+    uint8_t triggerMode = static_cast<uint8_t>(
+        s3g::breakbeat::TriggerMode::Auto);
+    uint8_t retriggerMode = static_cast<uint8_t>(
+        s3g::breakbeat::RetriggerMode::Restart);
+    uint8_t voiceMode = static_cast<uint8_t>(
+        s3g::breakbeat::VoiceMode::Poly);
+    uint8_t pitchMode = static_cast<uint8_t>(
+        s3g::breakbeat::PitchMode::Rate);
+    uint8_t syncMode = static_cast<uint8_t>(
+        s3g::breakbeat::SyncMode::Free);
+    std::array<uint8_t, 3u> reserved {};
+};
+
+struct SavedPlaybackState {
+    uint32_t magic = 0x59414c50u; // "PLAY"
+    uint32_t version = 1u;
+    std::array<SavedPlaybackSlot,
+        s3g::breakbeat::kMaximumSampleSlots> slots {};
+};
+
 #if defined(__APPLE__)
+enum class LoadRequestKind : uint8_t {
+    File = 0u,
+    MutationPrint,
+    MutationExport,
+};
+
 struct LoadRequest {
+    LoadRequestKind kind = LoadRequestKind::File;
     uint32_t slotIndex = 0u;
+    uint32_t sourceSlot = 0u;
     uint64_t generation = 0u;
     std::string path;
+    std::shared_ptr<const BankSnapshot> printBank;
+    double renderSampleRate = 48000.0;
+    uint32_t renderChannelCount = 2u;
 };
 
 struct LoadResult {
+    LoadRequestKind kind = LoadRequestKind::File;
     uint32_t slotIndex = 0u;
+    uint32_t sourceSlot = 0u;
     uint64_t generation = 0u;
     std::string path;
     std::shared_ptr<const SampleAsset> asset;
     std::shared_ptr<const SampleAnalysis> analysis;
+    std::vector<uint32_t> sliceStarts;
     std::string error;
 };
 #endif
@@ -185,10 +250,17 @@ struct Plugin {
     std::atomic<double> velocitySensitivity { 1.0 };
     std::atomic<uint32_t> pendingAuditionNote { 0u }; // key + 1
     std::atomic<uint32_t> pendingAuditionChannel { 0u };
+    std::atomic<bool> pendingKillAll { false };
     std::atomic<uint64_t> auditionCounter { 1u };
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>,
         s3g::breakbeat::kMaximumSampleSlots> slotPlayheads {};
+    std::array<std::atomic<float>,
+        s3g::breakbeat::kMaximumVoices> voicePlayheads {};
+    std::array<std::atomic<uint8_t>,
+        s3g::breakbeat::kMaximumVoices> voicePlayheadSlots {};
+    std::array<std::atomic<uint8_t>,
+        s3g::breakbeat::kMaximumVoices> voicePlayheadKeys {};
     std::array<std::atomic<float>,
         s3g::breakbeat::kMaximumSampleSlots> slotPeaks {};
     std::atomic<float> auxActivity { 0.0f };
@@ -200,7 +272,21 @@ struct Plugin {
     uint32_t outputChannelCount = 2u;
     bool embedSamplesInState = true;
     uint32_t transientPreRollMicroseconds = 0u;
+    uint32_t minimumTransientSliceMilliseconds
+        = kDefaultMinimumTransientSliceMilliseconds;
     uint32_t selectedSlot = 0u;
+    std::array<std::array<MutationVariation,
+        s3g::breakbeat::kMutationVariationCount>,
+        s3g::breakbeat::kMaximumSampleSlots> variations {};
+    std::array<uint8_t,
+        s3g::breakbeat::kMaximumSampleSlots> selectedVariations {};
+    uint32_t mutationSeed = 1u;
+    float mutationDepth = 0.25f;
+    uint8_t mutationTargets = s3g::breakbeat::kDefaultMutationTargets;
+    uint8_t structuralMutationUses
+        = s3g::breakbeat::kDefaultStructuralMutationUses;
+    std::array<bool,
+        s3g::breakbeat::kMaximumSampleSlots> pendingMutationSlots {};
     std::string status { "LOAD A BREAK OR ONE-SHOT" };
     bool active = false;
 #if defined(__APPLE__)
@@ -211,6 +297,7 @@ struct Plugin {
     std::thread loaderThread;
     std::array<uint64_t,
         s3g::breakbeat::kMaximumSampleSlots> loadGenerations {};
+    uint64_t exportGeneration = 0u;
     bool loaderStopping = false;
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -415,6 +502,92 @@ bool automapSlot(Plugin& instance, uint32_t slotIndex)
     return publishBank(instance, std::move(bank));
 }
 
+bool slotHasCompleteMap(const s3g::breakbeat::SampleSlot& slot) noexcept
+{
+    return slot.asset && slot.sliceCount > 0u
+        && slot.mappedSliceCount == slot.sliceCount
+        && slot.mappedRootNote == slot.rootNote;
+}
+
+void resetSlotVariations(Plugin& instance, uint32_t slotIndex,
+    const s3g::breakbeat::SampleSlot* source = nullptr)
+{
+    if (slotIndex >= instance.variations.size()) return;
+    instance.variations[slotIndex] = {};
+    instance.selectedVariations[slotIndex] = 0u;
+    if (source && source->asset && source->sliceCount > 0u)
+        instance.variations[slotIndex][0u]
+            = s3g::breakbeat::captureMutationVariation(*source);
+}
+
+uint32_t emptyMutationSlotCount(const Plugin& instance,
+    uint32_t sourceSlot) noexcept
+{
+    if (!instance.controlBank) return 0u;
+    uint32_t count = 0u;
+    for (uint32_t index = 0u;
+         index < s3g::breakbeat::kMaximumSampleSlots; ++index) {
+        if (index != sourceSlot && !instance.controlBank->slots[index].asset
+            && !instance.pendingMutationSlots[index]) ++count;
+    }
+    return count;
+}
+
+std::shared_ptr<const BankSnapshot> structuralMutationBank(
+    const Plugin& instance, uint32_t sourceSlot, uint32_t destinationSlot,
+    uint32_t seed)
+{
+    if (!instance.controlBank
+        || sourceSlot >= s3g::breakbeat::kMaximumSampleSlots
+        || destinationSlot >= s3g::breakbeat::kMaximumSampleSlots)
+        return {};
+    auto bank = std::make_shared<BankSnapshot>(*instance.controlBank);
+    auto& source = bank->slots[sourceSlot];
+    if (!source.asset || source.sliceCount == 0u) return {};
+    auto variation = s3g::breakbeat::captureMutationVariation(source);
+    const std::size_t maximum = std::min(
+        s3g::breakbeat::maximumSlicesForStartNote(source.rootNote),
+        s3g::breakbeat::maximumSlicesForStartNote(
+            bank->slots[destinationSlot].rootNote));
+    constexpr float depth = 0.72f;
+    if (!s3g::breakbeat::structurallyMutateVariation(variation,
+            *source.asset, seed, depth, maximum,
+            instance.structuralMutationUses)
+        || !s3g::breakbeat::applyMutationVariation(source, variation))
+        return {};
+    source.mappedRootNote = source.rootNote;
+    source.mappedSliceCount = source.sliceCount;
+
+    if ((instance.structuralMutationUses
+            & s3g::breakbeat::StructuralMixerFx) != 0u
+        && !s3g::breakbeat::mutateMixerEffects(source, seed, depth))
+        return {};
+
+    if ((instance.structuralMutationUses
+            & s3g::breakbeat::StructuralAuxBus) != 0u) {
+        uint32_t random = seed ^ 0xa511e9b3u;
+        const auto unit = [&random] {
+            return s3g::breakbeat::mutationUnit(random);
+        };
+        bank->auxEnabled = true;
+        bank->auxFieldSafe = source.asset->channelCount > 2u;
+        bank->auxLinkMode = s3g::BreakBusLinkMode::All;
+        source.mixerAuxSend = 0.38f + unit() * 0.42f;
+        bank->auxPress = 0.34f + unit() * 0.46f;
+        bank->auxSnap = -0.12f + unit() * 0.58f;
+        bank->auxRecovery = 0.22f + unit() * 0.56f;
+        bank->auxSaturation = 0.15f + unit() * 0.46f;
+        bank->auxBite = 0.04f + unit() * 0.36f;
+        bank->auxClip = unit() * 0.22f;
+        bank->auxTilt = -0.22f + unit() * 0.44f;
+        bank->auxReturnDb = -10.0f + unit() * 5.0f;
+    } else {
+        bank->auxEnabled = false;
+        source.mixerAuxSend = 0.0f;
+    }
+    return bank->valid() ? bank : std::shared_ptr<const BankSnapshot> {};
+}
+
 int mappedNoteFor(const BankSnapshot& bank, uint32_t slotIndex,
     uint32_t sliceIndex) noexcept
 {
@@ -499,6 +672,174 @@ bool decodeSampleFile(const std::string& path,
     }
 }
 
+bool renderBuiltBreak(const LoadRequest& request,
+    std::shared_ptr<const SampleAsset>& assetOut,
+    std::shared_ptr<const SampleAnalysis>& analysisOut,
+    std::vector<uint32_t>& sliceStartsOut,
+    std::string& error)
+{
+    if (!request.printBank
+        || request.sourceSlot >= request.printBank->slots.size()) {
+        error = "RENDER SOURCE IS NOT AVAILABLE";
+        return false;
+    }
+    const auto& source = request.printBank->slots[request.sourceSlot];
+    if (!source.asset || source.sliceCount == 0u
+        || !(request.renderSampleRate > 0.0)
+        || !std::isfinite(request.renderSampleRate)) {
+        error = "LOAD AND SLICE A BREAK BEFORE RENDERING";
+        return false;
+    }
+    const uint32_t outputChannels = source.asset->channelCount <= 2u
+        ? 2u : source.asset->channelCount;
+    if (outputChannels > request.renderChannelCount) {
+        error = "RENDER SOURCE IS WIDER THAN THIS PLUGIN";
+        return false;
+    }
+
+    BankSnapshot renderBank = *request.printBank;
+    for (std::size_t index = 0u; index < renderBank.slots.size(); ++index) {
+        if (index == request.sourceSlot) continue;
+        const uint8_t root = renderBank.slots[index].rootNote;
+        const uint8_t midi = renderBank.slots[index].midiChannel;
+        renderBank.slots[index] = {};
+        renderBank.slots[index].rootNote = root;
+        renderBank.slots[index].mappedRootNote = root;
+        renderBank.slots[index].midiChannel = midi;
+    }
+    auto& printable = renderBank.slots[request.sourceSlot];
+    printable.muted = false;
+    printable.solo = false;
+    printable.mappedRootNote = printable.rootNote;
+    printable.mappedSliceCount = printable.sliceCount;
+    for (std::size_t index = 0u; index < printable.sliceCount; ++index) {
+        printable.slices[index].launchMode
+            = s3g::breakbeat::LaunchMode::OneShot;
+        printable.slices[index].loopStartFrame = 0u;
+        printable.slices[index].loopEndFrame = 0u;
+    }
+    if (!renderBank.valid()) {
+        error = "CURRENT BREAK CANNOT BE RENDERED";
+        return false;
+    }
+
+    std::vector<RenderEvent> events;
+    events.reserve(printable.sliceCount);
+    sliceStartsOut.clear();
+    sliceStartsOut.reserve(printable.sliceCount);
+    uint64_t mainFrames = 0u;
+    for (std::size_t index = 0u; index < printable.sliceCount; ++index) {
+        const auto& slice = printable.slices[index];
+        const double semitones = static_cast<double>(
+            slice.transposeSemitones)
+            + static_cast<double>(slice.fineTuneCents) / 100.0;
+        const double increment = printable.asset->sampleRate
+            / request.renderSampleRate * std::pow(2.0, semitones / 12.0);
+        const double sourceFrames = static_cast<double>(
+            slice.endFrame - slice.startFrame);
+        const uint64_t duration = static_cast<uint64_t>(std::max(1.0,
+            std::ceil(sourceFrames / std::max(increment, 1.0e-12))));
+        if (duration > std::numeric_limits<uint32_t>::max()
+            || mainFrames
+                > std::numeric_limits<uint32_t>::max() - duration) {
+            error = "RENDER IS TOO LONG";
+            return false;
+        }
+        sliceStartsOut.push_back(static_cast<uint32_t>(mainFrames));
+        events.push_back({ static_cast<uint32_t>(mainFrames),
+            EventKind::NoteOn, static_cast<uint64_t>(index + 1u),
+            static_cast<uint8_t>(printable.rootNote + index), 0u, 1.0f,
+            printable.midiChannel == 0u ? static_cast<uint8_t>(1u)
+                                        : printable.midiChannel });
+        mainFrames += duration;
+    }
+    const uint64_t tailFrames = static_cast<uint64_t>(std::lround(
+        request.renderSampleRate * 2.0));
+    const uint64_t totalFrames64 = mainFrames + tailFrames;
+    const uint64_t totalBytes = totalFrames64 * outputChannels
+        * sizeof(float);
+    if (totalFrames64 == 0u
+        || totalFrames64 > std::numeric_limits<uint32_t>::max()
+        || totalBytes > kMaximumEmbeddedAudioBytes) {
+        error = "RENDER EXCEEDS THE 1 GB AUDIO LIMIT";
+        return false;
+    }
+    const uint32_t totalFrames = static_cast<uint32_t>(totalFrames64);
+    auto rendered = std::make_shared<SampleAsset>();
+    rendered->sampleRate = request.renderSampleRate;
+    rendered->channelCount = static_cast<uint8_t>(outputChannels);
+    std::array<float*, s3g::breakbeat::kMaximumAudioChannels> outputs {};
+    for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+        rendered->channels[channel].assign(totalFrames, 0.0f);
+        outputs[channel] = rendered->channels[channel].data();
+    }
+    auto renderer = std::unique_ptr<s3g::breakbeat::SlicerEngine>(
+        new (std::nothrow) s3g::breakbeat::SlicerEngine());
+    if (!renderer
+        || !renderer->prepare(request.renderSampleRate, outputChannels)
+        || !renderer->setBank(&renderBank)) {
+        error = "COULD NOT PREPARE THE RENDER ENGINE";
+        return false;
+    }
+    renderer->render(events.data(), events.size(), outputs.data(),
+        outputChannels, totalFrames);
+
+    uint32_t trimmedFrames = static_cast<uint32_t>(mainFrames);
+    for (uint32_t frame = totalFrames; frame > mainFrames; --frame) {
+        bool audible = false;
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            if (std::abs(rendered->channels[channel][frame - 1u])
+                > 1.0e-6f) {
+                audible = true;
+                break;
+            }
+        }
+        if (audible) {
+            trimmedFrames = std::min<uint32_t>(totalFrames,
+                frame + static_cast<uint32_t>(std::lround(
+                    request.renderSampleRate * 0.010)));
+            break;
+        }
+    }
+    trimmedFrames = std::max<uint32_t>(trimmedFrames, 1u);
+    for (uint32_t channel = 0u; channel < outputChannels; ++channel)
+        rendered->channels[channel].resize(trimmedFrames);
+    if (!rendered->valid()) {
+        error = "RENDERED AUDIO IS INVALID";
+        return false;
+    }
+    if (request.kind == LoadRequestKind::MutationPrint) {
+        auto analysis = std::make_shared<SampleAnalysis>(
+            s3g::breakbeat::analyzeSample(*rendered));
+        if (!analysis->validFor(*rendered)) {
+            error = "RENDERED WAVEFORM ANALYSIS FAILED";
+            return false;
+        }
+        analysisOut = std::move(analysis);
+    } else {
+        analysisOut.reset();
+    }
+    assetOut = std::move(rendered);
+    error.clear();
+    return true;
+}
+
+bool writeRenderedWaveFile(const std::string& path,
+    const SampleAsset& asset, std::string& error)
+{
+    if (path.empty() || !asset.valid()) {
+        error = "EXPORT TARGET OR RENDERED AUDIO IS INVALID";
+        return false;
+    }
+    std::array<const float*, s3g::breakbeat::kMaximumAudioChannels>
+        channels {};
+    for (uint32_t channel = 0u; channel < asset.channelCount; ++channel)
+        channels[channel] = asset.channels[channel].data();
+    return s3g::audio_file::writePlanarFloatWaveAtomically(path,
+        asset.sampleRate, asset.channelCount, asset.frameCount(),
+        channels.data(), error);
+}
+
 bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     const std::string& path, std::shared_ptr<const SampleAsset> asset,
     std::shared_ptr<const SampleAnalysis> analysis)
@@ -534,6 +875,14 @@ bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     slot.mixerMidFrequencyHz = previous.mixerMidFrequencyHz;
     slot.mixerAuxSend = previous.mixerAuxSend;
     slot.inserts = previous.inserts;
+    slot.triggerMode = previous.triggerMode;
+    slot.retriggerMode = previous.retriggerMode;
+    slot.voiceMode = previous.voiceMode;
+    slot.pitchMode = previous.pitchMode;
+    slot.syncMode = previous.syncMode;
+    slot.sourceTempoBpm = previous.sourceTempoBpm;
+    slot.loopCrossfade = previous.loopCrossfade;
+    slot.glideSeconds = previous.glideSeconds;
     slot.muted = previous.muted;
     slot.solo = previous.solo;
     slot.sliceCount = 1u;
@@ -545,12 +894,62 @@ bool installDecodedSample(Plugin& instance, uint32_t slotIndex,
     }
     instance.samplePaths[slotIndex] = path;
     instance.analyses[slotIndex] = std::move(analysis);
+    resetSlotVariations(instance, slotIndex,
+        &instance.controlBank->slots[slotIndex]);
     markStateDirty(instance);
     if (sourceChannelCount > 2u) {
         instance.status = "SAMPLE READY - AUTO MAP TO PLAY";
     } else {
         instance.status = "SAMPLE READY - AUTO MAP TO PLAY";
     }
+    return true;
+}
+
+bool installMutationPrint(Plugin& instance, const LoadResult& result)
+{
+    const uint32_t slotIndex = result.slotIndex;
+    if (slotIndex >= s3g::breakbeat::kMaximumSampleSlots || !result.asset
+        || !result.analysis || !result.asset->valid()
+        || !result.analysis->validFor(*result.asset)) return false;
+    auto bank = editableBank(instance);
+    auto& destination = bank->slots[slotIndex];
+    if (destination.asset) {
+        instance.status = "MUTATION TARGET IS NO LONGER EMPTY";
+        return false;
+    }
+    const uint8_t root = destination.rootNote;
+    const uint8_t midiChannel = destination.midiChannel;
+    destination = {};
+    destination.asset = result.asset;
+    destination.rootNote = root;
+    destination.mappedRootNote = root;
+    destination.midiChannel = midiChannel;
+    const std::size_t maximum = std::min(destination.slices.size(),
+        s3g::breakbeat::maximumSlicesForStartNote(root));
+    std::vector<uint32_t> starts;
+    starts.reserve(std::min(maximum, result.sliceStarts.size()));
+    for (const uint32_t start : result.sliceStarts) {
+        if (start >= destination.asset->frameCount()
+            || (!starts.empty() && start <= starts.back())) continue;
+        starts.push_back(start);
+        if (starts.size() >= maximum) break;
+    }
+    if (starts.empty() || starts.front() != 0u) starts.insert(
+        starts.begin(), 0u);
+    destination.sliceCount = static_cast<uint16_t>(starts.size());
+    destination.mappedSliceCount = destination.sliceCount;
+    for (std::size_t index = 0u; index < starts.size(); ++index) {
+        destination.slices[index].startFrame = starts[index];
+        destination.slices[index].endFrame = index + 1u < starts.size()
+            ? starts[index + 1u] : destination.asset->frameCount();
+    }
+    if (!publishBank(instance, std::move(bank), false)) return false;
+    instance.samplePaths[slotIndex] = result.path;
+    instance.analyses[slotIndex] = result.analysis;
+    resetSlotVariations(instance, slotIndex,
+        &instance.controlBank->slots[slotIndex]);
+    markStateDirty(instance);
+    instance.status = "MUTATION COMPLETE - NEW BREAK IS MAPPED";
     return true;
 }
 
@@ -571,16 +970,31 @@ bool startSampleLoader(Plugin& instance)
                     instance.loadRequests.pop_front();
                 }
                 LoadResult result;
+                result.kind = request.kind;
                 result.slotIndex = request.slotIndex;
+                result.sourceSlot = request.sourceSlot;
                 result.generation = request.generation;
                 result.path = std::move(request.path);
                 try {
-                    decodeSampleFile(result.path, result.asset,
-                        result.analysis, result.error);
+                    if (result.kind == LoadRequestKind::File) {
+                        decodeSampleFile(result.path, result.asset,
+                            result.analysis, result.error);
+                    } else if (renderBuiltBreak(request, result.asset,
+                            result.analysis, result.sliceStarts,
+                            result.error)
+                        && result.kind == LoadRequestKind::MutationExport) {
+                        (void)writeRenderedWaveFile(result.path,
+                            *result.asset, result.error);
+                    }
                 } catch (...) {
                     result.asset.reset();
                     result.analysis.reset();
-                    result.error = "SAMPLE DECODE RAN OUT OF RESOURCES";
+                    result.error = result.kind
+                            == LoadRequestKind::MutationExport
+                        ? "EXPORT RAN OUT OF RESOURCES"
+                        : result.kind == LoadRequestKind::MutationPrint
+                            ? "MUTATION RAN OUT OF RESOURCES"
+                            : "SAMPLE DECODE RAN OUT OF RESOURCES";
                 }
                 {
                     std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -615,25 +1029,113 @@ void queueSampleLoad(Plugin& instance, uint32_t slotIndex,
 {
     if (slotIndex >= s3g::breakbeat::kMaximumSampleSlots
         || path.empty()) return;
+    instance.pendingMutationSlots[slotIndex] = false;
     const uint64_t generation = ++instance.loadGenerations[slotIndex];
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
-        instance.loadRequests.push_back({ slotIndex, generation,
-            std::move(path) });
+        LoadRequest request;
+        request.kind = LoadRequestKind::File;
+        request.slotIndex = slotIndex;
+        request.generation = generation;
+        request.path = std::move(path);
+        instance.loadRequests.push_back(std::move(request));
     }
     instance.status = "LOADING AND ANALYZING SAMPLE";
     instance.loaderCondition.notify_one();
+}
+
+bool queueStructuralMutation(Plugin& instance, uint32_t sourceSlot,
+    uint32_t destinationSlot, uint32_t seed)
+{
+    if (!instance.controlBank
+        || sourceSlot >= s3g::breakbeat::kMaximumSampleSlots
+        || destinationSlot >= s3g::breakbeat::kMaximumSampleSlots
+        || sourceSlot == destinationSlot
+        || !instance.controlBank->slots[sourceSlot].asset
+        || instance.controlBank->slots[destinationSlot].asset
+        || instance.pendingMutationSlots[destinationSlot]) return false;
+    auto mutationBank = structuralMutationBank(instance, sourceSlot,
+        destinationSlot, seed);
+    if (!mutationBank) return false;
+    const uint64_t generation
+        = ++instance.loadGenerations[destinationSlot];
+    LoadRequest request;
+    request.kind = LoadRequestKind::MutationPrint;
+    request.slotIndex = destinationSlot;
+    request.sourceSlot = sourceSlot;
+    request.generation = generation;
+    request.path = "MUTATED BREAK " + std::to_string(sourceSlot + 1u)
+        + " SEED " + std::to_string(seed);
+    request.printBank = std::move(mutationBank);
+    request.renderSampleRate = instance.sampleRate;
+    request.renderChannelCount = instance.outputChannelCount;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.pendingMutationSlots[destinationSlot] = true;
+    instance.loaderCondition.notify_one();
+    return true;
+}
+
+uint32_t fillEmptySlotsWithMutations(Plugin& instance,
+    uint32_t sourceSlot)
+{
+    if (!instance.controlBank
+        || sourceSlot >= s3g::breakbeat::kMaximumSampleSlots
+        || !instance.controlBank->slots[sourceSlot].asset) return 0u;
+    uint32_t queued = 0u;
+    for (uint32_t offset = 1u;
+         offset <= s3g::breakbeat::kMaximumSampleSlots; ++offset) {
+        const uint32_t destination = (sourceSlot + offset)
+            % s3g::breakbeat::kMaximumSampleSlots;
+        if (instance.controlBank->slots[destination].asset
+            || instance.pendingMutationSlots[destination]) continue;
+        const uint32_t seed = instance.mutationSeed++;
+        if (instance.mutationSeed == 0u) instance.mutationSeed = 1u;
+        if (queueStructuralMutation(instance, sourceSlot, destination,
+                seed)) ++queued;
+    }
+    if (queued > 0u) markStateDirty(instance);
+    return queued;
+}
+
+bool queueMutationExport(Plugin& instance, uint32_t sourceSlot,
+    std::string path)
+{
+    if (!instance.controlBank || path.empty()
+        || sourceSlot >= s3g::breakbeat::kMaximumSampleSlots
+        || !instance.controlBank->slots[sourceSlot].asset) return false;
+    LoadRequest request;
+    request.kind = LoadRequestKind::MutationExport;
+    request.slotIndex = sourceSlot;
+    request.sourceSlot = sourceSlot;
+    request.generation = ++instance.exportGeneration;
+    request.path = std::move(path);
+    request.printBank = instance.controlBank;
+    request.renderSampleRate = instance.sampleRate;
+    request.renderChannelCount = instance.outputChannelCount;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.status = "RENDERING BREAK FOR WAV EXPORT";
+    instance.loaderCondition.notify_one();
+    return true;
 }
 
 void cancelSampleLoad(Plugin& instance, uint32_t slotIndex)
 {
     if (slotIndex >= instance.loadGenerations.size()) return;
     ++instance.loadGenerations[slotIndex];
+    instance.pendingMutationSlots[slotIndex] = false;
 }
 
 void cancelAllSampleLoads(Plugin& instance)
 {
     for (auto& generation : instance.loadGenerations) ++generation;
+    instance.pendingMutationSlots.fill(false);
+    ++instance.exportGeneration;
     std::lock_guard<std::mutex> lock(instance.loaderMutex);
     instance.loadRequests.clear();
     instance.loadResults.clear();
@@ -647,16 +1149,31 @@ void serviceSampleLoads(Plugin& instance)
         completed.swap(instance.loadResults);
     }
     for (auto& result : completed) {
+        if (result.kind == LoadRequestKind::MutationExport) {
+            if (result.generation != instance.exportGeneration) continue;
+            instance.status = result.error.empty() && result.asset
+                ? "BREAK WAV EXPORT COMPLETE"
+                : result.error.empty() ? "BREAK WAV EXPORT FAILED"
+                                       : result.error;
+            continue;
+        }
         if (result.slotIndex >= instance.loadGenerations.size()
             || result.generation
                 != instance.loadGenerations[result.slotIndex]) continue;
+        if (result.kind == LoadRequestKind::MutationPrint)
+            instance.pendingMutationSlots[result.slotIndex] = false;
         if (!result.asset || !result.analysis) {
             instance.status = result.error.empty()
                 ? "SAMPLE DECODE FAILED" : result.error;
             continue;
         }
-        (void)installDecodedSample(instance, result.slotIndex, result.path,
-            std::move(result.asset), std::move(result.analysis));
+        if (result.kind == LoadRequestKind::MutationPrint) {
+            (void)installMutationPrint(instance, result);
+        } else {
+            (void)installDecodedSample(instance, result.slotIndex,
+                result.path, std::move(result.asset),
+                std::move(result.analysis));
+        }
     }
 }
 #endif
@@ -775,6 +1292,12 @@ bool pluginInit(const clap_plugin_t* plugin)
     auto& instance = *self(plugin);
     for (auto& playhead : instance.slotPlayheads)
         playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& playhead : instance.voicePlayheads)
+        playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& slot : instance.voicePlayheadSlots)
+        slot.store(0xffu, std::memory_order_relaxed);
+    for (auto& key : instance.voicePlayheadKeys)
+        key.store(0u, std::memory_order_relaxed);
     for (auto& peak : instance.slotPeaks)
         peak.store(0.0f, std::memory_order_relaxed);
     instance.auxActivity.store(0.0f, std::memory_order_relaxed);
@@ -844,6 +1367,12 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.audioMixer = nullptr;
     for (auto& playhead : instance.slotPlayheads)
         playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& playhead : instance.voicePlayheads)
+        playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& slot : instance.voicePlayheadSlots)
+        slot.store(0xffu, std::memory_order_relaxed);
+    for (auto& key : instance.voicePlayheadKeys)
+        key.store(0u, std::memory_order_relaxed);
     for (auto& peak : instance.slotPeaks)
         peak.store(0.0f, std::memory_order_relaxed);
     instance.auxActivity.store(0.0f, std::memory_order_relaxed);
@@ -873,6 +1402,12 @@ void pluginReset(const clap_plugin_t* plugin)
     instance.engine.reset();
     for (auto& playhead : instance.slotPlayheads)
         playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& playhead : instance.voicePlayheads)
+        playhead.store(-1.0f, std::memory_order_relaxed);
+    for (auto& slot : instance.voicePlayheadSlots)
+        slot.store(0xffu, std::memory_order_relaxed);
+    for (auto& key : instance.voicePlayheadKeys)
+        key.store(0u, std::memory_order_relaxed);
     for (auto& peak : instance.slotPeaks)
         peak.store(0.0f, std::memory_order_relaxed);
     instance.auxActivity.store(0.0f, std::memory_order_relaxed);
@@ -905,17 +1440,40 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     }
     std::size_t renderEventCount = 0u;
     readInputEvents(instance, process->in_events, frames, renderEventCount);
+    if (instance.pendingKillAll.exchange(false, std::memory_order_acq_rel))
+        instance.engine.killAll();
     std::array<float*, s3g::breakbeat::kMaximumAudioChannels> scratch {};
     for (uint32_t channel = 0u; channel < instance.outputChannelCount;
          ++channel)
         scratch[channel] = instance.scratchChannels[channel].data();
+    double hostTempoBpm = 120.0;
+    if (process->transport
+        && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+        && std::isfinite(process->transport->tempo)
+        && process->transport->tempo > 0.0)
+        hostTempoBpm = process->transport->tempo;
     instance.engine.render(instance.blockEvents.data(), renderEventCount,
-        scratch.data(), instance.outputChannelCount, frames);
+        scratch.data(), instance.outputChannelCount, frames, hostTempoBpm);
     for (std::size_t slot = 0u; slot < instance.slotPlayheads.size(); ++slot)
         instance.slotPlayheads[slot].store(
             instance.engine.slotPlayheadNormalized(
                 static_cast<uint8_t>(slot)),
             std::memory_order_relaxed);
+    const auto& cursors = instance.engine.voiceCursors();
+    const uint32_t cursorCount = instance.engine.voiceCursorCount();
+    for (std::size_t index = 0u;
+         index < instance.voicePlayheads.size(); ++index) {
+        const bool active = index < cursorCount;
+        instance.voicePlayheads[index].store(active
+                ? cursors[index].sourcePositionNormalized : -1.0f,
+            std::memory_order_relaxed);
+        instance.voicePlayheadSlots[index].store(active
+                ? cursors[index].slotIndex : 0xffu,
+            std::memory_order_relaxed);
+        instance.voicePlayheadKeys[index].store(active
+                ? cursors[index].key : 0u,
+            std::memory_order_relaxed);
+    }
     for (std::size_t slot = 0u; slot < instance.slotPeaks.size(); ++slot) {
         const float previousSlotPeak = instance.slotPeaks[slot].load(
             std::memory_order_relaxed);
@@ -1282,10 +1840,16 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
             const uint64_t bytes = static_cast<uint64_t>(
                 destination.channelCount) * destination.frameCount
                 * sizeof(float);
-            if (instance.embedSamplesInState
+            const bool generated = instance.samplePaths[index].rfind(
+                    "PRINTED BREAK ", 0u) == 0u
+                || instance.samplePaths[index].rfind(
+                    "MUTATED BREAK ", 0u) == 0u;
+            if ((instance.embedSamplesInState || generated)
                 && bytes <= kMaximumEmbeddedAudioBytes - embeddedBytes) {
                 destination.embedded = 1u;
                 embeddedBytes += bytes;
+            } else if (generated) {
+                return false;
             }
         }
     }
@@ -1302,7 +1866,43 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
                     samples.size() * sizeof(float))) return false;
         }
     }
-    return true;
+    auto mutation = std::unique_ptr<SavedMutationState>(
+        new (std::nothrow) SavedMutationState());
+    if (!mutation) return false;
+    mutation->magic = kMutationStateMagic;
+    mutation->version = kMutationStateVersion;
+    mutation->nextSeed = instance.mutationSeed;
+    mutation->depth = instance.mutationDepth;
+    mutation->targets = instance.structuralMutationUses;
+    mutation->selectedVariations = instance.selectedVariations;
+    const uint16_t minimumSliceMilliseconds = static_cast<uint16_t>(
+        std::min(instance.minimumTransientSliceMilliseconds,
+            kMaximumMinimumTransientSliceMilliseconds));
+    mutation->reserved[0u] = static_cast<uint8_t>(
+        minimumSliceMilliseconds & 0xffu);
+    mutation->reserved[1u] = static_cast<uint8_t>(
+        minimumSliceMilliseconds >> 8u);
+    static_assert(std::is_trivially_copyable_v<MutationVariation>);
+    std::memcpy(mutation->variations.data(), instance.variations.data(),
+        sizeof(instance.variations));
+    if (!s3g::clap_state::writeAll(stream, mutation.get(),
+            sizeof(*mutation))) return false;
+    SavedPlaybackState playback;
+    for (std::size_t index = 0u; index < playback.slots.size(); ++index) {
+        const auto& source = instance.controlBank->slots[index];
+        auto& destination = playback.slots[index];
+        destination.sourceTempoBpm = source.sourceTempoBpm;
+        destination.loopCrossfade = source.loopCrossfade;
+        destination.glideSeconds = source.glideSeconds;
+        destination.triggerMode = static_cast<uint8_t>(source.triggerMode);
+        destination.retriggerMode = static_cast<uint8_t>(
+            source.retriggerMode);
+        destination.voiceMode = static_cast<uint8_t>(source.voiceMode);
+        destination.pitchMode = static_cast<uint8_t>(source.pitchMode);
+        destination.syncMode = static_cast<uint8_t>(source.syncMode);
+    }
+    return s3g::clap_state::writeAll(stream, &playback,
+        sizeof(playback));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -1312,6 +1912,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved))
         || saved.magic != kStateMagic
         || (saved.version != kLegacyStateVersion
+            && saved.version != kPreviousStateVersion
+            && saved.version != kMutationContainerStateVersion
             && saved.version != kStateVersion))
         return false;
     auto& instance = *self(plugin);
@@ -1463,15 +2065,134 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance.samplePaths[index] = path;
         instance.analyses[index] = std::move(analysis);
     }
+    std::unique_ptr<SavedMutationState> mutation;
+    bool restoredMutations = false;
+    if (saved.version >= kMutationContainerStateVersion) {
+        mutation.reset(new (std::nothrow) SavedMutationState());
+        if (!mutation
+            || !s3g::clap_state::readAll(stream, mutation.get(),
+                sizeof(*mutation))
+            || mutation->magic != kMutationStateMagic
+            || (mutation->version != kLegacyMutationStateVersion
+                && mutation->version != kStructuralMutationStateVersion
+                && mutation->version != kMixerFxMutationStateVersion
+                && mutation->version != kMutationStateVersion)) return false;
+        restoredMutations = true;
+    }
+    if (saved.version == kStateVersion) {
+        SavedPlaybackState playback;
+        if (!s3g::clap_state::readAll(stream, &playback, sizeof(playback))
+            || playback.magic != 0x59414c50u || playback.version != 1u)
+            return false;
+        for (std::size_t index = 0u; index < playback.slots.size(); ++index) {
+            const auto& source = playback.slots[index];
+            auto& slot = bank->slots[index];
+            slot.sourceTempoBpm = std::isfinite(source.sourceTempoBpm)
+                ? std::clamp(source.sourceTempoBpm, 20.0f, 999.0f)
+                : 120.0f;
+            slot.loopCrossfade = std::isfinite(source.loopCrossfade)
+                ? std::clamp(source.loopCrossfade, 0.0f, 0.5f) : 0.02f;
+            slot.glideSeconds = std::isfinite(source.glideSeconds)
+                ? std::clamp(source.glideSeconds, 0.0f, 2.0f) : 0.0f;
+            slot.triggerMode = static_cast<s3g::breakbeat::TriggerMode>(
+                std::min<uint8_t>(source.triggerMode,
+                    static_cast<uint8_t>(
+                        s3g::breakbeat::TriggerMode::Toggle)));
+            slot.retriggerMode = static_cast<
+                s3g::breakbeat::RetriggerMode>(std::min<uint8_t>(
+                    source.retriggerMode, static_cast<uint8_t>(
+                        s3g::breakbeat::RetriggerMode::Ignore)));
+            slot.voiceMode = static_cast<s3g::breakbeat::VoiceMode>(
+                std::min<uint8_t>(source.voiceMode,
+                    static_cast<uint8_t>(
+                        s3g::breakbeat::VoiceMode::Legato)));
+            slot.pitchMode = static_cast<s3g::breakbeat::PitchMode>(
+                std::min<uint8_t>(source.pitchMode,
+                    static_cast<uint8_t>(
+                        s3g::breakbeat::PitchMode::RateBelowStretchAbove)));
+            slot.syncMode = static_cast<s3g::breakbeat::SyncMode>(
+                std::min<uint8_t>(source.syncMode,
+                    static_cast<uint8_t>(
+                        s3g::breakbeat::SyncMode::Host)));
+        }
+    }
     if (!bank->valid()
         || !publishBank(instance, std::move(bank), false)) return false;
+    instance.variations = {};
+    instance.selectedVariations = {};
+    if (restoredMutations) {
+        instance.mutationSeed = mutation->nextSeed == 0u
+            ? 1u : mutation->nextSeed;
+        instance.mutationDepth = std::isfinite(mutation->depth)
+            ? std::clamp(mutation->depth, 0.0f, 1.0f) : 0.25f;
+        instance.mutationTargets
+            = s3g::breakbeat::kDefaultMutationTargets;
+        if (mutation->version == kLegacyMutationStateVersion) {
+            instance.structuralMutationUses
+                = s3g::breakbeat::StructuralRearrange
+                | s3g::breakbeat::StructuralRepeat
+                | s3g::breakbeat::StructuralAuxBus
+                | s3g::breakbeat::StructuralMixerFx;
+            if ((mutation->targets
+                    & s3g::breakbeat::MutationPitch) != 0u)
+                instance.structuralMutationUses
+                    |= s3g::breakbeat::StructuralPitch;
+            if ((mutation->targets
+                    & s3g::breakbeat::MutationReverse) != 0u)
+                instance.structuralMutationUses
+                    |= s3g::breakbeat::StructuralReverse;
+        } else if (mutation->version == kStructuralMutationStateVersion) {
+            instance.structuralMutationUses = (mutation->targets
+                    & s3g::breakbeat::kAllStructuralMutationUses)
+                | s3g::breakbeat::StructuralMixerFx;
+        } else {
+            instance.structuralMutationUses = mutation->targets
+                & s3g::breakbeat::kAllStructuralMutationUses;
+        }
+        for (std::size_t slotIndex = 0u;
+             slotIndex < instance.variations.size(); ++slotIndex) {
+            const auto& slot = instance.controlBank->slots[slotIndex];
+            instance.selectedVariations[slotIndex] = std::min<uint8_t>(
+                mutation->selectedVariations[slotIndex],
+                static_cast<uint8_t>(
+                    s3g::breakbeat::kMutationVariationCount - 1u));
+            for (std::size_t variationIndex = 0u;
+                 variationIndex < s3g::breakbeat::kMutationVariationCount;
+                 ++variationIndex) {
+                const auto& candidate
+                    = mutation->variations[slotIndex][variationIndex];
+                if (!candidate.occupied) continue;
+                if (slot.asset && candidate.validFor(*slot.asset))
+                    instance.variations[slotIndex][variationIndex]
+                        = candidate;
+            }
+        }
+    } else {
+        instance.mutationSeed = 1u;
+        instance.mutationDepth = 0.25f;
+        instance.mutationTargets
+            = s3g::breakbeat::kDefaultMutationTargets;
+        instance.structuralMutationUses
+            = s3g::breakbeat::kDefaultStructuralMutationUses;
+        for (std::size_t index = 0u;
+             index < instance.controlBank->slots.size(); ++index)
+            resetSlotVariations(instance, static_cast<uint32_t>(index),
+                &instance.controlBank->slots[index]);
+    }
+    instance.minimumTransientSliceMilliseconds = restoredMutations
+            && mutation->version >= kMutationStateVersion
+        ? std::min<uint32_t>(static_cast<uint32_t>(
+                mutation->reserved[0u])
+                | (static_cast<uint32_t>(mutation->reserved[1u]) << 8u),
+            kMaximumMinimumTransientSliceMilliseconds)
+        : kDefaultMinimumTransientSliceMilliseconds;
     instance.selectedSlot = std::min<uint32_t>(saved.selectedSlot,
         static_cast<uint32_t>(s3g::breakbeat::kMaximumSampleSlots - 1u));
     setParam(instance, kOutputGainParamId, saved.outputGainDb);
     setParam(instance, kVelocityParamId, saved.velocitySensitivity);
     instance.embedSamplesInState = saved.embedSamples != 0u;
     instance.transientPreRollMicroseconds
-        = saved.version == kStateVersion
+        = saved.version >= kPreviousStateVersion
         ? std::min(saved.transientPreRollMicroseconds,
             kMaximumTransientPreRollMicroseconds)
         : 0u;
@@ -1495,22 +2216,27 @@ namespace {
 
 NSRect bankRowRect(uint32_t index)
 {
-    return NSMakeRect(18.0, 74.0 + static_cast<CGFloat>(index) * 112.0,
-        250.0, 104.0);
+    return NSMakeRect(24.0, 101.0 + static_cast<CGFloat>(index) * 100.0,
+        238.0, 92.0);
+}
+
+NSRect bankPanelRect()
+{
+    return NSMakeRect(18.0, 74.0, 250.0, 432.0);
 }
 
 NSRect slotChannelRect(uint32_t index)
 {
     const NSRect row = bankRowRect(index);
-    return NSMakeRect(row.origin.x + 9.0, row.origin.y + 70.0,
-        86.0, 24.0);
+    return NSMakeRect(row.origin.x + 8.0, row.origin.y + 64.0,
+        82.0, 19.0);
 }
 
 NSRect slotAutomapRect(uint32_t index)
 {
     const NSRect row = bankRowRect(index);
-    return NSMakeRect(row.origin.x + 103.0, row.origin.y + 70.0,
-        138.0, 24.0);
+    return NSMakeRect(row.origin.x + 98.0, row.origin.y + 64.0,
+        132.0, 19.0);
 }
 
 NSRect overviewWaveformRect(uint32_t index)
@@ -1521,64 +2247,329 @@ NSRect overviewWaveformRect(uint32_t index)
 
 NSRect waveformRect()
 {
-    return NSMakeRect(292.0, 74.0, 770.0, 454.0);
+    return NSMakeRect(294.0, 101.0, 756.0, 245.0);
 }
 
 NSRect waveformNavigatorRect()
 {
-    return NSMakeRect(292.0, 533.0, 770.0, 10.0);
+    return NSMakeRect(294.0, 350.0, 756.0, 8.0);
 }
 
-NSRect controlButtonRect(uint32_t index)
+NSRect sampleToolboxRect()
 {
-    constexpr CGFloat widths[] { 72.0, 68.0, 52.0, 52.0, 52.0, 52.0,
-        92.0, 54.0, 54.0, 82.0 };
-    CGFloat x = 292.0;
-    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 7.0;
-    return NSMakeRect(x, 551.0, widths[index], 30.0);
+    return NSMakeRect(282.0, 74.0, 780.0, 328.0);
 }
 
-NSRect transientPreRollButtonRect(uint32_t index)
+NSRect sampleLoadButtonRect()
 {
-    constexpr CGFloat widths[] { 32.0, 142.0, 32.0 };
-    CGFloat x = 292.0;
-    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 7.0;
-    return NSMakeRect(x, 588.0, widths[index], 26.0);
+    return NSMakeRect(816.0, 77.0, 66.0, 17.0);
 }
 
-NSRect sliceControlButtonRect(uint32_t index)
+NSRect sampleClearButtonRect()
 {
-    constexpr CGFloat widths[] { 64.0, 64.0, 72.0, 72.0, 60.0,
-        60.0, 72.0, 86.0, 68.0, 68.0 };
-    CGFloat x = 292.0;
-    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 7.0;
-    return NSMakeRect(x, 646.0, widths[index], 30.0);
+    return NSMakeRect(888.0, 77.0, 66.0, 17.0);
+}
+
+NSRect sampleEmbedButtonRect()
+{
+    return NSMakeRect(960.0, 77.0, 90.0, 17.0);
+}
+
+NSRect sliceMapToolboxRect()
+{
+    return NSMakeRect(282.0, 414.0, 380.0, 164.0);
+}
+
+NSRect playbackToolboxRect()
+{
+    return NSMakeRect(674.0, 414.0, 388.0, 164.0);
+}
+
+enum DetailMenuKind : NSInteger {
+    kDetailMenuNone = -1,
+    kDetailMenuMidiChannel = 0,
+    kDetailMenuSliceMethod,
+    kDetailMenuStartNote,
+    kDetailMenuTrigger,
+    kDetailMenuRetrigger,
+    kDetailMenuVoice,
+    kDetailMenuPitch,
+    kDetailMenuSync,
+    kDetailMenuSliceLaunch,
+    kDetailMenuSliceChoke,
+};
+
+enum DetailNumericControl : NSInteger {
+    kDetailNumericNone = -1,
+    kDetailNumericPreRoll = 0,
+    kDetailNumericMinimumSlice,
+    kDetailNumericSourceTempo,
+    kDetailNumericLoopCrossfade,
+    kDetailNumericGlide,
+    kDetailNumericCount,
+};
+
+constexpr NSInteger kDetailNumericFieldTagBase = 4100;
+
+NSRect selectedSliceToolboxRect()
+{
+    return NSMakeRect(282.0, 590.0, 510.0, 100.0);
+}
+
+NSRect timingToolboxRect()
+{
+    return NSMakeRect(804.0, 590.0, 258.0, 100.0);
+}
+
+NSRect processorMenuRect(NSRect panel, CGFloat y)
+{
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(panel.origin.x)),
+        y - 1.0, static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(panel.size.width)), 15.0);
+}
+
+NSRect sliceMethodMenuRect()
+{
+    return processorMenuRect(sliceMapToolboxRect(), 448.0);
+}
+
+CGFloat detailNumericY(uint32_t index)
+{
+    static constexpr CGFloat rows[] {
+        474.0, 500.0, 624.0, 650.0, 676.0,
+    };
+    return rows[std::min<uint32_t>(index,
+        static_cast<uint32_t>(std::size(rows) - 1u))];
+}
+
+NSRect detailNumericPanel(uint32_t index)
+{
+    return index < 2u ? sliceMapToolboxRect() : timingToolboxRect();
+}
+
+NSRect detailNumericTrackRect(uint32_t index)
+{
+    const NSRect panel = detailNumericPanel(index);
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorControlX(NSMinX(panel))),
+        detailNumericY(index) + 1.0,
+        static_cast<CGFloat>(
+            s3g::gui_layout::processorTrackWidth(NSWidth(panel))), 9.0);
+}
+
+NSRect detailNumericHitRect(uint32_t index)
+{
+    const NSRect panel = detailNumericPanel(index);
+    return NSMakeRect(NSMinX(panel) + static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitInset),
+        detailNumericY(index) - 8.0,
+        NSWidth(panel) - 2.0 * static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitInset),
+        static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitHeight));
+}
+
+NSRect detailNumericFieldRect(uint32_t index)
+{
+    const NSRect panel = detailNumericPanel(index);
+    return NSMakeRect(static_cast<CGFloat>(
+            s3g::gui_layout::processorValueX(
+                NSMinX(panel), NSWidth(panel))),
+        detailNumericY(index) - 2.0,
+        static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.processorValueWidth), 16.0);
+}
+
+NSRect startNoteMenuRect()
+{
+    return processorMenuRect(sliceMapToolboxRect(), 526.0);
+}
+
+NSRect automapButtonRect()
+{
+    const NSRect panel = sliceMapToolboxRect();
+    return NSMakeRect(NSMaxX(panel) - 88.0, panel.origin.y + 3.0,
+        76.0, 17.0);
+}
+
+NSRect playbackMenuRect(uint32_t index)
+{
+    return processorMenuRect(playbackToolboxRect(),
+        448.0 + static_cast<CGFloat>(index) * 26.0);
+}
+
+NSRect playbackKillButtonRect()
+{
+    const NSRect panel = playbackToolboxRect();
+    return NSMakeRect(NSMaxX(panel) - 82.0, panel.origin.y + 3.0,
+        70.0, 17.0);
+}
+
+NSRect slicePropertyButtonRect(uint32_t property, uint32_t part)
+{
+    const CGFloat groupX = 296.0 + static_cast<CGFloat>(property) * 158.0;
+    if (part == 0u) return NSMakeRect(groupX + 50.0, 620.0, 20.0, 18.0);
+    if (part == 1u) return NSMakeRect(groupX + 72.0, 620.0, 62.0, 18.0);
+    return NSMakeRect(groupX + 136.0, 620.0, 20.0, 18.0);
+}
+
+NSRect sliceLaunchMenuRect()
+{
+    return NSMakeRect(360.0, 650.0, 154.0, 15.0);
+}
+
+NSRect sliceReverseButtonRect()
+{
+    return NSMakeRect(532.0, 648.0, 76.0, 19.0);
+}
+
+NSRect sliceChokeMenuRect()
+{
+    return NSMakeRect(688.0, 650.0, 84.0, 15.0);
+}
+
+NSString* const kSlicerMethodItems[] = {
+    @"EQUAL 4", @"EQUAL 8", @"EQUAL 16", @"EQUAL 32", @"TRANSIENT",
+};
+
+NSString* const kSlicerTriggerItems[] = {
+    @"AUTO", @"GATE", @"ONE SHOT", @"TOGGLE",
+};
+
+NSString* const kSlicerRetriggerItems[] = {
+    @"LAYER", @"RESTART", @"IGNORE",
+};
+
+NSString* const kSlicerVoiceItems[] = { @"POLY", @"MONO", @"LEGATO" };
+
+NSString* const kSlicerPitchItems[] = {
+    @"RATE", @"STRETCH", @"RATE BELOW / STRETCH ABOVE",
+};
+
+NSString* const kSlicerSyncItems[] = { @"FREE", @"HOST" };
+
+NSString* const kSlicerLaunchItems[] = {
+    @"ONE SHOT", @"GATE", @"THRU", @"LOOP", @"PING PONG",
+};
+
+NSRect detailMenuControlRect(NSInteger kind, uint32_t slotIndex)
+{
+    switch (kind) {
+    case kDetailMenuMidiChannel: return slotChannelRect(slotIndex);
+    case kDetailMenuSliceMethod: return sliceMethodMenuRect();
+    case kDetailMenuStartNote: return startNoteMenuRect();
+    case kDetailMenuTrigger: return playbackMenuRect(0u);
+    case kDetailMenuRetrigger: return playbackMenuRect(1u);
+    case kDetailMenuVoice: return playbackMenuRect(2u);
+    case kDetailMenuPitch: return playbackMenuRect(3u);
+    case kDetailMenuSync: return playbackMenuRect(4u);
+    case kDetailMenuSliceLaunch: return sliceLaunchMenuRect();
+    case kDetailMenuSliceChoke: return sliceChokeMenuRect();
+    default: return NSZeroRect;
+    }
+}
+
+uint32_t detailMenuColumns(NSInteger kind)
+{
+    if (kind == kDetailMenuStartNote) return 8u;
+    if (kind == kDetailMenuMidiChannel
+        || kind == kDetailMenuSliceChoke) return 2u;
+    return 1u;
+}
+
+NSRect detailMenuDropdownRect(NSInteger kind, uint32_t itemCount,
+    uint32_t slotIndex)
+{
+    constexpr CGFloat itemHeight = 20.0;
+    const uint32_t columns = detailMenuColumns(kind);
+    const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+        itemCount, columns);
+    const NSRect control = detailMenuControlRect(kind, slotIndex);
+    CGFloat width = NSWidth(control);
+    if (kind == kDetailMenuStartNote) width = 640.0;
+    else if (kind == kDetailMenuMidiChannel) width = 300.0;
+    else if (kind == kDetailMenuSliceChoke) width = 240.0;
+    const CGFloat height = itemHeight * static_cast<CGFloat>(rows);
+    CGFloat x = NSMinX(control);
+    if (kind == kDetailMenuStartNote)
+        x = std::clamp<CGFloat>(NSMaxX(control) - width, 18.0,
+            static_cast<CGFloat>(kGuiWidth) - width - 18.0);
+    else
+        x = std::clamp<CGFloat>(x, 18.0,
+            static_cast<CGFloat>(kGuiWidth) - width - 18.0);
+    CGFloat y = NSMaxY(control) + 1.0;
+    if (y + height > static_cast<CGFloat>(kGuiHeight) - 24.0)
+        y = std::max<CGFloat>(42.0, NSMinY(control) - height - 1.0);
+    return NSMakeRect(x, y, width, height);
 }
 
 NSRect editorTabRect(uint32_t index)
 {
-    return NSMakeRect(292.0 + static_cast<CGFloat>(index) * 112.0,
-        42.0, 104.0, 24.0);
+    constexpr CGFloat widths[] { 82.0, 96.0, 68.0, 116.0 };
+    CGFloat x = 292.0;
+    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 6.0;
+    return NSMakeRect(x, 45.0, widths[index], 18.0);
+}
+
+NSRect buildWaveformRect()
+{
+    return NSMakeRect(292.0, 74.0, 770.0, 218.0);
+}
+
+NSRect buildMutationSlotRect(uint32_t index)
+{
+    return NSMakeRect(292.0 + static_cast<CGFloat>(index) * 194.5,
+        304.0, 184.5, 92.0);
+}
+
+NSRect buildActionButtonRect(uint32_t index)
+{
+    constexpr CGFloat widths[] { 300.0, 180.0, 180.0 };
+    CGFloat x = 292.0;
+    for (uint32_t i = 0u; i < index; ++i) x += widths[i] + 10.0;
+    return NSMakeRect(x, 410.0, widths[index], 31.0);
+}
+
+NSRect buildRecipePanelRect()
+{
+    return NSMakeRect(292.0, 455.0, 770.0, 190.0);
+}
+
+NSRect buildMutationUseRect(uint32_t index)
+{
+    return NSMakeRect(310.0 + static_cast<CGFloat>(index) * 122.0,
+        523.0, 114.0, 29.0);
+}
+
+NSRect buildInfoRect()
+{
+    return NSMakeRect(292.0, 659.0, 770.0, 89.0);
 }
 
 NSRect embedAudioButtonRect()
 {
-    return NSMakeRect(858.0, 42.0, 204.0, 24.0);
+    return NSMakeRect(858.0, 45.0, 204.0, 18.0);
+}
+
+NSRect killAllButtonRect()
+{
+    return NSMakeRect(774.0, 45.0, 78.0, 18.0);
 }
 
 NSRect keyboardRect()
 {
-    return NSMakeRect(292.0, 706.0, 770.0, 48.0);
+    return NSMakeRect(282.0, 704.0, 780.0, 50.0);
 }
 
 NSRect envelopePanelRect()
 {
-    return NSMakeRect(18.0, 530.0, 250.0, 218.0);
+    return NSMakeRect(18.0, 518.0, 250.0, 236.0);
 }
 
 CGFloat envelopeSliderY(uint32_t index)
 {
-    return 586.0 + static_cast<CGFloat>(index) * 38.0;
+    return 576.0 + static_cast<CGFloat>(index) * 42.0;
 }
 
 NSRect envelopeSliderHitRect(uint32_t index)
@@ -1872,6 +2863,53 @@ NSString* launchModeText(s3g::breakbeat::LaunchMode mode)
     return @"ONE SHOT";
 }
 
+NSString* triggerModeText(s3g::breakbeat::TriggerMode mode)
+{
+    switch (mode) {
+    case s3g::breakbeat::TriggerMode::Auto: return @"AUTO";
+    case s3g::breakbeat::TriggerMode::Gate: return @"GATE";
+    case s3g::breakbeat::TriggerMode::OneShot: return @"ONE SHOT";
+    case s3g::breakbeat::TriggerMode::Toggle: return @"TOGGLE";
+    }
+    return @"AUTO";
+}
+
+NSString* retriggerModeText(s3g::breakbeat::RetriggerMode mode)
+{
+    switch (mode) {
+    case s3g::breakbeat::RetriggerMode::Layer: return @"LAYER";
+    case s3g::breakbeat::RetriggerMode::Restart: return @"RESTART";
+    case s3g::breakbeat::RetriggerMode::Ignore: return @"IGNORE";
+    }
+    return @"RESTART";
+}
+
+NSString* voiceModeText(s3g::breakbeat::VoiceMode mode)
+{
+    switch (mode) {
+    case s3g::breakbeat::VoiceMode::Poly: return @"POLY";
+    case s3g::breakbeat::VoiceMode::Mono: return @"MONO";
+    case s3g::breakbeat::VoiceMode::Legato: return @"LEGATO";
+    }
+    return @"POLY";
+}
+
+NSString* pitchModeText(s3g::breakbeat::PitchMode mode)
+{
+    switch (mode) {
+    case s3g::breakbeat::PitchMode::Rate: return @"RATE";
+    case s3g::breakbeat::PitchMode::Stretch: return @"STRETCH";
+    case s3g::breakbeat::PitchMode::RateBelowStretchAbove:
+        return @"R↓ / S↑";
+    }
+    return @"RATE";
+}
+
+NSString* syncModeText(s3g::breakbeat::SyncMode mode)
+{
+    return mode == s3g::breakbeat::SyncMode::Host ? @"HOST" : @"FREE";
+}
+
 NSString* insertTypeText(InsertType type)
 {
     switch (type) {
@@ -2150,6 +3188,41 @@ void drawButton(NSRect rect, NSString* label, bool active = false)
         withAttributes:attrs];
 }
 
+void drawCompactMenu(NSRect rect, NSString* text, bool active,
+    NSDictionary* attrs, const s3g::clap_gui::Style& style)
+{
+    [style.strip setFill];
+    NSRectFill(rect);
+    [(active ? style.accent : style.grid) setStroke];
+    NSFrameRect(rect);
+    [(active ? style.fill : style.dim) setFill];
+    NSRectFill(NSMakeRect(rect.origin.x + 1.0, rect.origin.y + 1.0,
+        2.0, rect.size.height - 2.0));
+    NSString* shown = s3g::clap_gui::menuDisplayText(text,
+        std::max<CGFloat>(0.0, rect.size.width - 26.0), attrs);
+    const NSSize size = [shown sizeWithAttributes:attrs];
+    [shown drawAtPoint:NSMakePoint(rect.origin.x + 7.0,
+        rect.origin.y + (rect.size.height - size.height) * 0.5 - 0.5)
+        withAttributes:attrs];
+    [@"v" drawAtPoint:NSMakePoint(NSMaxX(rect) - 12.0,
+        rect.origin.y + 1.0) withAttributes:attrs];
+}
+
+void drawLockedControlBar(NSRect rect, NSString* label)
+{
+    [s3g::clap_gui::color(0x181818) setFill];
+    NSRectFill(rect);
+    [s3g::clap_gui::color(0x3c3c3c) setStroke];
+    NSFrameRect(rect);
+    NSDictionary* attrs = slicerTextAttrs(
+        s3g::clap_gui::color(0x777777), 10.5, NSFontWeightMedium);
+    const NSSize size = [label sizeWithAttributes:attrs];
+    [label drawAtPoint:NSMakePoint(
+        rect.origin.x + (rect.size.width - size.width) * 0.5,
+        rect.origin.y + (rect.size.height - size.height) * 0.5 - 1.0)
+        withAttributes:attrs];
+}
+
 void drawCentered(NSRect rect, NSString* label, NSDictionary* attrs)
 {
     const NSSize size = [label sizeWithAttributes:attrs];
@@ -2192,6 +3265,7 @@ double gainDb(float gain)
     NSTimer* _timer;
     NSInteger _selectedSlice;
     NSInteger _dragMarker;
+    NSInteger _dragLoopHandle;
     std::shared_ptr<BankSnapshot> _dragBank;
     CGFloat _zoom;
     uint32_t _visibleStart;
@@ -2199,6 +3273,7 @@ double gainDb(float gain)
     CGFloat _viewportGrabOffset;
     double _horizontalPanRemainder;
     uint32_t _page;
+    NSInteger _sliceModeSelection;
     NSInteger _envelopeDragIndex;
     NSInteger _mixerDragKind;
     uint32_t _mixerDragSlot;
@@ -2206,14 +3281,30 @@ double gainDb(float gain)
     double _mixerDragStartValue;
     NSInteger _insertEditorSlot;
     uint32_t _insertEditorIndex;
+    NSTrackingArea* _trackingArea;
+    NSInteger _detailMenuKind;
+    NSInteger _detailMenuHover;
+    uint32_t _detailMenuSlot;
+    NSInteger _detailNumericDragIndex;
+    NSTextField* _detailNumericFields[kDetailNumericCount];
 }
 - (instancetype)initWithPlugin:(Plugin*)instance;
 - (void)startTimer;
 - (void)stopTimer;
 - (BOOL)loadDocumentationBreaks;
 - (void)setDocumentationPage:(NSUInteger)page;
-- (void)selectMidiChannel:(NSMenuItem*)sender;
-- (void)selectTransientPreRoll:(NSMenuItem*)sender;
+- (BOOL)runDocumentationMutationFill;
+- (void)exportCurrentBreak;
+- (void)makeEqual:(std::size_t)count;
+- (void)makeTransient;
+- (void)closeDetailMenu;
+- (uint32_t)detailMenuItemCount;
+- (NSRect)detailMenuDropdownRect;
+- (NSInteger)detailMenuHitAtPoint:(NSPoint)point;
+- (void)applyDetailMenuSelection:(NSInteger)selection;
+- (void)updateDetailNumericFields;
+- (void)updateDetailNumericControl:(uint32_t)index point:(NSPoint)point;
+- (void)detailNumericFieldChanged:(id)sender;
 @end
 
 @implementation S3GBreakbeatSlicerView
@@ -2225,12 +3316,14 @@ double gainDb(float gain)
         _instance = instance;
         _selectedSlice = 0;
         _dragMarker = -1;
+        _dragLoopHandle = -1;
         _zoom = 1.0;
         _visibleStart = 0u;
         _dragViewport = NO;
         _viewportGrabOffset = 0.0;
         _horizontalPanRemainder = 0.0;
         _page = 0u;
+        _sliceModeSelection = 4;
         _envelopeDragIndex = -1;
         _mixerDragKind = 0;
         _mixerDragSlot = 0u;
@@ -2238,8 +3331,27 @@ double gainDb(float gain)
         _mixerDragStartValue = 0.0;
         _insertEditorSlot = -1;
         _insertEditorIndex = 0u;
+        _trackingArea = nil;
+        _detailMenuKind = kDetailMenuNone;
+        _detailMenuHover = -1;
+        _detailMenuSlot = 0u;
+        _detailNumericDragIndex = kDetailNumericNone;
         [self setWantsLayer:YES];
         [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+        for (NSInteger index = 0; index < kDetailNumericCount; ++index) {
+            NSTextField* field = [[NSTextField alloc]
+                initWithFrame:NSZeroRect];
+            [field setTag:kDetailNumericFieldTagBase + index];
+            [field setTarget:self];
+            [field setAction:@selector(detailNumericFieldChanged:)];
+            [field setDelegate:(id<NSTextFieldDelegate>)self];
+            [field setFormatter:nil];
+            s3g::clap_gui::styleNumberTextField(
+                field, 10.0, NSTextAlignmentRight);
+            [field setHidden:YES];
+            [self addSubview:field];
+            _detailNumericFields[index] = field;
+        }
     }
     return self;
 }
@@ -2247,28 +3359,298 @@ double gainDb(float gain)
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 
-- (void)selectMidiChannel:(NSMenuItem*)sender
+- (void)updateTrackingAreas
 {
-    const NSInteger tag = [sender tag];
-    if (tag < 0 || tag > 16) return;
-    if (setSlotMidiChannel(*_instance, [self selectedSlot],
-            static_cast<uint8_t>(tag))) {
-        _instance->status = tag == 0
-            ? "BREAK MIDI SET TO OMNI" : "BREAK MIDI CHANNEL UPDATED";
-        [self setNeedsDisplay:YES];
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:[self bounds]
+        options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited
+            | NSTrackingActiveInKeyWindow
+        owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+    [super updateTrackingAreas];
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    [[self window] setAcceptsMouseMovedEvents:YES];
+}
+
+- (void)closeDetailMenu
+{
+    _detailMenuKind = kDetailMenuNone;
+    _detailMenuHover = -1;
+}
+
+- (uint32_t)detailMenuItemCount
+{
+    switch (_detailMenuKind) {
+    case kDetailMenuMidiChannel: return 17u;
+    case kDetailMenuSliceMethod: return 5u;
+    case kDetailMenuStartNote: {
+        const auto* slot = [self selectedSampleSlot];
+        if (!slot) return 0u;
+        const uint32_t maximum = slot->sliceCount == 0u ? 127u
+            : 128u - slot->sliceCount;
+        return maximum + 1u;
+    }
+    case kDetailMenuTrigger: return 4u;
+    case kDetailMenuRetrigger:
+    case kDetailMenuVoice:
+    case kDetailMenuPitch: return 3u;
+    case kDetailMenuSync: return 2u;
+    case kDetailMenuSliceLaunch: return 5u;
+    case kDetailMenuSliceChoke: return 17u;
+    default: return 0u;
     }
 }
 
-- (void)selectTransientPreRoll:(NSMenuItem*)sender
+- (NSRect)detailMenuDropdownRect
 {
-    const NSInteger tag = [sender tag];
-    if (tag < 0) return;
-    _instance->transientPreRollMicroseconds = std::min<uint32_t>(
-        static_cast<uint32_t>(tag),
-        kMaximumTransientPreRollMicroseconds);
-    markStateDirty(*_instance);
-    _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+    return detailMenuDropdownRect(_detailMenuKind,
+        [self detailMenuItemCount], _detailMenuSlot);
+}
+
+- (NSInteger)detailMenuHitAtPoint:(NSPoint)point
+{
+    const uint32_t count = [self detailMenuItemCount];
+    if (detailMenuColumns(_detailMenuKind) > 1u) {
+        return s3g::clap_gui::multiColumnDropdownHitIndex(point,
+            [self detailMenuDropdownRect], 20.0, count,
+            detailMenuColumns(_detailMenuKind));
+    }
+    return s3g::clap_gui::dropdownHitIndex(point,
+        [self detailMenuDropdownRect], 20.0, count);
+}
+
+- (void)applyDetailMenuSelection:(NSInteger)selection
+{
+    if (selection < 0) return;
+    if (_detailMenuKind == kDetailMenuMidiChannel) {
+        if (selection <= 16 && setSlotMidiChannel(*_instance,
+                _detailMenuSlot, static_cast<uint8_t>(selection))) {
+            _instance->status = selection == 0
+                ? "BREAK MIDI SET TO OMNI" : "BREAK MIDI CHANNEL UPDATED";
+        }
+    } else if (_detailMenuKind == kDetailMenuSliceMethod) {
+        if (selection > 4) return;
+        _sliceModeSelection = selection;
+        if (selection < 4)
+            [self makeEqual:static_cast<std::size_t>(4u << selection)];
+        else
+            [self makeTransient];
+    } else if (_detailMenuKind == kDetailMenuStartNote) {
+        if (selection <= 127 && setSlotRootNote(*_instance,
+                [self selectedSlot], static_cast<uint8_t>(selection))) {
+            _instance->status = "START NOTE UPDATED - PRESS AUTO MAP";
+        }
+    } else if (_detailMenuKind >= kDetailMenuTrigger
+        && _detailMenuKind <= kDetailMenuSync) {
+        auto bank = editableBank(*_instance);
+        auto& slot = bank->slots[[self selectedSlot]];
+        const char* status = "SLICE PLAYBACK UPDATED";
+        if (_detailMenuKind == kDetailMenuTrigger && selection <= 3) {
+            slot.triggerMode = static_cast<s3g::breakbeat::TriggerMode>(
+                selection);
+            status = "MAPPED SLICE TRIGGER UPDATED";
+        } else if (_detailMenuKind == kDetailMenuRetrigger
+            && selection <= 2) {
+            slot.retriggerMode = static_cast<
+                s3g::breakbeat::RetriggerMode>(selection);
+            status = "MAPPED SLICE RETRIGGER UPDATED";
+        } else if (_detailMenuKind == kDetailMenuVoice
+            && selection <= 2) {
+            slot.voiceMode = static_cast<s3g::breakbeat::VoiceMode>(
+                selection);
+            status = "MAPPED SLICE VOICE MODE UPDATED";
+        } else if (_detailMenuKind == kDetailMenuPitch
+            && selection <= 2) {
+            slot.pitchMode = static_cast<s3g::breakbeat::PitchMode>(
+                selection);
+            status = "MAPPED SLICE PITCH MODE UPDATED";
+        } else if (_detailMenuKind == kDetailMenuSync
+            && selection <= 1) {
+            slot.syncMode = static_cast<s3g::breakbeat::SyncMode>(selection);
+            status = "MAPPED SLICE TEMPO SYNC UPDATED";
+        } else {
+            return;
+        }
+        if (publishBank(*_instance, std::move(bank)))
+            _instance->status = status;
+    } else if (_detailMenuKind == kDetailMenuSliceLaunch
+        || _detailMenuKind == kDetailMenuSliceChoke) {
+        auto bank = editableBank(*_instance);
+        auto& slot = bank->slots[[self selectedSlot]];
+        if (!slotHasCompleteMap(slot) || slot.sliceCount == 0u) return;
+        const std::size_t selected = static_cast<std::size_t>(
+            std::clamp<NSInteger>(_selectedSlice, 0,
+                static_cast<NSInteger>(slot.sliceCount) - 1));
+        if (_detailMenuKind == kDetailMenuSliceLaunch && selection <= 4) {
+            slot.slices[selected].launchMode
+                = static_cast<s3g::breakbeat::LaunchMode>(selection);
+            if (publishBank(*_instance, std::move(bank)))
+                _instance->status = "SLICE LAUNCH MODE UPDATED";
+        } else if (_detailMenuKind == kDetailMenuSliceChoke
+            && selection <= 16) {
+            slot.slices[selected].chokeGroup
+                = static_cast<uint8_t>(selection);
+            if (publishBank(*_instance, std::move(bank)))
+                _instance->status = "SLICE CHOKE GROUP UPDATED";
+        }
+    }
     [self setNeedsDisplay:YES];
+}
+
+- (BOOL)isEditingDetailField:(NSTextField*)field
+{
+    NSResponder* first = [[self window] firstResponder];
+    NSText* editor = [field currentEditor];
+    return first == field || (editor && first == editor);
+}
+
+- (void)updateDetailNumericFields
+{
+    const auto* slot = [self selectedSampleSlot];
+    const BOOL visible = _page == 1u && slot != nullptr
+        && _detailMenuKind == kDetailMenuNone;
+    for (uint32_t index = 0u; index < kDetailNumericCount; ++index) {
+        NSTextField* field = _detailNumericFields[index];
+        [field setFrame:detailNumericFieldRect(index)];
+        [field setHidden:!visible];
+        if (!visible || [self isEditingDetailField:field]) continue;
+        switch (index) {
+        case kDetailNumericPreRoll:
+            [field setStringValue:[NSString stringWithFormat:@"%u",
+                _instance->transientPreRollMicroseconds]];
+            break;
+        case kDetailNumericMinimumSlice:
+            [field setStringValue:[NSString stringWithFormat:@"%u",
+                _instance->minimumTransientSliceMilliseconds]];
+            break;
+        case kDetailNumericSourceTempo:
+            [field setStringValue:[NSString stringWithFormat:@"%.1f",
+                slot->sourceTempoBpm]];
+            break;
+        case kDetailNumericLoopCrossfade:
+            [field setStringValue:[NSString stringWithFormat:@"%.1f",
+                slot->loopCrossfade * 100.0f]];
+            break;
+        case kDetailNumericGlide:
+            [field setStringValue:[NSString stringWithFormat:@"%.1f",
+                slot->glideSeconds * 1000.0f]];
+            break;
+        default: break;
+        }
+    }
+}
+
+- (void)updateDetailNumericControl:(uint32_t)index point:(NSPoint)point
+{
+    if (index >= kDetailNumericCount) return;
+    const NSRect track = detailNumericTrackRect(index);
+    const double normalized = std::clamp(static_cast<double>(
+        (point.x - NSMinX(track)) / NSWidth(track)), 0.0, 1.0);
+    if (index == kDetailNumericPreRoll) {
+        _instance->transientPreRollMicroseconds = static_cast<uint32_t>(
+            std::llround(normalized * kMaximumTransientPreRollMicroseconds));
+        _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+    } else if (index == kDetailNumericMinimumSlice) {
+        _instance->minimumTransientSliceMilliseconds
+            = static_cast<uint32_t>(std::llround(normalized
+                * kMaximumMinimumTransientSliceMilliseconds));
+        _instance->status = "MINIMUM TRANSIENT SLICE UPDATED";
+    } else {
+        auto bank = editableBank(*_instance);
+        auto& slot = bank->slots[[self selectedSlot]];
+        if (index == kDetailNumericSourceTempo) {
+            slot.sourceTempoBpm = static_cast<float>(20.0
+                + normalized * 979.0);
+            _instance->status = "MAPPED SLICE SOURCE BPM UPDATED";
+        } else if (index == kDetailNumericLoopCrossfade) {
+            slot.loopCrossfade = static_cast<float>(normalized * 0.5);
+            _instance->status = "MAPPED SLICE LOOP CROSSFADE UPDATED";
+        } else {
+            slot.glideSeconds = static_cast<float>(normalized * 2.0);
+            _instance->status = "MAPPED SLICE GLIDE UPDATED";
+        }
+        (void)publishBank(*_instance, std::move(bank), false);
+    }
+    [self updateDetailNumericFields];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)detailNumericFieldChanged:(id)sender
+{
+    NSTextField* field = static_cast<NSTextField*>(sender);
+    const NSInteger index = [field tag] - kDetailNumericFieldTagBase;
+    if (index < 0 || index >= kDetailNumericCount) return;
+    const double value = [[field stringValue] doubleValue];
+    if (index == kDetailNumericPreRoll) {
+        _instance->transientPreRollMicroseconds = static_cast<uint32_t>(
+            std::llround(std::clamp(value, 0.0, static_cast<double>(
+                kMaximumTransientPreRollMicroseconds))));
+        markStateDirty(*_instance);
+        _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+    } else if (index == kDetailNumericMinimumSlice) {
+        _instance->minimumTransientSliceMilliseconds
+            = static_cast<uint32_t>(std::llround(std::clamp(value, 0.0,
+                static_cast<double>(
+                    kMaximumMinimumTransientSliceMilliseconds))));
+        markStateDirty(*_instance);
+        _instance->status = "MINIMUM TRANSIENT SLICE UPDATED";
+    } else {
+        auto bank = editableBank(*_instance);
+        auto& slot = bank->slots[[self selectedSlot]];
+        if (index == kDetailNumericSourceTempo) {
+            slot.sourceTempoBpm = static_cast<float>(
+                std::clamp(value, 20.0, 999.0));
+            _instance->status = "MAPPED SLICE SOURCE BPM UPDATED";
+        } else if (index == kDetailNumericLoopCrossfade) {
+            slot.loopCrossfade = static_cast<float>(
+                std::clamp(value, 0.0, 50.0) * 0.01);
+            _instance->status = "MAPPED SLICE LOOP CROSSFADE UPDATED";
+        } else {
+            slot.glideSeconds = static_cast<float>(
+                std::clamp(value, 0.0, 2000.0) * 0.001);
+            _instance->status = "MAPPED SLICE GLIDE UPDATED";
+        }
+        (void)publishBank(*_instance, std::move(bank));
+    }
+    [self updateDetailNumericFields];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)controlTextDidBeginEditing:(NSNotification*)notification
+{
+    NSTextField* field = static_cast<NSTextField*>([notification object]);
+    s3g::clap_gui::styleActiveNumberTextField(field, true);
+    s3g::clap_gui::styleNumberTextEditor(field);
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification
+{
+    s3g::clap_gui::styleNumberTextEditor(
+        static_cast<NSTextField*>([notification object]));
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)notification
+{
+    NSTextField* field = static_cast<NSTextField*>([notification object]);
+    s3g::clap_gui::styleActiveNumberTextField(field, false);
+    [self detailNumericFieldChanged:field];
+}
+
+- (BOOL)control:(NSControl*)control textView:(NSTextView*)textView
+    doCommandBySelector:(SEL)commandSelector
+{
+    (void)textView;
+    if (commandSelector == @selector(insertNewline:)
+        || commandSelector == @selector(insertTab:)) {
+        [self detailNumericFieldChanged:control];
+        [[self window] makeFirstResponder:self];
+        return YES;
+    }
+    return NO;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
@@ -2326,6 +3708,7 @@ double gainDb(float gain)
             S3GBreakbeatSlicerView* view = weakSelf;
             if (!view) return;
             serviceSampleLoads(*view->_instance);
+            [view updateDetailNumericFields];
             [view setNeedsDisplay:YES];
         }];
 }
@@ -2370,7 +3753,9 @@ double gainDb(float gain)
             slot.asset->sampleRate * 0.004));
         const auto slices = s3g::breakbeat::makeTransientSlices(
             *slot.asset, *analysis, 32u, zeroRadius,
-            _instance->transientPreRollMicroseconds);
+            _instance->transientPreRollMicroseconds,
+            static_cast<uint32_t>(std::lround(slot.asset->sampleRate
+                * _instance->minimumTransientSliceMilliseconds * 0.001)));
         if (slices.empty()
             || !replaceSlotSlices(*_instance, index, slices)
             || !automapSlot(*_instance, index)) return NO;
@@ -2407,6 +3792,29 @@ double gainDb(float gain)
         slot.inserts[1] = s3g::breakbeat::defaultInsertSettings(
             secondInserts[index]);
     }
+    auto& documentedSlice = mixerBank->slots[0u].slices[0u];
+    const auto& documentedAsset = *mixerBank->slots[0u].asset;
+    const uint32_t zeroRadius = static_cast<uint32_t>(std::lround(
+        documentedAsset.sampleRate * 0.004));
+    const uint32_t documentedLoopStart
+        = s3g::breakbeat::nearestZeroFrame(documentedAsset,
+            documentedSlice.startFrame
+                + (documentedSlice.endFrame
+                    - documentedSlice.startFrame) / 4u,
+            zeroRadius);
+    const uint32_t documentedLoopEnd
+        = s3g::breakbeat::nearestZeroFrame(documentedAsset,
+            documentedSlice.startFrame
+                + (documentedSlice.endFrame
+                    - documentedSlice.startFrame) * 3u / 4u,
+            zeroRadius);
+    if (documentedLoopStart >= documentedSlice.startFrame
+        && documentedLoopStart < documentedLoopEnd
+        && documentedLoopEnd <= documentedSlice.endFrame) {
+        documentedSlice.launchMode = s3g::breakbeat::LaunchMode::Loop;
+        documentedSlice.loopStartFrame = documentedLoopStart;
+        documentedSlice.loopEndFrame = documentedLoopEnd;
+    }
     mixerBank->auxEnabled = true;
     mixerBank->auxPress = 0.52f;
     mixerBank->auxSnap = 0.24f;
@@ -2418,7 +3826,6 @@ double gainDb(float gain)
     mixerBank->auxReturnDb = -7.5f;
     mixerBank->auxLinkMode = s3g::BreakBusLinkMode::Pair;
     if (!publishBank(*_instance, std::move(mixerBank), false)) return NO;
-
     constexpr std::array<float, 4u> peaks {{ 0.78f, 0.57f, 0.69f, 0.49f }};
     for (std::size_t index = 0u; index < peaks.size(); ++index)
         _instance->slotPeaks[index].store(peaks[index],
@@ -2439,9 +3846,72 @@ double gainDb(float gain)
 
 - (void)setDocumentationPage:(NSUInteger)page
 {
-    _page = static_cast<uint32_t>(std::min<NSUInteger>(page, 2u));
+    [self closeDetailMenu];
+    _page = static_cast<uint32_t>(std::min<NSUInteger>(page, 3u));
+    if (_page == 3u && _instance->controlBank
+        && (_instance->controlBank->slots[2u].asset
+            || _instance->controlBank->slots[3u].asset)) {
+        auto buildBank = editableBank(*_instance);
+        for (uint32_t index = 2u; index < 4u; ++index) {
+            const uint8_t root = buildBank->slots[index].rootNote;
+            const uint8_t midi = buildBank->slots[index].midiChannel;
+            s3g::breakbeat::clearMappingsForSlot(*buildBank,
+                static_cast<uint8_t>(index));
+            buildBank->slots[index] = {};
+            buildBank->slots[index].rootNote = root;
+            buildBank->slots[index].mappedRootNote = root;
+            buildBank->slots[index].midiChannel = midi;
+            _instance->samplePaths[index].clear();
+            _instance->analyses[index].reset();
+            resetSlotVariations(*_instance, index);
+        }
+        (void)publishBank(*_instance, std::move(buildBank), false);
+        _instance->selectedSlot = 0u;
+        _instance->structuralMutationUses
+            = s3g::breakbeat::kDefaultStructuralMutationUses;
+    }
+    [self updateDetailNumericFields];
     [self setNeedsDisplay:YES];
     [self displayIfNeeded];
+}
+
+- (BOOL)runDocumentationMutationFill
+{
+    if (!_instance->controlBank || !_instance->controlBank->slots[0u].asset) {
+        std::fprintf(stderr, "Slicer mutation fill: source unavailable\n");
+        return NO;
+    }
+    _instance->selectedSlot = 0u;
+    const uint32_t queued = fillEmptySlotsWithMutations(*_instance, 0u);
+    if (queued != 2u) {
+        std::fprintf(stderr, "Slicer mutation fill: queued %u, expected 2\n",
+            queued);
+        return NO;
+    }
+    for (uint32_t attempt = 0u; attempt < 5000u; ++attempt) {
+        serviceSampleLoads(*_instance);
+        if (!_instance->pendingMutationSlots[2u]
+            && !_instance->pendingMutationSlots[3u]) break;
+        [NSThread sleepForTimeInterval:0.002];
+    }
+    for (uint32_t index = 2u; index < 4u; ++index) {
+        const auto& slot = _instance->controlBank->slots[index];
+        if (_instance->pendingMutationSlots[index] || !slot.asset
+            || slot.sliceCount <= 1u
+            || slot.mappedSliceCount != slot.sliceCount
+            || _instance->samplePaths[index].rfind(
+                "MUTATED BREAK ", 0u) != 0u) {
+            std::fprintf(stderr,
+                "Slicer mutation fill: slot %u pending=%d asset=%d slices=%u mapped=%u path='%s' status='%s'\n",
+                index + 1u, _instance->pendingMutationSlots[index],
+                slot.asset != nullptr, static_cast<unsigned>(slot.sliceCount),
+                static_cast<unsigned>(slot.mappedSliceCount),
+                _instance->samplePaths[index].c_str(),
+                _instance->status.c_str());
+            return NO;
+        }
+    }
+    return YES;
 }
 
 - (const BankSnapshot*)displayBank
@@ -2545,6 +4015,34 @@ double gainDb(float gain)
         if (std::abs(point.x - x) <= 7.0) return static_cast<NSInteger>(index);
     }
     return -1;
+}
+
+- (NSInteger)loopHandleNearPoint:(NSPoint)point
+{
+    const auto* slot = [self selectedSampleSlot];
+    if (!slot || !slot->asset || !slotHasCompleteMap(*slot)
+        || _selectedSlice < 0
+        || static_cast<std::size_t>(_selectedSlice) >= slot->sliceCount)
+        return -1;
+    const auto& slice = slot->slices[static_cast<std::size_t>(
+        _selectedSlice)];
+    if (slice.launchMode != s3g::breakbeat::LaunchMode::Loop
+        && slice.launchMode != s3g::breakbeat::LaunchMode::PingPong)
+        return -1;
+    const uint32_t loopStart = slice.loopStartFrame == 0u
+            && slice.loopEndFrame == 0u
+        ? slice.startFrame : slice.loopStartFrame;
+    const uint32_t loopEnd = slice.loopStartFrame == 0u
+            && slice.loopEndFrame == 0u
+        ? slice.endFrame : slice.loopEndFrame;
+    const CGFloat startX = [self xForFrame:loopStart
+        total:slot->asset->frameCount()];
+    const CGFloat endX = [self xForFrame:loopEnd
+        total:slot->asset->frameCount()];
+    const CGFloat startDistance = std::abs(point.x - startX);
+    const CGFloat endDistance = std::abs(point.x - endX);
+    if (std::min(startDistance, endDistance) > 8.0) return -1;
+    return startDistance <= endDistance ? 0 : 1;
 }
 
 - (NSInteger)sliceAtFrame:(uint32_t)frame
@@ -2689,19 +4187,93 @@ double gainDb(float gain)
         [marker stroke];
     }
 
-    const float playhead = _instance->slotPlayheads[[self selectedSlot]].load(
-        std::memory_order_relaxed);
-    if (playhead >= 0.0f) {
+    if (slotHasCompleteMap(slot) && _selectedSlice >= 0
+        && static_cast<std::size_t>(_selectedSlice) < slot.sliceCount) {
+        const auto& selected = slot.slices[
+            static_cast<std::size_t>(_selectedSlice)];
+        if (selected.launchMode == s3g::breakbeat::LaunchMode::Loop
+            || selected.launchMode
+                == s3g::breakbeat::LaunchMode::PingPong) {
+            const uint32_t loopStart = selected.loopStartFrame == 0u
+                    && selected.loopEndFrame == 0u
+                ? selected.startFrame : selected.loopStartFrame;
+            const uint32_t loopEnd = selected.loopStartFrame == 0u
+                    && selected.loopEndFrame == 0u
+                ? selected.endFrame : selected.loopEndFrame;
+            const std::array<std::pair<uint32_t, NSString*>, 2u> handles {{
+                { loopStart, @"LS" }, { loopEnd, @"LE" },
+            }};
+            for (const auto& handle : handles) {
+                const CGFloat x = [self xForFrame:handle.first total:total];
+                if (x < rect.origin.x || x > NSMaxX(rect)) continue;
+                NSColor* handleColor = s3g::clap_gui::color(0xb5a56c);
+                [handleColor setStroke];
+                NSBezierPath* line = [NSBezierPath bezierPath];
+                [line setLineWidth:1.5];
+                [line moveToPoint:NSMakePoint(x, rect.origin.y + 14.0)];
+                [line lineToPoint:NSMakePoint(x, NSMaxY(rect) - 1.0)];
+                [line stroke];
+                NSDictionary* handleAttrs = slicerTextAttrs(
+                    s3g::clap_gui::color(0xe1d49c), 7.5,
+                    NSFontWeightSemibold);
+                const NSSize textSize = [handle.second
+                    sizeWithAttributes:handleAttrs];
+                const NSRect flagRect = NSMakeRect(
+                    std::clamp<CGFloat>(x - textSize.width * 0.5 - 3.0,
+                        rect.origin.x + 1.0,
+                        NSMaxX(rect) - textSize.width - 7.0),
+                    rect.origin.y + 2.0, textSize.width + 6.0,
+                    textSize.height + 2.0);
+                [s3g::clap_gui::color(0x2c291f) setFill];
+                NSRectFill(flagRect);
+                [handleColor setStroke];
+                NSFrameRect(flagRect);
+                [handle.second drawAtPoint:NSMakePoint(
+                    flagRect.origin.x + 3.0, flagRect.origin.y)
+                    withAttributes:handleAttrs];
+            }
+        }
+    }
+
+    for (std::size_t cursorIndex = 0u;
+         cursorIndex < _instance->voicePlayheads.size(); ++cursorIndex) {
+        if (_instance->voicePlayheadSlots[cursorIndex].load(
+                std::memory_order_relaxed) != [self selectedSlot]) continue;
+        const float playhead = _instance->voicePlayheads[cursorIndex].load(
+            std::memory_order_relaxed);
+        if (playhead < 0.0f) continue;
         const uint32_t frame = std::min<uint32_t>(total - 1u,
             static_cast<uint32_t>(playhead * static_cast<float>(total)));
         const CGFloat x = [self xForFrame:frame total:total];
         if (x >= rect.origin.x && x <= NSMaxX(rect)) {
-            [s3g::clap_gui::color(0xa9d18e) setStroke];
+            NSColor* cursorColor = s3g::clap_gui::color(
+                cursorIndex % 2u == 0u ? 0xa9d18e : 0x8fb8cf);
+            [cursorColor setStroke];
             NSBezierPath* cursor = [NSBezierPath bezierPath];
             [cursor setLineWidth:2.0];
             [cursor moveToPoint:NSMakePoint(x, rect.origin.y + 1.0)];
             [cursor lineToPoint:NSMakePoint(x, NSMaxY(rect) - 1.0)];
             [cursor stroke];
+            const uint8_t key = _instance->voicePlayheadKeys[cursorIndex]
+                .load(std::memory_order_relaxed);
+            NSString* flag = [NSString stringWithFormat:@"%@/%u",
+                shortNoteText(key), static_cast<unsigned>(key)];
+            NSDictionary* flagAttrs = slicerTextAttrs(
+                s3g::clap_gui::color(0xd0d8d3), 7.5,
+                NSFontWeightMedium);
+            const NSSize flagSize = [flag sizeWithAttributes:flagAttrs];
+            const CGFloat flagX = std::clamp<CGFloat>(x + 3.0,
+                rect.origin.x + 2.0,
+                NSMaxX(rect) - flagSize.width - 8.0);
+            const NSRect flagRect = NSMakeRect(flagX,
+                rect.origin.y + 4.0, flagSize.width + 6.0,
+                flagSize.height + 3.0);
+            [s3g::clap_gui::color(0x202522) setFill];
+            NSRectFill(flagRect);
+            [cursorColor setStroke];
+            NSFrameRect(flagRect);
+            [flag drawAtPoint:NSMakePoint(flagX + 3.0,
+                flagRect.origin.y + 1.0) withAttributes:flagAttrs];
         }
     }
 
@@ -2785,17 +4357,217 @@ double gainDb(float gain)
         [marker lineToPoint:NSMakePoint(x, NSMaxY(rect) - 2.0)];
         [marker stroke];
     }
-    const float playhead = _instance->slotPlayheads[slotIndex].load(
-        std::memory_order_relaxed);
-    if (playhead >= 0.0f) {
+    for (std::size_t cursorIndex = 0u;
+         cursorIndex < _instance->voicePlayheads.size(); ++cursorIndex) {
+        if (_instance->voicePlayheadSlots[cursorIndex].load(
+                std::memory_order_relaxed) != slotIndex) continue;
+        const float playhead = _instance->voicePlayheads[cursorIndex].load(
+            std::memory_order_relaxed);
+        if (playhead < 0.0f) continue;
         const CGFloat x = rect.origin.x + rect.size.width * playhead;
-        [s3g::clap_gui::color(0xa9d18e) setStroke];
+        [s3g::clap_gui::color(cursorIndex % 2u == 0u
+            ? 0xa9d18e : 0x8fb8cf) setStroke];
         NSBezierPath* cursor = [NSBezierPath bezierPath];
         [cursor setLineWidth:2.0];
         [cursor moveToPoint:NSMakePoint(x, top)];
         [cursor lineToPoint:NSMakePoint(x, NSMaxY(rect) - 2.0)];
         [cursor stroke];
     }
+}
+
+- (void)drawBuildWaveformForSlot:(const s3g::breakbeat::SampleSlot&)slot
+{
+    const NSRect rect = buildWaveformRect();
+    [s3g::clap_gui::color(0x111111) setFill];
+    NSRectFill(rect);
+    [s3g::clap_gui::color(0x4f5853) setStroke];
+    NSFrameRect(rect);
+    NSDictionary* label = slicerTextAttrs(
+        s3g::clap_gui::color(0xa8ada9), 10.0);
+    NSDictionary* value = slicerTextAttrs(
+        s3g::clap_gui::color(0xc6cbc8), 11.0,
+        NSFontWeightMedium);
+    const uint32_t slotIndex = [self selectedSlot];
+    NSString* heading = [NSString stringWithFormat:
+        @"BREAK %u  //  MUTATION SOURCE  //  %@",
+        static_cast<unsigned>(slotIndex + 1u),
+        slotFilename(*_instance, slotIndex)];
+    [heading drawAtPoint:NSMakePoint(rect.origin.x + 12.0,
+        rect.origin.y + 9.0) withAttributes:value];
+    if (!slot.asset) {
+        [@"LOAD A BREAK TO USE IT AS A MUTATION SOURCE"
+            drawAtPoint:NSMakePoint(rect.origin.x + 12.0,
+                rect.origin.y + 54.0)
+            withAttributes:slicerSoftLabelAttrs()];
+        return;
+    }
+    const auto& asset = *slot.asset;
+    const uint32_t total = asset.frameCount();
+    const CGFloat top = rect.origin.y + 36.0;
+    const CGFloat height = rect.size.height - 62.0;
+    const CGFloat center = top + height * 0.5;
+    const uint32_t pixels = std::max<uint32_t>(1u,
+        static_cast<uint32_t>(rect.size.width - 24.0));
+    NSBezierPath* trace = [NSBezierPath bezierPath];
+    [trace setLineWidth:1.0];
+    for (uint32_t x = 0u; x < pixels; ++x) {
+        const uint32_t first = static_cast<uint32_t>(
+            static_cast<uint64_t>(total) * x / pixels);
+        const uint32_t last = std::min<uint32_t>(total,
+            std::max(first + 1u, static_cast<uint32_t>(
+                static_cast<uint64_t>(total) * (x + 1u) / pixels)));
+        float minimum = 1.0f;
+        float maximum = -1.0f;
+        const uint32_t stride = std::max<uint32_t>(1u,
+            (last - first) / 24u);
+        for (uint32_t channel = 0u; channel < asset.channelCount; ++channel) {
+            const auto& samples = asset.channels[channel];
+            for (uint32_t frame = first; frame < last; frame += stride) {
+                minimum = std::min(minimum, samples[frame]);
+                maximum = std::max(maximum, samples[frame]);
+            }
+        }
+        const CGFloat px = rect.origin.x + 12.0 + x;
+        [trace moveToPoint:NSMakePoint(px,
+            center - maximum * height * 0.43)];
+        [trace lineToPoint:NSMakePoint(px,
+            center - minimum * height * 0.43)];
+    }
+    [s3g::clap_gui::color(0x7b8780) setStroke];
+    [trace stroke];
+    for (uint16_t index = 0u; index < slot.sliceCount; ++index) {
+        const auto& slice = slot.slices[index];
+        const CGFloat x = rect.origin.x + 12.0
+            + static_cast<CGFloat>(pixels) * slice.startFrame / total;
+        [s3g::clap_gui::color(slice.reverse ? 0x9a6a72
+                                            : 0x8e824f) setStroke];
+        NSBezierPath* marker = [NSBezierPath bezierPath];
+        [marker moveToPoint:NSMakePoint(x, top)];
+        [marker lineToPoint:NSMakePoint(x, top + height)];
+        [marker stroke];
+    }
+    NSString* details = [NSString stringWithFormat:
+        @"%u SLICES   %u CH   %.2f S   INSERTS %@ / %@   AUX %.0f%%",
+        static_cast<unsigned>(slot.sliceCount),
+        static_cast<unsigned>(asset.channelCount),
+        static_cast<double>(asset.frameCount()) / asset.sampleRate,
+        insertTypeShortText(slot.inserts[0u].type),
+        insertTypeShortText(slot.inserts[1u].type),
+        slot.mixerAuxSend * 100.0f];
+    [details drawAtPoint:NSMakePoint(rect.origin.x + 12.0,
+        NSMaxY(rect) - 21.0) withAttributes:label];
+}
+
+- (void)drawBuildMutateForBank:(const BankSnapshot&)bank
+{
+    NSDictionary* label = slicerTextAttrs(
+        s3g::clap_gui::color(0xa6aaa7), 10.0);
+    NSDictionary* value = slicerTextAttrs(
+        s3g::clap_gui::color(0xc6cbc8), 11.0,
+        NSFontWeightMedium);
+    const uint32_t slotIndex = [self selectedSlot];
+    const auto& slot = bank.slots[slotIndex];
+    [self drawBuildWaveformForSlot:slot];
+    for (uint32_t index = 0u;
+         index < s3g::breakbeat::kMaximumSampleSlots; ++index) {
+        const NSRect rect = buildMutationSlotRect(index);
+        const bool active = index == slotIndex;
+        const auto& candidate = bank.slots[index];
+        const bool pending = _instance->pendingMutationSlots[index];
+        [s3g::clap_gui::color(active ? 0x292e2b : 0x171717) setFill];
+        NSRectFill(rect);
+        [s3g::clap_gui::color(active ? 0x6b7a70 : 0x444444) setStroke];
+        NSFrameRectWithWidth(rect, active ? 2.0 : 1.0);
+        [[NSString stringWithFormat:@"%u", index + 1u]
+            drawAtPoint:NSMakePoint(NSMinX(rect) + 12.0,
+                NSMinY(rect) + 10.0)
+            withAttributes:slicerTextAttrs(
+                s3g::clap_gui::color(active ? 0xc9d3cc : 0xa8aaa9),
+                20.0, NSFontWeightSemibold)];
+        NSString* slotState = pending ? @"BUILDING"
+            : candidate.asset ? (active ? @"SOURCE" : @"LOCKED")
+                              : @"AVAILABLE";
+        [slotState drawAtPoint:NSMakePoint(NSMinX(rect) + 52.0,
+            NSMinY(rect) + 14.0) withAttributes:value];
+        NSString* details = pending ? @"RENDERING STRUCTURAL MUTATION"
+            : candidate.asset
+                ? [NSString stringWithFormat:@"%u SLICES  //  %@",
+                    static_cast<unsigned>(candidate.sliceCount),
+                    slotFilename(*_instance, index)]
+                : @"NEXT FILL TARGET";
+        [details drawAtPoint:NSMakePoint(NSMinX(rect) + 12.0,
+            NSMinY(rect) + 54.0) withAttributes:label];
+        if (active) {
+            [@"SELECTED" drawAtPoint:NSMakePoint(NSMaxX(rect) - 68.0,
+                NSMinY(rect) + 14.0)
+                withAttributes:slicerTextAttrs(
+                    s3g::clap_gui::color(0x9db1a4), 8.5,
+                    NSFontWeightSemibold)];
+        }
+    }
+
+    const uint32_t emptyCount = emptyMutationSlotCount(
+        *_instance, slotIndex);
+    NSString* fillTitle = emptyCount > 0u
+        ? [NSString stringWithFormat:@"FILL %u EMPTY SLOT%@",
+            emptyCount, emptyCount == 1u ? @"" : @"S"]
+        : @"ALL OTHER SLOTS LOCKED";
+    drawButton(buildActionButtonRect(0u), fillTitle,
+        slot.asset && emptyCount > 0u);
+    drawButton(buildActionButtonRect(1u), @"CLEAR SELECTED",
+        slot.asset || _instance->pendingMutationSlots[slotIndex]);
+    drawButton(buildActionButtonRect(2u), @"EXPORT WAV…",
+        slot.asset != nullptr);
+
+    const NSRect panel = buildRecipePanelRect();
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawPanelFrame(NSMinX(panel), NSMinY(panel),
+        NSWidth(panel), NSHeight(panel), style);
+    s3g::clap_gui::drawPanelHeader(@"MUTATION USES", true,
+        NSMinX(panel), NSMinY(panel), NSWidth(panel), 24.0, label, style);
+    [@"CHOOSE THE BUILDING BLOCKS USED BY THE NEXT FILL PASS. REVERSE IS OFF BY DEFAULT."
+        drawAtPoint:NSMakePoint(NSMinX(panel) + 18.0,
+            NSMinY(panel) + 38.0) withAttributes:label];
+    static NSArray<NSString*>* useNames = @[
+        @"REARRANGE", @"REPEAT", @"PITCH", @"MIXER FX", @"AUX BUS",
+        @"REVERSE"
+    ];
+    static constexpr std::array<uint8_t, 6u> useBits {{
+        s3g::breakbeat::StructuralRearrange,
+        s3g::breakbeat::StructuralRepeat,
+        s3g::breakbeat::StructuralPitch,
+        s3g::breakbeat::StructuralMixerFx,
+        s3g::breakbeat::StructuralAuxBus,
+        s3g::breakbeat::StructuralReverse,
+    }};
+    for (uint32_t index = 0u; index < useBits.size(); ++index) {
+        drawButton(buildMutationUseRect(index), useNames[index],
+            (_instance->structuralMutationUses & useBits[index]) != 0u);
+    }
+    [[NSString stringWithFormat:@"NEXT SEED %u",
+        _instance->mutationSeed] drawAtPoint:NSMakePoint(
+            NSMinX(panel) + 18.0, NSMinY(panel) + 112.0)
+        withAttributes:value];
+    [@"EACH RESULT REARRANGES AND/OR REPEATS PLAYABLE SLICES, THEN RENDERS DIRECTLY INTO ITS EMPTY SLOT."
+        drawAtPoint:NSMakePoint(NSMinX(panel) + 150.0,
+            NSMinY(panel) + 113.0) withAttributes:label];
+    [@"MIXER FX PICKS TWO INSERTS + EQ PER RESULT. AUX BUS VARIES THE BREAK BUS; WIDE SOURCES STAY FIELD-SAFE."
+        drawAtPoint:NSMakePoint(NSMinX(panel) + 18.0,
+            NSMinY(panel) + 143.0) withAttributes:label];
+
+    const NSRect info = buildInfoRect();
+    [s3g::clap_gui::color(0x141414) setFill];
+    NSRectFill(info);
+    [s3g::clap_gui::color(0x404040) setStroke];
+    NSFrameRect(info);
+    [@"EMPTY-SLOT WORKFLOW" drawAtPoint:NSMakePoint(NSMinX(info) + 14.0,
+        NSMinY(info) + 10.0) withAttributes:value];
+    [@"SELECT ONE LOADED BREAK AS THE SOURCE, THEN FILL EVERY EMPTY SLOT WITH A DIFFERENT STRUCTURAL MUTATION."
+        drawAtPoint:NSMakePoint(NSMinX(info) + 14.0,
+            NSMinY(info) + 34.0) withAttributes:label];
+    [@"OCCUPIED SLOTS ARE LOCKED. CLEAR SELECTED MAKES THAT SLOT AVAILABLE AGAIN; GENERATED AUDIO IS EMBEDDED."
+        drawAtPoint:NSMakePoint(NSMinX(info) + 14.0,
+            NSMinY(info) + 56.0) withAttributes:label];
 }
 
 - (void)drawKeyboardForSlot:(const s3g::breakbeat::SampleSlot&)slot
@@ -3142,6 +4914,11 @@ double gainDb(float gain)
     auto bank = editableBank(*_instance);
     auto& slot = bank->slots[[self selectedSlot]];
     if (!slot.asset || slot.sliceCount == 0u) return;
+    if (!slotHasCompleteMap(slot)) {
+        _instance->status =
+            "AUTO MAP BEFORE EDITING SLICE PROPERTIES";
+        return;
+    }
     const std::size_t sliceIndex = static_cast<std::size_t>(
         std::clamp<NSInteger>(_selectedSlice, 0,
             static_cast<NSInteger>(slot.sliceCount) - 1));
@@ -3194,17 +4971,17 @@ double gainDb(float gain)
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-    [s3g::clap_gui::color(0x090909) setFill];
+    const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
+    [style.bg setFill];
     NSRectFill(self.bounds);
+    [self updateDetailNumericFields];
     // Match the resolved 17.5 pt header used by "s3g TRACKER". Slicer's
     // shared font helper uses a slightly different readability scale, so a
     // 16 pt design size produces the same rendered title size here.
     NSDictionary* title = slicerTextAttrs(
         s3g::clap_gui::color(0xc8c8c8), 16.0);
-    NSDictionary* label = slicerTextAttrs(
-        s3g::clap_gui::color(0xa6a6a6), 10.5);
-    NSDictionary* value = slicerTextAttrs(
-        s3g::clap_gui::color(0xc6c6c6), 11.0);
+    NSDictionary* label = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* value = s3g::clap_gui::softValueAttrs();
     [@"s3g SAMPLE SLICER" drawAtPoint:NSMakePoint(18.0, 17.0)
         withAttributes:title];
     NSString* variant = [NSString stringWithFormat:@"%u OUT",
@@ -3214,12 +4991,20 @@ double gainDb(float gain)
         _instance->status.c_str()];
     if (!status) status = @"";
     s3g::clap_gui::drawRightStatus(status, kGuiWidth, 22.0, label);
-    [(_page == 2u ? @"INTERNAL BREAK MIXER" : @"FOUR BREAK BANK")
-        drawAtPoint:NSMakePoint(18.0, 51.0)
-        withAttributes:label];
-    drawButton(editorTabRect(0u), @"OVERVIEW", _page == 0u);
-    drawButton(editorTabRect(1u), @"BREAK EDIT", _page == 1u);
-    drawButton(editorTabRect(2u), @"MIXER", _page == 2u);
+    NSString* section = _page == 2u ? @"INTERNAL BREAK MIXER"
+        : _page == 3u ? @"STRUCTURAL MUTATIONS" : @"FOUR BREAK BANK";
+    [section drawAtPoint:NSMakePoint(18.0, 51.0) withAttributes:label];
+    NSDictionary* compact = s3g::clap_gui::textAttrs(
+        s3g::clap_gui::color(0xb8b8b8), 8.5);
+    const NSRect navigationBand = NSMakeRect(282.0, 42.0, 780.0, 24.0);
+    s3g::clap_gui::drawHeaderButton(editorTabRect(0u), navigationBand,
+        @"OVERVIEW", _page == 0u, label, style);
+    s3g::clap_gui::drawHeaderButton(editorTabRect(1u), navigationBand,
+        @"BREAK EDIT", _page == 1u, label, style);
+    s3g::clap_gui::drawHeaderButton(editorTabRect(2u), navigationBand,
+        @"MIXER", _page == 2u, label, style);
+    s3g::clap_gui::drawHeaderButton(editorTabRect(3u), navigationBand,
+        @"BUILD / MUTATE", _page == 3u, label, style);
     uint64_t projectAudioBytes = 0u;
     if (_instance->controlBank) {
         for (const auto& slot : _instance->controlBank->slots) {
@@ -3239,11 +5024,26 @@ double gainDb(float gain)
             @"PROJECT AUDIO: EMBED %.1f MB",
             static_cast<double>(projectAudioBytes) / (1024.0 * 1024.0)];
     }
-    drawButton(embedAudioButtonRect(), projectAudioLabel,
-        _instance->embedSamplesInState);
+    if (_page != 1u) {
+        s3g::clap_gui::drawHeaderButton(killAllButtonRect(), navigationBand,
+            @"KILL ALL", false, compact, style);
+        s3g::clap_gui::drawHeaderButton(embedAudioButtonRect(),
+            navigationBand, projectAudioLabel,
+            _instance->embedSamplesInState, compact, style);
+    }
 
     const auto* bank = [self displayBank];
     if (!bank) return;
+    if (_page != 2u) {
+        const NSRect bankPanel = bankPanelRect();
+        s3g::clap_gui::drawPanelFrame(NSMinX(bankPanel), NSMinY(bankPanel),
+            NSWidth(bankPanel), NSHeight(bankPanel), style);
+        s3g::clap_gui::drawPanelHeader(@"BREAK BANK", true,
+            NSMinX(bankPanel), NSMinY(bankPanel), NSWidth(bankPanel),
+            static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.headerHeight),
+            label, style);
+    }
     if (_page != 2u) for (uint32_t index = 0u;
          index < s3g::breakbeat::kMaximumSampleSlots; ++index) {
         const NSRect row = bankRowRect(index);
@@ -3258,11 +5058,11 @@ double gainDb(float gain)
         [s3g::clap_gui::color(0x484848) setStroke];
         NSFrameRect(row);
         [[NSString stringWithFormat:@"BREAK %u", index + 1u]
-            drawAtPoint:NSMakePoint(row.origin.x + 10.0, row.origin.y + 9.0)
+            drawAtPoint:NSMakePoint(row.origin.x + 8.0, row.origin.y + 7.0)
             withAttributes:value];
         NSString* filename = slotFilename(*_instance, index);
-        NSRect nameRect = NSMakeRect(row.origin.x + 78.0, row.origin.y + 8.0,
-            158.0, 17.0);
+        NSRect nameRect = NSMakeRect(row.origin.x + 72.0, row.origin.y + 6.0,
+            156.0, 17.0);
         [filename drawInRect:nameRect withAttributes:label];
         const auto& slot = bank->slots[index];
         NSString* meta = slot.asset
@@ -3274,21 +5074,21 @@ double gainDb(float gain)
                 static_cast<unsigned>(slot.rootNote),
                 s3g::breakbeat::maximumSlicesForStartNote(slot.rootNote)]
             : @"";
-        [meta drawAtPoint:NSMakePoint(row.origin.x + 10.0,
-            row.origin.y + 37.0) withAttributes:label];
+        [meta drawAtPoint:NSMakePoint(row.origin.x + 8.0,
+            row.origin.y + 33.0) withAttributes:compact];
         NSString* channel = slot.midiChannel == 0u ? @"MIDI OMNI"
             : [NSString stringWithFormat:@"MIDI CH %u",
                 static_cast<unsigned>(slot.midiChannel)];
-        drawButton(slotChannelRect(index), channel);
-        const bool mapped = slot.asset && slot.mappedSliceCount > 0u
-            && slot.mappedSliceCount == slot.sliceCount
-            && slot.mappedRootNote == slot.rootNote;
+        drawCompactMenu(slotChannelRect(index), channel, selected, value,
+            style);
+        const bool mapped = slotHasCompleteMap(slot);
         NSString* mapLabel = mapped
             ? [NSString stringWithFormat:@"MAPPED %@ +%u",
                 shortNoteText(slot.mappedRootNote),
                 static_cast<unsigned>(slot.mappedSliceCount - 1u)]
             : @"AUTO MAP";
-        drawButton(slotAutomapRect(index), mapLabel, mapped);
+        s3g::clap_gui::drawHeaderButton(slotAutomapRect(index), row,
+            mapLabel, mapped, compact, style);
     }
 
     const auto& slot = bank->slots[[self selectedSlot]];
@@ -3302,26 +5102,114 @@ double gainDb(float gain)
         NSString* overviewHelp = @"CLICK A BREAK TO SELECT   DOUBLE-CLICK TO EDIT   DROP AUDIO ON ANY BREAK   AUTO MAP AFTER SLICE CHANGES";
         [overviewHelp drawAtPoint:NSMakePoint(292.0, 620.0)
             withAttributes:label];
+    } else if (_page == 3u) {
+        [self drawBuildMutateForBank:*bank];
     } else {
+        const std::array<std::pair<NSRect, NSString*>, 5u> toolboxes {{
+            { sampleToolboxRect(), @"SAMPLE / SLICE" },
+            { sliceMapToolboxRect(), @"SLICE / MAP" },
+            { playbackToolboxRect(), @"MAPPED SLICE PLAYBACK" },
+            { selectedSliceToolboxRect(), @"SELECTED SLICE" },
+            { timingToolboxRect(), @"TIMING" },
+        }};
+        for (const auto& toolbox : toolboxes) {
+            s3g::clap_gui::drawPanelFrame(NSMinX(toolbox.first),
+                NSMinY(toolbox.first), NSWidth(toolbox.first),
+                NSHeight(toolbox.first), style);
+            s3g::clap_gui::drawPanelHeader(toolbox.second, true,
+                NSMinX(toolbox.first), NSMinY(toolbox.first),
+                NSWidth(toolbox.first), static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.headerHeight),
+                label, style);
+        }
+        s3g::clap_gui::drawHeaderButton(sampleLoadButtonRect(),
+            sampleToolboxRect(), @"LOAD", false, label, style);
+        s3g::clap_gui::drawHeaderButton(sampleClearButtonRect(),
+            sampleToolboxRect(), @"CLEAR", false, label, style);
+        s3g::clap_gui::drawHeaderButton(sampleEmbedButtonRect(),
+            sampleToolboxRect(), _instance->embedSamplesInState
+                ? @"EMBED ON" : @"PATHS",
+            _instance->embedSamplesInState, label, style);
+        s3g::clap_gui::drawHeaderButton(automapButtonRect(),
+            sliceMapToolboxRect(), @"AUTO MAP", slotHasCompleteMap(slot),
+            label, style);
+        s3g::clap_gui::drawHeaderButton(playbackKillButtonRect(),
+            playbackToolboxRect(), @"KILL ALL", false, label, style);
+
         [self drawWaveformForSlot:slot];
-        drawButton(controlButtonRect(0u), @"LOAD");
-        drawButton(controlButtonRect(1u), @"CLEAR");
-        drawButton(controlButtonRect(2u), @"EQ 4");
-        drawButton(controlButtonRect(3u), @"EQ 8");
-        drawButton(controlButtonRect(4u), @"EQ 16");
-        drawButton(controlButtonRect(5u), @"EQ 32");
-        drawButton(controlButtonRect(6u), @"TRANSIENT");
-        drawButton(controlButtonRect(7u), @"START -");
-        drawButton(controlButtonRect(8u), @"START +");
-        drawButton(controlButtonRect(9u), @"AUDITION");
-        drawButton(transientPreRollButtonRect(0u), @"-");
-        drawButton(transientPreRollButtonRect(1u),
-            [NSString stringWithFormat:@"PRE %u µs",
-                _instance->transientPreRollMicroseconds]);
-        drawButton(transientPreRollButtonRect(2u), @"+");
-        [@"TRANSIENT PRE-ROLL   ±100 µs   OPTION 10   SHIFT 1000"
-            drawAtPoint:NSMakePoint(523.0, 595.0)
-            withAttributes:label];
+        const bool mapped = slotHasCompleteMap(slot);
+        static constexpr const char* slicingNames[] {
+            "EQUAL 4", "EQUAL 8", "EQUAL 16", "EQUAL 32", "TRANSIENT",
+        };
+        const NSInteger slicingIndex = std::clamp<NSInteger>(
+            _sliceModeSelection, 0, 4);
+        s3g::clap_gui::drawProcessorMenu(@"METHOD",
+            [NSString stringWithUTF8String:slicingNames[slicingIndex]],
+            448.0, NSMinX(sliceMapToolboxRect()),
+            NSWidth(sliceMapToolboxRect()), label, value, style);
+        s3g::clap_gui::drawProcessorSlider(@"PRE-ROLL US",
+            [NSString stringWithFormat:@"%u",
+                _instance->transientPreRollMicroseconds],
+            static_cast<CGFloat>(_instance->transientPreRollMicroseconds)
+                / static_cast<CGFloat>(kMaximumTransientPreRollMicroseconds),
+            detailNumericY(kDetailNumericPreRoll),
+            NSMinX(sliceMapToolboxRect()), NSWidth(sliceMapToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorSlider(@"MIN SLICE MS",
+            [NSString stringWithFormat:@"%u",
+                _instance->minimumTransientSliceMilliseconds],
+            static_cast<CGFloat>(
+                _instance->minimumTransientSliceMilliseconds)
+                / static_cast<CGFloat>(
+                    kMaximumMinimumTransientSliceMilliseconds),
+            detailNumericY(kDetailNumericMinimumSlice),
+            NSMinX(sliceMapToolboxRect()), NSWidth(sliceMapToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorMenu(@"START NOTE",
+            noteText(slot.rootNote), 526.0, NSMinX(sliceMapToolboxRect()),
+            NSWidth(sliceMapToolboxRect()), label, value, style);
+
+        s3g::clap_gui::drawProcessorMenu(@"TRIGGER",
+            triggerModeText(slot.triggerMode), 448.0,
+            NSMinX(playbackToolboxRect()), NSWidth(playbackToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorMenu(@"RETRIGGER",
+            retriggerModeText(slot.retriggerMode), 474.0,
+            NSMinX(playbackToolboxRect()), NSWidth(playbackToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorMenu(@"VOICE MODE",
+            voiceModeText(slot.voiceMode), 500.0,
+            NSMinX(playbackToolboxRect()), NSWidth(playbackToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorMenu(@"PITCH MODE",
+            pitchModeText(slot.pitchMode), 526.0,
+            NSMinX(playbackToolboxRect()), NSWidth(playbackToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorMenu(@"TEMPO SYNC",
+            syncModeText(slot.syncMode), 552.0,
+            NSMinX(playbackToolboxRect()), NSWidth(playbackToolboxRect()),
+            label, value, style);
+
+        s3g::clap_gui::drawProcessorSlider(@"SAMPLE BPM",
+            [NSString stringWithFormat:@"%.1f", slot.sourceTempoBpm],
+            static_cast<CGFloat>((slot.sourceTempoBpm - 20.0f) / 979.0f),
+            detailNumericY(kDetailNumericSourceTempo),
+            NSMinX(timingToolboxRect()), NSWidth(timingToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorSlider(@"XFADE %",
+            [NSString stringWithFormat:@"%.1f",
+                slot.loopCrossfade * 100.0f],
+            static_cast<CGFloat>(slot.loopCrossfade / 0.5f),
+            detailNumericY(kDetailNumericLoopCrossfade),
+            NSMinX(timingToolboxRect()), NSWidth(timingToolboxRect()),
+            label, value, style);
+        s3g::clap_gui::drawProcessorSlider(@"GLIDE MS",
+            [NSString stringWithFormat:@"%.1f",
+                slot.glideSeconds * 1000.0f],
+            static_cast<CGFloat>(slot.glideSeconds / 2.0f),
+            detailNumericY(kDetailNumericGlide),
+            NSMinX(timingToolboxRect()), NSWidth(timingToolboxRect()),
+            label, value, style);
 
         if (slot.asset && slot.sliceCount > 0u) {
             const double seconds = slot.asset->frameCount()
@@ -3333,20 +5221,24 @@ double gainDb(float gain)
                 noteText(slot.rootNote),
                 s3g::breakbeat::maximumSlicesForStartNote(slot.rootNote),
                 _zoom];
-            [details drawAtPoint:NSMakePoint(292.0, 616.0)
+            [details drawAtPoint:NSMakePoint(294.0, 365.0)
                 withAttributes:value];
+            [@"DRAG MARKERS / LS / LE   SCROLL ZOOM   SHIFT-SCROLL PAN   DOUBLE-CLICK ADD"
+                drawAtPoint:NSMakePoint(294.0, 383.0)
+                withAttributes:label];
             const std::size_t selected = static_cast<std::size_t>(
                 std::clamp<NSInteger>(_selectedSlice, 0,
                     static_cast<NSInteger>(slot.sliceCount) - 1));
             const auto& slice = slot.slices[selected];
             const NSRect envelopePanel = envelopePanelRect();
-            s3g::clap_gui::Style envelopeStyle;
             s3g::clap_gui::drawPanelFrame(NSMinX(envelopePanel),
                 NSMinY(envelopePanel), NSWidth(envelopePanel),
-                NSHeight(envelopePanel), envelopeStyle);
-            s3g::clap_gui::drawPanelHeader(@"BREAK ENVELOPE", true,
+                NSHeight(envelopePanel), style);
+            s3g::clap_gui::drawPanelHeader(@"AMP ENVELOPE", true,
                 NSMinX(envelopePanel), NSMinY(envelopePanel),
-                NSWidth(envelopePanel), 24.0, label, envelopeStyle);
+                NSWidth(envelopePanel), static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.headerHeight),
+                label, style);
             [@"ALL SLICES  //  A D R SCALE TO LENGTH"
                 drawAtPoint:NSMakePoint(NSMinX(envelopePanel) + 16.0,
                     NSMinY(envelopePanel) + 31.0)
@@ -3369,32 +5261,65 @@ double gainDb(float gain)
                         envelopeValues[index] * 100.0f],
                     envelopeValues[index], envelopeSliderY(index),
                     NSMinX(envelopePanel), NSWidth(envelopePanel), label,
-                    value, envelopeStyle);
+                    value, style);
             }
-            NSString* sliceDetails = [NSString stringWithFormat:
-                @"SLICE %03u   GAIN %.2f   PITCH %+.0f ST   PAN %+.1f   %@   CHOKE %u%@",
-                static_cast<unsigned>(selected), slice.gain,
-                slice.transposeSemitones, slice.pan,
-                launchModeText(slice.launchMode),
-                static_cast<unsigned>(slice.chokeGroup),
-                slice.reverse ? @"   REVERSE" : @""];
-            [sliceDetails drawAtPoint:NSMakePoint(292.0, 631.0)
-                withAttributes:value];
-            drawButton(sliceControlButtonRect(0u), @"GAIN -");
-            drawButton(sliceControlButtonRect(1u), @"GAIN +");
-            drawButton(sliceControlButtonRect(2u), @"PITCH -");
-            drawButton(sliceControlButtonRect(3u), @"PITCH +");
-            drawButton(sliceControlButtonRect(4u),
-                slot.asset->channelCount > 2u ? @"PAN N/A" : @"PAN -");
-            drawButton(sliceControlButtonRect(5u),
-                slot.asset->channelCount > 2u ? @"PAN N/A" : @"PAN +");
-            drawButton(sliceControlButtonRect(6u), @"REVERSE",
-                slice.reverse);
-            drawButton(sliceControlButtonRect(7u), @"MODE");
-            drawButton(sliceControlButtonRect(8u), @"CHOKE -");
-            drawButton(sliceControlButtonRect(9u), @"CHOKE +");
-            NSString* help = @"KEYS AUDITION   DOUBLE-CLICK ADD   DRAG MARKER   RIGHT-CLICK DELETE   SCROLL ZOOM";
-            [help drawAtPoint:NSMakePoint(292.0, 684.0)
+            if (mapped) {
+                NSString* selectedStatus = [NSString stringWithFormat:
+                    @"%03u / %@ / %@", static_cast<unsigned>(selected),
+                    noteText(static_cast<uint8_t>(slot.mappedRootNote
+                        + selected)), launchModeText(slice.launchMode)];
+                s3g::clap_gui::drawBoundedRightText(selectedStatus,
+                    NSMakeRect(500.0, 594.0, 278.0, 14.0), compact);
+                static constexpr const char* propertyNames[] {
+                    "GAIN", "PITCH", "PAN",
+                };
+                const std::array<NSString*, 3u> propertyValues {{
+                    [NSString stringWithFormat:@"%.2f", slice.gain],
+                    [NSString stringWithFormat:@"%+.0f ST",
+                        slice.transposeSemitones],
+                    slot.asset->channelCount > 2u ? @"N/A"
+                        : [NSString stringWithFormat:@"%+.1f", slice.pan],
+                }};
+                for (uint32_t property = 0u; property < 3u; ++property) {
+                    [[NSString stringWithUTF8String:propertyNames[property]]
+                        drawAtPoint:NSMakePoint(296.0
+                            + static_cast<CGFloat>(property) * 158.0,
+                            622.0) withAttributes:compact];
+                    s3g::clap_gui::drawHeaderButton(
+                        slicePropertyButtonRect(property, 0u),
+                        selectedSliceToolboxRect(), @"-", false, compact,
+                        style);
+                    s3g::clap_gui::drawHeaderButton(
+                        slicePropertyButtonRect(property, 1u),
+                        selectedSliceToolboxRect(), propertyValues[property],
+                        false, compact, style);
+                    s3g::clap_gui::drawHeaderButton(
+                        slicePropertyButtonRect(property, 2u),
+                        selectedSliceToolboxRect(), @"+", false, compact,
+                        style);
+                }
+                [@"LAUNCH" drawAtPoint:NSMakePoint(296.0, 650.0)
+                    withAttributes:label];
+                drawCompactMenu(sliceLaunchMenuRect(),
+                    launchModeText(slice.launchMode), false, value, style);
+                s3g::clap_gui::drawHeaderButton(sliceReverseButtonRect(),
+                    selectedSliceToolboxRect(), @"REVERSE", slice.reverse,
+                    compact, style);
+                [@"CHOKE" drawAtPoint:NSMakePoint(620.0, 650.0)
+                    withAttributes:label];
+                drawCompactMenu(sliceChokeMenuRect(),
+                    slice.chokeGroup == 0u ? @"OFF"
+                        : [NSString stringWithFormat:@"GROUP %u",
+                            static_cast<unsigned>(slice.chokeGroup)],
+                    slice.chokeGroup != 0u, value, style);
+            } else {
+                drawLockedControlBar(NSMakeRect(294.0, 620.0, 486.0, 50.0),
+                    @"LOCKED — SET START, THEN PRESS AUTO MAP");
+            }
+            NSString* help = mapped
+                ? @"SELECT OR AUDITION A MAPPED NOTE"
+                : @"WORKFLOW:  1 SLICE + EDIT MARKERS   →   2 SET START + AUTO MAP   →   3 EDIT / AUDITION";
+            [help drawAtPoint:NSMakePoint(282.0, 690.0)
                 withAttributes:label];
             [self drawKeyboardForSlot:slot];
         }
@@ -3403,12 +5328,93 @@ double gainDb(float gain)
     NSString* outputWidth = [NSString stringWithFormat:@"OUT %u CH FIXED",
         static_cast<unsigned>(_instance->outputChannelCount)];
     NSString* output = [NSString stringWithFormat:
-        @"%@ / %+.1f DB   VEL %.0f%%   PER-BREAK MIDI   PK %+.1f DB",
+        @"%@ / %+.1f DB   VEL %.0f%%   PER-BREAK MIDI   %@",
         outputWidth,
         _instance->outputGainDb.load(std::memory_order_relaxed),
         _instance->velocitySensitivity.load(std::memory_order_relaxed) * 100.0,
-        20.0 * std::log10(std::max(0.000001f, peak))];
+        s3g::clap_gui::peakDbText(peak)];
     [output drawAtPoint:NSMakePoint(292.0, 775.0) withAttributes:label];
+
+    if (_detailMenuKind != kDetailMenuNone) {
+        const uint32_t count = [self detailMenuItemCount];
+        std::array<NSString*, 128u> items {};
+        int selected = -1;
+        for (uint32_t index = 0u; index < count; ++index) {
+            switch (_detailMenuKind) {
+            case kDetailMenuMidiChannel:
+                items[index] = index == 0u ? @"OMNI"
+                    : [NSString stringWithFormat:@"CHANNEL %u", index];
+                break;
+            case kDetailMenuSliceMethod:
+                items[index] = kSlicerMethodItems[index];
+                break;
+            case kDetailMenuStartNote:
+                items[index] = noteText(static_cast<uint8_t>(index));
+                break;
+            case kDetailMenuTrigger:
+                items[index] = kSlicerTriggerItems[index];
+                break;
+            case kDetailMenuRetrigger:
+                items[index] = kSlicerRetriggerItems[index];
+                break;
+            case kDetailMenuVoice:
+                items[index] = kSlicerVoiceItems[index];
+                break;
+            case kDetailMenuPitch:
+                items[index] = kSlicerPitchItems[index];
+                break;
+            case kDetailMenuSync:
+                items[index] = kSlicerSyncItems[index];
+                break;
+            case kDetailMenuSliceLaunch:
+                items[index] = kSlicerLaunchItems[index];
+                break;
+            case kDetailMenuSliceChoke:
+                items[index] = index == 0u ? @"OFF"
+                    : [NSString stringWithFormat:@"GROUP %u", index];
+                break;
+            default: break;
+            }
+        }
+        if (_detailMenuKind == kDetailMenuMidiChannel
+            && _detailMenuSlot < bank->slots.size()) {
+            selected = bank->slots[_detailMenuSlot].midiChannel;
+        } else if (_detailMenuKind == kDetailMenuSliceMethod) {
+            selected = static_cast<int>(_sliceModeSelection);
+        } else if (_detailMenuKind == kDetailMenuStartNote) {
+            selected = slot.rootNote;
+        } else if (_detailMenuKind == kDetailMenuTrigger) {
+            selected = static_cast<int>(slot.triggerMode);
+        } else if (_detailMenuKind == kDetailMenuRetrigger) {
+            selected = static_cast<int>(slot.retriggerMode);
+        } else if (_detailMenuKind == kDetailMenuVoice) {
+            selected = static_cast<int>(slot.voiceMode);
+        } else if (_detailMenuKind == kDetailMenuPitch) {
+            selected = static_cast<int>(slot.pitchMode);
+        } else if (_detailMenuKind == kDetailMenuSync) {
+            selected = static_cast<int>(slot.syncMode);
+        } else if ((_detailMenuKind == kDetailMenuSliceLaunch
+                || _detailMenuKind == kDetailMenuSliceChoke)
+            && slotHasCompleteMap(slot) && slot.sliceCount > 0u) {
+            const std::size_t sliceIndex = static_cast<std::size_t>(
+                std::clamp<NSInteger>(_selectedSlice, 0,
+                    static_cast<NSInteger>(slot.sliceCount) - 1));
+            selected = _detailMenuKind == kDetailMenuSliceLaunch
+                ? static_cast<int>(slot.slices[sliceIndex].launchMode)
+                : static_cast<int>(slot.slices[sliceIndex].chokeGroup);
+        }
+        const uint32_t columns = detailMenuColumns(_detailMenuKind);
+        if (columns > 1u) {
+            s3g::clap_gui::drawMultiColumnDropdownMenu(
+                [self detailMenuDropdownRect], 20.0, items.data(), count,
+                columns, selected, static_cast<int>(_detailMenuHover),
+                value, style);
+        } else {
+            s3g::clap_gui::drawDropdownMenu(
+                [self detailMenuDropdownRect], 20.0, items.data(), count,
+                selected, static_cast<int>(_detailMenuHover), value, style);
+        }
+    }
 }
 
 - (void)openSamples
@@ -3428,6 +5434,39 @@ double gainDb(float gain)
     _selectedSlice = 0;
     _zoom = 1.0;
     _visibleStart = 0u;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)exportCurrentBreak
+{
+    const uint32_t slotIndex = [self selectedSlot];
+    const auto* bank = [self displayBank];
+    if (!bank || !bank->slots[slotIndex].asset) {
+        _instance->status = "LOAD A BREAK BEFORE EXPORTING";
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    NSString* source = [slotFilename(*_instance, slotIndex)
+        stringByDeletingPathExtension];
+    if (!source || [source length] == 0u || [source isEqualToString:@"EMPTY"])
+        source = [NSString stringWithFormat:@"break-%u", slotIndex + 1u];
+    NSString* name = [NSString stringWithFormat:@"%@-rendered.wav",
+        source];
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    [panel setTitle:@"Export Rendered Break"];
+    [panel setPrompt:@"Export"];
+    [panel setCanCreateDirectories:YES];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:@[ @"wav" ]];
+#pragma clang diagnostic pop
+    [panel setNameFieldStringValue:name];
+    if ([panel runModal] != NSModalResponseOK || ![panel URL]) return;
+    const char* path = [[panel URL] fileSystemRepresentation];
+    _instance->status = path
+            && queueMutationExport(*_instance, slotIndex, path)
+        ? "RENDERING BREAK FOR WAV EXPORT"
+        : "COULD NOT QUEUE THE WAV EXPORT";
     [self setNeedsDisplay:YES];
 }
 
@@ -3470,6 +5509,7 @@ double gainDb(float gain)
     if (publishBank(*_instance, std::move(bank), false)) {
         _instance->samplePaths[index].clear();
         _instance->analyses[index].reset();
+        resetSlotVariations(*_instance, index);
         markStateDirty(*_instance);
         _instance->status = "SLOT CLEARED";
     }
@@ -3504,7 +5544,10 @@ double gainDb(float gain)
             s3g::breakbeat::makeTransientSlices(*slot->asset, *analysis,
                 s3g::breakbeat::maximumSlicesForStartNote(slot->rootNote),
                 zeroRadius,
-                _instance->transientPreRollMicroseconds))) {
+                _instance->transientPreRollMicroseconds,
+                static_cast<uint32_t>(std::lround(slot->asset->sampleRate
+                    * _instance->minimumTransientSliceMilliseconds
+                    * 0.001))))) {
         _selectedSlice = 0;
         _instance->status = "SLICES CHANGED - PRESS AUTO MAP";
     }
@@ -3876,14 +5919,39 @@ double gainDb(float gain)
 {
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
-    for (uint32_t index = 0u; index < 3u; ++index) {
+    if (_detailMenuKind != kDetailMenuNone) {
+        const NSInteger selection = [self detailMenuHitAtPoint:point];
+        if (selection >= 0) {
+            [self applyDetailMenuSelection:selection];
+            [self closeDetailMenu];
+            [self updateDetailNumericFields];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (!NSPointInRect(point, detailMenuControlRect(
+                _detailMenuKind, _detailMenuSlot))) {
+            [self closeDetailMenu];
+            [self updateDetailNumericFields];
+        }
+    }
+    for (uint32_t index = 0u; index < 4u; ++index) {
         if (NSPointInRect(point, editorTabRect(index))) {
+            [self closeDetailMenu];
             _page = index;
+            [self updateDetailNumericFields];
             [self setNeedsDisplay:YES];
             return;
         }
     }
-    if (NSPointInRect(point, embedAudioButtonRect())) {
+    if ((_page == 1u && NSPointInRect(point, playbackKillButtonRect()))
+        || (_page != 1u && NSPointInRect(point, killAllButtonRect()))) {
+        _instance->pendingKillAll.store(true, std::memory_order_release);
+        _instance->status = "ALL SAMPLE PLAYBACK STOPPED";
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if ((_page == 1u && NSPointInRect(point, sampleEmbedButtonRect()))
+        || (_page != 1u && NSPointInRect(point, embedAudioButtonRect()))) {
         _instance->embedSamplesInState
             = !_instance->embedSamplesInState;
         _instance->status = _instance->embedSamplesInState
@@ -3900,27 +5968,12 @@ double gainDb(float gain)
     for (uint32_t index = 0u;
          index < s3g::breakbeat::kMaximumSampleSlots; ++index) {
         if (NSPointInRect(point, slotChannelRect(index))) {
-            const auto* bank = [self displayBank];
-            if (!bank) return;
             _instance->selectedSlot = index;
-            NSMenu* menu = [[NSMenu alloc] initWithTitle:@"MIDI CHANNEL"];
-            for (NSInteger channel = 0; channel <= 16; ++channel) {
-                NSString* itemTitle = channel == 0 ? @"Omni"
-                    : [NSString stringWithFormat:@"Channel %ld",
-                        static_cast<long>(channel)];
-                NSMenuItem* item = [[NSMenuItem alloc]
-                    initWithTitle:itemTitle
-                    action:@selector(selectMidiChannel:)
-                    keyEquivalent:@""];
-                [item setTarget:self];
-                [item setTag:channel];
-                [item setState:bank->slots[index].midiChannel == channel
-                    ? NSControlStateValueOn : NSControlStateValueOff];
-                [menu addItem:item];
-            }
-            [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(
-                slotChannelRect(index).origin.x,
-                NSMaxY(slotChannelRect(index))) inView:self];
+            _detailMenuKind = kDetailMenuMidiChannel;
+            _detailMenuHover = -1;
+            _detailMenuSlot = index;
+            [self updateDetailNumericFields];
+            [self setNeedsDisplay:YES];
             return;
         }
         if (NSPointInRect(point, slotAutomapRect(index))) {
@@ -3956,47 +6009,170 @@ double gainDb(float gain)
         }
         return;
     }
-    for (uint32_t index = 0u; index < 3u; ++index) {
-        if (!NSPointInRect(point, transientPreRollButtonRect(index)))
-            continue;
-        if (index == 1u) {
-            static constexpr std::array<uint32_t, 15u> values {{
-                0u, 100u, 250u, 500u, 750u, 1000u, 1500u, 2000u,
-                3000u, 4000u, 6000u, 8000u, 10000u, 15000u, 20000u,
-            }};
-            NSMenu* menu = [[NSMenu alloc]
-                initWithTitle:@"TRANSIENT PRE-ROLL"];
-            for (const uint32_t value : values) {
-                NSString* title = value == 0u ? @"Off (0 µs)"
-                    : [NSString stringWithFormat:@"%u µs", value];
-                NSMenuItem* item = [[NSMenuItem alloc]
-                    initWithTitle:title
-                    action:@selector(selectTransientPreRoll:)
-                    keyEquivalent:@""];
-                [item setTarget:self];
-                [item setTag:static_cast<NSInteger>(value)];
-                [item setState:_instance->transientPreRollMicroseconds
-                        == value
-                    ? NSControlStateValueOn : NSControlStateValueOff];
-                [menu addItem:item];
-            }
-            [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(
-                NSMinX(transientPreRollButtonRect(index)),
-                NSMaxY(transientPreRollButtonRect(index))) inView:self];
+    if (_page == 3u) {
+        const uint32_t slotIndex = [self selectedSlot];
+        const auto* bank = [self displayBank];
+        if (!bank) return;
+        const auto& slot = bank->slots[slotIndex];
+        for (uint32_t index = 0u;
+             index < s3g::breakbeat::kMaximumSampleSlots; ++index) {
+            if (!NSPointInRect(point, buildMutationSlotRect(index)))
+                continue;
+            _instance->selectedSlot = index;
+            _selectedSlice = 0;
+            _zoom = 1.0;
+            _visibleStart = 0u;
+            _instance->status = bank->slots[index].asset
+                ? "BREAK SELECTED AS MUTATION SOURCE"
+                : _instance->pendingMutationSlots[index]
+                    ? "MUTATION SLOT IS BUILDING"
+                    : "EMPTY SLOT SELECTED";
+            [self setNeedsDisplay:YES];
             return;
         }
-        const NSEventModifierFlags modifiers = [event modifierFlags];
-        const uint32_t step = (modifiers & NSEventModifierFlagShift) != 0u
-            ? 1000u
-            : (modifiers & NSEventModifierFlagOption) != 0u ? 10u : 100u;
-        const int64_t delta = index == 0u
-            ? -static_cast<int64_t>(step) : static_cast<int64_t>(step);
-        _instance->transientPreRollMicroseconds = static_cast<uint32_t>(
-            std::clamp<int64_t>(static_cast<int64_t>(
-                    _instance->transientPreRollMicroseconds) + delta,
-                0, kMaximumTransientPreRollMicroseconds));
-        markStateDirty(*_instance);
-        _instance->status = "TRANSIENT PRE-ROLL UPDATED";
+        if (NSPointInRect(point, buildActionButtonRect(0u))) {
+            if (!slot.asset) {
+                _instance->status
+                    = "SELECT A LOADED BREAK BEFORE FILLING SLOTS";
+            } else {
+                const uint32_t count = fillEmptySlotsWithMutations(
+                    *_instance, slotIndex);
+                _instance->status = count > 0u
+                    ? "BUILDING STRUCTURAL MUTATIONS IN EMPTY SLOTS"
+                    : "ALL OTHER BREAK SLOTS ARE LOCKED";
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, buildActionButtonRect(1u))) {
+            [self clearSelectedSlot];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, buildActionButtonRect(2u))) {
+            [self exportCurrentBreak];
+            return;
+        }
+        static constexpr std::array<uint8_t, 6u> useBits {{
+            s3g::breakbeat::StructuralRearrange,
+            s3g::breakbeat::StructuralRepeat,
+            s3g::breakbeat::StructuralPitch,
+            s3g::breakbeat::StructuralMixerFx,
+            s3g::breakbeat::StructuralAuxBus,
+            s3g::breakbeat::StructuralReverse,
+        }};
+        for (uint32_t index = 0u; index < useBits.size(); ++index) {
+            if (!NSPointInRect(point, buildMutationUseRect(index)))
+                continue;
+            _instance->structuralMutationUses ^= useBits[index];
+            markStateDirty(*_instance);
+            _instance->status = "MUTATION USES UPDATED";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        return;
+    }
+    const auto* detailSlot = [self selectedSampleSlot];
+    if (!detailSlot) return;
+    if (NSPointInRect(point, sampleLoadButtonRect())) {
+        [self openSamples];
+        return;
+    }
+    if (NSPointInRect(point, sampleClearButtonRect())) {
+        [self clearSelectedSlot];
+        return;
+    }
+    if (NSPointInRect(point, automapButtonRect())) {
+        if (automapSlot(*_instance, [self selectedSlot]))
+            _instance->status
+                = "BREAK SLICES AUTO-MAPPED - SLICE EDITING ENABLED";
+        else
+            _instance->status = "LOAD OR REDUCE SLICES BEFORE AUTO MAP";
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, sliceMethodMenuRect())) {
+        _detailMenuKind = kDetailMenuSliceMethod;
+        _detailMenuHover = -1;
+        _detailMenuSlot = [self selectedSlot];
+        [self updateDetailNumericFields];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, startNoteMenuRect())) {
+        _detailMenuKind = kDetailMenuStartNote;
+        _detailMenuHover = -1;
+        _detailMenuSlot = [self selectedSlot];
+        [self updateDetailNumericFields];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    for (uint32_t index = 0u; index < 5u; ++index) {
+        if (!NSPointInRect(point, playbackMenuRect(index))) continue;
+        _detailMenuKind = kDetailMenuTrigger
+            + static_cast<NSInteger>(index);
+        _detailMenuHover = -1;
+        _detailMenuSlot = [self selectedSlot];
+        [self updateDetailNumericFields];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    for (uint32_t index = 0u; index < kDetailNumericCount; ++index) {
+        if (!NSPointInRect(point, detailNumericHitRect(index))) continue;
+        if ([event clickCount] >= 2) {
+            const std::array<double, kDetailNumericCount> defaults {{
+                0.0,
+                static_cast<double>(kDefaultMinimumTransientSliceMilliseconds)
+                    / kMaximumMinimumTransientSliceMilliseconds,
+                (120.0 - 20.0) / 979.0,
+                0.02 / 0.5,
+                0.0,
+            }};
+            const NSRect track = detailNumericTrackRect(index);
+            [self updateDetailNumericControl:index point:NSMakePoint(
+                NSMinX(track) + NSWidth(track) * defaults[index],
+                NSMidY(track))];
+            markStateDirty(*_instance);
+        } else {
+            _detailNumericDragIndex = static_cast<NSInteger>(index);
+            [self updateDetailNumericControl:index point:point];
+        }
+        return;
+    }
+    for (uint32_t property = 0u; property < 3u; ++property) {
+        for (uint32_t part = 0u; part < 3u; part += 2u) {
+            if (!NSPointInRect(point,
+                    slicePropertyButtonRect(property, part))) continue;
+            [self editSelectedSliceControl:property * 2u
+                + (part == 2u ? 1u : 0u)];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    if (NSPointInRect(point, sliceReverseButtonRect())) {
+        [self editSelectedSliceControl:6u];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, sliceLaunchMenuRect())) {
+        const auto* selectedSlot = [self selectedSampleSlot];
+        if (!selectedSlot || !slotHasCompleteMap(*selectedSlot)
+            || selectedSlot->sliceCount == 0u) return;
+        _detailMenuKind = kDetailMenuSliceLaunch;
+        _detailMenuHover = -1;
+        _detailMenuSlot = [self selectedSlot];
+        [self updateDetailNumericFields];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, sliceChokeMenuRect())) {
+        const auto* selectedSlot = [self selectedSampleSlot];
+        if (!selectedSlot || !slotHasCompleteMap(*selectedSlot)
+            || selectedSlot->sliceCount == 0u) return;
+        _detailMenuKind = kDetailMenuSliceChoke;
+        _detailMenuHover = -1;
+        _detailMenuSlot = [self selectedSlot];
+        [self updateDetailNumericFields];
         [self setNeedsDisplay:YES];
         return;
     }
@@ -4043,43 +6219,17 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
-    for (uint32_t index = 0u; index < 10u; ++index) {
-        if (!NSPointInRect(point, controlButtonRect(index))) continue;
-        if (index == 0u) [self openSamples];
-        else if (index == 1u) [self clearSelectedSlot];
-        else if (index >= 2u && index <= 5u)
-            [self makeEqual:static_cast<std::size_t>(1u << index)];
-        else if (index == 6u) [self makeTransient];
-        else if (index == 7u || index == 8u) {
-            const auto* slot = [self selectedSampleSlot];
-            if (slot && slot->asset) {
-                const int maximum = 128 - slot->sliceCount;
-                const NSEventModifierFlags modifiers = [event modifierFlags];
-                const int step = (modifiers & NSEventModifierFlagShift)
-                    ? 12 : 1;
-                const int candidate =
-                    (modifiers & NSEventModifierFlagOption)
-                    ? (index == 7u ? 0 : maximum)
-                    : static_cast<int>(slot->rootNote)
-                        + (index == 7u ? -step : step);
-                const uint8_t root = static_cast<uint8_t>(std::clamp(
-                    candidate, 0, maximum));
-                if (setSlotRootNote(*_instance, [self selectedSlot], root))
-                    _instance->status = "START NOTE UPDATED";
-            }
-        } else if (index == 9u) [self audition];
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    for (uint32_t index = 0u; index < 10u; ++index) {
-        if (!NSPointInRect(point, sliceControlButtonRect(index))) continue;
-        [self editSelectedSliceControl:index];
-        [self setNeedsDisplay:YES];
-        return;
-    }
     if (!NSPointInRect(point, waveformRect())) return;
     const auto* slot = [self selectedSampleSlot];
     if (!slot || !slot->asset) return;
+    const NSInteger loopHandle = [self loopHandleNearPoint:point];
+    if (loopHandle >= 0) {
+        _dragLoopHandle = loopHandle;
+        _dragBank = editableBank(*_instance);
+        _instance->status = loopHandle == 0
+            ? "DRAG LOOP START" : "DRAG LOOP END";
+        return;
+    }
     const NSInteger marker = [self markerNearPoint:point];
     if (marker > 0) {
         _dragMarker = marker;
@@ -4116,6 +6266,12 @@ double gainDb(float gain)
 
 - (void)mouseDragged:(NSEvent*)event
 {
+    if (_detailNumericDragIndex >= 0) {
+        [self updateDetailNumericControl:
+            static_cast<uint32_t>(_detailNumericDragIndex)
+            point:[self convertPoint:[event locationInWindow] fromView:nil]];
+        return;
+    }
     if (_envelopeDragIndex >= 0) {
         [self updateEnvelopeDragAt:[self convertPoint:[event locationInWindow]
             fromView:nil]];
@@ -4136,6 +6292,39 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
+    if (_dragLoopHandle >= 0 && _dragBank) {
+        const NSPoint point = [self convertPoint:[event locationInWindow]
+            fromView:nil];
+        auto& slot = _dragBank->slots[[self selectedSlot]];
+        if (!slot.asset || _selectedSlice < 0
+            || static_cast<std::size_t>(_selectedSlice) >= slot.sliceCount)
+            return;
+        auto& slice = slot.slices[static_cast<std::size_t>(_selectedSlice)];
+        uint32_t loopStart = slice.loopStartFrame == 0u
+                && slice.loopEndFrame == 0u
+            ? slice.startFrame : slice.loopStartFrame;
+        uint32_t loopEnd = slice.loopStartFrame == 0u
+                && slice.loopEndFrame == 0u
+            ? slice.endFrame : slice.loopEndFrame;
+        uint32_t frame = [self frameForX:point.x
+            total:slot.asset->frameCount()];
+        const CGFloat sliceEndX = [self xForFrame:slice.endFrame
+            total:slot.asset->frameCount()];
+        if (_dragLoopHandle == 1 && point.x >= sliceEndX - 2.0)
+            frame = slice.endFrame;
+        else
+            frame = s3g::breakbeat::nearestZeroFrame(*slot.asset, frame,
+                static_cast<uint32_t>(std::lround(
+                    slot.asset->sampleRate * 0.004)));
+        if (_dragLoopHandle == 0)
+            loopStart = std::clamp(frame, slice.startFrame, loopEnd - 1u);
+        else
+            loopEnd = std::clamp(frame, loopStart + 1u, slice.endFrame);
+        slice.loopStartFrame = loopStart;
+        slice.loopEndFrame = loopEnd;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragMarker <= 0 || !_dragBank) return;
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
@@ -4152,6 +6341,13 @@ double gainDb(float gain)
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
+    if (_detailNumericDragIndex >= 0) {
+        markStateDirty(*_instance);
+        _detailNumericDragIndex = kDetailNumericNone;
+        [self updateDetailNumericFields];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_envelopeDragIndex >= 0) {
         if (_dragBank && publishBank(*_instance, _dragBank))
             _instance->status = "BREAK ENVELOPE UPDATED";
@@ -4179,6 +6375,14 @@ double gainDb(float gain)
         [self setNeedsDisplay:YES];
         return;
     }
+    if (_dragLoopHandle >= 0) {
+        if (_dragBank && publishBank(*_instance, _dragBank))
+            _instance->status = "SLICE LOOP POINTS UPDATED";
+        _dragBank.reset();
+        _dragLoopHandle = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragBank) {
         const auto& slot = _dragBank->slots[[self selectedSlot]];
         const bool mappingPreserved = slot.mappedSliceCount > 0u
@@ -4189,6 +6393,7 @@ double gainDb(float gain)
         _dragBank.reset();
     }
     _dragMarker = -1;
+    _dragLoopHandle = -1;
     _dragViewport = NO;
 }
 
@@ -4211,6 +6416,26 @@ double gainDb(float gain)
         _selectedSlice = std::min<NSInteger>(_selectedSlice,
             static_cast<NSInteger>(count) - 1);
         _instance->status = "MARKER DELETED - PRESS AUTO MAP";
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    if (_detailMenuKind == kDetailMenuNone) return;
+    const NSInteger hover = [self detailMenuHitAtPoint:
+        [self convertPoint:[event locationInWindow] fromView:nil]];
+    if (hover != _detailMenuHover) {
+        _detailMenuHover = hover;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)mouseExited:(NSEvent*)event
+{
+    (void)event;
+    if (_detailMenuHover >= 0) {
+        _detailMenuHover = -1;
         [self setNeedsDisplay:YES];
     }
 }

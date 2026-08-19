@@ -36,6 +36,7 @@
 - (void)loadDocumentationScore;
 - (void)loadDocumentationPaths;
 - (BOOL)loadDocumentationBreaks;
+- (BOOL)runDocumentationMutationFill;
 - (BOOL)loadDocumentationSample;
 - (void)setDocumentationPage:(NSUInteger)page;
 - (void)setViewPreset:(int)mode;
@@ -1077,6 +1078,59 @@ int main(int argc, char** argv)
                 ok = [document respondsToSelector:
                         @selector(loadDocumentationBreaks)]
                     && [document loadDocumentationBreaks];
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
+        if (ok && breakbeatSlicer && !documentationCapture) {
+            failureStage = "Sample Slicer Break Edit controls";
+            @try {
+                const auto slicerMouseEvent = [&](NSEventType type,
+                    NSPoint documentPoint) {
+                    return [NSEvent mouseEventWithType:type
+                        location:[document convertPoint:documentPoint
+                            toView:nil]
+                        modifierFlags:0 timestamp:0.0
+                        windowNumber:0 context:nil eventNumber:0
+                        clickCount:1 pressure:1.0];
+                };
+                [document mouseDown:slicerMouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(420.0, 54.0))];
+                [document mouseDown:slicerMouseEvent(
+                    NSEventTypeLeftMouseDown, NSMakePoint(420.0, 449.0))];
+                ok = [[document valueForKey:@"detailMenuKind"] intValue]
+                    == 1;
+                if (ok) {
+                    [document mouseMoved:slicerMouseEvent(
+                        NSEventTypeMouseMoved, NSMakePoint(420.0, 473.0))];
+                    ok = [[document valueForKey:@"detailMenuHover"] intValue]
+                        == 0;
+                }
+                if (ok) {
+                    [document mouseDown:slicerMouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(420.0, 473.0))];
+                    ok = [[document valueForKey:@"detailMenuKind"] intValue]
+                        == -1;
+                }
+                NSTextField* preRoll = static_cast<NSTextField*>(
+                    [document viewWithTag:4100]);
+                ok = ok && preRoll && ![preRoll isHidden]
+                    && closeEnough([[preRoll font] pointSize], 10.0)
+                    && [[preRoll stringValue] isEqualToString:@"0"];
+                if (ok) {
+                    [document mouseDown:slicerMouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(465.0, 475.0))];
+                    [document mouseDragged:slicerMouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(540.0, 475.0))];
+                    [document mouseUp:slicerMouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(540.0, 475.0))];
+                    ok = [[preRoll stringValue]
+                        isEqualToString:@"20000"];
+                }
             } @catch (NSException*) {
                 ok = false;
             }
@@ -8744,6 +8798,34 @@ int main(int argc, char** argv)
                         ok = [mixer writeToFile:
                             [directory stringByAppendingPathComponent:fileName]
                             atomically:YES];
+                    }
+                }
+                if (ok) {
+                    failureStage = "documentation Slicer Build Mutate page";
+                    [document setDocumentationPage:3u];
+                    NSData* buildMutate = [document dataWithPDFInsideRect:
+                        [document bounds]];
+                    ok = buildMutate && [buildMutate length] > 0u;
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        [[NSFileManager defaultManager]
+                            createDirectoryAtPath:directory
+                            withIntermediateDirectories:YES
+                            attributes:nil error:nil];
+                        NSString* fileName = [[NSString stringWithFormat:
+                            @"%s.build-mutate", pluginId]
+                            stringByAppendingPathExtension:@"pdf"];
+                        ok = [buildMutate writeToFile:
+                            [directory stringByAppendingPathComponent:fileName]
+                            atomically:YES];
+                    }
+                    if (ok) {
+                        failureStage
+                            = "documentation Slicer structural mutation fill";
+                        ok = [document respondsToSelector:
+                                @selector(runDocumentationMutationFill)]
+                            && [document runDocumentationMutationFill];
                     }
                 }
                 [document setDocumentationPage:0u];

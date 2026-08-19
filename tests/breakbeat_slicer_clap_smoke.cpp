@@ -13,6 +13,7 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#include "s3g_audio_file_export.h"
 #endif
 
 #include <algorithm>
@@ -33,7 +34,8 @@ constexpr const char* kStereoPluginId =
     "org.s3g.s3g-dsp.breakbeat-slicer-stereo";
 constexpr uint32_t kStateMagic = 0x53423353u;
 constexpr uint32_t kLegacyStateVersion = 9u;
-constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kPreviousStateVersion = 10u;
+constexpr uint32_t kStateVersion = 12u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct FixtureSavedSlot {
@@ -65,7 +67,7 @@ struct FixtureSavedSlot {
 
 struct FixtureSavedState {
     uint32_t magic = kStateMagic;
-    uint32_t version = kStateVersion;
+    uint32_t version = kPreviousStateVersion;
     uint32_t selectedSlot = 0u;
     uint32_t interpolation = 1u;
     double outputGainDb = 0.0;
@@ -86,6 +88,14 @@ struct FixtureSavedState {
     uint32_t transientPreRollMicroseconds = 0u;
     std::array<FixtureSavedSlot,
         s3g::breakbeat::kMaximumSampleSlots> slots {};
+};
+
+struct FixtureMutationHeader {
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t nextSeed = 0u;
+    float depth = 0.0f;
+    uint8_t uses = 0u;
 };
 
 struct HostContext {
@@ -233,6 +243,58 @@ bool expect(bool condition, const char* message)
     return false;
 }
 
+#if defined(__APPLE__)
+bool testWaveExport()
+{
+    @autoreleasepool {
+        constexpr uint32_t channelCount = 16u;
+        constexpr uint32_t frameCount = 257u;
+        std::array<std::array<float, frameCount>, channelCount> samples {};
+        std::array<const float*, channelCount> channels {};
+        for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+            for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+                samples[channel][frame] = 0.03f * (channel + 1u)
+                    + 0.0001f * frame;
+            }
+            channels[channel] = samples[channel].data();
+        }
+        NSString* temporary = [NSTemporaryDirectory()
+            stringByAppendingPathComponent:[NSString stringWithFormat:
+                @"s3g-slicer-export-%@.wav", [[NSUUID UUID] UUIDString]]];
+        const char* bytes = [temporary fileSystemRepresentation];
+        if (!bytes) return false;
+        const std::string path(bytes);
+        std::string error;
+        bool ok = s3g::audio_file::writePlanarFloatWaveAtomically(path,
+            48000.0, channelCount, frameCount, channels.data(), error);
+        NSError* readError = nil;
+        AVAudioFile* file = ok ? [[AVAudioFile alloc]
+            initForReading:[NSURL fileURLWithPath:temporary]
+            error:&readError] : nil;
+        ok = ok && file && [file length] == frameCount
+            && [[file fileFormat] channelCount] == channelCount
+            && [[file fileFormat] commonFormat]
+                == AVAudioPCMFormatFloat32
+            && std::abs([[file fileFormat] sampleRate] - 48000.0) < 0.01;
+        AVAudioPCMBuffer* buffer = ok ? [[AVAudioPCMBuffer alloc]
+            initWithPCMFormat:[file processingFormat]
+            frameCapacity:frameCount] : nil;
+        ok = ok && buffer && [file readIntoBuffer:buffer error:&readError]
+            && [buffer frameLength] == frameCount
+            && [buffer floatChannelData];
+        if (ok) {
+            for (uint32_t channel = 0u; channel < channelCount; ++channel) {
+                ok = ok && std::abs(
+                    [buffer floatChannelData][channel][frameCount - 1u]
+                    - samples[channel][frameCount - 1u]) < 1.0e-6f;
+            }
+        }
+        (void)std::remove(path.c_str());
+        return ok;
+    }
+}
+#endif
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -243,6 +305,10 @@ int main(int argc, char** argv)
         return 2;
     }
     bool ok = true;
+#if defined(__APPLE__)
+    ok &= expect(testWaveExport(),
+        "16-channel rendered-break WAV export failed");
+#endif
     const auto binary = resolveBinary(argv[1]);
     ok &= expect(!binary.empty(), "could not resolve bundle executable");
     void* library = !binary.empty()
@@ -339,9 +405,28 @@ int main(int argc, char** argv)
                 && slot.sliceCount == 0u
                 && slot.mappedSliceCount == 0u;
         }
+        FixtureMutationHeader mutation {};
+        initializedRouting = initializedRouting
+            && initializedState.bytes.size()
+                >= sizeof(FixtureSavedState) + 23u;
+        if (initializedRouting) {
+            std::memcpy(&mutation, initializedState.bytes.data()
+                    + sizeof(FixtureSavedState), sizeof(mutation));
+            const std::size_t mutationOffset = sizeof(FixtureSavedState);
+            const uint32_t minimumSliceMilliseconds
+                = initializedState.bytes[mutationOffset + 21u]
+                | (static_cast<uint32_t>(initializedState.bytes[
+                    mutationOffset + 22u]) << 8u);
+            initializedRouting = mutation.version == 4u
+                && mutation.uses
+                    == s3g::breakbeat::kDefaultStructuralMutationUses
+                && (mutation.uses
+                    & s3g::breakbeat::StructuralReverse) == 0u
+                && minimumSliceMilliseconds == 20u;
+        }
     }
     ok &= expect(initializedRouting,
-        "fresh state did not use C2/start 48 and MIDI channels 1-4");
+        "fresh state routing or structural mutation defaults are invalid");
     ok &= expect(portConfigs && portConfigs->count(plugin) == 1u,
         "expected one immutable 16-channel output configuration");
     if (portConfigs && audioPorts) {
@@ -456,7 +541,8 @@ int main(int argc, char** argv)
     if (stateRoundTrip) {
         FixtureSavedState savedFixture;
         std::memcpy(&savedFixture, saved.bytes.data(), sizeof(savedFixture));
-        stateRoundTrip = std::fabs(savedFixture.auxPress - 0.52f) < 1.0e-6f
+        stateRoundTrip = savedFixture.version == kStateVersion
+            && std::fabs(savedFixture.auxPress - 0.52f) < 1.0e-6f
             && std::fabs(savedFixture.auxTilt + 0.18f) < 1.0e-6f
             && savedFixture.auxLinkMode
                 == static_cast<uint8_t>(s3g::BreakBusLinkMode::Pair)

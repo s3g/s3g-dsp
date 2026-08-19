@@ -48,7 +48,8 @@
           <li>Drop as many as four files onto the Overview waveforms or break cards. A multi-file drop fills successive slots.</li>
           <li>Select a break and choose equal or transient slicing. Adjust markers on Break Edit when the automatic result needs correction.</li>
           <li>Choose the lowest starting note and MIDI receive channel for the break, then press <code>AUTO MAP</code>. A fresh bank starts every break at MIDI note <code>48 / C2</code>, with breaks 1–4 receiving on MIDI channels 1–4. Marker additions, deletions, re-slicing, and starting-note changes require a new Auto Map operation.</li>
-          <li>Play the mapped notes from Tracker, a keyboard, or the Break Edit audition keyboard. Shape each break with its proportional envelope, slice properties, two inserts, mixer strip, and AUX send.</li>
+          <li>After Auto Map unlocks the post-map slice editor, select and audition mapped notes, then set each slice's gain, pitch, pan, direction, launch mode, and choke group. Leave <code>AUTO / RESTART / POLY</code> selected for the default drum-sampler behavior: the same note restarts its slice while different notes may overlap. Shape the complete break with its proportional envelope, two inserts, mixer strip, and AUX send.</li>
+          <li>Open Build / Mutate, select one loaded break as the source, choose which mutation operations may be used, then press <code>FILL EMPTY SLOTS</code>. Occupied slots remain locked; clear one when it should become available for another mutation.</li>
           <li>Leave <code>PROJECT AUDIO: EMBED</code> enabled when the project should reopen without the original files, or select <code>PATHS</code> for smaller project state and keep the source files in a stable location.</li>
         </ol>
 
@@ -60,28 +61,55 @@
 
         <h2 id="slicing">Slicing and Mapping</h2>
 
-        <p>Equal slicing divides the complete file into a chosen number of regions. Transient slicing derives one onset sequence from the source as a whole, then applies the same boundaries to every channel. Zero-crossing snap and the adjustable pre-transient offset help retain attacks without introducing unrelated channel timing.</p>
+        <p>Equal slicing divides the complete file into a chosen number of regions. Transient slicing derives one onset sequence from the source as a whole, then applies the same boundaries to every channel. Zero-crossing snap and the adjustable pre-transient offset help retain attacks without introducing unrelated channel timing. <code>PRE-ROLL US</code> is a 0–20,000 µs slider, and <code>MIN SLICE MS</code> filters the transient result so adjacent boundaries—and the final slice—cannot be shorter than its 0–1000 ms setting. Minimum Slice defaults to 20 ms; zero disables either filter. Drag a slider for quick adjustment or enter an exact number in its value field. Equal and manual slicing are unaffected.</p>
 
         <p><code>START</code> sets the lowest MIDI note used by a break, and the available slice count is <code>128 − START</code>. The default start of <code>48 / C2</code> allows 80 slices on notes 48–127; start note 0 allows all 128 slices on notes 0–127. Equal slicing, transient slicing, and manual marker creation respect that ceiling. <code>AUTO MAP</code> always begins at the selected note and never moves it to make an oversized slice table fit. Reduce or re-slice first when an existing table is too large for a higher starting note.</p>
 
-        <p>Use <code>START −</code> and <code>START +</code> for semitone changes. Hold Shift for octave changes or Option to jump to the lowest or highest starting note that fits the current slice table.</p>
+        <p>To set the first Auto Map note, select the break, open <code>BREAK EDIT</code>, and choose it directly from the <code>START NOTE</code> menu in the Slice / Map toolbox. The menu only offers notes that leave enough room for the current slice table. The <code>START C2/48</code> text on the left break card is the resulting readout; press <code>AUTO MAP</code> in the toolbox header or on the break card when ready.</p>
 
-        <p>Double-click a detailed waveform to add a marker, drag a marker to move it, and use the contextual delete action to remove it. Zoom changes the visible frame range without changing the slices. Moving an existing marker preserves a valid note map; structural edits clear the map so the new slice count cannot silently collide with another break.</p>
+        <p>Break Edit follows a deliberate order: choose a Method in Slice / Map and adjust markers, set the starting note and Auto Map, then edit and audition individual mapped slices. The layout follows Sample Player's panel grammar: Sample / Slice contains the waveform and file actions; categorical choices use the shared in-canvas dropdown menus; continuous values use shared sliders with exact-entry value fields; Selected Slice holds the smaller post-map controls; Timing contains source BPM, loop crossfade, and glide; and Amp Envelope remains a separate proportional toolbox. Gain, pitch, pan, reverse, launch mode, and choke remain locked until the complete slice table has been mapped, because re-slicing replaces that table. Double-click a detailed waveform to add a marker, drag a marker to move it, and use the contextual delete action to remove it. Zoom changes the visible frame range without changing the slices. Moving an existing marker preserves a valid note map; structural edits clear the map so the new slice count cannot silently collide with another break.</p>
 
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-slicer.break-edit.png" aria-label="Open the high-resolution Sample Slicer Break Edit screenshot">
-              <img src="assets/plugin-guis/s3g-slicer.break-edit.png" alt="Sample Slicer Break Edit page showing a loaded break waveform with transient slice markers, navigator, proportional envelope, selected-slice controls, and mapped-note audition keyboard" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/s3g-slicer.break-edit.png" alt="Sample Slicer Break Edit page showing a loaded waveform with direct loop handles and compact s3g-dsp toolboxes for Slice and Map, Mapped Slice Playback, Selected Slice, Timing, Amp Envelope, mapped-note audition, and Kill All" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Break Edit combines the detailed waveform and navigator with proportional envelope timing, selected-slice behavior, and the mapped-note audition keyboard.</figcaption>
+          <figcaption>Break Edit now shares Sample Player's framed toolbox and menu hierarchy while retaining direct LS/LE handles, post-map slice editing, proportional envelope, and mapped-note audition.</figcaption>
         </figure>
 
         <h2 id="playback">Playback and Slice Behavior</h2>
 
-        <p>Thirty-two playback voices share one clock per voice across every source channel. Velocity, proportional attack/decay/release, pitch, pan, reverse, looping, ping-pong, and choke behavior therefore remain synchronized for mono, stereo, discrete multichannel, and encoded source files.</p>
+        <p>Sample Slicer uses the same playback vocabulary as Sample Player while retaining four independent break banks and note-to-slice mapping. Thirty-two playback voices share one clock per voice across every source channel. Velocity, proportional attack/decay/release, pitch, pan, reverse, looping, ping-pong, loop crossfade, and choke behavior therefore remain synchronized for mono, stereo, discrete multichannel, and encoded source files.</p>
 
-        <p>Each selected slice has gain, pitch, pan, direction, launch mode, and choke controls. Pan applies to mono and stereo files; it is locked for wider sources so their channel order remains intact. The launch choices cover one-shot, gate, thru, loop, and ping-pong behavior.</p>
+        <p>The <code>MAPPED SLICE PLAYBACK</code> toolbox is scoped to every mapped note in the selected break. The Start Note triggers slice 0, the next note triggers slice 1, and so on; it is not a separate full-break key after a multi-slice Auto Map. It plays the complete file only while the break contains one slice spanning that file. Source BPM, loop crossfade, glide, trigger, retrigger, voice, pitch, sync, and the proportional Amp Envelope are likewise break-wide settings.</p>
+
+        <p>The fresh-bank default is <code>TRIG AUTO</code>, <code>RETRIG RESTART</code>, and <code>VOICE POLY</code>. Repeating the same note restarts that mapped slice, avoiding accidental stacks, while different mapped notes can still overlap. <code>LAYER</code> deliberately stacks repeated instances of the same note; <code>IGNORE</code> leaves its current instance running. Voice mode can instead be <code>MONO</code>, which replaces the active slice for that break, or <code>LEGATO</code>, which retargets it without restarting its envelope. <code>GLIDE</code> smooths the pitch transition of a legato retarget.</p>
+
+        <p><code>TRIG AUTO</code> preserves each slice's launch behavior: One Shot and Thru run independently of note-off, while Gate, Loop, and Ping Pong release on note-off. The break can override that with <code>GATE</code>, <code>ONE SHOT</code>, or <code>TOGGLE</code>. Toggle starts a mapped slice on the first press and releases it on the next matching press. <code>KILL ALL</code> immediately clears every voice and held-note fallback, including latched or looping playback.</p>
+
+        <p><code>PITCH RATE</code> changes pitch and duration together. <code>STRETCH</code> applies the slice's pitch setting while preserving its timing. <code>HYBRID</code> uses Rate for a negative per-slice transpose and Stretch at zero or above. <code>SYNC HOST</code> scales playback from the break's source BPM to the current host tempo; <code>SYNC FREE</code> preserves unsynchronized playback. Loop crossfade blends the wrap region of Loop playback in either direction; Ping Pong reverses at its boundaries instead.</p>
+
+        <p>Each selected slice has gain, pitch, pan, direction, launch mode, editable loop bounds, and choke controls. Pan applies to mono and stereo files; it is locked for wider sources so their channel order remains intact. The launch choices cover One Shot, Gate, Thru, Loop, and Ping Pong behavior. Selecting Loop or Ping Pong reveals <code>LS</code> and <code>LE</code> handles on the detailed waveform; drag them to set the selected slice's loop range. The handles snap to safe zero crossings and remain constrained inside the slice. Moving, adding, or deleting a slice boundary resets the affected loop to the complete slice so stale points cannot escape its new bounds. Every active voice receives its own waveform cursor and MIDI-note flag, so layered and overlapping playback remain visible instead of sharing one cursor.</p>
+
+        <h2 id="build-mutate">Build / Mutate</h2>
+
+        <p>Build / Mutate treats the four break slots as a small mutation bank. Select any loaded break as the source, then press <code>FILL EMPTY SLOTS</code> once to build a different deterministic result in every available slot. A result restructures the break by rearranging, omitting, and repeating complete slices rather than merely changing their sound. Each rendered hit remains a mapped slice in the new break, so the result can be played, edited, mutated again, or exported.</p>
+
+        <p>The compact <code>MUTATION USES</code> row determines what the next fill pass may use: Rearrange, Repeat, Pitch, Mixer FX, AUX Bus, and Reverse. All except Reverse are enabled in a fresh instance. Mixer FX gives every result a deterministic pair of mixer inserts selected from Filter, Degrade, Transient, Resonator, Erosion, Shift, Fold, Repeater, and Time, then varies the three-band EQ and mid frequency. AUX Bus independently gives each result its own send plus a distinct compression, saturation, bite, clip, tilt, and return treatment. Wide sources automatically use field-safe bus processing.</p>
+
+        <p>Each mutation renders outside the audio callback, captures as much as two seconds of processor tail, and is mapped automatically. Occupied and currently building slots are locked and never overwritten. Select a slot and use <code>CLEAR SELECTED</code> to make it available to the next fill pass. Generated audio is always embedded in project state because it has no external source file; the chosen source remains unchanged.</p>
+
+        <p><code>EXPORT WAV…</code> runs the same background render without consuming a break slot or changing project state. The save panel writes an atomic 32-bit floating-point WAV at the current host sample rate. Mono and stereo material exports as stereo so pan is retained; wider material keeps its original channel count and channel order, up to sixteen channels.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-slicer.build-mutate.png" aria-label="Open the high-resolution Sample Slicer Build and Mutate screenshot">
+              <img src="assets/plugin-guis/s3g-slicer.build-mutate.png" alt="Sample Slicer Build and Mutate page showing a source break, locked and available break slots, Fill Empty Slots, structural, Mixer FX and AUX mutation selectors, Clear Selected, and WAV export" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Build / Mutate turns one source into a bank of structural variations while occupied slots stay locked until explicitly cleared.</figcaption>
+        </figure>
 
         <h2 id="mixer">Mixer, Inserts, and Break Bus</h2>
 
@@ -115,7 +143,7 @@
           <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
           <li><code>Sample Slicer 2</code> output: one fixed stereo port.</li>
           <li><code>Sample Slicer 16</code> output: one fixed 16-channel port; unused channels remain silent.</li>
-          <li>State: break paths, optional embedded audio, slices, maps, envelopes, slice behavior, inserts, mixer, AUX, and output controls.</li>
+          <li>State: break paths, optional embedded audio, generated mutation audio, mutation-use selections and next seed, slices, maps, envelopes, trigger/retrigger/voice/pitch/sync behavior, source BPM, loop crossfade, glide, inserts, mixer, AUX, and output controls.</li>
         </ul>
 
         <p>The 16-channel variant preserves source lanes in order and does not claim an ambisonic encoding. It can carry quad, octal, arbitrary discrete, or compatible encoded material when the surrounding routing is configured accordingly.</p>
@@ -142,6 +170,7 @@
           <a href="#loading">Loading and Project Audio</a>
           <a href="#slicing">Slicing and Mapping</a>
           <a href="#playback">Playback and Slice Behavior</a>
+          <a href="#build-mutate">Build / Mutate</a>
           <a href="#mixer">Mixer, Inserts, and Break Bus</a>
           <a href="#routing-state">Routing and State</a>
         </div>

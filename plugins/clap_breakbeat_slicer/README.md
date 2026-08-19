@@ -1,14 +1,14 @@
-# s3g Sample Slicer
+# Sample Slicer
 
-`s3g Sample Slicer 16` is a multichannel multisample CLAP instrument designed to sit
-after `s3g Tracker` in REAPER. Tracker supplies timing and MIDI; this plug-in
+`Sample Slicer 16` is a multichannel multisample CLAP instrument designed to sit
+after Tracker in REAPER. Tracker supplies timing and MIDI; this plug-in
 owns sample files, slices, mapping, voices, and audio.
 
 The bundle exposes two instruments backed by the same sampler core:
 
-- `s3g Sample Slicer 2` has one immutable 2-channel output and accepts
+- `Sample Slicer 2` has one immutable 2-channel output and accepts
   mono or stereo files; and
-- `s3g Sample Slicer 16` has one immutable 16-channel output, accepts 1–16
+- `Sample Slicer 16` has one immutable 16-channel output, accepts 1–16
   channel files, passes lanes through in source order, and clears every unused
   output to silence.
 
@@ -25,18 +25,41 @@ The first playable build includes:
   pitch, pan, reverse, looping, ping-pong, and choke behavior in the engine;
   one envelope gives the break a coherent articulation while attack, decay,
   and release scale to each triggered slice rather than milliseconds;
-- equal and transient slicing with zero-crossing snap plus an adjustable
-  0–20,000 µs pre-transient onset offset;
+- Sample Player-family playback controls per break: Auto, Gate, One Shot, and
+  Toggle triggers; Restart, Layer, and Ignore same-note retrigger policies;
+  Poly, Mono, and Legato voice modes with optional glide; Rate, Stretch, and
+  negative-rate/positive-stretch Hybrid pitch; Free or host-BPM sync; and
+  click-safe loop crossfade. Fresh banks default to Auto / Restart / Poly, so
+  repeating one note restarts its slice while different slices may overlap;
+- independent waveform cursors and MIDI-note flags for every active voice,
+  plus a global KILL ALL control that clears held, latched, and looping notes;
+- equal and transient slicing with zero-crossing snap, an adjustable
+  0–20,000 µs pre-transient onset offset, and a transient-only minimum slice
+  duration from zero through 1000 ms (20 ms by default); both are shared
+  sliders with exact-entry number fields;
 - manual marker add, drag, and delete, plus waveform zoom, sample-to-sample
   drawing at close zoom, distinct multichannel lanes, and a draggable
-  horizontal viewport bar;
+  horizontal viewport bar; Loop and Ping Pong slices add direct LS/LE handles
+  that stay inside the selected slice and snap to safe zero crossings;
 - Finder drag-and-drop onto a break card or overview waveform, including
   multi-file drops that fill successive breaks;
 - an OVERVIEW page showing all four waveforms, slice markers, and independent
   playback cursors at once;
-- a BREAK EDIT page with the detailed selected-break waveform, global BREAK
+- a BREAK EDIT page with the detailed selected-break waveform, shared AMP
   ENVELOPE, and a compact mapped-note audition keyboard that shows pitch names
-  and MIDI values;
+  and MIDI values; its Sample / Slice, Slice / Map, Mapped Slice Playback,
+  Selected Slice, Timing, and Amp Envelope toolboxes follow the Sample Player
+  panel style, with categorical choices exposed as shared in-canvas dropdowns
+  rather than cycle buttons and numeric Timing controls exposed as sliders
+  with exact entry fields;
+- a BUILD / MUTATE page where one source fills every empty break slot with a
+  different structural mutation; rearrange, repeat, pitch, Mixer FX, AUX Bus,
+  and reverse are independently selectable, with reverse off by default;
+  Mixer FX assigns a deterministic pair of inserts plus three-band EQ per
+  result, while occupied and building slots remain locked until cleared;
+  generated audio retains mapped hit boundaries and is embedded automatically,
+  and EXPORT WAV writes the selected break to a 32-bit float file without
+  using another slot;
 - a Drum Mixer-family MIXER page with four strips providing level, stereo pan,
   low/mid/high EQ, tunable mid frequency, post-fader aux send, mute, solo,
   audition, lane meters, and width-aware middle-truncated sample names; pan is
@@ -46,13 +69,18 @@ The first playable build includes:
   click `I1` or `I2` in a strip to open its editor, assign or bypass a device,
   drag its four controls, change its mode, reset it, or swap insert order
   without retriggering the active slice;
-- a dedicated wet-only `s3g Break Bus` AUX processor with PRESS, bipolar SNAP,
+- a dedicated wet-only Break Bus AUX processor with PRESS, bipolar SNAP,
   RECOVERY, SAT, BITE, antiderivative-antialiased CLIP, TILT, and RETURN;
   dynamics can link ALL channels, adjacent PAIRS, or run FREE, while FIELD
   SAFE disables nonlinear stages for encoded spatial material; SAT, BITE, and
   CLIP then draw as muted `BYP` controls and reject interaction;
-- selected-slice gain, pitch, pan (mono/stereo only), reverse, launch-mode,
-  and choke controls;
+- a slice-first Break Edit workflow: slicing and marker edits come before Start
+  and Auto Map, which unlock post-map gain, pitch, pan (mono/stereo only),
+  reverse, launch-mode, choke, and mapped-note audition controls;
+- a clearly scoped MAPPED SLICE PLAYBACK toolbox whose trigger, retrigger,
+  voice, pitch, sync, source BPM, crossfade, glide, and envelope settings apply
+  to every mapped slice note; the starting note triggers slice zero and plays
+  the full file only when that file is still represented by one slice;
 - background user-initiated file decoding and transient analysis with stale
   load cancellation when a slot is replaced or cleared;
 - explicit remapping from a selectable lowest starting note and channel-aware
@@ -63,7 +91,8 @@ The first playable build includes:
   the map while marker add/delete, re-slicing, and start edits deliberately
   require another Auto Map press;
 - a resizable native macOS bank/slice editor and audition control;
-- versioned project state retaining the original external sample paths;
+- versioned project state retaining the original external sample paths and
+  every per-break playback setting;
 - optional decoded-audio embedding in CLAP project state (enabled by default),
   allowing the host project to reopen without the original files; and
 - one MIDI/CLAP note input and one fixed main output per variant.
@@ -143,7 +172,7 @@ mode are latched at onset so a slider or mode change cannot restructure the
 buffer already playing. Short crossfades protect capture, repeat, and return-to-
 dry boundaries.
 
-On `s3g Sample Slicer 16`, the same EQ is applied independently to every source lane.
+On `Sample Slicer 16`, the same EQ is applied independently to every source lane.
 Break Bus keeps separate nonlinear and filter state per lane. Its `ALL`,
 `PAIR`, and `FREE` modes alter only detector/gain linking: they never exchange,
 decode, sum, or reorder samples. `FIELD SAFE` retains linked compression, SNAP,
@@ -154,7 +183,10 @@ Click the button to select `PROJECT AUDIO: PATHS` when smaller project files
 are preferable. The original paths are still stored as useful references in
 embedded mode. A single plug-in instance embeds up to 1 GiB of decoded audio;
 if the bank exceeds that bound, the button reports `PARTIAL` and later slots
-fall back to paths.
+fall back to paths. Build / Mutate results have no external path and therefore
+remain embedded even when ordinary source samples use `PATHS`; state saving
+fails instead of silently losing a generated mutation if the 1 GiB bound cannot
+hold it.
 
 Standard CLAP does not provide a plug-in with REAPER's current project-media
 directory, so the plug-in does not silently copy files into that folder.
