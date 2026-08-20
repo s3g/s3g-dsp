@@ -20,14 +20,15 @@ namespace {
 
 constexpr uint32_t kStateMagic = 0x44443353u;
 constexpr uint32_t kStateVersion = 1u;
-constexpr std::size_t kParamCount = 12u;
+constexpr std::size_t kParamCount = 16u;
+constexpr std::size_t kLegacyParamCount = 12u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 
 struct SavedState {
     uint32_t magic = kStateMagic;
     uint32_t version = kStateVersion;
-    uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
-    std::array<double, kParamCount> parameters {};
+    uint32_t parameterCount = static_cast<uint32_t>(kLegacyParamCount);
+    std::array<double, kLegacyParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
     uint8_t embedded = 1u;
     uint8_t channelCount = 1u;
@@ -73,6 +74,22 @@ struct MemoryInput {
     };
 };
 
+struct MemoryOutput {
+    std::vector<uint8_t> bytes;
+    clap_ostream_t stream {
+        this,
+        [](const clap_ostream_t* stream, const void* buffer,
+            uint64_t size) -> int64_t {
+            auto* self = static_cast<MemoryOutput*>(stream->ctx);
+            if (!self || (!buffer && size > 0u)) return -1;
+            const auto* first = static_cast<const uint8_t*>(buffer);
+            self->bytes.insert(self->bytes.end(), first,
+                first + static_cast<std::size_t>(size));
+            return static_cast<int64_t>(size);
+        },
+    };
+};
+
 struct NoteEvents {
     std::vector<clap_event_note_t> events;
     clap_input_events_t interface {
@@ -106,8 +123,58 @@ struct NoteEvents {
     }
 };
 
+struct MidiEvents {
+    std::vector<clap_event_midi_t> events;
+    clap_input_events_t interface {
+        this,
+        [](const clap_input_events_t* list) -> uint32_t {
+            const auto* self = static_cast<const MidiEvents*>(list->ctx);
+            return self ? static_cast<uint32_t>(self->events.size()) : 0u;
+        },
+        [](const clap_input_events_t* list, uint32_t index)
+            -> const clap_event_header_t* {
+            const auto* self = static_cast<const MidiEvents*>(list->ctx);
+            return self && index < self->events.size()
+                ? &self->events[index].header : nullptr;
+        },
+    };
+
+    void addCc(uint32_t frame, uint8_t controller, uint8_t value)
+    {
+        clap_event_midi_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = frame;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.port_index = 0u;
+        event.data[0u] = 0xb0u;
+        event.data[1u] = controller;
+        event.data[2u] = value;
+        events.push_back(event);
+    }
+};
+
 bool processBlock(const clap_plugin_t* plugin, uint32_t frames,
     NoteEvents* events, std::vector<float>& left,
+    std::vector<float>& right)
+{
+    left.assign(frames, 0.0f);
+    right.assign(frames, 0.0f);
+    float* channels[] { left.data(), right.data() };
+    clap_audio_buffer_t output {};
+    output.data32 = channels;
+    output.channel_count = 2u;
+    clap_process_t process {};
+    process.steady_time = -1;
+    process.frames_count = frames;
+    process.audio_outputs = &output;
+    process.audio_outputs_count = 1u;
+    process.in_events = events ? &events->interface : nullptr;
+    return plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+}
+
+bool processMidiBlock(const clap_plugin_t* plugin, uint32_t frames,
+    MidiEvents* events, std::vector<float>& left,
     std::vector<float>& right)
 {
     left.assign(frames, 0.0f);
@@ -128,6 +195,14 @@ bool processBlock(const clap_plugin_t* plugin, uint32_t frames,
 bool near(float actual, float expected, float tolerance = 0.002f)
 {
     return std::abs(actual - expected) <= tolerance;
+}
+
+float maximumMagnitude(const std::vector<float>& samples)
+{
+    float maximum = 0.0f;
+    for (const float sample : samples)
+        maximum = std::max(maximum, std::abs(sample));
+    return maximum;
 }
 
 } // namespace
@@ -190,7 +265,7 @@ int main(int argc, char** argv)
         && ports->get(plugin, 0u, false, &outputPort)
         && outputPort.channel_count == 2u
         && notePorts->count(plugin, true) == 1u
-        && noteNames->count(plugin) == 21u
+        && noteNames->count(plugin) == 25u
         && params->count(plugin) == kParamCount;
 #if defined(__APPLE__)
     ok = ok && gui;
@@ -198,6 +273,10 @@ int main(int argc, char** argv)
 
     bool foundCrossfader = false;
     bool foundPhase = false;
+    bool foundDeckALevel = false;
+    bool foundDeckBLevel = false;
+    bool foundLink = false;
+    bool foundLivePhase = false;
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
         clap_param_info_t info {};
         ok = params->get_info(plugin, index, &info);
@@ -205,8 +284,18 @@ int main(int argc, char** argv)
             foundCrossfader = std::strcmp(info.name, "Crossfader") == 0;
         if (info.id == 2u)
             foundPhase = std::strcmp(info.name, "Phase Drift") == 0;
+        if (info.id == 13u)
+            foundDeckALevel = std::strcmp(info.name, "Deck A Level") == 0;
+        if (info.id == 14u)
+            foundDeckBLevel = std::strcmp(info.name, "Deck B Level") == 0;
+        if (info.id == 15u)
+            foundLink = std::strcmp(info.name, "Link Decks") == 0;
+        if (info.id == 16u)
+            foundLivePhase = std::strcmp(
+                info.name, "Deck B Live Phase") == 0;
     }
-    ok = ok && foundCrossfader && foundPhase;
+    ok = ok && foundCrossfader && foundPhase && foundDeckALevel
+        && foundDeckBLevel && foundLink && foundLivePhase;
 
     SavedState saved;
     saved.parameters = {{
@@ -236,6 +325,62 @@ int main(int argc, char** argv)
         && left[18u] > 0.10f
         && left[42u] < 0.01f
         && near(left[42u], right[42u]);
+
+    // Legacy v1 state must supply defaults for every appended parameter.
+    double deckALevel = -99.0;
+    double deckBLevel = -99.0;
+    double linked = -1.0;
+    double livePhase = -99.0;
+    ok = ok && params->get_value(plugin, 13u, &deckALevel)
+        && params->get_value(plugin, 14u, &deckBLevel)
+        && params->get_value(plugin, 15u, &linked)
+        && params->get_value(plugin, 16u, &livePhase)
+        && near(static_cast<float>(deckALevel), 0.0f)
+        && near(static_cast<float>(deckBLevel), 0.0f)
+        && near(static_cast<float>(linked), 1.0f)
+        && near(static_cast<float>(livePhase), 0.0f);
+
+    MidiEvents cc;
+    cc.addCc(0u, 16u, 127u);
+    cc.addCc(0u, 17u, 0u);
+    cc.addCc(0u, 18u, 127u);
+    cc.addCc(0u, 19u, 95u);
+    ok = ok && processMidiBlock(plugin, 32u, &cc, left, right);
+    double crossfader = 0.0;
+    ok = ok && params->get_value(plugin, 9u, &crossfader)
+        && params->get_value(plugin, 13u, &deckALevel)
+        && params->get_value(plugin, 14u, &deckBLevel)
+        && params->get_value(plugin, 16u, &livePhase)
+        && crossfader > 0.999
+        && deckALevel < -59.9
+        && deckBLevel > 11.9
+        && livePhase > 0.49 && livePhase < 0.51;
+
+    // The appended command notes must reach the same linked/unlinked deck and
+    // momentary Drag paths used by the GUI.
+    NoteEvents pauseDecks;
+    pauseDecks.add(0u, CLAP_EVENT_NOTE_ON, 20, 44, 1.0);
+    ok = ok && processBlock(plugin, 32u, &pauseDecks, left, right)
+        && maximumMagnitude(left) < 1.0e-7f
+        && maximumMagnitude(right) < 1.0e-7f;
+    NoteEvents resumeDecks;
+    resumeDecks.add(0u, CLAP_EVENT_NOTE_ON, 21, 45, 1.0);
+    ok = ok && processBlock(plugin, 32u, &resumeDecks, left, right)
+        && maximumMagnitude(left) > 0.01f;
+    NoteEvents dragGate;
+    dragGate.add(0u, CLAP_EVENT_NOTE_ON, 22, 46, 1.0);
+    dragGate.add(16u, CLAP_EVENT_NOTE_OFF, 22, 46, 0.0);
+    ok = ok && processBlock(plugin, 32u, &dragGate, left, right);
+
+    MemoryOutput savedV2;
+    ok = ok && state->save(plugin, &savedV2.stream)
+        && savedV2.bytes.size() >= 12u;
+    if (ok) {
+        std::array<uint32_t, 3u> prefix {};
+        std::memcpy(prefix.data(), savedV2.bytes.data(), sizeof(prefix));
+        ok = prefix[0u] == kStateMagic && prefix[1u] == 2u
+            && prefix[2u] == kParamCount;
+    }
 
     if (plugin) {
         plugin->stop_processing(plugin);

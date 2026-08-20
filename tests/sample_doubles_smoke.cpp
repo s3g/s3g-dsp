@@ -1,4 +1,5 @@
 #include "s3g_sample_doubles.h"
+#include "s3g_sample_tempo_estimator.h"
 
 #include <array>
 #include <cmath>
@@ -34,6 +35,37 @@ SampleAsset rampAsset(uint8_t channels = 2u, uint32_t frames = 4096u)
             asset.channels[channel][frame] = static_cast<float>(frame)
                     * 0.0001f
                 + static_cast<float>(channel) * 0.25f;
+        }
+    }
+    return asset;
+}
+
+SampleAsset constantAsset(float value = 1.0f, uint32_t frames = 16000u)
+{
+    SampleAsset asset;
+    asset.sampleRate = 1000.0;
+    asset.channelCount = 1u;
+    asset.channels[0u].assign(frames, value);
+    return asset;
+}
+
+SampleAsset clickAsset(double bpm, bool antiPhaseStereo = false)
+{
+    SampleAsset asset;
+    asset.sampleRate = 4000.0;
+    asset.channelCount = antiPhaseStereo ? 2u : 1u;
+    const uint32_t frames = static_cast<uint32_t>(asset.sampleRate * 24.0);
+    for (uint8_t channel = 0u; channel < asset.channelCount; ++channel)
+        asset.channels[channel].assign(frames, 0.0f);
+    const uint32_t period = static_cast<uint32_t>(std::llround(
+        asset.sampleRate * 60.0 / bpm));
+    const uint32_t leading = static_cast<uint32_t>(asset.sampleRate * 1.0);
+    for (uint32_t beat = leading; beat + 8u < frames; beat += period) {
+        for (uint32_t sample = 0u; sample < 8u; ++sample) {
+            const float value = std::exp(-static_cast<float>(sample) * 0.7f);
+            asset.channels[0u][beat + sample] = value;
+            if (antiPhaseStereo)
+                asset.channels[1u][beat + sample] = -value;
         }
     }
     return asset;
@@ -226,6 +258,133 @@ void testContinuousCursorProgressUnderControlSweeps()
         "a DSP read head stalled during continuous live control sweeps");
 }
 
+void testIndependentDeckLevelsAndTransport()
+{
+    auto asset = constantAsset();
+    SampleDoublesEngine engine;
+    check(engine.prepare(1000.0) && engine.setAsset(&asset),
+        "independent-deck fixture did not prepare");
+    DoublesSettings settings;
+    settings.speedSemitones = 0.0;
+    settings.sourceTempoBpm = 60.0;
+    settings.offsetBeats = 0.0;
+    settings.crossfader = -1.0;
+    settings.gainDecibels = 0.0f;
+    settings.deckALevelDecibels = -6.0f;
+    settings.deckBLevelDecibels = -12.0f;
+    settings.linkDecks = false;
+    const std::array<DoublesRenderEvent, 2u> events {{
+        { 0u, DoublesEventKind::Restart, 1u, 1.0f },
+        { 16u, DoublesEventKind::ToggleDeckA, 2u, 1.0f },
+    }};
+    std::array<float, 32u> left {};
+    std::array<float, 32u> right {};
+    float* outputs[] { left.data(), right.data() };
+    engine.render(settings, events.data(), events.size(), outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    check(near(left[8u], 0.501187f, 0.002f) && left[24u] == 0.0f
+            && !engine.deckAActive() && engine.deckBActive(),
+        "Deck A level or unlinked pause failed");
+
+    const DoublesRenderEvent resumeA {
+        0u, DoublesEventKind::ToggleDeckA, 3u, 1.0f,
+    };
+    engine.render(settings, &resumeA, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    check(engine.deckAActive() && engine.deckBActive()
+            && left[8u] > 0.49f,
+        "unlinked Deck A resume failed");
+
+    settings.linkDecks = true;
+    const DoublesRenderEvent linkedToggle {
+        0u, DoublesEventKind::ToggleDeckB, 4u, 1.0f,
+    };
+    engine.render(settings, &linkedToggle, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    check(!engine.deckAActive() && !engine.deckBActive(),
+        "linked deck transport did not pause both decks");
+
+    engine.reset();
+    settings.linkDecks = false;
+    settings.crossfader = 1.0;
+    const DoublesRenderEvent restart {
+        0u, DoublesEventKind::Restart, 5u, 1.0f,
+    };
+    engine.render(settings, &restart, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    check(near(left[8u], 0.251189f, 0.002f),
+        "Deck B independent level failed");
+}
+
+void testDragMotorAndLivePhase()
+{
+    auto asset = rampAsset(1u, 20000u);
+    SampleDoublesEngine engine;
+    check(engine.prepare(1000.0) && engine.setAsset(&asset),
+        "drag/phase fixture did not prepare");
+    DoublesSettings settings;
+    settings.speedSemitones = 0.0;
+    settings.sourceTempoBpm = 60.0;
+    settings.offsetBeats = 0.0;
+    settings.crossfader = -1.0;
+    settings.gainDecibels = 0.0f;
+    const std::array<DoublesRenderEvent, 2u> dragEvents {{
+        { 0u, DoublesEventKind::Restart, 1u, 1.0f },
+        { 0u, DoublesEventKind::DragAOn, 2u, 1.0f },
+    }};
+    std::vector<float> left(1000u, 0.0f);
+    std::vector<float> right(1000u, 0.0f);
+    float* outputs[] { left.data(), right.data() };
+    engine.render(settings, dragEvents.data(), dragEvents.size(),
+        outputs, 2u, static_cast<uint32_t>(left.size()));
+    const float draggedPosition = engine.deckAPositionNormalized();
+    check(engine.dragAHeld() && draggedPosition > 0.007f
+            && draggedPosition < 0.014f
+            && engine.deckARateScale() < 0.18,
+        "momentary Drag A did not load the platter");
+
+    const DoublesRenderEvent dragOff {
+        0u, DoublesEventKind::DragAOff, 2u, 0.0f,
+    };
+    engine.render(settings, &dragOff, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    check(!engine.dragAHeld() && engine.deckARateScale() > 0.98
+            && engine.deckAPositionNormalized() > draggedPosition + 0.035f,
+        "motor recovery after Drag A release failed");
+
+    engine.reset();
+    const DoublesRenderEvent restart {
+        0u, DoublesEventKind::Restart, 3u, 1.0f,
+    };
+    std::array<float, 1u> oneLeft {};
+    std::array<float, 1u> oneRight {};
+    float* oneOutputs[] { oneLeft.data(), oneRight.data() };
+    engine.render(settings, &restart, 1u, oneOutputs, 2u, 1u);
+    settings.livePhaseBeats = 0.25;
+    engine.render(settings, nullptr, 0u, oneOutputs, 2u, 1u);
+    const double phaseFrames = (engine.deckBPositionNormalized()
+        - engine.deckAPositionNormalized()) * asset.frameCount();
+    check(std::abs(phaseFrames - 250.0) < 1.5,
+        "live Deck B phase did not move by the requested source beat fraction");
+}
+
+void testTempoEstimator()
+{
+    for (const double bpm : { 90.0, 120.0, 160.0 }) {
+        const auto asset = clickAsset(bpm, bpm == 120.0);
+        const TempoEstimate estimate = estimateSampleTempo(asset);
+        check(estimate.valid && std::abs(estimate.bpm - bpm) < 2.0
+                && estimate.confidence > 0.55f,
+            "load-time tempo estimator missed a periodic source");
+    }
+    SampleAsset silence;
+    silence.sampleRate = 48000.0;
+    silence.channelCount = 1u;
+    silence.channels[0u].assign(48000u * 4u, 0.0f);
+    check(!estimateSampleTempo(silence).valid,
+        "tempo estimator claimed a BPM for silence");
+}
+
 void testMidiCommandMap()
 {
     constexpr std::array<double, 13u> expected {{
@@ -254,6 +413,9 @@ int main()
     testVarispeedAndGradualPhase();
     testLoopSyncAndPhaseSteps();
     testContinuousCursorProgressUnderControlSweeps();
+    testIndependentDeckLevelsAndTransport();
+    testDragMotorAndLivePhase();
+    testTempoEstimator();
     testMidiCommandMap();
     if (failures != 0) return 1;
     std::cout << "s3g Sample Doubles smoke: ok\n";

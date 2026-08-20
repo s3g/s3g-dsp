@@ -31,6 +31,12 @@ enum class DoublesEventKind : uint8_t {
     PunchBOn,
     PunchBOff,
     SelectOffset,
+    ToggleDeckA,
+    ToggleDeckB,
+    DragAOn,
+    DragAOff,
+    DragBOn,
+    DragBOff,
 };
 
 struct DoublesRenderEvent {
@@ -51,13 +57,19 @@ struct DoublesSettings {
     double phaseCents = 0.0;
     double offsetBeats = 1.0;
     double phaseStepBeats = 0.25;
+    // A realtime phase displacement relative to the last applied value.
+    // Restart/Sync also include it in Deck B's absolute source-beat offset.
+    double livePhaseBeats = 0.0;
     double start = 0.0;
     double end = 1.0;
     bool loop = false;
     // -1 is Deck A, +1 is Deck B.
     double crossfader = -1.0;
     DoublesCrossfadeCurve crossfadeCurve = DoublesCrossfadeCurve::Cut;
+    float deckALevelDecibels = 0.0f;
+    float deckBLevelDecibels = 0.0f;
     float gainDecibels = -6.0f;
+    bool linkDecks = true;
 
     bool valid() const noexcept
     {
@@ -71,6 +83,8 @@ struct DoublesSettings {
             && offsetBeats >= -8.0 && offsetBeats <= 8.0
             && std::isfinite(phaseStepBeats)
             && phaseStepBeats >= 0.015625 && phaseStepBeats <= 4.0
+            && std::isfinite(livePhaseBeats)
+            && livePhaseBeats >= -1.0 && livePhaseBeats <= 1.0
             && std::isfinite(start) && start >= 0.0 && start <= 1.0
             && std::isfinite(end) && end >= 0.0 && end <= 1.0
             && start < end
@@ -78,6 +92,12 @@ struct DoublesSettings {
             && crossfader >= -1.0 && crossfader <= 1.0
             && static_cast<uint8_t>(crossfadeCurve)
                 <= static_cast<uint8_t>(DoublesCrossfadeCurve::Blend)
+            && std::isfinite(deckALevelDecibels)
+            && deckALevelDecibels >= -60.0f
+            && deckALevelDecibels <= 12.0f
+            && std::isfinite(deckBLevelDecibels)
+            && deckBLevelDecibels >= -60.0f
+            && deckBLevelDecibels <= 12.0f
             && std::isfinite(gainDecibels)
             && gainDecibels >= -60.0f && gainDecibels <= 12.0f;
     }
@@ -94,8 +114,17 @@ constexpr uint8_t kDoublesMidiPunchA = 40u;
 constexpr uint8_t kDoublesMidiPunchB = 41u;
 constexpr uint8_t kDoublesMidiPhaseStepForward = 42u;
 constexpr uint8_t kDoublesMidiPlay = 43u;
+constexpr uint8_t kDoublesMidiToggleDeckA = 44u;
+constexpr uint8_t kDoublesMidiToggleDeckB = 45u;
+constexpr uint8_t kDoublesMidiDragA = 46u;
+constexpr uint8_t kDoublesMidiDragB = 47u;
 constexpr uint8_t kDoublesMidiFirstOffset = 48u;
 constexpr uint8_t kDoublesMidiLastOffset = 60u;
+
+constexpr uint8_t kDoublesMidiCcCrossfader = 16u;
+constexpr uint8_t kDoublesMidiCcDeckALevel = 17u;
+constexpr uint8_t kDoublesMidiCcDeckBLevel = 18u;
+constexpr uint8_t kDoublesMidiCcLivePhase = 19u;
 
 inline bool doublesOffsetForMidiNote(uint8_t note,
     double& offsetBeats) noexcept
@@ -139,6 +168,11 @@ public:
         gestureAge_ = 0u;
         crossfadePosition_ = 0.0;
         crossfadeInitialized_ = false;
+        deckGainA_ = 1.0;
+        deckGainB_ = 1.0;
+        deckGainInitialized_ = false;
+        livePhaseBeats_ = 0.0;
+        livePhaseInitialized_ = false;
         outputPeak_ = 0.0f;
     }
 
@@ -149,6 +183,10 @@ public:
         playing_ = false;
         punchA_ = {};
         punchB_ = {};
+        deckA_.dragHeld = false;
+        deckA_.dragNoteId = 0u;
+        deckB_.dragHeld = false;
+        deckB_.dragNoteId = 0u;
     }
 
     bool setAsset(const SampleAsset* asset) noexcept
@@ -171,6 +209,12 @@ public:
     bool playing() const noexcept { return playing_; }
     bool deckAActive() const noexcept { return deckA_.active; }
     bool deckBActive() const noexcept { return deckB_.active; }
+    bool punchAHeld() const noexcept { return punchA_.held; }
+    bool punchBHeld() const noexcept { return punchB_.held; }
+    bool dragAHeld() const noexcept { return deckA_.dragHeld; }
+    bool dragBHeld() const noexcept { return deckB_.dragHeld; }
+    double deckARateScale() const noexcept { return deckA_.dragScale; }
+    double deckBRateScale() const noexcept { return deckB_.dragScale; }
     float outputPeak() const noexcept { return outputPeak_; }
 
     float deckAPositionNormalized() const noexcept
@@ -201,6 +245,7 @@ public:
         const Bounds bounds = resolvedBounds(settings);
         constrainDeck(deckA_, settings, bounds);
         constrainDeck(deckB_, settings, bounds);
+        applyLivePhase(settings, bounds);
         if (!crossfadeInitialized_) {
             crossfadePosition_ = crossfadeTarget(settings);
             crossfadeInitialized_ = true;
@@ -215,8 +260,19 @@ public:
             settings.phaseCents / 1200.0);
         const float outputGain = decibelsToAmplitude(
             settings.gainDecibels);
-        const double smoothing = 1.0 - std::exp(-1.0
+        const double crossfadeSmoothing = 1.0 - std::exp(-1.0
             / (outputSampleRate_ * kCrossfadeSmoothingSeconds));
+        const double gainSmoothing = 1.0 - std::exp(-1.0
+            / (outputSampleRate_ * kDeckGainSmoothingSeconds));
+        const float gainTargetA = decibelsToAmplitude(
+            settings.deckALevelDecibels);
+        const float gainTargetB = decibelsToAmplitude(
+            settings.deckBLevelDecibels);
+        if (!deckGainInitialized_) {
+            deckGainA_ = gainTargetA;
+            deckGainB_ = gainTargetB;
+            deckGainInitialized_ = true;
+        }
 
         std::size_t eventIndex = 0u;
         for (uint32_t frame = 0u; frame < frameCount; ++frame) {
@@ -227,8 +283,14 @@ public:
             }
 
             const double target = crossfadeTarget(settings);
-            crossfadePosition_ += smoothing
+            crossfadePosition_ += crossfadeSmoothing
                 * (target - crossfadePosition_);
+            deckGainA_ += static_cast<float>(gainSmoothing)
+                * (gainTargetA - deckGainA_);
+            deckGainB_ += static_cast<float>(gainSmoothing)
+                * (gainTargetB - deckGainB_);
+            updateDrag(deckA_);
+            updateDrag(deckB_);
             float gainA = 0.0f;
             float gainB = 0.0f;
             crossfadeGains(settings.crossfadeCurve,
@@ -243,13 +305,16 @@ public:
                 const float b = deckB_.active
                     ? readSample(sourceChannel, deckB_.position,
                         bounds, settings.loop) : 0.0f;
-                const float sample = (a * gainA + b * gainB) * outputGain;
+                const float sample = (a * gainA * deckGainA_
+                    + b * gainB * deckGainB_) * outputGain;
                 outputs[channel][frame] = sample;
                 outputPeak_ = std::max(outputPeak_, std::abs(sample));
             }
 
-            advanceDeck(deckA_, incrementA, settings, bounds);
-            advanceDeck(deckB_, incrementB, settings, bounds);
+            advanceDeck(deckA_, incrementA * deckA_.dragScale,
+                settings, bounds);
+            advanceDeck(deckB_, incrementB * deckB_.dragScale,
+                settings, bounds);
             if (!deckA_.active && !deckB_.active) playing_ = false;
         }
 
@@ -264,10 +329,17 @@ public:
 
 private:
     static constexpr double kCrossfadeSmoothingSeconds = 0.00025;
+    static constexpr double kDeckGainSmoothingSeconds = 0.005;
+    static constexpr double kDragDownSeconds = 0.030;
+    static constexpr double kMotorRecoverySeconds = 0.220;
+    static constexpr double kHeldDragScale = 0.16;
 
     struct Deck {
         double position = 0.0;
         bool active = false;
+        bool dragHeld = false;
+        uint64_t dragNoteId = 0u;
+        double dragScale = 1.0;
     };
 
     struct Punch {
@@ -332,6 +404,21 @@ private:
         return asset_->sampleRate * 60.0 / settings.sourceTempoBpm;
     }
 
+    void applyLivePhase(const DoublesSettings& settings,
+        const Bounds& bounds) noexcept
+    {
+        if (!livePhaseInitialized_) {
+            livePhaseBeats_ = settings.livePhaseBeats;
+            livePhaseInitialized_ = true;
+            return;
+        }
+        const double delta = settings.livePhaseBeats - livePhaseBeats_;
+        livePhaseBeats_ = settings.livePhaseBeats;
+        if (std::abs(delta) < 1.0e-12) return;
+        deckB_.position += beatFrames(settings) * delta;
+        constrainDeck(deckB_, settings, bounds);
+    }
+
     void restart(const DoublesSettings& settings,
         const Bounds& bounds) noexcept
     {
@@ -357,13 +444,64 @@ private:
     void syncDeckB(const DoublesSettings& settings, const Bounds& bounds,
         double offset) noexcept
     {
-        double position = deckA_.position + beatFrames(settings) * offset;
+        double position = deckA_.position + beatFrames(settings)
+            * (offset + settings.livePhaseBeats);
         if (settings.loop) position = wrapPosition(position, bounds);
         else position = std::clamp(position,
             static_cast<double>(bounds.start),
             static_cast<double>(bounds.end - 1u));
         deckB_.position = position;
         deckB_.active = playing_;
+    }
+
+    void toggleDeck(bool deckB, const DoublesSettings& settings,
+        const Bounds& bounds) noexcept
+    {
+        if (settings.linkDecks) {
+            if (deckA_.active || deckB_.active) {
+                deckA_.active = false;
+                deckB_.active = false;
+                playing_ = false;
+            } else play(settings, bounds);
+            return;
+        }
+        Deck& deck = deckB ? deckB_ : deckA_;
+        if (deck.active) {
+            deck.active = false;
+        } else {
+            constrainDeck(deck, settings, bounds);
+            if (deck.position >= static_cast<double>(bounds.end - 1u)) {
+                if (deckB) syncDeckB(settings, bounds,
+                    settings.offsetBeats);
+                else deck.position = static_cast<double>(bounds.start);
+            }
+            deck.active = true;
+        }
+        playing_ = deckA_.active || deckB_.active;
+    }
+
+    static void setDrag(Deck& deck, bool held, uint64_t noteId) noexcept
+    {
+        if (held) {
+            deck.dragHeld = true;
+            deck.dragNoteId = noteId;
+        } else if (noteId == 0u || deck.dragNoteId == 0u
+            || deck.dragNoteId == noteId) {
+            deck.dragHeld = false;
+            deck.dragNoteId = 0u;
+        }
+    }
+
+    void updateDrag(Deck& deck) const noexcept
+    {
+        const double target = deck.dragHeld ? kHeldDragScale : 1.0;
+        const double seconds = deck.dragHeld
+            ? kDragDownSeconds : kMotorRecoverySeconds;
+        const double smoothing = 1.0 - std::exp(-1.0
+            / (outputSampleRate_ * seconds));
+        deck.dragScale += smoothing * (target - deck.dragScale);
+        deck.dragScale = std::clamp(deck.dragScale,
+            kHeldDragScale, 1.0);
     }
 
     void phaseStep(const DoublesSettings& settings, const Bounds& bounds,
@@ -393,6 +531,10 @@ private:
             playing_ = false;
             punchA_ = {};
             punchB_ = {};
+            deckA_.dragHeld = false;
+            deckA_.dragNoteId = 0u;
+            deckB_.dragHeld = false;
+            deckB_.dragNoteId = 0u;
             break;
         case DoublesEventKind::Play:
             play(settings, bounds);
@@ -429,6 +571,24 @@ private:
         case DoublesEventKind::SelectOffset:
             syncDeckB(settings, bounds, std::clamp(
                 static_cast<double>(event.value), -8.0, 8.0));
+            break;
+        case DoublesEventKind::ToggleDeckA:
+            toggleDeck(false, settings, bounds);
+            break;
+        case DoublesEventKind::ToggleDeckB:
+            toggleDeck(true, settings, bounds);
+            break;
+        case DoublesEventKind::DragAOn:
+            setDrag(deckA_, true, event.noteId);
+            break;
+        case DoublesEventKind::DragAOff:
+            setDrag(deckA_, false, event.noteId);
+            break;
+        case DoublesEventKind::DragBOn:
+            setDrag(deckB_, true, event.noteId);
+            break;
+        case DoublesEventKind::DragBOff:
+            setDrag(deckB_, false, event.noteId);
             break;
         }
     }
@@ -516,6 +676,11 @@ private:
     uint64_t gestureAge_ = 0u;
     double crossfadePosition_ = 0.0;
     bool crossfadeInitialized_ = false;
+    float deckGainA_ = 1.0f;
+    float deckGainB_ = 1.0f;
+    bool deckGainInitialized_ = false;
+    double livePhaseBeats_ = 0.0;
+    bool livePhaseInitialized_ = false;
     bool prepared_ = false;
     bool playing_ = false;
     float outputPeak_ = 0.0f;

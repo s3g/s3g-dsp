@@ -32,7 +32,7 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-doubles.png" aria-label="Open the high-resolution Sample Doubles interface screenshot">
-              <img src="assets/plugin-guis/sample-doubles.png" alt="Sample Doubles interface with one stereo source drawn as Deck A and Deck B, independent colored playhead cursors, varispeed and timing controls, phase controls, transport buttons, punch buttons, turntable crossfader, and Tracker command legend" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/sample-doubles.png" alt="Sample Doubles interface with one source drawn as Deck A and Deck B, independent colored playheads, automatic BPM choices, varispeed and live-phase controls, linked deck transport, platter drag and punch buttons, per-deck levels, crossfader, and Tracker MIDI legend" loading="lazy" decoding="async">
             </button>
           </div>
           <figcaption>One shared source feeds two independently positioned read heads. The cyan Deck A and orange Deck B cursors expose the exact relationship being cut by the crossfader.</figcaption>
@@ -43,12 +43,12 @@
         <ol>
           <li>Press <code>LOAD SAMPLE</code> or drop a mono or stereo audio file on the waveform. Leave <code>EMBED ON</code> enabled for portable project state, or choose <code>EMBED OFF</code> to store only its location.</li>
           <li>Route its fixed stereo output to the intended speakers or monitor path.</li>
-          <li>Enter the recording's original tempo in <code>SAMPLE BPM</code>. This defines beat distances inside the source; it does not force the instrument to follow host tempo.</li>
+          <li>After loading, inspect the BPM readout. A confident, unambiguous estimate is applied automatically; a less certain result is shown as a suggestion. Use <code>1/2</code>, <code>AUTO</code>, or <code>x2</code> to resolve octave choices, or edit <code>SAMPLE BPM</code> directly. This source tempo defines beat distances inside the file; it does not force the instrument to follow host tempo.</li>
           <li>Set <code>SPEED</code>. Its default of -7 semitones slows pitch and duration together, like changing turntable or tape speed.</li>
           <li>Drag the waveform's <code>S</code> and <code>E</code> handles to select a region. Choose <code>ON</code> from the <code>LOOP</code> menu when the two copies should remain inside it.</li>
           <li>Press <code>RESTART</code>. Deck A starts at S and Deck B starts at Deck A plus <code>B OFFSET</code>, measured in source beats.</li>
-          <li>Move the crossfader between A and B. The <code>XFADE CURVE</code> menu provides <code>CUT</code> for a narrow center transition, <code>SHARP</code> for a short overlap, and <code>BLEND</code> for equal-power mixing.</li>
-          <li>Use <code>SYNC</code> to restore the selected offset, or <code>STEP -</code> and <code>STEP +</code> to move only Deck B by the value chosen in the <code>PHASE STEP</code> menu.</li>
+          <li>Set <code>A LEVEL</code> and <code>B LEVEL</code>, then move the crossfader between them. The deck levels are smoothed before the crossfade; <code>OUT</code> remains the post-crossfade master. <code>XFADE CURVE</code> provides <code>CUT</code>, <code>SHARP</code>, and equal-power <code>BLEND</code>.</li>
+          <li>Use <code>SYNC</code> to restore the selected offset, <code>STEP -</code> and <code>STEP +</code> for discrete moves, or <code>B LIVE PHASE</code> for an immediate continuous nudge. <code>A P/P</code> and <code>B P/P</code> pause individual decks when <code>LINK</code> is off. Hold <code>DRAG A</code> or <code>DRAG B</code> to load that platter; release it for a smooth motor recovery.</li>
           <li>Sequence the command notes from <a href="s3g-tracker.html">s3g Tracker</a>. The complete mapping is published through the CLAP note-name extension, so supporting hosts can display the commands by name.</li>
         </ol>
 
@@ -62,11 +62,13 @@
 
         <p><code>SPEED</code> is authentic varispeed: pitch and duration remain coupled. Both decks use this common rate. <code>B DRIFT</code> adds a fine speed difference to Deck B only, from -100 to +100 cents. Very small values create a slowly changing relationship; larger values move through alignments quickly.</p>
 
-        <p><code>B OFFSET</code> is stored in beats but does not teleport Deck B whenever its slider moves. Press Sync or Restart to apply it. MIDI notes 48–60 are performance shortcuts: each selects a signed beat offset and synchronizes Deck B immediately. Phase Step instead moves the existing Deck B playhead backward or forward without changing the stored offset.</p>
+        <p><code>B OFFSET</code> is stored in beats but does not teleport Deck B whenever its slider moves. Press Sync or Restart to apply it. <code>B LIVE PHASE</code> is deliberately separate: moving it shifts Deck B immediately and precisely by its change in source beats. MIDI notes 48–60 select a signed stored offset and synchronize Deck B immediately. Phase Step moves the existing Deck B playhead backward or forward without changing either control.</p>
 
-        <p>Phase Step, Loop, Crossfader Curve, and MIDI Receive are categorical settings and therefore use the shared s3g dropdown menus. Speed, Sample BPM, Start, End, output level, Deck B Offset, Deck B Drift, and the crossfader remain continuous controls.</p>
+        <p>Phase Step, Loop, Crossfader Curve, MIDI Receive, and Link are categorical or toggle settings. Speed, Sample BPM, Start, End, output level, both deck levels, Deck B Offset, Deck B Drift, Deck B Live Phase, and the crossfader remain continuous controls.</p>
 
-        <p>With Loop enabled, synchronization, offsets, drift, and phase steps wrap inside the selected S–E region. Without Loop, each deck stops when it reaches E. Stop silences both positions; Play resumes from the current positions, while Restart returns to the beginning and reapplies the offset.</p>
+        <p>With Loop enabled, synchronization, offsets, drift, live phase, and phase steps wrap inside the selected S–E region. Without Loop, each deck stops when it reaches E. Stop silences both positions; Play resumes them, while Restart returns to the beginning and reapplies the offset. Link is enabled by default so either deck Play/Pause button operates both decks; disable it to stop and resume the two copies independently.</p>
+
+        <p>Drag is momentary rather than a saved speed setting. While held, that deck decelerates toward a heavily loaded platter; on release its motor eases back to the shared varispeed. Mouse release, MIDI note-off, editor close, and transport reset all release the gesture.</p>
 
         <h2 id="tracker">Tracker Command Keyboard</h2>
 
@@ -79,11 +81,27 @@
             <tr><td>39 / 42</td><td>Phase Step - / +</td><td>Nudge Deck B by the selected Phase Step; repeat or ratchet for stepped phase patterns.</td></tr>
             <tr><td>40 / 41</td><td>Punch A / B</td><td>Gated overrides of the crossfader. Note duration controls the cut and <code>VOL</code> controls its depth.</td></tr>
             <tr><td>43</td><td>Play</td><td>Resume the current deck positions after Stop.</td></tr>
+            <tr><td>44 / 45</td><td>Deck A / B Play-Pause</td><td>Toggle either read head. With Link enabled, either note operates both decks.</td></tr>
+            <tr><td>46 / 47</td><td>Drag A / B</td><td>Gated platter loading: note-on slows that deck and note-off releases the motor.</td></tr>
             <tr><td>48–60</td><td>Offset select + Sync</td><td>Select -4, -2, -1, -1/2, -1/4, -1/8, 0, +1/8, +1/4, +1/2, +1, +2, or +4 beats.</td></tr>
           </tbody>
         </table>
 
-        <p>A practical Tracker layout uses one sparse lane for Restart, Sync, and offset selection, one lane for Punch A, and one for Punch B. The punch lanes are ordinary gated notes, so Tracker's microtime, delay, repeat, ratchet, flam, stutter, probability, and per-step volume can shape cuts directly. With the Cut curve, Tracker's normal note velocity is already deep enough to cross the narrow center transition; full volume lands completely on the punched deck.</p>
+        <p>A practical Tracker layout uses one sparse lane for Restart, Sync, and offset selection, one lane for Punch A, and one for Punch B. Add Drag or independent deck-toggle notes where a platter gesture or one-sided pause belongs. These are ordinary notes, so Tracker's microtime, delay, repeat, ratchet, flam, stutter, probability, note length, and per-step volume can shape the performance directly. With the Cut curve, Tracker's normal note velocity is already deep enough to cross the narrow center transition; full volume lands completely on the punched deck.</p>
+
+        <h3 id="continuous-midi">Continuous MIDI</h3>
+
+        <table class="readout-table">
+          <thead><tr><th>CC</th><th>Control</th><th>Range</th></tr></thead>
+          <tbody>
+            <tr><td>16</td><td>Crossfader</td><td>Deck A through Deck B</td></tr>
+            <tr><td>17</td><td>Deck A Level</td><td>-60 to +12 dB</td></tr>
+            <tr><td>18</td><td>Deck B Level</td><td>-60 to +12 dB</td></tr>
+            <tr><td>19</td><td>Deck B Live Phase</td><td>-1 to +1 source beat</td></tr>
+          </tbody>
+        </table>
+
+        <p>These fixed mappings work in a raw MIDI or Tracker CC lane. They are also CLAP-automatable parameters, so host automation and MIDI learn remain available. Buttons illuminate for GUI gestures and incoming MIDI; gated Punch and Drag controls remain lit until note-off.</p>
 
         <h2 id="settings">Starting Settings</h2>
 
@@ -106,7 +124,8 @@
           <li>Input: one CLAP note/MIDI command port and file loading through the editor.</li>
           <li>Output: one fixed stereo port. Mono files are presented on both lanes; stereo channel order is preserved.</li>
           <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16.</li>
-          <li>State: all twelve parameters, source path, embed choice, and optionally as much as 1 GiB of decoded mono or stereo audio.</li>
+          <li>State: all sixteen parameters, source path, embed choice, and optionally as much as 1 GiB of decoded mono or stereo audio. Version-one twelve-parameter projects load with neutral deck levels, Link on, and zero live phase.</li>
+          <li>BPM analysis runs only on the sample-loader worker. Project recall restores the saved source BPM exactly and does not re-analyze or overwrite it.</li>
           <li>The audio engine keeps one immutable source asset and two positions; it does not duplicate the decoded audio in memory and does not record a dub print.</li>
         </ul>
 
@@ -133,6 +152,7 @@
           <a href="#performance-model">Performance Model</a>
           <a href="#timing">Deck Timing</a>
           <a href="#tracker">Tracker Commands</a>
+          <a href="#continuous-midi">Continuous MIDI</a>
           <a href="#settings">Starting Settings</a>
           <a href="#routing-state">Routing and State</a>
         </div>

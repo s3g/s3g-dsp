@@ -3119,8 +3119,8 @@ int main(int argc, char** argv)
                     }
                 }
 
-                const NSPoint phaseMenu = NSMakePoint(720.0, 400.0);
-                const NSPoint quarterBeat = NSMakePoint(720.0, 459.0);
+                const NSPoint phaseMenu = NSMakePoint(720.0, 426.0);
+                const NSPoint quarterBeat = NSMakePoint(720.0, 485.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, phaseMenu)];
@@ -3141,8 +3141,8 @@ int main(int argc, char** argv)
                 ok = ok && params->get_value(plugin, 5u, &phaseStep)
                     && std::fabs(phaseStep - 2.0) < 0.000001;
 
-                const NSPoint loopMenu = NSMakePoint(720.0, 426.0);
-                const NSPoint loopOff = NSMakePoint(720.0, 445.0);
+                const NSPoint loopMenu = NSMakePoint(720.0, 452.0);
+                const NSPoint loopOff = NSMakePoint(720.0, 471.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, loopMenu)];
@@ -3153,8 +3153,8 @@ int main(int argc, char** argv)
                 ok = ok && params->get_value(plugin, 8u, &loop)
                     && std::fabs(loop) < 0.000001;
 
-                const NSPoint receiveMenu = NSMakePoint(720.0, 478.0);
-                const NSPoint channelTwo = NSMakePoint(720.0, 180.0);
+                const NSPoint receiveMenu = NSMakePoint(720.0, 504.0);
+                const NSPoint channelTwo = NSMakePoint(720.0, 206.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, receiveMenu)];
@@ -3168,6 +3168,22 @@ int main(int argc, char** argv)
                 double receive = -1.0;
                 ok = ok && params->get_value(plugin, 12u, &receive)
                     && std::fabs(receive - 2.0) < 0.000001;
+
+                // LINK is a discrete toggle rather than a pseudo-continuous
+                // slider. Exercise both states before the legacy fixture below
+                // confirms that v1 sessions default the new control to On.
+                if (ok) {
+                    const NSPoint linkButton = NSMakePoint(594.0, 572.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, linkButton)];
+                    double linked = -1.0;
+                    ok = params->get_value(plugin, 15u, &linked)
+                        && std::fabs(linked) < 0.000001;
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, linkButton)];
+                    ok = ok && params->get_value(plugin, 15u, &linked)
+                        && std::fabs(linked - 1.0) < 0.000001;
+                }
 
                 // Load an embedded source through the public state API, then
                 // keep the real DSP callback running on an audio worker while
@@ -3221,7 +3237,7 @@ int main(int argc, char** argv)
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown,
-                        NSMakePoint(74.0, 546.0))];
+                        NSMakePoint(74.0, 572.0))];
                     keepDoublesProcessing.store(true,
                         std::memory_order_release);
                     doublesAudioThread = std::thread([&] {
@@ -3296,7 +3312,7 @@ int main(int argc, char** argv)
                     CGFloat right;
                     CGFloat y;
                 };
-                const std::array<SliderDrag, 7u> sliderDrags {{
+                const std::array<SliderDrag, 10u> sliderDrags {{
                     { 126.0, 276.0, 343.0 }, // Speed
                     { 126.0, 276.0, 369.0 }, // Sample BPM
                     { 126.0, 180.0, 395.0 }, // Start (remain below End)
@@ -3304,6 +3320,9 @@ int main(int argc, char** argv)
                     { 126.0, 276.0, 447.0 }, // Out
                     { 636.0, 786.0, 343.0 }, // B Offset
                     { 636.0, 786.0, 369.0 }, // B Drift
+                    { 636.0, 786.0, 395.0 }, // B Live Phase
+                    { 360.0, 450.0, 613.0 }, // Deck A Level
+                    { 650.0, 740.0, 613.0 }, // Deck B Level
                 }};
                 hostContext.paramFlushRequestCount.store(0u,
                     std::memory_order_relaxed);
@@ -3356,10 +3375,10 @@ int main(int argc, char** argv)
                 // and audio callback remain active. Menus may repaint their
                 // dropdown, but each repaint must also present a fresh cursor.
                 const std::array<NSPoint, 4u> menuAnchors {{
-                    NSMakePoint(720.0, 400.0),
                     NSMakePoint(720.0, 426.0),
                     NSMakePoint(720.0, 452.0),
                     NSMakePoint(720.0, 478.0),
+                    NSMakePoint(720.0, 504.0),
                 }};
                 const NSUInteger cursorDrawsBeforeMenus =
                     [document cursorDrawPassCount];
@@ -3369,14 +3388,14 @@ int main(int argc, char** argv)
                      ++iteration) {
                     const std::array<NSPoint, 4u> menuItems {{
                         NSMakePoint(720.0,
-                            419.0 + 20.0 * static_cast<CGFloat>(
+                            445.0 + 20.0 * static_cast<CGFloat>(
                                 iteration % 7u)),
-                        NSMakePoint(720.0, 465.0), // Loop On
+                        NSMakePoint(720.0, 491.0), // Loop On
                         NSMakePoint(720.0,
-                            471.0 + 20.0 * static_cast<CGFloat>(
+                            497.0 + 20.0 * static_cast<CGFloat>(
                                 iteration % 3u)),
                         NSMakePoint(720.0,
-                            140.0 + 20.0 * static_cast<CGFloat>(
+                            166.0 + 20.0 * static_cast<CGFloat>(
                                 iteration % 17u)),
                     }};
                     for (std::size_t menu = 0u; menu < menuAnchors.size();
@@ -3424,7 +3443,7 @@ int main(int argc, char** argv)
                     [document cursorAnimationInstallCount];
                 const uint64_t blocksBeforeCrossfade =
                     [document processBlockCount];
-                const NSPoint crossfaderLeft = NSMakePoint(172.0, 644.0);
+                const NSPoint crossfaderLeft = NSMakePoint(172.0, 670.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, crossfaderLeft)];
@@ -3436,7 +3455,7 @@ int main(int argc, char** argv)
                             ? static_cast<double>(phase) / 128.0
                             : static_cast<double>(256u - phase) / 128.0;
                         const NSPoint point = NSMakePoint(
-                            172.0 + 696.0 * normalized, 644.0);
+                            172.0 + 696.0 * normalized, 670.0);
                         [document mouseDragged:mouseEvent(
                             NSEventTypeLeftMouseDragged, point)];
                         NSDate* deadline = [NSDate
@@ -3447,14 +3466,14 @@ int main(int argc, char** argv)
                     }
                     [document mouseDragged:mouseEvent(
                         NSEventTypeLeftMouseDragged,
-                        NSMakePoint(840.0, 644.0))];
+                        NSMakePoint(840.0, 670.0))];
                     const NSUInteger cursorDrawsDuringCrossfade =
                         [document cursorDrawPassCount];
                     const NSUInteger animationsDuringCrossfade =
                         [document cursorAnimationInstallCount];
                     [document mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp,
-                        NSMakePoint(840.0, 644.0))];
+                        NSMakePoint(840.0, 670.0))];
                     ok = cursorDrawsDuringCrossfade
                             > cursorDrawsBeforeCrossfade + 12u
                         && [document processBlockCount]
@@ -3534,7 +3553,7 @@ int main(int argc, char** argv)
                             ? [document visualDeckAPositionValue]
                             : [document deckAPositionValue];
                     };
-                    const NSPoint heldCrossfader = NSMakePoint(520.0, 644.0);
+                    const NSPoint heldCrossfader = NSMakePoint(520.0, 670.0);
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, heldCrossfader)];
                     [document mouseDragged:mouseEvent(
@@ -3710,7 +3729,7 @@ int main(int argc, char** argv)
                 if (renderAheadDragActive) {
                     [document mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp,
-                        NSMakePoint(520.0, 644.0))];
+                        NSMakePoint(520.0, 670.0))];
                 }
                 pauseDoublesProcessing.store(false,
                     std::memory_order_release);

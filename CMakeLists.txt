@@ -1176,7 +1176,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_doubles_clap>
           org.s3g.s3g-dsp.sample-doubles
-          1040 760 "s3g Sample Doubles 2" responsive)
+          1040 786 "s3g Sample Doubles 2" responsive)
       set_tests_properties(s3g_sample_doubles_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -2657,7 +2657,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_doubles_clap>
           org.s3g.s3g-dsp.sample-doubles
-          1040 760 "s3g Sample Doubles 2" responsive
+          1040 786 "s3g Sample Doubles 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_doubles_clap

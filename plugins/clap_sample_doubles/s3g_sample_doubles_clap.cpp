@@ -1,4 +1,5 @@
 #include "s3g_sample_doubles.h"
+#include "s3g_sample_tempo_estimator.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 
@@ -48,9 +49,9 @@ using s3g::sample::SampleAsset;
 using s3g::sample::SampleDoublesEngine;
 
 constexpr uint32_t kStateMagic = 0x44443353u; // "S3DD"
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kGuiWidth = 1040u;
-constexpr uint32_t kGuiHeight = 760u;
+constexpr uint32_t kGuiHeight = 786u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes
@@ -69,7 +70,12 @@ constexpr clap_id kCrossfaderParamId = 9u;
 constexpr clap_id kCurveParamId = 10u;
 constexpr clap_id kGainParamId = 11u;
 constexpr clap_id kMidiReceiveParamId = 12u;
-constexpr std::size_t kParamCount = 12u;
+constexpr clap_id kDeckALevelParamId = 13u;
+constexpr clap_id kDeckBLevelParamId = 14u;
+constexpr clap_id kLinkDecksParamId = 15u;
+constexpr clap_id kLivePhaseParamId = 16u;
+constexpr std::size_t kParamCount = 16u;
+constexpr std::size_t kLegacyParamCount = 12u;
 
 constexpr uint32_t kActionRestart = 1u << 0u;
 constexpr uint32_t kActionStop = 1u << 1u;
@@ -81,6 +87,33 @@ constexpr uint32_t kActionPunchAOn = 1u << 6u;
 constexpr uint32_t kActionPunchAOff = 1u << 7u;
 constexpr uint32_t kActionPunchBOn = 1u << 8u;
 constexpr uint32_t kActionPunchBOff = 1u << 9u;
+constexpr uint32_t kActionToggleDeckA = 1u << 10u;
+constexpr uint32_t kActionToggleDeckB = 1u << 11u;
+constexpr uint32_t kActionDragAOn = 1u << 12u;
+constexpr uint32_t kActionDragAOff = 1u << 13u;
+constexpr uint32_t kActionDragBOn = 1u << 14u;
+constexpr uint32_t kActionDragBOff = 1u << 15u;
+
+constexpr uint32_t kFeedbackRestart = 1u << 0u;
+constexpr uint32_t kFeedbackStop = 1u << 1u;
+constexpr uint32_t kFeedbackPlay = 1u << 2u;
+constexpr uint32_t kFeedbackSync = 1u << 3u;
+constexpr uint32_t kFeedbackStepBackward = 1u << 4u;
+constexpr uint32_t kFeedbackStepForward = 1u << 5u;
+constexpr uint32_t kFeedbackPunchA = 1u << 6u;
+constexpr uint32_t kFeedbackPunchB = 1u << 7u;
+constexpr uint32_t kFeedbackToggleDeckA = 1u << 8u;
+constexpr uint32_t kFeedbackToggleDeckB = 1u << 9u;
+constexpr uint32_t kFeedbackDragA = 1u << 10u;
+constexpr uint32_t kFeedbackDragB = 1u << 11u;
+
+enum class TempoOrigin : uint8_t {
+    Fallback = 0u,
+    Estimated,
+    Suggested,
+    Manual,
+    Restored,
+};
 
 struct ParamDef {
     clap_id id;
@@ -112,13 +145,35 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kGainParamId, "Out", "Output", -60.0, 12.0, -6.0, false },
     { kMidiReceiveParamId, "MIDI Receive", "MIDI", 0.0, 16.0,
         0.0, true },
+    { kDeckALevelParamId, "Deck A Level", "Mixer", -60.0, 12.0,
+        0.0, false },
+    { kDeckBLevelParamId, "Deck B Level", "Mixer", -60.0, 12.0,
+        0.0, false },
+    { kLinkDecksParamId, "Link Decks", "Decks", 0.0, 1.0,
+        1.0, true },
+    { kLivePhaseParamId, "Deck B Live Phase", "Deck B", -1.0, 1.0,
+        0.0, false },
 }};
 
 constexpr std::array<double, 7u> kPhaseStepBeats {{
     0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0,
 }};
 
-struct SavedState {
+struct SavedStateV1 {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 1u;
+    uint32_t parameterCount = static_cast<uint32_t>(kLegacyParamCount);
+    std::array<double, kLegacyParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct SavedStateV2 {
     uint32_t magic = kStateMagic;
     uint32_t version = kStateVersion;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
@@ -132,16 +187,27 @@ struct SavedState {
     double sampleRate = 0.0;
 };
 
+struct StatePrefix {
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t parameterCount = 0u;
+};
+
+static_assert(sizeof(StatePrefix) == 12u);
+
 #if defined(__APPLE__)
 struct LoadRequest {
     uint64_t generation = 0u;
+    uint64_t tempoRevision = 0u;
     std::string path;
 };
 
 struct LoadResult {
     uint64_t generation = 0u;
+    uint64_t tempoRevision = 0u;
     std::string path;
     std::shared_ptr<const SampleAsset> asset;
+    s3g::sample::TempoEstimate tempo;
     std::string error;
 };
 #endif
@@ -205,7 +271,19 @@ struct Plugin {
     double cursorGeometryStart = 0.0;
     double cursorGeometryEnd = 1.0;
     bool cursorGeometryLoop = false;
+    bool cursorLivePhaseInitialized = false;
+    double cursorLivePhaseBeats = 0.0;
     std::atomic<uint32_t> actionRequests { 0u };
+    std::atomic<uint32_t> actionFeedbackPulses { 0u };
+    std::atomic<uint32_t> gestureHeldMask { 0u };
+    std::atomic<uint64_t> sourceTempoRevision { 0u };
+    std::atomic<double> estimatedTempoBpm { 0.0 };
+    std::atomic<float> tempoConfidence { 0.0f };
+    std::atomic<bool> tempoEstimateValid { false };
+    std::atomic<bool> tempoOctaveAmbiguous { false };
+    std::atomic<uint8_t> tempoOrigin {
+        static_cast<uint8_t>(TempoOrigin::Fallback)
+    };
     bool embedSampleInState = true;
     bool active = false;
 #if defined(__APPLE__)
@@ -235,7 +313,7 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kSpeedParamId && id <= kMidiReceiveParamId
+    return id >= kSpeedParamId && id <= kLivePhaseParamId
         ? static_cast<std::size_t>(id - kSpeedParamId) : kParamCount;
 }
 
@@ -261,7 +339,7 @@ void markStateDirty(Plugin& instance)
 }
 
 void setParam(Plugin& instance, clap_id id, double value,
-    bool dirty = false) noexcept
+    bool dirty = false, bool estimatedTempo = false) noexcept
 {
     const auto* def = paramDef(id);
     const std::size_t index = paramIndex(id);
@@ -276,7 +354,15 @@ void setParam(Plugin& instance, clap_id id, double value,
         value = std::max(value,
             std::min(1.0, paramValue(instance, kStartParamId)
                 + kMinimumWindow));
-    instance.parameters[index].store(value, std::memory_order_release);
+    const double previous = instance.parameters[index].exchange(value,
+        std::memory_order_acq_rel);
+    if (id == kSourceTempoParamId && previous != value) {
+        instance.sourceTempoRevision.fetch_add(1u,
+            std::memory_order_acq_rel);
+        instance.tempoOrigin.store(static_cast<uint8_t>(estimatedTempo
+                ? TempoOrigin::Estimated : TempoOrigin::Manual),
+            std::memory_order_release);
+    }
     if (dirty) markStateDirty(instance);
 }
 
@@ -284,6 +370,9 @@ void initializeParams(Plugin& instance) noexcept
 {
     for (const auto& def : kParamDefs)
         setParam(instance, def.id, def.defaultValue, false);
+    instance.sourceTempoRevision.store(0u, std::memory_order_release);
+    instance.tempoOrigin.store(static_cast<uint8_t>(TempoOrigin::Fallback),
+        std::memory_order_release);
 }
 
 double phaseStepBeats(const Plugin& instance) noexcept
@@ -301,6 +390,7 @@ DoublesSettings settingsSnapshot(const Plugin& instance) noexcept
     settings.phaseCents = paramValue(instance, kPhaseCentsParamId);
     settings.offsetBeats = paramValue(instance, kOffsetParamId);
     settings.phaseStepBeats = phaseStepBeats(instance);
+    settings.livePhaseBeats = paramValue(instance, kLivePhaseParamId);
     settings.start = paramValue(instance, kStartParamId);
     settings.end = paramValue(instance, kEndParamId);
     settings.loop = paramValue(instance, kLoopParamId) >= 0.5;
@@ -308,8 +398,13 @@ DoublesSettings settingsSnapshot(const Plugin& instance) noexcept
     settings.crossfadeCurve = static_cast<DoublesCrossfadeCurve>(
         static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
             paramValue(instance, kCurveParamId))), 0, 2)));
+    settings.deckALevelDecibels = static_cast<float>(
+        paramValue(instance, kDeckALevelParamId));
+    settings.deckBLevelDecibels = static_cast<float>(
+        paramValue(instance, kDeckBLevelParamId));
     settings.gainDecibels = static_cast<float>(
         paramValue(instance, kGainParamId));
+    settings.linkDecks = paramValue(instance, kLinkDecksParamId) >= 0.5;
     return settings;
 }
 
@@ -339,10 +434,12 @@ void publishCursorReset(Plugin& instance,
     instance.cursorActiveMask.store(0u, std::memory_order_relaxed);
     instance.cursorLoop.store(false, std::memory_order_relaxed);
     instance.playing.store(false, std::memory_order_relaxed);
+    instance.gestureHeldMask.store(0u, std::memory_order_relaxed);
     instance.cursorDiscontinuitySerial.fetch_add(
         1u, std::memory_order_relaxed);
     endCursorPublication(instance);
     instance.cursorGeometryInitialized = false;
+    instance.cursorLivePhaseInitialized = false;
 }
 
 void publishCursorState(Plugin& instance, const SampleAsset* asset,
@@ -363,10 +460,12 @@ void publishCursorState(Plugin& instance, const SampleAsset* asset,
         const double frameCount = static_cast<double>(frames);
         start = static_cast<double>(startFrame) / frameCount;
         end = static_cast<double>(endFrame) / frameCount;
-        rateA = asset->sampleRate * std::pow(2.0,
+        const double baseRate = asset->sampleRate * std::pow(2.0,
             settings.speedSemitones / 12.0) / frameCount;
-        rateB = rateA * std::pow(2.0,
-            settings.phaseCents / 1200.0);
+        rateA = baseRate * instance.engine.deckARateScale();
+        rateB = baseRate * std::pow(2.0,
+            settings.phaseCents / 1200.0)
+            * instance.engine.deckBRateScale();
     }
 
     const bool geometryChanged = !instance.cursorGeometryInitialized
@@ -399,6 +498,12 @@ void publishCursorState(Plugin& instance, const SampleAsset* asset,
     instance.cursorLoop.store(settings.loop, std::memory_order_relaxed);
     instance.playing.store(instance.engine.playing(),
         std::memory_order_relaxed);
+    uint32_t gestureMask = 0u;
+    if (instance.engine.punchAHeld()) gestureMask |= kFeedbackPunchA;
+    if (instance.engine.punchBHeld()) gestureMask |= kFeedbackPunchB;
+    if (instance.engine.dragAHeld()) gestureMask |= kFeedbackDragA;
+    if (instance.engine.dragBHeld()) gestureMask |= kFeedbackDragB;
+    instance.gestureHeldMask.store(gestureMask, std::memory_order_relaxed);
     if (discontinuity) {
         instance.cursorDiscontinuitySerial.fetch_add(
             1u, std::memory_order_relaxed);
@@ -411,7 +516,7 @@ bool readCursorSnapshot(const Plugin& instance,
 {
     // Never make the main thread wait on the audio thread. If a publication
     // happens to overlap this display tick, retain the previous visual state
-    // and retry naturally on the next 60 Hz tick.
+    // and retry naturally on the next 30 Hz tick.
     for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
         const uint64_t before = instance.cursorPublicationSequence.load(
             std::memory_order_acquire);
@@ -456,8 +561,31 @@ void requestProcess(Plugin& instance)
         instance.host->request_process(instance.host);
 }
 
+uint32_t feedbackForAction(uint32_t action) noexcept
+{
+    switch (action) {
+    case kActionRestart: return kFeedbackRestart;
+    case kActionStop: return kFeedbackStop;
+    case kActionPlay: return kFeedbackPlay;
+    case kActionSync: return kFeedbackSync;
+    case kActionStepBackward: return kFeedbackStepBackward;
+    case kActionStepForward: return kFeedbackStepForward;
+    case kActionToggleDeckA: return kFeedbackToggleDeckA;
+    case kActionToggleDeckB: return kFeedbackToggleDeckB;
+    default: return 0u;
+    }
+}
+
+void pulseFeedback(Plugin& instance, uint32_t feedback) noexcept
+{
+    if (feedback != 0u)
+        instance.actionFeedbackPulses.fetch_or(feedback,
+            std::memory_order_release);
+}
+
 void requestAction(Plugin& instance, uint32_t action) noexcept
 {
+    pulseFeedback(instance, feedbackForAction(action));
     instance.actionRequests.fetch_or(action, std::memory_order_release);
     requestProcess(instance);
 }
@@ -540,7 +668,9 @@ bool decodeSampleFile(const std::string& path,
 }
 
 bool installDecodedSample(Plugin& instance, const std::string& path,
-    std::shared_ptr<const SampleAsset> asset)
+    std::shared_ptr<const SampleAsset> asset,
+    const s3g::sample::TempoEstimate* tempo = nullptr,
+    uint64_t requestedTempoRevision = 0u)
 {
     if (!asset || !asset->valid() || asset->channelCount > 2u) {
         instance.status = "INVALID MONO/STEREO SAMPLE";
@@ -548,14 +678,56 @@ bool installDecodedSample(Plugin& instance, const std::string& path,
     }
     const uint8_t channels = asset->channelCount;
     applySafeDefaultBounds(instance, *asset);
+    bool tempoApplied = false;
+    if (tempo) {
+        instance.estimatedTempoBpm.store(tempo->valid ? tempo->bpm : 0.0,
+            std::memory_order_release);
+        instance.tempoConfidence.store(tempo->confidence,
+            std::memory_order_release);
+        instance.tempoEstimateValid.store(tempo->valid,
+            std::memory_order_release);
+        instance.tempoOctaveAmbiguous.store(tempo->octaveAmbiguous,
+            std::memory_order_release);
+        const bool revisionMatches = instance.sourceTempoRevision.load(
+            std::memory_order_acquire) == requestedTempoRevision;
+        tempoApplied = tempo->valid && tempo->confidence >= 0.62f
+            && !tempo->octaveAmbiguous && revisionMatches;
+        if (tempoApplied) {
+            setParam(instance, kSourceTempoParamId, tempo->bpm,
+                false, true);
+            instance.tempoOrigin.store(static_cast<uint8_t>(
+                TempoOrigin::Estimated), std::memory_order_release);
+        } else if (tempo->valid && revisionMatches) {
+            instance.tempoOrigin.store(static_cast<uint8_t>(
+                TempoOrigin::Suggested), std::memory_order_release);
+        }
+    } else {
+        instance.estimatedTempoBpm.store(0.0, std::memory_order_release);
+        instance.tempoConfidence.store(0.0f, std::memory_order_release);
+        instance.tempoEstimateValid.store(false, std::memory_order_release);
+        instance.tempoOctaveAmbiguous.store(false,
+            std::memory_order_release);
+    }
     if (!publishAsset(instance, std::move(asset), path)) {
         instance.status = "COULD NOT PUBLISH SAMPLE";
         return false;
     }
     if (instance.host && instance.hostParams && instance.hostParams->rescan)
         instance.hostParams->rescan(instance.host, CLAP_PARAM_RESCAN_VALUES);
-    instance.status = channels == 1u
-        ? "MONO DOUBLES READY" : "STEREO DOUBLES READY";
+    const char* channelText = channels == 1u ? "MONO" : "STEREO";
+    char status[128] {};
+    if (tempoApplied) {
+        std::snprintf(status, sizeof(status), "%s READY / BPM %.2f AUTO",
+            channelText, tempo->bpm);
+    } else if (tempo && tempo->valid) {
+        std::snprintf(status, sizeof(status),
+            "%s READY / BPM %.2f SUGGESTED%s", channelText, tempo->bpm,
+            tempo->octaveAmbiguous ? " / HALF-DOUBLE?" : "");
+    } else {
+        std::snprintf(status, sizeof(status), "%s DOUBLES READY / BPM MANUAL",
+            channelText);
+    }
+    instance.status = status;
     return true;
 }
 
@@ -577,9 +749,13 @@ bool startSampleLoader(Plugin& instance)
                 }
                 LoadResult result;
                 result.generation = request.generation;
+                result.tempoRevision = request.tempoRevision;
                 result.path = std::move(request.path);
                 try {
                     decodeSampleFile(result.path, result.asset, result.error);
+                    if (result.asset)
+                        result.tempo = s3g::sample::estimateSampleTempo(
+                            *result.asset);
                 } catch (...) {
                     result.error = "SAMPLE DECODE RAN OUT OF RESOURCES";
                 }
@@ -615,9 +791,12 @@ void queueSampleLoad(Plugin& instance, std::string path)
 {
     if (path.empty()) return;
     const uint64_t generation = ++instance.loadGeneration;
+    const uint64_t tempoRevision = instance.sourceTempoRevision.load(
+        std::memory_order_acquire);
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
-        instance.loadRequests.push_back({ generation, std::move(path) });
+        instance.loadRequests.push_back({ generation, tempoRevision,
+            std::move(path) });
     }
     instance.status = "LOADING SAMPLE";
     instance.loaderCondition.notify_one();
@@ -637,7 +816,8 @@ void serviceSampleLoads(Plugin& instance)
                 ? "SAMPLE DECODE FAILED" : result.error;
             continue;
         }
-        installDecodedSample(instance, result.path, std::move(result.asset));
+        installDecodedSample(instance, result.path, std::move(result.asset),
+            &result.tempo, result.tempoRevision);
     }
 }
 #endif
@@ -790,39 +970,73 @@ void appendMidiCommand(Plugin& instance, std::size_t& count,
         else if (key == s3g::sample::kDoublesMidiPunchB)
             appendEvent(instance, count, frame,
                 DoublesEventKind::PunchBOff, noteId, 0.0f);
+        else if (key == s3g::sample::kDoublesMidiDragA)
+            appendEvent(instance, count, frame,
+                DoublesEventKind::DragAOff, noteId, 0.0f);
+        else if (key == s3g::sample::kDoublesMidiDragB)
+            appendEvent(instance, count, frame,
+                DoublesEventKind::DragBOff, noteId, 0.0f);
         return;
     }
     switch (key) {
     case s3g::sample::kDoublesMidiRestart:
+        pulseFeedback(instance, kFeedbackRestart);
         appendEvent(instance, count, frame, DoublesEventKind::Restart,
             noteId);
         return;
     case s3g::sample::kDoublesMidiStop:
+        pulseFeedback(instance, kFeedbackStop);
         appendEvent(instance, count, frame, DoublesEventKind::Stop,
             noteId);
         return;
     case s3g::sample::kDoublesMidiSyncDeckB:
+        pulseFeedback(instance, kFeedbackSync);
         appendEvent(instance, count, frame, DoublesEventKind::SyncDeckB,
             noteId);
         return;
     case s3g::sample::kDoublesMidiPhaseStepBackward:
+        pulseFeedback(instance, kFeedbackStepBackward);
         appendEvent(instance, count, frame,
             DoublesEventKind::PhaseStepBackward, noteId);
         return;
     case s3g::sample::kDoublesMidiPunchA:
+        pulseFeedback(instance, kFeedbackPunchA);
         appendEvent(instance, count, frame, DoublesEventKind::PunchAOn,
             noteId, velocity);
         return;
     case s3g::sample::kDoublesMidiPunchB:
+        pulseFeedback(instance, kFeedbackPunchB);
         appendEvent(instance, count, frame, DoublesEventKind::PunchBOn,
             noteId, velocity);
         return;
     case s3g::sample::kDoublesMidiPhaseStepForward:
+        pulseFeedback(instance, kFeedbackStepForward);
         appendEvent(instance, count, frame,
             DoublesEventKind::PhaseStepForward, noteId);
         return;
     case s3g::sample::kDoublesMidiPlay:
+        pulseFeedback(instance, kFeedbackPlay);
         appendEvent(instance, count, frame, DoublesEventKind::Play,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiToggleDeckA:
+        pulseFeedback(instance, kFeedbackToggleDeckA);
+        appendEvent(instance, count, frame, DoublesEventKind::ToggleDeckA,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiToggleDeckB:
+        pulseFeedback(instance, kFeedbackToggleDeckB);
+        appendEvent(instance, count, frame, DoublesEventKind::ToggleDeckB,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiDragA:
+        pulseFeedback(instance, kFeedbackDragA);
+        appendEvent(instance, count, frame, DoublesEventKind::DragAOn,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiDragB:
+        pulseFeedback(instance, kFeedbackDragB);
+        appendEvent(instance, count, frame, DoublesEventKind::DragBOn,
             noteId);
         return;
     default:
@@ -830,10 +1044,38 @@ void appendMidiCommand(Plugin& instance, std::size_t& count,
     }
     double offset = 0.0;
     if (s3g::sample::doublesOffsetForMidiNote(key, offset)) {
+        pulseFeedback(instance, kFeedbackSync);
         setParam(instance, kOffsetParamId, offset, false);
         appendEvent(instance, count, frame, DoublesEventKind::SelectOffset,
             noteId, static_cast<float>(offset));
     }
+}
+
+void applyMidiCc(Plugin& instance, uint8_t controller,
+    uint8_t rawValue) noexcept
+{
+    const double normalized = static_cast<double>(rawValue) / 127.0;
+    clap_id id = CLAP_INVALID_ID;
+    switch (controller) {
+    case s3g::sample::kDoublesMidiCcCrossfader:
+        id = kCrossfaderParamId;
+        break;
+    case s3g::sample::kDoublesMidiCcDeckALevel:
+        id = kDeckALevelParamId;
+        break;
+    case s3g::sample::kDoublesMidiCcDeckBLevel:
+        id = kDeckBLevelParamId;
+        break;
+    case s3g::sample::kDoublesMidiCcLivePhase:
+        id = kLivePhaseParamId;
+        break;
+    default:
+        return;
+    }
+    const ParamDef* def = paramDef(id);
+    if (!def) return;
+    setParam(instance, id, def->minimum
+        + normalized * (def->maximum - def->minimum), false);
 }
 
 void readInputEvents(Plugin& instance, const clap_input_events_t* events,
@@ -884,6 +1126,10 @@ void readInputEvents(Plugin& instance, const clap_input_events_t* events,
                 (event->data[0u] & 0x0fu) + 1u);
             if (!receivesMidi(instance, channel)) continue;
             const uint8_t key = event->data[1u] & 0x7fu;
+            if (status == 0xb0u) {
+                applyMidiCc(instance, key, event->data[2u] & 0x7fu);
+                continue;
+            }
             const bool noteOn = status == 0x90u && event->data[2u] != 0u;
             const bool noteOff = status == 0x80u
                 || (status == 0x90u && event->data[2u] == 0u);
@@ -916,6 +1162,12 @@ void appendRequestedActions(Plugin& instance,
     appendIf(kActionPunchAOff, DoublesEventKind::PunchAOff);
     appendIf(kActionPunchBOn, DoublesEventKind::PunchBOn);
     appendIf(kActionPunchBOff, DoublesEventKind::PunchBOff);
+    appendIf(kActionToggleDeckA, DoublesEventKind::ToggleDeckA);
+    appendIf(kActionToggleDeckB, DoublesEventKind::ToggleDeckB);
+    appendIf(kActionDragAOn, DoublesEventKind::DragAOn);
+    appendIf(kActionDragAOff, DoublesEventKind::DragAOff);
+    appendIf(kActionDragBOn, DoublesEventKind::DragBOn);
+    appendIf(kActionDragBOff, DoublesEventKind::DragBOff);
 }
 
 bool pluginInit(const clap_plugin_t* plugin)
@@ -967,6 +1219,8 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     instance.engine.setPreparedAsset(instance.audioAsset);
     publishCursorReset(instance, instance.audioAsset);
     instance.actionRequests.store(0u, std::memory_order_release);
+    instance.actionFeedbackPulses.store(0u, std::memory_order_release);
+    instance.gestureHeldMask.store(0u, std::memory_order_release);
     instance.active = true;
     return true;
 }
@@ -980,6 +1234,8 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.audioAsset = nullptr;
     publishCursorReset(instance, nullptr);
     instance.actionRequests.store(0u, std::memory_order_release);
+    instance.actionFeedbackPulses.store(0u, std::memory_order_release);
+    instance.gestureHeldMask.store(0u, std::memory_order_release);
     for (auto& channel : instance.scratchChannels) channel.clear();
     instance.retainedAssets.clear();
     if (instance.controlAsset)
@@ -1004,6 +1260,8 @@ void pluginReset(const clap_plugin_t* plugin)
     auto& instance = *self(plugin);
     instance.engine.reset();
     instance.actionRequests.store(0u, std::memory_order_release);
+    instance.actionFeedbackPulses.store(0u, std::memory_order_release);
+    instance.gestureHeldMask.store(0u, std::memory_order_release);
     publishCursorReset(instance, instance.audioAsset);
 }
 
@@ -1017,11 +1275,17 @@ bool eventDiscontinuesCursor(DoublesEventKind kind) noexcept
     case DoublesEventKind::PhaseStepBackward:
     case DoublesEventKind::PhaseStepForward:
     case DoublesEventKind::SelectOffset:
+    case DoublesEventKind::ToggleDeckA:
+    case DoublesEventKind::ToggleDeckB:
         return true;
     case DoublesEventKind::PunchAOn:
     case DoublesEventKind::PunchAOff:
     case DoublesEventKind::PunchBOn:
     case DoublesEventKind::PunchBOff:
+    case DoublesEventKind::DragAOn:
+    case DoublesEventKind::DragAOff:
+    case DoublesEventKind::DragBOn:
+    case DoublesEventKind::DragBOff:
         return false;
     }
     return false;
@@ -1057,6 +1321,13 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
         instance.scratchChannels[1u].data(),
     }};
     const DoublesSettings settings = settingsSnapshot(instance);
+    if (!instance.cursorLivePhaseInitialized
+        || settings.livePhaseBeats != instance.cursorLivePhaseBeats) {
+        cursorDiscontinuity = cursorDiscontinuity
+            || instance.cursorLivePhaseInitialized;
+        instance.cursorLivePhaseInitialized = true;
+        instance.cursorLivePhaseBeats = settings.livePhaseBeats;
+    }
     instance.engine.render(settings,
         instance.blockEvents.data(), eventCount, scratch.data(), 2u,
         process->frames_count);
@@ -1202,11 +1473,14 @@ struct NoteNameDef {
     const char* name;
 };
 
-constexpr std::array<NoteNameDef, 21u> kNoteNames {{
+constexpr std::array<NoteNameDef, 25u> kNoteNames {{
     { 36u, "RESTART" }, { 37u, "STOP" }, { 38u, "SYNC B" },
     { 39u, "PHASE STEP -" }, { 40u, "PUNCH A" },
     { 41u, "PUNCH B" }, { 42u, "PHASE STEP +" },
     { 43u, "PLAY" },
+    { 44u, "DECK A PLAY/PAUSE" },
+    { 45u, "DECK B PLAY/PAUSE" },
+    { 46u, "DRAG A" }, { 47u, "DRAG B" },
     { 48u, "OFFSET -4" }, { 49u, "OFFSET -2" },
     { 50u, "OFFSET -1" }, { 51u, "OFFSET -1/2" },
     { 52u, "OFFSET -1/4" }, { 53u, "OFFSET -1/8" },
@@ -1313,7 +1587,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<int>(std::lround(value))));
     else if (id == kStartParamId || id == kEndParamId)
         std::snprintf(display, size, "%.2f %%", value * 100.0);
-    else if (id == kLoopParamId)
+    else if (id == kLoopParamId || id == kLinkDecksParamId)
         std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off");
     else if (id == kCrossfaderParamId) {
         if (std::abs(value) < 0.005)
@@ -1323,8 +1597,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     } else if (id == kCurveParamId)
         std::snprintf(display, size, "%s", curveName(
             static_cast<int>(std::lround(value))));
-    else if (id == kGainParamId)
+    else if (id == kGainParamId || id == kDeckALevelParamId
+        || id == kDeckBLevelParamId)
         std::snprintf(display, size, "%+.1f dB", value);
+    else if (id == kLivePhaseParamId)
+        std::snprintf(display, size, "%+.4f beats", value);
     else if (id == kMidiReceiveParamId) {
         char text[32] {};
         std::snprintf(display, size, "%s", midiReceiveName(
@@ -1346,7 +1623,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         }
         return false;
     }
-    if (id == kLoopParamId) {
+    if (id == kLoopParamId || id == kLinkDecksParamId) {
         if (strcasecmp(display, "On") == 0) { *value = 1.0; return true; }
         if (strcasecmp(display, "Off") == 0) { *value = 0.0; return true; }
     }
@@ -1434,7 +1711,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const auto& instance = *self(plugin);
-    SavedState saved;
+    SavedStateV2 saved;
     // The fixed-format state includes naturally aligned doubles. Clear the
     // complete record so its padding bytes remain reproducible as well.
     std::memset(&saved, 0, sizeof(saved));
@@ -1467,14 +1744,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return true;
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+template <typename Saved>
+bool restoreSavedState(Plugin& instance, const Saved& saved,
+    const clap_istream_t* stream)
 {
-    if (!stream || !stream->read) return false;
-    SavedState saved;
-    if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved))
-        || saved.magic != kStateMagic || saved.version != kStateVersion
-        || saved.parameterCount != kParamCount) return false;
-    auto& instance = *self(plugin);
     std::shared_ptr<const SampleAsset> asset;
     const std::string path(saved.path.data(), strnlen(saved.path.data(),
         saved.path.size()));
@@ -1509,14 +1782,62 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 #endif
     }
     if (!publishAsset(instance, std::move(asset), path, false)) return false;
-    for (const auto& def : kParamDefs)
-        setParam(instance, def.id, saved.parameters[paramIndex(def.id)],
-            false);
+    // Loading a legacy record must reset newly appended parameters to their
+    // modern defaults rather than inheriting values from the current instance.
+    for (const auto& def : kParamDefs) setParam(instance, def.id,
+        def.defaultValue, false);
+    const std::size_t savedParameterCount = std::min<std::size_t>(
+        saved.parameters.size(), saved.parameterCount);
+    for (std::size_t index = 0u; index < savedParameterCount; ++index)
+        setParam(instance, static_cast<clap_id>(index + kSpeedParamId),
+            saved.parameters[index], false);
     instance.embedSampleInState = saved.embedded != 0u;
+    instance.estimatedTempoBpm.store(0.0, std::memory_order_release);
+    instance.tempoConfidence.store(0.0f, std::memory_order_release);
+    instance.tempoEstimateValid.store(false, std::memory_order_release);
+    instance.tempoOctaveAmbiguous.store(false,
+        std::memory_order_release);
+    instance.tempoOrigin.store(static_cast<uint8_t>(TempoOrigin::Restored),
+        std::memory_order_release);
     instance.status = instance.controlAsset
         ? "PROJECT DOUBLES RESTORED"
         : "PROJECT RESTORED - SAMPLE OFFLINE";
     return true;
+}
+
+template <typename Saved>
+bool readSavedStateRecord(const StatePrefix& prefix,
+    const clap_istream_t* stream, Saved& saved)
+{
+    std::memset(&saved, 0, sizeof(saved));
+    saved.magic = prefix.magic;
+    saved.version = prefix.version;
+    saved.parameterCount = prefix.parameterCount;
+    auto* bytes = reinterpret_cast<uint8_t*>(&saved);
+    return s3g::clap_state::readAll(stream,
+        bytes + sizeof(StatePrefix), sizeof(saved) - sizeof(StatePrefix));
+}
+
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    StatePrefix prefix;
+    if (!s3g::clap_state::readAll(stream, &prefix, sizeof(prefix))
+        || prefix.magic != kStateMagic) return false;
+    auto& instance = *self(plugin);
+    if (prefix.version == 1u
+        && prefix.parameterCount == kLegacyParamCount) {
+        SavedStateV1 saved;
+        return readSavedStateRecord(prefix, stream, saved)
+            && restoreSavedState(instance, saved, stream);
+    }
+    if (prefix.version == kStateVersion
+        && prefix.parameterCount == kParamCount) {
+        SavedStateV2 saved;
+        return readSavedStateRecord(prefix, stream, saved)
+            && restoreSavedState(instance, saved, stream);
+    }
+    return false;
 }
 
 const clap_plugin_state_t state {
@@ -1584,19 +1905,27 @@ NSRect sourcePanelRect() { return NSMakeRect(18.0, kContentTop, 1004.0, 252.0); 
 NSRect waveformRect() { return NSMakeRect(30.0, 70.0, 980.0, 184.0); }
 NSRect loadButtonRect() { return NSMakeRect(818.0, kContentTop + 3.0, 86.0, 15.0); }
 NSRect embedButtonRect() { return NSMakeRect(912.0, kContentTop + 3.0, 98.0, 15.0); }
-NSRect decksPanelRect() { return NSMakeRect(18.0, 306.0, 494.0, 184.0); }
-NSRect phasePanelRect() { return NSMakeRect(528.0, 306.0, 494.0, 184.0); }
-NSRect transportPanelRect() { return NSMakeRect(18.0, 502.0, 1004.0, 178.0); }
-NSRect restartButtonRect() { return NSMakeRect(30.0, 532.0, 104.0, 28.0); }
-NSRect playButtonRect() { return NSMakeRect(142.0, 532.0, 86.0, 28.0); }
-NSRect stopButtonRect() { return NSMakeRect(236.0, 532.0, 86.0, 28.0); }
-NSRect stepBackButtonRect() { return NSMakeRect(718.0, 532.0, 86.0, 28.0); }
-NSRect syncButtonRect() { return NSMakeRect(812.0, 532.0, 86.0, 28.0); }
-NSRect stepForwardButtonRect() { return NSMakeRect(906.0, 532.0, 104.0, 28.0); }
-NSRect punchAButtonRect() { return NSMakeRect(30.0, 576.0, 116.0, 42.0); }
-NSRect punchBButtonRect() { return NSMakeRect(894.0, 576.0, 116.0, 42.0); }
-NSRect crossfaderTrackRect() { return NSMakeRect(172.0, 638.0, 696.0, 14.0); }
-NSRect crossfaderDynamicRect() { return NSMakeRect(143.0, 628.0, 754.0, 38.0); }
+NSRect decksPanelRect() { return NSMakeRect(18.0, 306.0, 494.0, 210.0); }
+NSRect phasePanelRect() { return NSMakeRect(528.0, 306.0, 494.0, 210.0); }
+NSRect transportPanelRect() { return NSMakeRect(18.0, 528.0, 1004.0, 178.0); }
+NSRect restartButtonRect() { return NSMakeRect(30.0, 558.0, 104.0, 28.0); }
+NSRect playButtonRect() { return NSMakeRect(142.0, 558.0, 86.0, 28.0); }
+NSRect stopButtonRect() { return NSMakeRect(236.0, 558.0, 86.0, 28.0); }
+NSRect deckAPlayButtonRect() { return NSMakeRect(338.0, 558.0, 100.0, 28.0); }
+NSRect deckBPlayButtonRect() { return NSMakeRect(446.0, 558.0, 100.0, 28.0); }
+NSRect linkButtonRect() { return NSMakeRect(554.0, 558.0, 80.0, 28.0); }
+NSRect stepBackButtonRect() { return NSMakeRect(718.0, 558.0, 86.0, 28.0); }
+NSRect syncButtonRect() { return NSMakeRect(812.0, 558.0, 86.0, 28.0); }
+NSRect stepForwardButtonRect() { return NSMakeRect(906.0, 558.0, 104.0, 28.0); }
+NSRect punchAButtonRect() { return NSMakeRect(30.0, 602.0, 110.0, 42.0); }
+NSRect dragAButtonRect() { return NSMakeRect(148.0, 602.0, 96.0, 42.0); }
+NSRect dragBButtonRect() { return NSMakeRect(796.0, 602.0, 90.0, 42.0); }
+NSRect punchBButtonRect() { return NSMakeRect(894.0, 602.0, 116.0, 42.0); }
+NSRect crossfaderTrackRect() { return NSMakeRect(172.0, 664.0, 696.0, 14.0); }
+NSRect crossfaderDynamicRect() { return NSMakeRect(143.0, 654.0, 754.0, 38.0); }
+NSRect bpmHalfButtonRect() { return NSMakeRect(568.0, 263.0, 44.0, 17.0); }
+NSRect bpmAutoButtonRect() { return NSMakeRect(616.0, 263.0, 52.0, 17.0); }
+NSRect bpmDoubleButtonRect() { return NSMakeRect(672.0, 263.0, 44.0, 17.0); }
 
 struct UiSlider {
     clap_id id;
@@ -1606,7 +1935,7 @@ struct UiSlider {
     CGFloat y;
 };
 
-const std::array<UiSlider, 7u> kUiSliders {{
+const std::array<UiSlider, 10u> kUiSliders {{
     { kSpeedParamId, "SPEED", 18.0, 494.0, 342.0 },
     { kSourceTempoParamId, "SAMPLE BPM", 18.0, 494.0, 368.0 },
     { kStartParamId, "START", 18.0, 494.0, 394.0 },
@@ -1614,6 +1943,9 @@ const std::array<UiSlider, 7u> kUiSliders {{
     { kGainParamId, "OUT", 18.0, 494.0, 446.0 },
     { kOffsetParamId, "B OFFSET", 528.0, 494.0, 342.0 },
     { kPhaseCentsParamId, "B DRIFT", 528.0, 494.0, 368.0 },
+    { kLivePhaseParamId, "B LIVE PHASE", 528.0, 494.0, 394.0 },
+    { kDeckALevelParamId, "A LEVEL", 252.0, 246.0, 612.0 },
+    { kDeckBLevelParamId, "B LEVEL", 542.0, 246.0, 612.0 },
 }};
 
 NSString* const kPhaseStepItems[] = {
@@ -1639,12 +1971,12 @@ struct UiMenu {
 };
 
 const std::array<UiMenu, 4u> kUiMenus {{
-    { kPhaseStepParamId, "PHASE STEP", 394.0,
+    { kPhaseStepParamId, "PHASE STEP", 420.0,
         kPhaseStepItems, 7u, false },
-    { kLoopParamId, "LOOP", 420.0, kLoopItems, 2u, false },
-    { kCurveParamId, "XFADE CURVE", 446.0,
+    { kLoopParamId, "LOOP", 446.0, kLoopItems, 2u, false },
+    { kCurveParamId, "XFADE CURVE", 472.0,
         kCurveItems, 3u, false },
-    { kMidiReceiveParamId, "MIDI RECEIVE", 472.0,
+    { kMidiReceiveParamId, "MIDI RECEIVE", 498.0,
         kMidiReceiveItems, 17u, true },
 }};
 
@@ -1769,10 +2101,10 @@ void drawCrossfader(Plugin& instance,
     const NSRect crossfader = crossfaderTrackRect();
     const double value = paramValue(instance, kCrossfaderParamId);
     const double normalized = sliderNormalized(kCrossfaderParamId, value);
-    drawText(@"A", NSMakeRect(151.0, 633.0, 18.0, 22.0),
+    drawText(@"A", NSMakeRect(151.0, 659.0, 18.0, 22.0),
         12.0, s3g::clap_gui::color(kDeckACyan), NSFontWeightSemibold,
         NSTextAlignmentCenter);
-    drawText(@"B", NSMakeRect(871.0, 633.0, 18.0, 22.0),
+    drawText(@"B", NSMakeRect(871.0, 659.0, 18.0, 22.0),
         12.0, s3g::clap_gui::color(kDeckBOrange), NSFontWeightSemibold,
         NSTextAlignmentCenter);
     fillRect(crossfader, style.strip);
@@ -1793,6 +2125,35 @@ double cursorClockSeconds() noexcept
 {
     return std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+NSString* tempoReadout(Plugin& instance)
+{
+    const TempoOrigin origin = static_cast<TempoOrigin>(
+        instance.tempoOrigin.load(std::memory_order_acquire));
+    const bool valid = instance.tempoEstimateValid.load(
+        std::memory_order_acquire);
+    const double estimate = instance.estimatedTempoBpm.load(
+        std::memory_order_acquire);
+    const int confidence = static_cast<int>(std::lround(
+        instance.tempoConfidence.load(std::memory_order_acquire) * 100.0f));
+    char text[96] {};
+    if (origin == TempoOrigin::Estimated && valid) {
+        std::snprintf(text, sizeof(text), "BPM %.2f AUTO / %d%%",
+            estimate, confidence);
+    } else if (origin == TempoOrigin::Suggested && valid) {
+        std::snprintf(text, sizeof(text), "BPM %.2f SUGGEST / %d%%%s",
+            estimate, confidence,
+            instance.tempoOctaveAmbiguous.load(std::memory_order_acquire)
+                ? " ?2X" : "");
+    } else if (origin == TempoOrigin::Restored) {
+        std::snprintf(text, sizeof(text), "BPM %.2f RESTORED",
+            paramValue(instance, kSourceTempoParamId));
+    } else {
+        std::snprintf(text, sizeof(text), "BPM %.2f MANUAL",
+            paramValue(instance, kSourceTempoParamId));
+    }
+    return [NSString stringWithUTF8String:text];
 }
 
 } // namespace
@@ -2142,6 +2503,10 @@ double cursorClockSeconds() noexcept
     int _menuHover;
     BOOL _punchA;
     BOOL _punchB;
+    BOOL _dragA;
+    BOOL _dragB;
+    uint32_t _feedbackPulseMask;
+    double _feedbackPulseUntil;
     NSUInteger _refreshTickCount;
     NSUInteger _fullFrameRequestCount;
     NSUInteger _drawPassCount;
@@ -2179,6 +2544,8 @@ double cursorClockSeconds() noexcept
 - (double)visualDeckAPositionValue;
 - (double)visualDeckBPositionValue;
 - (void)updateVisualCursors;
+- (void)updateActionFeedback;
+- (void)applyTempoMultiplier:(double)multiplier autoEstimate:(BOOL)automatic;
 @end
 
 @implementation S3GSampleDoublesView
@@ -2199,6 +2566,10 @@ double cursorClockSeconds() noexcept
     _menuHover = -1;
     _punchA = NO;
     _punchB = NO;
+    _dragA = NO;
+    _dragB = NO;
+    _feedbackPulseMask = 0u;
+    _feedbackPulseUntil = 0.0;
     _refreshTickCount = 0u;
     _fullFrameRequestCount = 0u;
     _drawPassCount = 0u;
@@ -2270,6 +2641,39 @@ double cursorClockSeconds() noexcept
 }
 - (double)visualDeckAPositionValue { return _visualDeckAPosition; }
 - (double)visualDeckBPositionValue { return _visualDeckBPosition; }
+
+- (void)updateActionFeedback
+{
+    const double now = cursorClockSeconds();
+    const uint32_t incoming = _instance->actionFeedbackPulses.exchange(
+        0u, std::memory_order_acq_rel);
+    if (incoming != 0u) {
+        _feedbackPulseMask |= incoming;
+        _feedbackPulseUntil = now + 0.14;
+    } else if (_feedbackPulseMask != 0u && now >= _feedbackPulseUntil) {
+        _feedbackPulseMask = 0u;
+    }
+}
+
+- (void)applyTempoMultiplier:(double)multiplier autoEstimate:(BOOL)automatic
+{
+    const bool hasEstimate = _instance->tempoEstimateValid.load(
+        std::memory_order_acquire);
+    if (automatic && !hasEstimate) return;
+    const double base = hasEstimate
+        ? _instance->estimatedTempoBpm.load(std::memory_order_acquire)
+        : paramValue(*_instance, kSourceTempoParamId);
+    const ParamDef* def = paramDef(kSourceTempoParamId);
+    if (!def || !std::isfinite(base)) return;
+    const double value = clampParam(*def, base * multiplier);
+    queueGuiParamGesture(*_instance, kSourceTempoParamId, value);
+    _instance->tempoOrigin.store(static_cast<uint8_t>(automatic
+            ? TempoOrigin::Estimated : TempoOrigin::Manual),
+        std::memory_order_release);
+    _instance->status = automatic
+        ? "DETECTED BPM APPLIED" : "BPM OCTAVE ADJUSTED";
+    [self setNeedsDisplay:YES];
+}
 
 - (void)updateVisualCursors
 {
@@ -2370,6 +2774,7 @@ double cursorClockSeconds() noexcept
             serviceSampleLoads(*view->_instance);
             ++view->_refreshTickCount;
             [view updateVisualCursors];
+            [view updateActionFeedback];
             // Non-playhead feedback follows Sample Player's 30 Hz full-view
             // refresh path. The playheads themselves are long-lived Core
             // Animation trajectories presented at the display cadence and do
@@ -2389,6 +2794,14 @@ double cursorClockSeconds() noexcept
 {
     [_timer invalidate];
     _timer = nil;
+    if (_punchA) requestAction(*_instance, kActionPunchAOff);
+    if (_punchB) requestAction(*_instance, kActionPunchBOff);
+    if (_dragA) requestAction(*_instance, kActionDragAOff);
+    if (_dragB) requestAction(*_instance, kActionDragBOff);
+    _punchA = NO;
+    _punchB = NO;
+    _dragA = NO;
+    _dragB = NO;
 }
 
 - (void)loadSample:(id)sender
@@ -2545,28 +2958,63 @@ double cursorClockSeconds() noexcept
         [self setNeedsDisplay:YES];
         return;
     }
+    if (NSPointInRect(point, bpmHalfButtonRect())) {
+        [self applyTempoMultiplier:0.5 autoEstimate:NO];
+        return;
+    }
+    if (NSPointInRect(point, bpmAutoButtonRect())) {
+        [self applyTempoMultiplier:1.0 autoEstimate:YES];
+        return;
+    }
+    if (NSPointInRect(point, bpmDoubleButtonRect())) {
+        [self applyTempoMultiplier:2.0 autoEstimate:NO];
+        return;
+    }
     if (NSPointInRect(point, restartButtonRect())) {
         requestAction(*_instance, kActionRestart);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, playButtonRect())) {
         requestAction(*_instance, kActionPlay);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, stopButtonRect())) {
         requestAction(*_instance, kActionStop);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, deckAPlayButtonRect())) {
+        requestAction(*_instance, kActionToggleDeckA);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, deckBPlayButtonRect())) {
+        requestAction(*_instance, kActionToggleDeckB);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, linkButtonRect())) {
+        const double value = paramValue(*_instance, kLinkDecksParamId)
+                >= 0.5 ? 0.0 : 1.0;
+        queueGuiParamGesture(*_instance, kLinkDecksParamId, value);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, syncButtonRect())) {
         requestAction(*_instance, kActionSync);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, stepBackButtonRect())) {
         requestAction(*_instance, kActionStepBackward);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, stepForwardButtonRect())) {
         requestAction(*_instance, kActionStepForward);
+        [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, punchAButtonRect())) {
@@ -2578,6 +3026,18 @@ double cursorClockSeconds() noexcept
     if (NSPointInRect(point, punchBButtonRect())) {
         _punchB = YES;
         requestAction(*_instance, kActionPunchBOn);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, dragAButtonRect())) {
+        _dragA = YES;
+        requestAction(*_instance, kActionDragAOn);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, dragBButtonRect())) {
+        _dragB = YES;
+        requestAction(*_instance, kActionDragBOn);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2662,6 +3122,14 @@ double cursorClockSeconds() noexcept
     if (_punchB) {
         _punchB = NO;
         requestAction(*_instance, kActionPunchBOff);
+    }
+    if (_dragA) {
+        _dragA = NO;
+        requestAction(*_instance, kActionDragAOff);
+    }
+    if (_dragB) {
+        _dragB = NO;
+        requestAction(*_instance, kActionDragBOff);
     }
     [self setNeedsDisplay:YES];
 }
@@ -2828,13 +3296,15 @@ double cursorClockSeconds() noexcept
 - (void)drawRect:(NSRect)dirtyRect
 {
     ++_drawPassCount;
+    [self updateActionFeedback];
     const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
 
     // AppKit preserves separate dirty regions even though dirtyRect is their
-    // bounding box. Recognize the small regions used by the 60 Hz playhead and
-    // live controls so a cursor frame does not rebuild every panel and measure
-    // every string in the editor. Any unrecognized invalidation falls through
-    // to the complete draw below.
+    // bounding box. Recognize the small regions used by localized live-control
+    // invalidations so a gesture event does not rebuild every panel and
+    // measure every string in the editor. The 30 Hz timer requests complete
+    // frames; any other unrecognized invalidation falls through to the same
+    // complete draw below.
     const NSRect* drawingRects = nullptr;
     NSInteger drawingRectCount = 0;
     [self getRectsBeingDrawn:&drawingRects count:&drawingRectCount];
@@ -2932,12 +3402,21 @@ double cursorClockSeconds() noexcept
     NSString* status = [NSString stringWithUTF8String:
         _instance->status.c_str()];
     drawText(status ? status : @"", NSMakeRect(30.0, 264.0,
-        610.0, 18.0), 10.0, style.dim);
+        320.0, 18.0), 10.0, style.dim);
+    drawText(tempoReadout(*_instance), NSMakeRect(354.0, 264.0,
+        206.0, 18.0), 9.5, style.text,
+        NSFontWeightRegular, NSTextAlignmentRight);
+    const TempoOrigin tempoOrigin = static_cast<TempoOrigin>(
+        _instance->tempoOrigin.load(std::memory_order_acquire));
+    drawButton(bpmHalfButtonRect(), @"1/2", labelAttrs, style);
+    drawButton(bpmAutoButtonRect(), @"AUTO", labelAttrs, style,
+        tempoOrigin == TempoOrigin::Estimated, style.accent);
+    drawButton(bpmDoubleButtonRect(), @"x2", labelAttrs, style);
     if (_instance->controlAsset) {
         NSString* file = [NSString stringWithUTF8String:
             _instance->samplePath.c_str()];
-        drawText([file lastPathComponent], NSMakeRect(650.0, 264.0,
-            360.0, 18.0), 10.0, style.dim,
+        drawText([file lastPathComponent], NSMakeRect(728.0, 264.0,
+            282.0, 18.0), 10.0, style.dim,
             NSFontWeightRegular, NSTextAlignmentRight);
     }
 
@@ -2972,28 +3451,59 @@ double cursorClockSeconds() noexcept
             labelAttrs, valueAttrs, style);
     }
 
+    const uint32_t pulse = _feedbackPulseMask;
+    const uint32_t held = _instance->gestureHeldMask.load(
+        std::memory_order_acquire);
+    const bool playing = _instance->playing.load(std::memory_order_relaxed);
     drawButton(restartButtonRect(), @"RESTART / 36",
-        labelAttrs, style);
-    drawButton(playButtonRect(), @"PLAY / 43", labelAttrs, style);
-    drawButton(stopButtonRect(), @"STOP / 37", labelAttrs, style);
-    drawButton(stepBackButtonRect(), @"STEP − / 39", labelAttrs, style);
-    drawButton(syncButtonRect(), @"SYNC / 38", labelAttrs, style);
-    drawButton(stepForwardButtonRect(), @"STEP + / 42", labelAttrs, style);
+        labelAttrs, style, (pulse & kFeedbackRestart) != 0u, style.accent);
+    drawButton(playButtonRect(), @"PLAY / 43", labelAttrs, style,
+        playing || (pulse & kFeedbackPlay) != 0u, style.accent);
+    drawButton(stopButtonRect(), @"STOP / 37", labelAttrs, style,
+        !playing || (pulse & kFeedbackStop) != 0u, style.accent);
+    drawButton(deckAPlayButtonRect(), @"A P/P / 44", labelAttrs, style,
+        (_visualActiveMask & 1u) != 0u
+            || (pulse & kFeedbackToggleDeckA) != 0u,
+        s3g::clap_gui::color(kDeckACyan));
+    drawButton(deckBPlayButtonRect(), @"B P/P / 45", labelAttrs, style,
+        (_visualActiveMask & 2u) != 0u
+            || (pulse & kFeedbackToggleDeckB) != 0u,
+        s3g::clap_gui::color(kDeckBOrange));
+    drawButton(linkButtonRect(), @"LINK", labelAttrs, style,
+        paramValue(*_instance, kLinkDecksParamId) >= 0.5, style.accent);
+    drawButton(stepBackButtonRect(), @"STEP − / 39", labelAttrs, style,
+        (pulse & kFeedbackStepBackward) != 0u, style.accent);
+    drawButton(syncButtonRect(), @"SYNC / 38", labelAttrs, style,
+        (pulse & kFeedbackSync) != 0u, style.accent);
+    drawButton(stepForwardButtonRect(), @"STEP + / 42", labelAttrs, style,
+        (pulse & kFeedbackStepForward) != 0u, style.accent);
     drawButton(punchAButtonRect(), @"PUNCH A / 40", labelAttrs, style,
-        _punchA, s3g::clap_gui::color(kDeckACyan));
+        _punchA || (held & kFeedbackPunchA) != 0u
+            || (pulse & kFeedbackPunchA) != 0u,
+        s3g::clap_gui::color(kDeckACyan));
+    drawButton(dragAButtonRect(), @"DRAG A / 46", labelAttrs, style,
+        _dragA || (held & kFeedbackDragA) != 0u
+            || (pulse & kFeedbackDragA) != 0u,
+        s3g::clap_gui::color(kDeckACyan));
+    drawButton(dragBButtonRect(), @"DRAG B / 47", labelAttrs, style,
+        _dragB || (held & kFeedbackDragB) != 0u
+            || (pulse & kFeedbackDragB) != 0u,
+        s3g::clap_gui::color(kDeckBOrange));
     drawButton(punchBButtonRect(), @"PUNCH B / 41", labelAttrs, style,
-        _punchB, s3g::clap_gui::color(kDeckBOrange));
+        _punchB || (held & kFeedbackPunchB) != 0u
+            || (pulse & kFeedbackPunchB) != 0u,
+        s3g::clap_gui::color(kDeckBOrange));
 
     drawCrossfader(*_instance, style);
 
-    const NSRect trackerHelp = NSMakeRect(18.0, 692.0, 1004.0, 50.0);
+    const NSRect trackerHelp = NSMakeRect(18.0, 718.0, 1004.0, 50.0);
     fillRect(trackerHelp, style.cellBg);
     strokeRect(trackerHelp, style.grid);
-    drawText(@"TRACKER NOTES  36 RESTART  37 STOP  38 SYNC  39/42 PHASE STEP  40/41 GATED PUNCH",
-        NSMakeRect(30.0, 702.0, 980.0, 18.0), 10.0,
+    drawText(@"TRACKER NOTES  36 RESTART  37 STOP  38 SYNC  39/42 STEP  40/41 PUNCH  44/45 DECK P/P  46/47 DRAG",
+        NSMakeRect(30.0, 728.0, 980.0, 18.0), 9.5,
         style.text, NSFontWeightRegular);
-    drawText(@"48–60 SELECT −4 … +4 BEAT OFFSET + IMMEDIATE SYNC   •   VOL SETS PUNCH DEPTH   •   RR / FL / ST / MT SHAPE CUTS",
-        NSMakeRect(30.0, 721.0, 980.0, 17.0), 9.5,
+    drawText(@"CC16 XFADE  CC17 A LEVEL  CC18 B LEVEL  CC19 LIVE PHASE   •   48–60 OFFSET+SYNC   •   VOL=PUNCH DEPTH",
+        NSMakeRect(30.0, 747.0, 980.0, 17.0), 9.5,
         style.dim);
 
     if (_openMenu != CLAP_INVALID_ID) {
