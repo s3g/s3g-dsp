@@ -1072,6 +1072,7 @@ fi
 
 section "Sample Family"
 sample_player_source=plugins/clap_sample_player/s3g_sample_player_clap.cpp
+sample_doubles_source=plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp
 for contract in \
   drawProcessorTitleBand \
   handleProcessorTitleClick \
@@ -1090,6 +1091,12 @@ if ! rg -q 'kStandardMetrics\.contentTop' "$sample_player_source" \
     || ! rg -Fq '"OUT"' "$sample_player_source"; then
   warn "layout" "$sample_player_source" \
     "Sample Player uses the shared content top and begins its OUTPUT controls with OUT."
+fi
+if ! rg -Fq '{ kGainParamId, "OUT", 18.0, 494.0, 342.0 }' \
+    "$sample_doubles_source" \
+    || ! rg -Fq '@"OUTPUT / DECKS / SOURCE"' "$sample_doubles_source"; then
+  warn "layout" "$sample_doubles_source" \
+    "Sample Doubles must begin its left control column with OUT under an OUTPUT-first panel header."
 fi
 if rg -q 'NSSlider|NSButton' "$sample_player_source"; then
   warn "control" "$sample_player_source" \

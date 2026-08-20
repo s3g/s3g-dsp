@@ -3212,7 +3212,7 @@ int main(int argc, char** argv)
                             && analyzedBpm > 115.0 && analyzedBpm < 125.0;
                     }
                     if (ok) {
-                        const NSPoint manualBpm = NSMakePoint(276.0, 369.0);
+                        const NSPoint manualBpm = NSMakePoint(276.0, 395.0);
                         [document mouseDown:mouseEvent(
                             NSEventTypeLeftMouseDown, manualBpm)];
                         [document mouseUp:mouseEvent(
@@ -3522,11 +3522,11 @@ int main(int argc, char** argv)
                     CGFloat y;
                 };
                 const std::array<SliderDrag, 11u> sliderDrags {{
-                    { 126.0, 276.0, 343.0 }, // Speed
-                    { 126.0, 276.0, 369.0 }, // Sample BPM
-                    { 126.0, 180.0, 395.0 }, // Start (remain below End)
-                    { 220.0, 276.0, 421.0 }, // End (remain above Start)
-                    { 126.0, 276.0, 447.0 }, // Out
+                    { 126.0, 276.0, 343.0 }, // Out
+                    { 126.0, 276.0, 369.0 }, // Speed
+                    { 126.0, 276.0, 395.0 }, // Sample BPM
+                    { 126.0, 180.0, 421.0 }, // Start (remain below End)
+                    { 220.0, 276.0, 447.0 }, // End (remain above Start)
                     { 126.0, 276.0, 473.0 }, // Cue Preroll
                     { 636.0, 786.0, 343.0 }, // B Offset
                     { 636.0, 786.0, 369.0 }, // B Drift

@@ -2216,11 +2216,11 @@ struct UiSlider {
 };
 
 const std::array<UiSlider, 11u> kUiSliders {{
-    { kSpeedParamId, "SPEED", 18.0, 494.0, 342.0 },
-    { kSourceTempoParamId, "SAMPLE BPM", 18.0, 494.0, 368.0 },
-    { kStartParamId, "START", 18.0, 494.0, 394.0 },
-    { kEndParamId, "END", 18.0, 494.0, 420.0 },
-    { kGainParamId, "OUT", 18.0, 494.0, 446.0 },
+    { kGainParamId, "OUT", 18.0, 494.0, 342.0 },
+    { kSpeedParamId, "SPEED", 18.0, 494.0, 368.0 },
+    { kSourceTempoParamId, "SAMPLE BPM", 18.0, 494.0, 394.0 },
+    { kStartParamId, "START", 18.0, 494.0, 420.0 },
+    { kEndParamId, "END", 18.0, 494.0, 446.0 },
     { kCuePrerollParamId, "CUE PREROLL", 18.0, 494.0, 472.0 },
     { kOffsetParamId, "B OFFSET", 528.0, 494.0, 342.0 },
     { kPhaseCentsParamId, "B DRIFT", 528.0, 494.0, 368.0 },
@@ -3828,7 +3828,7 @@ NSString* tempoReadout(Plugin& instance)
     }
 
     const std::array<std::pair<NSRect, NSString*>, 3u> panels {{
-        { decksPanelRect(), @"DECKS / SOURCE TIMING" },
+        { decksPanelRect(), @"OUTPUT / DECKS / SOURCE" },
         { phasePanelRect(), @"DECK B PHASE / CUT / MIDI" },
         { transportPanelRect(), @"TRANSPORT / CROSSFADER" },
     }};
