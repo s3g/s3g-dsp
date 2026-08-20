@@ -19,8 +19,8 @@
   <rect class="box" x="570" y="52" width="300" height="72"/>
   <text class="h" x="592" y="81">GENERATED SPEECH</text>
   <text class="s" x="592" y="103">typed text → phoneme gestures</text>
-  <path class="audio" d="M240 124 V154 H430" marker-end="url(#arrow-audio)"/>
-  <path class="audio" d="M720 124 V154 H530" marker-end="url(#arrow-audio)"/>
+  <path class="audio" d="M240 124 L410 156" marker-end="url(#arrow-audio)"/>
+  <path class="audio" d="M720 124 L550 156" marker-end="url(#arrow-audio)"/>
 
   <rect class="analysis" x="330" y="156" width="300" height="78"/>
   <text class="h" x="352" y="187">MODULATOR SELECTOR</text>
@@ -50,7 +50,7 @@
   <rect class="box" x="54" y="614" width="220" height="68"/>
   <text class="h" x="74" y="642">TRACKED VOICE PITCH</text>
   <text class="s" x="74" y="664">scale · root · hold</text>
-  <path class="pitch" d="M274 554 H294 V628 H316" marker-end="url(#arrow-pitch)"/>
+  <path class="pitch" d="M274 554 L318 628" marker-end="url(#arrow-pitch)"/>
   <path class="pitch" d="M274 648 H316" marker-end="url(#arrow-pitch)"/>
   <rect class="carrier" x="318" y="606" width="244" height="84"/>
   <text class="h" x="340" y="638">PITCH SOURCE</text>
@@ -60,16 +60,16 @@
   <text class="h" x="624" y="638">PROCEDURAL CARRIER</text>
   <text class="s" x="624" y="662">oscillator + noise excitation</text>
 
-  <path class="control" d="M480 594 V722 H520" marker-end="url(#arrow-control)"/>
-  <path class="pitch" d="M754 690 V722 H654" marker-end="url(#arrow-pitch)"/>
+  <path class="control" d="M580 594 V704 L520 724" marker-end="url(#arrow-control)"/>
+  <path class="pitch" d="M754 690 L600 724" marker-end="url(#arrow-pitch)"/>
   <rect class="matrix" x="330" y="724" width="300" height="92"/>
   <text class="h" x="352" y="756">SYNTHESIS FILTERS + VCAs</text>
   <text class="s" x="352" y="779">carrier audio shaped by mapped</text>
   <text class="s" x="352" y="797">analysis envelopes</text>
 
   <path class="audio" d="M480 816 V854" marker-end="url(#arrow-audio)"/>
-  <path class="direct" d="M630 195 H846 V884 H632" marker-end="url(#arrow-direct)"/>
-  <text class="tag" x="692" y="214">DIRECT ARTICULATION RAIL</text>
+  <path class="direct" d="M630 195 L930 275 V805 L630 884" marker-end="url(#arrow-direct)"/>
+  <text class="tag" x="716" y="244">DIRECT ARTICULATION RAIL</text>
   <rect class="box" x="330" y="856" width="300" height="78"/>
   <text class="h" x="352" y="887">BANK + ART LEVEL MIX</text>
   <text class="s" x="352" y="910">synthesis bank + selected modulator</text>
