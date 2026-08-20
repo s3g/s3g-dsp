@@ -49,9 +49,9 @@ using s3g::sample::SampleAsset;
 using s3g::sample::SampleDoublesEngine;
 
 constexpr uint32_t kStateMagic = 0x44443353u; // "S3DD"
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kGuiWidth = 1040u;
-constexpr uint32_t kGuiHeight = 786u;
+constexpr uint32_t kGuiHeight = 838u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes
@@ -74,7 +74,9 @@ constexpr clap_id kDeckALevelParamId = 13u;
 constexpr clap_id kDeckBLevelParamId = 14u;
 constexpr clap_id kLinkDecksParamId = 15u;
 constexpr clap_id kLivePhaseParamId = 16u;
-constexpr std::size_t kParamCount = 16u;
+constexpr clap_id kCuePrerollParamId = 17u;
+constexpr std::size_t kParamCount = 17u;
+constexpr std::size_t kVersionTwoParamCount = 16u;
 constexpr std::size_t kLegacyParamCount = 12u;
 
 constexpr uint32_t kActionRestart = 1u << 0u;
@@ -93,6 +95,12 @@ constexpr uint32_t kActionDragAOn = 1u << 12u;
 constexpr uint32_t kActionDragAOff = 1u << 13u;
 constexpr uint32_t kActionDragBOn = 1u << 14u;
 constexpr uint32_t kActionDragBOff = 1u << 15u;
+constexpr uint32_t kActionSetCueA = 1u << 16u;
+constexpr uint32_t kActionTriggerCueA = 1u << 17u;
+constexpr uint32_t kActionSetCueB = 1u << 18u;
+constexpr uint32_t kActionTriggerCueB = 1u << 19u;
+constexpr uint32_t kActionPlaceCueA = 1u << 20u;
+constexpr uint32_t kActionPlaceCueB = 1u << 21u;
 
 constexpr uint32_t kFeedbackRestart = 1u << 0u;
 constexpr uint32_t kFeedbackStop = 1u << 1u;
@@ -106,6 +114,10 @@ constexpr uint32_t kFeedbackToggleDeckA = 1u << 8u;
 constexpr uint32_t kFeedbackToggleDeckB = 1u << 9u;
 constexpr uint32_t kFeedbackDragA = 1u << 10u;
 constexpr uint32_t kFeedbackDragB = 1u << 11u;
+constexpr uint32_t kFeedbackSetCueA = 1u << 12u;
+constexpr uint32_t kFeedbackTriggerCueA = 1u << 13u;
+constexpr uint32_t kFeedbackSetCueB = 1u << 14u;
+constexpr uint32_t kFeedbackTriggerCueB = 1u << 15u;
 
 enum class TempoOrigin : uint8_t {
     Fallback = 0u,
@@ -153,6 +165,8 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         1.0, true },
     { kLivePhaseParamId, "Deck B Live Phase", "Deck B", -1.0, 1.0,
         0.0, false },
+    { kCuePrerollParamId, "Cue Preroll", "Sample", 0.0, 1000.0,
+        150.0, false },
 }};
 
 constexpr std::array<double, 7u> kPhaseStepBeats {{
@@ -175,6 +189,38 @@ struct SavedStateV1 {
 
 struct SavedStateV2 {
     uint32_t magic = kStateMagic;
+    uint32_t version = 2u;
+    uint32_t parameterCount = static_cast<uint32_t>(kVersionTwoParamCount);
+    std::array<double, kVersionTwoParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct SavedStateV3 {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 3u;
+    uint32_t parameterCount = static_cast<uint32_t>(kVersionTwoParamCount);
+    std::array<double, kVersionTwoParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+    double cueA = -1.0;
+    double cueB = -1.0;
+    uint8_t cueValidMask = 0u;
+    std::array<uint8_t, 7u> reservedCue {};
+};
+
+struct SavedStateV4 {
+    uint32_t magic = kStateMagic;
     uint32_t version = kStateVersion;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
     std::array<double, kParamCount> parameters {};
@@ -185,6 +231,10 @@ struct SavedStateV2 {
     uint8_t reserved1 = 0u;
     uint32_t frameCount = 0u;
     double sampleRate = 0.0;
+    double cueA = -1.0;
+    double cueB = -1.0;
+    uint8_t cueValidMask = 0u;
+    std::array<uint8_t, 7u> reservedCue {};
 };
 
 struct StatePrefix {
@@ -199,14 +249,18 @@ static_assert(sizeof(StatePrefix) == 12u);
 struct LoadRequest {
     uint64_t generation = 0u;
     uint64_t tempoRevision = 0u;
+    bool tempoOnly = false;
     std::string path;
+    std::shared_ptr<const SampleAsset> asset;
 };
 
 struct LoadResult {
     uint64_t generation = 0u;
     uint64_t tempoRevision = 0u;
+    bool tempoOnly = false;
     std::string path;
     std::shared_ptr<const SampleAsset> asset;
+    std::shared_ptr<const SampleAsset> analyzedAsset;
     s3g::sample::TempoEstimate tempo;
     std::string error;
 };
@@ -264,6 +318,13 @@ struct Plugin {
     std::atomic<uint8_t> cursorActiveMask { 0u };
     std::atomic<bool> cursorLoop { false };
     std::atomic<uint64_t> cursorDiscontinuitySerial { 0u };
+    std::atomic<float> cueA { -1.0f };
+    std::atomic<float> cueB { -1.0f };
+    std::atomic<uint8_t> cueValidMask { 0u };
+    std::atomic<uint64_t> cueRestoreRevision { 0u };
+    std::atomic<bool> cueStateDirtyPending { false };
+    uint64_t audioCueRestoreRevision =
+        std::numeric_limits<uint64_t>::max();
     // Audio-thread-only geometry history. A bounds or loop-mode change can
     // constrain a head even without an explicit transport event, and must
     // therefore reseed the visual clock from the coherent snapshot.
@@ -274,6 +335,8 @@ struct Plugin {
     bool cursorLivePhaseInitialized = false;
     double cursorLivePhaseBeats = 0.0;
     std::atomic<uint32_t> actionRequests { 0u };
+    std::atomic<float> requestedCueA { 0.0f };
+    std::atomic<float> requestedCueB { 0.0f };
     std::atomic<uint32_t> actionFeedbackPulses { 0u };
     std::atomic<uint32_t> gestureHeldMask { 0u };
     std::atomic<uint64_t> sourceTempoRevision { 0u };
@@ -293,6 +356,7 @@ struct Plugin {
     std::deque<LoadResult> loadResults;
     std::thread loaderThread;
     uint64_t loadGeneration = 0u;
+    uint64_t tempoAnalysisGeneration = 0u;
     bool loaderStopping = false;
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -313,7 +377,7 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kSpeedParamId && id <= kLivePhaseParamId
+    return id >= kSpeedParamId && id <= kCuePrerollParamId
         ? static_cast<std::size_t>(id - kSpeedParamId) : kParamCount;
 }
 
@@ -336,6 +400,14 @@ void markStateDirty(Plugin& instance)
     if (instance.host && instance.hostState
         && instance.hostState->mark_dirty)
         instance.hostState->mark_dirty(instance.host);
+}
+
+void requestCueStateDirtyOnMainThread(Plugin& instance) noexcept
+{
+    if (instance.cueStateDirtyPending.exchange(true,
+            std::memory_order_acq_rel)) return;
+    if (instance.host && instance.host->request_callback)
+        instance.host->request_callback(instance.host);
 }
 
 void setParam(Plugin& instance, clap_id id, double value,
@@ -391,6 +463,8 @@ DoublesSettings settingsSnapshot(const Plugin& instance) noexcept
     settings.offsetBeats = paramValue(instance, kOffsetParamId);
     settings.phaseStepBeats = phaseStepBeats(instance);
     settings.livePhaseBeats = paramValue(instance, kLivePhaseParamId);
+    settings.cuePrerollMilliseconds = paramValue(
+        instance, kCuePrerollParamId);
     settings.start = paramValue(instance, kStartParamId);
     settings.end = paramValue(instance, kEndParamId);
     settings.loop = paramValue(instance, kLoopParamId) >= 0.5;
@@ -481,6 +555,9 @@ void publishCursorState(Plugin& instance, const SampleAsset* asset,
     uint8_t activeMask = 0u;
     if (instance.engine.deckAActive()) activeMask |= 1u;
     if (instance.engine.deckBActive()) activeMask |= 2u;
+    uint8_t cueMask = 0u;
+    if (instance.engine.deckACueValid()) cueMask |= 1u;
+    if (instance.engine.deckBCueValid()) cueMask |= 2u;
 
     beginCursorPublication(instance);
     instance.cursorAsset.store(asset, std::memory_order_relaxed);
@@ -495,6 +572,11 @@ void publishCursorState(Plugin& instance, const SampleAsset* asset,
     instance.cursorRateA.store(rateA, std::memory_order_relaxed);
     instance.cursorRateB.store(rateB, std::memory_order_relaxed);
     instance.cursorActiveMask.store(activeMask, std::memory_order_relaxed);
+    instance.cueA.store(instance.engine.deckACueNormalized(),
+        std::memory_order_relaxed);
+    instance.cueB.store(instance.engine.deckBCueNormalized(),
+        std::memory_order_relaxed);
+    instance.cueValidMask.store(cueMask, std::memory_order_release);
     instance.cursorLoop.store(settings.loop, std::memory_order_relaxed);
     instance.playing.store(instance.engine.playing(),
         std::memory_order_relaxed);
@@ -572,6 +654,12 @@ uint32_t feedbackForAction(uint32_t action) noexcept
     case kActionStepForward: return kFeedbackStepForward;
     case kActionToggleDeckA: return kFeedbackToggleDeckA;
     case kActionToggleDeckB: return kFeedbackToggleDeckB;
+    case kActionSetCueA: return kFeedbackSetCueA;
+    case kActionTriggerCueA: return kFeedbackTriggerCueA;
+    case kActionSetCueB: return kFeedbackSetCueB;
+    case kActionTriggerCueB: return kFeedbackTriggerCueB;
+    case kActionPlaceCueA: return kFeedbackSetCueA;
+    case kActionPlaceCueB: return kFeedbackSetCueB;
     default: return 0u;
     }
 }
@@ -590,6 +678,17 @@ void requestAction(Plugin& instance, uint32_t action) noexcept
     requestProcess(instance);
 }
 
+void queueCueRestore(Plugin& instance, float cueA, float cueB,
+    uint8_t validMask) noexcept
+{
+    instance.cueA.store(cueA, std::memory_order_relaxed);
+    instance.cueB.store(cueB, std::memory_order_relaxed);
+    instance.cueValidMask.store(validMask & 3u,
+        std::memory_order_release);
+    instance.cueRestoreRevision.fetch_add(1u,
+        std::memory_order_acq_rel);
+}
+
 bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
     std::string path, bool dirty = true)
 {
@@ -597,6 +696,7 @@ bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
     if (asset) instance.retainedAssets.push_back(asset);
     instance.controlAsset = std::move(asset);
     instance.samplePath = std::move(path);
+    queueCueRestore(instance, -1.0f, -1.0f, 0u);
     instance.publishedAsset.store(instance.controlAsset.get(),
         std::memory_order_release);
     requestProcess(instance);
@@ -667,6 +767,19 @@ bool decodeSampleFile(const std::string& path,
     }
 }
 
+void retainTempoEstimate(Plugin& instance,
+    const s3g::sample::TempoEstimate& tempo) noexcept
+{
+    instance.estimatedTempoBpm.store(tempo.valid ? tempo.bpm : 0.0,
+        std::memory_order_release);
+    instance.tempoConfidence.store(tempo.confidence,
+        std::memory_order_release);
+    instance.tempoEstimateValid.store(tempo.valid,
+        std::memory_order_release);
+    instance.tempoOctaveAmbiguous.store(tempo.octaveAmbiguous,
+        std::memory_order_release);
+}
+
 bool installDecodedSample(Plugin& instance, const std::string& path,
     std::shared_ptr<const SampleAsset> asset,
     const s3g::sample::TempoEstimate* tempo = nullptr,
@@ -680,14 +793,7 @@ bool installDecodedSample(Plugin& instance, const std::string& path,
     applySafeDefaultBounds(instance, *asset);
     bool tempoApplied = false;
     if (tempo) {
-        instance.estimatedTempoBpm.store(tempo->valid ? tempo->bpm : 0.0,
-            std::memory_order_release);
-        instance.tempoConfidence.store(tempo->confidence,
-            std::memory_order_release);
-        instance.tempoEstimateValid.store(tempo->valid,
-            std::memory_order_release);
-        instance.tempoOctaveAmbiguous.store(tempo->octaveAmbiguous,
-            std::memory_order_release);
+        retainTempoEstimate(instance, *tempo);
         const bool revisionMatches = instance.sourceTempoRevision.load(
             std::memory_order_acquire) == requestedTempoRevision;
         tempoApplied = tempo->valid && tempo->confidence >= 0.62f
@@ -744,16 +850,26 @@ bool startSampleLoader(Plugin& instance)
                             || !instance.loadRequests.empty();
                     });
                     if (instance.loaderStopping) return;
-                    request = std::move(instance.loadRequests.back());
-                    instance.loadRequests.clear();
+                    request = std::move(instance.loadRequests.front());
+                    instance.loadRequests.pop_front();
                 }
                 LoadResult result;
                 result.generation = request.generation;
                 result.tempoRevision = request.tempoRevision;
+                result.tempoOnly = request.tempoOnly;
                 result.path = std::move(request.path);
                 try {
-                    decodeSampleFile(result.path, result.asset, result.error);
-                    if (result.asset)
+                    if (request.tempoOnly) {
+                        result.analyzedAsset = request.asset;
+                        if (result.analyzedAsset)
+                            result.tempo = s3g::sample::estimateSampleTempo(
+                                *result.analyzedAsset);
+                        else result.error = "NO SAMPLE TO ANALYZE";
+                    } else {
+                        decodeSampleFile(result.path, result.asset,
+                            result.error);
+                    }
+                    if (!request.tempoOnly && result.asset)
                         result.tempo = s3g::sample::estimateSampleTempo(
                             *result.asset);
                 } catch (...) {
@@ -791,14 +907,51 @@ void queueSampleLoad(Plugin& instance, std::string path)
 {
     if (path.empty()) return;
     const uint64_t generation = ++instance.loadGeneration;
+    // A tempo-only request owns a retained pointer to the asset that was
+    // current when AUTO was pressed. Invalidate even an in-flight request so
+    // its result can never overwrite the estimate for a subsequently loaded
+    // file.
+    ++instance.tempoAnalysisGeneration;
+    retainTempoEstimate(instance, {});
     const uint64_t tempoRevision = instance.sourceTempoRevision.load(
         std::memory_order_acquire);
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
-        instance.loadRequests.push_back({ generation, tempoRevision,
-            std::move(path) });
+        // Only the newest file request can become the control asset. Pending
+        // tempo-only work for the previous asset is stale too, so do not let
+        // it delay the replacement decode.
+        instance.loadRequests.clear();
+        LoadRequest request;
+        request.generation = generation;
+        request.tempoRevision = tempoRevision;
+        request.path = std::move(path);
+        instance.loadRequests.push_back(std::move(request));
     }
     instance.status = "LOADING SAMPLE";
+    instance.loaderCondition.notify_one();
+}
+
+void queueTempoAnalysis(Plugin& instance)
+{
+    if (!instance.controlAsset) {
+        instance.status = "LOAD A SAMPLE BEFORE BPM AUTO";
+        return;
+    }
+    LoadRequest request;
+    request.generation = ++instance.tempoAnalysisGeneration;
+    request.tempoRevision = instance.sourceTempoRevision.load(
+        std::memory_order_acquire);
+    request.tempoOnly = true;
+    request.asset = instance.controlAsset;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.erase(std::remove_if(
+            instance.loadRequests.begin(), instance.loadRequests.end(),
+            [](const LoadRequest& pending) { return pending.tempoOnly; }),
+            instance.loadRequests.end());
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.status = "ANALYZING SAMPLE BPM";
     instance.loaderCondition.notify_one();
 }
 
@@ -810,6 +963,40 @@ void serviceSampleLoads(Plugin& instance)
         completed.swap(instance.loadResults);
     }
     for (auto& result : completed) {
+        if (result.tempoOnly) {
+            if (result.generation != instance.tempoAnalysisGeneration)
+                continue;
+            if (!result.analyzedAsset
+                || result.analyzedAsset.get()
+                    != instance.controlAsset.get()) continue;
+            retainTempoEstimate(instance, result.tempo);
+            const bool revisionMatches =
+                instance.sourceTempoRevision.load(
+                    std::memory_order_acquire) == result.tempoRevision;
+            if (result.tempo.valid && revisionMatches) {
+                setParam(instance, kSourceTempoParamId,
+                    result.tempo.bpm, true, true);
+                instance.tempoOrigin.store(static_cast<uint8_t>(
+                    TempoOrigin::Estimated), std::memory_order_release);
+                char status[96] {};
+                std::snprintf(status, sizeof(status),
+                    "BPM %.2f RE-ANALYZED / %d%%%s", result.tempo.bpm,
+                    static_cast<int>(std::lround(
+                        result.tempo.confidence * 100.0f)),
+                    result.tempo.octaveAmbiguous ? " / HALF-DOUBLE?" : "");
+                instance.status = status;
+                if (instance.host && instance.hostParams
+                    && instance.hostParams->rescan) {
+                    instance.hostParams->rescan(instance.host,
+                        CLAP_PARAM_RESCAN_VALUES);
+                }
+            } else if (!revisionMatches) {
+                instance.status = "BPM RESCAN FINISHED / MANUAL EDIT KEPT";
+            } else {
+                instance.status = "BPM COULD NOT BE DETECTED";
+            }
+            continue;
+        }
         if (result.generation != instance.loadGeneration) continue;
         if (!result.asset) {
             instance.status = result.error.empty()
@@ -1032,11 +1219,31 @@ void appendMidiCommand(Plugin& instance, std::size_t& count,
     case s3g::sample::kDoublesMidiDragA:
         pulseFeedback(instance, kFeedbackDragA);
         appendEvent(instance, count, frame, DoublesEventKind::DragAOn,
-            noteId);
+            noteId, velocity);
         return;
     case s3g::sample::kDoublesMidiDragB:
         pulseFeedback(instance, kFeedbackDragB);
         appendEvent(instance, count, frame, DoublesEventKind::DragBOn,
+            noteId, velocity);
+        return;
+    case s3g::sample::kDoublesMidiSetCueA:
+        pulseFeedback(instance, kFeedbackSetCueA);
+        appendEvent(instance, count, frame, DoublesEventKind::SetCueA,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiTriggerCueA:
+        pulseFeedback(instance, kFeedbackTriggerCueA);
+        appendEvent(instance, count, frame, DoublesEventKind::TriggerCueA,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiSetCueB:
+        pulseFeedback(instance, kFeedbackSetCueB);
+        appendEvent(instance, count, frame, DoublesEventKind::SetCueB,
+            noteId);
+        return;
+    case s3g::sample::kDoublesMidiTriggerCueB:
+        pulseFeedback(instance, kFeedbackTriggerCueB);
+        appendEvent(instance, count, frame, DoublesEventKind::TriggerCueB,
             noteId);
         return;
     default:
@@ -1168,6 +1375,14 @@ void appendRequestedActions(Plugin& instance,
     appendIf(kActionDragAOff, DoublesEventKind::DragAOff);
     appendIf(kActionDragBOn, DoublesEventKind::DragBOn);
     appendIf(kActionDragBOff, DoublesEventKind::DragBOff);
+    appendIf(kActionSetCueA, DoublesEventKind::SetCueA);
+    appendIf(kActionTriggerCueA, DoublesEventKind::TriggerCueA);
+    appendIf(kActionSetCueB, DoublesEventKind::SetCueB);
+    appendIf(kActionTriggerCueB, DoublesEventKind::TriggerCueB);
+    appendIf(kActionPlaceCueA, DoublesEventKind::PlaceCueA,
+        instance.requestedCueA.load(std::memory_order_acquire));
+    appendIf(kActionPlaceCueB, DoublesEventKind::PlaceCueB,
+        instance.requestedCueB.load(std::memory_order_acquire));
 }
 
 bool pluginInit(const clap_plugin_t* plugin)
@@ -1217,6 +1432,8 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     instance.audioAsset = instance.publishedAsset.load(
         std::memory_order_acquire);
     instance.engine.setPreparedAsset(instance.audioAsset);
+    instance.audioCueRestoreRevision =
+        std::numeric_limits<uint64_t>::max();
     publishCursorReset(instance, instance.audioAsset);
     instance.actionRequests.store(0u, std::memory_order_release);
     instance.actionFeedbackPulses.store(0u, std::memory_order_release);
@@ -1231,6 +1448,8 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.processing.store(false, std::memory_order_release);
     instance.active = false;
     instance.engine.unprepare();
+    instance.audioCueRestoreRevision =
+        std::numeric_limits<uint64_t>::max();
     instance.audioAsset = nullptr;
     publishCursorReset(instance, nullptr);
     instance.actionRequests.store(0u, std::memory_order_release);
@@ -1259,6 +1478,8 @@ void pluginReset(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
     instance.engine.reset();
+    instance.audioCueRestoreRevision =
+        std::numeric_limits<uint64_t>::max();
     instance.actionRequests.store(0u, std::memory_order_release);
     instance.actionFeedbackPulses.store(0u, std::memory_order_release);
     instance.gestureHeldMask.store(0u, std::memory_order_release);
@@ -1277,6 +1498,8 @@ bool eventDiscontinuesCursor(DoublesEventKind kind) noexcept
     case DoublesEventKind::SelectOffset:
     case DoublesEventKind::ToggleDeckA:
     case DoublesEventKind::ToggleDeckB:
+    case DoublesEventKind::TriggerCueA:
+    case DoublesEventKind::TriggerCueB:
         return true;
     case DoublesEventKind::PunchAOn:
     case DoublesEventKind::PunchAOff:
@@ -1286,6 +1509,10 @@ bool eventDiscontinuesCursor(DoublesEventKind kind) noexcept
     case DoublesEventKind::DragAOff:
     case DoublesEventKind::DragBOn:
     case DoublesEventKind::DragBOff:
+    case DoublesEventKind::SetCueA:
+    case DoublesEventKind::SetCueB:
+    case DoublesEventKind::PlaceCueA:
+    case DoublesEventKind::PlaceCueB:
         return false;
     }
     return false;
@@ -1307,15 +1534,31 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
         instance.engine.setPreparedAsset(nextAsset);
         cursorDiscontinuity = true;
     }
+    const uint64_t cueRestoreRevision = instance.cueRestoreRevision.load(
+        std::memory_order_acquire);
+    if (cueRestoreRevision != instance.audioCueRestoreRevision) {
+        instance.engine.restoreCuePoints(
+            instance.cueA.load(std::memory_order_relaxed),
+            instance.cueB.load(std::memory_order_relaxed),
+            instance.cueValidMask.load(std::memory_order_acquire));
+        instance.audioCueRestoreRevision = cueRestoreRevision;
+    }
     std::size_t eventCount = 0u;
     // GUI actions all occur at frame zero. Append them before the host's
     // time-ordered input list so the engine always receives sorted events.
     appendRequestedActions(instance, eventCount);
     readInputEvents(instance, process->in_events, process->frames_count,
         eventCount);
-    for (std::size_t index = 0u; index < eventCount; ++index)
+    bool cueChanged = false;
+    for (std::size_t index = 0u; index < eventCount; ++index) {
         cursorDiscontinuity = cursorDiscontinuity
             || eventDiscontinuesCursor(instance.blockEvents[index].kind);
+        cueChanged = cueChanged
+            || instance.blockEvents[index].kind == DoublesEventKind::SetCueA
+            || instance.blockEvents[index].kind == DoublesEventKind::SetCueB
+            || instance.blockEvents[index].kind == DoublesEventKind::PlaceCueA
+            || instance.blockEvents[index].kind == DoublesEventKind::PlaceCueB;
+    }
     std::array<float*, 2u> scratch {{
         instance.scratchChannels[0u].data(),
         instance.scratchChannels[1u].data(),
@@ -1333,6 +1576,9 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
         process->frames_count);
     publishCursorState(instance, instance.audioAsset, settings,
         cursorDiscontinuity);
+    // Cue positions are part of project state. Publish the new marker first,
+    // then ask the host to mark state dirty from its main-thread callback.
+    if (cueChanged) requestCueStateDirtyOnMainThread(instance);
     instance.processBlockCount.fetch_add(1u, std::memory_order_release);
 
     float peak = 0.0f;
@@ -1370,10 +1616,14 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
+    auto& instance = *self(plugin);
+    if (instance.cueStateDirtyPending.exchange(false,
+            std::memory_order_acq_rel))
+        markStateDirty(instance);
 #if defined(__APPLE__)
-    serviceSampleLoads(*self(plugin));
+    serviceSampleLoads(instance);
 #else
-    (void)plugin;
+    (void)instance;
 #endif
 }
 
@@ -1473,7 +1723,7 @@ struct NoteNameDef {
     const char* name;
 };
 
-constexpr std::array<NoteNameDef, 25u> kNoteNames {{
+constexpr std::array<NoteNameDef, 29u> kNoteNames {{
     { 36u, "RESTART" }, { 37u, "STOP" }, { 38u, "SYNC B" },
     { 39u, "PHASE STEP -" }, { 40u, "PUNCH A" },
     { 41u, "PUNCH B" }, { 42u, "PHASE STEP +" },
@@ -1488,6 +1738,8 @@ constexpr std::array<NoteNameDef, 25u> kNoteNames {{
     { 56u, "OFFSET +1/4" }, { 57u, "OFFSET +1/2" },
     { 58u, "OFFSET +1" }, { 59u, "OFFSET +2" },
     { 60u, "OFFSET +4" },
+    { 61u, "SET CUE A" }, { 62u, "TRIGGER CUE A" },
+    { 63u, "SET CUE B" }, { 64u, "TRIGGER CUE B" },
 }};
 
 uint32_t noteNameCount(const clap_plugin_t*)
@@ -1602,6 +1854,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kLivePhaseParamId)
         std::snprintf(display, size, "%+.4f beats", value);
+    else if (id == kCuePrerollParamId)
+        std::snprintf(display, size, "%.0f ms", value);
     else if (id == kMidiReceiveParamId) {
         char text[32] {};
         std::snprintf(display, size, "%s", midiReceiveName(
@@ -1711,7 +1965,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const auto& instance = *self(plugin);
-    SavedStateV2 saved;
+    SavedStateV4 saved;
     // The fixed-format state includes naturally aligned doubles. Clear the
     // complete record so its padding bytes remain reproducible as well.
     std::memset(&saved, 0, sizeof(saved));
@@ -1720,6 +1974,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.parameterCount = static_cast<uint32_t>(kParamCount);
     for (const auto& def : kParamDefs)
         saved.parameters[paramIndex(def.id)] = paramValue(instance, def.id);
+    saved.cueA = instance.cueA.load(std::memory_order_relaxed);
+    saved.cueB = instance.cueB.load(std::memory_order_relaxed);
+    saved.cueValidMask = instance.cueValidMask.load(
+        std::memory_order_acquire);
     std::snprintf(saved.path.data(), saved.path.size(), "%s",
         instance.samplePath.c_str());
     if (instance.controlAsset) {
@@ -1746,7 +2004,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 
 template <typename Saved>
 bool restoreSavedState(Plugin& instance, const Saved& saved,
-    const clap_istream_t* stream)
+    const clap_istream_t* stream, float cueA = -1.0f,
+    float cueB = -1.0f, uint8_t cueValidMask = 0u)
 {
     std::shared_ptr<const SampleAsset> asset;
     const std::string path(saved.path.data(), strnlen(saved.path.data(),
@@ -1792,6 +2051,7 @@ bool restoreSavedState(Plugin& instance, const Saved& saved,
         setParam(instance, static_cast<clap_id>(index + kSpeedParamId),
             saved.parameters[index], false);
     instance.embedSampleInState = saved.embedded != 0u;
+    queueCueRestore(instance, cueA, cueB, cueValidMask);
     instance.estimatedTempoBpm.store(0.0, std::memory_order_release);
     instance.tempoConfidence.store(0.0f, std::memory_order_release);
     instance.tempoEstimateValid.store(false, std::memory_order_release);
@@ -1831,11 +2091,27 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return readSavedStateRecord(prefix, stream, saved)
             && restoreSavedState(instance, saved, stream);
     }
-    if (prefix.version == kStateVersion
-        && prefix.parameterCount == kParamCount) {
+    if (prefix.version == 2u
+        && prefix.parameterCount == kVersionTwoParamCount) {
         SavedStateV2 saved;
         return readSavedStateRecord(prefix, stream, saved)
             && restoreSavedState(instance, saved, stream);
+    }
+    if (prefix.version == 3u
+        && prefix.parameterCount == kVersionTwoParamCount) {
+        SavedStateV3 saved;
+        return readSavedStateRecord(prefix, stream, saved)
+            && restoreSavedState(instance, saved, stream,
+                static_cast<float>(saved.cueA),
+                static_cast<float>(saved.cueB), saved.cueValidMask);
+    }
+    if (prefix.version == kStateVersion
+        && prefix.parameterCount == kParamCount) {
+        SavedStateV4 saved;
+        return readSavedStateRecord(prefix, stream, saved)
+            && restoreSavedState(instance, saved, stream,
+                static_cast<float>(saved.cueA),
+                static_cast<float>(saved.cueB), saved.cueValidMask);
     }
     return false;
 }
@@ -1907,7 +2183,7 @@ NSRect loadButtonRect() { return NSMakeRect(818.0, kContentTop + 3.0, 86.0, 15.0
 NSRect embedButtonRect() { return NSMakeRect(912.0, kContentTop + 3.0, 98.0, 15.0); }
 NSRect decksPanelRect() { return NSMakeRect(18.0, 306.0, 494.0, 210.0); }
 NSRect phasePanelRect() { return NSMakeRect(528.0, 306.0, 494.0, 210.0); }
-NSRect transportPanelRect() { return NSMakeRect(18.0, 528.0, 1004.0, 178.0); }
+NSRect transportPanelRect() { return NSMakeRect(18.0, 528.0, 1004.0, 230.0); }
 NSRect restartButtonRect() { return NSMakeRect(30.0, 558.0, 104.0, 28.0); }
 NSRect playButtonRect() { return NSMakeRect(142.0, 558.0, 86.0, 28.0); }
 NSRect stopButtonRect() { return NSMakeRect(236.0, 558.0, 86.0, 28.0); }
@@ -1919,10 +2195,14 @@ NSRect syncButtonRect() { return NSMakeRect(812.0, 558.0, 86.0, 28.0); }
 NSRect stepForwardButtonRect() { return NSMakeRect(906.0, 558.0, 104.0, 28.0); }
 NSRect punchAButtonRect() { return NSMakeRect(30.0, 602.0, 110.0, 42.0); }
 NSRect dragAButtonRect() { return NSMakeRect(148.0, 602.0, 96.0, 42.0); }
+NSRect cueAButtonRect() { return NSMakeRect(252.0, 602.0, 96.0, 42.0); }
+NSRect triggerAButtonRect() { return NSMakeRect(356.0, 602.0, 108.0, 42.0); }
+NSRect triggerBButtonRect() { return NSMakeRect(576.0, 602.0, 108.0, 42.0); }
+NSRect cueBButtonRect() { return NSMakeRect(692.0, 602.0, 96.0, 42.0); }
 NSRect dragBButtonRect() { return NSMakeRect(796.0, 602.0, 90.0, 42.0); }
 NSRect punchBButtonRect() { return NSMakeRect(894.0, 602.0, 116.0, 42.0); }
-NSRect crossfaderTrackRect() { return NSMakeRect(172.0, 664.0, 696.0, 14.0); }
-NSRect crossfaderDynamicRect() { return NSMakeRect(143.0, 654.0, 754.0, 38.0); }
+NSRect crossfaderTrackRect() { return NSMakeRect(172.0, 716.0, 696.0, 14.0); }
+NSRect crossfaderDynamicRect() { return NSMakeRect(143.0, 706.0, 754.0, 38.0); }
 NSRect bpmHalfButtonRect() { return NSMakeRect(568.0, 263.0, 44.0, 17.0); }
 NSRect bpmAutoButtonRect() { return NSMakeRect(616.0, 263.0, 52.0, 17.0); }
 NSRect bpmDoubleButtonRect() { return NSMakeRect(672.0, 263.0, 44.0, 17.0); }
@@ -1935,17 +2215,18 @@ struct UiSlider {
     CGFloat y;
 };
 
-const std::array<UiSlider, 10u> kUiSliders {{
+const std::array<UiSlider, 11u> kUiSliders {{
     { kSpeedParamId, "SPEED", 18.0, 494.0, 342.0 },
     { kSourceTempoParamId, "SAMPLE BPM", 18.0, 494.0, 368.0 },
     { kStartParamId, "START", 18.0, 494.0, 394.0 },
     { kEndParamId, "END", 18.0, 494.0, 420.0 },
     { kGainParamId, "OUT", 18.0, 494.0, 446.0 },
+    { kCuePrerollParamId, "CUE PREROLL", 18.0, 494.0, 472.0 },
     { kOffsetParamId, "B OFFSET", 528.0, 494.0, 342.0 },
     { kPhaseCentsParamId, "B DRIFT", 528.0, 494.0, 368.0 },
     { kLivePhaseParamId, "B LIVE PHASE", 528.0, 494.0, 394.0 },
-    { kDeckALevelParamId, "A LEVEL", 252.0, 246.0, 612.0 },
-    { kDeckBLevelParamId, "B LEVEL", 542.0, 246.0, 612.0 },
+    { kDeckALevelParamId, "A LEVEL", 18.0, 494.0, 664.0 },
+    { kDeckBLevelParamId, "B LEVEL", 528.0, 494.0, 664.0 },
 }};
 
 NSString* const kPhaseStepItems[] = {
@@ -2101,10 +2382,10 @@ void drawCrossfader(Plugin& instance,
     const NSRect crossfader = crossfaderTrackRect();
     const double value = paramValue(instance, kCrossfaderParamId);
     const double normalized = sliderNormalized(kCrossfaderParamId, value);
-    drawText(@"A", NSMakeRect(151.0, 659.0, 18.0, 22.0),
+    drawText(@"A", NSMakeRect(151.0, 711.0, 18.0, 22.0),
         12.0, s3g::clap_gui::color(kDeckACyan), NSFontWeightSemibold,
         NSTextAlignmentCenter);
-    drawText(@"B", NSMakeRect(871.0, 659.0, 18.0, 22.0),
+    drawText(@"B", NSMakeRect(871.0, 711.0, 18.0, 22.0),
         12.0, s3g::clap_gui::color(kDeckBOrange), NSFontWeightSemibold,
         NSTextAlignmentCenter);
     fillRect(crossfader, style.strip);
@@ -2499,6 +2780,7 @@ NSString* tempoReadout(Plugin& instance)
     NSBezierPath* _waveformPathB;
     clap_id _dragParam;
     clap_id _waveDragParam;
+    int _cueDragDeck;
     clap_id _openMenu;
     int _menuHover;
     BOOL _punchA;
@@ -2546,6 +2828,7 @@ NSString* tempoReadout(Plugin& instance)
 - (void)updateVisualCursors;
 - (void)updateActionFeedback;
 - (void)applyTempoMultiplier:(double)multiplier autoEstimate:(BOOL)automatic;
+- (void)queueCueAtPoint:(NSPoint)point;
 @end
 
 @implementation S3GSampleDoublesView
@@ -2562,6 +2845,7 @@ NSString* tempoReadout(Plugin& instance)
     _waveformPathB = nil;
     _dragParam = CLAP_INVALID_ID;
     _waveDragParam = CLAP_INVALID_ID;
+    _cueDragDeck = -1;
     _openMenu = CLAP_INVALID_ID;
     _menuHover = -1;
     _punchA = NO;
@@ -2639,6 +2923,27 @@ NSString* tempoReadout(Plugin& instance)
 {
     return _instance->deckBPosition.load(std::memory_order_relaxed);
 }
+- (double)deckACueValue
+{
+    return _instance->cueA.load(std::memory_order_relaxed);
+}
+- (double)deckBCueValue
+{
+    return _instance->cueB.load(std::memory_order_relaxed);
+}
+- (NSUInteger)cueValidMaskValue
+{
+    return _instance->cueValidMask.load(std::memory_order_acquire);
+}
+- (BOOL)tempoEstimateValidValue
+{
+    return _instance->tempoEstimateValid.load(
+        std::memory_order_acquire) ? YES : NO;
+}
+- (double)estimatedTempoBpmValue
+{
+    return _instance->estimatedTempoBpm.load(std::memory_order_acquire);
+}
 - (double)visualDeckAPositionValue { return _visualDeckAPosition; }
 - (double)visualDeckBPositionValue { return _visualDeckBPosition; }
 
@@ -2659,7 +2964,11 @@ NSString* tempoReadout(Plugin& instance)
 {
     const bool hasEstimate = _instance->tempoEstimateValid.load(
         std::memory_order_acquire);
-    if (automatic && !hasEstimate) return;
+    if (automatic && !hasEstimate) {
+        queueTempoAnalysis(*_instance);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const double base = hasEstimate
         ? _instance->estimatedTempoBpm.load(std::memory_order_acquire)
         : paramValue(*_instance, kSourceTempoParamId);
@@ -2802,6 +3111,7 @@ NSString* tempoReadout(Plugin& instance)
     _punchB = NO;
     _dragA = NO;
     _dragB = NO;
+    _cueDragDeck = -1;
 }
 
 - (void)loadSample:(id)sender
@@ -2832,6 +3142,7 @@ NSString* tempoReadout(Plugin& instance)
     setParam(*_instance, kCrossfaderParamId, -1.0);
     _instance->deckAPosition.store(0.31f, std::memory_order_relaxed);
     _instance->deckBPosition.store(0.39f, std::memory_order_relaxed);
+    queueCueRestore(*_instance, 0.18f, 0.62f, 3u);
     _instance->status = "TRACKER CHOP / PHASE READY";
     [self setNeedsDisplay:YES];
     [self displayIfNeeded];
@@ -2902,6 +3213,25 @@ NSString* tempoReadout(Plugin& instance)
         }()) {
         [self setNeedsDisplayInRect:sliderDynamicRect(*slider)];
     }
+}
+
+- (void)queueCueAtPoint:(NSPoint)point
+{
+    if (_cueDragDeck < 0 || _cueDragDeck > 1) return;
+    const NSRect wave = waveformRect();
+    const float normalized = static_cast<float>(std::clamp(
+        static_cast<double>((point.x - wave.origin.x) / wave.size.width),
+        0.0, 1.0));
+    if (_cueDragDeck == 0) {
+        _instance->requestedCueA.store(normalized,
+            std::memory_order_release);
+        requestAction(*_instance, kActionPlaceCueA);
+    } else {
+        _instance->requestedCueB.store(normalized,
+            std::memory_order_release);
+        requestAction(*_instance, kActionPlaceCueB);
+    }
+    [self setNeedsDisplayInRect:wave];
 }
 
 - (void)mouseDown:(NSEvent*)event
@@ -3041,6 +3371,46 @@ NSString* tempoReadout(Plugin& instance)
         [self setNeedsDisplay:YES];
         return;
     }
+    if (NSPointInRect(point, cueAButtonRect())) {
+        requestAction(*_instance, kActionSetCueA);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, triggerAButtonRect())) {
+        requestAction(*_instance, kActionTriggerCueA);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, cueBButtonRect())) {
+        requestAction(*_instance, kActionSetCueB);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, triggerBButtonRect())) {
+        requestAction(*_instance, kActionTriggerCueB);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, waveformRect())
+        && _instance->controlAsset) {
+        const NSRect wave = waveformRect();
+        const CGFloat half = wave.size.height * 0.5;
+        const int lane = point.y < wave.origin.y + half ? 0 : 1;
+        const uint8_t cueMask = _instance->cueValidMask.load(
+            std::memory_order_acquire);
+        const float cue = lane == 0
+            ? _instance->cueA.load(std::memory_order_relaxed)
+            : _instance->cueB.load(std::memory_order_relaxed);
+        if ((cueMask & (1u << lane)) != 0u && cue >= 0.0f) {
+            const CGFloat markerX = wave.origin.x + wave.size.width
+                * static_cast<CGFloat>(cue);
+            if (std::abs(point.x - markerX) <= 10.0) {
+                _cueDragDeck = lane;
+                [self queueCueAtPoint:point];
+                return;
+            }
+        }
+    }
     if (NSPointInRect(point, waveformRect())
         && _instance->controlAsset) {
         const NSRect wave = waveformRect();
@@ -3089,6 +3459,10 @@ NSString* tempoReadout(Plugin& instance)
 {
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
+    if (_cueDragDeck >= 0) {
+        [self queueCueAtPoint:point];
+        return;
+    }
     if (_waveDragParam != CLAP_INVALID_ID) {
         [self queueWaveAtPoint:point];
         return;
@@ -3115,6 +3489,7 @@ NSString* tempoReadout(Plugin& instance)
         queueGuiParamGestureEnd(*_instance, _waveDragParam);
     _dragParam = CLAP_INVALID_ID;
     _waveDragParam = CLAP_INVALID_ID;
+    _cueDragDeck = -1;
     if (_punchA) {
         _punchA = NO;
         requestAction(*_instance, kActionPunchAOff);
@@ -3253,6 +3628,38 @@ NSString* tempoReadout(Plugin& instance)
         20.0, 16.0), 10.0, style.text);
     drawText(@"E", NSMakeRect(endX - 18.0, wave.origin.y + 2.0,
         14.0, 16.0), 10.0, style.text);
+
+    const uint8_t cueMask = _instance->cueValidMask.load(
+        std::memory_order_acquire);
+    const std::array<std::pair<float, NSColor*>, 2u> cues {{
+        { _instance->cueA.load(std::memory_order_relaxed),
+            s3g::clap_gui::color(kDeckACyan) },
+        { _instance->cueB.load(std::memory_order_relaxed),
+            s3g::clap_gui::color(kDeckBOrange) },
+    }};
+    for (std::size_t index = 0u; index < cues.size(); ++index) {
+        if ((cueMask & (1u << index)) == 0u || cues[index].first < 0.0f)
+            continue;
+        const CGFloat x = wave.origin.x + wave.size.width
+            * static_cast<CGFloat>(cues[index].first);
+        const CGFloat top = wave.origin.y
+            + static_cast<CGFloat>(index) * half;
+        [cues[index].second setStroke];
+        NSBezierPath* marker = [NSBezierPath bezierPath];
+        [marker moveToPoint:NSMakePoint(x, top)];
+        [marker lineToPoint:NSMakePoint(x, top + half)];
+        marker.lineWidth = 1.2;
+        CGFloat dash[] { 3.0, 3.0 };
+        [marker setLineDash:dash count:2 phase:0.0];
+        [marker stroke];
+        [cues[index].second setFill];
+        NSBezierPath* flag = [NSBezierPath bezierPath];
+        [flag moveToPoint:NSMakePoint(x - 5.0, top + 1.0)];
+        [flag lineToPoint:NSMakePoint(x + 5.0, top + 1.0)];
+        [flag lineToPoint:NSMakePoint(x, top + 9.0)];
+        [flag closePath];
+        [flag fill];
+    }
 
     drawText(@"DECK A", NSMakeRect(wave.origin.x + 8.0,
         wave.origin.y + 5.0, 80.0, 16.0), 10.0,
@@ -3454,6 +3861,8 @@ NSString* tempoReadout(Plugin& instance)
     const uint32_t pulse = _feedbackPulseMask;
     const uint32_t held = _instance->gestureHeldMask.load(
         std::memory_order_acquire);
+    const uint8_t cueMask = _instance->cueValidMask.load(
+        std::memory_order_acquire);
     const bool playing = _instance->playing.load(std::memory_order_relaxed);
     drawButton(restartButtonRect(), @"RESTART / 36",
         labelAttrs, style, (pulse & kFeedbackRestart) != 0u, style.accent);
@@ -3485,6 +3894,18 @@ NSString* tempoReadout(Plugin& instance)
         _dragA || (held & kFeedbackDragA) != 0u
             || (pulse & kFeedbackDragA) != 0u,
         s3g::clap_gui::color(kDeckACyan));
+    drawButton(cueAButtonRect(), @"CUE A / 61", labelAttrs, style,
+        (cueMask & 1u) != 0u || (pulse & kFeedbackSetCueA) != 0u,
+        s3g::clap_gui::color(kDeckACyan));
+    drawButton(triggerAButtonRect(), @"TRIG A / 62", labelAttrs, style,
+        (pulse & kFeedbackTriggerCueA) != 0u,
+        s3g::clap_gui::color(kDeckACyan));
+    drawButton(triggerBButtonRect(), @"TRIG B / 64", labelAttrs, style,
+        (pulse & kFeedbackTriggerCueB) != 0u,
+        s3g::clap_gui::color(kDeckBOrange));
+    drawButton(cueBButtonRect(), @"CUE B / 63", labelAttrs, style,
+        (cueMask & 2u) != 0u || (pulse & kFeedbackSetCueB) != 0u,
+        s3g::clap_gui::color(kDeckBOrange));
     drawButton(dragBButtonRect(), @"DRAG B / 47", labelAttrs, style,
         _dragB || (held & kFeedbackDragB) != 0u
             || (pulse & kFeedbackDragB) != 0u,
@@ -3496,14 +3917,14 @@ NSString* tempoReadout(Plugin& instance)
 
     drawCrossfader(*_instance, style);
 
-    const NSRect trackerHelp = NSMakeRect(18.0, 718.0, 1004.0, 50.0);
+    const NSRect trackerHelp = NSMakeRect(18.0, 770.0, 1004.0, 50.0);
     fillRect(trackerHelp, style.cellBg);
     strokeRect(trackerHelp, style.grid);
-    drawText(@"TRACKER NOTES  36 RESTART  37 STOP  38 SYNC  39/42 STEP  40/41 PUNCH  44/45 DECK P/P  46/47 DRAG",
-        NSMakeRect(30.0, 728.0, 980.0, 18.0), 9.5,
+    drawText(@"NOTES  36 RST  37 STOP  38 SYNC  39/42 STEP  40/41 PUNCH  44/45 P/P  46/47 DRAG  61/63 CUE  62/64 TRIG",
+        NSMakeRect(30.0, 780.0, 980.0, 18.0), 9.5,
         style.text, NSFontWeightRegular);
-    drawText(@"CC16 XFADE  CC17 A LEVEL  CC18 B LEVEL  CC19 LIVE PHASE   •   48–60 OFFSET+SYNC   •   VOL=PUNCH DEPTH",
-        NSMakeRect(30.0, 747.0, 980.0, 17.0), 9.5,
+    drawText(@"48–60 OFFSET+SYNC  •  CC16 XFADE  CC17 A LVL  CC18 B LVL  CC19 LIVE PHASE  •  VOL=PUNCH/DRAG DEPTH",
+        NSMakeRect(30.0, 799.0, 980.0, 17.0), 9.5,
         style.dim);
 
     if (_openMenu != CLAP_INVALID_ID) {

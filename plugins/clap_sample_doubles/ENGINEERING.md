@@ -88,7 +88,7 @@ run. Sampling `presentationLayer` is not a substitute for the pixel test.
 
 ## Implemented performance contract
 
-Status: shipped in the development build, 2026-08-19.
+Status: shipped in the development build, 2026-08-20.
 
 ### Independent decks and mixer
 
@@ -102,9 +102,11 @@ action operate both heads, preserving the earlier two-deck transport. With
 Link off, the active states are independent and are included in the coherent
 cursor publication so a paused deck's compositor trajectory stops too.
 
-Drag A and Drag B are momentary platter gestures. A held gesture ramps that
-deck toward a 0.16 rate multiplier over 30 ms; release lets the motor recover
-to its normal rate over 220 ms. The audio engine owns the ramps. GUI mouse-up,
+Drag A and Drag B are momentary, velocity-sensitive platter gestures. At full
+velocity a held gesture ramps that deck toward a 0.16 rate multiplier over
+30 ms; lower velocities interpolate between that load and normal rate. The GUI
+button sends full depth. Release lets the motor recover to its normal rate over
+220 ms. The audio engine owns the ramps. GUI mouse-up,
 MIDI note-off, editor close, activation/reset, and transport lifecycle handling
 must continue to prevent a latched drag.
 
@@ -118,9 +120,28 @@ note applies it. The separate `B Live Phase` parameter moves Deck B immediately
 by the parameter delta, preserving old-session semantics while providing a
 precise automatable phase gesture.
 
-State version two stores sixteen parameters. The version-one reader still
-accepts the original twelve-parameter layout and supplies neutral A/B levels,
-Link on, and zero live phase. Keep this migration test whenever state changes.
+Each deck owns one normalized cue position and validity bit. Set Cue looks back
+by the continuous `Cue Preroll` parameter before a bounded
+nearest-zero-crossing search; Trigger moves and activates only that read head.
+The lookback converts milliseconds to source frames using the instantaneous
+deck rate, including common varispeed, B-only drift, and the Drag motor. Loop
+wraps it inside the resolved bounds; non-loop playback clamps it. Notes 61/63
+set A/B and 62/64 retrigger A/B.
+
+An existing waveform marker is a ten-point mouse hit target. Its direct
+placement actions carry a normalized source target through the same realtime
+event path, bypass Cue Preroll, and still perform the bounded zero-crossing
+snap on the audio thread. Repeated drag events may coalesce before a block; the
+latest published target is authoritative. The audio thread publishes any new
+cue before deferring a state-dirty notification to the host main thread.
+Loading another asset clears both markers.
+
+State version four stores seventeen parameters plus both cues and their valid
+mask. The version-one reader accepts the original twelve-parameter layout and
+supplies neutral A/B levels, Link on, zero live phase, and 150 ms Cue Preroll.
+The version-two reader accepts the earlier sixteen-parameter record without
+cues; version three restores its sixteen parameters and cue state. Keep all
+three migration tests whenever state changes.
 
 ### Load-time source BPM estimation
 
@@ -143,6 +164,14 @@ matches, so a manual edit wins over stale analysis. Project restore marks the
 tempo as restored, preserves it exactly, and does not synchronously re-analyze
 embedded or path-based state.
 
+The last load-time estimate remains retained after a manual Sample BPM edit,
+so `Auto` restores that exact candidate. State does not serialize the analysis
+candidate; when none is retained, `Auto` queues a tempo-only worker request
+against the current immutable asset. It neither decodes nor republishes the
+sample and therefore does not move playheads or clear cues. A manual BPM edit
+made during that request wins. Loading a different file increments the tempo
+analysis generation so even an in-flight result for the old asset is ignored.
+
 The accepted BPM feeds the existing source-domain beat formula:
 
 ```text
@@ -155,7 +184,8 @@ source beat grid.
 
 ### MIDI, Tracker, and phase-music workflow
 
-Notes 44/45 toggle Deck A/B and gated notes 46/47 operate Drag A/B. The fixed
+Notes 44/45 toggle Deck A/B, gated notes 46/47 operate Drag A/B, and notes
+61-64 set and trigger the two cue points. The fixed
 continuous map is CC16 Crossfader, CC17 Deck A Level, CC18 Deck B Level, and
 CC19 B Live Phase. These controls remain ordinary automatable CLAP parameters;
 the direct CC path is an additional raw MIDI/Tracker route.
@@ -174,9 +204,12 @@ supplying the slowed result.
 ### Regression coverage
 
 The core smoke covers independent pre-fader levels, linked and unlinked deck
-transport, the Drag motor, exact live-phase displacement, tempo fixtures at
-multiple BPM values, stereo anti-phase input, and silence rejection. The CLAP
-smoke covers the appended parameter and note maps, fixed MIDI CC conversion,
-version-one migration, and version-two save headers. The GUI smoke exercises
-all continuous controls and menus, linked state, tracking-mode transitions,
-render-ahead, and the compositor contract described above.
+transport, the Drag motor, exact live-phase displacement, rate-aware cue
+pre-roll, direct zero-crossing cue placement, replacement/retrigger/restore,
+tempo fixtures at multiple BPM values, stereo anti-phase input, and silence
+rejection. The CLAP smoke covers the seventeen-parameter and 29-note maps,
+fixed MIDI CC conversion, version-one through version-three migration, and the
+version-four cue-state round trip. The GUI smoke clicks all four cue controls,
+drags a marker, and exercises every continuous control and menu, linked state,
+tracking-mode transitions, render-ahead, and the compositor contract described
+above.

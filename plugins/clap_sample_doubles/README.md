@@ -18,10 +18,17 @@ The instrument provides:
 - independent smoothed Deck A and Deck B levels;
 - linked or independent deck Play/Pause controls;
 - momentary per-deck Drag gestures with a smooth motor recovery;
+- one zero-crossing cue marker and retrigger action per deck, with adjustable
+  reaction-time pre-roll and direct marker dragging;
 - Cut, Sharp, and Blend crossfader curves;
 - path or embedded project-audio state; and
 - Omni or single-channel MIDI reception with note-command and direct CC
   control.
+
+`Auto` retains the most recent analyzed BPM even after the Sample BPM slider
+is edited, so pressing it restores that candidate. If no analysis is retained,
+it rescans the current immutable sample on the loader worker without reloading
+the audio, moving the playheads, or clearing deck cues.
 
 ## Tracker command notes
 
@@ -36,10 +43,24 @@ The instrument provides:
 | 44 / 45 | Toggle Deck A / Deck B Play/Pause |
 | 46 / 47 | Gate Drag A / Drag B |
 | 48–60 | Select -4, -2, -1, -1/2, -1/4, -1/8, 0, +1/8, +1/4, +1/2, +1, +2, or +4 beats and sync immediately |
+| 61 / 63 | Replace Deck A / Deck B cue after the configured pre-roll, snapped to the nearest zero crossing |
+| 62 / 64 | Retrigger Deck A / Deck B from its cue |
 
-Tracker `VOL` controls punch depth. Its repeat, flam, stutter, ratchet, and
+Tracker `VOL` controls punch depth and Drag strength. Full velocity gives the
+heaviest platter load; lower velocity produces a lighter slowdown. Its repeat,
+flam, stutter, ratchet, and
 microtime operations act on ordinary note events, so they can articulate the
 same command keyboard without a separate MIDI CC lane.
+
+Each deck retains exactly one cue. Pressing its Cue button or command note
+looks backward by `Cue Preroll` (0–1000 ms, default 150 ms), replaces the
+previous point, and snaps the result to a nearby zero crossing. The lookback
+follows the deck's current varispeed, Deck B drift, and Drag rate, so it
+represents heard time instead of a fixed number of source samples. Once a cue
+exists, click and drag its colored waveform marker to place it directly with
+the mouse; direct placement bypasses pre-roll but still zero-crossing-snaps.
+Trigger starts that deck from the marker on every press, including when the
+deck was paused, so Tracker repeats and ratchets can create cue-point chops.
 
 ## Continuous MIDI controls
 

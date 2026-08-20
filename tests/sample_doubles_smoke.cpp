@@ -49,6 +49,23 @@ SampleAsset constantAsset(float value = 1.0f, uint32_t frames = 16000u)
     return asset;
 }
 
+SampleAsset sineAsset(uint32_t frames = 4000u)
+{
+    SampleAsset asset;
+    asset.sampleRate = 1000.0;
+    asset.channelCount = 2u;
+    for (uint8_t channel = 0u; channel < asset.channelCount; ++channel)
+        asset.channels[channel].resize(frames);
+    for (uint32_t frame = 0u; frame < frames; ++frame) {
+        const double phase = 2.0 * 3.14159265358979323846 * 10.0
+            * static_cast<double>(frame) / asset.sampleRate;
+        asset.channels[0u][frame] = static_cast<float>(std::sin(phase));
+        asset.channels[1u][frame] = static_cast<float>(
+            0.7 * std::sin(phase + 0.03));
+    }
+    return asset;
+}
+
 SampleAsset clickAsset(double bpm, bool antiPhaseStereo = false)
 {
     SampleAsset asset;
@@ -353,8 +370,20 @@ void testDragMotorAndLivePhase()
         "motor recovery after Drag A release failed");
 
     engine.reset();
+    const std::array<DoublesRenderEvent, 2u> lightDragEvents {{
+        { 0u, DoublesEventKind::Restart, 3u, 1.0f },
+        { 0u, DoublesEventKind::DragAOn, 4u, 0.25f },
+    }};
+    engine.render(settings, lightDragEvents.data(), lightDragEvents.size(),
+        outputs, 2u, static_cast<uint32_t>(left.size()));
+    check(engine.dragAHeld() && engine.deckARateScale() > 0.78
+            && engine.deckARateScale() < 0.80
+            && engine.deckAPositionNormalized() > draggedPosition + 0.025f,
+        "Drag velocity did not produce a proportionally lighter platter load");
+
+    engine.reset();
     const DoublesRenderEvent restart {
-        0u, DoublesEventKind::Restart, 3u, 1.0f,
+        0u, DoublesEventKind::Restart, 5u, 1.0f,
     };
     std::array<float, 1u> oneLeft {};
     std::array<float, 1u> oneRight {};
@@ -383,6 +412,107 @@ void testTempoEstimator()
     silence.channels[0u].assign(48000u * 4u, 0.0f);
     check(!estimateSampleTempo(silence).valid,
         "tempo estimator claimed a BPM for silence");
+}
+
+void testDeckCuesAndRetriggers()
+{
+    auto asset = sineAsset();
+    SampleDoublesEngine engine;
+    check(engine.prepare(1000.0) && engine.setAsset(&asset),
+        "cue fixture did not prepare");
+    DoublesSettings settings;
+    settings.speedSemitones = 0.0;
+    settings.sourceTempoBpm = 60.0;
+    settings.offsetBeats = 0.0;
+    settings.crossfader = -1.0;
+    settings.gainDecibels = 0.0f;
+    settings.cuePrerollMilliseconds = 0.0;
+    std::vector<float> left(137u, 0.0f);
+    std::vector<float> right(137u, 0.0f);
+    float* outputs[] { left.data(), right.data() };
+    const DoublesRenderEvent restart {
+        0u, DoublesEventKind::Restart, 30u, 1.0f,
+    };
+    engine.render(settings, &restart, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+
+    std::array<float, 1u> oneLeft {};
+    std::array<float, 1u> oneRight {};
+    float* oneOutputs[] { oneLeft.data(), oneRight.data() };
+    const DoublesRenderEvent cueA {
+        0u, DoublesEventKind::SetCueA, 31u, 1.0f,
+    };
+    engine.render(settings, &cueA, 1u, oneOutputs, 2u, 1u);
+    check(engine.deckACueValid()
+            && std::abs(engine.deckACueNormalized() - 0.0375f) < 0.0002f,
+        "Deck A cue did not snap to the nearest zero crossing");
+
+    left.assign(52u, 0.0f);
+    right.assign(52u, 0.0f);
+    outputs[0u] = left.data();
+    outputs[1u] = right.data();
+    engine.render(settings, nullptr, 0u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    const DoublesRenderEvent replaceCueA {
+        0u, DoublesEventKind::SetCueA, 32u, 1.0f,
+    };
+    engine.render(settings, &replaceCueA, 1u, oneOutputs, 2u, 1u);
+    check(std::abs(engine.deckACueNormalized() - 0.05f) < 0.0002f,
+        "setting Deck A cue did not replace the previous marker");
+
+    left.assign(41u, 0.0f);
+    right.assign(41u, 0.0f);
+    outputs[0u] = left.data();
+    outputs[1u] = right.data();
+    engine.render(settings, nullptr, 0u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    const DoublesRenderEvent triggerA {
+        0u, DoublesEventKind::TriggerCueA, 33u, 1.0f,
+    };
+    engine.render(settings, &triggerA, 1u, oneOutputs, 2u, 1u);
+    const float firstRetrigger = engine.deckAPositionNormalized();
+    engine.render(settings, nullptr, 0u, outputs, 2u, 17u);
+    engine.render(settings, &triggerA, 1u, oneOutputs, 2u, 1u);
+    check(engine.deckAActive() && firstRetrigger > 0.0501f
+            && firstRetrigger < 0.0504f
+            && std::abs(engine.deckAPositionNormalized()
+                - firstRetrigger) < 0.0002f,
+        "Deck A trigger did not repeatedly return to its single cue");
+
+    engine.restoreCuePoints(0.25f, 0.75f, 3u);
+    check(engine.deckACueValid() && engine.deckBCueValid()
+            && near(engine.deckACueNormalized(), 0.25f)
+            && near(engine.deckBCueNormalized(), 0.75f),
+        "persisted deck cue points did not restore");
+
+    const DoublesRenderEvent placeCueB {
+        0u, DoublesEventKind::PlaceCueB, 34u, 0.333f,
+    };
+    engine.render(settings, &placeCueB, 1u, oneOutputs, 2u, 1u);
+    check(engine.deckBCueValid()
+            && std::abs(engine.deckBCueNormalized() - 0.3374f) < 0.0003f,
+        "direct Deck B cue placement did not snap the requested point");
+
+    engine.reset();
+    settings.cuePrerollMilliseconds = 100.0;
+    settings.speedSemitones = 0.0;
+    left.assign(337u, 0.0f);
+    right.assign(337u, 0.0f);
+    outputs[0u] = left.data();
+    outputs[1u] = right.data();
+    engine.render(settings, &restart, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    engine.render(settings, &cueA, 1u, oneOutputs, 2u, 1u);
+    check(std::abs(engine.deckACueNormalized() - 0.0624f) < 0.0003f,
+        "Cue Preroll did not compensate before the heard full-speed point");
+
+    engine.reset();
+    settings.speedSemitones = -12.0;
+    engine.render(settings, &restart, 1u, outputs, 2u,
+        static_cast<uint32_t>(left.size()));
+    engine.render(settings, &cueA, 1u, oneOutputs, 2u, 1u);
+    check(std::abs(engine.deckACueNormalized() - 0.0250f) < 0.0003f,
+        "Cue Preroll did not follow the deck's audible varispeed rate");
 }
 
 void testMidiCommandMap()
@@ -416,6 +546,7 @@ int main()
     testIndependentDeckLevelsAndTransport();
     testDragMotorAndLivePhase();
     testTempoEstimator();
+    testDeckCuesAndRetriggers();
     testMidiCommandMap();
     if (failures != 0) return 1;
     std::cout << "s3g Sample Doubles smoke: ok\n";

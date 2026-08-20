@@ -63,6 +63,11 @@
 - (uint64_t)processBlockCount;
 - (double)deckAPositionValue;
 - (double)deckBPositionValue;
+- (double)deckACueValue;
+- (double)deckBCueValue;
+- (NSUInteger)cueValidMaskValue;
+- (BOOL)tempoEstimateValidValue;
+- (double)estimatedTempoBpmValue;
 - (double)visualDeckAPositionValue;
 - (double)visualDeckBPositionValue;
 - (void)updateVisualCursors;
@@ -72,6 +77,8 @@
     NSArray<NSURL*>* _urls;
 }
 - (instancetype)initWithURLs:(NSArray<NSURL*>*)urls;
+- (BOOL)canReadObjectForClasses:(NSArray<Class>*)classes
+    options:(NSDictionary<NSPasteboardReadingOptionKey, id>*)options;
 - (NSArray<NSURL*>*)readObjectsForClasses:(NSArray<Class>*)classes
     options:(NSDictionary<NSPasteboardReadingOptionKey, id>*)options;
 @end
@@ -89,6 +96,13 @@
     (void)classes;
     (void)options;
     return _urls;
+}
+- (BOOL)canReadObjectForClasses:(NSArray<Class>*)classes
+    options:(NSDictionary<NSPasteboardReadingOptionKey, id>*)options
+{
+    (void)classes;
+    (void)options;
+    return _urls.count > 0u;
 }
 - (void)dealloc
 {
@@ -314,6 +328,40 @@ bool writeDropSmokeWaveFile(const char* path, double frequency)
             * static_cast<double>(frame) / static_cast<double>(sampleRate);
         const int16_t sample = static_cast<int16_t>(
             std::lround(std::sin(phase) * 12000.0));
+        writeLittleEndian16(file, static_cast<uint16_t>(sample));
+    }
+    const bool ok = std::ferror(file) == 0;
+    return std::fclose(file) == 0 && ok;
+}
+
+bool writeTempoSmokeWaveFile(const char* path, double bpm)
+{
+    if (!path || !path[0] || !(bpm > 0.0)) return false;
+    FILE* file = std::fopen(path, "wb");
+    if (!file) return false;
+    constexpr uint32_t sampleRate = 4000u;
+    constexpr uint32_t frameCount = sampleRate * 24u;
+    constexpr uint32_t dataBytes = frameCount * sizeof(int16_t);
+    const uint32_t period = static_cast<uint32_t>(std::llround(
+        static_cast<double>(sampleRate) * 60.0 / bpm));
+    std::fwrite("RIFF", 1u, 4u, file);
+    writeLittleEndian32(file, 36u + dataBytes);
+    std::fwrite("WAVEfmt ", 1u, 8u, file);
+    writeLittleEndian32(file, 16u);
+    writeLittleEndian16(file, 1u);
+    writeLittleEndian16(file, 1u);
+    writeLittleEndian32(file, sampleRate);
+    writeLittleEndian32(file, sampleRate * sizeof(int16_t));
+    writeLittleEndian16(file, sizeof(int16_t));
+    writeLittleEndian16(file, 16u);
+    std::fwrite("data", 1u, 4u, file);
+    writeLittleEndian32(file, dataBytes);
+    for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+        const uint32_t phase = frame % period;
+        const double pulse = phase < 12u
+            ? std::exp(-static_cast<double>(phase) * 0.55) : 0.0;
+        const int16_t sample = static_cast<int16_t>(
+            std::lround(pulse * 28000.0));
         writeLittleEndian16(file, static_cast<uint16_t>(sample));
     }
     const bool ok = std::ferror(file) == 0;
@@ -3079,6 +3127,7 @@ int main(int argc, char** argv)
             std::atomic<bool> doublesProcessOk { true };
             std::atomic<uint64_t> maximumProcessNanoseconds { 0u };
             std::thread doublesAudioThread;
+            std::string doublesTempoFixturePath;
             @try {
                 hostContext.stateDirtyCount = 0u;
                 hostContext.guiParamValueCount = 0u;
@@ -3116,6 +3165,76 @@ int main(int argc, char** argv)
                             << refreshBefore << "->" << refreshAfter
                             << " cursor draws=" << cursorDrawsBefore << "->"
                             << cursorDrawsAfter << "\n";
+                    }
+                }
+
+                // A manual Sample BPM slider edit must not discard the
+                // worker's analyzed candidate. AUTO restores it immediately;
+                // this uses a real decoded click-track fixture rather than a
+                // test-only estimate injection.
+                if (ok) {
+                    NSString* name = [NSString stringWithFormat:
+                        @"s3g-doubles-tempo-%@.wav", [[NSUUID UUID] UUIDString]];
+                    NSString* path = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:name];
+                    const char* filePath = [path fileSystemRepresentation];
+                    ok = filePath && writeTempoSmokeWaveFile(filePath, 120.0);
+                    if (ok) doublesTempoFixturePath = filePath;
+                    S3GSmokeFilePasteboard* pasteboard = ok
+                        ? [[S3GSmokeFilePasteboard alloc]
+                            initWithURLs:@[ [NSURL fileURLWithPath:path] ]]
+                        : nil;
+                    S3GSmokeDraggingInfo* draggingInfo = pasteboard
+                        ? [[S3GSmokeDraggingInfo alloc]
+                            initWithPasteboard:pasteboard] : nil;
+                    [pasteboard release];
+                    if (ok) {
+                        ok = [document draggingEntered:
+                                (id<NSDraggingInfo>)draggingInfo]
+                                == NSDragOperationCopy
+                            && [document performDragOperation:
+                                (id<NSDraggingInfo>)draggingInfo];
+                    }
+                    [draggingInfo release];
+                    NSRunLoop* runLoop = [NSRunLoop mainRunLoop];
+                    NSDate* analysisDeadline = [NSDate
+                        dateWithTimeIntervalSinceNow:4.0];
+                    while (ok && ![document tempoEstimateValidValue]
+                        && [analysisDeadline timeIntervalSinceNow] > 0.0) {
+                        [runLoop runMode:NSDefaultRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.02]];
+                    }
+                    const double analyzedBpm =
+                        [document estimatedTempoBpmValue];
+                    if (ok) {
+                        ok = [document tempoEstimateValidValue]
+                            && analyzedBpm > 115.0 && analyzedBpm < 125.0;
+                    }
+                    if (ok) {
+                        const NSPoint manualBpm = NSMakePoint(276.0, 369.0);
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, manualBpm)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, manualBpm)];
+                        double editedBpm = 0.0;
+                        ok = params->get_value(plugin, 3u, &editedBpm)
+                            && editedBpm > 219.0;
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(642.0, 271.0))];
+                        double restoredBpm = 0.0;
+                        ok = ok && params->get_value(
+                                plugin, 3u, &restoredBpm)
+                            && std::fabs(restoredBpm - analyzedBpm) < 0.01;
+                    }
+                    if (!ok) {
+                        double currentBpm = 0.0;
+                        params->get_value(plugin, 3u, &currentBpm);
+                        std::cerr << "Sample Doubles BPM AUTO: valid="
+                            << [document tempoEstimateValidValue]
+                            << " analyzed=" << analyzedBpm
+                            << " current=" << currentBpm << "\n";
                     }
                 }
 
@@ -3307,22 +3426,113 @@ int main(int argc, char** argv)
                 const double deckAPositionBefore =
                     [document deckAPositionValue];
 
+                // The four cue controls share the realtime command path used
+                // by Tracker notes 61-64. Each Set operation replaces that
+                // deck's sole marker; Trigger returns only that deck to it.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(300.0, 623.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(740.0, 623.0))];
+                    const auto cueDeadline = std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(150);
+                    while ([document cueValidMaskValue] != 3u
+                        && std::chrono::steady_clock::now() < cueDeadline) {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(1));
+                    }
+                    const double cueA = [document deckACueValue];
+                    const double cueB = [document deckBCueValue];
+                    ok = [document cueValidMaskValue] == 3u
+                        && cueA >= 0.0 && cueA <= 1.0
+                        && cueB >= 0.0 && cueB <= 1.0;
+                    if (ok) {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(12));
+                        const uint64_t triggerBlock =
+                            [document processBlockCount];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(410.0, 623.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(630.0, 623.0))];
+                        const auto triggerDeadline =
+                            std::chrono::steady_clock::now()
+                            + std::chrono::milliseconds(100);
+                        while ([document processBlockCount]
+                                < triggerBlock + 4u
+                            && std::chrono::steady_clock::now()
+                                < triggerDeadline) {
+                            std::this_thread::sleep_for(
+                                std::chrono::milliseconds(1));
+                        }
+                        double distance = [document deckAPositionValue]
+                            - cueA;
+                        if (distance < 0.0) distance += 1.0;
+                        double distanceB = [document deckBPositionValue]
+                            - cueB;
+                        if (distanceB < 0.0) distanceB += 1.0;
+                        ok = [document processBlockCount]
+                                >= triggerBlock + 4u
+                            && distance >= 0.0 && distance < 0.03
+                            && distanceB >= 0.0 && distanceB < 0.03
+                            && [document cueValidMaskValue] == 3u;
+                    }
+                    if (ok) {
+                        // A cue marker is itself a draggable hit target. Mouse
+                        // placement bypasses pre-roll but retains zero-crossing
+                        // snapping in the realtime engine.
+                        const NSPoint markerPoint = NSMakePoint(
+                            30.0 + 980.0 * cueA, 116.0);
+                        const NSPoint targetPoint = NSMakePoint(
+                            30.0 + 980.0 * 0.65, 116.0);
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, markerPoint)];
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, targetPoint)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, targetPoint)];
+                        const auto dragDeadline =
+                            std::chrono::steady_clock::now()
+                            + std::chrono::milliseconds(150);
+                        while (std::abs([document deckACueValue] - 0.65)
+                                > 0.01
+                            && std::chrono::steady_clock::now()
+                                < dragDeadline) {
+                            std::this_thread::sleep_for(
+                                std::chrono::milliseconds(1));
+                        }
+                        ok = std::abs([document deckACueValue] - 0.65)
+                                <= 0.01
+                            && std::abs([document deckBCueValue] - cueB)
+                                <= 0.01
+                            && [document cueValidMaskValue] == 3u;
+                    }
+                    // The remaining regression measures parameter gesture
+                    // traffic, so exclude this intentionally stateful edit.
+                    hostContext.stateDirtyCount = 0u;
+                }
+
                 struct SliderDrag {
                     CGFloat left;
                     CGFloat right;
                     CGFloat y;
                 };
-                const std::array<SliderDrag, 10u> sliderDrags {{
+                const std::array<SliderDrag, 11u> sliderDrags {{
                     { 126.0, 276.0, 343.0 }, // Speed
                     { 126.0, 276.0, 369.0 }, // Sample BPM
                     { 126.0, 180.0, 395.0 }, // Start (remain below End)
                     { 220.0, 276.0, 421.0 }, // End (remain above Start)
                     { 126.0, 276.0, 447.0 }, // Out
+                    { 126.0, 276.0, 473.0 }, // Cue Preroll
                     { 636.0, 786.0, 343.0 }, // B Offset
                     { 636.0, 786.0, 369.0 }, // B Drift
                     { 636.0, 786.0, 395.0 }, // B Live Phase
-                    { 360.0, 450.0, 613.0 }, // Deck A Level
-                    { 650.0, 740.0, 613.0 }, // Deck B Level
+                    { 126.0, 276.0, 665.0 }, // Deck A Level
+                    { 636.0, 786.0, 665.0 }, // Deck B Level
                 }};
                 hostContext.paramFlushRequestCount.store(0u,
                     std::memory_order_relaxed);
@@ -3443,7 +3653,7 @@ int main(int argc, char** argv)
                     [document cursorAnimationInstallCount];
                 const uint64_t blocksBeforeCrossfade =
                     [document processBlockCount];
-                const NSPoint crossfaderLeft = NSMakePoint(172.0, 670.0);
+                const NSPoint crossfaderLeft = NSMakePoint(172.0, 722.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, crossfaderLeft)];
@@ -3455,7 +3665,7 @@ int main(int argc, char** argv)
                             ? static_cast<double>(phase) / 128.0
                             : static_cast<double>(256u - phase) / 128.0;
                         const NSPoint point = NSMakePoint(
-                            172.0 + 696.0 * normalized, 670.0);
+                            172.0 + 696.0 * normalized, 722.0);
                         [document mouseDragged:mouseEvent(
                             NSEventTypeLeftMouseDragged, point)];
                         NSDate* deadline = [NSDate
@@ -3466,14 +3676,14 @@ int main(int argc, char** argv)
                     }
                     [document mouseDragged:mouseEvent(
                         NSEventTypeLeftMouseDragged,
-                        NSMakePoint(840.0, 670.0))];
+                        NSMakePoint(840.0, 722.0))];
                     const NSUInteger cursorDrawsDuringCrossfade =
                         [document cursorDrawPassCount];
                     const NSUInteger animationsDuringCrossfade =
                         [document cursorAnimationInstallCount];
                     [document mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp,
-                        NSMakePoint(840.0, 670.0))];
+                        NSMakePoint(840.0, 722.0))];
                     ok = cursorDrawsDuringCrossfade
                             > cursorDrawsBeforeCrossfade + 12u
                         && [document processBlockCount]
@@ -3553,7 +3763,7 @@ int main(int argc, char** argv)
                             ? [document visualDeckAPositionValue]
                             : [document deckAPositionValue];
                     };
-                    const NSPoint heldCrossfader = NSMakePoint(520.0, 670.0);
+                    const NSPoint heldCrossfader = NSMakePoint(520.0, 722.0);
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, heldCrossfader)];
                     [document mouseDragged:mouseEvent(
@@ -3729,7 +3939,7 @@ int main(int argc, char** argv)
                 if (renderAheadDragActive) {
                     [document mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp,
-                        NSMakePoint(520.0, 670.0))];
+                        NSMakePoint(520.0, 722.0))];
                 }
                 pauseDoublesProcessing.store(false,
                     std::memory_order_release);
@@ -3866,6 +4076,8 @@ int main(int argc, char** argv)
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }
+            if (!doublesTempoFixturePath.empty())
+                std::remove(doublesTempoFixturePath.c_str());
             pauseDoublesProcessing.store(false, std::memory_order_release);
             keepDoublesProcessing.store(false, std::memory_order_release);
             if (doublesAudioThread.joinable()) doublesAudioThread.join();

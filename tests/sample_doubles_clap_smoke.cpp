@@ -19,14 +19,16 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x44443353u;
-constexpr uint32_t kStateVersion = 1u;
-constexpr std::size_t kParamCount = 16u;
+constexpr uint32_t kLegacyStateVersion = 1u;
+constexpr uint32_t kCurrentStateVersion = 4u;
+constexpr std::size_t kParamCount = 17u;
+constexpr std::size_t kPriorParamCount = 16u;
 constexpr std::size_t kLegacyParamCount = 12u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 
 struct SavedState {
     uint32_t magic = kStateMagic;
-    uint32_t version = kStateVersion;
+    uint32_t version = kLegacyStateVersion;
     uint32_t parameterCount = static_cast<uint32_t>(kLegacyParamCount);
     std::array<double, kLegacyParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
@@ -36,6 +38,56 @@ struct SavedState {
     uint8_t reserved1 = 0u;
     uint32_t frameCount = 4096u;
     double sampleRate = 1000.0;
+};
+
+struct SavedStateV2Record {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 2u;
+    uint32_t parameterCount = static_cast<uint32_t>(kPriorParamCount);
+    std::array<double, kPriorParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 1u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 4096u;
+    double sampleRate = 1000.0;
+};
+
+struct SavedStateV3Record {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 3u;
+    uint32_t parameterCount = static_cast<uint32_t>(kPriorParamCount);
+    std::array<double, kPriorParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+    double cueA = -1.0;
+    double cueB = -1.0;
+    uint8_t cueValidMask = 0u;
+    std::array<uint8_t, 7u> reservedCue {};
+};
+
+struct SavedStateV4Record {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kCurrentStateVersion;
+    uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
+    std::array<double, kParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+    double cueA = -1.0;
+    double cueB = -1.0;
+    uint8_t cueValidMask = 0u;
+    std::array<uint8_t, 7u> reservedCue {};
 };
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
@@ -265,7 +317,7 @@ int main(int argc, char** argv)
         && ports->get(plugin, 0u, false, &outputPort)
         && outputPort.channel_count == 2u
         && notePorts->count(plugin, true) == 1u
-        && noteNames->count(plugin) == 25u
+        && noteNames->count(plugin) == 29u
         && params->count(plugin) == kParamCount;
 #if defined(__APPLE__)
     ok = ok && gui;
@@ -277,6 +329,7 @@ int main(int argc, char** argv)
     bool foundDeckBLevel = false;
     bool foundLink = false;
     bool foundLivePhase = false;
+    bool foundCuePreroll = false;
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
         clap_param_info_t info {};
         ok = params->get_info(plugin, index, &info);
@@ -293,9 +346,13 @@ int main(int argc, char** argv)
         if (info.id == 16u)
             foundLivePhase = std::strcmp(
                 info.name, "Deck B Live Phase") == 0;
+        if (info.id == 17u)
+            foundCuePreroll = std::strcmp(
+                info.name, "Cue Preroll") == 0;
     }
     ok = ok && foundCrossfader && foundPhase && foundDeckALevel
-        && foundDeckBLevel && foundLink && foundLivePhase;
+        && foundDeckBLevel && foundLink && foundLivePhase
+        && foundCuePreroll;
 
     SavedState saved;
     saved.parameters = {{
@@ -331,14 +388,17 @@ int main(int argc, char** argv)
     double deckBLevel = -99.0;
     double linked = -1.0;
     double livePhase = -99.0;
+    double cuePreroll = -1.0;
     ok = ok && params->get_value(plugin, 13u, &deckALevel)
         && params->get_value(plugin, 14u, &deckBLevel)
         && params->get_value(plugin, 15u, &linked)
         && params->get_value(plugin, 16u, &livePhase)
+        && params->get_value(plugin, 17u, &cuePreroll)
         && near(static_cast<float>(deckALevel), 0.0f)
         && near(static_cast<float>(deckBLevel), 0.0f)
         && near(static_cast<float>(linked), 1.0f)
-        && near(static_cast<float>(livePhase), 0.0f);
+        && near(static_cast<float>(livePhase), 0.0f)
+        && near(static_cast<float>(cuePreroll), 150.0f);
 
     MidiEvents cc;
     cc.addCc(0u, 16u, 127u);
@@ -368,18 +428,129 @@ int main(int argc, char** argv)
     ok = ok && processBlock(plugin, 32u, &resumeDecks, left, right)
         && maximumMagnitude(left) > 0.01f;
     NoteEvents dragGate;
-    dragGate.add(0u, CLAP_EVENT_NOTE_ON, 22, 46, 1.0);
+    dragGate.add(0u, CLAP_EVENT_NOTE_ON, 22, 46, 0.25);
     dragGate.add(16u, CLAP_EVENT_NOTE_OFF, 22, 46, 0.0);
     ok = ok && processBlock(plugin, 32u, &dragGate, left, right);
 
-    MemoryOutput savedV2;
-    ok = ok && state->save(plugin, &savedV2.stream)
-        && savedV2.bytes.size() >= 12u;
+    // Each deck owns one replaceable zero-crossing cue. The command-note path
+    // is the same one Tracker uses, and triggers are one-shot retriggers rather
+    // than gates.
+    NoteEvents cueCommands;
+    cueCommands.add(0u, CLAP_EVENT_NOTE_ON, 23, 61, 1.0);
+    cueCommands.add(4u, CLAP_EVENT_NOTE_ON, 24, 63, 1.0);
+    cueCommands.add(8u, CLAP_EVENT_NOTE_ON, 25, 62, 1.0);
+    cueCommands.add(12u, CLAP_EVENT_NOTE_ON, 26, 64, 1.0);
+    ok = ok && processBlock(plugin, 32u, &cueCommands, left, right);
+
+    MemoryOutput savedV4;
+    ok = ok && state->save(plugin, &savedV4.stream)
+        && savedV4.bytes.size() >= sizeof(SavedStateV4Record);
     if (ok) {
-        std::array<uint32_t, 3u> prefix {};
-        std::memcpy(prefix.data(), savedV2.bytes.data(), sizeof(prefix));
-        ok = prefix[0u] == kStateMagic && prefix[1u] == 2u
-            && prefix[2u] == kParamCount;
+        SavedStateV4Record record;
+        std::memcpy(&record, savedV4.bytes.data(), sizeof(record));
+        ok = record.magic == kStateMagic
+            && record.version == kCurrentStateVersion
+            && record.parameterCount == kParamCount
+            && near(static_cast<float>(record.parameters[16u]), 150.0f)
+            && record.cueValidMask == 3u
+            && record.cueA >= 0.0 && record.cueA <= 1.0
+            && record.cueB >= 0.0 && record.cueB <= 1.0;
+    }
+
+    // Version two remains readable and intentionally supplies no cue markers.
+    if (ok) {
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        SavedStateV2Record legacyV2;
+        legacyV2.parameters = {{
+            0.0, 0.0, 60.0, 1.0, 2.0, 0.0, 1.0, 0.0,
+            -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+        }};
+        MemoryInput v2Input;
+        v2Input.bytes.resize(sizeof(legacyV2)
+            + samples.size() * sizeof(float));
+        std::memcpy(v2Input.bytes.data(), &legacyV2, sizeof(legacyV2));
+        std::memcpy(v2Input.bytes.data() + sizeof(legacyV2), samples.data(),
+            samples.size() * sizeof(float));
+        ok = state->load(plugin, &v2Input.stream)
+            && plugin->activate(plugin, 1000.0, 1u, 128u)
+            && plugin->start_processing(plugin)
+            && processBlock(plugin, 1u, nullptr, left, right);
+        MemoryOutput migratedV2;
+        ok = ok && state->save(plugin, &migratedV2.stream)
+            && migratedV2.bytes.size() >= sizeof(SavedStateV4Record);
+        if (ok) {
+            SavedStateV4Record record;
+            std::memcpy(&record, migratedV2.bytes.data(), sizeof(record));
+            ok = record.version == kCurrentStateVersion
+                && record.parameterCount == kParamCount
+                && near(static_cast<float>(record.parameters[16u]), 150.0f)
+                && record.cueValidMask == 0u;
+        }
+    }
+
+    // Version three cue positions remain readable while the appended pre-roll
+    // parameter is supplied from the current default.
+    if (ok) {
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        SavedStateV3Record legacyV3;
+        legacyV3.parameters = {{
+            0.0, 0.0, 60.0, 1.0, 2.0, 0.0, 1.0, 0.0,
+            -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+        }};
+        legacyV3.embedded = 1u;
+        legacyV3.channelCount = 1u;
+        legacyV3.frameCount = static_cast<uint32_t>(samples.size());
+        legacyV3.sampleRate = 1000.0;
+        legacyV3.cueA = 0.25;
+        legacyV3.cueB = 0.75;
+        legacyV3.cueValidMask = 3u;
+        MemoryInput v3Input;
+        v3Input.bytes.resize(sizeof(legacyV3)
+            + samples.size() * sizeof(float));
+        std::memcpy(v3Input.bytes.data(), &legacyV3, sizeof(legacyV3));
+        std::memcpy(v3Input.bytes.data() + sizeof(legacyV3), samples.data(),
+            samples.size() * sizeof(float));
+        ok = state->load(plugin, &v3Input.stream)
+            && plugin->activate(plugin, 1000.0, 1u, 128u)
+            && plugin->start_processing(plugin)
+            && processBlock(plugin, 1u, nullptr, left, right);
+        MemoryOutput migratedV3;
+        ok = ok && state->save(plugin, &migratedV3.stream)
+            && migratedV3.bytes.size() >= sizeof(SavedStateV4Record);
+        if (ok) {
+            SavedStateV4Record record;
+            std::memcpy(&record, migratedV3.bytes.data(), sizeof(record));
+            ok = record.version == kCurrentStateVersion
+                && record.parameterCount == kParamCount
+                && near(static_cast<float>(record.parameters[16u]), 150.0f)
+                && record.cueValidMask == 3u
+                && near(static_cast<float>(record.cueA), 0.25f)
+                && near(static_cast<float>(record.cueB), 0.75f);
+        }
+    }
+
+    // Reload the current state and prove both cue positions survive the state
+    // boundary and are adopted by the audio engine on its next block.
+    if (ok) {
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        MemoryInput v4Input;
+        v4Input.bytes = savedV4.bytes;
+        ok = state->load(plugin, &v4Input.stream)
+            && plugin->activate(plugin, 1000.0, 1u, 128u)
+            && plugin->start_processing(plugin)
+            && processBlock(plugin, 1u, nullptr, left, right);
+        MemoryOutput roundTrip;
+        ok = ok && state->save(plugin, &roundTrip.stream)
+            && roundTrip.bytes.size() >= sizeof(SavedStateV4Record);
+        if (ok) {
+            SavedStateV4Record record;
+            std::memcpy(&record, roundTrip.bytes.data(), sizeof(record));
+            ok = record.version == kCurrentStateVersion
+                && record.cueValidMask == 3u;
+        }
     }
 
     if (plugin) {

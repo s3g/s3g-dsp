@@ -37,14 +37,20 @@ enum class DoublesEventKind : uint8_t {
     DragAOff,
     DragBOn,
     DragBOff,
+    SetCueA,
+    TriggerCueA,
+    SetCueB,
+    TriggerCueB,
+    PlaceCueA,
+    PlaceCueB,
 };
 
 struct DoublesRenderEvent {
     uint32_t frameOffset = 0u;
     DoublesEventKind kind = DoublesEventKind::Restart;
     uint64_t noteId = 0u;
-    // Punch depth is MIDI velocity normalized to 0..1. SelectOffset carries
-    // its signed beat displacement here; other events ignore the value.
+    // Punch and Drag depth use MIDI velocity normalized to 0..1. SelectOffset
+    // carries its signed beat displacement here; other events ignore it.
     float value = 1.0f;
 };
 
@@ -57,6 +63,10 @@ struct DoublesSettings {
     double phaseCents = 0.0;
     double offsetBeats = 1.0;
     double phaseStepBeats = 0.25;
+    // Human cue-setting compensation in audible milliseconds. The engine
+    // converts this to source frames using the deck's instantaneous playback
+    // rate before snapping to a zero crossing.
+    double cuePrerollMilliseconds = 150.0;
     // A realtime phase displacement relative to the last applied value.
     // Restart/Sync also include it in Deck B's absolute source-beat offset.
     double livePhaseBeats = 0.0;
@@ -83,6 +93,9 @@ struct DoublesSettings {
             && offsetBeats >= -8.0 && offsetBeats <= 8.0
             && std::isfinite(phaseStepBeats)
             && phaseStepBeats >= 0.015625 && phaseStepBeats <= 4.0
+            && std::isfinite(cuePrerollMilliseconds)
+            && cuePrerollMilliseconds >= 0.0
+            && cuePrerollMilliseconds <= 1000.0
             && std::isfinite(livePhaseBeats)
             && livePhaseBeats >= -1.0 && livePhaseBeats <= 1.0
             && std::isfinite(start) && start >= 0.0 && start <= 1.0
@@ -120,6 +133,10 @@ constexpr uint8_t kDoublesMidiDragA = 46u;
 constexpr uint8_t kDoublesMidiDragB = 47u;
 constexpr uint8_t kDoublesMidiFirstOffset = 48u;
 constexpr uint8_t kDoublesMidiLastOffset = 60u;
+constexpr uint8_t kDoublesMidiSetCueA = 61u;
+constexpr uint8_t kDoublesMidiTriggerCueA = 62u;
+constexpr uint8_t kDoublesMidiSetCueB = 63u;
+constexpr uint8_t kDoublesMidiTriggerCueB = 64u;
 
 constexpr uint8_t kDoublesMidiCcCrossfader = 16u;
 constexpr uint8_t kDoublesMidiCcDeckALevel = 17u;
@@ -185,8 +202,10 @@ public:
         punchB_ = {};
         deckA_.dragHeld = false;
         deckA_.dragNoteId = 0u;
+        deckA_.dragDepth = 0.0;
         deckB_.dragHeld = false;
         deckB_.dragNoteId = 0u;
+        deckB_.dragDepth = 0.0;
     }
 
     bool setAsset(const SampleAsset* asset) noexcept
@@ -215,7 +234,24 @@ public:
     bool dragBHeld() const noexcept { return deckB_.dragHeld; }
     double deckARateScale() const noexcept { return deckA_.dragScale; }
     double deckBRateScale() const noexcept { return deckB_.dragScale; }
+    bool deckACueValid() const noexcept { return deckA_.cueValid; }
+    bool deckBCueValid() const noexcept { return deckB_.cueValid; }
+    float deckACueNormalized() const noexcept
+    {
+        return normalizedCue(deckA_);
+    }
+    float deckBCueNormalized() const noexcept
+    {
+        return normalizedCue(deckB_);
+    }
     float outputPeak() const noexcept { return outputPeak_; }
+
+    void restoreCuePoints(float cueA, float cueB,
+        uint8_t validMask) noexcept
+    {
+        restoreCue(deckA_, cueA, (validMask & 1u) != 0u);
+        restoreCue(deckB_, cueB, (validMask & 2u) != 0u);
+    }
 
     float deckAPositionNormalized() const noexcept
     {
@@ -337,8 +373,11 @@ private:
     struct Deck {
         double position = 0.0;
         bool active = false;
+        double cuePosition = 0.0;
+        bool cueValid = false;
         bool dragHeld = false;
         uint64_t dragNoteId = 0u;
+        double dragDepth = 0.0;
         double dragScale = 1.0;
     };
 
@@ -359,6 +398,28 @@ private:
         if (!asset_ || asset_->frameCount() == 0u) return -1.0f;
         return static_cast<float>(std::clamp(deck.position
             / static_cast<double>(asset_->frameCount()), 0.0, 1.0));
+    }
+
+    float normalizedCue(const Deck& deck) const noexcept
+    {
+        if (!deck.cueValid || !asset_ || asset_->frameCount() == 0u)
+            return -1.0f;
+        return static_cast<float>(std::clamp(deck.cuePosition
+            / static_cast<double>(asset_->frameCount()), 0.0, 1.0));
+    }
+
+    void restoreCue(Deck& deck, float normalized, bool valid) noexcept
+    {
+        deck.cueValid = valid && asset_ && asset_->frameCount() > 0u
+            && std::isfinite(normalized) && normalized >= 0.0f
+            && normalized <= 1.0f;
+        if (!deck.cueValid) {
+            deck.cuePosition = 0.0;
+            return;
+        }
+        deck.cuePosition = std::clamp(static_cast<double>(normalized)
+                * static_cast<double>(asset_->frameCount()), 0.0,
+            static_cast<double>(asset_->frameCount() - 1u));
     }
 
     Bounds resolvedBounds(const DoublesSettings& settings) const noexcept
@@ -480,21 +541,26 @@ private:
         playing_ = deckA_.active || deckB_.active;
     }
 
-    static void setDrag(Deck& deck, bool held, uint64_t noteId) noexcept
+    static void setDrag(Deck& deck, bool held, uint64_t noteId,
+        float depth = 1.0f) noexcept
     {
         if (held) {
             deck.dragHeld = true;
             deck.dragNoteId = noteId;
+            deck.dragDepth = std::clamp(
+                static_cast<double>(depth), 0.0, 1.0);
         } else if (noteId == 0u || deck.dragNoteId == 0u
             || deck.dragNoteId == noteId) {
             deck.dragHeld = false;
             deck.dragNoteId = 0u;
+            deck.dragDepth = 0.0;
         }
     }
 
     void updateDrag(Deck& deck) const noexcept
     {
-        const double target = deck.dragHeld ? kHeldDragScale : 1.0;
+        const double target = deck.dragHeld
+            ? 1.0 - deck.dragDepth * (1.0 - kHeldDragScale) : 1.0;
         const double seconds = deck.dragHeld
             ? kDragDownSeconds : kMotorRecoverySeconds;
         const double smoothing = 1.0 - std::exp(-1.0
@@ -502,6 +568,163 @@ private:
         deck.dragScale += smoothing * (target - deck.dragScale);
         deck.dragScale = std::clamp(deck.dragScale,
             kHeldDragScale, 1.0);
+    }
+
+    double nearestZeroCrossing(double position,
+        const Bounds& bounds) const noexcept
+    {
+        if (!asset_ || bounds.end <= bounds.start + 1u)
+            return static_cast<double>(bounds.start);
+        const uint32_t lastPair = bounds.end - 2u;
+        const uint32_t center = std::clamp(static_cast<uint32_t>(
+            std::floor(std::max(0.0, position))), bounds.start, lastPair);
+        constexpr uint32_t kMaximumSearchFrames = 16384u;
+        const uint32_t maximumRadius = std::min<uint32_t>(
+            kMaximumSearchFrames, std::max(center - bounds.start,
+                lastPair - center));
+
+        const auto crossingAt = [&](uint32_t frame,
+                                    double& crossing,
+                                    double& distance,
+                                    double& residual) noexcept {
+            bool found = false;
+            distance = 0.0;
+            residual = 0.0;
+            for (uint8_t reference = 0u;
+                 reference < asset_->channelCount; ++reference) {
+                const auto& samples = asset_->channels[reference];
+                const double first = samples[frame];
+                const double second = samples[frame + 1u];
+                if (!std::isfinite(first) || !std::isfinite(second)
+                    || !((first <= 0.0 && second >= 0.0)
+                        || (first >= 0.0 && second <= 0.0))) continue;
+                const double denominator = std::abs(first)
+                    + std::abs(second);
+                const double fraction = denominator > 1.0e-15
+                    ? std::abs(first) / denominator : 0.0;
+                double candidateResidual = 0.0;
+                for (uint8_t channel = 0u;
+                     channel < asset_->channelCount; ++channel) {
+                    const auto& other = asset_->channels[channel];
+                    const double value = static_cast<double>(other[frame])
+                        + (static_cast<double>(other[frame + 1u])
+                            - static_cast<double>(other[frame])) * fraction;
+                    candidateResidual = std::max(candidateResidual,
+                        std::abs(value));
+                }
+                const double candidate = static_cast<double>(frame)
+                    + fraction;
+                const double candidateDistance = std::abs(
+                    candidate - position);
+                if (!found || candidateDistance < distance
+                    || (candidateDistance == distance
+                        && candidateResidual < residual)) {
+                    found = true;
+                    crossing = candidate;
+                    distance = candidateDistance;
+                    residual = candidateResidual;
+                }
+            }
+            return found;
+        };
+
+        bool found = false;
+        double best = static_cast<double>(center);
+        double bestDistance = 0.0;
+        double bestResidual = 0.0;
+        for (uint32_t radius = 0u; radius <= maximumRadius; ++radius) {
+            const auto consider = [&](uint32_t frame) noexcept {
+                double crossing = 0.0;
+                double distance = 0.0;
+                double residual = 0.0;
+                if (!crossingAt(frame, crossing, distance, residual))
+                    return;
+                if (!found || distance < bestDistance
+                    || (distance == bestDistance
+                        && residual < bestResidual)) {
+                    found = true;
+                    best = crossing;
+                    bestDistance = distance;
+                    bestResidual = residual;
+                }
+            };
+            if (radius == 0u) {
+                consider(center);
+            } else {
+                if (radius <= center - bounds.start)
+                    consider(center - radius);
+                if (radius <= lastPair - center)
+                    consider(center + radius);
+            }
+            if (!found) continue;
+
+            // A crossing in an unvisited pair cannot be closer than the near
+            // edge of that pair. Stop as soon as both remaining directions
+            // are no better than the best interpolated crossing seen so far.
+            double nearestUnvisited = std::numeric_limits<double>::infinity();
+            const uint32_t nextRadius = radius + 1u;
+            if (nextRadius <= center - bounds.start) {
+                nearestUnvisited = std::min(nearestUnvisited,
+                    std::max(0.0, position
+                        - static_cast<double>(center - radius)));
+            }
+            if (nextRadius <= lastPair - center) {
+                nearestUnvisited = std::min(nearestUnvisited,
+                    std::max(0.0, static_cast<double>(center + nextRadius)
+                        - position));
+            }
+            if (bestDistance <= nearestUnvisited) return best;
+        }
+        if (found) return best;
+
+        // DC or an exceptionally long half-cycle has no crossing in the
+        // bounded realtime search. Retain a deterministic cue at the current
+        // source frame rather than scanning an unbounded file on the audio
+        // callback.
+        return static_cast<double>(center);
+    }
+
+    void setCue(Deck& deck, const DoublesSettings& settings,
+        const Bounds& bounds, bool deckB) noexcept
+    {
+        deck.cueValid = false;
+        double rate = std::pow(2.0, settings.speedSemitones / 12.0)
+            * deck.dragScale;
+        if (deckB)
+            rate *= std::pow(2.0, settings.phaseCents / 1200.0);
+        const double lookback = asset_->sampleRate * rate
+            * settings.cuePrerollMilliseconds * 0.001;
+        double target = deck.position - lookback;
+        if (settings.loop) target = wrapPosition(target, bounds);
+        else target = std::clamp(target,
+            static_cast<double>(bounds.start),
+            static_cast<double>(bounds.end - 1u));
+        deck.cuePosition = nearestZeroCrossing(target, bounds);
+        deck.cueValid = true;
+    }
+
+    void triggerCue(Deck& deck, const DoublesSettings& settings,
+        const Bounds& bounds) noexcept
+    {
+        if (!deck.cueValid) return;
+        deck.position = deck.cuePosition;
+        constrainDeck(deck, settings, bounds);
+        deck.active = true;
+        playing_ = true;
+    }
+
+    void placeCue(Deck& deck, float normalized,
+        const Bounds& bounds) noexcept
+    {
+        deck.cueValid = false;
+        const double requested = std::clamp(
+            static_cast<double>(normalized), 0.0, 1.0)
+            * static_cast<double>(asset_->frameCount());
+        const double target = std::clamp(requested,
+            static_cast<double>(bounds.start),
+            static_cast<double>(bounds.end - 1u));
+        deck.cuePosition = nearestZeroCrossing(target, bounds);
+        deck.cueValid = true;
     }
 
     void phaseStep(const DoublesSettings& settings, const Bounds& bounds,
@@ -533,8 +756,10 @@ private:
             punchB_ = {};
             deckA_.dragHeld = false;
             deckA_.dragNoteId = 0u;
+            deckA_.dragDepth = 0.0;
             deckB_.dragHeld = false;
             deckB_.dragNoteId = 0u;
+            deckB_.dragDepth = 0.0;
             break;
         case DoublesEventKind::Play:
             play(settings, bounds);
@@ -579,16 +804,34 @@ private:
             toggleDeck(true, settings, bounds);
             break;
         case DoublesEventKind::DragAOn:
-            setDrag(deckA_, true, event.noteId);
+            setDrag(deckA_, true, event.noteId, event.value);
             break;
         case DoublesEventKind::DragAOff:
             setDrag(deckA_, false, event.noteId);
             break;
         case DoublesEventKind::DragBOn:
-            setDrag(deckB_, true, event.noteId);
+            setDrag(deckB_, true, event.noteId, event.value);
             break;
         case DoublesEventKind::DragBOff:
             setDrag(deckB_, false, event.noteId);
+            break;
+        case DoublesEventKind::SetCueA:
+            setCue(deckA_, settings, bounds, false);
+            break;
+        case DoublesEventKind::TriggerCueA:
+            triggerCue(deckA_, settings, bounds);
+            break;
+        case DoublesEventKind::SetCueB:
+            setCue(deckB_, settings, bounds, true);
+            break;
+        case DoublesEventKind::TriggerCueB:
+            triggerCue(deckB_, settings, bounds);
+            break;
+        case DoublesEventKind::PlaceCueA:
+            placeCue(deckA_, event.value, bounds);
+            break;
+        case DoublesEventKind::PlaceCueB:
+            placeCue(deckB_, event.value, bounds);
             break;
         }
     }
