@@ -577,13 +577,17 @@ int main()
                 break;
             }
         }
+        NSMenuItem* midiControlItem = sequenceMenu.itemArray.lastObject;
         check(sequenceMenu.numberOfItems
                     == static_cast<NSInteger>(
-                        s3g::tracker::sequencerActionCount() + 5u)
+                        s3g::tracker::sequencerActionCount() + 7u)
                 && sequenceMenu.font != nil && flamItem != nil
                 && [flamItem.title containsString:@"FL"]
-                && [flamItem.title containsString:@"FLAM"],
-            "SEQ context menu should expose every named sequencing action");
+                && [flamItem.title containsString:@"FLAM"]
+                && midiControlItem.submenu.numberOfItems == 4u
+                && midiControlItem.submenu.itemArray[0u]
+                    .submenu.numberOfItems == 32u,
+            "SEQ context menu should expose every named action and MIDI CC");
         [grid.documentView sequenceActionSelected:flamItem];
         const auto& chosenPair = state.session.pattern.tracks[0u].fxPairs[0u];
         check(chosenPair.actions.size() > 4u

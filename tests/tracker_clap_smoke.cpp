@@ -279,6 +279,20 @@ NSWindow* visibleWindow(NSString* title)
     return nil;
 }
 
+NSWindow* waitForOrderedDetachedWindow(NSString* title, NSWindow* parent)
+{
+    NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:0.5];
+    do {
+        NSWindow* window = visibleWindow(title);
+        if (window && window.parentWindow == parent
+            && window.level > parent.level && window.hidesOnDeactivate)
+            return window;
+        [[NSRunLoop currentRunLoop] runUntilDate:
+            [NSDate dateWithTimeIntervalSinceNow:0.01]];
+    } while ([deadline timeIntervalSinceNow] > 0.0);
+    return visibleWindow(title);
+}
+
 NSView* findAccessibleView(NSView* root, NSString* accessibilityLabel)
 {
     if ([root.accessibilityLabel isEqualToString:accessibilityLabel])
@@ -849,8 +863,8 @@ int main(int argc, char** argv)
                 }
                 const bool consoleDetached = clickButton(parent, nil,
                     @"Detach selected tool page", nil);
-                NSWindow* detachedConsole = visibleWindow(
-                    @"s3g Tracker — Console");
+                NSWindow* detachedConsole = waitForOrderedDetachedWindow(
+                    @"s3g Tracker — Console", hostWindow);
                 ok &= expect(consoleSelected && consoleCommandWorked
                         && consoleDetached && detachedConsole != nil
                         && detachedConsole.parentWindow == hostWindow
@@ -905,8 +919,8 @@ int main(int argc, char** argv)
                         && clickButton(parent, nil,
                             @"Detach selected tool page", nil),
                     "Help symbol reference, example styling, or detach action is incomplete");
-                NSWindow* detachedHelp = visibleWindow(
-                    @"s3g Tracker — Help");
+                NSWindow* detachedHelp = waitForOrderedDetachedWindow(
+                    @"s3g Tracker — Help", hostWindow);
                 ok &= expect(detachedHelp != nil
                         && detachedHelp.parentWindow == hostWindow
                         && detachedHelp.level > hostWindow.level

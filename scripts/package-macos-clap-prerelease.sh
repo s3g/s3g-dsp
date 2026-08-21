@@ -9,7 +9,7 @@ legacy_manifest="$repo_root/scripts/clap-legacy-bundles.tsv"
 manifest_checker="$repo_root/scripts/check-clap-bundle-manifest.py"
 objc_symbol_checker="$repo_root/scripts/check-clap-objc-symbols.py"
 package_verifier="$repo_root/scripts/verify-macos-clap-package.py"
-release_version="${S3G_RELEASE_VERSION:-0.7.0-pre}"
+release_version="${S3G_RELEASE_VERSION:-0.8.0-pre}"
 release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
 codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
 allow_dirty="${S3G_PACKAGE_ALLOW_DIRTY:-0}"
@@ -17,7 +17,8 @@ package_name="${1:-s3g-dsp-macos-clap-$release_version}"
 final_staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 checksum_path="$zip_path.sha256"
-expected_bundle_count=125
+expected_bundle_count=127
+expected_descriptor_count=130
 
 codesign_args=(--force --deep --sign "$codesign_identity")
 if [[ "$codesign_identity" != "-" ]]; then
@@ -192,6 +193,7 @@ done
 python3 "$package_verifier" "$staging" \
   --fix-bundle-metadata \
   --expected-count "$expected_bundle_count" \
+  --expected-descriptor-count "$expected_descriptor_count" \
   --reference-manifest "$manifest" \
   --reference-legacy-manifest "$legacy_manifest"
 
@@ -338,6 +340,7 @@ EOF
 
 (python3 "$package_verifier" "$staging" \
   --expected-count "$expected_bundle_count" \
+  --expected-descriptor-count "$expected_descriptor_count" \
   --release-version "$release_version" \
   --reference-manifest "$manifest" \
   --reference-legacy-manifest "$legacy_manifest")
@@ -345,6 +348,7 @@ EOF
 (cd "$package_work_root" && zip -qry "$candidate_zip" "$package_name")
 python3 "$package_verifier" "$candidate_zip" \
   --expected-count "$expected_bundle_count" \
+  --expected-descriptor-count "$expected_descriptor_count" \
   --release-version "$release_version" \
   --reference-manifest "$manifest" \
   --reference-legacy-manifest "$legacy_manifest"

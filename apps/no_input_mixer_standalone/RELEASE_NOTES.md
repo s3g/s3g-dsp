@@ -1,3 +1,19 @@
+# s3g No Input Mixer 0.8.0-pre
+
+Apple silicon macOS standalone pre-release, prepared August 21, 2026.
+
+## Asset
+
+- `s3g-no-input-mixer-app-macos-arm64-0.8.0-pre.zip`
+
+## Highlights
+
+- Updates the embedded No Input Mixer core and its saved-state migration while preserving the safe direct eight-channel default for existing sessions.
+- Retains safe-muted launch, Stereo and Quad Autogain monitoring, direct eight-channel output, selectable CoreMIDI input and feedback destinations, embedded NIM Gesture, and the identity-verified user-level installer.
+- Rebuilds the standalone application and distribution metadata against the s3g-dsp 0.8.0 release baseline.
+
+---
+
 # s3g No Input Mixer 0.7.0-pre
 
 Apple silicon macOS standalone pre-release, released August 14, 2026.

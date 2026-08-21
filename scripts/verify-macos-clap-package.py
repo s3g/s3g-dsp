@@ -20,7 +20,8 @@ import tempfile
 import zipfile
 
 
-EXPECTED_BUNDLE_COUNT = 125
+EXPECTED_BUNDLE_COUNT = 127
+EXPECTED_DESCRIPTOR_COUNT = 130
 INSTALLER_NAME = "Install s3g-dsp CLAPs.command"
 MANIFEST_RELATIVE_PATH = Path("Installer Data") / "clap-bundles.tsv"
 LEGACY_MANIFEST_RELATIVE_PATH = Path("Installer Data") / "clap-legacy-bundles.tsv"
@@ -106,8 +107,8 @@ def decode(value: bytes | None, label: str) -> str:
         fail(f"CLAP descriptor {label} is not UTF-8: {exc}")
 
 
-def inspect_descriptor(binary: Path, expected_id: str) -> dict[str, str]:
-    """Load one binary and return its matching CLAP descriptor metadata."""
+def inspect_descriptors(binary: Path) -> list[dict[str, str]]:
+    """Load one binary and return every descriptor published by its factory."""
 
     try:
         library = ctypes.CDLL(str(binary), mode=ctypes.RTLD_LOCAL)
@@ -127,31 +128,53 @@ def inspect_descriptor(binary: Path, expected_id: str) -> dict[str, str]:
             factory_address, ctypes.POINTER(ClapPluginFactory)
         ).contents
         count = factory.get_plugin_count(factory_address)
+        if count < 1:
+            fail(f"CLAP plugin factory is empty: {binary}")
+        descriptors: list[dict[str, str]] = []
+        seen_ids: set[str] = set()
         for index in range(count):
             descriptor_pointer = factory.get_plugin_descriptor(factory_address, index)
             if not descriptor_pointer:
                 fail(f"CLAP factory returned a null descriptor at index {index}: {binary}")
             descriptor = descriptor_pointer.contents
             plugin_id = decode(descriptor.id, "ID")
-            if plugin_id == expected_id:
-                return {
-                    "id": plugin_id,
-                    "name": decode(descriptor.name, "name"),
-                    "version": decode(descriptor.version, "version"),
-                }
-        fail(f"CLAP descriptor {expected_id!r} is absent from {binary}")
+            name = decode(descriptor.name, "name")
+            version = decode(descriptor.version, "version")
+            if not plugin_id or not name or not version:
+                fail(f"CLAP factory returned an empty descriptor field at index {index}: {binary}")
+            if not SAFE_VERSION_RE.fullmatch(version):
+                fail(f"CLAP descriptor {plugin_id!r} has unsafe version {version!r}: {binary}")
+            if plugin_id in seen_ids:
+                fail(f"CLAP factory returned duplicate descriptor ID {plugin_id!r}: {binary}")
+            seen_ids.add(plugin_id)
+            descriptors.append({"id": plugin_id, "name": name, "version": version})
+        return descriptors
     finally:
         if initialized:
             entry.deinit()
 
 
-def inspect_descriptor_subprocess(binary: Path, expected_id: str) -> dict[str, str]:
+def descriptor_by_id(
+    descriptors: list[dict[str, str]], expected_id: str, binary: Path
+) -> dict[str, str]:
+    for descriptor in descriptors:
+        if descriptor.get("id") == expected_id:
+            return descriptor
+    fail(f"CLAP descriptor {expected_id!r} is absent from {binary}")
+
+
+def inspect_descriptor(binary: Path, expected_id: str) -> dict[str, str]:
+    """Load one binary and return its matching CLAP descriptor metadata."""
+
+    return descriptor_by_id(inspect_descriptors(binary), expected_id, binary)
+
+
+def inspect_descriptors_subprocess(binary: Path) -> list[dict[str, str]]:
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
-        "--inspect-descriptor",
+        "--inspect-descriptors",
         str(binary),
-        expected_id,
     ]
     result = subprocess.run(command, check=False, capture_output=True, text=True)
     if result.returncode != 0:
@@ -161,9 +184,42 @@ def inspect_descriptor_subprocess(binary: Path, expected_id: str) -> dict[str, s
         value = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         fail(f"descriptor inspector returned invalid JSON for {binary}: {exc}")
-    if not isinstance(value, dict):
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         fail(f"descriptor inspector returned invalid metadata for {binary}")
-    return {str(key): str(item) for key, item in value.items()}
+    return [
+        {str(key): str(item) for key, item in descriptor.items()}
+        for descriptor in value
+    ]
+
+
+def inspect_descriptor_subprocess(binary: Path, expected_id: str) -> dict[str, str]:
+    return descriptor_by_id(inspect_descriptors_subprocess(binary), expected_id, binary)
+
+
+def validate_descriptor_inventory(
+    inventory: list[tuple[str, dict[str, str]]], expected_count: int
+) -> None:
+    if len(inventory) != expected_count:
+        fail(
+            f"package exposes {len(inventory)} runtime CLAP descriptors, "
+            f"expected {expected_count}"
+        )
+    owners_by_id: dict[str, str] = {}
+    for owner, descriptor in inventory:
+        plugin_id = descriptor.get("id", "")
+        name = descriptor.get("name", "")
+        version = descriptor.get("version", "")
+        if not plugin_id or not name or not version:
+            fail(f"{owner}: runtime CLAP descriptor has an empty ID, name, or version")
+        if not SAFE_VERSION_RE.fullmatch(version):
+            fail(f"{owner}: runtime CLAP descriptor {plugin_id!r} has unsafe version {version!r}")
+        prior_owner = owners_by_id.get(plugin_id)
+        if prior_owner is not None:
+            fail(
+                f"runtime CLAP descriptor ID {plugin_id!r} is duplicated in "
+                f"{prior_owner} and {owner}"
+            )
+        owners_by_id[plugin_id] = owner
 
 
 def safe_bundle_filename(value: str) -> bool:
@@ -279,7 +335,7 @@ def verify_bundle(
     check_architecture: bool,
     check_signature: bool,
     check_descriptor: bool,
-) -> str:
+) -> tuple[str, list[dict[str, str]]]:
     bundle_path = package_root / bundle.installed_name
     if not bundle_path.is_dir() or bundle_path.is_symlink():
         fail(f"missing or unsafe packaged bundle: {bundle_path}")
@@ -323,8 +379,10 @@ def verify_bundle(
             ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle_path)],
             f"signature check for {bundle_path}",
         )
+    descriptors: list[dict[str, str]] = []
     if check_descriptor:
-        descriptor = inspect_descriptor_subprocess(executable, bundle.plugin_id)
+        descriptors = inspect_descriptors_subprocess(executable)
+        descriptor = descriptor_by_id(descriptors, bundle.plugin_id, executable)
         if descriptor.get("id") != bundle.plugin_id:
             fail(f"{bundle_path}: CLAP descriptor ID does not match the manifest")
         if descriptor.get("name") != bundle.host_name:
@@ -337,10 +395,12 @@ def verify_bundle(
                 f"{bundle_path}: CLAP descriptor version {descriptor.get('version')!r} "
                 f"!= Info.plist version {short_version!r}"
             )
-    return short_version
+    return short_version, descriptors
 
 
-def synchronize_bundle_version(package_root: Path, bundle: Bundle) -> str:
+def synchronize_bundle_version(
+    package_root: Path, bundle: Bundle
+) -> tuple[str, list[dict[str, str]]]:
     """Set unsigned staged Info.plist versions from the runtime descriptor."""
 
     bundle_path = package_root / bundle.installed_name
@@ -366,7 +426,8 @@ def synchronize_bundle_version(package_root: Path, bundle: Bundle) -> str:
     if executable.is_symlink() or not executable.is_file() or not os.access(executable, os.X_OK):
         fail(f"missing or non-executable staged binary: {executable}")
 
-    descriptor = inspect_descriptor_subprocess(executable, bundle.plugin_id)
+    descriptors = inspect_descriptors_subprocess(executable)
+    descriptor = descriptor_by_id(descriptors, bundle.plugin_id, executable)
     if descriptor.get("id") != bundle.plugin_id or descriptor.get("name") != bundle.host_name:
         fail(f"refusing to modify staged metadata for a mismatched descriptor: {bundle_path}")
     descriptor_version = descriptor.get("version", "")
@@ -386,7 +447,7 @@ def synchronize_bundle_version(package_root: Path, bundle: Bundle) -> str:
         except OSError:
             pass
         fail(f"cannot update staged version metadata in {plist_path}: {exc}")
-    return descriptor_version
+    return descriptor_version, descriptors
 
 
 def validate_expected_bundle_set(package_root: Path, bundles: list[Bundle]) -> None:
@@ -437,11 +498,17 @@ def fix_bundle_metadata(args: argparse.Namespace) -> int:
     compare_reference_manifests(package_root, args)
     validate_expected_bundle_set(package_root, bundles)
     versions: dict[str, int] = {}
+    descriptor_inventory: list[tuple[str, dict[str, str]]] = []
     for bundle in bundles:
-        version = synchronize_bundle_version(package_root, bundle)
+        version, descriptors = synchronize_bundle_version(package_root, bundle)
         versions[version] = versions.get(version, 0) + 1
+        descriptor_inventory.extend((bundle.installed_name, descriptor) for descriptor in descriptors)
+    validate_descriptor_inventory(descriptor_inventory, args.expected_descriptor_count)
     summary = ", ".join(f"{version}={count}" for version, count in sorted(versions.items()))
-    print(f"synchronized {len(bundles)} staged bundle versions from CLAP descriptors: {summary}")
+    print(
+        f"synchronized {len(bundles)} staged bundle versions; verified "
+        f"{len(descriptor_inventory)} runtime CLAP descriptors: {summary}"
+    )
     return 0
 
 
@@ -507,8 +574,9 @@ def verify_package(args: argparse.Namespace) -> int:
         validate_expected_bundle_set(package_root, bundles)
 
         versions: dict[str, int] = {}
+        descriptor_inventory: list[tuple[str, dict[str, str]]] = []
         for bundle in bundles:
-            version = verify_bundle(
+            version, descriptors = verify_bundle(
                 package_root,
                 bundle,
                 check_architecture=not args.skip_architecture,
@@ -516,6 +584,14 @@ def verify_package(args: argparse.Namespace) -> int:
                 check_descriptor=not args.skip_descriptor,
             )
             versions[version] = versions.get(version, 0) + 1
+            descriptor_inventory.extend(
+                (bundle.installed_name, descriptor) for descriptor in descriptors
+            )
+
+        if not args.skip_descriptor:
+            validate_descriptor_inventory(
+                descriptor_inventory, args.expected_descriptor_count
+            )
 
         verify_readme(package_root, args.release_version, len(bundles))
         if not args.skip_installer_dry_run:
@@ -528,7 +604,13 @@ def verify_package(args: argparse.Namespace) -> int:
     version_label = "descriptor/Info" if not args.skip_descriptor else "Info.plist"
     print(
         f"macOS CLAP package verification passed: {len(bundles)} "
-        f"{architecture_label}bundles; {version_label} versions: {version_summary}"
+        f"{architecture_label}bundles"
+        + (
+            f", {len(descriptor_inventory)} runtime descriptors"
+            if not args.skip_descriptor
+            else ""
+        )
+        + f"; {version_label} versions: {version_summary}"
     )
     return 0
 
@@ -537,6 +619,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", nargs="?", type=Path, help="staging directory or .zip archive")
     parser.add_argument("--expected-count", type=int, default=EXPECTED_BUNDLE_COUNT)
+    parser.add_argument(
+        "--expected-descriptor-count", type=int, default=EXPECTED_DESCRIPTOR_COUNT
+    )
     parser.add_argument("--release-version")
     parser.add_argument("--reference-manifest", type=Path)
     parser.add_argument("--reference-legacy-manifest", type=Path)
@@ -558,11 +643,23 @@ def parse_args() -> argparse.Namespace:
         metavar=("BINARY", "PLUGIN_ID"),
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--inspect-descriptors",
+        nargs=1,
+        metavar=("BINARY",),
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
-    if args.inspect_descriptor is None and args.package is None:
+    if (
+        args.inspect_descriptor is None
+        and args.inspect_descriptors is None
+        and args.package is None
+    ):
         parser.error("package is required")
     if args.expected_count < 1:
         parser.error("--expected-count must be positive")
+    if args.expected_descriptor_count < 1:
+        parser.error("--expected-descriptor-count must be positive")
     return args
 
 
@@ -572,6 +669,10 @@ def main() -> int:
         if args.inspect_descriptor is not None:
             binary, plugin_id = args.inspect_descriptor
             print(json.dumps(inspect_descriptor(Path(binary), plugin_id), sort_keys=True))
+            return 0
+        if args.inspect_descriptors is not None:
+            (binary,) = args.inspect_descriptors
+            print(json.dumps(inspect_descriptors(Path(binary)), sort_keys=True))
             return 0
         if args.fix_bundle_metadata:
             return fix_bundle_metadata(args)

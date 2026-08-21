@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Collection and default bundle version. Individual targets and CLAP
 # descriptors may keep component-scoped versions and advance independently.
-project(s3g_dsp VERSION 0.7.0 LANGUAGES CXX)
+project(s3g_dsp VERSION 0.8.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -572,6 +572,9 @@ if(BUILD_TESTING)
     add_test(NAME nim_app_package_verifier_unit
       COMMAND ${Python3_EXECUTABLE} -m unittest
         tests/test_verify_macos_nim_app_package.py)
+    add_test(NAME clap_package_verifier_unit
+      COMMAND ${Python3_EXECUTABLE} -m unittest
+        tests/test_verify_macos_clap_package.py)
     set_tests_properties(
       clap_bundle_manifest_source_audit
       docs_static_audit
@@ -579,6 +582,7 @@ if(BUILD_TESTING)
       realtime_release_gates_runner_unit
       validator_manifest_runner_unit
       non_nim_release_checks_runner_unit
+      clap_package_verifier_unit
       PROPERTIES
         LABELS "non_nim;structural"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
