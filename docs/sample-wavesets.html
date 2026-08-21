@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sample Wavesets - s3g-dsp</title>
-    <meta name="description" content="User guide for the Sample Wavesets two-deck stereo instrument.">
+    <meta name="description" content="User guide for the stereo and trigger-routed 32-channel Sample Wavesets instruments.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,109 +27,162 @@
       <main class="content" id="content">
         <h1>Sample Wavesets</h1>
 
-        <p><code>Sample Wavesets</code> loads one mono or stereo recording into two free-running waveset decks. Both decks use the same analyzed source but retain independent positions, speeds, levels, phases, and play states. Shared waveset controls determine how groups are repeated and transformed; a continuous crossfader cuts or blends between the two results.</p>
+        <p><code>Sample Wavesets 2</code> and <code>Sample Wavesets 32</code> read one mono or stereo recording as short groups of rising-crossing cycles. Both follow the familiar Sample Player layout: one source waveform, Start and End boundaries, a Loop Start and Loop End region, chromatic MIDI playback, and selectable play and voice modes. Wavesets 2 has a fixed stereo output. Wavesets 32 assigns each newly triggered voice to a channel or stereo pair within a user-selected 2–32-channel routing width while retaining one fixed 32-channel host port.</p>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-wavesets.png" aria-label="Open the high-resolution Sample Wavesets interface screenshot">
-              <img src="assets/plugin-guis/sample-wavesets.png" alt="Sample Wavesets interface with two copies of one waveform, cyan and orange deck cursors, waveset processing controls, independent deck transports, and a crossfader" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-wavesets.png" aria-label="Open the high-resolution Sample Wavesets 2 interface screenshot">
+              <img src="assets/plugin-guis/sample-wavesets.png" alt="Sample Wavesets 2 interface with a numbered stereo waveform, playback and loop markers, three labeled note playheads, a two-lane waveset scope, voice controls, and Play and Stop buttons" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Deck A and Deck B share one crossing map. Their cyan and orange cursors move independently while the lower crossfader selects or combines the two waveset streams.</figcaption>
+          <figcaption>The stereo waveform remains visible across the full source, with four draggable range markers and a labeled playhead for every active note. The scope follows the newest-triggered voice, overlays its ordered source group in gray with the processed result in color, preserves the measured duration of each cycle, and marks the live cycle phase.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Press <code>LOAD</code> or drop a mono or stereo file on the overview. Leave <code>EMBED</code> enabled to store decoded audio with project state, or choose <code>PATHS</code> to retain only the file location.</li>
-          <li>Route its fixed stereo output to the intended speakers or monitor path.</li>
-          <li>Choose <code>DETAIL</code>. Raw follows every eligible crossing; the frequency choices low-pass only the analysis reference, producing progressively longer and more stable units without filtering the audible sample.</li>
-          <li>Set <code>GROUP</code> large enough that the source remains recognizable, then use <code>REPEAT</code> to expose its internal cycles.</li>
-          <li>Choose <code>TIME: STRETCH</code> to retain every successive group, <code>PRESERVE</code> to skip ahead in proportion to Repeat, or <code>HOLD</code> to remain on one group.</li>
-          <li>Set <code>STRIDE</code> and <code>ORDER</code>. Stride controls movement between source groups; Order changes cycle order inside each group without changing the overall source direction.</li>
-          <li>Set the initial <code>POSITION</code>, <code>SPEED</code>, and <code>LEVEL</code> for Deck A and Deck B. A click or drag in either waveform row moves that deck directly.</li>
-          <li>Use each deck's <code>PLAY/PAUSE</code>, <code>STOP</code>, and <code>RESTART</code> buttons. <code>LINK</code> makes either deck transport address both; the shared transport always addresses both.</li>
-          <li>Move the crossfader toward A or B, and choose Cut, Sharp, or Blend as the response.</li>
-          <li>Choose <code>PROCESS</code> and raise <code>DEPTH</code>. Use <code>JOIN</code> to reduce boundary steps between repeated pseudo-cycles.</li>
+          <li>Choose Sample Wavesets 2 for stereo playback or Sample Wavesets 32 when notes should be distributed across a multichannel destination. Press <code>LOAD SAMPLE</code> or drop a mono or stereo file on the waveform. Leave <code>EMBED ON</code> enabled to store decoded audio in project state, or choose <code>EMBED OFF</code> to retain only the file location.</li>
+          <li>Route Wavesets 2 to a stereo monitor path. For Wavesets 32, set the host track to 32 channels, select an active <code>OUTPUTS</code> width from 2–32, and route the required portion of that bus.</li>
+          <li>Drag <code>S</code> and <code>E</code> on the waveform, or use the Start and End sliders, to define the playable window.</li>
+          <li>Place <code>LS</code> and <code>LE</code> inside that window and choose a looped Play Mode when the region should repeat.</li>
+          <li>Choose the source interpretation, then select Poly, Mono, or Legato voice behavior and an Auto, Gate, One Shot, or Toggle trigger. In Wavesets 32, also choose mono or stereo-pair voice output, pair layout, and route order.</li>
+          <li>Set Root, Tune, and Fine, then play chromatic MIDI notes. The <code>PLAY</code> button auditions the root note; <code>STOP / KILL ALL</code> clears every voice.</li>
+          <li>Adjust Group, Repeat, Stride, Time, and Order to control how playback moves through the analyzed crossing map.</li>
+          <li>Choose a Process and raise Depth when transformation is wanted. Join reduces discontinuity at repeated cycle boundaries.</li>
         </ol>
 
-        <h2 id="analysis">Crossing Map</h2>
+        <h2 id="range">Sample Range and Play Modes</h2>
 
-        <p>A pseudo-wavecycle runs from one rising zero crossing to the next. The analyzer estimates each crossing between samples and retains that fractional position, avoiding the systematic phase error caused by rounding every boundary to an integer frame. Mono files use their single lane. For stereo files, analysis chooses the channel with the greater energy and applies that one boundary map to both lanes. This avoids inventing boundaries through stereo phase cancellation and preserves left/right timing during playback.</p>
+        <p>Start and End define the complete playable window. Loop Start and Loop End are absolute source positions constrained inside that window. The four waveform labels are handles: clicking or dragging near one moves the nearest boundary, while the matching sliders provide the same automation-ready values. Scroll over the waveform to zoom around the pointer, Shift-scroll to pan, and double-click away from a handle to fit the complete source again.</p>
 
-        <p><code>DETAIL</code> changes analysis resolution rather than the rendered tone. Raw is most sensitive to high-frequency structure. The 8 kHz, 4 kHz, 1 kHz, and 250 Hz choices progressively smooth the reference used for crossing detection, so the map tends toward longer units. Changing Detail starts a background reanalysis and retains the immutable source audio.</p>
+        <table class="readout-table">
+          <thead><tr><th>Play Mode</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Forward / Reverse</td><td>Play once from Start to End, or End to Start, and then release the voice.</td></tr>
+            <tr><td>Forward Loop / Reverse Loop</td><td>Begin at the matching edge of the playable window and wrap through the Loop Start–Loop End region.</td></tr>
+            <tr><td>Forward Ping-Pong / Reverse Ping-Pong</td><td>Begin in the named direction and reflect at the loop boundaries.</td></tr>
+          </tbody>
+        </table>
 
-        <h2 id="playback">Playback and Processing</h2>
+        <h2 id="stereo">Stereo Source Modes</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Analysis and output</th></tr></thead>
+          <tbody>
+            <tr><td>Left Mono</td><td>Derive wavesets from the left source lane and send that result equally to both output channels.</td></tr>
+            <tr><td>Right Mono</td><td>Derive wavesets from the right source lane and send that result equally to both output channels. A mono file falls back to its only lane.</td></tr>
+            <tr><td>Sum Mono</td><td>Average all loaded source lanes before crossing analysis and send the result equally to both outputs.</td></tr>
+            <tr><td>True Stereo</td><td>Use independent left and right crossing maps under one voice clock. Each output retains its corresponding source lane and stereo motion.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The waveform and scope draw one numbered lane per loaded source channel. In polyphonic playback the scope explicitly follows the newest-triggered active note; the note number beside the Process name identifies that voice. Gray shows its ordered source group and the channel color shows the processed result. The two vertical bounds enclose the group, while internal divisions retain each analyzed cycle's measured duration rather than stretching every cycle to equal width. Scroll over the scope to scale the bounded group between a compact overview and a detailed view, or double-click to fit the bounds exactly. The internal analysis document stores a crossing map for every source lane plus a summed map. Both plug-in forms share this map, engine, scope, and cursor model; only their output stage differs.</p>
+
+        <h2 id="multichannel-routing">Wavesets 32 Output Routing</h2>
+
+        <p>Wavesets 32 always reports one 32-channel output port to the host. <code>OUTPUTS</code> limits the active assignment domain to any value from 2 through 32; it does not change the physical port. This keeps project routing stable while allowing, for example, a valid eight-channel performance inside the wider bus. New voices receive a route only when triggered and keep that route until they end. Changing a routing control resets the sequence used by future triggers without moving sounding voices.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Voice Out: Mono</td><td>Every active output channel is one destination. With Outputs set to 8, triggers are assigned among channels 1–8.</td></tr>
+            <tr><td>Voice Out: Stereo Pair</td><td>Each destination uses two channels. The number of destinations is <code>floor(Outputs / 2)</code>; when Outputs is odd, the unmatched final channel remains silent.</td></tr>
+            <tr><td>Pair Map: Adjacent</td><td>Pairs are 1/2, 3/4, 5/6, and so on.</td></tr>
+            <tr><td>Pair Map: Split Banks</td><td>The active width is divided into two banks. Eight outputs give 1/5, 2/6, 3/7, and 4/8; 32 outputs give 1/17 through 16/32.</td></tr>
+            <tr><td>Sequential</td><td>Advance from the lowest destination to the highest and wrap.</td></tr>
+            <tr><td>Reverse Sequential</td><td>Advance from the highest destination to the lowest and wrap.</td></tr>
+            <tr><td>Palindrome</td><td>Move upward and downward without repeating an endpoint when direction changes.</td></tr>
+            <tr><td>Random</td><td>Choose independently on every trigger; immediate repetitions are possible.</td></tr>
+            <tr><td>Random Cycle</td><td>Visit every destination once in a shuffled order before reshuffling, without repeating the destination at the cycle boundary.</td></tr>
+          </tbody>
+        </table>
+
+        <p>True Stereo keeps the source's left and right maps separate when the voice uses a stereo pair. Left Mono, Right Mono, and Sum Mono duplicate their result across both members. A mono voice destination sums a True Stereo source. Mono and Legato voice modes advance the allocator on every accepted key press; Poly voices layer while retaining their independently assigned destinations. Each playhead flag includes the destination channel or channel pair.</p>
+
+        <h2 id="voices">Voices and MIDI</h2>
+
+        <p>MIDI notes are pitches, centered on Root. Tune moves all notes in semitones and Fine supplies cent offsets. Poly layers as many as sixteen voices. Mono replaces the active voice on each note. Legato preserves the current waveset position and amplitude while retargeting its pitch. Velocity blends between fixed level and note velocity according to the Velocity control.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Trigger</th><th>Note-off behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Auto</td><td>One-shot modes ignore note-off; loop modes release on note-off.</td></tr>
+            <tr><td>Gate</td><td>Every voice releases when its note ends.</td></tr>
+            <tr><td>One Shot</td><td>Note-off is ignored; playback follows the selected range and Play Mode.</td></tr>
+            <tr><td>Toggle</td><td>Repeated note-on alternately starts and releases the matching note.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>MIDI</code> defaults to Omni and can be restricted to channels 1–16. Attack and Release are time controls from 0–2 seconds. Every active voice has an independently moving compositor playhead with an <code>N</code> note-number flag. The neutral Sample Player cursor colors repeat across the sixteen available voices, while staggered flags keep polyphonic notes distinguishable.</p>
+
+        <h2 id="wavesets">Waveset Playback</h2>
 
         <table class="readout-table">
           <thead><tr><th>Control</th><th>Function</th></tr></thead>
           <tbody>
-            <tr><td>Time</td><td><strong>Stretch</strong> advances one Stride after all repeats. <strong>Preserve</strong> advances by Repeat × Stride, retaining approximate source duration by omitting intervening groups. <strong>Hold</strong> repeats the current group without source movement.</td></tr>
-            <tr><td>Group / Repeat</td><td>Combine 1–32 consecutive pseudo-cycles into one unit and repeat that complete group 1–16 times.</td></tr>
-            <tr><td>Stride</td><td>Move by -16 to +16 groups. Positive values follow the recording; negative values move backward; zero keeps one source group.</td></tr>
-            <tr><td>Order</td><td>Read cycles inside each group Forward, Reverse, Pendulum, or Shuffle. Source groups still follow Stride.</td></tr>
-            <tr><td>Process</td><td><strong>Repeat</strong> leaves cycles intact. <strong>Omit</strong> removes selected cycles, <strong>Replace</strong> substitutes the strongest cycle in a group, <strong>Envelope</strong> applies a cycle-synchronous Hann contour, and <strong>Harmonic</strong> multiplies the internal phase.</td></tr>
-            <tr><td>Depth</td><td>Controls the strength of Omit, Replace, Envelope, or Harmonic processing.</td></tr>
-            <tr><td>Join</td><td>Apply endpoint correction within each cycle to reduce repeated-boundary steps.</td></tr>
-            <tr><td>Deck position / speed / level</td><td>Set each deck's restart position, source-relative playback speed from 0.25× to 4×, and pre-crossfader level.</td></tr>
-            <tr><td>Crossfader / curve</td><td>Mix continuously from Deck A to Deck B. Cut gives a narrow handoff, Sharp retains a short overlap, and Blend uses an equal-power curve.</td></tr>
+            <tr><td>Detail</td><td>Raw follows eligible crossings directly. 8 kHz, 4 kHz, 1 kHz, and 250 Hz progressively smooth only the analysis signal and tend toward longer pseudo-cycles.</td></tr>
+            <tr><td>Group / Repeat</td><td>Combine 1, 2, 4, 8, 16, or 32 adjacent cycles and repeat the complete group 1–16 times.</td></tr>
+            <tr><td>Stride</td><td>Move by 1–16 groups after each repeated unit. The selected Play Mode supplies forward or reverse source direction.</td></tr>
+            <tr><td>Time</td><td><strong>Stretch</strong> advances one Stride after all repeats. <strong>Preserve</strong> advances by Repeat × Stride. <strong>Hold</strong> remains at one source group.</td></tr>
+            <tr><td>Order</td><td>Read cycles inside a group Forward, Reverse, Pendulum, or Shuffle without changing the Play Mode direction.</td></tr>
+            <tr><td>Basic Process</td><td>Repeat leaves cycles intact. Omit removes selected cycles, Replace substitutes a strong cycle, Envelope applies a cycle-synchronous contour, and Multiply makes one phase-multiplied read.</td></tr>
+            <tr><td>Average / Interpolate</td><td>Average aligns and averages every cycle in the group. Interpolate morphs each repeated cycle toward its adjacent source cycle, including a gradual change of cycle length.</td></tr>
+            <tr><td>Fractal / Harmonic</td><td>Fractal adds recursively smaller power-of-two copies of the cycle. Harmonic performs true additive integer-ratio copying; it is distinct from Multiply.</td></tr>
+            <tr><td>Group / Cycle Reverse</td><td>Group Reverse reverses cycle order and the samples inside each selected group. Cycle Reverse reverses samples inside each cycle without changing group order.</td></tr>
+            <tr><td>Telescope</td><td>Superimpose all cycles in the group against a shared cycle duration. Increasing Depth also skips more of the component cycles, contracting the group toward one composite cycle.</td></tr>
+            <tr><td>Depth / Join</td><td>Depth controls transformation strength. Join applies endpoint correction within each cycle to reduce repeated-boundary steps.</td></tr>
           </tbody>
         </table>
 
-        <p><code>PLAY/PAUSE</code> holds the current deck position and resumes it. <code>STOP</code> silences the deck and returns it to its Position setting. <code>RESTART</code> returns to Position and immediately begins playback. The short internal ramps suppress transport clicks. <code>OUT</code> is the stereo master and appears first in the left control column.</p>
+        <h2 id="tracker">Tracker and Automation</h2>
 
-        <h2 id="tracker">Tracker and MIDI</h2>
-
-        <p><code>MIDI CH</code> selects one receive channel for the whole instrument. Notes are transport commands rather than pitches, which makes the decks predictable in Tracker patterns without requiring sustained note gates.</p>
+        <p>Tracker can sequence the instrument like a conventional chromatic sampler on one MIDI channel. Note length becomes musically significant in Gate and looped Auto modes; velocity is available directly from Tracker's volume column.</p>
 
         <table class="readout-table">
-          <thead><tr><th>Note</th><th>Command</th></tr></thead>
+          <thead><tr><th>CC</th><th>Control</th></tr></thead>
           <tbody>
-            <tr><td>36 / 37 / 38 / 39</td><td>Restart both / Stop both / Play both / Pause both</td></tr>
-            <tr><td>40 / 41</td><td>Play or pause Deck A / Deck B; LINK expands either command to both decks</td></tr>
-            <tr><td>42 / 43</td><td>Restart Deck A / Deck B</td></tr>
-            <tr><td>44 / 45</td><td>Stop Deck A / Deck B</td></tr>
-            <tr><td>46 / 47 / 48</td><td>Crossfader to A / center / B</td></tr>
+            <tr><td>16 / 17</td><td>Start / End</td></tr>
+            <tr><td>18 / 19</td><td>Loop Start / Loop End</td></tr>
+            <tr><td>20 / 21</td><td>Group / Repeat</td></tr>
+            <tr><td>22 / 23</td><td>Depth / Join</td></tr>
+            <tr><td>123</td><td>Stop and clear all voices</td></tr>
           </tbody>
         </table>
 
-        <table class="readout-table">
-          <thead><tr><th>CC</th><th>Control</th><th>Range</th></tr></thead>
-          <tbody>
-            <tr><td>1 or 16</td><td>Crossfader</td><td>Deck A through Deck B</td></tr>
-            <tr><td>17 / 18</td><td>Deck A / Deck B position</td><td>Start through end of source</td></tr>
-            <tr><td>19 / 20</td><td>Deck A / Deck B speed</td><td>0.25× to 4× source rate</td></tr>
-            <tr><td>21</td><td>Shared group selection</td><td>1, 2, 4, 8, 16, or 32 wavesets</td></tr>
-            <tr><td>22</td><td>Shared process amount</td><td>Source through processed result</td></tr>
-          </tbody>
-        </table>
-
-        <p>This lets Tracker sequence deck starts, stops, offsets, speed changes, and crossfader cuts while both streams otherwise run freely. Use longer groups for recognizable source gestures, small groups for timbral distortion, Stretch for expanded phrases, Preserve for denser transformation at approximately the original duration, and Hold for stationary groups. All 20 controls are CLAP-automatable.</p>
+        <p>All 25 Wavesets 2 controls are CLAP-automatable. Wavesets 32 adds Output Order, Voice Output, Stereo Pair Map, and Output Count for 29 parameters. Parameter automation is preferable when exact stepped menu values or reproducible range positions are required.</p>
 
         <h2 id="presets">Factory Presets</h2>
 
         <table class="readout-table">
           <thead><tr><th>Preset</th><th>Starting configuration</th></tr></thead>
           <tbody>
-            <tr><td>Single Deck</td><td>Deck A selected, natural speed, eight-wave groups, two repeats, and forward source movement.</td></tr>
-            <tr><td>Dual Flow</td><td>Both decks blended from different source positions with a small Deck B speed difference.</td></tr>
-            <tr><td>Preserved Phase</td><td>Duration-preserving four-wave groups, offset deck positions, and cycle-synchronous envelope processing.</td></tr>
-            <tr><td>Reverse Blocks</td><td>Both decks blend sixteen-wave groups whose internal cycles are reversed.</td></tr>
-            <tr><td>Omit Drift</td><td>Shuffled eight-wave groups, duration preservation, omission, and contrasting deck speeds.</td></tr>
+            <tr><td>Clean Forward</td><td>True-stereo, mono voice behavior, forward playback, and unprocessed eight-cycle groups.</td></tr>
+            <tr><td>Forward Loop</td><td>True-stereo loop playback with the standard group and repeat settings.</td></tr>
+            <tr><td>Stereo Poly</td><td>True-stereo channel maps with polyphonic MIDI playback.</td></tr>
+            <tr><td>Reverse Blocks</td><td>Reverse-loop playback with larger internally reversed groups.</td></tr>
+            <tr><td>Held Tone</td><td>One stationary true-stereo group for sustained timbral playing.</td></tr>
+            <tr><td>Average Group</td><td>An eight-cycle average at moderate Depth.</td></tr>
+            <tr><td>Interpolated Flow</td><td>Four-cycle groups morphing toward adjacent cycles over eight repeats.</td></tr>
+            <tr><td>Fractal Copies</td><td>Recursive power-of-two copies added at a controlled level.</td></tr>
+            <tr><td>Additive Harmonics</td><td>Integer-ratio waveset copies added above the original cycle.</td></tr>
+            <tr><td>Group Reverse</td><td>Large groups with both cycle order and internal samples reversed.</td></tr>
+            <tr><td>Cycle Reverse</td><td>Each waveset read backward while the group order continues forward.</td></tr>
+            <tr><td>Telescope</td><td>Sixteen cycles superimposed and contracted toward one composite cycle.</td></tr>
           </tbody>
         </table>
 
         <h2 id="routing-state">Routing and State</h2>
 
         <ul>
-          <li>Input: one CLAP note/MIDI port plus file loading through the editor.</li>
-          <li>Output: one fixed stereo port. Mono files feed both lanes; stereo boundaries and channel order remain shared and coherent.</li>
-          <li>State: all 20 parameters, source path, embed selection, and optionally as much as 1 GiB of decoded mono or stereo audio. The crossing map is rebuilt from the restored source and saved Detail setting.</li>
-          <li>Analysis and file decoding run away from the audio callback. The render path uses an immutable source and precomputed boundary map.</li>
-          <li>On macOS, the cyan and orange deck playheads use persistent compositor animations derived from the Sample Doubles solution. The 30 Hz AppKit timer handles meters and button feedback but does not drive visible cursor motion.</li>
+          <li>Input: one CLAP note/MIDI port plus file loading and drag-and-drop in the editor.</li>
+          <li>Wavesets 2 output: one fixed stereo port. “2” identifies this channel count rather than a number of decks or voices.</li>
+          <li>Wavesets 32 output: one fixed 32-channel host port. The active 2–32-channel routing width is saved and automatable; unused physical lanes remain silent.</li>
+          <li>State: all 25 or 29 parameters, source path, embed selection, and optionally as much as 1 GiB of decoded mono or stereo audio.</li>
+          <li>Analysis and file decoding run away from the audio callback. Audio rendering uses immutable per-channel and summed crossing maps.</li>
+          <li>On macOS, each voice cursor uses the persistent compositor trajectory established for Sample Doubles. The waveform playhead is a continuous source-transport indicator that begins exactly at Start and spans every displayed channel lane. The bounded scope follows the newest-triggered voice, compares its ordered source group with the processed result per channel, preserves measured cycle proportions, and reports note, group, cycle, repeat, phase, Depth, and view scale. The 30 Hz AppKit timer services the scope and static feedback, not visible waveform-playhead movement.</li>
         </ul>
 
-        <p>The instrument's waveset terminology and grouped-cycle approach follow the pseudo-wavecycle processes documented by the Composers Desktop Project. See <a href="references.html#wavesets">References</a> for the source material used in this design.</p>
+        <p>The grouped pseudo-wavecycle model follows the waveset processes documented by the Composers Desktop Project. See <a href="references.html#wavesets">References</a> for the source material used in this design.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-doubles.html"><span>Previous</span>Sample Doubles</a>
@@ -153,9 +206,12 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#analysis">Crossing Map</a>
-          <a href="#playback">Playback and Processing</a>
-          <a href="#tracker">Tracker and MIDI</a>
+          <a href="#range">Range and Play Modes</a>
+          <a href="#stereo">Stereo Source Modes</a>
+          <a href="#multichannel-routing">Wavesets 32 Routing</a>
+          <a href="#voices">Voices and MIDI</a>
+          <a href="#wavesets">Waveset Playback</a>
+          <a href="#tracker">Tracker and Automation</a>
           <a href="#presets">Factory Presets</a>
           <a href="#routing-state">Routing and State</a>
         </div>

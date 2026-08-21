@@ -33,7 +33,7 @@ option(S3G_BUILD_SAMPLE_PLAYER_PREVIEW
 option(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW
   "Build the s3g Sample Doubles stereo two-deck CLAP" ON)
 option(S3G_BUILD_SAMPLE_WAVESETS_PREVIEW
-  "Build the s3g Sample Wavesets stereo two-deck CLAP" ON)
+  "Build the s3g Sample Wavesets 2/32 CLAP family" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -82,6 +82,14 @@ add_executable(s3g_sample_wavesets_smoke
 target_link_libraries(s3g_sample_wavesets_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_wavesets_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_voice_output_allocator_smoke
+  tests/voice_output_allocator_smoke.cpp)
+target_link_libraries(s3g_voice_output_allocator_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_voice_output_allocator_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
@@ -385,6 +393,7 @@ if(BUILD_TESTING)
     s3g_sample_player_smoke
     s3g_sample_doubles_smoke
     s3g_sample_wavesets_smoke
+    s3g_voice_output_allocator_smoke
     s3g_feedback_shift_smoke
     s3g_processor_fissure_smoke
     s3g_crcltr_external_memory_smoke
@@ -1215,8 +1224,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets
-          1040 820 "s3g Sample Wavesets" responsive)
+          980 844 "s3g Sample Wavesets 2" responsive)
       set_tests_properties(s3g_sample_wavesets_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+      add_test(NAME s3g_sample_wavesets_32_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_wavesets_clap>
+          org.s3g.s3g-dsp.sample-wavesets-32
+          980 844 "s3g Sample Wavesets 32" responsive)
+      set_tests_properties(s3g_sample_wavesets_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
   endif()
@@ -2714,11 +2730,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets
-          1040 820 "s3g Sample Wavesets" responsive
+          980 844 "s3g Sample Wavesets 2" responsive
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_wavesets_clap>
+          org.s3g.s3g-dsp.sample-wavesets-32
+          980 844 "s3g Sample Wavesets 32" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_wavesets_clap
-        COMMENT "Rendering and validating the Sample Wavesets GUI")
+        COMMENT "Rendering and validating the Sample Wavesets family GUIs")
     endif()
     if(TARGET audit_sample_family)
       add_dependencies(audit_sample_family

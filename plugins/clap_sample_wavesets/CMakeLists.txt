@@ -31,9 +31,9 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.sample-wavesets"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Wavesets"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0")
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Wavesets 2"
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0")
   add_custom_command(TARGET s3g_sample_wavesets_clap POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E touch
       "$<TARGET_BUNDLE_DIR:s3g_sample_wavesets_clap>"

@@ -56,6 +56,10 @@
 - (NSUInteger)fullDrawPassCount;
 - (NSUInteger)cursorDrawPassCount;
 - (NSUInteger)cursorAnimationInstallCount;
+- (double)waveZoomValue;
+- (double)waveViewStartValue;
+- (double)scopeScaleValue;
+- (unsigned)scopeFocusedKey;
 - (BOOL)deckACursorAnimationActive;
 - (BOOL)deckBCursorAnimationActive;
 - (double)deckACursorPresentationX;
@@ -71,6 +75,38 @@
 - (double)visualDeckAPositionValue;
 - (double)visualDeckBPositionValue;
 - (void)updateVisualCursors;
+@end
+
+@interface S3GSmokeScrollEvent : NSEvent {
+    NSPoint _smokeLocation;
+    NSEventModifierFlags _smokeModifiers;
+    CGFloat _smokeDeltaX;
+    CGFloat _smokeDeltaY;
+}
+- (instancetype)initWithLocation:(NSPoint)location
+    modifiers:(NSEventModifierFlags)modifiers
+    deltaX:(CGFloat)deltaX deltaY:(CGFloat)deltaY;
+@end
+
+@implementation S3GSmokeScrollEvent
+- (instancetype)initWithLocation:(NSPoint)location
+    modifiers:(NSEventModifierFlags)modifiers
+    deltaX:(CGFloat)deltaX deltaY:(CGFloat)deltaY
+{
+    self = [super init];
+    if (self) {
+        _smokeLocation = location;
+        _smokeModifiers = modifiers;
+        _smokeDeltaX = deltaX;
+        _smokeDeltaY = deltaY;
+    }
+    return self;
+}
+- (NSEventType)type { return NSEventTypeScrollWheel; }
+- (NSPoint)locationInWindow { return _smokeLocation; }
+- (NSEventModifierFlags)modifierFlags { return _smokeModifiers; }
+- (CGFloat)scrollingDeltaX { return _smokeDeltaX; }
+- (CGFloat)scrollingDeltaY { return _smokeDeltaY; }
 @end
 
 @interface S3GSmokeFilePasteboard : NSObject {
@@ -486,12 +522,12 @@ struct DocumentationSampleDoublesState {
 
 struct DocumentationSampleWavesetsState {
     uint32_t magic = 0x57533353u;
-    uint32_t version = 2u;
-    uint32_t parameterCount = 20u;
-    std::array<double, 20u> parameters {{
-        -6.0, -1.0, 2.0, 0.0, 3.0, 2.0, 1.0, 0.0, 0.0,
-        0.0, 1.0, 3.0, 1.0, 1.0,
-        0.0, 1.0, 0.0, 0.25, 1.005, 0.0,
+    uint32_t version = 3u;
+    uint32_t parameterCount = 25u;
+    std::array<double, 25u> parameters {{
+        -6.0, 0.0, 0.06, 0.94, 0.20, 0.78, 3.0, 0.0, 0.0,
+        60.0, 0.0, 0.0, 0.003, 0.012, 1.0,
+        0.0, 3.0, 2.0, 1.0, 0.0, 8.0, 0.65, 1.0, 3.0, 0.0,
     }};
     std::array<char, 1024u> path {};
     uint8_t embedded = 1u;
@@ -508,7 +544,7 @@ static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
               "Multi Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationAmbiGrainState) == 1160u,
               "Ambi Grain documentation state fixture changed");
-static_assert(sizeof(DocumentationSampleWavesetsState) == 1216u,
+static_assert(sizeof(DocumentationSampleWavesetsState) == 1256u,
               "Sample Wavesets documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
@@ -1435,7 +1471,9 @@ int main(int argc, char** argv)
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
         }
-        const bool sampleWavesets = std::strcmp(pluginId,
+        const bool sampleWavesets32 = std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-wavesets-32") == 0;
+        const bool sampleWavesets = sampleWavesets32 || std::strcmp(pluginId,
             "org.s3g.s3g-dsp.sample-wavesets") == 0;
         if (ok && sampleWavesets) {
             failureStage = documentationCapture
@@ -1494,16 +1532,19 @@ int main(int argc, char** argv)
             const bool wavesetsProcessing = wavesetsActivated
                 && plugin->start_processing(plugin);
             ok = wavesetsProcessing;
-            std::array<float, 128u> wavesetsLeft {};
-            std::array<float, 128u> wavesetsRight {};
-            float* wavesetsChannels[2u] {
-                wavesetsLeft.data(), wavesetsRight.data(),
-            };
+            std::array<std::array<float, 128u>, 32u> wavesetsAudio {};
+            std::array<float*, 32u> wavesetsChannels {};
+            const uint32_t wavesetsOutputChannels = sampleWavesets32
+                ? 32u : 2u;
+            for (uint32_t channel = 0u;
+                 channel < wavesetsOutputChannels; ++channel) {
+                wavesetsChannels[channel] = wavesetsAudio[channel].data();
+            }
             clap_audio_buffer_t wavesetsOutput {};
-            wavesetsOutput.data32 = wavesetsChannels;
-            wavesetsOutput.channel_count = 2u;
+            wavesetsOutput.data32 = wavesetsChannels.data();
+            wavesetsOutput.channel_count = wavesetsOutputChannels;
             SingleNoteEventInput wavesetsNote {};
-            setSingleNoteOnEvent(wavesetsNote, 36);
+            setSingleNoteOnEvent(wavesetsNote, 60);
             clap_process_t wavesetsBlock {};
             wavesetsBlock.frames_count = 128u;
             wavesetsBlock.audio_outputs = &wavesetsOutput;
@@ -1511,22 +1552,52 @@ int main(int argc, char** argv)
             wavesetsBlock.in_events = &wavesetsNote.events;
             if (ok) ok = plugin->process(plugin, &wavesetsBlock)
                 != CLAP_PROCESS_ERROR;
+            if (ok) [[NSRunLoop currentRunLoop] runUntilDate:
+                [NSDate dateWithTimeIntervalSinceNow:0.05]];
             @try {
                 ok = ok && [document respondsToSelector:
                         @selector(cursorMotionAnimationCount)]
                     && [document respondsToSelector:
-                        @selector(cursorAnimationInstallCount)];
+                        @selector(cursorAnimationInstallCount)]
+                    && [document respondsToSelector:
+                        @selector(cursorLineHeight)]
+                    && [document respondsToSelector:
+                        @selector(cursorAnimationFromX)]
+                    && [document respondsToSelector:
+                        @selector(cursorAnimationToX)]
+                    && [document respondsToSelector:
+                        @selector(cursorAnimationIsContinuous)];
                 const NSUInteger active = ok
                     ? [[document valueForKey:@"cursorMotionAnimationCount"]
                         unsignedIntegerValue] : 0u;
                 const NSUInteger installs = ok
                     ? [[document valueForKey:@"cursorAnimationInstallCount"]
                         unsignedIntegerValue] : 0u;
-                ok = ok && active == 2u && installs == 2u;
+                const double lineHeight = ok
+                    ? [[document valueForKey:@"cursorLineHeight"]
+                        doubleValue] : 0.0;
+                const double fromX = ok
+                    ? [[document valueForKey:@"cursorAnimationFromX"]
+                        doubleValue] : -1.0;
+                const double toX = ok
+                    ? [[document valueForKey:@"cursorAnimationToX"]
+                        doubleValue] : -1.0;
+                const bool continuous = ok
+                    ? [[document valueForKey:
+                        @"cursorAnimationIsContinuous"] boolValue] : false;
+                ok = ok && active == 1u && installs == 1u
+                    && closeEnough(lineHeight, 200.0)
+                    && closeEnough(fromX, 920.0 * 0.06)
+                    && closeEnough(toX, 920.0 * 0.94)
+                    && continuous;
                 for (uint32_t redraw = 0u; ok && redraw < 12u; ++redraw) {
                     [document setNeedsDisplay:YES];
                     [document displayIfNeeded];
                 }
+                wavesetsBlock.in_events = nullptr;
+                for (uint32_t block = 0u; ok && block < 64u; ++block)
+                    ok = plugin->process(plugin, &wavesetsBlock)
+                        != CLAP_PROCESS_ERROR;
                 [[NSRunLoop currentRunLoop] runUntilDate:
                     [NSDate dateWithTimeIntervalSinceNow:0.12]];
                 const NSUInteger activeAfter = ok
@@ -1535,13 +1606,28 @@ int main(int argc, char** argv)
                 const NSUInteger installsAfter = ok
                     ? [[document valueForKey:@"cursorAnimationInstallCount"]
                         unsignedIntegerValue] : 0u;
-                ok = ok && activeAfter == 2u
+                ok = ok && activeAfter == 1u
                     && installsAfter == installs;
+                setSingleNoteOnEvent(wavesetsNote, 67);
+                wavesetsBlock.in_events = &wavesetsNote.events;
+                if (ok) ok = plugin->process(plugin, &wavesetsBlock)
+                    != CLAP_PROCESS_ERROR;
+                if (ok) [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.05]];
+                const NSUInteger retriggered = ok
+                    ? [[document valueForKey:@"cursorAnimationInstallCount"]
+                        unsignedIntegerValue] : 0u;
+                ok = ok && [[document valueForKey:
+                        @"cursorMotionAnimationCount"] unsignedIntegerValue]
+                        == 2u
+                    && retriggered == installsAfter + 1u;
             } @catch (NSException*) {
                 ok = false;
             }
             if (wavesetsProcessing) {
                 plugin->stop_processing(plugin);
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.05]];
                 const NSUInteger stopped = [[document valueForKey:
                     @"cursorMotionAnimationCount"] unsignedIntegerValue];
                 ok = ok && stopped == 0u;
@@ -3040,8 +3126,29 @@ int main(int argc, char** argv)
         if (ok && sampleWavesets && !documentationCapture) {
             failureStage = "Sample Wavesets custom categorical menus";
             @try {
-                const NSPoint timeMenu = NSMakePoint(210.0, 440.0);
-                const NSPoint stretchRow = NSMakePoint(210.0, 461.0);
+                const NSPoint presetMenu = NSMakePoint(374.0, 20.0);
+                const NSPoint forwardLoopPreset = NSMakePoint(374.0, 78.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, presetMenu)];
+                ok = [[document valueForKey:@"canvasMenuOpen"] boolValue]
+                    && [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == -1;
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, forwardLoopPreset)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 2;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, forwardLoopPreset)];
+                    double playMode = -1.0;
+                    ok = ![[document valueForKey:@"canvasMenuOpen"] boolValue]
+                        && params->get_value(plugin, 2u, &playMode)
+                        && std::fabs(playMode - 1.0) < 0.000001;
+                }
+                const NSPoint timeMenu = NSMakePoint(530.0, 482.0);
+                const NSPoint stretchRow = NSMakePoint(530.0, 508.0);
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, timeMenu)];
                 ok = [[document valueForKey:@"canvasMenuOpen"] boolValue]
@@ -3058,11 +3165,11 @@ int main(int argc, char** argv)
                         NSEventTypeLeftMouseDown, stretchRow)];
                     double time = -1.0;
                     ok = ![[document valueForKey:@"canvasMenuOpen"] boolValue]
-                        && params->get_value(plugin, 4u, &time)
+                        && params->get_value(plugin, 16u, &time)
                         && std::fabs(time) < 0.000001;
                 }
-                const NSPoint groupMenu = NSMakePoint(210.0, 465.0);
-                const NSPoint eightRow = NSMakePoint(210.0, 546.0);
+                const NSPoint groupMenu = NSMakePoint(530.0, 507.0);
+                const NSPoint eightRow = NSMakePoint(530.0, 593.0);
                 if (ok) {
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, groupMenu)];
@@ -3075,8 +3182,150 @@ int main(int argc, char** argv)
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, eightRow)];
                     double group = -1.0;
-                    ok = params->get_value(plugin, 5u, &group)
+                    ok = params->get_value(plugin, 17u, &group)
                         && std::fabs(group - 3.0) < 0.000001;
+                }
+                const NSPoint processMenu = NSMakePoint(530.0, 607.0);
+                const NSPoint harmonicRow = NSMakePoint(570.0, 673.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, processMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, harmonicRow)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 8;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, harmonicRow)];
+                    double process = -1.0;
+                    ok = params->get_value(plugin, 21u, &process)
+                        && std::fabs(process - 8.0) < 0.000001;
+                }
+                if (ok) {
+                    failureStage = "Sample Wavesets waveform zoom and pan";
+                    const NSPoint wavePoint = NSMakePoint(490.0, 150.0);
+                    S3GSmokeScrollEvent* zoom = [[S3GSmokeScrollEvent alloc]
+                        initWithLocation:[document convertPoint:wavePoint
+                            toView:nil]
+                        modifiers:0 deltaX:0.0 deltaY:4.0];
+                    [document scrollWheel:zoom];
+                    const double zoomed = [[document valueForKey:
+                        @"waveZoomValue"] doubleValue];
+                    const double beforePan = [[document valueForKey:
+                        @"waveViewStartValue"] doubleValue];
+                    S3GSmokeScrollEvent* pan = [[S3GSmokeScrollEvent alloc]
+                        initWithLocation:[document convertPoint:wavePoint
+                            toView:nil]
+                        modifiers:NSEventModifierFlagShift
+                        deltaX:0.0 deltaY:4.0];
+                    [document scrollWheel:pan];
+                    const double afterPan = [[document valueForKey:
+                        @"waveViewStartValue"] doubleValue];
+                    ok = zoomed > 1.1
+                        && std::abs(afterPan - beforePan) > 0.001;
+                    NSEvent* fit = [NSEvent
+                        mouseEventWithType:NSEventTypeLeftMouseDown
+                        location:[document convertPoint:wavePoint toView:nil]
+                        modifierFlags:0 timestamp:0.0 windowNumber:0
+                        context:nil eventNumber:0 clickCount:2 pressure:1.0];
+                    [document mouseDown:fit];
+                    ok = ok && std::abs([[document valueForKey:
+                            @"waveZoomValue"] doubleValue] - 1.0) < 0.000001
+                        && std::abs([[document valueForKey:
+                            @"waveViewStartValue"] doubleValue]) < 0.000001;
+                }
+                if (ok) {
+                    failureStage = "Sample Wavesets focused bounded scope";
+                    ok = [document respondsToSelector:
+                            @selector(scopeScaleValue)]
+                        && [document respondsToSelector:
+                            @selector(scopeFocusedKey)]
+                        && [document respondsToSelector:
+                            @selector(loadDocumentationSample)]
+                        && [document loadDocumentationSample]
+                        && [[document valueForKey:@"scopeFocusedKey"]
+                            unsignedIntValue] == 60u
+                        && std::abs([[document valueForKey:
+                            @"scopeScaleValue"] doubleValue] - 2.0)
+                            < 0.000001;
+                    const NSPoint scopePoint = NSMakePoint(550.0, 375.0);
+                    S3GSmokeScrollEvent* scopeScale =
+                        [[S3GSmokeScrollEvent alloc]
+                            initWithLocation:[document convertPoint:scopePoint
+                                toView:nil]
+                            modifiers:0 deltaX:0.0 deltaY:-4.0];
+                    [document scrollWheel:scopeScale];
+                    ok = ok && [[document valueForKey:@"scopeScaleValue"]
+                        doubleValue] > 2.1;
+                    NSEvent* scopeFit = [NSEvent
+                        mouseEventWithType:NSEventTypeLeftMouseDown
+                        location:[document convertPoint:scopePoint toView:nil]
+                        modifierFlags:0 timestamp:0.0 windowNumber:0
+                        context:nil eventNumber:0 clickCount:2 pressure:1.0];
+                    [document mouseDown:scopeFit];
+                    ok = ok && std::abs([[document valueForKey:
+                            @"scopeScaleValue"] doubleValue] - 1.0)
+                            < 0.000001;
+                }
+                if (ok && sampleWavesets32) {
+                    failureStage = "Sample Wavesets 32 output routing menus";
+                    const NSPoint routeMenu = NSMakePoint(780.0, 607.0);
+                    const NSPoint palindromeRow = NSMakePoint(780.0, 675.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, routeMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, palindromeRow)];
+                    ok = [[document valueForKey:@"canvasMenuHover"]
+                        intValue] == 2;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, palindromeRow)];
+                        double traversal = -1.0;
+                        ok = params->get_value(plugin, 26u, &traversal)
+                            && std::abs(traversal - 2.0) < 0.000001;
+                    }
+                    const NSPoint widthMenu = NSMakePoint(780.0, 632.0);
+                    const NSPoint stereoRow = NSMakePoint(780.0, 678.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, widthMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, stereoRow)];
+                        double width = -1.0;
+                        ok = params->get_value(plugin, 27u, &width)
+                            && std::abs(width - 1.0) < 0.000001;
+                    }
+                    const NSPoint pairMenu = NSMakePoint(780.0, 657.0);
+                    const NSPoint splitRow = NSMakePoint(780.0, 703.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, pairMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, splitRow)];
+                        double layout = -1.0;
+                        ok = params->get_value(plugin, 28u, &layout)
+                            && std::abs(layout - 1.0) < 0.000001;
+                    }
+                    const NSPoint outputCountMenu = NSMakePoint(780.0, 682.0);
+                    // The 31 entries use five column-major groups with seven
+                    // rows. 8 CH is index six, at the bottom of column zero.
+                    const NSPoint eightChannelsRow = NSMakePoint(780.0, 828.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, outputCountMenu)];
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved, eightChannelsRow)];
+                        ok = [[document valueForKey:@"canvasMenuHover"]
+                            intValue] == 6;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, eightChannelsRow)];
+                        double outputCount = -1.0;
+                        ok = params->get_value(plugin, 29u, &outputCount)
+                            && std::abs(outputCount - 8.0) < 0.000001;
+                    }
                 }
             } @catch (NSException*) {
                 ok = false;
@@ -10293,8 +10542,8 @@ int main(int argc, char** argv)
                     std::strcmp(pluginId,
                         "org.s3g.s3g-dsp.sample-wavesets") == 0;
                 setSingleNoteOnEvent(documentationNote,
-                    documentationLowFrequencySynth || documentationWavesets
-                        ? 36 : 48);
+                    documentationLowFrequencySynth ? 36
+                        : documentationWavesets ? 60 : 48);
             }
             uint64_t sampleCursor = 0u;
             for (uint32_t block = 0u;
@@ -10366,6 +10615,16 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
+            if (ok && sampleWavesets) {
+                failureStage = "Sample Wavesets documentation playheads";
+                @try {
+                    ok = [document respondsToSelector:
+                            @selector(loadDocumentationSample)]
+                        && [document loadDocumentationSample];
+                } @catch (NSException*) {
+                    ok = false;
+                }
+            }
             if (ok) [document setNeedsDisplay:YES];
         }
         if (ok && documentationCapture && feedbackShift) {

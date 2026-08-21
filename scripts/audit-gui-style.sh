@@ -1100,17 +1100,61 @@ if ! rg -Fq '{ kGainParamId, "OUT", 18.0, 494.0, 342.0 }' \
     "Sample Doubles must begin its left control column with OUT under an OUTPUT-first panel header."
 fi
 if [[ -f "$sample_wavesets_source" ]]; then
-  if ! rg -Fq '@"OUTPUT / WAVESETS / MIDI"' "$sample_wavesets_source" \
-      || ! rg -Fq 'kOutParamId, kGlobalPanel, 414.0' "$sample_wavesets_source"; then
+  if ! rg -Fq '@"OUTPUT / AMP / MIDI"' "$sample_wavesets_source" \
+      || ! rg -Fq 'drawSlider:kOutParamId name:@"OUT" y:482 panel:kOutputPanel' "$sample_wavesets_source"; then
     warn "layout" "$sample_wavesets_source" \
       "Sample Wavesets must begin its left control column with OUT under an OUTPUT-first panel header."
   fi
-  if ! rg -Fq 'CAKeyframeAnimation' "$sample_wavesets_source" \
+  if ! rg -Fq 'CABasicAnimation' "$sample_wavesets_source" \
+      || ! rg -Fq 'voiceCursorTransportPositions' "$sample_wavesets_source" \
       || ! rg -Fq '@"s3g.cursor.motion"' "$sample_wavesets_source" \
       || ! rg -Fq '1.0 / 30.0' "$sample_wavesets_source" \
       || ! rg -Fq 'currentContextDrawingToScreen' "$sample_wavesets_source"; then
     warn "control" "$sample_wavesets_source" \
       "Sample Wavesets cursors must retain persistent compositor trajectories, a 30 Hz static-feedback timer, and the off-screen documentation fallback."
+  fi
+  if ! rg -Fq 'kWavesetsTitleBand' "$sample_wavesets_source" \
+      || ! rg -Fq 'drawProcessorTitleBand(pluginTitle' "$sample_wavesets_source" \
+      || ! rg -Fq 'handleProcessorTitleClick(point' "$sample_wavesets_source" \
+      || ! rg -Fq 'kPresetMenuItems' "$sample_wavesets_source"; then
+    warn "family" "$sample_wavesets_source" \
+      "Sample Wavesets must keep the shared processor title band, LOAD/SAVE state presets, and its factory preset menu."
+  fi
+  if ! rg -Fq 'waveVisibleSpan' "$sample_wavesets_source" \
+      || ! rg -Fq 'scrollWheel:' "$sample_wavesets_source" \
+      || ! rg -Fq 'DOUBLE-CLICK FIT' "$sample_wavesets_source" \
+      || ! rg -Fq '[style.strip setFill]; NSRectFill(kWaveRect)' "$sample_wavesets_source" \
+      || ! rg -Fq 'map->channelUnits[channel]' "$sample_wavesets_source"; then
+    warn "control" "$sample_wavesets_source" \
+      "Sample Wavesets must retain Sample Player-style waveform lanes plus zoom, pan, and fit interaction, and its scope must draw every source channel."
+  fi
+  if rg -Fq 'highlightRange(' "$sample_wavesets_source"; then
+    warn "control" "$sample_wavesets_source" \
+      "Sample Wavesets range bounds use marker lines over the visible waveform; do not restore opaque active/loop range fills."
+  fi
+  if ! rg -Fq 'CAShapeLayer* _headLines' "$sample_wavesets_source" \
+      || ! rg -Fq 'CATextLayer* _headFlags' "$sample_wavesets_source" \
+      || ! rg -Fq 'voiceCursorCount' "$sample_wavesets_source" \
+      || ! rg -Fq 'voiceCursorKeys' "$sample_wavesets_source" \
+      || ! rg -Fq 'N%u' "$sample_wavesets_source"; then
+    warn "control" "$sample_wavesets_source" \
+      "Sample Wavesets must publish and display one compositor playhead with a note flag per active voice."
+  fi
+  if ! rg -Fq 'wavesetsScopeProcessedSample' "$sample_wavesets_source" \
+      || ! rg -Fq '@"GRAY SRC / COLOR RESULT"' "$sample_wavesets_source" \
+      || ! rg -Fq 'voiceCursorRepeatIndices' "$sample_wavesets_source" \
+      || ! rg -Fq 'newestVoiceCursorSlot' "$sample_wavesets_source" \
+      || ! rg -Fq 'GROUP BOUNDS  /  VIEW' "$sample_wavesets_source" \
+      || ! rg -Fq 'groupBoundaries[offset + 1u]' "$sample_wavesets_source"; then
+    warn "control" "$sample_wavesets_source" \
+      "Sample Wavesets scope must follow the newest voice, preserve real cycle-length proportions inside visible group bounds, and compare source with processed result."
+  fi
+  if ! rg -Fq 'org.s3g.s3g-dsp.sample-wavesets-32' "$sample_wavesets_source" \
+      || ! rg -Fq 'kActiveOutputCountParamId' "$sample_wavesets_source" \
+      || ! rg -Fq 'TriggerOutputAllocator' dsp/s3g_sample_wavesets.h \
+      || ! rg -Fq 'OutputTraversal::RandomCycle' dsp/s3g_voice_output_allocator.h; then
+    warn "family" "$sample_wavesets_source" \
+      "Sample Wavesets 32 must retain reusable trigger-time routing and its selectable 2-32 active output width."
   fi
   if rg -q 'NSSlider|NSButton' "$sample_wavesets_source"; then
     warn "control" "$sample_wavesets_source" \

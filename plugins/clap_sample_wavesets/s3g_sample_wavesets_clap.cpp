@@ -41,48 +41,65 @@ namespace {
 
 using s3g::sample::SampleAsset;
 using s3g::sample::SampleWavesetsEngine;
+using s3g::sample::TriggerMode;
+using s3g::sample::VoiceMode;
 using s3g::sample::WavesetAdvanceMode;
-using s3g::sample::WavesetCrossfadeCurve;
 using s3g::sample::WavesetCrossingDetail;
 using s3g::sample::WavesetDirection;
 using s3g::sample::WavesetEventKind;
 using s3g::sample::WavesetMap;
+using s3g::sample::WavesetPlayMode;
 using s3g::sample::WavesetRenderEvent;
 using s3g::sample::WavesetSettings;
 using s3g::sample::WavesetShape;
+using s3g::sample::WavesetSourceMode;
 using s3g::sample::WavesetUnit;
+using s3g::routing::OutputTraversal;
+using s3g::routing::OutputVoiceWidth;
+using s3g::routing::StereoPairLayout;
 
 constexpr uint32_t kStateMagic = 0x57533353u; // "S3SW"
-constexpr uint32_t kStateVersion = 2u;
-constexpr uint32_t kGuiWidth = 1040u;
-constexpr uint32_t kGuiHeight = 820u;
+constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kGuiWidth = 980u;
+constexpr uint32_t kGuiHeight = 844u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes
     = 1024ull * 1024ull * 1024ull;
 constexpr clap_id kStereoOutputConfigId = 3402u;
+constexpr clap_id kThirtyTwoChannelOutputConfigId = 3432u;
 
 constexpr clap_id kOutParamId = 1u;
-constexpr clap_id kCrossfaderParamId = 2u;
-constexpr clap_id kCurveParamId = 3u;
-constexpr clap_id kAdvanceParamId = 4u;
-constexpr clap_id kGroupParamId = 5u;
-constexpr clap_id kRepeatParamId = 6u;
-constexpr clap_id kStrideParamId = 7u;
-constexpr clap_id kDirectionParamId = 8u;
-constexpr clap_id kShapeParamId = 9u;
-constexpr clap_id kProcessParamId = 10u;
-constexpr clap_id kJoinParamId = 11u;
-constexpr clap_id kDetailParamId = 12u;
-constexpr clap_id kMidiChannelParamId = 13u;
-constexpr clap_id kLinkParamId = 14u;
-constexpr clap_id kPositionAParamId = 15u;
-constexpr clap_id kRateAParamId = 16u;
-constexpr clap_id kLevelAParamId = 17u;
-constexpr clap_id kPositionBParamId = 18u;
-constexpr clap_id kRateBParamId = 19u;
-constexpr clap_id kLevelBParamId = 20u;
-constexpr std::size_t kParamCount = 20u;
+constexpr clap_id kPlayModeParamId = 2u;
+constexpr clap_id kStartParamId = 3u;
+constexpr clap_id kEndParamId = 4u;
+constexpr clap_id kLoopStartParamId = 5u;
+constexpr clap_id kLoopEndParamId = 6u;
+constexpr clap_id kSourceModeParamId = 7u;
+constexpr clap_id kVoiceModeParamId = 8u;
+constexpr clap_id kTriggerModeParamId = 9u;
+constexpr clap_id kRootNoteParamId = 10u;
+constexpr clap_id kTuneParamId = 11u;
+constexpr clap_id kFineTuneParamId = 12u;
+constexpr clap_id kAttackParamId = 13u;
+constexpr clap_id kReleaseParamId = 14u;
+constexpr clap_id kVelocityParamId = 15u;
+constexpr clap_id kAdvanceParamId = 16u;
+constexpr clap_id kGroupParamId = 17u;
+constexpr clap_id kRepeatParamId = 18u;
+constexpr clap_id kStrideParamId = 19u;
+constexpr clap_id kDirectionParamId = 20u;
+constexpr clap_id kShapeParamId = 21u;
+constexpr clap_id kProcessParamId = 22u;
+constexpr clap_id kJoinParamId = 23u;
+constexpr clap_id kDetailParamId = 24u;
+constexpr clap_id kMidiChannelParamId = 25u;
+constexpr clap_id kOutputTraversalParamId = 26u;
+constexpr clap_id kOutputVoiceWidthParamId = 27u;
+constexpr clap_id kStereoPairLayoutParamId = 28u;
+constexpr clap_id kActiveOutputCountParamId = 29u;
+constexpr std::size_t kStereoParamCount = 25u;
+constexpr std::size_t kParamCount = 29u;
 
 struct ParamDef {
     clap_id id;
@@ -96,49 +113,45 @@ struct ParamDef {
 
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kOutParamId, "Out", "Output", -60.0, 12.0, -6.0, false },
-    { kCrossfaderParamId, "Crossfader", "Mixer", -1.0, 1.0, -1.0,
+    { kPlayModeParamId, "Play Mode", "Playback", 0.0, 5.0, 0.0, true },
+    { kStartParamId, "Start", "Sample", 0.0, 1.0, 0.0, false },
+    { kEndParamId, "End", "Sample", 0.0, 1.0, 1.0, false },
+    { kLoopStartParamId, "Loop Start", "Loop", 0.0, 1.0, 0.0, false },
+    { kLoopEndParamId, "Loop End", "Loop", 0.0, 1.0, 1.0, false },
+    { kSourceModeParamId, "Stereo Source", "Sample", 0.0, 3.0, 3.0,
+        true },
+    { kVoiceModeParamId, "Voice Mode", "MIDI", 0.0, 2.0, 0.0, true },
+    { kTriggerModeParamId, "Trigger", "MIDI", 0.0, 3.0, 0.0, true },
+    { kRootNoteParamId, "Root Note", "Pitch", 0.0, 127.0, 60.0, true },
+    { kTuneParamId, "Tune", "Pitch", -60.0, 60.0, 0.0, false },
+    { kFineTuneParamId, "Fine Tune", "Pitch", -100.0, 100.0, 0.0,
         false },
-    { kCurveParamId, "Crossfader Curve", "Mixer", 0.0, 2.0, 2.0, true },
+    { kAttackParamId, "Attack", "Amp", 0.0, 2.0, 0.003, false },
+    { kReleaseParamId, "Release", "Amp", 0.0, 2.0, 0.012, false },
+    { kVelocityParamId, "Velocity", "MIDI", 0.0, 1.0, 1.0, false },
     { kAdvanceParamId, "Time", "Wavesets", 0.0, 2.0, 0.0, true },
     { kGroupParamId, "Group", "Wavesets", 0.0, 5.0, 3.0, true },
     { kRepeatParamId, "Repeat", "Wavesets", 1.0, 16.0, 2.0, true },
-    { kStrideParamId, "Stride", "Wavesets", -16.0, 16.0, 1.0, true },
+    { kStrideParamId, "Stride", "Wavesets", 1.0, 16.0, 1.0, true },
     { kDirectionParamId, "Order", "Wavesets", 0.0, 3.0, 0.0, true },
-    { kShapeParamId, "Process", "Process", 0.0, 4.0, 0.0, true },
+    { kShapeParamId, "Process", "Process", 0.0, 11.0, 0.0, true },
     { kProcessParamId, "Depth", "Process", 0.0, 1.0, 0.0, false },
     { kJoinParamId, "Join", "Process", 0.0, 1.0, 1.0, false },
     { kDetailParamId, "Crossing Detail", "Analysis", 0.0, 4.0, 3.0, true },
-    { kMidiChannelParamId, "MIDI Channel", "MIDI", 1.0, 16.0, 1.0, true },
-    { kLinkParamId, "Link Decks", "Transport", 0.0, 1.0, 1.0, true },
-    { kPositionAParamId, "Deck A Position", "Deck A", 0.0, 1.0, 0.0, false },
-    { kRateAParamId, "Deck A Speed", "Deck A", 0.25, 4.0, 1.0, false },
-    { kLevelAParamId, "Deck A Level", "Deck A", -60.0, 12.0, 0.0, false },
-    { kPositionBParamId, "Deck B Position", "Deck B", 0.0, 1.0, 0.5, false },
-    { kRateBParamId, "Deck B Speed", "Deck B", 0.25, 4.0, 1.0, false },
-    { kLevelBParamId, "Deck B Level", "Deck B", -60.0, 12.0, 0.0, false },
+    { kMidiChannelParamId, "MIDI Receive", "MIDI", 0.0, 16.0, 0.0, true },
+    { kOutputTraversalParamId, "Output Order", "Output Routing",
+        0.0, 4.0, 0.0, true },
+    { kOutputVoiceWidthParamId, "Voice Output", "Output Routing",
+        0.0, 1.0, 0.0, true },
+    { kStereoPairLayoutParamId, "Stereo Pair Map", "Output Routing",
+        0.0, 1.0, 0.0, true },
+    { kActiveOutputCountParamId, "Output Count", "Output Routing",
+        2.0, 32.0, 32.0, true },
 }};
 
 constexpr std::array<uint32_t, 6u> kGroupSizes {{ 1u, 2u, 4u, 8u, 16u, 32u }};
-constexpr std::array<clap_id, 2u> kPositionParamIds {{
-    kPositionAParamId, kPositionBParamId,
-}};
-constexpr std::array<clap_id, 2u> kRateParamIds {{
-    kRateAParamId, kRateBParamId,
-}};
-constexpr std::array<clap_id, 2u> kLevelParamIds {{
-    kLevelAParamId, kLevelBParamId,
-}};
-
-constexpr uint32_t kActionRestartBoth = 1u << 0u;
-constexpr uint32_t kActionStopBoth = 1u << 1u;
-constexpr uint32_t kActionPlayBoth = 1u << 2u;
-constexpr uint32_t kActionPauseBoth = 1u << 3u;
-constexpr uint32_t kActionToggleA = 1u << 4u;
-constexpr uint32_t kActionToggleB = 1u << 5u;
-constexpr uint32_t kActionRestartA = 1u << 6u;
-constexpr uint32_t kActionRestartB = 1u << 7u;
-constexpr uint32_t kActionStopA = 1u << 8u;
-constexpr uint32_t kActionStopB = 1u << 9u;
+constexpr uint32_t kActionPreview = 1u << 0u;
+constexpr uint32_t kActionStopAll = 1u << 1u;
 
 struct SavedState {
     uint32_t magic = kStateMagic;
@@ -153,6 +166,42 @@ struct SavedState {
     uint32_t frameCount = 0u;
     double sampleRate = 0.0;
 };
+
+struct LegacySavedStateV2 {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 2u;
+    uint32_t parameterCount = 20u;
+    std::array<double, 20u> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct SavedStateV3 {
+    uint32_t magic = kStateMagic;
+    uint32_t version = 3u;
+    uint32_t parameterCount = static_cast<uint32_t>(kStereoParamCount);
+    std::array<double, kStereoParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+};
+
+struct StateHeader {
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    uint32_t parameterCount = 0u;
+};
+
+static_assert(sizeof(StateHeader) == 12u);
 
 #if defined(__APPLE__)
 struct LoadRequest {
@@ -177,23 +226,58 @@ struct Plugin {
     const clap_host_params_t* hostParams = nullptr;
     const clap_host_state_t* hostState = nullptr;
     SampleWavesetsEngine engine;
+    uint32_t outputChannelCount = 2u;
+    clap_id outputConfigId = kStereoOutputConfigId;
     double sampleRate = 48000.0;
     uint32_t maximumFrames = 0u;
     std::array<std::atomic<double>, kParamCount> parameters {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic_flag guiParamConsumer = ATOMIC_FLAG_INIT;
     std::array<WavesetRenderEvent, kMaximumBlockEvents> blockEvents {};
-    std::array<std::vector<float>, 2u> scratch {};
+    std::array<std::vector<float>,
+        s3g::sample::kMaximumWavesetOutputChannels> scratch {};
     std::shared_ptr<const WavesetMap> controlMap;
     std::vector<std::shared_ptr<const WavesetMap>> retainedMaps;
     std::atomic<const WavesetMap*> publishedMap { nullptr };
     const WavesetMap* audioMap = nullptr;
     std::string samplePath;
     std::string status { "DROP A MONO OR STEREO SAMPLE" };
-    std::array<std::atomic<float>, 2u> headPositions {{}};
-    std::array<std::atomic<float>, 2u> outputPhases {{}};
-    std::atomic<uint8_t> headActiveMask { 0u };
-    std::atomic<uint8_t> deckPlayingMask { 0u };
+    std::atomic<float> primaryPosition { -1.0f };
+    std::atomic<uint32_t> activeVoiceCount { 0u };
+    std::atomic<uint8_t> primaryKey { 0u };
+    std::atomic<bool> primaryDirectionForward { true };
+    std::atomic<bool> primaryEnteredLoop { false };
+    std::array<std::atomic<float>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorPositions {};
+    std::array<std::atomic<float>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorGroupPositions {};
+    std::array<std::atomic<float>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorTransportPositions {};
+    std::array<std::atomic<float>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorOscillatorPhases {};
+    std::array<std::atomic<uint64_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorIdentities {};
+    std::array<std::atomic<uint32_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorCycleOffsets {};
+    std::array<std::atomic<uint32_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorRepeatIndices {};
+    std::array<std::atomic<uint32_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorRandomStates {};
+    std::array<std::atomic<uint8_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorKeys {};
+    std::array<std::atomic<uint8_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorOutputFirst {};
+    std::array<std::atomic<uint8_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorOutputSecond {};
+    std::array<std::atomic<uint8_t>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorOutputWidths {};
+    std::array<std::atomic<bool>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorDirections {};
+    std::array<std::atomic<bool>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorEnteredLoops {};
+    std::array<std::atomic<bool>, s3g::sample::kMaximumWavesetVoices>
+        voiceCursorPendulumForwards {};
+    std::atomic<uint32_t> voiceCursorCount { 0u };
     std::atomic<uint32_t> requestedActions { 0u };
     std::atomic<uint32_t> actionFeedback { 0u };
     std::atomic<float> outputPeak { 0.0f };
@@ -229,9 +313,15 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kOutParamId && id <= kLevelBParamId
+    return id >= kOutParamId && id <= kActiveOutputCountParamId
         ? static_cast<std::size_t>(id - kOutParamId) : kParamCount;
 }
+
+bool isMultichannel(const Plugin& instance) noexcept
+{ return instance.outputChannelCount == 32u; }
+
+std::size_t visibleParamCount(const Plugin& instance) noexcept
+{ return isMultichannel(instance) ? kParamCount : kStereoParamCount; }
 
 double clampParam(const ParamDef& def, double value) noexcept
 {
@@ -269,10 +359,13 @@ void setParam(Plugin& instance, clap_id id, double value,
     value = clampParam(*def, value);
     const double previous = instance.parameters[index].exchange(value,
         std::memory_order_acq_rel);
-    const bool cursorContract = id == kAdvanceParamId || id == kGroupParamId
+    const bool cursorContract = id == kPlayModeParamId
+        || id == kStartParamId || id == kEndParamId
+        || id == kLoopStartParamId || id == kLoopEndParamId
+        || id == kAdvanceParamId || id == kGroupParamId
         || id == kRepeatParamId || id == kStrideParamId
-        || id == kPositionAParamId || id == kPositionBParamId
-        || id == kRateAParamId || id == kRateBParamId;
+        || id == kRootNoteParamId || id == kTuneParamId
+        || id == kFineTuneParamId;
     if (cursorContract && previous != value)
         instance.cursorRevision.fetch_add(1u, std::memory_order_release);
     if (id == kDetailParamId && previous != value) {
@@ -302,10 +395,37 @@ WavesetSettings settingsSnapshot(const Plugin& instance) noexcept
     WavesetSettings settings;
     settings.outputGainDecibels = static_cast<float>(paramValue(instance,
         kOutParamId));
-    settings.crossfader = paramValue(instance, kCrossfaderParamId);
-    settings.crossfadeCurve = static_cast<WavesetCrossfadeCurve>(
+    settings.playMode = static_cast<WavesetPlayMode>(static_cast<uint8_t>(
+        std::clamp(static_cast<int>(std::lround(paramValue(instance,
+            kPlayModeParamId))), 0, 5)));
+    settings.sourceMode = static_cast<WavesetSourceMode>(
         static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
-            paramValue(instance, kCurveParamId))), 0, 2)));
+            paramValue(instance, kSourceModeParamId))), 0, 3)));
+    settings.voiceMode = static_cast<VoiceMode>(static_cast<uint8_t>(
+        std::clamp(static_cast<int>(std::lround(paramValue(instance,
+            kVoiceModeParamId))), 0, 2)));
+    settings.triggerMode = static_cast<TriggerMode>(static_cast<uint8_t>(
+        std::clamp(static_cast<int>(std::lround(paramValue(instance,
+            kTriggerModeParamId))), 0, 3)));
+    settings.start = std::clamp(paramValue(instance, kStartParamId), 0.0, 1.0);
+    settings.end = std::clamp(paramValue(instance, kEndParamId),
+        settings.start, 1.0);
+    settings.loopStart = std::clamp(paramValue(instance, kLoopStartParamId),
+        settings.start, settings.end);
+    settings.loopEnd = std::clamp(paramValue(instance, kLoopEndParamId),
+        settings.loopStart, settings.end);
+    settings.rootNote = static_cast<uint8_t>(std::clamp(static_cast<int>(
+        std::lround(paramValue(instance, kRootNoteParamId))), 0, 127));
+    settings.tuneSemitones = static_cast<float>(paramValue(instance,
+        kTuneParamId));
+    settings.fineTuneCents = static_cast<float>(paramValue(instance,
+        kFineTuneParamId));
+    settings.attackSeconds = static_cast<float>(paramValue(instance,
+        kAttackParamId));
+    settings.releaseSeconds = static_cast<float>(paramValue(instance,
+        kReleaseParamId));
+    settings.velocitySensitivity = static_cast<float>(paramValue(instance,
+        kVelocityParamId));
     settings.advance = static_cast<WavesetAdvanceMode>(
         static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
             paramValue(instance, kAdvanceParamId))), 0, 2)));
@@ -315,26 +435,37 @@ WavesetSettings settingsSnapshot(const Plugin& instance) noexcept
     settings.repeats = static_cast<uint32_t>(std::clamp(
         static_cast<int>(std::lround(paramValue(instance, kRepeatParamId))),
         1, 16));
-    settings.stride = static_cast<int32_t>(std::clamp(
+    settings.stride = static_cast<uint32_t>(std::clamp(
         static_cast<int>(std::lround(paramValue(instance, kStrideParamId))),
-        -16, 16));
+        1, 16));
     settings.direction = static_cast<WavesetDirection>(
         static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
             paramValue(instance, kDirectionParamId))), 0, 3)));
     settings.shape = static_cast<WavesetShape>(static_cast<uint8_t>(
         std::clamp(static_cast<int>(std::lround(
-            paramValue(instance, kShapeParamId))), 0, 4)));
+            paramValue(instance, kShapeParamId))), 0, 11)));
     settings.processAmount = static_cast<float>(paramValue(instance,
         kProcessParamId));
     settings.joinAmount = static_cast<float>(paramValue(instance,
         kJoinParamId));
-    for (std::size_t index = 0u; index < 2u; ++index) {
-        settings.positions[index] = paramValue(instance,
-            kPositionParamIds[index]);
-        settings.scanRates[index] = paramValue(instance,
-            kRateParamIds[index]);
-        settings.levelsDecibels[index] = static_cast<float>(paramValue(
-            instance, kLevelParamIds[index]));
+    if (isMultichannel(instance)) {
+        settings.outputRouting.traversal = static_cast<OutputTraversal>(
+            static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
+                paramValue(instance, kOutputTraversalParamId))), 0, 4)));
+        settings.outputRouting.width = static_cast<OutputVoiceWidth>(
+            static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
+                paramValue(instance, kOutputVoiceWidthParamId))), 0, 1)));
+        settings.outputRouting.pairLayout = static_cast<StereoPairLayout>(
+            static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(
+                paramValue(instance, kStereoPairLayoutParamId))), 0, 1)));
+        settings.activeOutputChannelCount = static_cast<uint32_t>(std::clamp(
+            static_cast<int>(std::lround(paramValue(instance,
+                kActiveOutputCountParamId))), 2, 32));
+    } else {
+        settings.outputRouting.traversal = OutputTraversal::Sequential;
+        settings.outputRouting.width = OutputVoiceWidth::Stereo;
+        settings.outputRouting.pairLayout = StereoPairLayout::Adjacent;
+        settings.activeOutputChannelCount = 2u;
     }
     return settings;
 }
@@ -448,12 +579,12 @@ bool publishMap(Plugin& instance, std::shared_ptr<const WavesetMap> map,
     instance.samplePath = std::move(path);
     instance.publishedMap.store(instance.controlMap.get(),
         std::memory_order_release);
-    for (auto& position : instance.headPositions)
-        position.store(-1.0f, std::memory_order_relaxed);
-    for (auto& phase : instance.outputPhases)
-        phase.store(0.0f, std::memory_order_relaxed);
-    instance.headActiveMask.store(0u, std::memory_order_release);
-    instance.deckPlayingMask.store(0u, std::memory_order_release);
+    instance.primaryPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.activeVoiceCount.store(0u, std::memory_order_release);
+    instance.primaryKey.store(0u, std::memory_order_release);
+    instance.primaryDirectionForward.store(true, std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(false, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     instance.outputPeak.store(0.0f, std::memory_order_relaxed);
     instance.cursorRevision.fetch_add(1u, std::memory_order_release);
     requestProcess(instance);
@@ -601,7 +732,7 @@ void serviceLoads(Plugin& instance)
                 ? "WAVESET ANALYSIS FAILED" : result.error;
             continue;
         }
-        const std::size_t count = result.map->units.size();
+        const std::size_t count = result.map->unitCount();
         publishMap(instance, std::move(result.map),
             std::move(result.path));
         instance.status = std::to_string(count) + " WAVESETS / "
@@ -611,11 +742,14 @@ void serviceLoads(Plugin& instance)
 #endif
 
 void appendEvent(Plugin& instance, std::size_t& count,
-    uint32_t frame, WavesetEventKind kind, uint8_t deck = 0u,
-    float value = 1.0f) noexcept
+    uint32_t frame, WavesetEventKind kind, uint64_t noteId = 0u,
+    uint8_t key = 60u, float velocity = 1.0f,
+    uint8_t midiChannel = 0u) noexcept
 {
     if (count >= instance.blockEvents.size()) return;
-    instance.blockEvents[count++] = { frame, kind, deck, value };
+    instance.blockEvents[count++] = {
+        frame, kind, noteId, key, velocity, midiChannel,
+    };
 }
 
 void requestAction(Plugin& instance, uint32_t action) noexcept
@@ -629,121 +763,41 @@ void appendRequestedActions(Plugin& instance, std::size_t& count) noexcept
 {
     const uint32_t actions = instance.requestedActions.exchange(
         0u, std::memory_order_acq_rel);
-    if ((actions & kActionRestartBoth) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::RestartBoth);
-    if ((actions & kActionStopBoth) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::StopBoth);
-    if ((actions & kActionPlayBoth) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::PlayBoth);
-    if ((actions & kActionPauseBoth) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::PauseBoth);
-    if ((actions & kActionRestartA) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::RestartDeck, 0u);
-    if ((actions & kActionRestartB) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::RestartDeck, 1u);
-    if ((actions & kActionStopA) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::StopDeck, 0u);
-    if ((actions & kActionStopB) != 0u)
-        appendEvent(instance, count, 0u, WavesetEventKind::StopDeck, 1u);
-    const uint8_t playing = instance.deckPlayingMask.load(
-        std::memory_order_acquire);
-    const bool linked = paramValue(instance, kLinkParamId) >= 0.5;
-    if ((actions & (kActionToggleA | kActionToggleB)) != 0u && linked) {
-        appendEvent(instance, count, 0u,
-            playing == 3u ? WavesetEventKind::PauseBoth
-                          : WavesetEventKind::PlayBoth);
-    } else {
-        if ((actions & kActionToggleA) != 0u)
-            appendEvent(instance, count, 0u,
-                (playing & 1u) != 0u ? WavesetEventKind::PauseDeck
-                                     : WavesetEventKind::PlayDeck, 0u);
-        if ((actions & kActionToggleB) != 0u)
-            appendEvent(instance, count, 0u,
-                (playing & 2u) != 0u ? WavesetEventKind::PauseDeck
-                                     : WavesetEventKind::PlayDeck, 1u);
-    }
+    if ((actions & kActionPreview) != 0u)
+        appendEvent(instance, count, 0u, WavesetEventKind::Preview);
+    if ((actions & kActionStopAll) != 0u)
+        appendEvent(instance, count, 0u, WavesetEventKind::StopAll);
 }
 
 void handleMidi(Plugin& instance, std::size_t& count, uint32_t frame,
     uint8_t channel, uint8_t status, uint8_t data1, uint8_t data2) noexcept
 {
-    const int receiveChannel = static_cast<int>(std::lround(paramValue(
-        instance, kMidiChannelParamId))) - 1;
-    if (static_cast<int>(channel) != receiveChannel) return;
-    if (status == 0x90u && data2 != 0u) {
-        uint32_t feedback = 0u;
-        switch (data1) {
-        case 36u: feedback = kActionRestartBoth; appendEvent(instance, count, frame,
-            WavesetEventKind::RestartBoth); break;
-        case 37u: feedback = kActionStopBoth; appendEvent(instance, count, frame,
-            WavesetEventKind::StopBoth); break;
-        case 38u: feedback = kActionPlayBoth; appendEvent(instance, count, frame,
-            WavesetEventKind::PlayBoth); break;
-        case 39u: feedback = kActionPauseBoth; appendEvent(instance, count, frame,
-            WavesetEventKind::PauseBoth); break;
-        case 40u: {
-            feedback = kActionToggleA;
-            const uint8_t playing = instance.deckPlayingMask.load(
-                std::memory_order_acquire);
-            const bool linked = paramValue(instance, kLinkParamId) >= 0.5;
-            appendEvent(instance, count, frame,
-                linked
-                    ? (playing == 3u ? WavesetEventKind::PauseBoth
-                                     : WavesetEventKind::PlayBoth)
-                    : ((playing & 1u) != 0u
-                        ? WavesetEventKind::PauseDeck
-                        : WavesetEventKind::PlayDeck),
-                0u);
-            break;
-        }
-        case 41u: {
-            feedback = kActionToggleB;
-            const uint8_t playing = instance.deckPlayingMask.load(
-                std::memory_order_acquire);
-            const bool linked = paramValue(instance, kLinkParamId) >= 0.5;
-            appendEvent(instance, count, frame,
-                linked
-                    ? (playing == 3u ? WavesetEventKind::PauseBoth
-                                     : WavesetEventKind::PlayBoth)
-                    : ((playing & 2u) != 0u
-                        ? WavesetEventKind::PauseDeck
-                        : WavesetEventKind::PlayDeck),
-                1u);
-            break;
-        }
-        case 42u: feedback = kActionRestartA; appendEvent(instance, count, frame,
-            WavesetEventKind::RestartDeck, 0u); break;
-        case 43u: feedback = kActionRestartB; appendEvent(instance, count, frame,
-            WavesetEventKind::RestartDeck, 1u); break;
-        case 44u: feedback = kActionStopA; appendEvent(instance, count, frame,
-            WavesetEventKind::StopDeck, 0u); break;
-        case 45u: feedback = kActionStopB; appendEvent(instance, count, frame,
-            WavesetEventKind::StopDeck, 1u); break;
-        case 46u: setParam(instance, kCrossfaderParamId, -1.0); break;
-        case 47u: setParam(instance, kCrossfaderParamId, 0.0); break;
-        case 48u: setParam(instance, kCrossfaderParamId, 1.0); break;
-        default: break;
-        }
-        if (feedback != 0u)
-            instance.actionFeedback.fetch_or(feedback,
-                std::memory_order_release);
+    const int receive = static_cast<int>(std::lround(paramValue(instance,
+        kMidiChannelParamId)));
+    if (receive != 0 && static_cast<int>(channel) != receive - 1) return;
+    if ((status == 0x90u && data2 != 0u) || status == 0x80u
+        || (status == 0x90u && data2 == 0u)) {
+        appendEvent(instance, count, frame,
+            status == 0x90u && data2 != 0u
+                ? WavesetEventKind::NoteOn : WavesetEventKind::NoteOff,
+            0u, data1, static_cast<float>(data2) / 127.0f, channel);
     } else if (status == 0xb0u) {
         const double normalized = static_cast<double>(data2) / 127.0;
-        if (data1 == 1u || data1 == 16u)
-            setParam(instance, kCrossfaderParamId,
-                normalized * 2.0 - 1.0);
-        else if (data1 >= 17u && data1 <= 18u)
-            setParam(instance, kPositionParamIds[data1 - 17u], normalized);
-        else if (data1 >= 19u && data1 <= 20u)
-            setParam(instance, kRateParamIds[data1 - 19u],
-                0.25 + normalized * 3.75);
-        else if (data1 == 21u)
+        if (data1 == 16u) setParam(instance, kStartParamId, normalized);
+        else if (data1 == 17u) setParam(instance, kEndParamId, normalized);
+        else if (data1 == 18u)
+            setParam(instance, kLoopStartParamId, normalized);
+        else if (data1 == 19u)
+            setParam(instance, kLoopEndParamId, normalized);
+        else if (data1 == 20u)
             setParam(instance, kGroupParamId, normalized * 5.0);
+        else if (data1 == 21u)
+            setParam(instance, kRepeatParamId, 1.0 + normalized * 15.0);
         else if (data1 == 22u)
             setParam(instance, kProcessParamId, normalized);
-        else if (data1 == 123u) {
-            appendEvent(instance, count, frame, WavesetEventKind::StopBoth);
-        }
+        else if (data1 == 23u) setParam(instance, kJoinParamId, normalized);
+        else if (data1 == 123u)
+            appendEvent(instance, count, frame, WavesetEventKind::StopAll);
     }
 }
 
@@ -768,13 +822,22 @@ void readInputEvents(Plugin& instance, const clap_input_events_t* events,
             && header->size >= sizeof(clap_event_note_t)) {
             const auto* event = reinterpret_cast<const clap_event_note_t*>(
                 header);
-            const uint8_t status = header->type == CLAP_EVENT_NOTE_ON
-                && event->velocity > 0.0 ? 0x90u : 0x80u;
-            handleMidi(instance, eventCount, frame,
-                static_cast<uint8_t>(std::clamp<int>(event->channel, 0, 15)),
-                status, static_cast<uint8_t>(std::clamp<int>(event->key, 0, 127)),
-                static_cast<uint8_t>(std::clamp(event->velocity, 0.0, 1.0)
-                    * 127.0));
+            const uint8_t channel = static_cast<uint8_t>(
+                std::clamp<int>(event->channel, 0, 15));
+            const int receive = static_cast<int>(std::lround(paramValue(
+                instance, kMidiChannelParamId)));
+            if (receive == 0 || static_cast<int>(channel) == receive - 1) {
+                appendEvent(instance, eventCount, frame,
+                    header->type == CLAP_EVENT_NOTE_ON
+                            && event->velocity > 0.0
+                        ? WavesetEventKind::NoteOn
+                        : WavesetEventKind::NoteOff,
+                    event->note_id >= 0
+                        ? static_cast<uint64_t>(event->note_id) + 1u : 0u,
+                    static_cast<uint8_t>(std::clamp<int>(event->key, 0, 127)),
+                    static_cast<float>(std::clamp(event->velocity, 0.0, 1.0)),
+                    channel);
+            }
             continue;
         }
         if (header->type == CLAP_EVENT_MIDI
@@ -826,15 +889,22 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     if (!(sampleRate > 0.0) || maximumFrames == 0u) return false;
     instance.sampleRate = sampleRate;
     instance.maximumFrames = maximumFrames;
-    instance.engine.prepare(sampleRate, maximumFrames);
-    for (auto& channel : instance.scratch)
-        channel.assign(maximumFrames, 0.0f);
+    if (!instance.engine.prepare(sampleRate, instance.outputChannelCount))
+        return false;
+    for (uint32_t channel = 0u; channel < instance.scratch.size(); ++channel) {
+        if (channel < instance.outputChannelCount)
+            instance.scratch[channel].assign(maximumFrames, 0.0f);
+        else
+            instance.scratch[channel].clear();
+    }
     instance.audioMap = instance.publishedMap.load(std::memory_order_acquire);
     instance.engine.setMap(instance.audioMap);
-    for (auto& position : instance.headPositions)
-        position.store(-1.0f, std::memory_order_relaxed);
-    for (auto& phase : instance.outputPhases)
-        phase.store(0.0f, std::memory_order_relaxed);
+    instance.primaryPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.activeVoiceCount.store(0u, std::memory_order_relaxed);
+    instance.primaryKey.store(0u, std::memory_order_relaxed);
+    instance.primaryDirectionForward.store(true, std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(false, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     instance.requestedActions.store(0u, std::memory_order_relaxed);
     instance.active = true;
     return true;
@@ -848,12 +918,12 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.engine.setMap(nullptr);
     instance.audioMap = nullptr;
     for (auto& channel : instance.scratch) channel.clear();
-    instance.headActiveMask.store(0u, std::memory_order_release);
-    instance.deckPlayingMask.store(0u, std::memory_order_release);
-    for (auto& position : instance.headPositions)
-        position.store(-1.0f, std::memory_order_relaxed);
-    for (auto& phase : instance.outputPhases)
-        phase.store(0.0f, std::memory_order_relaxed);
+    instance.activeVoiceCount.store(0u, std::memory_order_release);
+    instance.primaryPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.primaryKey.store(0u, std::memory_order_relaxed);
+    instance.primaryDirectionForward.store(true, std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(false, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     instance.outputPeak.store(0.0f, std::memory_order_relaxed);
     instance.retainedMaps.clear();
     if (instance.controlMap) instance.retainedMaps.push_back(instance.controlMap);
@@ -872,8 +942,12 @@ void pluginStopProcessing(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
     instance.processing.store(false, std::memory_order_release);
-    instance.headActiveMask.store(0u, std::memory_order_release);
-    instance.deckPlayingMask.store(0u, std::memory_order_release);
+    instance.activeVoiceCount.store(0u, std::memory_order_release);
+    instance.primaryPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.primaryKey.store(0u, std::memory_order_relaxed);
+    instance.primaryDirectionForward.store(true, std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(false, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     instance.outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
@@ -881,12 +955,12 @@ void pluginReset(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
     instance.engine.reset();
-    for (auto& position : instance.headPositions)
-        position.store(-1.0f, std::memory_order_relaxed);
-    for (auto& phase : instance.outputPhases)
-        phase.store(0.0f, std::memory_order_relaxed);
-    instance.headActiveMask.store(0u, std::memory_order_release);
-    instance.deckPlayingMask.store(0u, std::memory_order_release);
+    instance.primaryPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.activeVoiceCount.store(0u, std::memory_order_release);
+    instance.primaryKey.store(0u, std::memory_order_relaxed);
+    instance.primaryDirectionForward.store(true, std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(false, std::memory_order_relaxed);
+    instance.voiceCursorCount.store(0u, std::memory_order_release);
     instance.outputPeak.store(0.0f, std::memory_order_relaxed);
     instance.cursorRevision.fetch_add(1u, std::memory_order_release);
 }
@@ -911,40 +985,71 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     readInputEvents(instance, process->in_events, process->frames_count,
         eventCount);
     const WavesetSettings settings = settingsSnapshot(instance);
-    std::array<float*, 2u> scratch {{
-        instance.scratch[0u].data(), instance.scratch[1u].data(),
-    }};
+    std::array<float*, s3g::sample::kMaximumWavesetOutputChannels> scratch {};
+    for (uint32_t channel = 0u; channel < instance.outputChannelCount;
+         ++channel) scratch[channel] = instance.scratch[channel].data();
     instance.engine.render(settings, instance.blockEvents.data(), eventCount,
-        scratch.data(), 2u, process->frames_count);
-    const uint8_t previousMask = instance.headActiveMask.load(
+        scratch.data(), instance.outputChannelCount, process->frames_count);
+    const uint32_t voices = instance.engine.activeVoiceCount();
+    instance.primaryPosition.store(instance.engine.primaryPositionNormalized(),
         std::memory_order_relaxed);
-    const uint8_t previousPlaying = instance.deckPlayingMask.load(
+    instance.primaryKey.store(instance.engine.primaryKey(),
         std::memory_order_relaxed);
-    const uint8_t activeMask = instance.engine.activeMask();
-    uint8_t playingMask = 0u;
-    for (std::size_t index = 0u; index < 2u; ++index) {
-        instance.headPositions[index].store(
-            instance.engine.deckPositionNormalized(index),
+    instance.primaryDirectionForward.store(
+        instance.engine.primaryDirectionForward(), std::memory_order_relaxed);
+    instance.primaryEnteredLoop.store(instance.engine.primaryEnteredLoop(),
+        std::memory_order_relaxed);
+    const uint32_t cursorCount = std::min<uint32_t>(
+        instance.engine.voiceCursorCount(),
+        static_cast<uint32_t>(instance.voiceCursorPositions.size()));
+    const auto& cursors = instance.engine.voiceCursors();
+    for (uint32_t cursor = 0u; cursor < cursorCount; ++cursor) {
+        instance.voiceCursorPositions[cursor].store(
+            cursors[cursor].sourcePositionNormalized,
             std::memory_order_relaxed);
-        instance.outputPhases[index].store(
-            instance.engine.deckOutputPhaseNormalized(index),
+        instance.voiceCursorGroupPositions[cursor].store(
+            cursors[cursor].groupPositionNormalized,
             std::memory_order_relaxed);
-        if (instance.engine.deckPlaying(index))
-            playingMask |= static_cast<uint8_t>(1u << index);
+        instance.voiceCursorTransportPositions[cursor].store(
+            cursors[cursor].transportPositionNormalized,
+            std::memory_order_relaxed);
+        instance.voiceCursorOscillatorPhases[cursor].store(
+            cursors[cursor].oscillatorPhase, std::memory_order_relaxed);
+        instance.voiceCursorIdentities[cursor].store(cursors[cursor].identity,
+            std::memory_order_relaxed);
+        instance.voiceCursorCycleOffsets[cursor].store(
+            cursors[cursor].cycleOffset, std::memory_order_relaxed);
+        instance.voiceCursorRepeatIndices[cursor].store(
+            cursors[cursor].repeatIndex, std::memory_order_relaxed);
+        instance.voiceCursorRandomStates[cursor].store(
+            cursors[cursor].randomState, std::memory_order_relaxed);
+        instance.voiceCursorKeys[cursor].store(cursors[cursor].key,
+            std::memory_order_relaxed);
+        instance.voiceCursorOutputFirst[cursor].store(
+            cursors[cursor].outputFirstChannel, std::memory_order_relaxed);
+        instance.voiceCursorOutputSecond[cursor].store(
+            cursors[cursor].outputSecondChannel, std::memory_order_relaxed);
+        instance.voiceCursorOutputWidths[cursor].store(
+            cursors[cursor].outputChannelCount, std::memory_order_relaxed);
+        instance.voiceCursorDirections[cursor].store(
+            cursors[cursor].directionForward, std::memory_order_relaxed);
+        instance.voiceCursorEnteredLoops[cursor].store(
+            cursors[cursor].enteredLoop, std::memory_order_relaxed);
+        instance.voiceCursorPendulumForwards[cursor].store(
+            cursors[cursor].pendulumForward, std::memory_order_relaxed);
     }
-    instance.headActiveMask.store(activeMask, std::memory_order_release);
-    instance.deckPlayingMask.store(playingMask, std::memory_order_release);
-    if (activeMask != previousMask || playingMask != previousPlaying)
-        instance.cursorRevision.fetch_add(1u, std::memory_order_release);
+    instance.voiceCursorCount.store(cursorCount, std::memory_order_release);
+    instance.activeVoiceCount.store(voices, std::memory_order_release);
     instance.outputPeak.store(instance.engine.outputPeak(),
         std::memory_order_relaxed);
 
     if (process->audio_outputs_count > 0u && process->audio_outputs) {
         auto& output = process->audio_outputs[0u];
-        if (output.channel_count < 2u) return CLAP_PROCESS_ERROR;
+        if (output.channel_count < instance.outputChannelCount)
+            return CLAP_PROCESS_ERROR;
         output.constant_mask = 0u;
         for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
-            const float* source = channel < 2u
+            const float* source = channel < instance.outputChannelCount
                 ? instance.scratch[channel].data() : nullptr;
             if (output.data32 && output.data32[channel]) {
                 for (uint32_t frame = 0u; frame < process->frames_count; ++frame)
@@ -975,48 +1080,60 @@ uint32_t audioPortsCount(const clap_plugin_t*, bool isInput)
     return isInput ? 0u : 1u;
 }
 
-bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
+bool fillOutputPortInfo(uint32_t channelCount, uint32_t index, bool isInput,
     clap_audio_port_info_t* info)
 {
     if (!info || isInput || index != 0u) return false;
     *info = {};
     info->id = 20u;
-    std::snprintf(info->name, sizeof(info->name), "%s", "Stereo Out");
+    std::snprintf(info->name, sizeof(info->name), "%s",
+        channelCount == 2u ? "Stereo Out" : "32 Channel Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = 2u;
-    info->port_type = CLAP_PORT_STEREO;
+    info->channel_count = channelCount;
+    info->port_type = channelCount == 2u ? CLAP_PORT_STEREO : nullptr;
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
+}
+
+bool audioPortsGet(const clap_plugin_t* plugin, uint32_t index, bool isInput,
+    clap_audio_port_info_t* info)
+{
+    return plugin && fillOutputPortInfo(self(plugin)->outputChannelCount,
+        index, isInput, info);
 }
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 uint32_t audioPortsConfigCount(const clap_plugin_t*) { return 1u; }
-bool audioPortsConfigGet(const clap_plugin_t*, uint32_t index,
+bool audioPortsConfigGet(const clap_plugin_t* plugin, uint32_t index,
     clap_audio_ports_config_t* config)
 {
-    if (!config || index != 0u) return false;
+    if (!plugin || !config || index != 0u) return false;
+    const auto& instance = *self(plugin);
     *config = {};
-    config->id = kStereoOutputConfigId;
-    std::snprintf(config->name, sizeof(config->name), "%s", "Stereo");
+    config->id = instance.outputConfigId;
+    std::snprintf(config->name, sizeof(config->name), "%s",
+        isMultichannel(instance) ? "32 Channel" : "Stereo");
     config->output_port_count = 1u;
     config->has_main_output = true;
-    config->main_output_channel_count = 2u;
-    config->main_output_port_type = CLAP_PORT_STEREO;
+    config->main_output_channel_count = instance.outputChannelCount;
+    config->main_output_port_type = isMultichannel(instance)
+        ? nullptr : CLAP_PORT_STEREO;
     return true;
 }
-bool audioPortsConfigSelect(const clap_plugin_t*, clap_id id)
-{ return id == kStereoOutputConfigId; }
+bool audioPortsConfigSelect(const clap_plugin_t* plugin, clap_id id)
+{ return plugin && id == self(plugin)->outputConfigId; }
 const clap_plugin_audio_ports_config_t audioPortsConfig {
     audioPortsConfigCount, audioPortsConfigGet, audioPortsConfigSelect,
 };
-clap_id audioPortsConfigCurrent(const clap_plugin_t*)
-{ return kStereoOutputConfigId; }
-bool audioPortsConfigInfoGet(const clap_plugin_t*, clap_id configId,
+clap_id audioPortsConfigCurrent(const clap_plugin_t* plugin)
+{ return plugin ? self(plugin)->outputConfigId : CLAP_INVALID_ID; }
+bool audioPortsConfigInfoGet(const clap_plugin_t* plugin, clap_id configId,
     uint32_t portIndex, bool isInput, clap_audio_port_info_t* info)
 {
-    return configId == kStereoOutputConfigId
-        && audioPortsGet(nullptr, portIndex, isInput, info);
+    return plugin && configId == self(plugin)->outputConfigId
+        && fillOutputPortInfo(self(plugin)->outputChannelCount, portIndex,
+            isInput, info);
 }
 const clap_plugin_audio_ports_config_info_t audioPortsConfigInfo {
     audioPortsConfigCurrent, audioPortsConfigInfoGet,
@@ -1038,37 +1155,14 @@ bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
 }
 const clap_plugin_note_ports_t notePorts { notePortsCount, notePortsGet };
 
-struct NoteNameDef {
-    uint8_t key;
-    const char* name;
-};
-
-constexpr std::array<NoteNameDef, 13u> kNoteNames {{
-    { 36u, "RESTART BOTH" }, { 37u, "STOP BOTH" },
-    { 38u, "PLAY BOTH" }, { 39u, "PAUSE BOTH" },
-    { 40u, "DECK A PLAY/PAUSE" }, { 41u, "DECK B PLAY/PAUSE" },
-    { 42u, "RESTART DECK A" }, { 43u, "RESTART DECK B" },
-    { 44u, "STOP DECK A" }, { 45u, "STOP DECK B" },
-    { 46u, "XFADE A" }, { 47u, "XFADE CENTER" },
-    { 48u, "XFADE B" },
-}};
-
-uint32_t noteNameCount(const clap_plugin_t*)
-{
-    return static_cast<uint32_t>(kNoteNames.size());
-}
+uint32_t noteNameCount(const clap_plugin_t*) { return 0u; }
 
 bool noteNameGet(const clap_plugin_t*, uint32_t index,
     clap_note_name_t* noteName)
 {
-    if (!noteName || index >= kNoteNames.size()) return false;
-    *noteName = {};
-    noteName->port = 0;
-    noteName->channel = -1;
-    noteName->key = static_cast<int16_t>(kNoteNames[index].key);
-    std::snprintf(noteName->name, sizeof(noteName->name), "%s",
-        kNoteNames[index].name);
-    return true;
+    (void)index;
+    (void)noteName;
+    return false;
 }
 
 const clap_plugin_note_name_t noteNames {
@@ -1076,12 +1170,16 @@ const clap_plugin_note_name_t noteNames {
     noteNameGet,
 };
 
-uint32_t paramsCount(const clap_plugin_t*)
-{ return static_cast<uint32_t>(kParamDefs.size()); }
-bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
+uint32_t paramsCount(const clap_plugin_t* plugin)
+{
+    return plugin ? static_cast<uint32_t>(visibleParamCount(*self(plugin)))
+        : 0u;
+}
+bool paramsGetInfo(const clap_plugin_t* plugin, uint32_t index,
     clap_param_info_t* info)
 {
-    if (!info || index >= kParamDefs.size()) return false;
+    if (!plugin || !info || index >= visibleParamCount(*self(plugin)))
+        return false;
     const auto& def = kParamDefs[index];
     *info = {};
     info->id = def.id;
@@ -1096,17 +1194,38 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
 }
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value || !paramDef(id)) return false;
+    if (!plugin || !value || !paramDef(id)
+        || paramIndex(id) >= visibleParamCount(*self(plugin))) return false;
     *value = paramValue(*self(plugin), id);
     return true;
 }
 
-const char* curveName(int value) noexcept
+const char* playModeName(int value) noexcept
 {
-    constexpr std::array<const char*, 3u> names {{
-        "Cut", "Sharp", "Blend",
+    constexpr std::array<const char*, 6u> names {{
+        "Forward", "Forward Loop", "Reverse", "Reverse Loop",
+        "Forward Ping-Pong", "Reverse Ping-Pong",
     }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 5))];
+}
+const char* sourceModeName(int value) noexcept
+{
+    constexpr std::array<const char*, 4u> names {{
+        "Left Mono", "Right Mono", "Sum Mono", "True Stereo",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 3))];
+}
+const char* voiceModeName(int value) noexcept
+{
+    constexpr std::array<const char*, 3u> names {{ "Poly", "Mono", "Legato" }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 2))];
+}
+const char* triggerModeName(int value) noexcept
+{
+    constexpr std::array<const char*, 4u> names {{
+        "Auto", "Gate", "One Shot", "Toggle",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 3))];
 }
 const char* advanceName(int value) noexcept
 {
@@ -1122,10 +1241,12 @@ const char* directionName(int value) noexcept
 }
 const char* shapeName(int value) noexcept
 {
-    constexpr std::array<const char*, 5u> names {{
-        "Repeat", "Omit", "Replace", "Envelope", "Harmonic",
+    constexpr std::array<const char*, 12u> names {{
+        "Repeat", "Omit", "Replace", "Envelope", "Multiply",
+        "Average", "Interpolate", "Fractal", "Harmonic",
+        "Group Reverse", "Cycle Reverse", "Telescope",
     }};
-    return names[static_cast<std::size_t>(std::clamp(value, 0, 4))];
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 11))];
 }
 const char* detailName(int value) noexcept
 {
@@ -1133,13 +1254,35 @@ const char* detailName(int value) noexcept
     return names[static_cast<std::size_t>(std::clamp(value, 0, 4))];
 }
 
-bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
+const char* outputTraversalName(int value) noexcept
+{
+    constexpr std::array<const char*, 5u> names {{
+        "Sequential", "Reverse Sequential", "Palindrome", "Random",
+        "Random Cycle",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 4))];
+}
+
+const char* outputVoiceWidthName(int value) noexcept
+{ return value <= 0 ? "Mono" : "Stereo Pair"; }
+
+const char* stereoPairLayoutName(int value) noexcept
+{ return value <= 0 ? "Adjacent" : "Split Banks"; }
+
+bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     char* display, uint32_t size)
 {
-    if (!display || size == 0u || !paramDef(id)) return false;
+    if (!plugin || !display || size == 0u || !paramDef(id)
+        || paramIndex(id) >= visibleParamCount(*self(plugin))) return false;
     const int rounded = static_cast<int>(std::lround(value));
-    if (id == kCurveParamId)
-        std::snprintf(display, size, "%s", curveName(rounded));
+    if (id == kPlayModeParamId)
+        std::snprintf(display, size, "%s", playModeName(rounded));
+    else if (id == kSourceModeParamId)
+        std::snprintf(display, size, "%s", sourceModeName(rounded));
+    else if (id == kVoiceModeParamId)
+        std::snprintf(display, size, "%s", voiceModeName(rounded));
+    else if (id == kTriggerModeParamId)
+        std::snprintf(display, size, "%s", triggerModeName(rounded));
     else if (id == kAdvanceParamId)
         std::snprintf(display, size, "%s", advanceName(rounded));
     else if (id == kDirectionParamId)
@@ -1148,36 +1291,49 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", shapeName(rounded));
     else if (id == kDetailParamId)
         std::snprintf(display, size, "%s", detailName(rounded));
+    else if (id == kOutputTraversalParamId)
+        std::snprintf(display, size, "%s", outputTraversalName(rounded));
+    else if (id == kOutputVoiceWidthParamId)
+        std::snprintf(display, size, "%s", outputVoiceWidthName(rounded));
+    else if (id == kStereoPairLayoutParamId)
+        std::snprintf(display, size, "%s", stereoPairLayoutName(rounded));
+    else if (id == kActiveOutputCountParamId)
+        std::snprintf(display, size, "%d CH", rounded);
     else if (id == kGroupParamId)
         std::snprintf(display, size, "%u wavesets", kGroupSizes[
             static_cast<std::size_t>(std::clamp(rounded, 0, 5))]);
     else if (id == kRepeatParamId)
         std::snprintf(display, size, "%d x", rounded);
     else if (id == kStrideParamId)
-        std::snprintf(display, size, "%+d", rounded);
-    else if (id == kOutParamId || id == kLevelAParamId
-        || id == kLevelBParamId)
+        std::snprintf(display, size, "%d", rounded);
+    else if (id == kOutParamId)
         std::snprintf(display, size, "%+.1f dB", value);
-    else if (id == kPositionAParamId || id == kPositionBParamId)
+    else if (id == kStartParamId || id == kEndParamId
+        || id == kLoopStartParamId || id == kLoopEndParamId
+        || id == kProcessParamId || id == kJoinParamId
+        || id == kVelocityParamId)
         std::snprintf(display, size, "%.2f %%", value * 100.0);
-    else if (id == kRateAParamId || id == kRateBParamId)
-        std::snprintf(display, size, "%.2f x", value);
-    else if (id == kProcessParamId || id == kJoinParamId)
-        std::snprintf(display, size, "%.1f %%", value * 100.0);
-    else if (id == kCrossfaderParamId)
-        std::snprintf(display, size, "%+.3f", value);
-    else if (id == kLinkParamId)
-        std::snprintf(display, size, "%s", rounded != 0 ? "On" : "Off");
+    else if (id == kTuneParamId)
+        std::snprintf(display, size, "%+.2f st", value);
+    else if (id == kFineTuneParamId)
+        std::snprintf(display, size, "%+.1f ct", value);
+    else if (id == kAttackParamId || id == kReleaseParamId)
+        std::snprintf(display, size, value < 1.0
+            ? "%.1f ms" : "%.3f s", value < 1.0 ? value * 1000.0 : value);
+    else if (id == kRootNoteParamId)
+        std::snprintf(display, size, "MIDI %03d", rounded);
     else if (id == kMidiChannelParamId)
-        std::snprintf(display, size, "CH %02d", rounded);
+        std::snprintf(display, size, rounded == 0 ? "OMNI" : "CH %02d",
+            rounded);
     else return false;
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id id,
+bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     const char* display, double* value)
 {
-    if (!display || !value || !paramDef(id)) return false;
+    if (!plugin || !display || !value || !paramDef(id)
+        || paramIndex(id) >= visibleParamCount(*self(plugin))) return false;
     const auto matchNames = [&](const auto& names) {
         for (std::size_t index = 0u; index < names.size(); ++index) {
             if (strcasecmp(display, names[index]) == 0) {
@@ -1187,9 +1343,28 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         }
         return false;
     };
-    if (id == kCurveParamId) {
+    if (id == kPlayModeParamId) {
+        constexpr std::array<const char*, 6u> names {{
+            "Forward", "Forward Loop", "Reverse", "Reverse Loop",
+            "Forward Ping-Pong", "Reverse Ping-Pong",
+        }};
+        return matchNames(names);
+    }
+    if (id == kSourceModeParamId) {
+        constexpr std::array<const char*, 4u> names {{
+            "Left Mono", "Right Mono", "Sum Mono", "True Stereo",
+        }};
+        return matchNames(names);
+    }
+    if (id == kVoiceModeParamId) {
         constexpr std::array<const char*, 3u> names {{
-            "Cut", "Sharp", "Blend",
+            "Poly", "Mono", "Legato",
+        }};
+        return matchNames(names);
+    }
+    if (id == kTriggerModeParamId) {
+        constexpr std::array<const char*, 4u> names {{
+            "Auto", "Gate", "One Shot", "Toggle",
         }};
         return matchNames(names);
     }
@@ -1204,8 +1379,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         return matchNames(names);
     }
     if (id == kShapeParamId) {
-        constexpr std::array<const char*, 5u> names {{
-            "Repeat", "Omit", "Replace", "Envelope", "Harmonic",
+        constexpr std::array<const char*, 12u> names {{
+            "Repeat", "Omit", "Replace", "Envelope", "Multiply",
+            "Average", "Interpolate", "Fractal", "Harmonic",
+            "Group Reverse", "Cycle Reverse", "Telescope",
         }};
         return matchNames(names);
     }
@@ -1213,14 +1390,52 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         constexpr std::array<const char*, 5u> names {{ "Raw", "8 kHz", "4 kHz", "1 kHz", "250 Hz" }};
         return matchNames(names);
     }
+    if (id == kOutputTraversalParamId) {
+        constexpr std::array<const char*, 5u> names {{
+            "Sequential", "Reverse Sequential", "Palindrome", "Random",
+            "Random Cycle",
+        }};
+        return matchNames(names);
+    }
+    if (id == kOutputVoiceWidthParamId) {
+        constexpr std::array<const char*, 2u> names {{
+            "Mono", "Stereo Pair",
+        }};
+        return matchNames(names);
+    }
+    if (id == kStereoPairLayoutParamId) {
+        constexpr std::array<const char*, 2u> names {{
+            "Adjacent", "Split Banks",
+        }};
+        return matchNames(names);
+    }
+    if (id == kMidiChannelParamId && strcasecmp(display, "OMNI") == 0) {
+        *value = 0.0;
+        return true;
+    }
+    if (id == kRootNoteParamId
+        && strncasecmp(display, "MIDI", 4u) == 0) display += 4u;
     if (id == kMidiChannelParamId
         && (strncasecmp(display, "CH", 2u) == 0)) display += 2u;
     char* end = nullptr;
     double parsed = std::strtod(display, &end);
     if (end == display) return false;
-    if (((id == kPositionAParamId || id == kPositionBParamId)
-            || id == kProcessParamId || id == kJoinParamId)
+    if ((id == kStartParamId || id == kEndParamId
+            || id == kLoopStartParamId || id == kLoopEndParamId
+            || id == kProcessParamId || id == kJoinParamId
+            || id == kVelocityParamId)
         && std::strchr(display, '%')) parsed *= 0.01;
+    if ((id == kAttackParamId || id == kReleaseParamId)
+        && (std::strstr(display, "ms") || std::strstr(display, "MS")))
+        parsed *= 0.001;
+    if (id == kGroupParamId) {
+        const uint32_t group = static_cast<uint32_t>(std::max(0.0,
+            std::round(parsed)));
+        const auto found = std::find(kGroupSizes.begin(), kGroupSizes.end(),
+            group);
+        if (found == kGroupSizes.end()) return false;
+        parsed = static_cast<double>(found - kGroupSizes.begin());
+    }
     *value = parsed;
     return true;
 }
@@ -1291,9 +1506,74 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState saved;
-    if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved))
-        || saved.magic != kStateMagic || saved.version != kStateVersion
-        || saved.parameterCount != kParamCount) return false;
+    StateHeader header;
+    if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
+        || header.magic != kStateMagic) return false;
+    if (header.version == kStateVersion
+        && header.parameterCount == kParamCount) {
+        std::memcpy(&saved, &header, sizeof(header));
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&saved) + sizeof(header),
+                sizeof(saved) - sizeof(header))) return false;
+    } else if (header.version == 3u
+        && header.parameterCount == kStereoParamCount) {
+        SavedStateV3 previous;
+        std::memcpy(&previous, &header, sizeof(header));
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&previous) + sizeof(header),
+                sizeof(previous) - sizeof(header))) return false;
+        for (const auto& def : kParamDefs)
+            saved.parameters[paramIndex(def.id)] = def.defaultValue;
+        std::copy(previous.parameters.begin(), previous.parameters.end(),
+            saved.parameters.begin());
+        saved.magic = kStateMagic;
+        saved.version = kStateVersion;
+        saved.parameterCount = static_cast<uint32_t>(kParamCount);
+        saved.path = previous.path;
+        saved.embedded = previous.embedded;
+        saved.channelCount = previous.channelCount;
+        saved.frameCount = previous.frameCount;
+        saved.sampleRate = previous.sampleRate;
+    } else if (header.version == 2u && header.parameterCount == 20u) {
+        LegacySavedStateV2 legacy;
+        std::memcpy(&legacy, &header, sizeof(header));
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&legacy) + sizeof(header),
+                sizeof(legacy) - sizeof(header))) return false;
+        for (const auto& def : kParamDefs)
+            saved.parameters[paramIndex(def.id)] = def.defaultValue;
+        // Preserve the useful part of the former two-deck model. Deck A's
+        // position becomes the playable/loop start; crossfader, linked
+        // transport, deck rates, and deck levels have no single-voice match.
+        saved.parameters[paramIndex(kOutParamId)] = legacy.parameters[0u];
+        saved.parameters[paramIndex(kPlayModeParamId)] = 1.0;
+        saved.parameters[paramIndex(kStartParamId)] = legacy.parameters[14u];
+        saved.parameters[paramIndex(kLoopStartParamId)]
+            = legacy.parameters[14u];
+        saved.parameters[paramIndex(kSourceModeParamId)] = 3.0;
+        saved.parameters[paramIndex(kVoiceModeParamId)] = 1.0;
+        saved.parameters[paramIndex(kTriggerModeParamId)] = 2.0;
+        saved.parameters[paramIndex(kAdvanceParamId)] = legacy.parameters[3u];
+        saved.parameters[paramIndex(kGroupParamId)] = legacy.parameters[4u];
+        saved.parameters[paramIndex(kRepeatParamId)] = legacy.parameters[5u];
+        saved.parameters[paramIndex(kStrideParamId)]
+            = std::max(1.0, std::abs(legacy.parameters[6u]));
+        saved.parameters[paramIndex(kDirectionParamId)] = legacy.parameters[7u];
+        saved.parameters[paramIndex(kShapeParamId)] = legacy.parameters[8u];
+        saved.parameters[paramIndex(kProcessParamId)] = legacy.parameters[9u];
+        saved.parameters[paramIndex(kJoinParamId)] = legacy.parameters[10u];
+        saved.parameters[paramIndex(kDetailParamId)] = legacy.parameters[11u];
+        saved.parameters[paramIndex(kMidiChannelParamId)]
+            = legacy.parameters[12u];
+        saved.magic = kStateMagic;
+        saved.version = kStateVersion;
+        saved.parameterCount = static_cast<uint32_t>(kParamCount);
+        saved.path = legacy.path;
+        saved.embedded = legacy.embedded;
+        saved.channelCount = legacy.channelCount;
+        saved.frameCount = legacy.frameCount;
+        saved.sampleRate = legacy.sampleRate;
+    } else return false;
     auto& instance = *self(plugin);
     for (const auto& def : kParamDefs)
         setParam(instance, def.id,
@@ -1335,7 +1615,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance.embedSampleInState = saved.embedded != 0u;
     instance.analysisDirty.store(false, std::memory_order_release);
     instance.status = instance.controlMap
-        ? std::to_string(instance.controlMap->units.size()) + " WAVESETS / "
+        ? std::to_string(instance.controlMap->unitCount()) + " WAVESETS / "
             + sampleDisplayName(instance.samplePath)
         : "PROJECT RESTORED / SAMPLE OFFLINE";
     return true;
@@ -1347,6 +1627,8 @@ const clap_plugin_state_t state { stateSave, stateLoad };
 // The native editor follows below.
 
 #if defined(__APPLE__)
+
+#if 0 // Retained temporarily for state-history reference; replaced below.
 
 namespace {
 
@@ -1411,7 +1693,7 @@ NSString* const kDirectionMenuItems[] = {
     @"Forward", @"Reverse", @"Pendulum", @"Shuffle",
 };
 NSString* const kShapeMenuItems[] = {
-    @"Repeat", @"Omit", @"Replace", @"Envelope", @"Harmonic",
+    @"Repeat", @"Omit", @"Replace", @"Envelope", @"Multiply",
 };
 NSString* const kDetailMenuItems[] = {
     @"Raw", @"8 kHz", @"4 kHz", @"1 kHz", @"250 Hz",
@@ -2309,7 +2591,7 @@ struct CursorSignature {
 {
     const ParamDef* def = paramDef(id);
     char text[64] {};
-    paramsValueToText(nullptr, id, paramValue(*_instance, id), text,
+    paramsValueToText(&_instance->plugin, id, paramValue(*_instance, id), text,
         sizeof(text));
     const CGFloat norm = static_cast<CGFloat>((paramValue(*_instance, id)
         - def->minimum) / (def->maximum - def->minimum));
@@ -2324,7 +2606,7 @@ struct CursorSignature {
     values:(NSDictionary*)values
 {
     char text[64] {};
-    paramsValueToText(nullptr, id, paramValue(*_instance, id), text,
+    paramsValueToText(&_instance->plugin, id, paramValue(*_instance, id), text,
         sizeof(text));
     s3g::clap_gui::drawMenu(name, [NSString stringWithUTF8String:text], y,
         labels, values, style, kGlobalPanel.origin.x + 12.0,
@@ -2609,6 +2891,1974 @@ const clap_plugin_gui_t gui {
 
 } // namespace
 
+#endif // previous two-deck editor
+
+// The Wavesets family editor follows Sample Player's one-document model: one
+// waveform, four range handles, a labelled cursor per active voice, and three
+// compact parameter columns.
+
+namespace {
+
+constexpr auto kWavesetsTitleBand = s3g::gui_layout::encoderTitleBand({
+    static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight),
+});
+static_assert(s3g::gui_layout::processorTitleBandFits(kWavesetsTitleBand));
+constexpr NSRect kSamplePanel = {{ 18.0, 54.0 }, { 944.0, 272.0 }};
+constexpr NSRect kWaveRect = {{ 30.0, 82.0 }, { 920.0, 200.0 }};
+constexpr NSRect kScopeRect = {{ 18.0, 326.0 }, { 944.0, 100.0 }};
+constexpr NSRect kScopeGraphRect = {{ 170.0, 336.0 }, { 780.0, 80.0 }};
+constexpr NSRect kPlaybackPanel = {{ 18.0, 442.0 }, { 300.0, 382.0 }};
+constexpr NSRect kWavesetPanel = {{ 330.0, 442.0 }, { 300.0, 382.0 }};
+constexpr NSRect kOutputPanel = {{ 642.0, 442.0 }, { 320.0, 382.0 }};
+constexpr NSRect kSampleLoadButton = {{ 690.0, 59.0 }, { 112.0, 15.0 }};
+constexpr NSRect kClearButton = {{ 810.0, 59.0 }, { 56.0, 15.0 }};
+constexpr NSRect kEmbedButton = {{ 874.0, 59.0 }, { 76.0, 15.0 }};
+constexpr NSRect kPreviewButton = {{ 662.0, 744.0 }, { 126.0, 30.0 }};
+constexpr NSRect kStopButton = {{ 798.0, 744.0 }, { 144.0, 30.0 }};
+
+constexpr std::array<const char*, 13u> kPresetNames {{
+    "INIT", "Clean Forward", "Forward Loop", "Stereo Poly",
+    "Reverse Blocks", "Held Tone", "Average Group", "Interpolated Flow",
+    "Fractal Copies", "Additive Harmonics", "Group Reverse",
+    "Cycle Reverse", "Telescope",
+}};
+NSString* const kPresetMenuItems[] = {
+    @"INIT", @"Clean Forward", @"Forward Loop", @"Stereo Poly",
+    @"Reverse Blocks", @"Held Tone", @"Average Group", @"Interpolated Flow",
+    @"Fractal Copies", @"Additive Harmonics", @"Group Reverse",
+    @"Cycle Reverse", @"Telescope",
+};
+NSString* const kPlayModeItems[] = {
+    @"Forward", @"Forward Loop", @"Reverse", @"Reverse Loop",
+    @"Forward Ping-Pong", @"Reverse Ping-Pong",
+};
+NSString* const kSourceModeItems[] = {
+    @"Left Mono", @"Right Mono", @"Sum Mono", @"True Stereo",
+};
+NSString* const kVoiceModeItems[] = { @"Poly", @"Mono", @"Legato" };
+NSString* const kTriggerModeItems[] = { @"Auto", @"Gate", @"One Shot", @"Toggle" };
+NSString* const kAdvanceItems[] = { @"Stretch", @"Preserve", @"Hold" };
+NSString* const kGroupItems[] = { @"1", @"2", @"4", @"8", @"16", @"32" };
+NSString* const kRepeatItems[] = {
+    @"1 x", @"2 x", @"3 x", @"4 x", @"5 x", @"6 x", @"7 x", @"8 x",
+    @"9 x", @"10 x", @"11 x", @"12 x", @"13 x", @"14 x", @"15 x", @"16 x",
+};
+NSString* const kStrideItems[] = {
+    @"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8",
+    @"9", @"10", @"11", @"12", @"13", @"14", @"15", @"16",
+};
+NSString* const kDirectionItems[] = { @"Forward", @"Reverse", @"Pendulum", @"Shuffle" };
+NSString* const kShapeItems[] = {
+    @"Repeat", @"Omit", @"Replace", @"Envelope", @"Multiply",
+    @"Average", @"Interpolate", @"Fractal", @"Harmonic",
+    @"Group Reverse", @"Cycle Reverse", @"Telescope",
+};
+NSString* const kDetailItems[] = { @"Raw", @"8 kHz", @"4 kHz", @"1 kHz", @"250 Hz" };
+NSString* const kMidiItems[] = {
+    @"Omni", @"CH 01", @"CH 02", @"CH 03", @"CH 04", @"CH 05",
+    @"CH 06", @"CH 07", @"CH 08", @"CH 09", @"CH 10", @"CH 11",
+    @"CH 12", @"CH 13", @"CH 14", @"CH 15", @"CH 16",
+};
+NSString* const kOutputTraversalItems[] = {
+    @"Sequential", @"Reverse Sequential", @"Palindrome", @"Random",
+    @"Random Cycle",
+};
+NSString* const kOutputVoiceWidthItems[] = {
+    @"Mono", @"Stereo Pair",
+};
+NSString* const kStereoPairLayoutItems[] = {
+    @"Adjacent", @"Split Banks",
+};
+NSString* const kActiveOutputCountItems[] = {
+    @"02", @"03", @"04", @"05", @"06", @"07", @"08", @"09",
+    @"10", @"11", @"12", @"13", @"14", @"15", @"16", @"17",
+    @"18", @"19", @"20", @"21", @"22", @"23", @"24", @"25",
+    @"26", @"27", @"28", @"29", @"30", @"31", @"32",
+};
+
+struct WavesetsMenuSpec {
+    NSString* const* items = nullptr;
+    uint32_t count = 0u;
+    uint32_t columns = 1u;
+};
+
+WavesetsMenuSpec wavesetsMenuSpec(clap_id id) noexcept
+{
+    switch (id) {
+    case kPlayModeParamId: return { kPlayModeItems, 6u, 1u };
+    case kSourceModeParamId: return { kSourceModeItems, 4u, 1u };
+    case kVoiceModeParamId: return { kVoiceModeItems, 3u, 1u };
+    case kTriggerModeParamId: return { kTriggerModeItems, 4u, 1u };
+    case kAdvanceParamId: return { kAdvanceItems, 3u, 1u };
+    case kGroupParamId: return { kGroupItems, 6u, 1u };
+    case kRepeatParamId: return { kRepeatItems, 16u, 2u };
+    case kStrideParamId: return { kStrideItems, 16u, 2u };
+    case kDirectionParamId: return { kDirectionItems, 4u, 1u };
+    case kShapeParamId: return { kShapeItems, 12u, 2u };
+    case kDetailParamId: return { kDetailItems, 5u, 1u };
+    case kMidiChannelParamId: return { kMidiItems, 17u, 2u };
+    case kOutputTraversalParamId:
+        return { kOutputTraversalItems, 5u, 1u };
+    case kOutputVoiceWidthParamId:
+        return { kOutputVoiceWidthItems, 2u, 1u };
+    case kStereoPairLayoutParamId:
+        return { kStereoPairLayoutItems, 2u, 1u };
+    case kActiveOutputCountParamId:
+        return { kActiveOutputCountItems, 31u, 5u };
+    default: return {};
+    }
+}
+
+int wavesetsMenuIndex(clap_id id, double value) noexcept
+{
+    const int rounded = static_cast<int>(std::lround(value));
+    if (id == kRepeatParamId || id == kStrideParamId) return rounded - 1;
+    if (id == kActiveOutputCountParamId) return rounded - 2;
+    return rounded;
+}
+
+double wavesetsMenuValue(clap_id id, int index) noexcept
+{
+    if (id == kRepeatParamId || id == kStrideParamId)
+        return static_cast<double>(index + 1);
+    if (id == kActiveOutputCountParamId)
+        return static_cast<double>(index + 2);
+    return static_cast<double>(index);
+}
+
+struct WavesetsCursorSignature {
+    const WavesetMap* map = nullptr;
+    uint64_t revision = 0u;
+    uint64_t identity = 0u;
+    uint8_t key = 0u;
+    uint8_t outputFirst = 0u;
+    uint8_t outputSecond = 1u;
+    uint8_t outputWidth = 2u;
+    int playMode = 0;
+    int advance = 0;
+    int shape = 0;
+    uint32_t groupSize = 1u;
+    uint32_t repeats = 1u;
+    uint32_t stride = 1u;
+    double processAmount = 0.0;
+    bool directionForward = true;
+    bool enteredLoop = false;
+    double start = 0.0;
+    double end = 1.0;
+    double loopStart = 0.0;
+    double loopEnd = 1.0;
+    double pitchRatio = 1.0;
+    double viewStart = 0.0;
+    double viewSpan = 1.0;
+
+    bool equals(const WavesetsCursorSignature& other) const noexcept
+    {
+        return map == other.map && revision == other.revision
+            && identity == other.identity && key == other.key
+            && outputFirst == other.outputFirst
+            && outputSecond == other.outputSecond
+            && outputWidth == other.outputWidth
+            && playMode == other.playMode && advance == other.advance
+            && shape == other.shape && groupSize == other.groupSize
+            && repeats == other.repeats && stride == other.stride
+            && std::abs(processAmount - other.processAmount) < 1.0e-9
+            && (playMode == static_cast<int>(WavesetPlayMode::ForwardPingPong)
+                    || playMode == static_cast<int>(
+                        WavesetPlayMode::ReversePingPong)
+                || directionForward == other.directionForward)
+            && enteredLoop == other.enteredLoop
+            && std::abs(start - other.start) < 1.0e-9
+            && std::abs(end - other.end) < 1.0e-9
+            && std::abs(loopStart - other.loopStart) < 1.0e-9
+            && std::abs(loopEnd - other.loopEnd) < 1.0e-9
+            && std::abs(pitchRatio - other.pitchRatio) < 1.0e-9
+            && std::abs(viewStart - other.viewStart) < 1.0e-9
+            && std::abs(viewSpan - other.viewSpan) < 1.0e-9;
+    }
+};
+
+bool wavesetsCursorLoops(int playMode) noexcept
+{
+    return playMode != static_cast<int>(WavesetPlayMode::Forward)
+        && playMode != static_cast<int>(WavesetPlayMode::Reverse);
+}
+
+bool wavesetsCursorPingPongs(int playMode) noexcept
+{
+    return playMode == static_cast<int>(WavesetPlayMode::ForwardPingPong)
+        || playMode == static_cast<int>(WavesetPlayMode::ReversePingPong);
+}
+
+double wavesetsCursorRate(const WavesetsCursorSignature& signature) noexcept
+{
+    if (!signature.map || !signature.map->asset
+        || signature.map->asset->frameCount() == 0u
+        || signature.advance == static_cast<int>(WavesetAdvanceMode::Hold))
+        return 0.0;
+    double traversal = static_cast<double>(signature.stride);
+    if (signature.advance
+        == static_cast<int>(WavesetAdvanceMode::Stretch))
+        traversal /= std::max(1u, signature.repeats);
+    if (signature.shape == static_cast<int>(WavesetShape::Telescope)) {
+        const uint32_t cycleAdvance = 1u + static_cast<uint32_t>(std::lround(
+            std::clamp(signature.processAmount, 0.0, 1.0)
+                * static_cast<double>(signature.groupSize - 1u)));
+        const uint32_t outputCycles = (signature.groupSize + cycleAdvance - 1u)
+            / cycleAdvance;
+        traversal *= static_cast<double>(signature.groupSize)
+            / static_cast<double>(std::max(1u, outputCycles));
+    }
+    return signature.map->asset->sampleRate
+        / static_cast<double>(signature.map->asset->frameCount())
+        * signature.pitchRatio * traversal;
+}
+
+std::size_t wavesetsNearestUnit(const std::vector<WavesetUnit>& units,
+    double normalized, uint32_t frameCount) noexcept
+{
+    const double position = std::clamp(normalized, 0.0, 1.0)
+        * static_cast<double>(frameCount);
+    auto found = std::lower_bound(units.begin(), units.end(), position,
+        [](const WavesetUnit& unit, double target) {
+            return unit.startPosition < target;
+        });
+    if (found == units.end()) return units.size() - 1u;
+    if (found != units.begin()) {
+        const auto prior = found - 1;
+        if (std::abs(prior->startPosition - position)
+            <= std::abs(found->startPosition - position))
+            return static_cast<std::size_t>(prior - units.begin());
+    }
+    return static_cast<std::size_t>(found - units.begin());
+}
+
+std::size_t wavesetsScopeResolvedUnit(std::size_t base, uint32_t offset,
+    const WavesetSettings& settings, uint32_t randomState,
+    bool pendulumForward, std::size_t unitCount) noexcept
+{
+    uint32_t ordered = offset % settings.groupSize;
+    if (settings.direction == WavesetDirection::Reverse)
+        ordered = settings.groupSize - 1u - ordered;
+    else if (settings.direction == WavesetDirection::Pendulum
+        && !pendulumForward)
+        ordered = settings.groupSize - 1u - ordered;
+    else if (settings.direction == WavesetDirection::Shuffle) {
+        uint32_t mixed = randomState
+            ^ (offset * 0x9e3779b9u + 0x7f4a7c15u);
+        mixed ^= mixed >> 16u;
+        ordered = mixed % settings.groupSize;
+    }
+    return (base + ordered) % unitCount;
+}
+
+float wavesetsScopeSampleAt(const std::vector<float>& samples,
+    double position) noexcept
+{
+    position = std::clamp(position, 0.0,
+        static_cast<double>(samples.size() - 1u));
+    const uint32_t frame = static_cast<uint32_t>(position);
+    const uint32_t next = std::min<uint32_t>(frame + 1u,
+        static_cast<uint32_t>(samples.size() - 1u));
+    const float fraction = static_cast<float>(position - frame);
+    return samples[frame] + (samples[next] - samples[frame]) * fraction;
+}
+
+float wavesetsScopeUnitSample(const std::vector<float>& samples,
+    const WavesetUnit& unit, double phase, float join) noexcept
+{
+    phase -= std::floor(phase);
+    const double position = unit.startPosition + phase * unit.sampleLength();
+    const float raw = wavesetsScopeSampleAt(samples, position);
+    const float start = wavesetsScopeSampleAt(samples, unit.startPosition);
+    const float end = wavesetsScopeSampleAt(samples, unit.endPosition);
+    const float corrected = raw
+        - (start + (end - start) * static_cast<float>(phase));
+    return raw + (corrected - raw) * std::clamp(join, 0.0f, 1.0f);
+}
+
+float wavesetsScopeProcessedSample(const std::vector<WavesetUnit>& units,
+    const std::vector<float>& samples, std::size_t base, uint32_t offset,
+    uint32_t repeatIndex, uint32_t randomState, bool pendulumForward,
+    bool progressionForward, const WavesetSettings& settings,
+    double phase) noexcept
+{
+    const auto resolved = [&](uint32_t groupOffset) {
+        return wavesetsScopeResolvedUnit(base, groupOffset, settings,
+            randomState, pendulumForward, units.size());
+    };
+    const std::size_t current = resolved(offset);
+    const float raw = wavesetsScopeUnitSample(samples, units[current], phase,
+        settings.joinAmount);
+    const float amount = std::clamp(settings.processAmount, 0.0f, 1.0f);
+    const auto blend = [raw, amount](float wet) {
+        return raw + (wet - raw) * amount;
+    };
+    const auto groupAverage = [&] {
+        double sum = 0.0;
+        for (uint32_t member = 0u; member < settings.groupSize; ++member)
+            sum += wavesetsScopeUnitSample(samples, units[resolved(member)],
+                phase, settings.joinAmount);
+        return static_cast<float>(sum / std::max(1u, settings.groupSize));
+    };
+    switch (settings.shape) {
+    case WavesetShape::Omit: {
+        uint32_t hash = static_cast<uint32_t>(base) * 747796405u
+            + 2891336453u;
+        hash = ((hash >> ((hash >> 28u) + 4u)) ^ hash) * 277803737u;
+        hash = (hash >> 22u) ^ hash;
+        return static_cast<float>(hash & 0xffffu) / 65535.0f < amount
+            ? raw * (1.0f - amount) : raw;
+    }
+    case WavesetShape::Replace: {
+        std::size_t strongest = resolved(0u);
+        for (uint32_t member = 1u; member < settings.groupSize; ++member) {
+            const std::size_t candidate = resolved(member);
+            if (units[candidate].peak > units[strongest].peak)
+                strongest = candidate;
+        }
+        return blend(wavesetsScopeUnitSample(samples, units[strongest], phase,
+            settings.joinAmount));
+    }
+    case WavesetShape::Envelope: {
+        const double sine = std::sin(3.14159265358979323846 * phase);
+        return blend(raw * static_cast<float>(sine * sine));
+    }
+    case WavesetShape::Multiply:
+        return blend(wavesetsScopeUnitSample(samples, units[current],
+            phase * (2.0 + std::lround(amount * 6.0f)),
+            settings.joinAmount));
+    case WavesetShape::Average:
+        return blend(groupAverage());
+    case WavesetShape::Interpolate: {
+        const std::size_t adjacent = progressionForward
+            ? (current + 1u) % units.size()
+            : (current + units.size() - 1u) % units.size();
+        const float target = wavesetsScopeUnitSample(samples, units[adjacent],
+            phase, settings.joinAmount);
+        const double morph = (static_cast<double>(repeatIndex) + phase)
+            / static_cast<double>(std::max(1u, settings.repeats));
+        return blend(raw + (target - raw)
+            * static_cast<float>(std::clamp(morph, 0.0, 1.0)));
+    }
+    case WavesetShape::Fractal: {
+        double sum = raw;
+        double normalization = 1.0;
+        for (uint32_t level = 1u; level <= 4u; ++level) {
+            const double weight = std::ldexp(1.0, -static_cast<int>(level));
+            sum += wavesetsScopeUnitSample(samples, units[current],
+                phase * static_cast<double>(1u << level),
+                settings.joinAmount) * weight;
+            normalization += weight;
+        }
+        return blend(static_cast<float>(sum / normalization));
+    }
+    case WavesetShape::AdditiveHarmonic: {
+        const uint32_t highest = 2u + static_cast<uint32_t>(
+            std::lround(amount * 6.0f));
+        double sum = raw;
+        double normalization = 1.0;
+        for (uint32_t harmonic = 2u; harmonic <= highest; ++harmonic) {
+            const double weight = 1.0 / static_cast<double>(harmonic);
+            sum += wavesetsScopeUnitSample(samples, units[current],
+                phase * harmonic, settings.joinAmount) * weight;
+            normalization += weight;
+        }
+        return blend(static_cast<float>(sum / normalization));
+    }
+    case WavesetShape::GroupReverse: {
+        const std::size_t reversed = resolved(settings.groupSize - 1u
+            - (offset % settings.groupSize));
+        return blend(wavesetsScopeUnitSample(samples, units[reversed],
+            1.0 - phase, settings.joinAmount));
+    }
+    case WavesetShape::CycleReverse:
+        return blend(wavesetsScopeUnitSample(samples, units[current],
+            1.0 - phase, settings.joinAmount));
+    case WavesetShape::Telescope: {
+        double sum = 0.0;
+        for (uint32_t member = 0u; member < settings.groupSize; ++member)
+            sum += wavesetsScopeUnitSample(samples, units[resolved(member)],
+                phase, settings.joinAmount);
+        return blend(static_cast<float>(std::tanh(sum
+            / std::sqrt(static_cast<double>(
+                std::max(1u, settings.groupSize))))));
+    }
+    case WavesetShape::Repeat:
+    default: return raw;
+    }
+}
+
+} // namespace
+
+@interface S3GSampleWavesets2CursorView : NSView {
+@private
+    Plugin* _instance;
+    CALayer* _heads[s3g::sample::kMaximumWavesetVoices];
+    CAShapeLayer* _headLines[s3g::sample::kMaximumWavesetVoices];
+    CATextLayer* _headFlags[s3g::sample::kMaximumWavesetVoices];
+    WavesetsCursorSignature
+        _signatures[s3g::sample::kMaximumWavesetVoices];
+    double _viewStart;
+    double _viewSpan;
+    NSUInteger _animationInstallCount;
+}
+- (instancetype)initWithPlugin:(Plugin*)instance frame:(NSRect)frame;
+- (void)setViewStart:(double)start span:(double)span;
+- (void)updateTrajectory;
+- (void)invalidateTrajectory;
+- (NSUInteger)motionAnimationCount;
+- (NSUInteger)animationInstallCount;
+- (double)firstLineHeight;
+- (double)firstAnimationFromX;
+- (double)firstAnimationToX;
+- (BOOL)firstAnimationIsContinuous;
+@end
+
+@implementation S3GSampleWavesets2CursorView
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return NO; }
+- (NSView*)hitTest:(NSPoint)point { (void)point; return nil; }
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window]) {
+        [self invalidateTrajectory];
+        [self updateTrajectory];
+    }
+}
+
+- (instancetype)initWithPlugin:(Plugin*)instance frame:(NSRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    _instance = instance;
+    _viewStart = 0.0;
+    _viewSpan = 1.0;
+    [self setWantsLayer:YES];
+    [self.layer setMasksToBounds:YES];
+    [self.layer setBackgroundColor:[[NSColor clearColor] CGColor]];
+    const CGFloat scale = [NSScreen mainScreen]
+        ? [[NSScreen mainScreen] backingScaleFactor] : 2.0;
+    for (std::size_t slot = 0u; slot < std::size(_heads); ++slot) {
+        CALayer* head = [CALayer layer];
+        head.bounds = CGRectMake(0.0, 0.0, 1.0, NSHeight(frame));
+        head.anchorPoint = CGPointMake(0.5, 0.5);
+        head.position = CGPointMake(-2.0, NSHeight(frame) * 0.5);
+        head.masksToBounds = NO;
+        head.hidden = YES;
+
+        CAShapeLayer* line = [CAShapeLayer layer];
+        line.frame = head.bounds;
+        CGMutablePathRef linePath = CGPathCreateMutable();
+        CGPathMoveToPoint(linePath, nullptr, 0.5, 0.0);
+        CGPathAddLineToPoint(linePath, nullptr, 0.5, NSHeight(frame));
+        line.path = linePath;
+        CGPathRelease(linePath);
+        line.fillColor = nullptr;
+        line.lineWidth = 1.25;
+
+        CATextLayer* flag = [CATextLayer layer];
+        flag.bounds = CGRectMake(0.0, 0.0,
+            isMultichannel(*instance) ? 78.0 : 34.0, 14.0);
+        flag.anchorPoint = CGPointMake(0.5, 0.5);
+        flag.font = (__bridge CFTypeRef)@"Menlo";
+        flag.fontSize = 9.0;
+        flag.alignmentMode = kCAAlignmentCenter;
+        flag.contentsScale = scale;
+        flag.backgroundColor = [s3g::clap_gui::color(0x111111, 0.94)
+            CGColor];
+
+        NSColor* color = slot % 3u == 0u
+            ? s3g::clap_gui::softTextStyle().fill
+            : (slot % 3u == 1u
+                ? s3g::clap_gui::softTextStyle().accent
+                : s3g::clap_gui::softTextStyle().dim);
+        line.strokeColor = color.CGColor;
+        flag.foregroundColor = color.CGColor;
+        [head addSublayer:line];
+        [head addSublayer:flag];
+        [self.layer addSublayer:head];
+        _heads[slot] = head;
+        _headLines[slot] = line;
+        _headFlags[slot] = flag;
+    }
+    return self;
+}
+
+- (void)setViewStart:(double)start span:(double)span
+{
+    start = std::clamp(start, 0.0, 1.0);
+    span = std::clamp(span, 1.0 / 64.0, 1.0);
+    start = std::min(start, 1.0 - span);
+    if (std::abs(start - _viewStart) < 1.0e-9
+        && std::abs(span - _viewSpan) < 1.0e-9) return;
+    _viewStart = start;
+    _viewSpan = span;
+}
+
+- (void)invalidateTrajectory
+{
+    for (std::size_t slot = 0u; slot < std::size(_heads); ++slot) {
+        _signatures[slot] = {};
+        [_heads[slot] removeAllAnimations];
+        _heads[slot].hidden = YES;
+    }
+}
+
+- (void)updateTrajectory
+{
+    if (!_instance) return;
+    const WavesetMap* map = _instance->publishedMap.load(
+        std::memory_order_acquire);
+    const uint64_t revision = _instance->cursorRevision.load(
+        std::memory_order_acquire);
+    const uint32_t cursorCount = std::min<uint32_t>(
+        _instance->voiceCursorCount.load(std::memory_order_acquire),
+        static_cast<uint32_t>(std::size(_heads)));
+    for (std::size_t slot = 0u; slot < std::size(_heads); ++slot) {
+        CALayer* headLayer = _heads[slot];
+        if (slot >= cursorCount || !map) {
+            _signatures[slot] = {};
+            [headLayer removeAllAnimations];
+            headLayer.hidden = YES;
+            continue;
+        }
+
+        WavesetsCursorSignature next;
+        next.map = map;
+        next.revision = revision;
+        next.identity = _instance->voiceCursorIdentities[slot].load(
+            std::memory_order_relaxed);
+        next.key = _instance->voiceCursorKeys[slot].load(
+            std::memory_order_relaxed);
+        next.outputFirst = _instance->voiceCursorOutputFirst[slot].load(
+            std::memory_order_relaxed);
+        next.outputSecond = _instance->voiceCursorOutputSecond[slot].load(
+            std::memory_order_relaxed);
+        next.outputWidth = _instance->voiceCursorOutputWidths[slot].load(
+            std::memory_order_relaxed);
+        next.playMode = static_cast<int>(std::lround(paramValue(*_instance,
+            kPlayModeParamId)));
+        next.advance = static_cast<int>(std::lround(paramValue(*_instance,
+            kAdvanceParamId)));
+        next.shape = static_cast<int>(std::lround(paramValue(*_instance,
+            kShapeParamId)));
+        next.groupSize = kGroupSizes[static_cast<std::size_t>(std::clamp(
+            static_cast<int>(std::lround(paramValue(*_instance,
+                kGroupParamId))), 0, 5))];
+        next.repeats = static_cast<uint32_t>(std::clamp(std::lround(
+            paramValue(*_instance, kRepeatParamId)), 1l, 16l));
+        next.stride = static_cast<uint32_t>(std::clamp(std::lround(
+            paramValue(*_instance, kStrideParamId)), 1l, 16l));
+        next.processAmount = paramValue(*_instance, kProcessParamId);
+        next.directionForward = _instance->voiceCursorDirections[slot].load(
+            std::memory_order_relaxed);
+        next.enteredLoop = _instance->voiceCursorEnteredLoops[slot].load(
+            std::memory_order_relaxed);
+        next.start = paramValue(*_instance, kStartParamId);
+        next.end = paramValue(*_instance, kEndParamId);
+        next.loopStart = paramValue(*_instance, kLoopStartParamId);
+        next.loopEnd = paramValue(*_instance, kLoopEndParamId);
+        next.pitchRatio = std::pow(2.0, (static_cast<double>(next.key)
+            - paramValue(*_instance, kRootNoteParamId)
+            + paramValue(*_instance, kTuneParamId)
+            + paramValue(*_instance, kFineTuneParamId) * 0.01) / 12.0);
+        next.viewStart = _viewStart;
+        next.viewSpan = _viewSpan;
+
+        if (_signatures[slot].equals(next)
+            && [headLayer animationForKey:@"s3g.cursor.motion"] != nil)
+            continue;
+        _signatures[slot] = next;
+        [headLayer removeAllAnimations];
+
+        const double observed = std::clamp(static_cast<double>(
+            _instance->voiceCursorTransportPositions[slot].load(
+                std::memory_order_relaxed)), 0.0, 1.0);
+        const auto sourceX = [&](double normalized) {
+            return NSWidth(self.bounds) * (normalized - _viewStart)
+                / _viewSpan;
+        };
+        const BOOL flagLeft = sourceX(observed) > NSWidth(self.bounds)
+            - (isMultichannel(*_instance) ? 92.0 : 54.0);
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        headLayer.hidden = NO;
+        headLayer.position = CGPointMake(sourceX(observed),
+            NSMidY(self.bounds));
+        _headFlags[slot].string = isMultichannel(*_instance)
+            ? (next.outputWidth > 1u
+                ? [NSString stringWithFormat:@"N%u > %02u/%02u",
+                    static_cast<unsigned>(next.key),
+                    static_cast<unsigned>(next.outputFirst + 1u),
+                    static_cast<unsigned>(next.outputSecond + 1u)]
+                : [NSString stringWithFormat:@"N%u > %02u",
+                    static_cast<unsigned>(next.key),
+                    static_cast<unsigned>(next.outputFirst + 1u)])
+            : [NSString stringWithFormat:@"N%u",
+                static_cast<unsigned>(next.key)];
+        _headFlags[slot].position = CGPointMake(flagLeft
+                ? (isMultichannel(*_instance) ? -41.0 : -19.0)
+                : (isMultichannel(*_instance) ? 41.0 : 19.0),
+            23.0 + static_cast<CGFloat>(slot % 10u) * 15.0);
+        [CATransaction commit];
+
+        const bool looping = wavesetsCursorLoops(next.playMode);
+        const bool pingPong = wavesetsCursorPingPongs(next.playMode);
+        bool inLoop = looping && next.enteredLoop;
+        if (looping && !inLoop) {
+            const double entry = next.directionForward
+                ? next.loopStart : next.loopEnd;
+            const double origin = next.directionForward
+                ? next.start : next.end;
+            if (std::abs(entry - origin) < 1.0e-9) inLoop = true;
+        }
+        double low = inLoop ? next.loopStart : next.start;
+        double high = inLoop ? next.loopEnd : next.end;
+        if (looping && !inLoop) {
+            if (next.directionForward) high = next.loopStart;
+            else low = next.loopEnd;
+        }
+        low = std::clamp(low, 0.0, 1.0);
+        high = std::clamp(high, low, 1.0);
+        const double rate = wavesetsCursorRate(next);
+        const double duration = (high - low) / std::max(rate, 1.0e-12);
+        if (!(rate > 1.0e-12) || !(duration > 1.0e-6)
+            || !std::isfinite(duration)) continue;
+
+        const double cursorPosition = std::clamp(observed, low, high);
+        const double from = next.directionForward ? low : high;
+        const double to = next.directionForward ? high : low;
+        CABasicAnimation* animation = [CABasicAnimation
+            animationWithKeyPath:@"position.x"];
+        animation.fromValue = @(sourceX(from));
+        animation.toValue = @(sourceX(to));
+        animation.timingFunction = [CAMediaTimingFunction
+            functionWithName:kCAMediaTimingFunctionLinear];
+        animation.duration = duration;
+        double phaseSeconds = next.directionForward
+            ? (cursorPosition - low) / rate
+            : (high - cursorPosition) / rate;
+        if (looping && inLoop) {
+            animation.repeatCount = HUGE_VALF;
+            if (pingPong) {
+                animation.autoreverses = YES;
+                if (!next.directionForward)
+                    phaseSeconds = duration + (high - cursorPosition) / rate;
+            }
+        }
+        const CFTimeInterval localNow = [headLayer
+            convertTime:CACurrentMediaTime() fromLayer:nil];
+        animation.beginTime = localNow - phaseSeconds;
+        animation.removedOnCompletion = NO;
+        animation.fillMode = kCAFillModeForwards;
+        [headLayer addAnimation:animation forKey:@"s3g.cursor.motion"];
+        ++_animationInstallCount;
+    }
+}
+
+- (NSUInteger)motionAnimationCount
+{
+    NSUInteger count = 0u;
+    for (CALayer* head : _heads)
+        if ([head animationForKey:@"s3g.cursor.motion"] != nil) ++count;
+    return count;
+}
+- (NSUInteger)animationInstallCount { return _animationInstallCount; }
+- (double)firstLineHeight
+{
+    const CGRect bounds = _headLines[0u].path
+        ? CGPathGetBoundingBox(_headLines[0u].path) : CGRectZero;
+    return CGRectGetHeight(bounds);
+}
+- (double)firstAnimationFromX
+{
+    CABasicAnimation* animation = (CABasicAnimation*)[_heads[0u]
+        animationForKey:@"s3g.cursor.motion"];
+    return [animation isKindOfClass:[CABasicAnimation class]]
+        ? [animation.fromValue doubleValue] : -1.0;
+}
+- (double)firstAnimationToX
+{
+    CABasicAnimation* animation = (CABasicAnimation*)[_heads[0u]
+        animationForKey:@"s3g.cursor.motion"];
+    return [animation isKindOfClass:[CABasicAnimation class]]
+        ? [animation.toValue doubleValue] : -1.0;
+}
+- (BOOL)firstAnimationIsContinuous
+{
+    CAAnimation* animation = [_heads[0u]
+        animationForKey:@"s3g.cursor.motion"];
+    return [animation isKindOfClass:[CABasicAnimation class]]
+        && animation.timingFunction != nil;
+}
+
+@end
+
+@interface S3GSampleWavesets2View : NSView <NSDraggingDestination> {
+@private
+    Plugin* _instance;
+    NSTimer* _timer;
+    S3GSampleWavesets2CursorView* _cursorView;
+    clap_id _dragParam;
+    clap_id _openMenuParam;
+    NSInteger _presetIndex;
+    BOOL _presetMenuOpen;
+    int _menuHover;
+    NSTrackingArea* _trackingArea;
+    uint32_t _feedbackMask;
+    double _feedbackUntil;
+    double _waveZoom;
+    double _waveViewStart;
+    double _scopeScale;
+    char _presetName[64];
+    BOOL _waveDragging;
+    const WavesetMap* _displayedMap;
+}
+- (instancetype)initWithPlugin:(Plugin*)instance;
+- (void)startTimer;
+- (void)stopTimer;
+- (NSUInteger)cursorMotionAnimationCount;
+- (NSUInteger)cursorAnimationInstallCount;
+- (double)cursorLineHeight;
+- (double)cursorAnimationFromX;
+- (double)cursorAnimationToX;
+- (BOOL)cursorAnimationIsContinuous;
+- (BOOL)canvasMenuOpen;
+- (int)canvasMenuHover;
+- (double)waveZoomValue;
+- (double)waveViewStartValue;
+- (double)scopeScaleValue;
+- (unsigned)scopeFocusedKey;
+@end
+
+@implementation S3GSampleWavesets2View
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (instancetype)initWithPlugin:(Plugin*)instance
+{
+    self = [super initWithFrame:NSMakeRect(0.0, 0.0, kGuiWidth, kGuiHeight)];
+    if (!self) return nil;
+    _instance = instance;
+    _dragParam = CLAP_INVALID_ID;
+    _openMenuParam = CLAP_INVALID_ID;
+    _menuHover = -1;
+    _presetIndex = 0;
+    _waveZoom = 1.0;
+    _waveViewStart = 0.0;
+    _scopeScale = 2.0;
+    _waveDragging = NO;
+    _displayedMap = instance ? instance->controlMap.get() : nullptr;
+    std::snprintf(_presetName, sizeof(_presetName), "%s", "INIT");
+    _cursorView = [[S3GSampleWavesets2CursorView alloc]
+        initWithPlugin:instance frame:kWaveRect];
+    [self addSubview:_cursorView];
+    [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+    [self startTimer];
+    return self;
+}
+
+- (void)updateTrackingAreas
+{
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+        options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited
+            | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+        owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+    [super updateTrackingAreas];
+}
+
+- (void)startTimer
+{
+    if (_timer) return;
+    _timer = [NSTimer timerWithTimeInterval:1.0 / 30.0 target:self
+        selector:@selector(refresh:) userInfo:nil repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopTimer
+{
+    [_timer invalidate];
+    _timer = nil;
+    [_cursorView invalidateTrajectory];
+}
+
+- (void)refresh:(NSTimer*)timer
+{
+    (void)timer;
+    serviceLoads(*_instance);
+    const WavesetMap* displayedMap = _instance->controlMap.get();
+    if (displayedMap != _displayedMap) {
+        _displayedMap = displayedMap;
+        _waveZoom = 1.0;
+        _waveViewStart = 0.0;
+        _scopeScale = 2.0;
+        [_cursorView setViewStart:0.0 span:1.0];
+        [_cursorView invalidateTrajectory];
+    }
+    const uint32_t feedback = _instance->actionFeedback.exchange(0u,
+        std::memory_order_acq_rel);
+    if (feedback != 0u) {
+        _feedbackMask |= feedback;
+        _feedbackUntil = CACurrentMediaTime() + 0.12;
+    }
+    if (_feedbackMask != 0u && CACurrentMediaTime() >= _feedbackUntil)
+        _feedbackMask = 0u;
+    [_cursorView updateTrajectory];
+    [self setNeedsDisplay:YES];
+}
+
+- (NSUInteger)cursorMotionAnimationCount
+{ return [_cursorView motionAnimationCount]; }
+- (NSUInteger)cursorAnimationInstallCount
+{ return [_cursorView animationInstallCount]; }
+- (double)cursorLineHeight { return [_cursorView firstLineHeight]; }
+- (double)cursorAnimationFromX { return [_cursorView firstAnimationFromX]; }
+- (double)cursorAnimationToX { return [_cursorView firstAnimationToX]; }
+- (BOOL)cursorAnimationIsContinuous
+{ return [_cursorView firstAnimationIsContinuous]; }
+- (BOOL)canvasMenuOpen
+{ return _presetMenuOpen || _openMenuParam != CLAP_INVALID_ID; }
+- (int)canvasMenuHover { return _menuHover; }
+- (double)waveZoomValue { return _waveZoom; }
+- (double)waveViewStartValue { return _waveViewStart; }
+- (double)scopeScaleValue { return _scopeScale; }
+
+- (uint32_t)newestVoiceCursorSlot
+{
+    if (!_instance) return std::numeric_limits<uint32_t>::max();
+    const uint32_t count = std::min<uint32_t>(
+        _instance->voiceCursorCount.load(std::memory_order_acquire),
+        static_cast<uint32_t>(_instance->voiceCursorIdentities.size()));
+    uint32_t newest = std::numeric_limits<uint32_t>::max();
+    uint64_t newestIdentity = 0u;
+    for (uint32_t slot = 0u; slot < count; ++slot) {
+        const uint64_t identity = _instance->voiceCursorIdentities[slot].load(
+            std::memory_order_relaxed);
+        if (newest == std::numeric_limits<uint32_t>::max()
+            || identity > newestIdentity) {
+            newest = slot;
+            newestIdentity = identity;
+        }
+    }
+    return newest;
+}
+
+- (unsigned)scopeFocusedKey
+{
+    const uint32_t slot = [self newestVoiceCursorSlot];
+    return slot == std::numeric_limits<uint32_t>::max() ? 0u
+        : static_cast<unsigned>(_instance->voiceCursorKeys[slot].load(
+            std::memory_order_relaxed));
+}
+
+- (void)openSample
+{
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setCanChooseDirectories:NO];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setAllowedFileTypes:@[ @"wav", @"aif", @"aiff", @"caf", @"m4a", @"mp3", @"flac" ]];
+    if ([panel runModal] == NSModalResponseOK)
+        queueSampleLoad(*_instance, std::string([[[panel URL] path]
+            UTF8String]));
+}
+
+- (void)applyPreset:(NSInteger)index
+{
+    _presetIndex = std::clamp<NSInteger>(index, 0,
+        static_cast<NSInteger>(kPresetNames.size() - 1u));
+    const auto set = [&](clap_id id, double value) {
+        queueGuiParamGesture(*_instance, id, value);
+    };
+    for (const auto& def : kParamDefs) set(def.id, def.defaultValue);
+    if (_presetIndex == 0) {
+        _waveZoom = 1.0;
+        _waveViewStart = 0.0;
+    } else {
+        const NSInteger factory = _presetIndex - 1;
+        set(kSourceModeParamId, 3.0);
+        set(kVoiceModeParamId, factory == 2 ? 0.0 : 1.0);
+        set(kRepeatParamId, 2.0);
+        switch (factory) {
+        case 1: set(kPlayModeParamId, 1.0); break;
+        case 2: set(kVoiceModeParamId, 0.0); break;
+        case 3:
+            set(kPlayModeParamId, 3.0); set(kGroupParamId, 4.0);
+            set(kRepeatParamId, 4.0); set(kDirectionParamId, 1.0); break;
+        case 4: set(kAdvanceParamId, 2.0); break;
+        case 5:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 5.0);
+            set(kProcessParamId, 0.75); break;
+        case 6:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 2.0);
+            set(kRepeatParamId, 8.0); set(kShapeParamId, 6.0);
+            set(kProcessParamId, 1.0); break;
+        case 7:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 7.0);
+            set(kProcessParamId, 0.70); break;
+        case 8:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 8.0);
+            set(kProcessParamId, 0.65); break;
+        case 9:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 4.0);
+            set(kShapeParamId, 9.0); set(kProcessParamId, 1.0); break;
+        case 10:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 10.0);
+            set(kProcessParamId, 1.0); break;
+        case 11:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 4.0);
+            set(kRepeatParamId, 1.0); set(kShapeParamId, 11.0);
+            set(kProcessParamId, 1.0); break;
+        default: break;
+        }
+    }
+    std::snprintf(_presetName, sizeof(_presetName), "%s",
+        kPresetNames[static_cast<std::size_t>(_presetIndex)]);
+    [_cursorView setViewStart:_waveViewStart span:[self waveVisibleSpan]];
+    [_cursorView updateTrajectory];
+    markStateDirty(*_instance);
+}
+
+- (double)waveVisibleSpan
+{
+    return 1.0 / std::clamp(_waveZoom, 1.0, 128.0);
+}
+
+- (double)waveNormalizedAtPoint:(NSPoint)point
+{
+    const double local = std::clamp(static_cast<double>(
+        (point.x - NSMinX(kWaveRect)) / NSWidth(kWaveRect)), 0.0, 1.0);
+    return std::clamp(_waveViewStart + local * [self waveVisibleSpan],
+        0.0, 1.0);
+}
+
+- (CGFloat)waveXForNormalized:(double)value
+{
+    return NSMinX(kWaveRect) + static_cast<CGFloat>(
+        (value - _waveViewStart) / [self waveVisibleSpan])
+        * NSWidth(kWaveRect);
+}
+
+- (NSRect)menuRectForParam:(clap_id)id
+{
+    struct Row { clap_id id; NSRect panel; CGFloat y; };
+    const Row rows[] = {
+        { kPlayModeParamId, kPlaybackPanel, 482.0 },
+        { kSourceModeParamId, kPlaybackPanel, 507.0 },
+        { kVoiceModeParamId, kPlaybackPanel, 632.0 },
+        { kTriggerModeParamId, kPlaybackPanel, 657.0 },
+        { kAdvanceParamId, kWavesetPanel, 482.0 },
+        { kGroupParamId, kWavesetPanel, 507.0 },
+        { kRepeatParamId, kWavesetPanel, 532.0 },
+        { kStrideParamId, kWavesetPanel, 557.0 },
+        { kDirectionParamId, kWavesetPanel, 582.0 },
+        { kShapeParamId, kWavesetPanel, 607.0 },
+        { kDetailParamId, kWavesetPanel, 682.0 },
+        { kOutputTraversalParamId, kOutputPanel, 607.0 },
+        { kOutputVoiceWidthParamId, kOutputPanel, 632.0 },
+        { kStereoPairLayoutParamId, kOutputPanel, 657.0 },
+        { kActiveOutputCountParamId, kOutputPanel, 682.0 },
+        { kMidiChannelParamId, kOutputPanel, 707.0 },
+    };
+    for (const auto& row : rows) if (row.id == id)
+        return NSMakeRect(row.panel.origin.x + 104.0, row.y - 2.0,
+            row.panel.size.width - 116.0, 18.0);
+    return NSZeroRect;
+}
+
+- (NSRect)openMenuRect
+{
+    constexpr CGFloat rowHeight = 20.0;
+    const NSRect presetAnchor = s3g::clap_gui::cocoaRect(
+        kWavesetsTitleBand.presetMenu);
+    if (_presetMenuOpen) return NSMakeRect(NSMinX(presetAnchor),
+        NSMaxY(presetAnchor), NSWidth(presetAnchor),
+        rowHeight * std::size(kPresetMenuItems));
+    const WavesetsMenuSpec spec = wavesetsMenuSpec(_openMenuParam);
+    const NSRect anchor = [self menuRectForParam:_openMenuParam];
+    if (spec.count == 0u || NSIsEmptyRect(anchor)) return NSZeroRect;
+    const uint32_t rows = (spec.count + spec.columns - 1u) / spec.columns;
+    return NSMakeRect(NSMinX(anchor), NSMaxY(anchor),
+        NSWidth(anchor), rowHeight * rows);
+}
+
+- (void)closeMenus
+{
+    _presetMenuOpen = NO;
+    _openMenuParam = CLAP_INVALID_ID;
+    _menuHover = -1;
+    [_cursorView setHidden:NO];
+    [_cursorView updateTrajectory];
+}
+
+- (clap_id)sliderAtPoint:(NSPoint)point panel:(NSRect*)panelOut
+{
+    struct Row { clap_id id; NSRect panel; CGFloat y; };
+    const Row rows[] = {
+        { kStartParamId, kPlaybackPanel, 532.0 },
+        { kEndParamId, kPlaybackPanel, 557.0 },
+        { kLoopStartParamId, kPlaybackPanel, 582.0 },
+        { kLoopEndParamId, kPlaybackPanel, 607.0 },
+        { kRootNoteParamId, kPlaybackPanel, 682.0 },
+        { kTuneParamId, kPlaybackPanel, 707.0 },
+        { kFineTuneParamId, kPlaybackPanel, 732.0 },
+        { kProcessParamId, kWavesetPanel, 632.0 },
+        { kJoinParamId, kWavesetPanel, 657.0 },
+        { kOutParamId, kOutputPanel, 482.0 },
+        { kAttackParamId, kOutputPanel, 532.0 },
+        { kReleaseParamId, kOutputPanel, 557.0 },
+        { kVelocityParamId, kOutputPanel, 582.0 },
+    };
+    for (const auto& row : rows) {
+        const NSRect hit = NSMakeRect(row.panel.origin.x + 8.0,
+            row.y - 10.0, row.panel.size.width - 16.0, 22.0);
+        if (NSPointInRect(point, hit)) {
+            if (panelOut) *panelOut = row.panel;
+            return row.id;
+        }
+    }
+    return CLAP_INVALID_ID;
+}
+
+- (void)setDraggedParam:(clap_id)id point:(NSPoint)point panel:(NSRect)panel
+{
+    const ParamDef* def = paramDef(id);
+    if (!def) return;
+    const CGFloat left = panel.origin.x + 108.0;
+    const CGFloat width = panel.size.width - 168.0;
+    const double normalized = std::clamp(static_cast<double>(
+        (point.x - left) / width), 0.0, 1.0);
+    double value = def->minimum + normalized * (def->maximum - def->minimum);
+    if (id == kStartParamId) {
+        value = std::min(value, paramValue(*_instance, kEndParamId));
+        if (paramValue(*_instance, kLoopStartParamId) < value)
+            queueGuiParamValue(*_instance, kLoopStartParamId, value);
+        if (paramValue(*_instance, kLoopEndParamId) < value)
+            queueGuiParamValue(*_instance, kLoopEndParamId, value);
+    } else if (id == kEndParamId) {
+        value = std::max(value, paramValue(*_instance, kStartParamId));
+        if (paramValue(*_instance, kLoopEndParamId) > value)
+            queueGuiParamValue(*_instance, kLoopEndParamId, value);
+        if (paramValue(*_instance, kLoopStartParamId) > value)
+            queueGuiParamValue(*_instance, kLoopStartParamId, value);
+    } else if (id == kLoopStartParamId)
+        value = std::clamp(value, paramValue(*_instance, kStartParamId),
+            paramValue(*_instance, kLoopEndParamId));
+    else if (id == kLoopEndParamId)
+        value = std::clamp(value, paramValue(*_instance, kLoopStartParamId),
+            paramValue(*_instance, kEndParamId));
+    queueGuiParamValue(*_instance, id, value);
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:[event locationInWindow]
+        fromView:nil];
+    if (_presetMenuOpen || _openMenuParam != CLAP_INVALID_ID) {
+        const bool preset = _presetMenuOpen;
+        const WavesetsMenuSpec spec = preset
+            ? WavesetsMenuSpec { kPresetMenuItems,
+                static_cast<uint32_t>(std::size(kPresetMenuItems)), 1u }
+            : wavesetsMenuSpec(_openMenuParam);
+        const int selected = spec.columns > 1u
+            ? s3g::clap_gui::multiColumnDropdownHitIndex(point,
+                [self openMenuRect], 20.0, spec.count, spec.columns)
+            : s3g::clap_gui::dropdownHitIndex(point,
+                [self openMenuRect], 20.0, spec.count);
+        const clap_id id = _openMenuParam;
+        [self closeMenus];
+        if (selected >= 0) {
+            if (preset) [self applyPreset:selected];
+            else queueGuiParamGesture(*_instance, id,
+                wavesetsMenuValue(id, selected));
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const NSRect presetAnchor = s3g::clap_gui::cocoaRect(
+        kWavesetsTitleBand.presetMenu);
+    if (NSPointInRect(point, presetAnchor)) {
+        [self closeMenus];
+        _presetMenuOpen = YES;
+        _menuHover = -1;
+        [_cursorView setHidden:YES];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (s3g::clap_gui::handleProcessorTitleClick(point,
+            &_instance->plugin, [NSString stringWithUTF8String:
+                _instance->plugin.desc->name],
+            kWavesetsTitleBand, _presetName, sizeof(_presetName))) {
+        _presetIndex = -1;
+        markStateDirty(*_instance);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, kSampleLoadButton)) {
+        [self openSample];
+        return;
+    }
+    if (NSPointInRect(point, kClearButton)) {
+        publishMap(*_instance, {}, "");
+        _instance->status = "DROP A MONO OR STEREO SAMPLE";
+        _waveZoom = 1.0;
+        _waveViewStart = 0.0;
+        _scopeScale = 2.0;
+        [_cursorView invalidateTrajectory];
+        return;
+    }
+    if (NSPointInRect(point, kEmbedButton)) {
+        _instance->embedSampleInState = !_instance->embedSampleInState;
+        markStateDirty(*_instance); return;
+    }
+    if (NSPointInRect(point, kPreviewButton)) {
+        requestAction(*_instance, kActionPreview); return;
+    }
+    if (NSPointInRect(point, kStopButton)) {
+        requestAction(*_instance, kActionStopAll); return;
+    }
+    const clap_id menus[] = {
+        kPlayModeParamId, kSourceModeParamId, kVoiceModeParamId,
+        kTriggerModeParamId, kAdvanceParamId, kGroupParamId,
+        kRepeatParamId, kStrideParamId, kDirectionParamId, kShapeParamId,
+        kDetailParamId, kMidiChannelParamId,
+        kOutputTraversalParamId, kOutputVoiceWidthParamId,
+        kStereoPairLayoutParamId, kActiveOutputCountParamId,
+    };
+    for (clap_id id : menus) if ((isMultichannel(*_instance)
+            || id <= kMidiChannelParamId) && NSPointInRect(point,
+            [self menuRectForParam:id])) {
+        _openMenuParam = id;
+        _menuHover = -1;
+        [_cursorView setHidden:YES];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, kScopeRect)) {
+        if ([event clickCount] >= 2) {
+            _scopeScale = 1.0;
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
+    if (NSPointInRect(point, kWaveRect) && _instance->controlMap) {
+        const bool upper = point.y < NSMidY(kWaveRect);
+        const std::array<clap_id, 2u> handles = upper
+            ? std::array<clap_id, 2u> {{ kStartParamId, kEndParamId }}
+            : std::array<clap_id, 2u> {{
+                kLoopStartParamId, kLoopEndParamId }};
+        clap_id closest = CLAP_INVALID_ID;
+        CGFloat distance = 12.0;
+        for (clap_id id : handles) {
+            const CGFloat candidate = std::abs(point.x
+                - [self waveXForNormalized:paramValue(*_instance, id)]);
+            if (candidate < distance) {
+                distance = candidate;
+                closest = id;
+            }
+        }
+        if (closest == CLAP_INVALID_ID) {
+            if ([event clickCount] >= 2) {
+                _waveZoom = 1.0;
+                _waveViewStart = 0.0;
+                [_cursorView setViewStart:0.0 span:1.0];
+                [_cursorView updateTrajectory];
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        _dragParam = closest;
+        _waveDragging = YES;
+        queueGuiParamBegin(*_instance, _dragParam);
+        const double normalized = [self waveNormalizedAtPoint:point];
+        NSRect panel = kPlaybackPanel;
+        [self setDraggedParam:_dragParam point:NSMakePoint(
+            panel.origin.x + 108.0 + normalized * (panel.size.width - 168.0),
+            point.y) panel:panel];
+        return;
+    }
+    NSRect panel {};
+    const clap_id slider = [self sliderAtPoint:point panel:&panel];
+    if (slider != CLAP_INVALID_ID) {
+        _dragParam = slider;
+        queueGuiParamBegin(*_instance, slider);
+        [self setDraggedParam:slider point:point panel:panel];
+    }
+}
+
+- (void)mouseDragged:(NSEvent*)event
+{
+    if (_dragParam == CLAP_INVALID_ID) return;
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_waveDragging) {
+        const double normalized = [self waveNormalizedAtPoint:point];
+        NSRect panel = kPlaybackPanel;
+        point.x = panel.origin.x + 108.0
+            + normalized * (panel.size.width - 168.0);
+        [self setDraggedParam:_dragParam point:point panel:panel];
+        return;
+    }
+    NSRect panel = kPlaybackPanel;
+    if (_dragParam == kProcessParamId || _dragParam == kJoinParamId)
+        panel = kWavesetPanel;
+    else if (_dragParam == kOutParamId || _dragParam == kAttackParamId
+        || _dragParam == kReleaseParamId || _dragParam == kVelocityParamId)
+        panel = kOutputPanel;
+    [self setDraggedParam:_dragParam point:point panel:panel];
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    if (_dragParam != CLAP_INVALID_ID)
+        queueGuiParamEnd(*_instance, _dragParam);
+    _dragParam = CLAP_INVALID_ID;
+    _waveDragging = NO;
+}
+
+- (void)scrollWheel:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:[event locationInWindow]
+        fromView:nil];
+    if (NSPointInRect(point, kScopeRect) && _instance->controlMap) {
+        _scopeScale = std::clamp(_scopeScale * std::exp(
+            -static_cast<double>([event scrollingDeltaY]) * 0.08),
+            1.0, 16.0);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (!NSPointInRect(point, kWaveRect) || !_instance->controlMap) {
+        [super scrollWheel:event];
+        return;
+    }
+    const double oldSpan = [self waveVisibleSpan];
+    const bool pan = ([event modifierFlags] & NSEventModifierFlagShift) != 0
+        || std::abs([event scrollingDeltaX])
+            > std::abs([event scrollingDeltaY]);
+    if (pan && _waveZoom > 1.0) {
+        const double delta = std::abs([event scrollingDeltaX])
+                > std::abs([event scrollingDeltaY])
+            ? [event scrollingDeltaX] : [event scrollingDeltaY];
+        _waveViewStart = std::clamp(_waveViewStart
+            + delta * oldSpan * 0.0125, 0.0, 1.0 - oldSpan);
+    } else {
+        const double anchor = std::clamp(static_cast<double>(
+            (point.x - NSMinX(kWaveRect)) / NSWidth(kWaveRect)), 0.0, 1.0);
+        const double sourceAnchor = _waveViewStart + anchor * oldSpan;
+        _waveZoom = std::clamp(_waveZoom * std::exp(
+            static_cast<double>([event scrollingDeltaY]) * 0.08),
+            1.0, 128.0);
+        const double newSpan = [self waveVisibleSpan];
+        _waveViewStart = std::clamp(sourceAnchor - anchor * newSpan,
+            0.0, 1.0 - newSpan);
+    }
+    [_cursorView setViewStart:_waveViewStart span:[self waveVisibleSpan]];
+    [_cursorView updateTrajectory];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    if (!_presetMenuOpen && _openMenuParam == CLAP_INVALID_ID) return;
+    const NSPoint point = [self convertPoint:[event locationInWindow]
+        fromView:nil];
+    const WavesetsMenuSpec spec = _presetMenuOpen
+        ? WavesetsMenuSpec { kPresetMenuItems,
+            static_cast<uint32_t>(std::size(kPresetMenuItems)), 1u }
+        : wavesetsMenuSpec(_openMenuParam);
+    const int hover = spec.columns > 1u
+        ? s3g::clap_gui::multiColumnDropdownHitIndex(point,
+            [self openMenuRect], 20.0, spec.count, spec.columns)
+        : s3g::clap_gui::dropdownHitIndex(point,
+            [self openMenuRect], 20.0, spec.count);
+    if (hover != _menuHover) { _menuHover = hover; [self setNeedsDisplay:YES]; }
+}
+
+- (void)mouseExited:(NSEvent*)event
+{ (void)event; _menuHover = -1; }
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
+{
+    return [[[sender draggingPasteboard] readObjectsForClasses:@[ [NSURL class] ]
+        options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }] count] > 0u
+        ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender
+{
+    NSArray<NSURL*>* urls = [[sender draggingPasteboard]
+        readObjectsForClasses:@[ [NSURL class] ]
+        options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+    if ([urls count] == 0u) return NO;
+    queueSampleLoad(*_instance, std::string([[[urls objectAtIndex:0u] path]
+        UTF8String]));
+    return YES;
+}
+
+- (BOOL)loadDocumentationSample
+{
+    if (!_instance || !_instance->controlMap) return NO;
+    constexpr std::array<float, 3u> positions {{ 0.16f, 0.47f, 0.72f }};
+    constexpr std::array<uint8_t, 3u> keys {{ 48u, 55u, 60u }};
+    for (std::size_t cursor = 0u; cursor < positions.size(); ++cursor) {
+        _instance->voiceCursorPositions[cursor].store(positions[cursor],
+            std::memory_order_relaxed);
+        _instance->voiceCursorGroupPositions[cursor].store(positions[cursor],
+            std::memory_order_relaxed);
+        _instance->voiceCursorTransportPositions[cursor].store(
+            positions[cursor], std::memory_order_relaxed);
+        _instance->voiceCursorOscillatorPhases[cursor].store(0.0f,
+            std::memory_order_relaxed);
+        _instance->voiceCursorIdentities[cursor].store(1001u + cursor,
+            std::memory_order_relaxed);
+        _instance->voiceCursorCycleOffsets[cursor].store(0u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorRepeatIndices[cursor].store(0u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorRandomStates[cursor].store(0x12345678u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorKeys[cursor].store(keys[cursor],
+            std::memory_order_relaxed);
+        _instance->voiceCursorOutputFirst[cursor].store(
+            isMultichannel(*_instance) ? static_cast<uint8_t>(cursor) : 0u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorOutputSecond[cursor].store(
+            isMultichannel(*_instance) ? static_cast<uint8_t>(cursor) : 1u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorOutputWidths[cursor].store(
+            isMultichannel(*_instance) ? 1u : 2u,
+            std::memory_order_relaxed);
+        _instance->voiceCursorDirections[cursor].store(true,
+            std::memory_order_relaxed);
+        _instance->voiceCursorEnteredLoops[cursor].store(false,
+            std::memory_order_relaxed);
+        _instance->voiceCursorPendulumForwards[cursor].store(true,
+            std::memory_order_relaxed);
+    }
+    _instance->primaryPosition.store(positions[1u],
+        std::memory_order_relaxed);
+    _instance->primaryKey.store(keys[1u], std::memory_order_relaxed);
+    _instance->activeVoiceCount.store(
+        static_cast<uint32_t>(positions.size()), std::memory_order_relaxed);
+    _instance->voiceCursorCount.store(
+        static_cast<uint32_t>(positions.size()), std::memory_order_release);
+    _instance->cursorRevision.fetch_add(1u, std::memory_order_release);
+    [_cursorView invalidateTrajectory];
+    [_cursorView updateTrajectory];
+    [self setNeedsDisplay:YES];
+    [self displayIfNeeded];
+    return YES;
+}
+
+- (void)drawButton:(NSRect)rect text:(NSString*)text active:(BOOL)active
+    style:(const s3g::clap_gui::Style&)style attrs:(NSDictionary*)attrs
+{
+    [s3g::clap_gui::color(active ? 0x303030 : 0x181818) setFill];
+    NSRectFill(rect);
+    [style.grid setStroke]; NSFrameRect(rect);
+    if (active) { [style.accent setStroke]; NSFrameRect(NSInsetRect(rect, 1.0, 1.0)); }
+    const NSSize size = [text sizeWithAttributes:attrs];
+    [text drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5,
+        NSMidY(rect) - size.height * 0.5) withAttributes:attrs];
+}
+
+- (void)drawWaveform:(const s3g::clap_gui::Style&)style
+    values:(NSDictionary*)values
+{
+    [style.strip setFill]; NSRectFill(kWaveRect);
+    [style.grid setStroke]; NSFrameRect(kWaveRect);
+    const WavesetMap* map = _instance->controlMap.get();
+    if (!map || !map->valid()) {
+        [@"DROP AUDIO HERE" drawAtPoint:NSMakePoint(
+            NSMidX(kWaveRect) - 48.0, NSMidY(kWaveRect) - 7.0)
+            withAttributes:values];
+        return;
+    }
+    const uint32_t frames = map->asset->frameCount();
+    const uint8_t lanes = map->asset->channelCount;
+    const double visibleSpan = [self waveVisibleSpan];
+    const double visibleEnd = _waveViewStart + visibleSpan;
+    const double start = std::clamp(paramValue(*_instance,
+        kStartParamId), 0.0, 1.0);
+    const double end = std::clamp(paramValue(*_instance,
+        kEndParamId), start, 1.0);
+    const double loopStart = std::clamp(paramValue(*_instance,
+        kLoopStartParamId), start, end);
+    const double loopEnd = std::clamp(paramValue(*_instance,
+        kLoopEndParamId), loopStart, end);
+    const CGFloat usableHeight = NSHeight(kWaveRect) - 4.0;
+    const CGFloat laneHeight = usableHeight / std::max<uint8_t>(1u, lanes);
+    NSDictionary* channelAttrs = s3g::clap_gui::textAttrs(
+        s3g::clap_gui::color(0x676767), lanes > 8u ? 7.0 : 8.0);
+    for (uint8_t lane = 0u; lane < lanes; ++lane) {
+        const NSRect laneRect = NSMakeRect(NSMinX(kWaveRect),
+            NSMinY(kWaveRect) + 2.0 + laneHeight * lane,
+            NSWidth(kWaveRect), laneHeight);
+        const auto& samples = map->asset->channels[lane];
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        const CGFloat center = NSMidY(laneRect);
+        const CGFloat scale = NSHeight(laneRect) * 0.42;
+        for (NSInteger pixel = 0;
+             pixel < static_cast<NSInteger>(NSWidth(laneRect)); ++pixel) {
+            const double sourceBegin = _waveViewStart
+                + pixel / NSWidth(laneRect) * visibleSpan;
+            const double sourceEnd = _waveViewStart
+                + (pixel + 1.0) / NSWidth(laneRect) * visibleSpan;
+            const uint32_t begin = std::min<uint32_t>(frames - 1u,
+                static_cast<uint32_t>(sourceBegin * frames));
+            const uint32_t finish = std::min<uint32_t>(frames,
+                std::max(begin + 1u,
+                    static_cast<uint32_t>(std::ceil(sourceEnd * frames))));
+            const uint32_t stride = std::max<uint32_t>(1u,
+                (finish - begin + 31u) / 32u);
+            float low = 1.0f, high = -1.0f;
+            for (uint32_t frame = begin; frame < finish; frame += stride) {
+                low = std::min(low, samples[frame]);
+                high = std::max(high, samples[frame]);
+            }
+            if (finish > begin) {
+                low = std::min(low, samples[finish - 1u]);
+                high = std::max(high, samples[finish - 1u]);
+            }
+            const CGFloat x = NSMinX(laneRect) + pixel;
+            [path moveToPoint:NSMakePoint(x, center - high * scale)];
+            [path lineToPoint:NSMakePoint(x, center - low * scale)];
+        }
+        [s3g::clap_gui::color(lane % 2u == 0u
+            ? 0x747d78 : 0x68706c) setStroke];
+        [path setLineWidth:1.0]; [path stroke];
+        if (lane != 0u) {
+            [s3g::clap_gui::color(0x333333) setFill];
+            NSRectFill(NSMakeRect(NSMinX(kWaveRect) + 1.0,
+                NSMinY(laneRect), NSWidth(kWaveRect) - 2.0, 1.0));
+        }
+        NSString* channelLabel = [NSString stringWithFormat:@"%02u",
+            static_cast<unsigned>(lane + 1u)];
+        const NSSize labelSize = [channelLabel sizeWithAttributes:
+            channelAttrs];
+        [channelLabel drawAtPoint:NSMakePoint(NSMinX(laneRect) + 5.0,
+                NSMinY(laneRect) + std::max<CGFloat>(0.0,
+                    (NSHeight(laneRect) - labelSize.height) * 0.5))
+            withAttributes:channelAttrs];
+    }
+    struct Marker {
+        double position;
+        NSString* label;
+        NSColor* color;
+        bool upper;
+    };
+    const Marker markers[] = {
+        { start, @"S", style.accent, true },
+        { end, @"E", style.accent, true },
+        { loopStart, @"LS", style.dim, false },
+        { loopEnd, @"LE", style.dim, false },
+    };
+    for (const auto& marker : markers) {
+        if (marker.position < _waveViewStart
+            || marker.position > visibleEnd) continue;
+        const CGFloat x = [self waveXForNormalized:marker.position];
+        [marker.color setStroke];
+        NSBezierPath* line = [NSBezierPath bezierPath];
+        [line moveToPoint:NSMakePoint(x, NSMinY(kWaveRect))];
+        [line lineToPoint:NSMakePoint(x, NSMaxY(kWaveRect))];
+        [line setLineWidth:1.5]; [line stroke];
+        const CGFloat labelY = marker.upper ? NSMinY(kWaveRect) + 4.0
+            : NSMaxY(kWaveRect) - 16.0;
+        [marker.label drawAtPoint:NSMakePoint(std::clamp(x + 4.0,
+                NSMinX(kWaveRect) + 4.0, NSMaxX(kWaveRect) - 22.0), labelY)
+            withAttributes:values];
+    }
+    if (![NSGraphicsContext currentContextDrawingToScreen]) {
+        const uint32_t count = std::min<uint32_t>(
+            _instance->voiceCursorCount.load(std::memory_order_acquire),
+            static_cast<uint32_t>(
+                _instance->voiceCursorTransportPositions.size()));
+        for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+            const float position
+                = _instance->voiceCursorTransportPositions[cursor].load(
+                    std::memory_order_relaxed);
+            if (position < _waveViewStart || position > visibleEnd) continue;
+            const CGFloat x = [self waveXForNormalized:position];
+            NSColor* cursorColor = cursor % 3u == 0u ? style.fill
+                : (cursor % 3u == 1u ? style.accent : style.dim);
+            [cursorColor setStroke];
+            NSBezierPath* line = [NSBezierPath bezierPath];
+            [line moveToPoint:NSMakePoint(x, NSMinY(kWaveRect))];
+            [line lineToPoint:NSMakePoint(x, NSMaxY(kWaveRect))];
+            [line setLineWidth:1.25]; [line stroke];
+            const unsigned key = static_cast<unsigned>(
+                _instance->voiceCursorKeys[cursor].load(
+                    std::memory_order_relaxed));
+            const unsigned first = static_cast<unsigned>(
+                _instance->voiceCursorOutputFirst[cursor].load(
+                    std::memory_order_relaxed)) + 1u;
+            const unsigned second = static_cast<unsigned>(
+                _instance->voiceCursorOutputSecond[cursor].load(
+                    std::memory_order_relaxed)) + 1u;
+            const unsigned width = static_cast<unsigned>(
+                _instance->voiceCursorOutputWidths[cursor].load(
+                    std::memory_order_relaxed));
+            NSString* label = isMultichannel(*_instance)
+                ? (width > 1u
+                    ? [NSString stringWithFormat:@"N%u > %02u/%02u", key,
+                        first, second]
+                    : [NSString stringWithFormat:@"N%u > %02u", key, first])
+                : [NSString stringWithFormat:@"N%u", key];
+            const NSSize size = [label sizeWithAttributes:values];
+            CGFloat labelX = x + 4.0;
+            if (labelX + size.width + 5.0 > NSMaxX(kWaveRect))
+                labelX = x - size.width - 5.0;
+            const CGFloat labelY = NSMinY(kWaveRect) + 18.0
+                + static_cast<CGFloat>(cursor % 10u) * 15.0;
+            [style.bg setFill];
+            NSRectFill(NSMakeRect(labelX - 2.0, labelY - 1.0,
+                size.width + 4.0, size.height + 2.0));
+            [label drawAtPoint:NSMakePoint(labelX, labelY)
+                withAttributes:values];
+        }
+    }
+    const uint32_t voiceCount = _instance->voiceCursorCount.load(
+        std::memory_order_acquire);
+    NSString* detail = [NSString stringWithFormat:
+        @"%u VOICES  /  %u CH  /  %u FRAMES  /  %.0f HZ  /  %@",
+        static_cast<unsigned>(voiceCount),
+        static_cast<unsigned>(map->asset->channelCount),
+        static_cast<unsigned>(frames),
+        map->asset->sampleRate, _instance->samplePath.empty()
+            ? @"EMBEDDED SAMPLE" : [[NSString stringWithUTF8String:
+                _instance->samplePath.c_str()] lastPathComponent]];
+    [detail drawAtPoint:NSMakePoint(NSMinX(kWaveRect),
+        NSMaxY(kWaveRect) + 6.0) withAttributes:values];
+    NSString* help = [NSString stringWithFormat:
+        @"DRAG S / E / LS / LE   SCROLL ZOOM   SHIFT-SCROLL PAN   DOUBLE-CLICK FIT   ZOOM %.1fX",
+        _waveZoom];
+    [help drawAtPoint:NSMakePoint(NSMinX(kWaveRect),
+        NSMaxY(kWaveRect) + 23.0) withAttributes:values];
+}
+
+- (void)drawScope:(const s3g::clap_gui::Style&)style
+    values:(NSDictionary*)values
+{
+    [style.strip setFill]; NSRectFill(kScopeRect);
+    [style.grid setStroke]; NSFrameRect(kScopeRect);
+    const WavesetMap* map = _instance->controlMap.get();
+    const unsigned channelCount = map && map->valid()
+        ? static_cast<unsigned>(map->asset->channelCount) : 0u;
+    NSString* title = [NSString stringWithFormat:@"WAVESET SCOPE / %u CH",
+        channelCount];
+    if (!map || !map->valid()) {
+        [title drawAtPoint:NSMakePoint(NSMinX(kScopeRect) + 10.0,
+            NSMinY(kScopeRect) + 8.0) withAttributes:values];
+        return;
+    }
+    const WavesetSettings settings = settingsSnapshot(*_instance);
+    title = [NSString stringWithFormat:@"WAVESET SCOPE / %u CH",
+        channelCount];
+    [title drawAtPoint:NSMakePoint(NSMinX(kScopeRect) + 10.0,
+        NSMinY(kScopeRect) + 8.0) withAttributes:values];
+    const uint32_t focusedSlot = [self newestVoiceCursorSlot];
+    const bool hasFocusedVoice = focusedSlot
+        != std::numeric_limits<uint32_t>::max();
+    float normalized = hasFocusedVoice
+        ? _instance->voiceCursorGroupPositions[focusedSlot].load(
+            std::memory_order_relaxed)
+        : static_cast<float>(settings.start);
+    if (normalized < 0.0f) normalized = static_cast<float>(settings.start);
+    const uint32_t group = settings.groupSize;
+    const uint32_t cycleOffset = hasFocusedVoice
+        ? _instance->voiceCursorCycleOffsets[focusedSlot].load(
+            std::memory_order_relaxed) % group : 0u;
+    const uint32_t repeatIndex = hasFocusedVoice
+        ? _instance->voiceCursorRepeatIndices[focusedSlot].load(
+            std::memory_order_relaxed) % settings.repeats : 0u;
+    const uint32_t randomState = hasFocusedVoice
+        ? _instance->voiceCursorRandomStates[focusedSlot].load(
+            std::memory_order_relaxed) : 0x12345678u;
+    const bool pendulumForward = !hasFocusedVoice
+        || _instance->voiceCursorPendulumForwards[focusedSlot].load(
+            std::memory_order_relaxed);
+    const bool progressionForward = !hasFocusedVoice
+        || _instance->voiceCursorDirections[focusedSlot].load(
+            std::memory_order_relaxed);
+    const double oscillatorPhase = hasFocusedVoice
+        ? std::clamp(static_cast<double>(
+            _instance->voiceCursorOscillatorPhases[focusedSlot].load(
+                std::memory_order_relaxed)), 0.0, 1.0) : 0.0;
+    const unsigned focusedKey = hasFocusedVoice
+        ? static_cast<unsigned>(_instance->voiceCursorKeys[focusedSlot].load(
+            std::memory_order_relaxed)) : 0u;
+    const unsigned focusedOutputFirst = hasFocusedVoice
+        ? static_cast<unsigned>(_instance->voiceCursorOutputFirst[focusedSlot]
+            .load(std::memory_order_relaxed)) + 1u : 0u;
+    const unsigned focusedOutputSecond = hasFocusedVoice
+        ? static_cast<unsigned>(_instance->voiceCursorOutputSecond[focusedSlot]
+            .load(std::memory_order_relaxed)) + 1u : 0u;
+    const unsigned focusedOutputWidth = hasFocusedVoice
+        ? static_cast<unsigned>(_instance->voiceCursorOutputWidths[focusedSlot]
+            .load(std::memory_order_relaxed)) : 0u;
+    const CGFloat laneHeight = NSHeight(kScopeGraphRect)
+        / std::max<unsigned>(1u, channelCount);
+    NSDictionary* channelAttrs = s3g::clap_gui::textAttrs(
+        s3g::clap_gui::color(0x676767), channelCount > 8u ? 7.0 : 8.0);
+    NSString* processName = [[NSString stringWithUTF8String:
+        shapeName(static_cast<int>(settings.shape))] uppercaseString];
+    NSString* focusedProcess = processName;
+    if (hasFocusedVoice && isMultichannel(*_instance)) {
+        focusedProcess = focusedOutputWidth > 1u
+            ? [NSString stringWithFormat:@"%@ / N%03u>%02u/%02u",
+                processName, focusedKey, focusedOutputFirst,
+                focusedOutputSecond]
+            : [NSString stringWithFormat:@"%@ / N%03u>%02u", processName,
+                focusedKey, focusedOutputFirst];
+    } else if (hasFocusedVoice) {
+        focusedProcess = [NSString stringWithFormat:@"%@ / N%03u NEWEST",
+            processName, focusedKey];
+    }
+    [focusedProcess drawAtPoint:NSMakePoint(NSMinX(kScopeRect) + 10.0,
+        NSMinY(kScopeRect) + 29.0) withAttributes:channelAttrs];
+    const CGFloat groupWidth = NSWidth(kScopeGraphRect)
+        / static_cast<CGFloat>(std::clamp(_scopeScale, 1.0, 16.0));
+    const CGFloat groupLeft = NSMidX(kScopeGraphRect) - groupWidth * 0.5;
+    const CGFloat groupRight = groupLeft + groupWidth;
+    [s3g::clap_gui::color(0x262626) setFill];
+    NSRectFill(NSMakeRect(groupLeft, NSMinY(kScopeGraphRect), groupWidth,
+        NSHeight(kScopeGraphRect)));
+    [style.dim setStroke];
+    for (const CGFloat x : { groupLeft, groupRight }) {
+        NSBezierPath* bound = [NSBezierPath bezierPath];
+        [bound moveToPoint:NSMakePoint(x, NSMinY(kScopeGraphRect))];
+        [bound lineToPoint:NSMakePoint(x, NSMaxY(kScopeGraphRect))];
+        [bound setLineWidth:1.25]; [bound stroke];
+    }
+    for (uint8_t channel = 0u; channel < map->asset->channelCount;
+         ++channel) {
+        const auto& units = map->channelUnits[channel];
+        const auto& samples = map->asset->channels[channel];
+        if (units.empty() || samples.empty()) continue;
+        const std::size_t base = wavesetsNearestUnit(units, normalized,
+            map->asset->frameCount());
+        const NSRect lane = NSMakeRect(NSMinX(kScopeGraphRect),
+            NSMinY(kScopeGraphRect) + laneHeight * channel,
+            NSWidth(kScopeGraphRect), laneHeight);
+        std::array<std::size_t, 32u> groupUnits {};
+        std::array<double, 33u> groupBoundaries {};
+        for (uint32_t offset = 0u; offset < group; ++offset) {
+            groupUnits[offset] = wavesetsScopeResolvedUnit(base, offset,
+                settings, randomState, pendulumForward, units.size());
+            groupBoundaries[offset + 1u] = groupBoundaries[offset]
+                + std::max(1.0, units[groupUnits[offset]].sampleLength());
+        }
+        const double groupFrames = std::max(1.0, groupBoundaries[group]);
+        const auto xForGroupFrame = [&](double frame) {
+            return groupLeft + groupWidth
+                * static_cast<CGFloat>(frame / groupFrames);
+        };
+        [s3g::clap_gui::color(0x383838) setStroke];
+        NSBezierPath* baseline = [NSBezierPath bezierPath];
+        [baseline moveToPoint:NSMakePoint(groupLeft, NSMidY(lane))];
+        [baseline lineToPoint:NSMakePoint(groupRight, NSMidY(lane))];
+        [baseline setLineWidth:0.5]; [baseline stroke];
+        [s3g::clap_gui::color(0x343434) setStroke];
+        for (uint32_t boundary = 1u; boundary < group; ++boundary) {
+            const CGFloat x = xForGroupFrame(groupBoundaries[boundary]);
+            NSBezierPath* marker = [NSBezierPath bezierPath];
+            [marker moveToPoint:NSMakePoint(x, NSMinY(lane))];
+            [marker lineToPoint:NSMakePoint(x, NSMaxY(lane))];
+            [marker setLineWidth:0.5]; [marker stroke];
+        }
+        NSBezierPath* sourcePath = [NSBezierPath bezierPath];
+        NSBezierPath* resultPath = [NSBezierPath bezierPath];
+        for (uint32_t offset = 0u; offset < group; ++offset) {
+            const std::size_t unitIndex = groupUnits[offset];
+            const WavesetUnit& unit = units[unitIndex];
+            const double unitFrames = std::max(1.0, unit.sampleLength());
+            for (uint32_t sample = 0u; sample <= 96u; ++sample) {
+                const double phase = sample / 96.0;
+                const float sourceValue = wavesetsScopeUnitSample(samples,
+                    unit, phase, settings.joinAmount);
+                const float resultValue = wavesetsScopeProcessedSample(units,
+                    samples, base, offset, repeatIndex, randomState,
+                    pendulumForward, progressionForward, settings, phase);
+                const CGFloat x = xForGroupFrame(groupBoundaries[offset]
+                    + phase * unitFrames);
+                const CGFloat sourceY = NSMidY(lane) - sourceValue
+                    * NSHeight(lane) * 0.34;
+                const CGFloat resultY = NSMidY(lane) - resultValue
+                    * NSHeight(lane) * 0.43;
+                if (sample == 0u) {
+                    [sourcePath moveToPoint:NSMakePoint(x, sourceY)];
+                    [resultPath moveToPoint:NSMakePoint(x, resultY)];
+                } else {
+                    [sourcePath lineToPoint:NSMakePoint(x, sourceY)];
+                    [resultPath lineToPoint:NSMakePoint(x, resultY)];
+                }
+            }
+        }
+        [s3g::clap_gui::color(0x666666) setStroke];
+        [sourcePath setLineWidth:0.75]; [sourcePath stroke];
+        [s3g::clap_gui::color(channel % 2u == 0u
+            ? 0x69d2dc : 0xd79a55) setStroke];
+        [resultPath setLineWidth:1.25]; [resultPath stroke];
+        if (channel != 0u) {
+            [s3g::clap_gui::color(0x333333) setFill];
+            NSRectFill(NSMakeRect(NSMinX(lane), NSMinY(lane),
+                NSWidth(lane), 1.0));
+        }
+        NSString* label = [NSString stringWithFormat:@"%02u",
+            static_cast<unsigned>(channel + 1u)];
+        [label drawAtPoint:NSMakePoint(NSMinX(lane) + 4.0,
+            NSMinY(lane) + 1.0) withAttributes:channelAttrs];
+        const double playheadFrame = groupBoundaries[cycleOffset]
+            + oscillatorPhase * std::max(1.0,
+                units[groupUnits[cycleOffset]].sampleLength());
+        const CGFloat playheadX = xForGroupFrame(playheadFrame);
+        [style.fill setFill];
+        NSRectFill(NSMakeRect(playheadX - 0.5, NSMinY(lane), 1.0,
+            NSHeight(lane)));
+    }
+    NSString* cycle = [NSString stringWithFormat:@"G %02u  C %02u/%02u",
+        group, cycleOffset + 1u, group];
+    NSString* repeat = [NSString stringWithFormat:@"R %02u/%02u  D %3.0f%%",
+        repeatIndex + 1u, settings.repeats,
+        settings.processAmount * 100.0f];
+    [cycle drawAtPoint:NSMakePoint(NSMinX(kScopeRect) + 10.0,
+        NSMinY(kScopeRect) + 44.0) withAttributes:values];
+    [repeat drawAtPoint:NSMakePoint(NSMinX(kScopeRect) + 10.0,
+        NSMinY(kScopeRect) + 63.0) withAttributes:values];
+    [@"GRAY SRC / COLOR RESULT" drawAtPoint:NSMakePoint(
+        NSMinX(kScopeRect) + 10.0, NSMinY(kScopeRect) + 83.0)
+        withAttributes:channelAttrs];
+    NSString* scale = [NSString stringWithFormat:
+        @"GROUP BOUNDS  /  VIEW %.1fX  /  SCROLL SCALE  /  DOUBLE-CLICK FIT",
+        _scopeScale];
+    const NSSize scaleSize = [scale sizeWithAttributes:channelAttrs];
+    [style.bg setFill];
+    NSRectFill(NSMakeRect(NSMaxX(kScopeGraphRect) - scaleSize.width - 7.0,
+        NSMaxY(kScopeGraphRect) - scaleSize.height - 3.0,
+        scaleSize.width + 5.0, scaleSize.height + 2.0));
+    [scale drawAtPoint:NSMakePoint(
+        NSMaxX(kScopeGraphRect) - scaleSize.width - 5.0,
+        NSMaxY(kScopeGraphRect) - scaleSize.height - 2.0)
+        withAttributes:channelAttrs];
+}
+
+- (void)drawSlider:(clap_id)id name:(NSString*)name y:(CGFloat)y
+    panel:(NSRect)panel style:(const s3g::clap_gui::Style&)style
+    labels:(NSDictionary*)labels values:(NSDictionary*)values
+{
+    const ParamDef* def = paramDef(id);
+    char text[64] {};
+    paramsValueToText(&_instance->plugin, id, paramValue(*_instance, id), text,
+        sizeof(text));
+    const CGFloat normalized = (paramValue(*_instance, id) - def->minimum)
+        / (def->maximum - def->minimum);
+    s3g::clap_gui::drawSlider(name, [NSString stringWithUTF8String:text], normalized,
+        y, labels, values, style, panel.origin.x + 12.0, panel.origin.x + 104.0,
+        panel.origin.x + panel.size.width - 56.0, panel.size.width - 164.0, 48.0);
+}
+
+- (void)drawMenu:(clap_id)id name:(NSString*)name y:(CGFloat)y
+    panel:(NSRect)panel style:(const s3g::clap_gui::Style&)style
+    labels:(NSDictionary*)labels values:(NSDictionary*)values
+{
+    char text[64] {};
+    paramsValueToText(&_instance->plugin, id, paramValue(*_instance, id), text,
+        sizeof(text));
+    s3g::clap_gui::drawMenu(name, [NSString stringWithUTF8String:text], y,
+        labels, values, style, panel.origin.x + 12.0, panel.origin.x + 104.0,
+        panel.size.width - 116.0);
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* values = s3g::clap_gui::softValueAttrs();
+    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
+    [style.bg setFill]; NSRectFill(self.bounds);
+    NSString* pluginTitle = [NSString stringWithUTF8String:
+        _instance->plugin.desc->name];
+    s3g::clap_gui::drawProcessorTitleBand(pluginTitle,
+        [NSString stringWithUTF8String:_presetName],
+        s3g::clap_gui::peakDbText(_instance->outputPeak.load(
+            std::memory_order_relaxed)), kWavesetsTitleBand,
+        title, labels, values, style);
+
+    s3g::clap_gui::drawPanelFrame(NSMinX(kSamplePanel),
+        NSMinY(kSamplePanel), NSWidth(kSamplePanel),
+        NSHeight(kSamplePanel), style);
+    s3g::clap_gui::drawPanelHeader(@"SAMPLE", true,
+        NSMinX(kSamplePanel), NSMinY(kSamplePanel), NSWidth(kSamplePanel),
+        static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
+        labels, style);
+    s3g::clap_gui::drawHeaderButton(kSampleLoadButton, kSamplePanel,
+        @"LOAD SAMPLE", false, labels, style);
+    s3g::clap_gui::drawHeaderButton(kClearButton, kSamplePanel,
+        @"CLEAR", false, labels, style);
+    s3g::clap_gui::drawHeaderButton(kEmbedButton, kSamplePanel,
+        _instance->embedSampleInState ? @"EMBED ON" : @"EMBED OFF",
+        _instance->embedSampleInState, labels, style);
+    NSString* status = [NSString stringWithUTF8String:_instance->status.c_str()];
+    [NSGraphicsContext saveGraphicsState];
+    NSRectClip(NSMakeRect(90.0, 57.0, 586.0, 19.0));
+    [status drawAtPoint:NSMakePoint(90.0, 59.0) withAttributes:values];
+    [NSGraphicsContext restoreGraphicsState];
+    [self drawWaveform:style values:values];
+    [self drawScope:style values:values];
+
+    const struct Panel { NSRect rect; NSString* title; } panels[] = {
+        { kPlaybackPanel, @"SAMPLE / PLAYBACK / PITCH" },
+        { kWavesetPanel, @"WAVESETS / PROCESS" },
+        { kOutputPanel, @"OUTPUT / AMP / MIDI" },
+    };
+    for (const auto& panel : panels) {
+        s3g::clap_gui::drawPanelFrame(NSMinX(panel.rect), NSMinY(panel.rect),
+            NSWidth(panel.rect), NSHeight(panel.rect), style);
+        s3g::clap_gui::drawPanelHeader(panel.title, true, NSMinX(panel.rect),
+            NSMinY(panel.rect), NSWidth(panel.rect), 27.0, labels, style);
+    }
+    [self drawMenu:kPlayModeParamId name:@"PLAY MODE" y:482 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawMenu:kSourceModeParamId name:@"STEREO" y:507 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kStartParamId name:@"START" y:532 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kEndParamId name:@"END" y:557 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kLoopStartParamId name:@"LOOP START" y:582 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kLoopEndParamId name:@"LOOP END" y:607 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawMenu:kVoiceModeParamId name:@"VOICE" y:632 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawMenu:kTriggerModeParamId name:@"TRIGGER" y:657 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kRootNoteParamId name:@"ROOT" y:682 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kTuneParamId name:@"TUNE" y:707 panel:kPlaybackPanel style:style labels:labels values:values];
+    [self drawSlider:kFineTuneParamId name:@"FINE" y:732 panel:kPlaybackPanel style:style labels:labels values:values];
+
+    [self drawMenu:kAdvanceParamId name:@"TIME" y:482 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kGroupParamId name:@"GROUP" y:507 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kRepeatParamId name:@"REPEAT" y:532 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kStrideParamId name:@"STRIDE" y:557 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kDirectionParamId name:@"ORDER" y:582 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kShapeParamId name:@"PROCESS" y:607 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawSlider:kProcessParamId name:@"DEPTH" y:632 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawSlider:kJoinParamId name:@"JOIN" y:657 panel:kWavesetPanel style:style labels:labels values:values];
+    [self drawMenu:kDetailParamId name:@"DETAIL" y:682 panel:kWavesetPanel style:style labels:labels values:values];
+
+    [self drawSlider:kOutParamId name:@"OUT" y:482 panel:kOutputPanel style:style labels:labels values:values];
+    [self drawSlider:kAttackParamId name:@"ATTACK" y:532 panel:kOutputPanel style:style labels:labels values:values];
+    [self drawSlider:kReleaseParamId name:@"RELEASE" y:557 panel:kOutputPanel style:style labels:labels values:values];
+    [self drawSlider:kVelocityParamId name:@"VELOCITY" y:582 panel:kOutputPanel style:style labels:labels values:values];
+    if (isMultichannel(*_instance)) {
+        [self drawMenu:kOutputTraversalParamId name:@"ROUTE" y:607 panel:kOutputPanel style:style labels:labels values:values];
+        [self drawMenu:kOutputVoiceWidthParamId name:@"VOICE OUT" y:632 panel:kOutputPanel style:style labels:labels values:values];
+        [self drawMenu:kStereoPairLayoutParamId name:@"PAIR MAP" y:657 panel:kOutputPanel style:style labels:labels values:values];
+        [self drawMenu:kActiveOutputCountParamId name:@"OUTPUTS" y:682 panel:kOutputPanel style:style labels:labels values:values];
+    }
+    [self drawMenu:kMidiChannelParamId name:@"MIDI" y:707 panel:kOutputPanel style:style labels:labels values:values];
+    [self drawButton:kPreviewButton text:@"PLAY" active:(_feedbackMask & kActionPreview) != 0u
+        style:style attrs:values];
+    [self drawButton:kStopButton text:@"STOP / KILL ALL" active:(_feedbackMask & kActionStopAll) != 0u
+        style:style attrs:values];
+    if (_presetMenuOpen) {
+        s3g::clap_gui::drawDropdownMenu([self openMenuRect], 20.0,
+            kPresetMenuItems, static_cast<uint32_t>(std::size(kPresetMenuItems)),
+            static_cast<int>(_presetIndex),
+            _menuHover, values, style);
+    } else if (_openMenuParam != CLAP_INVALID_ID) {
+        const WavesetsMenuSpec spec = wavesetsMenuSpec(_openMenuParam);
+        const int selected = wavesetsMenuIndex(_openMenuParam,
+            paramValue(*_instance, _openMenuParam));
+        if (spec.columns > 1u)
+            s3g::clap_gui::drawMultiColumnDropdownMenu([self openMenuRect],
+                20.0, spec.items, spec.count, spec.columns, selected,
+                _menuHover, values, style);
+        else s3g::clap_gui::drawDropdownMenu([self openMenuRect], 20.0,
+            spec.items, spec.count, selected, _menuHover, values, style);
+    }
+}
+
+@end
+
+namespace {
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool floating)
+{ return api && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0 && !floating; }
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* floating)
+{ if (!api || !floating) return false; *api = CLAP_WINDOW_API_COCOA; *floating = false; return true; }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
+{
+    if (!guiIsApiSupported(plugin, api, floating)) return false;
+    auto& instance = *self(plugin);
+    if (instance.guiView) return true;
+    S3GSampleWavesets2View* view = [[S3GSampleWavesets2View alloc]
+        initWithPlugin:&instance];
+    if (!view) return false;
+    instance.guiView = (__bridge_retained void*)view;
+    if (!s3g::clap_gui::createResponsiveViewport(instance.guiViewport,
+            view, kGuiWidth, kGuiHeight, 480u, 360u)) {
+        void* owned = instance.guiView; instance.guiView = nullptr;
+        (void)(__bridge_transfer NSView*)owned; return false;
+    }
+    return true;
+}
+void destroyGui(Plugin& instance)
+{
+    if (!instance.guiView) return;
+    [(__bridge S3GSampleWavesets2View*)instance.guiView stopTimer];
+    s3g::clap_gui::destroyResponsiveViewport(instance.guiViewport,
+        instance.guiView);
+}
+void guiDestroy(const clap_plugin_t* plugin) { destroyGui(*self(plugin)); }
+bool guiSetScale(const clap_plugin_t*, double) { return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{ return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport,
+    kGuiWidth, kGuiHeight, width, height, 480u, 360u); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{ return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{ return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport,
+    kGuiWidth, kGuiHeight, width, height, 480u, 360u); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
+{ return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport,
+    width, height); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
+{
+    if (!window || !window->api || std::strcmp(window->api,
+            CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false;
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::setResponsiveViewportParent(instance.guiViewport,
+        (__bridge NSView*)window->cocoa, instance.host);
+}
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    if (!instance.guiView || !s3g::clap_gui::setResponsiveViewportHidden(
+            instance.guiViewport, false)) return false;
+    [(__bridge S3GSampleWavesets2View*)instance.guiView startTimer];
+    return true;
+}
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    if (!instance.guiView) return false;
+    [(__bridge S3GSampleWavesets2View*)instance.guiView stopTimer];
+    return s3g::clap_gui::setResponsiveViewportHidden(instance.guiViewport,
+        true);
+}
+const clap_plugin_gui_t gui {
+    guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy,
+    guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize,
+    guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow,
+    guiHide,
+};
+
+} // namespace
+
 #endif
 
 namespace {
@@ -2632,33 +4882,66 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     return nullptr;
 }
 
-const char* const features[] {
+const char* const stereoFeatures[] {
     CLAP_PLUGIN_FEATURE_INSTRUMENT,
     CLAP_PLUGIN_FEATURE_SAMPLER,
     CLAP_PLUGIN_FEATURE_STEREO,
     nullptr,
 };
 
-const clap_plugin_descriptor_t descriptor {
+const char* const multichannelFeatures[] {
+    CLAP_PLUGIN_FEATURE_INSTRUMENT,
+    CLAP_PLUGIN_FEATURE_SAMPLER,
+    CLAP_PLUGIN_FEATURE_SURROUND,
+    nullptr,
+};
+
+const clap_plugin_descriptor_t stereoDescriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.sample-wavesets",
-    "s3g Sample Wavesets",
+    "s3g Sample Wavesets 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.1.0",
-    "Two free-running waveset decks sharing one stereo sample and crossfader.",
-    features,
+    "", "", "0.2.0",
+    "Stereo, polyphonic waveset playback instrument.",
+    stereoFeatures,
+};
+
+const clap_plugin_descriptor_t multichannelDescriptor {
+    CLAP_VERSION_INIT,
+    "org.s3g.s3g-dsp.sample-wavesets-32",
+    "s3g Sample Wavesets 32",
+    "s3g",
+    "https://github.com/s3g/s3g-dsp",
+    "", "", "0.2.0",
+    "Polyphonic waveset instrument with trigger-assigned 32-channel output routing.",
+    multichannelFeatures,
 };
 
 const clap_plugin_t* createPlugin(const clap_plugin_factory_t*,
     const clap_host_t* host, const char* pluginId)
 {
-    if (!host || !pluginId || std::strcmp(pluginId, descriptor.id) != 0)
+    if (!host || !pluginId) return nullptr;
+    const clap_plugin_descriptor_t* descriptor = nullptr;
+    uint32_t outputChannels = 0u;
+    clap_id configId = CLAP_INVALID_ID;
+    if (std::strcmp(pluginId, stereoDescriptor.id) == 0) {
+        descriptor = &stereoDescriptor;
+        outputChannels = 2u;
+        configId = kStereoOutputConfigId;
+    } else if (std::strcmp(pluginId, multichannelDescriptor.id) == 0) {
+        descriptor = &multichannelDescriptor;
+        outputChannels = 32u;
+        configId = kThirtyTwoChannelOutputConfigId;
+    } else {
         return nullptr;
+    }
     auto* instance = new (std::nothrow) Plugin();
     if (!instance) return nullptr;
     instance->host = host;
-    instance->plugin.desc = &descriptor;
+    instance->outputChannelCount = outputChannels;
+    instance->outputConfigId = configId;
+    instance->plugin.desc = descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = pluginInit;
     instance->plugin.destroy = pluginDestroy;
@@ -2672,10 +4955,14 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory_t*,
     instance->plugin.on_main_thread = pluginOnMainThread;
     return &instance->plugin;
 }
-uint32_t factoryGetPluginCount(const clap_plugin_factory_t*) { return 1u; }
+uint32_t factoryGetPluginCount(const clap_plugin_factory_t*) { return 2u; }
 const clap_plugin_descriptor_t* factoryGetPluginDescriptor(
     const clap_plugin_factory_t*, uint32_t index)
-{ return index == 0u ? &descriptor : nullptr; }
+{
+    if (index == 0u) return &stereoDescriptor;
+    if (index == 1u) return &multichannelDescriptor;
+    return nullptr;
+}
 const clap_plugin_factory_t factory {
     factoryGetPluginCount, factoryGetPluginDescriptor, createPlugin,
 };

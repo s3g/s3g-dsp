@@ -27,12 +27,12 @@
       <main class="content" id="content">
         <h1>Sample Instruments</h1>
 
-        <p>The Sample family uses loaded or captured audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, <a href="sample-doubles.html">Sample Doubles</a> puts two independently positioned copies of one stereo source behind a performance crossfader, <a href="sample-wavesets.html">Sample Wavesets</a> repeats and transforms zero-crossing groups while progressing through a recording, <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices, and <a href="effect-crcltr.html">Effect CRCLTR</a> captures incoming stereo audio into two performance loop engines.</p>
+        <p>The Sample family uses loaded or captured audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, <a href="sample-doubles.html">Sample Doubles</a> puts two independently positioned copies of one stereo source behind a performance crossfader, <a href="sample-wavesets.html">Sample Wavesets</a> plays zero-crossing groups with stereo or trigger-assigned multichannel output, <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices, and <a href="effect-crcltr.html">Effect CRCLTR</a> captures incoming stereo audio into two performance loop engines.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms, Sample Doubles, Sample Wavesets, and Effect CRCLTR use an ordinary stereo track.</li>
+          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms, Sample Doubles, Sample Wavesets 2, and Effect CRCLTR use an ordinary stereo track. Sample Wavesets 32 uses a fixed 32-channel track while its active assignment width can be any value from 2–32.</li>
           <li>For Processor Loop or Processor Multi Loop, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Load the source file or files and confirm that the expected channels appear, or feed stereo audio into Effect CRCLTR and record its loop captures.</li>
           <li>Set the sample window, loop region, direction, pitch, and envelope, or derive and map slices in Sample Slicer.</li>
@@ -51,9 +51,9 @@
 
         <p><a href="sample-doubles.html">Sample Doubles</a> loads one mono or stereo file into two independently positioned read heads. Shared varispeed changes pitch and duration together; Deck B can sit at a source-beat offset, drift by a fine speed difference, or move in discrete phase steps. The crossfader, velocity-sensitive Punch and Drag commands, cue triggers, transport commands, and thirteen offset keys are directly sequenceable from <a href="s3g-tracker.html">s3g Tracker</a>.</p>
 
-        <h2 id="wavesets">Two-Deck Wavesets</h2>
+        <h2 id="wavesets">Waveset Playback and Distribution</h2>
 
-        <p><a href="sample-wavesets.html">Sample Wavesets</a> derives short pseudo-wavecycles from one mono or stereo recording and places two independently positioned copies behind a performance crossfader. Each deck can play, pause, stop, restart, move, and change speed independently or through linked transport. Stretch, Preserve, and Hold determine how repeated groups relate to source time; Tracker notes address transport and cuts on one MIDI channel.</p>
+        <p><a href="sample-wavesets.html">Sample Wavesets</a> derives short pseudo-wavecycles from one mono or stereo recording and plays them chromatically through a Sample Player-style range and loop model. Forward, reverse, wrapping, and ping-pong modes combine with Poly, Mono, and Legato voices. Wavesets 2 uses a fixed stereo output. Wavesets 32 assigns each trigger to a mono channel or stereo pair using sequential, palindrome, reverse, random, or no-repeat random-cycle traversal inside a selectable 2–32-channel active width. Both forms share the same group, repeat, stride, ordering, and waveset processing engine.</p>
 
         <h2 id="loop-family">Loop Family</h2>
 
@@ -101,7 +101,7 @@
           <a href="#workflow">Workflow</a>
           <a href="#player">One-shots and Loops</a>
           <a href="#doubles">Two-Deck Playback and Timing</a>
-          <a href="#wavesets">Two-Deck Wavesets</a>
+          <a href="#wavesets">Waveset Playback and Distribution</a>
           <a href="#slicer">Break Slicing</a>
           <a href="#loop-family">Loop Family</a>
           <a href="#ambisonic-grain">Ambisonic Granulation</a>
