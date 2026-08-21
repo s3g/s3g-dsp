@@ -1,12 +1,13 @@
 # Sample Doubles
 
-`s3g Sample Doubles 2` is a stereo two-read-head sample instrument for
-two-copy cutting, slowed varispeed playback, and gradual or stepped phasing.
-Both decks reference one immutable mono or stereo source while keeping
-independent playback positions.
+`s3g Sample Doubles 2` is a stereo sample instrument with two independently
+positioned read heads over one mono or stereo source. It combines shared
+varispeed playback with per-deck levels, cues, transport, timing controls, and
+a performance crossfader.
 
 The instrument provides:
 
+- five factory presets for the documented two-deck starting configurations;
 - coupled speed and pitch from -24 to +12 semitones;
 - load-time source-BPM estimation with confidence, manual override, and
   half/double choices;
@@ -30,6 +31,11 @@ is edited, so pressing it restores that candidate. If no analysis is retained,
 it rescans the current immutable sample on the loader worker without reloading
 the audio, moving the playheads, or clearing deck cues.
 
+The factory presets change Speed, Deck B Offset/Drift/Live Phase, Phase Step,
+Loop, crossfader position, and crossfader curve. They preserve the sample,
+source BPM, S/E region, cue state and pre-roll, MIDI receive channel, Link,
+both deck levels, and Out.
+
 ## Tracker command notes
 
 | Note | Command |
@@ -47,7 +53,7 @@ the audio, moving the playheads, or clearing deck cues.
 | 62 / 64 | Retrigger Deck A / Deck B from its cue |
 
 Tracker `VOL` controls punch depth and Drag strength. Full velocity gives the
-heaviest platter load; lower velocity produces a lighter slowdown. Its repeat,
+deepest slowdown; lower velocity produces a lighter slowdown. Its repeat,
 flam, stutter, ratchet, and
 microtime operations act on ordinary note events, so they can articulate the
 same command keyboard without a separate MIDI CC lane.
@@ -60,7 +66,7 @@ represents heard time instead of a fixed number of source samples. Once a cue
 exists, click and drag its colored waveform marker to place it directly with
 the mouse; direct placement bypasses pre-roll but still zero-crossing-snaps.
 Trigger starts that deck from the marker on every press, including when the
-deck was paused, so Tracker repeats and ratchets can create cue-point chops.
+deck was paused, so Tracker repeats and ratchets can create cue-point patterns.
 
 ## Continuous MIDI controls
 

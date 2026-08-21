@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sample Doubles - s3g-dsp</title>
-    <meta name="description" content="User guide for the stereo Sample Doubles two-copy cutting and phasing instrument.">
+    <meta name="description" content="User guide for the stereo Sample Doubles two-deck playback and timing instrument.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,15 +27,15 @@
       <main class="content" id="content">
         <h1>Sample Doubles</h1>
 
-        <p><code>Sample Doubles 2</code> is a stereo instrument for cutting between two copies of one recording. The copies are independent read heads over the same mono or stereo source: Deck A establishes the main timeline, while Deck B can be synchronized at a musical offset, nudged in discrete steps, or allowed to drift gradually. A turntable-style crossfader and gated MIDI punches turn that relationship into a playable instrument.</p>
+        <p><code>Sample Doubles 2</code> is a stereo instrument with two independently positioned read heads over one mono or stereo recording. Deck A and Deck B share the source while retaining separate positions, levels, cues, and transport states. You can synchronize them, place them at a beat offset, move them in discrete steps, or let their timing separate gradually, then switch or blend between them with the crossfader.</p>
 
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-doubles.png" aria-label="Open the high-resolution Sample Doubles interface screenshot">
-              <img src="assets/plugin-guis/sample-doubles.png" alt="Sample Doubles interface with Sonic Break.wav loaded across Deck A and Deck B, independent colored playheads and cue markers, automatic BPM choices, varispeed and live-phase controls, linked deck transport, platter drag, trigger and punch buttons, per-deck levels, crossfader, and Tracker MIDI legend" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/sample-doubles.png" alt="Sample Doubles interface with Sonic Break.wav loaded across Deck A and Deck B, independent colored playheads and cue markers, automatic BPM choices, varispeed and live-phase controls, linked deck transport, momentary Drag, trigger and punch buttons, per-deck levels, crossfader, and Tracker MIDI legend" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>One shared source feeds two independently positioned read heads. The cyan Deck A and orange Deck B cursors expose the exact relationship being cut by the crossfader.</figcaption>
+          <figcaption>One shared source feeds two independently positioned read heads. The cyan Deck A and orange Deck B cursors show the timing relationship being mixed by the crossfader.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -44,23 +44,23 @@
           <li>Press <code>LOAD SAMPLE</code> or drop a mono or stereo audio file on the waveform. Leave <code>EMBED ON</code> enabled for portable project state, or choose <code>EMBED OFF</code> to store only its location.</li>
           <li>Route its fixed stereo output to the intended speakers or monitor path.</li>
           <li>After loading, inspect the BPM readout. A confident, unambiguous estimate is applied automatically; a less certain result is shown as a suggestion. Use <code>1/2</code>, <code>AUTO</code>, or <code>x2</code> to resolve octave choices, or edit <code>SAMPLE BPM</code> directly. After a manual BPM edit, <code>AUTO</code> restores the retained analyzed value. If the current sample has no retained result—for example after project recall—<code>AUTO</code> re-analyzes it on the loader worker and applies a valid result. This source tempo defines beat distances inside the file; it does not force the instrument to follow host tempo.</li>
-          <li>Set <code>SPEED</code>. Its default of -7 semitones slows pitch and duration together, like changing turntable or tape speed.</li>
+          <li>Set <code>SPEED</code>. Its default of -7 semitones lowers the playback rate, pitch, and duration together; positive values raise them together.</li>
           <li>Drag the waveform's <code>S</code> and <code>E</code> handles to select a region. Choose <code>ON</code> from the <code>LOOP</code> menu when the two copies should remain inside it.</li>
           <li>Press <code>RESTART</code>. Deck A starts at S and Deck B starts at Deck A plus <code>B OFFSET</code>, measured in source beats.</li>
           <li>Set <code>A LEVEL</code> and <code>B LEVEL</code>, then move the crossfader between them. The deck levels are smoothed before the crossfade; <code>OUT</code> remains the post-crossfade master. <code>XFADE CURVE</code> provides <code>CUT</code>, <code>SHARP</code>, and equal-power <code>BLEND</code>.</li>
-          <li>Use <code>SYNC</code> to restore the selected offset, <code>STEP -</code> and <code>STEP +</code> for discrete moves, or <code>B LIVE PHASE</code> for an immediate continuous nudge. <code>A P/P</code> and <code>B P/P</code> pause individual decks when <code>LINK</code> is off. Hold <code>DRAG A</code> or <code>DRAG B</code> to load that platter; release it for a smooth motor recovery. Set <code>CUE PREROLL</code> for the reaction time between hearing a target and pressing <code>CUE A</code> or <code>CUE B</code>. Use its <code>TRIG</code> button for repeatable restarts, or drag an existing colored cue marker to place it directly on the waveform.</li>
+          <li>Use <code>SYNC</code> to restore the selected offset, <code>STEP -</code> and <code>STEP +</code> for discrete moves, or <code>B LIVE PHASE</code> for an immediate continuous nudge. <code>A P/P</code> and <code>B P/P</code> pause individual decks when <code>LINK</code> is off. Hold <code>DRAG A</code> or <code>DRAG B</code> to slow that deck temporarily; release it for a smooth return to its normal rate. Set <code>CUE PREROLL</code> for the reaction time between hearing a target and pressing <code>CUE A</code> or <code>CUE B</code>. Use its <code>TRIG</code> button for repeatable restarts, or drag an existing colored cue marker to place it directly on the waveform.</li>
           <li>Sequence the command notes from <a href="s3g-tracker.html">s3g Tracker</a>. The complete mapping is published through the CLAP note-name extension, so supporting hosts can display the commands by name.</li>
         </ol>
 
-        <h2 id="performance-model">Performance Model</h2>
+        <h2 id="performance-model">Working with Two Decks</h2>
 
-        <p>The defining screwed-and-chopped gestures combine a deep slowdown with manually repeated words, phrases, and beats. Doubles keeps those roles separate: Speed establishes the shared slowed world, while two copies, offsets, punches, and the crossfader create the chops. It deliberately omits a dub-print recorder because the performance can be captured by the host and the desired pitch is already part of varispeed playback.</p>
+        <p>Use Speed to establish the shared playback rate, then choose how the two decks contribute to the output. Cut and Sharp curves support quick changes between decks, while Blend combines them more gradually. A Level and B Level set the balance before the crossfader. Punch commands temporarily favor one deck, and cue triggers provide repeatable starts from chosen points in the source.</p>
 
-        <p>The phase controls extend the two-copy idea in another direction. Steve Reich's <em>Piano Phase</em> begins with identical repeated patterns in unison, lets one move gradually ahead, and eventually returns them to unison. Deck B Drift realizes the continuous version of that process; Phase Step and Sync make its intermediate positions addressable from a tracker pattern.</p>
+        <p>Deck B's timing controls offer several distinct kinds of movement. B Offset defines the position applied by Restart or Sync, B Live Phase moves the deck immediately, Phase Step makes repeatable discrete moves, and B Drift creates continuous separation over time. Press Sync whenever you want to return to the stored relationship.</p>
 
         <h2 id="timing">Deck Timing</h2>
 
-        <p><code>SPEED</code> is authentic varispeed: pitch and duration remain coupled. Both decks use this common rate. <code>B DRIFT</code> adds a fine speed difference to Deck B only, from -100 to +100 cents. Very small values create a slowly changing relationship; larger values move through alignments quickly.</p>
+        <p><code>SPEED</code> changes playback rate, pitch, and duration together. Both decks use this common rate. <code>B DRIFT</code> adds a fine speed difference to Deck B only, from -100 to +100 cents. Very small values create a slowly changing relationship; larger values move through alignments quickly.</p>
 
         <p><code>B OFFSET</code> is stored in beats but does not teleport Deck B whenever its slider moves. Press Sync or Restart to apply it. <code>B LIVE PHASE</code> is deliberately separate: moving it shifts Deck B immediately and precisely by its change in source beats. MIDI notes 48–60 select a signed stored offset and synchronize Deck B immediately. Phase Step moves the existing Deck B playhead backward or forward without changing either control.</p>
 
@@ -68,7 +68,7 @@
 
         <p>With Loop enabled, synchronization, offsets, drift, live phase, and phase steps wrap inside the selected S–E region. Without Loop, each deck stops when it reaches E. Stop silences both positions; Play resumes them, while Restart returns to the beginning and reapplies the offset. Link is enabled by default so either deck Play/Pause button operates both decks; disable it to stop and resume the two copies independently.</p>
 
-        <p>Drag is momentary rather than a saved speed setting. While held, that deck decelerates toward a heavily loaded platter; on release its motor eases back to the shared varispeed. Mouse release, MIDI note-off, editor close, and transport reset all release the gesture.</p>
+        <p>Drag is momentary rather than a saved speed setting. While held, that deck slows according to the incoming note velocity; on release it eases back to the shared playback rate. Mouse release, MIDI note-off, editor close, and transport reset all release the gesture.</p>
 
         <p>Each deck has one persistent cue point. Cue looks backward from the current read head by <code>CUE PREROLL</code> (0–1000 ms, default 150 ms), replaces the previous cue, and snaps to the nearest available zero crossing to reduce clicks. The lookback is measured in heard time: varispeed, Deck B drift, and a held Drag gesture change the corresponding source-frame distance, and Loop wraps the lookback inside S–E. The cyan or orange marker is drawn only in that deck's waveform lane. Click and drag an existing marker to place it directly under the mouse; mouse placement bypasses pre-roll but still snaps to a zero crossing. Trigger is a one-shot action: every press moves that deck to its cue and starts it, without moving the other deck or clearing the marker. Loading a different source clears both cues.</p>
 
@@ -84,14 +84,14 @@
             <tr><td>40 / 41</td><td>Punch A / B</td><td>Gated overrides of the crossfader. Note duration controls the cut and <code>VOL</code> controls its depth.</td></tr>
             <tr><td>43</td><td>Play</td><td>Resume the current deck positions after Stop.</td></tr>
             <tr><td>44 / 45</td><td>Deck A / B Play-Pause</td><td>Toggle either read head. With Link enabled, either note operates both decks.</td></tr>
-            <tr><td>46 / 47</td><td>Drag A / B</td><td>Velocity-sensitive gated platter loading: higher velocity slows that deck more deeply; note-off releases the motor.</td></tr>
+            <tr><td>46 / 47</td><td>Drag A / B</td><td>Velocity-sensitive gated slowdown: higher velocity slows that deck more deeply; note-off returns it to its normal rate.</td></tr>
             <tr><td>48–60</td><td>Offset select + Sync</td><td>Select -4, -2, -1, -1/2, -1/4, -1/8, 0, +1/8, +1/4, +1/2, +1, +2, or +4 beats.</td></tr>
             <tr><td>61 / 63</td><td>Set Cue A / B</td><td>Look back by Cue Preroll and replace that deck's one marker at the nearest zero crossing.</td></tr>
             <tr><td>62 / 64</td><td>Trigger Cue A / B</td><td>Restart and play that deck from its marker. Repeats, ratchets, and microtime produce cue-point retriggers.</td></tr>
           </tbody>
         </table>
 
-        <p>A practical Tracker layout uses one sparse lane for Restart, Sync, offset selection, and cue setting, one lane for Punch A, and one for Punch B. Add Trigger, Drag, or independent deck-toggle notes where a retrigger, platter gesture, or one-sided pause belongs. These are ordinary notes, so Tracker's microtime, delay, repeat, ratchet, flam, stutter, probability, note length, and per-step volume can shape the performance directly. <code>VOL</code> sets both Punch depth and Drag strength: full velocity gives the heaviest platter load, while lower values leave more of the deck's normal speed. With the Cut curve, Tracker's normal note velocity is already deep enough to cross the narrow center transition; full volume lands completely on the punched deck.</p>
+        <p>A practical Tracker layout uses one sparse lane for Restart, Sync, offset selection, and cue setting, one lane for Punch A, and one for Punch B. Add Trigger, Drag, or independent deck-toggle notes where a retrigger, temporary slowdown, or one-sided pause belongs. These are ordinary notes, so Tracker's microtime, delay, repeat, ratchet, flam, stutter, probability, note length, and per-step volume can shape the performance directly. <code>VOL</code> sets both Punch depth and Drag strength: full velocity gives the deepest slowdown, while lower values leave more of the deck's normal speed. With the Cut curve, Tracker's normal note velocity is already deep enough to cross the narrow center transition; full volume lands completely on the punched deck.</p>
 
         <h3 id="continuous-midi">Continuous MIDI</h3>
 
@@ -107,16 +107,18 @@
 
         <p>These fixed mappings work in a raw MIDI or Tracker CC lane. They are also CLAP-automatable parameters, so host automation and MIDI learn remain available. Buttons illuminate for GUI gestures and incoming MIDI; gated Punch and Drag controls remain lit until note-off.</p>
 
-        <h2 id="settings">Starting Settings</h2>
+        <h2 id="settings">Factory Presets</h2>
+
+        <p>The five starting configurations below are available from the plugin's <code>PRESET</code> menu. They set the two-deck performance relationship while preserving the loaded sample, analyzed or manual BPM, S–E region, cue points and pre-roll, MIDI channel, Link state, deck levels, and master output.</p>
 
         <table class="readout-table">
-          <thead><tr><th>Idea</th><th>Settings</th><th>Gesture</th></tr></thead>
+          <thead><tr><th>Preset</th><th>Settings</th><th>Gesture</th></tr></thead>
           <tbody>
-            <tr><td>Two-copy chop</td><td>Speed -7 st; Offset +1 beat; Drift 0; Cut; Loop optional</td><td>Restart on the phrase, then alternate gated notes 40 and 41. Use short repeats or flams for repeated words and drum hits.</td></tr>
-            <tr><td>Trailing double</td><td>Offset +1/2 or +1 beat; Sharp; crossfader A</td><td>Punch B at phrase endings, then release back to A.</td></tr>
-            <tr><td>Stepped phase</td><td>Offset 0; Drift 0; Step 1/8 or 1/4; Blend centered; Loop on</td><td>Place note 42 at uneven polymetric intervals and note 38 at formal return points.</td></tr>
-            <tr><td>Gradual phase</td><td>Offset 0; Drift +0.2 to +1 cent; Blend centered; Loop on</td><td>Let the copies move from unison through changing attacks and comb-like cancellations; use Sync to begin a new phase cycle.</td></tr>
-            <tr><td>Phase canon</td><td>Offset +1 beat; Drift ±0.1 to ±0.5 cent; Blend; Loop on</td><td>Begin with a clear beat displacement, allow slow motion around it, then use note 54 for immediate unison or note 58 for a one-beat return.</td></tr>
+            <tr><td>Rhythmic Switching</td><td>Speed -7 st; Offset +1 beat; Drift 0; Step 1/4; Cut; crossfader A; Loop off</td><td>Restart on the phrase, then alternate gated notes 40 and 41. Use short repeats or flams for phrase fragments and attacks.</td></tr>
+            <tr><td>Trailing Double</td><td>Speed -7 st; Offset +1/2 beat; Drift 0; Step 1/4; Sharp; crossfader A; Loop off</td><td>Punch B at phrase endings, then release back to A.</td></tr>
+            <tr><td>Stepped Phase</td><td>Speed -7 st; Offset 0; Drift 0; Step 1/8; Blend centered; Loop on</td><td>Place note 42 at uneven polymetric intervals and note 38 at formal return points.</td></tr>
+            <tr><td>Gradual Phase</td><td>Speed -7 st; Offset 0; Drift +0.35 cent; Step 1/4; Blend centered; Loop on</td><td>Let the copies move from unison through changing attacks and comb-like cancellations; use Sync to begin a new phase cycle.</td></tr>
+            <tr><td>Offset Motion</td><td>Speed -7 st; Offset +1 beat; Drift +0.35 cent; Step 1/4; Blend centered; Loop on</td><td>Begin with a clear beat displacement, allow slow motion around it, then use note 54 for immediate unison or note 58 for a one-beat return.</td></tr>
           </tbody>
         </table>
 
@@ -130,12 +132,12 @@
           <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16.</li>
           <li>State: all seventeen parameters, both normalized cue points and validity, source path, embed choice, and optionally as much as 1 GiB of decoded mono or stereo audio. Version-one twelve-parameter, version-two sixteen-parameter, and version-three cue-state projects remain readable. Versions one and two begin without cue markers; every older version receives the 150 ms Cue Preroll default.</li>
           <li>BPM analysis runs only on the sample-loader worker. Project recall restores the saved source BPM exactly. Because an analyzed candidate is not serialized, pressing <code>AUTO</code> after recall starts a non-blocking rescan; changing files while it runs invalidates the stale result.</li>
-          <li>The audio engine keeps one immutable source asset and two positions; it does not duplicate the decoded audio in memory and does not record a dub print.</li>
+          <li>The audio engine keeps one immutable source asset and two positions; it does not duplicate the decoded audio in memory or include an internal recording stage.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-player.html"><span>Previous</span>Sample Player</a>
-          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+          <a class="page-nav-link next" href="sample-wavesets.html"><span>Next</span>Sample Wavesets</a>
         </nav>
       </main>
 
@@ -145,6 +147,7 @@
           <a href="sample-instruments.html">Overview</a>
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
           <a href="sample-slicer.html">Sample Slicer</a>
           <a href="effect-crcltr.html">Effect CRCLTR</a>
           <a href="processor-loop.html">Processor Loop</a>
@@ -154,11 +157,11 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#performance-model">Performance Model</a>
+          <a href="#performance-model">Working with Two Decks</a>
           <a href="#timing">Deck Timing</a>
           <a href="#tracker">Tracker Commands</a>
           <a href="#continuous-midi">Continuous MIDI</a>
-          <a href="#settings">Starting Settings</a>
+          <a href="#settings">Factory Presets</a>
           <a href="#routing-state">Routing and State</a>
         </div>
       </aside>

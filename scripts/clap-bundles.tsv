@@ -48,6 +48,7 @@ clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Track
 clap_breakbeat_slicer/s3g_slicer.clap	s3g_sample_slicer_16.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Sample Slicer 16
 clap_sample_player/s3g_sample_player.clap	s3g_sample_player_2.clap	org.s3g.s3g-dsp.sample-player	s3g Sample Player 2
 clap_sample_doubles/s3g_sample_doubles.clap	s3g_sample_doubles_2.clap	org.s3g.s3g-dsp.sample-doubles	s3g Sample Doubles 2
+clap_sample_wavesets/s3g_sample_wavesets.clap	s3g_sample_wavesets.clap	org.s3g.s3g-dsp.sample-wavesets	s3g Sample Wavesets
 clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth
 clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack
 clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit

@@ -1,4 +1,5 @@
 #include "s3g_sample_doubles.h"
+#include "s3g_sample_doubles_presets.h"
 #include "s3g_sample_tempo_estimator.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
@@ -295,6 +296,7 @@ struct Plugin {
     std::string samplePath;
     std::string status { "DROP A SAMPLE OR PRESS LOAD" };
     std::array<std::atomic<double>, kParamCount> parameters {};
+    std::atomic<uint64_t> parameterRevision { 0u };
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic_flag guiParamConsumer = ATOMIC_FLAG_INIT;
     std::array<DoublesRenderEvent, kMaximumBlockEvents> blockEvents {};
@@ -428,6 +430,10 @@ void setParam(Plugin& instance, clap_id id, double value,
                 + kMinimumWindow));
     const double previous = instance.parameters[index].exchange(value,
         std::memory_order_acq_rel);
+    if (previous != value) {
+        instance.parameterRevision.fetch_add(1u,
+            std::memory_order_acq_rel);
+    }
     if (id == kSourceTempoParamId && previous != value) {
         instance.sourceTempoRevision.fetch_add(1u,
             std::memory_order_acq_rel);
@@ -442,6 +448,7 @@ void initializeParams(Plugin& instance) noexcept
 {
     for (const auto& def : kParamDefs)
         setParam(instance, def.id, def.defaultValue, false);
+    instance.parameterRevision.store(0u, std::memory_order_release);
     instance.sourceTempoRevision.store(0u, std::memory_order_release);
     instance.tempoOrigin.store(static_cast<uint8_t>(TempoOrigin::Fallback),
         std::memory_order_release);
@@ -1075,6 +1082,54 @@ void queueGuiParamGesture(Plugin& instance, clap_id id, double value)
         return;
     setParam(instance, id, value);
     requestGuiParamService(instance);
+}
+
+bool queueGuiFactoryPreset(Plugin& instance, uint32_t index)
+{
+    if (index >= s3g::sample::kDoublesFactoryPresetCount) return false;
+    const DoublesSettings preset = s3g::sample::doublesFactoryPreset(
+        index, settingsSnapshot(instance));
+    uint32_t phaseStepIndex = 0u;
+    double closestStep = std::numeric_limits<double>::max();
+    for (uint32_t candidate = 0u;
+         candidate < kPhaseStepBeats.size(); ++candidate) {
+        const double distance = std::abs(
+            kPhaseStepBeats[candidate] - preset.phaseStepBeats);
+        if (distance < closestStep) {
+            closestStep = distance;
+            phaseStepIndex = candidate;
+        }
+    }
+    const std::array<std::pair<clap_id, double>, 8u> values {{
+        { kSpeedParamId, preset.speedSemitones },
+        { kPhaseCentsParamId, preset.phaseCents },
+        { kOffsetParamId, preset.offsetBeats },
+        { kPhaseStepParamId, static_cast<double>(phaseStepIndex) },
+        { kLoopParamId, preset.loop ? 1.0 : 0.0 },
+        { kCrossfaderParamId, preset.crossfader },
+        { kCurveParamId, static_cast<double>(
+            static_cast<uint8_t>(preset.crossfadeCurve)) },
+        { kLivePhaseParamId, preset.livePhaseBeats },
+    }};
+    using Kind = s3g::clap_gui::ParamEventKind;
+    std::array<s3g::clap_gui::ParamEvent, values.size() * 3u> events {};
+    for (uint32_t valueIndex = 0u;
+         valueIndex < values.size(); ++valueIndex) {
+        const uint32_t eventIndex = valueIndex * 3u;
+        events[eventIndex] = {
+            Kind::GestureBegin, values[valueIndex].first, 0.0 };
+        events[eventIndex + 1u] = {
+            Kind::Value, values[valueIndex].first,
+            values[valueIndex].second };
+        events[eventIndex + 2u] = {
+            Kind::GestureEnd, values[valueIndex].first, 0.0 };
+    }
+    if (!instance.guiParamEvents.pushBatch(events.data(), events.size()))
+        return false;
+    for (const auto& value : values)
+        setParam(instance, value.first, value.second);
+    requestGuiParamService(instance);
+    return true;
 }
 
 bool pushGuiParamEvent(const clap_output_events_t* output,
@@ -2132,6 +2187,7 @@ namespace {
 constexpr uint32_t kDeckACyan = 0x69d2dc;
 constexpr uint32_t kDeckBOrange = 0xff7047;
 constexpr CGFloat kMenuItemHeight = 20.0;
+constexpr clap_id kFactoryPresetMenuId = CLAP_INVALID_ID - 1u;
 constexpr CGFloat kContentTop = static_cast<CGFloat>(
     s3g::gui_layout::kStandardMetrics.contentTop);
 constexpr auto kDoublesTitleBand = s3g::gui_layout::encoderTitleBand({
@@ -2206,6 +2262,14 @@ NSRect crossfaderDynamicRect() { return NSMakeRect(143.0, 706.0, 754.0, 38.0); }
 NSRect bpmHalfButtonRect() { return NSMakeRect(568.0, 263.0, 44.0, 17.0); }
 NSRect bpmAutoButtonRect() { return NSMakeRect(616.0, 263.0, 52.0, 17.0); }
 NSRect bpmDoubleButtonRect() { return NSMakeRect(672.0, 263.0, 44.0, 17.0); }
+NSRect factoryPresetMenuRect()
+{
+    const NSRect anchor = s3g::clap_gui::cocoaRect(
+        kDoublesTitleBand.presetMenu);
+    return NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 2.0,
+        anchor.size.width, kMenuItemHeight * static_cast<CGFloat>(
+            s3g::sample::kDoublesFactoryPresetCount));
+}
 
 struct UiSlider {
     clap_id id;
@@ -2802,6 +2866,8 @@ NSString* tempoReadout(Plugin& instance)
     uint8_t _visualActiveMask;
     BOOL _visualCursorInitialized;
     BOOL _visualWasPlaying;
+    int _factoryPresetIndex;
+    uint64_t _observedParamRevision;
     char _presetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)instance;
@@ -2828,6 +2894,8 @@ NSString* tempoReadout(Plugin& instance)
 - (void)updateVisualCursors;
 - (void)updateActionFeedback;
 - (void)applyTempoMultiplier:(double)multiplier autoEstimate:(BOOL)automatic;
+- (void)applyFactoryPreset:(int)index;
+- (void)updateFactoryPresetIdentity;
 - (void)queueCueAtPoint:(NSPoint)point;
 @end
 
@@ -2867,7 +2935,15 @@ NSString* tempoReadout(Plugin& instance)
     _visualActiveMask = 0u;
     _visualCursorInitialized = NO;
     _visualWasPlaying = NO;
-    std::snprintf(_presetName, sizeof(_presetName), "%s", "INIT");
+    _factoryPresetIndex = s3g::sample::doublesFactoryPresetIndex(
+        settingsSnapshot(*_instance));
+    _observedParamRevision = _instance->parameterRevision.load(
+        std::memory_order_acquire);
+    std::snprintf(_presetName, sizeof(_presetName), "%s",
+        _factoryPresetIndex >= 0
+            ? s3g::sample::doublesFactoryPresetInfo(
+                static_cast<uint32_t>(_factoryPresetIndex)).name
+            : "CUSTOM");
     [self setWantsLayer:YES];
     _cursorView = [[S3GSampleDoublesCursorView alloc]
         initWithFrame:waveformRect()];
@@ -2958,6 +3034,41 @@ NSString* tempoReadout(Plugin& instance)
     } else if (_feedbackPulseMask != 0u && now >= _feedbackPulseUntil) {
         _feedbackPulseMask = 0u;
     }
+}
+
+- (void)applyFactoryPreset:(int)index
+{
+    if (index < 0
+        || index >= static_cast<int>(
+            s3g::sample::kDoublesFactoryPresetCount)
+        || !queueGuiFactoryPreset(
+            *_instance, static_cast<uint32_t>(index))) {
+        NSBeep();
+        return;
+    }
+    _factoryPresetIndex = index;
+    _observedParamRevision = _instance->parameterRevision.load(
+        std::memory_order_acquire);
+    const char* name = s3g::sample::doublesFactoryPresetInfo(
+        static_cast<uint32_t>(index)).name;
+    std::snprintf(_presetName, sizeof(_presetName), "%s", name);
+    _instance->status = std::string(name) + " PRESET";
+    [self setNeedsDisplay:YES];
+}
+
+- (void)updateFactoryPresetIdentity
+{
+    const uint64_t revision = _instance->parameterRevision.load(
+        std::memory_order_acquire);
+    if (revision == _observedParamRevision) return;
+    _observedParamRevision = revision;
+    _factoryPresetIndex = s3g::sample::doublesFactoryPresetIndex(
+        settingsSnapshot(*_instance));
+    std::snprintf(_presetName, sizeof(_presetName), "%s",
+        _factoryPresetIndex >= 0
+            ? s3g::sample::doublesFactoryPresetInfo(
+                static_cast<uint32_t>(_factoryPresetIndex)).name
+            : "CUSTOM");
 }
 
 - (void)applyTempoMultiplier:(double)multiplier autoEstimate:(BOOL)automatic
@@ -3081,6 +3192,7 @@ NSString* tempoReadout(Plugin& instance)
             S3GSampleDoublesView* view = weakSelf;
             if (!view) return;
             serviceSampleLoads(*view->_instance);
+            [view updateFactoryPresetIdentity];
             ++view->_refreshTickCount;
             [view updateVisualCursors];
             [view updateActionFeedback];
@@ -3239,7 +3351,17 @@ NSString* tempoReadout(Plugin& instance)
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
 
-    if (_openMenu != CLAP_INVALID_ID) {
+    if (_openMenu == kFactoryPresetMenuId) {
+        const int selected = s3g::clap_gui::dropdownHitIndex(point,
+            factoryPresetMenuRect(), kMenuItemHeight,
+            s3g::sample::kDoublesFactoryPresetCount);
+        [self closeMenu];
+        [self setNeedsDisplay:YES];
+        if (selected >= 0) {
+            [self applyFactoryPreset:selected];
+            return;
+        }
+    } else if (_openMenu != CLAP_INVALID_ID) {
         if (const UiMenu* open = menuForId(_openMenu)) {
             const int selected = s3g::clap_gui::dropdownHitIndex(point,
                 dropdownRect(*open), kMenuItemHeight, open->itemCount);
@@ -3255,9 +3377,31 @@ NSString* tempoReadout(Plugin& instance)
         }
     }
 
+    if (NSPointInRect(point,
+            s3g::clap_gui::cocoaRect(kDoublesTitleBand.presetMenu))) {
+        _openMenu = kFactoryPresetMenuId;
+        _menuHover = -1;
+        const NSRect wave = waveformRect();
+        const NSRect covered = NSIntersectionRect(
+            factoryPresetMenuRect(), wave);
+        [_cursorView setOcclusionRect:NSOffsetRect(covered,
+            -wave.origin.x, -wave.origin.y)];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    const bool stateFileAction = NSPointInRect(point,
+            s3g::clap_gui::cocoaRect(kDoublesTitleBand.loadButton))
+        || NSPointInRect(point,
+            s3g::clap_gui::cocoaRect(kDoublesTitleBand.saveButton));
     if (s3g::clap_gui::handleProcessorTitleClick(point,
             &_instance->plugin, @"s3g Sample Doubles 2",
             kDoublesTitleBand, _presetName, sizeof(_presetName))) {
+        if (stateFileAction) {
+            _factoryPresetIndex = -1;
+            _observedParamRevision = _instance->parameterRevision.load(
+                std::memory_order_acquire);
+        }
         markStateDirty(*_instance);
         [self setNeedsDisplay:YES];
         return;
@@ -3512,10 +3656,19 @@ NSString* tempoReadout(Plugin& instance)
 - (void)mouseMoved:(NSEvent*)event
 {
     if (_openMenu == CLAP_INVALID_ID) return;
-    const UiMenu* menu = menuForId(_openMenu);
-    if (!menu) return;
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
+    if (_openMenu == kFactoryPresetMenuId) {
+        const int hover = s3g::clap_gui::dropdownHitIndex(point,
+            factoryPresetMenuRect(), kMenuItemHeight,
+            s3g::sample::kDoublesFactoryPresetCount);
+        if (hover == _menuHover) return;
+        _menuHover = hover;
+        [self setNeedsDisplayInRect:factoryPresetMenuRect()];
+        return;
+    }
+    const UiMenu* menu = menuForId(_openMenu);
+    if (!menu) return;
     const int hover = s3g::clap_gui::dropdownHitIndex(point,
         dropdownRect(*menu), kMenuItemHeight, menu->itemCount);
     if (hover == _menuHover) return;
@@ -3528,7 +3681,9 @@ NSString* tempoReadout(Plugin& instance)
     (void)event;
     if (_menuHover < 0) return;
     _menuHover = -1;
-    if (const UiMenu* menu = menuForId(_openMenu))
+    if (_openMenu == kFactoryPresetMenuId)
+        [self setNeedsDisplayInRect:factoryPresetMenuRect()];
+    else if (const UiMenu* menu = menuForId(_openMenu))
         [self setNeedsDisplayInRect:dropdownRect(*menu)];
 }
 
@@ -3927,7 +4082,18 @@ NSString* tempoReadout(Plugin& instance)
         NSMakeRect(30.0, 799.0, 980.0, 17.0), 9.5,
         style.dim);
 
-    if (_openMenu != CLAP_INVALID_ID) {
+    if (_openMenu == kFactoryPresetMenuId) {
+        NSString* items[s3g::sample::kDoublesFactoryPresetCount] {};
+        for (uint32_t index = 0u;
+             index < s3g::sample::kDoublesFactoryPresetCount; ++index) {
+            items[index] = [NSString stringWithUTF8String:
+                s3g::sample::doublesFactoryPresetInfo(index).name];
+        }
+        s3g::clap_gui::drawDropdownMenu(factoryPresetMenuRect(),
+            kMenuItemHeight, items,
+            s3g::sample::kDoublesFactoryPresetCount,
+            _factoryPresetIndex, _menuHover, valueAttrs, style);
+    } else if (_openMenu != CLAP_INVALID_ID) {
         if (const UiMenu* open = menuForId(_openMenu)) {
             const int selected = std::clamp(static_cast<int>(std::lround(
                 paramValue(*_instance, open->id))), 0,

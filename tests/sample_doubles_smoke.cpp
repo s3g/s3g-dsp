@@ -1,4 +1,5 @@
 #include "s3g_sample_doubles.h"
+#include "s3g_sample_doubles_presets.h"
 #include "s3g_sample_tempo_estimator.h"
 
 #include <array>
@@ -534,6 +535,55 @@ void testMidiCommandMap()
     check(valid, "Tracker offset-note map is incomplete or unstable");
 }
 
+void testFactoryPresets()
+{
+    check(kDoublesFactoryPresetCount == 5u,
+        "Doubles factory preset count changed");
+    DoublesSettings sourceSpecific;
+    sourceSpecific.sourceTempoBpm = 137.5;
+    sourceSpecific.start = 0.17;
+    sourceSpecific.end = 0.83;
+    sourceSpecific.cuePrerollMilliseconds = 275.0;
+    sourceSpecific.deckALevelDecibels = -3.0f;
+    sourceSpecific.deckBLevelDecibels = -5.0f;
+    sourceSpecific.gainDecibels = -11.0f;
+    sourceSpecific.linkDecks = false;
+
+    const std::array<double, kDoublesFactoryPresetCount> offsets {{
+        1.0, 0.5, 0.0, 0.0, 1.0,
+    }};
+    const std::array<double, kDoublesFactoryPresetCount> drifts {{
+        0.0, 0.0, 0.0, 0.35, 0.35,
+    }};
+    for (uint32_t index = 0u;
+         index < kDoublesFactoryPresetCount; ++index) {
+        const DoublesSettings preset = doublesFactoryPreset(
+            index, sourceSpecific);
+        check(preset.valid(), "Doubles factory preset is invalid");
+        check(doublesFactoryPresetInfo(index).name[0] != '\0',
+            "Doubles factory preset has no name");
+        check(std::abs(preset.offsetBeats - offsets[index]) < 1.0e-12,
+            "Doubles factory preset offset is wrong");
+        check(std::abs(preset.phaseCents - drifts[index]) < 1.0e-12,
+            "Doubles factory preset drift is wrong");
+        check(doublesFactoryPresetIndex(preset)
+                == static_cast<int32_t>(index),
+            "Doubles factory preset lookup is unstable");
+        check(preset.sourceTempoBpm == sourceSpecific.sourceTempoBpm
+                && preset.start == sourceSpecific.start
+                && preset.end == sourceSpecific.end
+                && preset.cuePrerollMilliseconds
+                    == sourceSpecific.cuePrerollMilliseconds
+                && preset.deckALevelDecibels
+                    == sourceSpecific.deckALevelDecibels
+                && preset.deckBLevelDecibels
+                    == sourceSpecific.deckBLevelDecibels
+                && preset.gainDecibels == sourceSpecific.gainDecibels
+                && preset.linkDecks == sourceSpecific.linkDecks,
+            "Doubles factory preset changed source or level settings");
+    }
+}
+
 } // namespace
 
 int main()
@@ -548,6 +598,7 @@ int main()
     testTempoEstimator();
     testDeckCuesAndRetriggers();
     testMidiCommandMap();
+    testFactoryPresets();
     if (failures != 0) return 1;
     std::cout << "s3g Sample Doubles smoke: ok\n";
     return 0;

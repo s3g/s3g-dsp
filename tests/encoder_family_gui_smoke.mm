@@ -484,12 +484,32 @@ struct DocumentationSampleDoublesState {
     double sampleRate = 48000.0;
 };
 
+struct DocumentationSampleWavesetsState {
+    uint32_t magic = 0x57533353u;
+    uint32_t version = 2u;
+    uint32_t parameterCount = 20u;
+    std::array<double, 20u> parameters {{
+        -6.0, -1.0, 2.0, 0.0, 3.0, 2.0, 1.0, 0.0, 0.0,
+        0.0, 1.0, 3.0, 1.0, 1.0,
+        0.0, 1.0, 0.0, 0.25, 1.005, 0.0,
+    }};
+    std::array<char, 1024u> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 2u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 96000u;
+    double sampleRate = 48000.0;
+};
+
 static_assert(sizeof(DocumentationLoopState) == 1128u,
               "Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
               "Multi Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationAmbiGrainState) == 1160u,
               "Ambi Grain documentation state fixture changed");
+static_assert(sizeof(DocumentationSampleWavesetsState) == 1216u,
+              "Sample Wavesets documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
                            StochasticSavedState& decoded)
@@ -1414,6 +1434,119 @@ int main(int argc, char** argv)
             ok = ok && document
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
+        }
+        const bool sampleWavesets = std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-wavesets") == 0;
+        if (ok && sampleWavesets) {
+            failureStage = documentationCapture
+                ? "documentation Sample Wavesets source"
+                : "Sample Wavesets cursor source";
+            const auto* wavesetsState =
+                static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE));
+            DocumentationSampleWavesetsState fixture;
+            const char* requestedPath = std::getenv(
+                "S3G_GUI_DOCUMENTATION_SAMPLE_PATH");
+            const char* displayPath = requestedPath && requestedPath[0]
+                ? requestedPath : "Waveset Study.wav";
+            std::snprintf(fixture.path.data(), fixture.path.size(), "%s",
+                displayPath);
+            const size_t sampleBytes = static_cast<size_t>(fixture.frameCount)
+                * fixture.channelCount * sizeof(float);
+            MemoryPluginState memory;
+            memory.bytes.resize(sizeof(fixture) + sampleBytes);
+            std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+            for (uint8_t channel = 0u; channel < fixture.channelCount;
+                 ++channel) {
+                const size_t channelOffset = sizeof(fixture)
+                    + static_cast<size_t>(channel) * fixture.frameCount
+                        * sizeof(float);
+                for (uint32_t frame = 0u; frame < fixture.frameCount;
+                     ++frame) {
+                    const double time = static_cast<double>(frame)
+                        / fixture.sampleRate;
+                    const double sweep = 82.0 + 96.0
+                        * static_cast<double>(frame) / fixture.frameCount;
+                    const double phase = 2.0 * s3g::kPi * sweep * time
+                        + static_cast<double>(channel) * 0.23;
+                    const float sample = static_cast<float>(
+                        0.54 * std::sin(phase)
+                        + 0.18 * std::sin(phase * 2.97 + 0.4)
+                        + 0.08 * std::sin(phase * 7.13));
+                    std::memcpy(memory.bytes.data() + channelOffset
+                            + static_cast<size_t>(frame) * sizeof(float),
+                        &sample, sizeof(sample));
+                }
+            }
+            clap_istream_t input { &memory, stateReadWhole };
+            ok = wavesetsState && wavesetsState->load
+                && wavesetsState->load(plugin, &input)
+                && memory.offset == memory.bytes.size();
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+        }
+        if (ok && sampleWavesets && !documentationCapture) {
+            failureStage = "Sample Wavesets compositor cursor contract";
+            const bool wavesetsActivated = plugin->activate(
+                plugin, 48000.0, 1u, 128u);
+            const bool wavesetsProcessing = wavesetsActivated
+                && plugin->start_processing(plugin);
+            ok = wavesetsProcessing;
+            std::array<float, 128u> wavesetsLeft {};
+            std::array<float, 128u> wavesetsRight {};
+            float* wavesetsChannels[2u] {
+                wavesetsLeft.data(), wavesetsRight.data(),
+            };
+            clap_audio_buffer_t wavesetsOutput {};
+            wavesetsOutput.data32 = wavesetsChannels;
+            wavesetsOutput.channel_count = 2u;
+            SingleNoteEventInput wavesetsNote {};
+            setSingleNoteOnEvent(wavesetsNote, 36);
+            clap_process_t wavesetsBlock {};
+            wavesetsBlock.frames_count = 128u;
+            wavesetsBlock.audio_outputs = &wavesetsOutput;
+            wavesetsBlock.audio_outputs_count = 1u;
+            wavesetsBlock.in_events = &wavesetsNote.events;
+            if (ok) ok = plugin->process(plugin, &wavesetsBlock)
+                != CLAP_PROCESS_ERROR;
+            @try {
+                ok = ok && [document respondsToSelector:
+                        @selector(cursorMotionAnimationCount)]
+                    && [document respondsToSelector:
+                        @selector(cursorAnimationInstallCount)];
+                const NSUInteger active = ok
+                    ? [[document valueForKey:@"cursorMotionAnimationCount"]
+                        unsignedIntegerValue] : 0u;
+                const NSUInteger installs = ok
+                    ? [[document valueForKey:@"cursorAnimationInstallCount"]
+                        unsignedIntegerValue] : 0u;
+                ok = ok && active == 2u && installs == 2u;
+                for (uint32_t redraw = 0u; ok && redraw < 12u; ++redraw) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.12]];
+                const NSUInteger activeAfter = ok
+                    ? [[document valueForKey:@"cursorMotionAnimationCount"]
+                        unsignedIntegerValue] : 0u;
+                const NSUInteger installsAfter = ok
+                    ? [[document valueForKey:@"cursorAnimationInstallCount"]
+                        unsignedIntegerValue] : 0u;
+                ok = ok && activeAfter == 2u
+                    && installsAfter == installs;
+            } @catch (NSException*) {
+                ok = false;
+            }
+            if (wavesetsProcessing) {
+                plugin->stop_processing(plugin);
+                const NSUInteger stopped = [[document valueForKey:
+                    @"cursorMotionAnimationCount"] unsignedIntegerValue];
+                ok = ok && stopped == 0u;
+            }
+            if (wavesetsActivated) plugin->deactivate(plugin);
         }
         const bool formantMatrix = std::strcmp(
             pluginId,
@@ -2904,6 +3037,51 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && sampleWavesets && !documentationCapture) {
+            failureStage = "Sample Wavesets custom categorical menus";
+            @try {
+                const NSPoint timeMenu = NSMakePoint(210.0, 440.0);
+                const NSPoint stretchRow = NSMakePoint(210.0, 461.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, timeMenu)];
+                ok = [[document valueForKey:@"canvasMenuOpen"] boolValue]
+                    && [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == -1;
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, stretchRow)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 0;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, stretchRow)];
+                    double time = -1.0;
+                    ok = ![[document valueForKey:@"canvasMenuOpen"] boolValue]
+                        && params->get_value(plugin, 4u, &time)
+                        && std::fabs(time) < 0.000001;
+                }
+                const NSPoint groupMenu = NSMakePoint(210.0, 465.0);
+                const NSPoint eightRow = NSMakePoint(210.0, 546.0);
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, groupMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, eightRow)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 3;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, eightRow)];
+                    double group = -1.0;
+                    ok = params->get_value(plugin, 5u, &group)
+                        && std::fabs(group - 3.0) < 0.000001;
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         if (ok && samplePlayer && !documentationCapture) {
             failureStage = "Sample Player menu hover";
             @try {
@@ -3235,6 +3413,114 @@ int main(int argc, char** argv)
                             << [document tempoEstimateValidValue]
                             << " analyzed=" << analyzedBpm
                             << " current=" << currentBpm << "\n";
+                    }
+                }
+
+                // The documented Factory Presets are available from
+                // the title-band menu. Applying one is an atomic set of eight
+                // host-visible gestures and must preserve source-specific,
+                // routing, level, and output values.
+                if (ok) {
+                    failureStage = "Sample Doubles factory presets";
+                    const std::array<std::pair<clap_id, double>, 9u>
+                        preserved {{
+                            { 3u, 133.0 }, { 6u, 0.17 }, { 7u, 0.83 },
+                            { 11u, -17.0 }, { 12u, 3.0 }, { 13u, -4.0 },
+                            { 14u, -8.0 }, { 15u, 1.0 }, { 17u, 310.0 },
+                        }};
+                    for (const auto& value : preserved) {
+                        SingleParamEventInput input {};
+                        setSingleParamEvent(
+                            input, value.first, value.second);
+                        params->flush(plugin, &input.events, nullptr);
+                    }
+
+                    CapturedOutputEvents presetEvents {};
+                    presetEvents.events.ctx = &presetEvents;
+                    presetEvents.events.try_push = captureOutputEvent;
+                    hostContext.deferParamFlush = true;
+                    hostContext.paramFlushRequested = false;
+                    const auto titleBand =
+                        s3g::clap_gui::encoderTitleBand(
+                            static_cast<double>(nativeWidth),
+                            static_cast<double>(nativeHeight));
+                    const NSRect presetAnchor =
+                        s3g::clap_gui::cocoaRect(titleBand.presetMenu);
+                    const NSPoint presetButton = NSMakePoint(
+                        NSMidX(presetAnchor), NSMidY(presetAnchor));
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, presetButton)];
+                    ok = [[document valueForKey:@"openMenu"]
+                            unsignedIntValue] == CLAP_INVALID_ID - 1u;
+                    const NSPoint gradualPhase = NSMakePoint(
+                        NSMidX(presetAnchor), NSMaxY(presetAnchor) + 2.0
+                            + 20.0 * 3.5);
+                    if (ok) {
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved, gradualPhase)];
+                        ok = [[document valueForKey:@"menuHover"]
+                                intValue] == 3;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, gradualPhase)];
+                    }
+                    hostContext.deferParamFlush = false;
+                    if (ok) {
+                        params->flush(
+                            plugin, nullptr, &presetEvents.events);
+                    }
+                    hostContext.paramFlushRequested = false;
+
+                    const std::array<std::pair<clap_id, double>, 8u>
+                        changed {{
+                            { 1u, -7.0 }, { 2u, 0.35 }, { 4u, 0.0 },
+                            { 5u, 2.0 }, { 8u, 1.0 }, { 9u, 0.0 },
+                            { 10u, 2.0 }, { 16u, 0.0 },
+                        }};
+                    for (const auto& value : changed) {
+                        double actual = 0.0;
+                        ok = ok && params->get_value(
+                                plugin, value.first, &actual)
+                            && std::fabs(actual - value.second) < 1.0e-6;
+                    }
+                    for (const auto& value : preserved) {
+                        double actual = 0.0;
+                        ok = ok && params->get_value(
+                                plugin, value.first, &actual)
+                            && std::fabs(actual - value.second) < 1.0e-6;
+                    }
+                    ok = ok
+                        && [[document valueForKey:@"factoryPresetIndex"]
+                            intValue] == 3
+                        && presetEvents.values.size()
+                            == changed.size() * 3u;
+                    for (size_t index = 0u;
+                         ok && index < changed.size(); ++index) {
+                        const size_t eventIndex = index * 3u;
+                        ok = presetEvents.values[eventIndex].type
+                                == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                            && presetEvents.values[eventIndex].paramId
+                                == changed[index].first
+                            && presetEvents.values[eventIndex + 1u].type
+                                == CLAP_EVENT_PARAM_VALUE
+                            && presetEvents.values[eventIndex + 1u].paramId
+                                == changed[index].first
+                            && std::fabs(presetEvents.values[
+                                    eventIndex + 1u].value
+                                    - changed[index].second) < 1.0e-6
+                            && presetEvents.values[eventIndex + 2u].type
+                                == CLAP_EVENT_PARAM_GESTURE_END
+                            && presetEvents.values[eventIndex + 2u].paramId
+                                == changed[index].first;
+                    }
+                    if (!ok) {
+                        std::cerr << "Sample Doubles factory preset details: "
+                            << "index="
+                            << [[document valueForKey:
+                                    @"factoryPresetIndex"] intValue]
+                            << " events=" << presetEvents.values.size()
+                            << "\n";
                     }
                 }
 
@@ -9837,7 +10123,9 @@ int main(int argc, char** argv)
                 || std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.low-frequency-synth") == 0
                 || std::strcmp(pluginId,
-                    "org.s3g.s3g-dsp.processor-stack") == 0);
+                    "org.s3g.s3g-dsp.processor-stack") == 0
+                || std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.sample-wavesets") == 0);
         const bool documentationLiveSignal = documentationCapture
             && (documentationObjectDecoder
                 || documentationAdaptiveDecoder
@@ -9998,9 +10286,14 @@ int main(int argc, char** argv)
             }
             SingleNoteEventInput documentationNote {};
             if (documentationMidiInstrument) {
-                setSingleNoteOnEvent(documentationNote,
+                const bool documentationLowFrequencySynth =
                     std::strcmp(pluginId,
-                        "org.s3g.s3g-dsp.low-frequency-synth") == 0
+                        "org.s3g.s3g-dsp.low-frequency-synth") == 0;
+                const bool documentationWavesets =
+                    std::strcmp(pluginId,
+                        "org.s3g.s3g-dsp.sample-wavesets") == 0;
+                setSingleNoteOnEvent(documentationNote,
+                    documentationLowFrequencySynth || documentationWavesets
                         ? 36 : 48);
             }
             uint64_t sampleCursor = 0u;

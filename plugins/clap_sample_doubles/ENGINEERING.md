@@ -102,7 +102,7 @@ action operate both heads, preserving the earlier two-deck transport. With
 Link off, the active states are independent and are included in the coherent
 cursor publication so a paused deck's compositor trajectory stops too.
 
-Drag A and Drag B are momentary, velocity-sensitive platter gestures. At full
+Drag A and Drag B are momentary, velocity-sensitive slowdown gestures. At full
 velocity a held gesture ramps that deck toward a 0.16 rate multiplier over
 30 ms; lower velocities interpolate between that load and normal rate. The GUI
 button sends full depth. Release lets the motor recover to its normal rate over
@@ -193,7 +193,7 @@ the direct CC path is an additional raw MIDI/Tracker route.
 The note-command keyboard, velocity-sensitive Punch A/B, and beat-valued
 offset notes remain the core Tracker workflow. Tempo estimation changes the
 source-frame distance of phase commands, not the time when Tracker emits them.
-The Reich-inspired gradual and stepped settings in the user guide remain the
+The gradual and stepped settings in the user guide remain the
 starting configurations; named phase presets are possible future convenience,
 not a separate DSP mode.
 
