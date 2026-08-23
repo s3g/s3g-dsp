@@ -283,8 +283,8 @@ struct Plugin {
     std::atomic<float> guiMotionPhase { 0.0f };
     int guiPage = 0;
     int guiViewMode = 0;
-    float guiViewAzDeg = 38.0f;
-    float guiViewElDeg = 32.0f;
+    float guiViewAzDeg = 90.0f;
+    float guiViewElDeg = 0.0f;
     float guiViewZoom = 1.0f;
 #endif
 };
@@ -1196,6 +1196,20 @@ static std::vector<float> readWavMono(NSURL* url)
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
+        if (_viewMode == 0) {
+            _viewAzDeg = 90.0;
+            _viewElDeg = 0.0;
+        } else if (_viewMode == 1) {
+            _viewAzDeg = 90.0;
+            _viewElDeg = 90.0;
+        } else if (_viewMode == 2) {
+            _viewAzDeg = 38.0;
+            _viewElDeg = 32.0;
+        }
+        if (plugin && _viewMode >= 0 && _viewMode <= 2) {
+            plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+            plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
+        }
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
         _trailHead = 0;
@@ -1304,7 +1318,7 @@ static std::vector<float> readWavMono(NSURL* url)
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzDeg = 0.0;
+        _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
     } else if (mode == 1) {
         _viewAzDeg = 90.0;
@@ -1350,6 +1364,13 @@ static std::vector<float> readWavMono(NSURL* url)
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
                        centerY - static_cast<CGFloat>(y2) * scale);
+}
+
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    return [self projectWorldPoint:{ static_cast<float>(x),
+        static_cast<float>(y), static_cast<float>(z) }
+        rect:[self leftContentRect] depth:nullptr];
 }
 
 - (NSPoint)projectMotionPoint:(const s3g::AmbiVotMotionPoint&)point rect:(NSRect)rect depth:(CGFloat*)depth

@@ -2430,6 +2430,7 @@ NSColor* modalBodyColorFromAed(
 - (CGFloat)viewScaleForRect:(NSRect)rect;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect
     depth:(CGFloat*)depth;
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 - (int)hitBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
 - (void)updateDraggedBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
 - (void)updateSkinContactAtPoint:(NSPoint)point;
@@ -2451,6 +2452,20 @@ NSColor* modalBodyColorFromAed(
         _viewAzimuthDeg = p ? p->guiState.viewAzimuthDeg : -35.0;
         _viewElevationDeg = p ? p->guiState.viewElevationDeg : 34.0;
         _viewZoom = p ? p->guiState.viewZoom : 1.0;
+        if (_viewMode == 0) {
+            _viewAzimuthDeg = 90.0;
+            _viewElevationDeg = 0.0;
+        } else if (_viewMode == 1) {
+            _viewAzimuthDeg = 90.0;
+            _viewElevationDeg = 90.0;
+        } else if (_viewMode == 2) {
+            _viewAzimuthDeg = -35.0;
+            _viewElevationDeg = 34.0;
+        }
+        if (p && _viewMode >= 0 && _viewMode <= 2) {
+            p->guiState.viewAzimuthDeg = static_cast<float>(_viewAzimuthDeg);
+            p->guiState.viewElevationDeg = static_cast<float>(_viewElevationDeg);
+        }
         _selectedBody = p ? p->guiState.selectedBody : 0u;
         _dragView = NO;
         _dragBody = -1;
@@ -2524,7 +2539,7 @@ NSColor* modalBodyColorFromAed(
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzimuthDeg = 0.0;
+        _viewAzimuthDeg = 90.0;
         _viewElevationDeg = 0.0;
     } else if (mode == 1) {
         _viewAzimuthDeg = 90.0;
@@ -2574,6 +2589,13 @@ NSColor* modalBodyColorFromAed(
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
         centerY - static_cast<CGFloat>(y2) * scale);
+}
+
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    return [self projectWorldPoint:{ static_cast<float>(x),
+        static_cast<float>(y), static_cast<float>(z) }
+        rect:fieldPlotRect() depth:nullptr];
 }
 
 - (int)hitBodyAtPoint:(NSPoint)point inRect:(NSRect)rect

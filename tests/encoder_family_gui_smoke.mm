@@ -396,6 +396,19 @@ ProjectedGuideCameraDragTarget projectedGuideCameraDragTarget(
     return {};
 }
 
+bool requiresTopCameraDragContinuityCheck(const char* pluginId)
+{
+    return pluginId
+        && (std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.accelerometer-field-encoder-16") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0);
+}
+
 bool hasParameterNamed(const clap_plugin_params_t* params,
                        const clap_plugin_t* plugin,
                        const char* expectedName)
@@ -3277,6 +3290,41 @@ int main(int argc, char** argv)
                     [document setValue:@(guideCameraTarget.fieldPage)
                         forKey:@"fieldPage"];
                 }
+                if (requiresTopCameraDragContinuityCheck(pluginId)) {
+                    failureStage = "Top-to-custom camera drag continuity";
+                    ok = [document respondsToSelector:
+                            @selector(projectWorldPointX:y:z:)];
+                    if (ok) [document setViewPreset:0];
+                    const NSPoint beforeTinyDrag = ok ? [document
+                        projectWorldPointX:0.55 y:0.35 z:0.20] : NSZeroPoint;
+                    const NSPoint tinyEnd = NSMakePoint(
+                        guideCameraTarget.start.x + 1.0,
+                        guideCameraTarget.start.y);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            guideCameraTarget.start)];
+                        [document mouseDragged:mouseEvent(
+                            NSEventTypeLeftMouseDragged, tinyEnd)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, tinyEnd)];
+                    }
+                    const NSPoint afterTinyDrag = ok ? [document
+                        projectWorldPointX:0.55 y:0.35 z:0.20] : NSZeroPoint;
+                    const double tinyDragDisplacement = std::hypot(
+                        afterTinyDrag.x - beforeTinyDrag.x,
+                        afterTinyDrag.y - beforeTinyDrag.y);
+                    ok = ok
+                        && [[document valueForKey:@"viewMode"] intValue] == -1
+                        && tinyDragDisplacement < 4.0;
+                    if (!ok) {
+                        std::cerr << "Top camera tiny-drag displacement: "
+                            << tinyDragDisplacement << " px in "
+                            << pluginId << "\n";
+                    }
+                    if (ok) [document setViewPreset:0];
+                    failureStage = "projected green-guide direct camera drag";
+                }
                 NSString* azimuthKey = @"viewAzDeg";
                 double beforeAzimuth = 0.0;
                 @try {
@@ -3298,7 +3346,8 @@ int main(int argc, char** argv)
                     NSEventTypeLeftMouseUp, end)];
                 const double afterAzimuth = [[document valueForKey:azimuthKey]
                     doubleValue];
-                ok = [[document valueForKey:@"viewMode"] intValue] == -1
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == -1
                     && std::fabs(afterAzimuth - beforeAzimuth) > 1.0;
                 if ([document respondsToSelector:@selector(setViewPreset:)])
                     [document setViewPreset:0];

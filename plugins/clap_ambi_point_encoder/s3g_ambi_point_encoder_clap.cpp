@@ -1185,6 +1185,20 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _viewAzDeg = p ? p->guiViewAzDeg : -35.0;
         _viewElDeg = p ? p->guiViewElDeg : 34.0;
         _viewZoom = p ? p->guiViewZoom : 1.0;
+        if (_viewMode == 0) {
+            _viewAzDeg = 90.0;
+            _viewElDeg = 0.0;
+        } else if (_viewMode == 1) {
+            _viewAzDeg = 90.0;
+            _viewElDeg = 90.0;
+        } else if (_viewMode == 2) {
+            _viewAzDeg = -35.0;
+            _viewElDeg = 34.0;
+        }
+        if (p && _viewMode >= 0 && _viewMode <= 2) {
+            p->guiViewAzDeg = _viewAzDeg;
+            p->guiViewElDeg = _viewElDeg;
+        }
         _hasPointSelection = NO;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
@@ -1367,7 +1381,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzDeg = 0.0;
+        _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
     } else if (mode == 1) {
         _viewAzDeg = 90.0;
