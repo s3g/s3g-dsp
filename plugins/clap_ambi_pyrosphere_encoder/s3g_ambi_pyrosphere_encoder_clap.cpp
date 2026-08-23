@@ -230,7 +230,7 @@ struct Plugin {
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
     uint32_t guiTelemetryCountdown = 0u;
-    int guiViewMode = 2;
+    int guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -1383,7 +1383,7 @@ struct ParamDef { clap_id id; const char* name; double min; double max; double d
 constexpr ParamDef kParams[] {
     { kPresetParamId, "Preset", 0.0, static_cast<double>(s3g::kAmbiPyrosphereFactoryPresetCount - 1u), 0.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 16.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, 64.0, 16.0, true },
     { kRateAParamId, "Heat", 0.0, 1.0, 0.55, false },
     { kRateBParamId, "Ignition Rate",
         s3g::kAmbiPyrosphereMinIgnitionRateHz,
@@ -1598,6 +1598,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%s", s3g::ambiPyrosphereFactoryPresetInfo(static_cast<uint32_t>(std::lround(value))).name);
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
+    } else if (id == kVoicesParamId) {
+        std::snprintf(display, size, "%.0f", value);
     } else if (id == kRateModeAParamId) {
         if (value < 0.01) {
             std::snprintf(display, size, "%.1f mHz", value * 1000.0);
@@ -1875,6 +1877,14 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 constexpr uint32_t kGuiWidth = 1160;
 constexpr uint32_t kGuiHeight = 858;
+constexpr s3g::gui_layout::Panel kSourcePanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Source,
+    { 630.0, 134.0, 250.0, 210.0 }, 36.0, 26.0, 7u,
+};
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kSourcePanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
 
 struct GuiSliderSpec {
     clap_id id;
@@ -1887,24 +1897,24 @@ struct GuiSliderSpec {
 
 constexpr GuiSliderSpec kGuiSliders[] {
     { kOutputParamId, 630, 78, -60.0, 12.0, false },
-    { kPwmAParamId, 630, 130, 0.0, 1.0, false },
-    { kPwmBParamId, 630, 156, 0.0, 1.0, false },
-    { kRateModeAParamId, 630, 222,
+    { kPwmAParamId, 630, 614, 0.0, 1.0, false },
+    { kPwmBParamId, 630, 640, 0.0, 1.0, false },
+    { kRateModeAParamId, 630, 196,
         s3g::kAmbiPyrosphereMinPlumeWanderHz,
         s3g::kAmbiPyrosphereMaxPlumeWanderHz, true },
-    { kVoicesParamId, 630, 274, 1.0, 64.0, false },
-    { kRateAParamId, 630, 300, 0.0, 1.0, false },
-    { kRateBParamId, 630, 326,
+    { kVoicesParamId, 630, 170, 1.0, 64.0, false },
+    { kRateAParamId, 630, 248, 0.0, 1.0, false },
+    { kRateBParamId, 630, 274,
         s3g::kAmbiPyrosphereMinIgnitionRateHz,
         s3g::kAmbiPyrosphereMaxIgnitionRateHz, true },
-    { kSpreadParamId, 630, 352, 0.0, 1.0, false },
-    { kDeviationParamId, 630, 378, 0.0, 1.0, false },
-    { kFmAtoBParamId, 630, 470, 0.0, 1.0, false },
-    { kFmBtoAParamId, 630, 496, 0.0, 1.0, false },
-    { kFlutterParamId, 630, 522, 0.0, 1.0, false },
-    { kMaterialParamId, 630, 548, 0.0, 1.0, false },
-    { kGustShapeParamId, 630, 574, 0.0, 5.0, false },
-    { kThresholdParamId, 630, 600, 0.0, 1.0, false },
+    { kSpreadParamId, 630, 300, 0.0, 1.0, false },
+    { kDeviationParamId, 630, 326, 0.0, 1.0, false },
+    { kFmAtoBParamId, 630, 418, 0.0, 1.0, false },
+    { kFmBtoAParamId, 630, 444, 0.0, 1.0, false },
+    { kFlutterParamId, 630, 470, 0.0, 1.0, false },
+    { kMaterialParamId, 630, 496, 0.0, 1.0, false },
+    { kGustShapeParamId, 630, 522, 0.0, 5.0, false },
+    { kThresholdParamId, 630, 548, 0.0, 1.0, false },
     { kColorParamId, 630, 666, 0.0, 1.0, false },
     { kFilterParamId, 630, 692, 0.0, 1.0, false },
     { kResonanceParamId, 630, 718, 0.0, 1.0, false },
@@ -2052,10 +2062,17 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         _dragParam = 0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
+        if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+        else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
+        else if (_viewMode == 2) { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
+        if (plugin && _viewMode >= 0 && _viewMode <= 2) {
+            plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+            plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
+        }
         _fieldPage = 0;
         _dragBreakpointRow = -1;
         _openMenu = 0;
@@ -2321,8 +2338,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = z2;
     return NSMakePoint(centerX + x1 * scale, centerY - y2 * scale);
 }
@@ -2336,11 +2353,11 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzDeg = 0.0;
+        _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
     } else if (mode == 1) {
-        _viewAzDeg = 0.0;
-        _viewElDeg = -90.0;
+        _viewAzDeg = 90.0;
+        _viewElDeg = 90.0;
     } else {
         _viewAzDeg = 38.0;
         _viewElDeg = 32.0;
@@ -2509,9 +2526,11 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(field) - radius, NSMidY(field) - radius, radius * 2.0, radius * 2.0)];
     [sphere setLineWidth:0.8];
     [sphere stroke];
-    [s3g::clap_gui::color(0x242424) setStroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18, NSMidY(field)) toPoint:NSMakePoint(NSMaxX(field) - 18, NSMidY(field))];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorld:{ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
+        });
 
     const uint32_t voices = std::clamp<uint32_t>(
         _surfaceEdit ? _paramsSnapshot.voices
@@ -2626,19 +2645,17 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     s3g::clap_gui::drawRightStatus(scoreStatus, 614, 669,
         valueAttrs, 8.0);
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 132, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / AIR", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AIR" param:kPwmAParamId value:p.air attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"HISS" param:kPwmBParamId value:p.hiss attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 186, 250, 210, style);
-    s3g::clap_gui::drawPanelHeader(@"HEAT AND MATERIAL", true, 630, 186, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 134, 250, 210, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / PYROSPHERE", true, 630, 134, 250, 21, attrs, style);
     [self drawSlider:@"PLUME WANDER" param:kRateModeAParamId value:p.vectorRateHz attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"MATERIAL" value:[NSString stringWithUTF8String:
         kMaterialNames[std::min<uint32_t>(p.materialMode,
-            s3g::kAmbiPyrosphereMaterialCount - 1u)]] panelX:630 y:248
+            s3g::kAmbiPyrosphereMaterialCount - 1u)]] panelX:630 y:222
         attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"HEAT" param:kRateAParamId value:p.wind attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2646,10 +2663,10 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [self drawSlider:@"SPREAD" param:kSpreadParamId value:p.spread attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEVIATION" param:kDeviationParamId value:p.deviation attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 408, 250, 210, style);
-    s3g::clap_gui::drawPanelHeader(@"COMBUSTION DYNAMICS", true, 630, 408, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 356, 250, 210, style);
+    s3g::clap_gui::drawPanelHeader(@"COMBUSTION DYNAMICS", true, 630, 356, 250, 21, attrs, style);
     static constexpr const char* kEdgeNames[] = { "SOFT", "BEND", "HARD" };
-    [self drawMenu:@"IGNITION EDGE" value:[NSString stringWithUTF8String:kEdgeNames[std::min<uint32_t>(p.gustEdge, 2u)]] panelX:630 y:444 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"IGNITION EDGE" value:[NSString stringWithUTF8String:kEdgeNames[std::min<uint32_t>(p.gustEdge, 2u)]] panelX:630 y:392 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FLARE DEPTH" param:kFmAtoBParamId value:p.gustDepth attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ROAR" param:kFmBtoAParamId value:p.turbulence attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FLICKER" param:kFlutterParamId value:p.flutter attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2657,8 +2674,10 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [self drawSlider:@"FLAME SHAPE" param:kGustShapeParamId value:p.gustShape attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BURN CORE" param:kThresholdParamId value:p.center attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 630, 250, 184, style);
-    s3g::clap_gui::drawPanelHeader(@"MATERIAL RESPONSE", true, 630, 630, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 578, 250, 236, style);
+    s3g::clap_gui::drawPanelHeader(@"AIR / MATERIAL RESPONSE", true, 630, 578, 250, 21, attrs, style);
+    [self drawSlider:@"AIR" param:kPwmAParamId value:p.air attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"HISS" param:kPwmBParamId value:p.hiss attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FLAME COLOR" param:kColorParamId value:p.sweep attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BRITTLENESS" param:kFilterParamId value:p.q attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"COMB DETAIL" param:kResonanceParamId value:p.shrill attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2677,13 +2696,13 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [self drawSlider:@"INERTIA" param:kSpatialFollowParamId value:p.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 264, 246, 106, style);
-    s3g::clap_gui::drawPanelHeader(@"MACRO PLUME VECTOR", true, 896, 264, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"PROJECTION / PLUME VECTOR", true, 896, 264, 246, 21, attrs, style);
     [self drawSlider:@"DIRECTION" param:kAzimuthParamId value:p.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEVATION" param:kElevationParamId value:p.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RANGE" param:kDistanceParamId value:p.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 382, 246, 236, style);
-    s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT FIELD", true, 896, 382, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT / LISTENER", true, 896, 382, 246, 21, attrs, style);
     [self drawMenu:@"PLACE" value:[NSString stringWithUTF8String:kPlaceNames[
         std::min<uint32_t>(p.place, s3g::kAmbiPyrospherePlaceCount - 1u)]] panelX:896 y:418 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV RETURN" param:kSpaceParamId value:p.space attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2722,13 +2741,13 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     switch (menu) {
     case 1: return [self presetMenuRect];
     case 2: return NSZeroRect;
-    case 3: return NSMakeRect(738, 247, 124, 15);
+    case 3: return NSMakeRect(738, 221, 124, 15);
     case 4: return NSMakeRect(1004, 417, 124, 15);
     case 5: return NSMakeRect(1004, 547, 124, 15);
     case 6: return NSMakeRect(1004, 599, 124, 15);
     case 7: return NSZeroRect;
     case 8: return NSZeroRect;
-    case 9: return NSMakeRect(738, 443, 124, 15);
+    case 9: return NSMakeRect(738, 391, 124, 15);
     case 10: return NSMakeRect(738, 103, 124, 15);
     default: return NSZeroRect;
     }
@@ -2955,12 +2974,12 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(738, 103, 124, 15))) { [self openMenu:10]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 247, 124, 15))) { [self openMenu:3]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 417, 124, 15))) { [self openMenu:4]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 547, 124, 15))) { [self openMenu:5]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 599, 124, 15))) { [self openMenu:6]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 443, 124, 15))) { [self openMenu:9]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:10])) { [self openMenu:10]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:3])) { [self openMenu:3]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:4])) { [self openMenu:4]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:5])) { [self openMenu:5]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:6])) { [self openMenu:6]; return; }
+    if (NSPointInRect(point, [self menuBoxRect:9])) { [self openMenu:9]; return; }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
         for (int i = 0; i < 2; ++i) {

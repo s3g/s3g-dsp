@@ -285,7 +285,7 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
-    { kInputsParamId, "Inputs", 1.0, 64.0, 64.0, true },
+    { kInputsParamId, "Input Count", 1.0, 64.0, 64.0, true },
     { kCloudsParamId, "Clouds", 1.0, 4.0, 1.0, true },
     { kCloudParamId, "Cloud", 1.0, 4.0, 1.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
@@ -487,6 +487,17 @@ constexpr CGFloat kToolboxTrackWidth =
     s3g::gui_layout::kStandardMetrics.trackWidth;
 constexpr CGFloat kToolboxMenuWidth =
     s3g::gui_layout::kStandardMetrics.menuWidth;
+constexpr auto kOutputSourcePanel = s3g::gui_layout::fittedPanel(
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    { kToolboxX, 250.0, 42.0 }, 42.0, 8u);
+static_assert(s3g::gui_layout::combinedOutputSourceCardinalityControlMatches(
+    kOutputSourcePanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kInputCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kOutputSourcePanel,
+        s3g::gui_layout::combinedOutputSourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
 }
 
 @interface S3GAmbiCloudEncoderView : NSView {
@@ -751,14 +762,14 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 
     const auto params = _plugin->params;
     const auto& clouds = _plugin->encoder.clouds();
-    [cloudColor(0x2b2b2b, 0.75) setStroke];
-    NSBezierPath* cross = [NSBezierPath bezierPath];
-    [cross moveToPoint:NSMakePoint(NSMidX(rect), rect.origin.y + 16)];
-    [cross lineToPoint:NSMakePoint(NSMidX(rect), NSMaxY(rect) - 16)];
-    [cross moveToPoint:NSMakePoint(rect.origin.x + 16, NSMidY(rect))];
-    [cross lineToPoint:NSMakePoint(NSMaxX(rect) - 16, NSMidY(rect))];
-    [cross setLineWidth:0.75];
-    [cross stroke];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectDirection:{
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(z)
+            } inRect:rect];
+        });
 
     const uint32_t activeInputs = std::min<uint32_t>(params.activeInputs, s3g::kAmbiCloudEncoderMaxInputs);
     for (uint32_t i = 0; i < activeInputs; ++i) {
@@ -817,13 +828,13 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     [self drawField:NSMakeRect(34, 76, 564, 558) attrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 236, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / CLOUD", true, 630, 42, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / INPUT", true, 630, 42, 250, 21, labelAttrs, style);
     s3g::clap_gui::drawPanelFrame(630, 290, 250, 314, style);
     s3g::clap_gui::drawPanelHeader(@"MATERIAL", true, 630, 290, 250, 21, labelAttrs, style);
     const auto p = _plugin->params;
     [self drawSlider:@"OUT" value:p.outputGainDb min:-60 max:12 y:78 suffix:@"dB" attrs:labelAttrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:labelAttrs style:style];
-    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:130 suffix:@"count" attrs:labelAttrs style:style];
+    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:kInputCountRowY suffix:@"count" attrs:labelAttrs style:style];
     [self drawMenu:@"CLOUDS" value:[NSString stringWithFormat:@"%u", p.activeClouds] y:156 attrs:labelAttrs style:style];
     [self drawMenu:@"CLOUD" value:[NSString stringWithFormat:@"%u", p.selectedCloud + 1u] y:182 attrs:labelAttrs style:style];
     [self drawSlider:@"AZIM" value:p.selectedAzimuthDeg min:-180 max:180 y:208 suffix:@"deg" attrs:labelAttrs style:style];
@@ -998,7 +1009,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     _dragParam = 0;
     if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kOutputParamId;
     else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 103, kToolboxMenuWidth, 17))) { openMenu(3, 7); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 122, 230, 24))) _dragParam = kInputsParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, kInputCountRowY - 8.0, 230, 24))) _dragParam = kInputsParamId;
     else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 155, kToolboxMenuWidth, 17))) { openMenu(1, 4); return; }
     else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 181, kToolboxMenuWidth, 17))) { openMenu(2, 4); return; }
     else if (NSPointInRect(pt, NSMakeRect(638, 200, 230, 24))) _dragParam = kAzimuthParamId;

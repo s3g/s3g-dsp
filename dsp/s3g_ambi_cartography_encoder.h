@@ -1354,8 +1354,12 @@ private:
                         * (0.06f + params_.carry * 0.22f),
                     0.70f, 1.30f);
             }
+            // Cartography uses conventional map axes (+X screen-right,
+            // +Y/front, +Z/up). Convert them to the ambisonic axes
+            // (+X/front, +Y/listener-left, +Z/up) before encoding.
+            const Vec3 ambisonicVector { vector.y, -vector.x, vector.z };
             directions_[site] = normalizedDistance > 1.0e-6f
-                ? normalize(vector) : Vec3 { 0.0f, 1.0f, 0.0f };
+                ? normalize(ambisonicVector) : Vec3 { 1.0f, 0.0f, 0.0f };
             basis_[site] = acnSn3dBasis7(directions_[site]);
             const float airSeconds = distanceMeters_[site]
                 / (343.0f * soundSpeedScale) * params_.propagationScale;
@@ -1378,8 +1382,10 @@ private:
                         + groundVector.y * groundVector.y
                         + groundVector.z * groundVector.z)
                     * params_.mapScaleMeters;
+                const Vec3 groundAmbisonic {
+                    groundVector.y, -groundVector.x, groundVector.z };
                 groundBasis_[site] = acnSn3dBasis7(
-                    normalize(groundVector));
+                    normalize(groundAmbisonic));
                 groundExtraDelay_[site] = clamp(
                     std::max(0.0f,
                         groundDistance - distanceMeters_[site])
@@ -1400,8 +1406,10 @@ private:
                         + facadeVector.y * facadeVector.y
                         + facadeVector.z * facadeVector.z)
                     * params_.mapScaleMeters;
+                const Vec3 facadeAmbisonic {
+                    facadeVector.y, -facadeVector.x, facadeVector.z };
                 facadeBasis_[site] = acnSn3dBasis7(
-                    normalize(facadeVector));
+                    normalize(facadeAmbisonic));
                 facadeExtraDelay_[site] = clamp(
                     std::max(0.0f,
                         facadeDistance - distanceMeters_[site])
@@ -1491,7 +1499,7 @@ private:
             } else if (params_.macroMetric
                 == AmbiCartographyMacroMetric::Bearing) {
                 metric[site] = std::atan2(
-                    directions_[site].x, directions_[site].y);
+                    directions_[site].y, directions_[site].x);
             } else if (params_.macroMetric
                 == AmbiCartographyMacroMetric::Range) {
                 metric[site] = distanceMeters_[site];

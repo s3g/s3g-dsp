@@ -46,6 +46,7 @@ enum class PanelRole : uint8_t {
 enum class SharedControlRole : uint8_t {
     OutputLevel,
     AmbisonicOrder,
+    SourceCardinality,
     TopologyShape,
     TopologyMotion,
     TopologyRate,
@@ -1321,6 +1322,38 @@ constexpr uint32_t topologyRow(SharedControlRole role)
     case SharedControlRole::TopologyTwist: return 7u;
     default: return 0u;
     }
+}
+
+constexpr uint32_t sourceCardinalityRow(SharedControlRole role)
+{
+    (void)role;
+    return 0u;
+}
+
+constexpr bool sourceCardinalityControlMatches(
+    const Panel& panel, SharedControlRole role)
+{
+    const uint32_t row = sourceCardinalityRow(role);
+    return role == SharedControlRole::SourceCardinality
+        && (panel.role == PanelRole::Source
+            || panel.role == PanelRole::Engine)
+        && row < panel.rowCount;
+}
+
+constexpr uint32_t combinedOutputSourceCardinalityRow(
+    SharedControlRole role)
+{
+    (void)role;
+    return 2u;
+}
+
+constexpr bool combinedOutputSourceCardinalityControlMatches(
+    const Panel& panel, SharedControlRole role)
+{
+    const uint32_t row = combinedOutputSourceCardinalityRow(role);
+    return role == SharedControlRole::SourceCardinality
+        && panel.role == PanelRole::Output
+        && row < panel.rowCount;
 }
 
 constexpr bool topologyControlMatches(const Panel& panel,

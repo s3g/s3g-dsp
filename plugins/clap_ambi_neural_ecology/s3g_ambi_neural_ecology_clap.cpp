@@ -497,7 +497,7 @@ struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiNeuralEcologyParams params {};
     uint32_t presetIndex = 0u;
-    int32_t guiViewMode = 2;
+    int32_t guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -673,7 +673,7 @@ struct Plugin {
     char customPresetName[64] {};
     std::atomic<bool> customPresetActive { false };
     uint32_t randomSeed = 0x4e45554cu;
-    int32_t guiViewMode = 2;
+    int32_t guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -2454,6 +2454,14 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 858u;
+constexpr s3g::gui_layout::Panel kCircuitPanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Engine,
+    { 630.0, 134.0, 250.0, 366.0 }, 36.0, 26.0, 13u,
+};
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kCircuitPanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
 
 enum GuiActionFeedback : int {
     kFeedbackNone = 0,
@@ -2598,10 +2606,17 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
         _selectedNode = 0u;
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
+        if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+        else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
+        else if (_viewMode == 2) { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
+        if (plugin && _viewMode >= 0 && _viewMode <= 2) {
+            plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+            plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
+        }
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
@@ -2883,8 +2898,8 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = z2;
     return NSMakePoint(NSMidX(field) + x1 * scale, NSMidY(field) - y2 * scale);
 }
@@ -2897,8 +2912,8 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 - (void)setViewPreset:(int)mode
 {
     _viewMode = mode;
-    if (mode == 0) { _viewAzDeg = 0.0; _viewElDeg = -90.0; }
-    else if (mode == 1) { _viewAzDeg = 0.0; _viewElDeg = 0.0; }
+    if (mode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+    else if (mode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
     else { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
     [self storeViewState];
 }
@@ -3451,7 +3466,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] x:630 y:104 style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 134, 250, 366, style);
-    s3g::clap_gui::drawPanelHeader(@"RECURRENT CIRCUIT", true, 630, 134, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / CIRCUIT", true, 630, 134, 250, 21, attrs, style);
     [self drawMenu:@"NODE SET" value:[NSString stringWithUTF8String:kNodeSetNames[
         std::min<uint32_t>(static_cast<uint32_t>(p.nodeSet), 4u)]] x:630 y:170 style:style];
     for (const auto& slider : kGuiSliders) {
@@ -3461,7 +3476,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     }
 
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 392, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD LISTENING / METABOLISM", true, 896, 42, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"LISTENER / METABOLISM", true, 896, 42, 246, 21, attrs, style);
     [self drawMenu:@"LISTENING" value:[NSString stringWithUTF8String:kListeningNames[
         std::min<uint32_t>(static_cast<uint32_t>(p.listeningMode), 3u)]] x:896 y:78 style:style];
     [self drawMenu:@"PICKUPS" value:[NSString stringWithUTF8String:kPickupSetNames[

@@ -93,7 +93,7 @@ struct ParamDef {
 };
 
 constexpr ParamDef kParams[] {
-    { kSitesParamId, "Sites", "Cartography", 1.0, 24.0, 12.0, true },
+    { kSitesParamId, "Site Count", "Cartography", 1.0, 24.0, 12.0, true },
     { kSiteParamId, "Selected Site", "Cartography", 1.0, 24.0, 1.0, true },
     { kOrderParamId, "Order", "Output", 1.0, 7.0, 3.0, true },
     { kLayoutParamId, "Layout", "Cartography", 0.0, 4.0, 0.0, true },
@@ -228,9 +228,9 @@ struct Plugin {
     double predictedTransportBeats = 0.0;
     double transportTempo = 120.0;
     double transportTempoIncrement = 0.0;
-    std::atomic<int32_t> guiViewMode { 2 };
-    std::atomic<float> guiViewAzDeg { 38.0f };
-    std::atomic<float> guiViewElDeg { 32.0f };
+    std::atomic<int32_t> guiViewMode { 0 };
+    std::atomic<float> guiViewAzDeg { 90.0f };
+    std::atomic<float> guiViewElDeg { 0.0f };
     std::atomic<float> guiViewZoom { 1.0f };
     std::atomic<uint32_t> guiViewRevision { 0u };
 #if defined(__APPLE__)
@@ -1353,20 +1353,20 @@ struct CartographyControl {
 };
 
 constexpr std::array<CartographyControl, kParamCount> kGuiControls {{
-    { kOrderParamId, "ORDER", CartographyPanel::Output, 0u,
+    { kOrderParamId, "ORDER", CartographyPanel::Output, 1u,
         CartographyControlKind::Menu },
-    { kOutputParamId, "OUT", CartographyPanel::Output, 1u,
+    { kOutputParamId, "OUT", CartographyPanel::Output, 0u,
         CartographyControlKind::Slider },
 
-    { kSitesParamId, "SITES", CartographyPanel::Cartography, 0u,
+    { kSitesParamId, "SITES", CartographyPanel::Output, 2u,
         CartographyControlKind::Slider },
-    { kLayoutParamId, "LAYOUT", CartographyPanel::Cartography, 1u,
+    { kLayoutParamId, "LAYOUT", CartographyPanel::Cartography, 0u,
         CartographyControlKind::Menu },
-    { kStereoMapParamId, "STEREO", CartographyPanel::Cartography, 2u,
+    { kStereoMapParamId, "STEREO", CartographyPanel::Cartography, 1u,
         CartographyControlKind::Menu },
-    { kMapScaleParamId, "SCALE", CartographyPanel::Cartography, 3u,
+    { kMapScaleParamId, "SCALE", CartographyPanel::Cartography, 2u,
         CartographyControlKind::Slider },
-    { kNetworkSpreadParamId, "NETWORK", CartographyPanel::Cartography, 4u,
+    { kNetworkSpreadParamId, "NETWORK", CartographyPanel::Cartography, 3u,
         CartographyControlKind::Slider },
 
     { kTimeReferenceParamId, "TIME REF", CartographyPanel::Propagation, 0u,
@@ -1450,6 +1450,17 @@ constexpr std::array<CartographyControl, kParamCount> kGuiControls {{
 }};
 
 static_assert(kGuiControls.size() == std::size(kParams));
+constexpr s3g::gui_layout::Panel kCartographyOutputInputPanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    { 680.0, 42.0, 320.0, 106.0 }, 36.0, 26.0, 3u,
+};
+static_assert(s3g::gui_layout::combinedOutputSourceCardinalityControlMatches(
+    kCartographyOutputInputPanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+static_assert(kGuiControls[2].id == kSitesParamId
+    && kGuiControls[2].panel == CartographyPanel::Output
+    && kGuiControls[2].row == 2u);
 
 struct FactoryPreset {
     const char* name;
@@ -1549,7 +1560,7 @@ static_assert(kFactoryPresets[7].engine == 4u
 NSRect panelRect(CartographyPanel panel)
 {
     switch (panel) {
-    case CartographyPanel::Output: return NSMakeRect(680.0, 42.0, 320.0, 96.0);
+    case CartographyPanel::Output: return NSMakeRect(680.0, 42.0, 320.0, 106.0);
     case CartographyPanel::Cartography: return NSMakeRect(680.0, 150.0, 320.0, 164.0);
     case CartographyPanel::Propagation: return NSMakeRect(680.0, 326.0, 320.0, 190.0);
     case CartographyPanel::Listener: return NSMakeRect(680.0, 528.0, 320.0, 210.0);
@@ -1819,7 +1830,7 @@ NSRect landscapePageButtonRect(uint32_t index)
         _dragPositionZ = NO;
         _lastDragPoint = NSMakePoint(0.0, 0.0);
         _viewMode = plugin
-            ? plugin->guiViewMode.load(std::memory_order_acquire) : 2;
+            ? plugin->guiViewMode.load(std::memory_order_acquire) : 0;
         _viewAzDeg = plugin
             ? plugin->guiViewAzDeg.load(std::memory_order_acquire) : 38.0;
         _viewElDeg = plugin
@@ -2122,21 +2133,27 @@ NSRect landscapePageButtonRect(uint32_t index)
     [NSGraphicsContext saveGraphicsState];
     [[NSBezierPath bezierPathWithRect:NSInsetRect(rect, 1.0, 1.0)] addClip];
 
-    [s3g::clap_gui::color(0x292929) setStroke];
-    NSBezierPath* grid = [NSBezierPath bezierPath];
     for (int line = -3; line <= 3; ++line) {
         const float coordinate = static_cast<float>(line) * 0.5f;
-        [grid moveToPoint:[self projectWorldPoint:
+        [s3g::clap_gui::ambisonicOrientationGuideColor(
+            line == 0 ? 0.40 : 0.13) setStroke];
+        NSBezierPath* gridLine = [NSBezierPath bezierPath];
+        [gridLine moveToPoint:[self projectWorldPoint:
             s3g::Vec3 { coordinate, -1.5f, 0.0f } depth:nullptr]];
-        [grid lineToPoint:[self projectWorldPoint:
+        [gridLine lineToPoint:[self projectWorldPoint:
             s3g::Vec3 { coordinate, 1.5f, 0.0f } depth:nullptr]];
-        [grid moveToPoint:[self projectWorldPoint:
+        [gridLine moveToPoint:[self projectWorldPoint:
             s3g::Vec3 { -1.5f, coordinate, 0.0f } depth:nullptr]];
-        [grid lineToPoint:[self projectWorldPoint:
+        [gridLine lineToPoint:[self projectWorldPoint:
             s3g::Vec3 { 1.5f, coordinate, 0.0f } depth:nullptr]];
+        [gridLine setLineWidth:line == 0 ? 0.75 : 0.45];
+        [gridLine stroke];
     }
-    [grid setLineWidth:0.55];
-    [grid stroke];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorldPoint:{ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
+        }, 1.5);
 
     const auto params = _plugin->params;
     const auto& sites = _plugin->encoder.sites();
@@ -2347,7 +2364,7 @@ NSRect landscapePageButtonRect(uint32_t index)
             panel.origin.x, panel.origin.y,
             panel.size.width, 21.0, labels, style);
     };
-    drawPanel(@"OUTPUT", CartographyPanel::Output);
+    drawPanel(@"OUTPUT / INPUT", CartographyPanel::Output);
     drawPanel(@"CARTOGRAPHY", CartographyPanel::Cartography);
     drawPanel(@"PROPAGATION", CartographyPanel::Propagation);
     drawPanel(@"LISTENER", CartographyPanel::Listener);

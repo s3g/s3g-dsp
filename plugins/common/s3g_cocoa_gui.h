@@ -308,6 +308,58 @@ inline NSColor* color(int rgb, double alpha = 1.0)
                                      alpha:alpha];
 }
 
+// Shared world-space orientation guides for Ambisonic encoder fields. The hue
+// is the reduced matrix green: visible against the dark field without reading
+// as a source path, trajectory, or selection highlight.
+inline NSColor* ambisonicOrientationGuideColor(double alpha = 0.46)
+{
+    return [NSColor colorWithCalibratedRed:0.10
+                                     green:0.92
+                                      blue:0.30
+                                     alpha:alpha];
+}
+
+template <typename ProjectPoint>
+inline void drawAmbisonicOrientationGuides(ProjectPoint&& projectPoint,
+                                           double radius = 1.0)
+{
+    constexpr uint32_t kCircleSegments = 96u;
+    constexpr double kTau = 6.28318530717958647692;
+    NSBezierPath* zeroElevation = [NSBezierPath bezierPath];
+    for (uint32_t segment = 0u; segment <= kCircleSegments; ++segment) {
+        const double phase = static_cast<double>(segment)
+            / static_cast<double>(kCircleSegments) * kTau;
+        const NSPoint point = projectPoint(
+            std::cos(phase) * radius,
+            std::sin(phase) * radius,
+            0.0);
+        if (segment == 0u) [zeroElevation moveToPoint:point];
+        else [zeroElevation lineToPoint:point];
+    }
+    [ambisonicOrientationGuideColor(0.24) setStroke];
+    [zeroElevation setLineWidth:0.70];
+    [zeroElevation stroke];
+
+    const auto drawAxis = [&](double ax, double ay, double az,
+                              double bx, double by, double bz,
+                              double alpha) {
+        const NSPoint a = projectPoint(ax * radius, ay * radius, az * radius);
+        const NSPoint b = projectPoint(bx * radius, by * radius, bz * radius);
+        const CGFloat dx = b.x - a.x;
+        const CGFloat dy = b.y - a.y;
+        if (dx * dx + dy * dy < 0.25) return;
+        [ambisonicOrientationGuideColor(alpha) setStroke];
+        NSBezierPath* axis = [NSBezierPath bezierPath];
+        [axis moveToPoint:a];
+        [axis lineToPoint:b];
+        [axis setLineWidth:0.80];
+        [axis stroke];
+    };
+    drawAxis(-1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.44);
+    drawAxis(0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 0.44);
+    drawAxis(0.0, 0.0, -1.0, 0.0, 0.0, 1.0, 0.52);
+}
+
 inline NSColor* heatColor(double value, double alpha = 1.0)
 {
     struct Stop {

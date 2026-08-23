@@ -1926,7 +1926,7 @@ struct Plugin {
     std::atomic<float> guiVoxPhraseProgress { 0.0f };
     std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiVoxPhrasePhase {};
     int guiPage = 0;
-    int guiViewMode = 2;
+    int guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -6598,7 +6598,7 @@ struct ParamDef {
 
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, static_cast<double>(s3g::kAmbiVoxMaxVoices), 8.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, static_cast<double>(s3g::kAmbiVoxMaxVoices), 8.0, true },
     { kModeParamId, "Trigger Mode", 0.0, 2.0, 0.0, true },
     { kBaseNoteParamId, "Pitch Root", 12.0, 96.0, 48.0, false },
     { kTuneParamId, "Legacy Pitch Tune", -1200.0, 1200.0, 0.0, false },
@@ -7752,6 +7752,18 @@ static NSColor* votColor(int rgb, double alpha = 1.0)
 constexpr CGFloat kLyricsSliderTrackOffset = 110.0;
 constexpr CGFloat kGeneratorSliderTrackOffset = 126.0;
 constexpr CGFloat kLyricsSliderTrackWidth = 170.0;
+constexpr s3g::gui_layout::Panel kVoiceEncoderPanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Engine,
+    { 630.0, 134.0, 250.0, 132.0 }, 36.0, 26.0, 4u,
+};
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kVoiceEncoderPanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kVoiceCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kVoiceEncoderPanel,
+        s3g::gui_layout::sourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
 
 double voxSliderNormForPoint(CGFloat pointX, CGFloat trackX, CGFloat trackWidth)
 {
@@ -8468,7 +8480,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         _selectedLyricCue = plugin
             ? plugin->guiLyricCue.load(std::memory_order_relaxed) : 0u;
         _scoreDragLane = -1;
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
@@ -8795,8 +8807,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
                        centerY - static_cast<CGFloat>(y2) * scale);
@@ -8844,13 +8856,14 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(rect) - radius, NSMidY(rect) - radius, radius * 2.0, radius * 2.0)];
     [sphere setLineWidth:0.8];
     [sphere stroke];
-    NSBezierPath* axes = [NSBezierPath bezierPath];
-    [axes moveToPoint:NSMakePoint(NSMidX(rect), NSMinY(rect) + 8)];
-    [axes lineToPoint:NSMakePoint(NSMidX(rect), NSMaxY(rect) - 8)];
-    [axes moveToPoint:NSMakePoint(NSMinX(rect) + 8, NSMidY(rect))];
-    [axes lineToPoint:NSMakePoint(NSMaxX(rect) - 8, NSMidY(rect))];
-    [axes setLineWidth:0.6];
-    [axes stroke];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorldPoint:{
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(z)
+            } rect:rect depth:nullptr];
+        });
 
     const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
@@ -9456,9 +9469,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 134, 250, 132, style);
-    s3g::clap_gui::drawPanelHeader(@"VOICE / ENCODER", true, 630, 134, 250, 21, attrs, style);
-    [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:170 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:s3g::kAmbiVoxMaxVoices y:196 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / VOICE", true, 630, 134, 250, 21, attrs, style);
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:s3g::kAmbiVoxMaxVoices y:kVoiceCountRowY attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:196 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:222 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"POP FILTER" param:kPopFilterParamId value:_plugin->popFilter min:0 max:1 y:248 attrs:attrs valueAttrs:valueAttrs style:style];
 
@@ -9499,7 +9512,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 
     constexpr CGFloat motionX = 896;
     s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 366, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, motionX, 42, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION / PROJECTION", true, motionX, 42, 246, 21, attrs, style);
     [self drawMenuAtX:motionX name:@"SCENE" value:[NSString stringWithUTF8String:s3g::ambiVotMotionSceneName(p.motionScene)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"CLOCK" value:[NSString stringWithUTF8String:s3g::ambiVotMotionClockName(p.motionClock)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"SPEED" param:kMotionRateParamId value:p.motionRateHz min:0.001 max:2 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -10706,6 +10719,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
                 [self setNeedsDisplay:YES];
                 return;
             }
+            _dragView = YES;
+            _lastDragPoint = point;
+            return;
         }
     } else if (_leftPage == 3) {
         for (int index = 0; index < 2; ++index) {
@@ -10795,7 +10811,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
-        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 170, 124 },
+        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 196, 124 },
         { 9, 3, 738, 222, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
         { 6, s3g::kMusicalScaleCount, 1004, 646, 124 },
@@ -10819,7 +10835,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
     static constexpr SliderHit commonSliders[] {
         { kOutputParamId, 638, 78, 1 }, { kPopFilterParamId, 638, 248, 1 },
-        { kVoicesParamId, 638, 196, 1 },
+        { kVoicesParamId, 638, kVoiceCountRowY, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },

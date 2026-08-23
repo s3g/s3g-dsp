@@ -98,7 +98,7 @@ constexpr std::array<ParamDef, kParamCount> kParams {{
     { kPresetParamId, "Preset", "Global", 0.0,
         static_cast<double>(s3g::kAmbiHorizonFactoryPresetCount - 1u), 0.0, true, false },
     { kOrderParamId, "Order", "Output", 1.0, 7.0, 3.0, true, false },
-    { kEntitiesParamId, "Entities", "Ecology", 4.0, 32.0, 24.0, true, false },
+    { kEntitiesParamId, "Voice Count", "Ecology", 4.0, 32.0, 24.0, true, false },
     { kEcologyParamId, "Ecology", "Ecology", 0.0, 8.0, 0.0, true, false },
     { kActivityParamId, "Activity", "Ecology", 0.0, 1.0, 0.48, false, false },
     { kOccupancyParamId, "Occupancy", "Ecology", 0.0, 1.0, 0.36, false, false },
@@ -456,7 +456,7 @@ struct Plugin {
         guiListenerEnvelope {};
     std::atomic<float> guiListenerActivity { 0.0f };
     std::atomic<float> guiListenerReturnShare { 0.0f };
-    std::atomic<int32_t> guiViewMode { 2 };
+    std::atomic<int32_t> guiViewMode { 0 };
     std::atomic<float> guiViewAzDeg { 38.0f };
     std::atomic<float> guiViewElDeg { 30.0f };
     std::atomic<float> guiViewZoom { 1.0f };
@@ -1215,6 +1215,8 @@ static_assert(layout::controlMatchesSlot(kOutputPanel,
     layout::kLargeEncoderOrderSlot));
 static_assert(layout::panelMatchesAnchor(kHorizonPanel,
     layout::kLargeEncoderTopologyAnchor));
+static_assert(layout::sourceCardinalityControlMatches(kEcologyPanel,
+    layout::SharedControlRole::SourceCardinality));
 
 struct GuiSliderSpec {
     clap_id id;
@@ -1224,7 +1226,7 @@ struct GuiSliderSpec {
 
 inline constexpr std::array<GuiSliderSpec, 23u> kGuiSliders {{
     { kOutputParamId, &kOutputPanel, 0u },
-    { kEntitiesParamId, &kEcologyPanel, 1u },
+    { kEntitiesParamId, &kEcologyPanel, 0u },
     { kActivityParamId, &kEcologyPanel, 2u },
     { kOccupancyParamId, &kEcologyPanel, 3u },
     { kPaceParamId, &kEcologyPanel, 4u },
@@ -1472,10 +1474,19 @@ bool loadPresetFile(const char* path, PresetFile& preset)
         _dragParam = 0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
-        _viewMode = plugin ? plugin->guiViewMode.load(std::memory_order_acquire) : 2;
+        _viewMode = plugin ? plugin->guiViewMode.load(std::memory_order_acquire) : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg.load(std::memory_order_acquire) : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg.load(std::memory_order_acquire) : 30.0;
         _viewZoom = plugin ? plugin->guiViewZoom.load(std::memory_order_acquire) : 1.0;
+        // Fixed presets are semantic state, so migrate their old camera
+        // angles to the canonical AED views when an older session is opened.
+        if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+        else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
+        else if (_viewMode == 2) { _viewAzDeg = 38.0; _viewElDeg = 30.0; }
+        if (plugin && _viewMode >= 0 && _viewMode <= 2) {
+            plugin->guiViewAzDeg.store(static_cast<float>(_viewAzDeg), std::memory_order_release);
+            plugin->guiViewElDeg.store(static_cast<float>(_viewElDeg), std::memory_order_release);
+        }
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
@@ -1553,8 +1564,8 @@ bool loadPresetFile(const char* path, PresetFile& preset)
 - (void)setViewPreset:(int)mode
 {
     _viewMode = mode;
-    if (mode == 0) { _viewAzDeg = 0.0; _viewElDeg = 0.0; }
-    else if (mode == 1) { _viewAzDeg = 0.0; _viewElDeg = -90.0; }
+    if (mode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+    else if (mode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
     else { _viewAzDeg = 38.0; _viewElDeg = 30.0; }
     [self storeViewState];
     [self setNeedsDisplay:YES];
@@ -1582,8 +1593,8 @@ bool loadPresetFile(const char* path, PresetFile& preset)
     const float ce = std::cos(elevation), se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = z2;
     return NSMakePoint(NSMidX(field) + x1 * scale,
         NSMidY(field) - y2 * scale);
@@ -1593,6 +1604,13 @@ bool loadPresetFile(const char* path, PresetFile& preset)
 {
     return [self projectWorld:{
         static_cast<float>(x), static_cast<float>(y), 0.0f
+    } depth:nullptr];
+}
+
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    return [self projectWorld:{
+        static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)
     } depth:nullptr];
 }
 
@@ -1636,7 +1654,8 @@ bool loadPresetFile(const char* path, PresetFile& preset)
     for (double offset : kGridOffsets) {
         const double extent = std::sqrt(std::max(0.0, 1.0 - offset * offset));
         const bool axis = std::fabs(offset) < 0.001;
-        [s3g::clap_gui::color(axis ? 0x484848 : 0x292929) setStroke];
+        [s3g::clap_gui::ambisonicOrientationGuideColor(
+            axis ? 0.40 : 0.13) setStroke];
 
         NSBezierPath* northSouth = [NSBezierPath bezierPath];
         [northSouth moveToPoint:[self projectGroundPointX:offset y:-extent]];
@@ -1650,6 +1669,11 @@ bool loadPresetFile(const char* path, PresetFile& preset)
         [eastWest setLineWidth:axis ? 0.75 : 0.45];
         [eastWest stroke];
     }
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorld:{ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
+        });
 
     const uint32_t count = std::min<uint32_t>(
         _plugin->guiEntityCount.load(std::memory_order_relaxed),
@@ -1721,7 +1745,7 @@ bool loadPresetFile(const char* path, PresetFile& preset)
     for (const auto& panel : kFirstColumnPanels) s3g::clap_gui::drawPanelFrame(panel, style);
     for (const auto& panel : kSecondColumnPanels) s3g::clap_gui::drawPanelFrame(panel, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
-    s3g::clap_gui::drawPanelHeader(@"ECOLOGY", true, kEcologyPanel, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / ECOLOGY", true, kEcologyPanel, attrs, style);
     NSString* generatorTitle = [NSString stringWithFormat:@"%s GENERATORS",
         kEcologyNames[std::min<uint32_t>(
             static_cast<uint32_t>(_snapshot.ecology), 8u)]];
@@ -1751,8 +1775,8 @@ bool loadPresetFile(const char* path, PresetFile& preset)
         panel:kOutputPanel row:1u attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"ECOLOGY" value:[NSString stringWithUTF8String:kEcologyNames[
         std::min<uint32_t>(static_cast<uint32_t>(_snapshot.ecology), 8u)]]
-        panel:kEcologyPanel row:0u attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"ENTITIES" param:kEntitiesParamId value:_snapshot.entities attrs:attrs valueAttrs:valueAttrs style:style];
+        panel:kEcologyPanel row:1u attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kEntitiesParamId value:_snapshot.entities attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ACTIVITY" param:kActivityParamId value:_snapshot.activity attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"OCCUPANCY" param:kOccupancyParamId value:_snapshot.occupancy attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"PACE" param:kPaceParamId value:_snapshot.pace attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1817,7 +1841,7 @@ bool loadPresetFile(const char* path, PresetFile& preset)
         anchor.origin.x = kOutputPanel.frame.x + 108.0; anchor.size.width = 124.0;
         _menuItemCount = 7u;
     } else if (menu == 3) {
-        anchor = s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEcologyPanel, 0u));
+        anchor = s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEcologyPanel, 1u));
         anchor.origin.x = kEcologyPanel.frame.x + 108.0; anchor.size.width = 124.0;
         _menuItemCount = static_cast<uint32_t>(std::size(kEcologyNames));
     } else if (menu == 4) {
@@ -1991,7 +2015,7 @@ bool loadPresetFile(const char* path, PresetFile& preset)
     NSRect orderRect = NSMakeRect(kOutputPanel.frame.x + 108.0,
         layout::rowY(kOutputPanel, 1u) - 1.0, 124.0, 15.0);
     NSRect ecologyRect = NSMakeRect(kEcologyPanel.frame.x + 108.0,
-        layout::rowY(kEcologyPanel, 0u) - 1.0, 124.0, 15.0);
+        layout::rowY(kEcologyPanel, 1u) - 1.0, 124.0, 15.0);
     NSRect groundRect = NSMakeRect(kAtmospherePanel.frame.x + 108.0,
         layout::rowY(kAtmospherePanel, 2u) - 1.0, 124.0, 15.0);
     NSRect listenRect = NSMakeRect(kListenerPanel.frame.x + 108.0,

@@ -26,7 +26,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiPulsarMaxChannels;
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kStateVersion = 10u;
 constexpr uint32_t kCustomPresetMagic = 0x50473353u; // "S3GP" on little-endian hosts
 constexpr uint32_t kCustomPresetVersion = 3u;
 constexpr uint32_t kParamBankSize = 128u;
@@ -114,7 +114,18 @@ struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiPulsarParams params {};
     uint32_t presetIndex = 0u;
-    int32_t guiViewMode = 2;
+    int32_t guiViewMode = 0;
+    float guiViewZoom = 1.0f;
+    float guiViewAzDeg = 90.0f;
+    float guiViewElDeg = 0.0f;
+    char customPresetName[64] {};
+};
+
+struct SavedStateV9 {
+    uint32_t version = 9u;
+    s3g::AmbiPulsarParams params {};
+    uint32_t presetIndex = 0u;
+    int32_t guiViewMode = 0;
     float guiViewZoom = 1.0f;
     char customPresetName[64] {};
 };
@@ -150,8 +161,10 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiPulsarMaxPoints> guiEnergy {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarMaxPoints> guiEvent {};
     std::atomic<uint32_t> guiSelectedPoint { 0u };
-    int32_t guiViewMode = 2;
+    int32_t guiViewMode = 0;
     float guiViewZoom = 1.0f;
+    float guiViewAzDeg = 90.0f;
+    float guiViewElDeg = 0.0f;
     std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralMaxNodes> guiNeuralNode {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralMaxClusters> guiNeuralCluster {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningPickup {};
@@ -813,7 +826,7 @@ constexpr ParamDef kParams[] {
     { kAirParamId, "Air Absorption", 0.0, 1.0, 0.10, false },
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0, false },
     { kOutputParamId, "Output Gain", -60.0, 6.0, -12.0, false },
-    { kPointsParamId, "Spatial Points", 4.0, 32.0, 6.0, true },
+    { kPointsParamId, "Spatial Point Count", 4.0, 32.0, 6.0, true },
     { kMotionModeParamId, "Field Motion", 0.0, 4.0, 0.0, true },
     { kNeuralLevelParamId, "Neural Direct Level", 0.0, 1.5, 0.0, false },
     { kNeuralDriveParamId, "Neural Sigmoid Drive", 0.25, 5.0, 1.85, false },
@@ -1145,6 +1158,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.presetIndex = p->presetIndex.load(std::memory_order_relaxed);
     state.guiViewMode = p->guiViewMode;
     state.guiViewZoom = p->guiViewZoom;
+    state.guiViewAzDeg = p->guiViewAzDeg;
+    state.guiViewElDeg = p->guiViewElDeg;
     if (p->customPresetActive.load(std::memory_order_relaxed)) {
         std::strncpy(state.customPresetName, p->customPresetName, sizeof(state.customPresetName) - 1u);
     }
@@ -1270,19 +1285,46 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
         p->customPresetActive.store(
             p->customPresetName[0] != '\0', std::memory_order_relaxed);
+    } else if (version == 9u) {
+        SavedStateV9 state;
+        state.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version),
+                sizeof(state) - sizeof(version))) return false;
+        p->params = s3g::sanitizeAmbiPulsarParams(state.params);
+        p->presetIndex = std::min<uint32_t>(state.presetIndex,
+            s3g::kAmbiPulsarFactoryPresetCount - 1u);
+        p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, 0, 2);
+        p->guiViewZoom = std::clamp(state.guiViewZoom, 0.55f, 2.20f);
+        std::strncpy(p->customPresetName, state.customPresetName,
+            sizeof(p->customPresetName) - 1u);
+        p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
+        p->customPresetActive.store(p->customPresetName[0] != '\0',
+            std::memory_order_relaxed);
     } else if (version == kStateVersion) {
         SavedState state;
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
         p->params = s3g::sanitizeAmbiPulsarParams(state.params);
         p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiPulsarFactoryPresetCount - 1u);
-        p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, 0, 2);
+        p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, -1, 2);
         p->guiViewZoom = std::clamp(state.guiViewZoom, 0.55f, 2.20f);
+        p->guiViewAzDeg = std::clamp(state.guiViewAzDeg, -180.0f, 180.0f);
+        p->guiViewElDeg = std::clamp(state.guiViewElDeg, -85.0f, 85.0f);
         std::strncpy(p->customPresetName, state.customPresetName, sizeof(p->customPresetName) - 1u);
         p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
         p->customPresetActive.store(p->customPresetName[0] != '\0', std::memory_order_relaxed);
     } else {
         return false;
+    }
+    if (p->guiViewMode == 0) {
+        p->guiViewAzDeg = 90.0f;
+        p->guiViewElDeg = 0.0f;
+    } else if (p->guiViewMode == 1) {
+        p->guiViewAzDeg = 90.0f;
+        p->guiViewElDeg = 90.0f;
+    } else if (p->guiViewMode == 2) {
+        p->guiViewAzDeg = 38.0f;
+        p->guiViewElDeg = 32.0f;
     }
     publishParams(*p, p->params, p->presetIndex.load(std::memory_order_relaxed), false);
     p->audioResetRequest.fetch_add(1u, std::memory_order_release);
@@ -1311,13 +1353,13 @@ constexpr auto kOutputPanel = layout::makePanel(
     layout::toolboxHeightForRows(2u), 2u);
 constexpr auto kClockPanel = layout::stackPanel(
     layout::PanelRole::Engine, kOutputPanel,
-    layout::toolboxHeightForRows(7u), 7u);
+    layout::toolboxHeightForRows(8u), 8u);
 constexpr auto kEventPanel = layout::stackPanel(
     layout::PanelRole::EventTiming, kClockPanel,
     layout::toolboxHeightForRows(9u), 9u);
 constexpr auto kFieldOriginPanel = layout::stackPanel(
     layout::PanelRole::Projection, kEventPanel,
-    layout::toolboxHeightForRows(6u), 6u);
+    layout::toolboxHeightForRows(5u), 5u);
 constexpr std::array kFirstColumnPanels {
     kOutputPanel, kClockPanel, kEventPanel, kFieldOriginPanel
 };
@@ -1346,6 +1388,8 @@ static_assert(layout::controlMatchesSlot(
 static_assert(layout::roleMatchesAnchorIfPresent(
     kSecondColumnPanels, layout::PanelRole::Topology,
     layout::kLargeEncoderTopologyAnchor));
+static_assert(layout::sourceCardinalityControlMatches(kClockPanel,
+    layout::SharedControlRole::SourceCardinality));
 
 struct GuiSliderSpec {
     clap_id id;
@@ -1360,13 +1404,13 @@ constexpr CGFloat kListeningRightPanelX = 314.0;
 
 constexpr GuiSliderSpec kGuiSliders[] {
     { kOutputParamId, "OUT", kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), layout::kStandardMetrics.trackWidth },
-    { kEmissionParamId, "EMISSION", kClockPanel.frame.x, layout::rowY(kClockPanel, 0u), layout::kStandardMetrics.trackWidth },
-    { kEmissionModRateParamId, "EMIT RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 1u), layout::kStandardMetrics.trackWidth },
-    { kEmissionModDepthParamId, "EMIT DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 2u), layout::kStandardMetrics.trackWidth },
-    { kFormantModRateParamId, "FORM RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 3u), layout::kStandardMetrics.trackWidth },
-    { kFormantModDepthParamId, "FORM DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 4u), layout::kStandardMetrics.trackWidth },
-    { kFormantScatterParamId, "FORM SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 5u), layout::kStandardMetrics.trackWidth },
-    { kPhaseScatterParamId, "PHASE SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 6u), layout::kStandardMetrics.trackWidth },
+    { kEmissionParamId, "EMISSION", kClockPanel.frame.x, layout::rowY(kClockPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kEmissionModRateParamId, "EMIT RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kEmissionModDepthParamId, "EMIT DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kFormantModRateParamId, "FORM RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 4u), layout::kStandardMetrics.trackWidth },
+    { kFormantModDepthParamId, "FORM DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 5u), layout::kStandardMetrics.trackWidth },
+    { kFormantScatterParamId, "FORM SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 6u), layout::kStandardMetrics.trackWidth },
+    { kPhaseScatterParamId, "PHASE SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 7u), layout::kStandardMetrics.trackWidth },
 
     { kProbabilityParamId, "PROB", kEventPanel.frame.x, layout::rowY(kEventPanel, 0u), layout::kStandardMetrics.trackWidth },
     { kBurstOnParamId, "BURST ON", kEventPanel.frame.x, layout::rowY(kEventPanel, 1u), layout::kStandardMetrics.trackWidth },
@@ -1548,6 +1592,8 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     CGFloat _viewAzDeg;
     CGFloat _viewElDeg;
     CGFloat _viewZoom;
+    BOOL _dragView;
+    NSPoint _lastDragPoint;
     int _visualPage;
     uint32_t _selectedLane;
     int _openMenu;
@@ -1576,11 +1622,12 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
         _openMenuRect = NSZeroRect;
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
-        if (_viewMode == 0) { _viewAzDeg = 0.0; _viewElDeg = 0.0; }
-        else if (_viewMode == 1) { _viewAzDeg = 0.0; _viewElDeg = -90.0; }
-        else { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
+        _viewAzDeg = plugin ? plugin->guiViewAzDeg : 90.0;
+        _viewElDeg = plugin ? plugin->guiViewElDeg : 0.0;
+        _dragView = NO;
+        _lastDragPoint = NSZeroPoint;
         [self setWantsLayer:YES];
     }
     return self;
@@ -1629,7 +1676,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 }
 - (NSRect)envelopeRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEventPanel, 6u)); }
 - (NSRect)qualityRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEventPanel, 8u)); }
-- (NSRect)pointsRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kFieldOriginPanel, 5u)); }
+- (NSRect)pointsRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kClockPanel, 0u)); }
 - (NSRect)motionRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kDepthMotionPanel, 5u)); }
 - (NSRect)captureHeaderRect {
     const auto rect = s3g::clap_gui::cocoaRect(kCapturePanel.frame);
@@ -1902,14 +1949,16 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     if (!_plugin) return;
     _plugin->guiViewMode = _viewMode;
     _plugin->guiViewZoom = static_cast<float>(_viewZoom);
+    _plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+    _plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
     _plugin->guiSelectedPoint.store(_selectedPoint, std::memory_order_relaxed);
 }
 
 - (void)setViewPreset:(int)mode
 {
     _viewMode = std::clamp(mode, 0, 2);
-    if (_viewMode == 0) { _viewAzDeg = 0.0; _viewElDeg = 0.0; }
-    else if (_viewMode == 1) { _viewAzDeg = 0.0; _viewElDeg = -90.0; }
+    if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+    else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
     else { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
     [self storeViewState];
     [self setNeedsDisplay:YES];
@@ -1926,10 +1975,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     return { direction.x * displayDistance, direction.y * displayDistance, direction.z * displayDistance };
 }
 
-- (NSPoint)projectPoint:(uint32_t)index depth:(CGFloat*)depth
+- (NSPoint)projectWorld:(s3g::Vec3)point depth:(CGFloat*)depth
 {
     const NSRect field = [self fieldRect];
-    const s3g::Vec3 point = [self pointWorld:index];
     const CGFloat scale = std::min(field.size.width, field.size.height) * 0.36
         * std::clamp(_viewZoom, static_cast<CGFloat>(0.55), static_cast<CGFloat>(2.20));
     const float azimuth = static_cast<float>(_viewAzDeg * s3g::kPi / 180.0);
@@ -1940,10 +1988,15 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = z2;
     return NSMakePoint(NSMidX(field) + x1 * scale, NSMidY(field) - y2 * scale);
+}
+
+- (NSPoint)projectPoint:(uint32_t)index depth:(CGFloat*)depth
+{
+    return [self projectWorld:[self pointWorld:index] depth:depth];
 }
 
 - (NSColor*)pointColor:(uint32_t)index selected:(BOOL)selected
@@ -2033,11 +2086,11 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         sphereRadius * 2.0, sphereRadius * 2.0)];
     [sphere setLineWidth:0.8];
     [sphere stroke];
-    [s3g::clap_gui::color(0x242424) setStroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18.0, NSMidY(field))
-        toPoint:NSMakePoint(NSMaxX(field) - 18.0, NSMidY(field))];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18.0)
-        toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18.0)];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorld:{ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
+        });
 
     const uint32_t points = std::clamp<uint32_t>(_plugin->params.points,
         s3g::kAmbiPulsarMinPoints, s3g::kAmbiPulsarMaxPoints);
@@ -2247,7 +2300,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         const auto direction = directions[pickup];
         const float x1 = std::cos(cameraAz) * direction.x - std::sin(cameraAz) * direction.y;
         const float y1 = std::sin(cameraAz) * direction.x + std::cos(cameraAz) * direction.y;
-        const float y2 = std::cos(cameraEl) * y1 - std::sin(cameraEl) * direction.z;
+        const float y2 = std::cos(cameraEl) * y1 + std::sin(cameraEl) * direction.z;
         ears[pickup] = NSMakePoint(center.x + x1 * radius, center.y - y2 * radius);
     }
     std::array<NSPoint, s3g::kAmbiPulsarNeuralLobes> lobes {{
@@ -2427,11 +2480,11 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     s3g::clap_gui::drawPanelFrame(kOutputPanel, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
     s3g::clap_gui::drawPanelFrame(kClockPanel, style);
-    s3g::clap_gui::drawPanelHeader(@"CLOCK / GLOBAL", true, kClockPanel, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / CLOCK", true, kClockPanel, attrs, style);
     s3g::clap_gui::drawPanelFrame(kEventPanel, style);
     s3g::clap_gui::drawPanelHeader(@"EVENT MASK / WINDOW", true, kEventPanel, attrs, style);
     s3g::clap_gui::drawPanelFrame(kFieldOriginPanel, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD ORIGIN", true, kFieldOriginPanel, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"PROJECTION / ORIGIN", true, kFieldOriginPanel, attrs, style);
     s3g::clap_gui::drawPanelFrame(kDepthMotionPanel, style);
     s3g::clap_gui::drawPanelHeader(@"DEPTH / MOTION", true, kDepthMotionPanel, attrs, style);
     s3g::clap_gui::drawPanelFrame(kNeuralPanel, style);
@@ -2551,6 +2604,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    _dragView = NO;
     if (_openMenu > 0) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, _openMenuRect, 21.0, _menuItemCount);
         if (hit >= 0) {
@@ -2620,6 +2674,11 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
                 _selectedPoint = static_cast<uint32_t>(hit);
                 [self storeViewState];
                 [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self fieldRect])) {
+                _dragView = YES;
+                _lastDragPoint = point;
                 return;
             }
         } else if (_visualPage == 1) {
@@ -2693,16 +2752,29 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 
 - (void)mouseDragged:(NSEvent*)event
 {
+    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_dragView) {
+        _viewMode = -1;
+        _viewAzDeg = std::fmod(_viewAzDeg
+            + (point.x - _lastDragPoint.x) * 0.55 + 540.0, 360.0) - 180.0;
+        _viewElDeg = std::clamp(_viewElDeg
+            + (point.y - _lastDragPoint.y) * 0.45, -85.0, 85.0);
+        _lastDragPoint = point;
+        [self storeViewState];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragParam == CLAP_INVALID_ID) return;
     const auto* slider = guiSlider(_dragParam);
     if (!slider) return;
-    [self setSlider:*slider point:[self convertPoint:[event locationInWindow] fromView:nil]];
+    [self setSlider:*slider point:point];
 }
 
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
     _dragParam = CLAP_INVALID_ID;
+    _dragView = NO;
 }
 
 - (void)viewDidMoveToWindow

@@ -1629,8 +1629,8 @@ NSPoint spatialPointScreenPosition(const Plugin& plugin,
         return NSMakePoint(NSMidX(rect) - y * scale,
             NSMidY(rect) - x * scale);
     }
-    // Side view: front travels right and height travels up.
-    return NSMakePoint(NSMidX(rect) + x * scale,
+    // Side/elevation view: listener-left is screen-left and height is up.
+    return NSMakePoint(NSMidX(rect) - y * scale,
         NSMidY(rect) - z * scale);
 }
 
@@ -1656,6 +1656,8 @@ double uiNormalizedValue(clap_id id, double value)
 {
     const auto* spec = paramSpec(id);
     if (!spec) return 0.0;
+    if (id == kCenterAzimuthParamId)
+        return s3g::aedAzimuthSliderNorm(static_cast<float>(value));
     if (logarithmicUiParam(id) && spec->minimum > 0.0) {
         return std::clamp(std::log(value / spec->minimum)
             / std::log(spec->maximum / spec->minimum), 0.0, 1.0);
@@ -1669,6 +1671,9 @@ double uiValueFromNormalized(clap_id id, double normalized)
     const auto* spec = paramSpec(id);
     if (!spec) return 0.0;
     normalized = std::clamp(normalized, 0.0, 1.0);
+    if (id == kCenterAzimuthParamId)
+        return s3g::aedAzimuthFromSliderNorm(
+            static_cast<float>(normalized));
     const double value = logarithmicUiParam(id) && spec->minimum > 0.0
         ? spec->minimum * std::pow(
             spec->maximum / spec->minimum, normalized)
@@ -2278,6 +2283,9 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     NSRectFill(NSMakeRect(controlPanel.origin.x + 16.0,
         kOutputSectionDividerY,
         controlPanel.size.width - 32.0, 1.0));
+    [@"OUTPUT" drawAtPoint:NSMakePoint(
+        controlPanel.origin.x + 16.0, kOutputSectionDividerY + 2.0)
+        withAttributes:labelAttrs];
     s3g::clap_gui::drawProcessorMenu(
         [NSString stringWithUTF8String:kFormatRow.label],
         formatMenuSelectedText(*p), kFormatRow.y,
@@ -2317,26 +2325,26 @@ int publishedPatternPresetIndex(const Plugin& plugin)
                 scale * 2.0, scale * 2.0)];
         [boundary setLineWidth:0.7];
         [boundary stroke];
-        [(view == 0u ? @"TOP · X/Y" : @"SIDE · X/Z")
+        [(view == 0u ? @"TOP · X/Y" : @"SIDE · Y/Z")
             drawAtPoint:NSMakePoint(field.origin.x + 7.0,
                 field.origin.y + 5.0) withAttributes:tinyAttrs];
         if (view == 0u) {
-            [@"F" drawAtPoint:NSMakePoint(center.x - 3.0,
+            [@"0 / F" drawAtPoint:NSMakePoint(center.x - 12.0,
                 field.origin.y + 5.0) withAttributes:tinyAttrs];
-            [@"B" drawAtPoint:NSMakePoint(center.x - 3.0,
+            [@"180 / B" drawAtPoint:NSMakePoint(center.x - 18.0,
                 NSMaxY(field) - 15.0) withAttributes:tinyAttrs];
-            [@"L" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
+            [@"+90 / L" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
                 center.y - 5.0) withAttributes:tinyAttrs];
-            [@"R" drawAtPoint:NSMakePoint(NSMaxX(field) - 12.0,
+            [@"-90 / R" drawAtPoint:NSMakePoint(NSMaxX(field) - 39.0,
                 center.y - 5.0) withAttributes:tinyAttrs];
         } else {
-            [@"UP" drawAtPoint:NSMakePoint(center.x - 7.0,
+            [@"+90 EL" drawAtPoint:NSMakePoint(center.x - 18.0,
                 field.origin.y + 5.0) withAttributes:tinyAttrs];
-            [@"DOWN" drawAtPoint:NSMakePoint(center.x - 12.0,
+            [@"-90 EL" drawAtPoint:NSMakePoint(center.x - 18.0,
                 NSMaxY(field) - 15.0) withAttributes:tinyAttrs];
-            [@"B" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
+            [@"+90 / L" drawAtPoint:NSMakePoint(field.origin.x + 6.0,
                 center.y - 5.0) withAttributes:tinyAttrs];
-            [@"F" drawAtPoint:NSMakePoint(NSMaxX(field) - 12.0,
+            [@"-90 / R" drawAtPoint:NSMakePoint(NSMaxX(field) - 39.0,
                 center.y - 5.0) withAttributes:tinyAttrs];
         }
 
@@ -2390,7 +2398,7 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         const NSPoint heard = view == 0u
             ? NSMakePoint(center.x - directionY * scale,
                 center.y - directionX * scale)
-            : NSMakePoint(center.x + directionX * scale,
+            : NSMakePoint(center.x - directionY * scale,
                 center.y - directionZ * scale);
         [s3g::clap_gui::color(0xe8e8e8) setStroke];
         NSFrameRect(NSMakeRect(heard.x - 3.0, heard.y - 3.0, 6.0, 6.0));
@@ -2472,13 +2480,13 @@ int publishedPatternPresetIndex(const Plugin& plugin)
         queueGuiParamValue(*p, base, x);
         queueGuiParamValue(*p, base + 1u, y);
     } else {
-        const double x = std::clamp(
-            (point.x - NSMidX(field)) / std::max<CGFloat>(1.0, scale),
+        const double y = std::clamp(
+            (NSMidX(field) - point.x) / std::max<CGFloat>(1.0, scale),
             -1.0, 1.0);
         const double z = std::clamp(
             (NSMidY(field) - point.y) / std::max<CGFloat>(1.0, scale),
             -1.0, 1.0);
-        queueGuiParamValue(*p, base, x);
+        queueGuiParamValue(*p, base + 1u, y);
         queueGuiParamValue(*p, base + 2u, z);
     }
     [self markCustomState];

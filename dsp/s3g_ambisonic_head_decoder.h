@@ -97,6 +97,32 @@ inline float ambiHeadOnePoleCoef(float hz, double sampleRate)
     return std::exp(-2.0f * kPi * std::max(1.0f, hz) / static_cast<float>(std::max(1.0, sampleRate)));
 }
 
+// Transform a world-space AED direction into listener-relative space.
+// Yaw is the inverse rotation around +Z; pitch is then a true rotation
+// around the listener-left (+Y) axis. In particular, lateral directions are
+// invariant under pitch instead of being shifted in elevation.
+inline Vec3 ambiHeadListenerRelativeDirection(float azimuthDeg,
+                                               float elevationDeg,
+                                               float yawDeg,
+                                               float pitchDeg)
+{
+    const Vec3 direction = directionFromAed(azimuthDeg, elevationDeg);
+    const float yaw = yawDeg * kPi / 180.0f;
+    const float pitch = pitchDeg * kPi / 180.0f;
+    const float cosYaw = std::cos(yaw);
+    const float sinYaw = std::sin(yaw);
+    const float cosPitch = std::cos(pitch);
+    const float sinPitch = std::sin(pitch);
+
+    const float yawedX = direction.x * cosYaw + direction.y * sinYaw;
+    const float yawedY = -direction.x * sinYaw + direction.y * cosYaw;
+    return normalize({
+        yawedX * cosPitch + direction.z * sinPitch,
+        yawedY,
+        -yawedX * sinPitch + direction.z * cosPitch,
+    });
+}
+
 inline float ambiHeadBasisValue(uint32_t ch, float azDeg, float elDeg)
 {
     const float az = azDeg * kPi / 180.0f;
@@ -264,8 +290,14 @@ private:
 
         for (uint32_t spk = 0; spk < vcount; ++spk) {
             auto pt = virtualPoint(spk);
-            pt.azimuthDeg = ambiStereoWrapSignedDeg(pt.azimuthDeg - params_.yawDeg);
-            pt.elevationDeg = clamp(pt.elevationDeg - params_.pitchDeg, -90.0f, 90.0f);
+            const Vec3 listenerDirection = ambiHeadListenerRelativeDirection(
+                pt.azimuthDeg, pt.elevationDeg,
+                params_.yawDeg, params_.pitchDeg);
+            pt.azimuthDeg = ambiStereoWrapSignedDeg(
+                std::atan2(listenerDirection.y, listenerDirection.x)
+                * 180.0f / kPi);
+            pt.elevationDeg = std::asin(clamp(
+                listenerDirection.z, -1.0f, 1.0f)) * 180.0f / kPi;
 
             float sumsq = 0.0f;
             std::array<float, kAmbiHeadMaxChannels> basis {};

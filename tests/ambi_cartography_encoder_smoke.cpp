@@ -280,6 +280,40 @@ int main()
     s3g::AmbiCartographyEncoder encoder;
     encoder.prepare(kSampleRate);
 
+    // The map editor uses conventional plan axes (+X screen-right,
+    // +Y toward the top/front). The encoder must convert those into the
+    // repository-wide ambisonic frame (+X front, +Y listener-left, +Z up).
+    {
+        s3g::AmbiCartographyEncoder coordinateEncoder;
+        coordinateEncoder.prepare(kSampleRate);
+        configureSingleSite(coordinateEncoder,
+            s3g::AmbiCartographyTimeReference::Relative, 0.0f);
+        coordinateEncoder.reset();
+        (void)renderImpulse(coordinateEncoder, 32u);
+        const auto front = coordinateEncoder.siteDirection(0u);
+
+        auto site = coordinateEncoder.site(0u);
+        site.x = 1.0f;
+        site.y = 0.0f;
+        coordinateEncoder.setSite(0u, site);
+        coordinateEncoder.reset();
+        (void)renderImpulse(coordinateEncoder, 32u);
+        const auto right = coordinateEncoder.siteDirection(0u);
+
+        site.x = 0.0f;
+        site.z = 1.0f;
+        coordinateEncoder.setSite(0u, site);
+        coordinateEncoder.reset();
+        (void)renderImpulse(coordinateEncoder, 32u);
+        const auto up = coordinateEncoder.siteDirection(0u);
+        if (front.x < 0.999f || std::fabs(front.y) > 0.001f
+            || right.y > -0.999f || std::fabs(right.x) > 0.001f
+            || up.z < 0.999f) {
+            std::cerr << "Cartography map-to-ambisonic coordinate conversion failed\n";
+            return 1;
+        }
+    }
+
     configureSingleSite(encoder,
         s3g::AmbiCartographyTimeReference::Absolute, 0.0f);
     encoder.reset();

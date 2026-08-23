@@ -506,7 +506,7 @@ constexpr const auto& kTransformLayout =
 }
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
-    static NSString* labels[] = { @"TOP", @"BACK", @"3/4" };
+    static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
         s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);

@@ -19,6 +19,10 @@ constexpr auto kEnvelope = layout::stackPanel(
     layout::PanelRole::Envelope, kEngine,
     layout::toolboxHeightForRows(4u), 4u);
 constexpr std::array kPanels { kOutput, kEngine, kEnvelope };
+constexpr auto kCombinedOutputSource = layout::fittedPanel(
+    layout::PluginClass::ProceduralEncoder,
+    layout::PanelRole::Output,
+    layout::kLargeEncoderFirstColumn, 42.0, 3u);
 constexpr auto kTopology = layout::makePanel(
     layout::PluginClass::ProceduralEncoder,
     layout::PanelRole::Topology,
@@ -92,6 +96,15 @@ static_assert(layout::rowY(
 static_assert(layout::roleMatchesAnchorIfPresent(
     kSecondColumnPanels, layout::PanelRole::Topology,
     layout::kLargeEncoderTopologyAnchor));
+static_assert(layout::sourceCardinalityRow(
+    layout::SharedControlRole::SourceCardinality) == 0u);
+static_assert(layout::sourceCardinalityControlMatches(
+    kEngine, layout::SharedControlRole::SourceCardinality));
+static_assert(layout::combinedOutputSourceCardinalityRow(
+    layout::SharedControlRole::SourceCardinality) == 2u);
+static_assert(layout::combinedOutputSourceCardinalityControlMatches(
+    kCombinedOutputSource,
+    layout::SharedControlRole::SourceCardinality));
 static_assert(layout::rolesFollowTemplate(
     kSecondColumnPanels, layout::kProceduralEncoderTemplate, false));
 static_assert(layout::topologyRow(

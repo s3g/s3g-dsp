@@ -550,7 +550,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 }
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
-    static NSString* labels[] = { @"TOP", @"BACK", @"3/4" };
+    static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
         s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
@@ -571,8 +571,8 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _viewYawDeg = 0.0;
         _viewPitchDeg = 0.0;
     } else if (mode == 1) {
-        _viewYawDeg = 180.0;
-        _viewPitchDeg = 82.0;
+        _viewYawDeg = 0.0;
+        _viewPitchDeg = 85.0;
     } else {
         _viewYawDeg = 135.0;
         _viewPitchDeg = 42.0;
@@ -621,7 +621,8 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 
     auto project3 = [&](double x, double y, double z, CGFloat radius) -> NSPoint {
         if (_viewMode == 0) return NSMakePoint(cx + x * radius, cy + y * radius);
-        if (_viewMode == 1) return NSMakePoint(cx - x * radius * 0.94, cy - z * radius * 0.94);
+        if (_viewMode == 1) return NSMakePoint(cx + x * radius * 0.94,
+            cy - z * radius * 0.94);
         const double yaw = _viewYawDeg * s3g::kPi / 180.0;
         const double pitch = _viewPitchDeg * s3g::kPi / 180.0;
         const double x1 = x * std::cos(yaw) - y * std::sin(yaw);
@@ -630,11 +631,11 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         return NSMakePoint(cx + x1 * radius, cy + y2 * radius * 0.86);
     };
     auto project = [&](float azDeg, float elDeg, CGFloat radius) -> NSPoint {
-        const float az = (azDeg - p->params.yawDeg) * s3g::kPi / 180.0f;
-        const float el = (elDeg - p->params.pitchDeg) * s3g::kPi / 180.0f;
-        const double x = -std::sin(az) * std::cos(el);
-        const double y = -std::cos(az) * std::cos(el);
-        const double z = std::sin(el);
+        const s3g::Vec3 direction = s3g::ambiHeadListenerRelativeDirection(
+            azDeg, elDeg, p->params.yawDeg, p->params.pitchDeg);
+        const double x = -direction.y;
+        const double y = -direction.x;
+        const double z = direction.z;
         return project3(x, y, z, radius);
     };
 
@@ -689,7 +690,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         [guide moveToPoint:headPoint(-0.14, -0.78)];
         [guide lineToPoint:headPoint(0.14, -0.78)];
     } else {
-        // In back and free 3/4 views the orientation mark remains visually
+        // In side and free 3/4 views the orientation mark remains visually
         // upright: the brow sits above the longer nose/centre stem.
         NSPoint marker = _viewMode == 1
             ? NSMakePoint(cx, cy)
@@ -791,15 +792,11 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
       [NSString stringWithUTF8String:headName(static_cast<uint32_t>(p->params.head))],
       [NSString stringWithUTF8String:directDecode ? "Direct grid" : layoutName(static_cast<uint32_t>(p->params.layout))]]
         drawAtPoint:NSMakePoint(40, 546) withAttributes:small];
-    NSString* cameraName = _viewMode == 0 ? @"TOP"
-        : (_viewMode == 1 ? @"BACK" : @"FREE");
-    const double cameraAz = _viewMode == 0 ? 0.0
-        : (_viewMode == 1 ? 180.0 : _viewYawDeg);
-    const double cameraEl = _viewMode == 0 ? 90.0
-        : (_viewMode == 1 ? 0.0 : _viewPitchDeg);
-    [[NSString stringWithFormat:@"CAM %@  AZ %+.0f°  EL %+.0f°",
-      cameraName, cameraAz, cameraEl]
-        drawAtPoint:NSMakePoint(40, 565) withAttributes:small];
+    NSString* cameraText = _viewMode == 0 ? @"CAM TOP · AED"
+        : (_viewMode == 1 ? @"CAM SIDE · AZ / EL"
+            : [NSString stringWithFormat:@"CAM FREE  AZ %+.0f°  EL %+.0f°",
+                _viewYawDeg, _viewPitchDeg]);
+    [cameraText drawAtPoint:NSMakePoint(40, 565) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 664);
     NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
@@ -976,8 +973,8 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
             _viewYawDeg = 0.0;
             _viewPitchDeg = 0.0;
         } else if (_viewMode == 1) {
-            _viewYawDeg = 180.0;
-            _viewPitchDeg = 82.0;
+            _viewYawDeg = 0.0;
+            _viewPitchDeg = 85.0;
         }
         _dragView = true;
         _lastDragPoint = pt;

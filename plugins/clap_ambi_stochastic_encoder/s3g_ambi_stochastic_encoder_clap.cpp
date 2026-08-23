@@ -372,9 +372,9 @@ struct Plugin {
     std::atomic<float> guiDurationBarrier { 0.0f };
     std::atomic<float> guiGlobalEnergy { 0.0f };
     std::atomic<float> guiGlobalKinetic { 0.0f };
-    int guiViewMode = 2;
-    float guiViewAzDeg = 38.0f;
-    float guiViewElDeg = 32.0f;
+    int guiViewMode = 0;
+    float guiViewAzDeg = 90.0f;
+    float guiViewElDeg = 0.0f;
     float guiViewZoom = 1.0f;
 #endif
 };
@@ -1037,7 +1037,7 @@ struct ParamDef {
 
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 12.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, 64.0, 12.0, true },
     { kModeParamId, "Mode", 0.0, 2.0, 0.0, true },
     { kSelectionParamId, "Selection", 0.0, 5.0, 5.0, true },
     { kTransitionParamId, "Transition", 0.0, 2.0, 0.0, true },
@@ -1624,6 +1624,8 @@ static_assert(layout::roleMatchesAnchorIfPresent(
     layout::kLargeEncoderTopologyAnchor));
 static_assert(layout::topologyControlMatches(
     kTopologyPanel, layout::SharedControlRole::TopologyTwist));
+static_assert(layout::sourceCardinalityControlMatches(kEnginePanel,
+    layout::SharedControlRole::SourceCardinality));
 
 struct GuiSliderSpec {
     clap_id id;
@@ -1636,7 +1638,7 @@ struct GuiSliderSpec {
 
 constexpr std::array<GuiSliderSpec, 33> kGuiSliders {{
     { kOutputParamId, kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), -60.0, 6.0, false },
-    { kVoicesParamId, kEnginePanel.frame.x, layout::rowY(kEnginePanel, 1u), 1.0, 64.0, false },
+    { kVoicesParamId, kEnginePanel.frame.x, layout::rowY(kEnginePanel, 0u), 1.0, 64.0, false },
     { kBaseNoteParamId, kEnginePanel.frame.x, layout::rowY(kEnginePanel, 2u), 12.0, 96.0, false },
     { kSeedSpreadParamId, kEnginePanel.frame.x, layout::rowY(kEnginePanel, 3u), 0.0, 48.0, false },
     { kDetuneParamId, kEnginePanel.frame.x, layout::rowY(kEnginePanel, 4u), 0.0, 100.0, false },
@@ -1815,7 +1817,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _openMenuRect = NSZeroRect;
         _selectedVoice = 0u;
         _fieldPage = 0;
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
@@ -2176,8 +2178,9 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         return NSMakePoint(centerX - point.x * scale, centerY - point.z * scale);
     }
     if (_viewMode == 1) {
-        if (depth) *depth = point.x;
-        return NSMakePoint(centerX - point.z * scale, centerY - point.y * scale);
+        if (depth) *depth = point.z;
+        return NSMakePoint(centerX - point.x * scale,
+            centerY - point.y * scale);
     }
     const float azimuth = static_cast<float>(_viewAzDeg * M_PI / 180.0);
     const float elevation = static_cast<float>(_viewElDeg * M_PI / 180.0);
@@ -2320,30 +2323,29 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 
     const NSPoint bodyCenter = NSMakePoint(field.origin.x + 164.0, field.origin.y + 216.0);
     const CGFloat bodyRadius = 126.0;
-    [s3g::clap_gui::color(0x303030) setStroke];
-    NSBezierPath* body = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-        bodyCenter.x - bodyRadius, bodyCenter.y - bodyRadius,
-        bodyRadius * 2.0, bodyRadius * 2.0)];
-    [body setLineWidth:0.8];
-    [body stroke];
-    [s3g::clap_gui::color(0x242424) setStroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(bodyCenter.x - bodyRadius, bodyCenter.y)
-        toPoint:NSMakePoint(bodyCenter.x + bodyRadius, bodyCenter.y)];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(bodyCenter.x, bodyCenter.y - bodyRadius)
-        toPoint:NSMakePoint(bodyCenter.x, bodyCenter.y + bodyRadius)];
-
-    const float cameraAz = 38.0f * s3g::kPi / 180.0f;
-    const float cameraEl = 32.0f * s3g::kPi / 180.0f;
+    const float cameraAz = static_cast<float>(_viewAzDeg * s3g::kPi / 180.0);
+    const float cameraEl = static_cast<float>(_viewElDeg * s3g::kPi / 180.0);
     auto projectDirection = [&](s3g::Vec3 direction) {
         const float x1 = std::cos(cameraAz) * direction.x
             - std::sin(cameraAz) * direction.y;
         const float y1 = std::sin(cameraAz) * direction.x
             + std::cos(cameraAz) * direction.y;
         const float y2 = std::cos(cameraEl) * y1
-            - std::sin(cameraEl) * direction.z;
+            + std::sin(cameraEl) * direction.z;
         return NSMakePoint(bodyCenter.x + x1 * bodyRadius,
             bodyCenter.y - y2 * bodyRadius);
     };
+    [s3g::clap_gui::color(0x303030) setStroke];
+    NSBezierPath* body = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        bodyCenter.x - bodyRadius, bodyCenter.y - bodyRadius,
+        bodyRadius * 2.0, bodyRadius * 2.0)];
+    [body setLineWidth:0.8];
+    [body stroke];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return projectDirection({ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) });
+        });
 
     const auto& directions = s3g::ambiFieldListenerCubeDirections();
     std::array<NSPoint, pickupCount> ears {};
@@ -2915,8 +2917,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", params.order] panelX:kOutputPanel.frame.x y:layout::rowY(kOutputPanel, layout::kLargeEncoderOrderSlot.row) attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(kEnginePanel, style);
-    s3g::clap_gui::drawPanelHeader(@"ENGINE", true, kEnginePanel, attrs, style);
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiStochasticModeName(params.mode)] panelX:kEnginePanel.frame.x y:layout::rowY(kEnginePanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / ENGINE", true, kEnginePanel, attrs, style);
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiStochasticModeName(params.mode)] panelX:kEnginePanel.frame.x y:layout::rowY(kEnginePanel, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:params.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BASE" param:kBaseNoteParamId value:params.baseNote attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SPREAD" param:kSeedSpreadParamId value:params.seedSpreadSemitones attrs:attrs valueAttrs:valueAttrs style:style];
@@ -3199,7 +3201,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)menuBoxRect:(int)menu
 {
     switch (menu) {
-    case 1: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEnginePanel, 0u));
+    case 1: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEnginePanel, 1u));
     case 2: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
         kOutputPanel, layout::kLargeEncoderOrderSlot.row));
     case 3: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kSelectionPanel, 0u));
@@ -3467,7 +3469,11 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(point, [self fieldRect])) return;
+        if (NSPointInRect(point, [self fieldRect])) {
+            _dragView = YES;
+            _lastDragPoint = point;
+            return;
+        }
     } else {
         for (int index = 0; index < 2; ++index) {
             if (NSPointInRect(point, [self zoomButtonRect:index])) {

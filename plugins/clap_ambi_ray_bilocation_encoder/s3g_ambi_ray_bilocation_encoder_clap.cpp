@@ -1547,7 +1547,7 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         membranePanel.size.width, 21, labelAttrs, style);
     s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y,
         outputPanel.size.width, outputPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / FIELD", true,
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / ROOM FIELD", true,
         outputPanel.origin.x, outputPanel.origin.y,
         outputPanel.size.width, 21, labelAttrs, style);
     for (const auto& layout : sliderLayouts()) {

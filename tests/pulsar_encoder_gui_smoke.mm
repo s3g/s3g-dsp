@@ -128,29 +128,52 @@ int main(int argc, char** argv)
         clap_istream_t inputState { &savedState, stateRead };
         ok = ok && state->load(plugin, &inputState)
             && savedState.readOffset == savedState.bytes.size();
-        // Version 9 appended the four-byte response law. Reconstruct a version-8
-        // stream and verify that it upgrades to CLASSIC before also checking the
-        // version-7 stream with the complete 40-byte listening suffix removed.
+        // Version 10 appended custom camera angles. First reconstruct version 9,
+        // then use its legacy tail to verify the version-8 response-law and
+        // version-7 listening-state upgrade paths.
         constexpr size_t kStateHeaderSize = sizeof(uint32_t);
-        constexpr size_t kStateTailSize = sizeof(uint32_t) + sizeof(int32_t)
+        constexpr size_t kLegacyStateTailSize = sizeof(uint32_t) + sizeof(int32_t)
             + sizeof(float) + 64u;
+        constexpr size_t kCameraStateSize = 2u * sizeof(float);
+        constexpr size_t kCurrentStateTailSize = kLegacyStateTailSize
+            + kCameraStateSize;
         constexpr size_t kResponseSuffixSize =
             sizeof(s3g::AmbiPulsarListenerResponse);
         constexpr size_t kListeningSuffixSize = sizeof(s3g::AmbiPulsarListeningParams);
-        if (ok && savedState.bytes.size() > kStateHeaderSize + kStateTailSize + kListeningSuffixSize) {
-            const size_t paramsSize = savedState.bytes.size() - kStateHeaderSize - kStateTailSize;
+        if (ok && savedState.bytes.size() > kStateHeaderSize
+                + kCurrentStateTailSize + kListeningSuffixSize) {
+            const size_t paramsSize = savedState.bytes.size()
+                - kStateHeaderSize - kCurrentStateTailSize;
+            const size_t legacyTailStart = kStateHeaderSize + paramsSize;
+            const size_t cameraStart = legacyTailStart + sizeof(uint32_t)
+                + sizeof(int32_t) + sizeof(float);
+            MemoryState version9State;
+            const uint32_t version9 = 9u;
+            const auto* version9Bytes = reinterpret_cast<const uint8_t*>(&version9);
+            version9State.bytes.insert(version9State.bytes.end(), version9Bytes,
+                version9Bytes + sizeof(version9));
+            version9State.bytes.insert(version9State.bytes.end(),
+                savedState.bytes.begin() + kStateHeaderSize,
+                savedState.bytes.begin() + cameraStart);
+            version9State.bytes.insert(version9State.bytes.end(),
+                savedState.bytes.begin() + cameraStart + kCameraStateSize,
+                savedState.bytes.end());
+            clap_istream_t version9Input { &version9State, stateRead };
+            ok = state->load(plugin, &version9Input)
+                && version9State.readOffset == version9State.bytes.size();
+
             MemoryState version8State;
             const uint32_t version8 = 8u;
             const auto* version8Bytes = reinterpret_cast<const uint8_t*>(&version8);
             version8State.bytes.insert(version8State.bytes.end(), version8Bytes,
                 version8Bytes + sizeof(version8));
             version8State.bytes.insert(version8State.bytes.end(),
-                savedState.bytes.begin() + kStateHeaderSize,
-                savedState.bytes.begin() + kStateHeaderSize
+                version9State.bytes.begin() + kStateHeaderSize,
+                version9State.bytes.begin() + kStateHeaderSize
                     + paramsSize - kResponseSuffixSize);
             version8State.bytes.insert(version8State.bytes.end(),
-                savedState.bytes.begin() + kStateHeaderSize + paramsSize,
-                savedState.bytes.end());
+                version9State.bytes.begin() + kStateHeaderSize + paramsSize,
+                version9State.bytes.end());
             clap_istream_t version8Input { &version8State, stateRead };
             ok = state->load(plugin, &version8Input)
                 && version8State.readOffset == version8State.bytes.size()
@@ -163,11 +186,12 @@ int main(int argc, char** argv)
             legacyState.bytes.insert(legacyState.bytes.end(), versionBytes,
                 versionBytes + sizeof(version7));
             legacyState.bytes.insert(legacyState.bytes.end(),
-                savedState.bytes.begin() + kStateHeaderSize,
-                savedState.bytes.begin() + kStateHeaderSize + paramsSize - kListeningSuffixSize);
+                version9State.bytes.begin() + kStateHeaderSize,
+                version9State.bytes.begin() + kStateHeaderSize
+                    + paramsSize - kListeningSuffixSize);
             legacyState.bytes.insert(legacyState.bytes.end(),
-                savedState.bytes.begin() + kStateHeaderSize + paramsSize,
-                savedState.bytes.end());
+                version9State.bytes.begin() + kStateHeaderSize + paramsSize,
+                version9State.bytes.end());
             clap_istream_t legacyInput { &legacyState, stateRead };
             ok = state->load(plugin, &legacyInput)
                 && legacyState.readOffset == legacyState.bytes.size()

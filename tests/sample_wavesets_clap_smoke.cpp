@@ -224,6 +224,16 @@ float maximumMagnitude(const std::vector<float>& samples)
     return maximum;
 }
 
+float maximumMagnitude(const std::vector<float>& samples,
+    std::size_t first)
+{
+    float maximum = 0.0f;
+    for (std::size_t index = std::min(first, samples.size());
+         index < samples.size(); ++index)
+        maximum = std::max(maximum, std::abs(samples[index]));
+    return maximum;
+}
+
 float channelDifference(const std::vector<float>& left,
     const std::vector<float>& right)
 {
@@ -538,7 +548,8 @@ int main(int argc, char** argv)
     monoSecond.note(0u, CLAP_EVENT_NOTE_ON, 0, 64, 1.0, 102);
     ok = ok && processMultichannelBlock(multichannel, 256u,
             &monoSecond.interface, multichannelAudio)
-        && maximumMagnitude(multichannelAudio[0u]) < 1.0e-7f
+        && maximumMagnitude(multichannelAudio[0u]) > 0.001f
+        && maximumMagnitude(multichannelAudio[0u], 160u) < 1.0e-7f
         && maximumMagnitude(multichannelAudio[1u]) > 0.01f
         && maximumMagnitude(multichannelAudio[2u]) < 1.0e-7f
         && maximumMagnitude(multichannelAudio[8u]) < 1.0e-7f;
@@ -564,7 +575,8 @@ int main(int argc, char** argv)
         && maximumMagnitude(multichannelAudio[4u]) > 0.01f
         && channelDifference(multichannelAudio[0u], multichannelAudio[4u])
             > 0.1f
-        && maximumMagnitude(multichannelAudio[1u]) < 1.0e-7f;
+        && maximumMagnitude(multichannelAudio[1u]) > 0.001f
+        && maximumMagnitude(multichannelAudio[1u], 160u) < 1.0e-7f;
     if (multichannel) {
         multichannel->stop_processing(multichannel);
         multichannel->deactivate(multichannel);

@@ -682,7 +682,7 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kPointsParamId, "Points", 1.0, 64.0, 16.0, true },
+    { kPointsParamId, "Input Count", 1.0, 64.0, 16.0, true },
     { kAzimuthParamId, "Azimuth", -180.0, 180.0, 0.0, false },
     { kElevationParamId, "Elevation", -90.0, 90.0, 0.0, false },
     { kDistanceParamId, "Distance", 0.15, 3.0, 1.0, false },
@@ -929,6 +929,18 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
+constexpr auto kOutputSourcePanel = s3g::gui_layout::fittedPanel(
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    { 630.0, 250.0, 42.0 }, 42.0, 3u);
+static_assert(s3g::gui_layout::combinedOutputSourceCardinalityControlMatches(
+    kOutputSourcePanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kInputCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kOutputSourcePanel,
+        s3g::gui_layout::combinedOutputSourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
+
 NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 {
     static constexpr int kPalette[] {
@@ -1091,7 +1103,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     static constexpr CGFloat starts[] { 638.0, 682.0, 730.0, 774.0, 822.0 };
     static constexpr CGFloat widths[] { 40.0, 44.0, 40.0, 44.0, 42.0 };
     const int safe = std::clamp(index, 0, 4);
-    return NSMakeRect(starts[safe], 137.0, widths[safe], 16.0);
+    return NSMakeRect(starts[safe], 163.0, widths[safe], 16.0);
 }
 
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1111,7 +1123,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)drawPathTabsWithAttrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"PATH", @"FORM", @"SKIN", @"WARP", @"READ" };
-    const NSRect tabHeader = NSMakeRect(630, 134, 250, 21);
+    const NSRect tabHeader = NSMakeRect(630, 160, 250, 21);
     for (int index = 0; index < 5; ++index)
         s3g::clap_gui::drawHeaderButton([self pathTabRect:index], tabHeader, labels[index], index == _surfacePage, attrs, style);
 }
@@ -1282,11 +1294,11 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     switch (menu) {
     case 1: return 104.0;
     case 2: return 222.0;
-    case 3: return 170.0;
-    case 4: return 366.0;
-    case 5: return 392.0;
-    case 6: return 170.0;
-    case 7: return 170.0;
+    case 3: return 196.0;
+    case 4: return 392.0;
+    case 5: return 418.0;
+    case 6: return 196.0;
+    case 7: return 196.0;
     default: return 0.0;
     }
 }
@@ -1371,66 +1383,66 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     [self drawZoomButtonsInRect:fieldPanel attrs:valueAttrs style:style];
     [self drawField:[self fieldRect] attrs:valueAttrs style:style];
     constexpr CGFloat outputPanelHeight = static_cast<CGFloat>(
-        s3g::gui_layout::toolboxHeightForRows(2u));
+        s3g::gui_layout::toolboxHeightForRows(3u));
     constexpr CGFloat surfacePanelHeight = static_cast<CGFloat>(
         s3g::gui_layout::toolboxHeightForRows(6u));
     constexpr CGFloat motionPanelHeight = static_cast<CGFloat>(
         s3g::gui_layout::toolboxHeightForRows(13u));
     s3g::clap_gui::drawPanelFrame(630, 42, 250, outputPanelHeight, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / INPUT", true, 630, 42, 250, 21, labelAttrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId y:78 attrs:labelAttrs style:style];
     [self drawMenu:@"ORDER" param:kOrderParamId y:104 attrs:labelAttrs style:style];
-    s3g::clap_gui::drawPanelFrame(630, 134, 250, surfacePanelHeight, style);
-    s3g::clap_gui::drawPanelHeader(@"", true, 630, 134, 250, 21, labelAttrs, style);
+    [self drawSlider:@"INPUTS" param:kPointsParamId y:kInputCountRowY attrs:labelAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 160, 250, surfacePanelHeight, style);
+    s3g::clap_gui::drawPanelHeader(@"", true, 630, 160, 250, 21, labelAttrs, style);
     [self drawPathTabsWithAttrs:valueAttrs style:style];
-    s3g::clap_gui::drawPanelFrame(630, 330, 250, motionPanelHeight, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 330, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 356, 250, motionPanelHeight, style);
+    s3g::clap_gui::drawPanelHeader(@"PLAYBACK / MOTION", true, 630, 356, 250, 21, labelAttrs, style);
     if (_surfacePage == 0) {
-        [self drawSlider:@"INPUTS" param:kPointsParamId y:170 attrs:labelAttrs style:style];
         [self drawSlider:@"SOURCE" param:kSelectedSourceParamId y:196 attrs:labelAttrs style:style];
         [self drawMenu:@"TRACE" param:kOrbitParamId y:222 attrs:labelAttrs style:style];
         [self drawSlider:@"AZIM" param:kAzimuthParamId y:248 attrs:labelAttrs style:style];
         [self drawSlider:@"ELEV" param:kElevationParamId y:274 attrs:labelAttrs style:style];
         [self drawSlider:@"TRAVERSE" param:kTraversalParamId y:300 attrs:labelAttrs style:style];
     } else if (_surfacePage == 1) {
-        [self drawMenu:@"FORM" param:kTerrainFormParamId y:170 attrs:labelAttrs style:style];
-        [self drawSlider:@"FACET" param:kTerrainFacetParamId y:196 attrs:labelAttrs style:style];
-        [self drawSlider:@"BEVEL" param:kTerrainBevelParamId y:222 attrs:labelAttrs style:style];
-        [self drawSlider:@"ORIENT" param:kTerrainOrientationParamId y:248 attrs:labelAttrs style:style];
+        [self drawMenu:@"FORM" param:kTerrainFormParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"FACET" param:kTerrainFacetParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"BEVEL" param:kTerrainBevelParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"ORIENT" param:kTerrainOrientationParamId y:274 attrs:labelAttrs style:style];
     } else if (_surfacePage == 2) {
-        [self drawMenu:@"SKIN" param:kPaletteParamId y:170 attrs:labelAttrs style:style];
-        [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:196 attrs:labelAttrs style:style];
-        [self drawSlider:@"ROUGH" param:kTerrainRoughnessParamId y:222 attrs:labelAttrs style:style];
-        [self drawSlider:@"FOLD" param:kFoldParamId y:248 attrs:labelAttrs style:style];
-        [self drawSlider:@"RELIEF" param:kTerrainReliefParamId y:274 attrs:labelAttrs style:style];
+        [self drawMenu:@"SKIN" param:kPaletteParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"ROUGH" param:kTerrainRoughnessParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"FOLD" param:kFoldParamId y:274 attrs:labelAttrs style:style];
+        [self drawSlider:@"RELIEF" param:kTerrainReliefParamId y:300 attrs:labelAttrs style:style];
     } else if (_surfacePage == 3) {
-        [self drawSlider:@"TERRACE" param:kTerrainTerraceParamId y:170 attrs:labelAttrs style:style];
-        [self drawSlider:@"STEPS" param:kTerrainTerraceStepsParamId y:196 attrs:labelAttrs style:style];
-        [self drawSlider:@"RIDGE" param:kTerrainRidgeParamId y:222 attrs:labelAttrs style:style];
-        [self drawSlider:@"ERODE" param:kTerrainErosionParamId y:248 attrs:labelAttrs style:style];
-        [self drawSlider:@"DOMAIN" param:kTerrainDomainWarpParamId y:274 attrs:labelAttrs style:style];
-        [self drawSlider:@"TWIST" param:kTerrainTwistParamId y:300 attrs:labelAttrs style:style];
+        [self drawSlider:@"TERRACE" param:kTerrainTerraceParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"STEPS" param:kTerrainTerraceStepsParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"RIDGE" param:kTerrainRidgeParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"ERODE" param:kTerrainErosionParamId y:274 attrs:labelAttrs style:style];
+        [self drawSlider:@"DOMAIN" param:kTerrainDomainWarpParamId y:300 attrs:labelAttrs style:style];
+        [self drawSlider:@"TWIST" param:kTerrainTwistParamId y:326 attrs:labelAttrs style:style];
     } else {
-        [self drawMenu:@"READ" param:kTerrainReadParamId y:170 attrs:labelAttrs style:style];
-        [self drawSlider:@"MIX" param:kTerrainReadMixParamId y:196 attrs:labelAttrs style:style];
-        [self drawSlider:@"AZ WARP" param:kAzimuthWarpParamId y:222 attrs:labelAttrs style:style];
-        [self drawSlider:@"EL WARP" param:kElevationWarpParamId y:248 attrs:labelAttrs style:style];
-        [self drawSlider:@"DIST WARP" param:kDistanceWarpParamId y:274 attrs:labelAttrs style:style];
+        [self drawMenu:@"READ" param:kTerrainReadParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"MIX" param:kTerrainReadMixParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"AZ WARP" param:kAzimuthWarpParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"EL WARP" param:kElevationWarpParamId y:274 attrs:labelAttrs style:style];
+        [self drawSlider:@"DIST WARP" param:kDistanceWarpParamId y:300 attrs:labelAttrs style:style];
     }
 
-    [self drawMenu:@"PLAY" param:kPlaybackParamId y:366 attrs:labelAttrs style:style];
-    [self drawMenu:@"SYNC" param:kSyncParamId y:392 attrs:labelAttrs style:style];
-    [self drawSlider:@"DIV" param:kDivisionParamId y:418 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE SP" param:kRateSpreadParamId y:444 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE DEV" param:kRateDeviationParamId y:470 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE" param:kRateParamId y:496 attrs:labelAttrs style:style];
-    [self drawSlider:@"PHASE" param:kPhaseParamId y:522 attrs:labelAttrs style:style];
-    [self drawSlider:@"PH SPREAD" param:kPhaseSpreadParamId y:548 attrs:labelAttrs style:style];
-    [self drawSlider:@"SMOOTH" param:kSmoothingParamId y:574 attrs:labelAttrs style:style];
-    [self drawSlider:@"EASE" param:kEaseParamId y:600 attrs:labelAttrs style:style];
-    [self drawSlider:@"DIST" param:kDistanceScaleParamId y:626 attrs:labelAttrs style:style];
-    [self drawSlider:@"DOPPLER" param:kDopplerParamId y:652 attrs:labelAttrs style:style];
-    [self drawSlider:@"AIR" param:kAirParamId y:678 attrs:labelAttrs style:style];
+    [self drawMenu:@"PLAY" param:kPlaybackParamId y:392 attrs:labelAttrs style:style];
+    [self drawMenu:@"SYNC" param:kSyncParamId y:418 attrs:labelAttrs style:style];
+    [self drawSlider:@"DIV" param:kDivisionParamId y:444 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE SP" param:kRateSpreadParamId y:470 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE DEV" param:kRateDeviationParamId y:496 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE" param:kRateParamId y:522 attrs:labelAttrs style:style];
+    [self drawSlider:@"PHASE" param:kPhaseParamId y:548 attrs:labelAttrs style:style];
+    [self drawSlider:@"PH SPREAD" param:kPhaseSpreadParamId y:574 attrs:labelAttrs style:style];
+    [self drawSlider:@"SMOOTH" param:kSmoothingParamId y:600 attrs:labelAttrs style:style];
+    [self drawSlider:@"EASE" param:kEaseParamId y:626 attrs:labelAttrs style:style];
+    [self drawSlider:@"DIST" param:kDistanceScaleParamId y:652 attrs:labelAttrs style:style];
+    [self drawSlider:@"DOPPLER" param:kDopplerParamId y:678 attrs:labelAttrs style:style];
+    [self drawSlider:@"AIR" param:kAirParamId y:704 attrs:labelAttrs style:style];
     [self drawOpenMenu:labelAttrs style:style];
 }
 
@@ -1438,33 +1450,34 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 {
     struct Row { clap_id id; CGFloat y; };
     static constexpr Row pathRows[] {
-        { kPointsParamId, 170 }, { kSelectedSourceParamId, 196 },
+        { kSelectedSourceParamId, 196 },
         { kAzimuthParamId, 248 }, { kElevationParamId, 274 }, { kTraversalParamId, 300 },
     };
     static constexpr Row formRows[] {
-        { kTerrainFacetParamId, 196 }, { kTerrainBevelParamId, 222 },
-        { kTerrainOrientationParamId, 248 },
+        { kTerrainFacetParamId, 222 }, { kTerrainBevelParamId, 248 },
+        { kTerrainOrientationParamId, 274 },
     };
     static constexpr Row skinRows[] {
-        { kTerrainDepthParamId, 196 }, { kTerrainRoughnessParamId, 222 },
-        { kFoldParamId, 248 }, { kTerrainReliefParamId, 274 },
+        { kTerrainDepthParamId, 222 }, { kTerrainRoughnessParamId, 248 },
+        { kFoldParamId, 274 }, { kTerrainReliefParamId, 300 },
     };
     static constexpr Row warpRows[] {
-        { kTerrainTerraceParamId, 170 }, { kTerrainTerraceStepsParamId, 196 },
-        { kTerrainRidgeParamId, 222 }, { kTerrainErosionParamId, 248 },
-        { kTerrainDomainWarpParamId, 274 }, { kTerrainTwistParamId, 300 },
+        { kTerrainTerraceParamId, 196 }, { kTerrainTerraceStepsParamId, 222 },
+        { kTerrainRidgeParamId, 248 }, { kTerrainErosionParamId, 274 },
+        { kTerrainDomainWarpParamId, 300 }, { kTerrainTwistParamId, 326 },
     };
     static constexpr Row readRows[] {
-        { kTerrainReadMixParamId, 196 }, { kAzimuthWarpParamId, 222 },
-        { kElevationWarpParamId, 248 }, { kDistanceWarpParamId, 274 },
+        { kTerrainReadMixParamId, 222 }, { kAzimuthWarpParamId, 248 },
+        { kElevationWarpParamId, 274 }, { kDistanceWarpParamId, 300 },
     };
     static constexpr Row motionRows[] {
-        { kDivisionParamId, 418 }, { kRateSpreadParamId, 444 }, { kRateDeviationParamId, 470 },
-        { kRateParamId, 496 }, { kPhaseParamId, 522 },
-        { kPhaseSpreadParamId, 548 }, { kSmoothingParamId, 574 }, { kEaseParamId, 600 },
-        { kDistanceScaleParamId, 626 }, { kDopplerParamId, 652 }, { kAirParamId, 678 },
+        { kDivisionParamId, 444 }, { kRateSpreadParamId, 470 }, { kRateDeviationParamId, 496 },
+        { kRateParamId, 522 }, { kPhaseParamId, 548 },
+        { kPhaseSpreadParamId, 574 }, { kSmoothingParamId, 600 }, { kEaseParamId, 626 },
+        { kDistanceScaleParamId, 652 }, { kDopplerParamId, 678 }, { kAirParamId, 704 },
     };
     if ([self point:pt isInControlRowAtY:78.0]) return kOutputParamId;
+    if ([self point:pt isInControlRowAtY:kInputCountRowY]) return kPointsParamId;
     if (_surfacePage == 0) {
         for (const auto& row : pathRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
     } else if (_surfacePage == 1) {

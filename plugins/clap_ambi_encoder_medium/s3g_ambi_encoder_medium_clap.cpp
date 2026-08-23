@@ -421,10 +421,10 @@ struct Plugin {
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
     uint32_t guiMeterCountdown = 0u;
-    int guiViewMode = 2;
+    int guiViewMode = 0;
     int guiExcitationPage = 0;
     float guiViewAzDeg = 35.0f;
-    float guiViewElDeg = 34.0f;
+    float guiViewElDeg = -34.0f;
     float guiViewZoom = 1.0f;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
@@ -2358,10 +2358,17 @@ void drawControlRow(Plugin& p, clap_id id, NSString* shortName,
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
         auto* p = static_cast<Plugin*>(plugin);
-        _viewMode = p ? p->guiViewMode : 2;
+        _viewMode = p ? p->guiViewMode : 0;
         _viewAzDeg = p ? p->guiViewAzDeg : 35.0;
-        _viewElDeg = p ? p->guiViewElDeg : 34.0;
+        _viewElDeg = p ? p->guiViewElDeg : -34.0;
         _viewZoom = p ? p->guiViewZoom : 1.0;
+        if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+        else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = -90.0; }
+        else if (_viewMode == 2) { _viewAzDeg = 35.0; _viewElDeg = -34.0; }
+        if (p && _viewMode >= 0 && _viewMode <= 2) {
+            p->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+            p->guiViewElDeg = static_cast<float>(_viewElDeg);
+        }
         _excitationPage = p ? p->guiExcitationPage : 0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
@@ -2402,10 +2409,10 @@ void drawControlRow(Plugin& p, clap_id id, NSString* shortName,
         _viewElDeg = 0.0;
     } else if (_viewMode == 1) {
         _viewAzDeg = 90.0;
-        _viewElDeg = 90.0;
+        _viewElDeg = -90.0;
     } else {
         _viewAzDeg = 35.0;
-        _viewElDeg = 34.0;
+        _viewElDeg = -34.0;
     }
     [self storeViewState];
     [self setNeedsDisplay:YES];

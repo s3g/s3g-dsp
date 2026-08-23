@@ -226,7 +226,7 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
-    int guiViewMode = 2;
+    int guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -2101,7 +2101,7 @@ struct ParamDef { clap_id id; const char* name; double min; double max; double d
 constexpr ParamDef kParams[] {
     { kPresetParamId, "Preset", 0.0, static_cast<double>(s3g::kAmbiWranglerFactoryPresetCount - 1u), 0.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 16.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, 64.0, 16.0, true },
     { kCircuitLawParamId, "Circuit Law", 0.0, 1.0, 0.0, true },
     { kRateAParamId, "Rate A", 0.0, 1.0, 0.28, false },
     { kRateBParamId, "Rate B", 0.0, 1.0, 0.34, false },
@@ -2739,6 +2739,8 @@ static_assert(layout::roleMatchesAnchorIfPresent(
     layout::kLargeEncoderTopologyAnchor));
 static_assert(layout::topologyControlMatches(
     kTopologyPanel, layout::SharedControlRole::TopologyCollapse));
+static_assert(layout::sourceCardinalityControlMatches(kOscillatorPanel,
+    layout::SharedControlRole::SourceCardinality));
 
 struct GuiSliderSpec {
     clap_id id;
@@ -2751,7 +2753,7 @@ struct GuiSliderSpec {
 
 constexpr GuiSliderSpec kGuiSliders[] {
     { kOutputParamId, kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), -60.0, 12.0, false },
-    { kVoicesParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 2u), 1.0, 64.0, false },
+    { kVoicesParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 0u), 1.0, 64.0, false },
     { kRateAParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 3u), 0.0, 1.0, false },
     { kRateBParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 4u), 0.0, 1.0, false },
     { kSpreadParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 5u), 0.0, 1.0, false },
@@ -2911,10 +2913,17 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         _dragParam = 0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
+        if (_viewMode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
+        else if (_viewMode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
+        else if (_viewMode == 2) { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
+        if (plugin && _viewMode >= 0 && _viewMode <= 2) {
+            plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+            plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
+        }
         _fieldPage = 0;
         _curveBank = 0;
         _selectedCurveDimension = 0u;
@@ -3318,8 +3327,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = z2;
     return NSMakePoint(centerX + x1 * scale, centerY - y2 * scale);
 }
@@ -3333,11 +3342,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzDeg = 0.0;
+        _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
     } else if (mode == 1) {
-        _viewAzDeg = 0.0;
-        _viewElDeg = -90.0;
+        _viewAzDeg = 90.0;
+        _viewElDeg = 90.0;
     } else {
         _viewAzDeg = 38.0;
         _viewElDeg = 32.0;
@@ -3775,7 +3784,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         const float y1 = std::sin(cameraAz) * direction.x
             + std::cos(cameraAz) * direction.y;
         const float y2 = std::cos(cameraEl) * y1
-            - std::sin(cameraEl) * direction.z;
+            + std::sin(cameraEl) * direction.z;
         ears[ear] = NSMakePoint(center.x + x1 * radius, center.y - y2 * radius);
     }
 
@@ -4121,9 +4130,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(field) - radius, NSMidY(field) - radius, radius * 2.0, radius * 2.0)];
     [sphere setLineWidth:0.8];
     [sphere stroke];
-    [s3g::clap_gui::color(0x242424) setStroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18, NSMidY(field)) toPoint:NSMakePoint(NSMaxX(field) - 18, NSMidY(field))];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorld:{ static_cast<float>(x),
+                static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
+        });
 
     const uint32_t voices = std::clamp<uint32_t>(
         _surfaceEdit ? _paramsSnapshot.voices
@@ -4233,7 +4244,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:kOutputPanel.frame.x y:layout::rowY(kOutputPanel, layout::kLargeEncoderOrderSlot.row) attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(kOscillatorPanel, style);
-    s3g::clap_gui::drawPanelHeader(@"OSCILLATORS", true, kOscillatorPanel, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / OSCILLATORS", true, kOscillatorPanel, attrs, style);
     s3g::clap_gui::drawHeaderButton([self circuitLawButtonRect],
         s3g::clap_gui::cocoaRect(kOscillatorPanel.frame),
         p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded
@@ -4241,8 +4252,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded,
         attrs, style);
     static constexpr const char* kRateRangeNames[] = { "LOW", "SINGLE", "DOUBLE" };
-    [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 2u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE A" param:kRateAParamId value:p.rateA attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE B" param:kRateBParamId value:p.rateB attrs:attrs valueAttrs:valueAttrs style:style];
@@ -4316,8 +4327,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     switch (menu) {
     case 1: return [self presetMenuRect];
-    case 2: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 0u));
-    case 3: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 1u));
+    case 2: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 1u));
+    case 3: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 2u));
     case 4: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
         kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyShape)));
     case 5: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(

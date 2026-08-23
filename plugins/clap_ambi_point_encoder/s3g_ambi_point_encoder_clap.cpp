@@ -187,9 +187,9 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
-    int guiViewMode = 2;
-    double guiViewAzDeg = -35.0;
-    double guiViewElDeg = 34.0;
+    int guiViewMode = 0;
+    double guiViewAzDeg = 90.0;
+    double guiViewElDeg = 0.0;
     double guiViewZoom = 1.0;
 #endif
 };
@@ -765,7 +765,7 @@ constexpr ParamDef kParamDefs[] {
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0 },
     { kAirParamId, "Air", 0.0, 1.0, 0.0 },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0 },
-    { kActivePointsParamId, "Active Points", 1.0, 64.0, 16.0 },
+    { kActivePointsParamId, "Input Count", 1.0, 64.0, 16.0 },
 };
 
 constexpr uint32_t kBaseParamCount = static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0]));
@@ -1060,6 +1060,18 @@ constexpr CGFloat kToolboxTrackWidth =
     s3g::gui_layout::kStandardMetrics.trackWidth;
 constexpr CGFloat kToolboxMenuWidth =
     s3g::gui_layout::kStandardMetrics.menuWidth;
+constexpr s3g::gui_layout::Panel kOutputPointPanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    { kToolboxX, 42.0, kToolboxWidth, 248.0 }, 36.0, 25.0, 9u,
+};
+static_assert(s3g::gui_layout::combinedOutputSourceCardinalityControlMatches(
+    kOutputPointPanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kInputCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kOutputPointPanel,
+        s3g::gui_layout::combinedOutputSourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
 NSRect pointPrimaryPanelRect()
 {
     return NSMakeRect(18.0, 42.0, 596.0, 656.0);
@@ -1108,6 +1120,7 @@ NSRect pointPrimaryPanelRect()
 - (NSRect)mixerBankButtonRect:(uint32_t)index inRect:(NSRect)rect;
 - (void)setViewPreset:(int)mode;
 - (CGFloat)viewScaleForRect:(NSRect)rect;
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)p rect:(NSRect)rect depth:(CGFloat*)depth;
 - (NSPoint)projectDirection:(s3g::Vec3)dir distance:(float)distance rect:(NSRect)rect depth:(CGFloat*)depth;
 - (int)hitPointAt:(NSPoint)pt inRect:(NSRect)rect;
@@ -1166,7 +1179,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _dragMixerOutput = NO;
         _timer = nil;
         auto* p = static_cast<Plugin*>(plugin);
-        _viewMode = p ? p->guiViewMode : 2;
+        _viewMode = p ? p->guiViewMode : 0;
         _leftPage = 0;
         _mixerBank = p ? p->params.selectedPoint / kMixerBankSize : 0u;
         _viewAzDeg = p ? p->guiViewAzDeg : -35.0;
@@ -1389,10 +1402,17 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const float se = std::sin(el);
     const float x1 = ca * p.x - sa * p.y;
     const float y1 = sa * p.x + ca * p.y;
-    const float y2 = ce * y1 - se * p.z;
-    const float z2 = se * y1 + ce * p.z;
+    const float y2 = ce * y1 + se * p.z;
+    const float z2 = -se * y1 + ce * p.z;
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(cx + static_cast<CGFloat>(x1) * scale, cy - static_cast<CGFloat>(y2) * scale);
+}
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    CGFloat depth = 0.0;
+    return [self projectWorldPoint:{
+        static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)
+    } rect:[self pointFieldPlotRect:pointPrimaryPanelRect()] depth:&depth];
 }
 - (NSPoint)projectDirection:(s3g::Vec3)dir distance:(float)distance rect:(NSRect)rect depth:(CGFloat*)depth
 {
@@ -1450,8 +1470,17 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [ring fill];
     [c(0x454545) setStroke];
     [ring stroke];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(cx - scale, cy) toPoint:NSMakePoint(cx + scale, cy)];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(cx, cy - scale) toPoint:NSMakePoint(cx, cy + scale)];
+
+    // These guides share the point camera, so the zero-elevation plane and
+    // elevation axis remain spatially truthful in TOP, SIDE, and 3/4.
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorldPoint:{
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(z)
+            } rect:rect depth:nullptr];
+        });
 
     std::array<uint32_t, kPointCount> order {};
     std::array<CGFloat, kPointCount> depths {};
@@ -1833,15 +1862,15 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     }
 
     s3g::clap_gui::drawPanelFrame(kToolboxX, 42, kToolboxWidth, 248, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / POINT", true, kToolboxX, 42, kToolboxWidth, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / INPUT", true, kToolboxX, 42, kToolboxWidth, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(kToolboxX, 302, kToolboxWidth, 406, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, kToolboxX, 302, kToolboxWidth, 21, lab, style);
 
     const auto prm = p->params;
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 72.0f y:78 attrs:small small:small];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:103 attrs:small small:small];
-    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:128 attrs:small small:small];
-    [self drawSlider:@"POINTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:153 attrs:small small:small];
+    [self drawSlider:@"INPUTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:kInputCountRowY attrs:small small:small];
+    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:153 attrs:small small:small];
     [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:s3g::aedAzimuthSliderNorm(prm.selectedAzimuthDeg) y:178 attrs:small small:small];
     [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:203 attrs:small small:small];
     [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:228 attrs:small small:small];
@@ -2118,8 +2147,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             return;
         }
     }
-    const CGFloat rows[] = { 78, 103, 128, 153, 178, 203, 228, 250, 272, 338, 360, 382, 404, 426, 448, 470, 492, 514, 536, 558, 580, 602, 624, 646, 668, 690 };
-    const int controls[] = { 26, 8, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
+    const CGFloat rows[] = { 78, 103, kInputCountRowY, 153, 178, 203, 228, 250, 272, 338, 360, 382, 404, 426, 448, 470, 492, 514, 536, 558, 580, 602, 624, 646, 668, 690 };
+    const int controls[] = { 26, 8, 2, 1, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
     for (int i = 0; i < 26; ++i) {
         if (NSPointInRect(pt, NSMakeRect(
                 kToolboxX + s3g::gui_layout::kStandardMetrics.hitInset,

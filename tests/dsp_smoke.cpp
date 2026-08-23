@@ -4258,6 +4258,21 @@ int main()
         }
     }
 
+    const auto lateralAfterPitch = s3g::ambiHeadListenerRelativeDirection(
+        90.0f, 0.0f, 0.0f, 45.0f);
+    const auto frontAfterPitch = s3g::ambiHeadListenerRelativeDirection(
+        0.0f, 0.0f, 0.0f, 45.0f);
+    const auto frontAfterYaw = s3g::ambiHeadListenerRelativeDirection(
+        0.0f, 0.0f, 90.0f, 0.0f);
+    if (std::abs(lateralAfterPitch.x) > 0.0001f
+        || std::abs(lateralAfterPitch.y - 1.0f) > 0.0001f
+        || std::abs(lateralAfterPitch.z) > 0.0001f
+        || frontAfterPitch.z > -0.70f
+        || frontAfterYaw.y > -0.999f) {
+        std::cerr << "Ambi Head Decoder yaw/pitch rotation is not geometrically correct\n";
+        return 1;
+    }
+
     s3g::AmbiHeadDecoder headDecoder;
     headDecoder.prepare(48000.0);
     s3g::AmbiHeadParams headParams;

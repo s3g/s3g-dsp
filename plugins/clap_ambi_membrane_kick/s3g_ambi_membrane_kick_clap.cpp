@@ -1214,8 +1214,8 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
             s3g::gui_layout::kStandardMetrics.headerHeight,
             labelAttrs, style);
     };
-    drawPanel(@"DISTRIBUTED MEMBRANE", field);
-    drawPanel(@"OUTPUT / STRIKE", outputPanel);
+    drawPanel(@"DISTRIBUTED MEMBRANE · +AZ LEFT / +EL UP", field);
+    drawPanel(@"OUTPUT", outputPanel);
     drawPanel(@"MEMBRANE", membranePanel);
     drawPanel(@"LOW BODY", bodyPanel);
     drawPanel(@"IMPACT", impactPanel);
@@ -1246,7 +1246,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
             * 6.28318530717958647692f;
         const auto position = visualMembranePoint(paramsSnapshot, 1.0f, theta);
         const NSPoint screen = NSMakePoint(
-            center.x + position[0] * radiusPixels,
+            center.x - position[0] * radiusPixels,
             center.y - position[1] * radiusPixels);
         point == 0u ? [membrane moveToPoint:screen]
                     : [membrane lineToPoint:screen];
@@ -1270,7 +1270,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
             const auto position = visualMembranePoint(
                 paramsSnapshot, localRadius, theta);
             const NSPoint node = NSMakePoint(
-                center.x + position[0] * radiusPixels,
+                center.x - position[0] * radiusPixels,
                 center.y - position[1] * radiusPixels);
             const CGFloat nodeRadius = 3.0 + activity
                 * (2.0 + static_cast<CGFloat>(3u - ring));
@@ -1287,7 +1287,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
         }
     }
     const NSPoint strike = NSMakePoint(
-        center.x + paramsSnapshot.strikeX * radiusPixels,
+        center.x - paramsSnapshot.strikeX * radiusPixels,
         center.y - paramsSnapshot.strikeY * radiusPixels);
     [[NSColor colorWithCalibratedWhite:0.96 alpha:0.94] setStroke];
     NSBezierPath* strikeMark = [NSBezierPath bezierPath];
@@ -1440,7 +1440,7 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
 
     const NSPoint center = NSMakePoint(291.0, 338.0);
     constexpr CGFloat radiusPixels = 202.0;
-    const float x = static_cast<float>((point.x - center.x) / radiusPixels);
+    const float x = static_cast<float>((center.x - point.x) / radiusPixels);
     const float y = static_cast<float>((center.y - point.y) / radiusPixels);
     if (point.x >= 42.0 && point.x <= 540.0
         && point.y >= 86.0 && point.y <= 594.0

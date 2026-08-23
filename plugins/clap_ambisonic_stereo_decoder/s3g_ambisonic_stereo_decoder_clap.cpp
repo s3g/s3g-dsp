@@ -683,7 +683,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
                            cy - static_cast<CGFloat>(y) * radius);
     }
     if (_viewMode == 1) {
-        return NSMakePoint(cx + static_cast<CGFloat>(y) * radius * 0.92,
+        return NSMakePoint(cx + static_cast<CGFloat>(x) * radius * 0.92,
                            cy - static_cast<CGFloat>(z) * radius * 0.92);
     }
 
@@ -751,8 +751,8 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         [@"+90" drawAtPoint:NSMakePoint(cx - maxR - 34, cy - 7) withAttributes:small];
         [@"180" drawAtPoint:NSMakePoint(cx - 10, cy + maxR + 6) withAttributes:small];
     } else if (_viewMode == 1) {
-        [@"FRONT" drawAtPoint:NSMakePoint(cx + maxR * 0.78, cy + 8) withAttributes:small];
-        [@"BACK" drawAtPoint:NSMakePoint(cx - maxR * 0.94, cy + 8) withAttributes:small];
+        [@"-90 / R" drawAtPoint:NSMakePoint(cx + maxR * 0.72, cy + 8) withAttributes:small];
+        [@"+90 / L" drawAtPoint:NSMakePoint(cx - maxR * 0.98, cy + 8) withAttributes:small];
         [@"+EL" drawAtPoint:NSMakePoint(cx + 8, cy - maxR - 2) withAttributes:small];
         [@"-EL" drawAtPoint:NSMakePoint(cx + 8, cy + maxR - 12) withAttributes:small];
     }
@@ -957,16 +957,12 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
       [NSString stringWithUTF8String:methodName(static_cast<uint32_t>(p->params.method))],
       [NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))]]
         drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 42.0) withAttributes:small];
-    NSString* cameraName = _viewMode == 0 ? @"TOP"
-        : (_viewMode == 1 ? @"SIDE" : @"FREE");
-    const double cameraAz = _viewMode == 0 ? 0.0
-        : (_viewMode == 1 ? -90.0 : static_cast<double>(_viewYawDeg));
-    const double cameraEl = _viewMode == 0 ? 90.0
-        : (_viewMode == 1 ? 0.0 : static_cast<double>(-_viewPitchDeg));
-    [[NSString stringWithFormat:@"CAM %@  AZ %+.0f°  EL %+.0f°",
-      cameraName, cameraAz, cameraEl]
-        drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 23.0)
-        withAttributes:small];
+    NSString* cameraText = _viewMode == 0 ? @"CAM TOP · AED"
+        : (_viewMode == 1 ? @"CAM SIDE · AZ / EL"
+            : [NSString stringWithFormat:@"CAM FREE  AZ %+.0f°  EL %+.0f°",
+                _viewYawDeg, -_viewPitchDeg]);
+    [cameraText drawAtPoint:NSMakePoint(
+        field.origin.x, NSMaxY(field) - 23.0) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 594);
     NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 118);
@@ -1130,7 +1126,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
                 _viewPitchDeg = 0.0f;
             } else if (i == 1) {
                 _viewYawDeg = 0.0f;
-                _viewPitchDeg = -90.0f;
+                _viewPitchDeg = 0.0f;
             } else {
                 _viewYawDeg = -35.0f;
                 _viewPitchDeg = -42.0f;
@@ -1145,7 +1141,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
             _viewYawDeg = 0.0f;
             _viewPitchDeg = -89.0f;
         } else if (_viewMode == 1) {
-            _viewYawDeg = -90.0f;
+            _viewYawDeg = 0.0f;
             _viewPitchDeg = 0.0f;
         }
         _dragView = YES;

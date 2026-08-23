@@ -282,7 +282,7 @@ struct Plugin {
     std::array<std::atomic<uint32_t>, s3g::kAmbiVotMaxVoices> guiNeighborGate {};
     std::atomic<float> guiMotionPhase { 0.0f };
     int guiPage = 0;
-    int guiViewMode = 2;
+    int guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
@@ -736,7 +736,7 @@ struct ParamDef {
 
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 8.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, 64.0, 8.0, true },
     { kModeParamId, "Mode", 0.0, 2.0, 0.0, true },
     { kPresetParamId, "Wave Set", 0.0, 4.0, 1.0, true },
     { kBaseNoteParamId, "Base Note", 12.0, 96.0, 48.0, false },
@@ -1027,6 +1027,19 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
 
+constexpr s3g::gui_layout::Panel kSynthPanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Engine,
+    { 630.0, 134.0, 250.0, 158.0 }, 36.0, 26.0, 5u,
+};
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kSynthPanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kVoiceCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kSynthPanel,
+        s3g::gui_layout::sourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
+
 static NSColor* votColor(int rgb, double alpha = 1.0)
 {
     return s3g::clap_gui::color(rgb, alpha);
@@ -1179,7 +1192,7 @@ static std::vector<float> readWavMono(NSURL* url)
         _selectedVoice = 0;
         _selectedScoreNode = 0;
         _scoreDragLane = -1;
-        _viewMode = plugin ? plugin->guiViewMode : 2;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
@@ -1332,8 +1345,8 @@ static std::vector<float> readWavMono(NSURL* url)
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
                        centerY - static_cast<CGFloat>(y2) * scale);
@@ -1381,13 +1394,14 @@ static std::vector<float> readWavMono(NSURL* url)
     NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(rect) - radius, NSMidY(rect) - radius, radius * 2.0, radius * 2.0)];
     [sphere setLineWidth:0.8];
     [sphere stroke];
-    NSBezierPath* axes = [NSBezierPath bezierPath];
-    [axes moveToPoint:NSMakePoint(NSMidX(rect), NSMinY(rect) + 8)];
-    [axes lineToPoint:NSMakePoint(NSMidX(rect), NSMaxY(rect) - 8)];
-    [axes moveToPoint:NSMakePoint(NSMinX(rect) + 8, NSMidY(rect))];
-    [axes lineToPoint:NSMakePoint(NSMaxX(rect) - 8, NSMidY(rect))];
-    [axes setLineWidth:0.6];
-    [axes stroke];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(
+        [&](double x, double y, double z) {
+            return [self projectWorldPoint:{
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(z)
+            } rect:rect depth:nullptr];
+        });
 
     const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVotMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
@@ -1815,13 +1829,13 @@ static std::vector<float> readWavMono(NSURL* url)
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 134, 250, 158, style);
-    s3g::clap_gui::drawPanelHeader(@"SYNTH", true, 630, 134, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / SYNTH", true, 630, 134, 250, 21, attrs, style);
     const NSRect synthHeader = NSMakeRect(630, 134, 250, 21);
     s3g::clap_gui::drawHeaderActionButton(
         [self synthLoadButtonRect], synthHeader, @"LOAD", attrs, style);
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:170 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"WAVE" value:[NSString stringWithUTF8String:s3g::ambiVotPresetName(p.preset)] y:196 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:222 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:kVoiceCountRowY attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:196 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"WAVE" value:[NSString stringWithUTF8String:s3g::ambiVotPresetName(p.preset)] y:222 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BASE" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:248 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"TUNE" param:kTuneParamId value:p.tuneCents min:-1200 max:1200 y:274 attrs:attrs valueAttrs:valueAttrs style:style];
 
@@ -1842,7 +1856,7 @@ static std::vector<float> readWavMono(NSURL* url)
 
     constexpr CGFloat motionX = 896;
     s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 418, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, motionX, 42, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION / PROJECTION", true, motionX, 42, 246, 21, attrs, style);
     [self drawMenuAtX:motionX name:@"SCENE" value:[NSString stringWithUTF8String:s3g::ambiVotMotionSceneName(p.motionScene)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"CLOCK" value:[NSString stringWithUTF8String:s3g::ambiVotMotionClockName(p.motionClock)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"RATE" param:kMotionRateParamId value:p.motionRateHz min:0.001 max:2 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2345,6 +2359,9 @@ static std::vector<float> readWavMono(NSURL* url)
                 [self setNeedsDisplay:YES];
                 return;
             }
+            _dragView = YES;
+            _lastDragPoint = point;
+            return;
         }
     } else if (_leftPage == 1) {
         const NSRect content = [self leftContentRect];
@@ -2424,7 +2441,7 @@ static std::vector<float> readWavMono(NSURL* url)
 
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
-        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 170, 124 }, { 2, 5, 738, 196, 124 },
+        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 196, 124 }, { 2, 5, 738, 222, 124 },
         { 6, s3g::kMusicalScaleCount, 738, 340, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
         { 7, 4, 1004, 508, 124 },
@@ -2443,7 +2460,7 @@ static std::vector<float> readWavMono(NSURL* url)
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
     static constexpr SliderHit sliders[] {
         { kOutputParamId, 638, 78, 1 },
-        { kVoicesParamId, 638, 222, 1 }, { kBaseNoteParamId, 638, 248, 1 }, { kTuneParamId, 638, 274, 1 },
+        { kVoicesParamId, 638, kVoiceCountRowY, 1 }, { kBaseNoteParamId, 638, 248, 1 }, { kTuneParamId, 638, 274, 1 },
         { kPitchSpreadParamId, 638, 366, 1 }, { kDetuneParamId, 638, 392, 1 },
         { kHarmonicsParamId, 638, 418, 1 }, { kSubharmonicsParamId, 638, 444, 1 },
         { kAttackParamId, 638, 510, 1 }, { kDecayParamId, 638, 536, 1 },

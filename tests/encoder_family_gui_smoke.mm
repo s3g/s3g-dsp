@@ -327,6 +327,103 @@ bool closeEnough(CGFloat a, CGFloat b)
     return std::fabs(a - b) < 0.5;
 }
 
+const char* expectedSourceCardinalityName(const char* pluginId)
+{
+    struct Expectation { const char* pluginId; const char* parameterName; };
+    static constexpr Expectation expectations[] {
+        { "org.s3g.s3g-dsp.ambi-point-encoder-64", "Input Count" },
+        { "org.s3g.s3g-dsp.ambi-cloud-encoder-64", "Input Count" },
+        { "org.s3g.s3g-dsp.ambi-path-encoder-64", "Input Count" },
+        { "org.s3g.s3g-dsp.ambi-terrain-navigator-64", "Input Count" },
+        { "org.s3g.s3g-dsp.ambi-cartography-encoder-64", "Site Count" },
+        { "org.s3g.s3g-dsp.ambi-horizon-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-pulsar-encoder-64", "Spatial Point Count" },
+        { "org.s3g.s3g-dsp.ambi-neural-ecology-64", "Node Set" },
+        { "org.s3g.s3g-dsp.accelerometer-field-encoder-16", "Body Count" },
+        { "org.s3g.s3g-dsp.ambi-vox-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-stochastic-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-vot-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-wrangler-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-water-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-insect-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-wind-encoder-64", "Voice Count" },
+        { "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64", "Voice Count" },
+    };
+    for (const auto& expectation : expectations) {
+        if (std::strcmp(pluginId, expectation.pluginId) == 0)
+            return expectation.parameterName;
+    }
+    return nullptr;
+}
+
+struct ProjectedGuideCameraDragTarget {
+    bool enabled = false;
+    NSPoint start = NSZeroPoint;
+    int fieldPage = -1;
+};
+
+ProjectedGuideCameraDragTarget projectedGuideCameraDragTarget(
+    const char* pluginId)
+{
+    if (!pluginId) return {};
+    const auto matches = [&](const char* expected) {
+        return std::strcmp(pluginId, expected) == 0;
+    };
+    if (matches("org.s3g.s3g-dsp.ambi-stochastic-encoder-64"))
+        return { true, NSMakePoint(42.0, 518.0), 1 };
+    if (matches("org.s3g.s3g-dsp.ambi-vot-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-vox-encoder-64"))
+        return { true, NSMakePoint(42.0, 852.0), -1 };
+    if (matches("org.s3g.s3g-dsp.ambi-cartography-encoder-64"))
+        return { true, NSMakePoint(42.0, 710.0), -1 };
+    if (matches("org.s3g.s3g-dsp.ambi-point-encoder-64"))
+        return { true, NSMakePoint(42.0, 674.0), -1 };
+    if (matches("org.s3g.s3g-dsp.accelerometer-field-encoder-16"))
+        return { true, NSMakePoint(42.0, 724.0), -1 };
+    if (matches("org.s3g.s3g-dsp.ambi-horizon-encoder-64"))
+        return { true, NSMakePoint(42.0, 718.0), -1 };
+    if (matches("org.s3g.s3g-dsp.ambi-cloud-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-cryosphere-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-insect-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-pulsar-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-water-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-wind-encoder-64")
+        || matches("org.s3g.s3g-dsp.ambi-wrangler-encoder-64"))
+        return { true, NSMakePoint(42.0, 626.0), -1 };
+    return {};
+}
+
+bool hasParameterNamed(const clap_plugin_params_t* params,
+                       const clap_plugin_t* plugin,
+                       const char* expectedName)
+{
+    if (!params || !params->count || !params->get_info || !expectedName)
+        return false;
+    for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+        clap_param_info_t info {};
+        if (params->get_info(plugin, index, &info)
+            && std::strcmp(info.name, expectedName) == 0) return true;
+    }
+    return false;
+}
+
+bool usesIntegerEnvironmentalVoiceText(const char* pluginId)
+{
+    return std::strcmp(pluginId,
+               "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0
+        || std::strcmp(pluginId,
+               "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0
+        || std::strcmp(pluginId,
+               "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0
+        || std::strcmp(pluginId,
+               "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0
+        || std::strcmp(pluginId,
+               "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0;
+}
+
 void writeLittleEndian16(FILE* file, uint16_t value)
 {
     std::fputc(value & 0xffu, file);
@@ -923,6 +1020,38 @@ int main(int argc, char** argv)
             && resolvedDefault == firstParam.default_value
             && !s3g::clap_gui::sliderDoubleClickDefault(
                 singleClick, plugin, firstParam.id, &resolvedDefault);
+        if (ok) {
+            const char* expectedCardinality =
+                expectedSourceCardinalityName(pluginId);
+            if (expectedCardinality
+                && !hasParameterNamed(params, plugin,
+                    expectedCardinality)) {
+                std::cerr << "Missing canonical source-cardinality parameter '"
+                    << expectedCardinality << "' in " << pluginId << "\n";
+                ok = false;
+            }
+            if (ok && usesIntegerEnvironmentalVoiceText(pluginId)) {
+                bool foundIntegerVoiceText = false;
+                for (uint32_t index = 0u; index < params->count(plugin);
+                     ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) break;
+                    if (std::strcmp(info.name, "Voice Count") != 0)
+                        continue;
+                    char text[16] {};
+                    foundIntegerVoiceText = params->value_to_text
+                        && params->value_to_text(plugin, info.id, 17.0,
+                            text, sizeof(text))
+                        && std::strcmp(text, "17") == 0;
+                    break;
+                }
+                if (!foundIntegerVoiceText) {
+                    std::cerr << "Environmental voice count is not rendered "
+                        "as an integer in " << pluginId << "\n";
+                    ok = false;
+                }
+            }
+        }
 
         const bool loopOutputContract = std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.loop-processor-8ch") == 0;
@@ -1069,7 +1198,7 @@ int main(int argc, char** argv)
                     foundInterpretation = info.max_value == 8.0
                         && !params->text_to_value(
                             plugin, info.id, "VECTOR", &removed);
-                } else if (std::strcmp(info.name, "Voices") == 0) {
+                } else if (std::strcmp(info.name, "Voice Count") == 0) {
                     char text[16] {};
                     double parsed = -1.0;
                     foundVoices =
@@ -1470,6 +1599,20 @@ int main(int argc, char** argv)
             ok = ok && document
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
+        }
+        const bool ambiEncoder = requestedDescriptor->name
+            && std::strncmp(requestedDescriptor->name,
+                "s3g Ambi Encoder ", 17u) == 0;
+        if (ok && ambiEncoder && !documentationCapture
+            && [document respondsToSelector:@selector(setViewPreset:)]) {
+            failureStage = "Ambi Encoder factory Top view";
+            @try {
+                ok = [[document valueForKey:@"viewMode"] intValue] == 0;
+            } @catch (NSException* exception) {
+                std::cerr << "Ambi Encoder Top-view exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
         }
         const bool sampleWavesets32 = std::strcmp(pluginId,
             "org.s3g.s3g-dsp.sample-wavesets-32") == 0;
@@ -3023,6 +3166,9 @@ int main(int argc, char** argv)
         const bool cartographyEncoder = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-cartography-encoder-64") == 0;
+        const bool pointEncoder = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0;
         const bool analyzer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.multichannel-meter-64") == 0
@@ -3123,6 +3269,160 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        const auto guideCameraTarget = projectedGuideCameraDragTarget(pluginId);
+        if (ok && guideCameraTarget.enabled && !documentationCapture) {
+            failureStage = "projected green-guide direct camera drag";
+            @try {
+                if (guideCameraTarget.fieldPage >= 0) {
+                    [document setValue:@(guideCameraTarget.fieldPage)
+                        forKey:@"fieldPage"];
+                }
+                NSString* azimuthKey = @"viewAzDeg";
+                double beforeAzimuth = 0.0;
+                @try {
+                    beforeAzimuth = [[document valueForKey:azimuthKey]
+                        doubleValue];
+                } @catch (NSException*) {
+                    azimuthKey = @"viewAzimuthDeg";
+                    beforeAzimuth = [[document valueForKey:azimuthKey]
+                        doubleValue];
+                }
+                const NSPoint end = NSMakePoint(
+                    guideCameraTarget.start.x + 32.0,
+                    guideCameraTarget.start.y - 24.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, guideCameraTarget.start)];
+                [document mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged, end)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, end)];
+                const double afterAzimuth = [[document valueForKey:azimuthKey]
+                    doubleValue];
+                ok = [[document valueForKey:@"viewMode"] intValue] == -1
+                    && std::fabs(afterAzimuth - beforeAzimuth) > 1.0;
+                if ([document respondsToSelector:@selector(setViewPreset:)])
+                    [document setViewPreset:0];
+                if (guideCameraTarget.fieldPage >= 0)
+                    [document setValue:@0 forKey:@"fieldPage"];
+            } @catch (NSException* exception) {
+                std::cerr << "Projected guide camera-drag exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
+        const bool environmentalInstrumentEncoder = std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-insect-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0;
+        if (ok && environmentalInstrumentEncoder
+            && !documentationCapture) {
+            failureStage = "environmental Voices slider hit map";
+            @try {
+                clap_id voicesId = CLAP_INVALID_ID;
+                for (uint32_t index = 0u; index < params->count(plugin);
+                     ++index) {
+                    clap_param_info_t info {};
+                    if (!params->get_info(plugin, index, &info)) break;
+                    if (std::strcmp(info.name, "Voice Count") == 0) {
+                        voicesId = info.id;
+                        break;
+                    }
+                }
+                const NSPoint voicesSlider = NSMakePoint(820.0, 170.0);
+                if (voicesId != CLAP_INVALID_ID) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, voicesSlider)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, voicesSlider)];
+                }
+                double voices = 0.0;
+                const int openMenu = [[document valueForKey:@"openMenu"]
+                    intValue];
+                ok = voicesId != CLAP_INVALID_ID
+                    && params->get_value(plugin, voicesId, &voices)
+                    && voices == 64.0
+                    && openMenu == 0;
+                if (!ok) {
+                    std::cerr << "Environmental Voices hit-map details: "
+                        << "voices=" << voices
+                        << " openMenu=" << openMenu << "\n";
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Environmental Voices hit-map exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
+        if (ok && pointEncoder && !documentationCapture) {
+            failureStage = "Ambi Point projected orientation guides";
+            @try {
+                ok = [document respondsToSelector:
+                        @selector(setViewPreset:)]
+                    && [document respondsToSelector:
+                        @selector(projectWorldPointX:y:z:)];
+                if (ok) [document setViewPreset:0];
+                if (ok) {
+                    const NSPoint center = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.0];
+                    const NSPoint front = [document
+                        projectWorldPointX:0.75 y:0.0 z:0.0];
+                    const NSPoint back = [document
+                        projectWorldPointX:-0.75 y:0.0 z:0.0];
+                    const NSPoint left = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.0];
+                    const NSPoint right = [document
+                        projectWorldPointX:0.0 y:-0.75 z:0.0];
+                    ok = front.y < center.y && back.y > center.y
+                        && left.x < center.x && right.x > center.x;
+                }
+                if (ok) [document setViewPreset:1];
+                if (ok) {
+                    const NSPoint center = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.0];
+                    const NSPoint left = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.0];
+                    const NSPoint right = [document
+                        projectWorldPointX:0.0 y:-0.75 z:0.0];
+                    const NSPoint up = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.75];
+                    const NSPoint down = [document
+                        projectWorldPointX:0.0 y:0.0 z:-0.75];
+                    ok = left.x < center.x && right.x > center.x
+                        && up.y < center.y && down.y > center.y;
+                }
+                if (ok) [document setViewPreset:2];
+                if (ok) {
+                    const NSPoint center = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.0];
+                    const NSPoint xNegative = [document
+                        projectWorldPointX:-0.75 y:0.0 z:0.0];
+                    const NSPoint xPositive = [document
+                        projectWorldPointX:0.75 y:0.0 z:0.0];
+                    const NSPoint yNegative = [document
+                        projectWorldPointX:0.0 y:-0.75 z:0.0];
+                    const NSPoint yPositive = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.0];
+                    const NSPoint up = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.75];
+                    ok = std::fabs(xPositive.x - xNegative.x) > 20.0
+                        && std::fabs(xPositive.y - xNegative.y) > 20.0
+                        && std::fabs(yPositive.x - yNegative.x) > 20.0
+                        && std::fabs(yPositive.y - yNegative.y) > 20.0
+                        && std::fabs(up.x - center.x) < 0.001
+                        && up.y < center.y - 20.0;
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Ambi Point guide exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
         if (ok && sampleWavesets && !documentationCapture) {
             failureStage = "Sample Wavesets custom categorical menus";
             @try {
@@ -5231,7 +5531,7 @@ int main(int argc, char** argv)
                 ok = ok
                     && [[document valueForKey:@"viewMode"] intValue] == 0
                     && std::fabs([[document valueForKey:@"viewAzDeg"]
-                        doubleValue]) < 0.001
+                        doubleValue] - 90.0) < 0.001
                     && std::fabs([[document valueForKey:@"viewElDeg"]
                         doubleValue]) < 0.001;
                 NSPoint topGridPoint = NSZeroPoint;
@@ -5239,31 +5539,58 @@ int main(int argc, char** argv)
                 NSPoint threeQuarterGridPoint = NSZeroPoint;
                 if (ok) {
                     ok = [document respondsToSelector:
-                        @selector(projectGroundPointX:y:)];
-                    if (ok) topGridPoint = [document
-                        projectGroundPointX:0.0 y:0.75];
+                        @selector(projectWorldPointX:y:z:)];
+                    if (ok) {
+                        const NSPoint center = [document
+                            projectWorldPointX:0.0 y:0.0 z:0.0];
+                        const NSPoint front = [document
+                            projectWorldPointX:0.75 y:0.0 z:0.0];
+                        const NSPoint back = [document
+                            projectWorldPointX:-0.75 y:0.0 z:0.0];
+                        const NSPoint left = [document
+                            projectWorldPointX:0.0 y:0.75 z:0.0];
+                        const NSPoint right = [document
+                            projectWorldPointX:0.0 y:-0.75 z:0.0];
+                        ok = front.y < center.y && back.y > center.y
+                            && left.x < center.x && right.x > center.x;
+                        topGridPoint = front;
+                    }
                 }
                 if (ok) [document setViewPreset:1];
                 ok = ok
                     && [[document valueForKey:@"viewMode"] intValue] == 1
                     && std::fabs([[document valueForKey:@"viewAzDeg"]
-                        doubleValue]) < 0.001
+                        doubleValue] - 90.0) < 0.001
                     && std::fabs([[document valueForKey:@"viewElDeg"]
-                        doubleValue] + 90.0) < 0.001;
+                        doubleValue] - 90.0) < 0.001;
                 if (ok) {
                     sideGridPoint = [document
-                        projectGroundPointX:0.0 y:0.75];
-                    // The XY ground plane is face-on in TOP and edge-on in
-                    // SIDE. Its projected guide must therefore move onto the
-                    // field horizon rather than remaining screen-fixed.
-                    ok = std::fabs(topGridPoint.y - sideGridPoint.y) > 20.0;
+                        projectGroundPointX:0.75 y:0.0];
+                    const NSPoint center = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.0];
+                    const NSPoint left = [document
+                        projectWorldPointX:0.0 y:0.75 z:0.0];
+                    const NSPoint right = [document
+                        projectWorldPointX:0.0 y:-0.75 z:0.0];
+                    const NSPoint up = [document
+                        projectWorldPointX:0.0 y:0.0 z:0.75];
+                    const NSPoint down = [document
+                        projectWorldPointX:0.0 y:0.0 z:-0.75];
+                    ok = left.x < center.x && right.x > center.x
+                        && up.y < center.y && down.y > center.y
+                        && std::fabs(topGridPoint.y - sideGridPoint.y) > 20.0;
                 }
                 if (ok) {
                     [document setViewPreset:2];
                     threeQuarterGridPoint = [document
-                        projectGroundPointX:0.0 y:0.75];
-                    ok = std::fabs(threeQuarterGridPoint.y
-                        - sideGridPoint.y) > 20.0;
+                        projectGroundPointX:0.75 y:0.0];
+                    const NSPoint ground = [document
+                        projectWorldPointX:0.25 y:0.2 z:0.0];
+                    const NSPoint elevated = [document
+                        projectWorldPointX:0.25 y:0.2 z:0.6];
+                    ok = elevated.y < ground.y
+                        && std::fabs(threeQuarterGridPoint.y
+                            - sideGridPoint.y) > 20.0;
                 }
                 if (ok) {
                     const NSPoint dragStart = NSMakePoint(300.0, 390.0);
@@ -5275,7 +5602,7 @@ int main(int argc, char** argv)
                     [document mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp, dragEnd)];
                     const NSPoint draggedGridPoint = [document
-                        projectGroundPointX:0.0 y:0.75];
+                        projectGroundPointX:0.75 y:0.0];
                     ok = std::hypot(
                         draggedGridPoint.x - threeQuarterGridPoint.x,
                         draggedGridPoint.y - threeQuarterGridPoint.y) > 8.0;
@@ -5556,8 +5883,8 @@ int main(int argc, char** argv)
                     && params->get_value(plugin, pathXId, &editedX)
                     && params->get_value(plugin, pathYId, &editedY)
                     && params->get_value(plugin, pathZId, &editedZ)
-                    && std::fabs(editedX - 0.304) < 0.015
-                    && std::fabs(editedY + 0.338) < 0.015
+                    && std::fabs(editedX + 0.228) < 0.015
+                    && std::fabs(editedY + 0.304) < 0.015
                     && std::fabs(editedZ - 0.279) < 0.015
                     && xBegin && xValue && xEnd
                     && yBegin && yValue && yEnd
@@ -5838,7 +6165,27 @@ int main(int argc, char** argv)
                 ok = [document respondsToSelector:@selector(setViewPreset:)];
                 if (ok) {
                     [document setViewPreset:0];
-                    ok = [[document valueForKey:@"viewMode"] intValue] == 0;
+                    ok = [[document valueForKey:@"viewMode"] intValue] == 0
+                        && std::fabs([[document valueForKey:@"viewAzDeg"]
+                            doubleValue] - 90.0) < 0.001
+                        && std::fabs([[document valueForKey:@"viewElDeg"]
+                            doubleValue]) < 0.001;
+                }
+                if (ok) {
+                    [document setViewPreset:1];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == 1
+                        && std::fabs([[document valueForKey:@"viewAzDeg"]
+                            doubleValue] - 90.0) < 0.001
+                        && std::fabs([[document valueForKey:@"viewElDeg"]
+                            doubleValue] + 90.0) < 0.001;
+                }
+                if (ok) {
+                    [document setViewPreset:2];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == 2
+                        && std::fabs([[document valueForKey:@"viewAzDeg"]
+                            doubleValue] - 35.0) < 0.001
+                        && std::fabs([[document valueForKey:@"viewElDeg"]
+                            doubleValue] + 34.0) < 0.001;
                 }
 
                 // The standard title PRESET field is also a real dropdown,
@@ -6221,6 +6568,17 @@ int main(int argc, char** argv)
                         && std::fabs(mode - 1.0) < 0.000001
                         && std::fabs(strikeX - 0.5) < 0.02
                         && std::fabs(strikeY + 0.5) < 0.02;
+                }
+                // The membrane's horizontal physical coordinate feeds AED
+                // azimuth: positive X/+azimuth must therefore be on the left.
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, NSMakePoint(190.0, 338.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, NSMakePoint(190.0, 338.0))];
+                    double strikeX = 0.0;
+                    ok = params->get_value(plugin, 11u, &strikeX)
+                        && strikeX > 0.45 && strikeX < 0.55;
                 }
             } @catch (NSException* exception) {
                 std::cerr

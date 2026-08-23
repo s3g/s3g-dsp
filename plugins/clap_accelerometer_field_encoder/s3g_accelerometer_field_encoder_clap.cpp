@@ -224,7 +224,7 @@ constexpr std::array<ParamSpec, 77u> kParamSpecs {{
     { kParamFieldListenResponse, "Actuator behavior", "Listener / Actuator", 0.0, 2.0, 2.0, DisplayKind::Menu },
     { kParamCoupling, "Modal coupling", "Modal Body", 0.0, 1.0, 0.72, DisplayKind::Percent },
     { kParamEnergy, "Legacy nonlinear energy", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
-    { kParamBodyCount, "Body count", "Ensemble", 4.0, 8.0, 6.0, DisplayKind::Menu },
+    { kParamBodyCount, "Body Count", "Ensemble", 4.0, 8.0, 6.0, DisplayKind::Menu },
     { kParamBody1AzimuthOffset, "Body 1 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
     { kParamBody1ElevationOffset, "Body 1 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
     { kParamBody1Distance, "Body 1 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
@@ -497,9 +497,9 @@ constexpr uint32_t menuColumnCount(uint32_t itemCount)
 }
 
 struct SavedGuiState {
-    int32_t viewMode = 2;
-    float viewAzimuthDeg = -35.0f;
-    float viewElevationDeg = 34.0f;
+    int32_t viewMode = 0;
+    float viewAzimuthDeg = 90.0f;
+    float viewElevationDeg = 0.0f;
     float viewZoom = 1.0f;
     uint32_t selectedBody = 0u;
 };
@@ -1931,7 +1931,7 @@ constexpr std::array<clap_id, 4u> kOutputControls {{
     kParamModalLift, kParamOutputGain, kParamOrder, kParamOutputMode,
 }};
 constexpr std::array<clap_id, 7u> kStructureControls {{
-    kParamSubstrate, kParamBodyCount, kParamSize, kParamDamping, kParamIrregularity,
+    kParamBodyCount, kParamSubstrate, kParamSize, kParamDamping, kParamIrregularity,
     kParamCoupling, kParamPropagationLoss,
 }};
 constexpr std::array<clap_id, 3u> kProjectionControls {{
@@ -2020,6 +2020,13 @@ static_assert(s3g::gui_layout::controlsFollowFamilyOrder(
 static_assert(s3g::gui_layout::controlMatchesSlot(
     kOutputPanelLayout,
     s3g::gui_layout::kLargeEncoderOrderSlot));
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kStructurePanelLayout,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+static_assert(kStructureControls[
+    s3g::gui_layout::sourceCardinalityRow(
+        s3g::gui_layout::SharedControlRole::SourceCardinality)]
+    == kParamBodyCount);
 static_assert(s3g::gui_layout::validateColumn(
     kSecondColumnLayouts, kGuiCanvas, false));
 static_assert(s3g::gui_layout::rectFitsCanvas(kFieldPanelFrame, kGuiCanvas));
@@ -2440,7 +2447,7 @@ NSColor* modalBodyColorFromAed(
         _openMenuLocation = {};
         _refreshTimer = nil;
         auto* p = static_cast<Plugin*>(plugin);
-        _viewMode = p ? p->guiState.viewMode : 2;
+        _viewMode = p ? p->guiState.viewMode : 0;
         _viewAzimuthDeg = p ? p->guiState.viewAzimuthDeg : -35.0;
         _viewElevationDeg = p ? p->guiState.viewElevationDeg : 34.0;
         _viewZoom = p ? p->guiState.viewZoom : 1.0;
@@ -2562,8 +2569,8 @@ NSColor* modalBodyColorFromAed(
     const float se = std::sin(elevation);
     const float x1 = ca * point.x - sa * point.y;
     const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
         centerY - static_cast<CGFloat>(y2) * scale);
@@ -2747,19 +2754,27 @@ NSColor* modalBodyColorFromAed(
 
     const CGFloat centerX = NSMidX(field);
     const CGFloat centerY = field.origin.y + field.size.height * 0.54;
-    const CGFloat plotRadius = [self viewScaleForRect:field];
-    [s3g::clap_gui::color(0x414141, 0.48) setStroke];
-    for (const CGFloat ring : { 0.34, 0.67, 1.0 }) {
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-            centerX - plotRadius * ring, centerY - plotRadius * ring,
-            plotRadius * ring * 2.0, plotRadius * ring * 2.0)] stroke];
+    const auto projectGuide = [&](double x, double y, double z) {
+        return [self projectWorldPoint:{ static_cast<float>(x),
+            static_cast<float>(y), static_cast<float>(z) }
+            rect:field depth:nullptr];
+    };
+    for (const double ringRadius : { 0.34, 0.67 }) {
+        NSBezierPath* distanceRing = [NSBezierPath bezierPath];
+        for (uint32_t segment = 0u; segment <= 96u; ++segment) {
+            const double phase = static_cast<double>(segment) / 96.0
+                * 6.28318530717958647692;
+            const NSPoint point = projectGuide(
+                std::cos(phase) * ringRadius,
+                std::sin(phase) * ringRadius, 0.0);
+            if (segment == 0u) [distanceRing moveToPoint:point];
+            else [distanceRing lineToPoint:point];
+        }
+        [s3g::clap_gui::ambisonicOrientationGuideColor(0.12) setStroke];
+        [distanceRing setLineWidth:0.55];
+        [distanceRing stroke];
     }
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(
-        centerX - plotRadius, centerY)
-        toPoint:NSMakePoint(centerX + plotRadius, centerY)];
-    [NSBezierPath strokeLineFromPoint:NSMakePoint(
-        centerX, centerY - plotRadius)
-        toPoint:NSMakePoint(centerX, centerY + plotRadius)];
+    s3g::clap_gui::drawAmbisonicOrientationGuides(projectGuide);
 
     const uint32_t count = std::clamp<uint32_t>(params.bodyCount, 4u, 8u);
     _selectedBody = std::min<uint32_t>(_selectedBody, count - 1u);
@@ -3136,7 +3151,7 @@ NSColor* modalBodyColorFromAed(
         s3g::clap_gui::drawPanelHeader(title, true, panel, labels, style);
     };
     drawPanel(@"OUTPUT", kOutputPanelLayout);
-    drawPanel(@"MODAL BODY", kStructurePanelLayout);
+    drawPanel(@"SOURCE / MODAL BODY", kStructurePanelLayout);
     drawPanel(@"LISTENER / ACTUATOR", kActuatorPanelLayout);
     drawPanel(@"PROJECTION", kProjectionPanelLayout);
     drawPanel(@"BODY CHARACTER", kRadiationPanelLayout);

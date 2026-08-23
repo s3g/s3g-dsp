@@ -98,7 +98,7 @@ constexpr uint32_t kParamCount = 61u;
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 12.0, true },
+    { kVoicesParamId, "Voice Count", 1.0, 64.0, 12.0, true },
     { kModeParamId, "Mode", 0.0, 2.0, 0.0, true },
     { kBaseNoteParamId, "Base Note", 12.0, 96.0, 40.0, false },
     { kPitchSpreadParamId, "Pitch Spread", 0.0, 48.0, 19.0, false },
@@ -915,11 +915,21 @@ enum class GuiToolbox : uint8_t {
     Motion,
     Projection,
 };
+constexpr s3g::gui_layout::Panel kEnginePanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Engine,
+    { 630.0, 134.0, 250.0,
+        s3g::gui_layout::toolboxHeightForRows(6u) },
+    36.0, 26.0, 6u,
+};
+static_assert(s3g::gui_layout::sourceCardinalityControlMatches(
+    kEnginePanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
 
 constexpr GuiRow kGuiRows[] {
     { "OUT", kOutputParamId, 630, 78, false },
-    { "ORDER", kOrderParamId, 630, 104, true }, { "MODE", kModeParamId, 630, 170, true },
-    { "VOICES", kVoicesParamId, 630, 196, false }, { "BASE", kBaseNoteParamId, 630, 222, false },
+    { "ORDER", kOrderParamId, 630, 104, true }, { "VOICES", kVoicesParamId, 630, 170, false },
+    { "MODE", kModeParamId, 630, 196, true }, { "BASE", kBaseNoteParamId, 630, 222, false },
     { "SPREAD", kPitchSpreadParamId, 630, 248, false }, { "TUNE", kTuneParamId, 630, 274, false },
     { "DETUNE", kDetuneParamId, 630, 300, false },
     { "FORM", kTerrainFormParamId, 630, 374, true }, { "FACET", kTerrainFacetParamId, 630, 400, false },
@@ -1143,9 +1153,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     self = [super initWithFrame:NSMakeRect(0, 0, 1158, 828)];
     if (self) {
         _plugin = plugin; _timer = nil; _dragParam = 0; _openMenuParam = 0; _menuItemCount = 0u;
-        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0;
+        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 0; _terrainPage = 0;
         _dragView = NO; _viewDidDrag = NO; _pendingVoice = -1;
-        _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0;
+        _viewAzDeg = 90.0; _viewElDeg = 0.0; _viewZoom = 1.0;
         _paramsSnapshot = publishedParamsSnapshot(*plugin);
         _displayEngine.prepare(plugin ? plugin->sampleRate : 48000.0);
         _displayEngine.setParams(_paramsSnapshot);
@@ -1415,7 +1425,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
             title, true, rect.x, rect.y, rect.width, 21, attrs, style);
     };
     drawToolbox(@"OUTPUT", layout.output);
-    drawToolbox(@"ENGINE", layout.engine);
+    drawToolbox(@"SOURCE / ENGINE", layout.engine);
     drawToolbox(@"TERRAIN", layout.terrain);
     static NSString* terrainTabs[] = { @"FORM", @"SKIN", @"WARP", @"READ" };
     for (int index = 0; index < 4; ++index) {
@@ -1424,7 +1434,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
             terrainTabs[index], index == _terrainPage, attrs, style);
     }
     drawToolbox(@"ENVELOPE", layout.envelope);
-    drawToolbox(@"PITCH / FIELD LISTEN", layout.pitchListen);
+    drawToolbox(@"PITCH / FIELD LISTENER", layout.pitchListen);
     drawToolbox(@"SCAN", layout.scan);
     if (_paramsSnapshot.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
         drawToolbox(@"SELECTION", layout.selection);

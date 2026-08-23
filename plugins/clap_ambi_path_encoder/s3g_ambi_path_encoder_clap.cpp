@@ -94,7 +94,7 @@ struct ParamInfo {
 };
 
 constexpr ParamInfo kParams[] {
-    { kInputsParamId, "Inputs", 1.0, 64.0, 64.0, true },
+    { kInputsParamId, "Input Count", 1.0, 64.0, 64.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kPathsParamId, "Active Paths", 1.0, 16.0, 1.0, true },
     { kSelectedPathParamId, "Selected Path", 1.0, 16.0, 1.0, true },
@@ -453,6 +453,19 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
 namespace {
+constexpr s3g::gui_layout::Panel kOutputSourcePanel {
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    { 630.0, 42.0, 250.0, 326.0 }, 36.0, 26.0, 11u,
+};
+static_assert(s3g::gui_layout::combinedOutputSourceCardinalityControlMatches(
+    kOutputSourcePanel,
+    s3g::gui_layout::SharedControlRole::SourceCardinality));
+constexpr CGFloat kInputCountRowY = static_cast<CGFloat>(
+    s3g::gui_layout::rowY(kOutputSourcePanel,
+        s3g::gui_layout::combinedOutputSourceCardinalityRow(
+            s3g::gui_layout::SharedControlRole::SourceCardinality)));
+
 double numberFromObject(id obj, double fallback)
 {
     return [obj respondsToSelector:@selector(doubleValue)] ? [obj doubleValue] : fallback;
@@ -1131,14 +1144,14 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     [self drawField:[self fieldRect] attrs:dim style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 326, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / PATH", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / INPUT", true, 630, 42, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(630, 380, 250, 322, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 380, 250, 21, attrs, style);
 
     const auto p = _plugin->params;
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:78 attrs:attrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs style:style];
-    [self drawSlider:@"INPUTS" param:kInputsParamId value:p.activeInputs min:1 max:64 y:130 attrs:attrs style:style];
+    [self drawSlider:@"INPUTS" param:kInputsParamId value:p.activeInputs min:1 max:64 y:kInputCountRowY attrs:attrs style:style];
     [self drawSlider:@"PATHS" param:kPathsParamId value:p.activePaths min:1 max:16 y:156 attrs:attrs style:style];
     [self drawSlider:@"PATH" param:kSelectedPathParamId value:p.selectedPath + 1u min:1 max:16 y:182 attrs:attrs style:style];
     [self drawSlider:@"SOURCE" param:kSelectedSourceParamId value:p.selectedSource + 1u min:1 max:64 y:208 attrs:attrs style:style];
@@ -1490,7 +1503,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     _dragParam = 0;
     if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kOutputParamId;
     else if (NSPointInRect(pt, NSMakeRect(738, 103, 126, 17))) { openMenu(1, 7); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 122, 230, 24))) _dragParam = kInputsParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, kInputCountRowY - 8.0, 230, 24))) _dragParam = kInputsParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 148, 230, 24))) _dragParam = kPathsParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 174, 230, 24))) { _selectedPoint = -1; _dragParam = kSelectedPathParamId; }
     else if (NSPointInRect(pt, NSMakeRect(638, 200, 230, 24))) _dragParam = kSelectedSourceParamId;

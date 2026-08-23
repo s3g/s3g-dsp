@@ -324,6 +324,7 @@ public:
     void reset() noexcept
     {
         for (auto& voice : voices_) voice = {};
+        for (auto& tail : transitionTails_) tail = {};
         voiceCursors_ = {};
         voiceCursorCount_ = 0u;
         ageCounter_ = 0u;
@@ -415,20 +416,24 @@ public:
                 if (!voice.active) continue;
                 updateEnvelope(voice, settings);
                 if (!voice.active) continue;
-                const float voiceGain = voice.envelope
-                    * voice.velocityGain * master;
-                const uint32_t first = voice.output.firstChannel;
-                if (first < outputChannelCount)
-                    outputs[first][frame] += renderVoiceSample(voice,
-                        settings, 0u) * voiceGain;
-                if (voice.output.channelCount > 1u) {
-                    const uint32_t second = voice.output.secondChannel;
-                    if (second < outputChannelCount)
-                        outputs[second][frame] += renderVoiceSample(voice,
-                            settings, 1u) * voiceGain;
-                }
+                renderRoutedVoice(voice, settings, outputs,
+                    outputChannelCount, frame, master,
+                    routingFadeInGain(voice));
                 advanceVoice(voice, settings);
                 advanceTransport(voice, settings);
+                advanceRoutingFadeIn(voice);
+            }
+            for (auto& tail : transitionTails_) {
+                if (tail.framesRemaining == 0u || !tail.voice.active)
+                    continue;
+                const float fade = tail.startGain
+                    * static_cast<float>(tail.framesRemaining)
+                    / static_cast<float>(tail.frameCount);
+                renderRoutedVoice(tail.voice, settings, outputs,
+                    outputChannelCount, frame, master, fade);
+                advanceVoice(tail.voice, settings);
+                advanceTransport(tail.voice, settings);
+                if (--tail.framesRemaining == 0u) tail = {};
             }
             for (uint32_t channel = 0u; channel < outputChannelCount;
                  ++channel)
@@ -478,9 +483,94 @@ private:
         uint32_t cycleOffset = 0u;
         uint32_t repeatIndex = 0u;
         uint32_t randomState = 0x12345678u;
+        uint32_t routingFadeInFrames = 0u;
+        uint32_t routingFadeInFrameCount = 0u;
         s3g::routing::VoiceOutputAssignment output {};
         std::array<std::size_t, kMaximumAudioChannels + 1u> baseUnits {};
     };
+
+    struct TransitionTail {
+        Voice voice {};
+        uint32_t framesRemaining = 0u;
+        uint32_t frameCount = 0u;
+        float startGain = 1.0f;
+    };
+
+    uint32_t transitionFrameCount() const noexcept
+    {
+        constexpr double kTransitionSeconds = 0.003;
+        return std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(
+            outputSampleRate_ * kTransitionSeconds)));
+    }
+
+    static float routingFadeInGain(const Voice& voice) noexcept
+    {
+        if (voice.routingFadeInFrameCount == 0u) return 1.0f;
+        return 1.0f - static_cast<float>(voice.routingFadeInFrames)
+            / static_cast<float>(voice.routingFadeInFrameCount);
+    }
+
+    static void advanceRoutingFadeIn(Voice& voice) noexcept
+    {
+        if (voice.routingFadeInFrames == 0u) return;
+        if (--voice.routingFadeInFrames == 0u)
+            voice.routingFadeInFrameCount = 0u;
+    }
+
+    void beginRoutingFadeIn(Voice& voice) const noexcept
+    {
+        voice.routingFadeInFrameCount = transitionFrameCount();
+        voice.routingFadeInFrames = voice.routingFadeInFrameCount;
+    }
+
+    void renderRoutedVoice(const Voice& voice,
+        const WavesetSettings& settings, float* const* outputs,
+        uint32_t outputChannelCount, uint32_t frame, float master,
+        float routingGain) const noexcept
+    {
+        const float voiceGain = voice.envelope * voice.velocityGain
+            * master * routingGain;
+        const uint32_t first = voice.output.firstChannel;
+        if (first < outputChannelCount)
+            outputs[first][frame] += renderVoiceSample(voice, settings, 0u)
+                * voiceGain;
+        if (voice.output.channelCount > 1u) {
+            const uint32_t second = voice.output.secondChannel;
+            if (second < outputChannelCount)
+                outputs[second][frame] += renderVoiceSample(voice,
+                    settings, 1u) * voiceGain;
+        }
+    }
+
+    void retireVoice(Voice& voice) noexcept
+    {
+        if (!voice.active) return;
+        const float startGain = routingFadeInGain(voice);
+        if (voice.envelope > 1.0e-6f && startGain > 1.0e-6f) {
+            TransitionTail* selected = nullptr;
+            for (auto& tail : transitionTails_) {
+                if (tail.framesRemaining == 0u || !tail.voice.active) {
+                    selected = &tail;
+                    break;
+                }
+            }
+            if (!selected) {
+                selected = &*std::min_element(transitionTails_.begin(),
+                    transitionTails_.end(),
+                    [](const TransitionTail& left,
+                        const TransitionTail& right) {
+                        return left.framesRemaining < right.framesRemaining;
+                    });
+            }
+            selected->voice = voice;
+            selected->voice.routingFadeInFrames = 0u;
+            selected->voice.routingFadeInFrameCount = 0u;
+            selected->frameCount = transitionFrameCount();
+            selected->framesRemaining = selected->frameCount;
+            selected->startGain = startGain;
+        }
+        voice.active = false;
+    }
 
     static float decibelsToAmplitude(float decibels) noexcept
     {
@@ -1027,10 +1117,12 @@ private:
     Voice* voiceToStart() noexcept
     {
         for (auto& voice : voices_) if (!voice.active) return &voice;
-        return &*std::min_element(voices_.begin(), voices_.end(),
+        Voice* oldest = &*std::min_element(voices_.begin(), voices_.end(),
             [](const Voice& left, const Voice& right) {
                 return left.age < right.age;
             });
+        retireVoice(*oldest);
+        return oldest;
     }
 
     void startVoice(const WavesetRenderEvent& event,
@@ -1072,6 +1164,8 @@ private:
         }
         if (settings.voiceMode == VoiceMode::Legato) {
             if (Voice* voice = newestVoice()) {
+                retireVoice(*voice);
+                voice->active = true;
                 voice->key = event.key;
                 voice->noteId = event.noteId;
                 voice->midiChannel = event.midiChannel;
@@ -1084,11 +1178,12 @@ private:
                         * settings.velocitySensitivity;
                 voice->releasing = false;
                 voice->age = ++ageCounter_;
+                beginRoutingFadeIn(*voice);
                 return;
             }
         }
         if (settings.voiceMode != VoiceMode::Poly)
-            for (auto& voice : voices_) voice.active = false;
+            for (auto& voice : voices_) retireVoice(voice);
         startVoice(event, settings);
     }
 
@@ -1132,6 +1227,7 @@ private:
     uint32_t outputChannelCount_ = 2u;
     const WavesetMap* map_ = nullptr;
     std::array<Voice, kMaximumWavesetVoices> voices_ {};
+    std::array<TransitionTail, kMaximumWavesetVoices> transitionTails_ {};
     std::array<WavesetVoiceCursor, kMaximumWavesetVoices> voiceCursors_ {};
     uint32_t voiceCursorCount_ = 0u;
     uint64_t ageCounter_ = 0u;

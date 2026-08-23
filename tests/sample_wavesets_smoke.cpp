@@ -427,6 +427,61 @@ int main()
             && routedMono.voiceCursors()[0u].outputFirstChannel == 1u,
         "each monophonic key press advances to a new output channel");
 
+    // Reassigning a monophonic/legato voice must not hard-cut the previous
+    // speaker or drop a full-level signal into the next one. Frame 55 is near
+    // the first fixture waveset's peak, making either discontinuity obvious.
+    constexpr uint32_t reassignmentFrame = 55u;
+    const std::array<WavesetRenderEvent, 2u> reassignedNotes {{
+        { 0u, WavesetEventKind::NoteOn, 31u, 60u, 1.0f, 0u },
+        { reassignmentFrame, WavesetEventKind::NoteOn, 32u, 64u, 1.0f, 0u },
+    }};
+    SampleWavesetsEngine clicklessMono;
+    require(clicklessMono.prepare(48000.0, 32u),
+        "clickless mono reassignment prepare");
+    clicklessMono.setMap(raw.get());
+    clicklessMono.render(routedSettings, reassignedNotes.data(),
+        reassignedNotes.size(), routedOutputs.data(), 32u, routedFrames);
+    require(std::abs(routedSignal[0u][reassignmentFrame - 1u]) > 0.08f,
+        "mono reassignment fixture reaches an audible level");
+    require(std::abs(routedSignal[0u][reassignmentFrame]
+            - routedSignal[0u][reassignmentFrame - 1u]) < 0.03f,
+        "mono reassignment fades the previous output without a click");
+
+    routedSettings.voiceMode = VoiceMode::Legato;
+    SampleWavesetsEngine clicklessLegato;
+    require(clicklessLegato.prepare(48000.0, 32u),
+        "clickless legato reassignment prepare");
+    clicklessLegato.setMap(raw.get());
+    clicklessLegato.render(routedSettings, reassignedNotes.data(),
+        reassignedNotes.size(), routedOutputs.data(), 32u, routedFrames);
+    require(std::abs(routedSignal[0u][reassignmentFrame - 1u]) > 0.08f,
+        "legato reassignment fixture reaches an audible level");
+    require(std::abs(routedSignal[0u][reassignmentFrame]
+            - routedSignal[0u][reassignmentFrame - 1u]) < 0.03f
+            && std::abs(routedSignal[1u][reassignmentFrame]) < 0.01f,
+        "legato reassignment crossfades between output channels");
+
+    routedSettings.voiceMode = VoiceMode::Poly;
+    std::array<WavesetRenderEvent, kMaximumWavesetVoices + 1u>
+        stolenVoiceNotes {};
+    for (uint32_t note = 0u; note < kMaximumWavesetVoices; ++note) {
+        stolenVoiceNotes[note] = { 0u, WavesetEventKind::NoteOn,
+            100u + note, 60u, 1.0f, 0u };
+    }
+    stolenVoiceNotes.back() = { reassignmentFrame,
+        WavesetEventKind::NoteOn, 200u, 64u, 1.0f, 0u };
+    SampleWavesetsEngine clicklessSteal;
+    require(clicklessSteal.prepare(48000.0, 32u),
+        "clickless polyphonic steal prepare");
+    clicklessSteal.setMap(raw.get());
+    clicklessSteal.render(routedSettings, stolenVoiceNotes.data(),
+        stolenVoiceNotes.size(), routedOutputs.data(), 32u, routedFrames);
+    require(clicklessSteal.activeVoiceCount() == kMaximumWavesetVoices
+            && std::abs(routedSignal[0u][reassignmentFrame - 1u]) > 0.08f
+            && std::abs(routedSignal[0u][reassignmentFrame]
+                - routedSignal[0u][reassignmentFrame - 1u]) < 0.03f,
+        "polyphonic voice stealing retires its prior output without a click");
+
     settings.voiceMode = VoiceMode::Mono;
     SampleWavesetsEngine mono;
     require(mono.prepare(48000.0, 2u), "mono prepare");
