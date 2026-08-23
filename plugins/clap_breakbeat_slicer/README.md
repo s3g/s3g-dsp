@@ -33,7 +33,7 @@ The first playable build includes:
   repeating one note restarts its slice while different slices may overlap;
 - independent waveform cursors and MIDI-note flags for every active voice,
   plus a global KILL ALL control that clears held, latched, and looping notes;
-  Kill All and the complete Project Audio embed/path status stay fixed in the
+  Kill All and the complete Project/Link/Embed storage status stay fixed in the
   global header on Overview, Break Edit, Mixer, and Mutate;
 - equal and transient slicing with zero-crossing snap, an adjustable
   0–20,000 µs pre-transient onset offset, and a transient-only minimum slice
@@ -65,7 +65,7 @@ The first playable build includes:
   shared peak cannot exceed 0 dBFS, while quieter slices remain unchanged;
   Play Through schedules the mapped slices in order through their normal voice
   path and the Mutate waveform displays each live cursor and MIDI-note flag;
-  generated audio retains mapped hit boundaries and is embedded automatically,
+  generated audio retains mapped hit boundaries and follows Project/Embed storage,
   and EXPORT WAV writes the selected break to a 32-bit float file without
   using another slot;
 - a Drum Mixer-family MIXER page with four strips providing level, stereo pan,
@@ -103,8 +103,8 @@ The first playable build includes:
 - a resizable native macOS bank/slice editor and audition control;
 - versioned project state retaining the original external sample paths and
   every per-break playback setting;
-- optional decoded-audio embedding in CLAP project state (enabled by default),
-  allowing the host project to reopen without the original files; and
+- Project, Link, or optional decoded-PCM Embed storage, with Project selected
+  for new instances; and
 - one MIDI/CLAP note input and one fixed main output per variant.
 
 Mixer controls use a runtime snapshot separate from the sample/slice bank and
@@ -123,10 +123,13 @@ them. Set the REAPER track to 16 channels when using the 16-channel variant.
 
 ## Project audio
 
-`PROJECT AUDIO: EMBED` is enabled by default. The button reports the decoded
-audio size that will be added to plug-in state. REAPER stores that CLAP state
-with the project, so reopening or moving the project does not require the
-original sample paths. Embedded audio remains inter-channel and sample locked.
+The shared `STORE` control selects `PROJECT` (the default for new instances),
+`LINK`, or `EMBED` for the complete bank. Project copies unchanged source files
+on a worker to the saved REAPER project's effective media directory under
+`s3g Samples` and registers them with that project. Link keeps the original
+paths. Embed stores decoded 32-bit float PCM in CLAP state while retaining
+inter-channel and sample lock. The header reports referenced file bytes or the
+decoded `STATE` size.
 
 ## Mixer and aux routing
 
@@ -189,20 +192,18 @@ decode, sum, or reorder samples. `FIELD SAFE` retains linked compression, SNAP,
 and linear tilt while bypassing SAT, BITE, and CLIP. Unused channels remain
 silent.
 
-Click the button to select `PROJECT AUDIO: PATHS` when smaller project files
-are preferable. The original paths are still stored as useful references in
-embedded mode. A single plug-in instance embeds up to 1 GiB of decoded audio;
-if the bank exceeds that bound, the button reports `PARTIAL` and later slots
-fall back to paths. Mutate results have no external path and therefore
-remain embedded even when ordinary source samples use `PATHS`; state saving
-fails instead of silently losing a generated mutation if the 1 GiB bound cannot
-hold it.
+Embed is capped at 1 GiB of decoded audio per instance. Its approximate cost is
+channels × frames × four bytes, often much larger than compressed break files;
+hosts can repeat that payload in undo snapshots made for FX bypass or chain
+edits. Project keeps routine plug-in state small. In an unsaved project or an
+unsupported host it remains pending without discarding playable audio or any
+unresolved path. REAPER Save As relocates registered media only when a
+copy-media option is selected; an ordinary Save As does not copy the bank.
 
-Standard CLAP does not provide a plug-in with REAPER's current project-media
-directory, so the plug-in does not silently copy files into that folder.
-Embedding is the reliable automatic project-portability path. A future
-explicit “collect bank to folder” operation can let the user choose the REAPER
-media folder and then rewrite the stored paths.
+Generated Mutate audio has no source file to link. In Project mode it is
+written as lossless media under `s3g Samples`; in Embed mode its decoded PCM is
+saved in state. State saving fails rather than silently losing a generated
+result if its selected destination cannot be committed.
 
 ## Build
 

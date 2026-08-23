@@ -57,6 +57,10 @@ DOCUMENTATION_SAMPLE_RECIPES = {
 SHARED_BUNDLE_PLUGIN_IDS = {
     f"{PLUGIN_ID_PREFIX}sample-player-16":
         f"{PLUGIN_ID_PREFIX}sample-player",
+    f"{PLUGIN_ID_PREFIX}sample-wavesets-32":
+        f"{PLUGIN_ID_PREFIX}sample-wavesets",
+    f"{PLUGIN_ID_PREFIX}sample-motion-32":
+        f"{PLUGIN_ID_PREFIX}sample-motion",
 }
 PREFERRED_SLICER_SAMPLES = (
     "Angles Break.wav",

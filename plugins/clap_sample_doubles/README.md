@@ -22,7 +22,7 @@ The instrument provides:
 - one zero-crossing cue marker and retrigger action per deck, with adjustable
   reaction-time pre-roll and direct marker dragging;
 - Cut, Sharp, and Blend crossfader curves;
-- path or embedded project-audio state; and
+- Project, Link, or Embed sample storage; and
 - Omni or single-channel MIDI reception with note-command and direct CC
   control.
 
@@ -35,6 +35,18 @@ The factory presets change Speed, Deck B Offset/Drift/Live Phase, Phase Step,
 Loop, crossfader position, and crossfader curve. They preserve the sample,
 source BPM, S/E region, cue state and pre-roll, MIDI receive channel, Link,
 both deck levels, and Out.
+
+## Sample storage
+
+`PROJECT` is the new-instance default. It copies the unchanged source on the
+loader worker to the saved REAPER project's effective media directory under
+`s3g Samples` and registers that copy with the project. `LINK` keeps the
+original file path. `EMBED` writes decoded 32-bit float PCM into CLAP state;
+its approximate cost is channels × frames × four bytes, and large state can be
+copied into host undo history during FX bypass or chain edits. Project remains
+pending in an unsaved project or unsupported host and preserves the playable
+source and unresolved reference. REAPER Save As moves the registered copy only
+when a copy-media option is used.
 
 ## Tracker command notes
 

@@ -937,6 +937,8 @@ sample_family_names=(
   'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 2'
   'plugins/clap_breakbeat_slicer/s3g_breakbeat_slicer_clap.cpp|s3g Sample Slicer 16'
   'plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp|s3g Sample Doubles 2'
+  'plugins/clap_sample_motion/s3g_sample_motion_clap.cpp|s3g Sample Motion 2'
+  'plugins/clap_sample_motion/s3g_sample_motion_clap.cpp|s3g Sample Motion 32'
 )
 for contract in "${sample_family_names[@]}"; do
   file="${contract%%|*}"
@@ -1073,6 +1075,8 @@ fi
 section "Sample Family"
 sample_player_source=plugins/clap_sample_player/s3g_sample_player_clap.cpp
 sample_doubles_source=plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp
+sample_motion_source=plugins/clap_sample_motion/s3g_sample_motion_clap.cpp
+sample_motion_gui=plugins/clap_sample_motion/s3g_sample_motion_gui.inc
 sample_wavesets_source=plugins/clap_sample_wavesets/s3g_sample_wavesets_clap.cpp
 for contract in \
   drawProcessorTitleBand \
@@ -1097,7 +1101,55 @@ if ! rg -Fq '{ kGainParamId, "OUT", 18.0, 494.0, 342.0 }' \
     "$sample_doubles_source" \
     || ! rg -Fq '@"OUTPUT / DECKS / SOURCE"' "$sample_doubles_source"; then
   warn "layout" "$sample_doubles_source" \
-    "Sample Doubles must begin its left control column with OUT under an OUTPUT-first panel header."
+      "Sample Doubles must begin its left control column with OUT under an OUTPUT-first panel header."
+fi
+if [[ -f "$sample_motion_source" && -f "$sample_motion_gui" ]]; then
+  for contract in \
+    ResponsiveViewport \
+    cursorInnerPhases \
+    cursorOuterPhases \
+    cursorIdentities \
+    cursorOutputFirst \
+    queueGuiParamGesture \
+    loaderMain \
+    NSDraggingDestination \
+    currentContextDrawingToScreen \
+    CABasicAnimation \
+    drawProcessorTitleBand \
+    handleProcessorTitleClick \
+    drawPanelHeader \
+    drawSlider \
+    drawMenu \
+    sliderDoubleClickDefault \
+    peakDbText \
+    audioPortsConfig \
+    kOutputPageButton \
+    waveVisibleSpan \
+    scrollWheel: \
+    DOUBLE-CLICK \
+    '1.0 / 30.0'; do
+    if ! rg -Fq "$contract" "$sample_motion_source" "$sample_motion_gui"; then
+      warn "control" "$sample_motion_source" \
+        "Sample Motion must retain the Sample-family loading, waveform, preset, automation, and compositor contracts."
+    fi
+  done
+  if ! rg -Fq '@"OUTPUT / VOICE / PITCH / MIDI"' "$sample_motion_gui" \
+      || ! rg -Fq 'drawSlider:kOutParamId name:@"OUT" y:482 panel:kOutputPanel' "$sample_motion_gui"; then
+    warn "layout" "$sample_motion_gui" \
+      "Sample Motion must begin its OUTPUT-first control column with OUT."
+  fi
+  if rg -q 'NSSlider|NSButton' "$sample_motion_source" "$sample_motion_gui"; then
+    warn "control" "$sample_motion_source" \
+      "Sample Motion uses custom canvas sliders, buttons, and categorical menus instead of native Cocoa controls."
+  fi
+  if ! rg -Fq 'org.s3g.s3g-dsp.sample-motion-32' "$sample_motion_source" \
+      || ! rg -Fq 'kActiveOutputCountParamId' "$sample_motion_source" \
+      || ! rg -Fq 'kOutputPageButton' "$sample_motion_gui" \
+      || ! rg -Fq 'TriggerOutputAllocator' dsp/s3g_sample_motion.h \
+      || ! rg -Fq 'OutputTraversal::RandomCycle' dsp/s3g_voice_output_allocator.h; then
+    warn "family" "$sample_motion_source" \
+      "Sample Motion 32 must retain its routing page, reusable trigger-time allocator, and selectable 2-32 active output width."
+  fi
 fi
 if [[ -f "$sample_wavesets_source" ]]; then
   if ! rg -Fq '@"OUTPUT / AMP / MIDI"' "$sample_wavesets_source" \

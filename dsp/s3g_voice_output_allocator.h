@@ -29,6 +29,7 @@ struct VoiceOutputRouting {
     OutputTraversal traversal = OutputTraversal::Sequential;
     OutputVoiceWidth width = OutputVoiceWidth::Stereo;
     StereoPairLayout pairLayout = StereoPairLayout::Adjacent;
+    bool avoidAdjacent = false;
 
     bool valid() const noexcept
     {
@@ -81,7 +82,8 @@ public:
         const uint32_t signature = outputChannelCount
             | (voiceWidth << 8u)
             | (static_cast<uint32_t>(routing.traversal) << 12u)
-            | (static_cast<uint32_t>(routing.pairLayout) << 16u);
+            | (static_cast<uint32_t>(routing.pairLayout) << 16u)
+            | (static_cast<uint32_t>(routing.avoidAdjacent) << 20u);
         if (signature != signature_) {
             sequence_ = 0u;
             palindromePosition_ = 0u;
@@ -104,10 +106,27 @@ public:
             break;
         case OutputTraversal::Random:
             destination = nextRandom() % destinationCount;
+            if (routing.avoidAdjacent && destinationCount > 1u) {
+                for (uint32_t attempt = 0u; attempt < 16u
+                     && destinationIsNear(destination); ++attempt)
+                    destination = nextRandom() % destinationCount;
+                if (destinationIsNear(destination))
+                    destination = firstDistantDestination(destinationCount);
+            }
             break;
         case OutputTraversal::RandomCycle:
             if (bagSize_ != destinationCount || bagPosition_ >= bagSize_)
-                refillBag(destinationCount);
+                refillBag(destinationCount, routing.avoidAdjacent);
+            if (routing.avoidAdjacent && destinationCount > 1u
+                && destinationIsNear(bag_[bagPosition_])) {
+                for (uint32_t index = bagPosition_ + 1u;
+                     index < bagSize_; ++index) {
+                    if (!destinationIsNear(bag_[index])) {
+                        std::swap(bag_[bagPosition_], bag_[index]);
+                        break;
+                    }
+                }
+            }
             destination = bag_[bagPosition_++];
             break;
         case OutputTraversal::Sequential:
@@ -148,6 +167,25 @@ private:
         return randomState_;
     }
 
+    bool destinationIsNear(uint32_t destination) const noexcept
+    {
+        if (lastDestination_ == invalidDestination()) return false;
+        const uint32_t distance = destination > lastDestination_
+            ? destination - lastDestination_ : lastDestination_ - destination;
+        return distance <= 1u;
+    }
+
+    uint32_t firstDistantDestination(uint32_t destinationCount) const noexcept
+    {
+        for (uint32_t destination = 0u; destination < destinationCount;
+             ++destination)
+            if (!destinationIsNear(destination)) return destination;
+        for (uint32_t destination = 0u; destination < destinationCount;
+             ++destination)
+            if (destination != lastDestination_) return destination;
+        return 0u;
+    }
+
     void advancePalindrome(uint32_t destinationCount) noexcept
     {
         if (destinationCount <= 1u) return;
@@ -166,15 +204,39 @@ private:
         }
     }
 
-    void refillBag(uint32_t destinationCount) noexcept
+    void refillBag(uint32_t destinationCount, bool avoidAdjacent) noexcept
     {
         bagSize_ = destinationCount;
         bagPosition_ = 0u;
-        for (uint32_t index = 0u; index < destinationCount; ++index)
-            bag_[index] = static_cast<uint8_t>(index);
-        for (uint32_t index = destinationCount; index > 1u; --index) {
-            const uint32_t swapWith = nextRandom() % index;
-            std::swap(bag_[index - 1u], bag_[swapWith]);
+        const auto shuffle = [&]() {
+            for (uint32_t index = 0u; index < destinationCount; ++index)
+                bag_[index] = static_cast<uint8_t>(index);
+            for (uint32_t index = destinationCount; index > 1u; --index) {
+                const uint32_t swapWith = nextRandom() % index;
+                std::swap(bag_[index - 1u], bag_[swapWith]);
+            }
+        };
+        const auto bagAvoidsAdjacent = [&]() {
+            if (destinationCount <= 1u) return true;
+            if (lastDestination_ != invalidDestination()) {
+                const uint32_t first = bag_[0u];
+                const uint32_t distance = first > lastDestination_
+                    ? first - lastDestination_ : lastDestination_ - first;
+                if (distance <= 1u) return false;
+            }
+            for (uint32_t index = 1u; index < destinationCount; ++index) {
+                const uint32_t left = bag_[index - 1u];
+                const uint32_t right = bag_[index];
+                const uint32_t distance = left > right
+                    ? left - right : right - left;
+                if (distance <= 1u) return false;
+            }
+            return true;
+        };
+        shuffle();
+        if (avoidAdjacent && destinationCount >= 4u) {
+            for (uint32_t attempt = 0u; attempt < 128u
+                 && !bagAvoidsAdjacent(); ++attempt) shuffle();
         }
         if (destinationCount > 1u
             && lastDestination_ != invalidDestination()

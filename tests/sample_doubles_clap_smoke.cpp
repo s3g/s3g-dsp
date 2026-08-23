@@ -20,7 +20,7 @@ namespace {
 
 constexpr uint32_t kStateMagic = 0x44443353u;
 constexpr uint32_t kLegacyStateVersion = 1u;
-constexpr uint32_t kCurrentStateVersion = 4u;
+constexpr uint32_t kCurrentStateVersion = 5u;
 constexpr std::size_t kParamCount = 17u;
 constexpr std::size_t kPriorParamCount = 16u;
 constexpr std::size_t kLegacyParamCount = 12u;
@@ -74,7 +74,7 @@ struct SavedStateV3Record {
 
 struct SavedStateV4Record {
     uint32_t magic = kStateMagic;
-    uint32_t version = kCurrentStateVersion;
+    uint32_t version = 4u;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
     std::array<double, kParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
@@ -89,6 +89,26 @@ struct SavedStateV4Record {
     uint8_t cueValidMask = 0u;
     std::array<uint8_t, 7u> reservedCue {};
 };
+
+struct SavedStateV5Record {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kCurrentStateVersion;
+    uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
+    std::array<double, kParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 0u;
+    uint8_t channelCount = 0u;
+    uint8_t requestedStorageMode = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 0u;
+    double sampleRate = 0.0;
+    double cueA = -1.0;
+    double cueB = -1.0;
+    uint8_t cueValidMask = 0u;
+    std::array<uint8_t, 7u> reservedCue {};
+};
+
+static_assert(sizeof(SavedStateV5Record) == sizeof(SavedStateV4Record));
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -354,6 +374,17 @@ int main(int argc, char** argv)
         && foundDeckBLevel && foundLink && foundLivePhase
         && foundCuePreroll;
 
+    MemoryOutput initialState;
+    ok = ok && state->save(plugin, &initialState.stream)
+        && initialState.bytes.size() >= sizeof(SavedStateV5Record);
+    if (ok) {
+        SavedStateV5Record record;
+        std::memcpy(&record, initialState.bytes.data(), sizeof(record));
+        ok = record.version == kCurrentStateVersion
+            && record.requestedStorageMode == 0u
+            && record.embedded == 0u;
+    }
+
     SavedState saved;
     saved.parameters = {{
         0.0, 0.0, 60.0, 1.0, 2.0, 0.0, 1.0, 0.0,
@@ -444,13 +475,14 @@ int main(int argc, char** argv)
 
     MemoryOutput savedV4;
     ok = ok && state->save(plugin, &savedV4.stream)
-        && savedV4.bytes.size() >= sizeof(SavedStateV4Record);
+        && savedV4.bytes.size() >= sizeof(SavedStateV5Record);
     if (ok) {
-        SavedStateV4Record record;
+        SavedStateV5Record record;
         std::memcpy(&record, savedV4.bytes.data(), sizeof(record));
         ok = record.magic == kStateMagic
             && record.version == kCurrentStateVersion
             && record.parameterCount == kParamCount
+            && record.requestedStorageMode == 2u
             && near(static_cast<float>(record.parameters[16u]), 150.0f)
             && record.cueValidMask == 3u
             && record.cueA >= 0.0 && record.cueA <= 1.0
@@ -478,12 +510,13 @@ int main(int argc, char** argv)
             && processBlock(plugin, 1u, nullptr, left, right);
         MemoryOutput migratedV2;
         ok = ok && state->save(plugin, &migratedV2.stream)
-            && migratedV2.bytes.size() >= sizeof(SavedStateV4Record);
+            && migratedV2.bytes.size() >= sizeof(SavedStateV5Record);
         if (ok) {
-            SavedStateV4Record record;
+            SavedStateV5Record record;
             std::memcpy(&record, migratedV2.bytes.data(), sizeof(record));
             ok = record.version == kCurrentStateVersion
                 && record.parameterCount == kParamCount
+                && record.requestedStorageMode == 2u
                 && near(static_cast<float>(record.parameters[16u]), 150.0f)
                 && record.cueValidMask == 0u;
         }
@@ -518,12 +551,13 @@ int main(int argc, char** argv)
             && processBlock(plugin, 1u, nullptr, left, right);
         MemoryOutput migratedV3;
         ok = ok && state->save(plugin, &migratedV3.stream)
-            && migratedV3.bytes.size() >= sizeof(SavedStateV4Record);
+            && migratedV3.bytes.size() >= sizeof(SavedStateV5Record);
         if (ok) {
-            SavedStateV4Record record;
+            SavedStateV5Record record;
             std::memcpy(&record, migratedV3.bytes.data(), sizeof(record));
             ok = record.version == kCurrentStateVersion
                 && record.parameterCount == kParamCount
+                && record.requestedStorageMode == 2u
                 && near(static_cast<float>(record.parameters[16u]), 150.0f)
                 && record.cueValidMask == 3u
                 && near(static_cast<float>(record.cueA), 0.25f)
@@ -531,25 +565,78 @@ int main(int argc, char** argv)
         }
     }
 
-    // Reload the current state and prove both cue positions survive the state
-    // boundary and are adopted by the audio engine on its next block.
+    // Version four used reserved0 only as padding. Its value must not be
+    // interpreted as the new requested mode: path-only state migrates to
+    // LINK and preserves the missing locator.
     if (ok) {
         plugin->stop_processing(plugin);
         plugin->deactivate(plugin);
+        SavedStateV4Record legacyV4;
+        legacyV4.embedded = 0u;
+        legacyV4.reserved0 = 0xffu;
+        std::snprintf(legacyV4.path.data(), legacyV4.path.size(), "%s",
+            "/missing/s3g-legacy-doubles.wav");
         MemoryInput v4Input;
-        v4Input.bytes = savedV4.bytes;
+        v4Input.bytes.resize(sizeof(legacyV4));
+        std::memcpy(v4Input.bytes.data(), &legacyV4, sizeof(legacyV4));
+        MemoryOutput migratedV4;
         ok = state->load(plugin, &v4Input.stream)
+            && state->save(plugin, &migratedV4.stream)
+            && migratedV4.bytes.size() >= sizeof(SavedStateV5Record);
+        if (ok) {
+            SavedStateV5Record record;
+            std::memcpy(&record, migratedV4.bytes.data(), sizeof(record));
+            ok = record.version == kCurrentStateVersion
+                && record.requestedStorageMode == 1u
+                && record.embedded == 0u
+                && std::strcmp(record.path.data(), legacyV4.path.data()) == 0;
+        }
+    }
+
+    // Reload the current state and prove both cue positions survive the state
+    // boundary and are adopted by the audio engine on its next block.
+    if (ok) {
+        MemoryInput currentInput;
+        currentInput.bytes = savedV4.bytes;
+        ok = state->load(plugin, &currentInput.stream)
             && plugin->activate(plugin, 1000.0, 1u, 128u)
             && plugin->start_processing(plugin)
             && processBlock(plugin, 1u, nullptr, left, right);
         MemoryOutput roundTrip;
         ok = ok && state->save(plugin, &roundTrip.stream)
-            && roundTrip.bytes.size() >= sizeof(SavedStateV4Record);
+            && roundTrip.bytes.size() >= sizeof(SavedStateV5Record);
         if (ok) {
-            SavedStateV4Record record;
+            SavedStateV5Record record;
             std::memcpy(&record, roundTrip.bytes.data(), sizeof(record));
             ok = record.version == kCurrentStateVersion
                 && record.cueValidMask == 3u;
+        }
+    }
+
+    // Requested PROJECT remains distinct from the actual payload. With no
+    // locator, the current-state loader must retain embedded PCM as a safety
+    // payload instead of silently dropping the sample on the next save.
+    if (ok) {
+        plugin->stop_processing(plugin);
+        plugin->deactivate(plugin);
+        MemoryInput safetyInput;
+        safetyInput.bytes = savedV4.bytes;
+        SavedStateV5Record safetyRecord;
+        std::memcpy(&safetyRecord, safetyInput.bytes.data(),
+            sizeof(safetyRecord));
+        safetyRecord.requestedStorageMode = 0u;
+        std::memcpy(safetyInput.bytes.data(), &safetyRecord,
+            sizeof(safetyRecord));
+        MemoryOutput safetyOutput;
+        ok = state->load(plugin, &safetyInput.stream)
+            && state->save(plugin, &safetyOutput.stream)
+            && safetyOutput.bytes.size() == safetyInput.bytes.size();
+        if (ok) {
+            std::memcpy(&safetyRecord, safetyOutput.bytes.data(),
+                sizeof(safetyRecord));
+            ok = safetyRecord.requestedStorageMode == 0u
+                && safetyRecord.embedded == 1u
+                && safetyRecord.path[0u] == '\0';
         }
     }
 

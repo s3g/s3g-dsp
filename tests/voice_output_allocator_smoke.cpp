@@ -79,8 +79,28 @@ int main()
             mask |= 1u << channel;
             prior = channel;
         }
-        ok &= expect(mask == 0xffffu,
+    ok &= expect(mask == 0xffffu,
             "random-cycle routing did not visit every destination");
+    }
+
+    allocator.reset(0x31415926u);
+    routing.avoidAdjacent = true;
+    uint32_t distantPrior = 0xffffffffu;
+    for (uint32_t cycle = 0u; cycle < 3u; ++cycle) {
+        uint32_t mask = 0u;
+        for (uint32_t trigger = 0u; trigger < 16u; ++trigger) {
+            const uint32_t channel = allocator.next(16u, routing).firstChannel;
+            ok &= expect((mask & (1u << channel)) == 0u,
+                "adjacent-safe random cycle repeated a destination");
+            if (distantPrior != 0xffffffffu) {
+                const uint32_t distance = channel > distantPrior
+                    ? channel - distantPrior : distantPrior - channel;
+                ok &= expect(distance > 1u,
+                    "adjacent-safe random cycle selected a near destination");
+            }
+            mask |= 1u << channel;
+            distantPrior = channel;
+        }
     }
 
     allocator.reset();

@@ -34,7 +34,7 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-slicer.png" aria-label="Open the high-resolution Sample Slicer Overview screenshot">
-              <img src="assets/plugin-guis/s3g-slicer.png" alt="Sample Slicer Overview page showing a loaded eight-channel source and three populated mutation slots, with waveform overviews, twelve slice markers per break, MIDI channels, mapped note ranges, Kill All, and embedded project-audio status" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/s3g-slicer.png" alt="Sample Slicer Overview page showing a loaded eight-channel source and three populated mutation slots, with waveform overviews, twelve slice markers per break, MIDI channels, mapped note ranges, Kill All, and project-audio storage status" loading="lazy" decoding="async">
             </button>
           </div>
           <figcaption>The Overview page keeps all four loaded breaks, their slice markers, mapping ranges, and playback positions visible together.</figcaption>
@@ -50,14 +50,14 @@
           <li>Choose the lowest starting note and MIDI receive channel for the break, then press <code>AUTO MAP</code>. A fresh bank starts every break at MIDI note <code>48 / C2</code>, with breaks 1–4 receiving on MIDI channels 1–4. Marker additions, deletions, re-slicing, and starting-note changes require a new Auto Map operation.</li>
           <li>After Auto Map unlocks the post-map slice editor, select and audition mapped notes, then set each slice's gain, pitch, pan, direction, launch mode, and choke group. Leave <code>AUTO / RESTART / POLY</code> selected for the default drum-sampler behavior: the same note restarts its slice while different notes may overlap. Shape the complete break with its proportional envelope, two inserts, mixer strip, and AUX send.</li>
           <li>Open Mutate, select one loaded break as the source, choose which mutation operations may be used, then fill the empty slots. Occupied slots remain locked; clear one when it should become available for another mutation.</li>
-          <li>Leave <code>PROJECT AUDIO: EMBED</code> enabled when the project should reopen without the original files, or select <code>PATHS</code> for smaller project state and keep the source files in a stable location.</li>
+          <li>Choose <code>STORE PROJECT</code> (the new-instance default), <code>STORE LINK</code>, or <code>STORE EMBED</code> for the bank. See the shared <a href="sample-instruments.html#state">Sample Storage</a> policy.</li>
         </ol>
 
         <h2 id="loading">Loading and Project Audio</h2>
 
         <p>Audio decoding and transient analysis run after a user-initiated load. Replacing or clearing a slot cancels stale work, so an older decode cannot overwrite the newer selection. Long filenames are shortened in the mixer while the complete path remains part of project state.</p>
 
-        <p><code>PROJECT AUDIO: EMBED</code> stores decoded audio with the host project while preserving every source channel. A single instance can embed up to 1 GiB; if the bank exceeds that bound, the control reports <code>PARTIAL</code> and later slots use their stored paths. <code>PATHS</code> keeps state smaller but requires the original media to remain available.</p>
+        <p><code>PROJECT</code> copies unchanged break files in the background to the saved REAPER project's effective media directory under <code>s3g Samples</code>. <code>LINK</code> keeps the original locations. <code>EMBED</code> stores decoded audio while preserving every source channel; a single instance can embed up to 1 GiB, and later slots remain path-referenced if the bank exceeds that bound. Long paths and missing sources remain preserved for later recovery.</p>
 
         <h2 id="slicing">Slicing and Mapping</h2>
 
@@ -86,7 +86,7 @@
 
         <p>The fresh-bank default is <code>TRIG AUTO</code>, <code>RETRIG RESTART</code>, and <code>VOICE POLY</code>. Repeating the same note restarts that mapped slice, avoiding accidental stacks, while different mapped notes can still overlap. <code>LAYER</code> deliberately stacks repeated instances of the same note; <code>IGNORE</code> leaves its current instance running. Voice mode can instead be <code>MONO</code>, which replaces the active slice for that break, or <code>LEGATO</code>, which retargets it without restarting its envelope. <code>GLIDE</code> smooths the pitch transition of a legato retarget.</p>
 
-        <p><code>TRIG AUTO</code> preserves each slice's launch behavior. A One Shot ignores note-off and plays to its endpoint; Gate begins its proportional release when the note is released, although it still stops naturally at the endpoint when the key is held longer than the slice. Loop and Ping Pong also release on note-off, while Thru continues independently. The break-wide Trigger setting can override these distinctions with <code>GATE</code>, <code>ONE SHOT</code>, or <code>TOGGLE</code>. Toggle starts a mapped slice on the first press and releases it on the next matching press. <code>KILL ALL</code> immediately clears every voice and held-note fallback, including latched or looping playback. Kill All and the complete <code>PROJECT AUDIO: EMBED / PATHS / PARTIAL</code> status remain in the global header on every page, including Break Edit.</p>
+        <p><code>TRIG AUTO</code> preserves each slice's launch behavior. A One Shot ignores note-off and plays to its endpoint; Gate begins its proportional release when the note is released, although it still stops naturally at the endpoint when the key is held longer than the slice. Loop and Ping Pong also release on note-off, while Thru continues independently. The break-wide Trigger setting can override these distinctions with <code>GATE</code>, <code>ONE SHOT</code>, or <code>TOGGLE</code>. Toggle starts a mapped slice on the first press and releases it on the next matching press. <code>KILL ALL</code> immediately clears every voice and held-note fallback, including latched or looping playback. Kill All and the complete <code>STORE PROJECT / LINK / EMBED</code> status remain in the global header on every page, including Break Edit.</p>
 
         <p><code>PITCH RATE</code> changes pitch and duration together. <code>STRETCH</code> applies the slice's pitch setting while preserving its timing. <code>HYBRID</code> uses Rate for a negative per-slice transpose and Stretch at zero or above. <code>SYNC HOST</code> scales playback from the break's source BPM to the current host tempo; <code>SYNC FREE</code> preserves unsynchronized playback. Loop crossfade blends the wrap region of Loop playback in either direction; Ping Pong reverses at its boundaries instead.</p>
 
@@ -98,7 +98,7 @@
 
         <p>The compact <code>USES</code> row determines what the next fill pass may use: Rearrange, Repeat, Pitch, Mixer FX, AUX Bus, and Reverse. All except Reverse are enabled in a fresh instance. Mixer FX gives every newly arranged slice its own deterministic pair of mixer inserts selected from Filter, Degrade, Transient, Resonator, Erosion, Shift, Fold, Repeater, and Time, then varies the three-band EQ and mid frequency. AUX Bus independently gives every new slice its own send plus compression, saturation, bite, clip, tilt, and return treatment. Wide sources automatically use field-safe bus processing.</p>
 
-        <p>Each mutation renders outside the audio callback, captures as much as two seconds of processor tail, and is mapped automatically. A shared multichannel gain reduction is applied only when a rendered slice would exceed 0 dBFS, so no generated slice exceeds that peak ceiling while quieter slices and channel relationships remain unchanged. Occupied and currently building slots are locked and never overwritten. Select a slot and use <code>CLEAR</code> to make it available to the next fill pass. <code>PLAY THROUGH</code> walks the selected break's mapped slices in order through the normal playback path, so per-slice gain, pitch, pan, direction, launch behavior, and processing are heard; the Mutate waveform shows a live cursor and note flag while it runs. Generated audio is always embedded in project state because it has no external source file; the chosen source remains unchanged.</p>
+        <p>Each mutation renders outside the audio callback, captures as much as two seconds of processor tail, and is mapped automatically. A shared multichannel gain reduction is applied only when a rendered slice would exceed 0 dBFS, so no generated slice exceeds that peak ceiling while quieter slices and channel relationships remain unchanged. Occupied and currently building slots are locked and never overwritten. Select a slot and use <code>CLEAR</code> to make it available to the next fill pass. <code>PLAY THROUGH</code> walks the selected break's mapped slices in order through the normal playback path, so per-slice gain, pitch, pan, direction, launch behavior, and processing are heard; the Mutate waveform shows a live cursor and note flag while it runs. Generated audio has no original path: <code>PROJECT</code> writes it as lossless project media under <code>s3g Samples</code>, while <code>EMBED</code> keeps its decoded PCM in state. The chosen source remains unchanged.</p>
 
         <p><code>EXPORT WAV…</code> runs the same background render without consuming a break slot or changing project state. The save panel writes an atomic 32-bit floating-point WAV at the current host sample rate. Mono and stereo material exports as stereo so pan is retained; wider material keeps its original channel count and channel order, up to sixteen channels.</p>
 
@@ -143,13 +143,15 @@
           <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
           <li><code>Sample Slicer 2</code> output: one fixed stereo port.</li>
           <li><code>Sample Slicer 16</code> output: one fixed 16-channel port; unused channels remain silent.</li>
-          <li>State: break paths, optional embedded audio, generated mutation audio, mutation-use selections and next seed, slices, maps, envelopes, trigger/retrigger/voice/pitch/sync behavior, source BPM, loop crossfade, glide, inserts, mixer, AUX, and output controls.</li>
+          <li>State: requested bank storage policy, preserved break references, embedded PCM only when required by that policy, generated mutation references or PCM, mutation-use selections and next seed, slices, maps, envelopes, trigger/retrigger/voice/pitch/sync behavior, source BPM, loop crossfade, glide, inserts, mixer, AUX, and output controls.</li>
         </ul>
+
+        <p>The editor reports referenced file bytes or decoded <code>STATE</code> size. Embedded PCM can be much larger than compressed break files, and REAPER may snapshot complete state for undo when bypassing an FX or changing its chain. Use <code>PROJECT</code> to keep routine state small. Its registered media follows REAPER only when Save As uses a copy-media option; an ordinary Save As does not copy the bank automatically. An unsaved or unsupported project leaves Project collection pending without losing playable audio or unresolved paths.</p>
 
         <p>The 16-channel variant preserves source lanes in order and does not claim an ambisonic encoding. It can carry quad, octal, arbitrary discrete, or compatible encoded material when the surrounding routing is configured accordingly.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="sample-wavesets.html"><span>Previous</span>Sample Wavesets</a>
+          <a class="page-nav-link" href="sample-motion.html"><span>Previous</span>Sample Motion</a>
           <a class="page-nav-link next" href="effect-crcltr.html"><span>Next</span>Effect CRCLTR</a>
         </nav>
       </main>
@@ -161,6 +163,7 @@
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-doubles.html">Sample Doubles</a>
           <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
           <a href="sample-slicer.html">Sample Slicer</a>
           <a href="effect-crcltr.html">Effect CRCLTR</a>
           <a href="processor-loop.html">Processor Loop</a>

@@ -21,14 +21,14 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x57533353u;
-constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kStateVersion = 5u;
 constexpr std::size_t kStereoParamCount = 25u;
 constexpr std::size_t kParamCount = 29u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 
 struct SavedState {
     uint32_t magic = kStateMagic;
-    uint32_t version = kStateVersion;
+    uint32_t version = 4u;
     uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
     std::array<double, kParamCount> parameters {};
     std::array<char, kMaximumPathBytes> path {};
@@ -39,6 +39,22 @@ struct SavedState {
     uint32_t frameCount = 48000u;
     double sampleRate = 48000.0;
 };
+
+struct CurrentSavedState {
+    uint32_t magic = kStateMagic;
+    uint32_t version = kStateVersion;
+    uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
+    std::array<double, kParamCount> parameters {};
+    std::array<char, kMaximumPathBytes> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 2u;
+    uint8_t requestedStorageMode = 2u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 48000u;
+    double sampleRate = 48000.0;
+};
+
+static_assert(sizeof(CurrentSavedState) == sizeof(SavedState));
 
 struct LegacySavedStateV2 {
     uint32_t magic = kStateMagic;
@@ -342,7 +358,19 @@ int main(int argc, char** argv)
         && std::abs(processValue - 9.0) < 1.0e-9
         && !params->get_value(plugin, 26u, &processValue);
 
+    MemoryOutput initialState;
+    ok = ok && state->save(plugin, &initialState.stream)
+        && initialState.bytes.size() >= sizeof(CurrentSavedState);
+    if (ok) {
+        CurrentSavedState record;
+        std::memcpy(&record, initialState.bytes.data(), sizeof(record));
+        ok = record.version == kStateVersion
+            && record.requestedStorageMode == 0u
+            && record.embedded == 0u;
+    }
+
     SavedState saved;
+    saved.reserved0 = 0xffu;
     saved.parameters = {{
         -6.0, 1.0, 0.0, 1.0, 0.0, 1.0, 3.0, 0.0, 0.0, 60.0,
         0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 3.0, 2.0, 1.0, 0.0,
@@ -421,14 +449,15 @@ int main(int argc, char** argv)
 
     MemoryOutput output;
     ok = ok && state->save(plugin, &output.stream)
-        && output.bytes.size() == sizeof(SavedState)
+        && output.bytes.size() == sizeof(CurrentSavedState)
             + samples[0u].size() * sizeof(float) * 2u;
     if (ok) {
-        SavedState roundTrip;
+        CurrentSavedState roundTrip;
         std::memcpy(&roundTrip, output.bytes.data(), sizeof(roundTrip));
         ok = roundTrip.magic == kStateMagic
             && roundTrip.version == kStateVersion
             && roundTrip.parameterCount == kParamCount
+            && roundTrip.requestedStorageMode == 2u
             && roundTrip.channelCount == 2u
             && roundTrip.frameCount == saved.frameCount
             && std::abs(roundTrip.parameters[24u] - 2.0) < 1.0e-9;
@@ -437,6 +466,27 @@ int main(int argc, char** argv)
     if (plugin) {
         plugin->stop_processing(plugin);
         plugin->deactivate(plugin);
+        // Requested PROJECT remains distinct from the actual payload. With
+        // no locator, embedded PCM is the required safety payload.
+        MemoryInput safetyInput;
+        safetyInput.bytes = output.bytes;
+        CurrentSavedState safetyRecord;
+        std::memcpy(&safetyRecord, safetyInput.bytes.data(),
+            sizeof(safetyRecord));
+        safetyRecord.requestedStorageMode = 0u;
+        std::memcpy(safetyInput.bytes.data(), &safetyRecord,
+            sizeof(safetyRecord));
+        MemoryOutput safetyOutput;
+        ok = ok && state->load(plugin, &safetyInput.stream)
+            && state->save(plugin, &safetyOutput.stream)
+            && safetyOutput.bytes.size() == safetyInput.bytes.size();
+        if (ok) {
+            std::memcpy(&safetyRecord, safetyOutput.bytes.data(),
+                sizeof(safetyRecord));
+            ok = safetyRecord.requestedStorageMode == 0u
+                && safetyRecord.embedded == 1u
+                && safetyRecord.path[0u] == '\0';
+        }
         LegacySavedStateV2 legacy;
         legacy.parameters = {{
             -9.0, 0.25, 2.0, 2.0, 4.0, 5.0, -3.0, 1.0, 4.0,

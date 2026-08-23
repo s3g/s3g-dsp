@@ -1,6 +1,7 @@
 #include "s3g_sample_player.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_sample_storage.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -20,12 +21,14 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -48,13 +51,19 @@ using s3g::sample::SampleAsset;
 using s3g::sample::SyncMode;
 using s3g::sample::TriggerMode;
 using s3g::sample::VoiceMode;
+using s3g::sample_storage::ProjectCopyResult;
+using s3g::sample_storage::ProjectFileRegistration;
+using s3g::sample_storage::ProjectLocation;
+using s3g::sample_storage::ReaperContext;
+using s3g::sample_storage::StorageMode;
 
 constexpr uint32_t kStateMagic = 0x50533353u; // "S3SP"
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kProportionalStateVersion = 2u;
 constexpr uint32_t kExpandedStateVersion = 3u;
 constexpr uint32_t kPitchStateVersion = 4u;
-constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kMidiStateVersion = 5u;
+constexpr uint32_t kStateVersion = 6u;
 constexpr uint32_t kGuiWidth = 980u;
 constexpr uint32_t kGuiHeight = 844u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
@@ -223,14 +232,25 @@ struct PitchSavedState {
 };
 
 #if defined(__APPLE__)
+enum class LoadRequestKind : uint8_t {
+    Decode = 0u,
+    ProjectCopyOnly,
+};
+
 struct LoadRequest {
     uint64_t generation = 0u;
-    std::string path;
+    LoadRequestKind kind = LoadRequestKind::Decode;
+    std::string sourcePath;
+    ProjectLocation projectLocation;
+    std::string projectError;
 };
 
 struct LoadResult {
     uint64_t generation = 0u;
-    std::string path;
+    LoadRequestKind kind = LoadRequestKind::Decode;
+    std::string sourcePath;
+    std::string decodedPath;
+    ProjectCopyResult projectCopy;
     std::shared_ptr<const SampleAsset> asset;
     std::string error;
 };
@@ -250,7 +270,11 @@ struct Plugin {
     std::atomic<const SampleAsset*> publishedAsset { nullptr };
     std::shared_ptr<const SampleAsset> controlAsset;
     std::vector<std::shared_ptr<const SampleAsset>> retainedAssets;
+    // samplePath is the persistent locator: absolute for LINK and relative
+    // to REAPER's project media directory for a completed PROJECT copy.
+    // resolvedSamplePath is the currently readable filesystem path.
     std::string samplePath;
+    std::string resolvedSamplePath;
     std::string status { "DROP A SAMPLE OR PRESS LOAD" };
     std::array<std::atomic<double>, kParamCount> parameters {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
@@ -264,7 +288,13 @@ struct Plugin {
     std::atomic<uint32_t> voiceCursorCount { 0u };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<bool> killRequested { false };
-    bool embedSampleInState = true;
+    StorageMode storageMode = StorageMode::Project;
+    ReaperContext reaperContext {};
+    ProjectFileRegistration projectFileRegistration;
+    bool projectCopyPending = false;
+    bool projectCopyInFlight = false;
+    std::atomic<bool> projectRenamePending { false };
+    std::chrono::steady_clock::time_point nextProjectCopyProbe {};
     bool active = false;
 #if defined(__APPLE__)
     std::mutex loaderMutex;
@@ -516,14 +546,80 @@ void requestProcess(Plugin& instance)
         instance.host->request_process(instance.host);
 }
 
+StorageMode nextStorageMode(StorageMode mode) noexcept
+{
+    switch (mode) {
+    case StorageMode::Project: return StorageMode::Link;
+    case StorageMode::Link: return StorageMode::Embed;
+    case StorageMode::Embed: return StorageMode::Project;
+    }
+    return StorageMode::Project;
+}
+
+void projectFileRenamed(void* owner, const std::string& absolutePath)
+{
+    auto* instance = static_cast<Plugin*>(owner);
+    if (!instance || absolutePath.empty()) return;
+    // file_in_project_ex2 may invoke this from inside REAPER's registration
+    // machinery. The registration object has already retained the new path;
+    // defer host queries, string publication, and dirty notification until
+    // the regular main-thread service pass.
+    instance->projectRenamePending.store(true, std::memory_order_release);
+}
+
+void serviceProjectFileRename(Plugin& instance)
+{
+    if (!instance.projectRenamePending.exchange(false,
+            std::memory_order_acq_rel)) return;
+    if (instance.storageMode != StorageMode::Project) return;
+    const std::string absolutePath
+        = instance.projectFileRegistration.absolutePath();
+    if (absolutePath.empty()) return;
+    instance.resolvedSamplePath = absolutePath;
+    instance.reaperContext = s3g::sample_storage::reaperContext(
+        instance.host);
+    ProjectLocation location;
+    std::string relative;
+    std::string error;
+    if (s3g::sample_storage::queryProjectLocation(instance.reaperContext,
+            location, &error)
+        && s3g::sample_storage::makeProjectRelativePath(location,
+            absolutePath, relative, &error)) {
+        instance.samplePath = std::move(relative);
+        instance.projectCopyPending = false;
+        instance.status = "PROJECT SAMPLE MOVED";
+    } else {
+        // Keep the renamed locator even if REAPER moved it outside the media
+        // directory. PROJECT will recopy it on the next main-thread probe.
+        instance.samplePath = absolutePath;
+        instance.projectCopyPending = true;
+        instance.status = "PROJECT SAMPLE MOVE PENDING";
+    }
+    markStateDirty(instance);
+}
+
+bool registerProjectSample(Plugin& instance, const std::string& absolutePath)
+{
+    if (absolutePath.empty()) return false;
+    instance.reaperContext = s3g::sample_storage::reaperContext(
+        instance.host);
+    return instance.projectFileRegistration.reset(instance.reaperContext,
+        absolutePath, &instance, projectFileRenamed,
+        instance.plugin.desc ? instance.plugin.desc->name
+                             : "s3g Sample Player");
+}
+
 bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
-    std::string path, bool dirty = true)
+    std::string path, std::string resolvedPath, bool dirty = true)
 {
     if (asset && (!asset->valid()
         || asset->channelCount > instance.outputChannelCount)) return false;
+    instance.projectFileRegistration.clear();
+    instance.projectRenamePending.store(false, std::memory_order_release);
     if (asset) instance.retainedAssets.push_back(asset);
     instance.controlAsset = std::move(asset);
     instance.samplePath = std::move(path);
+    instance.resolvedSamplePath = std::move(resolvedPath);
     instance.publishedAsset.store(instance.controlAsset.get(),
         std::memory_order_release);
     requestProcess(instance);
@@ -581,8 +677,8 @@ bool decodeSampleFile(const std::string& path,
     }
 }
 
-bool installDecodedSample(Plugin& instance, const std::string& path,
-    std::shared_ptr<const SampleAsset> asset)
+bool installDecodedSample(Plugin& instance, const std::string& locator,
+    const std::string& resolvedPath, std::shared_ptr<const SampleAsset> asset)
 {
     if (!asset || !asset->valid()) {
         instance.status = "INVALID DECODED SAMPLE";
@@ -596,7 +692,7 @@ bool installDecodedSample(Plugin& instance, const std::string& path,
     }
     const uint8_t channels = asset->channelCount;
     applySafeDefaultBounds(instance, *asset, false);
-    if (!publishAsset(instance, std::move(asset), path)) {
+    if (!publishAsset(instance, std::move(asset), locator, resolvedPath)) {
         instance.status = "COULD NOT PUBLISH SAMPLE";
         return false;
     }
@@ -626,11 +722,37 @@ bool startSampleLoader(Plugin& instance)
                 }
                 LoadResult result;
                 result.generation = request.generation;
-                result.path = std::move(request.path);
+                result.kind = request.kind;
+                result.sourcePath = std::move(request.sourcePath);
+                result.decodedPath = result.sourcePath;
+                result.error = std::move(request.projectError);
                 try {
-                    decodeSampleFile(result.path, result.asset, result.error);
+                    if (request.projectLocation.available()) {
+                        result.projectCopy
+                            = s3g::sample_storage::copyFileIntoProject(
+                                request.projectLocation, result.sourcePath);
+                        if (result.projectCopy.success) {
+                            result.decodedPath
+                                = result.projectCopy.absolutePath;
+                            result.error.clear();
+                        } else if (result.error.empty()) {
+                            result.error = result.projectCopy.error;
+                        }
+                    }
+                    if (result.kind == LoadRequestKind::Decode) {
+                        std::string decodeError;
+                        if (!decodeSampleFile(result.decodedPath,
+                                result.asset, decodeError)) {
+                            result.asset.reset();
+                            result.error = std::move(decodeError);
+                        }
+                    }
                 } catch (...) {
-                    result.error = "SAMPLE DECODE RAN OUT OF RESOURCES";
+                    result.asset.reset();
+                    result.error = result.kind
+                            == LoadRequestKind::ProjectCopyOnly
+                        ? "PROJECT COPY RAN OUT OF RESOURCES"
+                        : "SAMPLE DECODE RAN OUT OF RESOURCES";
                 }
                 {
                     std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -660,20 +782,89 @@ void stopSampleLoader(Plugin& instance)
     instance.loadResults.clear();
 }
 
+void cancelSampleLoads(Plugin& instance)
+{
+    ++instance.loadGeneration;
+    std::lock_guard<std::mutex> lock(instance.loaderMutex);
+    instance.loadRequests.clear();
+    instance.loadResults.clear();
+    instance.projectCopyInFlight = false;
+}
+
 void queueSampleLoad(Plugin& instance, std::string path)
 {
     if (path.empty()) return;
-    const uint64_t generation = ++instance.loadGeneration;
+    LoadRequest request;
+    request.generation = ++instance.loadGeneration;
+    request.sourcePath = std::move(path);
+    if (instance.storageMode == StorageMode::Project) {
+        instance.reaperContext = s3g::sample_storage::reaperContext(
+            instance.host);
+        (void)s3g::sample_storage::queryProjectLocation(
+            instance.reaperContext, request.projectLocation,
+            &request.projectError);
+        instance.projectCopyInFlight = request.projectLocation.available();
+        instance.projectCopyPending = true;
+    } else {
+        instance.projectCopyInFlight = false;
+        instance.projectCopyPending = false;
+    }
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
-        instance.loadRequests.push_back({ generation, std::move(path) });
+        instance.loadRequests.clear();
+        instance.loadRequests.push_back(std::move(request));
     }
     instance.status = "LOADING SAMPLE";
     instance.loaderCondition.notify_one();
 }
 
+bool queueProjectCopy(Plugin& instance)
+{
+    if (instance.storageMode != StorageMode::Project
+        || instance.projectCopyInFlight || !instance.controlAsset
+        || instance.resolvedSamplePath.empty()) return false;
+    instance.reaperContext = s3g::sample_storage::reaperContext(
+        instance.host);
+    ProjectLocation location;
+    std::string error;
+    if (!s3g::sample_storage::queryProjectLocation(instance.reaperContext,
+            location, &error)) {
+        instance.projectCopyPending = true;
+        instance.status = error;
+        return false;
+    }
+    LoadRequest request;
+    request.generation = ++instance.loadGeneration;
+    request.kind = LoadRequestKind::ProjectCopyOnly;
+    request.sourcePath = instance.resolvedSamplePath;
+    request.projectLocation = std::move(location);
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.clear();
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.projectCopyPending = true;
+    instance.projectCopyInFlight = true;
+    instance.status = "COPYING SAMPLE INTO PROJECT";
+    instance.loaderCondition.notify_one();
+    return true;
+}
+
+void maybeQueuePendingProjectCopy(Plugin& instance)
+{
+    if (instance.storageMode != StorageMode::Project
+        || !instance.projectCopyPending || instance.projectCopyInFlight
+        || !instance.controlAsset || instance.resolvedSamplePath.empty())
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < instance.nextProjectCopyProbe) return;
+    instance.nextProjectCopyProbe = now + std::chrono::seconds(1);
+    (void)queueProjectCopy(instance);
+}
+
 void serviceSampleLoads(Plugin& instance)
 {
+    serviceProjectFileRename(instance);
     std::deque<LoadResult> completed;
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -681,13 +872,89 @@ void serviceSampleLoads(Plugin& instance)
     }
     for (auto& result : completed) {
         if (result.generation != instance.loadGeneration) continue;
+        if (result.kind == LoadRequestKind::ProjectCopyOnly) {
+            instance.projectCopyInFlight = false;
+            if (instance.storageMode != StorageMode::Project) continue;
+            if (!result.projectCopy.success) {
+                instance.projectCopyPending = true;
+                instance.status = result.error.empty()
+                    ? "PROJECT SAMPLE COPY FAILED" : result.error;
+                continue;
+            }
+            instance.samplePath = result.projectCopy.relativePath;
+            instance.resolvedSamplePath = result.projectCopy.absolutePath;
+            instance.projectCopyPending = false;
+            const bool registered = registerProjectSample(instance,
+                instance.resolvedSamplePath);
+            instance.status = registered ? "PROJECT SAMPLE READY"
+                : "PROJECT READY / REGISTRATION UNAVAILABLE";
+            markStateDirty(instance);
+            continue;
+        }
         if (!result.asset) {
+            instance.projectCopyInFlight = false;
             instance.status = result.error.empty()
                 ? "SAMPLE DECODE FAILED" : result.error;
             continue;
         }
-        installDecodedSample(instance, result.path, std::move(result.asset));
+        const bool projectCopied = instance.storageMode
+                == StorageMode::Project
+            && result.projectCopy.success;
+        const std::string locator = projectCopied
+            ? result.projectCopy.relativePath : result.sourcePath;
+        const std::string resolved = projectCopied
+            ? result.projectCopy.absolutePath : result.sourcePath;
+        if (!installDecodedSample(instance, locator, resolved,
+                std::move(result.asset))) {
+            instance.projectCopyInFlight = false;
+            continue;
+        }
+        instance.projectCopyInFlight = false;
+        if (instance.storageMode == StorageMode::Project) {
+            instance.projectCopyPending = !projectCopied;
+            if (projectCopied) {
+                const bool registered = registerProjectSample(instance,
+                    instance.resolvedSamplePath);
+                instance.status = registered ? "PROJECT SAMPLE READY"
+                    : "PROJECT READY / REGISTRATION UNAVAILABLE";
+            } else {
+                instance.status = result.error.empty()
+                    ? "PROJECT PENDING / SAVE PROJECT"
+                    : result.error;
+            }
+        } else {
+            instance.projectCopyPending = false;
+            instance.projectFileRegistration.clear();
+        }
     }
+    maybeQueuePendingProjectCopy(instance);
+}
+
+void setStorageMode(Plugin& instance, StorageMode mode)
+{
+    mode = s3g::sample_storage::sanitizeStorageMode(
+        static_cast<uint8_t>(mode));
+    if (mode == instance.storageMode) return;
+    instance.storageMode = mode;
+    if (mode == StorageMode::Project) {
+        instance.projectFileRegistration.clear();
+        instance.projectRenamePending.store(false, std::memory_order_release);
+        instance.projectCopyPending = instance.controlAsset != nullptr;
+        instance.projectCopyInFlight = false;
+        instance.status = instance.controlAsset
+            ? "PROJECT STORAGE PENDING" : "PROJECT / LOAD A SAMPLE";
+        maybeQueuePendingProjectCopy(instance);
+    } else {
+        instance.projectCopyPending = false;
+        instance.projectCopyInFlight = false;
+        instance.projectFileRegistration.clear();
+        instance.projectRenamePending.store(false, std::memory_order_release);
+        if (!instance.resolvedSamplePath.empty())
+            instance.samplePath = instance.resolvedSamplePath;
+        instance.status = std::string("STORE ")
+            + s3g::sample_storage::storageModeName(mode);
+    }
+    markStateDirty(instance);
 }
 #endif
 
@@ -826,6 +1093,8 @@ bool pluginInit(const clap_plugin_t* plugin)
     auto& instance = *self(plugin);
     initializeParams(instance);
     instance.retainedAssets.reserve(32u);
+    instance.reaperContext = s3g::sample_storage::reaperContext(
+        instance.host);
     if (instance.host && instance.host->get_extension) {
         instance.hostParams = static_cast<const clap_host_params_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_PARAMS));
@@ -847,12 +1116,15 @@ void destroyGui(Plugin& instance);
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
     auto& instance = *self(plugin);
+#if defined(__APPLE__)
     destroyGui(instance);
+#endif
+    instance.projectFileRegistration.clear();
+#if defined(__APPLE__)
     stopSampleLoader(instance);
 #endif
-    delete self(plugin);
+    delete &instance;
 }
 
 bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
@@ -1457,14 +1729,24 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         saved.parameters[paramIndex(def.id)] = paramValue(instance, def.id);
     std::snprintf(saved.path.data(), saved.path.size(), "%s",
         instance.samplePath.c_str());
+    saved.reserved0 = static_cast<uint8_t>(instance.storageMode);
     if (instance.controlAsset) {
         saved.channelCount = instance.controlAsset->channelCount;
         saved.frameCount = instance.controlAsset->frameCount();
         saved.sampleRate = instance.controlAsset->sampleRate;
         const uint64_t bytes = static_cast<uint64_t>(saved.channelCount)
             * saved.frameCount * sizeof(float);
-        saved.embedded = instance.embedSampleInState
-                && bytes <= kMaximumEmbeddedAudioBytes ? 1u : 0u;
+        // Requested mode and actual payload are intentionally independent.
+        // A file-backed pending PROJECT keeps its original absolute locator
+        // and remains a small state. Only a generated/pathless asset needs a
+        // temporary embedded payload until it gains a file locator; an
+        // over-cap explicit EMBED can still fall back to its retained path.
+        const bool pathless = instance.samplePath.empty();
+        const bool needsPayload = instance.storageMode == StorageMode::Embed
+            || pathless;
+        if (pathless && bytes > kMaximumEmbeddedAudioBytes) return false;
+        saved.embedded = needsPayload && bytes <= kMaximumEmbeddedAudioBytes
+            ? 1u : 0u;
     }
     if (!s3g::clap_state::writeAll(stream, &saved, sizeof(saved)))
         return false;
@@ -1489,6 +1771,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!s3g::clap_state::readAll(stream, &prefix, sizeof(prefix))
         || prefix.magic != kStateMagic) return false;
     SavedState saved;
+    const bool explicitStorageMode = prefix.version == kStateVersion;
     if (prefix.version == kLegacyStateVersion
         || prefix.version == kProportionalStateVersion) {
         LegacySavedState legacy;
@@ -1573,7 +1856,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         saved.reserved1 = pitch.reserved1;
         saved.frameCount = pitch.frameCount;
         saved.sampleRate = pitch.sampleRate;
-    } else if (prefix.version == kStateVersion) {
+    } else if (prefix.version == kMidiStateVersion
+        || prefix.version == kStateVersion) {
         saved.magic = prefix.magic;
         saved.version = prefix.version;
         auto* remainder = reinterpret_cast<uint8_t*>(&saved)
@@ -1590,6 +1874,35 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     std::shared_ptr<const SampleAsset> asset;
     const std::string path(saved.path.data(), strnlen(saved.path.data(),
         saved.path.size()));
+    const StorageMode requestedStorageMode = explicitStorageMode
+        ? s3g::sample_storage::sanitizeStorageMode(saved.reserved0,
+            saved.embedded != 0u ? StorageMode::Embed
+                : (!path.empty() ? StorageMode::Link
+                                 : StorageMode::Project))
+        : (saved.embedded != 0u ? StorageMode::Embed
+            : (!path.empty() ? StorageMode::Link : StorageMode::Project));
+    std::string resolvedPath;
+    bool projectLocatorReady = false;
+    if (!path.empty()) {
+        if (requestedStorageMode == StorageMode::Project) {
+            if (std::filesystem::path(path).is_absolute()) {
+                resolvedPath = path;
+            } else {
+                instance.reaperContext
+                    = s3g::sample_storage::reaperContext(instance.host);
+                ProjectLocation location;
+                std::string error;
+                if (s3g::sample_storage::queryProjectLocation(
+                        instance.reaperContext, location, &error)
+                    && s3g::sample_storage::resolveProjectRelativePath(
+                        location, path, resolvedPath, &error)) {
+                    projectLocatorReady = true;
+                }
+            }
+        } else {
+            resolvedPath = path;
+        }
+    }
     if (saved.embedded != 0u) {
         if (saved.channelCount == 0u
             || saved.channelCount > instance.outputChannelCount
@@ -1614,15 +1927,23 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         } catch (...) {
             return false;
         }
-    } else if (!path.empty()) {
+    } else if (!resolvedPath.empty()) {
 #if defined(__APPLE__)
         std::string error;
-        if (!decodeSampleFile(path, asset, error)
+        if (!decodeSampleFile(resolvedPath, asset, error)
             || !asset || asset->channelCount > instance.outputChannelCount)
             asset.reset();
 #endif
     }
-    if (!publishAsset(instance, std::move(asset), path, false)) return false;
+#if defined(__APPLE__)
+    cancelSampleLoads(instance);
+#endif
+    instance.storageMode = requestedStorageMode;
+    instance.projectCopyPending = requestedStorageMode
+            == StorageMode::Project
+        && !projectLocatorReady;
+    if (!publishAsset(instance, std::move(asset), path, resolvedPath, false))
+        return false;
     for (const auto& def : kParamDefs) {
         if (isEnvelopeProportionParam(def.id)) continue;
         setParam(instance, def.id, saved.parameters[paramIndex(def.id)],
@@ -1632,9 +1953,40 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         saved.parameters[paramIndex(kAttackParamId)],
         saved.parameters[paramIndex(kDecayParamId)],
         saved.parameters[paramIndex(kReleaseParamId)]);
-    instance.embedSampleInState = saved.embedded != 0u;
-    instance.status = instance.controlAsset
-        ? "PROJECT SAMPLE RESTORED" : "PROJECT RESTORED - SAMPLE OFFLINE";
+#if defined(__APPLE__)
+    bool projectRegistered = false;
+    if (requestedStorageMode == StorageMode::Project
+        && projectLocatorReady && !instance.resolvedSamplePath.empty()) {
+        projectRegistered = registerProjectSample(instance,
+            instance.resolvedSamplePath);
+    } else if (requestedStorageMode == StorageMode::Project
+        && instance.controlAsset && !instance.resolvedSamplePath.empty()) {
+        maybeQueuePendingProjectCopy(instance);
+    }
+#else
+    constexpr bool projectRegistered = false;
+#endif
+    if (instance.controlAsset) {
+        if (requestedStorageMode == StorageMode::Project) {
+            if (projectLocatorReady) {
+                instance.status = projectRegistered
+                    ? "PROJECT SAMPLE RESTORED"
+                    : "PROJECT RESTORED / REGISTRATION UNAVAILABLE";
+            } else {
+                instance.status = instance.resolvedSamplePath.empty()
+                    ? "PROJECT / STATE SAMPLE RESTORED"
+                    : "PROJECT SAMPLE COPY PENDING";
+            }
+        } else {
+            instance.status = std::string(
+                s3g::sample_storage::storageModeName(requestedStorageMode))
+                + " SAMPLE RESTORED";
+        }
+    } else {
+        instance.status = std::string(
+            s3g::sample_storage::storageModeName(requestedStorageMode))
+            + " RESTORED / SAMPLE OFFLINE";
+    }
     return true;
 }
 
@@ -1700,12 +2052,12 @@ NSRect envelopePanelRect()
 
 NSRect sampleLoadButtonRect()
 {
-    return NSMakeRect(790.0, kContentTop + 3.0, 78.0, 15.0);
+    return NSMakeRect(700.0, kContentTop + 3.0, 88.0, 15.0);
 }
 
-NSRect embedButtonRect()
+NSRect storageButtonRect()
 {
-    return NSMakeRect(876.0, kContentTop + 3.0, 74.0, 15.0);
+    return NSMakeRect(796.0, kContentTop + 3.0, 154.0, 15.0);
 }
 
 NSRect playModeMenuRect()
@@ -2239,8 +2591,11 @@ NSString* const kMidiReceiveItems[] = {
     std::string error;
     if (!decodeSampleFile(path, asset, error) || !asset
         || asset->channelCount > _instance->outputChannelCount
-        || !installDecodedSample(*_instance, path, std::move(asset)))
+        || !installDecodedSample(*_instance, path, path,
+            std::move(asset)))
         return NO;
+    if (_instance->storageMode == StorageMode::Project)
+        _instance->projectCopyPending = true;
     setParam(*_instance, kPlayModeParamId,
         static_cast<double>(PlayMode::ForwardLoop));
     setParam(*_instance, kPitchModeParamId,
@@ -2425,9 +2780,8 @@ NSString* const kMidiReceiveItems[] = {
         [self loadSample:nil];
         return;
     }
-    if (NSPointInRect(point, embedButtonRect())) {
-        _instance->embedSampleInState = !_instance->embedSampleInState;
-        markStateDirty(*_instance);
+    if (NSPointInRect(point, storageButtonRect())) {
+        setStorageMode(*_instance, nextStorageMode(_instance->storageMode));
         [self setNeedsDisplay:YES];
         return;
     }
@@ -2706,13 +3060,15 @@ NSString* const kMidiReceiveItems[] = {
         labelAttrs, style);
     s3g::clap_gui::drawHeaderButton(sampleLoadButtonRect(), samplePanel,
         @"LOAD SAMPLE", false, labelAttrs, style);
-    s3g::clap_gui::drawHeaderButton(embedButtonRect(), samplePanel,
-        _instance->embedSampleInState ? @"EMBED ON" : @"EMBED OFF",
-        _instance->embedSampleInState, labelAttrs, style);
+    NSString* storageLabel = [NSString stringWithFormat:@"STORE %s",
+        s3g::sample_storage::storageModeName(_instance->storageMode)];
+    s3g::clap_gui::drawHeaderButton(storageButtonRect(), samplePanel,
+        storageLabel, _instance->storageMode != StorageMode::Link,
+        labelAttrs, style);
     NSString* status = [NSString stringWithUTF8String:
         _instance->status.c_str()];
     s3g::clap_gui::drawBoundedRightText(status,
-        NSMakeRect(400.0, kContentTop + 4.0, 380.0, 15.0),
+        NSMakeRect(390.0, kContentTop + 4.0, 300.0, 15.0),
         valueAttrs);
 
     const NSRect wave = waveformRect();
@@ -2864,14 +3220,26 @@ NSString* const kMidiReceiveItems[] = {
             [cursorLabel drawAtPoint:NSMakePoint(labelX, labelY)
                 withAttributes:labelAttrs];
         }
+        const uint64_t decodedBytes = static_cast<uint64_t>(
+            asset->channelCount) * asset->frameCount() * sizeof(float);
+        const bool safetyPayload = _instance->samplePath.empty();
+        const bool embeddedPayload = _instance->storageMode
+                == StorageMode::Embed
+            && decodedBytes <= kMaximumEmbeddedAudioBytes;
+        const std::string storageDetail = safetyPayload
+            ? "PCM SAFETY "
+                + s3g::sample_storage::formatByteCount(decodedBytes)
+            : (embeddedPayload
+                ? "PCM STATE "
+                    + s3g::sample_storage::formatByteCount(decodedBytes)
+                : s3g::sample_storage::abbreviatedPath(
+                    _instance->samplePath, 42u));
         NSString* details = [NSString stringWithFormat:
             @"%u VOICES  /  %u CH  /  %u FRAMES  /  %.0f HZ  /  %@",
             static_cast<unsigned>(cursorCount),
             static_cast<unsigned>(asset->channelCount),
             static_cast<unsigned>(asset->frameCount()), asset->sampleRate,
-            _instance->samplePath.empty() ? @"EMBEDDED SAMPLE"
-                : [[NSString stringWithUTF8String:
-                    _instance->samplePath.c_str()] lastPathComponent]];
+            [NSString stringWithUTF8String:storageDetail.c_str()]];
         [details drawAtPoint:NSMakePoint(28.0, 286.0)
             withAttributes:valueAttrs];
         NSString* waveHelp = [NSString stringWithFormat:

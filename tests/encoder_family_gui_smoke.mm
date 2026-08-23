@@ -49,6 +49,7 @@
 - (void)setDocumentationViewAzimuth:(double)azimuth elevation:(double)elevation;
 - (void)textDidChange:(NSNotification*)notification;
 - (void)refresh:(NSTimer*)timer;
+- (void)timerTick:(NSTimer*)timer;
 - (void)captureDocumentationHistorySample;
 - (NSUInteger)refreshTickCount;
 - (NSUInteger)fullFrameRequestCount;
@@ -423,6 +424,23 @@ bool hasParameterNamed(const clap_plugin_params_t* params,
     return false;
 }
 
+bool parameterAutomationMatches(const clap_plugin_params_t* params,
+                                const clap_plugin_t* plugin,
+                                const char* expectedName,
+                                bool expectedAutomatable)
+{
+    if (!params || !params->count || !params->get_info || !expectedName)
+        return false;
+    for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+        clap_param_info_t info {};
+        if (!params->get_info(plugin, index, &info)
+            || std::strcmp(info.name, expectedName) != 0) continue;
+        return ((info.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u)
+            == expectedAutomatable;
+    }
+    return false;
+}
+
 bool usesIntegerEnvironmentalVoiceText(const char* pluginId)
 {
     return std::strcmp(pluginId,
@@ -648,6 +666,26 @@ struct DocumentationSampleWavesetsState {
     double sampleRate = 48000.0;
 };
 
+struct DocumentationSampleMotionState {
+    uint32_t magic = 0x4d533353u;
+    uint32_t version = 2u;
+    uint32_t parameterCount = 31u;
+    uint32_t reservedHeader = 0u;
+    std::array<double, 31u> parameters {{
+        -6.0, 3.0, 1.0, 0.04, 0.96, 0.48, 0.58, 0.6, 0.72, 0.68,
+        19.0, 1.3, 0.58, 0.37, 0.84, 0.0, 1.0, 60.0, 0.0, 0.0,
+        0.003, 0.08, 1.0, 4312.0, 0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0, 32.0,
+    }};
+    std::array<char, 1024u> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 2u;
+    uint8_t reserved0 = 0u;
+    uint8_t reserved1 = 0u;
+    uint32_t frameCount = 96000u;
+    double sampleRate = 48000.0;
+};
+
 static_assert(sizeof(DocumentationLoopState) == 1128u,
               "Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
@@ -656,6 +694,8 @@ static_assert(sizeof(DocumentationAmbiGrainState) == 1160u,
               "Ambi Grain documentation state fixture changed");
 static_assert(sizeof(DocumentationSampleWavesetsState) == 1256u,
               "Sample Wavesets documentation state fixture changed");
+static_assert(sizeof(DocumentationSampleMotionState) == 1304u,
+              "Sample Motion documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
                            StochasticSavedState& decoded)
@@ -1064,6 +1104,39 @@ int main(int argc, char** argv)
                     ok = false;
                 }
             }
+            if (ok && std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0) {
+                static constexpr const char* nonAutomatable[] {
+                    "Order",
+                    "Input Count",
+                    "Orbit",
+                    "Palette",
+                    "Selected Source",
+                    "Terrain Form",
+                    "Terrain Terrace Steps",
+                    "Terrain Read",
+                };
+                for (const char* name : nonAutomatable) {
+                    if (parameterAutomationMatches(
+                            params, plugin, name, false)) continue;
+                    std::cerr << "Surface Terrain parameter is unexpectedly "
+                        "automatable or missing: " << name << "\n";
+                    ok = false;
+                }
+                static constexpr const char* retainedAutomation[] {
+                    "Azimuth",
+                    "Playback",
+                    "Sync",
+                    "Terrain Depth",
+                };
+                for (const char* name : retainedAutomation) {
+                    if (parameterAutomationMatches(
+                            params, plugin, name, true)) continue;
+                    std::cerr << "Surface Terrain parameter unexpectedly lost "
+                        "automation: " << name << "\n";
+                    ok = false;
+                }
+            }
         }
 
         const bool loopOutputContract = std::strcmp(pluginId,
@@ -1416,7 +1489,12 @@ int main(int argc, char** argv)
                 flushRequested = hostContext.paramFlushRequested;
                 processSucceeded = plugin->process(plugin, &processBlock)
                     != CLAP_PROCESS_ERROR;
-                ok = stateLoaded && stateConsumed && flushRequested
+                const bool terrainConsumesWithoutFlush = std::strcmp(
+                    pluginId,
+                    "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0;
+                ok = stateLoaded && stateConsumed
+                    && (terrainConsumesWithoutFlush
+                        ? !flushRequested : flushRequested)
                     && processSucceeded;
             }
             hostContext.deferParamFlush = false;
@@ -1675,6 +1753,56 @@ int main(int argc, char** argv)
             clap_istream_t input { &memory, stateReadWhole };
             ok = wavesetsState && wavesetsState->load
                 && wavesetsState->load(plugin, &input)
+                && memory.offset == memory.bytes.size();
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+        }
+        const bool sampleMotion32 = std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-motion-32") == 0;
+        const bool sampleMotion = sampleMotion32 || std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-motion") == 0;
+        if (ok && sampleMotion) {
+            failureStage = documentationCapture
+                ? "documentation Sample Motion source"
+                : "Sample Motion GUI source";
+            const auto* motionState =
+                static_cast<const clap_plugin_state_t*>(
+                    plugin->get_extension(plugin, CLAP_EXT_STATE));
+            DocumentationSampleMotionState fixture;
+            std::snprintf(fixture.path.data(), fixture.path.size(), "%s",
+                "Motion Study.wav");
+            const size_t sampleBytes = static_cast<size_t>(fixture.frameCount)
+                * fixture.channelCount * sizeof(float);
+            MemoryPluginState memory;
+            memory.bytes.resize(sizeof(fixture) + sampleBytes);
+            std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+            for (uint8_t channel = 0u; channel < fixture.channelCount;
+                 ++channel) {
+                const size_t channelOffset = sizeof(fixture)
+                    + static_cast<size_t>(channel) * fixture.frameCount
+                        * sizeof(float);
+                for (uint32_t frame = 0u; frame < fixture.frameCount;
+                     ++frame) {
+                    const double time = static_cast<double>(frame)
+                        / fixture.sampleRate;
+                    const double sweep = 58.0 + 510.0
+                        * static_cast<double>(frame) / fixture.frameCount;
+                    const double phase = 2.0 * s3g::kPi * sweep * time
+                        + static_cast<double>(channel) * 0.41;
+                    const float sample = static_cast<float>(
+                        0.50 * std::sin(phase)
+                        + 0.21 * std::sin(phase * 1.91 + 0.7)
+                        + 0.10 * std::sin(phase * 4.07));
+                    std::memcpy(memory.bytes.data() + channelOffset
+                            + static_cast<size_t>(frame) * sizeof(float),
+                        &sample, sizeof(sample));
+                }
+            }
+            clap_istream_t input { &memory, stateReadWhole };
+            ok = motionState && motionState->load
+                && motionState->load(plugin, &input)
                 && memory.offset == memory.bytes.size();
             if (ok) {
                 [document setNeedsDisplay:YES];
@@ -3675,6 +3803,424 @@ int main(int argc, char** argv)
                         ok = params->get_value(plugin, 29u, &outputCount)
                             && std::abs(outputCount - 8.0) < 0.000001;
                     }
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
+        if (ok && sampleMotion && !documentationCapture) {
+            failureStage = "Sample Motion Sample-family GUI contract";
+            @try {
+                hostContext.guiParamValueCount.store(0u,
+                    std::memory_order_relaxed);
+                hostContext.guiGestureBeginCount.store(0u,
+                    std::memory_order_relaxed);
+                hostContext.guiGestureEndCount.store(0u,
+                    std::memory_order_relaxed);
+                const NSPoint motionMenu = NSMakePoint(220.0, 482.0);
+                const NSPoint zigzagRow = NSMakePoint(220.0, 568.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, motionMenu)];
+                ok = [[document valueForKey:@"canvasMenuOpen"] boolValue]
+                    && [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == -1;
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, zigzagRow)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 3;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, zigzagRow)];
+                    double motion = -1.0;
+                    ok = ![[document valueForKey:@"canvasMenuOpen"] boolValue]
+                        && params->get_value(plugin, 2u, &motion)
+                        && std::abs(motion - 3.0) < 0.000001
+                        && hostContext.guiParamValueCount.load(
+                            std::memory_order_relaxed) >= 1u
+                        && hostContext.guiGestureBeginCount.load(
+                            std::memory_order_relaxed) >= 1u
+                        && hostContext.guiGestureEndCount.load(
+                            std::memory_order_relaxed) >= 1u;
+                }
+                if (ok) {
+                    const NSPoint movingLoopRow = NSMakePoint(220.0, 628.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, motionMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, movingLoopRow)];
+                    double motion = -1.0;
+                    ok = params->get_value(plugin, 2u, &motion)
+                        && std::abs(motion - 6.0) < 0.000001;
+                }
+                if (ok) {
+                    const NSPoint bakToBakRow = NSMakePoint(220.0, 648.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, motionMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, bakToBakRow)];
+                    double motion = -1.0;
+                    ok = params->get_value(plugin, 2u, &motion)
+                        && std::abs(motion - 7.0) < 0.000001;
+                }
+                if (ok) {
+                    const NSPoint basisMenu = NSMakePoint(220.0, 607.0);
+                    const NSPoint hertzRow = NSMakePoint(220.0, 653.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, basisMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, hertzRow)];
+                    double basis = -1.0;
+                    ok = params->get_value(plugin, 26u, &basis)
+                        && std::abs(basis - 1.0) < 0.000001;
+                }
+                if (ok) {
+                    failureStage = "Sample Motion inactive source controls";
+                    double travelBefore = -1.0;
+                    double stepBefore = -1.0;
+                    ok = params->get_value(plugin, 9u, &travelBefore)
+                        && params->get_value(plugin, 36u, &stepBefore);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(280.0, 657.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(280.0, 707.0))];
+                    double travelAfter = -1.0;
+                    double stepAfter = -1.0;
+                    ok = params->get_value(plugin, 9u, &travelAfter)
+                        && params->get_value(plugin, 36u, &stepAfter)
+                        && std::abs(travelAfter - travelBefore) < 0.000001
+                        && std::abs(stepAfter - stepBefore) < 0.000001;
+                }
+                if (ok) {
+                    failureStage = "Sample Motion unified Sound menu";
+                    const NSPoint soundMenu = NSMakePoint(532.0, 482.0);
+                    const NSPoint motorRow = NSMakePoint(532.0, 548.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, soundMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, motorRow)];
+                    double articulation = -1.0;
+                    double model = -1.0;
+                    ok = params->get_value(plugin, 3u, &articulation)
+                        && std::abs(articulation - 1.0) < 0.000001
+                        && params->get_value(plugin, 32u, &model)
+                        && std::abs(model) < 0.000001;
+                }
+                if (ok) {
+                    const NSPoint shapeMenu = NSMakePoint(532.0, 507.0);
+                    const NSPoint plateauRow = NSMakePoint(532.0, 593.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, shapeMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, plateauRow)];
+                    double shape = -1.0;
+                    ok = params->get_value(plugin, 27u, &shape)
+                        && std::abs(shape - 3.0) < 0.000001;
+                }
+                if (ok) {
+                    const NSPoint soundMenu = NSMakePoint(532.0, 482.0);
+                    const NSPoint bounceRow = NSMakePoint(532.0, 648.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, soundMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, bounceRow)];
+                    ok = [[document valueForKey:@"eventPage"] boolValue];
+                    double model = -1.0;
+                    double repeats = -1.0;
+                    double field = -1.0;
+                    double curve = -1.0;
+                    double minimumLength = -1.0;
+                    ok = params->get_value(plugin, 32u, &model)
+                        && std::abs(model - 5.0) < 0.000001
+                        && params->get_value(plugin, 35u, &repeats)
+                        && std::abs(repeats - 10.0) < 0.000001
+                        && params->get_value(plugin, 7u, &field)
+                        && std::abs(field - 0.18) < 0.000001
+                        && params->get_value(plugin, 39u, &curve)
+                        && std::abs(curve - 0.22) < 0.000001
+                        && params->get_value(plugin, 13u, &minimumLength)
+                        && std::abs(minimumLength - 0.25) < 0.000001;
+                    if (ok) {
+                        const NSPoint overlapMenu = NSMakePoint(
+                            532.0, 682.0);
+                        const NSPoint cutRow = NSMakePoint(532.0, 708.0);
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, overlapMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, cutRow)];
+                        double overlap = -1.0;
+                        ok = params->get_value(plugin, 40u, &overlap)
+                            && std::abs(overlap) < 0.000001;
+                    }
+                    if (ok) {
+                        failureStage = "Sample Motion Packet trigger controls";
+                        const NSPoint triggerMenu = NSMakePoint(
+                            532.0, 507.0);
+                        const NSPoint packetRow = NSMakePoint(
+                            532.0, 553.0);
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, triggerMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, packetRow)];
+                        double trigger = -1.0;
+                        ok = params->get_value(plugin, 33u, &trigger)
+                            && std::abs(trigger - 1.0) < 0.000001;
+                    }
+                    if (ok) {
+                        failureStage = "Sample Motion Packet clock and disabled controls";
+                        double eventRateBefore = -1.0;
+                        double curveBefore = -1.0;
+                        double innerBefore = -1.0;
+                        ok = params->get_value(plugin, 34u,
+                                &eventRateBefore)
+                            && params->get_value(plugin, 39u, &curveBefore)
+                            && params->get_value(plugin, 11u, &innerBefore);
+                        const NSPoint disabledRate = NSMakePoint(
+                            560.0, 532.0);
+                        const NSPoint disabledAccel = NSMakePoint(
+                            560.0, 632.0);
+                        const NSPoint packetRate = NSMakePoint(
+                            552.0, 732.0);
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, disabledRate)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, disabledAccel)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, packetRate)];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp, packetRate)];
+                        double eventRateAfter = -1.0;
+                        double curveAfter = -1.0;
+                        double innerAfter = -1.0;
+                        ok = params->get_value(plugin, 34u, &eventRateAfter)
+                            && params->get_value(plugin, 39u, &curveAfter)
+                            && params->get_value(plugin, 11u, &innerAfter)
+                            && std::abs(eventRateAfter - eventRateBefore)
+                                < 0.000001
+                            && std::abs(curveAfter - curveBefore) < 0.000001
+                            && std::abs(innerAfter - innerBefore) > 0.001;
+                        if (!ok) {
+                            std::cerr << "Sample Motion contextual controls: "
+                                << "eventRate=" << eventRateBefore << "->"
+                                << eventRateAfter << " curve=" << curveBefore
+                                << "->" << curveAfter << " inner="
+                                << innerBefore << "->" << innerAfter << '\n';
+                        }
+                    }
+                    const NSPoint continuousRow = NSMakePoint(532.0, 508.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, soundMenu)];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, continuousRow)];
+                    ok = ok && ![[document valueForKey:@"eventPage"]
+                        boolValue];
+                }
+                if (ok) {
+                    const NSPoint wavePoint = NSMakePoint(490.0, 150.0);
+                    S3GSmokeScrollEvent* zoom = [[S3GSmokeScrollEvent alloc]
+                        initWithLocation:[document convertPoint:wavePoint
+                            toView:nil]
+                        modifiers:0 deltaX:0.0 deltaY:4.0];
+                    [document scrollWheel:zoom];
+                    const double zoomed = [[document valueForKey:
+                        @"waveZoomValue"] doubleValue];
+                    const double beforePan = [[document valueForKey:
+                        @"waveViewStartValue"] doubleValue];
+                    S3GSmokeScrollEvent* pan = [[S3GSmokeScrollEvent alloc]
+                        initWithLocation:[document convertPoint:wavePoint
+                            toView:nil]
+                        modifiers:NSEventModifierFlagShift
+                        deltaX:0.0 deltaY:4.0];
+                    [document scrollWheel:pan];
+                    const double afterPan = [[document valueForKey:
+                        @"waveViewStartValue"] doubleValue];
+                    ok = zoomed > 1.1
+                        && std::abs(afterPan - beforePan) > 0.001;
+                    NSEvent* fit = [NSEvent
+                        mouseEventWithType:NSEventTypeLeftMouseDown
+                        location:[document convertPoint:wavePoint toView:nil]
+                        modifierFlags:0 timestamp:0.0 windowNumber:0
+                        context:nil eventNumber:0 clickCount:2 pressure:1.0];
+                    [document mouseDown:fit];
+                    ok = ok && std::abs([[document valueForKey:
+                            @"waveZoomValue"] doubleValue] - 1.0) < 0.000001
+                        && std::abs([[document valueForKey:
+                            @"waveViewStartValue"] doubleValue]) < 0.000001;
+                }
+                if (ok) {
+                    const NSPoint presetMenu = NSMakePoint(374.0, 20.0);
+                    const NSPoint motorDrunk = NSMakePoint(374.0, 238.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, presetMenu)];
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, motorDrunk)];
+                    ok = [[document valueForKey:@"canvasMenuHover"] intValue]
+                        == 10;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, motorDrunk)];
+                        double articulation = -1.0;
+                        ok = params->get_value(plugin, 3u, &articulation)
+                            && std::abs(articulation - 1.0) < 0.000001;
+                    }
+                }
+                if (ok && sampleMotion32) {
+                    failureStage = "Sample Motion 32 output routing menus";
+                    const NSPoint routingPage = NSMakePoint(890.0, 456.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, routingPage)];
+                    ok = [[document valueForKey:@"outputRoutingPage"]
+                        boolValue];
+                    const NSPoint routeMenu = NSMakePoint(780.0, 507.0);
+                    const NSPoint palindromeRow = NSMakePoint(780.0, 573.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, routeMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, palindromeRow)];
+                        double traversal = -1.0;
+                        ok = params->get_value(plugin, 28u, &traversal)
+                            && std::abs(traversal - 2.0) < 0.000001;
+                    }
+                    const NSPoint widthMenu = NSMakePoint(780.0, 532.0);
+                    const NSPoint stereoRow = NSMakePoint(780.0, 578.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, widthMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, stereoRow)];
+                        double width = -1.0;
+                        ok = params->get_value(plugin, 29u, &width)
+                            && std::abs(width - 1.0) < 0.000001;
+                    }
+                    const NSPoint pairMenu = NSMakePoint(780.0, 557.0);
+                    const NSPoint splitRow = NSMakePoint(780.0, 603.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, pairMenu)];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, splitRow)];
+                        double layout = -1.0;
+                        ok = params->get_value(plugin, 30u, &layout)
+                            && std::abs(layout - 1.0) < 0.000001;
+                    }
+                    const NSPoint outputsMenu = NSMakePoint(780.0, 582.0);
+                    const NSPoint eightChannelsRow = NSMakePoint(780.0, 728.0);
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, outputsMenu)];
+                        [document mouseMoved:mouseEvent(
+                            NSEventTypeMouseMoved, eightChannelsRow)];
+                        ok = [[document valueForKey:@"canvasMenuHover"]
+                            intValue] == 6;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown, eightChannelsRow)];
+                        double outputCount = -1.0;
+                        ok = params->get_value(plugin, 31u, &outputCount)
+                            && std::abs(outputCount - 8.0) < 0.000001;
+                    }
+                }
+                if (ok) {
+                    failureStage = "Sample Motion asynchronous file drop";
+                    NSString* name = [NSString stringWithFormat:
+                        @"s3g-motion-drop-%@.wav", [[NSUUID UUID] UUIDString]];
+                    NSString* path = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:name];
+                    const char* filePath = [path fileSystemRepresentation];
+                    ok = filePath && writeDropSmokeWaveFile(filePath, 330.0);
+                    S3GSmokeFilePasteboard* pasteboard = ok
+                        ? [[S3GSmokeFilePasteboard alloc]
+                            initWithURLs:@[ [NSURL fileURLWithPath:path] ]]
+                        : nil;
+                    S3GSmokeDraggingInfo* draggingInfo = pasteboard
+                        ? [[S3GSmokeDraggingInfo alloc]
+                            initWithPasteboard:pasteboard] : nil;
+                    [pasteboard release];
+                    if (ok) {
+                        ok = [document draggingEntered:
+                                (id<NSDraggingInfo>)draggingInfo]
+                                == NSDragOperationCopy
+                            && [document performDragOperation:
+                                (id<NSDraggingInfo>)draggingInfo];
+                    }
+                    [draggingInfo release];
+                    const auto* motionState = ok
+                        ? static_cast<const clap_plugin_state_t*>(
+                            plugin->get_extension(plugin, CLAP_EXT_STATE))
+                        : nullptr;
+                    bool loaded = false;
+                    NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:2.0];
+                    while (ok && !loaded
+                        && [deadline timeIntervalSinceNow] > 0.0) {
+                        [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.02]];
+                        MemoryPluginState saved;
+                        clap_ostream_t output { &saved, stateWrite };
+                        loaded = motionState && motionState->save
+                            && motionState->save(plugin, &output)
+                            && memoryStateContains(saved, filePath);
+                    }
+                    ok = ok && loaded;
+                    if (filePath) std::remove(filePath);
+                }
+                if (ok) {
+                    failureStage = "Sample Motion compositor playheads";
+                    const bool activated = plugin->activate(
+                        plugin, 48000.0, 1u, 128u);
+                    const bool processing = activated
+                        && plugin->start_processing(plugin);
+                    ok = processing;
+                    std::array<std::array<float, 128u>, 32u> audio {};
+                    std::array<float*, 32u> channels {};
+                    const uint32_t outputChannelCount = sampleMotion32
+                        ? 32u : 2u;
+                    for (uint32_t channel = 0u;
+                         channel < outputChannelCount; ++channel)
+                        channels[channel] = audio[channel].data();
+                    clap_audio_buffer_t output {};
+                    output.data32 = channels.data();
+                    output.channel_count = outputChannelCount;
+                    SingleNoteEventInput note {};
+                    setSingleNoteOnEvent(note, 60);
+                    clap_process_t block {};
+                    block.frames_count = 128u;
+                    block.audio_outputs = &output;
+                    block.audio_outputs_count = 1u;
+                    block.in_events = &note.events;
+                    if (ok) ok = plugin->process(plugin, &block)
+                        != CLAP_PROCESS_ERROR;
+                    if (ok) [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.06]];
+                    ok = ok && [document respondsToSelector:
+                            @selector(cursorMotionAnimationCount)]
+                        && [document respondsToSelector:
+                            @selector(cursorAnimationInstallCount)]
+                        && [document respondsToSelector:
+                            @selector(cursorLineHeight)]
+                        && [[document valueForKey:
+                            @"cursorMotionAnimationCount"]
+                                unsignedIntegerValue] == 1u
+                        && [[document valueForKey:
+                            @"cursorAnimationInstallCount"]
+                                unsignedIntegerValue] >= 1u
+                        && closeEnough([[document valueForKey:
+                            @"cursorLineHeight"] doubleValue], 200.0)
+                        && [[document valueForKey:@"scopeFocusedKey"]
+                            unsignedIntValue] == 60u;
+                    if (processing) plugin->stop_processing(plugin);
+                    if (ok) [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.05]];
+                    ok = ok && [[document valueForKey:
+                        @"cursorMotionAnimationCount"]
+                            unsignedIntegerValue] == 0u;
+                    if (activated) plugin->deactivate(plugin);
                 }
             } @catch (NSException*) {
                 ok = false;
@@ -5808,6 +6354,238 @@ int main(int argc, char** argv)
                     << pluginId << " (events=" << captured.values.size()
                     << ")\n";
             }
+        }
+        if (ok && !documentationCapture && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0) {
+            failureStage = "Surface Terrain release-time rendering";
+            bool terrainGuiShown = false;
+            @try {
+                terrainGuiShown = gui->show(plugin);
+                ok = terrainGuiShown;
+                id initialShell = [document valueForKey:@"surfaceImageCache"];
+                const NSDate* initialDeadline = [NSDate
+                    dateWithTimeIntervalSinceNow:1.0];
+                while ([initialDeadline timeIntervalSinceNow] > 0.0
+                    && initialShell == nil) {
+                    [[NSRunLoop mainRunLoop]
+                        runMode:NSDefaultRunLoopMode
+                        beforeDate:[NSDate
+                            dateWithTimeIntervalSinceNow:0.01]];
+                    initialShell = [document
+                        valueForKey:@"surfaceImageCache"];
+                }
+                double originalDepth = 0.0;
+                double originalElevation = 0.0;
+                double originalRead = 0.0;
+                double originalOutput = 0.0;
+                ok = initialShell != nil
+                    && params->get_value(plugin, 7u, &originalDepth)
+                    && params->get_value(plugin, 3u, &originalElevation)
+                    && params->get_value(plugin, 45u, &originalRead)
+                    && params->get_value(plugin, 17u, &originalOutput);
+                const auto waitForImageAfter = [&](id previous) {
+                    const NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:1.0];
+                    id current = previous;
+                    while ([deadline timeIntervalSinceNow] > 0.0
+                        && current == previous) {
+                        [[NSRunLoop mainRunLoop]
+                            runMode:NSDefaultRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.01]];
+                        current = [document
+                            valueForKey:@"surfaceImageCache"];
+                    }
+                    return current;
+                };
+                if (ok) {
+                    const NSPoint skinTab = NSMakePoint(750.0, 171.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, skinTab)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, skinTab)];
+                    const NSPoint start = NSMakePoint(756.0, 222.0);
+                    const NSPoint end = NSMakePoint(812.0, 222.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, start)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, end)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, end)];
+                    const NSUInteger drawsBeforeRelease =
+                        [document drawPassCount];
+                    id transitionedShell = waitForImageAfter(initialShell);
+                    ok = transitionedShell != nil
+                        && transitionedShell != initialShell
+                        && [document drawPassCount] > drawsBeforeRelease;
+                }
+                if (params && params->flush) {
+                    SingleParamEventInput restore {};
+                    setSingleParamEvent(restore, 7u, originalDepth);
+                    params->flush(plugin, &restore.events, nullptr);
+                }
+
+                // Elevation never used the old asynchronous shell path. Its
+                // static guide paths must now arrive through the same worker
+                // image, with autonomous timer frames continuing after up.
+                const NSPoint pathTab = NSMakePoint(650.0, 171.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, pathTab)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, pathTab)];
+                id beforeElevation = [document
+                    valueForKey:@"surfaceImageCache"];
+                const NSPoint elevationStart = NSMakePoint(756.0, 274.0);
+                const NSPoint elevationEnd = NSMakePoint(812.0, 274.0);
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, elevationStart)];
+                [document mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged, elevationEnd)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, elevationEnd)];
+                const NSUInteger elevationDraws = [document drawPassCount];
+                id afterElevation = waitForImageAfter(beforeElevation);
+                ok = ok && afterElevation != nil
+                    && afterElevation != beforeElevation
+                    && [document drawPassCount] > elevationDraws;
+
+                // Exercise the five-sample interpreted terrain branch while
+                // timing the main-thread tick. Its procedural work must stay
+                // on the worker even for an Elevation release.
+                if (ok && params && params->flush) {
+                    SingleParamEventInput edgeRead {};
+                    setSingleParamEvent(edgeRead, 45u, 1.0);
+                    params->flush(plugin, &edgeRead.events, nullptr);
+                    (void)waitForImageAfter(afterElevation);
+                }
+                const auto timed = [](auto&& operation) {
+                    const auto start = std::chrono::steady_clock::now();
+                    operation();
+                    return std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - start).count();
+                };
+                double slowestTickMs = 0.0;
+                double slowestReleaseMs = 0.0;
+                for (const NSPoint row : {
+                         NSMakePoint(756.0, 274.0),
+                         NSMakePoint(756.0, 522.0),
+                         NSMakePoint(756.0, 704.0) }) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, row)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(812.0, row.y))];
+                    const double tickMs = timed([&] {
+                        [document timerTick:nil];
+                    });
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(804.0, row.y))];
+                    const double releaseMs = timed([&] {
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp,
+                            NSMakePoint(804.0, row.y))];
+                    });
+                    slowestTickMs = std::max(slowestTickMs, tickMs);
+                    slowestReleaseMs = std::max(
+                        slowestReleaseMs, releaseMs);
+                    const NSUInteger drawsAtRelease =
+                        [document drawPassCount];
+                    const NSDate* frameDeadline = [NSDate
+                        dateWithTimeIntervalSinceNow:0.12];
+                    while ([frameDeadline timeIntervalSinceNow] > 0.0) {
+                        [[NSRunLoop mainRunLoop]
+                            runMode:NSDefaultRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.01]];
+                    }
+                    ok = ok && [document drawPassCount]
+                        >= drawsAtRelease + 2u;
+                }
+                ok = ok && slowestTickMs < 12.0
+                    && slowestReleaseMs < 5.0;
+
+                // While process() is running, GUI events are consumed on the
+                // audio path and must not synchronously wake request_flush at
+                // mouse-up. Verify event order at the same time.
+                constexpr uint32_t audioFrames = 64u;
+                std::array<std::array<float, audioFrames>, 64u>
+                    outputStorage {};
+                std::array<float*, 64u> outputPointers {};
+                for (uint32_t channel = 0u; channel < 64u; ++channel)
+                    outputPointers[channel] = outputStorage[channel].data();
+                clap_audio_buffer_t outputBuffer {};
+                outputBuffer.data32 = outputPointers.data();
+                outputBuffer.channel_count = 64u;
+                CapturedOutputEvents captured {};
+                captured.events.ctx = &captured;
+                captured.events.try_push = captureOutputEvent;
+                clap_process_t processBlock {};
+                processBlock.frames_count = audioFrames;
+                processBlock.audio_outputs = &outputBuffer;
+                processBlock.audio_outputs_count = 1u;
+                processBlock.out_events = &captured.events;
+                const bool activated = plugin->activate(
+                    plugin, 48000.0, 1u, audioFrames);
+                const bool processing = activated
+                    && plugin->start_processing(plugin);
+                const uint32_t flushRequestsBefore =
+                    hostContext.paramFlushRequestCount.load(
+                        std::memory_order_relaxed);
+                if (processing) {
+                    const NSPoint outputStart = NSMakePoint(756.0, 78.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, outputStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(804.0, outputStart.y))];
+                    [document timerTick:nil];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(804.0, outputStart.y))];
+                    ok = plugin->process(plugin, &processBlock)
+                            != CLAP_PROCESS_ERROR
+                        && hostContext.paramFlushRequestCount.load(
+                            std::memory_order_relaxed)
+                            == flushRequestsBefore;
+                } else {
+                    ok = false;
+                }
+                size_t begin = captured.values.size();
+                size_t value = captured.values.size();
+                size_t end = captured.values.size();
+                for (size_t index = 0u;
+                     index < captured.values.size(); ++index) {
+                    const auto& event = captured.values[index];
+                    if (event.paramId != 17u) continue;
+                    if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                        && begin == captured.values.size()) begin = index;
+                    else if (event.type == CLAP_EVENT_PARAM_VALUE
+                        && value == captured.values.size()) value = index;
+                    else if (event.type == CLAP_EVENT_PARAM_GESTURE_END
+                        && end == captured.values.size()) end = index;
+                }
+                ok = ok && begin < value && value < end;
+                if (processing) plugin->stop_processing(plugin);
+                if (activated) plugin->deactivate(plugin);
+
+                if (params && params->flush) {
+                    SingleParamEventInput restore {};
+                    setSingleParamEvent(restore, 3u, originalElevation);
+                    params->flush(plugin, &restore.events, nullptr);
+                    setSingleParamEvent(restore, 7u, originalDepth);
+                    params->flush(plugin, &restore.events, nullptr);
+                    setSingleParamEvent(restore, 45u, originalRead);
+                    params->flush(plugin, &restore.events, nullptr);
+                    setSingleParamEvent(restore, 17u, originalOutput);
+                    params->flush(plugin, &restore.events, nullptr);
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Surface Terrain release/render exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+            if (terrainGuiShown) ok = gui->hide(plugin) && ok;
         }
         const bool ambiEncoderAcid = std::strcmp(
             pluginId,
@@ -10781,7 +11559,8 @@ int main(int argc, char** argv)
                 || std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.processor-stack") == 0
                 || std::strcmp(pluginId,
-                    "org.s3g.s3g-dsp.sample-wavesets") == 0);
+                    "org.s3g.s3g-dsp.sample-wavesets") == 0
+                || sampleMotion);
         const bool documentationLiveSignal = documentationCapture
             && (documentationObjectDecoder
                 || documentationAdaptiveDecoder
@@ -11022,8 +11801,10 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
-            if (ok && sampleWavesets) {
-                failureStage = "Sample Wavesets documentation playheads";
+            if (ok && (sampleWavesets || sampleMotion)) {
+                failureStage = sampleMotion
+                    ? "Sample Motion documentation playheads"
+                    : "Sample Wavesets documentation playheads";
                 @try {
                     ok = [document respondsToSelector:
                             @selector(loadDocumentationSample)]

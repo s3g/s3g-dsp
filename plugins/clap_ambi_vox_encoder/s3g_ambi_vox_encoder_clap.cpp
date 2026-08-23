@@ -8749,16 +8749,12 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     return NSMakeRect(378.0 + static_cast<CGFloat>(index) * 23.0, 46.0, 18.0, 13.0);
 }
 
-- (NSRect)synthLoadButtonRect { return NSMakeRect(824, 46, 48, 13); }
 - (NSRect)presetMenuRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Preset); }
 - (NSRect)presetLoadButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Load); }
 - (NSRect)presetSaveButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Save); }
 - (NSRect)randomizeButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Random); }
 - (NSRect)worldResetButtonRect { return NSMakeRect(1016, 424, 56, 13); }
 - (NSRect)encodedLoadButtonRect { return NSMakeRect(1078, 424, 56, 13); }
-- (NSRect)scoreRemoveButtonRect { return NSMakeRect(1032, 484, 18, 13); }
-- (NSRect)scoreAddButtonRect { return NSMakeRect(1054, 484, 18, 13); }
-- (NSRect)scoreResetButtonRect { return NSMakeRect(1080, 484, 54, 13); }
 
 - (NSString*)presetDisplayName
 {

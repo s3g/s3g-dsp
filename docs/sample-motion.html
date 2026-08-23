@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Motion - s3g-dsp</title>
+    <meta name="description" content="User guide for the stereo and 32-channel Sample Motion instruments, eight source trajectories, segment events, Motor envelopes, and note-, turn-, or event-time output allocation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Motion</h1>
+
+        <p><code>Sample Motion 2</code> and <code>Sample Motion 32</code> are polyphonic instruments that treat position inside a recording as a performed trajectory. Eight motion models range from periodic return motion to alternating Zigzag cuts, one-way playback, a crawling loop window, and BaktoBak reading. They can remain Continuous, pass through Packets or Motor, or drive a realtime segment-event layer modeled on CDP Freeze, Iterate, Pulser, Doublets, Bounce, MCHZIG, and MCHITER.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-motion.png" aria-label="Open the high-resolution Sample Motion interface screenshot">
+              <img src="assets/plugin-guis/sample-motion.png" alt="Sample Motion 2 interface showing a numbered Source Motion, Sound, and Voice hierarchy; one Sound selector set to Bounce; a source relationship readout; a stereo waveform; Zigzag signal-flow scope; pitch; MIDI; and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The numbered flow shows Zigzag as the underlying path, Bounce as the sounding process, and Locus Lock as the position source; the readout separately identifies Motion's remaining play-speed and onset-direction roles.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Sample Motion 2</code> on a stereo instrument track, or insert <code>s3g Sample Motion 32</code> on a 32-channel track. Press <code>LOAD SAMPLE</code>, or drop a file on the waveform, to choose a mono or stereo recording.</li>
+          <li>Route the stereo output, or the selected Sample Motion 32 lanes, to the intended speakers or headphone monitor. For the 32-channel edition, open the Output panel's <code>ROUTING</code> page and choose the active output count, voice width, pair map, and trigger-time assignment order.</li>
+          <li>Set Start and End to the safe playable range. Place Locus at the center of the material you want to explore, then use Field to set the allowed region around it.</li>
+          <li>Choose Hover or Mirror for regular return motion, Drunk for seeded random movement, Zigzag for alternating forward/reverse portions, Forward/Reverse for one-way reading, Moving Loop for a stepping window, or BaktoBak for non-inverting forward/reverse concatenation.</li>
+          <li>Leave Rate Basis at <code>Normal</code> for playback-relative speed: <code>1x</code> moves through source time at the recording's ordinary rate. Choose <code>Hertz</code> only when an absolute trajectory-cycle frequency is more useful.</li>
+          <li>Use <code>SOUND</code> to select exactly one playback model: Continuous to hear the trajectory directly, Packets for the Inner Rate train, Motor for nested inner/outer pulses, or Freeze, Iterate, Pulser, Doublets, Bounce, or MCH Iterate for segment events.</li>
+          <li>For an Event sound, set its trigger, rate, repeat structure, pitch/level variation, acceleration, and Cut/Layer behavior. The readout below the controls states where that process gets source positions and how Motion still affects it.</li>
+          <li>Set Root, Tune, Fine Tune, voice and trigger behavior, then play MIDI. <code>PLAY</code> auditions Root and <code>STOP</code> kills every voice.</li>
+          <li>Choose <code>STORE PROJECT</code> (the new-instance default), <code>STORE LINK</code>, or <code>STORE EMBED</code> for the source. See the shared <a href="sample-instruments.html#state">Sample Storage</a> policy.</li>
+        </ol>
+
+        <h2 id="range">Source Range</h2>
+
+        <p>Start and End define the complete readable window. Locus is the center of motion and is constrained into that window. Field is the normalized width around Locus; it is clipped at Start and End when it reaches an edge. Drag <code>S</code>, <code>E</code>, and <code>L</code> directly on the waveform. Scroll to zoom around the pointer, Shift-scroll to pan, and double-click empty waveform space to fit the complete source. The shaded band shows the resulting field, and one compositor-driven, note-labelled cursor follows every active voice. Mono sources are duplicated to stereo; stereo sources retain their two numbered lanes.</p>
+
+        <h2 id="motion">Source Motion</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Hover</td><td>A sinusoidal scan moves smoothly from one Field edge to the other and back at Motion Rate.</td></tr>
+            <tr><td>Mirror</td><td>A triangular forward/reverse scan alternates polarity on its return. Join widens short zero-crossing fades around the polarity reversals without attenuating the middle of each traversal.</td></tr>
+            <tr><td>Drunk</td><td>A deterministic random walk chooses a new source target inside the Field on every completed traversal. Travel sets maximum step size, Jitter varies the traversal rate, Seed reproduces the same walk, and Join morphs linear moves into eased moves.</td></tr>
+            <tr><td>Zigzag</td><td>Each completed portion reverses direction. Travel sets the maximum zig length, Jitter varies both length and speed, Seed reproduces the sequence, and Join eases the splice between endpoints.</td></tr>
+            <tr><td>Forward</td><td>A one-way scan runs from the low Field edge to the high edge. Join crossfades the wrap seam.</td></tr>
+            <tr><td>Reverse</td><td>A one-way scan runs from the high Field edge to the low edge. Join crossfades the wrap seam.</td></tr>
+            <tr><td>Moving Loop</td><td>A one-way Field scan advances its complete window through Start–End by Step after every wrap.</td></tr>
+            <tr><td>BaktoBak</td><td>A triangular forward/reverse scan uses Mirror's geometry without polarity inversion.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Motion is therefore not always back and forth: Hover, Mirror, and BaktoBak are periodic returns, Zigzag deliberately alternates portions, Drunk may choose either direction, and Forward, Reverse, and Moving Loop remain one-way. In the default Normal basis, Speed is a ratio of ordinary source playback. A one-second move at <code>1x</code> consumes about one second of source time even when Field or source duration changes. Hertz retains direct cycle-rate control and is selected automatically when a version-1 state is migrated.</p>
+
+        <p>MIDI pitch multiplies motion speed around Root: a note one octave above Root moves twice as quickly, while Tune and Fine Tune offset every voice. In Poly mode as many as sixteen notes keep independent phases, seeded paths, and output assignments. Mono replaces the current voice. Legato changes note and speed while preserving motion, packet, outer-envelope, amplitude, and output phases.</p>
+
+        <h2 id="motor">Continuous, Packets, and Motor</h2>
+
+        <p>Continuous applies no secondary gate. Packets imposes the Inner Rate pulse train directly; Packet Duty controls the audible portion and Join morphs rectangular cuts toward a Hann contour. Motor places that same train inside a slower outer envelope, echoing CDP MOTOR's inner/outer pulse relationship in a realtime voice. Outer Rate sets the slower clock, Symmetry moves its peak, and Shape selects Linear, Rounded, Exponential, or Plateau rise/fall geometry. New Motor notes begin inside an audible packet at the outer peak instead of waiting through a potentially long silent rise.</p>
+
+        <p>On Motor's falling side, Hover, Mirror, BaktoBak, Drunk, and Zigzag regress through their trajectory. Forward, Reverse, and Moving Loop deliberately remain one-way. Jitter adds repeatable variation to inner timing and to Drunk/Zigzag motion timing.</p>
+
+        <p>Join is deliberately context-sensitive: it smooths Mirror polarity transitions, Drunk/Zigzag target interpolation, Forward/Reverse wrap seams, and packet edges at the same time. Low settings retain the most abrupt, cut-and-splice character; high settings favor continuity.</p>
+
+        <h2 id="segment-events">Segment Events</h2>
+
+        <p>The editor presents the engine as a numbered signal flow: <code>1 SOURCE FIELD + MOTION</code> feeds one active <code>2 SOUND</code> model, which then feeds the third Voice/Output stage. A single Sound menu selects Continuous, Packets, Motor, Freeze, Iterate, Pulser, Doublets, Bounce, or MCH Iterate. This matches the DSP: an Event process replaces Direct articulation rather than secretly layering over it. The second panel exposes only controls used by the selected Sound, and the scope repeats the active Path, Source, and Sound stages.</p>
+
+        <p>Every Event sound includes a live <code>SOURCE</code> and <code>MOTION</code> relationship readout. Motion always supplies event playback speed and onset direction, and selecting the Turn trigger also makes its trajectory boundaries the event clock. Motion does not always supply event position: Freeze and Bounce lock to Locus; Doublets uses Locus plus Step; Iterate and MCH Iterate follow the live Motion cursor only when Step is zero and otherwise use a Locus-plus-Step sequence; Pulser chooses random positions in the Locus-centered Field, except that Moving Loop carries the complete random-selection Field through Start–End.</p>
+
+        <p>The relationship readout classifies each combination as <code>FULL PATH FOLLOW</code>, <code>MOVING FIELD</code>, or <code>POSITION OVERRIDE</code>, and warns when Bounce acceleration or contiguous Doublets grouping requires Clock. Controls unused by the current Path, Sound, or Trigger remain visible for orientation but are dimmed and non-interactive. Travel is active only for Drunk and Zigzag; Source Step is active for Moving Loop, Iterate, Doublets, and MCH Iterate.</p>
+
+        <p>Trigger selection also exposes the clock that actually runs the process. Clock uses Event Rate. Packet displays an additional <code>PACKET RATE</code> control connected to Inner Rate. Turn follows Path boundaries. Pulser retains its Event Rate as a packet-duration basis under Packet or Turn; Bounce Start Rate and Accel are disabled outside Clock.</p>
+
+        <p>Choosing an Event process from <code>SOUND</code> loads a practical starting recipe and immediately exposes that process's relevant controls; subsequent edits remain independent. Host automation of Segment Model changes the model only and never rewrites other automated parameters.</p>
+
+        <p>Selecting any Event sound activates an allocation-free scheduler with four internal segment lanes per MIDI voice. Clock triggers use Event Rate and Time Rand adds seeded interval variation; Packet follows the inner packet clock; Turn follows trajectory boundaries. Cut replaces active lanes at each trigger, while Layer permits overlap. Every lane captures its source range, direction, pitch variation, level variation, envelope, and—in Sample Motion 32—output assignment at onset.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Model</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Freeze</td><td>Fluidly reiterates the Locus-centered Field with optional pitch and level variation.</td></tr>
+            <tr><td>Iterate</td><td>Retriggers a selected segment with naturalized timing, pitch, and level variation. Step moves its center through Start–End; Step zero follows the live trajectory.</td></tr>
+            <tr><td>Pulser</td><td>Selects short, shaped source packets inside the Field. Duty relates pulse duration to Event Rate.</td></tr>
+            <tr><td>Doublets</td><td>For Clock triggering, plays contiguous groups such as AAABBBCCC: Repeats sets the group count, Segment sets slice length, and Advance moves to the next source position.</td></tr>
+            <tr><td>Bounce</td><td>Repeats the Locus-centered slice with successively faster starts, per-hit decay, and progressive shortening toward Minimum Length.</td></tr>
+            <tr><td>MCH Iterate</td><td>Uses Iterate's source behavior and assigns each event to a new multichannel destination.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The visible labels change with the selected process: for example, Bounce presents Start Rate, Bounces, Length, Decay, Accel, and Minimum Length, while Pulser presents Rate, Duration, Source Area, pitch/level/time scatter, Shape, and Overlap. Join morphs event edges from rectangular to the selected Shape; Symmetry moves the envelope peak. Pitch Rand is a maximum bipolar semitone scatter. Amp Rand is random reduction for Freeze, Iterate, Pulser, Doublets, and MCH Iterate; Decay is applied repeat by repeat in Bounce.</p>
+
+        <h2 id="editor-presets">Editor and Presets</h2>
+
+        <p>The editor follows the shared Sample-family layout. Its title band provides factory presets plus <code>LOAD</code> and <code>SAVE</code> for complete plug-in state presets. Factory choices cover every trajectory, ordinary Packets, Motor combinations, every segment model, MCH Zig, and MCH Iterate. <code>CLEAR</code> removes the source, and file decoding runs away from the interface and audio threads. The Signal Flow scope previews all eight trajectories, identifies the Path → Source → Sound hierarchy, shows packet or event density, overlays the selected envelope, and follows the newest voice's live phase and current destination.</p>
+
+        <h2 id="voices">Voices and Triggers</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Trigger</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Auto / Gate</td><td>Note-off begins the Release stage. Auto is retained as the Sample-family default vocabulary; for this continuously scanning source it follows Gate behavior.</td></tr>
+            <tr><td>One Shot</td><td>Note-off is ignored and the voice continues until Stop, voice stealing, or another explicit kill.</td></tr>
+            <tr><td>Toggle</td><td>A repeated note-on alternately starts and releases the matching voice.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Attack and Release range from immediate to two seconds. Velocity blends between fixed level and received note velocity. Out supplies final gain, and a short retirement tail suppresses discontinuities when a voice is stolen or stopped.</p>
+
+        <h2 id="midi">Tracker, MIDI, and Automation</h2>
+
+        <p>Sample Motion 2 exposes 36 CLAP parameters; Sample Motion 32 exposes 42, adding four allocator parameters plus Route On and Avoid Adjacent. All can be automated or sequenced from <a href="s3g-tracker.html">s3g Tracker</a>. MIDI Receive defaults to Omni and can be restricted to channels 1–16. The selected channel also accepts these direct controls:</p>
+
+        <table class="readout-table">
+          <thead><tr><th>CC</th><th>Control</th></tr></thead>
+          <tbody>
+            <tr><td>16 / 17</td><td>Start / End</td></tr>
+            <tr><td>18 / 19</td><td>Locus / Field</td></tr>
+            <tr><td>20 / 21</td><td>Motion Rate / Travel</td></tr>
+            <tr><td>22 / 23</td><td>Inner Rate / Outer Rate</td></tr>
+            <tr><td>123</td><td>Stop all voices</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="routing-state">Routing and State</h2>
+
+        <ul>
+          <li>Input: one MIDI/note port; no audio input.</li>
+          <li>Output: Sample Motion 2 has one fixed stereo audio port. Sample Motion 32 has one fixed 32-channel port.</li>
+          <li>32-channel allocation: 2–32 active channels; mono or stereo-pair destinations; adjacent or split-bank pair maps; sequential, reverse sequential, palindrome, random, or no-repeat random-cycle order. Route On chooses a retained note assignment, reassignment at each trajectory turn, or a captured assignment for each segment event. Avoid Adjacent prevents Random and Random Cycle from choosing the same or a neighboring destination when the active width permits it.</li>
+          <li>Source: one decoded mono or stereo file.</li>
+          <li>State: all parameters, requested storage policy, preserved source reference, and decoded channel audio in <code>EMBED</code> mode or as the safety fallback for a pathless asset, up to the plug-in's one-gibibyte safety limit.</li>
+        </ul>
+
+        <p><code>PROJECT</code> copies the unchanged source in the background to the saved REAPER project's media directory under <code>s3g Samples</code>; <code>LINK</code> retains its original location; <code>EMBED</code> adds decoded 32-bit floating-point PCM to plug-in state. The editor reports referenced file bytes or the decoded <code>STATE</code> cost. A pending Project request in an unsaved or unsupported project keeps the current playable source and unresolved reference intact; a decoded asset with no usable locator remains embedded as a safety fallback. Large embedded state can also be captured in host undo snapshots—including FX bypass or chain edits—so Project is preferred for normal work.</p>
+
+        <p>The design is a realtime adaptation rather than a literal CDP port. Hover and Mirror draw from HOVER/HOVER2; Drunk, Zigzag, Moving Loop, BaktoBak, Freeze, Iterate, Doublets, and the multichannel variants draw from EXTEND and MULTICHAN; Pulser and Bounce follow their CDP Release 8 process shapes; Packets and Motor retain their packet and nested-clock relationships. See <a href="references.html#sample-motion">References</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-wavesets.html"><span>Previous</span>Sample Wavesets</a>
+          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="effect-crcltr.html">Effect CRCLTR</a>
+          <a href="processor-loop.html">Processor Loop</a>
+          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#range">Source Range</a>
+          <a href="#motion">Source Motion</a>
+          <a href="#motor">Continuous, Packets, and Motor</a>
+          <a href="#segment-events">Segment Events</a>
+          <a href="#editor-presets">Editor and Presets</a>
+          <a href="#voices">Voices and Triggers</a>
+          <a href="#midi">Tracker, MIDI, and Automation</a>
+          <a href="#routing-state">Routing and State</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

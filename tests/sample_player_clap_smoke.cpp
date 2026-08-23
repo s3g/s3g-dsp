@@ -5,15 +5,19 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
+#include "../plugins/common/s3g_sample_storage.h"
+
 #include <dlfcn.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -23,7 +27,8 @@ constexpr uint32_t kStateMagic = 0x50533353u;
 constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr uint32_t kExpandedStateVersion = 3u;
 constexpr uint32_t kPitchStateVersion = 4u;
-constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kPreviousStateVersion = 5u;
+constexpr uint32_t kStateVersion = 6u;
 constexpr std::size_t kLegacyParamCount = 15u;
 constexpr std::size_t kExpandedParamCount = 20u;
 constexpr std::size_t kPitchParamCount = 21u;
@@ -211,6 +216,205 @@ bool expect(bool condition, const char* message)
     return false;
 }
 
+struct RegistrationProbe {
+    using Callback = intptr_t (*)(void*, int, void*);
+    int additions = 0;
+    int removals = 0;
+    void* userData = nullptr;
+    Callback callback = nullptr;
+    std::string addedPath;
+    std::string removedPath;
+};
+
+RegistrationProbe* activeRegistrationProbe = nullptr;
+
+struct ProjectQueryProbe {
+    void* firstProject = nullptr;
+    void* exactProject = nullptr;
+    std::string firstPath;
+    std::string exactPath;
+    std::string mediaPath;
+};
+
+ProjectQueryProbe* activeProjectQueryProbe = nullptr;
+
+int registrationProbe(const char* name, void* opaqueArguments)
+{
+    if (!activeRegistrationProbe || !name || !opaqueArguments) return 0;
+    auto** arguments = static_cast<void**>(opaqueArguments);
+    if (std::strcmp(name, "file_in_project_ex2") == 0) {
+        ++activeRegistrationProbe->additions;
+        activeRegistrationProbe->addedPath = static_cast<const char*>(
+            arguments[0u]);
+        activeRegistrationProbe->userData = arguments[2u];
+        activeRegistrationProbe->callback
+            = reinterpret_cast<RegistrationProbe::Callback>(arguments[3u]);
+        return 1;
+    }
+    if (std::strcmp(name, "-file_in_project_ex2") == 0) {
+        ++activeRegistrationProbe->removals;
+        activeRegistrationProbe->removedPath = static_cast<const char*>(
+            arguments[0u]);
+        return 1;
+    }
+    return 0;
+}
+
+void* unusedGetContext(const clap_host_t*, int) { return nullptr; }
+
+void* queryEnumProjects(int index, char* path, int capacity)
+{
+    if (!activeProjectQueryProbe) return nullptr;
+    const std::string* selectedPath = nullptr;
+    void* project = nullptr;
+    if (index == 0) {
+        project = activeProjectQueryProbe->firstProject;
+        selectedPath = &activeProjectQueryProbe->firstPath;
+    } else if (index == 1) {
+        project = activeProjectQueryProbe->exactProject;
+        selectedPath = &activeProjectQueryProbe->exactPath;
+    }
+    if (project && path && capacity > 0)
+        std::snprintf(path, static_cast<std::size_t>(capacity), "%s",
+            selectedPath->c_str());
+    return project;
+}
+
+void queryGetProjectPathEx(void* project, char* path, int capacity)
+{
+    if (!activeProjectQueryProbe
+        || project != activeProjectQueryProbe->exactProject
+        || !path || capacity <= 0) return;
+    std::snprintf(path, static_cast<std::size_t>(capacity), "%s",
+        activeProjectQueryProbe->mediaPath.c_str());
+}
+
+void captureRegisteredRename(void* owner, const std::string& absolutePath)
+{
+    if (owner) *static_cast<std::string*>(owner) = absolutePath;
+}
+
+bool exerciseProjectStorageHelpers()
+{
+    namespace storage = s3g::sample_storage;
+    bool ok = true;
+    const auto serial = std::chrono::steady_clock::now()
+        .time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path()
+        / ("s3g-player-storage-" + std::to_string(serial));
+    const auto media = root / "Media";
+    const auto source = root / "Sample Kick #1.WAV";
+    std::error_code error;
+    std::filesystem::create_directories(media, error);
+    {
+        std::ofstream output(source, std::ios::binary);
+        output.write("abc", 3);
+    }
+    storage::ProjectLocation location;
+    location.project = reinterpret_cast<void*>(uintptr_t { 1u });
+    location.fxDsp = reinterpret_cast<void*>(uintptr_t { 2u });
+    location.projectFilePath = (root / "fixture.rpp").string();
+    location.mediaDirectory = media.string();
+    location.saved = true;
+    const auto copied = storage::copyFileIntoProject(location,
+        source.string());
+    ok &= expect(copied.success
+            && copied.contentHash
+                == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9c"
+                    "b410ff61f20015ad"
+            && std::filesystem::path(copied.relativePath).filename()
+                == "sample-kick-1-ba7816bf8f01cfea.wav"
+            && copied.byteCount == 3u,
+        "project copy did not use verified readable content addressing");
+    std::string resolved;
+    ok &= expect(storage::resolveProjectRelativePath(location,
+            copied.relativePath, resolved)
+            && resolved == copied.absolutePath,
+        "project-relative sample path did not round-trip");
+    const auto repeated = storage::copyFileIntoProject(location,
+        source.string());
+    ok &= expect(repeated.success
+            && repeated.absolutePath == copied.absolutePath,
+        "identical project copy was not stable");
+    const auto collisionSource = root / "Collision.wav";
+    {
+        std::ofstream output(collisionSource, std::ios::binary);
+        output.write("abc", 3);
+    }
+    const auto collisionShort = media / "s3g Samples"
+        / "collision-ba7816bf8f01cfea.wav";
+    {
+        std::ofstream output(collisionShort, std::ios::binary);
+        output.write("occupied", 8);
+    }
+    const auto collision = storage::copyFileIntoProject(location,
+        collisionSource.string());
+    ok &= expect(collision.success
+            && std::filesystem::path(collision.absolutePath).filename()
+                == copied.contentHash + ".wav",
+        "short-hash collision did not fall back to the full digest");
+    {
+        std::ofstream output(collision.absolutePath,
+            std::ios::binary | std::ios::trunc);
+        output.write("occupied", 8);
+    }
+    const auto occupiedFull = storage::copyFileIntoProject(location,
+        collisionSource.string());
+    ok &= expect(!occupiedFull.success,
+        "mismatched full-hash destination was overwritten");
+
+    clap_host_t host {};
+    storage::ReaperHostBridge bridge {};
+    storage::ReaperContext context;
+    context.host = &host;
+    context.bridge = &bridge;
+    context.getContext = unusedGetContext;
+    context.enumProjects = queryEnumProjects;
+    context.getProjectPathEx = queryGetProjectPathEx;
+    context.registerObject = registrationProbe;
+    context.project = location.project;
+    context.fxDsp = location.fxDsp;
+    ProjectQueryProbe queryProbe;
+    queryProbe.firstProject = reinterpret_cast<void*>(uintptr_t { 3u });
+    queryProbe.exactProject = context.project;
+    queryProbe.firstPath = (root / "other.rpp").string();
+    queryProbe.exactPath = location.projectFilePath;
+    queryProbe.mediaPath = "Media";
+    activeProjectQueryProbe = &queryProbe;
+    storage::ProjectLocation queriedLocation;
+    std::string queryError;
+    ok &= expect(storage::queryProjectLocation(context, queriedLocation,
+            &queryError)
+            && queriedLocation.projectFilePath == location.projectFilePath
+            && queriedLocation.mediaDirectory == media.string(),
+        "REAPER project query did not pointer-match this instance or resolve "
+        "its media path");
+    RegistrationProbe probe;
+    activeRegistrationProbe = &probe;
+    std::string renamedPath;
+    storage::ProjectFileRegistration registration;
+    ok &= expect(context.available() && context.canRegisterProjectFiles()
+            && registration.reset(context, copied.absolutePath,
+                &renamedPath, captureRegisteredRename, "Player Fixture")
+            && probe.additions == 1 && probe.callback,
+        "project-file registration capability was not accepted");
+    const std::string movedPath = (media / "s3g Samples"
+        / "moved-sample.wav").string();
+    if (probe.callback)
+        probe.callback(probe.userData, 0,
+            const_cast<char*>(movedPath.c_str()));
+    ok &= expect(renamedPath == movedPath
+            && registration.absolutePath() == movedPath,
+        "project-file rename callback did not publish the new path");
+    registration.clear();
+    ok &= expect(probe.removals == 1 && probe.removedPath == movedPath,
+        "project-file registration was not balanced with the renamed path");
+    activeRegistrationProbe = nullptr;
+    activeProjectQueryProbe = nullptr;
+    std::filesystem::remove_all(root, error);
+    return ok;
+}
+
 void fillEmbeddedFixture(StateBuffer& state, uint32_t channels,
     clap_id configId)
 {
@@ -247,6 +451,18 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
+    StateBuffer freshState;
+    CurrentFixtureState freshSaved {};
+    ok &= expect(state && state->save(plugin, &freshState.output)
+            && freshState.bytes.size() == sizeof(freshSaved),
+        "fresh Player state failed to save");
+    if (freshState.bytes.size() >= sizeof(freshSaved))
+        std::memcpy(&freshSaved, freshState.bytes.data(), sizeof(freshSaved));
+    ok &= expect(freshSaved.version == kStateVersion
+            && freshSaved.reserved0 == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Project)
+            && freshSaved.embedded == 0u,
+        "new Player instances do not default to PROJECT storage");
     clap_audio_port_info_t portInfo {};
     ok &= expect(ports && ports->get(plugin, 0u, false, &portInfo)
             && portInfo.channel_count == channels,
@@ -397,6 +613,33 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && std::fabs(midiReceiveValue) < 1.0e-9,
         "expanded playback, voice, sync, MIDI, or pitch contract is invalid");
 
+    CurrentFixtureState previousFixture;
+    previousFixture.version = kPreviousStateVersion;
+    previousFixture.outputConfigId = configId;
+    std::snprintf(previousFixture.path.data(), previousFixture.path.size(),
+        "%s", "/missing/legacy-linked-sample.wav");
+    StateBuffer previousState;
+    const auto* previousBytes = reinterpret_cast<const uint8_t*>(
+        &previousFixture);
+    previousState.bytes.insert(previousState.bytes.end(), previousBytes,
+        previousBytes + sizeof(previousFixture));
+    ok &= expect(state && state->load(plugin, &previousState.input),
+        "version 5 linked state failed to migrate");
+    StateBuffer previousRoundTrip;
+    CurrentFixtureState previousMigrated {};
+    ok &= expect(state && state->save(plugin, &previousRoundTrip.output)
+            && previousRoundTrip.bytes.size() == sizeof(previousMigrated),
+        "version 5 linked state failed to save after migration");
+    if (previousRoundTrip.bytes.size() >= sizeof(previousMigrated))
+        std::memcpy(&previousMigrated, previousRoundTrip.bytes.data(),
+            sizeof(previousMigrated));
+    ok &= expect(previousMigrated.version == kStateVersion
+            && previousMigrated.reserved0 == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Link)
+            && std::strcmp(previousMigrated.path.data(),
+                previousFixture.path.data()) == 0,
+        "version 5 linked state did not become LINK or preserve its locator");
+
     ExpandedFixtureState expandedFixture;
     expandedFixture.outputConfigId = configId;
     StateBuffer expandedState;
@@ -469,6 +712,8 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
     ok &= expect(migrated.magic == kStateMagic
             && migrated.version == kStateVersion
             && migrated.parameterCount == kParamCount
+            && migrated.reserved0 == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Embed)
             && migrated.parameters[8u] >= 0.0
             && migrated.parameters[9u] >= 0.0
             && migrated.parameters[11u] >= 0.0
@@ -488,6 +733,63 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && migrated.parameters[26u] == 0.0
             && migrated.parameters[27u] == 0.0,
         "legacy state did not preserve wraps and playback defaults");
+
+    CurrentFixtureState pathlessProject = migrated;
+    pathlessProject.reserved0 = static_cast<uint8_t>(
+        s3g::sample_storage::StorageMode::Project);
+    pathlessProject.path.fill('\0');
+    StateBuffer pathlessProjectState;
+    pathlessProjectState.bytes = roundTrip.bytes;
+    std::memcpy(pathlessProjectState.bytes.data(), &pathlessProject,
+        sizeof(pathlessProject));
+    ok &= expect(state && state->load(plugin, &pathlessProjectState.input),
+        "pathless PROJECT payload failed to load");
+    StateBuffer pathlessProjectSaved;
+    CurrentFixtureState pathlessProjectRoundTrip {};
+    ok &= expect(state && state->save(plugin, &pathlessProjectSaved.output)
+            && pathlessProjectSaved.bytes.size() == roundTrip.bytes.size(),
+        "pathless PROJECT did not retain its safety payload");
+    if (pathlessProjectSaved.bytes.size()
+        >= sizeof(pathlessProjectRoundTrip)) {
+        std::memcpy(&pathlessProjectRoundTrip,
+            pathlessProjectSaved.bytes.data(),
+            sizeof(pathlessProjectRoundTrip));
+    }
+    ok &= expect(pathlessProjectRoundTrip.reserved0
+            == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Project)
+            && pathlessProjectRoundTrip.embedded == 1u,
+        "requested PROJECT was not kept separate from its safety payload");
+
+    CurrentFixtureState pendingProject = pathlessProject;
+    std::snprintf(pendingProject.path.data(), pendingProject.path.size(),
+        "%s", "/missing/original-project-source.wav");
+    StateBuffer pendingProjectState;
+    pendingProjectState.bytes = roundTrip.bytes;
+    std::memcpy(pendingProjectState.bytes.data(), &pendingProject,
+        sizeof(pendingProject));
+    ok &= expect(state && state->load(plugin, &pendingProjectState.input),
+        "file-backed pending PROJECT payload failed to load");
+    StateBuffer pendingProjectSaved;
+    CurrentFixtureState pendingProjectRoundTrip {};
+    ok &= expect(state && state->save(plugin, &pendingProjectSaved.output)
+            && pendingProjectSaved.bytes.size()
+                == sizeof(pendingProjectRoundTrip),
+        "file-backed pending PROJECT remained embedded");
+    if (pendingProjectSaved.bytes.size()
+        >= sizeof(pendingProjectRoundTrip)) {
+        std::memcpy(&pendingProjectRoundTrip,
+            pendingProjectSaved.bytes.data(),
+            sizeof(pendingProjectRoundTrip));
+    }
+    ok &= expect(pendingProjectRoundTrip.reserved0
+            == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Project)
+            && pendingProjectRoundTrip.embedded == 0u
+            && std::strcmp(pendingProjectRoundTrip.path.data(),
+                pendingProject.path.data()) == 0,
+        "pending PROJECT did not preserve its small absolute locator");
+
     ok &= expect(plugin->activate(plugin, 48000.0, 8u, 16u)
             && plugin->start_processing(plugin),
         "activation failed");
@@ -664,7 +966,7 @@ int main(int argc, char** argv)
             "usage: s3g_sample_player_clap_smoke <bundle-or-binary>\n");
         return 2;
     }
-    bool ok = true;
+    bool ok = exerciseProjectStorageHelpers();
     const auto binary = resolveBinary(argv[1]);
     void* library = !binary.empty()
         ? dlopen(binary.c_str(), RTLD_LOCAL | RTLD_NOW) : nullptr;

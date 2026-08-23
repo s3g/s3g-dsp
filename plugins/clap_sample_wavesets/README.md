@@ -37,7 +37,17 @@ The instrument provides:
   voice destinations, adjacent or split-bank stereo pairs, and Sequential,
   Reverse Sequential, Palindrome, Random, or no-repeat Random Cycle routing;
   and
-- path or embedded project-audio state.
+- Project, Link, or Embed sample storage.
+
+`PROJECT` is the new-instance default and copies the unchanged source on the
+loader worker to the saved REAPER project's effective media directory under
+`s3g Samples`; the copy is registered with that project. `LINK` retains the
+original path. `EMBED` stores decoded 32-bit float PCM in CLAP state, whose
+channels × frames × four-byte size may greatly exceed the compressed disk file
+and can be repeated in host undo snapshots created by FX bypass or chain edits.
+Project remains pending in an unsaved/unsupported context without losing the
+source or unresolved path. Registered media follows REAPER Save As only when a
+copy-media option is selected.
 
 The waveform and scope draw one numbered lane per loaded source channel. The
 scope follows the newest-triggered active voice, overlays its ordered source

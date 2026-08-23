@@ -41,7 +41,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose Sample Wavesets 2 for stereo playback or Sample Wavesets 32 when notes should be distributed across a multichannel destination. Press <code>LOAD SAMPLE</code> or drop a mono or stereo file on the waveform. Leave <code>EMBED ON</code> enabled to store decoded audio in project state, or choose <code>EMBED OFF</code> to retain only the file location.</li>
+          <li>Choose Sample Wavesets 2 for stereo playback or Sample Wavesets 32 when notes should be distributed across a multichannel destination. Press <code>LOAD SAMPLE</code> or drop a mono or stereo file on the waveform, then choose <code>STORE PROJECT</code> (the new-instance default), <code>STORE LINK</code>, or <code>STORE EMBED</code> as described in <a href="sample-instruments.html#state">Sample Storage</a>.</li>
           <li>Route Wavesets 2 to a stereo monitor path. For Wavesets 32, set the host track to 32 channels, select an active <code>OUTPUTS</code> width from 2–32, and route the required portion of that bus.</li>
           <li>Drag <code>S</code> and <code>E</code> on the waveform, or use the Start and End sliders, to define the playable window.</li>
           <li>Place <code>LS</code> and <code>LE</code> inside that window and choose a looped Play Mode when the region should repeat.</li>
@@ -177,16 +177,18 @@
           <li>Input: one CLAP note/MIDI port plus file loading and drag-and-drop in the editor.</li>
           <li>Wavesets 2 output: one fixed stereo port. “2” identifies this channel count rather than a number of decks or voices.</li>
           <li>Wavesets 32 output: one fixed 32-channel host port. The active 2–32-channel routing width is saved and automatable; unused physical lanes remain silent.</li>
-          <li>State: all 25 or 29 parameters, source path, embed selection, and optionally as much as 1 GiB of decoded mono or stereo audio.</li>
+          <li>State: all 25 or 29 parameters, requested storage policy, preserved source reference, and—in <code>EMBED</code> mode—up to 1 GiB of decoded mono or stereo PCM.</li>
           <li>Analysis and file decoding run away from the audio callback. Audio rendering uses immutable per-channel and summed crossing maps.</li>
           <li>On macOS, each voice cursor uses the persistent compositor trajectory established for Sample Doubles. The waveform playhead is a continuous source-transport indicator that begins exactly at Start and spans every displayed channel lane. The bounded scope follows the newest-triggered voice, compares its ordered source group with the processed result per channel, preserves measured cycle proportions, and reports note, group, cycle, repeat, phase, Depth, and view scale. The 30 Hz AppKit timer services the scope and static feedback, not visible waveform-playhead movement.</li>
         </ul>
+
+        <p><code>PROJECT</code> copies the unchanged source in the background into the saved REAPER project's effective media directory under <code>s3g Samples</code>; <code>LINK</code> retains the original path; <code>EMBED</code> adds decoded 32-bit floating-point PCM to plug-in state. A pending Project request in an unsaved or unsupported project keeps the source and unresolved reference intact. Because hosts can snapshot complete state for undo during FX bypass or chain edits, large embedded sources may cause pauses even when audio processing itself is light.</p>
 
         <p>The grouped pseudo-wavecycle model follows the waveset processes documented by the Composers Desktop Project. See <a href="references.html#wavesets">References</a> for the source material used in this design.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-doubles.html"><span>Previous</span>Sample Doubles</a>
-          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+          <a class="page-nav-link next" href="sample-motion.html"><span>Next</span>Sample Motion</a>
         </nav>
       </main>
 
@@ -197,6 +199,7 @@
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-doubles.html">Sample Doubles</a>
           <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
           <a href="sample-slicer.html">Sample Slicer</a>
           <a href="effect-crcltr.html">Effect CRCLTR</a>
           <a href="processor-loop.html">Processor Loop</a>

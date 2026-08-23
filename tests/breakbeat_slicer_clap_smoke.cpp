@@ -8,6 +8,7 @@
 #include <clap/ext/state.h>
 
 #include "s3g_breakbeat_slicer.h"
+#include "s3g_sample_storage.h"
 
 #include <dlfcn.h>
 
@@ -18,11 +19,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -35,7 +38,7 @@ constexpr const char* kStereoPluginId =
 constexpr uint32_t kStateMagic = 0x53423353u;
 constexpr uint32_t kLegacyStateVersion = 9u;
 constexpr uint32_t kPreviousStateVersion = 10u;
-constexpr uint32_t kStateVersion = 12u;
+constexpr uint32_t kStateVersion = 13u;
 constexpr std::size_t kPathBytes = 1024u;
 
 struct FixtureSavedSlot {
@@ -276,6 +279,56 @@ void fillEmbeddedWidthFixture(StateBuffer& state, uint8_t channelCount)
     }
 }
 
+bool testProjectStorageCopy()
+{
+    std::error_code error;
+    const auto serial = static_cast<unsigned long long>(
+        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    const auto root = std::filesystem::temp_directory_path()
+        / ("s3g-sample-storage-" + std::to_string(serial));
+    const auto sourceDirectory = root / "Library";
+    const auto source = sourceDirectory / "Kick Loop.WAV";
+    std::filesystem::create_directories(sourceDirectory, error);
+    if (error) return false;
+    {
+        std::ofstream output(source, std::ios::binary);
+        const std::array<uint8_t, 9u> bytes {{
+            0x52u, 0x49u, 0x46u, 0x46u, 0x73u,
+            0x33u, 0x67u, 0x00u, 0xffu,
+        }};
+        output.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+        if (!output) return false;
+    }
+    s3g::sample_storage::ProjectLocation location;
+    location.project = reinterpret_cast<void*>(1);
+    location.fxDsp = reinterpret_cast<void*>(2);
+    location.projectFilePath = (root / "session.rpp").string();
+    location.mediaDirectory = (root / "Media").string();
+    location.saved = true;
+    const auto first = s3g::sample_storage::copyFileIntoProject(
+        location, source.string());
+    const auto second = s3g::sample_storage::copyFileIntoProject(
+        location, source.string());
+    std::string relative;
+    std::string resolved;
+    const bool ok = first.success && second.success
+        && first.absolutePath == second.absolutePath
+        && first.byteCount == 9u
+        && first.contentHash.size() == 64u
+        && std::filesystem::is_regular_file(first.absolutePath)
+        && std::filesystem::path(first.absolutePath).filename().string()
+            .find("kick-loop-") == 0u
+        && s3g::sample_storage::makeProjectRelativePath(location,
+            first.absolutePath, relative)
+        && relative.rfind("s3g Samples/", 0u) == 0u
+        && s3g::sample_storage::resolveProjectRelativePath(location,
+            relative, resolved)
+        && resolved == first.absolutePath;
+    std::filesystem::remove_all(root, error);
+    return ok;
+}
+
 #if defined(__APPLE__)
 bool testWaveExport()
 {
@@ -338,6 +391,8 @@ int main(int argc, char** argv)
         return 2;
     }
     bool ok = true;
+    ok &= expect(testProjectStorageCopy(),
+        "project-media copy, deduplication, or relative path failed");
 #if defined(__APPLE__)
     ok &= expect(testWaveExport(),
         "16-channel rendered-break WAV export failed");
@@ -429,6 +484,9 @@ int main(int argc, char** argv)
         FixtureSavedState initialized {};
         std::memcpy(&initialized, initializedState.bytes.data(),
             sizeof(initialized));
+        initializedRouting = initialized.version == kStateVersion
+            && initialized.embedSamples == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Project);
         for (std::size_t index = 0u; index < initialized.slots.size();
              ++index) {
             const auto& slot = initialized.slots[index];
@@ -504,7 +562,9 @@ int main(int argc, char** argv)
         std::memcpy(&migrated, migratedLegacyState.bytes.data(),
             sizeof(migrated));
         legacyMigration = migrated.version == kStateVersion
-            && migrated.transientPreRollMicroseconds == 0u;
+            && migrated.transientPreRollMicroseconds == 0u
+            && migrated.embedSamples == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Link);
     }
     ok &= expect(legacyMigration,
         "state v9 did not migrate with transient pre-roll disabled");
@@ -586,6 +646,8 @@ int main(int argc, char** argv)
         FixtureSavedState savedFixture;
         std::memcpy(&savedFixture, saved.bytes.data(), sizeof(savedFixture));
         stateRoundTrip = savedFixture.version == kStateVersion
+            && savedFixture.embedSamples == static_cast<uint8_t>(
+                s3g::sample_storage::StorageMode::Embed)
             && std::fabs(savedFixture.auxPress - 0.52f) < 1.0e-6f
             && std::fabs(savedFixture.auxTilt + 0.18f) < 1.0e-6f
             && savedFixture.auxLinkMode

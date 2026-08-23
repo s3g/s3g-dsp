@@ -66,8 +66,16 @@ Loop Start, Loop End, or Loop Crossfade updates active loop voices through a
 5 ms click-safe transition. Start and Length remain fixed for each triggered
 voice.
 
-Samples can be loaded from the editor or dropped on its waveform. By default,
-decoded audio is embedded in CLAP state so projects remain portable. All
+Samples can be loaded from the editor or dropped on its waveform. The shared
+`STORE` control selects `PROJECT` (the default for new instances), `LINK`, or
+`EMBED`. Project copies the unchanged source on the loader worker to the saved
+REAPER project's effective media directory under `s3g Samples` and registers
+the copy with that project. Link retains the original path. Embed stores
+decoded 32-bit float PCM in CLAP state and can therefore be much larger than a
+compressed source file; host undo snapshots made for FX bypass or chain edits
+can inherit that cost. A Project request stays pending in an unsaved project or
+unsupported host without discarding the source or unresolved path. REAPER Save
+As relocates registered media only when a copy-media option is selected. All
 channels use one playback clock, including Start/Length, loop wrapping,
 Rate/Stretch playback, pitch, and envelope changes.
 

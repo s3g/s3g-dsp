@@ -1431,12 +1431,20 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     [style.strip setFill]; NSRectFill(track);
     [style.grid setStroke]; NSFrameRect(track);
     const CGFloat norm = std::clamp(static_cast<CGFloat>(normalizedParamValue(layout.id, params)), 0.0, 1.0);
-    NSRect fill = NSInsetRect(track, 1, 1); fill.size.width *= norm;
+    NSRect fill = NSInsetRect(track, 1, 1);
+    fill.size.width = std::max<CGFloat>(1.0, fill.size.width * norm);
     [(layout.id == kParamSizeA || layout.id == kParamScatterA || layout.id == kParamWidthA || layout.id == kParamAirA
         ? s3g::clap_gui::color(0x69c7d2, 0.72)
         : layout.id == kParamSizeB || layout.id == kParamScatterB || layout.id == kParamWidthB || layout.id == kParamAirB
             ? s3g::clap_gui::color(0xd8a24a, 0.72) : style.fill) setFill];
     NSRectFill(fill);
+    const CGFloat handleX = std::clamp(
+        track.origin.x + track.size.width * norm - 1.5,
+        track.origin.x + 1.0,
+        track.origin.x + track.size.width - 4.0);
+    [style.text setFill];
+    NSRectFill(NSMakeRect(handleX, track.origin.y - 2.0,
+        3.0, track.size.height + 4.0));
     s3g::clap_gui::drawBoundedRightText(parameterText(layout.id, params),
         NSMakeRect(NSMaxX(layout.row) - 48.0, layout.row.origin.y + 1.0,
             42.0, 15.0), valueAttrs);

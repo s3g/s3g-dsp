@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <vector>
 
@@ -162,6 +163,7 @@ struct Plugin {
     s3g::AmbiTerrainNavigator encoder {};
     s3g::AmbiTerrainNavigatorParams params {};
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    std::atomic<clap_id> guiDragValueOutstanding { CLAP_INVALID_ID };
     s3g::clap_gui::SpscEventQueue<
         s3g::AmbiTerrainNavigatorParams, 8u> guiStateCommands {};
     std::atomic_flag controlSnapshotLock = ATOMIC_FLAG_INIT;
@@ -169,6 +171,7 @@ struct Plugin {
     std::atomic<bool> publishedControlDirty { true };
     std::atomic<bool> pendingParamValuesRescan { false };
     std::atomic<bool> active { false };
+    std::atomic<bool> processing { false };
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiAzimuth {};
     std::array<std::atomic<float>, s3g::kAmbiTerrainMaxPoints> guiElevation {};
@@ -367,6 +370,17 @@ bool paramValueFromParams(const s3g::AmbiTerrainNavigatorParams& p,
     return true;
 }
 
+double canonicalParamValue(
+    const s3g::AmbiTerrainNavigatorParams& base, clap_id id, double value)
+{
+    auto staged = base;
+    if (!assignParam(staged, id, value)) return value;
+    s3g::AmbiTerrainNavigator validator;
+    validator.setParams(staged);
+    (void)paramValueFromParams(validator.params(), id, value);
+    return value;
+}
+
 void lockNonAudio(std::atomic_flag& lock)
 {
     while (lock.test_and_set(std::memory_order_acquire)) {
@@ -428,6 +442,11 @@ void publishPoints(Plugin& p)
 
 void requestGuiParamService(Plugin& p)
 {
+    // process() consumes the GUI queue on the next audio block. Waking the
+    // host's flush path as well is redundant while audio is running and makes
+    // gesture-end cross the host's main/audio coordination boundary exactly
+    // when the mouse is released.
+    if (p.processing.load(std::memory_order_acquire)) return;
     if (p.hostParams && p.hostParams->request_flush) {
         p.hostParams->request_flush(p.host);
     } else if (p.host && p.host->request_process) {
@@ -451,10 +470,38 @@ bool queueGuiParamEvent(Plugin& p, s3g::clap_gui::ParamEventKind kind,
     return true;
 }
 
+bool queueGuiCoalescedDragValue(Plugin& p, clap_id id, double value)
+{
+    clap_id expected = CLAP_INVALID_ID;
+    if (!p.guiDragValueOutstanding.compare_exchange_strong(expected, id,
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
+        return false;
+    }
+    if (!p.guiParamEvents.push({
+            s3g::clap_gui::ParamEventKind::Value, id, value })) {
+        p.guiDragValueOutstanding.store(
+            CLAP_INVALID_ID, std::memory_order_release);
+        return false;
+    }
+    requestGuiParamService(p);
+    return true;
+}
+
 bool queueGuiParamValue(Plugin& p, clap_id id, double value)
 {
     const std::array<s3g::clap_gui::ParamEvent, 3u> events {{
         { s3g::clap_gui::ParamEventKind::GestureBegin, id, 0.0 },
+        { s3g::clap_gui::ParamEventKind::Value, id, value },
+        { s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 },
+    }};
+    if (!p.guiParamEvents.pushBatch(events.data(), events.size())) return false;
+    requestGuiParamService(p);
+    return true;
+}
+
+bool queueGuiParamValueAndGestureEnd(Plugin& p, clap_id id, double value)
+{
+    const std::array<s3g::clap_gui::ParamEvent, 2u> events {{
         { s3g::clap_gui::ParamEventKind::Value, id, value },
         { s3g::clap_gui::ParamEventKind::GestureEnd, id, 0.0 },
     }};
@@ -531,6 +578,12 @@ void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
             applyParam(p, pending.paramId, pending.value);
         }
         p.guiParamEvents.pop();
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            clap_id expected = pending.paramId;
+            (void)p.guiDragValueOutstanding.compare_exchange_strong(
+                expected, CLAP_INVALID_ID,
+                std::memory_order_acq_rel, std::memory_order_acquire);
+        }
     }
 }
 
@@ -569,10 +622,19 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
 
 void deactivate(const clap_plugin_t* plugin)
 {
-    self(plugin)->active.store(false, std::memory_order_release);
+    auto* p = self(plugin);
+    p->processing.store(false, std::memory_order_release);
+    p->active.store(false, std::memory_order_release);
 }
-bool startProcessing(const clap_plugin_t*) { return true; }
-void stopProcessing(const clap_plugin_t*) {}
+bool startProcessing(const clap_plugin_t* plugin)
+{
+    self(plugin)->processing.store(true, std::memory_order_release);
+    return true;
+}
+void stopProcessing(const clap_plugin_t* plugin)
+{
+    self(plugin)->processing.store(false, std::memory_order_release);
+}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
@@ -637,10 +699,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     std::array<float*, kOutputChannels> outputPtrs {};
     for (uint32_t ch = 0; ch < inChannels; ++ch) inputPtrs[ch] = input->data32[ch];
     for (uint32_t ch = 0; ch < outChannels; ++ch) outputPtrs[ch] = output.data32[ch];
-    p->encoder.setParams(p->params);
     p->encoder.processBlock(inputPtrs.data(), outputPtrs.data(), inChannels, outChannels, frames);
-    p->params = p->encoder.params();
-    publishControlSnapshot(*p);
     publishPoints(*p);
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
@@ -731,12 +790,30 @@ constexpr ParamDef kParams[] {
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
 
+constexpr bool paramIsAutomatable(clap_id id)
+{
+    switch (id) {
+    case kOrderParamId:
+    case kPointsParamId:
+    case kOrbitParamId:
+    case kPaletteParamId:
+    case kSelectedSourceParamId:
+    case kTerrainFormParamId:
+    case kTerrainTerraceStepsParamId:
+    case kTerrainReadParamId:
+        return false;
+    default:
+        return true;
+    }
+}
+
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info || index >= paramsCount(nullptr)) return false;
     const auto& def = kParams[index];
     info->id = def.id;
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
+    info->flags = (paramIsAutomatable(def.id) ? CLAP_PARAM_IS_AUTOMATABLE : 0)
+        | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
     std::strncpy(info->module, "Ambi Encoder Surface Terrain", sizeof(info->module));
     info->min_value = def.min;
@@ -952,10 +1029,432 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     return s3g::clap_gui::color(rgb, selected ? 1.0 : 0.92);
 }
 
+float terrainDisplayLerp(float current, float target, float follow)
+{
+    const float next = current + (target - current) * follow;
+    return std::fabs(next - target) < 0.0001f ? target : next;
+}
+
+float terrainDisplayLerpAngle(float current, float target, float follow)
+{
+    float delta = target - current;
+    while (delta > 180.0f) delta -= 360.0f;
+    while (delta < -180.0f) delta += 360.0f;
+    float next = current + delta * follow;
+    while (next > 180.0f) next -= 360.0f;
+    while (next <= -180.0f) next += 360.0f;
+    return std::fabs(delta * (1.0f - follow)) < 0.0001f ? target : next;
+}
+
+float terrainDisplayLerpPhase(float current, float target, float follow)
+{
+    float delta = target - current;
+    while (delta > 0.5f) delta -= 1.0f;
+    while (delta < -0.5f) delta += 1.0f;
+    float next = current + delta * follow;
+    next -= std::floor(next);
+    return std::fabs(delta * (1.0f - follow)) < 0.0001f ? target : next;
+}
+
+void smoothTerrainDisplayParams(s3g::AmbiTerrainNavigatorParams& current,
+    const s3g::AmbiTerrainNavigatorParams& target, float follow)
+{
+    // Menus and cardinality controls change immediately. Continuously valued
+    // geometry is eased independently for the display so path and terrain
+    // edits do not teleport while the DSP remains authoritative.
+    auto next = target;
+    next.rateHz = terrainDisplayLerp(
+        current.rateHz, target.rateHz, follow);
+    next.azimuthDeg = terrainDisplayLerpAngle(
+        current.azimuthDeg, target.azimuthDeg, follow);
+    next.elevationDeg = terrainDisplayLerp(
+        current.elevationDeg, target.elevationDeg, follow);
+    next.distance = terrainDisplayLerp(
+        current.distance, target.distance, follow);
+    next.traversal = terrainDisplayLerp(
+        current.traversal, target.traversal, follow);
+    next.terrainDepth = terrainDisplayLerp(
+        current.terrainDepth, target.terrainDepth, follow);
+    next.layerSpread = terrainDisplayLerp(
+        current.layerSpread, target.layerSpread, follow);
+    next.innerRadius = terrainDisplayLerp(
+        current.innerRadius, target.innerRadius, follow);
+    next.outerRadius = terrainDisplayLerp(
+        current.outerRadius, target.outerRadius, follow);
+    next.azimuthWarpDeg = terrainDisplayLerp(
+        current.azimuthWarpDeg, target.azimuthWarpDeg, follow);
+    next.elevationWarpDeg = terrainDisplayLerp(
+        current.elevationWarpDeg, target.elevationWarpDeg, follow);
+    next.distanceWarp = terrainDisplayLerp(
+        current.distanceWarp, target.distanceWarp, follow);
+    next.fold = terrainDisplayLerp(current.fold, target.fold, follow);
+    next.smoothing = terrainDisplayLerp(
+        current.smoothing, target.smoothing, follow);
+    next.inputGainDb = terrainDisplayLerp(
+        current.inputGainDb, target.inputGainDb, follow);
+    next.outputGainDb = terrainDisplayLerp(
+        current.outputGainDb, target.outputGainDb, follow);
+    next.syncDivisionBeats = terrainDisplayLerp(
+        current.syncDivisionBeats, target.syncDivisionBeats, follow);
+    next.phase = terrainDisplayLerpPhase(current.phase, target.phase, follow);
+    next.phaseSpread = terrainDisplayLerp(
+        current.phaseSpread, target.phaseSpread, follow);
+    next.ease = terrainDisplayLerp(current.ease, target.ease, follow);
+    next.distanceScale = terrainDisplayLerp(
+        current.distanceScale, target.distanceScale, follow);
+    next.doppler = terrainDisplayLerp(
+        current.doppler, target.doppler, follow);
+    next.air = terrainDisplayLerp(current.air, target.air, follow);
+    next.rateSpread = terrainDisplayLerp(
+        current.rateSpread, target.rateSpread, follow);
+    next.rateDeviation = terrainDisplayLerp(
+        current.rateDeviation, target.rateDeviation, follow);
+    next.terrainFacet = terrainDisplayLerp(
+        current.terrainFacet, target.terrainFacet, follow);
+    next.terrainBevel = terrainDisplayLerp(
+        current.terrainBevel, target.terrainBevel, follow);
+    next.terrainOrientation = terrainDisplayLerp(
+        current.terrainOrientation, target.terrainOrientation, follow);
+    next.terrainTerrace = terrainDisplayLerp(
+        current.terrainTerrace, target.terrainTerrace, follow);
+    next.terrainRidge = terrainDisplayLerp(
+        current.terrainRidge, target.terrainRidge, follow);
+    next.terrainErosion = terrainDisplayLerp(
+        current.terrainErosion, target.terrainErosion, follow);
+    next.terrainDomainWarp = terrainDisplayLerp(
+        current.terrainDomainWarp, target.terrainDomainWarp, follow);
+    next.terrainTwist = terrainDisplayLerp(
+        current.terrainTwist, target.terrainTwist, follow);
+    next.terrainRoughness = terrainDisplayLerp(
+        current.terrainRoughness, target.terrainRoughness, follow);
+    next.terrainRelief = terrainDisplayLerp(
+        current.terrainRelief, target.terrainRelief, follow);
+    next.terrainReadMix = terrainDisplayLerp(
+        current.terrainReadMix, target.terrainReadMix, follow);
+    current = next;
+}
+
+bool terrainDisplaySurfaceMatches(
+    const s3g::AmbiTerrainNavigatorParams& a,
+    const s3g::AmbiTerrainNavigatorParams& b)
+{
+    return a.distance == b.distance
+        && a.terrainDepth == b.terrainDepth
+        && a.layerSpread == b.layerSpread
+        && a.innerRadius == b.innerRadius
+        && a.outerRadius == b.outerRadius
+        && a.azimuthWarpDeg == b.azimuthWarpDeg
+        && a.elevationWarpDeg == b.elevationWarpDeg
+        && a.distanceWarp == b.distanceWarp
+        && a.fold == b.fold
+        && a.palette == b.palette
+        && a.distanceScale == b.distanceScale
+        && a.terrainForm == b.terrainForm
+        && a.terrainFacet == b.terrainFacet
+        && a.terrainBevel == b.terrainBevel
+        && a.terrainOrientation == b.terrainOrientation
+        && a.terrainTerrace == b.terrainTerrace
+        && a.terrainTerraceSteps == b.terrainTerraceSteps
+        && a.terrainRidge == b.terrainRidge
+        && a.terrainErosion == b.terrainErosion
+        && a.terrainDomainWarp == b.terrainDomainWarp
+        && a.terrainTwist == b.terrainTwist
+        && a.terrainRoughness == b.terrainRoughness
+        && a.terrainRelief == b.terrainRelief
+        && a.terrainRead == b.terrainRead
+        && a.terrainReadMix == b.terrainReadMix;
+}
+
+bool terrainDisplayPathMatches(
+    const s3g::AmbiTerrainNavigatorParams& a,
+    const s3g::AmbiTerrainNavigatorParams& b)
+{
+    return terrainDisplaySurfaceMatches(a, b)
+        && a.points == b.points
+        && a.selectedSource == b.selectedSource
+        && a.azimuthDeg == b.azimuthDeg
+        && a.elevationDeg == b.elevationDeg
+        && a.traversal == b.traversal
+        && a.orbit == b.orbit
+        && a.phaseSpread == b.phaseSpread
+        && a.ease == b.ease;
+}
+
+constexpr uint32_t kTerrainDisplayLongitudeBands = 28u;
+constexpr uint32_t kTerrainDisplayLatitudeBands = 14u;
+constexpr uint32_t kTerrainDisplayFineLongitudes =
+    kTerrainDisplayLongitudeBands * 2u + 1u;
+constexpr uint32_t kTerrainDisplayFineLatitudes =
+    kTerrainDisplayLatitudeBands * 2u + 1u;
+constexpr uint32_t kTerrainDisplaySurfaceSamples =
+    kTerrainDisplayFineLongitudes * kTerrainDisplayFineLatitudes;
+constexpr uint32_t kTerrainDisplayMaxPaths = 16u;
+constexpr uint32_t kTerrainDisplayPathSegments = 128u;
+
+struct TerrainDisplaySample {
+    s3g::Vec3 world {};
+    float terrain = 0.0f;
+};
+
+constexpr uint32_t terrainDisplaySurfaceIndex(
+    uint32_t longitude, uint32_t latitude)
+{
+    return latitude * kTerrainDisplayFineLongitudes + longitude;
+}
+
+struct TerrainSurfaceRenderCoordinator {
+    std::atomic<uint64_t> generation { 0u };
+    std::atomic<void*> owner { nullptr };
+};
+
+struct TerrainSurfaceRenderRequest {
+    s3g::AmbiTerrainNavigatorParams params {};
+    CGSize size {};
+    double viewAzimuthDeg = 90.0;
+    double viewElevationDeg = 0.0;
+    double viewZoom = 1.0;
+    uint64_t generation = 0u;
+};
+
+dispatch_queue_t terrainSurfaceRenderQueue()
+{
+    static dispatch_queue_t queue = nullptr;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create(
+            "org.s3g.surface-terrain-render", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+s3g::Vec3 terrainDisplayWorldPoint(const s3g::AmbiTerrainPoint& point)
+{
+    const s3g::Vec3 direction = s3g::directionFromAed(
+        point.azimuthDeg, point.elevationDeg);
+    return { direction.x * point.distance,
+        direction.y * point.distance,
+        direction.z * point.distance };
+}
+
+CGPoint terrainDisplayProjectPoint(const s3g::Vec3& point,
+    const TerrainSurfaceRenderRequest& request, CGFloat* depth)
+{
+    const CGFloat scale = std::min(
+        request.size.width, request.size.height) * 0.38
+        * std::clamp(request.viewZoom, 0.55, 2.40);
+    const float az = static_cast<float>(
+        request.viewAzimuthDeg * s3g::kPi / 180.0);
+    const float el = static_cast<float>(
+        request.viewElevationDeg * s3g::kPi / 180.0);
+    const float ca = std::cos(az);
+    const float sa = std::sin(az);
+    const float ce = std::cos(el);
+    const float se = std::sin(el);
+    const float x1 = ca * point.x - sa * point.y;
+    const float y1 = sa * point.x + ca * point.y;
+    const float y2 = ce * y1 + se * point.z;
+    const float z2 = -se * y1 + ce * point.z;
+    if (depth) *depth = static_cast<CGFloat>(z2);
+    return CGPointMake(request.size.width * 0.5
+            + static_cast<CGFloat>(x1) * scale,
+        request.size.height * 0.5
+            - static_cast<CGFloat>(y2) * scale);
+}
+
+CGImageRef createTerrainSurfaceImage(
+    const TerrainSurfaceRenderRequest& request,
+    const std::shared_ptr<TerrainSurfaceRenderCoordinator>& coordinator)
+{
+    if (request.size.width <= 0.0 || request.size.height <= 0.0)
+        return nullptr;
+    const auto cancelled = [&] {
+        return !coordinator
+            || coordinator->generation.load(std::memory_order_acquire)
+                != request.generation;
+    };
+    if (cancelled()) return nullptr;
+    s3g::AmbiTerrainNavigator encoder;
+    // Display queries are stateless and do not use the depth processor. Do
+    // not call prepare(): it allocates and clears 64 audio delay lines.
+    encoder.setParams(request.params);
+    std::array<TerrainDisplaySample,
+        kTerrainDisplaySurfaceSamples> samples {};
+    for (uint32_t latitude = 0u;
+         latitude < kTerrainDisplayFineLatitudes; ++latitude) {
+        if (cancelled()) return nullptr;
+        const float v = static_cast<float>(latitude)
+            / static_cast<float>(kTerrainDisplayFineLatitudes - 1u);
+        for (uint32_t longitude = 0u;
+             longitude < kTerrainDisplayFineLongitudes; ++longitude) {
+            const float u = static_cast<float>(longitude)
+                / static_cast<float>(kTerrainDisplayFineLongitudes - 1u);
+            const auto point = encoder.surfacePointForDisplay(u, v);
+            auto& sample = samples[terrainDisplaySurfaceIndex(
+                longitude, latitude)];
+            sample.world = terrainDisplayWorldPoint(point);
+            sample.terrain = point.terrain;
+        }
+    }
+
+    constexpr CGFloat bitmapScale = 2.0;
+    const size_t pixelWidth = static_cast<size_t>(
+        std::ceil(request.size.width * bitmapScale));
+    const size_t pixelHeight = static_cast<size_t>(
+        std::ceil(request.size.height * bitmapScale));
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(nullptr,
+        pixelWidth, pixelHeight, 8u, pixelWidth * 4u, colorSpace,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(colorSpace);
+    if (!context) return nullptr;
+    CGContextSetShouldAntialias(context, true);
+    CGContextTranslateCTM(context, 0.0, static_cast<CGFloat>(pixelHeight));
+    CGContextScaleCTM(context, bitmapScale, -bitmapScale);
+
+    struct Facet {
+        std::array<CGPoint, 4u> points {};
+        CGFloat depth = 0.0;
+        float terrain = 0.0f;
+    };
+    std::vector<Facet> facets;
+    facets.reserve(kTerrainDisplayLongitudeBands
+        * kTerrainDisplayLatitudeBands);
+    for (uint32_t latitude = 0u;
+         latitude < kTerrainDisplayLatitudeBands; ++latitude) {
+        if (cancelled()) {
+            CGContextRelease(context);
+            return nullptr;
+        }
+        for (uint32_t longitude = 0u;
+             longitude < kTerrainDisplayLongitudeBands; ++longitude) {
+            const uint32_t x0 = longitude * 2u;
+            const uint32_t x1 = (longitude + 1u) * 2u;
+            const uint32_t y0 = latitude * 2u;
+            const uint32_t y1 = (latitude + 1u) * 2u;
+            const std::array<const TerrainDisplaySample*, 4u> corners {{
+                &samples[terrainDisplaySurfaceIndex(x0, y0)],
+                &samples[terrainDisplaySurfaceIndex(x1, y0)],
+                &samples[terrainDisplaySurfaceIndex(x1, y1)],
+                &samples[terrainDisplaySurfaceIndex(x0, y1)],
+            }};
+            Facet facet {};
+            for (uint32_t corner = 0u; corner < 4u; ++corner) {
+                CGFloat depth = 0.0;
+                facet.points[corner] = terrainDisplayProjectPoint(
+                    corners[corner]->world, request, &depth);
+                facet.depth += depth * 0.25;
+                facet.terrain += corners[corner]->terrain * 0.25f;
+            }
+            facets.push_back(facet);
+        }
+    }
+    std::sort(facets.begin(), facets.end(),
+        [](const Facet& a, const Facet& b) {
+            return a.depth > b.depth;
+        });
+    for (const auto& facet : facets) {
+        const CGFloat light = std::clamp<CGFloat>(
+            0.115 + static_cast<CGFloat>(facet.terrain) * 0.055
+                + facet.depth * 0.012,
+            0.055, 0.22);
+        CGContextSetRGBFillColor(
+            context, light, light, light, 0.82);
+        CGContextBeginPath(context);
+        CGContextMoveToPoint(context,
+            facet.points[0].x, facet.points[0].y);
+        for (uint32_t corner = 1u; corner < 4u; ++corner) {
+            CGContextAddLineToPoint(context,
+                facet.points[corner].x, facet.points[corner].y);
+        }
+        CGContextClosePath(context);
+        CGContextFillPath(context);
+    }
+
+    CGContextSetRGBStrokeColor(context, 0.48, 0.48, 0.48, 0.24);
+    CGContextSetLineWidth(context, 0.45);
+    for (uint32_t latitude = 1u;
+         latitude < kTerrainDisplayLatitudeBands; ++latitude) {
+        CGContextBeginPath(context);
+        for (uint32_t longitude = 0u;
+             longitude < kTerrainDisplayFineLongitudes; ++longitude) {
+            const auto& sample = samples[terrainDisplaySurfaceIndex(
+                longitude, latitude * 2u)];
+            const CGPoint point = terrainDisplayProjectPoint(
+                sample.world, request, nullptr);
+            if (longitude == 0u)
+                CGContextMoveToPoint(context, point.x, point.y);
+            else
+                CGContextAddLineToPoint(context, point.x, point.y);
+        }
+        CGContextStrokePath(context);
+    }
+    for (uint32_t longitude = 0u;
+         longitude < kTerrainDisplayLongitudeBands; longitude += 2u) {
+        CGContextBeginPath(context);
+        for (uint32_t latitude = 0u;
+             latitude < kTerrainDisplayFineLatitudes; ++latitude) {
+            const auto& sample = samples[terrainDisplaySurfaceIndex(
+                longitude * 2u, latitude)];
+            const CGPoint point = terrainDisplayProjectPoint(
+                sample.world, request, nullptr);
+            if (latitude == 0u)
+                CGContextMoveToPoint(context, point.x, point.y);
+            else
+                CGContextAddLineToPoint(context, point.x, point.y);
+        }
+        CGContextStrokePath(context);
+    }
+
+    // The static path mesh belongs to the same target geometry as the shell.
+    // Rasterize both on the worker so drawRect never evaluates terrain DSP.
+    const uint32_t pathCount = std::min<uint32_t>(
+        request.params.points, kTerrainDisplayMaxPaths);
+    for (uint32_t lane = 0u; lane < pathCount; ++lane) {
+        if (cancelled()) {
+            CGContextRelease(context);
+            return nullptr;
+        }
+        const uint32_t source = request.params.selectedSource >= pathCount
+                && lane == pathCount - 1u
+            ? request.params.selectedSource : lane;
+        const bool selected = source == request.params.selectedSource;
+        const CGFloat light = selected ? 0.78 : 0.42;
+        CGContextSetRGBStrokeColor(context, light, light, light,
+            selected ? 0.90 : 0.45);
+        CGContextSetLineWidth(context, selected ? 1.4 : 0.7);
+        CGContextBeginPath(context);
+        for (uint32_t segment = 0u;
+             segment <= kTerrainDisplayPathSegments; ++segment) {
+            const float phase = segment == kTerrainDisplayPathSegments
+                ? 0.0f
+                : static_cast<float>(segment)
+                    / static_cast<float>(kTerrainDisplayPathSegments);
+            const auto point = encoder.pathPointForDisplay(source, phase);
+            const CGPoint projected = terrainDisplayProjectPoint(
+                terrainDisplayWorldPoint(point), request, nullptr);
+            if (segment == 0u)
+                CGContextMoveToPoint(context, projected.x, projected.y);
+            else
+                CGContextAddLineToPoint(context, projected.x, projected.y);
+        }
+        CGContextStrokePath(context);
+    }
+    CGImageRef image = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    return image;
+}
+
 @interface S3GAmbiTerrainNavigatorView : NSView {
     Plugin* _plugin;
     NSTimer* _timer;
     int _dragParam;
+    BOOL _pendingDragValueDirty;
+    double _pendingDragValue;
+    BOOL _pendingGestureEnd;
+    clap_id _pendingGestureParam;
+    clap_id _displayOverrideParam;
+    double _displayOverrideValue;
+    double _displayOverrideReleaseTime;
     int _viewMode;
     BOOL _dragView;
     NSPoint _lastDragPoint;
@@ -968,10 +1467,25 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     uint32_t _menuItemCount;
     char _titlePresetName[64];
     s3g::AmbiTerrainNavigatorParams _paramsSnapshot;
+    s3g::AmbiTerrainNavigatorParams _displayParams;
     s3g::AmbiTerrainNavigator _displayEncoder;
+    std::array<s3g::AmbiTerrainPoint, s3g::kAmbiTerrainMaxPoints> _displayPoints;
+    std::array<bool, s3g::kAmbiTerrainMaxPoints> _displayPointsPrimed;
+    NSImage* _surfaceImageCache;
+    BOOL _surfaceImageCacheValid;
+    NSImage* _previousSurfaceImage;
+    double _surfaceCrossfadeStartTime;
+    s3g::AmbiTerrainNavigatorParams _requestedSurfaceParams;
+    std::shared_ptr<TerrainSurfaceRenderCoordinator> _surfaceRenderCoordinator;
+    double _lastDisplayUpdateTime;
+    float _displayFollow;
+    NSUInteger _drawPassCount;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)refreshControlSnapshot;
+- (void)flushPendingDragValue;
+- (void)requestSurfaceImageForParams:(const s3g::AmbiTerrainNavigatorParams&)params;
+- (void)acceptSurfaceImage:(CGImageRef)image generation:(uint64_t)generation size:(NSSize)size;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 @end
@@ -984,6 +1498,13 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _plugin = plugin;
         _timer = nil;
         _dragParam = 0;
+        _pendingDragValueDirty = NO;
+        _pendingDragValue = 0.0;
+        _pendingGestureEnd = NO;
+        _pendingGestureParam = CLAP_INVALID_ID;
+        _displayOverrideParam = CLAP_INVALID_ID;
+        _displayOverrideValue = 0.0;
+        _displayOverrideReleaseTime = 0.0;
         _viewMode = 0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
@@ -995,24 +1516,105 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
         _paramsSnapshot = publishedParamsSnapshot(*plugin);
-        _displayEncoder.prepare(plugin ? plugin->sampleRate : 48000.0);
-        _displayEncoder.setParams(_paramsSnapshot);
+        _displayParams = _paramsSnapshot;
+        _displayEncoder.setParams(_displayParams);
+        _displayPoints = {};
+        _displayPointsPrimed = {};
+        _surfaceImageCache = nil;
+        _surfaceImageCacheValid = NO;
+        _previousSurfaceImage = nil;
+        _surfaceCrossfadeStartTime = 0.0;
+        _requestedSurfaceParams = _displayParams;
+        _surfaceRenderCoordinator
+            = std::make_shared<TerrainSurfaceRenderCoordinator>();
+        _surfaceRenderCoordinator->owner.store(
+            self, std::memory_order_release);
+        _lastDisplayUpdateTime = [[NSProcessInfo processInfo] systemUptime];
+        _displayFollow = 1.0f;
+        _drawPassCount = 0u;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
+        [self requestSurfaceImageForParams:_requestedSurfaceParams];
     }
     return self;
 }
 
 - (BOOL)isFlipped { return YES; }
-- (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
-- (void)startRefreshTimer { if (!_timer) _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 30.0 target:self selector:@selector(timerTick:) userInfo:nil repeats:YES]; }
+- (NSUInteger)drawPassCount { return _drawPassCount; }
+- (void)dealloc
+{
+    [self stopRefreshTimer];
+    if (_surfaceRenderCoordinator) {
+        _surfaceRenderCoordinator->owner.store(
+            nullptr, std::memory_order_release);
+        _surfaceRenderCoordinator->generation.fetch_add(
+            1u, std::memory_order_acq_rel);
+    }
+    [_previousSurfaceImage release];
+    _previousSurfaceImage = nil;
+    [_surfaceImageCache release];
+    _surfaceImageCache = nil;
+    [super dealloc];
+}
+- (void)startRefreshTimer
+{
+    if (_timer) return;
+    _lastDisplayUpdateTime = [[NSProcessInfo processInfo] systemUptime];
+    _timer = [NSTimer timerWithTimeInterval:1.0 / 30.0
+        target:self selector:@selector(timerTick:) userInfo:nil repeats:YES];
+    _timer.tolerance = 1.0 / 120.0;
+    // Hosts enter event-tracking mode while a slider is held. Common modes
+    // keep terrain motion and visual interpolation alive during the gesture.
+    [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
+}
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
-- (void)timerTick:(NSTimer*)timer { (void)timer; [self setNeedsDisplay:YES]; }
+- (void)timerTick:(NSTimer*)timer
+{
+    (void)timer;
+    @autoreleasepool {
+        [self flushPendingDragValue];
+        [self setNeedsDisplay:YES];
+        // This is an animated editor. Keep committing the throttled frame
+        // after mouse-up as well as during tracking; otherwise the scheduling
+        // policy changes at release and some hosts defer the easing/crossfade
+        // tail until their parameter-commit work has completed.
+        [self displayIfNeeded];
+    }
+}
 - (void)refreshControlSnapshot
 {
     if (!_plugin) return;
-    _paramsSnapshot = publishedParamsSnapshot(*_plugin);
-    _displayEncoder.setParams(_paramsSnapshot);
+    auto target = publishedParamsSnapshot(*_plugin);
+    const double now = [[NSProcessInfo processInfo] systemUptime];
+    if (_displayOverrideParam != CLAP_INVALID_ID) {
+        double published = 0.0;
+        const bool hasPublished = paramValueFromParams(
+            target, _displayOverrideParam, published);
+        if (!_dragParam && hasPublished
+            && (std::fabs(published - _displayOverrideValue) < 0.000001
+                || (_displayOverrideReleaseTime > 0.0
+                    && now - _displayOverrideReleaseTime > 0.25))) {
+            _displayOverrideParam = CLAP_INVALID_ID;
+            _displayOverrideReleaseTime = 0.0;
+        } else {
+            (void)assignParam(target, _displayOverrideParam,
+                _displayOverrideValue);
+        }
+    }
+    if (!terrainDisplayPathMatches(
+            _requestedSurfaceParams, target)) {
+        _requestedSurfaceParams = target;
+        [self requestSurfaceImageForParams:target];
+    }
+    const double elapsed = std::clamp(
+        now - _lastDisplayUpdateTime, 0.0, 0.25);
+    _lastDisplayUpdateTime = now;
+    constexpr double kDisplayTransitionSeconds = 0.10;
+    _displayFollow = static_cast<float>(
+        1.0 - std::exp(-elapsed / kDisplayTransitionSeconds));
+    _paramsSnapshot = target;
+    smoothTerrainDisplayParams(_displayParams, target, _displayFollow);
+    _displayEncoder.setParams(_displayParams);
 }
 
 - (NSString*)valueText:(clap_id)param value:(double)value
@@ -1024,9 +1626,34 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 
 - (double)paramValue:(clap_id)param
 {
+    if (_displayOverrideParam == param) return _displayOverrideValue;
     double value = 0.0;
-    paramsGetValue(&_plugin->plugin, param, &value);
+    (void)paramValueFromParams(_paramsSnapshot, param, value);
     return value;
+}
+
+- (void)flushPendingDragValue
+{
+    if (!_plugin) return;
+    if (_pendingGestureEnd) {
+        const bool queued = _pendingDragValueDirty
+            ? queueGuiParamValueAndGestureEnd(*_plugin,
+                _pendingGestureParam, _pendingDragValue)
+            : queueGuiParamEvent(*_plugin,
+                s3g::clap_gui::ParamEventKind::GestureEnd,
+                _pendingGestureParam);
+        if (queued) {
+            _pendingDragValueDirty = NO;
+            _pendingGestureEnd = NO;
+            _pendingGestureParam = CLAP_INVALID_ID;
+        }
+        return;
+    }
+    if (!_dragParam || !_pendingDragValueDirty) return;
+    if (queueGuiCoalescedDragValue(*_plugin,
+            static_cast<clap_id>(_dragParam), _pendingDragValue)) {
+        _pendingDragValueDirty = NO;
+    }
 }
 
 - (const ParamDef*)paramDef:(clap_id)param
@@ -1065,6 +1692,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     if (mode == 0) { _viewAzDeg = 90.0; _viewElDeg = 0.0; }
     else if (mode == 1) { _viewAzDeg = 90.0; _viewElDeg = 90.0; }
     else { _viewAzDeg = 38.0; _viewElDeg = 32.0; }
+    [self requestSurfaceImageForParams:_requestedSurfaceParams];
     [self setNeedsDisplay:YES];
 }
 
@@ -1090,14 +1718,6 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     return NSMakeRect(start + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 3.0, w, 16.0);
 }
 
-- (NSRect)playButtonRect:(int)index inRect:(NSRect)rect
-{
-    const CGFloat w = 48.0;
-    const CGFloat gap = 6.0;
-    const CGFloat start = rect.origin.x + 104.0;
-    return NSMakeRect(start + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 3.0, w, 16.0);
-}
-
 - (NSRect)pathTabRect:(int)index
 {
     static constexpr CGFloat starts[] { 638.0, 682.0, 730.0, 774.0, 822.0 };
@@ -1110,8 +1730,6 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 {
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     for (int i = 0; i < 3; ++i) s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self playButtonRect:0 inRect:rect], rect, @"EDIT", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self playButtonRect:1 inRect:rect], rect, @"PLAY", true, attrs, style);
 }
 
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1134,74 +1752,90 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     return { direction.x * point.distance, direction.y * point.distance, direction.z * point.distance };
 }
 
+- (void)requestSurfaceImageForParams:(const s3g::AmbiTerrainNavigatorParams&)params
+{
+    if (!_surfaceRenderCoordinator) return;
+    TerrainSurfaceRenderRequest request {};
+    request.params = params;
+    request.size = [self fieldRect].size;
+    request.viewAzimuthDeg = _viewAzDeg;
+    request.viewElevationDeg = _viewElDeg;
+    request.viewZoom = _viewZoom;
+    request.generation = _surfaceRenderCoordinator->generation.fetch_add(
+        1u, std::memory_order_acq_rel) + 1u;
+    const auto coordinator = _surfaceRenderCoordinator;
+    dispatch_async(terrainSurfaceRenderQueue(), ^{
+        @autoreleasepool {
+            if (coordinator->generation.load(std::memory_order_acquire)
+                != request.generation) return;
+            CGImageRef image = createTerrainSurfaceImage(
+                request, coordinator);
+            if (!image) return;
+            if (coordinator->generation.load(std::memory_order_acquire)
+                != request.generation) {
+                CGImageRelease(image);
+                return;
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                auto* owner = static_cast<S3GAmbiTerrainNavigatorView*>(
+                    coordinator->owner.load(std::memory_order_acquire));
+                if (owner
+                    && coordinator->generation.load(
+                           std::memory_order_acquire)
+                        == request.generation) {
+                    [owner acceptSurfaceImage:image
+                        generation:request.generation size:request.size];
+                }
+                CGImageRelease(image);
+            });
+        }
+    });
+}
+
+- (void)acceptSurfaceImage:(CGImageRef)image
+    generation:(uint64_t)generation size:(NSSize)size
+{
+    if (!image || !_surfaceRenderCoordinator
+        || _surfaceRenderCoordinator->generation.load(
+               std::memory_order_acquire)
+            != generation) return;
+    NSImage* next = [[NSImage alloc] initWithCGImage:image size:size];
+    if (!next) return;
+    [_previousSurfaceImage release];
+    _previousSurfaceImage = _surfaceImageCache;
+    _surfaceImageCache = next;
+    _surfaceImageCacheValid = YES;
+    _surfaceCrossfadeStartTime
+        = [[NSProcessInfo processInfo] systemUptime];
+    [self setNeedsDisplay:YES];
+}
+
 - (void)drawTerrainShellInRect:(NSRect)rect
 {
-    struct Facet {
-        std::array<NSPoint, 4> points {};
-        CGFloat depth = 0.0;
-        float terrain = 0.0f;
-    };
-    constexpr uint32_t kLongitudeBands = 28u;
-    constexpr uint32_t kLatitudeBands = 14u;
-    std::vector<Facet> facets;
-    facets.reserve(kLongitudeBands * kLatitudeBands);
-    for (uint32_t lat = 0; lat < kLatitudeBands; ++lat) {
-        const float v0 = static_cast<float>(lat) / static_cast<float>(kLatitudeBands);
-        const float v1 = static_cast<float>(lat + 1u) / static_cast<float>(kLatitudeBands);
-        for (uint32_t lon = 0; lon < kLongitudeBands; ++lon) {
-            const float u0 = static_cast<float>(lon) / static_cast<float>(kLongitudeBands);
-            const float u1 = static_cast<float>(lon + 1u) / static_cast<float>(kLongitudeBands);
-            const std::array<s3g::AmbiTerrainPoint, 4> shellPoints {
-                _displayEncoder.surfacePointForDisplay(u0, v0),
-                _displayEncoder.surfacePointForDisplay(u1, v0),
-                _displayEncoder.surfacePointForDisplay(u1, v1),
-                _displayEncoder.surfacePointForDisplay(u0, v1),
-            };
-            Facet facet {};
-            for (uint32_t corner = 0; corner < 4u; ++corner) {
-                CGFloat depth = 0.0;
-                facet.points[corner] = [self projectWorldPoint:[self worldPoint:shellPoints[corner]] rect:rect depth:&depth];
-                facet.depth += depth * 0.25;
-                facet.terrain += shellPoints[corner].terrain * 0.25f;
-            }
-            facets.push_back(facet);
-        }
+    if (!_surfaceImageCache || !_surfaceImageCacheValid
+        || !NSEqualSizes([_surfaceImageCache size], rect.size)) {
+        return;
     }
-    std::sort(facets.begin(), facets.end(), [](const Facet& a, const Facet& b) { return a.depth > b.depth; });
-    for (const auto& facet : facets) {
-        NSBezierPath* face = [NSBezierPath bezierPath];
-        [face moveToPoint:facet.points[0]];
-        for (uint32_t corner = 1; corner < 4u; ++corner) [face lineToPoint:facet.points[corner]];
-        [face closePath];
-        const CGFloat light = std::clamp<CGFloat>(0.115 + static_cast<CGFloat>(facet.terrain) * 0.055 + facet.depth * 0.012, 0.055, 0.22);
-        [[NSColor colorWithCalibratedWhite:light alpha:0.82] setFill];
-        [face fill];
+    const NSRect sourceRect = NSMakeRect(
+        0.0, 0.0, rect.size.width, rect.size.height);
+    CGFloat transition = 1.0;
+    if (_previousSurfaceImage) {
+        constexpr double kSurfaceCrossfadeSeconds = 0.12;
+        transition = static_cast<CGFloat>(std::clamp(
+            ([[NSProcessInfo processInfo] systemUptime]
+                - _surfaceCrossfadeStartTime)
+                / kSurfaceCrossfadeSeconds,
+            0.0, 1.0));
+        [_previousSurfaceImage drawInRect:rect fromRect:sourceRect
+            operation:NSCompositingOperationSourceOver
+            fraction:1.0 - transition respectFlipped:YES hints:nil];
     }
-
-    [[NSColor colorWithCalibratedWhite:0.48 alpha:0.24] setStroke];
-    for (uint32_t lat = 1u; lat < kLatitudeBands; ++lat) {
-        const float v = static_cast<float>(lat) / static_cast<float>(kLatitudeBands);
-        NSBezierPath* line = [NSBezierPath bezierPath];
-        [line setLineWidth:0.45];
-        for (uint32_t lon = 0; lon <= kLongitudeBands * 2u; ++lon) {
-            const float u = static_cast<float>(lon) / static_cast<float>(kLongitudeBands * 2u);
-            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_displayEncoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
-            if (lon == 0u) [line moveToPoint:pt];
-            else [line lineToPoint:pt];
-        }
-        [line stroke];
-    }
-    for (uint32_t lon = 0; lon < kLongitudeBands; lon += 2u) {
-        const float u = static_cast<float>(lon) / static_cast<float>(kLongitudeBands);
-        NSBezierPath* line = [NSBezierPath bezierPath];
-        [line setLineWidth:0.45];
-        for (uint32_t lat = 0; lat <= kLatitudeBands * 2u; ++lat) {
-            const float v = static_cast<float>(lat) / static_cast<float>(kLatitudeBands * 2u);
-            const NSPoint pt = [self projectWorldPoint:[self worldPoint:_displayEncoder.surfacePointForDisplay(u, v)] rect:rect depth:nullptr];
-            if (lat == 0u) [line moveToPoint:pt];
-            else [line lineToPoint:pt];
-        }
-        [line stroke];
+    [_surfaceImageCache drawInRect:rect fromRect:sourceRect
+        operation:NSCompositingOperationSourceOver fraction:transition
+        respectFlipped:YES hints:nil];
+    if (_previousSurfaceImage && transition >= 1.0) {
+        [_previousSurfaceImage release];
+        _previousSurfaceImage = nil;
     }
 }
 
@@ -1216,36 +1850,33 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 
     const auto params = _paramsSnapshot;
     [self drawTerrainShellInRect:rect];
-    const uint32_t visiblePaths = std::min<uint32_t>(params.points, 16u);
-    for (uint32_t lane = 0; lane < visiblePaths; ++lane) {
-        const uint32_t pi = params.selectedSource >= visiblePaths && lane == visiblePaths - 1u
-            ? params.selectedSource
-            : lane;
-        const BOOL pathSelected = pi == params.selectedSource;
-        NSBezierPath* bez = [NSBezierPath bezierPath];
-        [bez setLineWidth:pathSelected ? 1.4 : 0.7];
-        const uint32_t count = 128u;
-        for (uint32_t i = 0; i < count; ++i) {
-            const float phase = static_cast<float>(i) / static_cast<float>(count);
-            const s3g::Vec3 v = [self worldPoint:_displayEncoder.pathPointForDisplay(pi, phase)];
-            NSPoint pt = [self projectWorldPoint:v rect:rect depth:nullptr];
-            if (i == 0) [bez moveToPoint:pt];
-            else [bez lineToPoint:pt];
-        }
-        const s3g::Vec3 first = [self worldPoint:_displayEncoder.pathPointForDisplay(pi, 0.0f)];
-        [bez lineToPoint:[self projectWorldPoint:first rect:rect depth:nullptr]];
-        [[NSColor colorWithCalibratedWhite:(pathSelected ? 0.78 : 0.42) alpha:(pathSelected ? 0.90 : 0.45)] setStroke];
-        [bez stroke];
-    }
 
     const uint32_t active = std::min<uint32_t>(params.points, s3g::kAmbiTerrainMaxPoints);
     for (uint32_t src = 0; src < active; ++src) {
-        s3g::AmbiTerrainPoint p {};
-        p.azimuthDeg = _plugin->guiAzimuth[src].load(std::memory_order_relaxed);
-        p.elevationDeg = _plugin->guiElevation[src].load(std::memory_order_relaxed);
-        p.distance = _plugin->guiDistance[src].load(std::memory_order_relaxed);
-        p.terrain = _plugin->guiTerrain[src].load(std::memory_order_relaxed);
-        if (p.distance <= 0.0f) p = _displayEncoder.pathPointForDisplay(src, params.phase);
+        s3g::AmbiTerrainPoint target {};
+        target.azimuthDeg = _plugin->guiAzimuth[src].load(std::memory_order_relaxed);
+        target.elevationDeg = _plugin->guiElevation[src].load(std::memory_order_relaxed);
+        target.distance = _plugin->guiDistance[src].load(std::memory_order_relaxed);
+        target.terrain = _plugin->guiTerrain[src].load(std::memory_order_relaxed);
+        if (target.distance <= 0.0f) {
+            target = _displayEncoder.pathPointForDisplay(
+                src, _displayParams.phase);
+        }
+        auto& p = _displayPoints[src];
+        if (!_displayPointsPrimed[src]) {
+            p = target;
+            _displayPointsPrimed[src] = true;
+        } else {
+            p.azimuthDeg = terrainDisplayLerpAngle(
+                p.azimuthDeg, target.azimuthDeg, _displayFollow);
+            p.elevationDeg = terrainDisplayLerp(
+                p.elevationDeg, target.elevationDeg, _displayFollow);
+            p.distance = terrainDisplayLerp(
+                p.distance, target.distance, _displayFollow);
+            p.terrain = terrainDisplayLerp(
+                p.terrain, target.terrain, _displayFollow);
+            p.shell = target.shell;
+        }
         const s3g::Vec3 pos = [self worldPoint:p];
         NSPoint pt = [self projectWorldPoint:pos rect:rect depth:nullptr];
         const BOOL selected = src == params.selectedSource;
@@ -1260,8 +1891,6 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     }
     [NSGraphicsContext restoreGraphicsState];
 
-    NSString* viewText = @"PLAY: CLICK/DRAG CAMERA";
-    [viewText drawAtPoint:NSMakePoint(rect.origin.x + 10, NSMaxY(rect) - 22) withAttributes:attrs];
 }
 
 - (void)drawSlider:(NSString*)name param:(clap_id)param y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1362,6 +1991,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
+    ++_drawPassCount;
     [self refreshControlSnapshot];
     const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
@@ -1503,8 +2133,15 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         static_cast<float>(norm));
     else if (param == kRateParamId || param == kDivisionParamId) value = def->min * std::pow(def->max / def->min, norm);
     if (def->stepped) value = std::round(value);
-    queueGuiParamValue(*_plugin, param, value);
-    [self setNeedsDisplay:YES];
+    value = canonicalParamValue(_paramsSnapshot, param, value);
+    _pendingDragValue = value;
+    _pendingDragValueDirty = YES;
+    _displayOverrideParam = param;
+    _displayOverrideValue = value;
+    _displayOverrideReleaseTime = 0.0;
+    // The common-mode refresh timer redraws at a stable 30 Hz. Avoid asking
+    // AppKit for an expensive full terrain render on every mouse event.
+    if (!_timer) [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDown:(NSEvent*)event
@@ -1625,6 +2262,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     for (int i = 0; i < 2; ++i) {
         if (NSPointInRect(pt, [self zoomButtonRect:i inRect:fieldPanel])) {
             _viewZoom = std::clamp(_viewZoom * (i == 0 ? 0.86 : 1.16), 0.55, 2.40);
+            [self requestSurfaceImageForParams:_requestedSurfaceParams];
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1636,15 +2274,21 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     }
     _dragParam = [self paramAtPoint:pt];
     if (_dragParam) {
+        _pendingDragValueDirty = NO;
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
                 event, &_plugin->plugin,
                 static_cast<clap_id>(_dragParam), &defaultValue)) {
             queueGuiParamValue(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
             _dragParam = 0;
+            _displayOverrideParam = CLAP_INVALID_ID;
+            _displayOverrideReleaseTime = 0.0;
             [self setNeedsDisplay:YES];
             return;
         }
+        (void)queueGuiParamEvent(*_plugin,
+            s3g::clap_gui::ParamEventKind::GestureBegin,
+            static_cast<clap_id>(_dragParam));
         [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
     }
 }
@@ -1657,13 +2301,37 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _viewAzDeg += dx * 0.32;
         _viewElDeg = std::clamp(_viewElDeg + dy * 0.24, -88.0, 88.0);
         _viewMode = -1;
+        [self requestSurfaceImageForParams:_requestedSurfaceParams];
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_dragParam) [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
 }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragParam = 0; _dragView = NO; }
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    if (_dragParam) {
+        const clap_id param = static_cast<clap_id>(_dragParam);
+        bool queued = false;
+        if (_pendingDragValueDirty) {
+            queued = queueGuiParamValueAndGestureEnd(
+                *_plugin, param, _pendingDragValue);
+            if (queued) _pendingDragValueDirty = NO;
+        } else {
+            queued = queueGuiParamEvent(*_plugin,
+                s3g::clap_gui::ParamEventKind::GestureEnd, param);
+        }
+        if (!queued) {
+            _pendingGestureEnd = YES;
+            _pendingGestureParam = param;
+        }
+        _displayOverrideReleaseTime
+            = [[NSProcessInfo processInfo] systemUptime];
+    }
+    _dragParam = 0;
+    _dragView = NO;
+}
 
 - (void)viewDidMoveToWindow
 {

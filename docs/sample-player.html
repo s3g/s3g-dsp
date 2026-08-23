@@ -32,7 +32,7 @@
         <figure>
           <div class="doc-graphic">
             <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-player.png" aria-label="Open the high-resolution Sample Player interface screenshot">
-              <img src="assets/plugin-guis/sample-player.png" alt="Sample Player 2 interface showing the loaded stereo k03h.wav waveform, full-range start, end, and loop boundaries, embedded-audio status, output and MIDI controls, filter, pitch, and proportional amplitude envelope" loading="lazy" decoding="async">
+              <img src="assets/plugin-guis/sample-player.png" alt="Sample Player 2 interface showing the loaded stereo k03h.wav waveform, full-range start, end, and loop boundaries, sample-storage status, output and MIDI controls, filter, pitch, and proportional amplitude envelope" loading="lazy" decoding="async">
             </button>
           </div>
           <figcaption>Sample Player 2 with the current stereo source loaded, its playback and loop boundaries visible on the waveform, and the main playback, output, filter, pitch, and envelope controls in one editor.</figcaption>
@@ -111,7 +111,7 @@
           <li>Pan is exclusive to Sample Player 2, where it places mono sources across stereo or balances a stereo source.</li>
           <li>Sample Player 16 does not expose Pan. Every source lane maps directly to its matching output lane without stereo balancing or mono duplication; unused output lanes remain silent.</li>
           <li><code>KILL ALL</code> is a momentary, unsaved panic action. It clears every active voice and held-note state without unloading the sample or changing any controls; the next note starts normally.</li>
-          <li><code>EMBED IN STATE</code> stores decoded audio with the project by default; the source path is also retained.</li>
+          <li><code>STORE PROJECT</code> is the new-instance default and copies the source to the saved REAPER project's media directory under <code>s3g Samples</code>. <code>LINK</code> retains the original path; <code>EMBED</code> stores decoded PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a> for portability, undo-size, unsaved-project, and Save As behavior.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
@@ -127,6 +127,7 @@
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-doubles.html">Sample Doubles</a>
           <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
           <a href="sample-slicer.html">Sample Slicer</a>
           <a href="effect-crcltr.html">Effect CRCLTR</a>
           <a href="processor-loop.html">Processor Loop</a>
