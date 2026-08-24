@@ -677,6 +677,31 @@ constexpr uint8_t kDefaultStructuralMutationUses = StructuralRearrange
     | StructuralRepeat | StructuralPitch | StructuralAuxBus
     | StructuralMixerFx;
 
+// Structural mutation has an explicit operation as well as optional uses.
+// Collage retains the original rearrange/repeat recipe. The named operations
+// below model the four CDP-derived processes directly; pitch, reverse, mixer
+// FX, and AUX remain optional treatments around any operation.
+enum class StructuralMutationOperation : uint8_t {
+    Collage = 0u,
+    Sorter,
+    Stutter,
+    Shrink,
+    Doublets,
+};
+
+inline constexpr const char* structuralMutationOperationName(
+    StructuralMutationOperation operation) noexcept
+{
+    switch (operation) {
+    case StructuralMutationOperation::Collage: return "COLLAGE";
+    case StructuralMutationOperation::Sorter: return "SORTER";
+    case StructuralMutationOperation::Stutter: return "STUTTER";
+    case StructuralMutationOperation::Shrink: return "SHRINK";
+    case StructuralMutationOperation::Doublets: return "DOUBLETS";
+    }
+    return "COLLAGE";
+}
+
 // A variation deliberately shares the slot's immutable audio asset. It stores
 // the authored slice treatment and post-playback strip, so A/B changes are
 // instantaneous and do not duplicate source audio in project state.
@@ -934,6 +959,276 @@ inline bool structurallyMutateVariation(MutationVariation& variation,
     variation.slices = arranged;
     variation.sliceCount = static_cast<uint16_t>(targetCount);
     return variation.validFor(asset);
+}
+
+inline double mutationSliceLoudness(const SampleAsset& asset,
+    const Slice& slice) noexcept
+{
+    if (!slice.validFor(asset)) return 0.0;
+    const uint32_t length = slice.endFrame - slice.startFrame;
+    const uint32_t stride = std::max<uint32_t>(1u,
+        (length + 2047u) / 2048u);
+    double energy = 0.0;
+    uint64_t samples = 0u;
+    for (uint32_t frame = slice.startFrame; frame < slice.endFrame;
+         frame += stride) {
+        for (std::size_t channel = 0u; channel < asset.channelCount;
+             ++channel) {
+            const double value = asset.channels[channel][frame];
+            energy += value * value;
+            ++samples;
+        }
+    }
+    return samples > 0u ? std::sqrt(energy / static_cast<double>(samples))
+                        : 0.0;
+}
+
+inline void resetMutationSliceLoop(Slice& slice) noexcept
+{
+    slice.loopStartFrame = 0u;
+    slice.loopEndFrame = 0u;
+}
+
+inline void truncateMutationSliceBeginning(Slice& slice,
+    uint32_t requestedFrames) noexcept
+{
+    const uint32_t length = slice.endFrame - slice.startFrame;
+    const uint32_t frames = std::clamp(requestedFrames, 1u, length);
+    if (slice.reverse) slice.startFrame = slice.endFrame - frames;
+    else slice.endFrame = slice.startFrame + frames;
+    resetMutationSliceLoop(slice);
+}
+
+inline bool sortMutationVariation(MutationVariation& variation,
+    const SampleAsset& asset, bool byDuration) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    const auto sourceSlices = variation.slices;
+    std::array<std::size_t, kMaximumSlicesPerSlot> order {};
+    std::array<double, kMaximumSlicesPerSlot> keys {};
+    for (std::size_t index = 0u; index < variation.sliceCount; ++index) {
+        order[index] = index;
+        keys[index] = byDuration
+            ? static_cast<double>(sourceSlices[index].endFrame
+                - sourceSlices[index].startFrame)
+            : mutationSliceLoudness(asset, sourceSlices[index]);
+    }
+    std::stable_sort(order.begin(), order.begin() + variation.sliceCount,
+        [&keys](std::size_t first, std::size_t second) {
+            if (keys[first] != keys[second]) return keys[first] < keys[second];
+            return first < second;
+        });
+    variation.slices = {};
+    for (std::size_t index = 0u; index < variation.sliceCount; ++index)
+        variation.slices[index] = sourceSlices[order[index]];
+    return variation.validFor(asset);
+}
+
+inline bool stutterMutationVariation(MutationVariation& variation,
+    const SampleAsset& asset, uint32_t seed, float depth,
+    std::size_t maximumSliceCount, bool joinedGroups) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    maximumSliceCount = std::min(maximumSliceCount,
+        variation.slices.size());
+    const std::size_t sourceCount = variation.sliceCount;
+    if (maximumSliceCount <= sourceCount) return false;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.68f, 0.0f, 1.0f);
+    const auto sourceSlices = variation.slices;
+    std::array<Slice, kMaximumSlicesPerSlot> arranged {};
+    uint32_t random = seed;
+    std::size_t output = 0u;
+
+    if (joinedGroups) {
+        const std::size_t maximumGroup = std::min<std::size_t>(4u,
+            sourceCount);
+        const std::size_t groupCount = std::min(maximumGroup,
+            1u + static_cast<std::size_t>(mutationUnit(random)
+                * static_cast<float>(maximumGroup)));
+        const std::size_t groupStart = sourceCount > groupCount
+            ? nextMutationRandom(random) % (sourceCount - groupCount + 1u)
+            : 0u;
+        const std::size_t extraCapacity
+            = (maximumSliceCount - sourceCount) / groupCount;
+        if (extraCapacity == 0u) return false;
+        const std::size_t desiredExtra = 1u + static_cast<std::size_t>(
+            mutationUnit(random) * (1.0f + depth * 2.0f));
+        const std::size_t extraRepeats = std::min(extraCapacity,
+            desiredExtra);
+        for (std::size_t index = 0u; index < sourceCount; ++index) {
+            arranged[output++] = sourceSlices[index];
+            if (index + 1u != groupStart + groupCount) continue;
+            for (std::size_t repeat = 0u; repeat < extraRepeats; ++repeat) {
+                for (std::size_t group = 0u; group < groupCount; ++group)
+                    arranged[output++] = sourceSlices[groupStart + group];
+            }
+        }
+    } else {
+        const std::size_t forced = nextMutationRandom(random) % sourceCount;
+        for (std::size_t index = 0u; index < sourceCount; ++index) {
+            const std::size_t remainingOriginals = sourceCount - index;
+            const std::size_t availableHeads = maximumSliceCount - output
+                - remainingOriginals;
+            const bool selected = index == forced
+                || mutationUnit(random) < 0.18f + depth * 0.52f;
+            if (selected && availableHeads > 0u) {
+                const std::size_t desired = 2u + static_cast<std::size_t>(
+                    mutationUnit(random) * (1.0f + depth * 3.0f));
+                const std::size_t repeats = std::min(availableHeads,
+                    desired);
+                const auto& source = sourceSlices[index];
+                const uint32_t length = source.endFrame - source.startFrame;
+                const float proportion = 0.06f + mutationUnit(random)
+                    * (0.12f + depth * 0.24f);
+                const uint32_t headFrames = std::max<uint32_t>(1u,
+                    static_cast<uint32_t>(std::lround(
+                        static_cast<float>(length) * proportion)));
+                for (std::size_t repeat = 0u; repeat < repeats; ++repeat) {
+                    Slice head = source;
+                    truncateMutationSliceBeginning(head, headFrames);
+                    arranged[output++] = head;
+                }
+            }
+            arranged[output++] = sourceSlices[index];
+        }
+    }
+    variation.slices = arranged;
+    variation.sliceCount = static_cast<uint16_t>(output);
+    return output > sourceCount && variation.validFor(asset);
+}
+
+inline bool shrinkMutationVariation(MutationVariation& variation,
+    const SampleAsset& asset, uint32_t seed, float depth,
+    std::size_t maximumSliceCount, bool exponential) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    maximumSliceCount = std::min(maximumSliceCount,
+        variation.slices.size());
+    const std::size_t sourceCount = variation.sliceCount;
+    if (maximumSliceCount <= sourceCount) return false;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.68f, 0.0f, 1.0f);
+    const auto sourceSlices = variation.slices;
+    std::array<Slice, kMaximumSlicesPerSlot> arranged {};
+    uint32_t random = seed;
+    const std::size_t target = nextMutationRandom(random) % sourceCount;
+    const std::size_t desiredChain = 3u + static_cast<std::size_t>(
+        std::lround(depth * 4.0f));
+    const std::size_t chainCount = std::min(desiredChain,
+        maximumSliceCount - sourceCount + 1u);
+    if (chainCount < 2u) return false;
+    std::size_t output = 0u;
+    for (std::size_t index = 0u; index < sourceCount; ++index) {
+        if (index != target) {
+            arranged[output++] = sourceSlices[index];
+            continue;
+        }
+        const auto& source = sourceSlices[index];
+        const uint32_t length = source.endFrame - source.startFrame;
+        for (std::size_t repeat = 0u; repeat < chainCount; ++repeat) {
+            Slice shrunken = source;
+            const float progress = chainCount > 1u
+                ? static_cast<float>(repeat)
+                    / static_cast<float>(chainCount - 1u)
+                : 0.0f;
+            const float proportion = exponential
+                ? std::pow(0.72f - depth * 0.22f,
+                    static_cast<float>(repeat))
+                : 1.0f - progress * (0.52f + depth * 0.38f);
+            truncateMutationSliceBeginning(shrunken,
+                std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(
+                    static_cast<float>(length)
+                        * std::max(0.04f, proportion)))));
+            shrunken.transposeSemitones = std::clamp(
+                shrunken.transposeSemitones
+                    + static_cast<float>(repeat) * (1.5f + depth * 3.5f),
+                -96.0f, 96.0f);
+            arranged[output++] = shrunken;
+        }
+    }
+    variation.slices = arranged;
+    variation.sliceCount = static_cast<uint16_t>(output);
+    return variation.validFor(asset);
+}
+
+inline bool doubletsMutationVariation(MutationVariation& variation,
+    const SampleAsset& asset, std::size_t maximumSliceCount) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    const std::size_t sourceCount = variation.sliceCount;
+    maximumSliceCount = std::min(maximumSliceCount,
+        variation.slices.size());
+    if (sourceCount > maximumSliceCount / 2u) return false;
+    const auto sourceSlices = variation.slices;
+    variation.slices = {};
+    for (std::size_t index = 0u; index < sourceCount; ++index) {
+        variation.slices[index * 2u] = sourceSlices[index];
+        variation.slices[index * 2u + 1u] = sourceSlices[index];
+    }
+    variation.sliceCount = static_cast<uint16_t>(sourceCount * 2u);
+    return variation.validFor(asset);
+}
+
+inline bool mutateStructuralTreatments(MutationVariation& variation,
+    const SampleAsset& asset, uint32_t seed, float depth,
+    uint8_t uses) noexcept
+{
+    if (!variation.validFor(asset)) return false;
+    uint32_t random = seed ^ 0x71a5c3e9u;
+    depth = std::clamp(std::isfinite(depth) ? depth : 0.68f, 0.0f, 1.0f);
+    for (std::size_t index = 0u; index < variation.sliceCount; ++index) {
+        auto& slice = variation.slices[index];
+        if ((uses & StructuralReverse) != 0u
+            && mutationUnit(random) < 0.05f + depth * 0.20f)
+            slice.reverse = !slice.reverse;
+        if ((uses & StructuralPitch) != 0u
+            && mutationUnit(random) < 0.04f + depth * 0.16f) {
+            static constexpr std::array<int, 6u> pitchSteps {{
+                -12, -7, -5, 5, 7, 12,
+            }};
+            const int step = pitchSteps[
+                nextMutationRandom(random) % pitchSteps.size()];
+            slice.transposeSemitones = std::clamp(
+                slice.transposeSemitones + static_cast<float>(step),
+                -96.0f, 96.0f);
+        }
+    }
+    return variation.validFor(asset);
+}
+
+inline bool applyStructuralMutationOperation(MutationVariation& variation,
+    const SampleAsset& asset, StructuralMutationOperation operation,
+    uint32_t seed, float depth,
+    std::size_t maximumSliceCount = kMaximumSlicesPerSlot,
+    bool alternate = false,
+    uint8_t uses = kDefaultStructuralMutationUses) noexcept
+{
+    uses &= kAllStructuralMutationUses;
+    if (operation == StructuralMutationOperation::Collage)
+        return structurallyMutateVariation(variation, asset, seed, depth,
+            maximumSliceCount, uses);
+
+    bool changed = false;
+    switch (operation) {
+    case StructuralMutationOperation::Sorter:
+        changed = sortMutationVariation(variation, asset, alternate);
+        break;
+    case StructuralMutationOperation::Stutter:
+        changed = stutterMutationVariation(variation, asset, seed, depth,
+            maximumSliceCount, alternate);
+        break;
+    case StructuralMutationOperation::Shrink:
+        changed = shrinkMutationVariation(variation, asset, seed, depth,
+            maximumSliceCount, alternate);
+        break;
+    case StructuralMutationOperation::Doublets:
+        changed = doubletsMutationVariation(variation, asset,
+            maximumSliceCount);
+        break;
+    case StructuralMutationOperation::Collage:
+        break;
+    }
+    return changed && mutateStructuralTreatments(variation, asset, seed,
+        depth, uses);
 }
 
 inline bool mutateMixerEffects(SampleSlot& slot, uint32_t seed,

@@ -686,6 +686,50 @@ struct DocumentationSampleMotionState {
     double sampleRate = 48000.0;
 };
 
+struct DocumentationSampleLanesLaneState {
+    std::array<char, 1024u> path {};
+    uint8_t embedded = 1u;
+    uint8_t channelCount = 1u;
+    uint16_t reserved = 0u;
+    uint32_t frameCount = 16384u;
+    double sampleRate = 48000.0;
+};
+
+struct DocumentationSampleLanesPathPoint {
+    float phase = 0.0f;
+    float lane = 0.0f;
+};
+
+struct DocumentationSampleLanesPathState {
+    uint32_t pointCount = 5u;
+    uint32_t reserved = 0u;
+    std::array<DocumentationSampleLanesPathPoint, 16u> points {{
+        { 0.0f, 0.45f }, { 0.18f, 0.0f }, { 0.46f, 0.78f },
+        { 0.73f, 0.18f }, { 1.0f, 0.72f },
+    }};
+};
+
+struct DocumentationSampleLanesState {
+    uint32_t magic = 0x4c533353u;
+    uint32_t version = 4u;
+    uint32_t parameterCount = 46u;
+    uint8_t storageMode = 2u;
+    std::array<uint8_t, 3u> reserved {};
+    std::array<double, 46u> parameters {{
+        -6.0, 0.0, 0.0, 1.0, 0.06, 0.94, 0.02,
+        7.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.005,
+        0.0, 1.0, 60.0, 0.0, 0.0, 0.003, 0.02, 0.0, 1.0,
+        1.0, 0.0,
+        1.0, 1.0, 0.25,
+        1.0, 1.0, -0.18,
+        1.0, 1.0, 0.12,
+        1.0, 1.0, -0.32,
+        0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+    }};
+    std::array<DocumentationSampleLanesLaneState, 4u> lanes {};
+    DocumentationSampleLanesPathState manualPath;
+};
+
 static_assert(sizeof(DocumentationLoopState) == 1128u,
               "Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
@@ -696,6 +740,8 @@ static_assert(sizeof(DocumentationSampleWavesetsState) == 1256u,
               "Sample Wavesets documentation state fixture changed");
 static_assert(sizeof(DocumentationSampleMotionState) == 1304u,
               "Sample Motion documentation state fixture changed");
+static_assert(sizeof(DocumentationSampleLanesState) == 4680u,
+              "Sample Lanes documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
                            StochasticSavedState& decoded)
@@ -1807,6 +1853,120 @@ int main(int argc, char** argv)
             if (ok) {
                 [document setNeedsDisplay:YES];
                 [document displayIfNeeded];
+            }
+        }
+        const bool sampleLanes32 = std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-lanes-32") == 0;
+        const bool sampleLanes = sampleLanes32 || std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-lanes") == 0;
+        const bool sampleGrains32 = std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-grains-32") == 0;
+        const bool sampleGrains = sampleGrains32 || std::strcmp(pluginId,
+            "org.s3g.s3g-dsp.sample-grains") == 0;
+        if (ok && sampleLanes && !sampleLanes32) {
+            failureStage = documentationCapture
+                ? "documentation Sample Lanes source"
+                : "Sample Lanes GUI source";
+            const auto* lanesState = static_cast<const clap_plugin_state_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_STATE));
+            DocumentationSampleLanesState fixture;
+            constexpr std::array<uint32_t, 4u> frameCounts {{
+                16384u, 12288u, 20480u, 14336u,
+            }};
+            constexpr std::array<const char*, 4u> names {{
+                "Lane One.wav", "Lane Two.wav", "Lane Three.wav",
+                "Lane Four.wav",
+            }};
+            size_t sampleBytes = 0u;
+            for (std::size_t lane = 0u; lane < fixture.lanes.size(); ++lane) {
+                fixture.lanes[lane].frameCount = frameCounts[lane];
+                std::snprintf(fixture.lanes[lane].path.data(),
+                    fixture.lanes[lane].path.size(), "%s", names[lane]);
+                sampleBytes += static_cast<size_t>(frameCounts[lane])
+                    * sizeof(float);
+            }
+            MemoryPluginState memory;
+            memory.bytes.resize(sizeof(fixture) + sampleBytes);
+            std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+            size_t sampleOffset = sizeof(fixture);
+            for (std::size_t lane = 0u; lane < fixture.lanes.size(); ++lane) {
+                const uint32_t frameCount = frameCounts[lane];
+                for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+                    const double normalized = static_cast<double>(frame)
+                        / static_cast<double>(frameCount - 1u);
+                    const double pulsePhase = std::fmod(normalized
+                        * static_cast<double>(3u + lane), 1.0);
+                    const double pulse = std::exp(-pulsePhase
+                        * (8.0 + static_cast<double>(lane) * 1.5));
+                    const double body = std::sin(2.0 * s3g::kPi
+                        * (7.0 + static_cast<double>(lane) * 2.0)
+                        * normalized);
+                    const float sample = static_cast<float>(
+                        (0.22 * body + 0.72 * pulse)
+                        * (0.92 - 0.09 * static_cast<double>(lane)));
+                    std::memcpy(memory.bytes.data() + sampleOffset,
+                        &sample, sizeof(sample));
+                    sampleOffset += sizeof(sample);
+                }
+            }
+            clap_istream_t input { &memory, stateReadWhole };
+            ok = lanesState && lanesState->load
+                && lanesState->load(plugin, &input)
+                && memory.offset == memory.bytes.size();
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+            if (ok && !documentationCapture) {
+                failureStage = "Sample Lanes breakpoint editor";
+                const auto lanesMouseEvent = [&](NSEventType type,
+                                                  NSPoint documentPoint) {
+                    return [NSEvent mouseEventWithType:type
+                        location:[document convertPoint:documentPoint
+                            toView:nil]
+                        modifierFlags:0 timestamp:0.0 windowNumber:0
+                        context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                };
+                const NSPoint added = NSMakePoint(588.0, 406.6);
+                const NSPoint moved = NSMakePoint(600.8, 438.3);
+                [document mouseDown:lanesMouseEvent(
+                    NSEventTypeLeftMouseDown, added)];
+                [document mouseDragged:lanesMouseEvent(
+                    NSEventTypeLeftMouseDragged, moved)];
+                [document mouseUp:lanesMouseEvent(
+                    NSEventTypeLeftMouseUp, moved)];
+                MemoryPluginState editedState;
+                clap_ostream_t editedOutput { &editedState, stateWrite };
+                ok = lanesState->save(plugin, &editedOutput)
+                    && editedState.bytes.size() >= sizeof(fixture);
+                DocumentationSampleLanesState edited;
+                if (ok) {
+                    std::memcpy(&edited, editedState.bytes.data(),
+                        sizeof(edited));
+                    ok = edited.manualPath.pointCount == 6u;
+                    bool movedPointFound = false;
+                    for (uint32_t index = 0u;
+                         index < edited.manualPath.pointCount; ++index) {
+                        const auto& pathPoint = edited.manualPath.points[index];
+                        movedPointFound = movedPointFound
+                            || (std::abs(pathPoint.phase - 0.60f) < 0.01f
+                                && std::abs(pathPoint.lane - 0.35f) < 0.02f);
+                    }
+                    ok = ok && movedPointFound;
+                }
+                if (ok) {
+                    [document rightMouseDown:lanesMouseEvent(
+                        NSEventTypeRightMouseDown, moved)];
+                    MemoryPluginState removedState;
+                    clap_ostream_t removedOutput { &removedState, stateWrite };
+                    ok = lanesState->save(plugin, &removedOutput)
+                        && removedState.bytes.size() >= sizeof(fixture);
+                    if (ok) {
+                        std::memcpy(&edited, removedState.bytes.data(),
+                            sizeof(edited));
+                        ok = edited.manualPath.pointCount == 5u;
+                    }
+                }
             }
         }
         if (ok && sampleWavesets && !documentationCapture) {
@@ -3410,6 +3570,120 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && sampleGrains && !documentationCapture) {
+            failureStage = "Sample Grains visible slider targets";
+            double rateBefore = 0.0;
+            double nudgeBefore = 0.0;
+            ok = params->get_value(plugin, 4u, &rateBefore)
+                && params->get_value(plugin, 30u, &nudgeBefore);
+            if (ok) {
+                const NSPoint scanSpeed = NSMakePoint(1200.0, 142.0);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    scanSpeed)];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                    scanSpeed)];
+                double rateAfter = 0.0;
+                double nudgeAfter = 0.0;
+                ok = params->get_value(plugin, 4u, &rateAfter)
+                    && params->get_value(plugin, 30u, &nudgeAfter)
+                    && std::abs(rateAfter - rateBefore) > 0.000001
+                    && std::abs(nudgeAfter - nudgeBefore) < 0.000001;
+            }
+        }
+        if (ok && (sampleLanes || sampleGrains)
+            && !documentationCapture) {
+            failureStage = "Sample Lanes/Grains 32 routing page";
+            const NSPoint pageButton = sampleGrains
+                ? NSMakePoint(900.0, 752.0)
+                : NSMakePoint(520.0, 568.0);
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                pageButton)];
+            const bool pageOpen = [[document valueForKey:
+                @"outputRoutingPage"] boolValue];
+            ok = (sampleLanes32 || sampleGrains32) ? pageOpen : !pageOpen;
+            if (ok && (sampleLanes32 || sampleGrains32)) {
+                failureStage = "Sample Lanes/Grains active output menu";
+                const NSPoint activeMenu = sampleGrains
+                    ? NSMakePoint(180.0, 800.0)
+                    : NSMakePoint(180.0, 618.0);
+                const NSPoint output16 = sampleGrains
+                    ? NSMakePoint(260.0, 668.0)
+                    : NSMakePoint(199.0, 486.0);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    activeMenu)];
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    output16)];
+                double activeOutputs = -1.0;
+                ok = params->get_value(plugin, 41u, &activeOutputs)
+                    && std::abs(activeOutputs - 16.0) < 0.000001;
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    pageButton)];
+                ok = ok && ![[document valueForKey:
+                    @"outputRoutingPage"] boolValue];
+            }
+            if (ok && sampleGrains) {
+                failureStage = "Sample Grains live waveform visualization";
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+                NSData* grainRender = [document dataWithPDFInsideRect:
+                    NSMakeRect(18.0, 54.0, 850.0, 488.0)];
+                ok = grainRender && [grainRender length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil error:nil];
+                    NSString* name = [[NSString stringWithFormat:
+                        @"%s.live-grains", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [grainRender writeToFile:
+                        [directory stringByAppendingPathComponent:name]
+                        atomically:YES];
+                }
+            }
+            const char* fullCaptureDirectory = std::getenv(
+                "S3G_GUI_SMOKE_PDF_DIR");
+            if (ok && fullCaptureDirectory && fullCaptureDirectory[0]) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+                NSData* fullRender = [document dataWithPDFInsideRect:
+                    [document bounds]];
+                NSString* directory = [NSString
+                    stringWithUTF8String:fullCaptureDirectory];
+                [[NSFileManager defaultManager]
+                    createDirectoryAtPath:directory
+                    withIntermediateDirectories:YES
+                    attributes:nil error:nil];
+                NSString* name = [[NSString stringWithFormat:
+                    @"%s.editor", pluginId]
+                    stringByAppendingPathExtension:@"pdf"];
+                ok = fullRender && [fullRender length] > 0u
+                    && [fullRender writeToFile:
+                        [directory stringByAppendingPathComponent:name]
+                        atomically:YES];
+                if (ok && (sampleLanes32 || sampleGrains32)) {
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, pageButton)];
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    NSData* routingRender = [document dataWithPDFInsideRect:
+                        [document bounds]];
+                    NSString* routingName = [[NSString stringWithFormat:
+                        @"%s.routing", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = routingRender && [routingRender length] > 0u
+                        && [routingRender writeToFile:
+                            [directory stringByAppendingPathComponent:
+                                routingName] atomically:YES];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, pageButton)];
+                }
+            }
+        }
         const auto guideCameraTarget = projectedGuideCameraDragTarget(pluginId);
         if (ok && guideCameraTarget.enabled && !documentationCapture) {
             failureStage = "projected green-guide direct camera drag";

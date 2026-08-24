@@ -508,16 +508,55 @@ int main(int argc, char** argv)
                 = initializedState.bytes[mutationOffset + 21u]
                 | (static_cast<uint32_t>(initializedState.bytes[
                     mutationOffset + 22u]) << 8u);
-            initializedRouting = mutation.version == 4u
+            initializedRouting = mutation.version == 5u
                 && mutation.uses
                     == s3g::breakbeat::kDefaultStructuralMutationUses
                 && (mutation.uses
                     & s3g::breakbeat::StructuralReverse) == 0u
-                && minimumSliceMilliseconds == 20u;
+                && minimumSliceMilliseconds == 20u
+                && initializedState.bytes[mutationOffset + 23u]
+                    == static_cast<uint8_t>(
+                        s3g::breakbeat::StructuralMutationOperation::Collage);
         }
     }
     ok &= expect(initializedRouting,
         "fresh state routing or structural mutation defaults are invalid");
+    bool operationStateRoundTrip = initializedRouting && state;
+    if (operationStateRoundTrip) {
+        const std::size_t mutationOffset = sizeof(FixtureSavedState);
+        StateBuffer operationFixture;
+        operationFixture.bytes = initializedState.bytes;
+        operationFixture.bytes[mutationOffset + 23u]
+            = static_cast<uint8_t>(0x80u
+                | static_cast<uint8_t>(
+                    s3g::breakbeat::StructuralMutationOperation::Doublets));
+        operationStateRoundTrip = state->load(plugin,
+            &operationFixture.input);
+        StateBuffer operationSaved;
+        operationStateRoundTrip = operationStateRoundTrip
+            && state->save(plugin, &operationSaved.output)
+            && operationSaved.bytes.size() > mutationOffset + 23u
+            && operationSaved.bytes[mutationOffset + 23u]
+                == operationFixture.bytes[mutationOffset + 23u];
+
+        StateBuffer versionFourFixture;
+        versionFourFixture.bytes = initializedState.bytes;
+        const uint32_t versionFour = 4u;
+        std::memcpy(versionFourFixture.bytes.data() + mutationOffset + 4u,
+            &versionFour, sizeof(versionFour));
+        versionFourFixture.bytes[mutationOffset + 23u] = 0x84u;
+        operationStateRoundTrip = operationStateRoundTrip
+            && state->load(plugin, &versionFourFixture.input);
+        StateBuffer migratedOperation;
+        operationStateRoundTrip = operationStateRoundTrip
+            && state->save(plugin, &migratedOperation.output)
+            && migratedOperation.bytes.size() > mutationOffset + 23u
+            && migratedOperation.bytes[mutationOffset + 23u]
+                == static_cast<uint8_t>(
+                    s3g::breakbeat::StructuralMutationOperation::Collage);
+    }
+    ok &= expect(operationStateRoundTrip,
+        "mutation operation state did not round-trip or migrate from v4");
     ok &= expect(portConfigs && portConfigs->count(plugin) == 1u,
         "expected one immutable 16-channel output configuration");
     if (portConfigs && audioPorts) {

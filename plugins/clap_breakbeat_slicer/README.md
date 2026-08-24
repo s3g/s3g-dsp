@@ -57,8 +57,14 @@ The first playable build includes:
   rather than cycle buttons and numeric Timing plus per-slice gain, pitch, and
   pan controls exposed as sliders with exact entry fields;
 - a MUTATE page where one source fills every empty break slot with a
-  different structural mutation; rearrange, repeat, pitch, Mixer FX, AUX Bus,
-  and reverse are independently selectable, with reverse off by default;
+  different structural mutation. `COLLAGE` retains the original independently
+  selectable rearrange/repeat recipe; `SORTER` orders slices by multichannel
+  loudness or duration; `STUTTER` retriggers slice beginnings or joined groups;
+  `SHRINK` progressively truncates and accelerates a repeat chain with a linear
+  or exponential curve; and `DOUBLETS` repeats every segment either at full
+  duration or as two pitch-preserved half-duration copies that retain source
+  time. Pitch, reverse, Mixer FX, and AUX Bus are optional treatments shared by
+  every operation, with reverse off by default;
   Mixer FX and AUX assign deterministic effect recipes independently to every
   generated slice, while occupied and building slots remain locked until cleared;
   over-level rendered slices receive one channel-linked gain reduction so their

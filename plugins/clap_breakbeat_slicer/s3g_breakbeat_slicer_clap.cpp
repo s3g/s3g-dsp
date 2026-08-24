@@ -52,6 +52,7 @@ using s3g::breakbeat::RenderEvent;
 using s3g::breakbeat::SampleAnalysis;
 using s3g::breakbeat::SampleAsset;
 using s3g::breakbeat::Slice;
+using s3g::breakbeat::StructuralMutationOperation;
 
 constexpr uint32_t kStateMagic = 0x53423353u; // "S3BS"
 constexpr uint32_t kLegacyStateVersion = 9u;
@@ -63,7 +64,8 @@ constexpr uint32_t kMutationStateMagic = 0x4154554du; // "MUTA"
 constexpr uint32_t kLegacyMutationStateVersion = 1u;
 constexpr uint32_t kStructuralMutationStateVersion = 2u;
 constexpr uint32_t kMixerFxMutationStateVersion = 3u;
-constexpr uint32_t kMutationStateVersion = 4u;
+constexpr uint32_t kMinimumSliceMutationStateVersion = 4u;
+constexpr uint32_t kMutationStateVersion = 5u;
 constexpr uint32_t kMaximumTransientPreRollMicroseconds = 20000u;
 constexpr uint32_t kDefaultMinimumTransientSliceMilliseconds = 20u;
 constexpr uint32_t kMaximumMinimumTransientSliceMilliseconds = 1000u;
@@ -318,6 +320,9 @@ struct Plugin {
     uint8_t mutationTargets = s3g::breakbeat::kDefaultMutationTargets;
     uint8_t structuralMutationUses
         = s3g::breakbeat::kDefaultStructuralMutationUses;
+    StructuralMutationOperation structuralMutationOperation
+        = StructuralMutationOperation::Collage;
+    bool structuralMutationAlternate = false;
     std::array<bool,
         s3g::breakbeat::kMaximumSampleSlots> pendingMutationSlots {};
     std::string status { "LOAD A BREAK OR ONE-SHOT" };
@@ -609,11 +614,22 @@ std::shared_ptr<const BankSnapshot> structuralMutationBank(
         s3g::breakbeat::maximumSlicesForStartNote(
             bank->slots[destinationSlot].rootNote));
     constexpr float depth = 0.72f;
-    if (!s3g::breakbeat::structurallyMutateVariation(variation,
-            *source.asset, seed, depth, maximum,
+    if (!s3g::breakbeat::applyStructuralMutationOperation(variation,
+            *source.asset, instance.structuralMutationOperation, seed,
+            depth, maximum, instance.structuralMutationAlternate,
             instance.structuralMutationUses)
         || !s3g::breakbeat::applyMutationVariation(source, variation))
         return {};
+    if (instance.structuralMutationOperation
+            == StructuralMutationOperation::Doublets
+        && instance.structuralMutationAlternate) {
+        // Two pitch-preserved copies at twice the transport speed occupy the
+        // same source time as one ordinary pass. The offline renderer runs at
+        // 120 BPM, hence a 60 BPM source establishes the required 2:1 ratio.
+        source.pitchMode = s3g::breakbeat::PitchMode::Stretch;
+        source.syncMode = s3g::breakbeat::SyncMode::Host;
+        source.sourceTempoBpm = 60.0f;
+    }
     source.mappedRootNote = source.rootNote;
     source.mappedSliceCount = source.sliceCount;
 
@@ -771,8 +787,22 @@ bool renderBuiltBreak(const LoadRequest& request,
         const double semitones = static_cast<double>(
             slice.transposeSemitones)
             + static_cast<double>(slice.fineTuneCents) / 100.0;
+        const double pitchRatio = std::pow(2.0, semitones / 12.0);
+        const auto pitchMode = printable.pitchMode
+                == s3g::breakbeat::PitchMode::RateBelowStretchAbove
+            ? semitones < 0.0 ? s3g::breakbeat::PitchMode::Rate
+                              : s3g::breakbeat::PitchMode::Stretch
+            : printable.pitchMode;
+        const double syncRatio = printable.syncMode
+                == s3g::breakbeat::SyncMode::Host
+            ? std::clamp(120.0
+                    / static_cast<double>(printable.sourceTempoBpm),
+                0.01, 32.0)
+            : 1.0;
         const double increment = printable.asset->sampleRate
-            / request.renderSampleRate * std::pow(2.0, semitones / 12.0);
+            / request.renderSampleRate * syncRatio
+            * (pitchMode == s3g::breakbeat::PitchMode::Rate
+                ? pitchRatio : 1.0);
         const double sourceFrames = static_cast<double>(
             slice.endFrame - slice.startFrame);
         const uint64_t duration = static_cast<uint64_t>(std::max(1.0,
@@ -1306,6 +1336,8 @@ bool queueStructuralMutation(Plugin& instance, uint32_t sourceSlot,
     request.sourceSlot = sourceSlot;
     request.generation = generation;
     request.path = "MUTATED BREAK " + std::to_string(sourceSlot + 1u)
+        + " " + s3g::breakbeat::structuralMutationOperationName(
+            instance.structuralMutationOperation)
         + " SEED " + std::to_string(seed);
     request.printBank = std::move(mutationBank);
     request.renderSampleRate = instance.sampleRate;
@@ -2455,6 +2487,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         minimumSliceMilliseconds & 0xffu);
     mutation->reserved[1u] = static_cast<uint8_t>(
         minimumSliceMilliseconds >> 8u);
+    mutation->reserved[2u] = static_cast<uint8_t>(
+        static_cast<uint8_t>(instance.structuralMutationOperation)
+        | (instance.structuralMutationAlternate ? 0x80u : 0u));
     static_assert(std::is_trivially_copyable_v<MutationVariation>);
     std::memcpy(mutation->variations.data(), instance.variations.data(),
         sizeof(instance.variations));
@@ -2691,6 +2726,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             || (mutation->version != kLegacyMutationStateVersion
                 && mutation->version != kStructuralMutationStateVersion
                 && mutation->version != kMixerFxMutationStateVersion
+                && mutation->version
+                    != kMinimumSliceMutationStateVersion
                 && mutation->version != kMutationStateVersion)) return false;
         restoredMutations = true;
     }
@@ -2764,6 +2801,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             instance.structuralMutationUses = mutation->targets
                 & s3g::breakbeat::kAllStructuralMutationUses;
         }
+        if (mutation->version >= kMutationStateVersion) {
+            const uint8_t encodedOperation = mutation->reserved[2u];
+            instance.structuralMutationOperation
+                = static_cast<StructuralMutationOperation>(
+                    std::min<uint8_t>(encodedOperation & 0x7fu,
+                        static_cast<uint8_t>(
+                            StructuralMutationOperation::Doublets)));
+            instance.structuralMutationAlternate
+                = (encodedOperation & 0x80u) != 0u;
+        } else {
+            instance.structuralMutationOperation
+                = StructuralMutationOperation::Collage;
+            instance.structuralMutationAlternate = false;
+        }
         for (std::size_t slotIndex = 0u;
              slotIndex < instance.variations.size(); ++slotIndex) {
             const auto& slot = instance.controlBank->slots[slotIndex];
@@ -2789,13 +2840,16 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             = s3g::breakbeat::kDefaultMutationTargets;
         instance.structuralMutationUses
             = s3g::breakbeat::kDefaultStructuralMutationUses;
+        instance.structuralMutationOperation
+            = StructuralMutationOperation::Collage;
+        instance.structuralMutationAlternate = false;
         for (std::size_t index = 0u;
              index < instance.controlBank->slots.size(); ++index)
             resetSlotVariations(instance, static_cast<uint32_t>(index),
                 &instance.controlBank->slots[index]);
     }
     instance.minimumTransientSliceMilliseconds = restoredMutations
-            && mutation->version >= kMutationStateVersion
+            && mutation->version >= kMinimumSliceMutationStateVersion
         ? std::min<uint32_t>(static_cast<uint32_t>(
                 mutation->reserved[0u])
                 | (static_cast<uint32_t>(mutation->reserved[1u]) << 8u),
@@ -3202,6 +3256,22 @@ NSRect mutateUseRect(uint32_t index)
 {
     return NSMakeRect(310.0 + static_cast<CGFloat>(index) * 122.0,
         396.0, 112.0, 22.0);
+}
+
+NSRect mutateOperationPanelRect()
+{
+    return NSMakeRect(292.0, 468.0, 770.0, 108.0);
+}
+
+NSRect mutateOperationRect(uint32_t index)
+{
+    return NSMakeRect(310.0 + static_cast<CGFloat>(index) * 144.0,
+        502.0, 136.0, 22.0);
+}
+
+NSRect mutateOperationAlternateRect()
+{
+    return NSMakeRect(310.0, 538.0, 226.0, 22.0);
 }
 
 NSRect embedAudioButtonRect()
@@ -4600,6 +4670,9 @@ double gainDb(float gain)
         _instance->selectedSlot = 0u;
         _instance->structuralMutationUses
             = s3g::breakbeat::kDefaultStructuralMutationUses;
+        _instance->structuralMutationOperation
+            = StructuralMutationOperation::Collage;
+        _instance->structuralMutationAlternate = false;
     }
     [self updateDetailNumericFields];
     [self setNeedsDisplay:YES];
@@ -5273,9 +5346,12 @@ double gainDb(float gain)
 
     const uint32_t emptyCount = emptyMutationSlotCount(
         *_instance, slotIndex);
+    NSString* operationName = [NSString stringWithUTF8String:
+        s3g::breakbeat::structuralMutationOperationName(
+            _instance->structuralMutationOperation)];
     NSString* fillTitle = emptyCount > 0u
-        ? [NSString stringWithFormat:@"FILL %u EMPTY SLOT%@",
-            emptyCount, emptyCount == 1u ? @"" : @"S"]
+        ? [NSString stringWithFormat:@"FILL %u WITH %@",
+            emptyCount, operationName]
         : @"ALL OTHER SLOTS LOCKED";
     drawButton(mutateActionButtonRect(0u), fillTitle,
         slot.asset && emptyCount > 0u);
@@ -5291,7 +5367,7 @@ double gainDb(float gain)
     s3g::clap_gui::Style style;
     s3g::clap_gui::drawPanelFrame(NSMinX(panel), NSMinY(panel),
         NSWidth(panel), NSHeight(panel), style);
-    s3g::clap_gui::drawPanelHeader(@"USES", true,
+    s3g::clap_gui::drawPanelHeader(@"COLLAGE + TREATMENTS", true,
         NSMinX(panel), NSMinY(panel), NSWidth(panel), 24.0, label, style);
     static NSArray<NSString*>* useNames = @[
         @"REARRANGE", @"REPEAT", @"PITCH", @"MIXER FX", @"AUX BUS",
@@ -5315,6 +5391,58 @@ double gainDb(float gain)
         withAttributes:value];
     [@"FX + AUX: PER SLICE" drawAtPoint:NSMakePoint(
         NSMaxX(panel) - 160.0, NSMinY(panel) + 69.0)
+        withAttributes:label];
+
+    const NSRect operationPanel = mutateOperationPanelRect();
+    s3g::clap_gui::drawPanelFrame(NSMinX(operationPanel),
+        NSMinY(operationPanel), NSWidth(operationPanel),
+        NSHeight(operationPanel), style);
+    s3g::clap_gui::drawPanelHeader(@"MUTATE OPERATION", true,
+        NSMinX(operationPanel), NSMinY(operationPanel),
+        NSWidth(operationPanel), 24.0, label, style);
+    static NSArray<NSString*>* operationNames = @[
+        @"COLLAGE", @"SORTER", @"STUTTER", @"SHRINK", @"DOUBLETS"
+    ];
+    for (uint32_t index = 0u; index < operationNames.count; ++index) {
+        drawButton(mutateOperationRect(index), operationNames[index],
+            static_cast<uint8_t>(_instance->structuralMutationOperation)
+                == index);
+    }
+
+    NSString* alternateTitle = @"USES DEFINE COLLAGE";
+    NSString* operationHelp
+        = @"REARRANGE + REPEAT SHAPE COLLAGE; OTHER USES TREAT EVERY OPERATION";
+    switch (_instance->structuralMutationOperation) {
+    case StructuralMutationOperation::Sorter:
+        alternateTitle = _instance->structuralMutationAlternate
+            ? @"KEY: DURATION" : @"KEY: LOUDNESS";
+        operationHelp = @"ORDERS EVERY SLICE FROM LOW TO HIGH BY THE SELECTED KEY";
+        break;
+    case StructuralMutationOperation::Stutter:
+        alternateTitle = _instance->structuralMutationAlternate
+            ? @"SOURCE: JOINED GROUPS" : @"SOURCE: BEGINNINGS";
+        operationHelp = @"RETRIGGERS SHORT HEADS OR CONTIGUOUS SLICE GROUPS";
+        break;
+    case StructuralMutationOperation::Shrink:
+        alternateTitle = _instance->structuralMutationAlternate
+            ? @"CURVE: EXPONENTIAL" : @"CURVE: LINEAR";
+        operationHelp = @"REPEATS ONE SEGMENT WHILE SHORTENING AND ACCELERATING IT";
+        break;
+    case StructuralMutationOperation::Doublets:
+        alternateTitle = _instance->structuralMutationAlternate
+            ? @"TIMING: SOURCE SYNC" : @"TIMING: EXPAND";
+        operationHelp = _instance->structuralMutationAlternate
+            ? @"TWO PITCH-PRESERVED HALF-DURATION COPIES KEEP SOURCE TIME"
+            : @"TWO FULL-DURATION COPIES DOUBLE THE ARRANGEMENT TIME";
+        break;
+    case StructuralMutationOperation::Collage:
+        break;
+    }
+    drawButton(mutateOperationAlternateRect(), alternateTitle,
+        _instance->structuralMutationOperation
+                == StructuralMutationOperation::Collage
+            || _instance->structuralMutationAlternate);
+    [operationHelp drawAtPoint:NSMakePoint(552.0, 543.0)
         withAttributes:label];
 }
 
@@ -6880,9 +7008,17 @@ double gainDb(float gain)
             } else {
                 const uint32_t count = fillEmptySlotsWithMutations(
                     *_instance, slotIndex);
-                _instance->status = count > 0u
-                    ? "BUILDING STRUCTURAL MUTATIONS IN EMPTY SLOTS"
-                    : "ALL OTHER BREAK SLOTS ARE LOCKED";
+                if (count > 0u) {
+                    _instance->status = "BUILDING " + std::string(
+                        s3g::breakbeat::structuralMutationOperationName(
+                            _instance->structuralMutationOperation))
+                        + " MUTATIONS IN EMPTY SLOTS";
+                } else {
+                    _instance->status = emptyMutationSlotCount(
+                            *_instance, slotIndex) > 0u
+                        ? "OPERATION CANNOT FIT THE CURRENT SLICE MAP"
+                        : "ALL OTHER BREAK SLOTS ARE LOCKED";
+                }
             }
             [self setNeedsDisplay:YES];
             return;
@@ -6908,6 +7044,33 @@ double gainDb(float gain)
         }
         if (NSPointInRect(point, mutateActionButtonRect(3u))) {
             [self exportCurrentBreak];
+            return;
+        }
+        for (uint32_t index = 0u; index < 5u; ++index) {
+            if (!NSPointInRect(point, mutateOperationRect(index)))
+                continue;
+            _instance->structuralMutationOperation
+                = static_cast<StructuralMutationOperation>(index);
+            markStateDirty(*_instance);
+            _instance->status = std::string(
+                s3g::breakbeat::structuralMutationOperationName(
+                    _instance->structuralMutationOperation))
+                + " MUTATE OPERATION SELECTED";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, mutateOperationAlternateRect())) {
+            if (_instance->structuralMutationOperation
+                    == StructuralMutationOperation::Collage) {
+                _instance->status
+                    = "USE REARRANGE AND REPEAT TO SHAPE COLLAGE";
+            } else {
+                _instance->structuralMutationAlternate
+                    = !_instance->structuralMutationAlternate;
+                markStateDirty(*_instance);
+                _instance->status = "MUTATE OPERATION MODE UPDATED";
+            }
+            [self setNeedsDisplay:YES];
             return;
         }
         static constexpr std::array<uint8_t, 6u> useBits {{
@@ -7529,7 +7692,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.8.3",
+    "0.9.0",
     "Four-break fixed 16-output, 1-16 channel sample-locked slicer.",
     multichannelFeatures,
 };
@@ -7542,7 +7705,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.8.3",
+    "0.9.0",
     "Four-break fixed stereo slicer for mono and stereo files.",
     stereoFeatures,
 };

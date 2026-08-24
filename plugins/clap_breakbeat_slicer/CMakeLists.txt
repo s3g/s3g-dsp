@@ -41,8 +41,8 @@ if(APPLE)
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.breakbeat-slicer"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Slicer 16"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.8.3"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.8.3")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.9.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.9.0")
   # REAPER fingerprints the outer .clap directory when deciding whether a
   # cached factory needs rescanning. Incremental bundle links update Contents
   # but otherwise leave the container timestamp unchanged.

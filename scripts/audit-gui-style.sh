@@ -939,6 +939,10 @@ sample_family_names=(
   'plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp|s3g Sample Doubles 2'
   'plugins/clap_sample_motion/s3g_sample_motion_clap.cpp|s3g Sample Motion 2'
   'plugins/clap_sample_motion/s3g_sample_motion_clap.cpp|s3g Sample Motion 32'
+  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Lanes 2'
+  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Lanes 32'
+  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Grains 2'
+  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Grains 32'
 )
 for contract in "${sample_family_names[@]}"; do
   file="${contract%%|*}"
@@ -1078,6 +1082,8 @@ sample_doubles_source=plugins/clap_sample_doubles/s3g_sample_doubles_clap.cpp
 sample_motion_source=plugins/clap_sample_motion/s3g_sample_motion_clap.cpp
 sample_motion_gui=plugins/clap_sample_motion/s3g_sample_motion_gui.inc
 sample_wavesets_source=plugins/clap_sample_wavesets/s3g_sample_wavesets_clap.cpp
+sample_lanes_source=plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp
+sample_lanes_gui=plugins/clap_sample_lanes/s3g_sample_lanes_gui.inc
 for contract in \
   drawProcessorTitleBand \
   handleProcessorTitleClick \
@@ -1149,6 +1155,74 @@ if [[ -f "$sample_motion_source" && -f "$sample_motion_gui" ]]; then
       || ! rg -Fq 'OutputTraversal::RandomCycle' dsp/s3g_voice_output_allocator.h; then
     warn "family" "$sample_motion_source" \
       "Sample Motion 32 must retain its routing page, reusable trigger-time allocator, and selectable 2-32 active output width."
+  fi
+fi
+if [[ -f "$sample_lanes_source" && -f "$sample_lanes_gui" ]]; then
+  for contract in \
+    ResponsiveViewport \
+    queueGuiParamGesture \
+    loaderMain \
+    NSDraggingDestination \
+    drawProcessorTitleBand \
+    handleProcessorTitleClick \
+    drawPanelHeader \
+    drawProcessorSlider \
+    drawProcessorMenu \
+    sliderDoubleClickDefault \
+    peakDbText \
+    '1.0 / 30.0'; do
+    if ! rg -Fq "$contract" "$sample_lanes_source" "$sample_lanes_gui"; then
+      warn "control" "$sample_lanes_source" \
+        "Sample Lanes must retain the Sample-family loading, preset, automation, and GUI contracts."
+    fi
+  done
+  if ! rg -Fq 'kOutputPageButton' "$sample_lanes_gui" \
+      || ! rg -Fq '_outputRoutingPage ? @"OUTPUT / ROUTING"' "$sample_lanes_gui" \
+      || ! rg -Fq '{ kOutParamId, kVoiceColumn1' "$sample_lanes_gui"; then
+    warn "layout" "$sample_lanes_gui" \
+      "Sample Lanes 32 must keep a Motion-style routing page beside its voice page."
+  fi
+  if ! rg -Fq 'kSampleLaneCount = 4u' dsp/s3g_sample_lanes.h \
+      || ! rg -Fq 'laneWaveRect' "$sample_lanes_gui" \
+      || ! rg -Fq 'kPathGraph' "$sample_lanes_gui"; then
+    warn "family" "$sample_lanes_source" \
+      "Sample Lanes must visibly expose all four waveform lanes and its two-dimensional read-head path."
+  fi
+  if ! rg -Fq 'kLaneTimingPanel' "$sample_lanes_gui" \
+      || ! rg -Fq 'laneSpeedParamId' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'laneStretchParamId' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'laneNudgeParamId' "$sample_lanes_source" "$sample_lanes_gui"; then
+    warn "family" "$sample_lanes_source" \
+      "Sample Lanes must keep selected-lane Speed, pitch-preserving Stretch, and wraparound Nudge controls."
+  fi
+  if ! rg -Fq 'sampleLanePathUnit' dsp/s3g_sample_lanes.h "$sample_lanes_gui" \
+      || ! rg -Fq 'publishManualPath' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'rightMouseDown:' "$sample_lanes_gui"; then
+    warn "family" "$sample_lanes_source" \
+      "Sample Lanes must share its random path between DSP and scope and retain the editable manual breakpoint path."
+  fi
+  if ! rg -Fq 'org.s3g.s3g-dsp.sample-lanes-32' "$sample_lanes_source" \
+      || ! rg -Fq 'LaneOutputMode::Preserve' dsp/s3g_sample_lanes.h \
+      || ! rg -Fq 'LaneOutputMode::Distribute' dsp/s3g_sample_lanes.h \
+      || ! rg -Fq 'kActiveOutputCountItems' "$sample_lanes_gui" \
+      || ! rg -Fq 'lanesMenuValue' "$sample_lanes_gui" \
+      || ! rg -Fq 'TriggerOutputAllocator' dsp/s3g_sample_lanes.h; then
+    warn "family" "$sample_lanes_source" \
+      "Sample Lanes 32 must retain explicit field preservation, object distribution, and the shared output allocator."
+  fi
+  if ! rg -Fq 'SampleGrainsEngine' dsp/s3g_sample_grains.h \
+      || ! rg -Fq 'GrainMutate::Sorter' dsp/s3g_sample_grains.h \
+      || ! rg -Fq 'GrainMutate::Doublets' dsp/s3g_sample_grains.h \
+      || ! rg -Fq '@"2  GRAIN SOURCE / WINDOW + TEXTURE"' "$sample_lanes_gui" \
+      || ! rg -Fq '@"4  GRAIN PROCESS / TIMING + PATTERN"' "$sample_lanes_gui" \
+      || ! rg -Fq '@"READ HEAD PATH / LIVE GRAIN EVENTS"' "$sample_lanes_gui" \
+      || ! rg -Fq 'grainCursorLaneSourceSpans' "$sample_lanes_gui" \
+      || ! rg -Fq 'grainCursorGains' "$sample_lanes_gui" \
+      || ! rg -Fq 'color(0xe0e0e0)' "$sample_lanes_gui" \
+      || ! rg -Fq '"GRAIN PROCESS"' "$sample_lanes_gui" \
+      || ! rg -Fq '_outputRoutingPage ? @"OUTPUT / ROUTING"' "$sample_lanes_gui"; then
+    warn "family" plugins/clap_sample_grains/s3g_sample_grains_clap.cpp \
+      "Sample Grains must keep source motion, grain events, and output routing as separate layers."
   fi
 fi
 if [[ -f "$sample_wavesets_source" ]]; then

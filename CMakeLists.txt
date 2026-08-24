@@ -36,6 +36,10 @@ option(S3G_BUILD_SAMPLE_WAVESETS_PREVIEW
   "Build the s3g Sample Wavesets 2/32 CLAP family" ON)
 option(S3G_BUILD_SAMPLE_MOTION_PREVIEW
   "Build the s3g Sample Motion 2/32 CLAP family" ON)
+option(S3G_BUILD_SAMPLE_LANES_PREVIEW
+  "Build the s3g Sample Lanes 2/32 four-file CLAP family" ON)
+option(S3G_BUILD_SAMPLE_GRAINS_PREVIEW
+  "Build the s3g Sample Grains 2/32 four-file CLAP family" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -92,6 +96,22 @@ add_executable(s3g_sample_motion_smoke
 target_link_libraries(s3g_sample_motion_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_motion_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_sample_lanes_smoke
+  tests/sample_lanes_smoke.cpp)
+target_link_libraries(s3g_sample_lanes_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_lanes_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_sample_grains_smoke
+  tests/sample_grains_smoke.cpp)
+target_link_libraries(s3g_sample_grains_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_grains_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
@@ -404,6 +424,8 @@ if(BUILD_TESTING)
     s3g_sample_doubles_smoke
     s3g_sample_wavesets_smoke
     s3g_sample_motion_smoke
+    s3g_sample_lanes_smoke
+    s3g_sample_grains_smoke
     s3g_voice_output_allocator_smoke
     s3g_feedback_shift_smoke
     s3g_processor_fissure_smoke
@@ -730,6 +752,24 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_include_directories(s3g_sample_motion_clap_smoke PRIVATE
       ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_sample_motion_clap_smoke PRIVATE
+      ${CMAKE_DL_LIBS})
+  endif()
+
+  if(S3G_BUILD_SAMPLE_LANES_PREVIEW)
+    add_executable(s3g_sample_lanes_clap_smoke
+      tests/sample_lanes_clap_smoke.cpp)
+    target_include_directories(s3g_sample_lanes_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_sample_lanes_clap_smoke PRIVATE
+      ${CMAKE_DL_LIBS})
+  endif()
+
+  if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW)
+    add_executable(s3g_sample_grains_clap_smoke
+      tests/sample_grains_clap_smoke.cpp)
+    target_include_directories(s3g_sample_grains_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_sample_grains_clap_smoke PRIVATE
       ${CMAKE_DL_LIBS})
   endif()
 
@@ -1203,6 +1243,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_SAMPLE_MOTION_PREVIEW)
     add_subdirectory(plugins/clap_sample_motion)
   endif()
+  if(S3G_BUILD_SAMPLE_LANES_PREVIEW)
+    add_subdirectory(plugins/clap_sample_lanes)
+  endif()
+  if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW)
+    add_subdirectory(plugins/clap_sample_grains)
+  endif()
   if(S3G_BUILD_TRACKER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
@@ -1286,11 +1332,59 @@ if(S3G_BUILD_CLAP_PLUGIN)
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
   endif()
+  if(S3G_BUILD_SAMPLE_LANES_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_sample_lanes_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_sample_lanes_clap_smoke>
+        $<TARGET_FILE:s3g_sample_lanes_clap>)
+    set_tests_properties(s3g_sample_lanes_clap_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_sample_lanes_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_lanes_clap>
+          org.s3g.s3g-dsp.sample-lanes
+          1280 724 "s3g Sample Lanes 2" responsive)
+      set_tests_properties(s3g_sample_lanes_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+      add_test(NAME s3g_sample_lanes_32_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_lanes_clap>
+          org.s3g.s3g-dsp.sample-lanes-32
+          1280 724 "s3g Sample Lanes 32" responsive)
+      set_tests_properties(s3g_sample_lanes_32_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
+  if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_sample_grains_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_sample_grains_clap_smoke>
+        $<TARGET_FILE:s3g_sample_grains_clap>)
+    set_tests_properties(s3g_sample_grains_clap_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_sample_grains_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_grains_clap>
+          org.s3g.s3g-dsp.sample-grains
+          1280 908 "s3g Sample Grains 2" responsive)
+      set_tests_properties(s3g_sample_grains_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+      add_test(NAME s3g_sample_grains_32_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_grains_clap>
+          org.s3g.s3g-dsp.sample-grains-32
+          1280 908 "s3g Sample Grains 32" responsive)
+      set_tests_properties(s3g_sample_grains_32_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
       AND S3G_BUILD_SAMPLE_PLAYER_PREVIEW
       AND S3G_BUILD_SAMPLE_DOUBLES_PREVIEW
       AND S3G_BUILD_SAMPLE_WAVESETS_PREVIEW
-      AND S3G_BUILD_SAMPLE_MOTION_PREVIEW AND BUILD_TESTING)
+      AND S3G_BUILD_SAMPLE_MOTION_PREVIEW
+      AND S3G_BUILD_SAMPLE_LANES_PREVIEW
+      AND S3G_BUILD_SAMPLE_GRAINS_PREVIEW AND BUILD_TESTING)
     add_custom_target(audit_sample_family
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_smoke>
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_clap_smoke>
@@ -1307,6 +1401,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_sample_motion_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_motion_clap_smoke>
         $<TARGET_FILE:s3g_sample_motion_clap>
+      COMMAND $<TARGET_FILE:s3g_sample_lanes_smoke>
+      COMMAND $<TARGET_FILE:s3g_sample_lanes_clap_smoke>
+        $<TARGET_FILE:s3g_sample_lanes_clap>
+      COMMAND $<TARGET_FILE:s3g_sample_grains_smoke>
+      COMMAND $<TARGET_FILE:s3g_sample_grains_clap_smoke>
+        $<TARGET_FILE:s3g_sample_grains_clap>
       DEPENDS
         s3g_breakbeat_slicer_smoke
         s3g_breakbeat_slicer_clap_smoke
@@ -1323,7 +1423,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_sample_motion_smoke
         s3g_sample_motion_clap_smoke
         s3g_sample_motion_clap
-      COMMENT "Validating the Sample Slicer, Player, Doubles, Wavesets, and Motion family")
+        s3g_sample_lanes_smoke
+        s3g_sample_lanes_clap_smoke
+        s3g_sample_lanes_clap
+        s3g_sample_grains_smoke
+        s3g_sample_grains_clap_smoke
+        s3g_sample_grains_clap
+      COMMENT "Validating the Sample Slicer, Player, Doubles, Wavesets, Motion, Lanes, and Grains family")
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
@@ -2812,13 +2918,45 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_sample_motion_clap
         COMMENT "Rendering and validating the Sample Motion family GUIs")
     endif()
+    if(S3G_BUILD_SAMPLE_LANES_PREVIEW)
+      add_custom_target(audit_gui_sample_lanes
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_lanes_clap>
+          org.s3g.s3g-dsp.sample-lanes
+          1280 724 "s3g Sample Lanes 2" responsive
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_lanes_clap>
+          org.s3g.s3g-dsp.sample-lanes-32
+          1280 724 "s3g Sample Lanes 32" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_sample_lanes_clap
+        COMMENT "Rendering and validating the Sample Lanes GUI")
+    endif()
+    if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW)
+      add_custom_target(audit_gui_sample_grains
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_grains_clap>
+          org.s3g.s3g-dsp.sample-grains
+          1280 908 "s3g Sample Grains 2" responsive
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_grains_clap>
+          org.s3g.s3g-dsp.sample-grains-32
+          1280 908 "s3g Sample Grains 32" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_sample_grains_clap
+        COMMENT "Rendering and validating the Sample Grains family GUIs")
+    endif()
     if(TARGET audit_sample_family)
       add_dependencies(audit_sample_family
         audit_gui_breakbeat_slicer
         audit_gui_sample_player
         audit_gui_sample_doubles
         audit_gui_sample_wavesets
-        audit_gui_sample_motion)
+        audit_gui_sample_motion
+        audit_gui_sample_lanes
+        audit_gui_sample_grains)
     endif()
   endif()
 

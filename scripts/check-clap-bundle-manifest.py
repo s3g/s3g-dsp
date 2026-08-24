@@ -387,7 +387,27 @@ def validate_source_metadata(
             cpp_parts: list[str] = []
             for cpp_path in cpp_paths:
                 try:
-                    cpp_parts.append(cpp_path.read_text(encoding="utf-8"))
+                    cpp_part = cpp_path.read_text(encoding="utf-8")
+                    cpp_parts.append(cpp_part)
+                    # Product variants may deliberately compile a shared
+                    # implementation through a tiny *_clap.cpp wrapper. Read
+                    # direct local C++ implementation includes as descriptor
+                    # metadata too; ordinary headers remain outside this
+                    # source-level manifest check.
+                    for include in re.findall(
+                        r'^\s*#include\s+"([^"]+\.cpp)"',
+                        cpp_part,
+                        flags=re.MULTILINE,
+                    ):
+                        included_path = (cpp_path.parent / include).resolve()
+                        try:
+                            included_path.relative_to(plugins_root.resolve())
+                            cpp_parts.append(included_path.read_text(
+                                encoding="utf-8"))
+                        except (OSError, ValueError) as exc:
+                            audit.error(row_location,
+                                f"cannot read local descriptor implementation "
+                                f"{included_path}: {exc}")
                 except OSError as exc:
                     audit.error(row_location, f"cannot read {cpp_path}: {exc}")
             cache[directory] = (cmake_path, cmake_text, cpp_paths, "\n".join(cpp_parts))

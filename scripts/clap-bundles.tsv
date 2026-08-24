@@ -50,6 +50,8 @@ clap_sample_player/s3g_sample_player.clap	s3g_sample_player_2.clap	org.s3g.s3g-d
 clap_sample_doubles/s3g_sample_doubles.clap	s3g_sample_doubles_2.clap	org.s3g.s3g-dsp.sample-doubles	s3g Sample Doubles 2
 clap_sample_wavesets/s3g_sample_wavesets.clap	s3g_sample_wavesets_2.clap	org.s3g.s3g-dsp.sample-wavesets	s3g Sample Wavesets 2
 clap_sample_motion/s3g_sample_motion.clap	s3g_sample_motion_2.clap	org.s3g.s3g-dsp.sample-motion	s3g Sample Motion 2
+clap_sample_lanes/s3g_sample_lanes.clap	s3g_sample_lanes_2.clap	org.s3g.s3g-dsp.sample-lanes	s3g Sample Lanes 2
+clap_sample_grains/s3g_sample_grains.clap	s3g_sample_grains_2.clap	org.s3g.s3g-dsp.sample-grains	s3g Sample Grains 2
 clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth
 clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack
 clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit

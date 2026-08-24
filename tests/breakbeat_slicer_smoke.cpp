@@ -292,6 +292,126 @@ void testStructuralMutationUses()
         "mixer insert and EQ mutation was not deterministic or distinct");
 }
 
+void testNamedStructuralMutationOperations()
+{
+    auto writableAsset = std::make_shared<SampleAsset>();
+    writableAsset->sampleRate = 48000.0;
+    writableAsset->channelCount = 2u;
+    writableAsset->channels[0u].resize(1000u);
+    writableAsset->channels[1u].resize(1000u);
+    const auto fill = [&writableAsset](uint32_t start, uint32_t end,
+                          float value) {
+        for (uint32_t frame = start; frame < end; ++frame) {
+            writableAsset->channels[0u][frame] = value;
+            writableAsset->channels[1u][frame] = value * 0.5f;
+        }
+    };
+    fill(0u, 100u, 0.8f);
+    fill(100u, 300u, 0.1f);
+    fill(300u, 600u, 0.6f);
+    fill(600u, 1000u, 0.3f);
+    std::shared_ptr<const SampleAsset> asset = writableAsset;
+    SampleSlot slot = oneSliceSlot(asset);
+    slot.sliceCount = 4u;
+    slot.slices[0u] = { 300u, 600u };
+    slot.slices[1u] = { 0u, 100u };
+    slot.slices[2u] = { 600u, 1000u };
+    slot.slices[3u] = { 100u, 300u };
+    const MutationVariation original = captureMutationVariation(slot);
+
+    MutationVariation loudness = original;
+    check(applyStructuralMutationOperation(loudness, *asset,
+              StructuralMutationOperation::Sorter, 1u, 0.72f, 80u,
+              false, 0u)
+            && loudness.slices[0u].startFrame == 100u
+            && loudness.slices[1u].startFrame == 600u
+            && loudness.slices[2u].startFrame == 300u
+            && loudness.slices[3u].startFrame == 0u,
+        "SORTER did not order slices by multichannel loudness");
+
+    MutationVariation duration = original;
+    check(applyStructuralMutationOperation(duration, *asset,
+              StructuralMutationOperation::Sorter, 1u, 0.72f, 80u,
+              true, 0u)
+            && duration.slices[0u].startFrame == 0u
+            && duration.slices[1u].startFrame == 100u
+            && duration.slices[2u].startFrame == 300u
+            && duration.slices[3u].startFrame == 600u,
+        "SORTER did not order slices by duration");
+
+    MutationVariation heads = original;
+    bool foundShortHead = false;
+    check(applyStructuralMutationOperation(heads, *asset,
+              StructuralMutationOperation::Stutter, 1234u, 0.72f, 20u,
+              false, 0u)
+            && heads.sliceCount > original.sliceCount
+            && heads.validFor(*asset),
+        "STUTTER beginnings did not build a valid expanded pattern");
+    for (std::size_t index = 0u; index < heads.sliceCount; ++index) {
+        const auto& candidate = heads.slices[index];
+        for (std::size_t source = 0u; source < original.sliceCount; ++source) {
+            const auto& reference = original.slices[source];
+            foundShortHead = foundShortHead
+                || (candidate.startFrame == reference.startFrame
+                    && candidate.endFrame < reference.endFrame);
+        }
+    }
+    check(foundShortHead,
+        "STUTTER beginnings did not create a shortened slice head");
+
+    MutationVariation groups = original;
+    check(applyStructuralMutationOperation(groups, *asset,
+              StructuralMutationOperation::Stutter, 4321u, 0.72f, 20u,
+              true, 0u)
+            && groups.sliceCount > original.sliceCount
+            && groups.validFor(*asset),
+        "STUTTER joined groups did not repeat a valid contiguous group");
+
+    MutationVariation shrink = original;
+    check(applyStructuralMutationOperation(shrink, *asset,
+              StructuralMutationOperation::Shrink, 19u, 0.8f, 20u,
+              true, 0u)
+            && shrink.sliceCount > original.sliceCount
+            && shrink.validFor(*asset),
+        "SHRINK did not build a valid accelerated repeat chain");
+    bool foundShrinkChain = false;
+    for (std::size_t index = 1u; index < shrink.sliceCount; ++index) {
+        const auto& previous = shrink.slices[index - 1u];
+        const auto& current = shrink.slices[index];
+        foundShrinkChain = foundShrinkChain
+            || (current.startFrame == previous.startFrame
+                && current.endFrame - current.startFrame
+                    < previous.endFrame - previous.startFrame
+                && current.transposeSemitones
+                    > previous.transposeSemitones);
+    }
+    check(foundShrinkChain,
+        "SHRINK did not progressively truncate and accelerate repeats");
+
+    MutationVariation doublets = original;
+    check(applyStructuralMutationOperation(doublets, *asset,
+              StructuralMutationOperation::Doublets, 7u, 0.72f, 8u,
+              false, 0u)
+            && doublets.sliceCount == 8u && doublets.validFor(*asset),
+        "DOUBLETS did not repeat every segment exactly twice");
+    bool paired = true;
+    for (std::size_t index = 0u; index < original.sliceCount; ++index) {
+        paired = paired
+            && doublets.slices[index * 2u].startFrame
+                == original.slices[index].startFrame
+            && doublets.slices[index * 2u + 1u].startFrame
+                == original.slices[index].startFrame;
+    }
+    check(paired,
+        "DOUBLETS did not retain adjacent source-segment pairs");
+    MutationVariation overflow = original;
+    check(!applyStructuralMutationOperation(overflow, *asset,
+              StructuralMutationOperation::Doublets, 7u, 0.72f, 7u,
+              false, 0u)
+            && overflow.sliceCount == original.sliceCount,
+        "DOUBLETS silently dropped segments when the MIDI map was too small");
+}
+
 void testMutationSlicePeakCeiling()
 {
     SampleAsset asset;
@@ -1491,6 +1611,7 @@ int main()
     testBankMappingAndValidation();
     testSourceSafeMutationVariations();
     testStructuralMutationUses();
+    testNamedStructuralMutationOperations();
     testMutationSlicePeakCeiling();
     testAnalysisAndSliceEditing();
     testTwoSlotSampleAccuratePlayback();
