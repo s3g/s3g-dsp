@@ -75,6 +75,8 @@ sample-player	sample-player
 sample-doubles	sample-doubles
 sample-wavesets	sample-wavesets
 sample-motion	sample-motion
+sample-lanes	sample-lanes
+sample-grains	sample-grains
 loop-processor-8ch	loop-processor
 multi-loop-processor-8ch	multi-loop-processor
 crcltr	crcltr

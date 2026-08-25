@@ -119,13 +119,26 @@ int main()
     engine.reset();
     require(engine.setAssets({ stereo.get(), nullptr, nullptr, nullptr }),
         "stereo source adoption");
-    channelSettings.channelMode = GrainChannelMode::Left;
+    channelSettings.channelMode = GrainChannelMode::PreserveOrigins;
     left.assign(1024u, 0.0f);
     right.assign(1024u, 0.0f);
     engine.render(channelSettings, &note, 1u, left.data(), right.data(),
         static_cast<uint32_t>(left.size()));
-    require(maximumDifference(left, right) < 1.0e-6f,
-        "left channel extraction becomes centered mono");
+    require(maximumDifference(left, right) > 1.0e-5f,
+        "preserve origins retains distinct stereo channels");
+    for (const auto channelMode : { GrainChannelMode::MonoSum,
+            GrainChannelMode::Left, GrainChannelMode::Right,
+            GrainChannelMode::Mid, GrainChannelMode::Side }) {
+        engine.reset();
+        channelSettings.channelMode = channelMode;
+        left.assign(1024u, 0.0f);
+        right.assign(1024u, 0.0f);
+        engine.render(channelSettings, &note, 1u, left.data(), right.data(),
+            static_cast<uint32_t>(left.size()));
+        require(maximumDifference(left, right) < 1.0e-6f
+                && peak(left) > 1.0e-5f,
+            "stereo channel derivation becomes productive centered mono");
+    }
 
     engine.reset();
     channelSettings.channelMode = GrainChannelMode::PreserveOrigins;

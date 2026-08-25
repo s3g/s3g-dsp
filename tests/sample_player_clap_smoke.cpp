@@ -336,6 +336,20 @@ bool exerciseProjectStorageHelpers()
     ok &= expect(repeated.success
             && repeated.absolutePath == copied.absolutePath,
         "identical project copy was not stable");
+    const auto reloadedCopy = storage::copyFileIntoProject(location,
+        copied.absolutePath);
+    std::size_t projectSampleFileCount = 0u;
+    error.clear();
+    for (const auto& entry : std::filesystem::directory_iterator(
+            media / "s3g Samples", error)) {
+        if (entry.is_regular_file()) ++projectSampleFileCount;
+    }
+    ok &= expect(!error && reloadedCopy.success
+            && reloadedCopy.absolutePath == copied.absolutePath
+            && reloadedCopy.relativePath == copied.relativePath
+            && reloadedCopy.contentHash == copied.contentHash
+            && projectSampleFileCount == 1u,
+        "reloading the project-media copy created another sample file");
     const auto collisionSource = root / "Collision.wav";
     {
         std::ofstream output(collisionSource, std::ios::binary);

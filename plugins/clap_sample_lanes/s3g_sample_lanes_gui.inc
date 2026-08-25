@@ -28,10 +28,10 @@ constexpr NSRect kPathColumn1 = kPathPanel;
 constexpr NSRect kPathColumn2 = kPathPanel;
 constexpr NSRect kGrainEventPanel = {{ 18.0, 554.0 }, { 850.0, 172.0 }};
 constexpr NSRect kGrainEventColumn = kGrainEventPanel;
-constexpr NSRect kVoicePanel = {{ 18.0, 738.0 }, { 1244.0, 198.0 }};
-constexpr NSRect kVoiceColumn1 = {{ 18.0, 738.0 }, { 392.0, 198.0 }};
-constexpr NSRect kVoiceColumn2 = {{ 422.0, 738.0 }, { 392.0, 198.0 }};
-constexpr NSRect kVoiceColumn3 = {{ 826.0, 738.0 }, { 436.0, 198.0 }};
+constexpr NSRect kVoicePanel = {{ 18.0, 738.0 }, { 1244.0, 174.0 }};
+constexpr NSRect kVoiceColumn1 = {{ 18.0, 738.0 }, { 392.0, 174.0 }};
+constexpr NSRect kVoiceColumn2 = {{ 422.0, 738.0 }, { 392.0, 174.0 }};
+constexpr NSRect kVoiceColumn3 = {{ 826.0, 738.0 }, { 436.0, 174.0 }};
 constexpr NSRect kOutputPageButton = {{ 850.0, 744.0 }, { 116.0, 16.0 }};
 constexpr NSRect kPreviewButton = {{ 974.0, 744.0 }, { 126.0, 16.0 }};
 constexpr NSRect kStopButton = {{ 1108.0, 744.0 }, { 142.0, 16.0 }};
@@ -423,6 +423,17 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
         NSMinX(button) + (NSWidth(button) - size.width) * 0.5,
         NSMinY(button) + (NSHeight(button) - size.height) * 0.5 - 0.5)
         withAttributes:attrs];
+}
+
+NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
+{
+    constexpr CGFloat horizontalAllowance = 4.0;
+    const CGFloat x = static_cast<CGFloat>(
+        s3g::gui_layout::processorControlX(NSMinX(panel)));
+    const CGFloat width = static_cast<CGFloat>(
+        s3g::gui_layout::processorTrackWidth(NSWidth(panel)));
+    return NSMakeRect(x - horizontalAllowance, y - 9.0,
+        width + 2.0 * horizontalAllowance, 20.0);
 }
 
 } // namespace
@@ -1167,8 +1178,7 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
         { laneNudgeParamId(lane), kTimingNudgeColumn, kTimingNudgeY },
     };
     for (const auto& control : timing) {
-        const NSRect hit = NSMakeRect(control.rect.origin.x + 8.0,
-            control.y - 9.0, control.rect.size.width - 16.0, 20.0);
+        const NSRect hit = sliderHitRect(control.rect, control.y);
         if (NSPointInRect(point, hit)) {
             if (panel) *panel = control.rect;
             return control.id;
@@ -1177,8 +1187,7 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
 #endif
     for (const auto& row : kRows) {
         if (row.menu || ![self rowIsVisible:row]) continue;
-        const NSRect hit = NSMakeRect(row.panel.origin.x + 8.0,
-            row.y - 9.0, row.panel.size.width - 16.0, 20.0);
+        const NSRect hit = sliderHitRect(row.panel, row.y);
         if (NSPointInRect(point, hit)) {
             if (panel) *panel = row.panel;
             return row.id;
@@ -1272,8 +1281,9 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
     [self drawPathScope:style labels:labels values:values];
     NSString* voiceTitle = @"VOICE / PITCH / MIDI";
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
-    if (_instance->outputChannelCount == 2u)
-        voiceTitle = @"VOICE / PITCH / MIDI / STEREO";
+    voiceTitle = _instance->outputChannelCount == 2u
+        ? @"POLYPHONY / PITCH / MIDI / STEREO"
+        : @"POLYPHONY / PITCH / MIDI";
 #endif
     NSString* outputTitle = [NSString stringWithFormat:@"%d  %@",
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -1304,7 +1314,13 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
     }
     if (_instance->outputChannelCount > 2u)
         drawVoiceFooterButton(kOutputPageButton,
-            _outputRoutingPage ? @"VOICE / PITCH" : @"ROUTING",
+            _outputRoutingPage
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+                ? @"POLYPHONY / PITCH"
+#else
+                ? @"VOICE / PITCH"
+#endif
+                : @"ROUTING",
             _outputRoutingPage, labels, style);
     for (const auto& row : kRows) {
         if (![self rowIsVisible:row]) continue;
@@ -1525,11 +1541,7 @@ void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
         return;
     }
     if (_dragParam == CLAP_INVALID_ID) return;
-    if (_dragPanel.size.width > 600.0) {
-        const double normalized = std::clamp(static_cast<double>(
-            (point.x - NSMinX(_dragPanel)) / NSWidth(_dragPanel)), 0.0, 1.0);
-        queueGuiParamValue(*_instance, _dragParam, normalized);
-    } else [self setDraggedParam:_dragParam point:point panel:_dragPanel];
+    [self setDraggedParam:_dragParam point:point panel:_dragPanel];
 }
 
 - (void)mouseUp:(NSEvent*)event

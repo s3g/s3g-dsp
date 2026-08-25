@@ -730,6 +730,30 @@ struct DocumentationSampleLanesState {
     DocumentationSampleLanesPathState manualPath;
 };
 
+struct DocumentationSampleGrainsState {
+    uint32_t magic = 0x47533353u;
+    uint32_t version = 2u;
+    uint32_t parameterCount = 62u;
+    uint8_t storageMode = 2u;
+    std::array<uint8_t, 3u> reserved {};
+    std::array<double, 62u> parameters {{
+        -6.0, 0.0, 0.0, 1.0, 0.06, 0.94, 0.02,
+        7.0, 0.0, 1.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.005,
+        0.0, 1.0, 60.0, 0.0, 0.0, 0.003, 0.02, 0.0, 1.0,
+        11.0, 0.0,
+        1.0, 1.0, 0.0,
+        1.0, 1.0, 0.0,
+        1.0, 1.0, 0.0,
+        1.0, 1.0, 0.0,
+        0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 24.0, 120.0, 0.0, 0.12, 3.0, 0.15,
+        2.0, 1.0, 0.0, 0.5, 16.0, 1.0,
+        0.0, 1.0, 0.35,
+    }};
+    std::array<DocumentationSampleLanesLaneState, 4u> lanes {};
+    DocumentationSampleLanesPathState manualPath;
+};
+
 static_assert(sizeof(DocumentationLoopState) == 1128u,
               "Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
@@ -742,6 +766,8 @@ static_assert(sizeof(DocumentationSampleMotionState) == 1304u,
               "Sample Motion documentation state fixture changed");
 static_assert(sizeof(DocumentationSampleLanesState) == 4680u,
               "Sample Lanes documentation state fixture changed");
+static_assert(sizeof(DocumentationSampleGrainsState) == 4808u,
+              "Sample Grains documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
                            StochasticSavedState& decoded)
@@ -1863,6 +1889,8 @@ int main(int argc, char** argv)
             "org.s3g.s3g-dsp.sample-grains-32") == 0;
         const bool sampleGrains = sampleGrains32 || std::strcmp(pluginId,
             "org.s3g.s3g-dsp.sample-grains") == 0;
+        bool documentationGrainsActivated = false;
+        bool documentationGrainsProcessing = false;
         if (ok && sampleLanes && !sampleLanes32) {
             failureStage = documentationCapture
                 ? "documentation Sample Lanes source"
@@ -1966,6 +1994,98 @@ int main(int argc, char** argv)
                             sizeof(edited));
                         ok = edited.manualPath.pointCount == 5u;
                     }
+                }
+            }
+        }
+        if (ok && sampleGrains) {
+            failureStage = documentationCapture
+                ? "documentation Sample Grains source"
+                : "Sample Grains GUI source";
+            const auto* grainsState = static_cast<const clap_plugin_state_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_STATE));
+            DocumentationSampleGrainsState fixture;
+            constexpr std::array<uint32_t, 4u> frameCounts {{
+                18432u, 13312u, 21504u, 15360u,
+            }};
+            constexpr std::array<uint8_t, 4u> channelCounts {{
+                2u, 1u, 2u, 1u,
+            }};
+            constexpr std::array<const char*, 4u> names {{
+                "Glass", "Wood", "Water", "Metal",
+            }};
+            size_t sampleBytes = 0u;
+            for (std::size_t lane = 0u; lane < fixture.lanes.size(); ++lane) {
+                fixture.lanes[lane].frameCount = frameCounts[lane];
+                fixture.lanes[lane].channelCount = channelCounts[lane];
+                std::snprintf(fixture.lanes[lane].path.data(),
+                    fixture.lanes[lane].path.size(), "%s", names[lane]);
+                sampleBytes += static_cast<size_t>(frameCounts[lane])
+                    * channelCounts[lane] * sizeof(float);
+            }
+            MemoryPluginState memory;
+            memory.bytes.resize(sizeof(fixture) + sampleBytes);
+            std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+            size_t sampleOffset = sizeof(fixture);
+            for (std::size_t lane = 0u; lane < fixture.lanes.size(); ++lane) {
+                for (uint8_t channel = 0u; channel < channelCounts[lane];
+                     ++channel) {
+                    const uint32_t frameCount = frameCounts[lane];
+                    for (uint32_t frame = 0u; frame < frameCount; ++frame) {
+                        const double normalized = static_cast<double>(frame)
+                            / static_cast<double>(frameCount - 1u);
+                        const double pulsePhase = std::fmod(normalized
+                            * static_cast<double>(4u + lane + channel), 1.0);
+                        const double pulse = std::exp(-pulsePhase
+                            * (7.0 + static_cast<double>(lane)));
+                        const double body = std::sin(2.0 * s3g::kPi
+                            * (5.0 + 1.7 * static_cast<double>(lane)
+                                + 0.8 * static_cast<double>(channel))
+                            * normalized + 0.45 * channel);
+                        const float sample = static_cast<float>(
+                            (0.30 * body + 0.62 * pulse)
+                            * (0.94 - 0.08 * static_cast<double>(lane)));
+                        std::memcpy(memory.bytes.data() + sampleOffset,
+                            &sample, sizeof(sample));
+                        sampleOffset += sizeof(sample);
+                    }
+                }
+            }
+            clap_istream_t input { &memory, stateReadWhole };
+            ok = grainsState && grainsState->load
+                && grainsState->load(plugin, &input)
+                && memory.offset == memory.bytes.size();
+            if (ok) {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            }
+            if (ok && documentationCapture) {
+                documentationGrainsActivated = plugin->activate(
+                    plugin, 48000.0, 1u, 512u);
+                documentationGrainsProcessing = documentationGrainsActivated
+                    && plugin->start_processing(plugin);
+                ok = documentationGrainsProcessing;
+                std::array<std::array<float, 512u>, 32u> grainsAudio {};
+                std::array<float*, 32u> grainsChannels {};
+                const uint32_t outputChannels = sampleGrains32 ? 32u : 2u;
+                for (uint32_t channel = 0u; channel < outputChannels;
+                     ++channel)
+                    grainsChannels[channel] = grainsAudio[channel].data();
+                clap_audio_buffer_t grainsOutput {};
+                grainsOutput.data32 = grainsChannels.data();
+                grainsOutput.channel_count = outputChannels;
+                SingleNoteEventInput grainsNote {};
+                setSingleNoteOnEvent(grainsNote, 60);
+                clap_process_t grainsProcess {};
+                grainsProcess.steady_time = -1;
+                grainsProcess.frames_count = 512u;
+                grainsProcess.audio_outputs = &grainsOutput;
+                grainsProcess.audio_outputs_count = 1u;
+                grainsProcess.in_events = &grainsNote.events;
+                ok = ok && plugin->process(plugin, &grainsProcess)
+                    == CLAP_PROCESS_CONTINUE;
+                if (ok) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
                 }
             }
         }
@@ -3571,13 +3691,47 @@ int main(int argc, char** argv)
                 pressure:1.0];
         };
         if (ok && sampleGrains && !documentationCapture) {
+            failureStage = "Sample Grains edition-specific parameters";
+            const bool hasChannelMode = hasParameterNamed(params, plugin,
+                "Channel Mode");
+            const bool hasStereoLink = hasParameterNamed(params, plugin,
+                "Stereo Link");
+            const bool hasMonoSpread = hasParameterNamed(params, plugin,
+                "Mono Spread");
+            const bool hasOutputMode = hasParameterNamed(params, plugin,
+                "Output Mode");
+            ok = sampleGrains32
+                ? (!hasChannelMode && !hasStereoLink && !hasMonoSpread
+                    && hasOutputMode)
+                : (hasChannelMode && hasStereoLink && hasMonoSpread
+                    && !hasOutputMode);
+        }
+        if (ok && sampleGrains && !sampleGrains32
+            && !documentationCapture) {
+            failureStage = "Sample Grains mono spread slider target";
+            double spreadBefore = 0.0;
+            ok = params->get_value(plugin, 62u, &spreadBefore);
+            if (ok) {
+                const NSPoint monoSpread = NSMakePoint(1060.0, 824.0);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    monoSpread)];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                    monoSpread)];
+                double spreadAfter = 0.0;
+                double hiddenRouting = 0.0;
+                ok = params->get_value(plugin, 62u, &spreadAfter)
+                    && std::abs(spreadAfter - spreadBefore) > 0.000001
+                    && !params->get_value(plugin, 40u, &hiddenRouting);
+            }
+        }
+        if (ok && sampleGrains && !documentationCapture) {
             failureStage = "Sample Grains visible slider targets";
             double rateBefore = 0.0;
             double nudgeBefore = 0.0;
             ok = params->get_value(plugin, 4u, &rateBefore)
                 && params->get_value(plugin, 30u, &nudgeBefore);
             if (ok) {
-                const NSPoint scanSpeed = NSMakePoint(1200.0, 142.0);
+                const NSPoint scanSpeed = NSMakePoint(1120.0, 142.0);
                 [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
                     scanSpeed)];
                 [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
@@ -3588,6 +3742,71 @@ int main(int argc, char** argv)
                     && params->get_value(plugin, 30u, &nudgeAfter)
                     && std::abs(rateAfter - rateBefore) > 0.000001
                     && std::abs(nudgeAfter - nudgeBefore) < 0.000001;
+            }
+        }
+        if (ok && sampleGrains && !documentationCapture) {
+            failureStage = "Sample Grains Amount/Regions slider geometry";
+            double amountBefore = 0.0;
+            double regionsBefore = 0.0;
+            ok = params->get_value(plugin, 57u, &amountBefore)
+                && params->get_value(plugin, 58u, &regionsBefore);
+            if (ok) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    NSMakePoint(135.0, 642.0))];
+                [document mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged,
+                    NSMakePoint(268.0, 642.0))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                    NSMakePoint(268.0, 642.0))];
+                double amountAfterDrag = 0.0;
+                double regionsAfterAmount = 0.0;
+                ok = params->get_value(plugin, 57u, &amountAfterDrag)
+                    && params->get_value(plugin, 58u, &regionsAfterAmount)
+                    && amountAfterDrag > 0.85
+                    && std::abs(regionsAfterAmount - regionsBefore)
+                        < 0.000001;
+                if (ok) {
+                    [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                        NSMakePoint(150.0, 666.0))];
+                    [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                        NSMakePoint(150.0, 666.0))];
+                    double regionsAfterClick = 0.0;
+                    ok = params->get_value(plugin, 58u,
+                            &regionsAfterClick)
+                        && regionsAfterClick < regionsBefore;
+                }
+                if (ok) {
+                    [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                        NSMakePoint(150.0, 666.0))];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged,
+                        NSMakePoint(268.0, 666.0))];
+                    [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                        NSMakePoint(268.0, 666.0))];
+                    double amountAfterRegions = 0.0;
+                    double regionsAfterDrag = 0.0;
+                    ok = params->get_value(plugin, 57u,
+                            &amountAfterRegions)
+                        && params->get_value(plugin, 58u,
+                            &regionsAfterDrag)
+                        && std::abs(amountAfterRegions - amountAfterDrag)
+                            < 0.000001
+                        && regionsAfterDrag >= 29.0;
+                }
+                if (ok) {
+                    double amountBeforeDeadArea = 0.0;
+                    ok = params->get_value(plugin, 57u,
+                        &amountBeforeDeadArea);
+                    [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                        NSMakePoint(500.0, 642.0))];
+                    [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                        NSMakePoint(500.0, 642.0))];
+                    double amountAfterDeadArea = 0.0;
+                    ok = ok && params->get_value(plugin, 57u,
+                            &amountAfterDeadArea)
+                        && std::abs(amountAfterDeadArea
+                            - amountBeforeDeadArea) < 0.000001;
+                }
             }
         }
         if (ok && (sampleLanes || sampleGrains)
@@ -12338,6 +12557,9 @@ int main(int argc, char** argv)
                 }
             }
         }
+        if (documentationGrainsProcessing)
+            plugin->stop_processing(plugin);
+        if (documentationGrainsActivated) plugin->deactivate(plugin);
         if (ok && !documentationCapture
             && (loopOutputContract || multiLoopOutputContract)) {
             failureStage = "Loop Finder audio drag-and-drop";

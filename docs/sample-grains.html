@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Grains - s3g-dsp</title>
+    <meta name="description" content="User guide for the stereo and 32-channel Sample Grains four-file granular instruments.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Grains</h1>
+
+        <p><code>Sample Grains 2</code> and <code>Sample Grains 32</code> load as many as four files into a shared granular source field. One shaped path chooses and crossfades the file lanes; a separate grain clock chooses source position, window, duration, pitch variation, direction, and event pattern. Grains 2 has a fixed stereo output with explicit channel interpretation and mono spreading. Grains 32 has a fixed 32-channel host port with field-preserving or per-grain allocation.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-grains.png" aria-label="Open the high-resolution Sample Grains 2 interface screenshot">
+              <img src="assets/plugin-guis/sample-grains.png" alt="Sample Grains 2 interface with four loaded mono and stereo waveform lanes, a manual breakpoint path, grain source and process controls, and stereo channel controls for preserving origins, stereo linking, and mono spread" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Four independently sized files share one source window and one lane path. The numbered toolboxes keep source scan, grain generation, lane selection, event processing, and stereo output interpretation as separate layers.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Sample Grains 2 on a stereo instrument track or Sample Grains 32 on a fixed 32-channel track, then load or drop as many as four files. Grains 2 accepts mono and stereo files; Grains 32 accepts files with one to sixteen channels.</li>
+          <li>Route the stereo output, or the selected Grains 32 lanes, to the intended speakers or headphone monitor. In Grains 32, open Routing to choose Preserve Field or per-grain distribution and set the active output count.</li>
+          <li>Set Start, End, Loop Join, Direction, Rate Basis, and Scan Speed to establish the shared source-time motion.</li>
+          <li>Choose Scan, Freeze, Cloud, or Slice, then set grain Density, Size, envelope, position and pitch spray, and reverse probability.</li>
+          <li>Choose a lane Path. Use Crossfade for continuous equal-power movement between files or Jump for discrete selection with Jump Slew.</li>
+          <li>Choose Regular or Scatter timing and, if wanted, a Grain Process.</li>
+          <li>In Grains 2, decide how stereo channels are interpreted and how mono grains occupy the stereo field. In Grains 32, open Routing to preserve a source field or allocate grains.</li>
+          <li>Set Polyphony, Trigger, pitch, amplitude timing, velocity, and MIDI reception, then play notes or press <code>PLAY</code>.</li>
+        </ol>
+
+        <h2 id="source-scan">Source Scan and Grain Source</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Direction</td><td>Forward and Reverse wrap through the selected source window. Ping Pong reflects at its ends.</td></tr>
+            <tr><td>Rate Basis</td><td>Normal interprets Scan Speed as a multiplier of file playback speed. Hertz interprets it as complete source-window scans per second.</td></tr>
+            <tr><td>Start / End</td><td>Set the shared proportional source window for all loaded files, regardless of their individual lengths.</td></tr>
+            <tr><td>Loop Join</td><td>Retains the shared Lanes wrap-join setting for state and automation compatibility. Grain reads already wrap at source boundaries and are independently windowed, so the current Grains engine does not add a separate loop crossfade from this value.</td></tr>
+            <tr><td>Scan</td><td>Emit grains along the moving scan position.</td></tr>
+            <tr><td>Freeze</td><td>Hold grain starts at Position while notes and the grain clock continue.</td></tr>
+            <tr><td>Cloud</td><td>Choose stochastic grain positions across the shared source window, then apply Position Spray.</td></tr>
+            <tr><td>Slice</td><td>Quantize the scan to the selected 2–32 Regions.</td></tr>
+            <tr><td>Density</td><td>Sets the mean number of grain events per second. Regular uses even spacing; Scatter varies the intervals.</td></tr>
+            <tr><td>Grain Size</td><td>Sets each grain window from 8–4000 ms. Density and size together determine overlap.</td></tr>
+            <tr><td>Position Spray</td><td>Offsets each event from its selected source position. Independent stereo also gives the right channel its own position decision.</td></tr>
+            <tr><td>Pitch Spray</td><td>Adds a random pitch offset up to the selected semitone range. Independent stereo makes separate left and right decisions.</td></tr>
+            <tr><td>Reverse</td><td>Sets the probability that a grain reads backward. Independent stereo evaluates the two original channels separately.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="envelopes">Grain Envelopes and Display</h2>
+
+        <p>Parzen, Sine, Hann, Triangle, and Gaussian windows shape every grain. Short windows produce compact events; longer windows and higher Density build overlapping clouds. Output level is overlap-compensated so increasing overlap does not produce a directly proportional gain increase.</p>
+
+        <p>The waveform is intentionally darker than the live grain overlay. A faint filled span accumulates where grains overlap. Medium gray is the elapsed portion of a grain, bright gray is the remaining portion, contour thickness follows the current lane weight, and contour brightness follows the current windowed gain. The white point with a dark halo is the current phase. A grain crossing a source-window seam breaks at one edge and continues at the other. Matching rings in the read-head scope identify sounding grain events against the file-lane path.</p>
+
+        <h2 id="lane-path">File-Lane Path</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Down / Up</td><td>Move once through lanes 1–4 or 4–1 per path cycle.</td></tr>
+            <tr><td>Triangle / Sine</td><td>Move back and forth with linear or sinusoidal lane motion.</td></tr>
+            <tr><td>Steps Down / Steps Up</td><td>Select lanes as discrete ordered steps.</td></tr>
+            <tr><td>Random</td><td>Follow a reproducible seeded path; the drawn path is the path the engine uses.</td></tr>
+            <tr><td>Manual</td><td>Click to add a breakpoint, drag a point to reshape the path, and right-click a point to remove it. The endpoints remain anchored to the path-clock boundaries.</td></tr>
+            <tr><td>Lane Change</td><td>Crossfade uses equal-power lane weights. Jump selects one lane and applies Jump Slew to suppress clicks.</td></tr>
+            <tr><td>Shape / Cycles</td><td>Shape bends time between path points. Cycles sets how often the lane path repeats across one scan.</td></tr>
+            <tr><td>Offset / Skew / Curve</td><td>Rotate, redistribute, and bend path-clock time without changing the source files.</td></tr>
+          </tbody>
+        </table>
+
+        <p>If the path reaches an empty lane, the engine uses the nearest loaded lane rather than producing an unintended silent gap. When Crossfade lies between differently sized files, both use the same proportional source position inside their own Start–End windows.</p>
+
+        <h2 id="stereo">Grains 2 Channel Modes</h2>
+
+        <p>Grains 2 always reports one stereo output. <code>POLYPHONY: Mono</code> limits MIDI note ownership to one emitter; it does not collapse the audio channels.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Channel Mode</th><th>Interpretation</th></tr></thead>
+          <tbody>
+            <tr><td>Preserve Origins</td><td>A stereo file's first channel remains left and its second remains right. A mono file becomes mono material for the stereo panner.</td></tr>
+            <tr><td>Mono Sum</td><td>Use one-half of left plus right, retaining additional headroom.</td></tr>
+            <tr><td>Left / Right</td><td>Select one original side and treat it as mono. A mono file falls back to its only channel.</td></tr>
+            <tr><td>Mid</td><td>Use the equal-power sum <code>(L + R) / √2</code>.</td></tr>
+            <tr><td>Side</td><td>Use the equal-power difference <code>(L − R) / √2</code>. A mono source has no Side component and is silent in this mode.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>STEREO LINK: Linked</code> keeps the two original channels on the same position, pitch, and direction trajectory. <code>Independent</code> preserves their left/right origins but allows separate Position Spray, Pitch Spray, and Reverse decisions. With all three variation controls at zero, Linked and Independent intentionally converge.</p>
+
+        <p><code>MONO SPREAD</code> gives every mono or mono-derived grain one seeded stereo position that remains stable for that grain's lifetime. Zero keeps grains at Pan; increasing Spread distributes successive grains farther to either side. It does not pull a preserved stereo file away from its original sides. Pan acts as a constant-power position for mono material and as a balance for preserved stereo material.</p>
+
+        <h2 id="process">Timing and Grain Process</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Process</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Ordinary</td><td>Emit the selected source positions without an additional event transformation.</td></tr>
+            <tr><td>Sorter</td><td>Rank Regions by sampled loudness and move through that ordering. Amount blends between the original and sorted positions.</td></tr>
+            <tr><td>Stutter</td><td>Hold a grain-start anchor for an Amount-dependent repeat group before choosing a new anchor.</td></tr>
+            <tr><td>Shrink</td><td>Progressively shorten a repeat chain and accelerate its source reading. Amount controls chain length and contraction.</td></tr>
+            <tr><td>Doublets</td><td>Schedule a second, slightly shorter grain halfway to the next event. With Source Sync on, its source position advances by the same elapsed source time.</td></tr>
+          </tbody>
+        </table>
+
+        <p>These names parallel Sample Slicer's mutation vocabulary, but the mechanisms are different. Slicer rearranges rendered slice material; Grains schedules overlapping live grain windows.</p>
+
+        <h2 id="voices">Polyphony, Pitch, and MIDI</h2>
+
+        <p>Poly layers note emitters. Mono replaces the previous note. Legato retargets pitch while retaining the active scan position and amplitude. Auto and Gate begin Release on note-off; One Shot ignores note-off; Toggle alternately starts and releases a matching note. Root, Tune, and Fine set pitch before Pitch Spray. Attack and Release shape the note emitter around the independently windowed grains. Velocity blends between fixed gain and note velocity, and MIDI selects Omni or channels 1–16.</p>
+
+        <h2 id="routing">Grains 32 Routing</h2>
+
+        <p>Grains 32 always reports one 32-channel output port. Its Routing tab is separate from source scan and grain processing. <code>ACTIVE OUT</code> limits the usable portion to 2–32 channels without changing the host port.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Preserve Field</td><td>Keep each source channel on the same-numbered output. Missing source channels remain silent; no allocator is involved.</td></tr>
+            <tr><td>Distribute</td><td>Fold each grain into a mono object or stereo pair and request a new allocator destination for that grain.</td></tr>
+            <tr><td>Grain Width</td><td>Mono uses one output channel. Stereo uses an adjacent or split-bank pair.</td></tr>
+            <tr><td>Traversal</td><td>Sequential, Reverse, Palindrome, Random, or Random Cycle chooses successive destinations.</td></tr>
+            <tr><td>Pair Layout</td><td>Adjacent uses 1/2, 3/4, and so on. Split Banks pairs matching positions across two equal banks.</td></tr>
+            <tr><td>Avoid Near</td><td>For random traversals, prefer destinations farther from the previous assignment.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Allocation always occurs per grain. Path movement between file lanes does not silently change output routing, and grain-event processes do not bypass the selected routing mode.</p>
+
+        <h2 id="presets">Factory Presets</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Starting configuration</th></tr></thead>
+          <tbody>
+            <tr><td>Init</td><td>Forward Scan, regular Parzen grains, a descending lane path, and linked preserved stereo origins.</td></tr>
+            <tr><td>Soft Cloud</td><td>Cloud positions, Gaussian windows, longer grains, and wider position spray.</td></tr>
+            <tr><td>Frozen Halo</td><td>Freeze at the middle source position with long grains and a slow sine lane path.</td></tr>
+            <tr><td>Loudness Sort</td><td>Slice source positions reordered by the Sorter process.</td></tr>
+            <tr><td>Stutter Field</td><td>Grouped repeated anchors over a stepped lane path.</td></tr>
+            <tr><td>Shrinking Rain</td><td>Contracting and accelerating grain chains over a random lane path.</td></tr>
+            <tr><td>Doublet Scatter</td><td>Scattered paired grains with source-time synchronization.</td></tr>
+            <tr><td>Manual Path</td><td>A four-point editable path that moves nonlinearly among the file lanes.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="state">Automation, Storage, and Compatibility</h2>
+
+        <ul>
+          <li>Grains 2 publishes 55 automatable controls, including Channel Mode, Stereo Link, and Mono Spread. It does not publish or honor the seven Grains 32 allocator controls.</li>
+          <li>Grains 32 publishes 59 automatable controls, including its seven routing controls. It does not publish the three stereo-only controls.</li>
+          <li>Earlier Grains state loads with Preserve Origins, Linked stereo, and zero Mono Spread unless the new controls were saved.</li>
+          <li>The inherited per-lane Speed, Stretch, and wrap Nudge values remain state-compatible and host-automatable, although Grains does not show the Lanes timing toolbox.</li>
+          <li><code>PROJECT</code> copies sources into the saved REAPER project's media path, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded floating-point PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a>.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-lanes.html"><span>Previous</span>Sample Lanes</a>
+          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="effect-crcltr.html">Effect CRCLTR</a>
+          <a href="processor-loop.html">Processor Loop</a>
+          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#source-scan">Source Scan</a>
+          <a href="#envelopes">Envelopes and Display</a>
+          <a href="#lane-path">File-Lane Path</a>
+          <a href="#stereo">Grains 2 Stereo</a>
+          <a href="#process">Grain Process</a>
+          <a href="#voices">Polyphony and MIDI</a>
+          <a href="#routing">Grains 32 Routing</a>
+          <a href="#presets">Factory Presets</a>
+          <a href="#state">Automation and State</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

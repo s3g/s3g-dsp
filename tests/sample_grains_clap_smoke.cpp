@@ -19,8 +19,10 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x47533353u;
-constexpr uint32_t kStateVersion = 1u;
-constexpr std::size_t kParamCount = 59u;
+constexpr uint32_t kPreviousStateVersion = 1u;
+constexpr uint32_t kCurrentStateVersion = 2u;
+constexpr std::size_t kPreviousParamCount = 59u;
+constexpr std::size_t kCurrentParamCount = 62u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr uint32_t kFrames = 4096u;
 
@@ -42,11 +44,11 @@ struct ManualPathState {
 
 struct SavedState {
     uint32_t magic = kStateMagic;
-    uint32_t version = kStateVersion;
-    uint32_t parameterCount = static_cast<uint32_t>(kParamCount);
+    uint32_t version = kPreviousStateVersion;
+    uint32_t parameterCount = static_cast<uint32_t>(kPreviousParamCount);
     uint8_t storageMode = 2u;
     std::array<uint8_t, 3u> reserved {};
-    std::array<double, kParamCount> parameters {{
+    std::array<double, kPreviousParamCount> parameters {{
         -6.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.02,
         0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.005,
         0.0, 1.0, 60.0, 0.0, 0.0, 0.0, 0.02, 0.0, 1.0,
@@ -240,24 +242,48 @@ bool exercise(const clap_plugin_factory_t* factory,
     clap_audio_port_info_t port {};
     clap_audio_ports_config_t config {};
     ok = ok && params && state && ports && configs && notes
-        && params->count(plugin) == kParamCount
+        && params->count(plugin) == (outputChannels == 2u ? 55u : 59u)
         && ports->get(plugin, 0u, false, &port)
         && port.channel_count == outputChannels
         && configs->count(plugin) == 1u
         && configs->get(plugin, 0u, &config)
         && config.output_port_count == 1u
         && notes->count(plugin, true) == 1u;
+    bool hasRoutingMode = false;
+    bool hasChannelMode = false;
+    bool hasGrainSource = false;
+    bool hasMutateProcess = false;
     clap_param_info_t info {};
-    ok = ok && params->get_info(plugin, 46u, &info)
-        && std::strcmp(info.name, "Grain Source") == 0
-        && params->get_info(plugin, 55u, &info)
-        && std::strcmp(info.name, "Mutate Process") == 0;
+    for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
+        ok = params->get_info(plugin, index, &info);
+        hasRoutingMode |= info.id == 40u
+            && std::strcmp(info.name, "Output Mode") == 0;
+        hasChannelMode |= info.id == 60u
+            && std::strcmp(info.name, "Channel Mode") == 0;
+        hasGrainSource |= info.id == 47u
+            && std::strcmp(info.name, "Grain Source") == 0;
+        hasMutateProcess |= info.id == 56u
+            && std::strcmp(info.name, "Mutate Process") == 0;
+    }
+    ok = ok && hasGrainSource && hasMutateProcess
+        && hasChannelMode == (outputChannels == 2u)
+        && hasRoutingMode == (outputChannels > 2u);
     char text[64] {};
     double parsed = -1.0;
     ok = ok && params->value_to_text(plugin, 56u, 4.0, text, sizeof(text))
         && std::strcmp(text, "Doublets") == 0
         && params->text_to_value(plugin, 55u, "Scatter", &parsed)
         && parsed == 1.0;
+    if (outputChannels == 2u) {
+        double unavailable = -1.0;
+        ok = ok && params->value_to_text(plugin, 60u, 0.0, text,
+                sizeof(text))
+            && std::strcmp(text, "Preserve Origins") == 0
+            && !params->get_value(plugin, 40u, &unavailable);
+    } else {
+        double unavailable = -1.0;
+        ok = ok && !params->get_value(plugin, 60u, &unavailable);
+    }
 #if defined(__APPLE__)
     ok = ok && plugin->get_extension(plugin, CLAP_EXT_GUI) != nullptr;
 #endif
@@ -265,7 +291,19 @@ bool exercise(const clap_plugin_factory_t* factory,
     ok = ok && state->load(plugin, &fixture.stream);
     MemoryOutput saved;
     ok = ok && state->save(plugin, &saved.stream)
-        && saved.bytes.size() == fixture.bytes.size();
+        && saved.bytes.size() == fixture.bytes.size()
+            + (kCurrentParamCount - kPreviousParamCount) * sizeof(double);
+    if (ok) {
+        uint32_t savedVersion = 0u;
+        uint32_t savedParamCount = 0u;
+        std::memcpy(&savedVersion, saved.bytes.data() + sizeof(uint32_t),
+            sizeof(savedVersion));
+        std::memcpy(&savedParamCount,
+            saved.bytes.data() + 2u * sizeof(uint32_t),
+            sizeof(savedParamCount));
+        ok = savedVersion == kCurrentStateVersion
+            && savedParamCount == kCurrentParamCount;
+    }
     ok = ok && plugin->activate(plugin, 48000.0, 32u, 512u)
         && plugin->start_processing(plugin);
     Events events;

@@ -1,6 +1,6 @@
-# s3g Sample Lanes 2
+# s3g Sample Lanes 2 / 32
 
-Four-file stereo Sample-family instrument. A normalized read head loops
+Four-file Sample-family instruments. A normalized read head loops
 seamlessly inside shared Start/End bounds while a second, shaped trajectory
 moves continuously or jumps between the four source lanes.
 
@@ -14,7 +14,7 @@ audio engine, so the read head always follows the route that is drawn.
 add a point, drag any point to reshape the path, and right-click an interior
 point to delete it. The two endpoints remain on the beginning and end of the
 path clock but can move vertically. Manual is a direct clock path, so Shape,
-Cycles, and Offset are bypassed while it is selected. Up to 16 points are
+Cycles, Offset, Skew, and Curve are bypassed while it is selected. Up to 16 points are
 stored with the plug-in state. Sessions from versions 0.1 and 0.2 retain their
 former constant Manual Lane value until a breakpoint is added.
 
@@ -66,3 +66,19 @@ pitch then scale either basis.
 The editor uses a wide two-column layout: sample lanes and the path scope stay
 on the left, selected-lane timing, loop transport, and path controls form the
 right toolbox column, and Voice or 32-channel Routing is a compact footer.
+
+## Output editions
+
+- **Sample Lanes 2** accepts mono and stereo files and has one fixed stereo
+  output. Mono sources occupy both sides; stereo sources preserve their left
+  and right origins. Pan provides constant-power placement for mono sources
+  and balance for stereo sources.
+- **Sample Lanes 32** accepts files with one to sixteen channels and has one
+  fixed 32-channel output. Preserve Field keeps each source channel on its
+  matching output. Distribute folds a voice to mono or stereo and allocates it
+  across 2–32 active outputs at note onset, dominant-lane changes, or path
+  turns. Sequential, reverse, palindrome, random, and random-cycle traversal,
+  adjacent or split-bank stereo pairs, and random adjacency avoidance use the
+  shared Sample-family allocator.
+
+The complete user guide is in `docs/sample-lanes.html`.

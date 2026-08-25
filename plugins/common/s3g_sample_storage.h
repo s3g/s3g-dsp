@@ -539,6 +539,22 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
         result.error = "COULD NOT CREATE THE PROJECT SAMPLE DIRECTORY";
         return result;
     }
+
+    // A source selected from this project's media directory is already in its
+    // final storage domain. Reuse it directly instead of feeding its existing
+    // content-addressed filename back through the naming step and creating a
+    // second, nested hash-suffixed copy.
+    std::string existingRelative;
+    const std::string normalizedSource = source.lexically_normal().string();
+    if (makeProjectRelativePath(location, normalizedSource,
+            existingRelative, nullptr)) {
+        result.absolutePath = normalizedSource;
+        result.relativePath = existingRelative;
+        result.success = true;
+        result.error.clear();
+        return result;
+    }
+
     const std::string extension = detail::safeExtension(source);
     const std::string readableName = detail::recognizableStem(source) + "-"
         + result.contentHash.substr(0u, 16u) + extension;

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Lanes - s3g-dsp</title>
+    <meta name="description" content="User guide for the stereo and 32-channel Sample Lanes four-file loop instruments, independent lane timing, breakpoint paths, and output allocation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Lanes</h1>
+
+        <p><code>Sample Lanes 2</code> and <code>Sample Lanes 32</code> load as many as four files into separate seamless loop lanes. A horizontal source clock reads each file inside shared Start and End bounds, while an independent vertical path chooses, jumps among, or crossfades the four lanes. Because those clocks are separate, one path can keep crossing the file field while every lane has its own speed, pitch-preserving stretch, and wrapped timing offset.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-lanes.png" aria-label="Open the high-resolution Sample Lanes 2 interface screenshot">
+              <img src="assets/plugin-guis/sample-lanes.png" alt="Sample Lanes 2 interface with four loaded waveform lanes, visible wrapped nudge seams, an editable five-point manual file-lane path, selected-lane timing, loop transport, path shaping, and voice controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The fixed Start and End markers define one proportional window across four differently sized files. Dashed seams show each lane's Wrap Nudge; the lower scope edits the independent file-lane path.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Sample Lanes 2 on a stereo instrument track, or Sample Lanes 32 on a fixed 32-channel track. Load or drop as many as four files; a multiple-file drop fills consecutive lanes from the destination row.</li>
+          <li>Route the stereo output, or the selected Lanes 32 outputs, to the intended speakers or headphone monitor. In Lanes 32, open Routing to choose Preserve Field or Distribute and set the active output count.</li>
+          <li>Set Start and End, then choose Forward, Reverse, or Ping Pong and Normal or Hertz rate.</li>
+          <li>Click a waveform lane and set its Speed, Stretch, and Wrap Nudge. Repeat for the other loaded lanes.</li>
+          <li>Choose a file-lane Path. Use Crossfade for continuous equal-power movement or Jump for discrete file changes.</li>
+          <li>Set Polyphony, Trigger, Root, Tune, Fine, Attack, Release, Velocity, MIDI reception, Pan, and output level, then play MIDI or press <code>PLAY</code>.</li>
+        </ol>
+
+        <h2 id="source-loop">Shared Source Loop</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Start / End</td><td>Set one proportional source window for every lane. The same percentages cover each file's own duration, so files do not need matching lengths.</td></tr>
+            <tr><td>Forward / Reverse</td><td>Read continuously through the selected window and wrap at its boundary.</td></tr>
+            <tr><td>Ping Pong</td><td>Reflect at each boundary instead of wrapping.</td></tr>
+            <tr><td>Rate Basis: Normal</td><td>Interpret Play Speed as ordinary file-relative playback rate. <code>1.00x</code> uses the duration and sample rate of the first loaded lane as the reference.</td></tr>
+            <tr><td>Rate Basis: Hertz</td><td>Interpret Play Speed as complete shared-window cycles per second.</td></tr>
+            <tr><td>Loop Join</td><td>Overlap the outgoing endpoint with the matching incoming segment during Forward and Reverse wraps. Ping Pong reverses without a wrap, so Loop Join does not apply.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Root, incoming note pitch, Tune, and Fine scale either rate basis. The path clock and all loaded lane clocks start together, but their positions can diverge when per-lane timing is changed.</p>
+
+        <h2 id="lane-timing">Per-Lane Timing and Waveforms</h2>
+
+        <p>Click a waveform row to select that lane for the Lane Timing toolbox. These controls affect the source material in the selected row; they do not change the file-lane path drawn below it.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Speed</td><td>Multiply that lane's read rate from <code>0.25x</code> to <code>4.00x</code>. Like tape or ordinary sample playback, Speed changes pitch and elapsed duration together.</td></tr>
+            <tr><td>Stretch</td><td>Divide that lane's transport rate from <code>0.25x</code> to <code>4.00x</code> while a dual-window overlap reader retains the pitch established by Speed and MIDI. <code>2.00x</code> takes twice as long; <code>0.50x</code> takes half as long.</td></tr>
+            <tr><td>Wrap Nudge</td><td>Rotate the contents by as much as half of the selected loop. Positive values advance the material and negative values delay it, with seamless wraparound.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Start and End stay fixed when a lane is nudged. Its waveform visibly rotates beneath those markers, and a dashed vertical marker identifies the content-wrap seam. During playback, each row can display its actual lane playhead when independent timing has moved it away from the shared path clock.</p>
+
+        <h2 id="lane-path">File-Lane Path</h2>
+
+        <p>The read-head scope uses X for path-clock phase and Y for file-lane position. At default lane timing, a Down / Linear / Crossfade path is the simple diagonal model: it starts in lane 1 and ends in lane 4 while source time progresses from left to right.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Path</th><th>Movement</th></tr></thead>
+          <tbody>
+            <tr><td>Down / Up</td><td>Move once through lanes 1–4 or 4–1 per path cycle.</td></tr>
+            <tr><td>Triangle</td><td>Move down and back up with straight segments.</td></tr>
+            <tr><td>Sine</td><td>Move down and back up with sinusoidal easing.</td></tr>
+            <tr><td>Steps Down / Steps Up</td><td>Visit the lanes as discrete ordered steps. Pair with Jump for hard file selection or Crossfade to slew between step values.</td></tr>
+            <tr><td>Random</td><td>Follow one reproducible, seeded eight-step path. The scope and audio engine use the same generated values.</td></tr>
+            <tr><td>Manual</td><td>Use the breakpoint path drawn directly in the scope.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>LANE CHANGE: Crossfade</code> makes an equal-power blend between neighboring loaded lanes. <code>Jump</code> chooses one lane; Jump Slew smooths that change to suppress discontinuities. An empty lane does not create an unintended silent hole: Jump resolves to the nearest loaded lane, and Crossfade spans empty rows between loaded sources.</p>
+
+        <p>Shape offers Linear, Smooth, Exponential, and Plateau timing. Cycles repeats the lane path from one-eighth to sixteen times over the shared source clock; Offset rotates it; Skew redistributes time around the midpoint; and Curve bends the result. Random uses its discrete seeded values rather than Shape, Skew, or Curve, although its clock can still repeat and offset. Seed reproduces its route.</p>
+
+        <h2 id="manual-path">Manual Breakpoint Editing</h2>
+
+        <ul>
+          <li>Click empty scope space to select Manual and add a point at that path phase and lane height.</li>
+          <li>Drag a point to reshape the route.</li>
+          <li>Right-click an interior point to delete it.</li>
+          <li>The two endpoints stay anchored to the beginning and end of the path clock, but remain vertically movable.</li>
+          <li>As many as sixteen points are stored with the plug-in state.</li>
+        </ul>
+
+        <p>Manual is a direct clock path: Shape, Cycles, Offset, Skew, and Curve are bypassed. This makes the line in the editor the literal lane trajectory rather than a source curve that is transformed again elsewhere.</p>
+
+        <h2 id="voices">Polyphony, Trigger, Pitch, and MIDI</h2>
+
+        <p>Poly layers independent note voices. Mono replaces the previous note. Legato retargets the newest voice while retaining its phase, lane weights, envelope, and lane timing state. Auto and Gate begin Release at note-off; One Shot ignores note-off; Toggle alternately starts and releases a matching note. Root, Tune, and Fine establish pitch, Attack and Release shape amplitude, Velocity blends between fixed gain and note velocity, and MIDI selects Omni or channels 1–16.</p>
+
+        <p>Sample Lanes 2 has one fixed stereo output. A mono file appears on both sides and Pan applies constant-power placement; a stereo file retains its original left and right channels and Pan acts as balance. The word Mono in the Voice menu controls note ownership, not the number of audio channels.</p>
+
+        <h2 id="routing">Sample Lanes 32 Routing</h2>
+
+        <p>Sample Lanes 32 accepts files with one to sixteen channels and always reports one 32-channel output port. Open the compact Routing tab in the footer to exchange the Voice controls for output topology. <code>ACTIVE OUT</code> limits Distribute to 2–32 destinations without changing the host port.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Preserve Field</td><td>Keep each source channel on the same-numbered output. Missing source channels remain silent; the allocator and Active Out setting are not involved.</td></tr>
+            <tr><td>Distribute</td><td>Fold each voice into a mono object or stereo object, then send it through the active-width allocator.</td></tr>
+            <tr><td>Allocation Clock: Note</td><td>Choose an output at note onset and retain it for that voice.</td></tr>
+            <tr><td>Allocation Clock: Lane</td><td>Choose a new output whenever the dominant source lane changes.</td></tr>
+            <tr><td>Allocation Clock: Turn</td><td>Choose a new output when the file-lane path reverses direction.</td></tr>
+            <tr><td>Traversal</td><td>Sequential, Reverse, Palindrome, Random, or Random Cycle determines successive destinations.</td></tr>
+            <tr><td>Voice Width</td><td>Mono uses one destination. Stereo uses an adjacent pair or matching channels across two split banks.</td></tr>
+            <tr><td>Avoid Near</td><td>For random traversal, prefer a destination that is not the same as or next to the previous assignment when the active width permits it.</td></tr>
+          </tbody>
+        </table>
+
+        <p>In Distribute, mono folding sums source channels with square-root normalization. Stereo files retain left and right; sources wider than stereo fold even-numbered and odd-numbered source channels into a stereo object. Output allocation does not change the source path or any lane clock.</p>
+
+        <h2 id="presets">Factory Presets</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Preset</th><th>Starting configuration</th></tr></thead>
+          <tbody>
+            <tr><td>Init / Diagonal Blend</td><td>Forward, Normal <code>1.00x</code> playback with a linear descending path and equal-power lane crossfade.</td></tr>
+            <tr><td>Diagonal Jumps</td><td>The descending path selects discrete lanes with an 8 ms Jump Slew.</td></tr>
+            <tr><td>Staircase</td><td>Steps Down with Jump lane changes and a 4 ms slew.</td></tr>
+            <tr><td>Sine Weave</td><td>A smooth Sine path completing two lane cycles per source clock.</td></tr>
+            <tr><td>Random Cuts</td><td>A seeded four-cycle Random path with Jump changes and a 3 ms slew.</td></tr>
+            <tr><td>Ping Pong</td><td>Ping Pong source transport with a smooth Triangle file-lane path.</td></tr>
+            <tr><td>Manual Path</td><td>A four-point editable route that moves nonlinearly among the lanes.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="state">Automation, Storage, and Compatibility</h2>
+
+        <ul>
+          <li>Both editions publish 46 automatable controls, including twelve independent lane-timing values and the seven Lanes 32 routing values. The stereo editor keeps routing hidden because its audio port is fixed to two channels.</li>
+          <li>The breakpoint path, selected settings, four source references, and the requested storage policy are saved in plug-in state. Earlier constant Manual Lane sessions remain compatible until a breakpoint is added.</li>
+          <li><code>PROJECT</code> copies sources into the saved REAPER project's media path, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded floating-point PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a>.</li>
+          <li>Project copies use verified content-hash names. Reloading an unchanged source, including one already in project media, reuses the existing file rather than creating another copy. In an unsaved project the request remains pending until the host supplies a project media path.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-motion.html"><span>Previous</span>Sample Motion</a>
+          <a class="page-nav-link next" href="sample-grains.html"><span>Next</span>Sample Grains</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="effect-crcltr.html">Effect CRCLTR</a>
+          <a href="processor-loop.html">Processor Loop</a>
+          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#source-loop">Shared Source Loop</a>
+          <a href="#lane-timing">Per-Lane Timing</a>
+          <a href="#lane-path">File-Lane Path</a>
+          <a href="#manual-path">Manual Breakpoints</a>
+          <a href="#voices">Polyphony and MIDI</a>
+          <a href="#routing">Lanes 32 Routing</a>
+          <a href="#presets">Factory Presets</a>
+          <a href="#state">Automation and State</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

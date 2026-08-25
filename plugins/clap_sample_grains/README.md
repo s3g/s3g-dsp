@@ -20,18 +20,25 @@ current grain phase. Contour thickness follows lane weight, while luminance
 also follows the grain's actual current windowed gain. A contour that crosses
 a loop or wrap-nudge seam breaks at one edge and continues at the other.
 
-The stereo and fixed 32-channel instruments share session state and controls.
-`Preserve Field` keeps every source channel on its matching output. The
-explicit `Distribute` mode folds each grain to a mono or stereo object before
-the shared Sequential, Reverse, Palindrome, Random, or Random Cycle allocator
-places it. This makes output topology independent of source-path and grain
-event choices.
+The stereo edition accepts mono or stereo files. `Preserve Origins` keeps a
+stereo file's left and right channels on their original sides. `Mono Sum`,
+`Left`, `Right`, `Mid`, and `Side` deliberately derive mono material instead.
+`Mono Spread` gives every mono or mono-derived grain a stable stereo position;
+`Stereo Link` either keeps the two original channels on one grain trajectory
+or gives them independent position, pitch-spray, and reverse decisions. The
+`Polyphony` menu controls MIDI voice ownership and never changes channel count.
 
-Only the 32-channel edition exposes the Motion-style `ROUTING` tab and its
-categorical `ACTIVE OUT` menu. The stereo edition keeps that topology fixed
-and shows only its voice, pitch, and MIDI page.
+The fixed 32-channel instrument retains `Preserve Field`, which keeps every
+source channel on its matching output. Its explicit `Distribute` mode folds
+each grain to a mono or stereo object before the shared Sequential, Reverse,
+Palindrome, Random, or Random Cycle allocator places it.
 
-The 1280-by-908 editor gives every slider a full-width track at a consistent
+Only the 32-channel edition publishes the allocator parameters and exposes the
+Motion-style `ROUTING` tab with its categorical `ACTIVE OUT` menu. The stereo
+edition has a fixed two-channel output and shows its channel interpretation
+controls beside voice, pitch, and MIDI.
+
+The 1280-by-932 editor gives every slider a full-width track at a consistent
 24-pixel row pitch. Source waveforms, the read-head path, and a full-width
 Grain Process occupy the left; Source Scan, Grain Source, and Path fill the
 right column continuously; Voice or Routing spans both columns as the footer.
@@ -41,3 +48,7 @@ simulated grain graph.
 Legacy per-lane timing values remain state-compatible and host-automatable,
 but they do not occupy the Grains editor. Sources use the Sample-family
 Project, Link, and Embed storage contract and accept multi-file drag and drop.
+Project copies are content-verified: reloading the same unchanged source, or
+loading its existing project-media copy directly, reuses that file rather than
+creating another copy. The operation remains pending until the host project
+has been saved and supplies a media path.

@@ -74,7 +74,7 @@ constexpr std::size_t kGrainsPreviousParamCount = 59u;
 #endif
 constexpr uint32_t kGuiWidth = 1280u;
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
-constexpr uint32_t kGuiHeight = 956u;
+constexpr uint32_t kGuiHeight = 932u;
 #else
 constexpr uint32_t kGuiHeight = 724u;
 #endif

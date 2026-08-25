@@ -1366,14 +1366,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains
-          1280 908 "s3g Sample Grains 2" responsive)
+          1280 932 "s3g Sample Grains 2" responsive)
       set_tests_properties(s3g_sample_grains_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_grains_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains-32
-          1280 908 "s3g Sample Grains 32" responsive)
+          1280 932 "s3g Sample Grains 32" responsive)
       set_tests_properties(s3g_sample_grains_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -2938,11 +2938,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains
-          1280 908 "s3g Sample Grains 2" responsive
+          1280 932 "s3g Sample Grains 2" responsive
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains-32
-          1280 908 "s3g Sample Grains 32" responsive
+          1280 932 "s3g Sample Grains 32" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_grains_clap
