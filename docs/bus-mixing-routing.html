@@ -27,14 +27,14 @@
       <main class="content" id="content">
         <h1>Bus Mixing / Routing</h1>
 
-        <p>Bus tools treat a wide REAPER track as a collection of fixed-size source blocks. They mix or validate those blocks without assuming that the channels form an ambisonic field.</p>
+        <p>Bus tools treat a wide REAPER track as a collection of fixed-size source blocks. They mix those blocks without assuming that the channels form an ambisonic field.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose Group Matrix, Mixer Node Bus, or Passthrough Test, then configure the REAPER track width, source-block size, and plugin pins.</li>
+          <li>Choose Group Matrix or Mixer Node Bus, then configure the REAPER track width, source-block size, and plugin pins.</li>
           <li>Route the result to the main speakers, a direct panner, a stereo or quad fold-down, or the intended downstream bus, then begin playback.</li>
-          <li>Route complete blocks with matrix crosspoints, shape their levels with the node cursor, or isolate lanes with Passthrough Test.</li>
+          <li>Route complete blocks with matrix crosspoints or shape their levels with the node cursor.</li>
           <li>Verify block boundaries and channel identity before automating routes or node motion.</li>
           <li>Use an ambisonic bus processor instead when every source block is a complete <code>ACN/SN3D</code> field.</li>
         </ol>
@@ -67,7 +67,7 @@
 
         <h2 id="diagnostics">Routing Diagnostics</h2>
 
-        <p><strong>Passthrough Test 24ch</strong> is a fixed-width signal-path check for REAPER pin assignments. Insert it before a more complex processor when a 24-channel chain appears to lose, swap, or bypass lanes, then verify each channel independently.</p>
+        <p>For channel-identity and level checks, insert <a href="analyzer-meter.html"><strong>Analyzer Meter 64</strong></a>, set ACTIVE to the bus width, and verify the expected lanes while checking the REAPER pin map. The former Passthrough Test has been retired because an identity processor added no diagnostic information of its own.</p>
 
         <p>When every block is a complete third-order <code>ACN/SN3D</code> field, use <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a> so all sixteen channels in each field remain locked.</p>
 

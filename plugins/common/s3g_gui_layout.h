@@ -600,6 +600,29 @@ inline constexpr ArrayFamilyLayout kArrayFamilyLayout {
     8u,
 };
 
+constexpr ArrayFamilyLayout arrayFamilyLayoutForRows(uint32_t visibleRows)
+{
+    auto layout = kArrayFamilyLayout;
+    if (visibleRows <= layout.rowsPerPage) return layout;
+    const double growth = static_cast<double>(visibleRows - layout.rowsPerPage)
+        * kStandardMetrics.rowPitch;
+    layout.canvas.height += growth;
+    layout.editor.frame.height += growth;
+    layout.channelPlot.height += growth;
+    layout.channelValueColumn.height += growth;
+    layout.channelMuteColumn.height += growth;
+    layout.channelInvertColumn.height += growth;
+    layout.rowsPerPage = visibleRows;
+    return layout;
+}
+
+constexpr uint32_t arrayRowsPerPageForChannels(uint32_t channels)
+{
+    if (channels <= 8u) return 8u;
+    if (channels <= 26u) return channels;
+    return 16u;
+}
+
 inline constexpr TransformFamilyLayout kTransformFamilyLayout {
     { 820.0, 496.0 },
     { 18.0, 42.0, 506.0, 436.0 },

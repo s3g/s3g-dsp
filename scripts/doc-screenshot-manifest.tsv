@@ -106,9 +106,7 @@ cascade-taps	cascade-taps
 group-matrix	group-matrix
 node-bus-mixer	node-bus-mixer
 sub-crossover	sub-crossover
-array-hpf-16	array-hpf
-array-delay-16	array-delay
-array-trim-16	array-trim
+array-calibrate-16	array-calibrate
 ambi-depth-16	ambi-depth
 ambi-group-matrix	ambi-group-matrix
 ambi-node-bus-mixer	ambi-node-bus-mixer

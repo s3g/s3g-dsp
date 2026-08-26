@@ -569,47 +569,6 @@ struct StochasticSavedState {
 // Frozen state fixtures used only by documentation capture. Loading them
 // through CLAP state exercises the same public path a host session uses while
 // keeping sample-file knowledge out of the production plug-ins.
-struct DocumentationLoopState {
-    uint32_t version = 6u;
-    double baseRate = 0.90;
-    double rateSpread = 0.55;
-    double driftAmount = 0.06;
-    double relationCenter = 0.46;
-    double relationGlideMs = 180.0;
-    double loopStart = 0.12;
-    double loopLength = 0.66;
-    double xfadePct = 0.10;
-    double seamDuck = 0.18;
-    double gainDb = -9.0;
-    uint32_t launchMode = 0u;
-    uint32_t laneMask = 0xffu;
-    uint32_t playing = 1u;
-    char samplePath[1024] {};
-};
-
-struct DocumentationMultiLoopState {
-    uint32_t version = 8u;
-    double baseRate = 0.92;
-    double rateSpread = 0.48;
-    double driftAmount = 0.045;
-    double relationCenter = 0.43;
-    double relationGlideMs = 180.0;
-    double loopStart = 0.08;
-    double loopLength = 0.76;
-    double xfadePct = 0.10;
-    double seamDuck = 0.20;
-    double gainDb = -10.0;
-    double sourceRateSpread = 0.35;
-    double sourceBlend = 0.72;
-    double midiMode = 0.0;
-    double midiRoot = 60.0;
-    uint32_t launchMode = 0u;
-    uint32_t laneMask = 0xffu;
-    uint32_t rule = 3u;
-    uint32_t playing = 1u;
-    char samplePaths[4][1024] {};
-};
-
 struct DocumentationAmbiGrainState {
     uint32_t version = 1u;
     double order = 3.0;
@@ -751,10 +710,6 @@ struct DocumentationSampleGrainsState {
     DocumentationSampleLanesPathState manualPath;
 };
 
-static_assert(sizeof(DocumentationLoopState) == 1128u,
-              "Loop Processor documentation state fixture changed");
-static_assert(sizeof(DocumentationMultiLoopState) == 4232u,
-              "Multi Loop Processor documentation state fixture changed");
 static_assert(sizeof(DocumentationAmbiGrainState) == 1160u,
               "Ambi Grain documentation state fixture changed");
 static_assert(sizeof(DocumentationSampleWavesetsState) == 1256u,
@@ -1208,117 +1163,6 @@ int main(int argc, char** argv)
             }
         }
 
-        const bool loopOutputContract = std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.loop-processor-8ch") == 0;
-        const bool multiLoopOutputContract = std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.multi-loop-processor-8ch") == 0;
-        if (ok && (loopOutputContract || multiLoopOutputContract)) {
-            failureStage = "loop ring-output parameter/state contract";
-            const clap_id formatId = loopOutputContract ? 15u : 20u;
-            const clap_id rotationId = loopOutputContract ? 16u : 21u;
-            clap_param_info_t formatInfo {};
-            clap_param_info_t rotationInfo {};
-            bool foundFormat = false;
-            bool foundRotation = false;
-            for (uint32_t index = 0u; index < params->count(plugin); ++index) {
-                clap_param_info_t info {};
-                if (!params->get_info(plugin, index, &info)) {
-                    ok = false;
-                    break;
-                }
-                if (info.id == formatId) {
-                    formatInfo = info;
-                    foundFormat = true;
-                } else if (info.id == rotationId) {
-                    rotationInfo = info;
-                    foundRotation = true;
-                }
-            }
-            char formatText[32] {};
-            char rotationText[32] {};
-            double parsedFormat = -1.0;
-            ok = ok && foundFormat && foundRotation
-                && std::strcmp(formatInfo.name, "Output Format") == 0
-                && std::strcmp(formatInfo.module, "Output") == 0
-                && (formatInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
-                && formatInfo.min_value == 0.0
-                && formatInfo.max_value == 2.0
-                && formatInfo.default_value == 0.0
-                && std::strcmp(rotationInfo.name, "Output Rotation") == 0
-                && std::strcmp(rotationInfo.module, "Output") == 0
-                && rotationInfo.min_value == -180.0
-                && rotationInfo.max_value == 180.0
-                && rotationInfo.default_value == 0.0
-                && params->value_to_text(plugin, formatId, 2.0,
-                    formatText, sizeof(formatText))
-                && std::strcmp(formatText, "STEREO RING") == 0
-                && params->text_to_value(plugin, formatId, "QUAD RING",
-                    &parsedFormat)
-                && parsedFormat == 1.0
-                && params->value_to_text(plugin, rotationId, 73.0,
-                    rotationText, sizeof(rotationText))
-                && std::strcmp(rotationText, "+73.0 deg") == 0;
-
-            const auto* pluginState = ok
-                ? static_cast<const clap_plugin_state_t*>(
-                    plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
-            SingleParamEventInput event {};
-            if (ok) {
-                setSingleParamEvent(event, formatId, 2.0);
-                params->flush(plugin, &event.events, nullptr);
-                setSingleParamEvent(event, rotationId, 73.0);
-                params->flush(plugin, &event.events, nullptr);
-            }
-            MemoryPluginState current;
-            clap_ostream_t currentOutput { &current, stateWrite };
-            ok = ok && pluginState && pluginState->save && pluginState->load
-                && pluginState->save(plugin, &currentOutput)
-                && !current.bytes.empty();
-            if (ok) {
-                setSingleParamEvent(event, formatId, 0.0);
-                params->flush(plugin, &event.events, nullptr);
-                setSingleParamEvent(event, rotationId, -40.0);
-                params->flush(plugin, &event.events, nullptr);
-                current.offset = 0u;
-                clap_istream_t currentInput { &current, stateReadWhole };
-                ok = pluginState->load(plugin, &currentInput)
-                    && current.offset == current.bytes.size();
-            }
-            double restoredFormat = -1.0;
-            double restoredRotation = -999.0;
-            ok = ok && params->get_value(plugin, formatId, &restoredFormat)
-                && restoredFormat == 2.0
-                && params->get_value(plugin, rotationId, &restoredRotation)
-                && std::fabs(restoredRotation - 73.0) < 0.0001;
-
-            MemoryPluginState legacy;
-            if (ok && loopOutputContract) {
-                DocumentationLoopState stateFixture {};
-                const auto* begin = reinterpret_cast<const uint8_t*>(
-                    &stateFixture);
-                legacy.bytes.assign(begin, begin + sizeof(stateFixture));
-            } else if (ok) {
-                DocumentationMultiLoopState stateFixture {};
-                const auto* begin = reinterpret_cast<const uint8_t*>(
-                    &stateFixture);
-                legacy.bytes.assign(begin, begin + sizeof(stateFixture));
-            }
-            if (ok) {
-                clap_istream_t legacyInput { &legacy, stateReadWhole };
-                ok = pluginState->load(plugin, &legacyInput)
-                    && legacy.offset == legacy.bytes.size()
-                    && params->get_value(plugin, formatId, &restoredFormat)
-                    && restoredFormat == 0.0
-                    && params->get_value(plugin, rotationId,
-                        &restoredRotation)
-                    && restoredRotation == 0.0;
-            }
-            if (!ok) {
-                std::cerr << "Loop ring-output contract failed for "
-                          << pluginId << "\n";
-            }
-        }
-
         if (ok && std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64") == 0) {
@@ -1596,80 +1440,35 @@ int main(int argc, char** argv)
             }
         }
 
-        const bool documentationLoopProcessor = documentationCapture
-            && std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.loop-processor-8ch") == 0;
-        const bool documentationMultiLoopProcessor = documentationCapture
-            && std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.multi-loop-processor-8ch") == 0;
         const bool documentationAmbiGrain = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambi-grain-processor") == 0;
-        const bool documentationSampleProcessor =
-            documentationLoopProcessor
-            || documentationMultiLoopProcessor
-            || documentationAmbiGrain;
-        if (ok && documentationSampleProcessor) {
+        if (ok && documentationAmbiGrain) {
             failureStage = "documentation sample state";
             const auto* pluginState =
                 static_cast<const clap_plugin_state_t*>(
                     plugin->get_extension(plugin, CLAP_EXT_STATE));
-            auto copyDocumentationPath = [](char* destination,
-                                            size_t capacity,
-                                            const char* environmentName) {
-                const char* source = std::getenv(environmentName);
-                if (!source || !source[0]) return false;
-                const int length = std::snprintf(
-                    destination, capacity, "%s", source);
-                return length > 0
-                    && static_cast<size_t>(length) < capacity;
-            };
-            auto loadDocumentationState = [&](const void* fixture,
-                                              size_t fixtureSize) {
-                if (!pluginState || !pluginState->load) return false;
-                MemoryPluginState memory;
-                const auto* first = static_cast<const uint8_t*>(fixture);
-                memory.bytes.assign(first, first + fixtureSize);
-                clap_istream_t input { &memory, stateReadWhole };
-                return pluginState->load(plugin, &input)
-                    && memory.offset == fixtureSize;
-            };
-
-            if (documentationLoopProcessor) {
-                DocumentationLoopState fixture {};
-                ok = copyDocumentationPath(
-                        fixture.samplePath, sizeof(fixture.samplePath),
-                        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH")
-                    && loadDocumentationState(&fixture, sizeof(fixture));
-            } else if (documentationMultiLoopProcessor) {
-                DocumentationMultiLoopState fixture {};
-                constexpr const char* environmentNames[] = {
-                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH",
-                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_2",
-                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_3",
-                    "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_4",
-                };
-                for (size_t index = 0u;
-                     ok && index < std::size(environmentNames); ++index) {
-                    ok = copyDocumentationPath(
-                        fixture.samplePaths[index],
-                        sizeof(fixture.samplePaths[index]),
-                        environmentNames[index]);
-                }
-                ok = ok && loadDocumentationState(&fixture, sizeof(fixture));
-            } else {
-                DocumentationAmbiGrainState fixture {};
-                ok = copyDocumentationPath(
-                        fixture.samplePath, sizeof(fixture.samplePath),
-                        "S3G_GUI_DOCUMENTATION_SAMPLE_PATH")
-                    && loadDocumentationState(&fixture, sizeof(fixture));
-            }
+            const char* source = std::getenv(
+                "S3G_GUI_DOCUMENTATION_SAMPLE_PATH");
+            DocumentationAmbiGrainState fixture {};
+            const int length = source && source[0]
+                ? std::snprintf(fixture.samplePath,
+                    sizeof(fixture.samplePath), "%s", source)
+                : -1;
+            MemoryPluginState memory;
+            const auto* first = reinterpret_cast<const uint8_t*>(&fixture);
+            memory.bytes.assign(first, first + sizeof(fixture));
+            clap_istream_t input { &memory, stateReadWhole };
+            ok = pluginState && pluginState->load
+                && length > 0
+                && static_cast<size_t>(length) < sizeof(fixture.samplePath)
+                && pluginState->load(plugin, &input)
+                && memory.offset == sizeof(fixture);
             if (!ok) {
                 std::cerr << "Could not load documentation sample fixture for "
-                    << pluginId << "\n";
+                    << pluginId << "\\n";
             }
         }
-
         if (ok) failureStage = "GUI API";
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
@@ -3590,12 +3389,14 @@ int main(int argc, char** argv)
         const bool documentationSubCrossover = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.sub-crossover") == 0;
-        const bool documentationArrayDelay = documentationCapture
+        const bool documentationArrayCalibrate = documentationCapture
             && std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.array-delay-16") == 0;
-        const bool documentationArrayTrim = documentationCapture
-            && std::strcmp(pluginId,
-                "org.s3g.s3g-dsp.array-trim-16") == 0;
+                "org.s3g.s3g-dsp.array-calibrate-16") == 0;
+        const bool arrayCalibrate = std::strncmp(pluginId,
+            "org.s3g.s3g-dsp.array-calibrate-", 32u) == 0;
+        const uint32_t arrayCalibrateChannels = arrayCalibrate
+            ? static_cast<uint32_t>(std::strtoul(pluginId + 32u, nullptr, 10))
+            : 0u;
         const bool faultProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.fault") == 0;
@@ -10624,38 +10425,94 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && (loopOutputContract || multiLoopOutputContract)) {
-            failureStage = "Loop output format GUI";
-            const clap_id formatId = loopOutputContract ? 15u : 20u;
-            const clap_id rotationId = loopOutputContract ? 16u : 21u;
-            const CGFloat controlX = static_cast<CGFloat>(
-                s3g::gui_layout::processorControlX(596.0));
-            const CGFloat trackWidth = static_cast<CGFloat>(
-                s3g::gui_layout::processorTrackWidth(306.0));
-            const auto clickLoop = [&](NSPoint point) {
+        if (ok && arrayCalibrate) {
+            failureStage = "Array Calibrate page and control hierarchy";
+            const auto clickArrayCalibrate = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, point)];
                 [document mouseUp:mouseEvent(
                     NSEventTypeLeftMouseUp, point)];
             };
             @try {
-                clickLoop(NSMakePoint(controlX + 50.0, 104.0));
-                ok = [[document valueForKey:@"openMenu"] intValue]
-                    == (multiLoopOutputContract ? 3 : 1);
+                // DELAY tab, its stage switch, and its first channel row.
+                clickArrayCalibrate(NSMakePoint(218.0, 145.0));
+                clickArrayCalibrate(NSMakePoint(389.0, 145.0));
+                double delayBypass = 0.0;
+                ok = params->get_value(plugin, 20u, &delayBypass)
+                    && delayBypass == 1.0;
                 if (ok) {
-                    clickLoop(NSMakePoint(controlX + 50.0, 148.0));
-                    double format = -1.0;
-                    ok = params->get_value(plugin, formatId, &format)
-                        && format == 1.0
-                        && [[document valueForKey:@"openMenu"] intValue]
-                            == 0;
+                    clickArrayCalibrate(NSMakePoint(181.5, 170.0));
+                    double delay = 0.0;
+                    ok = params->get_value(plugin, 1000u, &delay)
+                        && std::fabs(delay - 1000.0) < 2.0;
+                }
+                // The 16- and 26-channel builds expose every channel at once;
+                // wider builds use pages of 16 at the same readable pitch.
+                if (ok) {
+                    const uint32_t visibleRows = arrayCalibrateChannels <= 26u
+                        ? arrayCalibrateChannels : 16u;
+                    const CGFloat finalRowY = 170.0
+                        + static_cast<CGFloat>(visibleRows - 1u) * 26.0;
+                    clickArrayCalibrate(NSMakePoint(181.5, finalRowY));
+                    double finalVisibleDelay = 0.0;
+                    ok = params->get_value(plugin,
+                            1000u + visibleRows - 1u, &finalVisibleDelay)
+                        && std::fabs(finalVisibleDelay - 1000.0) < 2.0;
+                }
+                if (ok && arrayCalibrateChannels > 26u) {
+                    clickArrayCalibrate(NSMakePoint(683.0, 145.0));
+                    clickArrayCalibrate(NSMakePoint(181.5, 170.0));
+                    double secondPageDelay = 0.0;
+                    ok = params->get_value(plugin, 1016u, &secondPageDelay)
+                        && std::fabs(secondPageDelay - 1000.0) < 2.0;
+                    if (ok && arrayCalibrateChannels == 64u) {
+                        clickArrayCalibrate(NSMakePoint(683.0, 145.0));
+                        clickArrayCalibrate(NSMakePoint(683.0, 145.0));
+                        clickArrayCalibrate(NSMakePoint(181.5, 170.0));
+                        double fourthPageDelay = 0.0;
+                        ok = params->get_value(plugin, 1048u, &fourthPageDelay)
+                            && std::fabs(fourthPageDelay - 1000.0) < 2.0;
+                        clickArrayCalibrate(NSMakePoint(621.0, 145.0));
+                        clickArrayCalibrate(NSMakePoint(621.0, 145.0));
+                    }
+                    clickArrayCalibrate(NSMakePoint(621.0, 145.0));
+                }
+                // TRIM owns the same row geometry but publishes different
+                // per-channel parameters and adjacent M / INV buttons.
+                if (ok) {
+                    clickArrayCalibrate(NSMakePoint(280.0, 145.0));
+                    clickArrayCalibrate(NSMakePoint(297.0, 170.0));
+                    clickArrayCalibrate(NSMakePoint(634.0, 170.0));
+                    double trim = 0.0;
+                    double mute = 0.0;
+                    ok = params->get_value(plugin, 2000u, &trim)
+                        && std::fabs(trim + 21.0) < 0.5
+                        && params->get_value(plugin, 3000u, &mute)
+                        && mute == 1.0;
+                }
+                // Restore the HPF view, exercise its single-row controls, and
+                // re-enable Delay before documentation capture.
+                if (ok) {
+                    SingleParamEventInput delayOn {};
+                    setSingleParamEvent(delayOn, 20u, 0.0);
+                    params->flush(plugin, &delayOn.events, nullptr);
+                    clickArrayCalibrate(NSMakePoint(156.0, 145.0));
+                    clickArrayCalibrate(NSMakePoint(214.0, 170.0));
+                    double cutoff = 0.0;
+                    ok = params->get_value(plugin, 10u, &cutoff)
+                        && std::fabs(cutoff - 130.0) < 2.0;
                 }
                 if (ok) {
-                    clickLoop(NSMakePoint(
-                        controlX + trackWidth * 0.75, 130.0));
-                    double rotation = -999.0;
-                    ok = params->get_value(plugin, rotationId, &rotation)
-                        && std::fabs(rotation - 90.0) < 0.5;
+                    clickArrayCalibrate(NSMakePoint(520.0, 170.0));
+                    clickArrayCalibrate(NSMakePoint(520.0, 231.0));
+                    double poles = 0.0;
+                    ok = params->get_value(plugin, 11u, &poles)
+                        && poles == 3.0;
+                    SingleParamEventInput restore {};
+                    setSingleParamEvent(restore, 10u, 90.0);
+                    params->flush(plugin, &restore.events, nullptr);
+                    setSingleParamEvent(restore, 11u, 2.0);
+                    params->flush(plugin, &restore.events, nullptr);
                 }
             } @catch (NSException*) {
                 ok = false;
@@ -11550,7 +11407,7 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (ok && documentationSampleProcessor) {
+        if (ok && documentationAmbiGrain) {
             failureStage = "documentation sample processor scene";
             const auto* audioPorts =
                 static_cast<const clap_plugin_audio_ports_t*>(
@@ -11616,8 +11473,7 @@ int main(int argc, char** argv)
             || documentationGroupMatrix
             || documentationNodeBusMixer
             || documentationSubCrossover
-            || documentationArrayDelay
-            || documentationArrayTrim;
+            || documentationArrayCalibrate;
         if (ok && documentationRoutingScene) {
             failureStage = "documentation routing scene";
             auto setDocumentationRoutingParam = [&](
@@ -11770,7 +11626,8 @@ int main(int argc, char** argv)
                     && setDocumentationRoutingParam("Sub Offset", 5.0)
                     && setDocumentationRoutingParam("Sub Focus", 1.85)
                     && setDocumentationRoutingParam("Cutoff", 86.0);
-            } else if (documentationArrayDelay) {
+            } else if (documentationArrayCalibrate) {
+                ok = setDocumentationRoutingParam("Cutoff", 110.0);
                 constexpr double delayMs[] {
                     45.0, 180.0, 420.0, 760.0,
                     1150.0, 1680.0, 2360.0, 3180.0
@@ -11782,7 +11639,6 @@ int main(int argc, char** argv)
                         name, sizeof(name), "Delay %u", lane + 1u);
                     ok = setDocumentationRoutingParam(name, delayMs[lane]);
                 }
-            } else if (documentationArrayTrim) {
                 constexpr double trimDb[] {
                     -1.5, -6.0, 2.5, -9.0,
                     4.0, -12.0, -3.5, 7.0
@@ -12740,85 +12596,6 @@ int main(int argc, char** argv)
         if (documentationGrainsProcessing)
             plugin->stop_processing(plugin);
         if (documentationGrainsActivated) plugin->deactivate(plugin);
-        if (ok && !documentationCapture
-            && (loopOutputContract || multiLoopOutputContract)) {
-            failureStage = "Loop Finder audio drag-and-drop";
-            std::vector<std::string> droppedPaths;
-            bool pasteboardWritten = false;
-            bool dragTypeRegistered = false;
-            NSDragOperation enteredOperation = NSDragOperationNone;
-            bool dropPerformed = false;
-            bool stateSaved = false;
-            uint32_t pathsFound = 0u;
-            @try {
-                const uint32_t fileCount = multiLoopOutputContract ? 2u : 1u;
-                NSMutableArray<NSURL*>* urls = [NSMutableArray array];
-                for (uint32_t index = 0u; index < fileCount; ++index) {
-                    NSString* name = [NSString stringWithFormat:
-                        @"s3g-loop-drop-%@-%u.wav",
-                        [[NSUUID UUID] UUIDString], index];
-                    NSString* path = [NSTemporaryDirectory()
-                        stringByAppendingPathComponent:name];
-                    const char* filePath = [path fileSystemRepresentation];
-                    ok = filePath && writeDropSmokeWaveFile(filePath,
-                        220.0 + static_cast<double>(index) * 110.0);
-                    if (!ok) break;
-                    droppedPaths.emplace_back(filePath);
-                    NSURL* url = [NSURL fileURLWithPath:path];
-                    [urls addObject:url];
-                }
-                S3GSmokeFilePasteboard* pasteboard =
-                    [[S3GSmokeFilePasteboard alloc] initWithURLs:urls];
-                pasteboardWritten = pasteboard != nil
-                    && urls.count == fileCount;
-                dragTypeRegistered = [[document registeredDraggedTypes]
-                    containsObject:NSPasteboardTypeFileURL];
-                ok = ok && pasteboardWritten && dragTypeRegistered;
-                S3GSmokeDraggingInfo* draggingInfo = ok
-                    ? [[S3GSmokeDraggingInfo alloc]
-                        initWithPasteboard:pasteboard] : nil;
-                [pasteboard release];
-                if (ok) {
-                    enteredOperation = [document
-                        draggingEntered:(id<NSDraggingInfo>)draggingInfo];
-                    dropPerformed = [document performDragOperation:
-                        (id<NSDraggingInfo>)draggingInfo];
-                    ok = enteredOperation == NSDragOperationCopy
-                        && dropPerformed;
-                }
-                [draggingInfo release];
-
-                const auto* pluginState = ok
-                    ? static_cast<const clap_plugin_state_t*>(
-                        plugin->get_extension(plugin, CLAP_EXT_STATE))
-                    : nullptr;
-                MemoryPluginState loadedState;
-                clap_ostream_t loadedOutput { &loadedState, stateWrite };
-                stateSaved = ok && pluginState && pluginState->save
-                    && pluginState->save(plugin, &loadedOutput);
-                ok = ok && stateSaved;
-                for (const auto& path : droppedPaths) {
-                    const bool found = memoryStateContains(loadedState, path);
-                    pathsFound += found ? 1u : 0u;
-                    ok = ok && found;
-                }
-            } @catch (NSException*) {
-                ok = false;
-            }
-            for (const auto& path : droppedPaths) {
-                std::remove(path.c_str());
-            }
-            if (!ok) {
-                std::cerr << "Loop drop details: files="
-                    << droppedPaths.size() << " pasteboard="
-                    << pasteboardWritten << " registered="
-                    << dragTypeRegistered << " entered="
-                    << static_cast<unsigned long>(enteredOperation)
-                    << " performed=" << dropPerformed << " state="
-                    << stateSaved << " paths=" << pathsFound << "/"
-                    << droppedPaths.size() << "\n";
-            }
-        }
         if (ok && responsive
             && (testWidth < nativeWidth || testHeight < nativeHeight)) {
             [[scroll contentView] scrollToPoint:NSMakePoint(

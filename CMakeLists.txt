@@ -1114,7 +1114,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_decoder_family_gui_smoke PRIVATE "-framework AppKit")
   endif()
 
-  add_subdirectory(plugins/clap_24ch_passthrough)
   add_subdirectory(plugins/clap_delay_processor)
   add_subdirectory(plugins/clap_mc_to_stereo_autogain)
   add_subdirectory(plugins/clap_mc_to_quad_autogain)
@@ -1494,9 +1493,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambisonic_sub_decoder)
   add_subdirectory(plugins/clap_ambi_object_decoder)
   add_subdirectory(plugins/clap_ambi_adaptive_decoder)
-  add_subdirectory(plugins/clap_array_hpf)
-  add_subdirectory(plugins/clap_array_delay)
-  add_subdirectory(plugins/clap_array_trim)
+  add_subdirectory(plugins/clap_array_calibrate)
   add_subdirectory(plugins/clap_ambisonic_rotate)
   add_subdirectory(plugins/clap_ambi_effect_dj_filter)
   add_subdirectory(plugins/clap_ambi_effect_delay)
@@ -1609,8 +1606,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
     add_custom_target(audit_clap_realtime_representative
     COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
       --sample-rates 48000 --blocks 64,256
-      $<TARGET_FILE:s3g_24ch_passthrough_clap>
-      org.s3g.s3g-dsp.24ch-passthrough-test
+      $<TARGET_FILE:s3g_array_calibrate_64_clap>
+      org.s3g.s3g-dsp.array-calibrate-64
     COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
       --sample-rates 48000 --blocks 64,256
       $<TARGET_FILE:s3g_no_input_mixer_clap>
@@ -1645,7 +1642,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       org.s3g.s3g-dsp.ambi-group-matrix-128
     DEPENDS
       s3g_clap_realtime_audit
-      s3g_24ch_passthrough_clap
+      s3g_array_calibrate_64_clap
       s3g_no_input_mixer_clap
       s3g_psd_raw_field_clap
       s3g_nim_gesture_clap
@@ -2718,33 +2715,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_array_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_16_clap> org.s3g.s3g-dsp.array-hpf-16 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_26_clap> org.s3g.s3g-dsp.array-hpf-26 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_32_clap> org.s3g.s3g-dsp.array-hpf-32 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_64_clap> org.s3g.s3g-dsp.array-hpf-64 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_16_clap> org.s3g.s3g-dsp.array-delay-16 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_26_clap> org.s3g.s3g-dsp.array-delay-26 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_32_clap> org.s3g.s3g-dsp.array-delay-32 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_64_clap> org.s3g.s3g-dsp.array-delay-64 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_16_clap> org.s3g.s3g-dsp.array-trim-16 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_26_clap> org.s3g.s3g-dsp.array-trim-26 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_32_clap> org.s3g.s3g-dsp.array-trim-32 720 388 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_64_clap> org.s3g.s3g-dsp.array-trim-64 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_16_clap> org.s3g.s3g-dsp.array-calibrate-16 720 596 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_26_clap> org.s3g.s3g-dsp.array-calibrate-26 720 856 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_32_clap> org.s3g.s3g-dsp.array-calibrate-32 720 596 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_64_clap> org.s3g.s3g-dsp.array-calibrate-64 720 596 "s3g Array " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
-        s3g_array_hpf_16_clap
-        s3g_array_hpf_26_clap
-        s3g_array_hpf_32_clap
-        s3g_array_hpf_64_clap
-        s3g_array_delay_16_clap
-        s3g_array_delay_26_clap
-        s3g_array_delay_32_clap
-        s3g_array_delay_64_clap
-        s3g_array_trim_16_clap
-        s3g_array_trim_26_clap
-        s3g_array_trim_32_clap
-        s3g_array_trim_64_clap
+        s3g_array_calibrate_16_clap
+        s3g_array_calibrate_26_clap
+        s3g_array_calibrate_32_clap
+        s3g_array_calibrate_64_clap
       COMMENT "Rendering and validating every Array-family GUI")
 
     add_custom_target(audit_gui_transform_family

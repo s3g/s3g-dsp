@@ -307,6 +307,31 @@ static_assert(layout::rectFitsCanvas(kArray.output.frame, kArray.canvas));
 static_assert(layout::rectFitsCanvas(kArray.array.frame, kArray.canvas));
 static_assert(layout::rectFitsCanvas(kArray.editor.frame, kArray.canvas));
 static_assert(layout::processorTitleBandFits(kArrayTitle));
+static_assert(layout::arrayRowsPerPageForChannels(16u) == 16u);
+static_assert(layout::arrayRowsPerPageForChannels(26u) == 26u);
+static_assert(layout::arrayRowsPerPageForChannels(32u) == 16u);
+static_assert(layout::arrayRowsPerPageForChannels(64u) == 16u);
+constexpr auto kArray16 = layout::arrayFamilyLayoutForRows(
+    layout::arrayRowsPerPageForChannels(16u));
+constexpr auto kArray26 = layout::arrayFamilyLayoutForRows(
+    layout::arrayRowsPerPageForChannels(26u));
+constexpr auto kArray32 = layout::arrayFamilyLayoutForRows(
+    layout::arrayRowsPerPageForChannels(32u));
+constexpr auto kArray64 = layout::arrayFamilyLayoutForRows(
+    layout::arrayRowsPerPageForChannels(64u));
+static_assert(kArray16.rowsPerPage == 16u);
+static_assert(kArray16.canvas.height == 596.0);
+static_assert(kArray26.rowsPerPage == 26u);
+static_assert(kArray26.canvas.height == 856.0);
+static_assert(kArray32.rowsPerPage == 16u);
+static_assert(kArray32.canvas.height == 596.0);
+static_assert(kArray64.rowsPerPage == 16u);
+static_assert(kArray64.canvas.height == 596.0);
+static_assert(layout::rowY(kArray32.editor, 15u) == 560.0);
+static_assert(layout::panelContainsRect(kArray32.editor, kArray32.channelPlot));
+static_assert(layout::panelContainsRect(
+    kArray32.editor, kArray32.channelValueColumn));
+static_assert(layout::rectFitsCanvas(kArray32.editor.frame, kArray32.canvas));
 
 constexpr const auto& kTransform = layout::kTransformFamilyLayout;
 constexpr auto kTransformTitle =

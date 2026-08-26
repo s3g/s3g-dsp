@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Speaker-array Utilities - s3g-dsp</title>
-    <meta name="description" content="Speaker-array crossover, high-pass, delay, and trim utility documentation for s3g-dsp.">
+    <meta name="description" content="Speaker-array crossover and consolidated high-pass, delay, and trim calibration documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -32,7 +32,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert fixed-width Output Crossover, Array HPF, Array Delay, or Array Trim plugins after the direct panner or decoder on a track that matches the rendered speaker bus; for Output Crossover, set the intended subwoofer count before routing its outputs.</li>
+          <li>Insert fixed-width Output Crossover and Array Calibrate after the direct panner or decoder on a track that matches the rendered speaker bus; for Output Crossover, set the intended subwoofer count before routing its outputs.</li>
           <li>Route the final lanes to the corresponding main-speaker and subwoofer hardware outputs, begin playback at a safe level, and confirm channel identity.</li>
           <li>Configure crossover and main-speaker high-pass filtering for the physical system.</li>
           <li>Set per-speaker alignment delay, then apply trim, mute, and polarity correction.</li>
@@ -54,43 +54,22 @@
 
         <h2 id="calibration">Array Calibration</h2>
 
-        <ul>
-          <li><strong>Array HPF 16/26/32/64</strong>: post-render high-pass filtering for main speakers.</li>
-          <li><strong>Array Delay 16/26/32/64</strong>: independent alignment delay for every speaker feed.</li>
-          <li><strong>Array Trim 16/26/32/64</strong>: per-channel gain, mute, and polarity correction.</li>
-        </ul>
+        <p><strong>Array Calibrate 16/26/32/64</strong> combines the three room-calibration stages in their intended fixed order: main-speaker high-pass filtering, independent per-speaker alignment delay, then per-speaker gain, mute, and polarity trim. Choose HPF, DELAY, or TRIM in the calibration title bar to edit that stage. STAGE ON/OFF bypasses only the visible stage; the global BYPASS control skips all three while retaining the final output level.</p>
 
         <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-hpf.png" aria-label="Open high-resolution Array HPF GUI screenshot">
-                <img src="assets/plugin-guis/array-hpf.png" alt="Array HPF 16 per-speaker high-pass controls and channel overview" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Array HPF 16; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
-        </figure>
-        <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-delay.png" aria-label="Open high-resolution Array Delay GUI screenshot">
-                <img src="assets/plugin-guis/array-delay.png" alt="Array Delay 16 showing a different delay time on each visible lane" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Array Delay 16 with distinct times on each visible lane; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
-        </figure>
-        <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-trim.png" aria-label="Open high-resolution Array Trim GUI screenshot">
-                <img src="assets/plugin-guis/array-trim.png" alt="Array Trim 16 showing distinct gain settings plus mute and polarity states across visible lanes" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Array Trim 16 with distinct lane trims, mute, and polarity states; the 26-, 32-, and 64-channel builds use the same editor.</figcaption>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/array-calibrate.png" aria-label="Open high-resolution Array Calibrate GUI screenshot">
+              <img src="assets/plugin-guis/array-calibrate.png" alt="Array Calibrate 16 showing its HPF response and selectable HPF, delay, and trim stages" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Array Calibrate 16 on the HPF page. Delay and Trim show every channel together in the 16- and 26-channel builds; Array Calibrate 32 uses two pages of 16, and Array Calibrate 64 uses four. The widened HPF response remains the same size in every build.</figcaption>
         </figure>
 
         <h2 id="order">Recommended Order</h2>
 
         <pre><code>direct panner or ambisonic decoder
--&gt; Output Crossover / Array HPF
--&gt; Array Delay
--&gt; Array Trim
+-&gt; Output Crossover (when bass management is required)
+-&gt; Array Calibrate (HPF -&gt; delay -&gt; trim)
 -&gt; hardware outputs</code></pre>
 
         <p>Choose the fixed-width variant that matches the rendered array. Keep artistic automation upstream; calibration settings should normally remain stable for a given room and output interface.</p>

@@ -111,7 +111,20 @@ s3g_utility_delay.clap	org.s3g.s3g-dsp.utility-delay-8ch	s3g_macro_delay_8.clap
 s3g_wave_terrain_synth.clap	org.s3g.s3g-dsp.wave-terrain-synth-64	s3g_ambi_encoder_wave_terrain_64.clap
 
 # Canonical filenames before the bare output-width suffix policy
-s3g_passthrough_test_24ch.clap	org.s3g.s3g-dsp.24ch-passthrough-test	s3g_passthrough_test_24.clap
+s3g_passthrough_test_24ch.clap	org.s3g.s3g-dsp.24ch-passthrough-test	retired
+s3g_passthrough_test_24.clap	org.s3g.s3g-dsp.24ch-passthrough-test	retired
+s3g_array_hpf_16.clap	org.s3g.s3g-dsp.array-hpf-16	s3g_array_calibrate_16.clap
+s3g_array_hpf_26.clap	org.s3g.s3g-dsp.array-hpf-26	s3g_array_calibrate_26.clap
+s3g_array_hpf_32.clap	org.s3g.s3g-dsp.array-hpf-32	s3g_array_calibrate_32.clap
+s3g_array_hpf_64.clap	org.s3g.s3g-dsp.array-hpf-64	s3g_array_calibrate_64.clap
+s3g_array_delay_16.clap	org.s3g.s3g-dsp.array-delay-16	s3g_array_calibrate_16.clap
+s3g_array_delay_26.clap	org.s3g.s3g-dsp.array-delay-26	s3g_array_calibrate_26.clap
+s3g_array_delay_32.clap	org.s3g.s3g-dsp.array-delay-32	s3g_array_calibrate_32.clap
+s3g_array_delay_64.clap	org.s3g.s3g-dsp.array-delay-64	s3g_array_calibrate_64.clap
+s3g_array_trim_16.clap	org.s3g.s3g-dsp.array-trim-16	s3g_array_calibrate_16.clap
+s3g_array_trim_26.clap	org.s3g.s3g-dsp.array-trim-26	s3g_array_calibrate_26.clap
+s3g_array_trim_32.clap	org.s3g.s3g-dsp.array-trim-32	s3g_array_calibrate_32.clap
+s3g_array_trim_64.clap	org.s3g.s3g-dsp.array-trim-64	s3g_array_calibrate_64.clap
 s3g_processor_delay_8ch.clap	org.s3g.s3g-dsp.delay-processor-8ch	s3g_processor_delay_8.clap
 s3g_processor_delay_24ch.clap	org.s3g.s3g-dsp.delay-processor-24ch	s3g_processor_delay_24.clap
 s3g_output_autogain_stereo.clap	org.s3g.s3g-dsp.mc-to-stereo-autogain	s3g_output_autogain_stereo_2.clap

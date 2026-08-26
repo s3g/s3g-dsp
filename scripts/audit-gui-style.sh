@@ -560,15 +560,14 @@ fi
 
 section "Array Family"
 array_family_sources=(
-  plugins/clap_array_hpf/s3g_array_hpf_clap.cpp
-  plugins/clap_array_delay/s3g_array_delay_clap.cpp
-  plugins/clap_array_trim/s3g_array_trim_clap.cpp
+  plugins/clap_array_calibrate/s3g_array_calibrate_clap.cpp
 )
 for file in "${array_family_sources[@]}"; do
-  if ! rg -q 'kArrayFamilyLayout' "$file" \
+  if ! rg -q 'arrayFamilyLayoutForRows' "$file" \
+      || ! rg -q 'arrayRowsPerPageForChannels' "$file" \
       || ! rg -q 'ResponsiveViewport' "$file"; then
     warn "layout" "$file" \
-      "Every Array utility must consume the shared responsive 720 x 388 family layout."
+      "Every Array utility must consume the shared responsive channel-aware family layout."
   fi
   if ! rg -q 'drawArrayTitleBand' "$file" \
       || ! rg -q 'handleProcessorTitleClick' "$file" \
@@ -593,9 +592,7 @@ for file in "${array_family_sources[@]}"; do
   fi
 done
 array_title_contracts=(
-  'plugins/clap_array_hpf/s3g_array_hpf_clap.cpp|s3g ARRAY HPF %uCH'
-  'plugins/clap_array_delay/s3g_array_delay_clap.cpp|s3g ARRAY DELAY %uCH'
-  'plugins/clap_array_trim/s3g_array_trim_clap.cpp|s3g ARRAY TRIM %uCH'
+  'plugins/clap_array_calibrate/s3g_array_calibrate_clap.cpp|s3g ARRAY CALIBRATE %uCH'
 )
 for contract in "${array_title_contracts[@]}"; do
   file="${contract%%|*}"

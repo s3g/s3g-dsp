@@ -25,6 +25,7 @@
 #include "s3g_ambisonic_sub_decoder.h"
 #include "s3g_ambi_object_decoder.h"
 #include "s3g_ambi_adaptive_decoder.h"
+#include "s3g_array_calibrate.h"
 #include "s3g_array_delay.h"
 #include "s3g_array_hpf.h"
 #include "s3g_array_trim.h"
@@ -34,8 +35,6 @@
 #include "s3g_group_matrix.h"
 #include "s3g_group_matrix_32.h"
 #include "s3g_lane_patch.h"
-#include "s3g_loop_processor.h"
-#include "s3g_multi_loop_processor.h"
 #include "s3g_node_track_mixer.h"
 #include "s3g_orbit_delay.h"
 #include "s3g_cascade_taps.h"
@@ -71,53 +70,6 @@
 #endif
 
 namespace {
-
-std::shared_ptr<s3g::LoopProcessorSample> makeIdSample(uint32_t sourceIndex,
-                                                       uint32_t channels,
-                                                       uint32_t frames = 32u,
-                                                       double sampleRate = 48000.0)
-{
-    auto sample = std::make_shared<s3g::LoopProcessorSample>();
-    sample->frames = std::max<uint32_t>(2u, frames);
-    sample->channels = std::max<uint32_t>(1u, channels);
-    sample->sampleRate = sampleRate;
-    sample->path = "test-source-" + std::to_string(sourceIndex);
-    sample->audio.assign(static_cast<size_t>(sample->frames) * sample->channels, 0.0f);
-    for (uint32_t frame = 0; frame < sample->frames; ++frame) {
-        for (uint32_t ch = 0; ch < sample->channels; ++ch) {
-            sample->audio[static_cast<size_t>(frame) * sample->channels + ch] =
-                static_cast<float>(sourceIndex * 1000u + ch);
-        }
-    }
-    return sample;
-}
-
-std::shared_ptr<s3g::LoopProcessorSample> makeSineSample(uint32_t sourceIndex,
-                                                         uint32_t channels,
-                                                         uint32_t frames = 4096u,
-                                                         double sampleRate = 48000.0)
-{
-    auto sample = std::make_shared<s3g::LoopProcessorSample>();
-    sample->frames = std::max<uint32_t>(2u, frames);
-    sample->channels = std::max<uint32_t>(1u, channels);
-    sample->sampleRate = sampleRate;
-    sample->path = "stress-source-" + std::to_string(sourceIndex);
-    sample->audio.assign(static_cast<size_t>(sample->frames) * sample->channels, 0.0f);
-    for (uint32_t frame = 0; frame < sample->frames; ++frame) {
-        const float t = static_cast<float>(frame) / static_cast<float>(sample->sampleRate);
-        for (uint32_t ch = 0; ch < sample->channels; ++ch) {
-            const float hz = 80.0f + static_cast<float>(sourceIndex) * 47.0f + static_cast<float>(ch) * 9.0f;
-            sample->audio[static_cast<size_t>(frame) * sample->channels + ch] =
-                std::sin(6.28318530718f * hz * t) * 0.18f;
-        }
-    }
-    return sample;
-}
-
-float sampleAt(const s3g::LoopProcessorSample& sample, uint32_t frame, uint32_t lane)
-{
-    return sample.audio[static_cast<size_t>(frame) * sample.channels + lane];
-}
 
 bool near(float a, float b, float tolerance = 0.0001f)
 {
@@ -2699,328 +2651,6 @@ int main()
         return 1;
     }
 
-
-    auto loopSample = std::make_shared<s3g::LoopProcessorSample>();
-    loopSample->frames = 4096;
-    loopSample->channels = 2;
-    loopSample->sampleRate = 48000.0;
-    loopSample->audio.assign(static_cast<size_t>(loopSample->frames) * loopSample->channels, 0.0f);
-    for (uint32_t i = 0; i < loopSample->frames; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(loopSample->sampleRate);
-        loopSample->audio[static_cast<size_t>(i) * 2u + 0u] = std::sin(6.28318530718f * 110.0f * t) * 0.25f;
-        loopSample->audio[static_cast<size_t>(i) * 2u + 1u] = std::sin(6.28318530718f * 165.0f * t) * 0.25f;
-    }
-    s3g::LoopProcessorEngine loopProcessor;
-    loopProcessor.prepare(48000.0);
-    s3g::LoopProcessorParams loopParams;
-    loopParams.baseRate = 1.0f;
-    loopParams.rateSpread = 0.20f;
-    loopParams.driftAmount = 0.03f;
-    loopParams.xfadePct = 0.08f;
-    loopParams.gainDb = -18.0f;
-    loopProcessor.setParams(loopParams);
-    std::array<std::array<float, 512>, s3g::kLoopProcessorChannels> loopBuffers {};
-    float* loopOut[s3g::kLoopProcessorChannels] {};
-    for (uint32_t ch = 0; ch < s3g::kLoopProcessorChannels; ++ch) {
-        loopOut[ch] = loopBuffers[ch].data();
-    }
-    float loopPeak = 0.0f;
-    for (int block = 0; block < 32; ++block) {
-        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (const auto& channel : loopBuffers) {
-            for (float value : channel) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Loop Processor output is not finite\n";
-                    return 1;
-                }
-                loopPeak = std::max(loopPeak, std::abs(value));
-            }
-        }
-    }
-    if (loopPeak <= 0.00001f || loopPeak > 1.0f) {
-        std::cerr << "Loop Processor peak outside expected range: " << loopPeak << "\n";
-        return 1;
-    }
-    float loopXfdStressPeak = 0.0f;
-    for (int block = 0; block < 96; ++block) {
-        if ((block % 8) == 0) {
-            loopParams.xfadePct = static_cast<float>((block * 137) % 30) / 100.0f;
-            loopProcessor.setParams(loopParams);
-        }
-        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (const auto& channel : loopBuffers) {
-            for (float value : channel) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Loop Processor XFD stress output is not finite\n";
-                    return 1;
-                }
-                loopXfdStressPeak = std::max(loopXfdStressPeak, std::abs(value));
-            }
-        }
-    }
-    if (loopXfdStressPeak <= 0.00001f || loopXfdStressPeak > 1.0f) {
-        std::cerr << "Loop Processor XFD stress peak outside expected range: " << loopXfdStressPeak << "\n";
-        return 1;
-    }
-
-    auto discontinuousLoop = std::make_shared<s3g::LoopProcessorSample>();
-    discontinuousLoop->frames = 2048u;
-    discontinuousLoop->channels = s3g::kLoopProcessorChannels;
-    discontinuousLoop->sampleRate = 48000.0;
-    discontinuousLoop->audio.assign(static_cast<size_t>(discontinuousLoop->frames) * discontinuousLoop->channels, 0.0f);
-    for (uint32_t frame = 0; frame < discontinuousLoop->frames; ++frame) {
-        const float value = frame < discontinuousLoop->frames / 2u ? 0.8f : -0.8f;
-        for (uint32_t ch = 0; ch < discontinuousLoop->channels; ++ch) {
-            discontinuousLoop->audio[static_cast<size_t>(frame) * discontinuousLoop->channels + ch] = value;
-        }
-    }
-    s3g::LoopProcessorEngine seamEngine;
-    seamEngine.prepare(48000.0);
-    s3g::LoopProcessorParams seamParams;
-    seamParams.baseRate = 1.0f;
-    seamParams.rateSpread = 0.0f;
-    seamParams.driftAmount = 0.0f;
-    seamParams.loopStart = 0.0f;
-    seamParams.loopLength = 1.0f;
-    seamParams.xfadePct = 0.12f;
-    seamParams.seamDuck = 0.0f;
-    seamParams.gainDb = -12.0f;
-    seamEngine.setParams(seamParams);
-    float seamMaxStep = 0.0f;
-    float seamPrev = 0.0f;
-    for (int block = 0; block < 12; ++block) {
-        seamEngine.process(discontinuousLoop, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (float value : loopBuffers[0]) {
-            seamMaxStep = std::max(seamMaxStep, std::abs(value - seamPrev));
-            seamPrev = value;
-        }
-    }
-    if (seamMaxStep > 0.40f) {
-        std::cerr << "Loop Processor seam step too large: " << seamMaxStep << "\n";
-        return 1;
-    }
-
-    float loopRegionStressPeak = 0.0f;
-    float loopRegionStressMaxStep = 0.0f;
-    float loopRegionStressPrev = 0.0f;
-    for (int block = 0; block < 160; ++block) {
-        if ((block % 3) == 0) {
-            loopParams.loopStart = static_cast<float>((block * 37) % 920) / 1000.0f;
-            loopParams.loopLength = 0.18f + static_cast<float>((block * 53) % 760) / 1000.0f;
-            loopProcessor.setParams(loopParams);
-        }
-        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (const auto& channel : loopBuffers) {
-            for (float value : channel) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Loop Processor region stress output is not finite\n";
-                    return 1;
-                }
-                loopRegionStressPeak = std::max(loopRegionStressPeak, std::abs(value));
-                loopRegionStressMaxStep = std::max(loopRegionStressMaxStep, std::abs(value - loopRegionStressPrev));
-                loopRegionStressPrev = value;
-            }
-        }
-    }
-    if (loopRegionStressPeak <= 0.00001f || loopRegionStressPeak > 1.0f) {
-        std::cerr << "Loop Processor region stress peak outside expected range: " << loopRegionStressPeak << "\n";
-        return 1;
-    }
-    if (loopRegionStressMaxStep > 0.35f) {
-        std::cerr << "Loop Processor region stress step too large: " << loopRegionStressMaxStep << "\n";
-        return 1;
-    }
-    float loopCtrStressPeak = 0.0f;
-    float loopCtrStressMaxStep = 0.0f;
-    float loopCtrStressPrev = 0.0f;
-    loopParams.loopStart = 0.18f;
-    loopParams.loopLength = 0.32f;
-    loopParams.relationGlideMs = 220.0f;
-    for (int block = 0; block < 180; ++block) {
-        loopParams.relationCenter = static_cast<float>((block * 41) % 100) / 100.0f;
-        loopProcessor.setParams(loopParams);
-        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (const auto& channel : loopBuffers) {
-            for (float value : channel) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Loop Processor CTR stress output is not finite\n";
-                    return 1;
-                }
-                loopCtrStressPeak = std::max(loopCtrStressPeak, std::abs(value));
-                loopCtrStressMaxStep = std::max(loopCtrStressMaxStep, std::abs(value - loopCtrStressPrev));
-                loopCtrStressPrev = value;
-            }
-        }
-    }
-    if (loopCtrStressPeak <= 0.00001f || loopCtrStressPeak > 1.0f) {
-        std::cerr << "Loop Processor CTR stress peak outside expected range: " << loopCtrStressPeak << "\n";
-        return 1;
-    }
-    if (loopCtrStressMaxStep > 0.35f) {
-        std::cerr << "Loop Processor CTR stress step too large: " << loopCtrStressMaxStep << "\n";
-        return 1;
-    }
-
-    const uint32_t channelCountsToCheck[] = { 1u, 2u, 4u, 8u, 24u, 64u };
-    for (uint32_t sourceChannels : channelCountsToCheck) {
-        for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
-            const uint32_t mapped = s3g::multiLoopSourceChannelForLane(lane, sourceChannels);
-            if (mapped >= sourceChannels) {
-                std::cerr << "Multi Loop source-channel map exceeded source channel count\n";
-                return 1;
-            }
-            if (sourceChannels <= s3g::kLoopProcessorChannels && mapped != lane % sourceChannels) {
-                std::cerr << "Multi Loop low-channel repeat map changed unexpectedly\n";
-                return 1;
-            }
-        }
-    }
-    if (s3g::multiLoopSourceChannelForLane(0, 24u) != 0u
-        || s3g::multiLoopSourceChannelForLane(7, 24u) != 23u
-        || s3g::multiLoopSourceChannelForLane(4, 64u) != 36u) {
-        std::cerr << "Multi Loop wide-channel distribution changed unexpectedly\n";
-        return 1;
-    }
-
-    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> multiSources {};
-    multiSources[0] = makeIdSample(0u, 1u);
-    multiSources[1] = makeIdSample(1u, 2u);
-    multiSources[2] = makeIdSample(2u, 4u);
-    multiSources[3] = makeIdSample(3u, 24u);
-
-    s3g::MultiLoopCompositeOptions multiOptions {};
-    multiOptions.rule = s3g::MultiLoopSourceRule::Interleave;
-    auto multiComposite = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
-    if (!multiComposite || multiComposite->channels != s3g::kLoopProcessorChannels) {
-        std::cerr << "Multi Loop interleave composite was not built\n";
-        return 1;
-    }
-    const uint32_t assignmentFrame = 16u;
-    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
-        const uint32_t source = lane % 4u;
-        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
-        const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*multiComposite, assignmentFrame, lane), expected)) {
-            std::cerr << "Multi Loop interleave source/lane assignment failed\n";
-            return 1;
-        }
-    }
-
-    multiOptions.rule = s3g::MultiLoopSourceRule::Order;
-    multiComposite = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
-    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
-        const uint32_t source = s3g::multiLoopOrderedSourceForLane(lane, 4u);
-        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
-        const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*multiComposite, assignmentFrame, lane), expected)) {
-            std::cerr << "Multi Loop ordered source/lane assignment failed\n";
-            return 1;
-        }
-    }
-
-    multiOptions.rule = s3g::MultiLoopSourceRule::Random;
-    auto randomA = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
-    auto randomB = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
-    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
-        const uint32_t source = s3g::multiLoopHashLane(lane, 4u);
-        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
-        const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*randomA, assignmentFrame, lane), expected)
-            || !near(sampleAt(*randomA, assignmentFrame, lane), sampleAt(*randomB, assignmentFrame, lane))) {
-            std::cerr << "Multi Loop random source/lane assignment was not deterministic\n";
-            return 1;
-        }
-    }
-
-    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> morphSources {};
-    morphSources[0] = makeIdSample(0u, 1u);
-    morphSources[1] = makeIdSample(1u, 1u);
-    multiOptions.rule = s3g::MultiLoopSourceRule::Morph;
-    multiOptions.sourceBlend = 1.0f;
-    multiComposite = s3g::buildMultiLoopComposite(morphSources, 2u, multiOptions);
-    if (!multiComposite
-        || !near(sampleAt(*multiComposite, assignmentFrame, 0u), 0.0f)
-        || !near(sampleAt(*multiComposite, assignmentFrame, 7u), 1000.0f)
-        || sampleAt(*multiComposite, assignmentFrame, 3u) <= 0.0f
-        || sampleAt(*multiComposite, assignmentFrame, 3u) >= 1000.0f) {
-        std::cerr << "Multi Loop morph blend did not span sources as expected\n";
-        return 1;
-    }
-
-    if (s3g::multiLoopSourceRateForIndex(0u, 4u, 1.0f) >= 1.0f
-        || s3g::multiLoopSourceRateForIndex(3u, 4u, 1.0f) <= 1.0f
-        || !near(s3g::multiLoopSourceRateForIndex(2u, 4u, 0.0f), 1.0f)) {
-        std::cerr << "Multi Loop source-rate spread bounds changed unexpectedly\n";
-        return 1;
-    }
-
-    s3g::LoopProcessorSample seamSource;
-    seamSource.frames = 4096u;
-    seamSource.channels = 1u;
-    seamSource.sampleRate = 48000.0;
-    seamSource.audio.assign(seamSource.frames, -1.0f);
-    for (uint32_t i = 0; i < 512u; ++i) seamSource.audio[i] = 1.0f;
-    const float seamBeforeWrap = s3g::multiLoopReadSourceSeam(seamSource, 0u, static_cast<double>(seamSource.frames - 1u));
-    const float seamAfterWrap = s3g::multiLoopReadSourceSeam(seamSource, 0u, 0.0);
-    if (std::abs(seamBeforeWrap - seamAfterWrap) > 0.20f) {
-        std::cerr << "Multi Loop source seam smoothing failed: " << seamBeforeWrap << " / " << seamAfterWrap << "\n";
-        return 1;
-    }
-
-    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> stressSources {};
-    stressSources[0] = makeSineSample(0u, 1u);
-    stressSources[1] = makeSineSample(1u, 2u);
-    stressSources[2] = makeSineSample(2u, 4u);
-    stressSources[3] = makeSineSample(3u, 24u);
-    multiOptions.rule = s3g::MultiLoopSourceRule::Morph;
-    multiOptions.sourceRateSpread = 0.35f;
-    multiOptions.sourceBlend = 0.70f;
-    auto stressComposite = s3g::buildMultiLoopComposite(stressSources, 4u, multiOptions);
-    s3g::LoopProcessorEngine multiLoopEngine;
-    multiLoopEngine.prepare(48000.0);
-    s3g::LoopProcessorParams multiLoopParams;
-    multiLoopParams.baseRate = 0.90f;
-    multiLoopParams.rateSpread = -0.18f;
-    multiLoopParams.driftAmount = 0.04f;
-    multiLoopParams.relationCenter = 0.35f;
-    multiLoopParams.relationGlideMs = 180.0f;
-    multiLoopParams.loopStart = 0.12f;
-    multiLoopParams.loopLength = 0.45f;
-    multiLoopParams.xfadePct = 0.16f;
-    multiLoopParams.seamDuck = 0.18f;
-    multiLoopParams.gainDb = -18.0f;
-    multiLoopEngine.setParams(multiLoopParams);
-    float multiLoopPeak = 0.0f;
-    float multiLoopMaxStep = 0.0f;
-    float multiLoopPrev = 0.0f;
-    for (int block = 0; block < 96; ++block) {
-        if ((block % 12) == 0) {
-            multiLoopParams.loopStart = static_cast<float>((block * 19) % 800) / 1000.0f;
-            multiLoopParams.loopLength = 0.18f + static_cast<float>((block * 23) % 620) / 1000.0f;
-            multiLoopParams.relationCenter = static_cast<float>((block * 17) % 100) / 100.0f;
-            multiLoopEngine.setParams(multiLoopParams);
-        }
-        multiLoopEngine.process(stressComposite, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
-        for (const auto& channel : loopBuffers) {
-            for (float value : channel) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Multi Loop engine stress output is not finite\n";
-                    return 1;
-                }
-                multiLoopPeak = std::max(multiLoopPeak, std::abs(value));
-                multiLoopMaxStep = std::max(multiLoopMaxStep, std::abs(value - multiLoopPrev));
-                multiLoopPrev = value;
-            }
-        }
-    }
-    if (multiLoopPeak <= 0.00001f || multiLoopPeak > 1.0f) {
-        std::cerr << "Multi Loop engine stress peak outside expected range: " << multiLoopPeak << "\n";
-        return 1;
-    }
-    if (multiLoopMaxStep > 0.40f) {
-        std::cerr << "Multi Loop engine stress step too large: " << multiLoopMaxStep << "\n";
-        return 1;
-    }
 
     s3g::MacroDelay macroDelay;
     macroDelay.prepare(48000.0, s3g::kMacroDelayChannels, 2.5);
@@ -7833,6 +7463,52 @@ int main()
         return 1;
     }
 
+    s3g::ArrayCalibrate arrayCalibrate;
+    arrayCalibrate.prepare(48000.0, 96u);
+    s3g::ArrayCalibrateParams arrayCalibrateParams {};
+    arrayCalibrateParams.activeChannels = 4u;
+    arrayCalibrateParams.outputGainDb = -6.0f;
+    arrayCalibrateParams.hpfBypass = true;
+    arrayCalibrateParams.delayMs[0] = 1.0f;
+    arrayCalibrateParams.gainDb[0] = -6.0f;
+    arrayCalibrateParams.mute[1] = 1u;
+    arrayCalibrateParams.invert[2] = 1u;
+    arrayCalibrate.setParams(arrayCalibrateParams);
+    constexpr uint32_t arrayCalibrateFrames = 96u;
+    std::array<std::array<float, arrayCalibrateFrames>, s3g::kArrayCalibrateMaxChannels> arrayCalibrateIn {};
+    std::array<std::array<float, arrayCalibrateFrames>, s3g::kArrayCalibrateMaxChannels> arrayCalibrateOut {};
+    std::array<const float*, s3g::kArrayCalibrateMaxChannels> arrayCalibrateInPtrs {};
+    std::array<float*, s3g::kArrayCalibrateMaxChannels> arrayCalibrateOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kArrayCalibrateMaxChannels; ++ch) {
+        arrayCalibrateInPtrs[ch] = arrayCalibrateIn[ch].data();
+        arrayCalibrateOutPtrs[ch] = arrayCalibrateOut[ch].data();
+    }
+    arrayCalibrateIn[0][0] = 1.0f;
+    arrayCalibrateIn[1][0] = 1.0f;
+    arrayCalibrateIn[2][0] = 1.0f;
+    arrayCalibrate.processBlock(arrayCalibrateInPtrs.data(),
+        arrayCalibrateOutPtrs.data(), 4u, 4u, arrayCalibrateFrames);
+    const float combinedGain = s3g::dbToGain(-12.0f);
+    if (std::abs(arrayCalibrateOut[0][48] - combinedGain) > 0.0001f
+        || std::abs(arrayCalibrateOut[1][0]) > 0.0001f
+        || std::abs(arrayCalibrateOut[2][0] + s3g::dbToGain(-6.0f)) > 0.0001f) {
+        std::cerr << "Array Calibrate did not preserve HPF -> delay -> trim order\n";
+        return 1;
+    }
+    arrayCalibrateParams.bypass = true;
+    arrayCalibrate.setParams(arrayCalibrateParams);
+    arrayCalibrate.reset();
+    for (auto& row : arrayCalibrateOut) row.fill(0.0f);
+    arrayCalibrate.processBlock(arrayCalibrateInPtrs.data(),
+        arrayCalibrateOutPtrs.data(), 4u, 4u, arrayCalibrateFrames);
+    const float bypassGain = s3g::dbToGain(-6.0f);
+    if (std::abs(arrayCalibrateOut[0][0] - bypassGain) > 0.0001f
+        || std::abs(arrayCalibrateOut[1][0] - bypassGain) > 0.0001f
+        || std::abs(arrayCalibrateOut[2][0] - bypassGain) > 0.0001f) {
+        std::cerr << "Array Calibrate global bypass did not bypass all stages\n";
+        return 1;
+    }
+
     s3g::LayoutPanner cube41Panner;
     cube41Panner.prepare(48000.0);
     auto cube41PannerParams = cube41Panner.params();
@@ -9627,9 +9303,6 @@ int main()
     std::cout << "mc quad L/R/RB/LB: " << quadOut[0] << " / " << quadOut[1] << " / " << quadOut[2] << " / " << quadOut[3] << "\n";
     std::cout << "delay processor impulse: " << delayOut[0] << "\n";
     std::cout << "delay processor stress peak: " << delayStressPeak << "\n";
-    std::cout << "loop processor peak: " << loopPeak << "\n";
-    std::cout << "loop processor XFD stress peak: " << loopXfdStressPeak << "\n";
-    std::cout << "loop processor region stress peak/step: " << loopRegionStressPeak << " / " << loopRegionStressMaxStep << "\n";
     std::cout << "macro delay peak: " << macroPeak << "\n";
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
